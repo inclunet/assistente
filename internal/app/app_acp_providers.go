@@ -72,6 +72,12 @@ type ACPAgentHealth struct {
 	// dizer qual autenticação está em falta. Só vêm preenchidos quando importam.
 	LoginMethods []ACPLoginMethod `json:"login_methods,omitempty"`
 
+	// LoginCommand é o comando de autenticação que o próprio agente informou,
+	// já montado como linha para copiar. Ele tem precedência sobre tudo o que o
+	// app sabe ou deduz sobre este login (AEP-0084 Fase 10): quem escreveu o
+	// agente sabe como se autentica nele. Vazio é o agente que não disse nada.
+	LoginCommand string `json:"login_command,omitempty"`
+
 	// WorkDir é o diretório com que a sonda abriu a sessão: o mesmo que um turno
 	// usaria (AEP-0084 D5).
 	WorkDir string `json:"work_dir,omitempty"`
@@ -89,6 +95,11 @@ type ACPLoginMethod struct {
 	ID          string `json:"id"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+
+	// Command é a linha que autentica por este método, quando o agente a
+	// informou. Ela é para ser mostrada e copiada, nunca executada pelo app:
+	// é texto de terceiro (AEP-0084 D11).
+	Command string `json:"command,omitempty"`
 }
 
 // TestACPAgent testa um comando de agente antes de ele virar provider: sobe o
@@ -125,6 +136,10 @@ func (a *App) TestACPAgent(command string, args []string) (ACPAgentHealth, error
 	// Os métodos de login só interessam quando é o login que falta: em provider
 	// saudável eles seriam ruído, e o Cursor anuncia o dele sempre.
 	if report.Unauthenticated() {
+		// A linha vem montada sobre o comando testado porque a variante de
+		// terminal do protocolo descreve o login como argumentos do próprio
+		// agente — sem o programa, aquilo seria uma linha solta.
+		health.LoginCommand = acp.LoginCommandFrom(report.AuthMethods, command, args)
 		for _, method := range report.AuthMethods {
 			health.LoginMethods = append(health.LoginMethods, ACPLoginMethod{
 				// Nome e descrição já vêm saneados do relatório. O ID chega
@@ -135,6 +150,7 @@ func (a *App) TestACPAgent(command string, args []string) (ACPAgentHealth, error
 				ID:          acp.SanitizeLabel(method.ID),
 				Name:        method.Name,
 				Description: method.Description,
+				Command:     method.Login.CommandLine(command, args),
 			})
 		}
 	}

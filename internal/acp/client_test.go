@@ -1198,6 +1198,102 @@ func TestHandshakeExpoeCapacidadesDoAgente(t *testing.T) {
 	if caps.AuthMethods[0].Kind != AuthKindAgent {
 		t.Errorf("tipo de autenticação = %q", caps.AuthMethods[0].Kind)
 	}
+	// Este agente descreve o login em texto e não diz o comando. É o caso em
+	// que o app continua tendo de saber o comando por conta própria.
+	if caps.AuthMethods[0].Login.Known() {
+		t.Errorf("comando de login inventado a partir de agente que não informou: %+v", caps.AuthMethods[0].Login)
+	}
+}
+
+func TestOComandoDeLoginPublicadoPeloAgenteChegaInteiroESaneado(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptLoginPeloMeta, nil)
+
+	caps, err := client.Capabilities(ctx)
+	if err != nil {
+		t.Fatalf("obter capacidades: %v", err)
+	}
+	if len(caps.AuthMethods) != 1 {
+		t.Fatalf("métodos de autenticação inesperados: %+v", caps.AuthMethods)
+	}
+	login := caps.AuthMethods[0].Login
+	if !login.Known() {
+		t.Fatalf("o agente informou o comando e ele não chegou: %+v", login)
+	}
+	if login.Command != "copilot" || login.Label != "Entrar no Copilot" {
+		t.Errorf("comando informado = %+v", login)
+	}
+	// O escape de terminal do argumento sai, e o argumento vazio não vira um
+	// `""` na linha que a pessoa vai copiar.
+	if len(login.Args) != 2 || login.Args[0] != "login" {
+		t.Fatalf("argumentos = %q", login.Args)
+	}
+	// A linha é para copiar: argumento com espaço precisa das aspas, ou o
+	// terminal a leria como dois. O comando configurado não entra: quem
+	// publica o programa descreveu a linha inteira.
+	if got := LoginCommandFrom(caps.AuthMethods, "nao-usado", nil); got != `copilot login "--device code"` {
+		t.Errorf("linha de login = %q", got)
+	}
+}
+
+// A variante de terminal do protocolo descreve o login como argumentos do
+// próprio agente. Sem completar com o programa, o que sobraria na tela seria
+// "auth login" — uma linha que não roda em lugar nenhum.
+func TestOLoginPorArgumentosDoAgenteEhCompletadoComOProgramaDele(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptLoginPeloTerminal, nil)
+
+	caps, err := client.Capabilities(ctx)
+	if err != nil {
+		t.Fatalf("obter capacidades: %v", err)
+	}
+	if len(caps.AuthMethods) != 1 || caps.AuthMethods[0].Kind != AuthKindTerminal {
+		t.Fatalf("métodos de autenticação inesperados: %+v", caps.AuthMethods)
+	}
+	if got := LoginCommandFrom(caps.AuthMethods, "opencode", []string{"acp"}); got != "opencode auth login" {
+		t.Errorf("linha de login = %q", got)
+	}
+	// A descrição continua valendo por si: ela é o que o agente escreveu para
+	// quem for ler, e nem todo agente publica comando.
+	if caps.AuthMethods[0].Description == "" {
+		t.Error("a descrição do método se perdeu")
+	}
+}
+
+// Com um interpretador rodando o script do agente, o app não sabe qual parte é
+// o binário: o executável sozinho daria `node auth login`, e o par inteiro
+// daria `node ...\index.js acp auth login`. Nenhum dos dois autentica, e uma
+// linha errada com ar de oficial é pior do que nenhuma — a descrição que o
+// agente escreveu continua na tela.
+func TestOLoginPorArgumentosNaoEhMontadoSobreInterpretadorComScript(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptLoginPeloTerminal, nil)
+
+	caps, err := client.Capabilities(ctx)
+	if err != nil {
+		t.Fatalf("obter capacidades: %v", err)
+	}
+	spawn := []string{`C:\npm\opencode\dist\index.js`, "acp"}
+	if got := LoginCommandFrom(caps.AuthMethods, "node.exe", spawn); got != "" {
+		t.Errorf("linha montada sobre comando composto: %q", got)
+	}
+}
+
+func TestSemAgenteQueInformeOLoginNaoSeInventaLinhaNenhuma(t *testing.T) {
+	if got := LoginCommandFrom(nil, "cursor-agent", nil); got != "" {
+		t.Errorf("linha inventada sem método nenhum: %q", got)
+	}
+	// Método que não informa nada não vira linha só porque existe um comando
+	// de agente à mão: quem decide isso é o app, mais adiante, e confundir as
+	// duas coisas apagaria a diferença entre o que o agente disse e o palpite.
+	metodos := []AuthMethod{{ID: "login", Kind: AuthKindAgent}}
+	if got := LoginCommandFrom(metodos, "cursor-agent", nil); got != "" {
+		t.Errorf("linha inventada a partir de método sem comando: %q", got)
+	}
+	// Hint sem programa e sem agente não tem o que montar.
+	if got := (LoginHint{Args: []string{"login"}}).CommandLine("   ", nil); got != "" {
+		t.Errorf("linha montada sem programa: %q", got)
+	}
 }
 
 func TestRetomarSessaoUsaOIdentificadorExistente(t *testing.T) {

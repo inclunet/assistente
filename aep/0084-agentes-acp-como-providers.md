@@ -1151,55 +1151,67 @@ modelos na tela, com os nomes que ele deu; escolher um chega a ele por
 lista, e não uma tela sem escolha; e nada disso muda para quem já mandava
 `configOptions`.
 
-### Fase 10 — O login que o agente informa
+### Fase 10 — O login que o agente informa (feita)
 
-> **A ser reescrita.** Pelo mesmo motivo da Fase 9: o AEP-0086 instala o
-> `github-copilot-cli` a partir do registro, com a versão que ele fixa, e a
-> detecção própria deste agente deixa de ser necessária. A leitura dos modelos
-> anteriores, que era daqui, foi para a Fase 9, onde ela é o assunto inteiro. O
-> que sobra para esta fase é o comando de login: o app ainda o adivinha, e os
-> dois agentes que motivaram estas fases são justamente aqueles em que o
-> palpite erra.
+> **Reescrita.** Esta fase era "GitHub Copilot CLI", e o trabalho dela era
+> encontrar e instalar mais um agente — o que o AEP-0086 passou a resolver para
+> os 38 do registro. A leitura dos modelos anteriores, que também era daqui,
+> foi para a Fase 9, onde ela é o assunto inteiro. Sobrou o comando de login, e
+> ele não é sobre agente nenhum em particular: o app o adivinha para todos, e o
+> palpite erra em qualquer um que não suba o ACP por subcomando.
 
-Quarto agente, e o que põe à prova o agente que sobe por **flag**. Ele também é
-o único que informa o login de forma estruturada, o que é melhor do que ler uma
-frase — e é por ele que esta fase passou a ser sobre login.
+O app monta o comando de login trocando o argumento que sobe o ACP por `login`.
+Isso acerta no Cursor por coincidência de forma, e erra em quem não tem essa
+forma: o login do OpenCode é `opencode auth login`, e o de um agente que sobe
+com `--acp` viraria `copilot --acp login`, que não existe. Mandar alguém ao
+terminal para ver um "not found" é pior do que não dizer nada.
 
-Entram na fase o tipo de agente `copilot` na detecção, com o executável nativo
-por plataforma que o npm instala; o template com a flag `--acp`; e o login vindo
-de `_meta`.
+Só que o agente frequentemente **diz** como se autentica nele, e o app não
+estava ouvindo. Ele diz de dois jeitos: publicando comando, argumentos e rótulo
+em `_meta["terminal-auth"]` do método de autenticação, que é o que o Copilot
+CLI faz; ou usando a variante de terminal do protocolo, que dá os argumentos
+porque o programa é ele mesmo. Nos dois casos o handshake já trazia a
+informação, e ela era descartada na conversão.
+
+A fase passa a ler as duas formas e as leva até a tela, com uma ordem: o que o
+agente informou vem primeiro, depois o que a procura conhece daquele agente — o
+Claude Code, cujo ACP vem de um adaptador npm sem login nenhum, e quem autentica
+é o CLI `claude` —, e o palpite por último.
 
 Decisões que a fase toma:
 
-- **A detecção aponta para o executável da plataforma, não para o
-  `npm-loader.js`.** É a mesma razão do par versionado do Cursor: o app spawna o
-  que ele consegue matar, e um carregador no meio deixaria o agente de verdade
-  como processo órfão quando a conversa terminasse — um agente que edita arquivos
-  sobrevivendo ao app que o abriu.
-- **A flag confirma que os argumentos são do agente.** `--acp` não é subcomando,
-  e o `--port` que ele oferece para TCP fica de fora: o transporte deste AEP é
-  stdio, que é o padrão dele, e abrir uma porta local seria criar superfície de
-  rede para não ganhar nada.
-- **O login vem de `_meta["terminal-auth"]` quando existe.** O método
-  `copilot-login` traz `command`, `args` e `label` prontos, e o palpite do app
-  erraria feio aqui — trocar `acp` por `login` num agente que sobe com `--acp`
-  produziria `copilot --acp login`. A ordem fica: o que o agente informa em
-  `_meta`, depois o que ele descreve em texto — o login do OpenCode é
-  `opencode auth login`, e ele diz isso na descrição do método `opencode-login`
-  —, e só então o comando que o app monta. Comando e argumentos vindos do agente
-  são texto não confiável (D11): eles são **mostrados** para a pessoa copiar, e
-  não executados pelo app.
-- **A continuidade pode ficar degradada, e isso fica declarado.** Ele anuncia
-  `loadSession: true` e, ao mesmo tempo, capacidades de sessão sem `resume` — as
-  duas declarações discordam. O app segue a que já seguia e trata a falha como a
-  Fase 6 mandou: tenta retomar, e quando não dá, cria sessão nova avisando uma
-  única vez que a memória se perdeu. Escolher pela outra declaração e nem tentar
-  seria jogar fora a retomada de um agente que talvez a suporte.
+- **Nada do que o agente informa é executado.** Comando e argumentos vindos dele
+  são texto não confiável (D11): passam pelo saneamento de rótulo e são
+  **mostrados** para a pessoa copiar. O escape de terminal sai antes, porque uma
+  linha de comando que se pinta na tela diferente do que se copia é exatamente o
+  ataque que o saneamento existe para impedir.
+- **A descrição do método é mostrada como o agente escreveu, e não parseada.**
+  Vários agentes explicam o login em texto — "Run `opencode auth login` in the
+  terminal" — em vez de publicá-lo. Extrair um comando dali seria adivinhar
+  outra vez, com mais passos: o texto é de quem escreveu o agente, muda quando
+  ele quiser, e um parser errado produziria uma linha que parece oficial e não
+  é. Mostrar a frase inteira entrega a mesma instrução sem fingir precisão que
+  não existe.
+- **Quando o agente explica o login, o palpite some da tela.** Os dois juntos
+  seriam duas ordens contraditórias, e a que tem cara de comando pronto é
+  justamente a errada: um `opencode login` num quadro logo acima de "rode
+  `opencode auth login`". O palpite continua valendo para quem não disse nada,
+  que é o caso do Cursor.
+- **Argumento sem programa só vira linha quando o app sabe qual é o programa.**
+  A variante de terminal descreve o login como argumentos do binário do agente,
+  e sem completá-los o que sobraria na tela seria `auth login`, que não roda em
+  lugar nenhum. O app completa quando o que está configurado é o executável do
+  agente com um subcomando; não completa quando é um interpretador rodando um
+  script — `node ...\index.js acp` —, porque ali o agente é o par, e nem o
+  executável sozinho (`node auth login`) nem o par inteiro
+  (`node ...\index.js acp auth login`) autenticam coisa nenhuma. Linha errada
+  com ar de oficial é pior do que linha nenhuma, e nesse caso o que fica na tela
+  é a descrição que o agente escreveu.
 
-**Aceite:** um provedor Copilot criado pela tela conversa de ponta a ponta; o
-estado sem login mostra o comando que o próprio agente informou, e não o que o
-app adivinhou; e reabrir uma conversa ou retoma a sessão, ou conta uma vez que a
-memória se perdeu.
+**Aceite:** um agente que publica o comando de login mostra o dele, e não o que
+o app adivinharia; um que explica em texto tem a explicação na tela, com o nome
+do método; um que não diz nada continua caindo no que a procura sabe e, por
+último, no palpite; e nenhuma dessas linhas é executada pelo app.
 
 ## Riscos
 
