@@ -21,9 +21,9 @@ import (
 // desconectar do servidor.
 const knownFileName = "known-artifacts.json"
 
-// knownSchema versiona o arquivo. Esquema desconhecido é tratado como memória
-// que não existe: é de uma versão do app que sabe algo que esta não sabe, e
-// adivinhar o formato seria pior do que perguntar de novo.
+// knownSchema versiona o arquivo. Esquema que não é este é tratado como memória
+// que não existe: adivinhar um formato que esta versão não conhece seria pior do
+// que perguntar de novo.
 const knownSchema = 1
 
 // maxKnownBytes é o teto do arquivo. Ele é dado externo, como todo o resto que
@@ -38,6 +38,11 @@ const maxKnownBytes = 1 << 20
 // natureza do problema. O que ele faz é proteger as seguintes: um artefato
 // diferente sob a mesma versão é sinal de que algo mudou onde não deveria.
 var ErrArtifactChanged = errors.New("esta versão já foi baixada antes e o arquivo agora é outro")
+
+// errUnknownSchema é a memória escrita por uma versão do app que sabe algo que
+// esta não sabe. Ele existe separado do resto porque a resposta é outra:
+// arquivo corrompido se refaz, memória de outra versão se preserva.
+var errUnknownSchema = errors.New("esquema desconhecido na memória de artefatos")
 
 // knownArtifacts é o conteúdo do arquivo.
 type knownArtifacts struct {
@@ -79,7 +84,16 @@ func (i *Installer) rememberArtifact(ctx context.Context, agentID, version, dige
 	defer i.knownMu.Unlock()
 
 	known, err := i.readKnown()
-	if err != nil {
+	switch {
+	case errors.Is(err, errUnknownSchema):
+		// Aqui a memória não é lixo, é de uma versão do app que sabe mais do que
+		// esta. Reescrevê-la apagaria o que ela guarda para quando o app voltar a
+		// ser aquele; ficar sem gravar custa a proteção de uma versão, que é o
+		// mesmo que já se perde ao não conseguir ler.
+		logging.Warnf(ctx, component,
+			"a memória de artefatos em %s é de outra versão do app e não foi alterada: %v", i.knownPath(), err)
+		return
+	case err != nil:
 		known = knownArtifacts{}
 	}
 	if known.Agents == nil {
@@ -120,8 +134,13 @@ func (i *Installer) readKnown() (knownArtifacts, error) {
 	if err := json.Unmarshal(data, &known); err != nil {
 		return knownArtifacts{}, err
 	}
-	if known.Schema != knownSchema {
-		return knownArtifacts{}, fmt.Errorf("esquema %d desconhecido", known.Schema)
+	switch {
+	case known.Schema > knownSchema:
+		return knownArtifacts{}, fmt.Errorf("%w: %d", errUnknownSchema, known.Schema)
+	case known.Schema != knownSchema:
+		// Esquema abaixo do atual não é de uma versão que sabe mais, e o zero é o
+		// que sobra de um JSON sem o campo: nos dois casos o arquivo é refeito.
+		return knownArtifacts{}, fmt.Errorf("esquema %d não é mais lido por esta versão", known.Schema)
 	}
 	return known, nil
 }

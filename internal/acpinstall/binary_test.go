@@ -357,6 +357,61 @@ func TestAMemoriaIlegivelNaoTravaAInstalacao(t *testing.T) {
 	}
 }
 
+func TestAMemoriaDeOutraVersaoDoAppNaoEReescrita(t *testing.T) {
+	// Voltar para uma versão anterior do app é comum, e nela a memória gravada
+	// pela mais nova não é lixo: é o que vai valer de novo quando o app voltar a
+	// ser aquele. Reescrevê-la para caber nesta versão apagaria os dois lados.
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacoteDoOpencode(t)},
+	})
+	if err := os.MkdirAll(c.root, 0o755); err != nil {
+		t.Fatalf("erro ao preparar a raiz: %v", err)
+	}
+	caminho := filepath.Join(c.root, knownFileName)
+	doFuturo := []byte(`{"schema":99,"agents":{"outro":{"1.0.0":"abc"}}}`)
+	if err := os.WriteFile(caminho, doFuturo, 0o644); err != nil {
+		t.Fatalf("erro ao escrever a memória de outra versão: %v", err)
+	}
+
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a instalação falhou por causa da memória de outra versão: %v", err)
+	}
+
+	depois, err := os.ReadFile(caminho)
+	if err != nil {
+		t.Fatalf("erro ao reler a memória: %v", err)
+	}
+	if string(depois) != string(doFuturo) {
+		t.Errorf("a memória de outra versão do app foi reescrita: %s", depois)
+	}
+}
+
+func TestAMemoriaSemEsquemaERefeita(t *testing.T) {
+	// JSON válido sem o campo do esquema não veio de uma versão que sabe mais:
+	// é o que sobra de um arquivo truncado ou editado à mão, e congelá-lo
+	// deixaria a proteção desligada até alguém apagar o arquivo.
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacoteDoOpencode(t)},
+	})
+	if err := os.MkdirAll(c.root, 0o755); err != nil {
+		t.Fatalf("erro ao preparar a raiz: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(c.root, knownFileName), []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("erro ao escrever a memória sem esquema: %v", err)
+	}
+
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a instalação falhou por causa da memória sem esquema: %v", err)
+	}
+	if c.instalador.knownDigest(opencodeID, opencodeVersao) == "" {
+		t.Error("a memória não foi refeita depois de encontrada sem esquema")
+	}
+}
+
 func TestAMemoriaGrandeDemaisERecusadaPeloNomeDela(t *testing.T) {
 	// A recusa por tamanho vai para o log de quem precisa achar o arquivo, e o
 	// teto vale para mais de um arquivo do pacote: dizer só o teto deixaria a
