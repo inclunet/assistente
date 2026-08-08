@@ -202,14 +202,30 @@ export const reasonText = (t: TFunction, catalog: Catalog): string => {
   }
 };
 
+export interface ACPAgentCatalogProps {
+  /**
+   * Escolher um agente da lista, em vez de só lê-la. É por aqui que o
+   * formulário do provedor descobre qual agente ele está configurando
+   * (AEP-0086 D11) — o seletor de tipo tem uma entrada só para os 38, e a lista
+   * deles, com busca e estado por máquina, é esta.
+   */
+  onSelect?: (agent: CatalogAgent) => void;
+
+  /** O agente já escolhido, para a lista dizer qual é sem depender de cor. */
+  selectedId?: string;
+}
+
 /**
- * O catálogo de agentes do registro oficial do ACP (AEP-0086 Fase 2).
+ * O catálogo de agentes do registro oficial do ACP (AEP-0086).
  *
- * Esta fase entrega ver, e só isso: nenhum botão instala nada. O que precisa
- * estar certo antes de agir é o que a tela afirma sobre cada agente — em
- * especial não afirmar que procurou onde não sabe procurar.
+ * Sem `onSelect` ele é lista de leitura, que é como a tela de provedores o abre.
+ * Com `onSelect` ele vira caixa de listagem: a mesma lista, os mesmos textos e a
+ * mesma navegação por setas, e cada item passa a ser escolhível. As duas formas
+ * compartilham tudo de propósito — quem escolhe um agente precisa exatamente das
+ * informações que quem lê o catálogo tem, e uma segunda lista mais pobre faria a
+ * escolha ser feita com menos do que se sabe.
  */
-export const ACPAgentCatalog = () => {
+export const ACPAgentCatalog = ({ onSelect, selectedId }: ACPAgentCatalogProps = {}) => {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const navHelpId = `${useId()}-nav-help`;
@@ -323,6 +339,15 @@ export const ACPAgentCatalog = () => {
       case 'End':
         next = rows.length - 1;
         break;
+      case 'Enter':
+      case ' ':
+        // Escolher com o teclado é o mesmo gesto de qualquer caixa de listagem.
+        // Sem `onSelect` a lista é de leitura, e engolir Enter ali tiraria a
+        // tecla de quem só está navegando.
+        if (!onSelect) return;
+        event.preventDefault();
+        onSelect(rows[safeIndex]);
+        return;
       default:
         return;
     }
@@ -367,7 +392,9 @@ export const ACPAgentCatalog = () => {
 
   return (
     <div className="acp-catalog">
-      <p className="acp-catalog__intro">{t('acpCatalog.intro')}</p>
+      <p className="acp-catalog__intro">
+        {onSelect ? t('acpCatalog.introSelect') : t('acpCatalog.intro')}
+      </p>
 
       <div className="acp-catalog__controls">
         <Input
@@ -410,7 +437,7 @@ export const ACPAgentCatalog = () => {
             {t('acpCatalog.count', { shown: rows.length, total: catalog.agents.length })}
           </p>
           <p id={navHelpId} className="acp-catalog__nav-help">
-            {t('acpCatalog.navHelp')}
+            {onSelect ? t('acpCatalog.navHelpSelect') : t('acpCatalog.navHelp')}
           </p>
           {rows.length === 0 ? (
             <p className="acp-catalog__no-match">{t('acpCatalog.search.noMatch', { term: searchTerm })}</p>
@@ -423,6 +450,7 @@ export const ACPAgentCatalog = () => {
             */
             <ul
               className="acp-catalog__list"
+              role={onSelect ? 'listbox' : undefined}
               aria-label={t('acpCatalog.listLabel')}
               aria-describedby={navHelpId}
               onKeyDown={handleListKeyDown}
@@ -434,9 +462,12 @@ export const ACPAgentCatalog = () => {
                     itemRefs.current[index] = node;
                   }}
                   className="acp-catalog__item"
+                  role={onSelect ? 'option' : undefined}
+                  aria-selected={onSelect ? agent.id === selectedId : undefined}
                   tabIndex={index === safeIndex ? 0 : -1}
                   aria-label={catalogItemLabel(t, agent)}
                   onFocus={() => setActiveIndex(index)}
+                  onClick={onSelect ? () => onSelect(agent) : undefined}
                 >
                   <h3 className="acp-catalog__name">
                     {agent.name}

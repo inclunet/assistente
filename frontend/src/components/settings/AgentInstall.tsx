@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
-  ACPAgentInstallPlanForKind,
+  ACPAgentInstallPlan,
   CancelACPAgentInstall,
   InstallACPAgent,
   RemoveACPAgent,
@@ -63,8 +63,12 @@ export const installProgressText = (t: TFunction, progress: InstallProgress): st
 };
 
 export interface AgentInstallProps {
-  /** Tipo do provedor sendo configurado (ex.: `claude-code`). */
-  agentKind: string;
+  /**
+   * O agente do registro que está sendo configurado, pelo `id` dele (ex.:
+   * `claude-acp`). Vazio é provedor apontado à mão, que não tem linha no
+   * catálogo — e aí não há o que instalar por ele.
+   */
+  agentId: string;
 
   /**
    * Recebe o comando resolvido da instalação, para os campos do formulário
@@ -92,7 +96,7 @@ export interface AgentInstallProps {
  *   - D13: os marcos viram frase na tela e anúncio, o erro nomeia a etapa, e o
  *     cancelamento diz que não sobrou nada no disco.
  */
-export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
+export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const idBase = useId();
@@ -102,11 +106,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   const confirmId = `${idBase}-confirm`;
   const unverifiedId = `${idBase}-unverified`;
 
-  // O plano guarda de qual tipo de provedor ele fala, pelo mesmo motivo que a
-  // detecção ao lado: trocar o tipo não desmonta este bloco, e o plano anterior
-  // ofereceria instalar um agente que não é o que está sendo configurado.
+  // O plano guarda de qual agente ele fala, pelo mesmo motivo que a detecção ao
+  // lado: trocar o agente não desmonta este bloco, e o plano anterior ofereceria
+  // instalar um que não é o que está sendo configurado.
   const [planned, setPlanned] = useState<{ kind: string; plan: InstallPlan } | null>(null);
-  const plan = planned?.kind === agentKind ? planned.plan : null;
+  const plan = planned?.kind === agentId ? planned.plan : null;
   const [loading, setLoading] = useState(false);
   const [planError, setPlanError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -141,16 +145,24 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   // sem isto a tela ficaria ocupada para sempre — botão de instalar desabilitado
   // e o de cancelar oferecendo cancelar o que já acabou.
   const adotadaRef = useRef(false);
-  const agentKindRef = useRef(agentKind);
-  agentKindRef.current = agentKind;
+  // O agente em refs porque os marcos chegam por evento e as respostas chegam
+  // depois: os dois precisam saber de quem esta tela está falando agora, e não
+  // de quem ela falava quando o pedido saiu.
+  const agentIdRef = useRef(agentId);
+  agentIdRef.current = agentId;
 
   const loadPlan = useCallback(async (kind: string) => {
     const seq = ++planSeq.current;
     const obsoleto = () => seq !== planSeq.current || !mountedRef.current;
+    if (!kind) {
+      setPlanned(null);
+      setPlanError('');
+      return;
+    }
     setLoading(true);
     setPlanError('');
     try {
-      const result = await ACPAgentInstallPlanForKind(kind);
+      const result = await ACPAgentInstallPlan(kind);
       if (obsoleto()) return;
       setPlanned({ kind, plan: result });
       // Instalação em voo sobrevive a esta tela: ela roda no backend, e o app
@@ -183,15 +195,17 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
     setRemoving(false);
     setBusy(false);
     adotadaRef.current = false;
-    void loadPlan(agentKind);
-  }, [agentKind, loadPlan]);
+    void loadPlan(agentId);
+  }, [agentId, loadPlan]);
 
   // Os marcos chegam por evento porque a instalação é do backend, e ela continua
   // de pé se esta tela for fechada. Cada marco é filtrado pelo agente que o
   // motivou: duas instalações podem estar em voo, e a frase da outra descreveria
-  // um agente que não é este.
-  const agentIdRef = useRef('');
-  agentIdRef.current = plan?.agent_id || '';
+  // um agente que não é este. A comparação é direta com o `id` do registro
+  // porque é o mesmo identificador dos dois lados desde o D11 — antes era
+  // preciso guardar à parte o `agent_id` do plano para ter com o que comparar,
+  // e o filtro só passava a valer depois de o plano chegar.
+  //
   // Marca que um marco já disse como a instalação terminou. Sem ela, o erro que
   // a chamada devolve depois falaria de novo pelo mesmo desfecho — e no
   // cancelamento ele falaria errado: quem cancelou veria "a instalação falhou:
@@ -215,7 +229,7 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
       if (progress.stage === 'done' || progress.stage === 'failed' || progress.stage === 'cancelled') {
         adotadaRef.current = false;
         setBusy(false);
-        void loadPlan(agentKindRef.current);
+        void loadPlan(agentIdRef.current);
       }
     });
   }, [loadPlan]);
@@ -226,7 +240,7 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   // agente cairia nos campos de outro, e a frase de erro dele apareceria sob o
   // nome do agente novo.
   const doAgente = useCallback(
-    (kind: string) => mountedRef.current && agentKindRef.current === kind,
+    (kind: string) => mountedRef.current && agentIdRef.current === kind,
     [],
   );
 
@@ -243,7 +257,7 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   const handleInstall = async (acceptUnverified = false) => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
-    const kind = agentKind;
+    const kind = agentId;
     setConfirming(false);
     setBusy(true);
     outcomeRef.current = false;
@@ -289,7 +303,7 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   const handleCancel = async () => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
-    const kind = agentKind;
+    const kind = agentId;
     try {
       await CancelACPAgentInstall(agentID);
     } catch (error: unknown) {
@@ -308,7 +322,7 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   const handleRemove = async () => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
-    const kind = agentKind;
+    const kind = agentId;
     setRemoving(false);
     try {
       await RemoveACPAgent(agentID);

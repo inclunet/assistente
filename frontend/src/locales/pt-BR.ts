@@ -1751,7 +1751,17 @@ const ptBR = {
         found: 'Agente encontrado em {{source}}.',
         foundVersion: 'Agente encontrado em {{source}} (versão {{version}}).',
         notFound: 'Agente não encontrado nesta máquina.',
+        typeLabel: 'Agente de código (ACP)',
+        noDetection: 'Este aplicativo não sabe procurar este agente no disco. Instale pelo catálogo ou informe o comando manualmente.',
         detectFailed: 'Não foi possível procurar o agente nesta máquina.',
+        picker: {
+          chosenTerm: 'Agente:',
+          none: 'Nenhum agente escolhido.',
+          pickBtn: 'Escolher agente no catálogo',
+          changeBtn: 'Trocar de agente',
+          help: 'Abre o catálogo do registro do ACP para escolher qual agente este provedor vai usar. Trocar de agente limpa o comando e os argumentos.',
+          modalTitle: 'Escolher o agente do provedor',
+        },
         installHelp: 'Instale o CLI do agente e clique em "Detectar e preencher comando". Se ele já estiver instalado em um caminho fora do padrão, informe o comando manualmente no campo acima.',
         searchedIn: 'Procuramos no PATH e em: {{places}}.',
         workDir: 'Diretório de trabalho',
@@ -1868,9 +1878,13 @@ const ptBR = {
       open: 'Catálogo de agentes ACP',
       title: 'Catálogo de agentes ACP',
       intro:
-        'Agentes publicados no registro oficial do ACP. Esta tela mostra o que existe; instalar ainda não é possível daqui.',
+        'Agentes publicados no registro oficial do ACP. Esta tela mostra o que existe e o que já está nesta máquina.',
+      introSelect:
+        'Escolha o agente que este provedor vai usar. Se ele ainda não estiver instalado, o formulário do provedor oferece instalar.',
       listLabel: 'Agentes do registro do ACP',
       navHelp: 'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último.',
+      navHelpSelect:
+        'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último; Enter escolhe o agente em foco.',
       loading: 'Carregando o catálogo de agentes...',
       count: 'Mostrando {{shown}} de {{total}} agentes.',
       manualPath:

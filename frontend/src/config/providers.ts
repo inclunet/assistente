@@ -47,6 +47,13 @@ export interface TTSCapabilities {
 /** Configuração de um tipo de provedor */
 export interface ProviderPreset {
   label: string;
+  /**
+   * Chave de tradução do rótulo, para o tipo cujo nome é uma frase e não uma
+   * marca. "OpenAI" se escreve igual em qualquer idioma; "agente de código",
+   * não — e o `label` acima vira o recurso de quando a chave não estiver nos
+   * locales.
+   */
+  labelKey?: string;
   defaultUrl: string;
   urlEditable: boolean;
   apiKeyRequired: boolean;
@@ -287,32 +294,25 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
 
   // --- Agentes de código locais (ACP, AEP-0084) ---
-  cursor: {
-    // Só a marca, como nos demais: o formulário do agente é que explica, em
-    // texto traduzido, o que esse tipo de provedor exige.
-    label: 'Cursor CLI',
+  // Uma entrada só para os 38 agentes do catálogo, e não uma por agente
+  // (AEP-0086 D11): qual deles é o provedor se escolhe no catálogo, que tem
+  // busca e sabe o que está instalado nesta máquina. Enumerá-los aqui, ao lado
+  // de OpenAI e Ollama, seria uma lista que ninguém consegue ler e que
+  // envelheceria a cada versão do registro.
+  acp: {
+    // Só o gênero da coisa: o nome do agente escolhido aparece no formulário,
+    // vindo do registro.
+    label: 'Agente de código (ACP)',
+    labelKey: 'providerForm.agent.typeLabel',
     // Um agente não tem endereço: o que o endereça é o comando dele, e é o
     // formulário do agente que pede isso no lugar de URL e chave.
     defaultUrl: '',
     urlEditable: false,
     apiKeyRequired: false,
     testRequiresApiKey: false,
-    helpText: 'Local code agent. Requires the Cursor CLI installed and authenticated.',
-    apiFormat: 'acp',
-    tts: NO_TTS,
-  },
-  'claude-code': {
-    // O Claude Code não fala ACP nativamente: quem traduz é um adaptador npm
-    // sobre o Claude Agent SDK. Para o app isso é indiferente — o contrato é
-    // com o protocolo —, mas a instalação exige as duas partes.
-    label: 'Claude Code',
     // Sem `helpText`: ele só aparece como descrição do campo de URL, que
     // agente não tem. Quem explica o que instalar é o formulário do agente,
     // em texto traduzido.
-    defaultUrl: '',
-    urlEditable: false,
-    apiKeyRequired: false,
-    testRequiresApiKey: false,
     apiFormat: 'acp',
     tts: NO_TTS,
   },

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ptBR from '../../locales/pt-BR';
@@ -48,13 +48,17 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: announceMock }),
 }));
 
+const catalogMock = vi.hoisted(() => vi.fn());
+
 vi.mock('@wailsjs/go/app/App', () => ({
   DetectACPAgent: detectMock,
   CreateLLMProvider: createMock,
   UpdateLLMProvider: updateMock,
   ListModelsRaw: listModelsMock,
+  GetACPCatalog: catalogMock,
+  RefreshACPCatalog: catalogMock,
   // A instalação pelo catálogo tem teste próprio; aqui basta ela não aparecer.
-  ACPAgentInstallPlanForKind: vi.fn().mockResolvedValue({}),
+  ACPAgentInstallPlan: vi.fn().mockResolvedValue({}),
   InstallACPAgent: vi.fn(),
   CancelACPAgentInstall: vi.fn(),
   RemoveACPAgent: vi.fn(),
@@ -64,7 +68,47 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn(() => () => {}),
 }));
 
+/**
+ * O catálogo que o seletor de agente abre. Os dois agentes bastam: um que o app
+ * sabe procurar no disco e outro que não, que é a única diferença que existe
+ * entre os 38 (AEP-0086 D11).
+ */
+const catalogo = {
+  agents: [
+    {
+      id: 'cursor',
+      name: 'Cursor',
+      distributions: ['binary'],
+      runtime_found: true,
+      integrity: 'digest',
+      state: 'installed',
+    },
+    {
+      id: 'claude-acp',
+      name: 'Claude Code',
+      distributions: ['npm'],
+      runtime: 'node',
+      runtime_found: true,
+      integrity: 'none',
+      state: 'installed',
+    },
+    {
+      id: 'gemini-cli',
+      name: 'Gemini CLI',
+      distributions: ['npm'],
+      runtime: 'node',
+      runtime_found: true,
+      integrity: 'none',
+      state: 'no_detection',
+    },
+  ],
+  age_seconds: 0,
+  from_cache: false,
+  stale: false,
+};
+
 const detected = {
+  detectable: true,
   found: true,
   command: '/usr/local/bin/cursor-agent',
   args: ['acp'],
@@ -74,6 +118,7 @@ const detected = {
 };
 
 const missing = {
+  detectable: true,
   found: false,
   command: '',
   args: [],
@@ -81,19 +126,31 @@ const missing = {
   work_dir: '/home/ana/projetos/assistente',
 };
 
-/** Leva o formulário de criação até o tipo de agente, já detectado. */
+/** Escolhe um agente do catálogo, que é como o formulário sabe qual ele é. */
+async function escolherAgente(user: ReturnType<typeof userEvent.setup>, nomeDoAgente: string, agentId: string) {
+  await user.click(screen.getByRole('button', { name: /escolher agente no catálogo|trocar de agente/i }));
+  await user.click(await screen.findByRole('option', { name: new RegExp(nomeDoAgente, 'i') }));
+  await waitFor(() => expect(detectMock).toHaveBeenCalledWith(agentId));
+}
+
+/** Leva o formulário de criação até um agente escolhido e já detectado. */
 async function abrirFormularioDeAgente(
   user: ReturnType<typeof userEvent.setup>,
   nome = 'Cursor local',
-  tipo = 'cursor',
+  nomeDoAgente = 'Cursor',
+  agentId = 'cursor',
 ) {
   await user.type(screen.getByLabelText(/^nome/i), nome);
-  await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), tipo);
-  await waitFor(() => expect(detectMock).toHaveBeenCalledWith(tipo));
+  await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
+  await escolherAgente(user, nomeDoAgente, agentId);
 }
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+beforeEach(() => {
+  catalogMock.mockResolvedValue(catalogo);
 });
 
 describe('ProviderForm — provedor de agente de código', () => {
@@ -133,7 +190,8 @@ describe('ProviderForm — provedor de agente de código', () => {
     await waitFor(() => expect(createMock).toHaveBeenCalled());
     const payload = createMock.mock.calls[0][0];
     expect(payload).toMatchObject({
-      type: 'cursor',
+      type: 'acp',
+      acp_agent_id: 'cursor',
       api_format: 'acp',
       base_url: '',
       acp_command: detected.command,
@@ -149,6 +207,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     // que o contrato do app é com o protocolo, e não com o Cursor (AEP-0084
     // Fase 7). O comando aqui é o par node + adaptador npm, sem `acp`.
     const claudeCode = {
+      detectable: true,
       found: true,
       command: '/usr/bin/node',
       args: ['/usr/lib/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js'],
@@ -162,7 +221,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     const user = userEvent.setup();
 
     render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
-    await abrirFormularioDeAgente(user, 'Claude Code local', 'claude-code');
+    await abrirFormularioDeAgente(user, 'Claude Code local', 'Claude Code', 'claude-acp');
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(claudeCode.command);
     });
@@ -174,7 +233,8 @@ describe('ProviderForm — provedor de agente de código', () => {
 
     await waitFor(() => expect(createMock).toHaveBeenCalled());
     expect(createMock.mock.calls[0][0]).toMatchObject({
-      type: 'claude-code',
+      type: 'acp',
+      acp_agent_id: 'claude-acp',
       api_format: 'acp',
       base_url: '',
       acp_command: claudeCode.command,
@@ -224,12 +284,13 @@ describe('ProviderForm — provedor de agente de código', () => {
         provider={{
           id: 'cursor-1',
           name: 'Cursor local',
-          type: 'cursor',
+          type: 'acp',
           base_url: '',
           api_key: '',
           api_format: 'acp',
           acp_command: '/opt/cursor/agente',
           acp_args: ['acp'],
+          acp_agent_id: 'cursor',
         }}
         onCancel={() => {}}
         onSave={() => {}}
@@ -277,9 +338,10 @@ describe('ProviderForm — provedor de agente de código', () => {
     );
     await screen.findByLabelText(/base url/i);
 
-    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'cursor');
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
+    await escolherAgente(user, 'Cursor', 'cursor');
 
-    // O tipo trocado à mão não tem comando salvo, então a detecção preenche.
+    // O agente escolhido à mão não tem comando salvo, então a detecção preenche.
     await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(detected.command));
     expect(screen.queryByLabelText(/base url/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
@@ -289,7 +351,8 @@ describe('ProviderForm — provedor de agente de código', () => {
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const payload = updateMock.mock.calls[0][1] as Record<string, unknown>;
     expect(payload).toMatchObject({
-      type: 'cursor',
+      type: 'acp',
+      acp_agent_id: 'cursor',
       api_format: 'acp',
       acp_command: detected.command,
       acp_args: detected.args,
@@ -298,9 +361,9 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(payload.api_key).toBeUndefined();
   });
 
-  it('voltar ao tipo salvo devolve o comando e os argumentos que estavam salvos', async () => {
-    // Trocar o tipo e desistir não pode custar a configuração: o preset do
-    // agente não sabe qual comando está no banco, e a detecção acha outro.
+  it('voltar ao tipo salvo devolve o agente, o comando e os argumentos que estavam salvos', async () => {
+    // Trocar o tipo e desistir não pode custar a configuração: nada além do
+    // banco sabe qual comando está gravado, e a detecção acha outro.
     detectMock.mockResolvedValue(detected);
     listModelsMock.mockResolvedValue(['llama3']);
     const user = userEvent.setup();
@@ -310,12 +373,13 @@ describe('ProviderForm — provedor de agente de código', () => {
         provider={{
           id: 'cursor-1',
           name: 'Cursor local',
-          type: 'cursor',
+          type: 'acp',
           base_url: '',
           api_key: '',
           api_format: 'acp',
           acp_command: '/opt/cursor/agente',
           acp_args: ['acp', '--forcar'],
+          acp_agent_id: 'cursor',
         }}
         onCancel={() => {}}
         onSave={() => {}}
@@ -324,10 +388,10 @@ describe('ProviderForm — provedor de agente de código', () => {
     await screen.findByLabelText(/comando do agente/i);
 
     await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'ollama');
-    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'cursor');
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
 
-    // Sem clicar em detectar: o que reaparece é o que está salvo, e não o que a
-    // detecção encontrou nesta máquina.
+    // Sem escolher agente nem clicar em detectar: o que reaparece é o que está
+    // salvo, e não o que a detecção encontrou nesta máquina.
     expect(await screen.findByLabelText(/comando do agente/i)).toHaveValue('/opt/cursor/agente');
     expect(screen.getByLabelText(/argumentos/i)).toHaveValue('acp\n--forcar');
 
@@ -335,11 +399,69 @@ describe('ProviderForm — provedor de agente de código', () => {
 
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     expect(updateMock.mock.calls[0][1]).toMatchObject({
-      type: 'cursor',
+      type: 'acp',
+      acp_agent_id: 'cursor',
       api_format: 'acp',
       acp_command: '/opt/cursor/agente',
       acp_args: ['acp', '--forcar'],
     });
+  });
+
+  it('trocar de agente limpa o comando do anterior e deixa a detecção do novo preencher', async () => {
+    // Manter o comando faria o provedor dizer que é um agente enquanto executa
+    // outro — e é o executável, não o rótulo, que sobe o processo.
+    detectMock.mockResolvedValue(detected);
+    const user = userEvent.setup();
+
+    render(
+      <ProviderForm
+        provider={{
+          id: 'claude-1',
+          name: 'Claude local',
+          type: 'acp',
+          base_url: '',
+          api_key: '',
+          api_format: 'acp',
+          acp_command: '/usr/bin/node',
+          acp_args: ['/opt/claude-agent-acp/dist/index.js'],
+          acp_agent_id: 'claude-acp',
+        }}
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('/usr/bin/node'));
+
+    await escolherAgente(user, 'Cursor', 'cursor');
+
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(detected.command));
+
+    await user.click(screen.getByRole('button', { name: /atualizar/i }));
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    expect(updateMock.mock.calls[0][1]).toMatchObject({
+      type: 'acp',
+      acp_agent_id: 'cursor',
+      acp_command: detected.command,
+      acp_args: detected.args,
+    });
+  });
+
+  it('o agente escolhido aparece na tela pelo nome, e não só pelo identificador', async () => {
+    // Quem escolhe "Gemini CLI" numa lista precisa reencontrá-lo escrito assim:
+    // o `id` do registro é o que o app grava, e não o que ele diz.
+    detectMock.mockResolvedValue({ detectable: false, found: false, searched: [] });
+    const user = userEvent.setup();
+
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
+    expect(screen.getByText(/nenhum agente escolhido/i)).toBeInTheDocument();
+
+    await escolherAgente(user, 'Gemini CLI', 'gemini-cli');
+
+    expect(await screen.findByText(/gemini cli/i)).toBeInTheDocument();
+    // Agente que o app não sabe procurar não ganha botão de procurar.
+    expect(screen.queryByRole('button', { name: /detectar e preencher comando/i })).not.toBeInTheDocument();
   });
 
   it('edição preserva o comando salvo e atualiza pelo mesmo contrato', async () => {
@@ -351,12 +473,13 @@ describe('ProviderForm — provedor de agente de código', () => {
         provider={{
           id: 'cursor-1',
           name: 'Cursor local',
-          type: 'cursor',
+          type: 'acp',
           base_url: '',
           api_key: '',
           api_format: 'acp',
           acp_command: '/opt/cursor/agente',
           acp_args: ['acp'],
+          acp_agent_id: 'cursor',
         }}
         onCancel={() => {}}
         onSave={() => {}}

@@ -48,7 +48,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   // A instalação pelo catálogo tem teste próprio. Aqui ela só precisa não
   // aparecer: um plano sem agente é o tipo de provedor que o catálogo não
   // publica, e o bloco não é renderizado.
-  ACPAgentInstallPlanForKind: vi.fn().mockResolvedValue({}),
+  ACPAgentInstallPlan: vi.fn().mockResolvedValue({}),
   InstallACPAgent: vi.fn(),
   CancelACPAgentInstall: vi.fn(),
   RemoveACPAgent: vi.fn(),
@@ -59,6 +59,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 }));
 
 const cursorFound = {
+  detectable: true,
   found: true,
   command: 'C:\\Users\\ana\\AppData\\Local\\cursor-agent\\versions\\2026.07.30-abc123\\node.exe',
   args: ['C:\\Users\\ana\\AppData\\Local\\cursor-agent\\versions\\2026.07.30-abc123\\index.js', 'acp'],
@@ -69,6 +70,7 @@ const cursorFound = {
 };
 
 const cursorMissing = {
+  detectable: true,
   found: false,
   command: '',
   args: [],
@@ -83,11 +85,11 @@ const cursorMissing = {
 const Host = ({
   initialCommand = '',
   autoFill = true,
-  agentKind = 'cursor',
+  agentId = 'cursor',
 }: {
   initialCommand?: string;
   autoFill?: boolean;
-  agentKind?: string;
+  agentId?: string;
 }) => {
   const [command, setCommand] = useState(initialCommand);
   const [args, setArgs] = useState<string[]>([]);
@@ -95,7 +97,7 @@ const Host = ({
     <div>
       <span data-testid="args-atual">{args.join(',')}</span>
       <AgentProviderFields
-        agentKind={agentKind}
+        agentId={agentId}
         command={command}
         args={args}
         onCommandChange={setCommand}
@@ -121,7 +123,7 @@ const HostQueTrocaDeTipo = () => {
       <button type="button" onClick={() => setEhAgente(false)}>trocar para http</button>
       {ehAgente && (
         <AgentProviderFields
-          agentKind="cursor"
+          agentId="cursor"
           command={command}
           args={args}
           onCommandChange={setCommand}
@@ -139,7 +141,7 @@ const HostQueTrocaDeTipo = () => {
  * detecção do agente novo preencher.
  */
 const HostQueTrocaDeAgente = () => {
-  const [agentKind, setAgentKind] = useState('claude-code');
+  const [agentId, setAgentId] = useState('claude-acp');
   const [command, setCommand] = useState('');
   const [args, setArgs] = useState<string[]>([]);
   return (
@@ -147,7 +149,7 @@ const HostQueTrocaDeAgente = () => {
       <button
         type="button"
         onClick={() => {
-          setAgentKind('cursor');
+          setAgentId('cursor');
           setCommand('');
           setArgs([]);
         }}
@@ -155,7 +157,7 @@ const HostQueTrocaDeAgente = () => {
         trocar para cursor
       </button>
       <AgentProviderFields
-        agentKind={agentKind}
+        agentId={agentId}
         command={command}
         args={args}
         onCommandChange={setCommand}
@@ -466,6 +468,35 @@ describe('AgentProviderFields — agente ausente', () => {
     });
   });
 
+  it('sem agente escolhido não oferece procurar nem manda instalar nada', async () => {
+    // É o estado de quem acabou de escolher o tipo e ainda não abriu o
+    // catálogo. Um botão de procurar ali não teria o que procurar, e o bloco
+    // "instale o CLI" mandaria resolver uma ausência que ninguém constatou.
+    render(<Host agentId="" />);
+
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toBeInTheDocument());
+    expect(detectMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /detectar e preencher comando/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/instale o cli do agente/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/agente não encontrado nesta máquina/i)).not.toBeInTheDocument();
+  });
+
+  it('agente que o app não sabe procurar diz isso, em vez de oferecer o botão', async () => {
+    // São 38 agentes no catálogo e detecção escrita à mão para dois (AEP-0086
+    // D1). Para os outros, um botão de procurar só teria uma resposta possível,
+    // e chamar de "não encontrado" uma procura que nunca aconteceu seria mentir
+    // sobre a máquina de quem tem o agente instalado.
+    detectMock.mockResolvedValue({ detectable: false, found: false, searched: [] });
+
+    render(<Host agentId="gemini-cli" />);
+
+    expect(await screen.findByText(/não sabe procurar este agente no disco/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /detectar e preencher comando/i })).not.toBeInTheDocument();
+    // Testar continua valendo: o comando apontado à mão é o que se confere.
+    expect(screen.getByRole('button', { name: /testar agente/i })).toBeInTheDocument();
+    expect(announceMock).not.toHaveBeenCalled();
+  });
+
   it('anuncia a falha quando a própria procura quebra', async () => {
     detectMock.mockRejectedValue(new Error('acesso negado ao diretório'));
 
@@ -473,6 +504,24 @@ describe('AgentProviderFields — agente ausente', () => {
 
     expect(await screen.findByText(/acesso negado ao diretório/i)).toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith('acesso negado ao diretório', 'assertive');
+  });
+
+  it('procura que quebrou continua tendo como ser tentada de novo', async () => {
+    // A falha zera o que se sabia do agente, inclusive se o app sabe procurá-lo.
+    // Esconder o botão nesse estado transformaria um erro passageiro em beco sem
+    // saída: só recarregando a tela para tentar outra vez.
+    detectMock.mockRejectedValueOnce(new Error('acesso negado ao diretório'));
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await screen.findByText(/acesso negado ao diretório/i);
+
+    detectMock.mockResolvedValue(cursorFound);
+    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
   });
 });
 
@@ -567,6 +616,7 @@ describe('AgentProviderFields — teste do agente', () => {
     // nenhum: quem autentica é o CLI `claude`. Derivar o login do comando
     // configurado, como no Cursor, mandaria a pessoa a um comando inexistente.
     const claudeCode = {
+      detectable: true,
       found: true,
       command: 'C:\\Program Files\\nodejs\\node.exe',
       args: ['C:\\Program Files\\nodejs\\node_modules\\@agentclientprotocol\\claude-agent-acp\\dist\\index.js'],
@@ -587,7 +637,7 @@ describe('AgentProviderFields — teste do agente', () => {
     });
     const user = userEvent.setup();
 
-    render(<Host agentKind="claude-code" />);
+    render(<Host agentId="claude-acp" />);
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(claudeCode.command);
     });
@@ -605,6 +655,7 @@ describe('AgentProviderFields — teste do agente', () => {
     // tela: manter o comando de login da procura anterior mandaria autenticar o
     // Claude Code num provedor do Cursor.
     detectMock.mockResolvedValue({
+      detectable: true,
       found: true,
       command: 'node',
       args: ['claude-agent-acp/dist/index.js'],
@@ -631,11 +682,11 @@ describe('AgentProviderFields — teste do agente', () => {
     // Comando configurado à mão, procura que não achou nada: ninguém tem o
     // comando de login a oferecer, e derivá-lo do adaptador npm mandaria a
     // pessoa a um `...\index.js login` que não existe.
-    detectMock.mockResolvedValue({ found: false, searched: [] });
+    detectMock.mockResolvedValue({ detectable: true, found: false, searched: [] });
     testMock.mockResolvedValue({ state: 'unauthenticated', agent_name: 'Claude Agent' });
     const user = userEvent.setup();
 
-    render(<Host initialCommand="node" autoFill={false} agentKind="claude-code" />);
+    render(<Host initialCommand="node" autoFill={false} agentId="claude-acp" />);
     await user.type(screen.getByLabelText(/argumentos/i), 'C:\\npm\\claude-agent-acp\\dist\\index.js');
     await user.click(screen.getByRole('button', { name: /testar agente/i }));
 
