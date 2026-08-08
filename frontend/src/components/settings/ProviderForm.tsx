@@ -75,9 +75,10 @@ const isAgentForm = (data: Pick<ProviderFormData, 'type' | 'api_format'>): boole
   (data.api_format || PROVIDER_CONFIG[data.type]?.apiFormat || '') === AGENT_API_FORMAT;
 
 export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
-  const tiposDeProvedor = useMemo(() => providerTypes(t), [t]);
+  // i18n.language garante recomputo ao trocar de idioma
+  const tiposDeProvedor = useMemo(() => providerTypes(t), [t, i18n.language]);
   const [formData, setFormData] = useState<ProviderFormData>({
     name: '',
     type: 'openai',

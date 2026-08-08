@@ -40,6 +40,7 @@ vi.mock('react-i18next', async (importOriginal) => {
         const vars = options && typeof options === 'object' ? (options as Record<string, unknown>) : undefined;
         return resolveLocaleString(key, vars) ?? key;
       },
+      i18n: { language: 'pt-BR' },
     }),
   };
 });
