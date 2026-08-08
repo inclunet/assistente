@@ -94,6 +94,12 @@ type Installer struct {
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
+
+	// knownMu serializa a escrita da memória de artefatos, que é um arquivo só
+	// para todos os agentes: a guarda acima é por agente, e dois agentes
+	// instalando ao mesmo tempo perderiam uma entrada na corrida entre ler e
+	// gravar.
+	knownMu sync.Mutex
 }
 
 // New monta o instalador.
@@ -709,7 +715,7 @@ const maxInstalledBytes = 1 << 20
 
 // readInstallation lê o `installed.json` de um diretório de instalação.
 func readInstallation(dir string) (Installation, error) {
-	data, err := readAtMost(filepath.Join(dir, installedFileName), maxInstalledBytes)
+	data, err := readAtMost(filepath.Join(dir, installedFileName), maxInstalledBytes, "um registro de instalação")
 	if err != nil {
 		return Installation{}, err
 	}
@@ -732,7 +738,11 @@ func readInstallation(dir string) (Installation, error) {
 
 // readAtMost lê o arquivo recusando o que passar do teto. O byte de folga do
 // LimitReader é o que permite saber que passou sem ter lido o excesso.
-func readAtMost(path string, limit int64) ([]byte, error) {
+//
+// O que é dito pelo chamador, porque a recusa vai para o log de quem precisa
+// achar o arquivo: dizer o teto sem dizer de que arquivo se trata deixa a
+// mensagem apontando para o lugar errado quando há mais de um.
+func readAtMost(path string, limit int64, what string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -743,7 +753,7 @@ func readAtMost(path string, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("%s passa de %d bytes e não é um registro de instalação", path, limit)
+		return nil, fmt.Errorf("%s passa de %d bytes e não é %s", path, limit, what)
 	}
 	return data, nil
 }

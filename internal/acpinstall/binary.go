@@ -62,6 +62,14 @@ func (i *Installer) installBinary(
 	if err != nil {
 		return Installation{}, failf(StepDownload, "%w", err)
 	}
+	// A conferência contra a memória vem antes de abrir o arquivo: um artefato
+	// de que se desconfia não deve ter nada saindo de dentro dele, pelo mesmo
+	// motivo que o digest publicado é conferido antes da extração (D4).
+	if target.SHA256 == "" {
+		if err := i.checkKnownArtifact(ctx, agent.ID, version, art.SHA256); err != nil {
+			return Installation{}, err
+		}
+	}
 	if err := extractArtifact(ctx, art, dir, rawBinaryName(target.Cmd)); err != nil {
 		return Installation{}, failf(StepExtract, "%w", err)
 	}
@@ -96,6 +104,12 @@ func (i *Installer) installBinary(
 	}
 	if err := writeInstallation(dir, installation); err != nil {
 		return Installation{}, failf(StepRecord, "%w", err)
+	}
+	// Só o observado é guardado. O publicado já ancora a versão por conta
+	// própria, e lembrar dele faria o app recusar a republicação legítima que
+	// o registro anuncia — que é exatamente o caso em que ele deveria confiar.
+	if installation.SHA256Origin == DigestObserved {
+		i.rememberArtifact(ctx, agent.ID, version, art.SHA256)
 	}
 	logging.Infof(ctx, component, "agente %s instalado em %s a partir do alvo %s", agent.ID, dir, platform)
 	return installation, nil
