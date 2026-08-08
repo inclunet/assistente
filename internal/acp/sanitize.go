@@ -103,9 +103,10 @@ func SanitizeContent(s string) string {
 // comando resumido é pior do que comando nenhum, porque a pessoa cola no
 // terminal uma linha que parece inteira e termina em `C:\Program Files\…`.
 //
-// Daqui sai o texto sem o que engana o olho e em linha única: quebra e
-// tabulação viram espaço, porque coladas no terminal partiriam a linha em duas
-// e a segunda metade rodaria sozinha.
+// Daqui sai o texto sem o que engana o olho e em linha única: todo espaço em
+// branco vira um espaço só. A quebra e a tabulação são o motivo — coladas no
+// terminal, partiriam a linha em duas, e a segunda metade rodaria sozinha —, e
+// o espaço repetido vai junto porque não separa nada no shell.
 func SanitizeCommandPart(s string) string {
 	return strings.Join(strings.Fields(SanitizeContent(s)), " ")
 }

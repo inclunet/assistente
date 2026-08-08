@@ -1181,10 +1181,14 @@ Claude Code, cujo ACP vem de um adaptador npm sem login nenhum, e quem autentica
 Decisões que a fase toma:
 
 - **Nada do que o agente informa é executado.** Comando e argumentos vindos dele
-  são texto não confiável (D11): passam pelo saneamento de rótulo e são
-  **mostrados** para a pessoa copiar. O escape de terminal sai antes, porque uma
-  linha de comando que se pinta na tela diferente do que se copia é exatamente o
-  ataque que o saneamento existe para impedir.
+  são texto não confiável (D11): são saneados e **mostrados** para a pessoa
+  copiar. O escape de terminal sai antes, porque uma linha de comando que se
+  pinta na tela diferente do que se copia é exatamente o ataque que o saneamento
+  existe para impedir. O saneamento aqui não é o de rótulo, que resume em 200
+  runas: rótulo é para ler, comando é para colar, e um caminho cortado no meio
+  vira uma linha com cara de inteira que não roda. Comando e argumentos usam um
+  saneamento que não resume e só achata em linha única; o rótulo do método,
+  esse sim, continua saneado como rótulo.
 - **A descrição do método é mostrada como o agente escreveu, e não parseada.**
   Vários agentes explicam o login em texto — "Run `opencode auth login` in the
   terminal" — em vez de publicá-lo. Extrair um comando dali seria adivinhar
