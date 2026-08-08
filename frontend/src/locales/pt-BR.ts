@@ -1787,6 +1787,7 @@ const ptBR = {
             'O próprio agente informou como autenticar. Abra um terminal, rode o comando abaixo e teste de novo.',
           loginDescribed:
             'O agente explicou como autenticar. Siga a instrução abaixo num terminal e teste de novo.',
+          loginNote: '{{name}}: {{description}}',
           loginUnknown:
             'Não dá para saber daqui qual comando autentica este agente. Use "Detectar e preencher comando" e teste de novo.',
           loginMethods: 'Autenticação pedida pelo agente: {{methods}}.',

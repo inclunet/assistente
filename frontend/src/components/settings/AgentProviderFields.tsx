@@ -383,7 +383,15 @@ export const AgentProviderFields = ({
     .filter((method) => method.description)
     .map((method) => ({
       id: method.id,
-      text: method.name ? `${method.name}: ${method.description}` : (method.description as string),
+      // A junção do nome com a descrição é uma frase, e frase é do locale: a
+      // pontuação entre as duas partes muda de idioma para idioma, e deixá-la
+      // no código a congelaria em português.
+      text: method.name
+        ? t('providerForm.agent.test.loginNote', {
+            name: method.name,
+            description: method.description,
+          })
+        : (method.description as string),
     }));
   // A ordem é do mais informado para o mais adivinhado: primeiro o que o
   // próprio agente publicou no handshake, que é quem sabe como se autentica

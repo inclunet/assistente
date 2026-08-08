@@ -1786,6 +1786,7 @@ const es = {
             'El propio agente indicó cómo autenticarse. Abre una terminal, ejecuta el comando de abajo y prueba de nuevo.',
           loginDescribed:
             'El agente explicó cómo autenticarse. Sigue la instrucción de abajo en una terminal y prueba de nuevo.',
+          loginNote: '{{name}}: {{description}}',
           loginUnknown:
             'Desde aquí no hay cómo saber qué comando autentica a este agente. Usa «Detectar y completar comando» y prueba de nuevo.',
           loginMethods: 'Autenticación solicitada por el agente: {{methods}}.',

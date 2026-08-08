@@ -1787,6 +1787,7 @@ const en = {
             'The agent itself told us how to authenticate. Open a terminal, run the command below and test again.',
           loginDescribed:
             'The agent explained how to authenticate. Follow the instruction below in a terminal and test again.',
+          loginNote: '{{name}}: {{description}}',
           loginUnknown:
             'There is no way to tell from here which command authenticates this agent. Use "Detect and fill in command" and test again.',
           loginMethods: 'Authentication requested by the agent: {{methods}}.',

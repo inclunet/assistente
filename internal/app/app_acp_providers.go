@@ -96,9 +96,15 @@ type ACPLoginMethod struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 
-	// Command é a linha que autentica por este método, quando o agente a
-	// informou. Ela é para ser mostrada e copiada, nunca executada pelo app:
-	// é texto de terceiro (AEP-0084 D11).
+	// Command é a linha que autentica por este método. Ela nasce do que o
+	// agente informou: ou a linha inteira, quando ele publica o programa, ou
+	// os argumentos dele completados com o comando configurado, que é como a
+	// variante de terminal do protocolo descreve o login. Vazio é o agente que
+	// não informou nada, ou informou de um jeito que não se completa com o
+	// comando desta máquina.
+	//
+	// Ela é para ser mostrada e copiada, nunca executada pelo app: o que veio
+	// do agente é texto de terceiro (AEP-0084 D11).
 	Command string `json:"command,omitempty"`
 }
 
