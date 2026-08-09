@@ -624,29 +624,42 @@ func (i *Installer) RemoveVersion(ctx context.Context, agentID, version string) 
 // viria antes da `2.0.0`. Empate de carimbo fica com a primeira, que é estável
 // porque `os.ReadDir` devolve ordenado por nome.
 func (i *Installer) Installed(agentID string) (Installation, bool) {
-	dir, err := i.agentDir(agentID)
-	if err != nil {
-		return Installation{}, false
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return Installation{}, false
-	}
 	var newest Installation
 	found := false
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		installation, ok := i.installationAt(filepath.Join(dir, entry.Name()))
-		if !ok {
-			continue
-		}
+	for _, installation := range i.Installations(agentID) {
 		if !found || installation.InstalledAt.After(newest.InstalledAt) {
 			newest, found = installation, true
 		}
 	}
 	return newest, found
+}
+
+// Installations são todas as versões deste agente que estão no disco, na ordem
+// em que o diretório as lista.
+//
+// Mais de uma é o estado normal no meio de uma atualização, e pode sobrar de uma
+// que não conseguiu limpar a anterior — a remoção é o último passo, e ela é
+// adiada quando o agente está em conversa (D10). Quem quer só a que vale usa
+// Installed; quem quer varrer o que ficou para trás usa esta.
+func (i *Installer) Installations(agentID string) []Installation {
+	dir, err := i.agentDir(agentID)
+	if err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := make([]Installation, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if installation, ok := i.installationAt(filepath.Join(dir, entry.Name())); ok {
+			out = append(out, installation)
+		}
+	}
+	return out
 }
 
 // List devolve o que o app instalou, ordenado por identificador para a tela ter
