@@ -1940,6 +1940,10 @@ const ptBR = {
       state: {
         installed: 'encontrado nesta máquina.',
         installedVersion: 'encontrado nesta máquina, versão {{version}}.',
+        installedByApp: 'instalado por este app.',
+        installedByAppVersion: 'instalado por este app, versão {{version}}.',
+        installedUnverified:
+          'Esta instalação não foi verificada: o arquivo baixado não pôde ser conferido contra uma soma de verificação publicada.',
         notInstalled: 'não encontrado nesta máquina.',
         noDetection:
           'este app não sabe procurar este agente na máquina; se você já o tem, aponte o comando dele à mão no provedor.',

@@ -38,6 +38,9 @@ export interface CatalogAgent {
   state: string;
   state_detail?: string;
   detected_version?: string;
+  installed_by_app?: boolean;
+  installed_version?: string;
+  installed_unverified?: boolean;
 }
 
 /** O catálogo inteiro, com o que se sabe sobre a própria coleta (D2). */
@@ -88,6 +91,14 @@ export const runtimeText = (t: TFunction, agent: CatalogAgent): string => {
 export const stateText = (t: TFunction, agent: CatalogAgent): string => {
   switch (agent.state) {
     case 'installed':
+      // Quem instalou muda a frase porque muda o que se pode fazer com o
+      // agente: o que o app pôs ali, ele sabe onde está e sabe remover; o que
+      // veio de fora, ele apenas reconheceu.
+      if (agent.installed_by_app) {
+        return agent.installed_version
+          ? t('acpCatalog.state.installedByAppVersion', { version: agent.installed_version })
+          : t('acpCatalog.state.installedByApp');
+      }
       return agent.detected_version
         ? t('acpCatalog.state.installedVersion', { version: agent.detected_version })
         : t('acpCatalog.state.installed');
@@ -130,6 +141,17 @@ export const integrityText = (t: TFunction, agent: CatalogAgent): string => {
 };
 
 /**
+ * O que a instalação que existe aqui vale (D4).
+ *
+ * É outra frase que a da integridade, e as duas convivem: aquela fala do que o
+ * registro publica hoje, e esta fala do arquivo que já está no disco. Um agente
+ * pode ter passado a publicar soma de verificação depois de alguém instalar a
+ * versão que não tinha nenhuma, e é a instalação que continua sem conferência.
+ */
+export const installedIntegrityText = (t: TFunction, agent: CatalogAgent): string =>
+  agent.installed_unverified ? t('acpCatalog.state.installedUnverified') : '';
+
+/**
  * A frase inteira do item, que é o que um leitor de telas lê ao chegar nele.
  *
  * Ela existe porque o critério da Fase 2 é que cada item seja lido inteiro: sem
@@ -143,6 +165,7 @@ export const catalogItemLabel = (t: TFunction, agent: CatalogAgent): string => {
     agent.version ? t('acpCatalog.item.nameVersion', { name: agent.name, version: agent.version }) : agent.name,
     agent.description,
     stateText(t, agent),
+    installedIntegrityText(t, agent),
     runtimeText(t, agent),
     agent.distributions?.length
       ? t('acpCatalog.item.distributions', {
@@ -485,6 +508,9 @@ export const ACPAgentCatalog = ({ onSelect, selectedId }: ACPAgentCatalogProps =
                     {stateText(t, agent)}
                   </p>
                   {!!agent.state_detail && <p className="acp-catalog__detail">{agent.state_detail}</p>}
+                  {!!installedIntegrityText(t, agent) && (
+                    <p className="acp-catalog__unverified">{installedIntegrityText(t, agent)}</p>
+                  )}
 
                   <p className="acp-catalog__runtime" data-missing={agent.runtime && !agent.runtime_found ? 'true' : undefined}>
                     {runtimeText(t, agent)}

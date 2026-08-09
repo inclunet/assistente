@@ -1940,6 +1940,10 @@ const es = {
       state: {
         installed: 'encontrado en esta máquina.',
         installedVersion: 'encontrado en esta máquina, versión {{version}}.',
+        installedByApp: 'instalado por esta aplicación.',
+        installedByAppVersion: 'instalado por esta aplicación, versión {{version}}.',
+        installedUnverified:
+          'Esta instalación no fue verificada: el archivo descargado no pudo compararse con un código de verificación publicado.',
         notInstalled: 'no se encontró en esta máquina.',
         noDetection:
           'esta app no sabe buscar este agente en la máquina; si ya lo tienes, indica su comando a mano en el proveedor.',

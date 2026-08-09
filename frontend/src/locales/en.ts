@@ -1940,6 +1940,10 @@ const en = {
       state: {
         installed: 'found on this machine.',
         installedVersion: 'found on this machine, version {{version}}.',
+        installedByApp: 'installed by this app.',
+        installedByAppVersion: 'installed by this app, version {{version}}.',
+        installedUnverified:
+          'This installation was not verified: the downloaded file could not be checked against a published verification code.',
         notInstalled: 'not found on this machine.',
         noDetection:
           'this app does not know how to look for this agent on the machine; if you already have it, point to its command by hand in the provider.',

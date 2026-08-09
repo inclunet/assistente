@@ -143,6 +143,16 @@
   word-break: break-all;
 }
 
+/*
+  A instalação que não pôde ser conferida (D4). Cor de aviso porque é ressalva,
+  e a frase inteira está na tela: a cor não carrega informação sozinha.
+*/
+.acp-catalog__unverified {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-warning);
+}
+
 .acp-catalog__facts {
   display: flex;
   flex-direction: column;
