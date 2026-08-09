@@ -90,6 +90,16 @@ type ProviderExport struct {
 	// que `MCPServerExport.Env`: variável de ambiente de processo é onde token
 	// costuma parar, e arquivo de export viaja entre máquinas.
 	ACPEnv map[string]string `json:"acpEnv,omitempty"`
+	// ACPCredentialEnv viaja nos dois sentidos, ao contrário do ACPEnv acima, e
+	// a diferença é o que cada um guarda: aqui só há o nome da variável e o
+	// padrão do cofre que a preenche, e nenhum dos dois é segredo (AEP-0086
+	// D12). O segredo fica no cofre da máquina de origem e não entra no
+	// arquivo.
+	//
+	// Importar numa máquina onde aquela entrada do cofre não existe entra com
+	// aviso, como o comando que não existe ali já entra: a configuração é
+	// legítima, e o que falta é local.
+	ACPCredentialEnv map[string]string `json:"acpCredentialEnv,omitempty"`
 	// ACPAgentID diz qual agente do registro é o provider (AEP-0086 D11). Ele
 	// viaja porque é a única coisa no arquivo que o liga ao catálogo: sem ele,
 	// um provider importado num computador onde o agente não está instalado

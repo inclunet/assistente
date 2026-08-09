@@ -579,6 +579,10 @@ func ImportConversationsWithResolutions(
 		}
 	}
 
+	// Os provedores de agente importados ficam guardados para o aviso sobre o
+	// cofre sair depois: as credenciais do mesmo arquivo entram mais abaixo, e
+	// avisar aqui diria que falta uma entrada que está prestes a chegar.
+	var agentesImportados []ProviderExport
 	for _, provider := range file.Resources.Providers {
 		imported, err := importProvider(ctx, provider)
 		if err != nil {
@@ -590,6 +594,9 @@ func ImportConversationsWithResolutions(
 			result.Imported++
 			if warning := acpCommandWarning(provider); warning != "" {
 				result.Warnings = append(result.Warnings, warning)
+			}
+			if isACPExport(provider) && len(provider.ACPCredentialEnv) > 0 {
+				agentesImportados = append(agentesImportados, provider)
 			}
 		}
 	}
@@ -650,6 +657,13 @@ func ImportConversationsWithResolutions(
 				result.Success = false
 			}
 		}
+	}
+
+	// Agora que as credenciais do arquivo já entraram, dá para dizer quais
+	// entradas do cofre os agentes importados esperam e não encontram aqui
+	// (AEP-0086 D12).
+	for _, provider := range agentesImportados {
+		result.Warnings = append(result.Warnings, acpCredentialWarnings(ctx, credMgr, provider)...)
 	}
 
 	result.SkippedOther = maxInt(

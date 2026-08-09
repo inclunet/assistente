@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
 	"assistente/internal/acpregistry"
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 
 	"gorm.io/gorm"
@@ -29,6 +31,13 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 	if err != nil {
 		return ProviderExport{}, fmt.Errorf("erro ao decodificar argumentos do agente do provider %s: %w", provider.ID, err)
 	}
+	// A referência do cofre sai no arquivo, ao contrário do ambiente literal
+	// ao lado: aqui não há segredo nenhum, só o nome da variável e a entrada
+	// que a preenche na máquina de destino (AEP-0086 D12).
+	credentialEnv, err := decodeStringMap(provider.ACPCredentialEnv)
+	if err != nil {
+		return ProviderExport{}, fmt.Errorf("erro ao decodificar credenciais do cofre do agente do provider %s: %w", provider.ID, err)
+	}
 	return ProviderExport{
 		ID:                provider.ID,
 		Name:              provider.Name,
@@ -43,6 +52,7 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		CreatedAt:         provider.CreatedAt,
 		ACPCommand:        provider.ACPCommand,
 		ACPArgs:           args,
+		ACPCredentialEnv:  credentialEnv,
 		ACPAgentID:        provider.ACPAgentID,
 	}, nil
 }
@@ -101,6 +111,10 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	if err != nil {
 		return fmt.Errorf("erro ao serializar ambiente do agente do provider %q: %w", provider.ID, err)
 	}
+	acpCredentialEnv, err := encodeACPMap(provider.ACPCredentialEnv)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar credenciais do cofre do agente do provider %q: %w", provider.ID, err)
+	}
 	createdAt := provider.CreatedAt
 	if createdAt.IsZero() {
 		if existing != nil && !existing.CreatedAt.IsZero() {
@@ -137,6 +151,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			ACPCommand:        provider.ACPCommand,
 			ACPArgs:           acpArgs,
 			ACPEnv:            acpEnv,
+			ACPCredentialEnv:  acpCredentialEnv,
 			ACPAgentID:        provider.ACPAgentID,
 			CreatedAt:         createdAt,
 			UpdatedAt:         updatedAt,
@@ -159,6 +174,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.ACPCommand = provider.ACPCommand
 	existing.ACPArgs = acpArgs
 	existing.ACPEnv = acpEnv
+	existing.ACPCredentialEnv = acpCredentialEnv
 	existing.ACPAgentID = provider.ACPAgentID
 	existing.CreatedAt = createdAt
 	existing.UpdatedAt = updatedAt
@@ -207,19 +223,55 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 			normalized.ACPAgentID = agentID
 		}
 		normalized.Type = acpProviderType
+		credentialEnv, err := normalizedCredentialEnv(normalized)
+		if err != nil {
+			return ProviderExport{}, err
+		}
+		normalized.ACPCredentialEnv = credentialEnv
 		return normalized, nil
 	}
 	// Configuração de agente fora do formato acp não teria leitor: nenhum
 	// caminho HTTP sobe processo. Recusar avisa quem montou o arquivo; guardar
 	// em silêncio deixaria a pessoa achando que configurou alguma coisa.
 	if normalized.ACPCommand != "" || len(normalized.ACPArgs) > 0 || len(normalized.ACPEnv) > 0 ||
-		normalized.ACPAgentID != "" {
+		len(normalized.ACPCredentialEnv) > 0 || normalized.ACPAgentID != "" {
 		return ProviderExport{}, fmt.Errorf("provider %q traz configuração de agente mas apiFormat é %q; use %q", normalized.ID, normalized.APIFormat, acpAPIFormat)
 	}
 	if normalized.BaseURL == "" {
 		return ProviderExport{}, fmt.Errorf("provider %q sem baseUrl não pode ser importado", normalized.ID)
 	}
 	return normalized, nil
+}
+
+// normalizedCredentialEnv aplica ao arquivo importado as mesmas regras que o
+// domínio aplica ao provedor criado pela tela (AEP-0086 D12): os dois lados do
+// par são obrigatórios, o nome tem de caber num ambiente de processo, e o
+// padrão entra aparado, porque a busca no cofre compara a string inteira.
+//
+// As regras estão repetidas aqui, e não importadas de `llm`, pelo mesmo ciclo
+// que já obriga a cópia do nome do formato acima; o teste de paridade é que
+// impede as duas de divergirem. Conferir na importação importa porque um
+// arquivo não passa pelo serviço de provedores: sem isto, o par inválido
+// entraria no banco e só quebraria na leitura seguinte.
+func normalizedCredentialEnv(provider ProviderExport) (map[string]string, error) {
+	if len(provider.ACPCredentialEnv) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(provider.ACPCredentialEnv))
+	for name, pattern := range provider.ACPCredentialEnv {
+		if strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("provider %q traz credencial do cofre sem o nome da variável de ambiente", provider.ID)
+		}
+		if strings.ContainsAny(name, "=\x00 \t\r\n") {
+			return nil, fmt.Errorf("provider %q traz nome de variável inválido para a credencial do cofre: %q", provider.ID, name)
+		}
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			return nil, fmt.Errorf("provider %q: a variável %s não diz de que entrada do cofre vem a credencial", provider.ID, name)
+		}
+		out[name] = trimmed
+	}
+	return out, nil
 }
 
 // encodeACPList e encodeACPMap gravam lista e mapa do agente com a mesma
@@ -250,6 +302,19 @@ func encodeACPMap(values map[string]string) (string, error) {
 	return string(raw), nil
 }
 
+// decodeStringMap lê o objeto JSON de uma coluna de texto. Vazio é ausência, e
+// não erro: a coluna nasce vazia em todo provedor que nunca teve o campo.
+func decodeStringMap(raw string) (map[string]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var result map[string]string
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func isACPExport(provider ProviderExport) bool {
 	return strings.TrimSpace(provider.APIFormat) == acpAPIFormat
 }
@@ -271,6 +336,54 @@ func acpCommandWarning(provider ProviderExport) string {
 		return ""
 	}
 	return fmt.Sprintf("Provider %q usa o agente %q, que não foi encontrado nesta máquina. Instale o agente ou edite o comando do provider antes de usá-lo.", provider.ID, command)
+}
+
+// acpCredentialWarnings conta que o agente importado espera uma entrada do
+// cofre que não existe nesta máquina (AEP-0086 D12).
+//
+// O arquivo traz a referência, e nunca o segredo: a entrada pode estar aqui com
+// outro nome, ter ficado só na máquina de origem, ou vir junto no mesmo arquivo
+// — este último caso já passou quando esta função roda. O provedor entra de
+// qualquer jeito, porque a configuração é legítima e o que falta é local; o que
+// não pode é a primeira conversa falhar pedindo autenticação sem ninguém
+// entender por quê.
+//
+// Os avisos saem em ordem de variável para o arquivo importado duas vezes dizer
+// a mesma coisa na mesma ordem.
+func acpCredentialWarnings(ctx context.Context, credMgr *credentials.Manager, provider ProviderExport) []string {
+	if !isACPExport(provider) || len(provider.ACPCredentialEnv) == 0 {
+		return nil
+	}
+	nomes := make([]string, 0, len(provider.ACPCredentialEnv))
+	for nome := range provider.ACPCredentialEnv {
+		nomes = append(nomes, nome)
+	}
+	sort.Strings(nomes)
+
+	var avisos []string
+	for _, nome := range nomes {
+		pattern := strings.TrimSpace(provider.ACPCredentialEnv[nome])
+		if pattern == "" {
+			continue
+		}
+		// Sem cofre disponível não dá para afirmar que a entrada falta — só
+		// que não deu para conferir. Avisar assim mesmo transformaria uma
+		// importação sem senha do cofre num punhado de avisos falsos.
+		if credMgr == nil {
+			continue
+		}
+		// Erro aqui é entrada existente e ilegível (cofre trancado, por
+		// exemplo), e não entrada ausente: quem lê o aviso não deve sair
+		// cadastrando de novo o que já está lá.
+		auth, err := credMgr.GetByPatternWithContext(ctx, pattern)
+		if err != nil || auth != nil {
+			continue
+		}
+		avisos = append(avisos, fmt.Sprintf(
+			"Provider %q passa a credencial %q ao agente pela variável %s, e essa entrada não está no cofre desta máquina. Cadastre-a nas credenciais ou tire a variável do provider.",
+			provider.ID, pattern, nome))
+	}
+	return avisos
 }
 
 func findExistingProviderByID(ctx context.Context, providerID string) (*database.LLMProvider, error) {
