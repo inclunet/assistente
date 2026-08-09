@@ -335,7 +335,8 @@ func (i *Installer) Install(ctx context.Context, agentID string, confirmed Confi
 	if existing, ok := i.Installed(agent.ID); ok {
 		return Installation{}, failf(StepPrepare, "%w: %s %s", ErrAlreadyInstalled, agent.Name, existing.Version)
 	}
-	return i.installAgent(ctx, agent, confirmed)
+	runtime := i.runtime()
+	return i.installAgent(ctx, agent, i.distributionFor(agent, runtime), runtime, confirmed)
 }
 
 // Update instala a versão que o catálogo publica ao lado da que está em uso e
@@ -371,19 +372,29 @@ func (i *Installer) Update(ctx context.Context, agentID string, confirmed Confir
 	if wouldDropVerification(agent, distribution, previous) {
 		return Updated{}, failf(StepCatalog, "%w: %s %s", ErrVerificationWouldDrop, agent.Name, version)
 	}
-	installation, err := i.installAgent(ctx, agent, confirmed)
+	// A distribuição e o runtime já foram resolvidos nas checagens acima. Passar
+	// os dois adiante é o que impede a instalação de escolher outro caminho se o
+	// Node aparecer ou sumir entre a conferência e o download.
+	installation, err := i.installAgent(ctx, agent, distribution, runtime, confirmed)
 	if err != nil {
 		return Updated{}, err
 	}
 	return Updated{Installed: installation, Previous: previous}, nil
 }
 
-// installAgent escolhe o caminho e instala. Instalar e atualizar passam pelos
-// mesmos passos — é a mesma versão sendo baixada, conferida e registrada —, e o
-// que os separa é o que acontece em volta.
-func (i *Installer) installAgent(ctx context.Context, agent acpregistry.Agent, confirmed Confirmed) (Installation, error) {
-	runtime := i.runtime()
-	if i.distributionFor(agent, runtime) == DistributionBinary {
+// installAgent instala pelo caminho já escolhido. Instalar e atualizar passam
+// pelos mesmos passos — é a mesma versão sendo baixada, conferida e registrada
+// —, e o que os separa é o que acontece em volta. Quem chama resolve runtime e
+// distribuição uma vez; resolver de novo aqui poderia trocar o caminho no meio
+// da atualização.
+func (i *Installer) installAgent(
+	ctx context.Context,
+	agent acpregistry.Agent,
+	distribution string,
+	runtime acp.NodeRuntime,
+	confirmed Confirmed,
+) (Installation, error) {
+	if distribution == DistributionBinary {
 		return i.installFromBinary(ctx, agent, confirmed)
 	}
 	return i.installFromNPM(ctx, agent, runtime, confirmed)
