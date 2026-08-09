@@ -111,6 +111,21 @@ Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - **Testes**: Vitest (frontend), `go test` (backend)
 - **i18n**: react-i18next (locales em `frontend/src/locales/`)
 
+## Bindings do Wails (`frontend/wailsjs/`)
+
+O conteúdo de `frontend/wailsjs/` é **gerado** (`wails generate module`, que
+`wails build` e `wails dev` também rodam) e versionado.
+
+- **NUNCA** edite esses arquivos à mão. A próxima geração apaga a edição, e até
+  lá o CI fica verde enquanto o build de quem compilar quebra.
+- O gerador só escreve os tipos que aparecem em **assinatura de método
+  exportado do `App`**. Struct que só viaja em evento não chega ao `models.ts`.
+- **Payload de evento é tipado à mão no frontend**, em interface TypeScript que
+  espelha o struct Go, junto de quem escuta o evento (ou em `types/`/`lib/`
+  quando o evento é transversal). Importar payload de evento de
+  `@wailsjs/go/models` é erro.
+- Precisa de um campo novo nos bindings? Mude o struct Go e regenere.
+
 ## i18n (Internacionalização — OBRIGATÓRIO)
 
 Todas as strings visíveis ao usuário DEVEM ser internacionalizadas.
@@ -166,11 +181,14 @@ branch de outro PR):
 - **Stylelint**: impede cores e font-sizes hardcoded (deve usar tokens do `theme.css`)
 - **Vitest** com `axe-core`: testes de acessibilidade nos componentes UI
 - **E2E**: Playwright
+- **Bindings**: regera `frontend/wailsjs/` e roda o `tsc` contra o resultado,
+  para o frontend não depender de tipo que o gerador não escreve
 
 ### O que o CI bloqueia
 - Cores hardcoded (#hex, rgb, rgba) em CSS — use variáveis do tema
 - Atributos ARIA inválidos — use os padrões documentados
 - Componentes sem labels de acessibilidade
+- Frontend apontando para tipo que o gerador de bindings não produz
 - Testes falhando (incluindo testes axe-core)
 
 ### A main descendo nos PRs abertos

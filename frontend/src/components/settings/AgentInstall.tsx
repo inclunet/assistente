@@ -21,7 +21,27 @@ import './AgentInstall.css';
 const INSTALL_PROGRESS_EVENT = 'acp:install:progress';
 
 type InstallPlan = app.ACPInstallPlan;
-type InstallProgress = app.ACPInstallProgress;
+
+/**
+ * Marco da instalação, como o backend o emite (`ACPInstallProgress`, em
+ * `internal/app/app_acp_install.go`).
+ *
+ * A forma é escrita aqui à mão, e não importada de `@wailsjs/go/models`, porque
+ * o gerador de bindings só escreve os tipos que aparecem em assinatura de
+ * método do App: o que viaja apenas em evento nunca chega ao `models.ts`, e
+ * apontar para lá quebra o build na primeira regeneração. É a convenção do
+ * projeto para payload de evento.
+ */
+export interface InstallProgress {
+  agent_id: string;
+  agent?: string;
+  /** `started`, `installing`, `verifying`, `done`, `failed` ou `cancelled`. */
+  stage: string;
+  /** A etapa que falhou; só vem em `failed`. */
+  step?: string;
+  /** O motivo em texto; só vem em `failed`. */
+  reason?: string;
+}
 
 /** Mensagem de erro que veio do backend, com recurso para o texto genérico. */
 const errorText = (error: unknown, fallback: string): string => {

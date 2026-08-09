@@ -386,12 +386,12 @@ export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
 }
 
-export function GetAgentPermissions() {
-  return window['go']['app']['App']['GetAgentPermissions']();
-}
-
 export function GetAgentConversationWorkDir(arg1) {
   return window['go']['app']['App']['GetAgentConversationWorkDir'](arg1);
+}
+
+export function GetAgentPermissions() {
+  return window['go']['app']['App']['GetAgentPermissions']();
 }
 
 export function GetAgentSessionCommands(arg1) {
@@ -606,12 +606,12 @@ export function GetMessagingStatus() {
   return window['go']['app']['App']['GetMessagingStatus']();
 }
 
-export function GetModels() {
-  return window['go']['app']['App']['GetModels']();
-}
-
 export function GetModelCatalogByProvider(arg1) {
   return window['go']['app']['App']['GetModelCatalogByProvider'](arg1);
+}
+
+export function GetModels() {
+  return window['go']['app']['App']['GetModels']();
 }
 
 export function GetModelsByProvider(arg1) {
@@ -882,12 +882,12 @@ export function RefreshAuth(arg1) {
   return window['go']['app']['App']['RefreshAuth'](arg1);
 }
 
-export function RefreshModels() {
-  return window['go']['app']['App']['RefreshModels']();
-}
-
 export function RefreshModelCatalogByProvider(arg1) {
   return window['go']['app']['App']['RefreshModelCatalogByProvider'](arg1);
+}
+
+export function RefreshModels() {
+  return window['go']['app']['App']['RefreshModels']();
 }
 
 export function RefreshModelsByProvider(arg1) {
