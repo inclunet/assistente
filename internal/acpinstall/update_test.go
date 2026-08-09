@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
+	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 )
 
@@ -389,5 +391,57 @@ func TestSemNodeOMotivoDeNaoAtualizarEOMesmoDeNaoInstalar(t *testing.T) {
 	}
 	if plano.UpdateReason != ErrRuntimeMissing.Error() {
 		t.Errorf("motivo = %q, queria %q", plano.UpdateReason, ErrRuntimeMissing.Error())
+	}
+}
+
+func TestAAtualizacaoNaoTrocaDeDistribuicaoNoMeioDoCaminho(t *testing.T) {
+	// Update confere a distribuição com um runtime e, antes, instalava com
+	// outro: se o npm aparecesse entre as duas buscas, a versão nova sairia por
+	// npm depois de a checagem ter validado o caminho binário. A distribuição
+	// decidida nas checagens é a que instala.
+	pacote := pacoteDoOpencode(t)
+	agente := opencodeNaVersao(t, opencodeVersao, digestDe(pacote))
+	agente.Distribution.NPX = &acpregistry.PackageDistribution{Package: "opencode-acp@" + opencodeVersao}
+	registro := &catalogoMutavel{agentes: []acpregistry.Agent{agente}}
+
+	semNpm := runtimeComNode()
+	semNpm.NPMScript, semNpm.NPM = "", ""
+	c := montar(t, opcoes{
+		source: registro,
+		runtime: func() acp.NodeRuntime {
+			return semNpm
+		},
+		http: &clienteFalso{corpo: pacote},
+		npm:  &npmFalso{pacote: "opencode-acp", binario: "bin/opencode.js"},
+	})
+	if _, err := c.instalador.Install(context.Background(), opencodeID, Confirmed{}); err != nil {
+		t.Fatalf("a instalação inicial falhou: %v", err)
+	}
+	instalada, _ := c.instalador.Installed(opencodeID)
+	if instalada.Distribution != DistributionBinary {
+		t.Fatalf("instalação inicial = %q, queria binário (sem npm na máquina)", instalada.Distribution)
+	}
+
+	novo := opencodeNaVersao(t, "0.5.0", digestDe(pacote))
+	novo.Distribution.NPX = &acpregistry.PackageDistribution{Package: "opencode-acp@0.5.0"}
+	registro.publicar(novo)
+
+	var consultas atomic.Int32
+	c.instalador.runtime = func() acp.NodeRuntime {
+		if consultas.Add(1) == 1 {
+			return semNpm
+		}
+		return runtimeComNode()
+	}
+
+	atualizada, err := c.instalador.Update(context.Background(), opencodeID, Confirmed{})
+	if err != nil {
+		t.Fatalf("a atualização falhou: %v", err)
+	}
+	if atualizada.Installed.Distribution != DistributionBinary {
+		t.Errorf("distribuição = %q, queria a binária que as checagens validaram", atualizada.Installed.Distribution)
+	}
+	if atualizada.Installed.Version != "0.5.0" {
+		t.Errorf("versão = %q, queria 0.5.0", atualizada.Installed.Version)
 	}
 }
