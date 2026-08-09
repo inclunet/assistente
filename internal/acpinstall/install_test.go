@@ -817,6 +817,29 @@ func TestRegistroQueDescreveOutraInstalacaoNaoContaComoInstalado(t *testing.T) {
 	}
 }
 
+func TestRegistroQueDizSerDeOutroAgenteNaoContaComoInstalado(t *testing.T) {
+	// A outra metade da mesma guarda: o registro que troca o identificador
+	// atribuiria a instalação de um agente a outro do catálogo, e a tela marcaria
+	// como "instalado por este app" um agente que ninguém instalou, apontando o
+	// diretório de um terceiro.
+	c := montar(t, opcoes{})
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
+	if err != nil {
+		t.Fatalf("não instalou: %v", err)
+	}
+	regravarRegistro(t, instalacao.Dir, func(r *Installation) { r.AgentID = "outro-agente" })
+
+	if _, ok := c.instalador.Installed(codexID); ok {
+		t.Error("aceitou um registro que diz ser de outro agente")
+	}
+	if _, ok := c.instalador.Installed("outro-agente"); ok {
+		t.Error("o registro adulterado passou a valer para o agente que ele nomeia")
+	}
+	if lista := c.instalador.List(); len(lista) != 0 {
+		t.Errorf("lista = %+v, queria vazia", lista)
+	}
+}
+
 func TestRegistroQueApontaParaForaDaInstalacaoNaoContaComoInstalado(t *testing.T) {
 	// Se o registro pudesse apontar para qualquer executável da máquina, trocar o
 	// arquivo bastaria para o app subir outra coisa achando que subiu o agente

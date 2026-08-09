@@ -197,6 +197,7 @@ func TestAInstalacaoNaoVerificadaContinuaDizendoIssoNoCatalogo(t *testing.T) {
 			AgentID:      "cursor",
 			Version:      "2026.01.02",
 			Dir:          "/home/ana/.assistente/agents/cursor/2026.01.02",
+			Distribution: acpinstall.DistributionBinary,
 			SHA256Origin: acpinstall.DigestObserved,
 		},
 	}
@@ -218,6 +219,7 @@ func TestAInstalacaoConferidaNaoEMarcadaComoNaoVerificada(t *testing.T) {
 			AgentID:      "goose",
 			Version:      "2.0.0",
 			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: acpinstall.DistributionBinary,
 			SHA256:       digestQualquer,
 			SHA256Origin: acpinstall.DigestVerified,
 		},
@@ -234,6 +236,56 @@ func TestAInstalacaoConferidaNaoEMarcadaComoNaoVerificada(t *testing.T) {
 	}
 	if !goose.InstalledByApp {
 		t.Error("a instalação é do app")
+	}
+}
+
+func TestOBinarioSemOrigemDeDigestConhecidaContaComoNaoVerificado(t *testing.T) {
+	// O registro vem do disco: um campo vazio ou com valor que o app não escreveu
+	// não é conferência, e tratá-lo como se fosse esconderia a ressalva
+	// justamente no caso em que ela mais vale.
+	instalado := map[string]acpinstall.Installation{
+		"goose": {
+			AgentID:      "goose",
+			Version:      "2.0.0",
+			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: acpinstall.DistributionBinary,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	if goose := acharPorID(t, catalogo, "goose"); !goose.InstalledUnverified {
+		t.Error("binário sem origem de digest conhecida foi dado como conferido")
+	}
+}
+
+func TestOPacoteNpmNaoGanhaRessalvaDeDigest(t *testing.T) {
+	// Quem confere o pacote é o próprio npm, e ali o campo é naturalmente vazio.
+	// Uma ressalva aqui seria alarme nos 21 agentes de pacote — e alarme que
+	// sempre toca é alarme que se aprende a ignorar.
+	instalado := map[string]acpinstall.Installation{
+		"codex-acp": {
+			AgentID:      "codex-acp",
+			Version:      "1.0.0",
+			Dir:          "/home/ana/.assistente/agents/codex-acp/1.0.0",
+			Distribution: acpinstall.DistributionNPM,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteNPM("codex-acp", "Codex")),
+		"linux-x86_64",
+		acpMachine{
+			runtimes:  map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true}},
+			installed: instalado,
+		},
+	)
+
+	if codex := acharPorID(t, catalogo, "codex-acp"); codex.InstalledUnverified {
+		t.Error("pacote npm marcado como instalação não verificada")
 	}
 }
 

@@ -386,12 +386,28 @@ func acpCatalogAgentFrom(agent acpregistry.Agent, platform string, machine acpMa
 		row.StateDetail = acp.SanitizeLabel(installation.Dir)
 		row.InstalledByApp = true
 		row.InstalledVersion = acp.SanitizeLabel(installation.Version)
-		row.InstalledUnverified = installation.SHA256Origin == acpinstall.DigestObserved
+		row.InstalledUnverified = unverifiedInstall(installation)
 		return row
 	}
 
 	row.State, row.StateDetail, row.DetectedVersion = acpCatalogState(agent.ID, fit, runtimeOK, machine.detected)
 	return row
+}
+
+// unverifiedInstall diz se o artefato que está no disco foi conferido contra um
+// digest publicado (D4).
+//
+// A pergunta só existe para artefato binário: no pacote npm quem confere é o
+// próprio npm, e ali o campo é naturalmente vazio — alertar sobre ele seria
+// alarme para os 21 agentes de pacote. Já no binário, qualquer coisa que não
+// seja "conferido" conta como não conferido, incluindo o campo vazio: o registro
+// vem do disco, e tratar valor que o app não escreveu como se fosse conferência
+// esconderia a ressalva justamente no caso em que ela mais vale.
+func unverifiedInstall(installation acpinstall.Installation) bool {
+	if installation.Distribution != acpinstall.DistributionBinary {
+		return false
+	}
+	return installation.SHA256Origin != acpinstall.DigestVerified
 }
 
 // acpCatalogState decide o estado da linha nesta máquina.
