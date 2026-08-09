@@ -85,6 +85,15 @@ type LLMProvider struct {
 	ACPCommand string `gorm:"type:text"`
 	ACPArgs    string `gorm:"type:text"` // array JSON
 	ACPEnv     string `gorm:"type:text"` // objeto JSON
+	// ACPCredentialEnv guarda os pares de variável de ambiente e padrão do
+	// cofre que o agente recebe ao subir (AEP-0086 D12). Objeto JSON, como o
+	// ACPEnv ao lado, e pela mesma razão.
+	//
+	// O que mora aqui é referência, não segredo: o valor continua no cofre,
+	// cifrado pela DEK, e só é resolvido no instante de montar o ambiente do
+	// processo. Uma coluna comum com o segredo dentro é exatamente o que este
+	// campo existe para evitar.
+	ACPCredentialEnv string `gorm:"type:text"` // objeto JSON
 	// ACPAgentID é o `id` da linha do registro ACP, quando o agente veio do
 	// catálogo (AEP-0086 D11). Fica ao lado do comando porque é da mesma
 	// natureza que ele — diz qual agente é, e não que marca de provedor é —, e

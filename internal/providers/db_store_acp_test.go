@@ -70,6 +70,39 @@ func TestProvedorACPSobreviveAoIdaEVoltaDoBanco(t *testing.T) {
 	}
 }
 
+// O par variável/cofre vai e volta pelo banco, e o que a coluna guarda é a
+// referência: o segredo continua no cofre, e ninguém consegue lê-lo abrindo a
+// tabela de provedores (AEP-0086 D12).
+func TestOParDeVariavelEEntradaDoCofreVoltaDoBancoSemSegredo(t *testing.T) {
+	acpTestDB(t)
+	ctx := database.WithUserID(context.Background(), "u1")
+	store := NewDBStore()
+
+	if err := store.Save(ctx, []*llm.ProviderConfig{{
+		ID: "codex", Name: "Codex", Type: llm.ProviderACP, APIFormat: llm.APIFormatACP,
+		ACPCommand:       "codex-acp",
+		ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+	}}); err != nil {
+		t.Fatalf("Save falhou: %v", err)
+	}
+
+	volta, err := store.Get(ctx, "codex")
+	if err != nil {
+		t.Fatalf("Get falhou: %v", err)
+	}
+	if volta.ACPCredentialEnv["OPENAI_API_KEY"] != "api.openai.com" {
+		t.Errorf("credenciais do cofre = %#v", volta.ACPCredentialEnv)
+	}
+
+	var linha database.LLMProvider
+	if err := database.DB().Where("id = ?", "codex").First(&linha).Error; err != nil {
+		t.Fatalf("linha não encontrada: %v", err)
+	}
+	if linha.ACPCredentialEnv != `{"OPENAI_API_KEY":"api.openai.com"}` {
+		t.Errorf("coluna = %q, esperado só o par variável/padrão", linha.ACPCredentialEnv)
+	}
+}
+
 // Provedor HTTP não ganha coluna de agente preenchida com "[]" ou "null": a
 // linha dele continua legível para quem for depurar o banco na mão.
 func TestProvedorHTTPNaoGanhaSujeiraDeAgente(t *testing.T) {
@@ -88,8 +121,9 @@ func TestProvedorHTTPNaoGanhaSujeiraDeAgente(t *testing.T) {
 	if err := database.DB().Where("id = ?", "openai").First(&linha).Error; err != nil {
 		t.Fatalf("linha não encontrada: %v", err)
 	}
-	if linha.ACPArgs != "" || linha.ACPEnv != "" || linha.ACPCommand != "" {
-		t.Errorf("colunas de agente sujas: comando=%q args=%q env=%q", linha.ACPCommand, linha.ACPArgs, linha.ACPEnv)
+	if linha.ACPArgs != "" || linha.ACPEnv != "" || linha.ACPCommand != "" || linha.ACPCredentialEnv != "" {
+		t.Errorf("colunas de agente sujas: comando=%q args=%q env=%q cofre=%q",
+			linha.ACPCommand, linha.ACPArgs, linha.ACPEnv, linha.ACPCredentialEnv)
 	}
 }
 

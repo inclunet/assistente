@@ -188,6 +188,10 @@ type CreateRequest struct {
 	ACPCommand string
 	ACPArgs    []string
 	ACPEnv     map[string]string
+	// ACPCredentialEnv são os pares de variável de ambiente e padrão do cofre
+	// que o agente recebe ao subir (AEP-0086 D12). Vazio — o padrão — é o
+	// ambiente de sempre: o app não injeta credencial nenhuma.
+	ACPCredentialEnv map[string]string
 	// ACPAgentID diz qual agente do registro é este provedor (AEP-0086 D11).
 	// Vazio é agente configurado à mão, que continua sendo caminho válido.
 	ACPAgentID string
@@ -323,7 +327,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		// depois de a credencial já ter ido para o cofre, e um provedor que
 		// nem chegou a existir não pode deixar segredo para trás.
 		if strings.TrimSpace(req.ACPCommand) != "" || len(req.ACPArgs) > 0 || len(req.ACPEnv) > 0 ||
-			strings.TrimSpace(req.ACPAgentID) != "" {
+			len(req.ACPCredentialEnv) > 0 || strings.TrimSpace(req.ACPAgentID) != "" {
 			return nil, fmt.Errorf("configuração de agente exige api_format %q", llm.APIFormatACP)
 		}
 	}
@@ -366,6 +370,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		ACPCommand:        req.ACPCommand,
 		ACPArgs:           append([]string(nil), req.ACPArgs...),
 		ACPEnv:            copyStringMap(req.ACPEnv),
+		ACPCredentialEnv:  copyStringMap(req.ACPCredentialEnv),
 		ACPAgentID:        strings.TrimSpace(req.ACPAgentID),
 	}
 	normalizeProviderRuntimeDefaults(provider)
@@ -409,6 +414,10 @@ type UpdateRequest struct {
 	// e "vazio é não mexer" tornaria isso impossível.
 	ACPArgs *[]string
 	ACPEnv  *map[string]string
+	// ACPCredentialEnv é ponteiro pela mesma razão, e aqui ela pesa mais:
+	// desligar a passagem de credencial é mandar o mapa vazio, e é a única
+	// forma de desligá-la (AEP-0086 D12). Nulo é "não mexer".
+	ACPCredentialEnv *map[string]string
 	// ACPAgentID é ponteiro pela mesma razão que ACPArgs e ACPEnv: aqui o
 	// vazio é escolha legítima. Trocar o agente de um provedor é edição
 	// comum — quem instalou o Gemini CLI no lugar do Cursor mantém o provedor
@@ -446,6 +455,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		ACPCommand:        existing.ACPCommand,
 		ACPArgs:           append([]string(nil), existing.ACPArgs...),
 		ACPEnv:            copyStringMap(existing.ACPEnv),
+		ACPCredentialEnv:  copyStringMap(existing.ACPCredentialEnv),
 		ACPAgentID:        existing.ACPAgentID,
 	}
 
@@ -490,8 +500,12 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if req.ACPEnv != nil {
 		updated.ACPEnv = copyStringMap(*req.ACPEnv)
 	}
+	if req.ACPCredentialEnv != nil {
+		updated.ACPCredentialEnv = copyStringMap(*req.ACPCredentialEnv)
+	}
 	if !updated.IsACP() {
-		if acpCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil || acpAgentID != "" {
+		if acpCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil ||
+			req.ACPCredentialEnv != nil || acpAgentID != "" {
 			return nil, fmt.Errorf("provider '%s' não é acp: para configurar um agente, mude o api_format para %q", id, llm.APIFormatACP)
 		}
 		// Deixar de ser agente é largar o comando junto. Guardá-lo escondido
@@ -502,6 +516,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.ACPCommand = ""
 		updated.ACPArgs = nil
 		updated.ACPEnv = nil
+		updated.ACPCredentialEnv = nil
 		updated.ACPAgentID = ""
 		if existing.IsACP() {
 			// O `none` era decisão de quando não havia para onde mandar

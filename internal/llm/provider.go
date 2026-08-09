@@ -150,6 +150,28 @@ type ProviderConfig struct {
 	ACPArgs    []string          `json:"acp_args,omitempty"`
 	ACPEnv     map[string]string `json:"acp_env,omitempty"`
 
+	// ACPCredentialEnv diz quais variáveis do ambiente do agente recebem uma
+	// credencial do cofre, e de qual entrada dele: a chave é o nome da
+	// variável, e o valor é o padrão de domínio que a resolve no momento de
+	// subir o processo (AEP-0086 D12).
+	//
+	// O que fica guardado aqui é a referência, e não o segredo. Colar o
+	// segredo já era possível pelo ACPEnv, e é justamente o que este campo
+	// existe para evitar: ali ele mora numa coluna comum, em texto claro,
+	// fora do cofre, sem rotação num ponto só e sem aparecer no inventário de
+	// segredos. A referência não é segredo, então ela viaja no arquivo
+	// exportado e pode ser lida pela tela.
+	//
+	// Ele não reaproveita o CredentialPattern de propósito: aquele campo diz
+	// que credencial autentica as chamadas HTTP do provedor, e um agente não
+	// faz nenhuma — tanto que a normalização o zera em todo provedor ACP.
+	// Reusá-lo faria o mesmo campo querer dizer duas coisas conforme o
+	// formato.
+	//
+	// Vazio — que é o padrão — é o ambiente do agente exatamente como sempre
+	// foi: quem autentica é o CLI do agente, e o app não injeta nada.
+	ACPCredentialEnv map[string]string `json:"acp_credential_env,omitempty"`
+
 	// ACPAgentID diz qual agente do registro é este provedor (AEP-0086 D11).
 	//
 	// Ele fica aqui, e não no Type, porque o Type é rótulo de marca e este é o
@@ -329,17 +351,52 @@ func (p *ProviderConfig) Validate() error {
 		if p.ACPCommand == "" {
 			return fmt.Errorf("provider acp sem comando: informe o executável do agente")
 		}
-		return nil
+		return p.validateCredentialEnv()
 	}
 	// Configuração de agente fora do formato acp é configuração que ninguém
 	// lê: nenhum caminho HTTP sobe processo, e argumentos ou variáveis soltos
 	// enganam tanto quanto o comando. Recusar é melhor do que guardar em
 	// silêncio algo que a pessoa configurou esperando efeito.
-	if p.ACPCommand != "" || len(p.ACPArgs) > 0 || len(p.ACPEnv) > 0 {
+	if p.ACPCommand != "" || len(p.ACPArgs) > 0 || len(p.ACPEnv) > 0 || len(p.ACPCredentialEnv) > 0 {
 		return fmt.Errorf("provider %s tem configuração de agente mas api_format é %q; use %q", p.ID, p.GetAPIFormat(), APIFormatACP)
 	}
 	if p.BaseURL == "" {
 		return fmt.Errorf("provider base_url vazio")
+	}
+	return nil
+}
+
+// validateCredentialEnv recusa par de variável e padrão do cofre que não dá
+// para cumprir (AEP-0086 D12).
+//
+// Os dois lados são obrigatórios porque nenhum dos dois sozinho descreve o que
+// fazer: variável sem padrão é uma credencial que não existe, e padrão sem
+// variável é um segredo decifrado sem lugar para ir. Guardar qualquer um dos
+// dois em silêncio faria o agente subir sem a credencial que alguém acha que
+// configurou — e é justamente o que o D12 pede para não acontecer.
+//
+// O nome da variável também é conferido: `=` e byte zero não passam pelo
+// `exec`, e um nome com espaço vira uma variável que o agente não encontra.
+//
+// O padrão é aparado aqui, como o comando é: a busca no cofre compara a string
+// inteira, e um espaço colado num "api.openai.com " faria a entrada certa
+// parecer inexistente na hora de subir o agente.
+func (p *ProviderConfig) validateCredentialEnv() error {
+	if len(p.ACPCredentialEnv) == 0 {
+		return nil
+	}
+	for name, pattern := range p.ACPCredentialEnv {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("provider %s tem credencial do cofre sem o nome da variável de ambiente", p.ID)
+		}
+		if strings.ContainsAny(name, "=\x00 \t\r\n") {
+			return fmt.Errorf("provider %s tem nome de variável inválido para a credencial do cofre: %q", p.ID, name)
+		}
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			return fmt.Errorf("provider %s: a variável %s não diz de que entrada do cofre vem a credencial", p.ID, name)
+		}
+		p.ACPCredentialEnv[name] = trimmed
 	}
 	return nil
 }

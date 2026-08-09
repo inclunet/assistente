@@ -129,6 +129,7 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		ACPCommand:        p.ACPCommand,
 		ACPArgs:           encodeACPList(p.ACPArgs),
 		ACPEnv:            encodeACPMap(p.ACPEnv),
+		ACPCredentialEnv:  encodeACPMap(p.ACPCredentialEnv),
 		ACPAgentID:        p.ACPAgentID,
 	}
 }
@@ -141,6 +142,10 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 	env, err := decodeACPMap(dbP.ACPEnv)
 	if err != nil {
 		return nil, fmt.Errorf("variáveis de ambiente do agente ilegíveis: %w", err)
+	}
+	credentialEnv, err := decodeACPMap(dbP.ACPCredentialEnv)
+	if err != nil {
+		return nil, fmt.Errorf("credenciais do cofre do agente ilegíveis: %w", err)
 	}
 	p := &llm.ProviderConfig{
 		ID:                dbP.ID,
@@ -157,6 +162,7 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		ACPCommand:        dbP.ACPCommand,
 		ACPArgs:           args,
 		ACPEnv:            env,
+		ACPCredentialEnv:  credentialEnv,
 		ACPAgentID:        dbP.ACPAgentID,
 	}
 	normalizeProviderRuntimeDefaults(p)

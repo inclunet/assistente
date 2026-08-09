@@ -80,6 +80,92 @@ func TestValidateDeProvedorACPTrocaURLPorComando(t *testing.T) {
 	}
 }
 
+// O par variável/cofre só serve se os dois lados estiverem lá e o nome couber
+// num ambiente de processo. Meio par guardado em silêncio faria o agente subir
+// sem a credencial que alguém acha que configurou (AEP-0086 D12).
+func TestValidateConfereOParDeVariavelEEntradaDoCofre(t *testing.T) {
+	casos := []struct {
+		nome     string
+		cfg      ProviderConfig
+		erro     bool
+		contendo string
+	}{
+		{
+			nome: "par completo passa",
+			cfg: ProviderConfig{
+				ID: "codex", Name: "Codex", APIFormat: APIFormatACP,
+				ACPCommand:       "codex-acp",
+				ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+			},
+		},
+		{
+			nome: "variável sem entrada do cofre não vale",
+			cfg: ProviderConfig{
+				ID: "codex", Name: "Codex", APIFormat: APIFormatACP,
+				ACPCommand:       "codex-acp",
+				ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "   "},
+			},
+			erro: true, contendo: "de que entrada do cofre",
+		},
+		{
+			nome: "entrada do cofre sem variável não vale",
+			cfg: ProviderConfig{
+				ID: "codex", Name: "Codex", APIFormat: APIFormatACP,
+				ACPCommand:       "codex-acp",
+				ACPCredentialEnv: map[string]string{"  ": "api.openai.com"},
+			},
+			erro: true, contendo: "sem o nome da variável",
+		},
+		{
+			nome: "nome com igual não chega ao processo",
+			cfg: ProviderConfig{
+				ID: "codex", Name: "Codex", APIFormat: APIFormatACP,
+				ACPCommand:       "codex-acp",
+				ACPCredentialEnv: map[string]string{"OPENAI=KEY": "api.openai.com"},
+			},
+			erro: true, contendo: "nome de variável inválido",
+		},
+		{
+			nome: "nome com espaço vira variável que o agente não acha",
+			cfg: ProviderConfig{
+				ID: "codex", Name: "Codex", APIFormat: APIFormatACP,
+				ACPCommand:       "codex-acp",
+				ACPCredentialEnv: map[string]string{"OPENAI KEY": "api.openai.com"},
+			},
+			erro: true, contendo: "nome de variável inválido",
+		},
+		{
+			// O caminho HTTP não sobe processo nenhum, então não há ambiente
+			// onde essa variável pudesse existir.
+			nome: "cofre por variável em provedor http é recusado",
+			cfg: ProviderConfig{
+				ID: "openai", Name: "OpenAI", BaseURL: "https://api.openai.com/v1",
+				ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+			},
+			erro: true, contendo: "configuração de agente",
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			cfg := caso.cfg
+			err := cfg.Validate()
+			if caso.erro {
+				if err == nil {
+					t.Fatalf("esperava recusa, obtive nil")
+				}
+				if !strings.Contains(err.Error(), caso.contendo) {
+					t.Errorf("erro %q não menciona %q", err.Error(), caso.contendo)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate falhou: %v", err)
+			}
+		})
+	}
+}
+
 // Espaço nas pontas do comando vira erro de execução difícil de ler; some aqui,
 // como já some do resto.
 func TestValidateAparaOComandoDoAgente(t *testing.T) {

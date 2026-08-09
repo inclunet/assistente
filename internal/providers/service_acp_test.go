@@ -238,6 +238,84 @@ func TestVirarAgenteApagaOEnderecoAntigo(t *testing.T) {
 	}
 }
 
+// Desligar a passagem de credencial é mandar o mapa vazio, e precisa funcionar
+// na hora: é a reversão que o D12 promete, e sem ela a única saída seria apagar
+// o provedor.
+func TestEdicaoConsegueDesligarACredencialDoCofre(t *testing.T) {
+	svc, _ := acpService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, CreateRequest{
+		ID: "codex", Name: "Codex", APIFormat: string(llm.APIFormatACP),
+		ACPCommand:       "codex-acp",
+		ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	vazio := map[string]string{}
+	res, err := svc.Update(ctx, "codex", UpdateRequest{ACPCredentialEnv: &vazio})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+	if len(res.Provider.ACPCredentialEnv) != 0 {
+		t.Errorf("credenciais do cofre = %#v, esperado nenhuma", res.Provider.ACPCredentialEnv)
+	}
+	if res.Provider.ACPCommand != "codex-acp" {
+		t.Errorf("comando = %q, esperado intacto", res.Provider.ACPCommand)
+	}
+}
+
+// Ligar a passagem guarda a referência, e nada mais: o cofre não recebe entrada
+// nova por causa disso, e o provedor continua sem credencial própria.
+func TestCriarAgenteComCredencialDoCofreGuardaSoAReferencia(t *testing.T) {
+	svc, spy := acpService(t)
+
+	res, err := svc.Create(context.Background(), CreateRequest{
+		ID: "codex", Name: "Codex", APIFormat: string(llm.APIFormatACP),
+		ACPCommand:       "codex-acp",
+		ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+	})
+	if err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+	if res.Provider.ACPCredentialEnv["OPENAI_API_KEY"] != "api.openai.com" {
+		t.Errorf("credenciais do cofre = %#v", res.Provider.ACPCredentialEnv)
+	}
+	if len(spy.registrados) != 0 {
+		t.Errorf("o cofre ganhou entrada por causa da referência: %v", spy.registrados)
+	}
+	if res.Provider.CredentialPattern != "" {
+		t.Errorf("credential_pattern = %q, esperado vazio: o agente não faz chamada HTTP", res.Provider.CredentialPattern)
+	}
+}
+
+// Provedor HTTP não tem processo onde a variável pudesse existir, e guardar o
+// par em silêncio faria alguém achar que configurou algo.
+func TestCredencialDoCofrePorVariavelExigeAgente(t *testing.T) {
+	svc, _ := acpService(t)
+	ctx := context.Background()
+
+	_, err := svc.Create(ctx, CreateRequest{
+		ID: "openai", Name: "OpenAI", Type: string(llm.ProviderOpenAI),
+		BaseURL:          "https://api.openai.com/v1",
+		ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "api_format") {
+		t.Fatalf("erro = %v, esperado cobrar o formato acp", err)
+	}
+
+	if _, err := svc.Create(ctx, CreateRequest{
+		ID: "openai", Name: "OpenAI", Type: string(llm.ProviderOpenAI),
+		BaseURL: "https://api.openai.com/v1",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+	cofre := map[string]string{"OPENAI_API_KEY": "api.openai.com"}
+	if _, err := svc.Update(ctx, "openai", UpdateRequest{ACPCredentialEnv: &cofre}); err == nil {
+		t.Fatal("esperava recusa de credencial por variável em provedor HTTP")
+	}
+}
+
 // Voltar um agente para HTTP tem que ser edição, e não apagar e recriar: o
 // comando antigo sai junto com o formato, senão a própria validação — que
 // recusa comando em provedor HTTP — travaria a mudança.
@@ -248,7 +326,8 @@ func TestAgentePodeVoltarASerProvedorHTTP(t *testing.T) {
 		ID: "cursor", Name: "Cursor", Type: string(llm.ProviderOpenAI),
 		APIFormat:  string(llm.APIFormatACP),
 		ACPCommand: "cursor-agent", ACPArgs: []string{"acp"},
-		ACPEnv: map[string]string{"CURSOR_LOG": "debug"},
+		ACPEnv:           map[string]string{"CURSOR_LOG": "debug"},
+		ACPCredentialEnv: map[string]string{"CURSOR_API_KEY": "api.cursor.com"},
 	}); err != nil {
 		t.Fatalf("Create falhou: %v", err)
 	}
@@ -262,7 +341,8 @@ func TestAgentePodeVoltarASerProvedorHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update falhou: %v", err)
 	}
-	if res.Provider.ACPCommand != "" || len(res.Provider.ACPArgs) != 0 || len(res.Provider.ACPEnv) != 0 {
+	if res.Provider.ACPCommand != "" || len(res.Provider.ACPArgs) != 0 || len(res.Provider.ACPEnv) != 0 ||
+		len(res.Provider.ACPCredentialEnv) != 0 {
 		t.Errorf("sobrou configuração de agente: %+v", res.Provider)
 	}
 	if res.Provider.CredentialPattern != "api.openai.com" {
