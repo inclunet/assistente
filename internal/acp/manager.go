@@ -32,6 +32,12 @@ type ProviderSpec struct {
 	Command string
 	Args    []string
 	Env     map[string]string
+
+	// CredentialEnv diz quais variáveis do ambiente do agente recebem uma
+	// credencial do cofre, e de qual entrada dele (AEP-0086 D12). O que anda
+	// por aqui é a referência: o valor só é lido no instante de subir o
+	// processo, por quem tem o cofre em mãos.
+	CredentialEnv map[string]string
 }
 
 func (s ProviderSpec) validate() error {
@@ -47,10 +53,15 @@ func (s ProviderSpec) validate() error {
 // sameProcess diz se dois specs sobem o mesmo agente. Mudar comando, argumento
 // ou variável de ambiente é passar a falar com outro programa: o processo de pé
 // precisa morrer, e as sessões que viviam nele não valem mais.
+//
+// Trocar a credencial do cofre conta pela mesma razão, e é o que faz desligar a
+// passagem valer no processo seguinte: ambiente não se edita depois do exec, e
+// o que está de pé nasceu com a variável.
 func (s ProviderSpec) sameProcess(other ProviderSpec) bool {
 	return s.Command == other.Command &&
 		slices.Equal(s.Args, other.Args) &&
-		maps.Equal(s.Env, other.Env)
+		maps.Equal(s.Env, other.Env) &&
+		maps.Equal(s.CredentialEnv, other.CredentialEnv)
 }
 
 // SessionOrigin diz de onde veio a sessão que a conversa está usando. Não é
@@ -120,6 +131,16 @@ type ManagerConfig struct {
 	// pessoa trocou de workspace para olhar outra coisa.
 	ConversationDir func(conversationID string) (string, error)
 
+	// ResolveCredential lê no cofre o valor de um padrão, para as variáveis que
+	// o provider pediu que recebessem credencial (AEP-0086 D12). Recebe o
+	// contexto de quem está subindo o agente, porque o cofre é escopado por
+	// usuário.
+	//
+	// Nulo é cofre indisponível: provider sem par configurado sobe igual, e
+	// provider com par configurado falha o spawn dizendo isso — subir sem a
+	// variável é o que o D12 manda não fazer.
+	ResolveCredential func(ctx context.Context, pattern string) (string, error)
+
 	// OnSessionCommands é avisado quando o agente conta quais comandos a sessão
 	// de uma conversa oferece (AEP-0084 D8). Nulo apenas silencia o aviso.
 	//
@@ -149,6 +170,7 @@ type Manager struct {
 	clientVersion string
 	onOptions     func(SessionOptionsEvent)
 	onCommands    func(SessionCommandsEvent)
+	resolveCred   func(context.Context, string) (string, error)
 	dial          func(Config, RequestHandler) (Client, error)
 
 	// mu protege os mapas. Ordem dos locks: quem segura o de uma conversa pode
@@ -197,6 +219,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		clientVersion: cfg.ClientVersion,
 		onOptions:     cfg.OnSessionOptions,
 		onCommands:    cfg.OnSessionCommands,
+		resolveCred:   cfg.ResolveCredential,
 		dial:          cfg.Dial,
 		procs:         make(map[string]*agentProcess),
 		convs:         make(map[string]*Conversation),
@@ -252,6 +275,7 @@ func (m *Manager) process(spec ProviderSpec) (*agentProcess, error) {
 		Command:       spec.Command,
 		Args:          slices.Clone(spec.Args),
 		Env:           maps.Clone(spec.Env),
+		Secrets:       m.secretsFor(spec),
 		WorkDir:       m.processWorkDir(),
 		ClientName:    m.clientName,
 		ClientVersion: m.clientVersion,
@@ -273,6 +297,53 @@ func (m *Manager) process(spec ProviderSpec) (*agentProcess, error) {
 	proc := &agentProcess{spec: spec, client: client}
 	m.procs[spec.ID] = proc
 	return proc, nil
+}
+
+// secretsFor devolve como resolver, na hora de subir o processo, as variáveis
+// que o provider mandou receber credencial do cofre (AEP-0086 D12).
+//
+// Nulo quando não há par configurado, que é o padrão: sem isso, todo agente
+// pagaria uma ida ao cofre para descobrir que não tem nada a pedir.
+//
+// A resolução fica para o momento do spawn, e não acontece aqui, por duas
+// razões: o valor não pode ficar guardado em estrutura de longa vida, e o cofre
+// é escopado por usuário — quem resolve precisa do contexto de quem está
+// subindo o agente.
+func (m *Manager) secretsFor(spec ProviderSpec) func(context.Context) (map[string]string, error) {
+	if len(spec.CredentialEnv) == 0 {
+		return nil
+	}
+	pares := maps.Clone(spec.CredentialEnv)
+	resolve := m.resolveCred
+	providerID := spec.ID
+
+	return func(ctx context.Context) (map[string]string, error) {
+		if resolve == nil {
+			return nil, fmt.Errorf(
+				"o provider %q entrega credencial do cofre ao agente, mas o cofre não está disponível", providerID)
+		}
+		// Em ordem de variável para o erro de um provider com vários pares
+		// nomear sempre o mesmo primeiro faltante, e não um a cada tentativa.
+		nomes := slices.Sorted(maps.Keys(pares))
+
+		out := make(map[string]string, len(nomes))
+		for _, nome := range nomes {
+			pattern := pares[nome]
+			valor, err := resolve(ctx, pattern)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"ler do cofre a credencial %q, que o provider %q entrega na variável %s: %w",
+					pattern, providerID, nome, err)
+			}
+			if valor == "" {
+				return nil, fmt.Errorf(
+					"a credencial %q, que o provider %q entrega na variável %s, não está no cofre ou não tem valor",
+					pattern, providerID, nome)
+			}
+			out[nome] = valor
+		}
+		return out, nil
+	}
 }
 
 // processWorkDir é o diretório do processo. Um erro aqui não impede subir o

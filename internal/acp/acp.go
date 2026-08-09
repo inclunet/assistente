@@ -63,6 +63,24 @@ type Config struct {
 	// Env são variáveis extras; o ambiente do processo pai é sempre herdado.
 	Env map[string]string
 
+	// Secrets resolve, no instante de subir o processo, as variáveis que
+	// recebem credencial do cofre (AEP-0086 D12). Devolve o par nome → valor,
+	// e é chamada uma vez por processo, e não uma vez por turno: o ambiente de
+	// um processo não se edita depois do exec.
+	//
+	// É função, e não mapa, porque o valor não pode ficar guardado em
+	// configuração: quem o guardasse o teria em memória enquanto o provedor
+	// existisse, e o cofre é escopado por usuário — resolver aqui é o que
+	// garante que o segredo lido é o de quem está usando o app agora.
+	//
+	// Erro dela falha o spawn. Subir o agente sem a variável faria o agente
+	// pedir autenticação sem ninguém entender por quê, que é exatamente o que
+	// o D12 manda evitar.
+	//
+	// Nula é o padrão, e o padrão é o ambiente de sempre: o app não injeta
+	// credencial nenhuma.
+	Secrets func(ctx context.Context) (map[string]string, error)
+
 	// WorkDir é o diretório de trabalho do processo do agente.
 	WorkDir string
 

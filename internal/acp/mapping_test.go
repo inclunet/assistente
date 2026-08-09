@@ -75,7 +75,7 @@ func TestConjuntoDeOpcoesSemNadaMapeavelNaoViraEventoVazio(t *testing.T) {
 // quando o agente despeja um stack trace que o diagnóstico seguinte importa.
 func TestLinhaGiganteNoStderrNaoCalaODiagnosticoSeguinte(t *testing.T) {
 	registradas := make(chan string, 8)
-	writer := newStderrLoggerTo(func(line string) { registradas <- line })
+	writer := newStderrLoggerTo(func(line string) { registradas <- line }, 0)
 
 	go func() {
 		_, _ = fmt.Fprintln(writer, "antes")

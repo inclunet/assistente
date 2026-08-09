@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -337,11 +338,18 @@ type conn struct {
 func dial(ctx context.Context, cfg Config, handler RequestHandler) (*conn, error) {
 	// O contexto do processo é independente do ctx da chamada: quem pediu o
 	// primeiro turno não é dono do agente, que serve todas as conversas.
+	// Antes de qualquer processo: sem a credencial que alguém configurou, não
+	// há agente para subir (AEP-0086 D12).
+	secrets, err := resolveSecrets(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	procCtx, kill := context.WithCancel(context.Background())
 
 	cmd := exec.CommandContext(procCtx, cfg.Command, cfg.Args...)
 	cmd.Dir = cfg.WorkDir
-	cmd.Env = buildEnv(cfg.Env)
+	cmd.Env = buildEnv(cfg.Env, secrets)
 	// Sem isso, no Windows o agente abre uma janela de console que rouba o foco
 	// e faz o leitor de telas anunciar o caminho do executável.
 	osutil.HideConsoleWindow(cmd)
@@ -357,7 +365,7 @@ func dial(ctx context.Context, cfg Config, handler RequestHandler) (*conn, error
 		_ = stdin.Close()
 		return nil, fmt.Errorf("abrir saída do agente %s: %w", describeAgent(cfg), err)
 	}
-	stderr := newStderrLogger(cfg.Command)
+	stderr := newStderrLogger(cfg.Command, secrets)
 	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
@@ -888,12 +896,42 @@ func wrapCallError(action string, err error) error {
 // ambiente antes de criar o processo, mantendo a última ocorrência de cada
 // chave (sem diferenciar maiúsculas no Windows). Nenhuma chave repetida chega
 // ao processo-filho.
-func buildEnv(extra map[string]string) []string {
+//
+// As do cofre vêm por último, depois das extras, pela mesma mecânica: quando a
+// mesma variável está declarada nos dois lugares, quem vale é a do cofre. Ela é
+// o caminho nomeado do AEP-0086 D12, e o outro é um valor colado à mão que
+// alguém pode ter esquecido ali.
+//
+// Este é o único lugar onde a credencial entra num ambiente. O app nunca chama
+// os.Setenv, então ela existe só no processo daquele agente: não é herdada por
+// servidor MCP, por comando de shell de tool nem por qualquer outro filho, e
+// morre com ele.
+func buildEnv(extra map[string]string, secrets map[string]string) []string {
 	base := os.Environ()
 	for k, v := range extra {
 		base = append(base, fmt.Sprintf("%s=%s", k, v))
 	}
+	for k, v := range secrets {
+		base = append(base, fmt.Sprintf("%s=%s", k, v))
+	}
 	return base
+}
+
+// resolveSecrets pede as credenciais do cofre no instante de subir o processo.
+//
+// Falhar aqui é recusar o spawn, e é escolha: o agente que sobe sem a variável
+// pede autenticação depois, longe de quem poderia consertar, e a pessoa que
+// configurou a passagem não tem como saber que ela não aconteceu (AEP-0086
+// D12).
+func resolveSecrets(ctx context.Context, cfg Config) (map[string]string, error) {
+	if cfg.Secrets == nil {
+		return nil, nil
+	}
+	secrets, err := cfg.Secrets(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolver a credencial do agente %s: %w", describeAgent(cfg), err)
+	}
+	return secrets, nil
 }
 
 // newStderrLogger encaminha o stderr do agente para o log, linha a linha. Sem
@@ -905,25 +943,115 @@ func buildEnv(extra map[string]string) []string {
 // mantém o diagnóstico das linhas seguintes.
 const stderrLineLimit = 64 * 1024
 
-func newStderrLogger(command string) *io.PipeWriter {
+func newStderrLogger(command string, secrets map[string]string) *io.PipeWriter {
 	name := filepath.Base(command)
-	return newStderrLoggerTo(func(line string) {
+	return newRedactedStderrLoggerTo(func(line string) {
 		logging.Warnf(context.Background(), logComponent, "[ACP] %s: %s", name, line)
-	})
+	}, secrets)
 }
 
+// newRedactedStderrLoggerTo é o leitor de stderr com a redação já no caminho,
+// separado de onde o texto vai parar para o teste poder observar exatamente o
+// que iria para o log.
+func newRedactedStderrLoggerTo(emit func(string), secrets map[string]string) *io.PipeWriter {
+	redigir := newRedactor(secrets)
+	return newStderrLoggerTo(func(line string) { emit(redigir(line)) }, longestSecret(secrets))
+}
+
+// longestSecret diz quanto do fim de uma linha truncada precisa ser jogado
+// fora antes de a redação passar por ela.
+//
+// O corte da linha comprida cai onde calhar, e pode cair no meio de uma
+// credencial: o pedaço que sobrou não bate com o valor inteiro, escapa da
+// substituição e vira prefixo do segredo dentro do log. Descartar o tanto do
+// maior valor menos um byte garante que nenhum pedaço de credencial sobreviva
+// ao corte, ao custo de algumas dezenas de bytes do fim de uma linha que já
+// estava sendo truncada de qualquer forma.
+func longestSecret(secrets map[string]string) int {
+	maior := 0
+	for _, valor := range secrets {
+		if len(valor) > maior {
+			maior = len(valor)
+		}
+	}
+	if maior == 0 {
+		return 0
+	}
+	return maior - 1
+}
+
+// newRedactor devolve o filtro que tira do texto os valores injetados no
+// ambiente do agente (AEP-0086 D12).
+//
+// Ele existe por causa do encaminhamento logo acima: o stderr do agente vira
+// log do app, linha a linha, e um agente que despeje o próprio `env` num
+// diagnóstico faria o app gravar a credencial no próprio arquivo de log. Essa é
+// a mitigação possível deste lado — ela não cobre o que o agente escreve nos
+// arquivos dele, e o AEP diz isso com todas as letras.
+//
+// Sem valor a redigir devolve a identidade, para o caminho normal — que é o de
+// quem não liga a passagem — não pagar nada.
+func newRedactor(secrets map[string]string) func(string) string {
+	valores := make([]string, 0, len(secrets))
+	for _, valor := range secrets {
+		if valor != "" {
+			valores = append(valores, valor)
+		}
+	}
+	if len(valores) == 0 {
+		return func(line string) string { return line }
+	}
+	// Do maior para o menor: se um valor for pedaço de outro, redigir o maior
+	// primeiro evita deixar o resto do maior à mostra.
+	sort.Slice(valores, func(i, j int) bool { return len(valores[i]) > len(valores[j]) })
+
+	// Uma passada por valor, e não um strings.Replacer: o Replacer monta uma
+	// tabela de Boyer-Moore no primeiro uso, e para um valor muito comprido
+	// essa montagem custa segundos por linha de stderr. Aqui são poucos
+	// valores — um por variável declarada —, e o strings.Index nem procura
+	// quando o valor é maior que a linha.
+	return func(line string) string {
+		for _, valor := range valores {
+			line = strings.ReplaceAll(line, valor, redactedMark)
+		}
+		return line
+	}
+}
+
+// redactedMark é o que fica no lugar do valor. Mesma marca que o resto do app
+// já usa em log e em argumento de tool.
+const redactedMark = "[redacted]"
+
 // newStderrLoggerTo é o miolo, separado de onde o texto vai parar para que o
-// teste possa observar o que sairia no log.
-func newStderrLoggerTo(emit func(string)) *io.PipeWriter {
+// teste possa observar o que sairia no log. O tailGuard é quanto se corta do
+// fim de uma linha truncada; ver longestSecret.
+func newStderrLoggerTo(emit func(string), tailGuard int) *io.PipeWriter {
 	reader, writer := io.Pipe()
 	go func() {
 		buffered := bufio.NewReaderSize(reader, stderrLineLimit)
 		for {
 			chunk, tooLong, err := buffered.ReadLine()
-			if line := strings.TrimSpace(string(chunk)); line != "" {
-				if tooLong {
-					line += " […linha truncada]"
+			if tooLong && tailGuard > 0 {
+				// Guarda maior que o pedaço lido é credencial maior que a
+				// linha inteira: não há começo seguro a mostrar, e o que sai é
+				// só a marca de truncada.
+				if len(chunk) > tailGuard {
+					chunk = chunk[:len(chunk)-tailGuard]
+				} else {
+					chunk = nil
 				}
+			}
+			line := strings.TrimSpace(string(chunk))
+			if tooLong && line != "" {
+				line += " […linha truncada]"
+			}
+			// A linha comprida que sobrou vazia por causa da guarda ainda é
+			// registrada: quem depura precisa saber que houve saída ali, mesmo
+			// que nada dela possa ser mostrado.
+			if line == "" && tooLong {
+				line = "[…linha truncada]"
+			}
+			if line != "" {
 				emit(line)
 			}
 			// Joga fora o resto da linha comprida. Sem isso, os pedaços dela

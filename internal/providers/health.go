@@ -125,11 +125,12 @@ func (s *Service) checkACPHealth(ctx context.Context, provider *llm.ProviderConf
 	}
 
 	report := s.acpMgr.Probe(ctx, acp.ProviderSpec{
-		ID:      provider.ID,
-		Name:    provider.Name,
-		Command: provider.ACPCommand,
-		Args:    provider.ACPArgs,
-		Env:     provider.ACPEnv,
+		ID:            provider.ID,
+		Name:          provider.Name,
+		Command:       provider.ACPCommand,
+		Args:          provider.ACPArgs,
+		Env:           provider.ACPEnv,
+		CredentialEnv: provider.ACPCredentialEnv,
 	})
 	res.LatencyMs = report.Latency.Milliseconds()
 	res.Error = report.Error
