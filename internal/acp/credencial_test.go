@@ -120,13 +120,26 @@ func TestCofreIndisponivelFalhaOSpawnEmVezDeSubirSemAVariavel(t *testing.T) {
 	})
 	t.Cleanup(m.Shutdown)
 
-	spec := specComCofre(map[string]string{"OPENAI_API_KEY": "api.openai.com"})
+	spec := specComCofre(map[string]string{
+		"OPENAI_API_KEY":  "api.openai.com",
+		"ANTHROPIC_TOKEN": "api.anthropic.com",
+	})
 	secrets := m.secretsFor(spec)
 	if secrets == nil {
 		t.Fatal("o par configurado deveria exigir o cofre")
 	}
-	if _, err := secrets(context.Background()); err == nil {
+	_, err := secrets(context.Background())
+	if err == nil {
 		t.Fatal("sem cofre, a resolução deveria falhar")
+	}
+	// Sem cofre não há o que resolver, mas quem lê o erro precisa reconhecer o
+	// que ficou por resolver: as duas variáveis e as duas entradas.
+	for _, trecho := range []string{
+		"ANTHROPIC_TOKEN", "api.anthropic.com", "OPENAI_API_KEY", "api.openai.com",
+	} {
+		if !strings.Contains(err.Error(), trecho) {
+			t.Errorf("erro %q não nomeia %q", err, trecho)
+		}
 	}
 }
 

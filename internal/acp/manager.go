@@ -318,13 +318,15 @@ func (m *Manager) secretsFor(spec ProviderSpec) func(context.Context) (map[strin
 	providerID := spec.ID
 
 	return func(ctx context.Context) (map[string]string, error) {
-		if resolve == nil {
-			return nil, fmt.Errorf(
-				"o provider %q entrega credencial do cofre ao agente, mas o cofre não está disponível", providerID)
-		}
 		// Em ordem de variável para o erro de um provider com vários pares
 		// nomear sempre o mesmo primeiro faltante, e não um a cada tentativa.
 		nomes := slices.Sorted(maps.Keys(pares))
+
+		if resolve == nil {
+			return nil, fmt.Errorf(
+				"o provider %q entrega credencial do cofre ao agente (%s), mas o cofre não está disponível",
+				providerID, describeCredentialEnv(nomes, pares))
+		}
 
 		out := make(map[string]string, len(nomes))
 		for _, nome := range nomes {
@@ -344,6 +346,17 @@ func (m *Manager) secretsFor(spec ProviderSpec) func(context.Context) (map[strin
 		}
 		return out, nil
 	}
+}
+
+// describeCredentialEnv escreve os pares variável/entrada do cofre para o erro
+// que recusa o spawn. Só a referência aparece: o valor guardado sob ela nunca é
+// lido aqui, e o par sozinho é o que quem configurou precisa reconhecer.
+func describeCredentialEnv(nomes []string, pares map[string]string) string {
+	partes := make([]string, 0, len(nomes))
+	for _, nome := range nomes {
+		partes = append(partes, fmt.Sprintf("%s=%q", nome, pares[nome]))
+	}
+	return strings.Join(partes, ", ")
 }
 
 // processWorkDir é o diretório do processo. Um erro aqui não impede subir o

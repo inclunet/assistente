@@ -20,7 +20,14 @@ func setupACPCredentialTestDB(t *testing.T) {
 	if err := db.AutoMigrate(&database.CredentialEntry{}, &database.CredentialKeyWrap{}); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
+	anterior := database.DB()
 	database.SetDB(db)
+	t.Cleanup(func() {
+		database.SetDB(anterior)
+		if conn, err := db.DB(); err == nil {
+			_ = conn.Close()
+		}
+	})
 }
 
 // O valor que vai para o ambiente do agente sai do cofre, e sai decifrado: é a
