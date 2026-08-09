@@ -257,10 +257,19 @@ func (i *Installer) binaryPlan(agent acpregistry.Agent, version string) Plan {
 		// traz dentro.
 		Runtime: RuntimeStatus{Name: RuntimeNode},
 	}
+	// Antes de qualquer recusa: o agente pode estar instalado e o registro ter
+	// deixado de publicar alvo para esta plataforma, e a tela precisa continuar
+	// dizendo o que está no disco em vez de virar só um motivo.
+	i.describeInstalled(&plan, agent.ID)
 
 	target, platform, err := binaryTarget(agent)
 	if err != nil {
 		plan.Reason = acp.SanitizeLabel(err.Error())
+		// Quem tem o agente instalado e vê o registro publicar uma versão sem
+		// alvo para esta plataforma continua tendo uma versão nova à frente —
+		// ela é que não chega aqui. Sair sem passar por aqui esconderia metade
+		// do que está acontecendo (D10).
+		i.describeUpdate(&plan, agent)
 		return plan
 	}
 	plan.Target = platform
@@ -269,10 +278,6 @@ func (i *Installer) binaryPlan(agent acpregistry.Agent, version string) Plan {
 	plan.Unverified = target.SHA256 == ""
 	plan.RunArgs = slices.Clone(target.Args)
 	plan.Dir = i.agentVersionDir(agent.ID, version)
-
-	if installed, ok := i.installationAt(plan.Dir); ok {
-		plan.Installed = &installed
-	}
 
 	switch {
 	case version == "":
@@ -291,6 +296,7 @@ func (i *Installer) binaryPlan(agent acpregistry.Agent, version string) Plan {
 		}
 		plan.CanInstall = true
 	}
+	i.describeUpdate(&plan, agent)
 	return plan
 }
 

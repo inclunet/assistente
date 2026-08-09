@@ -192,12 +192,19 @@ type cenario struct {
 }
 
 type opcoes struct {
-	agentes   []acpregistry.Agent
-	motivo    string
+	agentes []acpregistry.Agent
+	motivo  string
+	// source substitui o catálogo fixo por um que o teste muda no meio do
+	// caminho. É o que permite exercitar a versão nova (D10) sem montar um
+	// instalador à mão e perder tudo o que `montar` já substitui.
+	source    CatalogSource
 	runtime   func() acp.NodeRuntime
 	npm       *npmFalso
 	handshake error
 	http      Doer
+	// root reaproveita um diretório de instalações já existente, para o teste
+	// poder trocar o catálogo debaixo do que está instalado.
+	root string
 }
 
 func montar(t *testing.T, opts opcoes) *cenario {
@@ -217,10 +224,17 @@ func montar(t *testing.T, opts opcoes) *cenario {
 		// URL de mentira em vez de falhar dizendo o que faltou.
 		opts.http = clienteSemRede{}
 	}
-	c := &cenario{npm: opts.npm, marcos: &marcos{}, root: t.TempDir()}
+	if opts.root == "" {
+		opts.root = t.TempDir()
+	}
+	var source CatalogSource = catalogoFalso{agentes: opts.agentes, motivo: opts.motivo}
+	if opts.source != nil {
+		source = opts.source
+	}
+	c := &cenario{npm: opts.npm, marcos: &marcos{}, root: opts.root}
 	c.instalador = New(Config{
 		Root:    c.root,
-		Source:  catalogoFalso{agentes: opts.agentes, motivo: opts.motivo},
+		Source:  source,
 		HTTP:    opts.http,
 		NPM:     opts.npm,
 		Runtime: opts.runtime,
