@@ -87,3 +87,72 @@ func TestSessaoSemTurnoNaoTemAQuemPerguntar(t *testing.T) {
 		t.Error("apareceu alguém esperando por uma sessão sem turno")
 	}
 }
+
+func TestOProviderEmConversaEDitoOcupado(t *testing.T) {
+	// É o que a atualização do agente consulta antes de trocar o binário: um
+	// turno em voo está com o processo antigo, que edita arquivos (AEP-0086
+	// D10).
+	m, _ := managerWith(newMemoryStore(), newFakeManagedClient())
+	conv, err := m.Conversation(context.Background(), testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+
+	if m.TurnInFlight(testSpec().ID) {
+		t.Fatal("disse que havia turno em voo antes de qualquer turno começar")
+	}
+
+	fim := conv.BeginTurn(TurnOwner{Interactive: true})
+	if !m.TurnInFlight(testSpec().ID) {
+		t.Error("o turno em voo não apareceu no provider que o está rodando")
+	}
+	// E ele é do provider que o roda: atualizar outro agente no meio desta
+	// conversa não tem por que ser recusado.
+	if m.TurnInFlight("outro-provider") {
+		t.Error("o turno de um provider apareceu em outro")
+	}
+
+	fim()
+	if m.TurnInFlight(testSpec().ID) {
+		t.Error("o turno acabou e o provider continuou ocupado")
+	}
+}
+
+func TestOTurnoDoProcessoAntigoContinuaOcupandoOProvider(t *testing.T) {
+	// A conversa pode ser remontada no meio do turno — aqui, trocando de
+	// diretório — e passar a apontar para outra sessão. O turno anterior segue
+	// no processo antigo, editando arquivos, e é ele que a atualização não pode
+	// atropelar (AEP-0086 D10).
+	client := newFakeManagedClient()
+	m, escolher, _ := managerComDiretorioPorConversa(client, dirDeTeste("projeto"))
+	defer m.Shutdown()
+
+	conv, err := m.Conversation(context.Background(), testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	fim := conv.BeginTurn(TurnOwner{Interactive: true})
+	defer fim()
+
+	escolher(dirDeTeste("outro-projeto"))
+	if _, err := m.Conversation(context.Background(), testSpec(), "conv-1"); err != nil {
+		t.Fatalf("remontar a conversa: %v", err)
+	}
+
+	if !m.TurnInFlight(testSpec().ID) {
+		t.Error("a remontagem escondeu o turno que ainda corre no processo antigo")
+	}
+}
+
+func TestProviderSemConversaNenhumaNaoEstaOcupado(t *testing.T) {
+	// O caso comum de quem vai atualizar: o agente está instalado, nenhuma
+	// conversa o está usando, e a atualização não tem por que ser recusada.
+	m, _ := managerWith(newMemoryStore(), newFakeManagedClient())
+
+	if m.TurnInFlight(testSpec().ID) {
+		t.Error("um provider sem conversa nenhuma apareceu ocupado")
+	}
+	if m.TurnInFlight("") {
+		t.Error("provider sem identificador apareceu ocupado")
+	}
+}

@@ -3,12 +3,21 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"slices"
 	"time"
 
 	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
 	"assistente/internal/acpregistry"
+	"assistente/internal/llm"
+	"assistente/internal/logging"
+	"assistente/internal/providers"
 )
+
+// acpInstallComponent nomeia este arquivo no log.
+const acpInstallComponent = "app.app-acp-install"
 
 // ACPInstallProgressEvent é o nome do evento de progresso da instalação. Ele
 // carrega o identificador do agente porque duas instalações podem estar em voo, e
@@ -120,8 +129,19 @@ type ACPInstallPlan struct {
 	// com o motivo à vista.
 	Reason string `json:"reason,omitempty"`
 
-	// Installed é a instalação que já existe, quando existe.
+	// Installed é a instalação que já existe, quando existe — em qualquer
+	// versão, e não só na que o catálogo publica agora.
 	Installed *ACPInstallation `json:"installed,omitempty"`
+
+	// Update diz que a versão instalada não é a que o catálogo publica, e que
+	// o que esta linha oferece é atualizar (D10). Nada acontece sozinho: o
+	// aviso é texto, e a atualização é pedida.
+	Update bool `json:"update"`
+
+	// CanUpdate diz se dá para atualizar agora, e UpdateReason é por que não
+	// dá, quando não dá. O botão indisponível vem sempre com o motivo à vista.
+	CanUpdate    bool   `json:"can_update"`
+	UpdateReason string `json:"update_reason,omitempty"`
 
 	// Installing diz que há instalação em voo deste agente, para a tela saber
 	// que o botão de cancelar tem o que cancelar.
@@ -314,6 +334,208 @@ func (a *App) InstallACPAgent(agentID string, confirmed ACPInstallConfirmation) 
 	return installationDTO(installation), nil
 }
 
+// UpdateACPAgent troca a instalação deste agente pela versão que o catálogo
+// publica (AEP-0086 D10).
+//
+// A ordem é a que o D10 fixa, e ela existe para uma atualização que falha deixar
+// de pé o que funcionava: instalar a versão nova ao lado da que está em uso,
+// conferir o handshake, repontar os provedores que apontavam para a antiga e só
+// então apagá-la. Nenhum passo pode trocar de lugar — repontar antes de o
+// handshake passar deixaria provedores apontando para um agente que não sobe, e
+// apagar antes de repontar os deixaria apontando para um diretório que sumiu.
+//
+// Como a instalação, atualizar é ação pedida (D3): quem chama já mostrou o que
+// vai ser baixado e recebeu o consentimento.
+func (a *App) UpdateACPAgent(agentID string, confirmed ACPInstallConfirmation) (ACPInstallation, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return ACPInstallation{}, err
+	}
+	installer := a.acpCatalogServices().installer
+	// Os provedores são levantados antes, sobre o que ainda está no lugar:
+	// depois de a nova subir, é o comando antigo que diz quais deles eram
+	// daquela instalação, e ele continua gravado neles — mas o diretório de onde
+	// ele vem é o da versão que vai sair.
+	//
+	// Todas as versões no disco, e não só a corrente: mais de uma é o estado
+	// normal depois de uma atualização que não pôde limpar a anterior, e um
+	// provedor pode ter ficado apontando para qualquer uma delas. É o mesmo
+	// conjunto que a limpeza vai apagar no fim.
+	pointing := a.acpProvidersFrom(installer.Installations(agentID))
+	if err := a.refuseUpdateDuringTurn(pointing); err != nil {
+		return ACPInstallation{}, err
+	}
+
+	updated, err := installer.Update(ctx, agentID, acpinstall.Confirmed{
+		Distribution:     confirmed.Distribution,
+		Origin:           confirmed.Origin,
+		SHA256:           confirmed.SHA256,
+		AcceptUnverified: confirmed.AcceptUnverified,
+	})
+	if err != nil {
+		return ACPInstallation{}, err
+	}
+
+	a.repointACPProviders(ctx, pointing, updated.Installed)
+	a.removeSupersededVersions(ctx, agentID, updated.Installed.Version, pointing)
+	return installationDTO(updated.Installed), nil
+}
+
+// removeSupersededVersions apaga as versões que ninguém mais sobe.
+//
+// É o último passo da atualização, e ele varre em vez de apagar só a anterior:
+// uma atualização passada pode ter deixado a sua para trás, e insistir na
+// remoção mais tarde é mais barato do que acumular versões que ninguém executa.
+//
+// A conversa é conferida de novo aqui, e não só na entrada: baixar e conferir um
+// agente leva tempo, e um turno pode ter começado nesse meio. O processo em voo
+// é o da versão antiga, e apagar o diretório dele é puxar o programa debaixo de
+// uma edição em curso — quando isso acontece, a limpeza fica para a próxima.
+//
+// Não remover não desfaz a atualização: o provedor já aponta para a versão nova,
+// e o que fica para trás é disco ocupado. Devolver erro aqui faria a tela dizer
+// que a atualização não deu quando ela deu.
+func (a *App) removeSupersededVersions(
+	ctx context.Context,
+	agentID, keep string,
+	usando []*llm.ProviderConfig,
+) {
+	if err := a.refuseUpdateDuringTurn(usando); err != nil {
+		logging.Warnf(ctx, acpInstallComponent,
+			"as versões anteriores do agente %s ficaram no disco: %v", agentID, err)
+		return
+	}
+	installer := a.acpCatalogServices().installer
+	for _, installation := range installer.Installations(agentID) {
+		if installation.Version == keep {
+			continue
+		}
+		if err := installer.RemoveVersion(ctx, agentID, installation.Version); err != nil {
+			logging.Warnf(ctx, acpInstallComponent,
+				"a versão %s do agente %s ficou no disco depois da atualização: %v",
+				installation.Version, agentID, err)
+		}
+	}
+}
+
+// refuseUpdateDuringTurn recusa a atualização enquanto algum destes provedores
+// tem turno em voo (D10).
+//
+// Um turno em voo está com o processo antigo, que edita arquivos: trocar o
+// binário debaixo dele é trocar o programa no meio de uma edição. A recusa é
+// dita com o motivo, e não enfileirada em silêncio — enfileirar faria a
+// atualização acontecer quando ninguém mais estivesse olhando.
+func (a *App) refuseUpdateDuringTurn(usando []*llm.ProviderConfig) error {
+	if a.acpMgr == nil {
+		return nil
+	}
+	for _, provider := range usando {
+		if a.acpMgr.TurnInFlight(provider.ID) {
+			return fmt.Errorf(
+				"o provedor %q está no meio de uma conversa com este agente; espere o turno terminar para atualizar",
+				provider.Name)
+		}
+	}
+	return nil
+}
+
+// acpProvidersFrom são os provedores que sobem alguma destas instalações.
+//
+// A pergunta é pelo diretório, e não pelo `acp_agent_id`: o identificador diz de
+// que agente do catálogo aquele provedor é, e um provedor pode muito bem apontar
+// para o mesmo agente instalado por fora, à mão. Repontar esse seria reescrever
+// escolha alheia — e é a mesma disciplina da detecção automática, que também não
+// sobrescreve comando configurado (AEP-0084 Fase 3).
+func (a *App) acpProvidersFrom(installations []acpinstall.Installation) []*llm.ProviderConfig {
+	if a.llmRegistry == nil || len(installations) == 0 {
+		return nil
+	}
+	dirs := make([]string, 0, len(installations))
+	for _, installation := range installations {
+		if installation.Dir != "" {
+			// O diretório vazio deixaria tudo "dentro" dele, e a atualização
+			// sairia repontando a máquina inteira.
+			dirs = append(dirs, installation.Dir)
+		}
+	}
+	var out []*llm.ProviderConfig
+	for _, provider := range a.llmRegistry.List() {
+		if provider == nil || !provider.IsACP() {
+			continue
+		}
+		if runsFromAny(dirs, provider) {
+			out = append(out, provider)
+		}
+	}
+	return out
+}
+
+// runsFromAny diz se o comando deste provedor sai de dentro de algum destes
+// diretórios. O argumento entra na conta junto com o comando: no pacote npm quem
+// mora ali dentro é o ponto de entrada, enquanto o `node` é da máquina e fica
+// fora.
+//
+// A pergunta aqui é de identidade — de quem é este provedor —, e não a guarda de
+// execução que o registro da instalação aplica ao ser lido: um caminho que já
+// não existe continua dizendo de que instalação aquele provedor era, e é
+// justamente ele que precisa ser repontado.
+func runsFromAny(dirs []string, provider *llm.ProviderConfig) bool {
+	for _, part := range append([]string{provider.ACPCommand}, provider.ACPArgs...) {
+		if !filepath.IsAbs(part) {
+			continue
+		}
+		part = resolvedPath(part)
+		for _, dir := range dirs {
+			if acp.WithinDir(resolvedPath(dir), part) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// resolvedPath segue os links do caminho quando dá. Em macOS `/var` é link para
+// `/private/var`, e comparar um lado resolvido com o outro cru não reconheceria
+// a própria instalação. O que não existe mais fica como está.
+func resolvedPath(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return path
+}
+
+// repointACPProviders põe os provedores da instalação antiga na nova.
+//
+// Um provedor que não aceita a troca não derruba a atualização: a versão nova
+// está no disco e responde ao protocolo, e voltar atrás por causa de um
+// provedor deixaria os outros pela metade. O que fica é o aviso no log e um
+// provedor apontando para um comando que a remoção logo a seguir vai apagar —
+// que é o estado que o health do AEP-0084 D12 já sabe explicar.
+func (a *App) repointACPProviders(
+	ctx context.Context,
+	usando []*llm.ProviderConfig,
+	installation acpinstall.Installation,
+) {
+	if a.providerSvc == nil {
+		return
+	}
+	args := slices.Clone(installation.Args)
+	for _, provider := range usando {
+		if _, err := a.providerSvc.Update(ctx, provider.ID, providers.UpdateRequest{
+			ACPCommand: installation.Command,
+			ACPArgs:    &args,
+		}); err != nil {
+			logging.Warnf(ctx, acpInstallComponent,
+				"o provedor %s continuou apontando para a versão anterior do agente %s: %v",
+				provider.ID, installation.AgentID, err)
+			continue
+		}
+		logging.Infof(ctx, acpInstallComponent,
+			"o provedor %s passou a subir a versão %s do agente %s",
+			provider.ID, installation.Version, installation.AgentID)
+	}
+}
+
 // CancelACPAgentInstall interrompe a instalação em voo. Cancelar limpa o que foi
 // escrito: uma instalação interrompida não deixa meio agente no disco (D13).
 //
@@ -376,9 +598,12 @@ func installPlanDTO(plan acpinstall.Plan, installing bool) ACPInstallPlan {
 			Version:  plan.Runtime.Version,
 			Searched: plan.Runtime.Searched,
 		},
-		CanInstall: plan.CanInstall,
-		Reason:     plan.Reason,
-		Installing: installing,
+		CanInstall:   plan.CanInstall,
+		Reason:       plan.Reason,
+		Update:       plan.Update,
+		CanUpdate:    plan.CanUpdate,
+		UpdateReason: plan.UpdateReason,
+		Installing:   installing,
 	}
 	if dto.RunArgs == nil {
 		// Lista sempre presente: `null` faria a tela distinguir "sem

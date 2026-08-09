@@ -632,6 +632,8 @@ export function UnlockVault(arg1:string,arg2:string):Promise<void>;
 
 export function UnsubscribeFromMCPResource(arg1:string,arg2:string):Promise<void>;
 
+export function UpdateACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Promise<app.ACPInstallation>;
+
 export function UpdateAllowlist(arg1:string,arg2:allowlist.Allowlist):Promise<void>;
 
 export function UpdateConversation(arg1:string,arg2:string,arg3:string):Promise<void>;

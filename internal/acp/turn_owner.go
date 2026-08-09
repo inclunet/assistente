@@ -39,9 +39,10 @@ type TurnOwner struct {
 // nada foi mandado ao agente.
 func (c *Conversation) BeginTurn(owner TurnOwner) (end func()) {
 	c.mu.Lock()
-	sessionID := ""
+	sessionID, providerID := "", ""
 	if c.active != nil {
 		sessionID = c.active.sessionID
+		providerID = c.active.providerID
 	}
 	c.mu.Unlock()
 
@@ -49,7 +50,7 @@ func (c *Conversation) BeginTurn(owner TurnOwner) (end func()) {
 		return func() {}
 	}
 	owner.ConversationID = c.id
-	token := c.manager.setTurnOwner(sessionID, owner)
+	token := c.manager.setTurnOwner(sessionID, providerID, owner)
 	return func() { c.manager.clearTurnOwner(sessionID, token) }
 }
 
@@ -66,20 +67,59 @@ func (m *Manager) TurnOwnerOf(sessionID string) (TurnOwner, bool) {
 	return entry.owner, true
 }
 
-// turnRegistration é o dono do turno e a marca de quem o anotou.
-type turnRegistration struct {
-	owner TurnOwner
-	token uint64
+// TurnInFlight diz se alguma conversa está com um turno correndo neste provider
+// agora (AEP-0086 D10).
+//
+// Ela existe para a atualização do agente poder ser recusada durante conversa: o
+// turno em voo está com o processo antigo, que edita arquivos, e trocar o
+// binário debaixo dele é trocar o programa no meio de uma edição. A recusa é
+// dita com o motivo, e não enfileirada em silêncio.
+//
+// A resposta é do instante em que foi lida, e não vale como reserva: um turno
+// pode começar logo depois. É o suficiente para o caso que ela existe para
+// pegar — a pessoa que manda uma mensagem e clica em atualizar em seguida —, e o
+// que a atualização faz de fato é instalar ao lado, sem tocar no que está de pé.
+//
+// Quem responde é o registro do turno, e não a sessão montada na conversa: a
+// conversa pode ser remontada no meio do turno — troca de diretório, processo
+// que caiu — e passar a apontar para outra sessão enquanto o turno anterior
+// ainda corre no processo antigo. Procurar pelo que está montado agora diria
+// que ninguém está trabalhando justamente quando alguém está.
+func (m *Manager) TurnInFlight(providerID string) bool {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return false
+	}
+	m.ownersMu.Lock()
+	defer m.ownersMu.Unlock()
+	for _, entry := range m.owners {
+		if entry.providerID == providerID {
+			return true
+		}
+	}
+	return false
 }
 
-func (m *Manager) setTurnOwner(sessionID string, owner TurnOwner) uint64 {
+// turnRegistration é o dono do turno, o provider que o está atendendo e a marca
+// de quem o anotou.
+type turnRegistration struct {
+	owner      TurnOwner
+	providerID string
+	token      uint64
+}
+
+func (m *Manager) setTurnOwner(sessionID, providerID string, owner TurnOwner) uint64 {
 	m.ownersMu.Lock()
 	defer m.ownersMu.Unlock()
 	if m.owners == nil {
 		m.owners = make(map[string]turnRegistration)
 	}
 	m.ownerToken++
-	m.owners[sessionID] = turnRegistration{owner: owner, token: m.ownerToken}
+	m.owners[sessionID] = turnRegistration{
+		owner:      owner,
+		providerID: strings.TrimSpace(providerID),
+		token:      m.ownerToken,
+	}
 	return m.ownerToken
 }
 

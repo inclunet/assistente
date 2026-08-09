@@ -190,6 +190,9 @@ export namespace app {
 	    state: string;
 	    state_detail?: string;
 	    detected_version?: string;
+	    installed_by_app?: boolean;
+	    installed_version?: string;
+	    installed_unverified?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ACPCatalogAgent(source);
@@ -213,6 +216,9 @@ export namespace app {
 	        this.state = source["state"];
 	        this.state_detail = source["state_detail"];
 	        this.detected_version = source["detected_version"];
+	        this.installed_by_app = source["installed_by_app"];
+	        this.installed_version = source["installed_version"];
+	        this.installed_unverified = source["installed_unverified"];
 	    }
 	}
 	export class ACPCatalog {
@@ -350,6 +356,9 @@ export namespace app {
 	    can_install: boolean;
 	    reason?: string;
 	    installed?: ACPInstallation;
+	    update: boolean;
+	    can_update: boolean;
+	    update_reason?: string;
 	    installing: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -373,6 +382,9 @@ export namespace app {
 	        this.can_install = source["can_install"];
 	        this.reason = source["reason"];
 	        this.installed = this.convertValues(source["installed"], ACPInstallation);
+	        this.update = source["update"];
+	        this.can_update = source["can_update"];
+	        this.update_reason = source["update_reason"];
 	        this.installing = source["installing"];
 	    }
 	
