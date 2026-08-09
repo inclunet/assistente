@@ -262,6 +262,29 @@ func TestOBinarioSemOrigemDeDigestConhecidaContaComoNaoVerificado(t *testing.T) 
 	}
 }
 
+func TestADistribuicaoQueOAppNaoEscreveuNaoCalaARessalva(t *testing.T) {
+	// A distribuição também vem do registro no disco. Se bastasse ela não dizer
+	// `binary` para a ressalva sumir, o caminho para contornar o D4 seria editar
+	// uma palavra num arquivo de texto.
+	instalado := map[string]acpinstall.Installation{
+		"goose": {
+			AgentID:      "goose",
+			Version:      "2.0.0",
+			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: "qualquer-coisa",
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	if goose := acharPorID(t, catalogo, "goose"); !goose.InstalledUnverified {
+		t.Error("distribuição desconhecida calou a ressalva de instalação não verificada")
+	}
+}
+
 func TestOPacoteNpmNaoGanhaRessalvaDeDigest(t *testing.T) {
 	// Quem confere o pacote é o próprio npm, e ali o campo é naturalmente vazio.
 	// Uma ressalva aqui seria alarme nos 21 agentes de pacote — e alarme que
