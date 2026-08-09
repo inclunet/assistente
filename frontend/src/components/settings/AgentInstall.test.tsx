@@ -573,6 +573,31 @@ describe('AgentInstall — instalando', () => {
     );
   });
 
+  it('marca o bloco como ocupado enquanto a instalação corre, e o solta no fim (D13)', async () => {
+    // `aria-busy`, e não uma região viva: quem anuncia cada marco é o announcer
+    // global (AEP-0058), e um `role="status"` aqui diria tudo duas vezes. O que
+    // o bloco precisa dizer é que está mudando, para quem o atravessa no meio da
+    // instalação não ler metade de um marco e metade do seguinte.
+    planMock.mockResolvedValue(planoInstalavel);
+    const { concluir } = instalacaoControlada();
+    const user = userEvent.setup();
+
+    render(<Host />);
+    const bloco = (await screen.findByRole('group')) as HTMLElement;
+    expect(bloco).toHaveAttribute('aria-busy', 'false');
+
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'true'));
+
+    planMock.mockResolvedValue({ ...planoInstalavel, can_install: false, installed: instalacao });
+    await act(async () => {
+      concluir(instalacao);
+    });
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'false'));
+  });
+
   it('reencontra a instalação que já estava em voo quando a tela abriu', async () => {
     // A instalação roda no backend e sobrevive ao formulário fechado. Voltando à
     // tela no meio dela, o botão de instalar não pode convidar a começar de novo
@@ -848,6 +873,35 @@ describe('AgentInstall — já instalado', () => {
       .toBeInTheDocument();
     // Removido, o catálogo volta a oferecer a instalação.
     expect(await screen.findByRole('button', { name: /instalar pelo catálogo/i })).toBeInTheDocument();
+  });
+
+  it('fica ocupado enquanto o diretório está sendo apagado, e não oferece cancelar (D13)', async () => {
+    // O diálogo de confirmação fechado não é a remoção: ela começa depois, e é
+    // durante ela que o bloco muda. Ocupado aqui não pode ser o mesmo estado da
+    // instalação, que põe na tela um botão de cancelar sem nada para cancelar.
+    planMock.mockResolvedValue(planoInstalado);
+    let concluirRemocao: () => void = () => {};
+    removeMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          concluirRemocao = () => resolve();
+        }),
+    );
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /remover agente instalado/i }));
+    await user.click(await screen.findByRole('button', { name: /^remover$/i }));
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'true'));
+    expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument();
+
+    planMock.mockResolvedValue(planoInstalavel);
+    await act(async () => {
+      concluirRemocao();
+    });
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'false'));
   });
 
   it('remoção que falha aparece em texto e interrompe a leitura', async () => {

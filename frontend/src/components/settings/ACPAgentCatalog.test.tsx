@@ -390,6 +390,28 @@ describe('ACPAgentCatalog', () => {
       expect(within(item).getByText('permission denied')).toBeInTheDocument();
     });
 
+    it('marca o catálogo como ocupado enquanto ele carrega (D13)', async () => {
+      // `aria-busy` no lugar de região viva: o anúncio é do announcer global
+      // (AEP-0058), e o que a marca diz é que a lista está trocando de conteúdo
+      // debaixo de quem a estiver percorrendo.
+      let servir: (catalog: Catalog) => void = () => {};
+      getCatalogMock.mockReturnValue(
+        new Promise<Catalog>((resolve) => {
+          servir = resolve;
+        })
+      );
+      const { container } = render(<ACPAgentCatalog />);
+
+      const bloco = container.querySelector('.acp-catalog') as HTMLElement;
+      expect(bloco).toHaveAttribute('aria-busy', 'true');
+
+      await act(async () => {
+        servir(catalogo({ agents: [agente({ id: 'a', name: 'Agente' })] }));
+      });
+
+      await waitFor(() => expect(bloco).toHaveAttribute('aria-busy', 'false'));
+    });
+
     it('diz que foi este app quem instalou, com a versão que ele pôs no disco', async () => {
       const item = await comEstado({
         state: 'installed',
