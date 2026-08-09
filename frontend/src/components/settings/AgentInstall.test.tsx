@@ -11,6 +11,7 @@ const planMock = vi.hoisted(() => vi.fn());
 const installMock = vi.hoisted(() => vi.fn());
 const cancelMock = vi.hoisted(() => vi.fn());
 const removeMock = vi.hoisted(() => vi.fn());
+const updateMock = vi.hoisted(() => vi.fn());
 const eventsOnMock = vi.hoisted(() => vi.fn());
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
@@ -54,6 +55,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   InstallACPAgent: installMock,
   CancelACPAgentInstall: cancelMock,
   RemoveACPAgent: removeMock,
+  UpdateACPAgent: updateMock,
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -915,6 +917,187 @@ describe('AgentInstall — já instalado', () => {
 
     expect(await screen.findByText(/arquivo em uso por outro processo/i)).toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith('arquivo em uso por outro processo', 'assertive');
+  });
+});
+
+describe('AgentInstall — versão nova', () => {
+  // O catálogo publica a 1.2.0 e no disco está a 1.1.9. É o plano que o
+  // instalador devolve depois que o registro avança (AEP-0086 D10).
+  const planoComVersaoNova = {
+    ...planoInstalavel,
+    version: '1.2.0',
+    origin: '@agentclientprotocol/codex-acp@1.2.0',
+    dir: 'C:\\Users\\ana\\.assistente\\agents\\codex-acp\\1.2.0',
+    can_install: false,
+    installed: instalacao,
+    update: true,
+    can_update: true,
+  };
+  const novaInstalacao = {
+    ...instalacao,
+    version: '1.2.0',
+    args: ['C:\\Users\\ana\\.assistente\\agents\\codex-acp\\1.2.0\\node_modules\\@agentclientprotocol\\codex-acp\\dist\\index.js'],
+    dir: 'C:\\Users\\ana\\.assistente\\agents\\codex-acp\\1.2.0',
+  };
+
+  it('avisa em texto e não atualiza nada sozinho', async () => {
+    planMock.mockResolvedValue(planoComVersaoNova);
+
+    render(<Host />);
+
+    expect(await screen.findByText(/publica a versão 1\.2\.0 deste agente, e a instalada é a 1\.1\.9/i))
+      .toBeInTheDocument();
+    expect(updateMock).not.toHaveBeenCalled();
+    const botao = screen.getByRole('button', { name: /atualizar para a versão 1\.2\.0/i });
+    expect(botao).toHaveAccessibleDescription(/instala a versão nova ao lado da atual/i);
+  });
+
+  it('a confirmação mostra as duas versões antes de baixar', async () => {
+    // Mesmo D3 da instalação: o que vai ser baixado fica à vista. Aqui a versão
+    // que sai entra junto — é ela que dá sentido à que entra.
+    planMock.mockResolvedValue(planoComVersaoNova);
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
+
+    const dialogo = await screen.findByRole('dialog');
+    expect(dialogo).toHaveTextContent(/atualizar codex para a versão 1\.2\.0\?/i);
+    expect(dialogo).toHaveTextContent(/versão instalada agora/i);
+    expect(dialogo).toHaveTextContent('1.1.9');
+    expect(dialogo).toHaveTextContent('@agentclientprotocol/codex-acp@1.2.0');
+    expect(dialogo).toHaveTextContent(/só então apagar a anterior/i);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('atualizar troca o comando do provedor e diz que os provedores foram repontados', async () => {
+    planMock.mockResolvedValue(planoComVersaoNova);
+    updateMock.mockResolvedValue(novaInstalacao);
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e atualizar/i }));
+
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith('codex-acp', {
+        distribution: 'npm',
+        origin: '@agentclientprotocol/codex-acp@1.2.0',
+        sha256: '',
+        accept_unverified: false,
+      }),
+    );
+    expect(screen.getByTestId('argumentos')).toHaveTextContent(novaInstalacao.args[0]);
+    const anuncio = await screen.findByText(/atualizado para a versão 1\.2\.0/i);
+    expect(anuncio).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringContaining('1.2.0'),
+      'polite',
+    );
+  });
+
+  it('o marco de instalação concluída não apaga a frase da atualização', async () => {
+    // O evento e a resposta da chamada correm por caminhos diferentes. O marco
+    // fala de instalação e não sabe dos provedores repontados; quem pediu a
+    // atualização é quem dá a última palavra, chegue o marco quando chegar.
+    planMock.mockResolvedValue(planoComVersaoNova);
+    updateMock.mockResolvedValue(novaInstalacao);
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e atualizar/i }));
+    await screen.findByText(/atualizado para a versão 1\.2\.0/i);
+
+    emitirProgresso({ agent_id: 'codex-acp', agent: 'Codex', stage: 'verifying' });
+    emitirProgresso({ agent_id: 'codex-acp', agent: 'Codex', stage: 'done' });
+
+    expect(screen.getByText(/atualizado para a versão 1\.2\.0/i)).toBeInTheDocument();
+    expect(screen.queryByText(/comando preenchido/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/responde ao protocolo\.\.\./i)).not.toBeInTheDocument();
+  });
+
+  it('a recusa por conversa em voo aparece em texto e interrompe a leitura', async () => {
+    // O agente em uso não é trocado debaixo de quem conversa com ele (D10), e o
+    // motivo é dito — a atualização não fica esperando em silêncio.
+    planMock.mockResolvedValue(planoComVersaoNova);
+    updateMock.mockRejectedValue(
+      new Error('o provedor "Codex" está no meio de uma conversa com este agente; espere o turno terminar para atualizar'),
+    );
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e atualizar/i }));
+
+    expect(await screen.findByText(/no meio de uma conversa com este agente/i)).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringContaining('espere o turno terminar'),
+      'assertive',
+    );
+  });
+
+  it('quando não dá para atualizar, o motivo fica no lugar do botão', async () => {
+    planMock.mockResolvedValue({
+      ...planoComVersaoNova,
+      can_update: false,
+      update_reason:
+        'a versão nova deste agente não publica verificação de integridade, e a instalada foi conferida',
+    });
+
+    render(<Host />);
+
+    expect(await screen.findByText(/não publica verificação de integridade/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /atualizar para a versão/i })).not.toBeInTheDocument();
+  });
+
+  it('sem versão nova não há aviso nem botão', async () => {
+    planMock.mockResolvedValue({ ...planoInstalavel, can_install: false, installed: instalacao });
+
+    render(<Host />);
+
+    await screen.findByText(/instalado pelo aplicativo/i);
+    expect(screen.queryByText(/o catálogo publica a versão/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /atualizar para a versão/i })).not.toBeInTheDocument();
+  });
+
+  it('durante a atualização o bloco fica ocupado, oferece cancelar e não oferece remover', async () => {
+    // Apagar a pasta no meio do download é apagar o que ele está escrevendo; o
+    // caminho de desistir é o cancelar (D13).
+    planMock.mockResolvedValue(planoComVersaoNova);
+    let concluir: (installation: unknown) => void = () => {};
+    updateMock.mockReturnValue(new Promise((resolve) => { concluir = resolve; }));
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e atualizar/i }));
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'true'));
+    expect(screen.getByRole('button', { name: /cancelar instalação/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /remover agente instalado/i })).toBeDisabled();
+    // O comando que está na tela é o da versão que vai sair: reaproveitá-lo
+    // agora devolveria ao provedor o que o backend acabou de trocar.
+    expect(screen.getByRole('button', { name: /usar o comando instalado/i })).toBeDisabled();
+
+    planMock.mockResolvedValue({ ...planoComVersaoNova, update: false, installed: novaInstalacao });
+    await act(async () => {
+      concluir(novaInstalacao);
+    });
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'false'));
+  });
+
+  it('não tem violação no aviso de versão nova nem na confirmação dela', async () => {
+    planMock.mockResolvedValue(planoComVersaoNova);
+    const user = userEvent.setup();
+
+    const { container } = render(<Host />);
+    await screen.findByRole('button', { name: /atualizar para a versão 1\.2\.0/i });
+    expect(await axe(container)).toHaveNoViolations();
+
+    await user.click(screen.getByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
+    expect(await axe(await screen.findByRole('dialog'))).toHaveNoViolations();
   });
 });
 

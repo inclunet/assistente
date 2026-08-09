@@ -1811,6 +1811,16 @@ const ptBR = {
             'Esta instalação não foi verificada: o agente não publica código de verificação, e o aplicativo não teve como conferir que o arquivo baixado é o que o registro publicou.',
           useBtn: 'Usar o comando instalado',
           useAnnounce: 'Comando preenchido com o do agente instalado: {{command}}.',
+          updateAvailable:
+            'O catálogo publica a versão {{version}} deste agente, e a instalada é a {{installed}}. Nada é atualizado sem você pedir.',
+          updateBtn: 'Atualizar para a versão {{version}}',
+          updateBtnHelp:
+            'Mostra o que será baixado, instala a versão nova ao lado da atual, aponta para ela os provedores que usam este agente e só então apaga a versão anterior.',
+          updateUnavailable: 'Não dá para atualizar agora: {{reason}}',
+          updateUnavailableUnknown: 'Não dá para atualizar este agente agora.',
+          updated:
+            'Agente atualizado para a versão {{version}}. Os provedores que usavam a versão anterior passaram a usar esta, e a anterior foi apagada.',
+          updateFailed: 'A atualização falhou: {{reason}}',
           removeBtn: 'Remover agente instalado',
           removeBtnHelp:
             'Apaga a pasta do agente que o aplicativo instalou. O provedor continua salvo, e o comando dele passa a não existir.',
@@ -1852,8 +1862,13 @@ const ptBR = {
               'O aplicativo vai baixar o arquivo abaixo e conferir se ele confere com o código de verificação publicado pelo registro. Nada é baixado antes de você confirmar.',
             introUnverified:
               'O aplicativo vai baixar o arquivo abaixo. Nada é baixado antes de você confirmar.',
+            titleUpdate: 'Atualizar {{agent}} para a versão {{version}}?',
+            introUpdate:
+              'O aplicativo vai instalar a versão nova ao lado da atual, apontar para ela os provedores que usam este agente e só então apagar a anterior. Nada é baixado antes de você confirmar.',
             agent: 'Agente',
             version: 'Versão',
+            installedVersion: 'Versão instalada agora',
+            newVersion: 'Versão nova',
             origin: 'Origem',
             dir: 'Pasta de destino',
             command: 'Comando que será executado',
@@ -1864,6 +1879,8 @@ const ptBR = {
               'Este agente não publica verificação de integridade: o aplicativo não tem como conferir que o arquivo baixado é o que o registro publicou. Você pode instalar assim mesmo, ou baixar o agente pelo site do fornecedor e apontar o comando aqui.',
             confirmBtn: 'Baixar e instalar',
             confirmUnverifiedBtn: 'Baixar mesmo sem verificação',
+            confirmUpdateBtn: 'Baixar e atualizar',
+            confirmUpdateUnverifiedBtn: 'Atualizar mesmo sem verificação',
             cancelBtn: 'Cancelar',
           },
           removeConfirm: {

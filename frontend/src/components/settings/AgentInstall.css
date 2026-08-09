@@ -53,6 +53,17 @@
   color: var(--text-secondary);
 }
 
+/*
+  O aviso de versão nova é um bloco: a frase e o botão dizem a mesma coisa e
+  precisam ficar juntos, e não soltos entre o que descreve a instalação atual e
+  o que a remove.
+*/
+.agent-install__update {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .agent-install__blocked {
   display: flex;
   flex-direction: column;

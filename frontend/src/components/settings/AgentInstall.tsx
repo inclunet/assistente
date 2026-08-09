@@ -6,6 +6,7 @@ import {
   CancelACPAgentInstall,
   InstallACPAgent,
   RemoveACPAgent,
+  UpdateACPAgent,
 } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import type { app } from '@wailsjs/go/models';
@@ -122,6 +123,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   const idBase = useId();
   const titleId = `${idBase}-title`;
   const installHelpId = `${idBase}-install-help`;
+  const updateHelpId = `${idBase}-update-help`;
   const removeHelpId = `${idBase}-remove-help`;
   const confirmId = `${idBase}-confirm`;
   const unverifiedId = `${idBase}-unverified`;
@@ -135,7 +137,11 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   const [planError, setPlanError] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
-  const [confirming, setConfirming] = useState(false);
+  // O diálogo é o mesmo para instalar e para atualizar — os dois baixam algo, e
+  // o D3 pede a mesma prestação de contas antes disso —, mas o que ele diz e o
+  // que o botão afirmativo faz mudam. Guardar qual dos dois abriu evita dois
+  // diálogos quase iguais na tela e no teste.
+  const [confirming, setConfirming] = useState<'' | 'install' | 'update'>('');
   // Dois estados, e não um: `confirmingRemoval` é o diálogo aberto, e `removing`
   // é o backend apagando o diretório. Só o segundo deixa o bloco ocupado, e ele
   // não pode ser o `busy` da instalação — esse põe na tela um botão de cancelar
@@ -220,11 +226,12 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     // depois da troca. A instalação em voo não é interrompida por isso — ela é
     // do backend —, e o plano do agente novo diz se há alguma dele.
     setStatus('');
-    setConfirming(false);
+    setConfirming('');
     setConfirmingRemoval(false);
     setRemoving(false);
     setBusy(false);
     adotadaRef.current = false;
+    updateRef.current = '';
     void loadPlan(agentId);
   }, [agentId, loadPlan]);
 
@@ -241,9 +248,20 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   // cancelamento ele falaria errado: quem cancelou veria "a instalação falhou:
   // context canceled" no lugar de "cancelada, nada ficou no disco".
   const outcomeRef = useRef(false);
+  // Em que pé está a atualização, para os marcos não falarem por cima dela. O
+  // evento e a resposta da chamada correm por caminhos diferentes, e os dois
+  // atropelamentos possíveis são distintos: enquanto ela corre, o marco de
+  // conclusão diz "instalado, comando preenchido" — verdade pela metade, porque
+  // omite os provedores repontados —; depois que ela termina, qualquer marco
+  // atrasado apagaria a frase que conta o que aconteceu. Os marcos do meio
+  // continuam valendo enquanto ela corre: é o que se tem para acompanhar um
+  // download.
+  const updateRef = useRef<'' | 'running' | 'settled'>('');
   useEffect(() => {
     return EventsOn(INSTALL_PROGRESS_EVENT, (progress: InstallProgress) => {
       if (!progress || progress.agent_id !== agentIdRef.current) return;
+      if (updateRef.current === 'settled') return;
+      if (updateRef.current === 'running' && progress.stage === 'done') return;
       const text = installProgressText(tRef.current, progress);
       if (!text) return;
       if (progress.stage === 'failed' || progress.stage === 'cancelled') outcomeRef.current = true;
@@ -288,9 +306,10 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
     const kind = agentId;
-    setConfirming(false);
+    setConfirming('');
     setBusy(true);
     outcomeRef.current = false;
+    updateRef.current = '';
     setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
     try {
       // O que o diálogo mostrou viaja junto: o que seria instalado depende da
@@ -324,6 +343,72 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
       }
     } finally {
       if (doAgente(kind)) {
+        setBusy(false);
+        void loadPlan(kind);
+      }
+    }
+  };
+
+  /**
+   * Atualiza o agente instalado para a versão que o catálogo publica (D10).
+   *
+   * O caminho é separado do de instalar porque o que acontece no backend é
+   * outro: a versão nova sobe ao lado da que está em uso, os provedores que
+   * subiam a antiga passam a apontar para ela, e só então a anterior é apagada.
+   * A tela não orquestra nada disso — ela pede, e o que ela acrescenta é dizer
+   * ao fim que os provedores foram repontados, que é a parte que não aparece em
+   * nenhum marco.
+   */
+  const handleUpdate = async (acceptUnverified = false) => {
+    const agentID = plan?.agent_id;
+    if (!agentID) return;
+    const kind = agentId;
+    setConfirming('');
+    setBusy(true);
+    outcomeRef.current = false;
+    updateRef.current = 'running';
+    setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
+    try {
+      const installation = await UpdateACPAgent(agentID, {
+        distribution: plan?.distribution || '',
+        origin: plan?.origin || '',
+        sha256: plan?.sha256 || '',
+        accept_unverified: acceptUnverified,
+      });
+      if (!doAgente(kind)) return;
+      updateRef.current = 'settled';
+      onResolved(installation.command, installation.args || []);
+      // O marco de desfecho fala da instalação; esta frase fala da atualização,
+      // que é o que a pessoa pediu. Sem ela ninguém saberia que os provedores
+      // que usavam a versão antiga passaram a subir esta.
+      const message = t('providerForm.agent.catalog.updated', { version: installation.version });
+      setStatus(message);
+      announce(message, 'polite');
+    } catch (error: unknown) {
+      if (!doAgente(kind)) return;
+      // A falha não sela nada: quem falha ainda tem marco por chegar — o
+      // `failed` que nomeia a etapa, o `cancelled` de quem desistiu —, e esses
+      // dizem mais do que o texto do erro.
+      //
+      // A recusa mais comum, aliás, não tem marco nenhum: a conversa em voo é
+      // conferida antes de qualquer download começar, e o motivo dela é o texto
+      // do erro.
+      if (!outcomeRef.current) {
+        const message = t('providerForm.agent.catalog.updateFailed', {
+          reason: errorText(error, t('providerForm.agent.catalog.failedUnknown')),
+        });
+        setStatus(message);
+        announce(message, 'assertive');
+      }
+    } finally {
+      if (doAgente(kind)) {
+        // A atualização que deu certo continua selada de propósito: os marcos
+        // atrasados que a selagem existe para conter chegam depois deste ponto,
+        // e ela só sai quando começa outra instalação ou quando o agente da tela
+        // muda. A que não deu solta os marcos de volta — nenhuma conclusão vai
+        // chegar por ela, e segurá-los faria a próxima instalação adotada ficar
+        // sem quem a encerre.
+        if (updateRef.current !== 'settled') updateRef.current = '';
         setBusy(false);
         void loadPlan(kind);
       }
@@ -405,6 +490,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   // O que ficou no disco também não foi conferido, e a marca não some depois de
   // instalado: quem abrir esta tela amanhã precisa saber o que aquele agente é.
   const installedUnverified = installed?.sha256_origin === 'observed';
+  const updating = confirming === 'update';
 
   return (
     // O bloco inteiro fica ocupado enquanto a instalação corre (D13): o que muda
@@ -442,11 +528,75 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
               {t('providerForm.agent.catalog.installedUnverified')}
             </p>
           )}
+          {/*
+            A versão nova é avisada em texto, e trocá-la é pedido (D10). Nada de
+            atualizar sozinho: o agente instalado é o que está editando os
+            arquivos de alguém, e o momento de trocá-lo é escolha de quem o usa.
+
+            Quando não dá para atualizar agora, o motivo fica no lugar do botão
+            — é a mesma disciplina do D7 na instalação. O caso que existe de
+            verdade é a versão nova que deixou de publicar verificação de
+            integridade: aceitá-la trocaria em silêncio um agente conferido por
+            um que o app não tem como conferir.
+          */}
+          {plan.update && (
+            <div className="agent-install__update">
+              <p className="agent-install__intro">
+                {t('providerForm.agent.catalog.updateAvailable', {
+                  version: plan.version,
+                  installed: installed.version,
+                })}
+              </p>
+              {plan.can_update ? (
+                <div className="agent-install__action">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setConfirming('update')}
+                    disabled={busy || loading || removing}
+                    aria-describedby={updateHelpId}
+                  >
+                    {t('providerForm.agent.catalog.updateBtn', { version: plan.version })}
+                  </Button>
+                  <p id={updateHelpId} className="agent-install__action-help">
+                    {t('providerForm.agent.catalog.updateBtnHelp')}
+                  </p>
+                </div>
+              ) : (
+                <div className="agent-install__blocked">
+                  <p>
+                    {plan.update_reason
+                      ? t('providerForm.agent.catalog.updateUnavailable', {
+                          reason: plan.update_reason,
+                        })
+                      : t('providerForm.agent.catalog.updateUnavailableUnknown')}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {/*
+            Cancelar acompanha o que está em voo, e a atualização também baixa:
+            sem este botão, quem pediu a atualização de um pacote grande ficaria
+            sem como desistir dela.
+          */}
+          {busy && (
+            <div className="agent-install__action">
+              <Button type="button" variant="outline" onClick={handleCancel}>
+                {t('providerForm.agent.catalog.cancelBtn')}
+              </Button>
+            </div>
+          )}
           <div className="agent-install__actions">
             <div className="agent-install__action">
               <Button
                 type="button"
                 variant="secondary"
+                // Enquanto a atualização corre, o que está aqui é a versão que
+                // vai sair: preencher o campo com ela devolveria ao provedor o
+                // comando antigo depois de o backend já tê-lo repontado. O
+                // plano recarregado no fim traz a versão nova.
+                disabled={busy || removing || loading}
                 onClick={() => {
                   onResolved(installed.command, installed.args || []);
                   // Preencher campo por clique não é visível a quem não vê o
@@ -465,6 +615,10 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
                 type="button"
                 variant="danger"
                 onClick={() => setConfirmingRemoval(true)}
+                // Apagar a pasta no meio de uma atualização é apagar o que ela
+                // está escrevendo. Enquanto ela corre, o caminho de desistir é
+                // o cancelar acima.
+                disabled={busy || removing}
                 aria-describedby={removeHelpId}
               >
                 {t('providerForm.agent.catalog.removeBtn')}
@@ -517,7 +671,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
                 <Button
                   type="button"
                   variant="secondary"
-                  onClick={() => setConfirming(true)}
+                  onClick={() => setConfirming('install')}
                   disabled={busy || loading}
                   aria-describedby={installHelpId}
                 >
@@ -574,9 +728,16 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
         rótulo e o valor chegarem ligados a quem usa leitor de telas.
       */}
       <Modal
-        isOpen={confirming}
-        onClose={() => setConfirming(false)}
-        title={t('providerForm.agent.catalog.confirm.title', { agent: plan.name })}
+        isOpen={!!confirming}
+        onClose={() => setConfirming('')}
+        title={
+          updating
+            ? t('providerForm.agent.catalog.confirm.titleUpdate', {
+                agent: plan.name,
+                version: plan.version,
+              })
+            : t('providerForm.agent.catalog.confirm.title', { agent: plan.name })
+        }
         size="md"
         /*
           A descrição do diálogo inclui o aviso quando ele existe. Um leitor de
@@ -602,11 +763,13 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
         */}
         <p id={confirmId} className="agent-install__confirm-intro">
           {t(
-            unverified
-              ? 'providerForm.agent.catalog.confirm.introUnverified'
-              : binary
-                ? 'providerForm.agent.catalog.confirm.introBinary'
-                : 'providerForm.agent.catalog.confirm.intro',
+            updating
+              ? 'providerForm.agent.catalog.confirm.introUpdate'
+              : unverified
+                ? 'providerForm.agent.catalog.confirm.introUnverified'
+                : binary
+                  ? 'providerForm.agent.catalog.confirm.introBinary'
+                  : 'providerForm.agent.catalog.confirm.intro',
           )}
         </p>
         {/*
@@ -622,7 +785,24 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
         <dl className="agent-install__details">
           <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
           <dd>{plan.name}</dd>
-          <dt>{t('providerForm.agent.catalog.confirm.version')}</dt>
+          {/*
+            Na atualização as duas versões aparecem, e nesta ordem: a que sai é
+            o que dá sentido à que entra, e o diálogo é o único lugar onde as
+            duas ficam lado a lado antes de o download começar.
+          */}
+          {updating && !!installed && (
+            <>
+              <dt>{t('providerForm.agent.catalog.confirm.installedVersion')}</dt>
+              <dd>{installed.version}</dd>
+            </>
+          )}
+          <dt>
+            {t(
+              updating
+                ? 'providerForm.agent.catalog.confirm.newVersion'
+                : 'providerForm.agent.catalog.confirm.version',
+            )}
+          </dt>
           <dd>{plan.version}</dd>
           <dt>{t('providerForm.agent.catalog.confirm.origin')}</dt>
           <dd className="agent-install__details-code">{plan.origin}</dd>
@@ -657,7 +837,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
             type="button"
             variant="outline"
             data-confirm-cancel=""
-            onClick={() => setConfirming(false)}
+            onClick={() => setConfirming('')}
           >
             {t('providerForm.agent.catalog.confirm.cancelBtn')}
           </Button>
@@ -673,13 +853,17 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
           <Button
             type="button"
             variant="primary"
-            onClick={() => void handleInstall(unverified)}
+            onClick={() => void (updating ? handleUpdate(unverified) : handleInstall(unverified))}
             disabled={busy}
           >
             {t(
-              unverified
-                ? 'providerForm.agent.catalog.confirm.confirmUnverifiedBtn'
-                : 'providerForm.agent.catalog.confirm.confirmBtn',
+              updating
+                ? unverified
+                  ? 'providerForm.agent.catalog.confirm.confirmUpdateUnverifiedBtn'
+                  : 'providerForm.agent.catalog.confirm.confirmUpdateBtn'
+                : unverified
+                  ? 'providerForm.agent.catalog.confirm.confirmUnverifiedBtn'
+                  : 'providerForm.agent.catalog.confirm.confirmBtn',
             )}
           </Button>
         </div>

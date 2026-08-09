@@ -1810,6 +1810,16 @@ const es = {
             'Esta instalación no se verificó: el agente no publica código de verificación, así que la aplicación no pudo comprobar que el archivo descargado es el que publicó el registro.',
           useBtn: 'Usar el comando instalado',
           useAnnounce: 'Comando completado con el del agente instalado: {{command}}.',
+          updateAvailable:
+            'El catálogo publica la versión {{version}} de este agente, y la instalada es la {{installed}}. No se actualiza nada sin que lo pidas.',
+          updateBtn: 'Actualizar a la versión {{version}}',
+          updateBtnHelp:
+            'Muestra lo que se va a descargar, instala la versión nueva junto a la actual, apunta hacia ella los proveedores que usan este agente y solo entonces borra la versión anterior.',
+          updateUnavailable: 'Ahora no se puede actualizar: {{reason}}',
+          updateUnavailableUnknown: 'Ahora no se puede actualizar este agente.',
+          updated:
+            'Agente actualizado a la versión {{version}}. Los proveedores que usaban la versión anterior pasaron a usar esta, y la anterior se borró.',
+          updateFailed: 'La actualización falló: {{reason}}',
           removeBtn: 'Eliminar agente instalado',
           removeBtnHelp:
             'Borra la carpeta del agente que instaló la aplicación. El proveedor sigue guardado y su comando deja de existir.',
@@ -1851,8 +1861,13 @@ const es = {
               'La aplicación va a descargar el archivo de abajo y comprobar que coincide con el código de verificación publicado por el registro. No se descarga nada antes de que confirmes.',
             introUnverified:
               'La aplicación va a descargar el archivo de abajo. No se descarga nada antes de que confirmes.',
+            titleUpdate: '¿Actualizar {{agent}} a la versión {{version}}?',
+            introUpdate:
+              'La aplicación va a instalar la versión nueva junto a la actual, apuntar hacia ella los proveedores que usan este agente y solo entonces borrar la anterior. No se descarga nada antes de que confirmes.',
             agent: 'Agente',
             version: 'Versión',
+            installedVersion: 'Versión instalada ahora',
+            newVersion: 'Versión nueva',
             origin: 'Origen',
             dir: 'Carpeta de destino',
             command: 'Comando que se va a ejecutar',
@@ -1863,6 +1878,8 @@ const es = {
               'Este agente no publica verificación de integridad: la aplicación no tiene cómo comprobar que el archivo descargado es el que publicó el registro. Puedes instalarlo igualmente, o descargar el agente desde el sitio del proveedor y apuntar el comando aquí.',
             confirmBtn: 'Descargar e instalar',
             confirmUnverifiedBtn: 'Descargar sin verificación',
+            confirmUpdateBtn: 'Descargar y actualizar',
+            confirmUpdateUnverifiedBtn: 'Actualizar sin verificación',
             cancelBtn: 'Cancelar',
           },
           removeConfirm: {
