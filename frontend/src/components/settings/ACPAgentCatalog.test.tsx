@@ -390,6 +390,49 @@ describe('ACPAgentCatalog', () => {
       expect(within(item).getByText('permission denied')).toBeInTheDocument();
     });
 
+    it('diz que foi este app quem instalou, com a versão que ele pôs no disco', async () => {
+      const item = await comEstado({
+        state: 'installed',
+        installed_by_app: true,
+        installed_version: '1.0.0',
+        state_detail: '/home/ana/.assistente/agents/codex-acp/1.0.0',
+      });
+      // A frase de estado é lida inteira porque é ela que muda: "encontrado"
+      // descreveria uma procura, e quem pôs o agente ali foi o app.
+      const estado = item.querySelector('.acp-catalog__state')?.textContent ?? '';
+      expect(estado).toContain('instalado por este app, versão 1.0.0');
+      expect(estado).not.toContain('encontrado nesta máquina');
+      expect(within(item).getByText('/home/ana/.assistente/agents/codex-acp/1.0.0')).toBeInTheDocument();
+    });
+
+    it('continua marcando a instalação que não pôde ser conferida (D4)', async () => {
+      const item = await comEstado({
+        state: 'installed',
+        installed_by_app: true,
+        installed_version: '2026.01.02',
+        installed_unverified: true,
+        distributions: ['binary'],
+        runtime: '',
+        integrity: 'no_digest',
+      });
+      expect(within(item).getByText(/Esta instalação não foi verificada/)).toBeInTheDocument();
+      // A marca também está no nome acessível: quem navega com leitor de telas
+      // ouve o item inteiro e não passa por essa ressalva por acaso.
+      expect(item.getAttribute('aria-label') ?? '').toContain('Esta instalação não foi verificada');
+    });
+
+    it('não marca como não verificada a instalação cujo digest bateu', async () => {
+      const item = await comEstado({
+        state: 'installed',
+        installed_by_app: true,
+        installed_version: '2.0.0',
+        distributions: ['binary'],
+        runtime: '',
+        integrity: 'digest',
+      });
+      expect(within(item).queryByText(/Esta instalação não foi verificada/)).not.toBeInTheDocument();
+    });
+
     it('avisa que o agente não publica soma de verificação nesta plataforma (D4)', async () => {
       const item = await comEstado({
         distributions: ['binary'],

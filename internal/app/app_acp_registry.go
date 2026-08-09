@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/acp"
+	"assistente/internal/acpinstall"
 	"assistente/internal/acpregistry"
 	"assistente/internal/logging"
 )
@@ -28,7 +29,10 @@ const acpCatalogComponent = "app.app-acp-registry"
 //   - a procura pode não ter dado para ser concluída (permissão negada), e aí
 //     "não encontrado" mandaria reinstalar o que talvez já esteja lá.
 const (
-	// ACPCatalogStateInstalled é o agente que a detecção achou nesta máquina.
+	// ACPCatalogStateInstalled é o agente que está nesta máquina, seja porque o
+	// app o instalou (D5), seja porque a detecção o achou instalado por fora
+	// (D1). Qual dos dois foi está em InstalledByApp, porque o que dá para fazer
+	// com um e com o outro é diferente.
 	ACPCatalogStateInstalled = "installed"
 
 	// ACPCatalogStateRequirementMissing é o runtime que o agente exige e não
@@ -141,6 +145,24 @@ type ACPCatalogAgent struct {
 	// layout dela revela. Não é a versão do registro: são duas coisas, e é a
 	// diferença entre as duas que a Fase 7 vai usar para avisar de atualização.
 	DetectedVersion string `json:"detected_version,omitempty"`
+
+	// InstalledByApp diz que quem pôs este agente na máquina foi este app (D5).
+	// A distinção importa porque muda o que dá para fazer com ele: o que o app
+	// instalou, ele sabe onde está, sabe atualizar e sabe remover; o que veio de
+	// fora, ele apenas reconheceu.
+	InstalledByApp bool `json:"installed_by_app,omitempty"`
+
+	// InstalledVersion é a versão que o app instalou. Ela é separada da
+	// detectada porque as duas têm destinos diferentes: é esta que a Fase 7
+	// compara com a do registro, já que atualizar só faz sentido para o que o
+	// app mesmo pôs ali.
+	InstalledVersion string `json:"installed_version,omitempty"`
+
+	// InstalledUnverified é a instalação cujo artefato o app não teve como
+	// conferir contra digest publicado (D4). A marca acompanha o agente depois
+	// de instalado, e não desaparece com o diálogo em que ela foi aceita: quem
+	// abrir o catálogo semanas depois precisa saber o que aquele arquivo vale.
+	InstalledUnverified bool `json:"installed_unverified,omitempty"`
 }
 
 // GetACPCatalog devolve o catálogo do registro ACP para a tela de provedores.
@@ -191,14 +213,49 @@ func (a *App) acpCatalogOf(ctx context.Context, catalog acpregistry.Catalog) ACP
 		// Sem agente não há o que procurar na máquina, e a tela só precisa do
 		// motivo. Varrer o disco para montar uma lista vazia seria trabalho para
 		// responder nada.
-		return acpCatalogFrom(catalog, platform, nil, nil)
+		return acpCatalogFrom(catalog, platform, acpMachine{})
 	}
-	return acpCatalogFrom(
-		catalog,
-		platform,
-		detectACPInstalls(ctx),
-		detectACPRuntimes(ctx, catalog.Agents, platform),
-	)
+	return acpCatalogFrom(catalog, platform, acpMachine{
+		detected:  detectACPInstalls(ctx),
+		runtimes:  detectACPRuntimes(ctx, catalog.Agents, platform),
+		installed: a.acpAppInstalls(),
+	})
+}
+
+// acpMachine é o que esta máquina respondeu sobre os agentes do catálogo: o que
+// a detecção achou instalado por fora (D1), quais runtimes estão aqui (D7) e o
+// que o próprio app instalou (D5).
+//
+// Os três andam juntos porque são a mesma pergunta — "o que existe nesta
+// máquina" — e porque é este conjunto que o teste descreve para exercitar a
+// tradução contra uma máquina inventada em vez da que roda o teste.
+type acpMachine struct {
+	detected  map[acp.AgentKind]acpDetection
+	runtimes  map[acp.Runtime]acp.RuntimeInstall
+	installed map[string]acpinstall.Installation
+}
+
+// acpAppInstalls é o que este app instalou, indexado pelo identificador do
+// registro (D5).
+//
+// Sem isto o catálogo só enxergaria a detecção escrita à mão, que conhece dois
+// agentes dos 38 (D1) — e um agente instalado pelo próprio app apareceria na
+// lista como "o app não sabe procurar este", que é falso justamente para o
+// agente sobre o qual ele mais sabe.
+func (a *App) acpAppInstalls() map[string]acpinstall.Installation {
+	services := a.acpCatalogServices()
+	if services == nil || services.installer == nil {
+		return nil
+	}
+	installations := services.installer.List()
+	if len(installations) == 0 {
+		return nil
+	}
+	out := make(map[string]acpinstall.Installation, len(installations))
+	for _, installation := range installations {
+		out[installation.AgentID] = installation
+	}
+	return out
 }
 
 // acpCatalogFrom traduz o catálogo do pacote para o que a tela consome, já com o
@@ -207,12 +264,7 @@ func (a *App) acpCatalogOf(ctx context.Context, catalog acpregistry.Catalog) ACP
 // A máquina entra por parâmetro, e não é consultada aqui, para esta tradução
 // poder ser exercitada contra uma máquina descrita — com Node e sem Cursor, com
 // a procura falhando — em vez de contra a máquina que roda o teste.
-func acpCatalogFrom(
-	catalog acpregistry.Catalog,
-	platform string,
-	installs map[acp.AgentKind]acpDetection,
-	runtimes map[acp.Runtime]acp.RuntimeInstall,
-) ACPCatalog {
+func acpCatalogFrom(catalog acpregistry.Catalog, platform string, machine acpMachine) ACPCatalog {
 	out := ACPCatalog{
 		Version:      catalog.Version,
 		Agents:       make([]ACPCatalogAgent, 0, len(catalog.Agents)),
@@ -228,7 +280,7 @@ func acpCatalogFrom(
 	}
 
 	for _, agent := range catalog.Agents {
-		out.Agents = append(out.Agents, acpCatalogAgentFrom(agent, platform, installs, runtimes))
+		out.Agents = append(out.Agents, acpCatalogAgentFrom(agent, platform, machine))
 	}
 	// Ordenada por nome, como a Fase 2 pede, com o identificador desempatando:
 	// dois agentes de mesmo nome existiriam em ordem sorteada, e a lista mudaria
@@ -293,12 +345,7 @@ func detectACPRuntimes(ctx context.Context, agents []acpregistry.Agent, platform
 
 // acpCatalogAgentFrom monta a linha da tela a partir da entrada do registro, do
 // que a detecção achou e do que esta máquina tem.
-func acpCatalogAgentFrom(
-	agent acpregistry.Agent,
-	platform string,
-	installs map[acp.AgentKind]acpDetection,
-	runtimes map[acp.Runtime]acp.RuntimeInstall,
-) ACPCatalogAgent {
+func acpCatalogAgentFrom(agent acpregistry.Agent, platform string, machine acpMachine) ACPCatalogAgent {
 	fit := acpregistry.FitFor(agent, platform)
 	row := ACPCatalogAgent{
 		ID:            agent.ID,
@@ -321,7 +368,7 @@ func acpCatalogAgentFrom(
 
 	runtimeOK := true
 	if fit.Runtime != "" {
-		install := runtimes[fit.Runtime]
+		install := machine.runtimes[fit.Runtime]
 		row.RuntimeFound = install.Found
 		// O caminho é saneado como qualquer texto que vai à tela: ele é montado
 		// a partir de variáveis de ambiente e do PATH, e uma marca invisível de
@@ -331,8 +378,39 @@ func acpCatalogAgentFrom(
 		runtimeOK = install.Found
 	}
 
-	row.State, row.StateDetail, row.DetectedVersion = acpCatalogState(agent.ID, fit, runtimeOK, installs)
+	// A instalação do app responde antes da detecção porque ela é a mais certa
+	// das duas: o app sabe o que escreveu e onde. A de fora continua valendo
+	// para quem já tinha o agente, e é o que a detecção responde a seguir.
+	if installation, ok := machine.installed[agent.ID]; ok {
+		row.State = ACPCatalogStateInstalled
+		row.StateDetail = acp.SanitizeLabel(installation.Dir)
+		row.InstalledByApp = true
+		row.InstalledVersion = acp.SanitizeLabel(installation.Version)
+		row.InstalledUnverified = unverifiedInstall(installation)
+		return row
+	}
+
+	row.State, row.StateDetail, row.DetectedVersion = acpCatalogState(agent.ID, fit, runtimeOK, machine.detected)
 	return row
+}
+
+// unverifiedInstall diz se o artefato que está no disco foi conferido contra um
+// digest publicado (D4).
+//
+// Quem dispensa a pergunta é o pacote npm, e só ele: ali quem confere é o
+// próprio npm, o campo é naturalmente vazio, e uma ressalva seria alarme nos 21
+// agentes de pacote. Todo o resto responde pelo digest, e qualquer coisa que não
+// seja "conferido" conta como não conferido — inclusive o campo vazio e a
+// distribuição que este app não escreveu. O registro vem do disco, e é ele que
+// diria "npm" para calar a ressalva de um binário.
+func unverifiedInstall(installation acpinstall.Installation) bool {
+	if installation.Distribution == acpinstall.DistributionNPM {
+		return false
+	}
+	// Conferido é o registro que diz qual digest conferiu. Um que se declare
+	// `verified` com o campo vazio não descreve nenhuma conferência, e a
+	// instalação binária que o app faz sempre grava os dois.
+	return installation.SHA256Origin != acpinstall.DigestVerified || installation.SHA256 == ""
 }
 
 // acpCatalogState decide o estado da linha nesta máquina.

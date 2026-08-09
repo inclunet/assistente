@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"assistente/internal/acp"
+	"assistente/internal/acpinstall"
 	"assistente/internal/acpregistry"
 )
 
@@ -60,8 +61,7 @@ func TestOCatalogoVemOrdenadoPorNome(t *testing.T) {
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteNPM("zed-agent", "Zed"), agenteNPM("codex-acp", "codex"), agenteNPM("amp", "Amp")),
 		"linux-x86_64",
-		nil,
-		map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true, Path: "/usr/bin/node"}},
+		acpMachine{runtimes: map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true, Path: "/usr/bin/node"}}},
 	)
 
 	nomes := make([]string, 0, len(catalogo.Agents))
@@ -90,7 +90,7 @@ func TestOAgenteEncontradoPelaDeteccaoDizOndeEstá(t *testing.T) {
 
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteBinario("cursor", "Cursor", "windows-x86_64", "")),
-		"windows-x86_64", installs, nil,
+		"windows-x86_64", acpMachine{detected: installs},
 	)
 
 	cursor := acharPorID(t, catalogo, "cursor")
@@ -130,7 +130,7 @@ func TestOsCaminhosQueVaoAoNomeAcessivelSaoSaneados(t *testing.T) {
 
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteBinario("cursor", "Cursor", "linux-x86_64", digestQualquer), agenteNPM("amp", "Amp")),
-		"linux-x86_64", installs, runtimes,
+		"linux-x86_64", acpMachine{detected: installs, runtimes: runtimes},
 	)
 
 	cursor := acharPorID(t, catalogo, "cursor")
@@ -147,6 +147,253 @@ func TestOsCaminhosQueVaoAoNomeAcessivelSaoSaneados(t *testing.T) {
 	}
 }
 
+func TestOQueOAppInstalouApareceComoInstaladoAindaQueADeteccaoNaoOConheca(t *testing.T) {
+	// O Codex não está entre os dois agentes que a detecção sabe procurar (D1),
+	// e antes disto ele aparecia como "o app não sabe procurar este" mesmo
+	// depois de o app o ter instalado — falso justamente para o agente sobre o
+	// qual ele mais sabe.
+	instalado := map[string]acpinstall.Installation{
+		"codex-acp": {
+			AgentID: "codex-acp",
+			Version: "1.0.0",
+			Dir:     "/home/ana/.assistente/agents/codex-acp/1.0.0",
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteNPM("codex-acp", "Codex")),
+		"linux-x86_64",
+		acpMachine{
+			runtimes:  map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true}},
+			installed: instalado,
+		},
+	)
+
+	codex := acharPorID(t, catalogo, "codex-acp")
+	if codex.State != ACPCatalogStateInstalled {
+		t.Fatalf("estado = %q, quer %q", codex.State, ACPCatalogStateInstalled)
+	}
+	if !codex.InstalledByApp {
+		t.Error("a instalação é do app, e é isso que decide se dá para removê-la daqui")
+	}
+	if codex.InstalledVersion != "1.0.0" {
+		t.Errorf("versão instalada = %q, quer a que o app pôs no disco", codex.InstalledVersion)
+	}
+	if codex.StateDetail != "/home/ana/.assistente/agents/codex-acp/1.0.0" {
+		t.Errorf("detalhe = %q, quer o diretório da instalação", codex.StateDetail)
+	}
+	// A versão do registro continua ao lado, e não é substituída pela
+	// instalada: é a diferença entre as duas que a Fase 7 usa.
+	if codex.Version != "1.0.0" {
+		t.Errorf("versão do registro = %q, quer a do catálogo", codex.Version)
+	}
+}
+
+func TestAInstalacaoNaoVerificadaContinuaDizendoIssoNoCatalogo(t *testing.T) {
+	// A marca acompanha o agente depois de instalado (D4): quem abre o catálogo
+	// semanas depois não viu o diálogo em que ela foi aceita.
+	instalado := map[string]acpinstall.Installation{
+		"cursor": {
+			AgentID:      "cursor",
+			Version:      "2026.01.02",
+			Dir:          "/home/ana/.assistente/agents/cursor/2026.01.02",
+			Distribution: acpinstall.DistributionBinary,
+			SHA256Origin: acpinstall.DigestObserved,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("cursor", "Cursor", "linux-x86_64", "")),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	cursor := acharPorID(t, catalogo, "cursor")
+	if !cursor.InstalledUnverified {
+		t.Error("a instalação foi feita sem digest publicado e o catálogo não diz")
+	}
+}
+
+func TestAInstalacaoConferidaNaoEMarcadaComoNaoVerificada(t *testing.T) {
+	instalado := map[string]acpinstall.Installation{
+		"goose": {
+			AgentID:      "goose",
+			Version:      "2.0.0",
+			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: acpinstall.DistributionBinary,
+			SHA256:       digestQualquer,
+			SHA256Origin: acpinstall.DigestVerified,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	goose := acharPorID(t, catalogo, "goose")
+	if goose.InstalledUnverified {
+		t.Error("o digest foi conferido e o catálogo diz que não")
+	}
+	if !goose.InstalledByApp {
+		t.Error("a instalação é do app")
+	}
+}
+
+func TestOBinarioSemOrigemDeDigestConhecidaContaComoNaoVerificado(t *testing.T) {
+	// O registro vem do disco: um campo vazio ou com valor que o app não escreveu
+	// não é conferência, e tratá-lo como se fosse esconderia a ressalva
+	// justamente no caso em que ela mais vale.
+	instalado := map[string]acpinstall.Installation{
+		"goose": {
+			AgentID:      "goose",
+			Version:      "2.0.0",
+			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: acpinstall.DistributionBinary,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	if goose := acharPorID(t, catalogo, "goose"); !goose.InstalledUnverified {
+		t.Error("binário sem origem de digest conhecida foi dado como conferido")
+	}
+}
+
+func TestADistribuicaoQueOAppNaoEscreveuNaoCalaARessalva(t *testing.T) {
+	// A distribuição também vem do registro no disco. Se bastasse ela não dizer
+	// `binary` para a ressalva sumir, o caminho para contornar o D4 seria editar
+	// uma palavra num arquivo de texto.
+	instalado := map[string]acpinstall.Installation{
+		"goose": {
+			AgentID:      "goose",
+			Version:      "2.0.0",
+			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: "qualquer-coisa",
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	if goose := acharPorID(t, catalogo, "goose"); !goose.InstalledUnverified {
+		t.Error("distribuição desconhecida calou a ressalva de instalação não verificada")
+	}
+}
+
+func TestORegistroQueSeDizConferidoSemDizerContraOQueNaoConta(t *testing.T) {
+	// `verified` com o campo do digest vazio não descreve conferência nenhuma —
+	// e a instalação binária que o app faz sempre grava os dois.
+	instalado := map[string]acpinstall.Installation{
+		"goose": {
+			AgentID:      "goose",
+			Version:      "2.0.0",
+			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: acpinstall.DistributionBinary,
+			SHA256Origin: acpinstall.DigestVerified,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	if goose := acharPorID(t, catalogo, "goose"); !goose.InstalledUnverified {
+		t.Error("registro que se diz conferido sem digest passou por conferido")
+	}
+}
+
+func TestOPacoteNpmNaoGanhaRessalvaDeDigest(t *testing.T) {
+	// Quem confere o pacote é o próprio npm, e ali o campo é naturalmente vazio.
+	// Uma ressalva aqui seria alarme nos 21 agentes de pacote — e alarme que
+	// sempre toca é alarme que se aprende a ignorar.
+	instalado := map[string]acpinstall.Installation{
+		"codex-acp": {
+			AgentID:      "codex-acp",
+			Version:      "1.0.0",
+			Dir:          "/home/ana/.assistente/agents/codex-acp/1.0.0",
+			Distribution: acpinstall.DistributionNPM,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteNPM("codex-acp", "Codex")),
+		"linux-x86_64",
+		acpMachine{
+			runtimes:  map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true}},
+			installed: instalado,
+		},
+	)
+
+	if codex := acharPorID(t, catalogo, "codex-acp"); codex.InstalledUnverified {
+		t.Error("pacote npm marcado como instalação não verificada")
+	}
+}
+
+func TestAInstalacaoDoAppRespondeAntesDaDeteccao(t *testing.T) {
+	// Os dois podem existir: quem já tinha o Cursor instalado por fora pode ter
+	// pedido a instalação pelo catálogo depois. Vale a do app, porque é a que
+	// ele sabe onde está e sabe remover.
+	installs := map[acp.AgentKind]acpDetection{
+		acp.AgentKindCursor: {install: acp.Install{
+			Found:   true,
+			Source:  `C:\fora\cursor-agent.cmd`,
+			Version: "2025.12.31",
+		}},
+	}
+	instalado := map[string]acpinstall.Installation{
+		"cursor": {AgentID: "cursor", Version: "2026.01.02", Dir: `C:\app\agents\cursor\2026.01.02`},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("cursor", "Cursor", "windows-x86_64", "")),
+		"windows-x86_64", acpMachine{detected: installs, installed: instalado},
+	)
+
+	cursor := acharPorID(t, catalogo, "cursor")
+	if !cursor.InstalledByApp || cursor.InstalledVersion != "2026.01.02" {
+		t.Errorf("linha = %+v, quer a instalação do app", cursor)
+	}
+	if cursor.StateDetail != `C:\app\agents\cursor\2026.01.02` {
+		t.Errorf("detalhe = %q, quer o diretório do app", cursor.StateDetail)
+	}
+}
+
+func TestOQueVemDoRegistroDeInstalacaoTambemESaneado(t *testing.T) {
+	// O `installed.json` está no disco de alguém e pode ser editado à mão. O que
+	// sai dele vira nome acessível do item como qualquer outro texto.
+	const marcaDeDirecao = "\u202e"
+	instalado := map[string]acpinstall.Installation{
+		"codex-acp": {
+			AgentID: "codex-acp",
+			Version: "1.0.0" + marcaDeDirecao + "\r\n",
+			Dir:     "/home/ana/" + marcaDeDirecao + "agents\u0007",
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteNPM("codex-acp", "Codex")),
+		"linux-x86_64",
+		acpMachine{
+			runtimes:  map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true}},
+			installed: instalado,
+		},
+	)
+
+	codex := acharPorID(t, catalogo, "codex-acp")
+	if strings.ContainsAny(codex.InstalledVersion, marcaDeDirecao+"\r\n") {
+		t.Errorf("versão instalada = %q, quer o texto saneado", codex.InstalledVersion)
+	}
+	if strings.ContainsAny(codex.StateDetail, marcaDeDirecao+"\u0007") {
+		t.Errorf("detalhe = %q, quer o texto saneado", codex.StateDetail)
+	}
+}
+
 func TestOAgenteQueADeteccaoNaoConheceNaoEDitoComoNaoEncontrado(t *testing.T) {
 	// A detecção sabe procurar dois agentes dos 38 (D1). Dizer "não encontrado"
 	// para os outros alegaria uma procura que o app não sabe fazer — e mandaria
@@ -154,8 +401,10 @@ func TestOAgenteQueADeteccaoNaoConheceNaoEDitoComoNaoEncontrado(t *testing.T) {
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteNPM("codex-acp", "Codex")),
 		"linux-x86_64",
-		map[acp.AgentKind]acpDetection{},
-		map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true, Path: "/usr/bin/node"}},
+		acpMachine{
+			detected: map[acp.AgentKind]acpDetection{},
+			runtimes: map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true, Path: "/usr/bin/node"}},
+		},
 	)
 
 	codex := acharPorID(t, catalogo, "codex-acp")
@@ -171,7 +420,7 @@ func TestOAgenteConhecidoQueNaoEstaNaMaquinaEDitoComoNaoEncontrado(t *testing.T)
 
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteBinario("cursor", "Cursor", "linux-x86_64", digestQualquer)),
-		"linux-x86_64", installs, nil,
+		"linux-x86_64", acpMachine{detected: installs},
 	)
 
 	if cursor := acharPorID(t, catalogo, "cursor"); cursor.State != ACPCatalogStateNotInstalled {
@@ -188,7 +437,7 @@ func TestAProcuraQueFalhouNaoViraNaoEncontrado(t *testing.T) {
 
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteBinario("cursor", "Cursor", "linux-x86_64", digestQualquer)),
-		"linux-x86_64", installs, nil,
+		"linux-x86_64", acpMachine{detected: installs},
 	)
 
 	cursor := acharPorID(t, catalogo, "cursor")
@@ -214,7 +463,7 @@ func TestORuntimeAusenteVenceOsOutrosEstados(t *testing.T) {
 
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteNPM("claude-acp", "Claude Code"), agenteNPM("codex-acp", "Codex")),
-		"linux-x86_64", installs, runtimes,
+		"linux-x86_64", acpMachine{detected: installs, runtimes: runtimes},
 	)
 
 	for _, id := range []string{"claude-acp", "codex-acp"} {
@@ -237,7 +486,7 @@ func TestARuntimeEncontradoNaoBloqueiaEDizOndeEsta(t *testing.T) {
 	}
 
 	catalogo := acpCatalogFrom(
-		catalogoDe(agenteNPM("codex-acp", "Codex")), "windows-x86_64", nil, runtimes,
+		catalogoDe(agenteNPM("codex-acp", "Codex")), "windows-x86_64", acpMachine{runtimes: runtimes},
 	)
 
 	codex := acharPorID(t, catalogo, "codex-acp")
@@ -257,7 +506,7 @@ func TestOAgenteSemAlvoParaEstaPlataformaEDitoAssim(t *testing.T) {
 	// procurar solução para um agente que não tem artefato para esta máquina.
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
-		"windows-aarch64", nil, nil,
+		"windows-aarch64", acpMachine{},
 	)
 
 	goose := acharPorID(t, catalogo, "goose")
@@ -278,7 +527,7 @@ func TestOCatalogoVazioCarregaOMotivoESemListaNula(t *testing.T) {
 			ReasonCode:   acpregistry.ReasonUnreachable,
 			ReasonDetail: "sem rota para o host",
 		},
-		"linux-x86_64", nil, nil,
+		"linux-x86_64", acpMachine{},
 	)
 
 	if catalogo.ReasonCode != string(acpregistry.ReasonUnreachable) {
@@ -305,8 +554,8 @@ func TestOCatalogoVelhoDizQuandoFoiColetado(t *testing.T) {
 			FromCache: true,
 			Stale:     true,
 		},
-		"linux-x86_64", nil,
-		map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true}},
+		"linux-x86_64",
+		acpMachine{runtimes: map[acp.Runtime]acp.RuntimeInstall{acp.RuntimeNode: {Found: true}}},
 	)
 
 	if !catalogo.Stale || !catalogo.FromCache {
@@ -325,7 +574,7 @@ func TestOCatalogoVelhoDizQuandoFoiColetado(t *testing.T) {
 func TestSemRuntimeExigidoNaoSeDizNadaSobreRuntime(t *testing.T) {
 	catalogo := acpCatalogFrom(
 		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
-		"linux-x86_64", nil, nil,
+		"linux-x86_64", acpMachine{},
 	)
 
 	goose := acharPorID(t, catalogo, "goose")

@@ -38,6 +38,9 @@ export interface CatalogAgent {
   state: string;
   state_detail?: string;
   detected_version?: string;
+  installed_by_app?: boolean;
+  installed_version?: string;
+  installed_unverified?: boolean;
 }
 
 /** O catálogo inteiro, com o que se sabe sobre a própria coleta (D2). */
@@ -88,6 +91,14 @@ export const runtimeText = (t: TFunction, agent: CatalogAgent): string => {
 export const stateText = (t: TFunction, agent: CatalogAgent): string => {
   switch (agent.state) {
     case 'installed':
+      // Quem instalou muda a frase porque muda o que se pode fazer com o
+      // agente: o que o app pôs ali, ele sabe onde está e sabe remover; o que
+      // veio de fora, ele apenas reconheceu.
+      if (agent.installed_by_app) {
+        return agent.installed_version
+          ? t('acpCatalog.state.installedByAppVersion', { version: agent.installed_version })
+          : t('acpCatalog.state.installedByApp');
+      }
       return agent.detected_version
         ? t('acpCatalog.state.installedVersion', { version: agent.detected_version })
         : t('acpCatalog.state.installed');
@@ -130,6 +141,17 @@ export const integrityText = (t: TFunction, agent: CatalogAgent): string => {
 };
 
 /**
+ * O que a instalação que existe aqui vale (D4).
+ *
+ * É outra frase que a da integridade, e as duas convivem: aquela fala do que o
+ * registro publica hoje, e esta fala do arquivo que já está no disco. Um agente
+ * pode ter passado a publicar soma de verificação depois de alguém instalar a
+ * versão que não tinha nenhuma, e é a instalação que continua sem conferência.
+ */
+export const installedIntegrityText = (t: TFunction, agent: CatalogAgent): string =>
+  agent.installed_unverified ? t('acpCatalog.state.installedUnverified') : '';
+
+/**
  * A frase inteira do item, que é o que um leitor de telas lê ao chegar nele.
  *
  * Ela existe porque o critério da Fase 2 é que cada item seja lido inteiro: sem
@@ -143,6 +165,7 @@ export const catalogItemLabel = (t: TFunction, agent: CatalogAgent): string => {
     agent.version ? t('acpCatalog.item.nameVersion', { name: agent.name, version: agent.version }) : agent.name,
     agent.description,
     stateText(t, agent),
+    installedIntegrityText(t, agent),
     runtimeText(t, agent),
     agent.distributions?.length
       ? t('acpCatalog.item.distributions', {
@@ -455,81 +478,89 @@ export const ACPAgentCatalog = ({ onSelect, selectedId }: ACPAgentCatalogProps =
               aria-describedby={navHelpId}
               onKeyDown={handleListKeyDown}
             >
-              {rows.map((agent, index) => (
-                <li
-                  key={agent.id}
-                  ref={(node) => {
-                    itemRefs.current[index] = node;
-                  }}
-                  className="acp-catalog__item"
-                  role={onSelect ? 'option' : undefined}
-                  aria-selected={onSelect ? agent.id === selectedId : undefined}
-                  tabIndex={index === safeIndex ? 0 : -1}
-                  aria-label={catalogItemLabel(t, agent)}
-                  onFocus={() => setActiveIndex(index)}
-                  onClick={onSelect ? () => onSelect(agent) : undefined}
-                >
-                  <h3 className="acp-catalog__name">
-                    {agent.name}
-                    {!!agent.version && (
-                      <span className="acp-catalog__version">
-                        {t('acpCatalog.item.version', { version: agent.version })}
-                      </span>
-                    )}
-                  </h3>
-                  <p className="acp-catalog__id">{agent.id}</p>
-                  {!!agent.description && <p className="acp-catalog__description">{agent.description}</p>}
+              {rows.map((agent, index) => {
+                // As duas frases de integridade saem daqui, e não do meio do
+                // JSX: cada uma aparece na condição e no conteúdo, e montá-las
+                // duas vezes por item traduziria o mesmo texto duas vezes.
+                const naoVerificada = installedIntegrityText(t, agent);
+                const integridade = integrityText(t, agent);
+                return (
+                  <li
+                    key={agent.id}
+                    ref={(node) => {
+                      itemRefs.current[index] = node;
+                    }}
+                    className="acp-catalog__item"
+                    role={onSelect ? 'option' : undefined}
+                    aria-selected={onSelect ? agent.id === selectedId : undefined}
+                    tabIndex={index === safeIndex ? 0 : -1}
+                    aria-label={catalogItemLabel(t, agent)}
+                    onFocus={() => setActiveIndex(index)}
+                    onClick={onSelect ? () => onSelect(agent) : undefined}
+                  >
+                    <h3 className="acp-catalog__name">
+                      {agent.name}
+                      {!!agent.version && (
+                        <span className="acp-catalog__version">
+                          {t('acpCatalog.item.version', { version: agent.version })}
+                        </span>
+                      )}
+                    </h3>
+                    <p className="acp-catalog__id">{agent.id}</p>
+                    {!!agent.description && <p className="acp-catalog__description">{agent.description}</p>}
 
-                  <p className="acp-catalog__state" data-state={agent.state}>
-                    <span className="acp-catalog__state-term">{t('acpCatalog.item.state')}</span>{' '}
-                    {stateText(t, agent)}
-                  </p>
-                  {!!agent.state_detail && <p className="acp-catalog__detail">{agent.state_detail}</p>}
+                    <p className="acp-catalog__state" data-state={agent.state}>
+                      <span className="acp-catalog__state-term">{t('acpCatalog.item.state')}</span>{' '}
+                      {stateText(t, agent)}
+                    </p>
+                    {!!agent.state_detail && <p className="acp-catalog__detail">{agent.state_detail}</p>}
+                    {!!naoVerificada && <p className="acp-catalog__unverified">{naoVerificada}</p>}
 
-                  <p className="acp-catalog__runtime" data-missing={agent.runtime && !agent.runtime_found ? 'true' : undefined}>
-                    {runtimeText(t, agent)}
-                  </p>
+                    <p className="acp-catalog__runtime" data-missing={agent.runtime && !agent.runtime_found ? 'true' : undefined}>
+                      {runtimeText(t, agent)}
+                    </p>
 
-                  <dl className="acp-catalog__facts">
-                    {!!agent.distributions?.length && (
-                      <div className="acp-catalog__fact">
-                        <dt>{t('acpCatalog.item.distributionsTerm')}</dt>
-                        <dd>{agent.distributions.map((kind) => distributionName(t, kind)).join(', ')}</dd>
-                      </div>
-                    )}
-                    {!!integrityText(t, agent) && (
-                      <div className="acp-catalog__fact">
-                        <dt>{t('acpCatalog.item.integrityTerm')}</dt>
-                        <dd>{integrityText(t, agent)}</dd>
-                      </div>
-                    )}
-                    {!!agent.authors?.length && (
-                      <div className="acp-catalog__fact">
-                        <dt>{t('acpCatalog.item.authorsTerm')}</dt>
-                        <dd>{agent.authors.join(', ')}</dd>
-                      </div>
-                    )}
-                    {!!agent.license && (
-                      <div className="acp-catalog__fact">
-                        <dt>{t('acpCatalog.item.licenseTerm')}</dt>
-                        <dd>{agent.license}</dd>
-                      </div>
-                    )}
-                    {!!agent.website && (
-                      <div className="acp-catalog__fact">
-                        <dt>{t('acpCatalog.item.websiteTerm')}</dt>
-                        <dd className="acp-catalog__url">{agent.website}</dd>
-                      </div>
-                    )}
-                    {!!agent.repository && (
-                      <div className="acp-catalog__fact">
-                        <dt>{t('acpCatalog.item.repositoryTerm')}</dt>
-                        <dd className="acp-catalog__url">{agent.repository}</dd>
-                      </div>
-                    )}
-                  </dl>
-                </li>
-              ))}
+                    <dl className="acp-catalog__facts">
+                      {!!agent.distributions?.length && (
+                        <div className="acp-catalog__fact">
+                          <dt>{t('acpCatalog.item.distributionsTerm')}</dt>
+                          <dd>{agent.distributions.map((kind) => distributionName(t, kind)).join(', ')}</dd>
+                        </div>
+                      )}
+                      {!!integridade && (
+                        <div className="acp-catalog__fact">
+                          <dt>{t('acpCatalog.item.integrityTerm')}</dt>
+                          <dd>{integridade}</dd>
+                        </div>
+                      )}
+                      {!!agent.authors?.length && (
+                        <div className="acp-catalog__fact">
+                          <dt>{t('acpCatalog.item.authorsTerm')}</dt>
+                          <dd>{agent.authors.join(', ')}</dd>
+                        </div>
+                      )}
+                      {!!agent.license && (
+                        <div className="acp-catalog__fact">
+                          <dt>{t('acpCatalog.item.licenseTerm')}</dt>
+                          <dd>{agent.license}</dd>
+                        </div>
+                      )}
+                      {!!agent.website && (
+                        <div className="acp-catalog__fact">
+                          <dt>{t('acpCatalog.item.websiteTerm')}</dt>
+                          <dd className="acp-catalog__url">{agent.website}</dd>
+                        </div>
+                      )}
+                      {!!agent.repository && (
+                        <div className="acp-catalog__fact">
+                          <dt>{t('acpCatalog.item.repositoryTerm')}</dt>
+                          <dd className="acp-catalog__url">{agent.repository}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </>
