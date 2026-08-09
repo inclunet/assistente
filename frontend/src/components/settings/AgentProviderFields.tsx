@@ -5,6 +5,7 @@ import { DetectACPAgent, TestACPAgent } from '@wailsjs/go/app/App';
 import type { app } from '@wailsjs/go/models';
 import { Button, FormField, Input, Textarea } from '../';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { AgentCredentialEnv } from './AgentCredentialEnv';
 import { AgentInstall } from './AgentInstall';
 import './AgentProviderFields.css';
 
@@ -87,6 +88,12 @@ export interface AgentProviderFieldsProps {
   onArgsChange: (args: string[]) => void;
   commandError?: string;
   /**
+   * Os pares de variável de ambiente e entrada do cofre que este agente recebe
+   * ao subir (AEP-0086 D12). É referência, não segredo.
+   */
+  credentialEnv: Record<string, string>;
+  onCredentialEnvChange: (value: Record<string, string>) => void;
+  /**
    * Deixa a detecção preencher o comando sozinha. Vale na criação; na edição o
    * comando salvo é a escolha de quem configurou, e sobrescrevê-lo ao abrir a
    * tela desfaria um ajuste manual sem ninguém pedir.
@@ -109,6 +116,8 @@ export const AgentProviderFields = ({
   onCommandChange,
   onArgsChange,
   commandError,
+  credentialEnv,
+  onCredentialEnvChange,
   autoFill,
 }: AgentProviderFieldsProps) => {
   const { t } = useTranslation();
@@ -406,6 +415,13 @@ export const AgentProviderFields = ({
     setup?.login_command ||
     (loginNotes.length > 0 ? '' : agentLoginCommand(command, args));
 
+  // As variáveis que o agente pediu no handshake, e o emissor da credencial que
+  // ele nomeou. É o que o bloco do cofre oferece preenchido, em vez de pedir que
+  // se adivinhe qual variável ele lê (AEP-0086 D12).
+  const suggestedVars = (health?.login_methods ?? []).flatMap((method) => method.env_vars ?? []);
+  const suggestedProvider =
+    (health?.login_methods ?? []).find((method) => method.credential_provider)?.credential_provider || '';
+
   return (
     <div className="agent-fields">
       <FormField
@@ -541,6 +557,21 @@ export const AgentProviderFields = ({
           )}
         </div>
       )}
+
+      {/*
+        A passagem de credencial fica logo depois do diagnóstico porque é ali
+        que ela se decide: o agente que responde pedindo autenticação é
+        exatamente o que pode ser autenticado por variável, e é dali que sai o
+        nome que o bloco oferece preenchido. Ele aparece sempre, e não só nesse
+        estado, porque também é onde a passagem já configurada se mostra e se
+        desfaz.
+      */}
+      <AgentCredentialEnv
+        value={credentialEnv}
+        onChange={onCredentialEnvChange}
+        suggestedVars={suggestedVars}
+        suggestedProvider={suggestedProvider}
+      />
 
       {notFound && (
         <div className="agent-fields__install">

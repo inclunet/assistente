@@ -1792,6 +1792,33 @@ const ptBR = {
             'Não dá para saber daqui qual comando autentica este agente. Use "Detectar e preencher comando" e teste de novo.',
           loginMethods: 'Autenticação pedida pelo agente: {{methods}}.',
         },
+        credential: {
+          title: 'Credencial do cofre para o agente',
+          warning:
+            'O aplicativo entrega o valor da entrada escolhida ao agente, numa variável de ambiente, toda vez que ele é iniciado. O agente é um programa de terceiros: ele pode usar essa credencial como quiser, inclusive enviá-la pela rede. O valor não aparece nesta tela nem nos registros do aplicativo.',
+          pair: '{{name}} recebe a credencial de {{entry}}',
+          removeBtn: 'Remover',
+          removeBtnLabel: 'Remover a credencial da variável {{name}}',
+          varLabel: 'Variável de ambiente',
+          varHelp: 'O nome da variável em que o agente espera a credencial. Sem espaços e sem o sinal de igual.',
+          varFromAgent: 'O próprio agente informou o nome desta variável. Você pode trocá-lo se souber que ele lê outra.',
+          varPlaceholder: 'Ex.: OPENAI_API_KEY',
+          entryLabel: 'Entrada do cofre',
+          entryHelp: 'De qual credencial cadastrada sai o valor. O aplicativo guarda só esta referência.',
+          entryPlaceholder: 'Escolha uma entrada',
+          entryOption: '{{pattern}} ({{masked}})',
+          addBtn: 'Ligar a credencial',
+          emptyVault: 'Não há credenciais cadastradas. Cadastre uma em Credenciais para poder entregá-la ao agente.',
+          vaultFailed: 'Não foi possível ler as credenciais cadastradas.',
+          error: {
+            invalidName: 'Informe o nome da variável, sem espaços e sem o sinal de igual.',
+            needsEntry: 'Escolha de qual entrada do cofre sai o valor.',
+          },
+          announce: {
+            added: 'A variável {{name}} passa a receber a credencial de {{entry}}. Vale a partir da próxima vez que o agente subir.',
+            removed: 'A variável {{name}} não recebe mais credencial do cofre.',
+          },
+        },
         catalog: {
           title: 'Instalar pelo catálogo de agentes',
           intro:

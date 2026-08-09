@@ -1,5 +1,5 @@
 import { StrictMode, useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ptBR from '../../locales/pt-BR';
@@ -9,6 +9,7 @@ import { AgentProviderFields, agentLoginCommand } from './AgentProviderFields';
 const announceMock = vi.hoisted(() => vi.fn());
 const detectMock = vi.hoisted(() => vi.fn());
 const testMock = vi.hoisted(() => vi.fn());
+const listCredentialsMock = vi.hoisted(() => vi.fn());
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
   const root = (ptBR as { translation: Record<string, unknown> }).translation;
@@ -52,6 +53,8 @@ vi.mock('@wailsjs/go/app/App', () => ({
   InstallACPAgent: vi.fn(),
   CancelACPAgentInstall: vi.fn(),
   RemoveACPAgent: vi.fn(),
+  UpdateACPAgent: vi.fn(),
+  ListCredentials: listCredentialsMock,
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -86,22 +89,28 @@ const Host = ({
   initialCommand = '',
   autoFill = true,
   agentId = 'cursor',
+  initialCredentialEnv = {},
 }: {
   initialCommand?: string;
   autoFill?: boolean;
   agentId?: string;
+  initialCredentialEnv?: Record<string, string>;
 }) => {
   const [command, setCommand] = useState(initialCommand);
   const [args, setArgs] = useState<string[]>([]);
+  const [credentialEnv, setCredentialEnv] = useState<Record<string, string>>(initialCredentialEnv);
   return (
     <div>
       <span data-testid="args-atual">{args.join(',')}</span>
+      <span data-testid="cofre-do-pai">{JSON.stringify(credentialEnv)}</span>
       <AgentProviderFields
         agentId={agentId}
         command={command}
         args={args}
         onCommandChange={setCommand}
         onArgsChange={setArgs}
+        credentialEnv={credentialEnv}
+        onCredentialEnvChange={setCredentialEnv}
         autoFill={autoFill}
       />
     </div>
@@ -128,6 +137,8 @@ const HostQueTrocaDeTipo = () => {
           args={args}
           onCommandChange={setCommand}
           onArgsChange={setArgs}
+          credentialEnv={{}}
+          onCredentialEnvChange={() => {}}
           autoFill
         />
       )}
@@ -162,6 +173,8 @@ const HostQueTrocaDeAgente = () => {
         args={args}
         onCommandChange={setCommand}
         onArgsChange={setArgs}
+        credentialEnv={{}}
+        onCredentialEnvChange={() => {}}
         autoFill
       />
     </div>
@@ -188,6 +201,8 @@ const HostQuePodeDesescolherOAgente = () => {
         args={args}
         onCommandChange={setCommand}
         onArgsChange={setArgs}
+        credentialEnv={{}}
+        onCredentialEnvChange={() => {}}
         autoFill
       />
     </div>
@@ -200,6 +215,12 @@ function deteccaoControlada() {
   detectMock.mockReturnValue(new Promise((resolve) => { responder = resolve; }));
   return (setup: unknown) => responder(setup);
 }
+
+beforeEach(() => {
+  // O cofre responde vazio por padrão: os testes que falam dele dizem o que
+  // tem dentro, e os demais não deviam depender de credencial nenhuma.
+  listCredentialsMock.mockResolvedValue([]);
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -899,6 +920,180 @@ describe('AgentProviderFields — teste do agente', () => {
 
     expect(await screen.findByText(/serviço de agentes de código não inicializado/i)).toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith('serviço de agentes de código não inicializado', 'assertive');
+  });
+});
+
+// O agente que pede a credencial numa variável de ambiente diz o nome dela no
+// handshake. A tela oferece esse nome preenchido; quem configura confirma, e é
+// só a referência ao cofre que fica guardada (AEP-0086 D12).
+describe('AgentProviderFields — credencial do cofre', () => {
+  const cofreComOpenAI = [
+    { pattern: 'api.openai.com', type: 'bearer', masked: 'sk-...4f2a', managed: false },
+    { pattern: 'api.anthropic.com', type: 'bearer', masked: 'sk-ant-...9c1', managed: false },
+  ];
+
+  const agenteQuePedeChave = {
+    state: 'unauthenticated',
+    agent_name: 'Agente',
+    login_methods: [
+      {
+        id: 'api_key',
+        name: 'Chave de API',
+        credential_provider: 'openai',
+        env_vars: [
+          { name: 'OPENAI_API_KEY', label: 'Chave da OpenAI', secret: true },
+          { name: 'OPENAI_BASE_URL', optional: true },
+        ],
+      },
+    ],
+  };
+
+  /** Deixa o componente pronto e testado, que é quando as sugestões chegam. */
+  async function comAgenteTestado(props: Parameters<typeof Host>[0] = {}) {
+    detectMock.mockResolvedValue(cursorFound);
+    const user = userEvent.setup();
+    const rendered = render(<Host {...props} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+    return { user, ...rendered };
+  }
+
+  it('diz o que entregar a credencial ao agente implica, antes de entregar', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue(agenteQuePedeChave);
+
+    await comAgenteTestado();
+
+    const bloco = screen.getByRole('group', { name: /credencial do cofre para o agente/i });
+    // O aviso é sobre o que a decisão custa: o agente é programa de terceiro e
+    // recebe o valor inteiro. Ele fica ligado ao botão que liga a passagem,
+    // para quem navega por teclado ouvi-lo ao chegar nele.
+    expect(bloco).toHaveTextContent(/programa de terceiros/i);
+    const botao = screen.getByRole('button', { name: /ligar a credencial/i });
+    const aviso = document.getElementById(botao.getAttribute('aria-describedby') || '');
+    expect(aviso).toHaveTextContent(/pode usar essa credencial como quiser/i);
+  });
+
+  it('oferece a variável que o agente pediu e a entrada do cofre que combina', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue(agenteQuePedeChave);
+
+    await comAgenteTestado();
+
+    // A variável vem do agente, e a tela diz de onde ela veio: quem configura
+    // precisa saber que aquilo é informação publicada, e não palpite do app.
+    await waitFor(() => {
+      expect(screen.getByLabelText(/variável de ambiente/i)).toHaveValue('OPENAI_API_KEY');
+    });
+    expect(screen.getByText(/o próprio agente informou o nome desta variável/i)).toBeInTheDocument();
+    // A entrada do cofre é só pré-escolhida a partir do emissor que o agente
+    // nomeou; ligar sozinho mandaria a chave sem ninguém ter dito que podia.
+    expect(screen.getByLabelText(/entrada do cofre/i)).toHaveValue('api.openai.com');
+  });
+
+  it('a variável que não é segredo não é oferecida ao cofre', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue({
+      ...agenteQuePedeChave,
+      login_methods: [
+        {
+          ...agenteQuePedeChave.login_methods[0],
+          env_vars: [{ name: 'OPENAI_BASE_URL', optional: true }],
+        },
+      ],
+    });
+
+    await comAgenteTestado();
+
+    // Uma URL de base não sai do cofre: oferecê-la aqui usaria o caminho das
+    // chaves para o que nem segredo é.
+    await waitFor(() => {
+      expect(screen.getByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText(/variável de ambiente/i)).toHaveValue('');
+  });
+
+  it('liga o par, anuncia quando ele passa a valer e o entrega ao formulário', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue(agenteQuePedeChave);
+
+    const { user } = await comAgenteTestado();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/variável de ambiente/i)).toHaveValue('OPENAI_API_KEY');
+    });
+
+    await user.click(screen.getByRole('button', { name: /ligar a credencial/i }));
+
+    expect(screen.getByTestId('cofre-do-pai')).toHaveTextContent(
+      JSON.stringify({ OPENAI_API_KEY: 'api.openai.com' }),
+    );
+    expect(screen.getByText(/OPENAI_API_KEY recebe a credencial de api\.openai\.com/)).toBeInTheDocument();
+    // Vale no próximo start: o processo que já está de pé subiu com o ambiente
+    // de antes, e não dizer isso deixaria alguém esperando efeito imediato.
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/próxima vez que o agente subir/i),
+      'polite',
+    );
+  });
+
+  it('recusa nome de variável que não sobrevive à passagem, sem chamar o backend', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue(agenteQuePedeChave);
+
+    const { user } = await comAgenteTestado();
+    const campo = await screen.findByLabelText(/variável de ambiente/i);
+    await user.clear(campo);
+    // Espaço no nome não atravessa: o par que o sistema operacional monta se
+    // parte. Dizer isso aqui, ao lado do campo, é melhor do que deixar o erro
+    // voltar do salvamento junto com tudo o mais que o formulário mandou.
+    await user.type(campo, 'CHAVE DA OPENAI');
+    await user.click(screen.getByRole('button', { name: /ligar a credencial/i }));
+
+    expect(screen.getByText(/sem espaços e sem o sinal de igual/i)).toBeInTheDocument();
+    expect(screen.getByTestId('cofre-do-pai')).toHaveTextContent('{}');
+  });
+
+  it('desliga a passagem tirando o par que estava ligado', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue(agenteQuePedeChave);
+
+    const { user } = await comAgenteTestado({
+      initialCredentialEnv: { OPENAI_API_KEY: 'api.openai.com' },
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: /remover a credencial da variável OPENAI_API_KEY/i }),
+    );
+
+    expect(screen.getByTestId('cofre-do-pai')).toHaveTextContent('{}');
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/não recebe mais credencial do cofre/i),
+      'polite',
+    );
+  });
+
+  it('sem credencial cadastrada, diz onde cadastrar em vez de oferecer um seletor vazio', async () => {
+    listCredentialsMock.mockResolvedValue([]);
+    detectMock.mockResolvedValue(cursorFound);
+
+    render(<Host />);
+
+    expect(await screen.findByText(/não há credenciais cadastradas/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ligar a credencial/i })).not.toBeInTheDocument();
+  });
+
+  it('não tem violação de acessibilidade com a passagem ligada', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue(agenteQuePedeChave);
+
+    const { container } = await comAgenteTestado({
+      initialCredentialEnv: { OPENAI_API_KEY: 'api.openai.com' },
+    });
+    await screen.findByText(/OPENAI_API_KEY recebe a credencial de api\.openai\.com/);
+
+    expect(await axe(container)).toHaveNoViolations();
   });
 });
 

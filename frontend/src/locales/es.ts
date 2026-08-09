@@ -1791,6 +1791,33 @@ const es = {
             'Desde aquí no hay cómo saber qué comando autentica a este agente. Usa «Detectar y completar comando» y prueba de nuevo.',
           loginMethods: 'Autenticación solicitada por el agente: {{methods}}.',
         },
+        credential: {
+          title: 'Credencial de la caja fuerte para el agente',
+          warning:
+            'La aplicación entrega el valor de la entrada elegida al agente, en una variable de entorno, cada vez que se inicia. El agente es un programa de terceros: puede usar esa credencial como quiera, incluso enviarla por la red. El valor no aparece en esta pantalla ni en los registros de la aplicación.',
+          pair: '{{name}} recibe la credencial de {{entry}}',
+          removeBtn: 'Quitar',
+          removeBtnLabel: 'Quitar la credencial de la variable {{name}}',
+          varLabel: 'Variable de entorno',
+          varHelp: 'El nombre de la variable en la que el agente espera la credencial. Sin espacios y sin el signo igual.',
+          varFromAgent: 'El propio agente informó el nombre de esta variable. Puedes cambiarlo si sabes que lee otra.',
+          varPlaceholder: 'Ej.: OPENAI_API_KEY',
+          entryLabel: 'Entrada de la caja fuerte',
+          entryHelp: 'De qué credencial guardada sale el valor. La aplicación guarda solo esta referencia.',
+          entryPlaceholder: 'Elige una entrada',
+          entryOption: '{{pattern}} ({{masked}})',
+          addBtn: 'Conectar la credencial',
+          emptyVault: 'No hay credenciales guardadas. Registra una en Credenciales para poder entregarla al agente.',
+          vaultFailed: 'No se pudieron leer las credenciales guardadas.',
+          error: {
+            invalidName: 'Indica el nombre de la variable, sin espacios y sin el signo igual.',
+            needsEntry: 'Elige de qué entrada de la caja fuerte sale el valor.',
+          },
+          announce: {
+            added: 'La variable {{name}} pasa a recibir la credencial de {{entry}}. Rige a partir de la próxima vez que el agente se inicie.',
+            removed: 'La variable {{name}} ya no recibe credencial de la caja fuerte.',
+          },
+        },
         catalog: {
           title: 'Instalar desde el catálogo de agentes',
           intro:

@@ -37,6 +37,12 @@ export interface ProviderFormData {
    * saber qual agente é não tem o que oferecer.
    */
   acp_agent_id?: string;
+  /**
+   * Quais variáveis do ambiente do agente recebem credencial do cofre, e de
+   * qual entrada dele (AEP-0086 D12). O que trafega é a referência; o segredo
+   * fica no cofre e só sai na hora de subir o agente.
+   */
+  acp_credential_env?: Record<string, string>;
 }
 
 export interface ProviderFormProps {
@@ -120,6 +126,10 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     setFormData((prev) => ({ ...prev, acp_args: args }));
   }, []);
 
+  const handleCredentialEnvChange = useCallback((credentialEnv: Record<string, string>) => {
+    setFormData((prev) => ({ ...prev, acp_credential_env: credentialEnv }));
+  }, []);
+
   /**
    * Troca o agente do provedor. Comando e argumentos vão junto: eles descrevem
    * como subir o agente anterior, e mantê-los faria o provedor dizer que é um
@@ -138,6 +148,10 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_agent_id: agent.id,
         acp_command: '',
         acp_args: [],
+        // A passagem de credencial descrevia o agente anterior: a variável que
+        // o Cursor lê não é a que o Gemini CLI lê, e mantê-la entregaria a
+        // chave a um programa que ninguém escolheu para recebê-la.
+        acp_credential_env: {},
         name: prev.name.trim() === '' ? agent.name : prev.name,
       };
     });
@@ -228,6 +242,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_command: provider.acp_command || '',
         acp_args: provider.acp_args || [],
         acp_agent_id: provider.acp_agent_id || '',
+        acp_credential_env: provider.acp_credential_env || {},
       });
       setApiTested(false);
       setShowApiKeyField(false);
@@ -247,6 +262,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_command: '',
         acp_args: [],
         acp_agent_id: '',
+        acp_credential_env: {},
       });
       setApiTested(false);
       setShowApiKeyField(true);
@@ -303,6 +319,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
       acp_agent_id: provider.acp_agent_id || '',
+      acp_credential_env: provider.acp_credential_env || {},
     }));
     setErrors({});
     setApiTested(false);
@@ -351,6 +368,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       acp_command: '',
       acp_args: [],
       acp_agent_id: '',
+      acp_credential_env: {},
     }));
     // Erros descrevem a forma anterior do formulário; a validação do submit
     // recalcula o que ainda valer.
@@ -511,6 +529,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     const command = (formData.acp_command || '').trim();
     const args = formData.acp_args || [];
     const agentId = (formData.acp_agent_id || '').trim();
+    const credentialEnv = formData.acp_credential_env || {};
     if (formData.id) {
       await withTimeout(
         UpdateLLMProvider(formData.id, {
@@ -520,6 +539,10 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           acp_command: command,
           acp_args: args,
           acp_agent_id: agentId,
+          // Sempre presente, mesmo vazio: aqui o mapa vazio é o que desliga a
+          // passagem, e omiti-lo seria pedir para não mexer — quem tirou o
+          // último par continuaria com a credencial indo para o agente.
+          acp_credential_env: credentialEnv,
         }),
         15000,
         'UpdateLLMProvider'
@@ -539,6 +562,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_command: command,
         acp_args: args,
         acp_agent_id: agentId,
+        acp_credential_env: credentialEnv,
       }),
       15000,
       'CreateLLMProvider'
@@ -656,6 +680,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             onCommandChange={handleAgentCommandChange}
             onArgsChange={handleAgentArgsChange}
             commandError={errors.acp_command}
+            credentialEnv={formData.acp_credential_env || {}}
+            onCredentialEnvChange={handleCredentialEnvChange}
             // Na edição o comando salvo é a escolha de quem configurou e não se
             // toca — mas se o agente foi trocado, não há nada salvo para o novo,
             // e deixar o campo vazio faria a pessoa procurar o caminho na mão
