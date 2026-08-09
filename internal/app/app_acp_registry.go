@@ -407,7 +407,10 @@ func unverifiedInstall(installation acpinstall.Installation) bool {
 	if installation.Distribution == acpinstall.DistributionNPM {
 		return false
 	}
-	return installation.SHA256Origin != acpinstall.DigestVerified
+	// Conferido é o registro que diz qual digest conferiu. Um que se declare
+	// `verified` com o campo vazio não descreve nenhuma conferência, e a
+	// instalação binária que o app faz sempre grava os dois.
+	return installation.SHA256Origin != acpinstall.DigestVerified || installation.SHA256 == ""
 }
 
 // acpCatalogState decide o estado da linha nesta máquina.

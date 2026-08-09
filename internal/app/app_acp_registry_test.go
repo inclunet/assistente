@@ -285,6 +285,29 @@ func TestADistribuicaoQueOAppNaoEscreveuNaoCalaARessalva(t *testing.T) {
 	}
 }
 
+func TestORegistroQueSeDizConferidoSemDizerContraOQueNaoConta(t *testing.T) {
+	// `verified` com o campo do digest vazio não descreve conferência nenhuma —
+	// e a instalação binária que o app faz sempre grava os dois.
+	instalado := map[string]acpinstall.Installation{
+		"goose": {
+			AgentID:      "goose",
+			Version:      "2.0.0",
+			Dir:          "/home/ana/.assistente/agents/goose/2.0.0",
+			Distribution: acpinstall.DistributionBinary,
+			SHA256Origin: acpinstall.DigestVerified,
+		},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("goose", "Goose", "linux-x86_64", digestQualquer)),
+		"linux-x86_64", acpMachine{installed: instalado},
+	)
+
+	if goose := acharPorID(t, catalogo, "goose"); !goose.InstalledUnverified {
+		t.Error("registro que se diz conferido sem digest passou por conferido")
+	}
+}
+
 func TestOPacoteNpmNaoGanhaRessalvaDeDigest(t *testing.T) {
 	// Quem confere o pacote é o próprio npm, e ali o campo é naturalmente vazio.
 	// Uma ressalva aqui seria alarme nos 21 agentes de pacote — e alarme que
