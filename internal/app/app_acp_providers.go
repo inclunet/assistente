@@ -106,6 +106,27 @@ type ACPLoginMethod struct {
 	// Ela é para ser mostrada e copiada, nunca executada pelo app: o que veio
 	// do agente é texto de terceiro (AEP-0084 D11).
 	Command string `json:"command,omitempty"`
+
+	// EnvVars são as variáveis de ambiente que este método pede, nomeadas pelo
+	// próprio agente (AEP-0086 D12). É o que a tela oferece para preencher no
+	// lugar de perguntar qual variável recebe a credencial.
+	EnvVars []ACPAuthEnvVar `json:"env_vars,omitempty"`
+
+	// CredentialProvider é o emissor da credencial, quando o agente o nomeia
+	// (`openai`, por exemplo). Serve para sugerir a entrada do cofre que
+	// combina; a escolha continua sendo de quem configura.
+	CredentialProvider string `json:"credential_provider,omitempty"`
+}
+
+// ACPAuthEnvVar é uma variável de ambiente pedida por um método de
+// autenticação do agente.
+type ACPAuthEnvVar struct {
+	Name  string `json:"name"`
+	Label string `json:"label,omitempty"`
+	// Optional diz que o agente sobe sem ela; Secret, que o valor é segredo —
+	// e só o que é segredo tem razão de vir do cofre.
+	Optional bool `json:"optional,omitempty"`
+	Secret   bool `json:"secret,omitempty"`
 }
 
 // TestACPAgent testa um comando de agente antes de ele virar provider: sobe o
@@ -157,10 +178,32 @@ func (a *App) TestACPAgent(command string, args []string) (ACPAgentHealth, error
 				Name:        method.Name,
 				Description: method.Description,
 				Command:     method.Login.CommandLine(command, args),
+				// As variáveis vêm junto porque é aqui que a tela pode
+				// oferecer ligar a passagem de credencial: o estado em que
+				// falta login é exatamente aquele em que alguém quer fazê-lo
+				// (AEP-0086 D12).
+				EnvVars:            authEnvVarsDTO(method.EnvVars),
+				CredentialProvider: method.CredentialProvider,
 			})
 		}
 	}
 	return health, nil
+}
+
+func authEnvVarsDTO(vars []acp.AuthEnvVar) []ACPAuthEnvVar {
+	if len(vars) == 0 {
+		return nil
+	}
+	out := make([]ACPAuthEnvVar, 0, len(vars))
+	for _, v := range vars {
+		out = append(out, ACPAuthEnvVar{
+			Name:     v.Name,
+			Label:    v.Label,
+			Optional: v.Optional,
+			Secret:   v.Secret,
+		})
+	}
+	return out
 }
 
 // DetectACPAgent procura na máquina o agente de código pedido e devolve, junto,

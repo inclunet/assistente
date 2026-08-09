@@ -1280,6 +1280,50 @@ func TestOLoginPorArgumentosNaoEhMontadoSobreInterpretadorComScript(t *testing.T
 	}
 }
 
+// O agente que pede a credencial numa variável de ambiente sabe o nome dela.
+// Ler esse nome é o que permite ao formulário oferecer a variável em vez de
+// pedir que se adivinhe qual é (AEP-0086 D12).
+func TestOAgenteQuePedeCredencialNoAmbienteDizONomeDaVariavel(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptLoginPorVariavel, nil)
+
+	caps, err := client.Capabilities(ctx)
+	if err != nil {
+		t.Fatalf("obter capacidades: %v", err)
+	}
+	if len(caps.AuthMethods) != 1 || caps.AuthMethods[0].Kind != AuthKindEnvVar {
+		t.Fatalf("métodos de autenticação inesperados: %+v", caps.AuthMethods)
+	}
+	metodo := caps.AuthMethods[0]
+	if metodo.CredentialProvider != "openai" {
+		t.Errorf("emissor da credencial = %q", metodo.CredentialProvider)
+	}
+	// A variável em branco não vira item: ela não descreveria nada na tela.
+	if len(metodo.EnvVars) != 2 {
+		t.Fatalf("variáveis lidas: %+v", metodo.EnvVars)
+	}
+	chave := metodo.EnvVars[0]
+	// O nome chega saneado como todo texto de agente: pintado, ele não serviria
+	// nem para mostrar nem para virar variável de ambiente.
+	if chave.Name != "OPENAI_API_KEY" || chave.Label != "Chave da OpenAI" {
+		t.Errorf("primeira variável = %+v", chave)
+	}
+	// O protocolo diz que variável de autenticação é segredo salvo aviso em
+	// contrário. Tratar a omissão como "não é segredo" ofereceria o cofre ao
+	// contrário: para a URL e não para a chave.
+	if !chave.Secret || chave.Optional {
+		t.Errorf("a chave devia ser segredo obrigatório: %+v", chave)
+	}
+	if url := metodo.EnvVars[1]; url.Name != "OPENAI_BASE_URL" || url.Secret || !url.Optional {
+		t.Errorf("segunda variável = %+v", url)
+	}
+	// Pedir credencial no ambiente não é pedir comando de login: inventar uma
+	// linha aqui mandaria a pessoa rodar no terminal algo que não existe.
+	if got := LoginCommandFrom(caps.AuthMethods, "agente", nil); got != "" {
+		t.Errorf("linha de login inventada: %q", got)
+	}
+}
+
 func TestSemAgenteQueInformeOLoginNaoSeInventaLinhaNenhuma(t *testing.T) {
 	if got := LoginCommandFrom(nil, "cursor-agent", nil); got != "" {
 		t.Errorf("linha inventada sem método nenhum: %q", got)
