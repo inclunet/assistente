@@ -573,6 +573,31 @@ describe('AgentInstall — instalando', () => {
     );
   });
 
+  it('marca o bloco como ocupado enquanto a instalação corre, e o solta no fim (D13)', async () => {
+    // `aria-busy`, e não uma região viva: quem anuncia cada marco é o announcer
+    // global (AEP-0058), e um `role="status"` aqui diria tudo duas vezes. O que
+    // o bloco precisa dizer é que está mudando, para quem o atravessa no meio da
+    // instalação não ler metade de um marco e metade do seguinte.
+    planMock.mockResolvedValue(planoInstalavel);
+    const { concluir } = instalacaoControlada();
+    const user = userEvent.setup();
+
+    render(<Host />);
+    const bloco = (await screen.findByRole('group')) as HTMLElement;
+    expect(bloco).toHaveAttribute('aria-busy', 'false');
+
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'true'));
+
+    planMock.mockResolvedValue({ ...planoInstalavel, can_install: false, installed: instalacao });
+    await act(async () => {
+      concluir(instalacao);
+    });
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'false'));
+  });
+
   it('reencontra a instalação que já estava em voo quando a tela abriu', async () => {
     // A instalação roda no backend e sobrevive ao formulário fechado. Voltando à
     // tela no meio dela, o botão de instalar não pode convidar a começar de novo

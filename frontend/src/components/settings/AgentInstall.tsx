@@ -397,7 +397,21 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   const installedUnverified = installed?.sha256_origin === 'observed';
 
   return (
-    <div className="agent-install" role="group" aria-labelledby={titleId}>
+    // O bloco inteiro fica ocupado enquanto a instalação corre (D13): o que muda
+    // no meio dela é o texto de estado, e um leitor de telas que atravesse o
+    // bloco enquanto ele muda leria metade de um marco e metade do seguinte. O
+    // anúncio de cada marco continua sendo do announcer global (AEP-0058) — uma
+    // região viva aqui diria a mesma coisa duas vezes.
+    //
+    // A recarga do plano entra junto porque é nela que o bloco troca de ramo: ao
+    // fim da instalação ele deixa de oferecer instalar e passa a descrever o que
+    // ficou no disco, e essa troca é a maior de todas.
+    <div
+      className="agent-install"
+      role="group"
+      aria-labelledby={titleId}
+      aria-busy={busy || removing || loading}
+    >
       <p id={titleId} className="agent-install__title">
         {t('providerForm.agent.catalog.title')}
       </p>

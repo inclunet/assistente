@@ -414,7 +414,10 @@ export const ACPAgentCatalog = ({ onSelect, selectedId }: ACPAgentCatalogProps =
   const statusState = erroTexto || catalog?.agents.length === 0 || motivo ? 'attention' : 'ok';
 
   return (
-    <div className="acp-catalog">
+    // Ocupado enquanto a lista é carregada ou recarregada: o conteúdo inteiro
+    // troca, e quem estiver atravessando o catálogo nesse instante leria metade
+    // da lista velha e metade da nova.
+    <div className="acp-catalog" aria-busy={loading || refreshing}>
       <p className="acp-catalog__intro">
         {onSelect ? t('acpCatalog.introSelect') : t('acpCatalog.intro')}
       </p>
