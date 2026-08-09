@@ -837,9 +837,12 @@ informa quem usa NVDA.
   continuamente atropelaria qualquer outra leitura em curso — é a mesma
   disciplina de arbitragem do AEP-0058.
 - **O estado também fica em texto na tela**, no item do agente, para quem chegou
-  depois do anúncio ou navegou para outro lugar. `role="status"` e `aria-busy`
-  conforme os componentes já fazem; a barra visual é reforço, nunca a única
-  fonte.
+  depois do anúncio ou navegou para outro lugar. O texto é texto comum, e não uma
+  região viva própria: quem anuncia é o announcer global arbitrado do AEP-0058, e
+  um `role="status"` aqui faria o leitor de telas dizer cada marco duas vezes. O
+  que o bloco marca enquanto a instalação corre é `aria-busy`, que não anuncia
+  nada — ele avisa que aquele trecho está mudando. A barra visual é reforço,
+  nunca a única fonte.
 - **Erro nomeia a etapa e o que fazer.** Rede indisponível, digest divergente,
   runtime ausente, comando não resolvido, disco cheio e permissão negada são
   desfechos diferentes com ações diferentes. "Falha na instalação" não é

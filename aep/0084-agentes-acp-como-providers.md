@@ -495,8 +495,8 @@ não vira nome de ferramenta nem texto anunciado como se fosse rótulo do app.
 | `stopReason` da resposta de `session/prompt` | `OnDone` | `end_turn`, `cancelled`, `max_tokens`… |
 | erro JSON-RPC ou morte do processo | `OnError` | mensagem acionável |
 | `config_option_update` | evento de modelo/modo corrente | D6 |
-| `session_info_update.title` | `conversation:renamed` | opcional, Fase 5 |
-| `available_commands_update` | ignorado por ora | slash commands do agente, Fase 5 |
+| `session_info_update.title` | `conversation:renamed` | Fase 6 |
+| `available_commands_update` | lista de comandos da sessão | slash commands do agente no menu da barra, Fase 6 |
 
 O ACP não reporta consumo de tokens: `Usage` vai zerada e o painel de tokens
 mostra "indisponível" para providers ACP, em vez de zero — zero seria mentira.
@@ -961,7 +961,7 @@ Decisões que a fase fixou:
   conversa falha o turno em vez de cair no workspace: supor um diretório poria o
   agente a editar uma árvore que ninguém autorizou.
 
-### Fase 7 — Claude Code
+### Fase 7 — Claude Code (feita)
 
 Segundo alvo pelo mesmo client, para separar o que é do protocolo do que era do
 Cursor. A sonda não desmentiu essa parte — o turno, as ferramentas e o
