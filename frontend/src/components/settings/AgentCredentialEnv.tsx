@@ -170,6 +170,13 @@ export const AgentCredentialEnv = ({
     announce(t('providerForm.agent.credential.announce.removed', { name }), 'polite');
   };
 
+  // Sem lista não há o que ligar, e o motivo muda o que dizer. Cofre que não
+  // respondeu não vira seletor vazio ao lado de um botão que só sabe recusar:
+  // a pessoa ficaria presa num campo obrigatório sem opção nenhuma. Cofre que
+  // respondeu vazio é outra história — falta cadastrar, e é isso que se diz.
+  const cofreIlegivel = vaultError !== null;
+  const cofreVazio = !loading && !cofreIlegivel && entries.length === 0;
+
   const opcoes = [
     { value: '', label: t('providerForm.agent.credential.entryPlaceholder') },
     ...entries.map((entry) => ({
@@ -224,22 +231,19 @@ export const AgentCredentialEnv = ({
         </ul>
       )}
 
-      {vaultError !== null && (
+      {cofreIlegivel && (
         <p className="agent-credential__status" data-state="missing">
           {vaultError || t('providerForm.agent.credential.vaultFailed')}
         </p>
       )}
 
-      {/*
-        Sem entrada nenhuma no cofre não há o que ligar, e um seletor vazio ao
-        lado de um botão que só sabe recusar seria pior do que a frase que diz
-        onde as entradas são cadastradas.
-      */}
-      {!loading && vaultError === null && entries.length === 0 ? (
+      {cofreVazio && (
         <p className="agent-credential__status" data-state="missing">
           {t('providerForm.agent.credential.emptyVault')}
         </p>
-      ) : (
+      )}
+
+      {!cofreIlegivel && !cofreVazio && (
         <div className="agent-credential__add">
           <FormField
             label={t('providerForm.agent.credential.varLabel')}

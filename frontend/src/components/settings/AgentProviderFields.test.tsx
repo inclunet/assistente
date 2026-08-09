@@ -1084,6 +1084,35 @@ describe('AgentProviderFields — credencial do cofre', () => {
     expect(screen.queryByRole('button', { name: /ligar a credencial/i })).not.toBeInTheDocument();
   });
 
+  it('cofre que não respondeu diz o motivo e não deixa ninguém preso num seletor sem opção', async () => {
+    listCredentialsMock.mockRejectedValue(new Error('cofre trancado'));
+    detectMock.mockResolvedValue(cursorFound);
+
+    render(<Host />);
+
+    // Sem a lista não há entrada para escolher, e um seletor vazio ao lado de um
+    // botão que só sabe recusar deixaria a pessoa tentando o impossível.
+    expect(await screen.findByText(/cofre trancado/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ligar a credencial/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/entrada do cofre/i)).not.toBeInTheDocument();
+  });
+
+  it('a sugestão do agente não volta por cima do campo que a pessoa apagou', async () => {
+    listCredentialsMock.mockResolvedValue(cofreComOpenAI);
+    testMock.mockResolvedValue(agenteQuePedeChave);
+
+    const { user } = await comAgenteTestado();
+    const campo = await screen.findByLabelText(/variável de ambiente/i);
+    await waitFor(() => expect(campo).toHaveValue('OPENAI_API_KEY'));
+
+    await user.clear(campo);
+    // Trocar a entrada repinta o bloco. A sugestão já foi aplicada uma vez, e
+    // reaplicá-la aqui desfaria o que a pessoa acabou de apagar.
+    await user.selectOptions(screen.getByLabelText(/entrada do cofre/i), 'api.anthropic.com');
+
+    expect(campo).toHaveValue('');
+  });
+
   it('não tem violação de acessibilidade com a passagem ligada', async () => {
     listCredentialsMock.mockResolvedValue(cofreComOpenAI);
     testMock.mockResolvedValue(agenteQuePedeChave);
