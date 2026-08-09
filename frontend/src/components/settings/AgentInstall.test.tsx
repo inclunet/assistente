@@ -875,6 +875,35 @@ describe('AgentInstall — já instalado', () => {
     expect(await screen.findByRole('button', { name: /instalar pelo catálogo/i })).toBeInTheDocument();
   });
 
+  it('fica ocupado enquanto o diretório está sendo apagado, e não oferece cancelar (D13)', async () => {
+    // O diálogo de confirmação fechado não é a remoção: ela começa depois, e é
+    // durante ela que o bloco muda. Ocupado aqui não pode ser o mesmo estado da
+    // instalação, que põe na tela um botão de cancelar sem nada para cancelar.
+    planMock.mockResolvedValue(planoInstalado);
+    let concluirRemocao: () => void = () => {};
+    removeMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          concluirRemocao = () => resolve();
+        }),
+    );
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /remover agente instalado/i }));
+    await user.click(await screen.findByRole('button', { name: /^remover$/i }));
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'true'));
+    expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument();
+
+    planMock.mockResolvedValue(planoInstalavel);
+    await act(async () => {
+      concluirRemocao();
+    });
+
+    await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'false'));
+  });
+
   it('remoção que falha aparece em texto e interrompe a leitura', async () => {
     planMock.mockResolvedValue(planoInstalado);
     removeMock.mockRejectedValue(new Error('arquivo em uso por outro processo'));

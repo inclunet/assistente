@@ -136,6 +136,11 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [confirming, setConfirming] = useState(false);
+  // Dois estados, e não um: `confirmingRemoval` é o diálogo aberto, e `removing`
+  // é o backend apagando o diretório. Só o segundo deixa o bloco ocupado, e ele
+  // não pode ser o `busy` da instalação — esse põe na tela um botão de cancelar
+  // que não teria instalação nenhuma para cancelar.
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [removing, setRemoving] = useState(false);
 
   const mountedRef = useRef(true);
@@ -216,6 +221,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     // do backend —, e o plano do agente novo diz se há alguma dele.
     setStatus('');
     setConfirming(false);
+    setConfirmingRemoval(false);
     setRemoving(false);
     setBusy(false);
     adotadaRef.current = false;
@@ -347,7 +353,8 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
     const kind = agentId;
-    setRemoving(false);
+    setConfirmingRemoval(false);
+    setRemoving(true);
     try {
       await RemoveACPAgent(agentID);
       if (!doAgente(kind)) return;
@@ -360,7 +367,10 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
       setStatus(message);
       announce(message, 'assertive');
     } finally {
-      if (doAgente(kind)) void loadPlan(kind);
+      if (doAgente(kind)) {
+        setRemoving(false);
+        void loadPlan(kind);
+      }
     }
   };
 
@@ -454,7 +464,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
               <Button
                 type="button"
                 variant="danger"
-                onClick={() => setRemoving(true)}
+                onClick={() => setConfirmingRemoval(true)}
                 aria-describedby={removeHelpId}
               >
                 {t('providerForm.agent.catalog.removeBtn')}
@@ -681,8 +691,8 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
         ele fica, com um comando que passou a não existir.
       */}
       <Modal
-        isOpen={removing}
-        onClose={() => setRemoving(false)}
+        isOpen={confirmingRemoval}
+        onClose={() => setConfirmingRemoval(false)}
         title={t('providerForm.agent.catalog.removeConfirm.title', {
           agent: installed?.name || plan.name,
         })}
@@ -692,7 +702,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
           {t('providerForm.agent.catalog.removeConfirm.message', { dir: installed?.dir })}
         </p>
         <div className="agent-install__confirm-actions">
-          <Button type="button" variant="outline" onClick={() => setRemoving(false)}>
+          <Button type="button" variant="outline" onClick={() => setConfirmingRemoval(false)}>
             {t('providerForm.agent.catalog.confirm.cancelBtn')}
           </Button>
           <Button type="button" variant="danger" onClick={handleRemove}>
