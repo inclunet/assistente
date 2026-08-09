@@ -1804,6 +1804,7 @@ const ptBR = {
           installBtnHelpBinary:
             'Mostra o que será baixado, baixa o programa publicado no catálogo conferindo o código de verificação dele e preenche o comando e os argumentos acima com o que foi instalado.',
           cancelBtn: 'Cancelar instalação',
+          cancelUpdateBtn: 'Cancelar atualização',
           cancelFailed: 'Não foi possível cancelar a instalação.',
           installed: 'Instalado pelo aplicativo: {{agent}} versão {{version}}.',
           installedDir: 'Pasta da instalação: {{dir}}',

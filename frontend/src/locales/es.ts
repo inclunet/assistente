@@ -1803,6 +1803,7 @@ const es = {
           installBtnHelpBinary:
             'Muestra lo que se va a descargar, descarga el programa publicado en el catálogo comprobando su código de verificación y completa el comando y los argumentos de arriba con lo que se instaló.',
           cancelBtn: 'Cancelar instalación',
+          cancelUpdateBtn: 'Cancelar actualización',
           cancelFailed: 'No se pudo cancelar la instalación.',
           installed: 'Instalado por la aplicación: {{agent}} versión {{version}}.',
           installedDir: 'Carpeta de la instalación: {{dir}}',

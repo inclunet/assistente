@@ -148,6 +148,11 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   // que não teria instalação nenhuma para cancelar.
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [removing, setRemoving] = useState(false);
+  // Diz que o que está em voo é uma atualização, e não uma instalação. É estado
+  // porque muda o que a tela mostra — o botão de desistir precisa dizer do que
+  // se desiste —, e o `updateRef` ao lado não serve: ele existe para os eventos,
+  // que precisam do valor no instante em que chegam e não esperam render.
+  const [updatingNow, setUpdatingNow] = useState(false);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -232,6 +237,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     setBusy(false);
     adotadaRef.current = false;
     updateRef.current = '';
+    setUpdatingNow(false);
     void loadPlan(agentId);
   }, [agentId, loadPlan]);
 
@@ -310,6 +316,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     setBusy(true);
     outcomeRef.current = false;
     updateRef.current = '';
+    setUpdatingNow(false);
     setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
     try {
       // O que o diálogo mostrou viaja junto: o que seria instalado depende da
@@ -367,6 +374,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     setBusy(true);
     outcomeRef.current = false;
     updateRef.current = 'running';
+    setUpdatingNow(true);
     setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
     try {
       const installation = await UpdateACPAgent(agentID, {
@@ -409,6 +417,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
         // chegar por ela, e segurá-los faria a próxima instalação adotada ficar
         // sem quem a encerre.
         if (updateRef.current !== 'settled') updateRef.current = '';
+        setUpdatingNow(false);
         setBusy(false);
         void loadPlan(kind);
       }
@@ -579,11 +588,20 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
             Cancelar acompanha o que está em voo, e a atualização também baixa:
             sem este botão, quem pediu a atualização de um pacote grande ficaria
             sem como desistir dela.
+
+            O rótulo diz do que se desiste. Num leitor de telas o nome do botão é
+            o que se ouve antes de acioná-lo, e "cancelar instalação" no meio de
+            uma atualização faria pensar que o botão é de outra coisa — ou que
+            cancelá-lo desinstalaria o agente que está funcionando.
           */}
           {busy && (
             <div className="agent-install__action">
               <Button type="button" variant="outline" onClick={handleCancel}>
-                {t('providerForm.agent.catalog.cancelBtn')}
+                {t(
+                  updatingNow
+                    ? 'providerForm.agent.catalog.cancelUpdateBtn'
+                    : 'providerForm.agent.catalog.cancelBtn',
+                )}
               </Button>
             </div>
           )}

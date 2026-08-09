@@ -1074,7 +1074,10 @@ describe('AgentInstall — versão nova', () => {
     await user.click(await screen.findByRole('button', { name: /baixar e atualizar/i }));
 
     await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'true'));
-    expect(screen.getByRole('button', { name: /cancelar instalação/i })).toBeInTheDocument();
+    // O rótulo diz do que se desiste: "cancelar instalação" aqui faria pensar
+    // que o botão desinstala o agente que está funcionando.
+    expect(screen.getByRole('button', { name: /cancelar atualização/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remover agente instalado/i })).toBeDisabled();
     // O comando que está na tela é o da versão que vai sair: reaproveitá-lo
     // agora devolveria ao provedor o que o backend acabou de trocar.
