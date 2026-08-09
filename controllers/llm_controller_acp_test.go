@@ -204,6 +204,57 @@ func TestVoltarAProvedorHTTPPelaFronteiraLargaOComando(t *testing.T) {
 	}
 }
 
+// O par variável/entrada do cofre atravessa a fronteira nos dois sentidos: vai
+// no que a tela salva e volta no que ela lê para editar (AEP-0086 D12). O que
+// não atravessa é o valor — ele sai do cofre só na hora de subir o agente.
+func TestOParDoCofreAtravessaAFronteiraSemOSegredo(t *testing.T) {
+	ctrl, registry, cofre := controladorDeProvedores(t)
+
+	res, err := ctrl.CreateLLMProvider(context.Background(), CreateLLMProviderRequest{
+		ID:               "codex-1",
+		Name:             "Codex",
+		Type:             "acp",
+		APIFormat:        "acp",
+		ACPCommand:       "codex-acp",
+		ACPAgentID:       "codex",
+		ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+	})
+	if err != nil {
+		t.Fatalf("a fronteira recusou o par do cofre: %v", err)
+	}
+
+	pares, ok := res["acp_credential_env"].(map[string]string)
+	if !ok || pares["OPENAI_API_KEY"] != "api.openai.com" {
+		t.Fatalf("acp_credential_env = %#v", res["acp_credential_env"])
+	}
+	salvo := registry.Get("codex-1")
+	if salvo == nil || salvo.ACPCredentialEnv["OPENAI_API_KEY"] != "api.openai.com" {
+		t.Fatalf("o par não ficou salvo: %+v", salvo)
+	}
+	// Ligar a passagem é apontar para uma entrada que já existe; não é cadastrar
+	// credencial. Escrever no cofre daqui criaria entrada vazia com nome de host.
+	if len(cofre.registrados) != 0 {
+		t.Errorf("ligar a passagem escreveu no cofre: %v", cofre.registrados)
+	}
+
+	// Mapa vazio é o que desliga a passagem, e é a única forma de desligá-la:
+	// tratá-lo como "não mexer" deixaria a credencial indo para o agente depois
+	// de a pessoa ter tirado o último par da tela.
+	vazio := map[string]string{}
+	res, err = ctrl.UpdateLLMProvider(context.Background(), "codex-1", UpdateLLMProviderRequest{
+		ACPCredentialEnv: &vazio,
+	})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+	if pares, ok := res["acp_credential_env"].(map[string]string); !ok || len(pares) != 0 {
+		t.Errorf("acp_credential_env = %#v, queria vazio", res["acp_credential_env"])
+	}
+	if len(registry.Get("codex-1").ACPCredentialEnv) != 0 {
+		t.Errorf("o par continuou salvo depois de desligado: %+v", registry.Get("codex-1"))
+	}
+}
+
 // A tela nunca manda chave para um agente, mas a fronteira é pública: recusar é
 // o que impede um segredo inútil de entrar no cofre por outro caminho.
 func TestCriarAgentePelaFronteiraRecusaChaveDeAPI(t *testing.T) {

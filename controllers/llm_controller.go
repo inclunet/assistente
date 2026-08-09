@@ -34,6 +34,12 @@ type CreateLLMProviderRequest struct {
 	// ACPAgentID é o agente do registro que a tela escolheu no catálogo
 	// (AEP-0086 D11). Vazio é agente apontado à mão, que segue valendo.
 	ACPAgentID string `json:"acp_agent_id,omitempty"`
+	// ACPCredentialEnv diz quais variáveis do ambiente do agente recebem uma
+	// credencial do cofre, e de qual entrada dele (AEP-0086 D12). Ao contrário
+	// do ACPEnv, isto atravessa a fronteira: o que passa aqui é o nome da
+	// entrada, não o segredo — ele continua saindo do cofre só na hora de subir
+	// o processo, e nunca volta para a tela.
+	ACPCredentialEnv map[string]string `json:"acp_credential_env,omitempty"`
 }
 
 // TestLLMProviderRequest é o payload para testar um provedor LLM.
@@ -64,6 +70,11 @@ type UpdateLLMProviderRequest struct {
 	// apontado à mão é caminho válido (AEP-0086 D3) e é para onde volta quem
 	// precisa desvincular o provedor do catálogo. Nulo é "não mexer".
 	ACPAgentID *string `json:"acp_agent_id,omitempty"`
+	// ACPCredentialEnv troca as variáveis que recebem credencial do cofre
+	// (AEP-0086 D12). É ponteiro pela razão do ACPArgs: mapa vazio aqui é
+	// desligar a passagem, que é a edição que alguém faz ao tirar a credencial
+	// de um agente; nulo é "não mexer".
+	ACPCredentialEnv *map[string]string `json:"acp_credential_env,omitempty"`
 }
 
 // LLMControllerConfig agrupa as dependências do LLMController.
@@ -167,6 +178,13 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 	if acpArgs == nil {
 		acpArgs = []string{}
 	}
+	// Pela mesma razão, o par variável/entrada do cofre sai sempre como objeto.
+	// Ele volta para a tela porque é referência, e é o que permite editar o que
+	// está ligado sem reconfigurar do zero; o segredo não vem junto.
+	acpCredentialEnv := p.ACPCredentialEnv
+	if acpCredentialEnv == nil {
+		acpCredentialEnv = map[string]string{}
+	}
 	return map[string]interface{}{
 		"id":                    p.ID,
 		"name":                  p.Name,
@@ -183,6 +201,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"acp_command":           p.ACPCommand,
 		"acp_args":              acpArgs,
 		"acp_agent_id":          p.ACPAgentID,
+		"acp_credential_env":    acpCredentialEnv,
 	}
 }
 
@@ -198,6 +217,8 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 		ACPCommand:   req.ACPCommand,
 		ACPArgs:      req.ACPArgs,
 		ACPAgentID:   req.ACPAgentID,
+
+		ACPCredentialEnv: req.ACPCredentialEnv,
 	})
 	if err != nil {
 		return nil, err
@@ -216,6 +237,8 @@ func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req Up
 		ACPCommand:   req.ACPCommand,
 		ACPArgs:      req.ACPArgs,
 		ACPAgentID:   req.ACPAgentID,
+
+		ACPCredentialEnv: req.ACPCredentialEnv,
 	})
 	if err != nil {
 		return nil, err
