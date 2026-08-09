@@ -1218,6 +1218,10 @@ export function UnsubscribeFromMCPResource(arg1, arg2) {
   return window['go']['app']['App']['UnsubscribeFromMCPResource'](arg1, arg2);
 }
 
+export function UpdateACPAgent(arg1, arg2) {
+  return window['go']['app']['App']['UpdateACPAgent'](arg1, arg2);
+}
+
 export function UpdateAllowlist(arg1, arg2) {
   return window['go']['app']['App']['UpdateAllowlist'](arg1, arg2);
 }
