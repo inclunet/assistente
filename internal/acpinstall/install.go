@@ -183,9 +183,7 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		RunArgs:      slices.Clone(agent.Distribution.NPX.Args),
 		Runtime:      requiredRuntime(runtime),
 	}
-	if installed, ok := i.installationAt(dir); ok {
-		plan.Installed = &installed
-	}
+	i.describeInstalled(&plan, agent.ID)
 
 	switch {
 	case i.root == "":
@@ -209,7 +207,69 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		plan.CanInstall = true
 		plan.InstallCommand = command
 	}
+	// A linha de comando da instalação é a mesma da atualização — o que muda é
+	// o diretório de destino, que já está no plano —, então a oferta de
+	// atualizar é decidida depois de ela existir.
+	i.describeUpdate(&plan, agent)
 	return plan, nil
+}
+
+// describeInstalled põe no plano a instalação que existe deste agente, em
+// qualquer versão (D10).
+//
+// Não é a instalação do diretório desta versão: essa desapareceria no dia em
+// que o registro publicasse a seguinte, e o app ofereceria instalar do zero o
+// que ele mesmo pôs ali — sobre uma instalação que continua funcionando.
+func (i *Installer) describeInstalled(plan *Plan, agentID string) {
+	if installed, ok := i.Installed(agentID); ok {
+		plan.Installed = &installed
+	}
+}
+
+// describeUpdate decide se este plano oferece atualizar, e por que não oferece
+// quando não oferece (D10).
+//
+// Atualizar exige tudo o que instalar exige, e mais uma coisa: a versão nova
+// não pode valer menos do que a instalada. Se o agente parou de publicar digest
+// entre uma e outra, o app mantém o que está no disco e explica — aceitar a
+// troca faria do aviso de atualização um caminho para contornar o D4.
+func (i *Installer) describeUpdate(plan *Plan, agent acpregistry.Agent) {
+	if plan.Installed == nil || plan.Version == "" || plan.Installed.Version == plan.Version {
+		return
+	}
+	plan.Update = true
+	switch {
+	case plan.Reason != "" && plan.Reason != ErrAlreadyInstalled.Error():
+		// O que impede instalar impede atualizar: sem Node, sem npm e sem
+		// diretório de dados não há como pôr a versão nova ao lado da velha. O
+		// único motivo que não vale aqui é justamente o de já estar instalado.
+		plan.UpdateReason = plan.Reason
+	case wouldDropVerification(agent, plan.Distribution, *plan.Installed):
+		plan.UpdateReason = ErrVerificationWouldDrop.Error()
+	default:
+		plan.CanUpdate = true
+	}
+}
+
+// wouldDropVerification diz se atualizar trocaria um artefato conferido por um
+// que o app não tem como conferir (D10).
+//
+// Instalação que já não era conferida não perde nada, e pacote npm é conferido
+// pelo próprio npm em qualquer versão. O caso que existe é o do binário: o
+// mesmo agente publica `sha256` numa versão e não publica na seguinte, e é essa
+// troca que a atualização recusa.
+func wouldDropVerification(agent acpregistry.Agent, distribution string, installed Installation) bool {
+	if !Verified(installed) || distribution != DistributionBinary {
+		return false
+	}
+	target, _, err := binaryTarget(agent)
+	if err != nil {
+		// Sem alvo para esta plataforma não há atualização nenhuma a fazer, e
+		// o motivo disso é outro. Dizer que a verificação cairia inventaria uma
+		// comparação com um artefato que não existe.
+		return false
+	}
+	return target.SHA256 == ""
 }
 
 // npmFor é o npm da instalação que está acontecendo.
@@ -268,11 +328,91 @@ func (i *Installer) Install(ctx context.Context, agentID string, confirmed Confi
 	if err != nil {
 		return Installation{}, err
 	}
+	// Instalar por cima de qualquer versão é recusado, e não só por cima da
+	// mesma: pôr a nova ao lado sem tirar a anterior é atualizar, e atualizar
+	// tem um passo no meio que este caminho não dá — repontar o provider antes
+	// de a versão velha sumir (D10).
+	if existing, ok := i.Installed(agent.ID); ok {
+		return Installation{}, failf(StepPrepare, "%w: %s %s", ErrAlreadyInstalled, agent.Name, existing.Version)
+	}
 	runtime := i.runtime()
-	if i.distributionFor(agent, runtime) == DistributionBinary {
+	return i.installAgent(ctx, agent, i.distributionFor(agent, runtime), runtime, confirmed)
+}
+
+// Update instala a versão que o catálogo publica ao lado da que está em uso e
+// devolve as duas (D10).
+//
+// Ela não remove a anterior. Entre a nova responder `initialize` e a velha sair
+// do disco existe um passo que este pacote não faz — repontar o provider —, e
+// apagar antes dele deixaria o provider apontando para um diretório que acabou
+// de sumir. Quem chama remove com RemoveVersion depois de repontar; uma
+// atualização que falha no meio deixa de pé o que funcionava.
+//
+// As recusas são repetidas aqui, e não deduzidas do plano: o plano existe para
+// a tela e devolve o motivo em texto, e um texto não diz a quem chamou *qual*
+// recusa aconteceu.
+func (i *Installer) Update(ctx context.Context, agentID string, confirmed Confirmed) (Updated, error) {
+	agent, err := i.agent(ctx, agentID)
+	if err != nil {
+		return Updated{}, err
+	}
+	previous, ok := i.Installed(agent.ID)
+	if !ok {
+		return Updated{}, failf(StepPrepare, "%w: %s", ErrNotInstalled, acp.SanitizeLabel(agentID))
+	}
+	runtime := i.runtime()
+	distribution := i.distributionFor(agent, runtime)
+	version, err := plannedVersion(agent, distribution)
+	if err != nil {
+		return Updated{}, err
+	}
+	if version == previous.Version {
+		return Updated{}, failf(StepCatalog, "%w: %s %s", ErrNoUpdate, agent.Name, previous.Version)
+	}
+	if wouldDropVerification(agent, distribution, previous) {
+		return Updated{}, failf(StepCatalog, "%w: %s %s", ErrVerificationWouldDrop, agent.Name, version)
+	}
+	// A distribuição e o runtime já foram resolvidos nas checagens acima. Passar
+	// os dois adiante é o que impede a instalação de escolher outro caminho se o
+	// Node aparecer ou sumir entre a conferência e o download.
+	installation, err := i.installAgent(ctx, agent, distribution, runtime, confirmed)
+	if err != nil {
+		return Updated{}, err
+	}
+	return Updated{Installed: installation, Previous: previous}, nil
+}
+
+// installAgent instala pelo caminho já escolhido. Instalar e atualizar passam
+// pelos mesmos passos — é a mesma versão sendo baixada, conferida e registrada
+// —, e o que os separa é o que acontece em volta. Quem chama resolve runtime e
+// distribuição uma vez; resolver de novo aqui poderia trocar o caminho no meio
+// da atualização.
+func (i *Installer) installAgent(
+	ctx context.Context,
+	agent acpregistry.Agent,
+	distribution string,
+	runtime acp.NodeRuntime,
+	confirmed Confirmed,
+) (Installation, error) {
+	if distribution == DistributionBinary {
 		return i.installFromBinary(ctx, agent, confirmed)
 	}
 	return i.installFromNPM(ctx, agent, runtime, confirmed)
+}
+
+// plannedVersion é a versão que seria instalada agora por este caminho. Ela é o
+// que a comparação do D10 usa: o campo `version` do item não vale para o pacote
+// npm, onde quem fixa a versão pode ser o próprio nome do pacote.
+func plannedVersion(agent acpregistry.Agent, distribution string) (string, error) {
+	if distribution == DistributionBinary {
+		version := sanitizeVersion(agent.Version)
+		if version == "" {
+			return "", failf(StepCatalog, "%w: %s", ErrUnpinnedVersion, acp.SanitizeLabel(agent.ID))
+		}
+		return version, nil
+	}
+	_, _, version, err := pinnedSpec(agent)
+	return version, err
 }
 
 // installFromNPM instala o agente que é distribuído como pacote.
@@ -459,6 +599,31 @@ func (i *Installer) Remove(ctx context.Context, agentID string) error {
 		return fmt.Errorf("não foi possível remover %s: %w", dir, err)
 	}
 	logging.Infof(ctx, component, "instalação do agente %s removida de %s", agentID, dir)
+	return nil
+}
+
+// RemoveVersion apaga uma versão só, deixando as outras (D10).
+//
+// É o último passo da atualização: a versão nova já respondeu ao handshake e o
+// provider já aponta para ela, e o que sai é o diretório que ninguém usa mais.
+// Ela não é o Remove com um argumento a mais — o Remove apaga o agente inteiro,
+// e usá-lo aqui levaria junto a versão que acabou de subir.
+func (i *Installer) RemoveVersion(ctx context.Context, agentID, version string) error {
+	dir := i.agentVersionDir(agentID, version)
+	if dir == "" {
+		return fmt.Errorf("não foi possível montar o diretório da versão %s do agente %s",
+			acp.SanitizeLabel(version), acp.SanitizeLabel(agentID))
+	}
+	// O registro tem de descrever aquele diretório, como em qualquer leitura
+	// (D9): apagar por caminho montado a partir de dois textos externos sem
+	// conferir o que está lá dentro é apagar o que a régua deixar passar.
+	if _, ok := i.installationAt(dir); !ok {
+		return fmt.Errorf("%w: %s %s", ErrNotInstalled, acp.SanitizeLabel(agentID), acp.SanitizeLabel(version))
+	}
+	if err := removeTree(dir); err != nil {
+		return fmt.Errorf("não foi possível remover %s: %w", dir, err)
+	}
+	logging.Infof(ctx, component, "versão %s do agente %s removida de %s", version, agentID, dir)
 	return nil
 }
 

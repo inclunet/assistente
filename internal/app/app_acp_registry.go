@@ -394,23 +394,15 @@ func acpCatalogAgentFrom(agent acpregistry.Agent, platform string, machine acpMa
 	return row
 }
 
-// unverifiedInstall diz se o artefato que está no disco foi conferido contra um
-// digest publicado (D4).
+// unverifiedInstall diz se o artefato que está no disco não foi conferido
+// contra um digest publicado (D4).
 //
-// Quem dispensa a pergunta é o pacote npm, e só ele: ali quem confere é o
-// próprio npm, o campo é naturalmente vazio, e uma ressalva seria alarme nos 21
-// agentes de pacote. Todo o resto responde pelo digest, e qualquer coisa que não
-// seja "conferido" conta como não conferido — inclusive o campo vazio e a
-// distribuição que este app não escreveu. O registro vem do disco, e é ele que
-// diria "npm" para calar a ressalva de um binário.
+// A regra mora no pacote que escreve o `installed.json`, e aqui é só a leitura
+// dela na direção que a tela usa: a mesma resposta decide se a atualização pode
+// trocar uma instalação conferida por outra (D10), e duas cópias dela viriam a
+// discordar exatamente no caso que importa.
 func unverifiedInstall(installation acpinstall.Installation) bool {
-	if installation.Distribution == acpinstall.DistributionNPM {
-		return false
-	}
-	// Conferido é o registro que diz qual digest conferiu. Um que se declare
-	// `verified` com o campo vazio não descreve nenhuma conferência, e a
-	// instalação binária que o app faz sempre grava os dois.
-	return installation.SHA256Origin != acpinstall.DigestVerified || installation.SHA256 == ""
+	return !acpinstall.Verified(installation)
 }
 
 // acpCatalogState decide o estado da linha nesta máquina.

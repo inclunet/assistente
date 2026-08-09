@@ -99,6 +99,26 @@ const (
 	DigestObserved = "observed"
 )
 
+// Verified diz se o artefato que está no disco foi conferido contra um digest
+// publicado (D4).
+//
+// Quem dispensa a pergunta é o pacote npm, e só ele: ali quem confere é o
+// próprio npm, o campo é naturalmente vazio, e uma ressalva seria alarme nos 21
+// agentes de pacote. Todo o resto responde pelo digest, e qualquer coisa que não
+// seja "conferido" conta como não conferido — inclusive o campo vazio e a
+// distribuição que este app não escreveu. O registro vem do disco, e é ele que
+// diria "npm" para calar a ressalva de um binário.
+//
+// Conferido é o registro que diz qual digest conferiu. Um que se declare
+// `verified` com o campo vazio não descreve nenhuma conferência, e a instalação
+// binária que o app faz sempre grava os dois.
+func Verified(installation Installation) bool {
+	if installation.Distribution == DistributionNPM {
+		return true
+	}
+	return installation.SHA256Origin == DigestVerified && installation.SHA256 != ""
+}
+
 // Stage é o marco da instalação. São marcos, e não bytes: anunciar percentual
 // continuamente atropelaria qualquer outra leitura em curso (D13, AEP-0058).
 type Stage string
@@ -248,10 +268,25 @@ var (
 	// o sentido do aviso de atualização (D6, D10).
 	ErrUnpinnedVersion = errors.New("o catálogo não fixa a versão deste pacote")
 
-	// ErrAlreadyInstalled é o agente que já está instalado nesta versão.
-	// Reinstalar por cima apagaria uma instalação que funciona para tentar
-	// montar outra igual.
+	// ErrAlreadyInstalled é o agente que já está instalado. Reinstalar por cima
+	// apagaria uma instalação que funciona para tentar montar outra igual, e
+	// instalar ao lado sem tirar a anterior é atualizar — que tem caminho
+	// próprio, com repontar o provider no meio (D10).
 	ErrAlreadyInstalled = errors.New("este agente já está instalado")
+
+	// ErrNoUpdate é a atualização pedida para quem já está na versão do
+	// catálogo. Ela acontece de verdade: o índice é revalidado sozinho, e a
+	// versão nova pode ter sido instalada por outra janela entre o aviso e o
+	// clique.
+	ErrNoUpdate = errors.New("este agente já está na versão que o catálogo publica")
+
+	// ErrVerificationWouldDrop é a atualização que trocaria um artefato
+	// conferido por um que o app não tem como conferir (D10). Aceitá-la faria
+	// do aviso de versão nova um caminho para contornar o D4 — bastaria o
+	// agente parar de publicar digest numa versão para a instalação conferida
+	// virar não conferida sem ninguém decidir isso.
+	ErrVerificationWouldDrop = errors.New(
+		"a versão nova deste agente não publica verificação de integridade, e a instalada foi conferida")
 
 	// ErrInstalling é a segunda instalação do mesmo agente ao mesmo tempo. Duas
 	// escrevendo no mesmo diretório deixariam meio agente no disco.
@@ -379,9 +414,42 @@ type Plan struct {
 	// quem navega por teclado (D7).
 	Reason string `json:"reason,omitempty"`
 
-	// Installed é a instalação que já existe, quando existe. É o que faz a tela
+	// Installed é a instalação que já existe, quando existe — em qualquer
+	// versão, e não só na que o catálogo publica agora. É o que faz a tela
 	// oferecer remover em vez de instalar de novo.
+	//
+	// Ela ser de qualquer versão é o que permite dizer que há uma nova: uma
+	// instalação que só contasse quando batesse com o catálogo desapareceria da
+	// tela no dia em que o registro publicasse a versão seguinte, e o app
+	// ofereceria instalar do zero o que ele mesmo pôs ali (D10).
 	Installed *Installation `json:"installed,omitempty"`
+
+	// Update diz que a versão instalada não é a que o catálogo publica, e que
+	// o que esta linha oferece é atualizar. Nada acontece sozinho: o aviso é
+	// texto, e a atualização é pedida (D10).
+	Update bool `json:"update,omitempty"`
+
+	// CanUpdate diz se dá para atualizar agora, e UpdateReason é por que não
+	// dá, quando não dá. São campos separados dos de instalação porque as
+	// respostas divergem: o agente que já está instalado nunca pode ser
+	// instalado, e é justamente ele que pode ser atualizado.
+	CanUpdate    bool   `json:"can_update,omitempty"`
+	UpdateReason string `json:"update_reason,omitempty"`
+}
+
+// Updated é o desfecho de uma atualização: a versão que subiu e a que estava no
+// lugar (D10).
+//
+// As duas voltam porque a anterior ainda está no disco quando esta função
+// retorna. Entre instalar a nova e apagar a velha existe um passo que este
+// pacote não faz — repontar o provider —, e apagar antes dele deixaria o
+// provider apontando para um diretório que acabou de sumir.
+type Updated struct {
+	// Installed é a versão nova, já com handshake conferido (D8).
+	Installed Installation
+
+	// Previous é a que estava instalada, ainda no disco.
+	Previous Installation
 }
 
 // Installation é o que o app instalou, e é o conteúdo do `installed.json` (D5).
