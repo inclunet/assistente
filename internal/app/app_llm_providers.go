@@ -106,10 +106,15 @@ func (a *App) applyInstalledBinaryEnv(ctx context.Context, providerID, agentID s
 		return
 	}
 	installation, ok := a.acpCatalogServices().installer.Installed(agentID)
-	if !ok || len(installation.Env) == 0 {
+	if !ok {
 		return
 	}
+	// Env vazio também aplica: senão um update que tira o env{} do registro
+	// deixaria no provedor as variáveis da instalação anterior.
 	env := maps.Clone(installation.Env)
+	if env == nil {
+		env = map[string]string{}
+	}
 	if _, err := a.providerSvc.Update(ctx, providerID, providers.UpdateRequest{ACPEnv: &env}); err != nil {
 		logging.Warnf(ctx, "llm-providers",
 			"não foi possível aplicar o env do agente instalado %s ao provedor %s: %v",

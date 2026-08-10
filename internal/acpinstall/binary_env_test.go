@@ -69,7 +69,7 @@ func TestInstallBinarioSemEnvNaoQuebra(t *testing.T) {
 	if err != nil {
 		t.Fatalf("instalação sem env: %v", err)
 	}
-	if instalacao.Env != nil && len(instalacao.Env) != 0 {
+	if len(instalacao.Env) != 0 {
 		t.Errorf("env = %#v, queria nil ou vazio", instalacao.Env)
 	}
 }

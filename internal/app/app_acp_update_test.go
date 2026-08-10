@@ -252,6 +252,42 @@ func TestALimpezaVarreAsVersoesQueNinguemMaisSobe(t *testing.T) {
 	}
 }
 
+func TestApplyInstalledBinaryEnvComEnvVazioLimpaOProvedor(t *testing.T) {
+	// Sem isso, um update que publica env{} vazio deixaria VT_ACP_* (ou token
+	// colado) da instalação anterior no provedor para sempre.
+	_ = setupTestDB(t)
+	root := t.TempDir()
+	gravarInstalacao(t, root, "1.2.0")
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	registro := llm.NewProviderRegistry()
+	a := newAppForTest(credMgr, registro)
+	a.acpCatalogOnce.Do(func() {
+		a.acpCatalogSvc = &acpCatalog{installer: acpinstall.New(acpinstall.Config{Root: root})}
+	})
+	if err := registro.Register(&llm.ProviderConfig{
+		ID:         "codex-do-app",
+		Name:       "Codex do app",
+		Type:       llm.ProviderACP,
+		APIFormat:  llm.APIFormatACP,
+		ACPAgentID: "codex-acp",
+		ACPCommand: "codex-acp",
+		ACPEnv:     map[string]string{"VT_ACP_ENABLED": "true", "CODEX_API_KEY": "sk-velha"},
+	}); err != nil {
+		t.Fatalf("erro ao registrar o provedor: %v", err)
+	}
+
+	a.applyInstalledBinaryEnv(context.Background(), "codex-do-app", "codex-acp")
+
+	atual := registro.Get("codex-do-app")
+	if atual == nil {
+		t.Fatal("provedor sumiu")
+	}
+	if len(atual.ACPEnv) != 0 {
+		t.Errorf("ACPEnv = %#v, queria vazio após instalação sem env{}", atual.ACPEnv)
+	}
+}
+
 func TestSemServicoDeAgentesAAtualizacaoNaoERecusadaPorConversa(t *testing.T) {
 	// A recusa é sobre um turno que existe. Sem o serviço que sabe dos turnos
 	// não há conversa nenhuma de pé, e travar a atualização por precaução

@@ -185,13 +185,11 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 	if acpCredentialEnv == nil {
 		acpCredentialEnv = map[string]string{}
 	}
-	// ACPEnv volta na leitura porque é configuração do processo (ex.: VT_ACP_*
-	// do registro), não segredo. Continua fora do Create/Update: a escrita vem
-	// da instalação do catálogo ou da importação.
-	acpEnv := p.ACPEnv
-	if acpEnv == nil {
-		acpEnv = map[string]string{}
-	}
+	// ACPEnv NÃO volta na leitura. É o mesmo motivo da exportação: a coluna pode
+	// guardar token colado à mão (AEP-0086), e a tela não edita esse mapa — o
+	// env{} do binário o app aplica a partir do installed.json. Devolver {}
+	// evita vazar segredo para o frontend sem perder o runtime.
+	acpEnv := map[string]string{}
 	return map[string]interface{}{
 		"id":                    p.ID,
 		"name":                  p.Name,
