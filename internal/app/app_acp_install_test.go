@@ -113,7 +113,7 @@ func TestHandshakeSemServicoDeAgentesRecusaEmVezDeAceitarSemProva(t *testing.T) 
 	// pior do que uma instalação que falhou.
 	a := &App{}
 
-	err := a.acpInstallHandshake(context.Background(), "node", []string{"index.js"})
+	err := a.acpInstallHandshake(context.Background(), "node", []string{"index.js"}, nil)
 
 	if err == nil {
 		t.Fatal("declarou o agente conferido sem ter como conferi-lo")

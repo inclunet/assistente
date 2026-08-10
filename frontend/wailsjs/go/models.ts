@@ -336,6 +336,7 @@ export namespace app {
 	    command: string;
 	    args: string[];
 	    dir: string;
+	    env?: Record<string, string>;
 	    sha256?: string;
 	    sha256_origin?: string;
 	    disk_bytes?: number;
@@ -355,6 +356,7 @@ export namespace app {
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.dir = source["dir"];
+	        this.env = source["env"];
 	        this.sha256 = source["sha256"];
 	        this.sha256_origin = source["sha256_origin"];
 	        this.disk_bytes = source["disk_bytes"];

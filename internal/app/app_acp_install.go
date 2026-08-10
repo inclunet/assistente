@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"time"
@@ -61,6 +62,10 @@ type ACPInstallation struct {
 	Command      string   `json:"command"`
 	Args         []string `json:"args"`
 	Dir          string   `json:"dir"`
+
+	// Env são as variáveis do alvo binário gravadas na instalação (configuração
+	// do registro, não segredo). A tela as aplica em ACPEnv ao montar o provedor.
+	Env map[string]string `json:"env,omitempty"`
 
 	// SHA256 e SHA256Origin são o digest do artefato instalado e o que ele
 	// vale: `verified` foi conferido contra o que o registro publicou;
@@ -238,7 +243,7 @@ func (a *App) acpCatalogServices() *acpCatalog {
 // Falta de login é sucesso. O agente subiu, se apresentou e o comando está
 // certo; autenticar é assunto do próprio agente (AEP-0084 D12), e recusar a
 // instalação por isso mandaria a pessoa reinstalar o que já está no lugar.
-func (a *App) acpInstallHandshake(ctx context.Context, command string, args []string) error {
+func (a *App) acpInstallHandshake(ctx context.Context, command string, args []string, env map[string]string) error {
 	if a.acpMgr == nil {
 		return errors.New("o serviço de agentes de código não está disponível para conferir a instalação")
 	}
@@ -249,6 +254,9 @@ func (a *App) acpInstallHandshake(ctx context.Context, command string, args []st
 		Name:    "conferência da instalação",
 		Command: command,
 		Args:    args,
+		// Env do alvo binário (VT_ACP_* etc.): sem ele o handshake do vtcode
+		// falharia antes de o provedor nascer com o ACPEnv certo.
+		Env: env,
 	})
 	switch report.State {
 	case acp.HealthOnline, acp.HealthUnauthenticated:
@@ -528,10 +536,14 @@ func (a *App) repointACPProviders(
 		return
 	}
 	args := slices.Clone(installation.Args)
+	// O env do artefato novo substitui o que veio da instalação anterior no
+	// ACPEnv. ACPCredentialEnv do cofre não entra aqui — é configuração à parte.
+	env := maps.Clone(installation.Env)
 	for _, provider := range usando {
 		if _, err := a.providerSvc.Update(ctx, provider.ID, providers.UpdateRequest{
 			ACPCommand: installation.Command,
 			ACPArgs:    &args,
+			ACPEnv:     &env,
 		}); err != nil {
 			logging.Warnf(ctx, acpInstallComponent,
 				"o provedor %s continuou apontando para a versão anterior do agente %s: %v",
@@ -638,6 +650,7 @@ func installationDTO(installation acpinstall.Installation) ACPInstallation {
 		SHA256Origin: installation.SHA256Origin,
 		Command:      installation.Command,
 		Args:         installation.Args,
+		Env:          maps.Clone(installation.Env),
 		Dir:          installation.Dir,
 		DiskBytes:    installation.DiskBytes,
 	}

@@ -96,8 +96,11 @@ export interface AgentInstallProps {
    * Recebe o comando resolvido da instalação, para os campos do formulário
    * pararem de ser digitação. É o que faz "instalar pelo catálogo" terminar com
    * um provedor pronto, e não com um caminho para alguém copiar.
+   *
+   * `env` são as variáveis do alvo binário (quando há); entram em `acp_env`
+   * sem apagar chaves que a pessoa já tenha no formulário.
    */
-  onResolved: (command: string, args: string[]) => void;
+  onResolved: (command: string, args: string[], env?: Record<string, string>) => void;
 }
 
 /**
@@ -335,7 +338,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
       if (!doAgente(kind)) return;
       // O comando resolvido vai para os campos: instalar pelo catálogo termina
       // com um provedor pronto para salvar, e não com um caminho para copiar.
-      onResolved(installation.command, installation.args || []);
+      onResolved(installation.command, installation.args || [], installation.env || undefined);
     } catch (error: unknown) {
       if (!doAgente(kind)) return;
       // O marco de desfecho já disse o que houve, e ele diz melhor: nomeia a
@@ -386,7 +389,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
       });
       if (!doAgente(kind)) return;
       updateRef.current = 'settled';
-      onResolved(installation.command, installation.args || []);
+      onResolved(installation.command, installation.args || [], installation.env || undefined);
       // O marco de desfecho fala da instalação; esta frase fala da atualização,
       // que é o que a pessoa pediu. Sem ela ninguém saberia que os provedores
       // que usavam a versão antiga passaram a subir esta.
@@ -638,7 +641,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
                 // plano recarregado no fim traz a versão nova.
                 disabled={busy || removing || loading}
                 onClick={() => {
-                  onResolved(installed.command, installed.args || []);
+                  onResolved(installed.command, installed.args || [], installed.env || undefined);
                   // Preencher campo por clique não é visível a quem não vê o
                   // campo: sem o anúncio, o botão pareceria não ter feito nada.
                   announce(

@@ -362,7 +362,7 @@ func montar(t *testing.T, opts opcoes) *cenario {
 		UV:        opts.uv,
 		Runtime:   opts.runtime,
 		UVRuntime: opts.uvRuntime,
-		Handshake: func(_ context.Context, command string, args []string) error {
+		Handshake: func(_ context.Context, command string, args []string, _ map[string]string) error {
 			c.handshakes = append(c.handshakes, append([]string{command}, args...))
 			return opts.handshake
 		},
