@@ -130,6 +130,32 @@ func TestUVEntryPointRecusaCmdNoWindows(t *testing.T) {
 	}
 }
 
+func TestUVEntryPointRecusaEntryPointsQueSaiDoVenvPorUmLink(t *testing.T) {
+	// O WalkDir enxerga o caminho dentro do venv; quem escolhe o destino do
+	// link é o pacote. Sem resolver, a leitura abriria arquivo arbitrário.
+	venv := t.TempDir()
+	fora := filepath.Join(t.TempDir(), "entry_points.txt")
+	if err := os.WriteFile(fora, []byte("[console_scripts]\nagente = pacote.cli:main\n"), 0o644); err != nil {
+		t.Fatalf("não deu para gravar o arquivo de fora: %v", err)
+	}
+	venvFalso(t, venv, "pacote", "agente", "")
+	site := filepath.Join(venv, "lib", "python3.12", "site-packages")
+	if runtime.GOOS == "windows" {
+		site = filepath.Join(venv, "Lib", "site-packages")
+	}
+	link := filepath.Join(site, "pacote-1.0.0.dist-info", "entry_points.txt")
+	if err := os.Remove(link); err != nil {
+		t.Fatalf("não deu para remover o entry_points legítimo: %v", err)
+	}
+	if err := os.Symlink(fora, link); err != nil {
+		t.Skipf("não deu para criar o link neste sistema: %v", err)
+	}
+
+	if _, _, err := UVEntryPoint(venv, "pacote"); err == nil {
+		t.Fatal("aceitou um entry_points.txt que sai do venv por um link")
+	}
+}
+
 func TestFindUVRuntimeReusaDetectRuntime(t *testing.T) {
 	machine := fakeMachine{
 		goos: "linux",

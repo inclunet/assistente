@@ -93,15 +93,12 @@ func UVEntryPoint(venvDir, packageName string) (scriptPath, pythonPath string, e
 	if !WithinDir(root, scriptPath) {
 		return "", "", fmt.Errorf("%w: o script %s aponta para fora da instalação", ErrUVEntryPoint, scriptPath)
 	}
-	real, err := filepath.EvalSymlinks(scriptPath)
-	if err != nil {
-		return "", "", fmt.Errorf("%w: o script %s não é um arquivo", ErrUVEntryPoint, scriptPath)
-	}
 	realRoot := root
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		realRoot = resolved
 	}
-	if !WithinDir(realRoot, real) {
+	real, err := resolveInsideDir(realRoot, scriptPath)
+	if err != nil {
 		return "", "", fmt.Errorf("%w: o script %s aponta para fora da instalação", ErrUVEntryPoint, scriptPath)
 	}
 	if ok, err := isRegularFile(real); err != nil || !ok {
@@ -204,7 +201,15 @@ func consoleScriptForPackage(venvDir, packageName string) (string, error) {
 // findEntryPointsFiles lista os `entry_points.txt` dentro do site-packages do
 // venv. O layout muda com a plataforma (`lib/pythonX.Y` vs `Lib`) e com a
 // versão do Python; varrer os `*.dist-info` evita adivinhar o caminho.
+//
+// Cada caminho aceito já está resolvido e dentro do venv: um pacote que
+// plante `entry_points.txt` como link para fora seria lido como arquivo
+// arbitrário se a leitura fosse pelo caminho declarado.
 func findEntryPointsFiles(venvDir string) ([]string, error) {
+	realRoot := venvDir
+	if resolved, err := filepath.EvalSymlinks(venvDir); err == nil {
+		realRoot = resolved
+	}
 	var found []string
 	err := filepath.WalkDir(venvDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -226,7 +231,13 @@ func findEntryPointsFiles(venvDir string) ([]string, error) {
 		if !strings.HasSuffix(filepath.Base(filepath.Dir(path)), ".dist-info") {
 			return nil
 		}
-		found = append(found, path)
+		real, err := resolveInsideDir(realRoot, path)
+		if err != nil {
+			// Link quebrado ou destino fora do venv: ignora este arquivo. A
+			// instalação falha depois se nenhum entry_points legítimo restar.
+			return nil
+		}
+		found = append(found, real)
 		return nil
 	})
 	if err != nil {
@@ -235,7 +246,22 @@ func findEntryPointsFiles(venvDir string) ([]string, error) {
 	return found, nil
 }
 
+// resolveInsideDir resolve symlinks e exige que o alvo real continue dentro
+// de root. É a mesma guarda do ponto de entrada do script: quem escolhe o
+// destino é o pacote, então a verificação é sobre o que se abre.
+func resolveInsideDir(root, path string) (string, error) {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	if !WithinDir(root, real) {
+		return "", fmt.Errorf("%s aponta para fora de %s", path, root)
+	}
+	return real, nil
+}
+
 // readConsoleScripts lê a seção `[console_scripts]` de um entry_points.txt.
+// path já deve ser o alvo resolvido e dentro do venv (findEntryPointsFiles).
 func readConsoleScripts(path string) ([]string, error) {
 	data, err := readFileAtMost(path, maxEntryPointsBytes)
 	if err != nil {

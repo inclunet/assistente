@@ -1235,6 +1235,35 @@ func TestPlanDeAgenteSemDistribuicaoExplicaEmTexto(t *testing.T) {
 	}
 }
 
+func TestUnavailablePlanDeUVXMostraRuntimeUV(t *testing.T) {
+	// Versão ilegível faz o caminho uvx cair no unavailablePlan. O runtime
+	// mostrado tem de ser o uv — Node.js ali confundiria a tela e o leitor.
+	agente := agenteFastAgent()
+	agente.Version = "versão com espaço"
+	agente.Distribution.UVX.Package = "fast-agent-mcp"
+	c := montar(t, opcoes{
+		agentes:   []acpregistry.Agent{agente},
+		uvRuntime: runtimeComUV,
+	})
+
+	plano, err := c.instalador.Plan(context.Background(), fastAgentID)
+	if err != nil {
+		t.Fatalf("o plano falhou em vez de explicar: %v", err)
+	}
+	if plano.CanInstall {
+		t.Error("ofereceu instalação de um uvx sem versão pinada")
+	}
+	if plano.Distribution != DistributionUVX {
+		t.Errorf("distribuição = %q, queria uvx", plano.Distribution)
+	}
+	if plano.Runtime.Name != RuntimeUV {
+		t.Errorf("runtime = %q, queria %q (não Node.js)", plano.Runtime.Name, RuntimeUV)
+	}
+	if plano.Runtime.Required {
+		t.Error("unavailablePlan não deveria marcar o runtime como exigido")
+	}
+}
+
 func TestPlanDeAgenteForaDoCatalogoDizQueEleNaoEstaLa(t *testing.T) {
 	c := montar(t, opcoes{})
 

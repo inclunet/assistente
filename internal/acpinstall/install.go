@@ -368,6 +368,13 @@ func (i *Installer) unavailablePlan(agent acpregistry.Agent, err error) Plan {
 	case len(agent.Distribution.Binary) > 0:
 		distribution = DistributionBinary
 	}
+	// O runtime mostrado é o da distribuição declarada, mesmo quando Required
+	// fica falso: num plano uvx indisponível (versão sem pin, por exemplo),
+	// apontar Node.js confundiria a tela e o leitor de telas.
+	runtime := runtimeStatus(i.runtime())
+	if distribution == DistributionUVX {
+		runtime = uvRuntimeStatus(i.uvRuntime())
+	}
 	return Plan{
 		AgentID:      agent.ID,
 		Name:         agent.Name,
@@ -377,7 +384,7 @@ func (i *Installer) unavailablePlan(agent acpregistry.Agent, err error) Plan {
 		// distribuição, e marcar o Node/uv como exigido faria a tela dizer
 		// "instale o runtime" no lugar do motivo pelo qual o app não sabe
 		// instalar este agente.
-		Runtime: runtimeStatus(i.runtime()),
+		Runtime: runtime,
 		Reason:  acp.SanitizeLabel(err.Error()),
 	}
 }
