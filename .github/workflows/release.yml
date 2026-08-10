@@ -180,13 +180,57 @@ jobs:
           wails version
           wails doctor
 
+      # Chocolatey community feed costuma falhar com 504; baixa o ZIP oficial pinado.
       - name: Install NSIS (Windows)
         if: matrix.os == 'windows-latest'
-        run: |
-          choco install nsis -y
-          # Adiciona NSIS ao PATH
-          echo "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '3.11'
+          $existing = Get-Command makensis -ErrorAction SilentlyContinue
+          if ($existing) {
+            Write-Host "NSIS já disponível: $($existing.Source)"
+            exit 0
+          }
+
+          $destRoot = Join-Path $env:RUNNER_TEMP 'nsis'
+          $zipPath = Join-Path $env:RUNNER_TEMP "nsis-$version.zip"
+          $installDir = Join-Path $destRoot "nsis-$version"
+          $urls = @(
+            "https://downloads.sourceforge.net/project/nsis/NSIS%203/$version/nsis-$version.zip",
+            "https://sourceforge.net/projects/nsis/files/NSIS%203/$version/nsis-$version.zip/download"
+          )
+
+          $downloaded = $false
+          foreach ($attempt in 1..5) {
+            foreach ($url in $urls) {
+              try {
+                Write-Host "Baixando NSIS $version (tentativa $attempt): $url"
+                Invoke-WebRequest -Uri $url -OutFile $zipPath -UserAgent 'Wget/1.21' -TimeoutSec 120
+                if ((Get-Item -LiteralPath $zipPath).Length -gt 1MB) {
+                  $downloaded = $true
+                  break
+                }
+                Write-Warning "Download incompleto ($((Get-Item -LiteralPath $zipPath).Length) bytes)"
+              } catch {
+                Write-Warning $_.Exception.Message
+              }
+            }
+            if ($downloaded) { break }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
+          if (-not $downloaded) {
+            throw "Falha ao baixar NSIS $version (SourceForge indisponível após retries)"
+          }
+
+          New-Item -ItemType Directory -Force -Path $destRoot | Out-Null
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $destRoot -Force
+          $makensis = Join-Path $installDir 'makensis.exe'
+          if (-not (Test-Path -LiteralPath $makensis)) {
+            throw "makensis.exe não encontrado em $installDir"
+          }
+          $installDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $makensis /VERSION
 
       - name: Install dependencies (Linux)
         if: matrix.goos == 'linux'
