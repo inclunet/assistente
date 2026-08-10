@@ -180,13 +180,70 @@ jobs:
           wails version
           wails doctor
 
+      # Chocolatey community feed costuma falhar com 504; baixa o ZIP oficial pinado.
       - name: Install NSIS (Windows)
         if: matrix.os == 'windows-latest'
-        run: |
-          choco install nsis -y
-          # Adiciona NSIS ao PATH
-          echo "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         shell: pwsh
+        env:
+          NSIS_VERSION: '3.11'
+          # SHA-256 do nsis-3.11.zip oficial (SourceForge / NSIS 3.11).
+          NSIS_SHA256: 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:NSIS_VERSION
+          $expected = $env:NSIS_SHA256.ToLowerInvariant()
+          $destRoot = Join-Path $env:RUNNER_TEMP 'nsis'
+          $zipPath = Join-Path $env:RUNNER_TEMP "nsis-$version.zip"
+          $installDir = Join-Path $destRoot "nsis-$version"
+          $urls = @(
+            "https://downloads.sourceforge.net/project/nsis/NSIS%203/$version/nsis-$version.zip",
+            "https://sourceforge.net/projects/nsis/files/NSIS%203/$version/nsis-$version.zip/download"
+          )
+
+          # Sempre instala a versão pinada: um makensis pré-existente no runner
+          # não entra no PATH à frente do que baixamos.
+          $downloaded = $false
+          foreach ($attempt in 1..5) {
+            foreach ($url in $urls) {
+              try {
+                Write-Host "Baixando NSIS $version (tentativa $attempt): $url"
+                Invoke-WebRequest -Uri $url -OutFile $zipPath -UserAgent 'Wget/1.21' -TimeoutSec 120
+                if ((Get-Item -LiteralPath $zipPath).Length -le 1MB) {
+                  Write-Warning "Download incompleto ($((Get-Item -LiteralPath $zipPath).Length) bytes)"
+                  continue
+                }
+                $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+                if ($actual -ne $expected) {
+                  Write-Warning "SHA-256 divergente: got=$actual expected=$expected"
+                  Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+                  continue
+                }
+                $downloaded = $true
+                break
+              } catch {
+                Write-Warning $_.Exception.Message
+              }
+            }
+            if ($downloaded) { break }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
+          if (-not $downloaded) {
+            throw "Falha ao baixar NSIS $version com SHA-256 esperado ($expected)"
+          }
+
+          New-Item -ItemType Directory -Force -Path $destRoot | Out-Null
+          if (Test-Path -LiteralPath $installDir) {
+            Remove-Item -LiteralPath $installDir -Recurse -Force
+          }
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $destRoot -Force
+          $makensis = Join-Path $installDir 'makensis.exe'
+          if (-not (Test-Path -LiteralPath $makensis)) {
+            throw "makensis.exe não encontrado em $installDir"
+          }
+          # GITHUB_PATH prepende nas steps seguintes; também no PATH desta step.
+          $installDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:PATH = "$installDir$([IO.Path]::PathSeparator)$env:PATH"
+          & $makensis /VERSION
 
       - name: Install dependencies (Linux)
         if: matrix.goos == 'linux'
