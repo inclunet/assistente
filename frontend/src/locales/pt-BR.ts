@@ -1806,6 +1806,7 @@ const ptBR = {
           cancelBtn: 'Cancelar instalação',
           cancelUpdateBtn: 'Cancelar atualização',
           cancelFailed: 'Não foi possível cancelar a instalação.',
+          cancelUpdateFailed: 'Não foi possível cancelar a atualização.',
           installed: 'Instalado pelo aplicativo: {{agent}} versão {{version}}.',
           installedDir: 'Pasta da instalação: {{dir}}',
           installedUnverified:
@@ -1816,11 +1817,11 @@ const ptBR = {
             'O catálogo publica a versão {{version}} deste agente, e a instalada é a {{installed}}. Nada é atualizado sem você pedir.',
           updateBtn: 'Atualizar para a versão {{version}}',
           updateBtnHelp:
-            'Mostra o que será baixado, instala a versão nova ao lado da atual, aponta para ela os provedores que usam este agente e só então apaga a versão anterior.',
+            'Mostra o que será baixado, instala a versão nova ao lado da atual, aponta para ela os provedores que usam este agente e só então tenta apagar a versão anterior.',
           updateUnavailable: 'Não dá para atualizar agora: {{reason}}',
           updateUnavailableUnknown: 'Não dá para atualizar este agente agora.',
           updated:
-            'Agente atualizado para a versão {{version}}. Os provedores que usavam a versão anterior passaram a usar esta, e a anterior foi apagada.',
+            'Agente atualizado para a versão {{version}}. Os provedores que usavam a versão anterior passaram a usar esta. A limpeza da versão anterior é tentada quando ela não está em uso.',
           updateFailed: 'A atualização falhou: {{reason}}',
           removeBtn: 'Remover agente instalado',
           removeBtnHelp:
@@ -1865,7 +1866,7 @@ const ptBR = {
               'O aplicativo vai baixar o arquivo abaixo. Nada é baixado antes de você confirmar.',
             titleUpdate: 'Atualizar {{agent}} para a versão {{version}}?',
             introUpdate:
-              'O aplicativo vai instalar a versão nova ao lado da atual, apontar para ela os provedores que usam este agente e só então apagar a anterior. Nada é baixado antes de você confirmar.',
+              'O aplicativo vai instalar a versão nova ao lado da atual, apontar para ela os provedores que usam este agente e só então tentar apagar a anterior. Nada é baixado antes de você confirmar.',
             agent: 'Agente',
             version: 'Versão',
             installedVersion: 'Versão instalada agora',

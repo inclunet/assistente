@@ -424,6 +424,11 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     }
   };
 
+  // A montagem que iniciou a atualização conhece updatingNow; a que reabriu
+  // durante uma atualização em voo só tem o plano para distingui-la de uma
+  // instalação. A mesma decisão alimenta o rótulo e a mensagem de falha.
+  const cancellingUpdate = updatingNow || Boolean(plan?.update);
+
   const handleCancel = async () => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
@@ -432,7 +437,14 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
       await CancelACPAgentInstall(agentID);
     } catch (error: unknown) {
       if (!doAgente(kind)) return;
-      const message = errorText(error, t('providerForm.agent.catalog.cancelFailed'));
+      const message = errorText(
+        error,
+        t(
+          cancellingUpdate
+            ? 'providerForm.agent.catalog.cancelUpdateFailed'
+            : 'providerForm.agent.catalog.cancelFailed',
+        ),
+      );
       setStatus(message);
       announce(message, 'assertive');
     } finally {
@@ -592,13 +604,15 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
             O rótulo diz do que se desiste. Num leitor de telas o nome do botão é
             o que se ouve antes de acioná-lo, e "cancelar instalação" no meio de
             uma atualização faria pensar que o botão é de outra coisa — ou que
-            cancelá-lo desinstalaria o agente que está funcionando.
+            cancelá-lo desinstalaria o agente que está funcionando. `plan.update`
+            cobre a atualização adotada ao reabrir este formulário; nesse caso
+            esta montagem não passou por `handleUpdate` para ligar updatingNow.
           */}
           {busy && (
             <div className="agent-install__action">
               <Button type="button" variant="outline" onClick={handleCancel}>
                 {t(
-                  updatingNow
+                  cancellingUpdate
                     ? 'providerForm.agent.catalog.cancelUpdateBtn'
                     : 'providerForm.agent.catalog.cancelBtn',
                 )}
