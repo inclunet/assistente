@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
 )
@@ -235,6 +236,201 @@ func TestExportacaoLevaOAgenteMasNaoOAmbiente(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "segredo") {
 		t.Errorf("o segredo do ambiente vazou para o JSON: %s", raw)
+	}
+}
+
+// A referência do cofre viaja, ao contrário do ambiente literal: o que está
+// guardado ali é o nome da variável e a entrada que a preenche, e nenhum dos
+// dois é segredo (AEP-0086 D12).
+func TestExportacaoLevaAReferenciaDoCofreENaoOSegredo(t *testing.T) {
+	exportado, err := exportProvider(&database.LLMProvider{
+		ID: "codex", Name: "Codex", Type: "acp", APIFormat: "acp",
+		ACPCommand:       "codex-acp",
+		ACPCredentialEnv: `{"OPENAI_API_KEY":"api.openai.com"}`,
+	})
+	if err != nil {
+		t.Fatalf("exportProvider() error = %v", err)
+	}
+	if exportado.ACPCredentialEnv["OPENAI_API_KEY"] != "api.openai.com" {
+		t.Fatalf("credenciais do cofre = %#v", exportado.ACPCredentialEnv)
+	}
+
+	raw, err := json.Marshal(exportado)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(raw), "acpCredentialEnv") {
+		t.Errorf("a referência não saiu no arquivo: %s", raw)
+	}
+}
+
+// Uma coluna quebrada não pode virar provedor exportado pela metade: um arquivo
+// sem a referência levaria a pessoa a montar a máquina nova achando que a
+// credencial estava lá.
+func TestExportacaoFalhaComReferenciaDoCofreIlegivel(t *testing.T) {
+	_, err := exportProvider(&database.LLMProvider{
+		ID: "codex", Name: "Codex", Type: "acp", APIFormat: "acp",
+		ACPCommand:       "codex-acp",
+		ACPCredentialEnv: `{quebrado`,
+	})
+	if err == nil {
+		t.Fatal("esperava falha na exportação da coluna ilegível")
+	}
+}
+
+// O provedor entra mesmo sem a entrada no cofre — a configuração é legítima, e
+// o que falta é local —, mas entra dizendo o que falta: sem o aviso, a primeira
+// conversa falharia pedindo autenticação sem ninguém entender por quê.
+func TestImportacaoAvisaQuandoAEntradaDoCofreNaoExisteAqui(t *testing.T) {
+	setupPortabilityTestDB(t)
+	credMgr := credentials.NewManagerWithStoreAndPersistence(
+		[]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.anthropic.com", &credentials.AuthConfig{
+		Type: "bearer", Token: "sk-daqui",
+	}); err != nil {
+		t.Fatalf("registrar a credencial existente: %v", err)
+	}
+
+	executavel, err := os.Executable()
+	if err != nil {
+		t.Skipf("sem caminho do executável de teste: %v", err)
+	}
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{{
+				ID: "codex", Name: "Codex", Type: "acp", APIFormat: "acp",
+				// O comando existe aqui para o único aviso do resultado ser o
+				// do cofre.
+				ACPCommand: executavel,
+				ACPCredentialEnv: map[string]string{
+					"ANTHROPIC_API_KEY": "api.anthropic.com",
+					"OPENAI_API_KEY":    "api.openai.com",
+				},
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), credMgr, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("resultado inesperado: %+v", result)
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("avisos = %v, esperado só o da entrada que falta", result.Warnings)
+	}
+	if !strings.Contains(result.Warnings[0], "api.openai.com") ||
+		!strings.Contains(result.Warnings[0], "OPENAI_API_KEY") {
+		t.Errorf("o aviso não nomeia o que falta: %q", result.Warnings[0])
+	}
+
+	// E o provedor entrou com a referência inteira, para bastar cadastrar a
+	// credencial que falta.
+	importado, err := database.GetLLMProviderWithContext(portabilityTestCtx(), "codex")
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if !strings.Contains(importado.ACPCredentialEnv, "OPENAI_API_KEY") {
+		t.Errorf("referência do cofre = %q", importado.ACPCredentialEnv)
+	}
+}
+
+// O arquivo não passa pelo serviço de provedores, então a conferência do par
+// variável/cofre é feita duas vezes no código — e as duas precisam concordar,
+// senão o que a tela recusa entra pela importação e quebra na leitura seguinte.
+func TestAImportacaoConfereOParDoCofreComoODominioConfere(t *testing.T) {
+	casos := []struct {
+		nome  string
+		pares map[string]string
+	}{
+		{nome: "par completo", pares: map[string]string{"OPENAI_API_KEY": "api.openai.com"}},
+		{nome: "sem entrada do cofre", pares: map[string]string{"OPENAI_API_KEY": "  "}},
+		{nome: "sem nome de variável", pares: map[string]string{"   ": "api.openai.com"}},
+		{nome: "nome com igual", pares: map[string]string{"OPENAI=KEY": "api.openai.com"}},
+		{nome: "nome com espaço", pares: map[string]string{"OPENAI KEY": "api.openai.com"}},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			cfg := llm.ProviderConfig{
+				ID: "codex", Name: "Codex", APIFormat: llm.APIFormatACP,
+				ACPCommand: "codex-acp", ACPCredentialEnv: copiaDosPares(caso.pares),
+			}
+			_, aqui := normalizedCredentialEnv(ProviderExport{
+				ID: "codex", Name: "Codex", Type: "acp", APIFormat: "acp",
+				ACPCommand: "codex-acp", ACPCredentialEnv: copiaDosPares(caso.pares),
+			})
+			noDominio := cfg.Validate()
+
+			if (aqui == nil) != (noDominio == nil) {
+				t.Fatalf("importação = %v, domínio = %v: as duas conferências divergiram", aqui, noDominio)
+			}
+		})
+	}
+}
+
+func copiaDosPares(pares map[string]string) map[string]string {
+	out := make(map[string]string, len(pares))
+	for k, v := range pares {
+		out[k] = v
+	}
+	return out
+}
+
+// Espaço nas pontas do padrão faria a busca no cofre não achar a entrada que
+// está lá: some na importação, como já some no domínio.
+func TestOPadraoDoCofreEntraAparadoNaImportacao(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	executavel, err := os.Executable()
+	if err != nil {
+		t.Skipf("sem caminho do executável de teste: %v", err)
+	}
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{{
+				ID: "codex", Name: "Codex", Type: "acp", APIFormat: "acp",
+				ACPCommand:       executavel,
+				ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "  api.openai.com  "},
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, ""); err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+
+	importado, err := database.GetLLMProviderWithContext(portabilityTestCtx(), "codex")
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if importado.ACPCredentialEnv != `{"OPENAI_API_KEY":"api.openai.com"}` {
+		t.Errorf("referência do cofre = %q, esperada sem espaços", importado.ACPCredentialEnv)
+	}
+}
+
+// Sem cofre em mãos não dá para afirmar que a entrada falta. Avisar assim mesmo
+// encheria de alarme falso a importação feita antes de o cofre abrir.
+func TestSemCofreAImportacaoNaoInventaEntradaFaltando(t *testing.T) {
+	avisos := acpCredentialWarnings(portabilityTestCtx(), nil, ProviderExport{
+		ID: "codex", APIFormat: "acp", ACPCommand: "codex-acp",
+		ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+	})
+	if len(avisos) != 0 {
+		t.Errorf("avisos indevidos: %v", avisos)
 	}
 }
 
