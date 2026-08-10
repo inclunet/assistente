@@ -2,6 +2,7 @@ package acpinstall
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -79,7 +80,8 @@ func (i *Installer) installBinary(
 	if err != nil {
 		return Installation{}, err
 	}
-	if err := i.handshake(ctx, command, args); err != nil {
+	env := maps.Clone(target.Env)
+	if err := i.handshake(ctx, command, args, env); err != nil {
 		return Installation{}, failf(StepVerify, "o agente instalado não respondeu ao handshake do protocolo: %w", err)
 	}
 
@@ -99,6 +101,7 @@ func (i *Installer) installBinary(
 		SHA256Origin: digestOrigin(target.SHA256),
 		Command:      command,
 		Args:         args,
+		Env:          env,
 		InstalledAt:  i.now().UTC(),
 		Dir:          dir,
 	}

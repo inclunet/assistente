@@ -185,6 +185,11 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 	if acpCredentialEnv == nil {
 		acpCredentialEnv = map[string]string{}
 	}
+	// ACPEnv NÃO volta na leitura. É o mesmo motivo da exportação: a coluna pode
+	// guardar token colado à mão (AEP-0086), e a tela não edita esse mapa — o
+	// env{} do binário o app aplica a partir do installed.json. Devolver {}
+	// evita vazar segredo para o frontend sem perder o runtime.
+	acpEnv := map[string]string{}
 	return map[string]interface{}{
 		"id":                    p.ID,
 		"name":                  p.Name,
@@ -200,6 +205,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"auth_mode":             string(p.EffectiveAuthMode()),
 		"acp_command":           p.ACPCommand,
 		"acp_args":              acpArgs,
+		"acp_env":               acpEnv,
 		"acp_agent_id":          p.ACPAgentID,
 		"acp_credential_env":    acpCredentialEnv,
 	}

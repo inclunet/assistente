@@ -255,6 +255,50 @@ func TestOParDoCofreAtravessaAFronteiraSemOSegredo(t *testing.T) {
 	}
 }
 
+// ACPEnv pode ter token colado (caminho legado do AEP-0086). A leitura pela
+// fronteira não o devolve — igual à exportação — para o frontend não ver segredo.
+func TestLeituraPelaFronteiraNaoDevolveACPEnv(t *testing.T) {
+	ctrl, registry, _ := controladorDeProvedores(t)
+	ctx := context.Background()
+
+	if _, err := ctrl.CreateLLMProvider(ctx, CreateLLMProviderRequest{
+		ID: "vtcode-1", Name: "VT Code", Type: "acp", APIFormat: "acp",
+		ACPCommand: "vtcode", ACPAgentID: "vtcode",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+	salvo := registry.Get("vtcode-1")
+	if salvo == nil {
+		t.Fatal("provedor não ficou salvo")
+	}
+	salvo.ACPEnv = map[string]string{
+		"VT_ACP_ENABLED": "true",
+		"CODEX_API_KEY":  "sk-secreta",
+	}
+
+	lista := ctrl.GetLLMProvidersWithStatus(ctx)
+	var lido map[string]interface{}
+	for _, item := range lista {
+		if item["id"] == "vtcode-1" {
+			lido = item
+			break
+		}
+	}
+	if lido == nil {
+		t.Fatal("provedor não apareceu na lista com status")
+	}
+	env, ok := lido["acp_env"].(map[string]string)
+	if !ok {
+		t.Fatalf("acp_env = %#v, queria mapa", lido["acp_env"])
+	}
+	if len(env) != 0 {
+		t.Errorf("acp_env vazou para a tela: %#v", env)
+	}
+	if registry.Get("vtcode-1").ACPEnv["CODEX_API_KEY"] != "sk-secreta" {
+		t.Error("o valor sumiu do provedor; só a serialização para a tela deve omitir")
+	}
+}
+
 // A tela nunca manda chave para um agente, mas a fronteira é pública: recusar é
 // o que impede um segredo inútil de entrar no cofre por outro caminho.
 func TestCriarAgentePelaFronteiraRecusaChaveDeAPI(t *testing.T) {

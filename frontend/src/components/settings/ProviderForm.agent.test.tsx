@@ -204,6 +204,9 @@ describe('ProviderForm — provedor de agente de código', () => {
       acp_command: detected.command,
       acp_args: detected.args,
     });
+    // ACPEnv não atravessa Create: token costuma parar aí. O env{} do binário
+    // o backend aplica a partir do installed.json (AEP-0086).
+    expect(payload).not.toHaveProperty('acp_env');
     expect(payload.api_key).toBeUndefined();
     expect(payload.default_model).toBeUndefined();
     expect(onSave).toHaveBeenCalled();
@@ -412,6 +415,7 @@ describe('ProviderForm — provedor de agente de código', () => {
       acp_command: '/opt/cursor/agente',
       acp_args: ['acp', '--forcar'],
     });
+    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('acp_env');
   });
 
   it('trocar de agente limpa o comando do anterior e deixa a detecção do novo preencher', async () => {

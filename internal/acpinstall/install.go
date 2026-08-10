@@ -632,7 +632,7 @@ func (i *Installer) install(
 	command := runtime.Node
 	args := append([]string{pkg.EntryPoint}, agent.Distribution.NPX.Args...)
 
-	if err := i.handshake(ctx, command, args); err != nil {
+	if err := i.handshake(ctx, command, args, nil); err != nil {
 		return Installation{}, failf(StepVerify, "o agente instalado não respondeu ao handshake do protocolo: %w", err)
 	}
 
@@ -689,7 +689,7 @@ func (i *Installer) installUV(
 		args = slices.Clone(agent.Distribution.UVX.Args)
 	}
 
-	if err := i.handshake(ctx, command, args); err != nil {
+	if err := i.handshake(ctx, command, args, nil); err != nil {
 		return Installation{}, failf(StepVerify, "o agente instalado não respondeu ao handshake do protocolo: %w", err)
 	}
 

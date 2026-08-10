@@ -157,6 +157,7 @@ func TestRepontarPoeOProvedorNaVersaoNova(t *testing.T) {
 	root := t.TempDir()
 	anterior := instalacaoDoCodex(root, "1.1.9")
 	nova := instalacaoDoCodex(root, "1.2.0")
+	nova.Env = map[string]string{"VT_ACP_ENABLED": "true"}
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	registro := llm.NewProviderRegistry()
@@ -169,6 +170,7 @@ func TestRepontarPoeOProvedorNaVersaoNova(t *testing.T) {
 		ACPAgentID: "codex-acp",
 		ACPCommand: anterior.Command,
 		ACPArgs:    slices.Clone(anterior.Args),
+		ACPEnv:     map[string]string{"VT_ACP_ENABLED": "false"},
 	}); err != nil {
 		t.Fatalf("erro ao registrar o provedor: %v", err)
 	}
@@ -184,6 +186,9 @@ func TestRepontarPoeOProvedorNaVersaoNova(t *testing.T) {
 	}
 	if repontado.ACPCommand != nova.Command {
 		t.Errorf("comando = %q, queria o da versão nova", repontado.ACPCommand)
+	}
+	if repontado.ACPEnv["VT_ACP_ENABLED"] != "true" {
+		t.Errorf("ACPEnv = %#v, queria o env do artefato novo", repontado.ACPEnv)
 	}
 	// E o vínculo com o catálogo continua onde estava: atualizar troca o que
 	// sobe, e não de que agente aquele provedor é.
@@ -244,6 +249,42 @@ func TestALimpezaVarreAsVersoesQueNinguemMaisSobe(t *testing.T) {
 	restantes := a.acpCatalogServices().installer.Installations("codex-acp")
 	if len(restantes) != 1 || restantes[0].Version != "1.2.0" {
 		t.Fatalf("sobraram %+v, queria só a versão mantida", restantes)
+	}
+}
+
+func TestApplyInstalledBinaryEnvComEnvVazioLimpaOProvedor(t *testing.T) {
+	// Sem isso, um update que publica env{} vazio deixaria VT_ACP_* (ou token
+	// colado) da instalação anterior no provedor para sempre.
+	_ = setupTestDB(t)
+	root := t.TempDir()
+	gravarInstalacao(t, root, "1.2.0")
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	registro := llm.NewProviderRegistry()
+	a := newAppForTest(credMgr, registro)
+	a.acpCatalogOnce.Do(func() {
+		a.acpCatalogSvc = &acpCatalog{installer: acpinstall.New(acpinstall.Config{Root: root})}
+	})
+	if err := registro.Register(&llm.ProviderConfig{
+		ID:         "codex-do-app",
+		Name:       "Codex do app",
+		Type:       llm.ProviderACP,
+		APIFormat:  llm.APIFormatACP,
+		ACPAgentID: "codex-acp",
+		ACPCommand: "codex-acp",
+		ACPEnv:     map[string]string{"VT_ACP_ENABLED": "true", "CODEX_API_KEY": "sk-velha"},
+	}); err != nil {
+		t.Fatalf("erro ao registrar o provedor: %v", err)
+	}
+
+	a.applyInstalledBinaryEnv(context.Background(), "codex-do-app", "codex-acp")
+
+	atual := registro.Get("codex-do-app")
+	if atual == nil {
+		t.Fatal("provedor sumiu")
+	}
+	if len(atual.ACPEnv) != 0 {
+		t.Errorf("ACPEnv = %#v, queria vazio após instalação sem env{}", atual.ACPEnv)
 	}
 }
 

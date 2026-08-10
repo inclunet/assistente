@@ -86,6 +86,11 @@ export interface AgentProviderFieldsProps {
   args: string[];
   onCommandChange: (command: string) => void;
   onArgsChange: (args: string[]) => void;
+  /**
+   * Variáveis do alvo binário instalado (ACPEnv). Na instalação nova entram
+   * como base; no formulário, chaves já digitadas pela pessoa vencem no merge.
+   */
+  onEnvChange?: (env: Record<string, string>) => void;
   commandError?: string;
   /**
    * Os pares de variável de ambiente e entrada do cofre que este agente recebe
@@ -115,6 +120,7 @@ export const AgentProviderFields = ({
   args,
   onCommandChange,
   onArgsChange,
+  onEnvChange,
   commandError,
   credentialEnv,
   onCredentialEnvChange,
@@ -592,9 +598,12 @@ export const AgentProviderFields = ({
       */}
       <AgentInstall
         agentId={agentId}
-        onResolved={(installedCommand, installedArgs) => {
+        onResolved={(installedCommand, installedArgs, installedEnv) => {
           onCommandChange(installedCommand);
           onArgsChange(installedArgs);
+          if (onEnvChange && installedEnv && Object.keys(installedEnv).length > 0) {
+            onEnvChange(installedEnv);
+          }
         }}
       />
 

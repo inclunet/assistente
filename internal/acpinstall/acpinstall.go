@@ -356,7 +356,10 @@ type UV interface {
 // Falta de login é sucesso: o agente subiu, se apresentou e o comando está
 // certo. Autenticar é assunto do próprio agente (AEP-0084 D12), e recusar a
 // instalação por isso mandaria a pessoa reinstalar o que já está no lugar.
-type Handshake func(ctx context.Context, command string, args []string) error
+//
+// Env é o do alvo binário do registro (configuração, não segredo); instalação
+// por npm/uvx passa nil — esses caminhos não publicam env{} no registro.
+type Handshake func(ctx context.Context, command string, args []string, env map[string]string) error
 
 // RuntimeStatus é o pré-requisito de runtime nesta máquina, dito em texto (D7).
 type RuntimeStatus struct {
@@ -531,6 +534,12 @@ type Installation struct {
 	// Eles ficam gravados porque não são recalculados a cada turno (D8).
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+
+	// Env são as variáveis de ambiente publicadas no alvo binário do registro
+	// (configuração, não segredo — ex.: VT_ACP_ENABLED). Gravadas no
+	// `installed.json` e aplicadas ao ProviderConfig.ACPEnv quando o app monta
+	// ou reponta o provedor a partir desta instalação.
+	Env map[string]string `json:"env,omitempty"`
 
 	// InstalledAt é quando isto foi instalado.
 	InstalledAt time.Time `json:"installed_at"`

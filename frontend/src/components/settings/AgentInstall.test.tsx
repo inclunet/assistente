@@ -125,15 +125,20 @@ const instalacao = {
 const Host = ({ agentId = 'codex-acp' }: { agentId?: string }) => {
   const [command, setCommand] = useState('');
   const [args, setArgs] = useState<string[]>([]);
+  const [env, setEnv] = useState<Record<string, string>>({});
   return (
     <div>
       <span data-testid="comando">{command}</span>
       <span data-testid="argumentos">{args.join('\u0000')}</span>
+      <span data-testid="env">{JSON.stringify(env)}</span>
       <AgentInstall
         agentId={agentId}
-        onResolved={(novoComando, novosArgumentos) => {
+        onResolved={(novoComando, novosArgumentos, novoEnv) => {
           setCommand(novoComando);
           setArgs(novosArgumentos);
+          // Base = env da instalação; chaves já no formulário vencem no merge
+          // (mesmo contrato do ProviderForm.handleAgentEnvChange).
+          setEnv((prev) => ({ ...(novoEnv || {}), ...prev }));
         }}
       />
     </div>
@@ -587,12 +592,18 @@ describe('AgentInstall — instalando', () => {
 
     planMock.mockResolvedValue({ ...planoInstalavel, can_install: false, installed: instalacao });
     await act(async () => {
-      concluir(instalacao);
+      concluir({
+        ...instalacao,
+        env: { VT_ACP_ENABLED: 'true', VT_ACP_ZED_ENABLED: 'true' },
+      });
     });
     emitirProgresso({ agent_id: 'codex-acp', agent: 'Codex', stage: 'done' });
 
     expect(screen.getByTestId('comando')).toHaveTextContent(instalacao.command);
     expect(screen.getByTestId('argumentos')).toHaveTextContent(instalacao.args[0]);
+    expect(screen.getByTestId('env')).toHaveTextContent(
+      JSON.stringify({ VT_ACP_ENABLED: 'true', VT_ACP_ZED_ENABLED: 'true' }),
+    );
     expect(announceMock).toHaveBeenCalledWith(
       expect.stringMatching(/instalado e respondendo ao protocolo/i),
       'polite',
