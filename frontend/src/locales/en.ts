@@ -1817,11 +1817,11 @@ const en = {
             'The catalog publishes version {{version}} of this agent, and the installed one is {{installed}}. Nothing is updated unless you ask.',
           updateBtn: 'Update to version {{version}}',
           updateBtnHelp:
-            'Shows what will be downloaded, installs the new version alongside the current one, points the providers that use this agent to it and only then deletes the previous version.',
+            'Shows what will be downloaded, installs the new version alongside the current one, points the providers that use this agent to it and only then tries to delete the previous version.',
           updateUnavailable: 'Updating is not possible right now: {{reason}}',
           updateUnavailableUnknown: 'Updating this agent is not possible right now.',
           updated:
-            'Agent updated to version {{version}}. The providers that used the previous version now use this one, and the previous version was deleted.',
+            'Agent updated to version {{version}}. The providers that used the previous version now use this one. Cleanup of the previous version is attempted when it is not in use.',
           updateFailed: 'The update failed: {{reason}}',
           removeBtn: 'Remove installed agent',
           removeBtnHelp:
@@ -1866,7 +1866,7 @@ const en = {
               'The application will download the file below. Nothing is downloaded before you confirm.',
             titleUpdate: 'Update {{agent}} to version {{version}}?',
             introUpdate:
-              'The application will install the new version alongside the current one, point the providers that use this agent to it and only then delete the previous one. Nothing is downloaded before you confirm.',
+              'The application will install the new version alongside the current one, point the providers that use this agent to it and only then try to delete the previous one. Nothing is downloaded before you confirm.',
             agent: 'Agent',
             version: 'Version',
             installedVersion: 'Currently installed version',

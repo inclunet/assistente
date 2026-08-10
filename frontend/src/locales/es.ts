@@ -1816,11 +1816,11 @@ const es = {
             'El catálogo publica la versión {{version}} de este agente, y la instalada es la {{installed}}. No se actualiza nada sin que lo pidas.',
           updateBtn: 'Actualizar a la versión {{version}}',
           updateBtnHelp:
-            'Muestra lo que se va a descargar, instala la versión nueva junto a la actual, apunta hacia ella los proveedores que usan este agente y solo entonces borra la versión anterior.',
+            'Muestra lo que se va a descargar, instala la versión nueva junto a la actual, apunta hacia ella los proveedores que usan este agente y solo entonces intenta borrar la versión anterior.',
           updateUnavailable: 'Ahora no se puede actualizar: {{reason}}',
           updateUnavailableUnknown: 'Ahora no se puede actualizar este agente.',
           updated:
-            'Agente actualizado a la versión {{version}}. Los proveedores que usaban la versión anterior pasaron a usar esta, y la anterior se borró.',
+            'Agente actualizado a la versión {{version}}. Los proveedores que usaban la versión anterior pasaron a usar esta. Se intenta limpiar la versión anterior cuando no está en uso.',
           updateFailed: 'La actualización falló: {{reason}}',
           removeBtn: 'Eliminar agente instalado',
           removeBtnHelp:
@@ -1865,7 +1865,7 @@ const es = {
               'La aplicación va a descargar el archivo de abajo. No se descarga nada antes de que confirmes.',
             titleUpdate: '¿Actualizar {{agent}} a la versión {{version}}?',
             introUpdate:
-              'La aplicación va a instalar la versión nueva junto a la actual, apuntar hacia ella los proveedores que usan este agente y solo entonces borrar la anterior. No se descarga nada antes de que confirmes.',
+              'La aplicación va a instalar la versión nueva junto a la actual, apuntar hacia ella los proveedores que usan este agente y solo entonces intentar borrar la anterior. No se descarga nada antes de que confirmes.',
             agent: 'Agente',
             version: 'Versión',
             installedVersion: 'Versión instalada ahora',
