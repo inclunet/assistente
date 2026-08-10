@@ -592,13 +592,15 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
             O rótulo diz do que se desiste. Num leitor de telas o nome do botão é
             o que se ouve antes de acioná-lo, e "cancelar instalação" no meio de
             uma atualização faria pensar que o botão é de outra coisa — ou que
-            cancelá-lo desinstalaria o agente que está funcionando.
+            cancelá-lo desinstalaria o agente que está funcionando. `plan.update`
+            cobre a atualização adotada ao reabrir este formulário; nesse caso
+            esta montagem não passou por `handleUpdate` para ligar updatingNow.
           */}
           {busy && (
             <div className="agent-install__action">
               <Button type="button" variant="outline" onClick={handleCancel}>
                 {t(
-                  updatingNow
+                  updatingNow || plan.update
                     ? 'providerForm.agent.catalog.cancelUpdateBtn'
                     : 'providerForm.agent.catalog.cancelBtn',
                 )}

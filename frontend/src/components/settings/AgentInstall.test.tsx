@@ -1091,6 +1091,18 @@ describe('AgentInstall — versão nova', () => {
     await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'false'));
   });
 
+  it('reabrir a tela durante a atualização mantém o nome correto no botão de cancelar', async () => {
+    // A atualização roda no backend e sobrevive ao formulário fechado. Nesta
+    // montagem handleUpdate não rodou, então é o plano que distingue a
+    // atualização adotada de uma instalação adotada.
+    planMock.mockResolvedValue({ ...planoComVersaoNova, installing: true });
+
+    render(<Host />);
+
+    expect(await screen.findByRole('button', { name: /cancelar atualização/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument();
+  });
+
   it('não tem violação no aviso de versão nova nem na confirmação dela', async () => {
     planMock.mockResolvedValue(planoComVersaoNova);
     const user = userEvent.setup();
