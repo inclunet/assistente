@@ -245,7 +245,7 @@ func isScript(path string) bool {
 // aqui não se executa nada para instalar, e o que responde "o que vai
 // acontecer" é a URL de onde o arquivo vem, junto do digest que será conferido
 // contra ele (D3).
-func (i *Installer) binaryPlan(agent acpregistry.Agent, version string) Plan {
+func (i *Installer) binaryPlan(ctx context.Context, agent acpregistry.Agent, version string) Plan {
 	plan := Plan{
 		AgentID:      agent.ID,
 		Name:         agent.Name,
@@ -278,6 +278,9 @@ func (i *Installer) binaryPlan(agent acpregistry.Agent, version string) Plan {
 	plan.Unverified = target.SHA256 == ""
 	plan.RunArgs = slices.Clone(target.Args)
 	plan.Dir = i.agentVersionDir(agent.ID, version)
+	// Tamanho quando o servidor informa — falha ou ausência não bloqueia
+	// CanInstall (D3).
+	plan.Bytes = probeArtifactBytes(ctx, i.http, target.Archive)
 
 	switch {
 	case version == "":

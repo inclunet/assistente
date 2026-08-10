@@ -13,6 +13,7 @@ import type { app } from '@wailsjs/go/models';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { formatFileSize } from '../../services/mediaService';
 import './AgentInstall.css';
 
 /**
@@ -544,6 +545,13 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
           <p className="agent-install__path">
             {t('providerForm.agent.catalog.installedDir', { dir: installed.dir })}
           </p>
+          {!!installed.disk_bytes && installed.disk_bytes > 0 && (
+            <p className="agent-install__path">
+              {t('providerForm.agent.catalog.installedSize', {
+                size: formatFileSize(installed.disk_bytes),
+              })}
+            </p>
+          )}
           {installedUnverified && (
             <p className="agent-install__unverified">
               {t('providerForm.agent.catalog.installedUnverified')}
@@ -838,6 +846,12 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
           <dd>{plan.version}</dd>
           <dt>{t('providerForm.agent.catalog.confirm.origin')}</dt>
           <dd className="agent-install__details-code">{plan.origin}</dd>
+          {!!plan.bytes && plan.bytes > 0 && (
+            <>
+              <dt>{t('providerForm.agent.catalog.confirm.size')}</dt>
+              <dd>{formatFileSize(plan.bytes)}</dd>
+            </>
+          )}
           <dt>{t('providerForm.agent.catalog.confirm.dir')}</dt>
           <dd className="agent-install__details-code">{plan.dir}</dd>
           {/*
