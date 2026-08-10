@@ -1805,6 +1805,7 @@ const es = {
           cancelBtn: 'Cancelar instalación',
           cancelUpdateBtn: 'Cancelar actualización',
           cancelFailed: 'No se pudo cancelar la instalación.',
+          cancelUpdateFailed: 'No se pudo cancelar la actualización.',
           installed: 'Instalado por la aplicación: {{agent}} versión {{version}}.',
           installedDir: 'Carpeta de la instalación: {{dir}}',
           installedUnverified:

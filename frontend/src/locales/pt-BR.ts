@@ -1806,6 +1806,7 @@ const ptBR = {
           cancelBtn: 'Cancelar instalação',
           cancelUpdateBtn: 'Cancelar atualização',
           cancelFailed: 'Não foi possível cancelar a instalação.',
+          cancelUpdateFailed: 'Não foi possível cancelar a atualização.',
           installed: 'Instalado pelo aplicativo: {{agent}} versão {{version}}.',
           installedDir: 'Pasta da instalação: {{dir}}',
           installedUnverified:

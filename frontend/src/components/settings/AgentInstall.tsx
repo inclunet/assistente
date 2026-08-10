@@ -424,6 +424,11 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     }
   };
 
+  // A montagem que iniciou a atualização conhece updatingNow; a que reabriu
+  // durante uma atualização em voo só tem o plano para distingui-la de uma
+  // instalação. A mesma decisão alimenta o rótulo e a mensagem de falha.
+  const cancellingUpdate = updatingNow || Boolean(plan?.update);
+
   const handleCancel = async () => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
@@ -432,7 +437,14 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
       await CancelACPAgentInstall(agentID);
     } catch (error: unknown) {
       if (!doAgente(kind)) return;
-      const message = errorText(error, t('providerForm.agent.catalog.cancelFailed'));
+      const message = errorText(
+        error,
+        t(
+          cancellingUpdate
+            ? 'providerForm.agent.catalog.cancelUpdateFailed'
+            : 'providerForm.agent.catalog.cancelFailed',
+        ),
+      );
       setStatus(message);
       announce(message, 'assertive');
     } finally {
@@ -600,7 +612,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
             <div className="agent-install__action">
               <Button type="button" variant="outline" onClick={handleCancel}>
                 {t(
-                  updatingNow || plan.update
+                  cancellingUpdate
                     ? 'providerForm.agent.catalog.cancelUpdateBtn'
                     : 'providerForm.agent.catalog.cancelBtn',
                 )}

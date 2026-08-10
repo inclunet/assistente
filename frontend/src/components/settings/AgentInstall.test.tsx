@@ -1103,6 +1103,22 @@ describe('AgentInstall — versão nova', () => {
     expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument();
   });
 
+  it('a falha ao cancelar uma atualização retomada diz que a atualização não foi cancelada', async () => {
+    planMock.mockResolvedValue({ ...planoComVersaoNova, installing: true });
+    cancelMock.mockRejectedValue(null);
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /cancelar atualização/i }));
+
+    expect(await screen.findByText(/não foi possível cancelar a atualização/i)).toBeInTheDocument();
+    expect(screen.queryByText(/não foi possível cancelar a instalação/i)).not.toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/não foi possível cancelar a atualização/i),
+      'assertive',
+    );
+  });
+
   it('não tem violação no aviso de versão nova nem na confirmação dela', async () => {
     planMock.mockResolvedValue(planoComVersaoNova);
     const user = userEvent.setup();
