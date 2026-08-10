@@ -141,6 +141,27 @@ func TestRangePreencheBytesQuandoHEADFalha(t *testing.T) {
 	}
 }
 
+func TestRangeSemContentRangeOmiteBytes(t *testing.T) {
+	// 206 com Content-Length do trecho e sem Content-Range: chutar o
+	// Content-Length subestimaria o artefato. Melhor omitir.
+	pacote := pacoteDoOpencode(t)
+	agente := agenteOpencode(t, digestDe(pacote))
+	cliente := &clienteTamanho{
+		headStatus: http.StatusMethodNotAllowed,
+		getStatus:  http.StatusPartialContent,
+		getLen:     1,
+	}
+	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}, runtime: runtimeSemNode, http: cliente})
+
+	plano, err := c.instalador.Plan(context.Background(), opencodeID)
+	if err != nil {
+		t.Fatalf("o plano falhou: %v", err)
+	}
+	if plano.Bytes != 0 {
+		t.Errorf("bytes = %d, queria 0 sem total em Content-Range", plano.Bytes)
+	}
+}
+
 func TestDiskBytesContaArquivosDoDiretorioInstalado(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "bin")
@@ -159,6 +180,28 @@ func TestDiskBytesContaArquivosDoDiretorioInstalado(t *testing.T) {
 	want := int64(len(conteudo) + len("hi"))
 	if got != want {
 		t.Errorf("disk bytes = %d, queria %d", got, want)
+	}
+}
+
+func TestDiskBytesIgnoraSymlinkParaFora(t *testing.T) {
+	dir := t.TempDir()
+	dentro := []byte("abc")
+	if err := os.WriteFile(filepath.Join(dir, "local.bin"), dentro, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fora := filepath.Join(t.TempDir(), "gordo.bin")
+	gordo := bytes.Repeat([]byte("x"), 10_000)
+	if err := os.WriteFile(fora, gordo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "atalho.bin")
+	if err := os.Symlink(fora, link); err != nil {
+		t.Skipf("não deu para criar o link neste sistema: %v", err)
+	}
+
+	got := dirDiskBytes(dir)
+	if got != int64(len(dentro)) {
+		t.Errorf("disk bytes = %d, queria só o arquivo local (%d), sem seguir o symlink", got, len(dentro))
 	}
 }
 
