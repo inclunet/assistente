@@ -1049,7 +1049,7 @@ traz a referência e não o segredo; desligar tira a variável do processo segui
 chave de API pelo campo de credencial de um provedor ACP continua recusada; as
 strings existem nos três locales e o estado é lido por leitor de telas.
 
-### Fase 9 — `uvx`
+### Fase 9 — `uvx` (feita)
 
 Os dois agentes que dependem do `uv` (`fast-agent` e `minion-code`), pelo mesmo
 desenho do D6 com a ferramenta do `uv`. Última porque é a menor cobertura do

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
@@ -61,8 +62,15 @@ type Config struct {
 	// máquina, procurada no momento do uso.
 	NPM NPM
 
+	// UV executa o uv. Vazio usa o uv encontrado na máquina, procurado no
+	// momento do uso.
+	UV UV
+
 	// Runtime procura o Node. Vazio usa a procura de `internal/acp`.
 	Runtime func() acp.NodeRuntime
+
+	// UVRuntime procura o uv. Vazio usa a procura de `internal/acp`.
+	UVRuntime func() acp.UVRuntime
 
 	// Handshake confere que o comando resolvido fala ACP (D8). Sem ele a
 	// instalação não tem como ser declarada concluída, e o padrão recusa em vez
@@ -83,14 +91,16 @@ type Config struct {
 // poder cancelá-las e para recusar duas do mesmo agente ao mesmo tempo — duas
 // escrevendo no mesmo diretório deixariam meio agente no disco.
 type Installer struct {
-	root      string
-	source    CatalogSource
-	http      Doer
-	npm       NPM
-	runtime   func() acp.NodeRuntime
-	handshake Handshake
-	progress  func(Progress)
-	now       func() time.Time
+	root       string
+	source     CatalogSource
+	http       Doer
+	npm        NPM
+	uv         UV
+	runtime    func() acp.NodeRuntime
+	uvRuntime  func() acp.UVRuntime
+	handshake  Handshake
+	progress   func(Progress)
+	now        func() time.Time
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
@@ -114,6 +124,10 @@ func New(cfg Config) *Installer {
 	if lookup == nil {
 		lookup = acp.FindNodeRuntime
 	}
+	uvLookup := cfg.UVRuntime
+	if uvLookup == nil {
+		uvLookup = acp.FindUVRuntime
+	}
 	clock := cfg.Now
 	if clock == nil {
 		clock = time.Now
@@ -121,6 +135,10 @@ func New(cfg Config) *Installer {
 	npm := cfg.NPM
 	if npm == nil {
 		npm = lazyNPM{lookup: lookup}
+	}
+	uv := cfg.UV
+	if uv == nil {
+		uv = lazyUV{lookup: uvLookup}
 	}
 	handshake := cfg.Handshake
 	if handshake == nil {
@@ -135,7 +153,9 @@ func New(cfg Config) *Installer {
 		source:    cfg.Source,
 		http:      client,
 		npm:       npm,
+		uv:        uv,
 		runtime:   lookup,
+		uvRuntime: uvLookup,
 		handshake: handshake,
 		progress:  cfg.OnProgress,
 		now:       clock,
@@ -157,19 +177,26 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		return Plan{}, err
 	}
 	// Uma procura só para o plano inteiro: a linha de comando que ele mostra tem
-	// de ser a do Node que ele diz ter encontrado, e não a de uma segunda
-	// procura feita alguns microssegundos depois. Ela também é o que decide o
-	// caminho, e decidir com um Node e mostrar outro seria mentir na tela.
-	runtime := i.runtime()
-	if i.distributionFor(agent, runtime) == DistributionBinary {
+	// de ser a do runtime que ele diz ter encontrado, e não a de uma segunda
+	// procura feita alguns microssegundos depois.
+	node := i.runtime()
+	switch i.distributionFor(agent, node) {
+	case DistributionBinary:
 		return i.binaryPlan(agent, sanitizeVersion(agent.Version)), nil
+	case DistributionUVX:
+		return i.uvxPlan(agent), nil
+	case DistributionNPM:
+		return i.npmPlan(agent, node), nil
+	default:
+		return i.unavailablePlan(agent, failf(StepCatalog, "%w: %s", ErrNotNPM, agent.ID)), nil
 	}
+}
 
+// npmPlan monta o plano de instalação por pacote npm.
+func (i *Installer) npmPlan(agent acpregistry.Agent, runtime acp.NodeRuntime) Plan {
 	spec, _, version, err := pinnedSpec(agent)
 	if err != nil {
-		// Agente do catálogo que esta fase não sabe instalar não é erro da tela:
-		// é um item com estado próprio, e o motivo fica em texto.
-		return i.unavailablePlan(agent, err), nil
+		return i.unavailablePlan(agent, err)
 	}
 
 	dir := i.agentVersionDir(agent.ID, version)
@@ -189,16 +216,10 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 	case i.root == "":
 		plan.Reason = "não foi possível descobrir o diretório de dados do app para instalar o agente"
 	case !plan.Runtime.Found:
-		// Sem Node não se oferece instalação, e o motivo fica em texto (D7). O
-		// app não instala Node: instalar o runtime é um link e uma frase.
 		plan.Reason = ErrRuntimeMissing.Error()
 	case plan.Installed != nil:
 		plan.Reason = ErrAlreadyInstalled.Error()
 	default:
-		// Node encontrado não garante npm: o `npm-cli.js` pode não estar ao lado
-		// dele. Sem a linha de comando não há o que mostrar na confirmação, e
-		// oferecer o botão levaria a um diálogo que promete executar nada e a uma
-		// instalação que falha depois de aceita.
 		command := i.npmFor(runtime).Describe(dir, spec)
 		if command == "" {
 			plan.Reason = ErrNoNPM.Error()
@@ -207,11 +228,48 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		plan.CanInstall = true
 		plan.InstallCommand = command
 	}
-	// A linha de comando da instalação é a mesma da atualização — o que muda é
-	// o diretório de destino, que já está no plano —, então a oferta de
-	// atualizar é decidida depois de ela existir.
 	i.describeUpdate(&plan, agent)
-	return plan, nil
+	return plan
+}
+
+// uvxPlan monta o plano de instalação por pacote do uv (Fase 9).
+func (i *Installer) uvxPlan(agent acpregistry.Agent) Plan {
+	spec, _, version, err := pinnedUVSpec(agent)
+	if err != nil {
+		return i.unavailablePlan(agent, err)
+	}
+	uv := i.uvRuntime()
+	dir := i.agentVersionDir(agent.ID, version)
+	plan := Plan{
+		AgentID:      agent.ID,
+		Name:         agent.Name,
+		Version:      version,
+		Distribution: DistributionUVX,
+		Origin:       spec,
+		Dir:          dir,
+		RunArgs:      slices.Clone(agent.Distribution.UVX.Args),
+		Runtime:      requiredUVRuntime(uv),
+	}
+	i.describeInstalled(&plan, agent.ID)
+
+	switch {
+	case i.root == "":
+		plan.Reason = "não foi possível descobrir o diretório de dados do app para instalar o agente"
+	case !plan.Runtime.Found:
+		plan.Reason = ErrRuntimeMissingUV.Error()
+	case plan.Installed != nil:
+		plan.Reason = ErrAlreadyInstalled.Error()
+	default:
+		command := i.uvFor(uv).Describe(dir, spec)
+		if command == "" {
+			plan.Reason = ErrNoUV.Error()
+			break
+		}
+		plan.CanInstall = true
+		plan.InstallCommand = command
+	}
+	i.describeUpdate(&plan, agent)
+	return plan
 }
 
 // describeInstalled põe no plano a instalação que existe deste agente, em
@@ -286,17 +344,36 @@ func (i *Installer) npmFor(runtime acp.NodeRuntime) NPM {
 	return i.npm
 }
 
+// uvFor é o uv da instalação que está acontecendo — o mesmo cuidado do npmFor.
+func (i *Installer) uvFor(runtime acp.UVRuntime) UV {
+	if _, lazy := i.uv.(lazyUV); lazy {
+		return NewUV(runtime)
+	}
+	return i.uv
+}
+
 // unavailablePlan é o item que o app não sabe instalar, com o motivo dito em
 // texto em vez de um botão cinza sem explicação (D7).
 //
-// A distribuição só é declarada quando o agente de fato publica por npm. Boa
-// parte dos itens indisponíveis chega aqui justamente por não publicar, e dizer
-// `npm` neles daria um plano que se contradiz: a distribuição afirmando uma
-// coisa e o motivo, logo abaixo, dizendo a contrária.
+// A distribuição só é declarada quando o agente de fato publica por um caminho
+// conhecido. Dizer `npm` num agente só-uvx (ou o contrário) daria um plano que
+// se contradiz.
 func (i *Installer) unavailablePlan(agent acpregistry.Agent, err error) Plan {
 	distribution := ""
-	if agent.Distribution.NPX != nil {
+	switch {
+	case agent.Distribution.NPX != nil:
 		distribution = DistributionNPM
+	case agent.Distribution.UVX != nil:
+		distribution = DistributionUVX
+	case len(agent.Distribution.Binary) > 0:
+		distribution = DistributionBinary
+	}
+	// O runtime mostrado é o da distribuição declarada, mesmo quando Required
+	// fica falso: num plano uvx indisponível (versão sem pin, por exemplo),
+	// apontar Node.js confundiria a tela e o leitor de telas.
+	runtime := runtimeStatus(i.runtime())
+	if distribution == DistributionUVX {
+		runtime = uvRuntimeStatus(i.uvRuntime())
 	}
 	return Plan{
 		AgentID:      agent.ID,
@@ -304,10 +381,10 @@ func (i *Installer) unavailablePlan(agent acpregistry.Agent, err error) Plan {
 		Version:      agent.Version,
 		Distribution: distribution,
 		// Aqui o runtime não é pré-requisito de nada: a recusa é da
-		// distribuição, e marcar o Node como exigido faria a tela dizer
-		// "instale o Node" no lugar do motivo pelo qual o app não sabe instalar
-		// este agente.
-		Runtime: runtimeStatus(i.runtime()),
+		// distribuição, e marcar o Node/uv como exigido faria a tela dizer
+		// "instale o runtime" no lugar do motivo pelo qual o app não sabe
+		// instalar este agente.
+		Runtime: runtime,
 		Reason:  acp.SanitizeLabel(err.Error()),
 	}
 }
@@ -394,25 +471,36 @@ func (i *Installer) installAgent(
 	runtime acp.NodeRuntime,
 	confirmed Confirmed,
 ) (Installation, error) {
-	if distribution == DistributionBinary {
+	switch distribution {
+	case DistributionBinary:
 		return i.installFromBinary(ctx, agent, confirmed)
+	case DistributionUVX:
+		return i.installFromUVX(ctx, agent, confirmed)
+	case DistributionNPM:
+		return i.installFromNPM(ctx, agent, runtime, confirmed)
+	default:
+		return Installation{}, failf(StepCatalog, "%w: %s", ErrNotNPM, agent.ID)
 	}
-	return i.installFromNPM(ctx, agent, runtime, confirmed)
 }
 
 // plannedVersion é a versão que seria instalada agora por este caminho. Ela é o
 // que a comparação do D10 usa: o campo `version` do item não vale para o pacote
-// npm, onde quem fixa a versão pode ser o próprio nome do pacote.
+// npm/uv, onde quem fixa a versão pode ser o próprio nome do pacote.
 func plannedVersion(agent acpregistry.Agent, distribution string) (string, error) {
-	if distribution == DistributionBinary {
+	switch distribution {
+	case DistributionBinary:
 		version := sanitizeVersion(agent.Version)
 		if version == "" {
 			return "", failf(StepCatalog, "%w: %s", ErrUnpinnedVersion, acp.SanitizeLabel(agent.ID))
 		}
 		return version, nil
+	case DistributionUVX:
+		_, _, version, err := pinnedUVSpec(agent)
+		return version, err
+	default:
+		_, _, version, err := pinnedSpec(agent)
+		return version, err
 	}
-	_, _, version, err := pinnedSpec(agent)
-	return version, err
 }
 
 // installFromNPM instala o agente que é distribuído como pacote.
@@ -446,6 +534,37 @@ func (i *Installer) installFromNPM(
 	}
 	return i.run(ctx, agent, dir, func(ctx context.Context) (Installation, error) {
 		return i.install(ctx, agent, spec, name, version, dir, runtime)
+	})
+}
+
+// installFromUVX instala o agente distribuído por pacote do uv (Fase 9).
+func (i *Installer) installFromUVX(
+	ctx context.Context,
+	agent acpregistry.Agent,
+	confirmed Confirmed,
+) (Installation, error) {
+	spec, name, version, err := pinnedUVSpec(agent)
+	if err != nil {
+		return Installation{}, err
+	}
+	if err := confirmed.check(Confirmed{Distribution: DistributionUVX, Origin: spec}); err != nil {
+		return Installation{}, err
+	}
+	dir := i.agentVersionDir(agent.ID, version)
+	if dir == "" {
+		return Installation{}, failf(StepPrepare,
+			"não foi possível montar o diretório de instalação do agente %s versão %s",
+			acp.SanitizeLabel(agent.ID), acp.SanitizeLabel(version))
+	}
+	uv := i.uvRuntime()
+	if !uv.Found {
+		return Installation{}, failf(StepRuntime, "%w; procurei em: %s", ErrRuntimeMissingUV, describePaths(uv.Searched))
+	}
+	if existing, ok := i.installationAt(dir); ok {
+		return Installation{}, failf(StepPrepare, "%w: %s %s", ErrAlreadyInstalled, agent.Name, existing.Version)
+	}
+	return i.run(ctx, agent, dir, func(ctx context.Context) (Installation, error) {
+		return i.installUV(ctx, agent, spec, name, version, dir, uv)
 	})
 }
 
@@ -523,6 +642,63 @@ func (i *Installer) install(
 		Name:         agent.Name,
 		Version:      version,
 		Distribution: DistributionNPM,
+		Target:       spec,
+		Command:      command,
+		Args:         args,
+		InstalledAt:  i.now().UTC(),
+		Dir:          dir,
+	}
+	if err := writeInstallation(dir, installation); err != nil {
+		return Installation{}, failf(StepRecord, "%w", err)
+	}
+	logging.Infof(ctx, component, "agente %s instalado em %s", agent.ID, dir)
+	return installation, nil
+}
+
+// installUV é a instalação por uv, sem a guarda de concorrência e sem a limpeza.
+func (i *Installer) installUV(
+	ctx context.Context,
+	agent acpregistry.Agent,
+	spec, name, version, dir string,
+	runtime acp.UVRuntime,
+) (Installation, error) {
+	i.emit(ctx, Progress{AgentID: agent.ID, Agent: agent.Name, Stage: StageStarted})
+
+	if err := prepareDir(dir); err != nil {
+		return Installation{}, failf(StepPrepare, "não foi possível preparar %s: %w", dir, err)
+	}
+
+	i.emit(ctx, Progress{AgentID: agent.ID, Agent: agent.Name, Stage: StageInstalling})
+	if err := i.uvFor(runtime).Install(ctx, dir, spec); err != nil {
+		return Installation{}, failf(StepInstall, "%w", err)
+	}
+
+	i.emit(ctx, Progress{AgentID: agent.ID, Agent: agent.Name, Stage: StageVerifying})
+	script, python, err := acp.UVEntryPoint(dir, name)
+	if err != nil {
+		return Installation{}, failf(StepResolve, "%w", err)
+	}
+	// No Windows o lançador gerado é um `.exe` spawnável: usá-lo direto. Nos
+	// demais casos o comando é o Python do venv + o script — o espelho do par
+	// `node` + ponto de entrada do npm —, e nunca um `.cmd`/`.bat` (D8,
+	// AEP-0084 D15).
+	command := python
+	args := append([]string{script}, agent.Distribution.UVX.Args...)
+	if acp.Spawnable(script) && strings.EqualFold(filepath.Ext(script), ".exe") {
+		command = script
+		args = slices.Clone(agent.Distribution.UVX.Args)
+	}
+
+	if err := i.handshake(ctx, command, args); err != nil {
+		return Installation{}, failf(StepVerify, "o agente instalado não respondeu ao handshake do protocolo: %w", err)
+	}
+
+	installation := Installation{
+		Schema:       installationSchema,
+		AgentID:      agent.ID,
+		Name:         agent.Name,
+		Version:      version,
+		Distribution: DistributionUVX,
 		Target:       spec,
 		Command:      command,
 		Args:         args,

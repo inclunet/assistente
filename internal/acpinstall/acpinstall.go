@@ -1,12 +1,14 @@
 // Package acpinstall instala, pelo catálogo do registro ACP, os agentes
-// distribuídos por npm, num diretório do próprio app (AEP-0086 Fase 3).
+// distribuídos por npm, binário ou uvx, num diretório do próprio app
+// (AEP-0086 Fases 3, 4 e 9).
 //
 // O desenho segue quatro decisões do AEP, e elas explicam por que o pacote tem
 // as peças que tem:
 //
-//   - D6: `npx` não é instalação. O pacote é instalado uma vez, com
-//     `npm install --prefix`, na versão que o registro fixa, e o que fica
-//     guardado é o par `node` + ponto de entrada — nenhum turno spawna `npx`.
+//   - D6: `npx`/`uvx` não são instalação. O pacote é instalado uma vez — com
+//     `npm install --prefix` ou `uv venv` + `uv pip install` — na versão que o
+//     registro fixa, e o que fica guardado é o comando resolvido — nenhum
+//     turno spawna `npx` nem `uvx`.
 //   - D5: a instalação mora em `~/.assistente/agents/<id>/<versão>/`, com um
 //     `installed.json` que diz o que o app fez, e remover é apagar o diretório.
 //   - D8: o comando de spawn é resolvido pelo app, e a instalação só é
@@ -14,7 +16,7 @@
 //   - D13: progresso e erro são percebidos por leitor de telas — marcos
 //     anunciados, erro que nomeia a etapa, cancelamento que não deixa resíduo.
 //
-// A execução do npm e o handshake entram por interface porque o teste os
+// A execução do npm/uv e o handshake entram por interface porque o teste os
 // substitui: o CI não baixa pacote da rede nem sobe agente de verdade.
 package acpinstall
 
@@ -30,14 +32,24 @@ import (
 	"assistente/internal/acpregistry"
 )
 
-// DistributionNPM é o tipo de distribuição que esta fase instala. Ele fica no
-// `installed.json` e na tela: quem olha uma instalação precisa saber de onde ela
-// veio, e a Fase 4 acrescenta a dela ao lado desta.
-const DistributionNPM = "npm"
+// Tipos de distribuição gravados no `installed.json` e mostrados na tela.
+const (
+	// DistributionNPM é a instalação por pacote npm (Fase 3).
+	DistributionNPM = "npm"
 
-// RuntimeNode é o nome do pré-requisito, como ele aparece em texto (D7). O app
-// não instala runtime; ele nomeia o que falta.
-const RuntimeNode = "Node.js"
+	// DistributionBinary é a instalação por artefato binário (Fase 4).
+	DistributionBinary = "binary"
+
+	// DistributionUVX é a instalação por pacote do uv (Fase 9).
+	DistributionUVX = "uvx"
+)
+
+// Nomes de pré-requisito de runtime, como aparecem em texto (D7). O app não
+// instala runtime; ele nomeia o que falta.
+const (
+	RuntimeNode = "Node.js"
+	RuntimeUV   = "uv"
+)
 
 // Confirmed é o plano que quem pediu a instalação mostrou e teve aceito (D3).
 //
@@ -102,18 +114,19 @@ const (
 // Verified diz se o artefato que está no disco foi conferido contra um digest
 // publicado (D4).
 //
-// Quem dispensa a pergunta é o pacote npm, e só ele: ali quem confere é o
-// próprio npm, o campo é naturalmente vazio, e uma ressalva seria alarme nos 21
-// agentes de pacote. Todo o resto responde pelo digest, e qualquer coisa que não
-// seja "conferido" conta como não conferido — inclusive o campo vazio e a
-// distribuição que este app não escreveu. O registro vem do disco, e é ele que
-// diria "npm" para calar a ressalva de um binário.
+// Quem dispensa a pergunta é o pacote de gerenciador (`npm` e `uvx`): ali quem
+// confere é o próprio npm/uv contra o registro dele, o campo é naturalmente
+// vazio, e uma ressalva seria alarme nos agentes de pacote. Todo o resto
+// responde pelo digest, e qualquer coisa que não seja "conferido" conta como
+// não conferido — inclusive o campo vazio e a distribuição que este app não
+// escreveu.
 //
 // Conferido é o registro que diz qual digest conferiu. Um que se declare
 // `verified` com o campo vazio não descreve nenhuma conferência, e a instalação
 // binária que o app faz sempre grava os dois.
 func Verified(installation Installation) bool {
-	if installation.Distribution == DistributionNPM {
+	switch installation.Distribution {
+	case DistributionNPM, DistributionUVX:
 		return true
 	}
 	return installation.SHA256Origin == DigestVerified && installation.SHA256 != ""
@@ -232,8 +245,12 @@ var (
 	ErrNotInCatalog = errors.New("este agente não está no catálogo do registro ACP")
 
 	// ErrNotNPM é o agente que existe no catálogo mas não é distribuído por
-	// npm. Instalar binário é a Fase 4, e `uvx` é a Fase 9.
+	// npm. Continua existindo para quem pergunta pelo caminho npm; Plan/Install
+	// de `uvx` não caem nele.
 	ErrNotNPM = errors.New("este agente não é distribuído por npm")
+
+	// ErrNotUVX é o agente que não é distribuído por uvx.
+	ErrNotUVX = errors.New("este agente não é distribuído por uvx")
 
 	// ErrNotBinary é o agente que não publica artefato binário.
 	ErrNotBinary = errors.New("este agente não é distribuído como binário")
@@ -259,9 +276,16 @@ var (
 	// é pré-requisito ausente, e o app não instala runtime (D7).
 	ErrRuntimeMissing = errors.New("o Node.js não foi encontrado nesta máquina")
 
+	// ErrRuntimeMissingUV é a falta do uv — o mesmo tratamento do D7, com o
+	// nome do runtime certo (não Node.js).
+	ErrRuntimeMissingUV = errors.New("o uv não foi encontrado nesta máquina")
+
 	// ErrNoNPM é o Node encontrado sem npm ao lado. Acontece em instalação
 	// mínima do Node, e a saída é a mesma: dizer o que falta.
 	ErrNoNPM = errors.New("o npm não foi encontrado junto do Node.js desta máquina")
+
+	// ErrNoUV é a falta do executável do uv quando a instalação precisaria dele.
+	ErrNoUV = errors.New("o uv não foi encontrado nesta máquina")
 
 	// ErrUnpinnedVersion é o pacote sem versão fixada e sem versão publicada no
 	// item. Instalar `latest` faria a instalação não ser reproduzível e tiraria
@@ -314,6 +338,16 @@ type NPM interface {
 	// confirmação mostrar o que será executado antes de qualquer byte ser
 	// baixado (D3).
 	Describe(prefix, spec string) string
+}
+
+// UV executa o uv. É interface pelo mesmo motivo do NPM: o CI não baixa pacote
+// do PyPI.
+type UV interface {
+	// Install cria o venv em dir e instala a spec pinada nele.
+	Install(ctx context.Context, dir, spec string) error
+
+	// Describe é a linha de comando que Install vai executar (D3).
+	Describe(dir, spec string) string
 }
 
 // Handshake sobe o comando resolvido e confere que ele fala ACP (D8). Devolver
@@ -561,6 +595,35 @@ func pinnedSpec(agent acpregistry.Agent) (spec, name, version string, err error)
 	return name + "@" + version, name, version, nil
 }
 
+// splitUVPackageSpec separa o nome do pacote da versão fixada pelo `==` do
+// PEP 508. Sem `==`, a versão vem do campo do item — o mesmo desenho do npm.
+func splitUVPackageSpec(spec string) (name, version string) {
+	spec = strings.TrimSpace(spec)
+	if name, version, ok := strings.Cut(spec, "=="); ok {
+		return strings.TrimSpace(name), strings.TrimSpace(version)
+	}
+	return spec, ""
+}
+
+// pinnedUVSpec devolve o pacote uv com a versão fixada, paralelo a pinnedSpec.
+func pinnedUVSpec(agent acpregistry.Agent) (spec, name, version string, err error) {
+	if agent.Distribution.UVX == nil {
+		return "", "", "", failf(StepCatalog, "%w: %s", ErrNotUVX, agent.ID)
+	}
+	name, version = splitUVPackageSpec(agent.Distribution.UVX.Package)
+	if name == "" {
+		return "", "", "", failf(StepCatalog, "o catálogo não diz qual pacote uv instalar para o agente %s", agent.ID)
+	}
+	if version == "" {
+		version = agent.Version
+	}
+	version = sanitizeVersion(version)
+	if version == "" {
+		return "", "", "", failf(StepCatalog, "%w: %s", ErrUnpinnedVersion, name)
+	}
+	return name + "==" + version, name, version, nil
+}
+
 // runtimeStatus traduz a procura do Node para o que a tela mostra.
 func runtimeStatus(runtime acp.NodeRuntime) RuntimeStatus {
 	return RuntimeStatus{
@@ -577,6 +640,23 @@ func runtimeStatus(runtime acp.NodeRuntime) RuntimeStatus {
 // não depende de nada, e é essa diferença que o campo carrega.
 func requiredRuntime(runtime acp.NodeRuntime) RuntimeStatus {
 	status := runtimeStatus(runtime)
+	status.Required = true
+	return status
+}
+
+// uvRuntimeStatus traduz a procura do uv para o que a tela mostra.
+func uvRuntimeStatus(runtime acp.UVRuntime) RuntimeStatus {
+	return RuntimeStatus{
+		Name:     RuntimeUV,
+		Found:    runtime.Found,
+		Path:     runtime.UV,
+		Searched: runtime.Searched,
+	}
+}
+
+// requiredUVRuntime marca o uv como pré-requisito (D7).
+func requiredUVRuntime(runtime acp.UVRuntime) RuntimeStatus {
+	status := uvRuntimeStatus(runtime)
 	status.Required = true
 	return status
 }

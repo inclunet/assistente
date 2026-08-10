@@ -14,14 +14,9 @@ import (
 	"strings"
 )
 
-// DistributionBinary é a distribuição que baixa um artefato do alvo desta
-// plataforma, em vez de pedir a um gerenciador de pacotes que o faça (D4).
-const DistributionBinary = "binary"
-
 // artifactUserAgent identifica o app no download do artefato, no mesmo formato
 // dos outros clientes HTTP da casa.
 const artifactUserAgent = "Assistente/1.0 (ACP Registry)"
-
 // maxArtifactBytes é o teto do que o app aceita baixar de um alvo.
 //
 // O maior artefato do catálogo de hoje tem dezenas de megabytes. O teto existe

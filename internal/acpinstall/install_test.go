@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +24,11 @@ const (
 	codexPacote  = "@agentclientprotocol/codex-acp"
 	codexVersao  = "1.1.9"
 	codexBinario = "dist/index.js"
+
+	fastAgentID     = "fast-agent"
+	fastAgentPacote = "fast-agent-mcp"
+	fastAgentVersao = "0.4.2"
+	fastAgentScript = "fast-agent"
 )
 
 // catalogoFalso serve um catálogo fixo, no lugar do serviço do registro.
@@ -46,6 +52,22 @@ func agenteCodex() acpregistry.Agent {
 			NPX: &acpregistry.PackageDistribution{
 				Package: codexPacote + "@" + codexVersao,
 				Args:    []string{"--acp"},
+			},
+		},
+	}
+}
+
+// agenteFastAgent é a linha do catálogo do fast-agent (critério da Fase 9):
+// pacote uv sem versão no nome — a versão vem do campo do item.
+func agenteFastAgent() acpregistry.Agent {
+	return acpregistry.Agent{
+		ID:      fastAgentID,
+		Name:    "fast-agent",
+		Version: fastAgentVersao,
+		Distribution: acpregistry.Distribution{
+			UVX: &acpregistry.PackageDistribution{
+				Package: fastAgentPacote,
+				Args:    []string{"acp"},
 			},
 		},
 	}
@@ -134,6 +156,86 @@ func (n *npmFalso) especificacoes() []string {
 	return slices.Clone(n.specs)
 }
 
+// uvFalso é o uv que o teste roda no lugar do de verdade: ele cria um venv
+// falso com dist-info/entry_points e o script gerado.
+type uvFalso struct {
+	pacote string
+	script string
+	// semComando é o uv que não sabe dizer a linha que executaria.
+	semComando bool
+	erro       error
+	bloqueia   chan struct{}
+
+	mu    sync.Mutex
+	specs []string
+}
+
+func (u *uvFalso) Install(ctx context.Context, dir, spec string) error {
+	u.mu.Lock()
+	u.specs = append(u.specs, spec)
+	u.mu.Unlock()
+
+	if u.bloqueia != nil {
+		_ = os.MkdirAll(filepath.Join(dir, "Lib"), 0o755)
+		close(u.bloqueia)
+		u.bloqueia = nil
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if u.erro != nil {
+		return u.erro
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return escreverVenvFalso(dir, u.pacote, u.script)
+}
+
+func (u *uvFalso) Describe(dir, spec string) string {
+	if u.semComando {
+		return ""
+	}
+	return "uv venv " + dir + " && uv pip install --python " + dir + " " + spec
+}
+
+func (u *uvFalso) especificacoes() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return slices.Clone(u.specs)
+}
+
+// escreverVenvFalso monta o layout mínimo que UVEntryPoint sabe ler.
+func escreverVenvFalso(dir, pacote, script string) error {
+	python := filepath.Join(dir, "bin", "python")
+	scriptsDir := filepath.Join(dir, "bin")
+	site := filepath.Join(dir, "lib", "python3.12", "site-packages")
+	scriptFile := script
+	if runtime.GOOS == "windows" {
+		python = filepath.Join(dir, "Scripts", "python.exe")
+		scriptsDir = filepath.Join(dir, "Scripts")
+		site = filepath.Join(dir, "Lib", "site-packages")
+		scriptFile = script + ".exe"
+	}
+	if err := os.MkdirAll(filepath.Dir(python), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(python, []byte("python"), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		return err
+	}
+	distInfo := filepath.Join(site, strings.ReplaceAll(pacote, "-", "_")+"-1.0.0.dist-info")
+	if err := os.MkdirAll(distInfo, 0o755); err != nil {
+		return err
+	}
+	entry := "[console_scripts]\n" + script + " = pacote.cli:main\n"
+	if err := os.WriteFile(filepath.Join(distInfo, "entry_points.txt"), []byte(entry), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(scriptsDir, scriptFile), []byte("#!/usr/bin/env python\n"), 0o755)
+}
+
 // runtimeComNode é a máquina que tem Node, sem executar nada para descobrir.
 func runtimeComNode() acp.NodeRuntime {
 	return acp.NodeRuntime{
@@ -146,6 +248,17 @@ func runtimeComNode() acp.NodeRuntime {
 
 func runtimeSemNode() acp.NodeRuntime {
 	return acp.NodeRuntime{Searched: []string{filepath.Join("C:", "Program Files", "nodejs", "node.exe")}}
+}
+
+func runtimeComUV() acp.UVRuntime {
+	return acp.UVRuntime{
+		Found: true,
+		UV:    filepath.Join("C:", "Users", "alguem", ".local", "bin", "uv.exe"),
+	}
+}
+
+func runtimeSemUV() acp.UVRuntime {
+	return acp.UVRuntime{Searched: []string{filepath.Join("C:", "Users", "alguem", ".local", "bin", "uv.exe")}}
 }
 
 // marcos guarda os progressos recebidos, para o teste conferir que os marcos
@@ -180,11 +293,12 @@ func (m *marcos) ultimo() Progress {
 	return m.itens[len(m.itens)-1]
 }
 
-// cenario monta um instalador com tudo substituído: catálogo, npm, runtime e
+// cenario monta um instalador com tudo substituído: catálogo, npm, uv, runtime e
 // handshake. Nada aqui toca a rede nem sobe processo.
 type cenario struct {
 	instalador *Installer
 	npm        *npmFalso
+	uv         *uvFalso
 	marcos     *marcos
 	root       string
 	// handshakes conta quantas vezes o comando resolvido foi conferido.
@@ -199,7 +313,9 @@ type opcoes struct {
 	// instalador à mão e perder tudo o que `montar` já substitui.
 	source    CatalogSource
 	runtime   func() acp.NodeRuntime
+	uvRuntime func() acp.UVRuntime
 	npm       *npmFalso
+	uv        *uvFalso
 	handshake error
 	http      Doer
 	// root reaproveita um diretório de instalações já existente, para o teste
@@ -215,8 +331,14 @@ func montar(t *testing.T, opts opcoes) *cenario {
 	if opts.runtime == nil {
 		opts.runtime = runtimeComNode
 	}
+	if opts.uvRuntime == nil {
+		opts.uvRuntime = runtimeComUV
+	}
 	if opts.npm == nil {
 		opts.npm = &npmFalso{pacote: codexPacote, binario: codexBinario}
+	}
+	if opts.uv == nil {
+		opts.uv = &uvFalso{pacote: fastAgentPacote, script: fastAgentScript}
 	}
 	if opts.http == nil {
 		// Cenário que não configurou download não sai para a rede: o padrão do
@@ -231,13 +353,15 @@ func montar(t *testing.T, opts opcoes) *cenario {
 	if opts.source != nil {
 		source = opts.source
 	}
-	c := &cenario{npm: opts.npm, marcos: &marcos{}, root: opts.root}
+	c := &cenario{npm: opts.npm, uv: opts.uv, marcos: &marcos{}, root: opts.root}
 	c.instalador = New(Config{
-		Root:    c.root,
-		Source:  source,
-		HTTP:    opts.http,
-		NPM:     opts.npm,
-		Runtime: opts.runtime,
+		Root:      c.root,
+		Source:    source,
+		HTTP:      opts.http,
+		NPM:       opts.npm,
+		UV:        opts.uv,
+		Runtime:   opts.runtime,
+		UVRuntime: opts.uvRuntime,
 		Handshake: func(_ context.Context, command string, args []string) error {
 			c.handshakes = append(c.handshakes, append([]string{command}, args...))
 			return opts.handshake
@@ -968,36 +1092,175 @@ func TestRegistroDaInstalacaoQueOAppFezContinuaValendo(t *testing.T) {
 	}
 }
 
-func TestPlanDeAgenteComDistribuicaoQueOAppNaoSabeInstalarExplicaEmTexto(t *testing.T) {
-	// O catálogo mostra tudo o que o registro tem (D1); o que muda é o que o app
-	// diz que consegue fazer com cada linha nesta máquina. `uvx` é a Fase 9.
-	agente := acpregistry.Agent{
-		ID:   "goose",
-		Name: "goose",
-		Distribution: acpregistry.Distribution{
-			UVX: &acpregistry.PackageDistribution{Package: "goose-acp==1.0.0"},
-		},
-	}
-	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
+func TestPlanDeAgenteUVXOfereceInstalacao(t *testing.T) {
+	// UVX é instalável (Fase 9): o plano declara a distribuição, a spec pinada
+	// e o runtime uv — sem cair em ErrNotNPM.
+	c := montar(t, opcoes{agentes: []acpregistry.Agent{agenteFastAgent()}})
 
-	plano, err := c.instalador.Plan(context.Background(), "goose")
+	plano, err := c.instalador.Plan(context.Background(), fastAgentID)
+	if err != nil {
+		t.Fatalf("o plano falhou: %v", err)
+	}
+	if !plano.CanInstall {
+		t.Errorf("não ofereceu instalação uvx: motivo = %q", plano.Reason)
+	}
+	if plano.Distribution != DistributionUVX {
+		t.Errorf("distribuição = %q, queria uvx", plano.Distribution)
+	}
+	if plano.Origin != fastAgentPacote+"=="+fastAgentVersao {
+		t.Errorf("origem = %q, queria a spec pinada", plano.Origin)
+	}
+	if plano.Runtime.Name != RuntimeUV || !plano.Runtime.Required || !plano.Runtime.Found {
+		t.Errorf("runtime = %+v, queria uv exigido e encontrado", plano.Runtime)
+	}
+	if !strings.Contains(plano.InstallCommand, "uv venv") || !strings.Contains(plano.InstallCommand, "pip install") {
+		t.Errorf("comando = %q, queria as duas etapas do uv", plano.InstallCommand)
+	}
+}
+
+func TestPlanDeAgenteUVXSemUVExplicaEmTexto(t *testing.T) {
+	c := montar(t, opcoes{
+		agentes:   []acpregistry.Agent{agenteFastAgent()},
+		uvRuntime: runtimeSemUV,
+	})
+
+	plano, err := c.instalador.Plan(context.Background(), fastAgentID)
 	if err != nil {
 		t.Fatalf("o plano falhou em vez de explicar: %v", err)
 	}
 	if plano.CanInstall {
-		t.Error("ofereceu instalação de uma distribuição que o app não sabe instalar")
+		t.Error("ofereceu instalação sem uv")
 	}
-	if !strings.Contains(plano.Reason, "npm") {
-		t.Errorf("motivo = %q, queria que ele dissesse que a distribuição não é npm", plano.Reason)
+	if !strings.Contains(plano.Reason, "uv") {
+		t.Errorf("motivo = %q, queria nomear a falta do uv", plano.Reason)
 	}
-	// E o plano não diz que a distribuição é npm: ele se contradiria, com a
-	// distribuição afirmando uma coisa e o motivo, logo abaixo, a contrária.
-	if plano.Distribution != "" {
-		t.Errorf("distribuição = %q, queria vazia num agente que não publica por npm", plano.Distribution)
+	if strings.Contains(strings.ToLower(plano.Reason), "node") {
+		t.Errorf("motivo = %q, não deveria falar de Node no caminho uv", plano.Reason)
+	}
+	if plano.Distribution != DistributionUVX {
+		t.Errorf("distribuição = %q, queria uvx mesmo sem poder instalar", plano.Distribution)
+	}
+}
+
+func TestInstallUVXInjetaSpecPinadaEGravaComandoDoVenv(t *testing.T) {
+	c := montar(t, opcoes{agentes: []acpregistry.Agent{agenteFastAgent()}})
+
+	instalacao, err := c.instalador.Install(context.Background(), fastAgentID, Confirmed{Distribution: DistributionUVX})
+	if err != nil {
+		t.Fatalf("instalação uvx falhou: %v", err)
+	}
+	spec := fastAgentPacote + "==" + fastAgentVersao
+	if got := c.uv.especificacoes(); len(got) != 1 || got[0] != spec {
+		t.Errorf("specs = %v, queria a spec pinada %s", got, spec)
+	}
+	if instalacao.Distribution != DistributionUVX || instalacao.Target != spec {
+		t.Errorf("instalação = %+v, queria DistributionUVX e target pinado", instalacao)
+	}
+	if !Verified(instalacao) {
+		t.Error("Verified deveria ser true para uvx (quem confere é o uv/PyPI)")
+	}
+	if len(c.handshakes) != 1 {
+		t.Fatalf("handshakes = %d, queria 1 (D8)", len(c.handshakes))
+	}
+	comando := c.handshakes[0][0]
+	if runtime.GOOS == "windows" {
+		if !strings.HasSuffix(strings.ToLower(comando), ".exe") {
+			t.Errorf("comando = %q, no Windows queria o .exe do Scripts", comando)
+		}
+	} else if filepath.Base(comando) != "python" && filepath.Base(comando) != "python3" {
+		t.Errorf("comando = %q, queria o Python do venv", comando)
+	}
+	if !slices.Contains(c.handshakes[0], "acp") {
+		t.Errorf("args = %v, queria os args do registro", c.handshakes[0])
+	}
+}
+
+func TestUpdateUVXInstalaAoLado(t *testing.T) {
+	registro := &catalogoMutavel{agentes: []acpregistry.Agent{agenteFastAgent()}}
+	c := montar(t, opcoes{source: registro})
+
+	antiga, err := c.instalador.Install(context.Background(), fastAgentID, Confirmed{Distribution: DistributionUVX})
+	if err != nil {
+		t.Fatalf("instalação inicial: %v", err)
 	}
 
-	if _, err := c.instalador.Install(context.Background(), "goose", Confirmed{}); !errors.Is(err, ErrNotNPM) {
+	nova := agenteFastAgent()
+	nova.Version = "0.5.0"
+	registro.publicar(nova)
+
+	atualizada, err := c.instalador.Update(context.Background(), fastAgentID, Confirmed{Distribution: DistributionUVX})
+	if err != nil {
+		t.Fatalf("atualização uvx falhou: %v", err)
+	}
+	if atualizada.Previous.Version != antiga.Version {
+		t.Errorf("previous = %q, queria %q", atualizada.Previous.Version, antiga.Version)
+	}
+	if atualizada.Installed.Version != "0.5.0" {
+		t.Errorf("nova = %q, queria 0.5.0", atualizada.Installed.Version)
+	}
+	if atualizada.Installed.Dir == antiga.Dir {
+		t.Error("atualizou por cima em vez de instalar ao lado")
+	}
+	if !Verified(atualizada.Installed) {
+		t.Error("versão nova uvx deveria contar como verificada")
+	}
+}
+
+func TestPlanDeAgenteSemDistribuicaoExplicaEmTexto(t *testing.T) {
+	// O catálogo mostra tudo o que o registro tem (D1); o que muda é o que o app
+	// diz que consegue fazer com cada linha nesta máquina. Sem NPX, binário nem
+	// UVX, não há caminho de instalação.
+	agente := acpregistry.Agent{
+		ID:   "fantasma",
+		Name: "fantasma",
+	}
+	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
+
+	plano, err := c.instalador.Plan(context.Background(), "fantasma")
+	if err != nil {
+		t.Fatalf("o plano falhou em vez de explicar: %v", err)
+	}
+	if plano.CanInstall {
+		t.Error("ofereceu instalação de um agente sem distribuição")
+	}
+	if plano.Reason == "" {
+		t.Error("motivo vazio: botão cinza sem explicação (D7)")
+	}
+	if plano.Distribution != "" {
+		t.Errorf("distribuição = %q, queria vazia sem caminho publicado", plano.Distribution)
+	}
+
+	if _, err := c.instalador.Install(context.Background(), "fantasma", Confirmed{}); !errors.Is(err, ErrNotNPM) {
 		t.Errorf("erro = %v, queria a recusa da distribuição", err)
+	}
+}
+
+func TestUnavailablePlanDeUVXMostraRuntimeUV(t *testing.T) {
+	// Versão ilegível faz o caminho uvx cair no unavailablePlan. O runtime
+	// mostrado tem de ser o uv — Node.js ali confundiria a tela e o leitor.
+	agente := agenteFastAgent()
+	agente.Version = "versão com espaço"
+	agente.Distribution.UVX.Package = "fast-agent-mcp"
+	c := montar(t, opcoes{
+		agentes:   []acpregistry.Agent{agente},
+		uvRuntime: runtimeComUV,
+	})
+
+	plano, err := c.instalador.Plan(context.Background(), fastAgentID)
+	if err != nil {
+		t.Fatalf("o plano falhou em vez de explicar: %v", err)
+	}
+	if plano.CanInstall {
+		t.Error("ofereceu instalação de um uvx sem versão pinada")
+	}
+	if plano.Distribution != DistributionUVX {
+		t.Errorf("distribuição = %q, queria uvx", plano.Distribution)
+	}
+	if plano.Runtime.Name != RuntimeUV {
+		t.Errorf("runtime = %q, queria %q (não Node.js)", plano.Runtime.Name, RuntimeUV)
+	}
+	if plano.Runtime.Required {
+		t.Error("unavailablePlan não deveria marcar o runtime como exigido")
 	}
 }
 
