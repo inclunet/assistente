@@ -1804,13 +1804,25 @@ const en = {
           installBtnHelpBinary:
             'Shows what will be downloaded, downloads the program published in the catalog checking its verification code and fills in the command and arguments above with what was installed.',
           cancelBtn: 'Cancel installation',
+          cancelUpdateBtn: 'Cancel update',
           cancelFailed: 'Could not cancel the installation.',
+          cancelUpdateFailed: 'Could not cancel the update.',
           installed: 'Installed by the application: {{agent}} version {{version}}.',
           installedDir: 'Installation folder: {{dir}}',
           installedUnverified:
             'This installation was not verified: the agent publishes no verification code, so the application had no way to check that the downloaded file is the one the registry published.',
           useBtn: 'Use the installed command',
           useAnnounce: 'Command filled in with the installed agent: {{command}}.',
+          updateAvailable:
+            'The catalog publishes version {{version}} of this agent, and the installed one is {{installed}}. Nothing is updated unless you ask.',
+          updateBtn: 'Update to version {{version}}',
+          updateBtnHelp:
+            'Shows what will be downloaded, installs the new version alongside the current one, points the providers that use this agent to it and only then tries to delete the previous version.',
+          updateUnavailable: 'Updating is not possible right now: {{reason}}',
+          updateUnavailableUnknown: 'Updating this agent is not possible right now.',
+          updated:
+            'Agent updated to version {{version}}. The providers that used the previous version now use this one. Cleanup of the previous version is attempted when it is not in use.',
+          updateFailed: 'The update failed: {{reason}}',
           removeBtn: 'Remove installed agent',
           removeBtnHelp:
             'Deletes the folder of the agent the application installed. The provider stays saved, and its command stops existing.',
@@ -1852,8 +1864,13 @@ const en = {
               'The application will download the file below and check it against the verification code published by the registry. Nothing is downloaded before you confirm.',
             introUnverified:
               'The application will download the file below. Nothing is downloaded before you confirm.',
+            titleUpdate: 'Update {{agent}} to version {{version}}?',
+            introUpdate:
+              'The application will install the new version alongside the current one, point the providers that use this agent to it and only then try to delete the previous one. Nothing is downloaded before you confirm.',
             agent: 'Agent',
             version: 'Version',
+            installedVersion: 'Currently installed version',
+            newVersion: 'New version',
             origin: 'Origin',
             dir: 'Destination folder',
             command: 'Command that will be run',
@@ -1864,6 +1881,8 @@ const en = {
               'This agent publishes no integrity verification: the application has no way to check that the downloaded file is the one the registry published. You can install it anyway, or download the agent from the vendor site and point the command here.',
             confirmBtn: 'Download and install',
             confirmUnverifiedBtn: 'Download without verification',
+            confirmUpdateBtn: 'Download and update',
+            confirmUpdateUnverifiedBtn: 'Update without verification',
             cancelBtn: 'Cancel',
           },
           removeConfirm: {
