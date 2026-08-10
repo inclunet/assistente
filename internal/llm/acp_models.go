@@ -110,11 +110,12 @@ func agentListingError(err error) error {
 // senão a lista sairia de um agente e o turno de outro (AEP-0084 D3).
 func (p *ACPChatProvider) spec() acp.ProviderSpec {
 	return acp.ProviderSpec{
-		ID:      p.provider.ID,
-		Name:    p.provider.Name,
-		Command: p.provider.ACPCommand,
-		Args:    p.provider.ACPArgs,
-		Env:     p.provider.ACPEnv,
+		ID:            p.provider.ID,
+		Name:          p.provider.Name,
+		Command:       p.provider.ACPCommand,
+		Args:          p.provider.ACPArgs,
+		Env:           p.provider.ACPEnv,
+		CredentialEnv: p.provider.ACPCredentialEnv,
 	}
 }
 

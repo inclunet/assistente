@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
 	"assistente/internal/core/ports"
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
@@ -55,6 +57,9 @@ func (a *App) initACP() {
 		// Os comandos do agente aparecem no menu da barra, e ele conta quais
 		// existem assim que a sessão abre (AEP-0084 D8).
 		OnSessionCommands: a.agentSessionCommandsChanged,
+		// O provedor que pediu para entregar uma credencial do cofre ao agente
+		// é atendido aqui, no momento de subir o processo (AEP-0086 D12).
+		ResolveCredential: a.acpCredentialFromVault,
 		ClientName:        "assistente",
 		ClientVersion:     AppVersion,
 	})
@@ -67,6 +72,33 @@ func (a *App) initACP() {
 	if a.acpRegistry == nil {
 		a.acpRegistry = acpregistry.New(acpregistry.Config{})
 	}
+}
+
+// acpCredentialFromVault lê no cofre o valor de uma entrada, para a variável de
+// ambiente que o provedor pediu (AEP-0086 D12).
+//
+// O contexto é o de quem está subindo o agente, e isso importa: o cofre é
+// escopado por usuário (AEP-0052), e ler com o contexto errado devolveria a
+// credencial de outra pessoa — ou nenhuma.
+//
+// O valor sai daqui e vai direto para o ambiente do processo. Ele não é
+// guardado, não volta para a tela e não entra em log: o que se registra deste
+// caminho é o nome da variável e o padrão do cofre.
+func (a *App) acpCredentialFromVault(ctx context.Context, pattern string) (string, error) {
+	if a == nil || a.credMgr == nil {
+		return "", errors.New("o cofre de credenciais não está disponível")
+	}
+	auth, err := a.credMgr.GetByPatternWithContext(ctx, pattern)
+	if err != nil {
+		return "", err
+	}
+	if auth == nil {
+		return "", nil
+	}
+	// A decifragem já resolveu referência externa (keyring://, env://), então o
+	// que chega aqui é o valor final — inclusive para quem prefere manter o
+	// segredo no cofre do sistema e deixar no app só o apontamento.
+	return credentials.ResolveSecretFromAuth(auth), nil
 }
 
 // questionnaireRouter é por onde qualquer diálogo do backend chega a quem

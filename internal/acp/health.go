@@ -97,9 +97,14 @@ func (m *Manager) ProbeCandidate(ctx context.Context, spec ProviderSpec) HealthR
 	}
 
 	client, err := m.dial(Config{
-		Command:       spec.Command,
-		Args:          slices.Clone(spec.Args),
-		Env:           maps.Clone(spec.Env),
+		Command: spec.Command,
+		Args:    slices.Clone(spec.Args),
+		Env:     maps.Clone(spec.Env),
+		// A sondagem sobe o agente do mesmo jeito que a conversa o subiria,
+		// senão ela diria "sem login" para uma configuração que na hora certa
+		// receberia a credencial — e mandaria a pessoa consertar o que está
+		// certo (AEP-0086 D12).
+		Secrets:       m.secretsFor(spec),
 		WorkDir:       m.processWorkDir(),
 		ClientName:    m.clientName,
 		ClientVersion: m.clientVersion,
