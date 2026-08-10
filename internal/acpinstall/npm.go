@@ -170,6 +170,6 @@ func bytesDeContinuacao(b []byte) int {
 // HandshakeUnsupported é o handshake que recusa: ele existe para quem monta o
 // instalador sem ter como sondar o agente, e devolve um erro que diz isso em vez
 // de deixar a instalação passar sem prova.
-func HandshakeUnsupported(_ context.Context, _ string, _ []string) error {
+func HandshakeUnsupported(_ context.Context, _ string, _ []string, _ map[string]string) error {
 	return errors.New("não há como conferir o agente instalado: o serviço de agentes de código não está disponível")
 }

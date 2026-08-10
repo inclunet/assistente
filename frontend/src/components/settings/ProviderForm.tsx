@@ -38,6 +38,11 @@ export interface ProviderFormData {
    */
   acp_agent_id?: string;
   /**
+   * Variáveis de ambiente do processo do agente (AEP-0084 D12 / AEP-0086).
+   * Inclui o `env{}` do alvo binário instalado pelo catálogo.
+   */
+  acp_env?: Record<string, string>;
+  /**
    * Quais variáveis do ambiente do agente recebem credencial do cofre, e de
    * qual entrada dele (AEP-0086 D12). O que trafega é a referência; o segredo
    * fica no cofre e só sai na hora de subir o agente.
@@ -126,6 +131,15 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     setFormData((prev) => ({ ...prev, acp_args: args }));
   }, []);
 
+  const handleAgentEnvChange = useCallback((env: Record<string, string>) => {
+    // Base = env da instalação; chaves que a pessoa já tinha no formulário
+    // vencem — não sobrescrever configuração manual no merge.
+    setFormData((prev) => ({
+      ...prev,
+      acp_env: { ...env, ...(prev.acp_env || {}) },
+    }));
+  }, []);
+
   const handleCredentialEnvChange = useCallback((credentialEnv: Record<string, string>) => {
     setFormData((prev) => ({ ...prev, acp_credential_env: credentialEnv }));
   }, []);
@@ -152,6 +166,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         // o Cursor lê não é a que o Gemini CLI lê, e mantê-la entregaria a
         // chave a um programa que ninguém escolheu para recebê-la.
         acp_credential_env: {},
+        acp_env: {},
         name: prev.name.trim() === '' ? agent.name : prev.name,
       };
     });
@@ -242,6 +257,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_command: provider.acp_command || '',
         acp_args: provider.acp_args || [],
         acp_agent_id: provider.acp_agent_id || '',
+        acp_env: provider.acp_env || {},
         acp_credential_env: provider.acp_credential_env || {},
       });
       setApiTested(false);
@@ -262,6 +278,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_command: '',
         acp_args: [],
         acp_agent_id: '',
+        acp_env: {},
         acp_credential_env: {},
       });
       setApiTested(false);
@@ -529,6 +546,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     const command = (formData.acp_command || '').trim();
     const args = formData.acp_args || [];
     const agentId = (formData.acp_agent_id || '').trim();
+    const env = formData.acp_env || {};
     const credentialEnv = formData.acp_credential_env || {};
     if (formData.id) {
       await withTimeout(
@@ -539,6 +557,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           acp_command: command,
           acp_args: args,
           acp_agent_id: agentId,
+          acp_env: env,
           // Sempre presente, mesmo vazio: aqui o mapa vazio é o que desliga a
           // passagem, e omiti-lo seria pedir para não mexer — quem tirou o
           // último par continuaria com a credencial indo para o agente.
@@ -562,6 +581,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_command: command,
         acp_args: args,
         acp_agent_id: agentId,
+        acp_env: env,
         acp_credential_env: credentialEnv,
       }),
       15000,
@@ -679,6 +699,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             args={formData.acp_args || []}
             onCommandChange={handleAgentCommandChange}
             onArgsChange={handleAgentArgsChange}
+            onEnvChange={handleAgentEnvChange}
             commandError={errors.acp_command}
             credentialEnv={formData.acp_credential_env || {}}
             onCredentialEnvChange={handleCredentialEnvChange}

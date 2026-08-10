@@ -157,6 +157,7 @@ func TestRepontarPoeOProvedorNaVersaoNova(t *testing.T) {
 	root := t.TempDir()
 	anterior := instalacaoDoCodex(root, "1.1.9")
 	nova := instalacaoDoCodex(root, "1.2.0")
+	nova.Env = map[string]string{"VT_ACP_ENABLED": "true"}
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	registro := llm.NewProviderRegistry()
@@ -169,6 +170,7 @@ func TestRepontarPoeOProvedorNaVersaoNova(t *testing.T) {
 		ACPAgentID: "codex-acp",
 		ACPCommand: anterior.Command,
 		ACPArgs:    slices.Clone(anterior.Args),
+		ACPEnv:     map[string]string{"VT_ACP_ENABLED": "false"},
 	}); err != nil {
 		t.Fatalf("erro ao registrar o provedor: %v", err)
 	}
@@ -184,6 +186,9 @@ func TestRepontarPoeOProvedorNaVersaoNova(t *testing.T) {
 	}
 	if repontado.ACPCommand != nova.Command {
 		t.Errorf("comando = %q, queria o da versão nova", repontado.ACPCommand)
+	}
+	if repontado.ACPEnv["VT_ACP_ENABLED"] != "true" {
+		t.Errorf("ACPEnv = %#v, queria o env do artefato novo", repontado.ACPEnv)
 	}
 	// E o vínculo com o catálogo continua onde estava: atualizar troca o que
 	// sobe, e não de que agente aquele provedor é.
