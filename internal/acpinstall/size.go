@@ -67,12 +67,10 @@ func contentLengthOf(ctx context.Context, client Doer, method, archiveURL string
 			return resp.ContentLength
 		}
 	case http.StatusPartialContent:
-		if total := parseContentRangeTotal(resp.Header.Get("Content-Range")); total > 0 {
-			return total
-		}
-		if resp.ContentLength > 0 {
-			return resp.ContentLength
-		}
+		// Em 206, Content-Length é o tamanho do trecho (ex.: 1 byte para
+		// Range bytes=0-0), não o do artefato. Só o total em Content-Range
+		// serve; sem ele, omitimos (D3: "quando o servidor informa").
+		return parseContentRangeTotal(resp.Header.Get("Content-Range"))
 	}
 	return 0
 }
@@ -124,8 +122,17 @@ func dirDiskBytes(dir string) int64 {
 		if d.IsDir() {
 			return nil
 		}
+		// Symlink: Info()/Stat seguiria o alvo e poderia somar arquivo fora da
+		// instalação (e bem maior). Contamos só arquivo regular no próprio
+		// diretório — a mesma disciplina da guarda de extração.
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		info, infoErr := d.Info()
 		if infoErr != nil {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
 			return nil
 		}
 		total += info.Size()
