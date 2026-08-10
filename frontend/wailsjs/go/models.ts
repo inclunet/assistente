@@ -338,6 +338,7 @@ export namespace app {
 	    dir: string;
 	    sha256?: string;
 	    sha256_origin?: string;
+	    disk_bytes?: number;
 	    installed_at: string;
 	
 	    static createFrom(source: any = {}) {
@@ -356,6 +357,7 @@ export namespace app {
 	        this.dir = source["dir"];
 	        this.sha256 = source["sha256"];
 	        this.sha256_origin = source["sha256_origin"];
+	        this.disk_bytes = source["disk_bytes"];
 	        this.installed_at = source["installed_at"];
 	    }
 	}
@@ -387,6 +389,7 @@ export namespace app {
 	    version: string;
 	    distribution: string;
 	    origin: string;
+	    bytes?: number;
 	    target?: string;
 	    sha256?: string;
 	    unverified?: boolean;
@@ -413,6 +416,7 @@ export namespace app {
 	        this.version = source["version"];
 	        this.distribution = source["distribution"];
 	        this.origin = source["origin"];
+	        this.bytes = source["bytes"];
 	        this.target = source["target"];
 	        this.sha256 = source["sha256"];
 	        this.unverified = source["unverified"];

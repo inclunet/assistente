@@ -1835,6 +1835,7 @@ const es = {
           cancelUpdateFailed: 'No se pudo cancelar la actualización.',
           installed: 'Instalado por la aplicación: {{agent}} versión {{version}}.',
           installedDir: 'Carpeta de la instalación: {{dir}}',
+          installedSize: 'Espacio ocupado: {{size}}',
           installedUnverified:
             'Esta instalación no se verificó: el agente no publica código de verificación, así que la aplicación no pudo comprobar que el archivo descargado es el que publicó el registro.',
           useBtn: 'Usar el comando instalado',
@@ -1898,6 +1899,7 @@ const es = {
             installedVersion: 'Versión instalada ahora',
             newVersion: 'Versión nueva',
             origin: 'Origen',
+            size: 'Tamaño de la descarga',
             dir: 'Carpeta de destino',
             command: 'Comando que se va a ejecutar',
             target: 'Versión para tu sistema',

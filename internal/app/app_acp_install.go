@@ -70,6 +70,10 @@ type ACPInstallation struct {
 	SHA256       string `json:"sha256,omitempty"`
 	SHA256Origin string `json:"sha256_origin,omitempty"`
 
+	// DiskBytes é o tamanho ocupado no disco pelo diretório da instalação.
+	// Zero omite o campo na tela.
+	DiskBytes int64 `json:"disk_bytes,omitempty"`
+
 	// InstalledAt é a data da instalação em RFC 3339, para a tela formatá-la no
 	// idioma de quem lê.
 	InstalledAt string `json:"installed_at"`
@@ -92,6 +96,10 @@ type ACPInstallPlan struct {
 	// Origin é a origem: o nome completo do pacote com a versão, ou a URL do
 	// artefato que será baixado.
 	Origin string `json:"origin"`
+
+	// Bytes é o tamanho do download quando o servidor informa, sem baixar o
+	// arquivo. Zero omite o campo na tela (D3).
+	Bytes int64 `json:"bytes,omitempty"`
 
 	// Target é o alvo de plataforma do artefato, quando a distribuição é
 	// binária. O mesmo agente publica arquivos diferentes por plataforma, e
@@ -584,6 +592,7 @@ func installPlanDTO(plan acpinstall.Plan, installing bool) ACPInstallPlan {
 		Version:        plan.Version,
 		Distribution:   plan.Distribution,
 		Origin:         plan.Origin,
+		Bytes:          plan.Bytes,
 		Target:         plan.Target,
 		SHA256:         plan.SHA256,
 		Unverified:     plan.Unverified,
@@ -630,6 +639,7 @@ func installationDTO(installation acpinstall.Installation) ACPInstallation {
 		Command:      installation.Command,
 		Args:         installation.Args,
 		Dir:          installation.Dir,
+		DiskBytes:    installation.DiskBytes,
 	}
 	if dto.Args == nil {
 		dto.Args = []string{}

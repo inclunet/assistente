@@ -1836,6 +1836,7 @@ const en = {
           cancelUpdateFailed: 'Could not cancel the update.',
           installed: 'Installed by the application: {{agent}} version {{version}}.',
           installedDir: 'Installation folder: {{dir}}',
+          installedSize: 'Disk space used: {{size}}',
           installedUnverified:
             'This installation was not verified: the agent publishes no verification code, so the application had no way to check that the downloaded file is the one the registry published.',
           useBtn: 'Use the installed command',
@@ -1899,6 +1900,7 @@ const en = {
             installedVersion: 'Currently installed version',
             newVersion: 'New version',
             origin: 'Origin',
+            size: 'Download size',
             dir: 'Destination folder',
             command: 'Command that will be run',
             target: 'Build for your system',

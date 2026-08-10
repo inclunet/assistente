@@ -182,7 +182,7 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 	node := i.runtime()
 	switch i.distributionFor(agent, node) {
 	case DistributionBinary:
-		return i.binaryPlan(agent, sanitizeVersion(agent.Version)), nil
+		return i.binaryPlan(ctx, agent, sanitizeVersion(agent.Version)), nil
 	case DistributionUVX:
 		return i.uvxPlan(agent), nil
 	case DistributionNPM:
@@ -935,6 +935,10 @@ func (i *Installer) installationAt(dir string) (Installation, bool) {
 	if err != nil {
 		return Installation{}, false
 	}
+	// O tamanho no disco é medido na leitura: gravá-lo no JSON envelheceria
+	// com o que o agente cria depois de instalado, e a tela precisa do ocupado
+	// agora (AEP-0086, item instalado).
+	installation.DiskBytes = dirDiskBytes(dir)
 	// O registro tem de falar do diretório em que está, que é `<id>/<versão>`
 	// (D5). Divergência é registro de outro lugar, e ela desalinharia a
 	// comparação que decide se existe versão nova a oferecer (D10).

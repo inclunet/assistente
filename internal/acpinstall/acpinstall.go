@@ -404,6 +404,11 @@ type Plan struct {
 	// (D3).
 	Origin string `json:"origin"`
 
+	// Bytes é o tamanho do download quando o servidor informa (Content-Length
+	// ou Content-Range), sem baixar o arquivo. Zero omite o campo na tela
+	// (D3: "o tamanho quando o servidor informa").
+	Bytes int64 `json:"bytes,omitempty"`
+
 	// Target é o alvo de plataforma que será baixado, quando a distribuição é
 	// binária. Ele fica à vista porque o mesmo agente publica arquivos
 	// diferentes por plataforma, e qual deles vem é parte de "o que vai ser
@@ -534,6 +539,11 @@ type Installation struct {
 	// diretório que contém o arquivo, e guardá-lo faria um caminho velho
 	// sobreviver a uma mudança de home.
 	Dir string `json:"-"`
+
+	// DiskBytes é o tamanho ocupado no disco pelo diretório da instalação.
+	// Calculado na leitura (walk), não gravado no `installed.json` — gravá-lo
+	// envelheceria com arquivos que o agente cria depois de instalado.
+	DiskBytes int64 `json:"-"`
 }
 
 // installationSchema é o esquema corrente do `installed.json`.

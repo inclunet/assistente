@@ -1836,6 +1836,7 @@ const ptBR = {
           cancelUpdateFailed: 'Não foi possível cancelar a atualização.',
           installed: 'Instalado pelo aplicativo: {{agent}} versão {{version}}.',
           installedDir: 'Pasta da instalação: {{dir}}',
+          installedSize: 'Tamanho ocupado: {{size}}',
           installedUnverified:
             'Esta instalação não foi verificada: o agente não publica código de verificação, e o aplicativo não teve como conferir que o arquivo baixado é o que o registro publicou.',
           useBtn: 'Usar o comando instalado',
@@ -1899,6 +1900,7 @@ const ptBR = {
             installedVersion: 'Versão instalada agora',
             newVersion: 'Versão nova',
             origin: 'Origem',
+            size: 'Tamanho do download',
             dir: 'Pasta de destino',
             command: 'Comando que será executado',
             target: 'Versão para o seu sistema',

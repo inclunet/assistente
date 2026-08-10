@@ -344,6 +344,30 @@ describe('AgentInstall — artefato binário', () => {
     expect(dialogo).not.toHaveTextContent(/comando que será executado/i);
   });
 
+  it('mostra o tamanho do download quando o servidor informa', async () => {
+    // D3: o tamanho só aparece quando conhecido; formatFileSize(1572864) → 1.5 MB.
+    planMock.mockResolvedValue({ ...planoBinario, bytes: 1_572_864 });
+    const user = userEvent.setup();
+
+    render(<Host agentId="opencode" />);
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+    const dialogo = await screen.findByRole('dialog');
+    expect(dialogo).toHaveTextContent(/tamanho do download/i);
+    expect(dialogo).toHaveTextContent('1.5 MB');
+  });
+
+  it('omite o tamanho do download quando o servidor não informa', async () => {
+    planMock.mockResolvedValue({ ...planoBinario, bytes: 0 });
+    const user = userEvent.setup();
+
+    render(<Host agentId="opencode" />);
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+    const dialogo = await screen.findByRole('dialog');
+    expect(dialogo).not.toHaveTextContent(/tamanho do download/i);
+  });
+
   it('não tem violação na confirmação do artefato', async () => {
     planMock.mockResolvedValue(planoBinario);
     const user = userEvent.setup();
@@ -849,6 +873,29 @@ describe('AgentInstall — já instalado', () => {
 
     expect(screen.getByTestId('comando')).toHaveTextContent(instalacao.command);
     expect(announceMock).toHaveBeenCalledWith(expect.stringContaining(instalacao.command), 'polite');
+  });
+
+  it('mostra o tamanho ocupado quando o backend informa disk_bytes', async () => {
+    planMock.mockResolvedValue({
+      ...planoInstalado,
+      installed: { ...instalacao, disk_bytes: 2_097_152 },
+    });
+
+    render(<Host />);
+
+    expect(await screen.findByText(/tamanho ocupado: 2 MB/i)).toBeInTheDocument();
+  });
+
+  it('omite o tamanho ocupado quando disk_bytes é zero', async () => {
+    planMock.mockResolvedValue({
+      ...planoInstalado,
+      installed: { ...instalacao, disk_bytes: 0 },
+    });
+
+    render(<Host />);
+
+    await screen.findByText(/instalado pelo aplicativo/i);
+    expect(screen.queryByText(/tamanho ocupado/i)).not.toBeInTheDocument();
   });
 
   it('remover confirma, apaga o diretório e avisa que o provedor fica', async () => {
