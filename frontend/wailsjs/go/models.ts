@@ -83,11 +83,31 @@ export namespace allowlist {
 
 export namespace app {
 	
+	export class ACPAuthEnvVar {
+	    name: string;
+	    label?: string;
+	    optional?: boolean;
+	    secret?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPAuthEnvVar(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.label = source["label"];
+	        this.optional = source["optional"];
+	        this.secret = source["secret"];
+	    }
+	}
 	export class ACPLoginMethod {
 	    id: string;
 	    name?: string;
 	    description?: string;
 	    command?: string;
+	    env_vars?: ACPAuthEnvVar[];
+	    credential_provider?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ACPLoginMethod(source);
@@ -99,7 +119,27 @@ export namespace app {
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.command = source["command"];
+	        this.env_vars = this.convertValues(source["env_vars"], ACPAuthEnvVar);
+	        this.credential_provider = source["credential_provider"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ACPAgentHealth {
 	    state: string;
@@ -173,6 +213,7 @@ export namespace app {
 	        this.work_dir = source["work_dir"];
 	    }
 	}
+	
 	export class ACPCatalogAgent {
 	    id: string;
 	    name: string;
@@ -1756,6 +1797,7 @@ export namespace controllers {
 	    acp_command?: string;
 	    acp_args?: string[];
 	    acp_agent_id?: string;
+	    acp_credential_env?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
@@ -1773,6 +1815,7 @@ export namespace controllers {
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
 	        this.acp_agent_id = source["acp_agent_id"];
+	        this.acp_credential_env = source["acp_credential_env"];
 	    }
 	}
 	export class CredentialInput {
@@ -1992,6 +2035,7 @@ export namespace controllers {
 	    acp_command?: string;
 	    acp_args?: string[];
 	    acp_agent_id?: string;
+	    acp_credential_env?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -2008,6 +2052,7 @@ export namespace controllers {
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
 	        this.acp_agent_id = source["acp_agent_id"];
+	        this.acp_credential_env = source["acp_credential_env"];
 	    }
 	}
 
@@ -3688,6 +3733,7 @@ export namespace llm {
 	    acp_command?: string;
 	    acp_args?: string[];
 	    acp_env?: Record<string, string>;
+	    acp_credential_env?: Record<string, string>;
 	    acp_agent_id?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -3711,6 +3757,7 @@ export namespace llm {
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
 	        this.acp_env = source["acp_env"];
+	        this.acp_credential_env = source["acp_credential_env"];
 	        this.acp_agent_id = source["acp_agent_id"];
 	    }
 	}

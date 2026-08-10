@@ -1792,6 +1792,33 @@ const en = {
             'There is no way to tell from here which command authenticates this agent. Use "Detect and fill in command" and test again.',
           loginMethods: 'Authentication requested by the agent: {{methods}}.',
         },
+        credential: {
+          title: 'Vault credential for the agent',
+          warning:
+            'The application hands the value of the chosen entry to the agent, in an environment variable, every time it starts. The agent is third-party software: it can use that credential however it likes, including sending it over the network. The value never appears on this screen or in the application logs.',
+          pair: '{{name}} receives the credential from {{entry}}',
+          removeBtn: 'Remove',
+          removeBtnLabel: 'Remove the credential from variable {{name}}',
+          varLabel: 'Environment variable',
+          varHelp: 'The name of the variable the agent expects the credential in. No spaces and no equals sign.',
+          varFromAgent: 'The agent itself reported this variable name. You can change it if you know it reads another one.',
+          varPlaceholder: 'E.g. OPENAI_API_KEY',
+          entryLabel: 'Vault entry',
+          entryHelp: 'Which stored credential the value comes from. The application keeps only this reference.',
+          entryPlaceholder: 'Choose an entry',
+          entryOption: '{{pattern}} ({{masked}})',
+          addBtn: 'Connect the credential',
+          emptyVault: 'There are no stored credentials. Add one under Credentials to be able to hand it to the agent.',
+          vaultFailed: 'The stored credentials could not be read.',
+          error: {
+            invalidName: 'Enter the variable name, with no spaces and no equals sign.',
+            needsEntry: 'Choose which vault entry the value comes from.',
+          },
+          announce: {
+            added: 'Variable {{name}} now receives the credential from {{entry}}. This takes effect the next time the agent starts.',
+            removed: 'Variable {{name}} no longer receives a credential from the vault.',
+          },
+        },
         catalog: {
           title: 'Install from the agent catalog',
           intro:

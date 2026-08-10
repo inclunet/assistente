@@ -46,6 +46,10 @@ func authMethodFrom(method sdk.AuthMethod) (AuthMethod, bool) {
 			Name:        method.EnvVar.Name,
 			Description: derefString(method.EnvVar.Description),
 			Kind:        AuthKindEnvVar,
+			// Aqui o agente nomeia a variável que recebe a credencial, e é o
+			// que dispensa o formulário de perguntar (AEP-0086 D12).
+			EnvVars:            envVarsFrom(method.EnvVar.Vars),
+			CredentialProvider: credentialProviderFrom(method.EnvVar.Meta),
 		}, true
 	case method.Terminal != nil:
 		return AuthMethod{
@@ -60,6 +64,51 @@ func authMethodFrom(method sdk.AuthMethod) (AuthMethod, bool) {
 		}, true
 	}
 	return AuthMethod{}, false
+}
+
+// envVarsFrom lê as variáveis que o método pede. Tudo passa pelo saneamento,
+// como todo texto de agente que vai para a tela (AEP-0084 D11); o nome passa
+// pelo saneamento de rótulo porque é isso que ele é aqui — o que decide se ele
+// pode virar variável de ambiente é a validação do provedor, na hora de salvar.
+//
+// Variável sem nome é descartada: ela não descreve nada que a tela possa
+// oferecer, e um item em branco na lista só ocuparia uma parada de Tab.
+func envVarsFrom(vars []sdk.AuthEnvVar) []AuthEnvVar {
+	out := make([]AuthEnvVar, 0, len(vars))
+	for _, v := range vars {
+		name := SanitizeLabel(v.Name)
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		out = append(out, AuthEnvVar{
+			Name:     name,
+			Label:    SanitizeLabel(derefString(v.Label)),
+			Optional: v.Optional,
+			Secret:   v.Secret,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// metaAPIKey é a chave sob a qual um agente diz de que credencial se trata —
+// `_meta["api-key"].provider`, com o emissor da chave. Não é do padrão, como o
+// terminal-auth ao lado, e serve para sugerir a entrada do cofre que combina,
+// nunca para escolher sozinho (AEP-0086 D12).
+const metaAPIKey = "api-key"
+
+func credentialProviderFrom(meta map[string]any) string {
+	entry, ok := meta[metaAPIKey].(map[string]any)
+	if !ok {
+		return ""
+	}
+	provider, ok := entry["provider"].(string)
+	if !ok {
+		return ""
+	}
+	return SanitizeLabel(provider)
 }
 
 // metaTerminalAuth é a chave sob a qual um agente publica o comando que

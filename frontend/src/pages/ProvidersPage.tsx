@@ -48,6 +48,11 @@ interface Provider {
   acp_args?: string[];
   /** Qual agente do registro é o provedor (AEP-0086 D11). */
   acp_agent_id?: string;
+  /**
+   * Quais variáveis do ambiente do agente recebem credencial do cofre, e de
+   * qual entrada (AEP-0086 D12). Referência, nunca o segredo.
+   */
+  acp_credential_env?: Record<string, string>;
 }
 
 interface ProviderRow extends Provider {
@@ -157,6 +162,7 @@ export default function ProvidersPage() {
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
       acp_agent_id: provider.acp_agent_id || '',
+      acp_credential_env: provider.acp_credential_env || {},
     });
     setIsEditing(true);
   }, []);
@@ -202,6 +208,10 @@ export default function ProvidersPage() {
         // Sem o id do agente a cópia perderia de qual linha do registro ela
         // veio, e a tela de provedor não teria o que oferecer de catálogo.
         acp_agent_id: provider.acp_agent_id || undefined,
+        // A passagem de credencial vai junto porque é referência: a cópia sobe
+        // o mesmo agente e precisa da mesma chave, e o segredo continua onde
+        // sempre esteve, no cofre.
+        acp_credential_env: provider.acp_credential_env || undefined,
       });
       addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));

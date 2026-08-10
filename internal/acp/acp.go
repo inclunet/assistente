@@ -241,6 +241,40 @@ type AuthMethod struct {
 	// informa (AEP-0084 Fase 10). Vazio é o agente que não disse nada, e aí
 	// quem tem de saber o comando é o app.
 	Login LoginHint
+
+	// EnvVars são as variáveis de ambiente que este método pede, quando o
+	// agente as nomeia — é a variante `env_var` do protocolo (AEP-0086 D12).
+	//
+	// Elas importam porque respondem à pergunta que o formulário faria: qual
+	// variável recebe a credencial. Quem escreveu o agente sabe disso, e
+	// perguntar a quem configura o provedor é pedir que se adivinhe o que já
+	// está publicado.
+	EnvVars []AuthEnvVar
+
+	// CredentialProvider é o emissor da credencial que este método pede, como
+	// o agente o nomeia em `_meta["api-key"].provider` (por exemplo `openai`).
+	// Ele não diz onde pôr a credencial — diz de que credencial se trata —, e
+	// serve para sugerir qual entrada do cofre combina.
+	CredentialProvider string
+}
+
+// AuthEnvVar é uma variável de ambiente que o agente pede num método de
+// autenticação por variável.
+type AuthEnvVar struct {
+	// Name é o nome da variável (por exemplo `OPENAI_API_KEY`).
+	Name string
+
+	// Label é o rótulo legível, quando o agente o publica.
+	Label string
+
+	// Optional diz que o agente sobe sem ela. Sem isso a tela trataria como
+	// obrigatória uma variável que só acrescenta capacidade.
+	Optional bool
+
+	// Secret diz que o valor é segredo — o padrão do protocolo. Variável que
+	// não é segredo não tem por que vir do cofre: ela cabe no ambiente comum,
+	// que já existe ao lado.
+	Secret bool
 }
 
 // LoginHint é o comando de login descrito pelo próprio agente. Ele existe

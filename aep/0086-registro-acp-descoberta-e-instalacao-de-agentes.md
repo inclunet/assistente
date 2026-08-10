@@ -695,8 +695,8 @@ acontecendo.
 
 #### Quem declara o nome da variável
 
-Não é adivinhação do app. As duas fontes de metadado que poderiam declarar isso
-foram conferidas, e **nenhuma das duas nomeia a variável**:
+Não é adivinhação do app. Duas das três fontes possíveis foram conferidas na
+redação original deste AEP e **não nomeiam a variável**:
 
 - **O `env` do bloco de distribuição binária do registro** existe, mas não é
   canal de credencial. Um único agente entre os 38 o usa (`vtcode`), com duas
@@ -704,21 +704,28 @@ foram conferidas, e **nenhuma das duas nomeia a variável**:
   configuração, não segredo. E ele só existe em alvo `binary`: os blocos `npx` e
   `uvx` não têm o campo, o que exclui justamente os 21 agentes onde a chave é o
   caminho de autenticação mais comum.
-- **O `authMethods` do agente**, lido no `initialize`, diz de que credencial se
-  trata, e não onde pô-la. O Codex publica
-  `_meta["api-key"].provider = "openai"`, que nomeia o emissor da chave; nenhum
-  campo do método nomeia variável de ambiente.
+- **O `_meta["api-key"].provider` do `authMethods`** diz de que credencial se
+  trata, e não onde pô-la. O Codex o publica com `"openai"`, que nomeia o emissor
+  da chave.
 
-Ou seja: **quem declara a variável é quem cria o provedor**, no formulário, e o
-app não chuta. O que ele faz com o metadado é o que o metadado permite: o
-`_meta["api-key"].provider` **sugere qual entrada do cofre combina** — `openai`
-aponta para a credencial de `api.openai.com`, se ela existir —, e a sugestão é
-uma pré-seleção que a pessoa confirma, nunca uma escolha automática.
+A terceira fonte apareceu depois, e é a que faltava: o protocolo ganhou a
+variante **`env_var` do método de autenticação**, com `vars[]` — cada uma com
+`name`, `label`, `optional` e `secret` (este último com padrão `true`). Ela diz
+exatamente "esta variável de ambiente recebe a credencial", que era a condição
+registrada aqui para o app deixar de perguntar. **O app adota**: quando o agente
+publica a variante, o nome que ele declara chega preenchido no formulário.
 
-O que falta para isso melhorar está claro, e vale registrar para o dia em que
-aparecer: nem o formato do registro nem o `authMethods` do protocolo têm um campo
-que diga "esta variável de ambiente recebe a credencial". Se um dos dois passar a
-ter, o app adota e o formulário deixa de perguntar.
+O que fica, então, é uma divisão clara:
+
+- **O agente diz o nome da variável**, quando publica `env_var`. Só as marcadas
+  como segredo são oferecidas ao cofre: variável que não é segredo — uma URL de
+  base, por exemplo — cabe no ambiente comum que já existe ao lado.
+- **O `_meta["api-key"].provider` sugere qual entrada do cofre combina** —
+  `openai` aponta para a credencial de `api.openai.com`, se ela existir.
+- **Quem confirma é quem cria o provedor.** As duas sugestões entram como
+  preenchimento inicial, nunca como escolha automática, e o campo do nome
+  continua editável: agente que não publica `env_var` — a maioria, hoje — é
+  configurado à mão, como este AEP previa.
 
 #### De onde sai a credencial
 
@@ -1025,10 +1032,11 @@ próprio CLI não depende desta fase em momento nenhum.
 
 O que entra: o par variável/padrão do cofre no `ProviderConfig` e no formulário
 do provedor, com a lista de padrões vinda do
-`ListVisibleCredentialsWithContext`; a sugestão de entrada a partir do
-`_meta["api-key"].provider` do `authMethods`, como pré-seleção confirmável; a
-resolução no `buildEnv` do `internal/acp/client.go`; a redação do valor nas linhas
-de stderr antes de virarem log; a referência no export sem o segredo.
+`ListVisibleCredentialsWithContext`; o nome da variável vindo do `env_var` do
+`authMethods` e a sugestão de entrada vinda do `_meta["api-key"].provider`, as
+duas como preenchimento confirmável; a resolução no `buildEnv` do
+`internal/acp/client.go`; a redação do valor nas linhas de stderr antes de
+virarem log; a referência no export sem o segredo.
 
 **Aceite:** com a opção desligada — que é o padrão — o ambiente do agente é
 exatamente o de hoje, sem variável nova; ligada, o processo do agente nasce com a

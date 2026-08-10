@@ -44,6 +44,10 @@ const (
 	// protocolo: ele dá os argumentos e o programa é ele mesmo, como o
 	// `opencode auth login`.
 	scriptLoginPeloTerminal = "login-terminal"
+	// scriptLoginPorVariavel é o agente que pede a credencial numa variável de
+	// ambiente e nomeia essa variável — a variante `env_var` do protocolo, que
+	// é de onde sai a sugestão do formulário (AEP-0086 D12).
+	scriptLoginPorVariavel = "login-variavel"
 	// scriptSoLegado é o agente que anuncia os modelos apenas no formato de
 	// antes — `models`, sem configOptions nenhum —, como o GitHub Copilot CLI
 	// (AEP-0084, Fase 10). O scriptLegado não serve para isso: ele recusa o
@@ -437,6 +441,27 @@ func (a *fakeAgent) authMethods() []any {
 				"name":        "Entrar",
 				"description": "Run `opencode auth login` in the terminal",
 				"args":        []any{"auth", "login"},
+			},
+		}
+	case scriptLoginPorVariavel:
+		return []any{
+			map[string]any{
+				"type":        "env_var",
+				"id":          "api_key",
+				"name":        "Chave de API",
+				"description": "Ponha a chave no ambiente",
+				"vars": []any{
+					// O escape ANSI está aqui de propósito: nome de variável
+					// que se pinta é texto de terceiro como qualquer outro.
+					// Sem dizer `secret`: pelo protocolo isso é segredo, e é o
+					// que o SDK preenche.
+					map[string]any{"name": "\x1b[31mOPENAI_API_KEY", "label": "Chave da OpenAI"},
+					map[string]any{"name": "OPENAI_BASE_URL", "optional": true, "secret": false},
+					map[string]any{"name": "   "},
+				},
+				"_meta": map[string]any{
+					"api-key": map[string]any{"provider": "openai"},
+				},
 			},
 		}
 	default:

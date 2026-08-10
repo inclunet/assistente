@@ -15,6 +15,7 @@ const updateMock = vi.hoisted(() =>
   vi.fn((_id: string, _req: Record<string, unknown>) => Promise.resolve({})),
 );
 const listModelsMock = vi.hoisted(() => vi.fn((_req: Record<string, unknown>) => Promise.resolve(['gpt-4o'])));
+const listCredentialsMock = vi.hoisted(() => vi.fn());
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
   const root = (ptBR as { translation: Record<string, unknown> }).translation;
@@ -63,6 +64,8 @@ vi.mock('@wailsjs/go/app/App', () => ({
   InstallACPAgent: vi.fn(),
   CancelACPAgentInstall: vi.fn(),
   RemoveACPAgent: vi.fn(),
+  UpdateACPAgent: vi.fn(),
+  ListCredentials: listCredentialsMock,
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -152,6 +155,9 @@ afterEach(() => {
 
 beforeEach(() => {
   catalogMock.mockResolvedValue(catalogo);
+  listCredentialsMock.mockResolvedValue([
+    { pattern: 'api.openai.com', type: 'bearer', masked: 'sk-...4f2a', managed: false },
+  ]);
 });
 
 describe('ProviderForm — provedor de agente de código', () => {
@@ -446,6 +452,62 @@ describe('ProviderForm — provedor de agente de código', () => {
       acp_command: detected.command,
       acp_args: detected.args,
     });
+  });
+
+  it('a credencial do cofre ligada na tela vai no que é salvo, como referência', async () => {
+    detectMock.mockResolvedValue(detected);
+    const user = userEvent.setup();
+
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    await abrirFormularioDeAgente(user);
+
+    await user.type(await screen.findByLabelText(/variável de ambiente/i), 'OPENAI_API_KEY');
+    await user.selectOptions(screen.getByLabelText(/entrada do cofre/i), 'api.openai.com');
+    await user.click(screen.getByRole('button', { name: /ligar a credencial/i }));
+    await user.click(screen.getByRole('button', { name: /^criar$/i }));
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled());
+    expect(createMock.mock.calls[0][0]).toMatchObject({
+      acp_credential_env: { OPENAI_API_KEY: 'api.openai.com' },
+    });
+  });
+
+  it('trocar de agente desliga a credencial que era do anterior', async () => {
+    // A variável que o Cursor lê não é a que o Claude Code lê, e a chave é de
+    // quem se escolheu para recebê-la — manter o par entregaria o segredo a um
+    // programa que ninguém apontou.
+    detectMock.mockResolvedValue(detected);
+    const user = userEvent.setup();
+
+    render(
+      <ProviderForm
+        provider={{
+          id: 'claude-1',
+          name: 'Claude local',
+          type: 'acp',
+          base_url: '',
+          api_key: '',
+          api_format: 'acp',
+          acp_command: '/usr/bin/node',
+          acp_args: ['/opt/claude-agent-acp/dist/index.js'],
+          acp_agent_id: 'claude-acp',
+          acp_credential_env: { ANTHROPIC_API_KEY: 'api.anthropic.com' },
+        }}
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+    expect(
+      await screen.findByText(/ANTHROPIC_API_KEY recebe a credencial de api\.anthropic\.com/),
+    ).toBeInTheDocument();
+
+    await escolherAgente(user, 'Cursor', 'cursor');
+    await user.click(screen.getByRole('button', { name: /atualizar/i }));
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    // Mapa vazio, e não campo ausente: é o vazio que desliga a passagem no
+    // backend, e omiti-lo pediria para não mexer.
+    expect(updateMock.mock.calls[0][1]).toMatchObject({ acp_credential_env: {} });
   });
 
   it('o agente escolhido aparece na tela pelo nome, e não só pelo identificador', async () => {
