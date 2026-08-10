@@ -309,27 +309,38 @@ func binaryDistribution(agent acpregistry.Agent) bool {
 // máquina. Plano e instalação chamam a mesma função: a tela que mostra "vai
 // baixar tal arquivo" e o código que baixa não podem discordar.
 //
-// O pacote npm vem primeiro quando os dois existem. Ele baixa menos, atualiza
-// incrementalmente e tem integridade conferida pelo próprio npm contra o
-// `integrity` do registro dele — enquanto o artefato depende de o autor ter
-// publicado o `sha256`, e metade deles não publica.
+// Ordem:
+//  1. pacote npm, quando há NPX e o npm está disponível — baixa menos, atualiza
+//     incrementalmente e tem integridade conferida pelo próprio npm;
+//  2. artefato binário instalável, quando não há caminho npm (sem NPX ou sem
+//     npm) — não depende de runtime alheio;
+//  3. pacote uvx, quando o registro publica UVX;
+//  4. nenhum — o plano explica.
 //
-// A exceção é a máquina onde o npm não está disponível — sem Node, ou com um
-// Node cujo `npm-cli.js` não está ao lado dele. Ali o caminho npm não existe, e
-// recusar a instalação por falta de um runtime que o artefato não usa seria
-// mandar instalar o Node para não usá-lo.
+// Agente só-npm sem Node continua como DistributionNPM para o plano poder
+// nomear a falta do runtime (D7), em vez de cair num "não sei instalar".
 func (i *Installer) distributionFor(agent acpregistry.Agent, node acp.NodeRuntime) string {
 	binary := binaryDistribution(agent)
-	if agent.Distribution.NPX == nil {
-		if binary {
-			return DistributionBinary
-		}
-		return ""
+	hasNPX := agent.Distribution.NPX != nil
+	hasUVX := agent.Distribution.UVX != nil
+	_, _, npmOK := node.NPMCommand()
+
+	if hasNPX && npmOK {
+		return DistributionNPM
 	}
-	if _, _, npm := node.NPMCommand(); binary && !npm && binaryInstallable(agent) {
+	if binary && (!npmOK || !hasNPX) && binaryInstallable(agent) {
 		return DistributionBinary
 	}
-	return DistributionNPM
+	if hasUVX {
+		return DistributionUVX
+	}
+	if hasNPX {
+		return DistributionNPM
+	}
+	if binary {
+		return DistributionBinary
+	}
+	return ""
 }
 
 // binaryInstallable diz se o artefato desta plataforma é instalável agora: alvo
