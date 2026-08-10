@@ -211,7 +211,8 @@ export default function ProvidersPage() {
         // Sem o id do agente a cópia perderia de qual linha do registro ela
         // veio, e a tela de provedor não teria o que oferecer de catálogo.
         acp_agent_id: provider.acp_agent_id || undefined,
-        acp_env: provider.acp_env || undefined,
+        // ACPEnv não atravessa Create: o backend reaplica o env do binário
+        // instalado a partir do acp_agent_id / installed.json.
         // A passagem de credencial vai junto porque é referência: a cópia sobe
         // o mesmo agente e precisa da mesma chave, e o segredo continua onde
         // sempre esteve, no cofre.

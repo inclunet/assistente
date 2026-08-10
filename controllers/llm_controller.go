@@ -185,6 +185,13 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 	if acpCredentialEnv == nil {
 		acpCredentialEnv = map[string]string{}
 	}
+	// ACPEnv volta na leitura porque é configuração do processo (ex.: VT_ACP_*
+	// do registro), não segredo. Continua fora do Create/Update: a escrita vem
+	// da instalação do catálogo ou da importação.
+	acpEnv := p.ACPEnv
+	if acpEnv == nil {
+		acpEnv = map[string]string{}
+	}
 	return map[string]interface{}{
 		"id":                    p.ID,
 		"name":                  p.Name,
@@ -200,6 +207,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"auth_mode":             string(p.EffectiveAuthMode()),
 		"acp_command":           p.ACPCommand,
 		"acp_args":              acpArgs,
+		"acp_env":               acpEnv,
 		"acp_agent_id":          p.ACPAgentID,
 		"acp_credential_env":    acpCredentialEnv,
 	}

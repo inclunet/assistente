@@ -2,8 +2,10 @@ package app
 
 import (
 	"assistente/internal/logging"
+	"assistente/internal/providers"
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"assistente/controllers"
@@ -64,7 +66,17 @@ func (a *App) CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[s
 	if err != nil {
 		return nil, err
 	}
-	return a.llmCtrl.CreateLLMProvider(ctx, req)
+	created, err := a.llmCtrl.CreateLLMProvider(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	// ACPEnv não atravessa a fronteira Create (token costuma parar aí). O env
+	// do alvo binário instalado vem do installed.json, pelo agent_id — a tela
+	// só escolhe o agente; o app aplica a configuração publicada no registro.
+	if id, _ := created["id"].(string); id != "" {
+		a.applyInstalledBinaryEnv(ctx, id, req.ACPAgentID)
+	}
+	return created, nil
 }
 
 func (a *App) UpdateLLMProvider(id string, req controllers.UpdateLLMProviderRequest) (map[string]interface{}, error) {
@@ -72,7 +84,37 @@ func (a *App) UpdateLLMProvider(id string, req controllers.UpdateLLMProviderRequ
 	if err != nil {
 		return nil, err
 	}
-	return a.llmCtrl.UpdateLLMProvider(ctx, id, req)
+	updated, err := a.llmCtrl.UpdateLLMProvider(ctx, id, req)
+	if err != nil {
+		return nil, err
+	}
+	agentID := ""
+	if req.ACPAgentID != nil {
+		agentID = *req.ACPAgentID
+	} else if existing := a.llmCtrl.GetLLMProvider(id); existing != nil {
+		agentID = existing.ACPAgentID
+	}
+	a.applyInstalledBinaryEnv(ctx, id, agentID)
+	return updated, nil
+}
+
+// applyInstalledBinaryEnv põe no provedor o env{} do artefato binário que o
+// app instalou para este agente (AEP-0086). Sem UI de edição de ACPEnv: a
+// fonte é o registro via installed.json, e o cofre continua em ACPCredentialEnv.
+func (a *App) applyInstalledBinaryEnv(ctx context.Context, providerID, agentID string) {
+	if a.providerSvc == nil || providerID == "" || agentID == "" {
+		return
+	}
+	installation, ok := a.acpCatalogServices().installer.Installed(agentID)
+	if !ok || len(installation.Env) == 0 {
+		return
+	}
+	env := maps.Clone(installation.Env)
+	if _, err := a.providerSvc.Update(ctx, providerID, providers.UpdateRequest{ACPEnv: &env}); err != nil {
+		logging.Warnf(ctx, "llm-providers",
+			"não foi possível aplicar o env do agente instalado %s ao provedor %s: %v",
+			agentID, providerID, err)
+	}
 }
 
 func (a *App) SetDefaultProvider(id string) error {

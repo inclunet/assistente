@@ -546,8 +546,11 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     const command = (formData.acp_command || '').trim();
     const args = formData.acp_args || [];
     const agentId = (formData.acp_agent_id || '').trim();
-    const env = formData.acp_env || {};
     const credentialEnv = formData.acp_credential_env || {};
+    // ACPEnv não vai na fronteira Create/Update: variável de ambiente é onde
+    // token costuma parar, e a tela não a edita. O env do binário instalado
+    // (VT_ACP_* etc.) o backend aplica sozinho a partir do installed.json
+    // quando há acp_agent_id.
     if (formData.id) {
       await withTimeout(
         UpdateLLMProvider(formData.id, {
@@ -557,7 +560,6 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           acp_command: command,
           acp_args: args,
           acp_agent_id: agentId,
-          acp_env: env,
           // Sempre presente, mesmo vazio: aqui o mapa vazio é o que desliga a
           // passagem, e omiti-lo seria pedir para não mexer — quem tirou o
           // último par continuaria com a credencial indo para o agente.
@@ -581,7 +583,6 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         acp_command: command,
         acp_args: args,
         acp_agent_id: agentId,
-        acp_env: env,
         acp_credential_env: credentialEnv,
       }),
       15000,
