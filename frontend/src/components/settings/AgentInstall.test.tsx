@@ -966,7 +966,7 @@ describe('AgentInstall — versão nova', () => {
     expect(dialogo).toHaveTextContent(/versão instalada agora/i);
     expect(dialogo).toHaveTextContent('1.1.9');
     expect(dialogo).toHaveTextContent('@agentclientprotocol/codex-acp@1.2.0');
-    expect(dialogo).toHaveTextContent(/só então apagar a anterior/i);
+    expect(dialogo).toHaveTextContent(/só então tentar apagar a anterior/i);
     expect(updateMock).not.toHaveBeenCalled();
   });
 
@@ -990,6 +990,11 @@ describe('AgentInstall — versão nova', () => {
     expect(screen.getByTestId('argumentos')).toHaveTextContent(novaInstalacao.args[0]);
     const anuncio = await screen.findByText(/atualizado para a versão 1\.2\.0/i);
     expect(anuncio).toBeInTheDocument();
+    // A troca dos provedores conclui a atualização. A limpeza é best-effort:
+    // se um turno começou depois da primeira conferência, a versão anterior
+    // fica no disco para não interromper o processo que ainda a usa.
+    expect(anuncio).toHaveTextContent(/limpeza da versão anterior é tentada/i);
+    expect(anuncio).not.toHaveTextContent(/anterior foi apagada/i);
     expect(announceMock).toHaveBeenCalledWith(
       expect.stringContaining('1.2.0'),
       'polite',
@@ -1089,6 +1094,34 @@ describe('AgentInstall — versão nova', () => {
     });
 
     await waitFor(() => expect(screen.getByRole('group')).toHaveAttribute('aria-busy', 'false'));
+  });
+
+  it('reabrir a tela durante a atualização mantém o nome correto no botão de cancelar', async () => {
+    // A atualização roda no backend e sobrevive ao formulário fechado. Nesta
+    // montagem handleUpdate não rodou, então é o plano que distingue a
+    // atualização adotada de uma instalação adotada.
+    planMock.mockResolvedValue({ ...planoComVersaoNova, installing: true });
+
+    render(<Host />);
+
+    expect(await screen.findByRole('button', { name: /cancelar atualização/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument();
+  });
+
+  it('a falha ao cancelar uma atualização retomada diz que a atualização não foi cancelada', async () => {
+    planMock.mockResolvedValue({ ...planoComVersaoNova, installing: true });
+    cancelMock.mockRejectedValue(null);
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /cancelar atualização/i }));
+
+    expect(await screen.findByText(/não foi possível cancelar a atualização/i)).toBeInTheDocument();
+    expect(screen.queryByText(/não foi possível cancelar a instalação/i)).not.toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/não foi possível cancelar a atualização/i),
+      'assertive',
+    );
   });
 
   it('não tem violação no aviso de versão nova nem na confirmação dela', async () => {
