@@ -4004,6 +4004,20 @@ const es = {
         },
       },
     },
+    errorScreen: {
+      title: 'La aplicación encontró un error',
+      description: 'No se pudo dibujar la pantalla. Recargar suele resolverlo; si el error vuelve, copia los detalles y abre una incidencia.',
+      reload: 'Recargar la aplicación',
+      copy: 'Copiar detalles',
+      copyDone: 'Detalles copiados al portapapeles.',
+      copyFailed: 'No se pudo copiar. Selecciona el texto de los detalles y cópialo manualmente.',
+      detailsSummary: 'Detalles técnicos',
+      labels: {
+        message: 'Mensaje',
+        stack: 'Pila de llamadas',
+        components: 'Componentes',
+      },
+    },
     auth: {
       titles: {
         loading: 'Cargando autenticación',

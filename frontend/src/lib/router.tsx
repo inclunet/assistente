@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react';
 import { createHashRouter } from 'react-router-dom';
 import App from '../App';
 import { WorkspaceLayout } from '../components/workspace';
+import { AppErrorBoundary, RouteErrorScreen } from '../components/errors';
 import { PageLoading } from '../components/ui/PageLoading';
 
 const SettingsPage = lazy(() => import('../pages/SettingsPage'));
@@ -28,7 +29,12 @@ function WorkspaceIndexRoute() {
 export const router = createHashRouter([
   {
     path: '/',
-    element: <App />,
+    element: (
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
+    ),
+    errorElement: <RouteErrorScreen />,
     children: [
       {
         element: <WorkspaceLayout />,

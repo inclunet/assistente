@@ -1,0 +1,121 @@
+.app-error {
+  align-items: center;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.app-error:focus {
+  outline: none;
+}
+
+.app-error:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.app-error__card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  display: grid;
+  gap: 16px;
+  max-width: 720px;
+  padding: 24px;
+  width: 100%;
+}
+
+.app-error__title {
+  color: var(--text-primary);
+  font-size: var(--font-size-xl);
+  margin: 0;
+}
+
+.app-error__description {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.app-error__message {
+  background: var(--color-danger-dim);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 8px 12px;
+}
+
+.app-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-error__button {
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-inverse);
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
+.app-error__button:hover {
+  background: var(--accent-hover);
+}
+
+.app-error__button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.app-error__button--secondary {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+
+.app-error__button--secondary:hover {
+  background: var(--bg-hover);
+}
+
+.app-error__copy-status {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  margin: 0;
+  min-height: 20px;
+}
+
+.app-error__summary {
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 8px 0;
+}
+
+.app-error__summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.app-error__stack {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-code);
+  font-size: var(--font-size-sm);
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  white-space: pre-wrap;
+}

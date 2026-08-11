@@ -7,6 +7,10 @@ const testDir = dirname(fileURLToPath(import.meta.url));
 const srcRoot = join(testDir, '..', '..', '..', 'src');
 const allowedLiveRegionFiles = new Set([
   join('components', 'ui', 'ScreenReaderAnnouncer.tsx'),
+  // Exceção registrada na AEP-0087: a tela de erro substitui o app inteiro,
+  // inclusive o ScreenReaderAnnouncer. Não há live region concorrente para
+  // arbitrar — há a dela ou nenhuma.
+  join('components', 'errors', 'AppErrorScreen.tsx'),
 ]);
 
 const liveRegionPatterns = [

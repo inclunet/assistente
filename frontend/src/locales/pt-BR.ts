@@ -4002,6 +4002,20 @@ const ptBR = {
         },
       },
     },
+    errorScreen: {
+      title: 'O aplicativo encontrou um erro',
+      description: 'A tela não pôde ser desenhada. Recarregar costuma resolver; se o erro voltar, copie os detalhes e registre uma issue.',
+      reload: 'Recarregar o aplicativo',
+      copy: 'Copiar detalhes',
+      copyDone: 'Detalhes copiados para a área de transferência.',
+      copyFailed: 'Não foi possível copiar. Selecione o texto dos detalhes e copie manualmente.',
+      detailsSummary: 'Detalhes técnicos',
+      labels: {
+        message: 'Mensagem',
+        stack: 'Pilha de chamadas',
+        components: 'Componentes',
+      },
+    },
     auth: {
       titles: {
         loading: 'Carregando autenticação',

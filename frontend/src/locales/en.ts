@@ -4002,6 +4002,20 @@ const en = {
         },
       },
     },
+    errorScreen: {
+      title: 'The application ran into an error',
+      description: 'The screen could not be rendered. Reloading usually fixes it; if the error comes back, copy the details and open an issue.',
+      reload: 'Reload the application',
+      copy: 'Copy details',
+      copyDone: 'Details copied to the clipboard.',
+      copyFailed: 'Could not copy. Select the details text and copy it manually.',
+      detailsSummary: 'Technical details',
+      labels: {
+        message: 'Message',
+        stack: 'Call stack',
+        components: 'Components',
+      },
+    },
     auth: {
       titles: {
         loading: 'Loading authentication',
