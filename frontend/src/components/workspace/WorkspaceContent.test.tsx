@@ -14,12 +14,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('../../store/workspaceStore', () => ({
   useActiveTab: () => workspaceState.tabs.find((tab) => tab.id === workspaceState.activeTabId) ?? null,
-  useWorkspaceStore: (selector: (state: { workspace: { tabs: WorkspaceTab[]; activeTabId: string | null } }) => unknown) => selector({
-    workspace: {
-      tabs: workspaceState.tabs,
-      activeTabId: workspaceState.activeTabId,
-    },
-  }),
+  useWorkspaceTabs: () => workspaceState.tabs,
 }));
 
 vi.mock('./workspacePanelRegistry', () => ({
