@@ -38,6 +38,8 @@ Deve existir uma live region global única para toda a aplicação.
 
 Controllers de chat, editor, terminal e tasklist não devem criar live regions próprias para progresso geral. Eles devem solicitar anúncios a um serviço central, informando origem e prioridade.
 
+Há uma única exceção, registrada na AEP-0087: a tela de erro do `AppErrorBoundary`. Ela entra em cena substituindo a árvore inteira do app — o `ScreenReaderAnnouncer` global não está mais montado —, então usa uma live region local. A regra continua valendo no que ela protege: em nenhum momento existem duas live regions disputando o leitor de telas.
+
 ### 2. Política de anúncios por aba ativa/inativa
 
 A aba ativa pode anunciar:
