@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useActiveTab, useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
+import { useActiveTab, useWorkspaceTabs, type WorkspaceTab } from '../../store/workspaceStore';
 import { WorkspacePanelProvider } from './WorkspacePanelContext';
 import { WorkspaceDomainPanel } from './workspacePanelRegistry';
 import './WorkspaceContent.css';
@@ -36,7 +36,7 @@ function WorkspaceTabPanel({ tab, isActive }: { tab: WorkspaceTab; isActive: boo
 export function WorkspaceContent() {
   const { t } = useTranslation();
   const activeTab = useActiveTab();
-  const tabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
+  const tabs = useWorkspaceTabs();
   const [visitedTabIds, setVisitedTabIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {

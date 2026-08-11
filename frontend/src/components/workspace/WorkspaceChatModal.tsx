@@ -5,7 +5,7 @@ import { Modal, useModalIsTopmost } from '../ui/Modal';
 import { ChatPanel, useEffectiveProfileSlug, type ChatPanelSendContext } from '../chat/ChatPanel';
 import { sendChatSurfaceMessage, useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
-import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
+import { useWorkspaceStore, useActiveTab, useWorkspaceTabs } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import { isBackendId } from '../../lib/idUtils';
@@ -124,7 +124,7 @@ export function WorkspaceChatModal() {
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
   const boundSurface = useWorkspaceChatModalStore((s) => s.boundSurface);
   const setBoundConversation = useWorkspaceChatModalStore((s) => s.setBoundConversation);
-  const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
+  const workspaceTabs = useWorkspaceTabs();
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
   const { announce } = useAnnouncer();

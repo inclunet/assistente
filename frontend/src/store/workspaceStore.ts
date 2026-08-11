@@ -537,6 +537,21 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 }));
 
 /**
+ * Lista vazia compartilhada para quando ainda não há workspace carregado.
+ *
+ * O zustand 5 usa o seletor como `getSnapshot` do `useSyncExternalStore`, sem
+ * memoizar o resultado. Um `[]` literal dentro do seletor seria um valor novo a
+ * cada chamada, o React concluiria que o snapshot mudou em todo commit e
+ * reagendaria render até estourar em "Maximum update depth exceeded".
+ */
+const NO_TABS: readonly WorkspaceTab[] = Object.freeze([]);
+
+/** Abas do workspace ativo; lista estável enquanto o workspace não carregou. */
+export function useWorkspaceTabs(): readonly WorkspaceTab[] {
+  return useWorkspaceStore((s) => s.workspace?.tabs ?? NO_TABS);
+}
+
+/**
  * Hook estável para obter a aba ativa sem causar re-render desnecessário.
  * Usa useShallow para evitar re-renders quando o conteúdo da aba não mudou.
  */

@@ -146,6 +146,7 @@ vi.mock('../../store/workspaceStore', () => ({
     },
   ),
   useActiveTab: () => hoisted.activeTab,
+  useWorkspaceTabs: () => [hoisted.activeTab],
 }));
 
 vi.mock('../../store/chatStore', () => ({
