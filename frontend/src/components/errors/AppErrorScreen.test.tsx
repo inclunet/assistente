@@ -95,6 +95,15 @@ describe('AppErrorScreen', () => {
     expect(screen.getByText('falha crua')).toBeInTheDocument();
   });
 
+  it('não deixa a mensagem vazia quando o erro não serializa em JSON', () => {
+    // JSON.stringify(undefined) === undefined: sem o fallback, a mensagem sumiria.
+    render(<AppErrorScreen error={undefined} />, { container: root });
+
+    const heading = screen.getByRole('heading', { level: 1 });
+    const mensagem = heading.parentElement?.querySelector('.app-error__message');
+    expect(mensagem?.textContent).toBe('undefined');
+  });
+
   it('não tem violações de acessibilidade', async () => {
     const { container } = render(<AppErrorScreen error={new Error('quebrou')} />, { container: root });
 

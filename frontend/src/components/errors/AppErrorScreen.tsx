@@ -22,7 +22,10 @@ function descreverErro(error: unknown): { message: string; stack: string | null 
     return { message: error, stack: null };
   }
   try {
-    return { message: JSON.stringify(error), stack: null };
+    // JSON.stringify devolve `undefined` para `undefined`, funções e símbolos —
+    // aí `message` deixaria de ser string. Cai no String(error) nesses casos.
+    const serializado = JSON.stringify(error);
+    return { message: serializado ?? String(error), stack: null };
   } catch {
     return { message: String(error), stack: null };
   }
