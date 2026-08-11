@@ -138,7 +138,7 @@ Section
             ${EndIf}
 
             IntOp $R0 $R0 + 1
-            ${If} $R0 > 60  # Máximo 60 tentativas (30 segundos)
+            ${If} $R0 > 60  # Desiste depois de ~30 s de espera
                 MessageBox MB_ICONEXCLAMATION|MB_OK "O ${INFO_PRODUCTNAME} continua em execução e o instalador não pode substituí-lo. Feche o aplicativo e execute o instalador novamente."
                 Abort
             ${EndIf}
