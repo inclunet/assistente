@@ -1,6 +1,6 @@
 # AEP-0086 — Descoberta e instalação de agentes pelo registro ACP
 
-**Status:** 📝 Draft
+**Status:** ✅ Done
 
 ## Resumo
 
@@ -916,11 +916,12 @@ Ela não foi feita aqui porque exige autenticar o Codex e deixar o agente agir n
 máquina — o que uma sonda de leitura não deve fazer sem que alguém peça. **O dono
 do projeto decidiu deixá-la para depois**: a questão fica aberta por escolha, não
 por esquecimento, e a D15 já diz o que o app faz enquanto ela não tem resposta —
-não põe modo nenhum do Codex na lista de "barreira caída".
+não põe modo nenhum do Codex na lista de "barreira caída". **A Q2 permanece
+deliberadamente aberta e não bloqueia o fechamento das fases deste AEP.**
 
 ## Fases
 
-### Fase 1 — Ler e cachear o índice
+### Fase 1 — Ler e cachear o índice (feita)
 
 Pacote novo (`internal/acpregistry`): busca com o cliente HTTP do app, parse
 tipado do documento, saneamento do texto (D9), cache em disco com carimbo (D2),
@@ -933,7 +934,7 @@ rede, o cache anterior é servido com a idade dele; primeira execução sem rede
 devolve catálogo vazio com o motivo; documento com `version` de major
 desconhecido é recusado e o cache anterior permanece.
 
-### Fase 2 — O catálogo na tela de provedores
+### Fase 2 — O catálogo na tela de provedores (feita)
 
 Lista navegável, com busca, ordenada por nome. Cada item traz nome, descrição,
 versão, autores, licença, o requisito de runtime e o estado nesta máquina:
@@ -945,7 +946,7 @@ de agir.
 leitor de telas, com o estado em texto e não só em cor; a tela abre sem rede e
 explica; as strings existem nos três locales; os testes de `axe-core` passam.
 
-### Fase 3 — Instalar por npm em prefixo do app
+### Fase 3 — Instalar por npm em prefixo do app (feita)
 
 Confirmação do D3, `npm install --prefix` (D6), ponto de entrada pelo `bin` do
 manifesto, comando resolvido e handshake de conclusão (D8), `installed.json`
@@ -961,7 +962,7 @@ a instalação não é oferecida e o motivo está em texto; a instalação pode 
 cancelada sem deixar resíduo; remover apaga o diretório e o provider passa a
 relatar comando inexistente pelo health que já existe.
 
-### Fase 4 — Instalar binário com verificação de digest
+### Fase 4 — Instalar binário com verificação de digest (feita)
 
 Escolha do alvo por plataforma, download, conferência do `sha256` (D4), extração
 com guarda de caminho (D9) para `.zip`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2` e
@@ -977,7 +978,7 @@ entrada `../` aborta a instalação e limpa o destino; no Windows, o alvo cujo
 `cmd` não é spawnável é resolvido para o executável correspondente ou falha
 dizendo o que tentou.
 
-### Fase 5 — Os agentes sem digest, com a pergunta que eles exigem
+### Fase 5 — Os agentes sem digest, com a pergunta que eles exigem (feita)
 
 O caminho do D4 para quem só tem binário e não publica `sha256`: a confirmação
 reforçada, com a frase que nomeia o que o app não consegue atestar e a ação
@@ -997,7 +998,7 @@ instalado, o item continua dizendo que aquela instalação não foi verificada;
 baixar de novo a mesma versão com artefato diferente é recusado com o motivo;
 não há em lugar nenhum uma preferência que desligue a pergunta.
 
-### Fase 6 — O catálogo substitui os presets escritos à mão
+### Fase 6 — O catálogo substitui os presets escritos à mão (feita)
 
 `providers.ts` e `defaults.go` param de carregar a lista de agentes (D11). Todo
 agente ACP passa a ser o tipo `acp`, com o `id` do registro no `acp_agent_id`, e
@@ -1013,7 +1014,7 @@ já salvo continua subindo o mesmo comando depois da migração; provider import
 de arquivo antigo entra como `acp` com o agente no campo próprio, e nenhum
 caminho do app pergunta qual agente é para decidir o que fazer.
 
-### Fase 7 — Aviso de versão nova e atualização pedida
+### Fase 7 — Aviso de versão nova e atualização pedida (feita)
 
 D10 inteiro: comparação com o catálogo, aviso em texto, atualização ao lado com
 handshake antes de repontar, recusa durante conversa, recusa de trocar
@@ -1024,7 +1025,7 @@ oferece atualizar; a versão anterior só é removida depois que a nova responde
 `initialize`; atualizar com um turno em voo é recusado com motivo; um agente que
 parou de publicar digest não é atualizado, e a tela explica.
 
-### Fase 8 — Credencial do cofre por variável de ambiente, opcional
+### Fase 8 — Credencial do cofre por variável de ambiente, opcional (feita)
 
 A D12 inteira, e só ela. Vem depois de a instalação estar de pé porque não
 bloqueia nada do catálogo: instalar, atualizar e usar agente autenticado pelo
