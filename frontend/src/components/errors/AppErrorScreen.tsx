@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../ui/Button';
 import './AppErrorScreen.css';
 
 export interface AppErrorScreenProps {
@@ -114,12 +115,12 @@ export function AppErrorScreen({ error, componentStack }: AppErrorScreenProps) {
         <p className="app-error__message">{message}</p>
 
         <div className="app-error__actions">
-          <button type="button" className="app-error__button" onClick={recarregar}>
+          <Button type="button" onClick={recarregar}>
             {t('errorScreen.reload', 'Recarregar o aplicativo')}
-          </button>
-          <button type="button" className="app-error__button app-error__button--secondary" onClick={copiarDetalhes}>
+          </Button>
+          <Button type="button" variant="secondary" onClick={copiarDetalhes}>
             {t('errorScreen.copy', 'Copiar detalhes')}
-          </button>
+          </Button>
         </div>
 
         {/* A live region é local: quem anuncia no app é o ScreenReaderAnnouncer,
