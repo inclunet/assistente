@@ -67,11 +67,19 @@
   background-color: var(--bg-surface);
 }
 
-.acp-catalog__item:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-  border-color: var(--border-strong);
+.acp-catalog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
+
+.acp-catalog-install-modal__intro {
+  margin: 0 0 1rem;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 
 .acp-catalog__name {
   display: flex;

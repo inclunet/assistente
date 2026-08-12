@@ -1934,14 +1934,35 @@ const en = {
         'Agents published in the official ACP registry. This screen shows what exists and what is already on this machine.',
       introSelect:
         'Choose the agent this provider will use. If it is not installed yet, the provider form offers to install it.',
+      introActions:
+        'Agents from the official ACP registry. On each row you can install the agent on this machine or open a new provider already pointing to it.',
       listLabel: 'Agents from the ACP registry',
       navHelp: 'Use the up and down arrows to move through the agents; Home and End jump to the first and the last.',
       navHelpSelect:
         'Use the up and down arrows to move through the agents; Home and End jump to the first and the last; Enter picks the focused agent.',
+      navHelpActions:
+        'Use the up and down arrows to move through the agents; Home and End jump to the first and the last. On each agent, Tab moves from Use to Install.',
       loading: 'Loading the agent catalog...',
       count: 'Showing {{shown}} of {{total}} agents.',
       manualPath:
         'Without the catalog you can still add an agent by hand: create an agent provider and fill in its command and arguments.',
+      row: {
+        use: 'Use in this provider',
+        install: 'Install',
+        useAria: 'Use {{name}} in this provider',
+        installAria: 'Install {{name}}',
+      },
+      installModal: {
+        title: 'Install {{name}}',
+        intro:
+          'Installation is the same as in the provider form: confirmation, download, and a check that the agent speaks ACP. Afterwards you can create the provider with Use in this provider.',
+      },
+      announce: {
+        useOpened: 'Opening a new provider for {{name}}.',
+      },
+      toast: {
+        installed: 'Agent installed. Use "Use in this provider" in the catalog to create the provider.',
+      },
       actions: {
         refresh: 'Refresh catalog',
         refreshing: 'Refreshing...',

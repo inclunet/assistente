@@ -937,13 +937,20 @@ desconhecido é recusado e o cache anterior permanece.
 
 Lista navegável, com busca, ordenada por nome. Cada item traz nome, descrição,
 versão, autores, licença, o requisito de runtime e o estado nesta máquina:
-encontrado por detecção, não encontrado, ou requisito ausente. **Nenhum botão
-instala ainda** — esta fase entrega ver, e ver é o que precisa estar certo antes
-de agir.
+encontrado por detecção, não encontrado, ou requisito ausente.
+
+A entrega original desta fase era **só ver**. Depois que as fases de instalação
+existiam, a lista de leitura na tela de provedores ficou sem ação útil: quem
+queria instalar tinha que criar o provedor antes. O browse da tela de provedores
+passa a oferecer, em cada linha, **Instalar** (o mesmo `AgentInstall` do
+formulário) e **Usar neste provedor** (abre o formulário já com o agente). O
+picker do formulário (`onSelect`) continua só escolhendo — sem esses botões.
 
 **Aceite:** a lista é percorrível por teclado e cada item é lido inteiro por
 leitor de telas, com o estado em texto e não só em cor; a tela abre sem rede e
-explica; as strings existem nos três locales; os testes de `axe-core` passam.
+explica; as strings existem nos três locales; os testes de `axe-core` passam;
+pelo browse dá para instalar e para abrir o formulário do provedor sem
+redigitar o agente.
 
 ### Fase 3 — Instalar por npm em prefixo do app
 

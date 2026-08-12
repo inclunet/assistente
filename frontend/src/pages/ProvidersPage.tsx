@@ -19,7 +19,9 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
-import { ACPAgentCatalog } from '../components/settings/ACPAgentCatalog';
+import { ACPAgentCatalog, type CatalogAgent } from '../components/settings/ACPAgentCatalog';
+import { CatalogAgentInstallModal } from '../components/settings/CatalogAgentInstallModal';
+import { AGENT_API_FORMAT } from '../config/providers';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -79,10 +81,50 @@ export default function ProvidersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
-  // O catálogo do registro do ACP (AEP-0086 Fase 2) mora aqui porque é daqui que
-  // sai um provedor de agente: consultar o que existe e apontar o comando à mão
-  // são o mesmo assunto enquanto instalar ainda não é uma opção.
+  // O catálogo do registro do ACP mora aqui porque é daqui que sai um provedor
+  // de agente: a lista mostra o que existe, instala pelo mesmo bloco do
+  // formulário e abre o provedor já apontando para o agente escolhido.
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0);
+  const [installingAgent, setInstallingAgent] = useState<CatalogAgent | null>(null);
+
+  const handleUseAgentFromCatalog = useCallback((agent: CatalogAgent) => {
+    setIsCatalogOpen(false);
+    setInstallingAgent(null);
+    // Rascunho sem `id`: o formulário cria o provedor. Tipo e agente já vêm
+    // preenchidos para o AgentInstall / detecção aparecerem na hora.
+    setEditingProvider({
+      name: agent.name,
+      type: 'acp',
+      base_url: '',
+      api_key: '',
+      api_format: AGENT_API_FORMAT,
+      acp_command: '',
+      acp_args: [],
+      acp_agent_id: agent.id,
+      acp_env: {},
+      acp_credential_env: {},
+    });
+    setIsEditing(true);
+    announce(t('acpCatalog.announce.useOpened', { name: agent.name }));
+  }, [announce, t]);
+
+  const handleInstallAgentFromCatalog = useCallback((agent: CatalogAgent) => {
+    // Um modal de cada vez: o de instalação reusa o focus trap do app, e
+    // empilhar os dois deixaria o catálogo inerte por baixo.
+    setIsCatalogOpen(false);
+    setInstallingAgent(agent);
+  }, []);
+
+  const handleCatalogInstalled = useCallback(() => {
+    setCatalogRefreshNonce((n) => n + 1);
+    addToast(t('acpCatalog.toast.installed'), 'success');
+  }, [addToast, t]);
+
+  const handleInstallModalClose = useCallback(() => {
+    setInstallingAgent(null);
+    setIsCatalogOpen(true);
+  }, []);
 
   const loadProviders = async () => {
     setLoading(true);
@@ -442,8 +484,20 @@ export default function ProvidersPage() {
             title={t('acpCatalog.title')}
             size="lg"
           >
-            <ACPAgentCatalog />
+            <ACPAgentCatalog
+              onUseAgent={handleUseAgentFromCatalog}
+              onInstallAgent={handleInstallAgentFromCatalog}
+              refreshNonce={catalogRefreshNonce}
+            />
           </Modal>
+
+          <CatalogAgentInstallModal
+            isOpen={!!installingAgent}
+            agentId={installingAgent?.id || ''}
+            agentName={installingAgent?.name || ''}
+            onClose={handleInstallModalClose}
+            onInstalled={handleCatalogInstalled}
+          />
         </>
       )}
     </div>

@@ -1933,15 +1933,36 @@ const es = {
         'Agentes publicados en el registro oficial del ACP. Esta pantalla muestra lo que existe y lo que ya está en esta máquina.',
       introSelect:
         'Elige el agente que usará este proveedor. Si todavía no está instalado, el formulario del proveedor ofrece instalarlo.',
+      introActions:
+        'Agentes del registro oficial del ACP. En cada fila puedes instalar el agente en esta máquina o abrir un proveedor nuevo ya apuntando a él.',
       listLabel: 'Agentes del registro del ACP',
       navHelp:
         'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último.',
       navHelpSelect:
         'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último; Intro elige el agente enfocado.',
+      navHelpActions:
+        'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último. En cada agente, Tab va del botón Usar al Instalar.',
       loading: 'Cargando el catálogo de agentes...',
       count: 'Mostrando {{shown}} de {{total}} agentes.',
       manualPath:
         'Sin catálogo aún puedes agregar un agente a mano: crea un proveedor de tipo agente e indica su comando y sus argumentos.',
+      row: {
+        use: 'Usar en este proveedor',
+        install: 'Instalar',
+        useAria: 'Usar {{name}} en este proveedor',
+        installAria: 'Instalar {{name}}',
+      },
+      installModal: {
+        title: 'Instalar {{name}}',
+        intro:
+          'La instalación es la misma del formulario del proveedor: confirmación, descarga y comprobación de que el agente habla ACP. Después puedes crear el proveedor con Usar en este proveedor.',
+      },
+      announce: {
+        useOpened: 'Abriendo un proveedor nuevo para {{name}}.',
+      },
+      toast: {
+        installed: 'Agente instalado. Usa "Usar en este proveedor" en el catálogo para crear el proveedor.',
+      },
       actions: {
         refresh: 'Actualizar catálogo',
         refreshing: 'Actualizando...',

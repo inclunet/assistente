@@ -499,4 +499,85 @@ describe('ACPAgentCatalog', () => {
     await screen.findByText(/O catálogo está vazio/);
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  describe('browse acionável (tela de provedores)', () => {
+    it('oferece Usar e Instalar sem transformar a lista em picker', async () => {
+      const onUse = vi.fn();
+      const onInstall = vi.fn();
+      render(<ACPAgentCatalog onUseAgent={onUse} onInstallAgent={onInstall} />);
+      await waitFor(() => expect(itens()).toHaveLength(3));
+
+      expect(screen.getByText(/Em cada linha você pode instalar/)).toBeInTheDocument();
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+      const usarGemini = await screen.findByRole('button', { name: 'Usar Gemini CLI neste provedor' });
+      await userEvent.click(usarGemini);
+      expect(onUse).toHaveBeenCalledWith(expect.objectContaining({ id: 'gemini-cli', name: 'Gemini CLI' }));
+
+      const instalarZeta = screen.getByRole('button', { name: 'Instalar Zeta' });
+      await userEvent.click(instalarZeta);
+      expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ id: 'zed-industries/zeta' }));
+    });
+
+    it('não oferece Instalar quando o runtime falta ou não há alvo nesta plataforma', async () => {
+      getCatalogMock.mockResolvedValue(
+        catalogo({
+          agents: [
+            agente({
+              id: 'sem-node',
+              name: 'Sem Node',
+              state: 'requirement_missing',
+              runtime: 'node',
+              runtime_found: false,
+            }),
+            agente({
+              id: 'sem-alvo',
+              name: 'Sem Alvo',
+              state: 'no_platform_target',
+              distributions: ['binary'],
+              runtime: '',
+            }),
+            agente({ id: 'ok', name: 'Ok', state: 'not_installed' }),
+          ],
+        })
+      );
+      render(<ACPAgentCatalog onUseAgent={() => {}} onInstallAgent={() => {}} />);
+      await screen.findByRole('button', { name: 'Usar Ok neste provedor' });
+
+      expect(screen.queryByRole('button', { name: 'Instalar Sem Node' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Instalar Sem Alvo' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Instalar Ok' })).toBeInTheDocument();
+      // Usar continua disponível: o formulário ainda serve para apontar à mão.
+      expect(screen.getByRole('button', { name: 'Usar Sem Node neste provedor' })).toBeInTheDocument();
+    });
+
+    it('não oferece Instalar de novo quando o app já instalou o agente', async () => {
+      getCatalogMock.mockResolvedValue(
+        catalogo({
+          agents: [
+            agente({
+              id: 'cursor',
+              name: 'Cursor',
+              state: 'installed',
+              installed_by_app: true,
+              installed_version: '1.0.0',
+              distributions: ['binary'],
+              runtime: '',
+            }),
+          ],
+        })
+      );
+      render(<ACPAgentCatalog onUseAgent={() => {}} onInstallAgent={() => {}} />);
+      await screen.findByRole('button', { name: 'Usar Cursor neste provedor' });
+      expect(screen.queryByRole('button', { name: 'Instalar Cursor' })).not.toBeInTheDocument();
+    });
+
+    it('não tem violação de acessibilidade no browse acionável', async () => {
+      const { container } = render(
+        <ACPAgentCatalog onUseAgent={() => {}} onInstallAgent={() => {}} />
+      );
+      await waitFor(() => expect(screen.getAllByRole('button', { name: /Usar .+ neste provedor/ })).toHaveLength(3));
+      expect(await axe(container)).toHaveNoViolations();
+    });
+  });
 });

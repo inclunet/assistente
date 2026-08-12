@@ -1934,14 +1934,35 @@ const ptBR = {
         'Agentes publicados no registro oficial do ACP. Esta tela mostra o que existe e o que já está nesta máquina.',
       introSelect:
         'Escolha o agente que este provedor vai usar. Se ele ainda não estiver instalado, o formulário do provedor oferece instalar.',
+      introActions:
+        'Agentes do registro oficial do ACP. Em cada linha você pode instalar o agente nesta máquina ou abrir um provedor novo já apontando para ele.',
       listLabel: 'Agentes do registro do ACP',
       navHelp: 'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último.',
       navHelpSelect:
         'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último; Enter escolhe o agente em foco.',
+      navHelpActions:
+        'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último. Em cada agente, Tab vai do botão Usar ao Instalar.',
       loading: 'Carregando o catálogo de agentes...',
       count: 'Mostrando {{shown}} de {{total}} agentes.',
       manualPath:
         'Sem catálogo você ainda pode adicionar um agente à mão: crie um provedor do tipo agente e informe o comando e os argumentos dele.',
+      row: {
+        use: 'Usar neste provedor',
+        install: 'Instalar',
+        useAria: 'Usar {{name}} neste provedor',
+        installAria: 'Instalar {{name}}',
+      },
+      installModal: {
+        title: 'Instalar {{name}}',
+        intro:
+          'A instalação é a mesma do formulário do provedor: confirmação, download e verificação de que o agente fala ACP. Depois você pode criar o provedor com Usar neste provedor.',
+      },
+      announce: {
+        useOpened: 'Abrindo provedor novo para {{name}}.',
+      },
+      toast: {
+        installed: 'Agente instalado. Use "Usar neste provedor" no catálogo para criar o provedor.',
+      },
       actions: {
         refresh: 'Atualizar catálogo',
         refreshing: 'Atualizando...',
