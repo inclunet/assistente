@@ -67,6 +67,13 @@
   background-color: var(--bg-surface);
 }
 
+.acp-catalog__item:focus-visible,
+.acp-catalog__item:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-color: var(--border-strong);
+}
+
 .acp-catalog__actions {
   display: flex;
   flex-wrap: wrap;

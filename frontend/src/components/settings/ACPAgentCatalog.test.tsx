@@ -572,6 +572,35 @@ describe('ACPAgentCatalog', () => {
       expect(screen.queryByRole('button', { name: 'Instalar Cursor' })).not.toBeInTheDocument();
     });
 
+    it('navega com setas também a partir do botão Instalar', async () => {
+      const user = userEvent.setup();
+      render(<ACPAgentCatalog onUseAgent={() => {}} onInstallAgent={() => {}} />);
+      await waitFor(() => expect(itens()).toHaveLength(3));
+
+      const instalarZeta = screen.getByRole('button', { name: 'Instalar Zeta' });
+      instalarZeta.focus();
+      await user.keyboard('{ArrowUp}');
+      expect(screen.getByRole('button', { name: 'Usar Gemini CLI neste provedor' })).toHaveFocus();
+    });
+
+    it('foca Instalar quando a linha não tem Usar', async () => {
+      getCatalogMock.mockResolvedValue(
+        catalogo({
+          agents: [
+            agente({ id: 'so-instalar', name: 'Só Instalar', state: 'not_installed' }),
+            agente({ id: 'outro', name: 'Outro', state: 'not_installed' }),
+          ],
+        })
+      );
+      const user = userEvent.setup();
+      render(<ACPAgentCatalog onInstallAgent={() => {}} />);
+      await screen.findByRole('button', { name: 'Instalar Só Instalar' });
+
+      screen.getByRole('button', { name: 'Instalar Só Instalar' }).focus();
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('button', { name: 'Instalar Outro' })).toHaveFocus();
+    });
+
     it('não tem violação de acessibilidade no browse acionável', async () => {
       const { container } = render(
         <ACPAgentCatalog onUseAgent={() => {}} onInstallAgent={() => {}} />

@@ -311,6 +311,7 @@ export const ACPAgentCatalog = ({
 
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
   const useBtnRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const installBtnRefs = useRef<Array<HTMLButtonElement | null>>([]);
   // A resposta de uma carga que já não é a última não fala pela tela, e a de um
   // componente desmontado não fala por ninguém: o modal fecha, e um `setState`
   // depois disso descreveria uma tela que saiu do ar.
@@ -402,8 +403,14 @@ export const ACPAgentCatalog = ({
   const focusRow = (index: number) => {
     setActiveIndex(index);
     if (actionable) {
-      useBtnRefs.current[index]?.focus();
-      return;
+      // Preferir "Usar"; se a linha só tiver "Instalar" (ou o ref ainda não
+      // montou o outro), o foco precisa ir a algum controle — senão as setas
+      // mudariam o índice ativo sem mover o foco de verdade.
+      const alvo = useBtnRefs.current[index] ?? installBtnRefs.current[index];
+      if (alvo) {
+        alvo.focus();
+        return;
+      }
     }
     itemRefs.current[index]?.focus();
   };
@@ -433,6 +440,14 @@ export const ACPAgentCatalog = ({
     }
     focusRow(next);
     return true;
+  };
+
+  const handleRowActionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    // Setas/Home/End nos botões da linha navegam a lista; sem isso o foco
+    // preso em "Usar" ou "Instalar" perderia o atalho descrito no navHelp.
+    if (moveFocusByKey(event.key)) {
+      event.preventDefault();
+    }
   };
 
   const handleListKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
@@ -656,13 +671,7 @@ export const ACPAgentCatalog = ({
                             tabIndex={ativo ? 0 : -1}
                             aria-label={t('acpCatalog.row.useAria', { name: agent.name })}
                             onFocus={() => setActiveIndex(index)}
-                            onKeyDown={(event) => {
-                              // Setas no botão navegam a lista; sem isso o
-                              // foco preso no botão perderia o atalho das setas.
-                              if (moveFocusByKey(event.key)) {
-                                event.preventDefault();
-                              }
-                            }}
+                            onKeyDown={handleRowActionKeyDown}
                             onClick={() => onUseAgent(agent)}
                           >
                             {t('acpCatalog.row.use')}
@@ -670,11 +679,15 @@ export const ACPAgentCatalog = ({
                         )}
                         {podeInstalar && (
                           <Button
+                            ref={(node) => {
+                              installBtnRefs.current[index] = node;
+                            }}
                             type="button"
                             variant="secondary"
                             tabIndex={ativo ? 0 : -1}
                             aria-label={t('acpCatalog.row.installAria', { name: agent.name })}
                             onFocus={() => setActiveIndex(index)}
+                            onKeyDown={handleRowActionKeyDown}
                             onClick={() => onInstallAgent?.(agent)}
                           >
                             {t('acpCatalog.row.install')}
