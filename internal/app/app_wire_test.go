@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"assistente/internal/chat"
+	"assistente/internal/database"
 	"assistente/internal/profiles"
 	"assistente/internal/wailsapi"
 )
@@ -24,11 +25,8 @@ func TestWireTokensAttachesBind(t *testing.T) {
 		t.Fatal("tokensCtrl deve ser criado")
 	}
 	_, err := api.GetConversationTokenStats("c1")
-	if err == nil {
-		t.Fatal("sem sessão autenticada deve falhar (fail-closed)")
-	}
-	if errors.Is(err, wailsapi.ErrTokensNotWired) {
-		t.Fatal("bind deveria estar wired; erro esperado é de auth, não ErrTokensNotWired")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
 
@@ -44,10 +42,7 @@ func TestWireAllowlistAttachesBind(t *testing.T) {
 		t.Fatal("allowlistCtrl deve ser criado")
 	}
 	_, err := api.GetAllowlists()
-	if err == nil {
-		t.Fatal("sem sessão autenticada deve falhar (fail-closed)")
-	}
-	if errors.Is(err, wailsapi.ErrAllowlistsNotWired) {
-		t.Fatal("bind deveria estar wired; erro esperado é de auth, não ErrAllowlistsNotWired")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
