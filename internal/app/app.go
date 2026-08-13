@@ -519,6 +519,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		},
 		Delivery:     &subagentParentDelivery{app: a},
 		CancelStream: a.streamMgr.Cancel,
+		EmitEvent: func(event string, data any) {
+			a.emitter.Emit(event, data)
+		},
 	})
 
 	// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running

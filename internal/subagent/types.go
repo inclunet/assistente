@@ -144,6 +144,52 @@ type StatusResult struct {
 	Error              string `json:"error,omitempty"`
 }
 
+// RunEvent é o payload dos eventos EventRunStarted/EventRunFinished emitidos ao
+// frontend (AEP-0068 F5). Carrega sempre o conversationId da sub-conversa, como
+// exige o contrato de eventos de chat do projeto.
+//
+// Este struct NÃO chega aos bindings gerados (payload de evento não aparece em
+// assinatura de método exportado do App): o frontend o espelha à mão numa
+// interface TypeScript junto de quem escuta o evento.
+type RunEvent struct {
+	RunID                string `json:"runId"`
+	ConversationID       string `json:"conversationId"`
+	ParentConversationID string `json:"parentConversationId,omitempty"`
+	Title                string `json:"title,omitempty"`
+	Status               string `json:"status"`
+	Background           bool   `json:"background"`
+	Error                string `json:"error,omitempty"`
+}
+
+// RunListItem descreve um run de sub-agente para a superfície de visibilidade
+// da UI (AEP-0068 F5): lista de runs ativos/recentes com ação de cancelar.
+type RunListItem struct {
+	RunID                string     `json:"runId"`
+	ConversationID       string     `json:"conversationId"`
+	ParentConversationID string     `json:"parentConversationId,omitempty"`
+	Title                string     `json:"title,omitempty"`
+	Status               string     `json:"status"`
+	Background           bool       `json:"background"`
+	// Active informa se o run ainda pode ser cancelado (queued/running).
+	Active      bool       `json:"active"`
+	Error       string     `json:"error,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	StartedAt   *time.Time `json:"startedAt,omitempty"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+}
+
+// RunListResult agrega a lista de runs e a ocupação dos tetos de concorrência,
+// para a UI mostrar quanto do limite já está em uso (AEP-0068 F5: visibilidade
+// de custo). Os contadores vêm do estado em memória do Manager, que é a fonte
+// de verdade dos tetos — a lista vem do banco.
+type RunListResult struct {
+	Runs                 []RunListItem `json:"runs"`
+	ActiveForUser        int           `json:"activeForUser"`
+	ActiveGlobal         int           `json:"activeGlobal"`
+	MaxConcurrentPerUser int           `json:"maxConcurrentPerUser"`
+	MaxConcurrentGlobal  int           `json:"maxConcurrentGlobal"`
+}
+
 // CancelResult é o retorno de um cancel. Cancelled distingue cancelamento real
 // (havia run ativo) de no-op (run já terminal/inexistente), conforme AEP-0068.
 type CancelResult struct {
@@ -164,6 +210,11 @@ func isTerminal(status string) bool {
 	}
 }
 
+// IsActiveStatus informa se um run ainda está em andamento (cancelável).
+func IsActiveStatus(status string) bool {
+	return status == StatusQueued || status == StatusRunning
+}
+
 // RunResult é o retorno de um run de sub-agente.
 type RunResult struct {
 	ConversationID     string `json:"conversation_id"`
@@ -180,6 +231,9 @@ type Repository interface {
 	Get(ctx context.Context, id string) (*database.SubAgentRun, error)
 	GetLatestByChildConversation(ctx context.Context, childConversationID string) (*database.SubAgentRun, error)
 	Update(ctx context.Context, run *database.SubAgentRun) error
+	// ListRecent devolve os runs do usuário para a UI: primeiro os ativos
+	// (queued/running), depois os mais recentes, limitados a limit itens.
+	ListRecent(ctx context.Context, limit int) ([]RunListItem, error)
 	// ReconcileOrphans marca como failed runs em queued/running (órfãos após
 	// restart). Operação instance-wide de startup (não é pedido de usuário).
 	// cutoff limita aos runs criados antes do início do app; now carimba o
