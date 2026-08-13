@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { GetNetworkAllowlist, RemoveNetworkAllowlistEntry } from '@wailsjs/go/app/App';
+import { GetNetworkAllowlist, RemoveNetworkAllowlistEntry } from '@wailsjs/go/wailsapi/NetTrust';
 
 import { logger } from '../utils/logger';
 import { useUIStore } from '../store/uiStore';

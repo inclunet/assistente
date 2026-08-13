@@ -83,6 +83,88 @@ export namespace allowlist {
 
 export namespace apidto {
 	
+	export class CredentialInput {
+	    pattern: string;
+	    type: string;
+	    token?: string;
+	    username?: string;
+	    password?: string;
+	    headerName?: string;
+	    headerValue?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CredentialInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pattern = source["pattern"];
+	        this.type = source["type"];
+	        this.token = source["token"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.headerName = source["headerName"];
+	        this.headerValue = source["headerValue"];
+	    }
+	}
+	export class CredentialSummary {
+	    pattern: string;
+	    type: string;
+	    masked: string;
+	    managed: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CredentialSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pattern = source["pattern"];
+	        this.type = source["type"];
+	        this.masked = source["masked"];
+	        this.managed = source["managed"];
+	    }
+	}
+	export class ExternalSourceSuggestion {
+	    value: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalSourceSuggestion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.value = source["value"];
+	        this.label = source["label"];
+	    }
+	}
+	export class NetworkAllowlistView {
+	    host: string;
+	    port?: string;
+	    scope: string;
+	    category?: string;
+	    resolvedIps?: string[];
+	    createdBy?: string;
+	    createdAt: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NetworkAllowlistView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.scope = source["scope"];
+	        this.category = source["category"];
+	        this.resolvedIps = source["resolvedIps"];
+	        this.createdBy = source["createdBy"];
+	        this.createdAt = source["createdAt"];
+	        this.reason = source["reason"];
+	    }
+	}
 	export class RuntimeToolCatalogEntry {
 	    id: string;
 	    userId?: string;
@@ -1285,32 +1367,6 @@ export namespace app {
 	        this.refreshToken = source["refreshToken"];
 	    }
 	}
-	export class NetworkAllowlistView {
-	    host: string;
-	    port?: string;
-	    scope: string;
-	    category?: string;
-	    resolvedIps?: string[];
-	    createdBy?: string;
-	    createdAt: string;
-	    reason?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new NetworkAllowlistView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.host = source["host"];
-	        this.port = source["port"];
-	        this.scope = source["scope"];
-	        this.category = source["category"];
-	        this.resolvedIps = source["resolvedIps"];
-	        this.createdBy = source["createdBy"];
-	        this.createdAt = source["createdAt"];
-	        this.reason = source["reason"];
-	    }
-	}
 	export class RefreshRequest {
 	    refreshToken: string;
 	
@@ -1959,62 +2015,6 @@ export namespace controllers {
 	        this.acp_args = source["acp_args"];
 	        this.acp_agent_id = source["acp_agent_id"];
 	        this.acp_credential_env = source["acp_credential_env"];
-	    }
-	}
-	export class CredentialInput {
-	    pattern: string;
-	    type: string;
-	    token?: string;
-	    username?: string;
-	    password?: string;
-	    headerName?: string;
-	    headerValue?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CredentialInput(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.pattern = source["pattern"];
-	        this.type = source["type"];
-	        this.token = source["token"];
-	        this.username = source["username"];
-	        this.password = source["password"];
-	        this.headerName = source["headerName"];
-	        this.headerValue = source["headerValue"];
-	    }
-	}
-	export class CredentialSummary {
-	    pattern: string;
-	    type: string;
-	    masked: string;
-	    managed: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new CredentialSummary(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.pattern = source["pattern"];
-	        this.type = source["type"];
-	        this.masked = source["masked"];
-	        this.managed = source["managed"];
-	    }
-	}
-	export class ExternalSourceSuggestion {
-	    value: string;
-	    label: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ExternalSourceSuggestion(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.value = source["value"];
-	        this.label = source["label"];
 	    }
 	}
 	export class TestLLMProviderRequest {

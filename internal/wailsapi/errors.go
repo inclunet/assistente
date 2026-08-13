@@ -23,5 +23,14 @@ var ErrUpdaterNotWired = errors.New("wailsapi: updater bind not wired")
 // ErrProfilesNotWired indica que o bind Profiles ainda não recebeu controller/session.
 var ErrProfilesNotWired = errors.New("wailsapi: profiles bind not wired")
 
+// ErrHotkeysNotWired indica que o bind Hotkeys ainda não recebeu controller/session.
+var ErrHotkeysNotWired = errors.New("wailsapi: hotkeys bind not wired")
+
+// ErrNetTrustNotWired indica que o bind NetTrust ainda não recebeu controller/session.
+var ErrNetTrustNotWired = errors.New("wailsapi: nettrust bind not wired")
+
+// ErrCredentialsNotWired indica que o bind Credentials ainda não recebeu controller/session.
+var ErrCredentialsNotWired = errors.New("wailsapi: credentials bind not wired")
+
 // ErrSettingsNotWired indica que o bind Settings ainda não recebeu controller/session.
 var ErrSettingsNotWired = errors.New("wailsapi: settings bind not wired")

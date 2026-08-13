@@ -61,7 +61,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
   ListCredentials: () => mockList(),
   UpsertCredential: (payload: unknown) => mockUpsert(payload),
   DeleteCredential: (pattern: string) => mockDelete(pattern),

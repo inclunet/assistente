@@ -32,6 +32,12 @@ func main() {
 	application.SetUpdaterAPI(a, updaterAPI)
 	profilesAPI := wailsapi.NewProfiles()
 	application.SetProfilesAPI(a, profilesAPI)
+	hotkeysAPI := wailsapi.NewHotkeys()
+	application.SetHotkeysAPI(a, hotkeysAPI)
+	netTrustAPI := wailsapi.NewNetTrust()
+	application.SetNetTrustAPI(a, netTrustAPI)
+	credentialsAPI := wailsapi.NewCredentials()
+	application.SetCredentialsAPI(a, credentialsAPI)
 	settingsAPI := wailsapi.NewSettings()
 	application.SetSettingsAPI(a, settingsAPI)
 
@@ -76,6 +82,9 @@ func main() {
 			toolsAPI,
 			updaterAPI,
 			profilesAPI,
+			hotkeysAPI,
+			netTrustAPI,
+			credentialsAPI,
 			settingsAPI,
 		},
 		Debug: options.Debug{

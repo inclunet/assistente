@@ -207,6 +207,7 @@ type App struct {
 	allowlistCtrl   *controllers.AllowlistController
 	signalCtrl      *controllers.SignalController
 	hotkeyCtrl      *controllers.HotkeysController
+	netTrustCtrl    *controllers.NetTrustController
 
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
 	// wired após NewTokensController.
@@ -231,6 +232,18 @@ type App struct {
 	// profilesAPI é o bind Wails do domínio profiles (AEP-0088). Criado em main e
 	// wired após NewProfilesController.
 	profilesAPI *wailsapi.Profiles
+
+	// hotkeysAPI é o bind Wails do domínio hotkeys (AEP-0088). Criado em main e
+	// wired após NewHotkeysController.
+	hotkeysAPI *wailsapi.Hotkeys
+
+	// netTrustAPI é o bind Wails do domínio nettrust (AEP-0088). Criado em main e
+	// wired após NewNetTrustController.
+	netTrustAPI *wailsapi.NetTrust
+
+	// credentialsAPI é o bind Wails do domínio credentials (AEP-0088). Criado em
+	// main e wired após NewCredentialsController.
+	credentialsAPI *wailsapi.Credentials
 
 	// settingsAPI é o bind Wails do domínio settings (AEP-0088). Criado em main e
 	// wired após NewSettingsController.
@@ -316,6 +329,33 @@ func SetProfilesAPI(a *App, api *wailsapi.Profiles) {
 	a.profilesAPI = api
 }
 
+// SetHotkeysAPI registra o bind Wails de hotkeys antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetHotkeysAPI(a *App, api *wailsapi.Hotkeys) {
+	if a == nil {
+		return
+	}
+	a.hotkeysAPI = api
+}
+
+// SetNetTrustAPI registra o bind Wails de nettrust antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetNetTrustAPI(a *App, api *wailsapi.NetTrust) {
+	if a == nil {
+		return
+	}
+	a.netTrustAPI = api
+}
+
+// SetCredentialsAPI registra o bind Wails de credentials antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetCredentialsAPI(a *App, api *wailsapi.Credentials) {
+	if a == nil {
+		return
+	}
+	a.credentialsAPI = api
+}
+
 // SetSettingsAPI registra o bind Wails de settings antes do Run (main.go).
 // Função de pacote (não método) para não entrar na superfície Bind do Wails.
 func SetSettingsAPI(a *App, api *wailsapi.Settings) {
@@ -331,6 +371,22 @@ func ProfilesCtrl(a *App) *controllers.ProfilesController {
 		return nil
 	}
 	return a.profilesCtrl
+}
+
+// CredentialsCtrl expõe o CredentialsController para a CLI (não entra no Bind Wails).
+func CredentialsCtrl(a *App) *controllers.CredentialsController {
+	if a == nil {
+		return nil
+	}
+	return a.credentialsCtrl
+}
+
+// AuthenticatedContext expõe o contexto autenticado para a CLI (não entra no Bind Wails).
+func AuthenticatedContext(a *App) (context.Context, error) {
+	if a == nil {
+		return nil, database.ErrUserScopeRequired
+	}
+	return a.requireAuthenticatedContext()
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
@@ -540,11 +596,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 
 	// Inicializa hotkeys globais
-	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
-		ProfileMgr: a.profileManager,
-		Emitter:    a.emitter,
-		WindowPort: a.windowPort,
-	})
+	a.wireHotkeys()
 	a.initGlobalHotkeys()
 
 	// Registra hotkeys do perfil ativo
@@ -654,9 +706,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireAllowlist()
 	a.wireTools()
 	a.wireUpdater()
-	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
-		CredMgr: a.credMgr,
-	})
+	a.wireNetTrust()
+	a.wireCredentials()
 	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
 		QuestionnaireMgr:           a.questionnaireMgr,
 		CredMgr:                    a.credMgr,

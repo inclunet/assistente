@@ -208,6 +208,9 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **tools** (available tools + runtime catalog → `wailsapi.Tools`; DTO em `apidto`)
 - [x] **updater** (version/check/apply/start → `wailsapi.Updater`)
 - [x] **profiles** (CRUD + active + context providers → `wailsapi.Profiles`)
+- [x] **hotkeys** (IsGlobalHotkeySupported → `wailsapi.Hotkeys`; WithUser fail-closed)
+- [x] **nettrust** (network allowlist → `wailsapi.NetTrust`; DTO em `apidto`)
+- [x] **credentials** (CRUD List/Upsert/Delete/ListExternalSources → `wailsapi.Credentials`; DTOs em `apidto`; vault pré-sessão permanece no `App`)
 - [x] **settings** (clear*/test connection/native TTS/reset config → `wailsapi.Settings`)
 - [ ] MCP → …
 

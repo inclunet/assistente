@@ -5,23 +5,14 @@ import (
 	"context"
 	"os"
 
-	"assistente/controllers"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 )
 
 // ============================================================================
-// Credential Management
+// Credential Management — vault pré-sessão permanece no App (AEP-0088).
+// CRUD Wails: wailsapi.Credentials (List/Upsert/Delete/ListExternalSources).
 // ============================================================================
-
-// CredentialSummary é alias de controllers.CredentialSummary para o frontend Wails.
-type CredentialSummary = controllers.CredentialSummary
-
-// CredentialInput é alias de controllers.CredentialInput para o frontend Wails.
-type CredentialInput = controllers.CredentialInput
-
-// ExternalSourceSuggestion é alias de controllers.ExternalSourceSuggestion para o frontend Wails.
-type ExternalSourceSuggestion = controllers.ExternalSourceSuggestion
 
 // initCredentialManager inicializa o gerenciador de credenciais com persistência
 func (a *App) initCredentialManager() {
@@ -97,6 +88,7 @@ func (a *App) handleVaultIntegrityOnBoot() {
 // (DEK_keychain ↔ DEK_wraps) para a UI. Frontend usa para mostrar
 // banner quando há divergência ou credenciais ilegíveis recém
 // purgadas.
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) GetVaultIntegrityStatus() credentials.VaultIntegrityStatus {
 	if a.credMgr == nil {
 		return credentials.VaultIntegrityStatus{}
@@ -180,6 +172,7 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) HasMasterKey() bool {
 	store := credentials.NewDBStore()
 	has, err := store.HasKeyWrap(a.appContext(), credentials.KeyWrapKindMaster)
@@ -192,6 +185,7 @@ func (a *App) HasMasterKey() bool {
 // SetupMasterPassword configura a senha mestre pela primeira vez.
 // Retorna a recovery key gerada (que o usuário deve guardar).
 // Após sucesso, o credential manager é reconfigurado com persistência ativada.
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) SetupMasterPassword(password string) (string, error) {
 	store := credentials.NewDBStore()
 	result, err := credentials.SetupMasterKeyAdoptingKeychain(store, password)
@@ -204,45 +198,10 @@ func (a *App) SetupMasterPassword(password string) (string, error) {
 
 // CanPersistCredentials retorna true se o credential manager está configurado
 // com persistência ativada (ou seja, a DEK foi carregada ou configurada).
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) CanPersistCredentials() bool {
 	if a.credMgr == nil {
 		return false
 	}
 	return a.credMgr.CanPersist()
-}
-
-// ============================================================================
-// Credential UI API
-// ============================================================================
-
-// ListCredentials retorna credenciais registradas (sem valores sensíveis).
-func (a *App) ListCredentials() ([]CredentialSummary, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return nil, err
-	}
-	return a.credentialsCtrl.ListCredentialsWithContext(ctx)
-}
-
-// UpsertCredential cria ou atualiza uma credencial no credential manager.
-func (a *App) UpsertCredential(input CredentialInput) error {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return err
-	}
-	return a.credentialsCtrl.UpsertCredentialWithContext(ctx, input)
-}
-
-// DeleteCredential remove uma credencial pelo padrão.
-func (a *App) DeleteCredential(pattern string) error {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return err
-	}
-	return a.credentialsCtrl.DeleteCredentialWithContext(ctx, pattern)
-}
-
-// ListExternalSources lista fontes externas disponíveis para autocomplete.
-func (a *App) ListExternalSources(prefix string) ([]ExternalSourceSuggestion, error) {
-	return a.credentialsCtrl.ListExternalSources(prefix)
 }

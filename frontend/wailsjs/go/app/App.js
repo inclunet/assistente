@@ -150,10 +150,6 @@ export function DeleteConversation(arg1) {
   return window['go']['app']['App']['DeleteConversation'](arg1);
 }
 
-export function DeleteCredential(arg1) {
-  return window['go']['app']['App']['DeleteCredential'](arg1);
-}
-
 export function DeleteJob(arg1) {
   return window['go']['app']['App']['DeleteJob'](arg1);
 }
@@ -526,10 +522,6 @@ export function GetModelsByProvider(arg1) {
   return window['go']['app']['App']['GetModelsByProvider'](arg1);
 }
 
-export function GetNetworkAllowlist() {
-  return window['go']['app']['App']['GetNetworkAllowlist']();
-}
-
 export function GetOpenAITTSVoices() {
   return window['go']['app']['App']['GetOpenAITTSVoices']();
 }
@@ -658,24 +650,12 @@ export function InterruptTerminalCommand(arg1) {
   return window['go']['app']['App']['InterruptTerminalCommand'](arg1);
 }
 
-export function IsGlobalHotkeySupported() {
-  return window['go']['app']['App']['IsGlobalHotkeySupported']();
-}
-
 export function ListBoardCustomActions(arg1) {
   return window['go']['app']['App']['ListBoardCustomActions'](arg1);
 }
 
 export function ListCardCustomActions(arg1, arg2) {
   return window['go']['app']['App']['ListCardCustomActions'](arg1, arg2);
-}
-
-export function ListCredentials() {
-  return window['go']['app']['App']['ListCredentials']();
-}
-
-export function ListExternalSources(arg1) {
-  return window['go']['app']['App']['ListExternalSources'](arg1);
 }
 
 export function ListInstalledACPAgents() {
@@ -776,10 +756,6 @@ export function RemoveACPAgent(arg1) {
 
 export function RemoveAuthorizedContact(arg1, arg2) {
   return window['go']['app']['App']['RemoveAuthorizedContact'](arg1, arg2);
-}
-
-export function RemoveNetworkAllowlistEntry(arg1, arg2, arg3) {
-  return window['go']['app']['App']['RemoveNetworkAllowlistEntry'](arg1, arg2, arg3);
 }
 
 export function RemoveWorkspaceTab(arg1) {
@@ -1124,10 +1100,6 @@ export function UpdateWorkflowFull(arg1, arg2, arg3, arg4, arg5) {
 
 export function UpdateWorkspaceTab(arg1, arg2) {
   return window['go']['app']['App']['UpdateWorkspaceTab'](arg1, arg2);
-}
-
-export function UpsertCredential(arg1) {
-  return window['go']['app']['App']['UpsertCredential'](arg1);
 }
 
 export function ValidateStatusTransition(arg1, arg2, arg3) {

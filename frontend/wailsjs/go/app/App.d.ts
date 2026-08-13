@@ -94,8 +94,6 @@ export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function DeleteConversation(arg1:string):Promise<void>;
 
-export function DeleteCredential(arg1:string):Promise<void>;
-
 export function DeleteJob(arg1:string):Promise<void>;
 
 export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void>;
@@ -282,8 +280,6 @@ export function GetModels():Promise<Array<string>>;
 
 export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
-export function GetNetworkAllowlist():Promise<Array<app.NetworkAllowlistView>>;
-
 export function GetOpenAITTSVoices():Promise<Array<speech.TTSVoiceInfo>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
@@ -348,15 +344,9 @@ export function InstallACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Pro
 
 export function InterruptTerminalCommand(arg1:string):Promise<void>;
 
-export function IsGlobalHotkeySupported():Promise<boolean>;
-
 export function ListBoardCustomActions(arg1:string):Promise<Array<app.CustomActionView>>;
 
 export function ListCardCustomActions(arg1:string,arg2:string):Promise<Array<app.CustomActionView>>;
-
-export function ListCredentials():Promise<Array<controllers.CredentialSummary>>;
-
-export function ListExternalSources(arg1:string):Promise<Array<controllers.ExternalSourceSuggestion>>;
 
 export function ListInstalledACPAgents():Promise<Array<app.ACPInstallation>>;
 
@@ -407,8 +397,6 @@ export function ReloadLLMClient():Promise<void>;
 export function RemoveACPAgent(arg1:string):Promise<void>;
 
 export function RemoveAuthorizedContact(arg1:string,arg2:string):Promise<void>;
-
-export function RemoveNetworkAllowlistEntry(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RemoveWorkspaceTab(arg1:string):Promise<workspace.Workspace>;
 
@@ -581,7 +569,5 @@ export function UpdateWorkflow(arg1:string,arg2:Array<database.TaskListWorkflowS
 export function UpdateWorkflowFull(arg1:string,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>,arg4:number,arg5:Record<number, number>):Promise<void>;
 
 export function UpdateWorkspaceTab(arg1:string,arg2:Record<string, any>):Promise<void>;
-
-export function UpsertCredential(arg1:controllers.CredentialInput):Promise<void>;
 
 export function ValidateStatusTransition(arg1:string,arg2:number,arg3:number):Promise<void>;

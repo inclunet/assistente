@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ListCredentials } from '@wailsjs/go/app/App';
+import { ListCredentials } from '@wailsjs/go/wailsapi/Credentials';
 import type { app } from '@wailsjs/go/models';
 import { Button, FormField, Input, Select } from '../';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
