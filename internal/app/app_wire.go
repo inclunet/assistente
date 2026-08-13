@@ -12,7 +12,7 @@ func (a *App) wireTokens() {
 		TokenSvc:   a.tokenSvc,
 	})
 	if a.tokensAPI != nil {
-		wailsapi.AttachTokens(a.tokensAPI, a, a.tokensCtrl)
+		wailsapi.AttachTokens(a.tokensAPI, wailsSession{app: a}, a.tokensCtrl)
 	}
 }
 

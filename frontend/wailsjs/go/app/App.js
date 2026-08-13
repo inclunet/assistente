@@ -46,10 +46,6 @@ export function AssignConversationToChannel(arg1, arg2, arg3) {
   return window['go']['app']['App']['AssignConversationToChannel'](arg1, arg2, arg3);
 }
 
-export function AuthenticatedContext() {
-  return window['go']['app']['App']['AuthenticatedContext']();
-}
-
 export function AuthorizeMessagingContactFull(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['AuthorizeMessagingContactFull'](arg1, arg2, arg3, arg4);
 }
