@@ -81,6 +81,113 @@ export namespace allowlist {
 
 }
 
+export namespace apidto {
+	
+	export class ToolUsageBreakdown {
+	    toolName: string;
+	    callCount: number;
+	    totalPromptTokens: number;
+	    totalCompletionTokens: number;
+	    totalTokens: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolUsageBreakdown(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.toolName = source["toolName"];
+	        this.callCount = source["callCount"];
+	        this.totalPromptTokens = source["totalPromptTokens"];
+	        this.totalCompletionTokens = source["totalCompletionTokens"];
+	        this.totalTokens = source["totalTokens"];
+	    }
+	}
+	export class TokenStats {
+	    conversationId: string;
+	    promptTokens: number;
+	    completionTokens: number;
+	    totalTokens: number;
+	    cacheReadTokens: number;
+	    cacheWriteTokens: number;
+	    cacheMissTokens: number;
+	    cacheHitRate: number;
+	    cacheTokensReported: boolean;
+	    promptCacheEnabled?: boolean;
+	    messageCount: number;
+	    modelCallCount: number;
+	    model: string;
+	    mostUsedModel: string;
+	    contextTokens: number;
+	    contextUsage: number;
+	    contextLimit: number;
+	    isNearLimit: boolean;
+	    isCritical: boolean;
+	    systemPromptEstimatedTokens: number;
+	    summaryTokens: number;
+	    messagesInContextCount: number;
+	    messagesInContextTokens: number;
+	    messagesOutOfContextCount: number;
+	    messagesOutOfContextTokens: number;
+	    toolsUsedCount: number;
+	    toolBreakdown: ToolUsageBreakdown[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TokenStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.promptTokens = source["promptTokens"];
+	        this.completionTokens = source["completionTokens"];
+	        this.totalTokens = source["totalTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheWriteTokens = source["cacheWriteTokens"];
+	        this.cacheMissTokens = source["cacheMissTokens"];
+	        this.cacheHitRate = source["cacheHitRate"];
+	        this.cacheTokensReported = source["cacheTokensReported"];
+	        this.promptCacheEnabled = source["promptCacheEnabled"];
+	        this.messageCount = source["messageCount"];
+	        this.modelCallCount = source["modelCallCount"];
+	        this.model = source["model"];
+	        this.mostUsedModel = source["mostUsedModel"];
+	        this.contextTokens = source["contextTokens"];
+	        this.contextUsage = source["contextUsage"];
+	        this.contextLimit = source["contextLimit"];
+	        this.isNearLimit = source["isNearLimit"];
+	        this.isCritical = source["isCritical"];
+	        this.systemPromptEstimatedTokens = source["systemPromptEstimatedTokens"];
+	        this.summaryTokens = source["summaryTokens"];
+	        this.messagesInContextCount = source["messagesInContextCount"];
+	        this.messagesInContextTokens = source["messagesInContextTokens"];
+	        this.messagesOutOfContextCount = source["messagesOutOfContextCount"];
+	        this.messagesOutOfContextTokens = source["messagesOutOfContextTokens"];
+	        this.toolsUsedCount = source["toolsUsedCount"];
+	        this.toolBreakdown = this.convertValues(source["toolBreakdown"], ToolUsageBreakdown);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace app {
 	
 	export class ACPAuthEnvVar {
@@ -1573,109 +1680,6 @@ export namespace chat {
 	        this.limit = source["limit"];
 	    }
 	}
-	export class ToolUsageBreakdown {
-	    toolName: string;
-	    callCount: number;
-	    totalPromptTokens: number;
-	    totalCompletionTokens: number;
-	    totalTokens: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ToolUsageBreakdown(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.toolName = source["toolName"];
-	        this.callCount = source["callCount"];
-	        this.totalPromptTokens = source["totalPromptTokens"];
-	        this.totalCompletionTokens = source["totalCompletionTokens"];
-	        this.totalTokens = source["totalTokens"];
-	    }
-	}
-	export class TokenStats {
-	    conversationId: string;
-	    promptTokens: number;
-	    completionTokens: number;
-	    totalTokens: number;
-	    cacheReadTokens: number;
-	    cacheWriteTokens: number;
-	    cacheMissTokens: number;
-	    cacheHitRate: number;
-	    cacheTokensReported: boolean;
-	    promptCacheEnabled?: boolean;
-	    messageCount: number;
-	    modelCallCount: number;
-	    model: string;
-	    mostUsedModel: string;
-	    contextTokens: number;
-	    contextUsage: number;
-	    contextLimit: number;
-	    isNearLimit: boolean;
-	    isCritical: boolean;
-	    systemPromptEstimatedTokens: number;
-	    summaryTokens: number;
-	    messagesInContextCount: number;
-	    messagesInContextTokens: number;
-	    messagesOutOfContextCount: number;
-	    messagesOutOfContextTokens: number;
-	    toolsUsedCount: number;
-	    toolBreakdown: ToolUsageBreakdown[];
-	
-	    static createFrom(source: any = {}) {
-	        return new TokenStats(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversationId = source["conversationId"];
-	        this.promptTokens = source["promptTokens"];
-	        this.completionTokens = source["completionTokens"];
-	        this.totalTokens = source["totalTokens"];
-	        this.cacheReadTokens = source["cacheReadTokens"];
-	        this.cacheWriteTokens = source["cacheWriteTokens"];
-	        this.cacheMissTokens = source["cacheMissTokens"];
-	        this.cacheHitRate = source["cacheHitRate"];
-	        this.cacheTokensReported = source["cacheTokensReported"];
-	        this.promptCacheEnabled = source["promptCacheEnabled"];
-	        this.messageCount = source["messageCount"];
-	        this.modelCallCount = source["modelCallCount"];
-	        this.model = source["model"];
-	        this.mostUsedModel = source["mostUsedModel"];
-	        this.contextTokens = source["contextTokens"];
-	        this.contextUsage = source["contextUsage"];
-	        this.contextLimit = source["contextLimit"];
-	        this.isNearLimit = source["isNearLimit"];
-	        this.isCritical = source["isCritical"];
-	        this.systemPromptEstimatedTokens = source["systemPromptEstimatedTokens"];
-	        this.summaryTokens = source["summaryTokens"];
-	        this.messagesInContextCount = source["messagesInContextCount"];
-	        this.messagesInContextTokens = source["messagesInContextTokens"];
-	        this.messagesOutOfContextCount = source["messagesOutOfContextCount"];
-	        this.messagesOutOfContextTokens = source["messagesOutOfContextTokens"];
-	        this.toolsUsedCount = source["toolsUsedCount"];
-	        this.toolBreakdown = this.convertValues(source["toolBreakdown"], ToolUsageBreakdown);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
 	
 	
 

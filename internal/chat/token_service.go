@@ -85,7 +85,7 @@ func (s *TokenService) GetTurnStats(ctx context.Context, conversationID, turnID 
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar estatísticas do turno: %w", err)
 	}
-	return (&TokenStats{
+	return withCacheDerivedStats(&TokenStats{
 		PromptTokens:     stats.PromptTokens,
 		CompletionTokens: stats.CompletionTokens,
 		TotalTokens:      stats.TotalTokens,
@@ -94,7 +94,7 @@ func (s *TokenService) GetTurnStats(ctx context.Context, conversationID, turnID 
 		CacheMissTokens:  stats.CacheMissTokens,
 		MessageCount:     stats.MessageCount,
 		ModelCallCount:   stats.ModelCallCount,
-	}).withCacheDerivedStats(), nil
+	}), nil
 }
 
 func applyCacheDerivedStats(stats *TokenStats) {
@@ -109,7 +109,7 @@ func applyCacheDerivedStats(stats *TokenStats) {
 	}
 }
 
-func (stats *TokenStats) withCacheDerivedStats() *TokenStats {
+func withCacheDerivedStats(stats *TokenStats) *TokenStats {
 	applyCacheDerivedStats(stats)
 	return stats
 }

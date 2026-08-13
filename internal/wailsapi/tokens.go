@@ -2,7 +2,7 @@ package wailsapi
 
 import (
 	"assistente/controllers"
-	"assistente/internal/chat"
+	"assistente/internal/apidto"
 	"context"
 	"sync"
 )
@@ -42,23 +42,23 @@ func (t *Tokens) deps() (Session, *controllers.TokensController, error) {
 }
 
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa.
-func (t *Tokens) GetConversationTokenStats(conversationID string) (*chat.TokenStats, error) {
+func (t *Tokens) GetConversationTokenStats(conversationID string) (*apidto.TokenStats, error) {
 	session, ctrl, err := t.deps()
 	if err != nil {
 		return nil, err
 	}
-	return WithUser(session, func(ctx context.Context) (*chat.TokenStats, error) {
+	return WithUser(session, func(ctx context.Context) (*apidto.TokenStats, error) {
 		return ctrl.GetConversationTokenStats(ctx, conversationID)
 	})
 }
 
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico.
-func (t *Tokens) GetTurnTokenStats(conversationID string, turnID string) (*chat.TokenStats, error) {
+func (t *Tokens) GetTurnTokenStats(conversationID string, turnID string) (*apidto.TokenStats, error) {
 	session, ctrl, err := t.deps()
 	if err != nil {
 		return nil, err
 	}
-	return WithUser(session, func(ctx context.Context) (*chat.TokenStats, error) {
+	return WithUser(session, func(ctx context.Context) (*apidto.TokenStats, error) {
 		return ctrl.GetTurnTokenStats(ctx, conversationID, turnID)
 	})
 }
