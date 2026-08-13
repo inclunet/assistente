@@ -1,6 +1,6 @@
 # AEP-0085 — i18n dos diálogos que o backend manda para a tela (questionnaire)
 
-**Status:** 🚧 In Progress
+**Status:** ✅ Done
 
 ## Resumo
 
@@ -130,7 +130,7 @@ Chave é decisão do app. Vira texto puro (`Plain`), sempre:
 
 ## Fases
 
-### Fase 1 — Contrato + frontend + diálogos de decisão crítica (este PR)
+### Fase 1 — Contrato + frontend + diálogos de decisão crítica (feita)
 
 - `questionnaire.Text` com construtores, JSON polimórfico e `PlainQuestions`.
 - `resolveQuestionnaireText` / `questionnaireOptionValue` e o

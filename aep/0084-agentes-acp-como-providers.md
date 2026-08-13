@@ -1,6 +1,6 @@
 # AEP-0084 — Agentes de código ACP como providers LLM
 
-**Status:** 📝 Draft
+**Status:** ✅ Done
 
 ## Resumo
 
