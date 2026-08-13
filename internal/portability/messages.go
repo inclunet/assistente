@@ -95,13 +95,20 @@ func newMessage(code string, params map[string]string, format string, args ...an
 	}
 }
 
-// params é açúcar para escrever o mapa de parâmetros na chamada.
+// params é açúcar para escrever o mapa de parâmetros na chamada. Os pares vêm
+// escritos à mão neste pacote, então número ímpar de argumentos é engano de
+// quem escreveu a mensagem, não dado de arquivo importado: entra em pânico como
+// strings.NewReplacer, para o erro aparecer no teste e não como placeholder
+// vazio na tela do usuário.
 func params(pairs ...string) map[string]string {
 	if len(pairs) == 0 {
 		return nil
 	}
+	if len(pairs)%2 != 0 {
+		panic("portability: params exige pares de chave e valor")
+	}
 	out := make(map[string]string, len(pairs)/2)
-	for i := 0; i+1 < len(pairs); i += 2 {
+	for i := 0; i < len(pairs); i += 2 {
 		out[pairs[i]] = pairs[i+1]
 	}
 	return out

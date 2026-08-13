@@ -54,6 +54,18 @@ func TestMensagemGuardaCodigoParametrosETextoDeReserva(t *testing.T) {
 	}
 }
 
+// Par incompleto é engano de quem escreveu a mensagem. Melhor quebrar aqui do
+// que entregar à UI um parâmetro faltando, que vira placeholder vazio na tela.
+func TestParametroSemValorEntraEmPanico(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("esperado pânico com número ímpar de argumentos")
+		}
+	}()
+
+	params("providerId", "cursor", "command")
+}
+
 // Erro que o pacote não previu — falha de banco, JSON quebrado — não pode
 // sumir da lista só por não ter código: a UI mostra o texto como veio.
 func TestErroSemCodigoViraMensagemComTextoOriginal(t *testing.T) {
