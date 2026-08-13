@@ -349,7 +349,7 @@ func persistTaskList(ctx context.Context, tx *gorm.DB, taskList TaskListExport, 
 func validateImportedTaskListWorkflow(workflow TaskListWorkflowExport) ([]database.TaskListWorkflowStatus, map[int][]int, error) {
 	if len(workflow.Statuses) == 0 {
 		return nil, nil, codedErrorf(
-			CodeTaskListWorkflowWithoutStatus, nil,
+			CodeTaskListWorkflowWithoutStatuses, nil,
 			"workflow da tasklist deve ter ao menos um status",
 		)
 	}
@@ -366,7 +366,7 @@ func validateImportedTaskListWorkflow(workflow TaskListWorkflowExport) ([]databa
 		}
 		if _, exists := statusIDs[status.ID]; exists {
 			return nil, nil, codedErrorf(
-				CodeTaskListWorkflowStatusRepeated,
+				CodeTaskListWorkflowDuplicatedStatus,
 				params("statusId", itoa(status.ID)),
 				"workflow da tasklist contém status duplicado: %d", status.ID,
 			)

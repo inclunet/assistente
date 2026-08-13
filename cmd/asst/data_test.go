@@ -162,7 +162,7 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 				{
 					ResourceType:        "provider",
 					Identifier:          "openai-custom",
-					Reason:              portability.LocalizedMessage{Code: "conflict.providerId", Message: "provider já existe"},
+					Reason:              portability.LocalizedMessage{Message: "provider já existe"},
 					SupportedStrategies: []portability.ConflictResolutionStrategy{portability.ConflictResolutionSkip, portability.ConflictResolutionRename},
 				},
 			},
@@ -170,7 +170,7 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 				{
 					ResourceType:        "credential",
 					Identifier:          "api.openai.com",
-					Reason:              portability.LocalizedMessage{Code: "conflict.credentialPattern", Message: "credencial já existe"},
+					Reason:              portability.LocalizedMessage{Code: portability.CodeConflictCredentialPattern, Message: "credencial já existe"},
 					SupportedStrategies: []portability.ConflictResolutionStrategy{portability.ConflictResolutionSkip, portability.ConflictResolutionOverwrite},
 				},
 			},
