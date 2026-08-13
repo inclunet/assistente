@@ -11,6 +11,7 @@ import { Input } from '../components/ui/Input';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import { downloadJSON, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES, openImportFileDialog } from '../lib/exportImport';
+import { formatPortabilityMessage, portabilityMessageKey, type PortabilityMessage } from '../lib/portabilityMessages';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { config, database, memory, portability } from '../../wailsjs/go/models';
 import './DataManagementPage.css';
@@ -78,7 +79,7 @@ interface ImportPreview {
 interface ImportConflict {
   resourceType: string;
   identifier: string;
-  reason: string;
+  reason: PortabilityMessage | string;
 }
 
 interface ImportAnalysis {
@@ -89,7 +90,7 @@ interface ImportAnalysis {
   taskListConflicts?: ImportConflict[];
   credentialConflicts?: ImportConflict[];
   unsupportedResourceTypes?: string[];
-  warnings?: string[];
+  warnings?: (PortabilityMessage | string)[];
   credentialAnalysisError?: string;
 }
 
@@ -105,8 +106,8 @@ interface ImportResultSummary {
   skippedTaskListConflict: number;
   skippedCredentialConflict: number;
   skippedOther: number;
-  warnings?: string[];
-  errors?: string[];
+  warnings?: (PortabilityMessage | string)[];
+  errors?: (PortabilityMessage | string)[];
   message: string;
 }
 
@@ -630,10 +631,10 @@ export default function DataManagementPage() {
           ? t('history.importSkippedOtherCount', { defaultValue: 'Outros descartes: {{count}}', count: result.skippedOther })
           : '',
         ...(result.errors?.length
-          ? [t('history.importErrorsLabel', 'Erros'), ...result.errors]
+          ? [t('history.importErrorsLabel', 'Erros'), ...result.errors.map((error) => formatPortabilityMessage(error, t))]
           : []),
         ...(result.warnings?.length
-          ? [t('history.importWarningsLabel', 'Avisos'), ...result.warnings]
+          ? [t('history.importWarningsLabel', 'Avisos'), ...result.warnings.map((warning) => formatPortabilityMessage(warning, t))]
           : []),
       ].filter(Boolean);
       announce(
@@ -641,7 +642,6 @@ export default function DataManagementPage() {
           result.success
             ? t('history.importSuccess', 'Dados importados com sucesso!')
             : t('history.importPartial', 'Alguns recursos não puderam ser importados.'),
-          result.message,
           t('history.importCounts', {
             defaultValue: 'Importados: {{imported}} | Ignorados: {{skipped}}',
             imported: result.imported,
@@ -716,17 +716,20 @@ export default function DataManagementPage() {
       <>
         <strong>{title}</strong>
         <ul className="data-management__list">
-          {conflicts.map((conflict) => (
-            <li key={`${conflict.resourceType}:${conflict.identifier}`}>
-              {conflict.resourceType === 'conversation'
-                ? conflict.reason
-                : <><code>{conflict.identifier}</code>: {conflict.reason}</>}
-            </li>
-          ))}
+          {conflicts.map((conflict) => {
+            const reason = formatPortabilityMessage(conflict.reason, t);
+            return (
+              <li key={`${conflict.resourceType}:${conflict.identifier}`}>
+                {conflict.resourceType === 'conversation'
+                  ? reason
+                  : <><code>{conflict.identifier}</code>: {reason}</>}
+              </li>
+            );
+          })}
         </ul>
       </>
     );
-  }, []);
+  }, [t]);
 
   return (
     <div className="data-management-page">
@@ -971,7 +974,9 @@ export default function DataManagementPage() {
               <div>
                 <strong>{t('history.importWarningsLabel', 'Avisos')}</strong>
                 <ul className="data-management__list data-management__list--warning" aria-label={t('history.importWarningsLabel', 'Avisos')}>
-                  {importAnalysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  {importAnalysis.warnings.map((warning, index) => (
+                    <li key={portabilityMessageKey(warning, index)}>{formatPortabilityMessage(warning, t)}</li>
+                  ))}
                 </ul>
               </div>
             )}
@@ -998,7 +1003,9 @@ export default function DataManagementPage() {
               <div>
                 <strong>{t('history.importErrorsLabel', 'Erros')}</strong>
                 <ul className="data-management__list" aria-label={t('history.importErrorsLabel', 'Erros')}>
-                  {lastImportResult.errors.map((error) => <li key={error}>{error}</li>)}
+                  {lastImportResult.errors.map((error, index) => (
+                    <li key={portabilityMessageKey(error, index)}>{formatPortabilityMessage(error, t)}</li>
+                  ))}
                 </ul>
               </div>
             )}
@@ -1006,7 +1013,9 @@ export default function DataManagementPage() {
               <div>
                 <strong>{t('history.importWarningsLabel', 'Avisos')}</strong>
                 <ul className="data-management__list data-management__list--warning" aria-label={t('history.importWarningsLabel', 'Avisos')}>
-                  {lastImportResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  {lastImportResult.warnings.map((warning, index) => (
+                    <li key={portabilityMessageKey(warning, index)}>{formatPortabilityMessage(warning, t)}</li>
+                  ))}
                 </ul>
               </div>
             )}

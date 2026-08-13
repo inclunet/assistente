@@ -421,6 +421,82 @@ const en = {
       maintenanceUnavailable: 'Could not load the maintenance settings.',
     },
 
+    // Warnings, errors and conflict reasons the portability backend returns by
+    // code (internal/portability/messages.go).
+    portability: {
+      messages: {
+        import: {
+          unsupportedResources: 'This file includes resources outside the current scope ({{resources}}). They will be ignored for now and may be supported after the migrations planned in AEP-0046, AEP-0048, AEP-0050, AEP-0051 and AEP-0052.',
+          emptyConversations: '{{count}} empty conversation(s) will be discarded during the import.',
+        },
+        conversation: {
+          missingId: 'Conversation "{{conversation}}" has no id and cannot be imported in format version {{version}}.',
+        },
+        message: {
+          missingId: 'Message {{index}} of conversation "{{conversation}}" has no id and cannot be imported in format version {{version}}.',
+          duplicatedId: 'Message {{index}} of conversation "{{conversation}}" repeats the id "{{id}}".',
+          invalidParentId: 'Message {{index}} of conversation "{{conversation}}" points to parent message "{{reference}}", which is not in the file.',
+          invalidParentIndex: 'Message {{index}} of conversation "{{conversation}}" points to parent message index {{reference}}, which is not in the file.',
+          invalidTurnId: 'Message {{index}} of conversation "{{conversation}}" points to turn "{{reference}}", which is not in the file.',
+          invalidTurnIndex: 'Message {{index}} of conversation "{{conversation}}" points to turn index {{reference}}, which is not in the file.',
+        },
+        provider: {
+          missingId: 'A provider in the file has no id and cannot be imported.',
+          missingName: 'Provider "{{providerId}}" has no name and cannot be imported.',
+          missingType: 'Provider "{{providerId}}" has no type and cannot be imported.',
+          missingBaseUrl: 'Provider "{{providerId}}" has no baseUrl and cannot be imported.',
+          acpMissingCommand: 'Provider "{{providerId}}" uses the acp format without acpCommand, so it cannot be imported.',
+          acpOutsideAcpFormat: 'Provider "{{providerId}}" carries agent configuration, but its apiFormat is "{{apiFormat}}". Use "{{expectedFormat}}".',
+          acpCredentialEnvWithoutName: 'Provider "{{providerId}}" carries a vault credential without the environment variable name.',
+          acpCredentialEnvInvalidName: 'Provider "{{providerId}}" carries an invalid variable name for the vault credential: "{{variable}}".',
+          acpCredentialEnvWithoutPattern: 'In provider "{{providerId}}", variable {{variable}} does not say which vault entry provides the credential.',
+        },
+        acp: {
+          commandNotFound: 'Provider "{{providerId}}" uses the agent "{{command}}", which was not found on this machine. Install the agent or edit the provider command before using it.',
+          credentialMissing: 'Provider "{{providerId}}" passes credential "{{pattern}}" to the agent through variable {{variable}}, and that entry is not in this machine\'s vault. Register it under credentials or remove the variable from the provider.',
+        },
+        mcpServer: {
+          missingSlug: 'An MCP server in the file has no slug and cannot be imported.',
+          stdioMissingCommand: 'MCP server {{slug}} uses the stdio transport but has no command.',
+          missingUrl: 'MCP server {{slug}} uses the {{transport}} transport but has no url.',
+          invalidUrl: 'MCP server {{slug}} has an invalid url: "{{url}}".',
+          invalidTransport: 'MCP server {{slug}} has an invalid or missing transport: "{{transport}}".',
+        },
+        taskList: {
+          missingId: 'Task list "{{taskList}}" has no id and cannot be imported in format version {{version}}.',
+          workflowMissingId: 'The workflow of task list "{{taskList}}" has no id and cannot be imported in format version {{version}}.',
+          workflowWithoutStatuses: 'The task list workflow needs at least one status.',
+          workflowInvalidStatus: 'The task list workflow has an invalid status: {{statusId}}.',
+          workflowDuplicatedStatus: 'The task list workflow repeats status {{statusId}}.',
+          workflowInitialStatusUnknown: 'Initial status {{statusId}} does not exist in the task list workflow.',
+          workflowFromStatusUnknown: 'The task list workflow references a source status that does not exist: {{statusId}}.',
+          workflowToStatusUnknown: 'The task list workflow references a target status that does not exist: {{statusId}}.',
+        },
+        task: {
+          missingId: 'Task "{{task}}" has no id and cannot be imported in format version {{version}}.',
+          unknownStatus: 'Task "{{task}}" references a status that does not exist: {{statusId}}.',
+        },
+        taskNote: {
+          missingId: 'A note of task "{{task}}" has no id and cannot be imported in format version {{version}}.',
+        },
+        memoryRecord: {
+          missingId: 'A memory in the file has no id and cannot be imported.',
+        },
+        credential: {
+          vaultUnavailableForImport: 'The credential vault is unavailable for the import.',
+          vaultUnavailableForAnalysis: 'The current credential vault is not available to analyze credential conflicts.',
+          passwordRequiredForAnalysis: 'Enter the export password to analyze credential conflicts.',
+          analysisFailed: 'The credentials could not be analyzed with the password provided.',
+          managedNotImportable: 'The managed/internal credential "{{pattern}}" cannot be imported.',
+          strategyUnsupported: 'Unsupported conflict strategy for credential "{{pattern}}": {{strategy}}.',
+        },
+        conflict: {
+          mcpServerSlug: 'An MCP server with the same slug is already registered.',
+          credentialPattern: 'A credential with the same pattern is already registered.',
+        },
+      },
+    },
+
     memories: {
       title: 'Memories',
       description: 'Review, classify, and edit the memory records used by the model context.',

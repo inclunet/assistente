@@ -421,6 +421,82 @@ const ptBR = {
       maintenanceUnavailable: 'Não foi possível carregar as configurações de manutenção.',
     },
 
+    // Avisos, erros e motivos de conflito que o backend de portabilidade
+    // devolve por código (internal/portability/messages.go).
+    portability: {
+      messages: {
+        import: {
+          unsupportedResources: 'Este arquivo inclui recursos fora do escopo atual ({{resources}}). Eles serão ignorados nesta fase e poderão ser suportados após as migrações planejadas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.',
+          emptyConversations: '{{count}} conversa(s) vazia(s) serão descartadas na importação.',
+        },
+        conversation: {
+          missingId: 'A conversa "{{conversation}}" não tem id e não pode ser importada no formato version {{version}}.',
+        },
+        message: {
+          missingId: 'A mensagem {{index}} da conversa "{{conversation}}" não tem id e não pode ser importada no formato version {{version}}.',
+          duplicatedId: 'A mensagem {{index}} da conversa "{{conversation}}" repete o id "{{id}}".',
+          invalidParentId: 'A mensagem {{index}} da conversa "{{conversation}}" aponta para a mensagem pai "{{reference}}", que não está no arquivo.',
+          invalidParentIndex: 'A mensagem {{index}} da conversa "{{conversation}}" aponta para o índice de mensagem pai {{reference}}, que não está no arquivo.',
+          invalidTurnId: 'A mensagem {{index}} da conversa "{{conversation}}" aponta para o turno "{{reference}}", que não está no arquivo.',
+          invalidTurnIndex: 'A mensagem {{index}} da conversa "{{conversation}}" aponta para o índice de turno {{reference}}, que não está no arquivo.',
+        },
+        provider: {
+          missingId: 'Um provider do arquivo não tem id e não pode ser importado.',
+          missingName: 'O provider "{{providerId}}" não tem name e não pode ser importado.',
+          missingType: 'O provider "{{providerId}}" não tem type e não pode ser importado.',
+          missingBaseUrl: 'O provider "{{providerId}}" não tem baseUrl e não pode ser importado.',
+          acpMissingCommand: 'O provider "{{providerId}}" está em formato acp e não traz acpCommand, então não pode ser importado.',
+          acpOutsideAcpFormat: 'O provider "{{providerId}}" traz configuração de agente, mas o apiFormat é "{{apiFormat}}". Use "{{expectedFormat}}".',
+          acpCredentialEnvWithoutName: 'O provider "{{providerId}}" traz uma credencial do cofre sem o nome da variável de ambiente.',
+          acpCredentialEnvInvalidName: 'O provider "{{providerId}}" traz um nome de variável inválido para a credencial do cofre: "{{variable}}".',
+          acpCredentialEnvWithoutPattern: 'No provider "{{providerId}}", a variável {{variable}} não diz de que entrada do cofre vem a credencial.',
+        },
+        acp: {
+          commandNotFound: 'O provider "{{providerId}}" usa o agente "{{command}}", que não foi encontrado nesta máquina. Instale o agente ou edite o comando do provider antes de usá-lo.',
+          credentialMissing: 'O provider "{{providerId}}" passa a credencial "{{pattern}}" ao agente pela variável {{variable}}, e essa entrada não está no cofre desta máquina. Cadastre-a nas credenciais ou tire a variável do provider.',
+        },
+        mcpServer: {
+          missingSlug: 'Um servidor MCP do arquivo não tem slug e não pode ser importado.',
+          stdioMissingCommand: 'O servidor MCP {{slug}} usa transport stdio, mas não traz command.',
+          missingUrl: 'O servidor MCP {{slug}} usa transport {{transport}}, mas não traz url.',
+          invalidUrl: 'O servidor MCP {{slug}} traz uma url inválida: "{{url}}".',
+          invalidTransport: 'O servidor MCP {{slug}} tem transport inválido ou ausente: "{{transport}}".',
+        },
+        taskList: {
+          missingId: 'A tasklist "{{taskList}}" não tem id e não pode ser importada no formato version {{version}}.',
+          workflowMissingId: 'O workflow da tasklist "{{taskList}}" não tem id e não pode ser importado no formato version {{version}}.',
+          workflowWithoutStatuses: 'O workflow da tasklist precisa de ao menos um status.',
+          workflowInvalidStatus: 'O workflow da tasklist tem um status inválido: {{statusId}}.',
+          workflowDuplicatedStatus: 'O workflow da tasklist repete o status {{statusId}}.',
+          workflowInitialStatusUnknown: 'O status inicial {{statusId}} não existe no workflow da tasklist.',
+          workflowFromStatusUnknown: 'O workflow da tasklist referencia um status de origem inexistente: {{statusId}}.',
+          workflowToStatusUnknown: 'O workflow da tasklist referencia um status de destino inexistente: {{statusId}}.',
+        },
+        task: {
+          missingId: 'A task "{{task}}" não tem id e não pode ser importada no formato version {{version}}.',
+          unknownStatus: 'A task "{{task}}" referencia um status inexistente: {{statusId}}.',
+        },
+        taskNote: {
+          missingId: 'Uma nota da task "{{task}}" não tem id e não pode ser importada no formato version {{version}}.',
+        },
+        memoryRecord: {
+          missingId: 'Uma memória do arquivo não tem id e não pode ser importada.',
+        },
+        credential: {
+          vaultUnavailableForImport: 'O cofre de credenciais está indisponível para a importação.',
+          vaultUnavailableForAnalysis: 'O cofre de credenciais atual não está disponível para analisar conflitos de credenciais.',
+          passwordRequiredForAnalysis: 'Informe a senha de exportação para analisar conflitos de credenciais.',
+          analysisFailed: 'Não foi possível analisar as credenciais com a senha informada.',
+          managedNotImportable: 'A credencial gerenciada/interna "{{pattern}}" não pode ser importada.',
+          strategyUnsupported: 'Estratégia de conflito não suportada para a credencial "{{pattern}}": {{strategy}}.',
+        },
+        conflict: {
+          mcpServerSlug: 'Já existe um servidor MCP registrado com o mesmo slug.',
+          credentialPattern: 'Já existe uma credencial registrada com o mesmo pattern.',
+        },
+      },
+    },
+
     memories: {
       title: 'Memórias',
       description: 'Revise, classifique e edite os registros de memória usados pelo contexto do modelo.',

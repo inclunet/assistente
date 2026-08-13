@@ -221,11 +221,19 @@ func overwriteTaskList(ctx context.Context, taskList TaskListExport) (bool, erro
 func persistTaskList(ctx context.Context, tx *gorm.DB, taskList TaskListExport, existing *database.TaskList) error {
 	taskListID := strings.TrimSpace(taskList.ID)
 	if taskListID == "" {
-		return fmt.Errorf("tasklist %q sem id não pode ser importada no formato version %d", taskList.Title, ExportVersion)
+		return codedErrorf(
+			CodeTaskListMissingID,
+			params("taskList", taskList.Title, "version", itoa(ExportVersion)),
+			"tasklist %q sem id não pode ser importada no formato version %d", taskList.Title, ExportVersion,
+		)
 	}
 	workflowID := strings.TrimSpace(taskList.Workflow.ID)
 	if workflowID == "" {
-		return fmt.Errorf("workflow da tasklist %q sem id não pode ser importado no formato version %d", taskList.Title, ExportVersion)
+		return codedErrorf(
+			CodeTaskListWorkflowMissingID,
+			params("taskList", taskList.Title, "version", itoa(ExportVersion)),
+			"workflow da tasklist %q sem id não pode ser importado no formato version %d", taskList.Title, ExportVersion,
+		)
 	}
 
 	workflowStatuses, workflowTransitions, err := validateImportedTaskListWorkflow(taskList.Workflow)
@@ -340,17 +348,28 @@ func persistTaskList(ctx context.Context, tx *gorm.DB, taskList TaskListExport, 
 
 func validateImportedTaskListWorkflow(workflow TaskListWorkflowExport) ([]database.TaskListWorkflowStatus, map[int][]int, error) {
 	if len(workflow.Statuses) == 0 {
-		return nil, nil, fmt.Errorf("workflow da tasklist deve ter ao menos um status")
+		return nil, nil, codedErrorf(
+			CodeTaskListWorkflowWithoutStatuses, nil,
+			"workflow da tasklist deve ter ao menos um status",
+		)
 	}
 
 	statusIDs := make(map[int]struct{}, len(workflow.Statuses))
 	convertedStatuses := make([]database.TaskListWorkflowStatus, 0, len(workflow.Statuses))
 	for _, status := range workflow.Statuses {
 		if status.ID <= 0 {
-			return nil, nil, fmt.Errorf("workflow da tasklist contém status inválido: %d", status.ID)
+			return nil, nil, codedErrorf(
+				CodeTaskListWorkflowInvalidStatus,
+				params("statusId", itoa(status.ID)),
+				"workflow da tasklist contém status inválido: %d", status.ID,
+			)
 		}
 		if _, exists := statusIDs[status.ID]; exists {
-			return nil, nil, fmt.Errorf("workflow da tasklist contém status duplicado: %d", status.ID)
+			return nil, nil, codedErrorf(
+				CodeTaskListWorkflowDuplicatedStatus,
+				params("statusId", itoa(status.ID)),
+				"workflow da tasklist contém status duplicado: %d", status.ID,
+			)
 		}
 		statusIDs[status.ID] = struct{}{}
 		convertedStatuses = append(convertedStatuses, database.TaskListWorkflowStatus{
@@ -363,18 +382,30 @@ func validateImportedTaskListWorkflow(workflow TaskListWorkflowExport) ([]databa
 	}
 
 	if _, exists := statusIDs[workflow.InitialStatusID]; !exists {
-		return nil, nil, fmt.Errorf("initialStatusId %d não existe no workflow da tasklist", workflow.InitialStatusID)
+		return nil, nil, codedErrorf(
+			CodeTaskListWorkflowInitialUnknown,
+			params("statusId", itoa(workflow.InitialStatusID)),
+			"initialStatusId %d não existe no workflow da tasklist", workflow.InitialStatusID,
+		)
 	}
 
 	convertedTransitions := make(map[int][]int, len(workflow.AllowedTransitions))
 	for fromID, toIDs := range workflow.AllowedTransitions {
 		if _, exists := statusIDs[fromID]; !exists {
-			return nil, nil, fmt.Errorf("workflow referencia status de origem inexistente: %d", fromID)
+			return nil, nil, codedErrorf(
+				CodeTaskListWorkflowFromUnknown,
+				params("statusId", itoa(fromID)),
+				"workflow referencia status de origem inexistente: %d", fromID,
+			)
 		}
 		copied := append([]int(nil), toIDs...)
 		for _, toID := range copied {
 			if _, exists := statusIDs[toID]; !exists {
-				return nil, nil, fmt.Errorf("workflow referencia status de destino inexistente: %d", toID)
+				return nil, nil, codedErrorf(
+					CodeTaskListWorkflowToUnknown,
+					params("statusId", itoa(toID)),
+					"workflow referencia status de destino inexistente: %d", toID,
+				)
 			}
 		}
 		convertedTransitions[fromID] = copied
@@ -392,10 +423,18 @@ func importTaskNode(
 ) error {
 	taskID := strings.TrimSpace(task.ID)
 	if taskID == "" {
-		return fmt.Errorf("task %q sem id não pode ser importada no formato version %d", task.Title, ExportVersion)
+		return codedErrorf(
+			CodeTaskMissingID,
+			params("task", task.Title, "version", itoa(ExportVersion)),
+			"task %q sem id não pode ser importada no formato version %d", task.Title, ExportVersion,
+		)
 	}
 	if _, exists := validStatusIDs[task.StatusID]; !exists {
-		return fmt.Errorf("task %q referencia status inexistente: %d", task.Title, task.StatusID)
+		return codedErrorf(
+			CodeTaskUnknownStatus,
+			params("task", task.Title, "statusId", itoa(task.StatusID)),
+			"task %q referencia status inexistente: %d", task.Title, task.StatusID,
+		)
 	}
 
 	createdAt := task.CreatedAt
@@ -431,7 +470,11 @@ func importTaskNode(
 	for _, note := range task.Notes {
 		noteID := strings.TrimSpace(note.ID)
 		if noteID == "" {
-			return fmt.Errorf("nota da task %q sem id não pode ser importada no formato version %d", task.Title, ExportVersion)
+			return codedErrorf(
+				CodeTaskNoteMissingID,
+				params("task", task.Title, "version", itoa(ExportVersion)),
+				"nota da task %q sem id não pode ser importada no formato version %d", task.Title, ExportVersion,
+			)
 		}
 		noteCreatedAt := note.CreatedAt
 		if noteCreatedAt.IsZero() {
