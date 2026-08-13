@@ -4,9 +4,9 @@ import {app} from '../models';
 import {database} from '../models';
 import {workspace} from '../models';
 import {portability} from '../models';
-import {context} from '../models';
 import {subagent} from '../models';
 import {updater} from '../models';
+import {context} from '../models';
 import {allowlist} from '../models';
 import {controllers} from '../models';
 import {memory} from '../models';
@@ -46,8 +46,6 @@ export function ApplyUpdate():Promise<void>;
 export function ArchiveMemoryRecord(arg1:string):Promise<database.MemoryRecord>;
 
 export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function AuthenticatedContext():Promise<context.Context>;
 
 export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 

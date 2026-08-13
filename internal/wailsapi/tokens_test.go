@@ -28,10 +28,10 @@ func TestTokensUsesWithUserNotRequireAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(src)
-	if strings.Contains(body, "requireAuthenticatedContext") {
-		t.Fatal("tokens.go não deve invocar o helper de auth do App; use WithUser")
+	if strings.Contains(body, "requireAuthenticatedContext(") {
+		t.Fatal("tokens.go não deve chamar requireAuthenticatedContext(; use WithUser")
 	}
-	if !strings.Contains(body, "WithUser") {
-		t.Fatal("tokens.go deve usar WithUser")
+	if !strings.Contains(body, "WithUser(") {
+		t.Fatal("tokens.go deve chamar WithUser(")
 	}
 }

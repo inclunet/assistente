@@ -5920,6 +5920,25 @@ export namespace updater {
 
 }
 
+export namespace wailsapi {
+	
+	export class ContextWindowThresholdResult {
+	    above: boolean;
+	    percentage: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextWindowThresholdResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.above = source["above"];
+	        this.percentage = source["percentage"];
+	    }
+	}
+
+}
+
 export namespace workspace {
 	
 	export class Tab {

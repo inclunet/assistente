@@ -242,11 +242,6 @@ func SetTokensAPI(a *App, api *wailsapi.Tokens) {
 	a.tokensAPI = api
 }
 
-// AuthenticatedContext implementa wailsapi.Session (AEP-0088 D2).
-func (a *App) AuthenticatedContext() (context.Context, error) {
-	return a.requireAuthenticatedContext()
-}
-
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
 // Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/asst/).
 func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) error {
@@ -398,7 +393,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 				return nil, err
 			}
 			if a.tokensCtrl == nil {
-				return nil, fmt.Errorf("tokens controller not ready")
+				return nil, fmt.Errorf("controller de tokens ainda não está pronto")
 			}
 			return a.tokensCtrl.GetConversationTokenStats(ctx, conversationID)
 		},
@@ -595,7 +590,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		TokenSvc:   a.tokenSvc,
 	})
 	if a.tokensAPI != nil {
-		wailsapi.AttachTokens(a.tokensAPI, a, a.tokensCtrl)
+		wailsapi.AttachTokens(a.tokensAPI, wailsSession{app: a}, a.tokensCtrl)
 	}
 	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
 		ToolRegistry: a.toolRegistry,
