@@ -599,7 +599,7 @@ const ptBR = {
       toolbarLabel: 'Barra de ferramentas da allowlist de rede',
       gridLabel: 'Hosts autorizados na allowlist de rede',
       description: 'Hosts que resolvem para endereços internos/privados e que você autorizou o assistente a acessar, apesar da política anti-SSRF. Cada entrada vale até ser removida aqui.',
-      sessionNote: 'Autorizações concedidas só para a requisição atual ou só para a conversa não aparecem nesta lista: elas expiram sozinhas, sem passar pelo disco.',
+      sessionNote: 'Esta lista cobre só o workspace atual, o perfil ativo e o escopo global. Autorizações só da requisição, só da conversa ou de outros perfis não aparecem aqui — as efêmeras expiram sozinhas; as de outros perfis continuam valendo quando aquele perfil estiver ativo.',
       empty: 'Nenhum host autorizado. Todo destino interno continua bloqueado até você autorizar.',
       loadFailedBody: 'Não foi possível carregar a allowlist de rede. As autorizações que existirem continuam valendo — recarregue para tentar de novo.',
       defaultPorts: 'Padrão (80 e 443)',
@@ -633,6 +633,8 @@ const ptBR = {
       error: {
         loadFailed: 'Erro ao carregar a allowlist de rede',
         removeFailed: 'Erro ao remover a autorização de rede',
+        reloadAfterRemoveFailed:
+          'A autorização foi removida, mas a lista não pôde ser atualizada. Recarregue para confirmar.',
       },
     },
 

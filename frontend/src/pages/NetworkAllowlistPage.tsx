@@ -111,17 +111,40 @@ export default function NetworkAllowlistPage() {
 
       try {
         await RemoveNetworkAllowlistEntry(row.scope, row.host, row.port);
+        // Remoção já valeu no backend: tira a linha localmente antes de
+        // sincronizar. Se a sincronização falhar, a grade otimista permanece
+        // (não cair em loadFailedBody, que contradiria o toast de sucesso).
+        setRows((current) => current.filter((item) => item.id !== row.id));
+        setFocused((current) => (current?.id === row.id ? null : current));
+        setLoadFailed(false);
         addToast(t('networkAllowlist.toast.removed'), 'success', undefined, undefined, {
           suppressAnnounce: true,
         });
         announce(t('networkAllowlist.announce.removed', { host: row.host, scope }));
-        await load();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error ?? '');
-        addToast(message || t('networkAllowlist.error.removeFailed'), 'error');
+        try {
+          const entries = (await GetNetworkAllowlist()) ?? [];
+          setRows(
+            entries.map((entry) => ({
+              id: `${entry.scope}:${entry.host}:${entry.port ?? ''}`,
+              host: entry.host,
+              port: entry.port ?? '',
+              scope: entry.scope,
+              category: entry.category ?? '',
+              resolvedIps: (entry.resolvedIps ?? []).join(', '),
+              createdBy: entry.createdBy ?? '',
+              createdAt: entry.createdAt,
+              reason: entry.reason ?? '',
+            })),
+          );
+        } catch (error) {
+          logger.error('Erro ao sincronizar allowlist de rede após remoção:', error);
+          addToast(t('networkAllowlist.error.reloadAfterRemoveFailed'), 'warning');
+        }
+      } catch {
+        addToast(t('networkAllowlist.error.removeFailed'), 'error');
       }
     },
-    [addToast, announce, load, requestConfirm, scopeName, t],
+    [addToast, announce, requestConfirm, scopeName, t],
   );
 
   const rowActions = useCallback(

@@ -190,9 +190,9 @@ describe('NetworkAllowlistPage', () => {
     expect(mockRemoveNetworkAllowlistEntry).not.toHaveBeenCalled();
   });
 
-  it('mostra o motivo quando a remoção falha', async () => {
+  it('mostra erro i18n quando a remoção falha', async () => {
     // Dizer "removida" sem ter removido faria a pessoa acreditar que fechou um
-    // acesso que continua aberto.
+    // acesso que continua aberto. A mensagem vem da chave i18n, não do backend.
     const user = userEvent.setup();
     mockRemoveNetworkAllowlistEntry.mockRejectedValue(
       new Error('entrada de allowlist de rede não encontrada'),
@@ -203,11 +203,33 @@ describe('NetworkAllowlistPage', () => {
     await user.click(screen.getByRole('button', { name: 'networkAllowlist.actions.remove' }));
 
     await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('networkAllowlist.error.removeFailed', 'error');
+    });
+  });
+
+  it('após remover, falha de sincronização não contradiz o sucesso', async () => {
+    const user = userEvent.setup();
+    mockGetNetworkAllowlist
+      .mockResolvedValueOnce([hostDeWorkflows])
+      .mockRejectedValueOnce(new Error('rede caiu'));
+    render(<NetworkAllowlistPage />);
+    await waitFor(() => expect(screen.getByText('api.nu.workflows.dev')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'networkAllowlist.actions.remove' }));
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('networkAllowlist.toast.removed', 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+    });
+    await waitFor(() => {
       expect(mockAddToast).toHaveBeenCalledWith(
-        'entrada de allowlist de rede não encontrada',
-        'error',
+        'networkAllowlist.error.reloadAfterRemoveFailed',
+        'warning',
       );
     });
+    expect(screen.queryByText('networkAllowlist.loadFailedBody')).not.toBeInTheDocument();
+    expect(screen.getByText('networkAllowlist.empty')).toBeInTheDocument();
   });
 
   it('diz que tudo segue bloqueado quando não há host autorizado', async () => {
@@ -234,7 +256,7 @@ describe('NetworkAllowlistPage', () => {
     expect(mockAddToast).toHaveBeenCalledWith('networkAllowlist.error.loadFailed', 'error');
   });
 
-  it('avisa que autorizações de sessão não estão nesta lista', async () => {
+  it('avisa que a lista não cobre escopos efêmeros nem outros perfis', async () => {
     // Sem esse aviso, a lista pareceria a relação completa do que está liberado.
     render(<NetworkAllowlistPage />);
 

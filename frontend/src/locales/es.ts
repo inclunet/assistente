@@ -598,7 +598,7 @@ const es = {
       toolbarLabel: 'Barra de herramientas de la lista de permitidos de red',
       gridLabel: 'Hosts autorizados en la lista de permitidos de red',
       description: 'Hosts que resuelven a direcciones internas/privadas y que autorizó al asistente a acceder, a pesar de la política anti-SSRF. Cada entrada vale hasta que la elimine aquí.',
-      sessionNote: 'Las autorizaciones concedidas solo para la solicitud actual o solo para la conversación no aparecen en esta lista: caducan solas, sin pasar por el disco.',
+      sessionNote: 'Esta lista cubre solo el workspace actual, el perfil activo y el alcance global. Las autorizaciones solo de la solicitud, solo de la conversación o de otros perfiles no aparecen aquí: las efímeras caducan solas; las de otros perfiles siguen valiendo cuando ese perfil esté activo.',
       empty: 'No hay hosts autorizados. Todo destino interno sigue bloqueado hasta que lo autorice.',
       loadFailedBody: 'No se pudo cargar la lista de permitidos de red. Las autorizaciones que existan siguen vigentes: recargue para intentarlo de nuevo.',
       defaultPorts: 'Predeterminado (80 y 443)',
@@ -632,6 +632,8 @@ const es = {
       error: {
         loadFailed: 'Error al cargar la lista de permitidos de red',
         removeFailed: 'Error al eliminar la autorización de red',
+        reloadAfterRemoveFailed:
+          'La autorización se eliminó, pero la lista no pudo actualizarse. Recargue para confirmar.',
       },
     },
 

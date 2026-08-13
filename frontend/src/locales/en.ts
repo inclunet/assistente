@@ -599,7 +599,7 @@ const en = {
       toolbarLabel: 'Network allowlist toolbar',
       gridLabel: 'Hosts allowed in the network allowlist',
       description: 'Hosts that resolve to internal/private addresses and that you allowed the assistant to reach, despite the anti-SSRF policy. Each entry stays in effect until you remove it here.',
-      sessionNote: 'Authorizations granted only for the current request or only for the conversation are not listed here: they expire on their own, without touching the disk.',
+      sessionNote: 'This list covers only the current workspace, the active profile, and the global scope. Request-only, conversation-only, or other-profile authorizations are not shown here — ephemeral ones expire on their own; other profiles’ entries still apply when that profile is active.',
       empty: 'No allowed hosts. Every internal destination stays blocked until you allow it.',
       loadFailedBody: 'Could not load the network allowlist. Any authorization that exists is still in effect — reload to try again.',
       defaultPorts: 'Default (80 and 443)',
@@ -633,6 +633,8 @@ const en = {
       error: {
         loadFailed: 'Error loading the network allowlist',
         removeFailed: 'Error removing the network authorization',
+        reloadAfterRemoveFailed:
+          'The authorization was removed, but the list could not be refreshed. Reload to confirm.',
       },
     },
 
