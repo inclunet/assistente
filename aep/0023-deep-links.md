@@ -62,7 +62,8 @@ Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`,
 | Rota | Página |
 |------|--------|
 | *(vazio)* | Chat (workspace) |
-| `allowlists` | Allowlists |
+| `allowlists` | Allowlists de comandos |
+| `settings/network-allowlist` | Allowlist de rede (hosts autorizados apesar do anti-SSRF) |
 | `skills` | Skills |
 | `mcp` | Servidores MCP |
 | `channels` | Canais |

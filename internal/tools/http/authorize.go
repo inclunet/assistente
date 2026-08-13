@@ -94,8 +94,15 @@ func joinIPs(ips []net.IP) string {
 	return strings.Join(parts, ", ")
 }
 
+// NetworkAllowlistDeepLink abre a tela de gestão da allowlist de rede. Vai na
+// mensagem de bloqueio como link Markdown: quem lê a conversa consegue ir
+// direto revisar o que já está autorizado (e revogar), em vez de caçar a tela
+// nas configurações.
+const NetworkAllowlistDeepLink = "assistente://navigate/settings/network-allowlist"
+
 // defaultBlockSuggestions são as ações sugeridas quando não há autorização.
 var defaultBlockSuggestions = []string{
 	"autorizar temporariamente esta requisição",
 	"adicionar o host à allowlist (sessão / workspace / perfil / global)",
+	"revisar ou revogar autorizações em [allowlist de rede](" + NetworkAllowlistDeepLink + ")",
 }
