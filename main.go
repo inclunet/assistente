@@ -24,6 +24,8 @@ func main() {
 	application.SetTokensAPI(a, tokensAPI)
 	allowlistsAPI := wailsapi.NewAllowlists()
 	application.SetAllowlistsAPI(a, allowlistsAPI)
+	skillsAPI := wailsapi.NewSkills()
+	application.SetSkillsAPI(a, skillsAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -56,13 +58,13 @@ func main() {
 		OnShutdown: func(_ context.Context) {
 			a.Shutdown()
 		},
-		// AEP-0088: multi-bind — App (ciclo de vida + domínios ainda não
-		// migrados), Probe, Tokens e Allowlists.
+		// AEP-0088: multi-bind — App + binds de domínio migrados.
 		Bind: []interface{}{
 			a,
 			wailsapi.NewProbe(),
 			tokensAPI,
 			allowlistsAPI,
+			skillsAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

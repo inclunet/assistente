@@ -44,3 +44,21 @@ func TestAllowlistsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetSkills",
+		"GetSkill",
+		"CreateSkill",
+		"DuplicateSkill",
+		"UpdateSkill",
+		"DeleteSkill",
+		"GetUserInvocableSkillsForProfile",
+		"GetSkillSearchPaths",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Skills/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

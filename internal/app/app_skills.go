@@ -1,7 +1,6 @@
 package app
 
 import (
-	"assistente/controllers"
 	"assistente/internal/configdir"
 	"assistente/internal/logging"
 	"assistente/internal/skills"
@@ -11,28 +10,8 @@ import (
 )
 
 // ============================================================================
-// Skills Management API — delegação para SkillsController
-// Os métodos abaixo existem para manter compatibilidade com o Wails Bind
-// enquanto a migração para controllers/ está em andamento (Strangler Fig).
-// ============================================================================
-
-func (a *App) GetSkills() ([]skills.SkillInfo, error)      { return a.skillsCtrl.GetSkills() }
-func (a *App) GetSkill(slug string) (*skills.Skill, error) { return a.skillsCtrl.GetSkill(slug) }
-func (a *App) CreateSkill(req controllers.SkillCreateRequest) (string, error) {
-	return a.skillsCtrl.CreateSkill(req)
-}
-func (a *App) DuplicateSkill(slug string) (string, error) { return a.skillsCtrl.DuplicateSkill(slug) }
-func (a *App) UpdateSkill(slug string, req controllers.SkillCreateRequest) error {
-	return a.skillsCtrl.UpdateSkill(slug, req)
-}
-func (a *App) DeleteSkill(slug string) error { return a.skillsCtrl.DeleteSkill(slug) }
-func (a *App) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.SkillInfo, error) {
-	return a.skillsCtrl.GetUserInvocableSkillsForProfile(profileSlug)
-}
-func (a *App) GetSkillSearchPaths() []string { return a.skillsCtrl.GetSkillSearchPaths() }
-
-// ============================================================================
 // Skills — funções de inicialização (internas ao App)
+// A superfície Wails do domínio está em wailsapi.Skills (AEP-0088).
 // ============================================================================
 
 // initSkills inicializa o gerenciador de skills
