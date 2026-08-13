@@ -9,7 +9,7 @@ import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../menu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useSubAgentRunsStore } from '../../store/subAgentRunsStore';
-import { formatRelativeTime } from '../../lib/dateUtils';
+import { formatRelativeTimeLocalized } from '../../lib/dateUtils';
 import { logger } from '../../utils/logger';
 import './SubAgentRunsModal.css';
 
@@ -27,7 +27,7 @@ export interface SubAgentRunsModalProps {
  * possível pelo LLM, nunca pela pessoa.
  */
 export function SubAgentRunsModal({ isOpen, onClose }: SubAgentRunsModalProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const runs = useSubAgentRunsStore((state) => state.runs);
   const activeForUser = useSubAgentRunsStore((state) => state.activeForUser);
@@ -35,6 +35,7 @@ export function SubAgentRunsModal({ isOpen, onClose }: SubAgentRunsModalProps) {
   const maxConcurrentPerUser = useSubAgentRunsStore((state) => state.maxConcurrentPerUser);
   const maxConcurrentGlobal = useSubAgentRunsStore((state) => state.maxConcurrentGlobal);
   const isLoading = useSubAgentRunsStore((state) => state.isLoading);
+  const error = useSubAgentRunsStore((state) => state.error);
   const fetchRuns = useSubAgentRunsStore((state) => state.fetchRuns);
   const cancelRun = useSubAgentRunsStore((state) => state.cancelRun);
 
@@ -59,8 +60,8 @@ export function SubAgentRunsModal({ isOpen, onClose }: SubAgentRunsModalProps) {
                 status: statusLabel(result?.status, t),
               }),
         );
-      } catch (error) {
-        logger.error('Erro ao cancelar run de sub-agente:', error);
+      } catch (cancelError) {
+        logger.error('Erro ao cancelar run de sub-agente:', cancelError);
         announce(t('subAgentRuns.announce.cancelError', { title: label }), 'assertive');
       }
       await fetchRuns();
@@ -109,7 +110,11 @@ export function SubAgentRunsModal({ isOpen, onClose }: SubAgentRunsModalProps) {
       key: 'createdAt',
       label: t('subAgentRuns.columnStarted', 'Início'),
       width: '16%',
-      format: (_value, run) => formatRelativeTime(new Date(String(run.startedAt ?? run.createdAt)).getTime()),
+      format: (_value, run) =>
+        formatRelativeTimeLocalized(
+          new Date(String(run.startedAt ?? run.createdAt)).getTime(),
+          i18n.language,
+        ),
     },
     {
       key: 'actions',
@@ -153,7 +158,9 @@ export function SubAgentRunsModal({ isOpen, onClose }: SubAgentRunsModalProps) {
         })}
       </p>
 
-      {runs.length === 0 ? (
+      {error && runs.length === 0 ? (
+        <p className="subagent-runs__empty">{t('subAgentRuns.loadFailed')}</p>
+      ) : runs.length === 0 ? (
         <p className="subagent-runs__empty">
           {isLoading
             ? t('subAgentRuns.loading', 'Carregando runs...')

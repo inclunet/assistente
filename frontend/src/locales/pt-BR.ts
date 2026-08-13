@@ -3159,6 +3159,7 @@ const ptBR = {
       usage: '{{active}} de {{max}} runs simultâneos seus em execução; {{globalActive}} de {{globalMax}} no aplicativo.',
       empty: 'Nenhum run de sub-agente registrado.',
       loading: 'Carregando runs...',
+      loadFailed: 'Não foi possível carregar os runs de sub-agentes. Tente de novo.',
       untitled: 'Sub-agente',
       columnTitle: 'Sub-agente',
       columnStatus: 'Situação',

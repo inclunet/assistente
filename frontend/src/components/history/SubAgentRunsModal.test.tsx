@@ -30,7 +30,17 @@ vi.mock('react-i18next', () => ({
       if (options?.title) return `${key}:${options.title}`;
       return key;
     },
+    i18n: { language: 'pt-BR' },
   }),
+}));
+
+vi.mock('../../lib/dateUtils', () => ({
+  formatRelativeTimeLocalized: () => 'há 5 min',
+}));
+
+vi.mock('../../store/authStore', () => ({
+  useAuthStore: (selector: (s: { isAuthenticated: boolean }) => unknown) =>
+    selector({ isAuthenticated: true }),
 }));
 
 function run(overrides: Record<string, unknown> = {}) {
@@ -125,6 +135,14 @@ describe('SubAgentRunsModal', () => {
 
     expect(await screen.findByText('Revisar PR')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Cancelar run Revisar PR' })).toBeNull();
+  });
+
+  it('mostra erro de carga em vez de lista vazia', async () => {
+    mockListSubAgentRuns.mockRejectedValue(new Error('sem sessão'));
+    render(<SubAgentRunsModal isOpen onClose={vi.fn()} />);
+
+    expect(await screen.findByText('subAgentRuns.loadFailed')).toBeTruthy();
+    expect(screen.queryByText('Nenhum run de sub-agente registrado.')).toBeNull();
   });
 
   it('mostra estado vazio quando não há runs', async () => {

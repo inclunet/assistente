@@ -39,14 +39,56 @@ describe('subAgentRunsStore', () => {
     expect(state.error).toBeNull();
   });
 
-  it('registra o erro sem derrubar a lista já carregada', async () => {
-    mockListSubAgentRuns.mockRejectedValue(new Error('sem sessão'));
+  it('limpa a lista e registra o erro quando a carga falha', async () => {
+    mockListSubAgentRuns.mockResolvedValueOnce({
+      runs: [{ runId: 'run-1', conversationId: 'conv-1', status: 'running', active: true }],
+      activeForUser: 1,
+      activeGlobal: 1,
+      maxConcurrentPerUser: 4,
+      maxConcurrentGlobal: 16,
+    });
+    await useSubAgentRunsStore.getState().fetchRuns();
+    expect(useSubAgentRunsStore.getState().runs).toHaveLength(1);
 
+    mockListSubAgentRuns.mockRejectedValueOnce(new Error('sem sessão'));
     await useSubAgentRunsStore.getState().fetchRuns();
 
     const state = useSubAgentRunsStore.getState();
     expect(state.error).toContain('sem sessão');
+    expect(state.runs).toHaveLength(0);
+    expect(state.activeForUser).toBe(0);
     expect(state.isLoading).toBe(false);
+  });
+
+  it('descarta resposta antiga quando um fetch mais novo já começou', async () => {
+    let resolveSlow: (value: unknown) => void = () => undefined;
+    const slow = new Promise((resolve) => {
+      resolveSlow = resolve;
+    });
+    mockListSubAgentRuns.mockReturnValueOnce(slow).mockResolvedValueOnce({
+      runs: [{ runId: 'run-new', conversationId: 'conv-2', status: 'running', active: true }],
+      activeForUser: 1,
+      activeGlobal: 1,
+      maxConcurrentPerUser: 4,
+      maxConcurrentGlobal: 16,
+    });
+
+    const first = useSubAgentRunsStore.getState().fetchRuns();
+    const second = useSubAgentRunsStore.getState().fetchRuns();
+    await second;
+    resolveSlow({
+      runs: [{ runId: 'run-old', conversationId: 'conv-1', status: 'running', active: true }],
+      activeForUser: 9,
+      activeGlobal: 9,
+      maxConcurrentPerUser: 4,
+      maxConcurrentGlobal: 16,
+    });
+    await first;
+
+    const state = useSubAgentRunsStore.getState();
+    expect(state.runs).toHaveLength(1);
+    expect(state.runs[0].runId).toBe('run-new');
+    expect(state.activeForUser).toBe(1);
   });
 
   it('delega o cancelamento ao backend sem alterar a lista otimisticamente', async () => {

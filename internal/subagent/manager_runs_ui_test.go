@@ -265,6 +265,9 @@ func TestManagerEmitsRunEvents(t *testing.T) {
 	if started[0].Title != "Tarefa X" {
 		t.Fatalf("evento de início deveria carregar o título da sub-conversa: %#v", started[0])
 	}
+	if started[0].Status != StatusRunning {
+		t.Fatalf("evento de início deveria sair com status running (não queued), veio %q", started[0].Status)
+	}
 
 	finished := emitter.byName(EventRunFinished)
 	if len(finished) != 1 {

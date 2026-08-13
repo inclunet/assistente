@@ -3159,6 +3159,7 @@ const es = {
       usage: '{{active}} de {{max}} ejecuciones simultáneas tuyas en curso; {{globalActive}} de {{globalMax}} en la aplicación.',
       empty: 'No hay ejecuciones de subagentes registradas.',
       loading: 'Cargando ejecuciones...',
+      loadFailed: 'No se pudieron cargar las ejecuciones de subagentes. Inténtelo de nuevo.',
       untitled: 'Subagente',
       columnTitle: 'Subagente',
       columnStatus: 'Situación',

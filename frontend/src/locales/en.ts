@@ -3159,6 +3159,7 @@ const en = {
       usage: '{{active}} of {{max}} of your concurrent runs in progress; {{globalActive}} of {{globalMax}} in the app.',
       empty: 'No sub-agent runs recorded.',
       loading: 'Loading runs...',
+      loadFailed: 'Could not load sub-agent runs. Try again.',
       untitled: 'Sub-agent',
       columnTitle: 'Sub-agent',
       columnStatus: 'Status',

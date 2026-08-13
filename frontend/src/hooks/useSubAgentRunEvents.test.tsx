@@ -22,8 +22,19 @@ vi.mock('./useAnnouncer', () => ({
 }));
 
 const fetchRunsSpy = vi.fn();
+const resetSpy = vi.fn();
+const authState = vi.hoisted(() => ({ isAuthenticated: true }));
+
 vi.mock('../store/subAgentRunsStore', () => ({
-  useSubAgentRunsStore: { getState: () => ({ fetchRuns: fetchRunsSpy }) },
+  useSubAgentRunsStore: Object.assign(
+    (selector: (s: { reset: () => void }) => unknown) => selector({ reset: resetSpy }),
+    { getState: () => ({ fetchRuns: fetchRunsSpy }) },
+  ),
+}));
+
+vi.mock('../store/authStore', () => ({
+  useAuthStore: (selector: (s: { isAuthenticated: boolean }) => unknown) =>
+    selector({ isAuthenticated: authState.isAuthenticated }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -50,6 +61,8 @@ describe('useSubAgentRunEvents', () => {
     handlers.clear();
     announceRequestSpy.mockClear();
     fetchRunsSpy.mockClear();
+    resetSpy.mockClear();
+    authState.isAuthenticated = true;
   });
 
   it('anuncia o início de um run em segundo plano com a origem externa', () => {
@@ -60,9 +73,17 @@ describe('useSubAgentRunEvents', () => {
     const request = announceRequestSpy.mock.calls[0][0];
     expect(request.message).toBe('subAgentRuns.announce.started:Revisar PR');
     expect(request.eventType).toBe('progress');
+    expect(request.waitsForReading).toBe(true);
     // Um run em segundo plano não tem aba dona: marcá-lo como externo impede que
     // a política de aba inativa silencie o aviso.
     expect(request.origin).toMatchObject({ isExternal: true, conversationId: 'conv-1' });
+  });
+
+  it('limpa a store ao perder a autenticação', () => {
+    const { rerender } = renderHook(() => useSubAgentRunEvents());
+    authState.isAuthenticated = false;
+    rerender();
+    expect(resetSpy).toHaveBeenCalled();
   });
 
   it('anuncia a conclusão como evento de completion, para esperar a leitura em curso', () => {

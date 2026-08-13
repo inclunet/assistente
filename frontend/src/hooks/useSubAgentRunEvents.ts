@@ -1,7 +1,8 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWailsEvent } from './useWails';
 import { useAnnouncer } from './useAnnouncer';
+import { useAuthStore } from '../store/authStore';
 import { useSubAgentRunsStore } from '../store/subAgentRunsStore';
 import {
   SUBAGENT_RUN_FINISHED_EVENT,
@@ -23,6 +24,16 @@ import type { VoiceAccessibilityOrigin } from '../services/voiceAccessibility/ty
 export function useSubAgentRunEvents() {
   const { t } = useTranslation();
   const { announceRequest } = useAnnouncer();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const resetRuns = useSubAgentRunsStore((s) => s.reset);
+
+  // O hook vive em App (fora do AuthGate). Sem limpar no logout, a toolbar do
+  // histórico e o modal herdariam runs/contadores do usuário anterior.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      resetRuns();
+    }
+  }, [isAuthenticated, resetRuns]);
 
   // Um run em segundo plano não pertence a nenhuma aba: ele sobrevive ao turno
   // que o disparou e pode terminar com o usuário em qualquer superfície. Marcar
@@ -48,10 +59,14 @@ export function useSubAgentRunEvents() {
       if (!event?.runId) return;
       void useSubAgentRunsStore.getState().fetchRuns();
       if (!event.background) return;
+      // waitsForReading: progress puro é descartado enquanto o broker protege a
+      // leitura do assistente (AEP-0058 §2.1). O início de run em background
+      // precisa chegar — espera a leitura terminar, sem atropelá-la.
       announceRequest({
         message: t('subAgentRuns.announce.started', { title: runLabel(event) }),
         origin: buildOrigin(event),
         eventType: 'progress',
+        waitsForReading: true,
       });
     },
     [announceRequest, buildOrigin, runLabel, t],

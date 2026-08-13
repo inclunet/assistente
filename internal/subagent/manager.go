@@ -355,9 +355,6 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	})
 	ar := &activeRun{childConversationID: childConvID, title: childTitle, cancelCh: make(chan struct{})}
 	m.registerActive(run.ID, ar)
-	// Evento de início: a partir daqui TODO caminho terminal passa por finalize,
-	// que emite o par EventRunFinished — não há started sem finished.
-	m.emitRun(EventRunStarted, run, childTitle)
 
 	// 4. Marca running e dispara o envio pelo pipeline oficial.
 	//    Persiste a transição num ctx desacoplado de cancelamento (como em
@@ -382,6 +379,10 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		}
 		return finished, nil
 	}
+	// Evento de início SÓ depois de persistir running: a UI lista pelo banco e
+	// anunciaria "Na fila" se o started saísse ainda com status queued. A partir
+	// daqui todo caminho terminal passa por finalize (par EventRunFinished).
+	m.emitRun(EventRunStarted, run, childTitle)
 
 	// Anexa o run.ID à cadeia de proveniência ANTES do envio: o run.ID só existe
 	// após o Create, então o backstop acima checa a cadeia que chega; ao enviar,

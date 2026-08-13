@@ -37,13 +37,20 @@ const INITIAL_STATE = {
   error: null as string | null,
 };
 
+/** Descarta respostas antigas quando vários fetchRuns correm em paralelo. */
+let fetchGeneration = 0;
+
 export const useSubAgentRunsStore = create<SubAgentRunsState>((set) => ({
   ...INITIAL_STATE,
 
   fetchRuns: async () => {
+    const generation = ++fetchGeneration;
     set({ isLoading: true, error: null });
     try {
       const result = await ListSubAgentRuns(SUBAGENT_RUNS_PAGE_SIZE);
+      if (generation !== fetchGeneration) {
+        return;
+      }
       set({
         runs: result?.runs ?? [],
         activeForUser: result?.activeForUser ?? 0,
@@ -51,9 +58,19 @@ export const useSubAgentRunsStore = create<SubAgentRunsState>((set) => ({
         maxConcurrentPerUser: result?.maxConcurrentPerUser ?? 0,
         maxConcurrentGlobal: result?.maxConcurrentGlobal ?? 0,
         isLoading: false,
+        error: null,
       });
     } catch (err) {
-      set({ error: String(err), isLoading: false });
+      if (generation !== fetchGeneration) {
+        return;
+      }
+      // Limpa a lista: manter runs/contadores do usuário anterior após falha
+      // de auth/rede vazaria dados entre sessões (AEP-0052).
+      set({
+        ...INITIAL_STATE,
+        isLoading: false,
+        error: String(err),
+      });
     }
   },
 
@@ -64,5 +81,8 @@ export const useSubAgentRunsStore = create<SubAgentRunsState>((set) => ({
     return CancelSubAgentRun(conversationId, runId);
   },
 
-  reset: () => set({ ...INITIAL_STATE }),
+  reset: () => {
+    fetchGeneration += 1;
+    set({ ...INITIAL_STATE });
+  },
 }));
