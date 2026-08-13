@@ -40,6 +40,8 @@ func main() {
 	application.SetCredentialsAPI(a, credentialsAPI)
 	settingsAPI := wailsapi.NewSettings()
 	application.SetSettingsAPI(a, settingsAPI)
+	mcpAPI := wailsapi.NewMCP()
+	application.SetMCPAPI(a, mcpAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -86,6 +88,7 @@ func main() {
 			netTrustAPI,
 			credentialsAPI,
 			settingsAPI,
+			mcpAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

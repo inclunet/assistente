@@ -136,3 +136,11 @@ func (a *App) wireSettings() {
 		wailsapi.AttachSettings(a.settingsAPI, wailsSession{app: a}, a.settingsCtrl)
 	}
 }
+
+// wireMCP monta o MCPController e associa o bind Wails (AEP-0088).
+func (a *App) wireMCP() {
+	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
+	if a.mcpAPI != nil {
+		wailsapi.AttachMCP(a.mcpAPI, wailsSession{app: a}, a.mcpCtrl)
+	}
+}
