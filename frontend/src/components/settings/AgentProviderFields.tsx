@@ -99,11 +99,13 @@ export interface AgentProviderFieldsProps {
   credentialEnv: Record<string, string>;
   onCredentialEnvChange: (value: Record<string, string>) => void;
   /**
-   * Deixa a detecção preencher o comando sozinha. Vale na criação; na edição o
-   * comando salvo é a escolha de quem configurou, e sobrescrevê-lo ao abrir a
-   * tela desfaria um ajuste manual sem ninguém pedir.
+   * Muda a cada escolha explícita no picker. Zero significa que o formulário
+   * apenas abriu; nesse caso a detecção pode preencher vazios, mas não inicia
+   * instalação sem que alguém tenha escolhido o agente.
    */
-  autoFill: boolean;
+  selectionToken?: number;
+  /** @deprecated A detecção agora depende apenas de o comando estar vazio. */
+  autoFill?: boolean;
 }
 
 /**
@@ -124,12 +126,11 @@ export const AgentProviderFields = ({
   commandError,
   credentialEnv,
   onCredentialEnvChange,
-  autoFill,
+  selectionToken = 0,
 }: AgentProviderFieldsProps) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const idBase = useId();
-  const detectHelpId = `${idBase}-detect-help`;
   const testHelpId = `${idBase}-test-help`;
   // O resultado da procura guarda de qual agente ele fala. Trocar o tipo do
   // provedor não desmonta estes campos, e a procura nova leva um tempo: sem a
@@ -140,6 +141,7 @@ export const AgentProviderFields = ({
   const setup = detected?.kind === agentId ? detected.result : null;
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState('');
+  const [installRequestToken, setInstallRequestToken] = useState(0);
   const [testing, setTesting] = useState(false);
   // O resultado do teste guarda a configuração testada junto. Sem isso, mexer no
   // comando depois de testar deixaria na tela um "conectado" que se refere a
@@ -206,13 +208,9 @@ export const AgentProviderFields = ({
   // digitado e os callbacks do pai. Como dependência de efeito, qualquer um
   // deles disparia uma detecção nova a cada tecla ou a cada render do pai.
   //
-  // `applyCommand` distingue a detecção pedida da automática: `always` é o
-  // clique no botão, que existe justamente para sobrescrever; `ifEmpty` é a
-  // automática, que só preenche campo vazio; `never` é a da edição, que apenas
-  // informa o que há na máquina.
   const detectRef =
-    useRef<(options: { applyCommand: 'always' | 'ifEmpty' | 'never'; announceFound: boolean }) => Promise<void>>();
-  detectRef.current = async ({ applyCommand, announceFound }) => {
+    useRef<(options: { requestToken: number }) => Promise<void>>();
+  detectRef.current = async ({ requestToken }) => {
     const seq = ++searchSeq.current;
     const kind = agentId;
     const obsoleta = () => seq !== searchSeq.current || !mountedRef.current;
@@ -241,19 +239,16 @@ export const AgentProviderFields = ({
       // estava em voo perderia o que digitou. Comando e argumentos decidem
       // separado porque são campos separados — quem digitou só os argumentos
       // mantém os seus e ganha o comando que faltava.
-      const pedida = applyCommand === 'always';
-      const preencheComando = pedida || (applyCommand === 'ifEmpty' && commandRef.current.trim() === '');
-      const preencheArgumentos = pedida || (applyCommand === 'ifEmpty' && argsRef.current.length === 0);
+      const preencheComando = commandRef.current.trim() === '';
+      const preencheArgumentos = argsRef.current.length === 0;
 
       if (result?.found) {
+        setInstallRequestToken(0);
         if (preencheComando) {
           onCommandChange(result.command);
         }
         if (preencheArgumentos) {
           onArgsChange(result.args || []);
-        }
-        if (announceFound) {
-          announce(t('providerForm.agent.announce.found', { command: result.command }), 'polite');
         }
         return;
       }
@@ -270,6 +265,12 @@ export const AgentProviderFields = ({
       // anúncio deixar de significar alguma coisa.
       if (preencheComando && result?.detectable) {
         announce(t('providerForm.agent.announce.notFound'), 'assertive');
+      }
+      // Escolher um agente é pedir para usá-lo. Se a procura não achou uma
+      // instalação global (ou não sabe procurar este agente), o bloco de
+      // instalação abre a confirmação com origem, versão e integridade.
+      if (requestToken > 0 && preencheComando) {
+        setInstallRequestToken(requestToken);
       }
     } catch (error: unknown) {
       if (obsoleta()) return;
@@ -288,19 +289,16 @@ export const AgentProviderFields = ({
   };
 
   useEffect(() => {
-    // A detecção automática nunca substitui um comando que já existe: na edição
-    // ele é o que está salvo, e na criação é o que a pessoa acabou de digitar.
-    void detectRef.current?.({
-      applyCommand: autoFill ? 'ifEmpty' : 'never',
-      announceFound: false,
-    });
-  }, [agentId, autoFill]);
-
-  const handleRedetect = () => {
-    // Clique explícito aplica o que achou: é justamente para isso que alguém
-    // pede a detecção de novo depois de o CLI se atualizar e mudar de caminho.
-    void detectRef.current?.({ applyCommand: 'always', announceFound: true });
-  };
+    setInstallRequestToken(0);
+    // Campo preenchido é escolha de quem configurou; não se procura nem se
+    // sobrescreve. Campo vazio dispara a inferência automaticamente.
+    if (!agentId || command.trim() !== '') {
+      searchSeq.current += 1;
+      setDetecting(false);
+      return;
+    }
+    void detectRef.current?.({ requestToken: selectionToken });
+  }, [agentId, command, selectionToken]);
 
   const handleTest = async () => {
     const trimmed = command.trim();
@@ -347,21 +345,6 @@ export const AgentProviderFields = ({
       }
     }
   };
-
-  // Procurar é coisa de agente que o app sabe procurar. Para os outros a tela
-  // diz isso, em vez de oferecer um botão cuja única resposta possível já é
-  // conhecida — e em vez de chamar de "não encontrado" uma procura que nunca
-  // aconteceu (AEP-0086 D1).
-  //
-  // Sem resposta ainda, o botão fica: some só quem já se soube que o app não
-  // procura. Enquanto a primeira procura corre ele é o rótulo "procurando", e
-  // se ela falhar ele é a única forma de tentar de novo sem sair da tela — foi
-  // por escondê-lo nesse caso que a falha virava beco sem saída.
-  //
-  // Sem agente escolhido não há nem pergunta: é o estado de quem acabou de
-  // escolher o tipo e ainda não abriu o catálogo, e ali um botão de procurar
-  // procuraria o quê.
-  const detectable = agentId !== '' && (setup ? setup.detectable : true);
 
   const status = (() => {
     if (detecting) return t('providerForm.agent.detecting');
@@ -459,30 +442,7 @@ export const AgentProviderFields = ({
         />
       </FormField>
 
-      {/*
-        Cada botão vem com a descrição do que o clique faz, ligada por
-        `aria-describedby` e visível ao lado dele. Lado a lado e sem texto, os
-        dois pareciam duas formas de conferir a instalação, e só um deles
-        sobrescreve o comando e os argumentos que estão na tela — quem descobre
-        isso clicando descobre depois de perder o que havia digitado.
-      */}
       <div className="agent-fields__actions">
-        {detectable && (
-          <div className="agent-fields__action">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleRedetect}
-              disabled={detecting}
-              aria-describedby={detectHelpId}
-            >
-              {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
-            </Button>
-            <p id={detectHelpId} className="agent-fields__action-help">
-              {t('providerForm.agent.detectBtnHelp')}
-            </p>
-          </div>
-        )}
         <div className="agent-fields__action">
           <Button
             type="button"
@@ -598,6 +558,9 @@ export const AgentProviderFields = ({
       */}
       <AgentInstall
         agentId={agentId}
+        installRequestToken={installRequestToken}
+        autoResolveInstalled={command.trim() === ''}
+        showManualActions={false}
         onResolved={(installedCommand, installedArgs, installedEnv) => {
           onCommandChange(installedCommand);
           onArgsChange(installedArgs);

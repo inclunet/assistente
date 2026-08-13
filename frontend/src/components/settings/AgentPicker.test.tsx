@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ptBR from '../../locales/pt-BR';
 import { axe } from '../../test/a11yAxe';
@@ -39,7 +39,7 @@ vi.mock('react-i18next', async (importOriginal) => {
 });
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn() }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
@@ -98,58 +98,61 @@ afterEach(() => {
 });
 
 describe('AgentPicker', () => {
-  it('sem agente escolhido, diz isso e chama o botão de escolher', () => {
+  it('usa o mesmo combobox inline dos outros pickers', async () => {
     render(<AgentPicker agentId="" onPick={() => {}} />);
 
-    expect(screen.getByText(/nenhum agente escolhido/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /escolher agente no catálogo/i })).toBeInTheDocument();
+    const button = await screen.findByRole('button', { name: /agente acp/i });
+    expect(button).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('escolher no catálogo devolve o agente e passa a mostrá-lo pelo nome', async () => {
+  it('escolher no picker devolve o agente e passa a mostrá-lo pelo nome', async () => {
     const onPick = vi.fn();
     const user = userEvent.setup();
 
     render(<Host onPick={onPick} />);
-    await user.click(screen.getByRole('button', { name: /escolher agente no catálogo/i }));
+    await user.click(await screen.findByRole('button', { name: /agente acp/i }));
 
     await user.click(await screen.findByRole('option', { name: /gemini cli/i }));
 
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'gemini-cli' }));
-    // O diálogo fecha e o escolhido fica escrito na tela, e não só na memória de
-    // quem clicou.
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByText(/gemini cli/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /trocar de agente/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /agente acp, gemini cli/i })).toBeInTheDocument();
   });
 
-  it('agente salvo aparece pelo nome do catálogo, e não pelo identificador cru', async () => {
+  it('agente salvo aparece pelo nome do catálogo', async () => {
     render(<AgentPicker agentId="cursor" onPick={() => {}} />);
 
-    expect(await screen.findByText(/cursor/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /agente acp, cursor/i })).toBeInTheDocument();
   });
 
-  it('catálogo fora do ar não apaga o agente escolhido: sobra o identificador', async () => {
-    // O nome é enfeite sobre o `id`. Sem rede, dizer "cursor" é pior do que
-    // dizer "Cursor" e muito melhor do que deixar a linha em branco.
+  it('catálogo fora do ar mostra erro e permite tentar novamente', async () => {
     catalogMock.mockRejectedValue(new Error('sem rede'));
 
     render(<AgentPicker agentId="cursor" onPick={() => {}} />);
 
-    await waitFor(() => expect(catalogMock).toHaveBeenCalled());
-    expect(screen.getByText(/cursor/i)).toBeInTheDocument();
+    expect(await screen.findByText(/sem rede/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /atualizar catálogo/i })).toBeInTheDocument();
   });
 
-  it('o botão diz o que abrir o catálogo faz antes de alguém clicar nele', () => {
+  it('filtra também pelos metadados que não cabem na opção visual', async () => {
+    const user = userEvent.setup();
+    catalogMock.mockResolvedValue({
+      ...catalogo,
+      agents: [{
+        ...catalogo.agents[0],
+        authors: ['Equipe Exemplo'],
+      }],
+    });
     render(<AgentPicker agentId="" onPick={() => {}} />);
 
-    expect(screen.getByRole('button', { name: /escolher agente no catálogo/i })).toHaveAccessibleDescription(
-      /trocar de agente limpa o comando/i,
-    );
+    await user.click(await screen.findByRole('button', { name: /agente acp/i }));
+    await user.type(screen.getByRole('combobox'), 'Equipe Exemplo');
+    expect(screen.getByRole('option', { name: /cursor/i })).toBeInTheDocument();
   });
 
   it('não tem violação de acessibilidade', async () => {
     const { container } = render(<AgentPicker agentId="cursor" onPick={() => {}} />);
-    await waitFor(() => expect(catalogMock).toHaveBeenCalled());
+    await screen.findByRole('button', { name: /agente acp, cursor/i });
 
     expect(await axe(container)).toHaveNoViolations();
   });

@@ -11,7 +11,9 @@ import {
 import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
+  CanRemoveACPAgent,
   DeleteLLMProvider,
+  RemoveACPAgent,
   SetDefaultProvider,
 } from '@wailsjs/go/app/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -19,7 +21,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
-import { ACPAgentCatalog } from '../components/settings/ACPAgentCatalog';
+import { AGENT_API_FORMAT } from '../config/providers';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -79,10 +81,6 @@ export default function ProvidersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
-  // O catálogo do registro do ACP (AEP-0086 Fase 2) mora aqui porque é daqui que
-  // sai um provedor de agente: consultar o que existe e apontar o comando à mão
-  // são o mesmo assunto enquanto instalar ainda não é uma opção.
-  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
 
   const loadProviders = async () => {
     setLoading(true);
@@ -235,6 +233,9 @@ export default function ProvidersPage() {
       variant: 'danger',
     });
     if (!confirmed) return;
+    const removedAgentID = provider.api_format === AGENT_API_FORMAT
+      ? (provider.acp_agent_id || '').trim()
+      : '';
     try {
       type WailsContext = Parameters<typeof DeleteLLMProvider>[0];
       const emptyContext = null as unknown as WailsContext;
@@ -244,6 +245,31 @@ export default function ProvidersPage() {
       await loadProviders();
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('providers.error.deleteFailed'), 'error');
+      return;
+    }
+
+    if (!removedAgentID) return;
+    try {
+      const canRemove = await CanRemoveACPAgent(removedAgentID);
+      if (!canRemove) return;
+      const removeAgent = await confirm({
+        title: t('providers.confirm.removeUnusedAgentTitle'),
+        message: t('providers.confirm.removeUnusedAgentMessage', { agent: removedAgentID }),
+        confirmText: t('providers.confirm.removeUnusedAgentConfirm'),
+        cancelText: t('providers.confirm.keepAgent'),
+        variant: 'danger',
+      });
+      if (!removeAgent) return;
+      await RemoveACPAgent(removedAgentID);
+      addToast(t('providers.toast.agentRemoved'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+      announce(t('providers.toast.agentRemoved'));
+    } catch (error: unknown) {
+      addToast(
+        getErrorMessage(error) || t('providers.error.removeUnusedAgentFailed'),
+        'error',
+      );
     }
   };
 
@@ -375,11 +401,6 @@ export default function ProvidersPage() {
                 variant: 'primary',
               },
               {
-                key: 'acpCatalog',
-                label: t('acpCatalog.open'),
-                onClick: () => setIsCatalogOpen(true),
-              },
-              {
                 key: 'edit',
                 label: t('providers.actions.edit', 'Editar'),
                 onClick: () => focusedRow && handleEditProvider(focusedRow),
@@ -431,19 +452,6 @@ export default function ProvidersPage() {
             </div>
           </Modal>
 
-          {/*
-            O catálogo fica em `role="application"` (o padrão do `Modal`) e não em
-            modo de leitura: a lista responde a setas, e em modo de leitura o
-            leitor de telas ficaria com elas antes do componente.
-          */}
-          <Modal
-            isOpen={isCatalogOpen}
-            onClose={() => setIsCatalogOpen(false)}
-            title={t('acpCatalog.title')}
-            size="lg"
-          >
-            <ACPAgentCatalog />
-          </Modal>
         </>
       )}
     </div>

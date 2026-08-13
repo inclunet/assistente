@@ -1,9 +1,14 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetACPCatalog } from '@wailsjs/go/app/App';
-import { Button } from '../';
-import { Modal } from '../ui/Modal';
-import { ACPAgentCatalog, type CatalogAgent } from './ACPAgentCatalog';
+import { GetACPCatalog, RefreshACPCatalog } from '@wailsjs/go/app/App';
+import { BasePicker } from '../pickers/BasePicker';
+import type { ComboboxItem } from '../pickers/Combobox';
+import {
+  catalogItemLabel,
+  runtimeText,
+  stateText,
+  type CatalogAgent,
+} from './ACPAgentCatalog';
 import './AgentPicker.css';
 
 export interface AgentPickerProps {
@@ -28,14 +33,13 @@ export interface AgentPickerProps {
  */
 export const AgentPicker = ({ agentId, onPick }: AgentPickerProps) => {
   const { t } = useTranslation();
-  const baseId = useId();
-  const helpId = `${baseId}-help`;
-  const chosenId = `${baseId}-chosen`;
-
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-
+  const [agents, setAgents] = useState<CatalogAgent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const mountedRef = useRef(true);
+  const tRef = useRef(t);
+  tRef.current = t;
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -43,64 +47,65 @@ export const AgentPicker = ({ agentId, onPick }: AgentPickerProps) => {
     };
   }, []);
 
-  // O nome é enfeite em cima do `id`: se o catálogo não vier, a tela continua
-  // dizendo qual agente é. Por isso a falha aqui não vira erro na tela.
-  useEffect(() => {
-    if (!agentId) {
-      setName('');
-      return;
+  const loadCatalog = useCallback(async (refresh = false) => {
+    setLoading(true);
+    setError('');
+    try {
+      const catalog = refresh ? await RefreshACPCatalog() : await GetACPCatalog();
+      if (!mountedRef.current) return;
+      setAgents((catalog?.agents || []) as CatalogAgent[]);
+    } catch (cause: unknown) {
+      if (!mountedRef.current) return;
+      const detail = cause instanceof Error ? cause.message : String(cause ?? '');
+      setError(detail || tRef.current('providerForm.agent.picker.loadError'));
+    } finally {
+      if (mountedRef.current) setLoading(false);
     }
-    let cancelado = false;
-    void (async () => {
-      try {
-        const catalog = await GetACPCatalog();
-        if (cancelado || !mountedRef.current) return;
-        const achado = catalog?.agents?.find((agent) => agent.id === agentId);
-        setName(achado?.name ?? '');
-      } catch {
-        if (cancelado || !mountedRef.current) return;
-        setName('');
-      }
-    })();
-    return () => {
-      cancelado = true;
-    };
-  }, [agentId]);
+  }, []);
 
-  const handlePick = (agent: CatalogAgent) => {
-    setName(agent.name);
-    setOpen(false);
-    onPick(agent);
-  };
+  useEffect(() => {
+    void loadCatalog();
+  }, [loadCatalog]);
+
+  const items = useMemo<ComboboxItem[]>(() => agents.map((agent) => ({
+    value: agent.id,
+    label: agent.name,
+    sublabel: `${stateText(t, agent)} · ${runtimeText(t, agent)}`,
+    searchText: [
+      agent.id,
+      agent.description,
+      agent.license,
+      ...(agent.authors || []),
+    ].filter(Boolean).join(' '),
+    accessibleLabel: catalogItemLabel(t, agent),
+  })), [agents, t]);
+
+  const handlePick = useCallback((value: string) => {
+    const agent = agents.find((item) => item.id === value);
+    if (agent) onPick(agent);
+  }, [agents, onPick]);
 
   return (
     <div className="agent-picker">
-      <p className="agent-picker__chosen" id={chosenId}>
-        <span className="agent-picker__term">{t('providerForm.agent.picker.chosenTerm')}</span>{' '}
-        {agentId ? name || agentId : t('providerForm.agent.picker.none')}
-      </p>
-
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => setOpen(true)}
-        aria-describedby={`${chosenId} ${helpId}`}
-      >
-        {agentId ? t('providerForm.agent.picker.changeBtn') : t('providerForm.agent.picker.pickBtn')}
-      </Button>
-
-      <p id={helpId} className="agent-picker__help">
-        {t('providerForm.agent.picker.help')}
-      </p>
-
-      <Modal
-        isOpen={open}
-        onClose={() => setOpen(false)}
-        title={t('providerForm.agent.picker.modalTitle')}
-        size="lg"
-      >
-        <ACPAgentCatalog onSelect={handlePick} selectedId={agentId} />
-      </Modal>
+      <BasePicker
+        variant="form"
+        items={items}
+        selected={agentId}
+        onSelect={handlePick}
+        label={t('providerForm.agent.picker.label')}
+        placeholder={t('providerForm.agent.picker.filterPlaceholder')}
+        helpText={t('providerForm.agent.picker.help')}
+        loading={loading}
+        error={error}
+        emptyLabel={t('providerForm.agent.picker.empty')}
+        loadingLabel={t('providerForm.agent.picker.loading')}
+        errorLabel={error || t('providerForm.agent.picker.loadError')}
+        onRetry={() => void loadCatalog(true)}
+        retryLabel={t('providerForm.agent.picker.retry')}
+        maxWidth="100%"
+        formClassName="agent-picker__field"
+        helpTextClassName="agent-picker__help"
+      />
     </div>
   );
 };

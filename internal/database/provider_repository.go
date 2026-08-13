@@ -152,6 +152,26 @@ func (r *ProviderRepository) CountLLMProviders(ctx context.Context) (int64, erro
 	return count, err
 }
 
+// HasAnyLLMProviderForACPAgent informa se algum usuário desta instalação ainda
+// referencia o agente gerenciado pela máquina.
+//
+// A consulta é global de propósito: a instalação ACP é compartilhada pela
+// máquina (AEP-0086 D5), então olhar apenas o usuário autenticado permitiria
+// quebrar provedores de outra conta ao apagar o diretório comum. Só um booleano
+// sai daqui; nenhum identificador ou configuração de outro usuário é exposto.
+func HasAnyLLMProviderForACPAgent(ctx context.Context, agentID string) (bool, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return false, err
+	}
+	var count int64
+	err := db.WithContext(ctx).
+		Model(&LLMProvider{}).
+		Where("acp_agent_id = ?", agentID).
+		Limit(1).
+		Count(&count).Error
+	return count > 0, err
+}
+
 // SetDefaultProviderWithContext é a fachada de transição sobre a global db.
 func SetDefaultProviderWithContext(ctx context.Context, id string) error {
 	return NewProviderRepository(db).SetDefaultProvider(ctx, id)

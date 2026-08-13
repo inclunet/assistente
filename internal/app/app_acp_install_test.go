@@ -8,6 +8,8 @@ import (
 
 	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
+	"assistente/internal/credentials"
+	"assistente/internal/llm"
 )
 
 func TestProgressoDaInstalacaoVaiParaATelaComOAgenteQueOMotivou(t *testing.T) {
@@ -74,6 +76,61 @@ func TestSemInitACPOCatalogoMontaOServicoQueFaltava(t *testing.T) {
 	}
 	if a.acpRegistry != catalogo.registry {
 		t.Error("o serviço montado aqui não ficou no app, e a tela do catálogo montaria outro")
+	}
+}
+
+func TestAgenteSoPodeSerDesinstaladoDepoisDoUltimoProvider(t *testing.T) {
+	_ = setupTestDB(t)
+	root := t.TempDir()
+	gravarInstalacao(t, root, "1.2.0")
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	registry := llm.NewProviderRegistry()
+	a := newAppForTest(credMgr, registry)
+	a.acpCatalogOnce.Do(func() {
+		a.acpCatalogSvc = &acpCatalog{
+			installer: acpinstall.New(acpinstall.Config{Root: root}),
+		}
+	})
+
+	if _, err := a.CreateLLMProvider(CreateLLMProviderRequest{
+		ID:         "codex-1",
+		Name:       "Codex",
+		Type:       "acp",
+		APIFormat:  "acp",
+		ACPCommand: "node",
+		ACPArgs:    []string{"codex-acp"},
+		ACPAgentID: "codex-acp",
+	}); err != nil {
+		t.Fatalf("criar provider: %v", err)
+	}
+
+	canRemove, err := a.CanRemoveACPAgent("codex-acp")
+	if err != nil {
+		t.Fatalf("consultar uso: %v", err)
+	}
+	if canRemove {
+		t.Fatal("ofereceu desinstalar um agente ainda usado")
+	}
+	if err := a.RemoveACPAgent("codex-acp"); err == nil {
+		t.Fatal("desinstalou um agente ainda usado")
+	}
+
+	if err := a.DeleteLLMProvider(context.Background(), "codex-1"); err != nil {
+		t.Fatalf("remover provider: %v", err)
+	}
+	canRemove, err = a.CanRemoveACPAgent("codex-acp")
+	if err != nil {
+		t.Fatalf("consultar órfão: %v", err)
+	}
+	if !canRemove {
+		t.Fatal("não ofereceu desinstalar o agente órfão")
+	}
+	if err := a.RemoveACPAgent("codex-acp"); err != nil {
+		t.Fatalf("desinstalar agente órfão: %v", err)
+	}
+	if installations := a.acpCatalogServices().installer.List(); len(installations) != 0 {
+		t.Fatalf("instalações restantes = %+v", installations)
 	}
 }
 

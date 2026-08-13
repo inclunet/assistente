@@ -8,6 +8,10 @@ export interface ComboboxItem {
     value: string;
     label: string;
     sublabel?: string;
+    /** Texto adicional usado apenas pela busca, sem poluir a opção visível. */
+    searchText?: string;
+    /** Nome completo da opção quando label + sublabel não bastam. */
+    accessibleLabel?: string;
     disabled?: boolean;
 }
 
@@ -60,7 +64,8 @@ export const Combobox = ({
 
     const filteredItems = useMemo(() => items.filter(item =>
         item.label.toLowerCase().includes(filter.toLowerCase()) ||
-        (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase()))
+        (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase())) ||
+        (item.searchText && item.searchText.toLowerCase().includes(filter.toLowerCase()))
     ), [filter, items]);
 
     const selectedItem = items.find(i => i.value === selected);
@@ -95,8 +100,9 @@ export const Combobox = ({
     const announceHighlight = useCallback((index: number, list: ComboboxItem[]) => {
         if (index >= 0 && list[index]) {
             const item = list[index];
-            const sublabel = item.sublabel ? `, ${item.sublabel}` : '';
-            announceMessage(`${item.label}${sublabel}, ${index + 1} ${t('common.of')} ${list.length}`);
+            const optionLabel = item.accessibleLabel ||
+                `${item.label}${item.sublabel ? `, ${item.sublabel}` : ''}`;
+            announceMessage(`${optionLabel}, ${index + 1} ${t('common.of')} ${list.length}`);
         }
     }, [announceMessage, t]);
 
@@ -353,6 +359,7 @@ export const Combobox = ({
                                 role="option"
                                 aria-selected={item.value === selected}
                                 aria-disabled={item.disabled ? 'true' : undefined}
+                                aria-label={item.accessibleLabel}
                                 className={`${i === highlightIndex ? 'highlighted' : ''} ${item.value === selected ? 'selected' : ''} ${item.disabled ? 'disabled' : ''}`}
                                 onMouseDown={(e) => {
                                     e.preventDefault();

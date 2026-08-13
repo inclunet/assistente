@@ -288,20 +288,14 @@ describe('AgentProviderFields — agente encontrado', () => {
     });
   });
 
-  it('diz o que cada botão faz antes de alguém clicar nele', async () => {
-    // Lado a lado e sem descrição, os dois pareciam duas formas de conferir a
-    // instalação — e só um deles sobrescreve o que está nos campos.
+  it('mantém apenas a ação explícita de testar o agente', async () => {
     detectMock.mockResolvedValue(cursorFound);
 
     render(<Host />);
 
-    const detectar = await screen.findByRole('button', { name: /detectar e preencher comando/i });
-    expect(detectar).toHaveAccessibleDescription(
-      /preenche o comando e os argumentos acima, substituindo/i,
-    );
-
-    const testar = screen.getByRole('button', { name: /testar agente/i });
+    const testar = await screen.findByRole('button', { name: /testar agente/i });
     expect(testar).toHaveAccessibleDescription(/informa se ele respondeu.*não altera os campos/i);
+    expect(screen.queryByRole('button', { name: /detectar/i })).not.toBeInTheDocument();
   });
 
   it('não sobrescreve o comando já salvo ao abrir a edição', async () => {
@@ -309,7 +303,8 @@ describe('AgentProviderFields — agente encontrado', () => {
 
     render(<Host initialCommand="/usr/local/bin/cursor-agent" autoFill={false} />);
 
-    await waitFor(() => expect(detectMock).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toBeInTheDocument());
+    expect(detectMock).not.toHaveBeenCalled();
     expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('/usr/local/bin/cursor-agent');
   });
 
@@ -322,9 +317,10 @@ describe('AgentProviderFields — agente encontrado', () => {
     render(<Host />);
     const campo = screen.getByLabelText(/comando do agente/i);
     await user.type(campo, '/opt/cursor/agente');
-    responder(cursorFound);
 
-    await waitFor(() => expect(screen.getByText(new RegExp(`versão ${cursorFound.version}`, 'i'))).toBeInTheDocument());
+    await act(async () => {
+      responder(cursorFound);
+    });
     expect(campo).toHaveValue('/opt/cursor/agente');
   });
 
@@ -391,22 +387,14 @@ describe('AgentProviderFields — agente encontrado', () => {
     expect(announceMock).not.toHaveBeenCalled();
   });
 
-  it('detecção pedida no botão aplica o comando encontrado e anuncia', async () => {
+  it('campo preenchido não dispara detecção nem é sobrescrito', async () => {
     detectMock.mockResolvedValue(cursorFound);
-    const user = userEvent.setup();
 
     render(<Host initialCommand="cursor-agent-antigo" autoFill={false} />);
-    await waitFor(() => expect(detectMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toBeInTheDocument());
 
-    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
-
-    await waitFor(() => {
-      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
-    });
-    expect(announceMock).toHaveBeenCalledWith(
-      expect.stringContaining(cursorFound.command),
-      'polite',
-    );
+    expect(detectMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('cursor-agent-antigo');
   });
 });
 
@@ -415,7 +403,7 @@ describe('AgentProviderFields — agente encontrado', () => {
 // vivos quanto na primeira vez: o que sobrevive à desmontagem simulada e não é
 // refeito na volta cala a tela para sempre.
 describe('AgentProviderFields — remontado pelo StrictMode', () => {
-  it('a procura que responde depois da remontagem ainda preenche e destrava o botão', async () => {
+  it('a procura que responde depois da remontagem ainda preenche e destrava o formulário', async () => {
     const responder = deteccaoControlada();
 
     render(
@@ -434,9 +422,7 @@ describe('AgentProviderFields — remontado pelo StrictMode', () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command),
     );
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /detectar e preencher comando/i })).toBeEnabled(),
-    );
+    expect(screen.getByRole('button', { name: /testar agente/i })).toBeEnabled();
   });
 
   it('o teste do agente também volta a responder depois da remontagem', async () => {
@@ -465,7 +451,7 @@ describe('AgentProviderFields — agente ausente', () => {
     render(<Host />);
 
     expect(await screen.findByText(/agente não encontrado nesta máquina/i)).toBeInTheDocument();
-    expect(screen.getByText(/instale o cli do agente/i)).toBeInTheDocument();
+    expect(screen.getByText(/escolha no picker oferece uma instalação gerenciada/i)).toBeInTheDocument();
     expect(screen.getByText(new RegExp(cursorMissing.searched[1].replace(/\\/g, '\\\\'), 'i'))).toBeInTheDocument();
     expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('');
   });
@@ -491,28 +477,20 @@ describe('AgentProviderFields — agente ausente', () => {
 
     render(<Host initialCommand="/opt/cursor/agente" autoFill={false} />);
 
-    expect(await screen.findByText(/agente não encontrado nesta máquina/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toBeInTheDocument());
+    expect(detectMock).not.toHaveBeenCalled();
     expect(announceMock).not.toHaveBeenCalled();
-    // O comando salvo continua onde estava, e o texto explica o que a máquina tem.
     expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('/opt/cursor/agente');
   });
 
-  it('alarma na detecção pedida, mesmo com comando salvo', async () => {
-    // Aqui a pessoa pediu a procura: o resultado é a resposta a uma ação dela.
+  it('não oferece detecção manual para substituir comando salvo', async () => {
     detectMock.mockResolvedValue(cursorMissing);
-    const user = userEvent.setup();
 
     render(<Host initialCommand="/opt/cursor/agente" autoFill={false} />);
-    await screen.findByText(/agente não encontrado nesta máquina/i);
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toBeInTheDocument());
 
-    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
-
-    await waitFor(() => {
-      expect(announceMock).toHaveBeenCalledWith(
-        expect.stringMatching(/instale o cli do agente ou informe o comando manualmente/i),
-        'assertive',
-      );
-    });
+    expect(detectMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /detectar/i })).not.toBeInTheDocument();
   });
 
   it('sem agente escolhido não oferece procurar nem manda instalar nada', async () => {
@@ -575,10 +553,7 @@ describe('AgentProviderFields — agente ausente', () => {
     expect(announceMock).toHaveBeenCalledWith('acesso negado ao diretório', 'assertive');
   });
 
-  it('procura que quebrou continua tendo como ser tentada de novo', async () => {
-    // A falha zera o que se sabia do agente, inclusive se o app sabe procurá-lo.
-    // Esconder o botão nesse estado transformaria um erro passageiro em beco sem
-    // saída: só recarregando a tela para tentar outra vez.
+  it('campo voltar a ficar vazio tenta a detecção novamente', async () => {
     detectMock.mockRejectedValueOnce(new Error('acesso negado ao diretório'));
     const user = userEvent.setup();
 
@@ -586,7 +561,9 @@ describe('AgentProviderFields — agente ausente', () => {
     await screen.findByText(/acesso negado ao diretório/i);
 
     detectMock.mockResolvedValue(cursorFound);
-    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
+    const command = screen.getByLabelText(/comando do agente/i);
+    await user.type(command, 'x');
+    await user.clear(command);
 
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);

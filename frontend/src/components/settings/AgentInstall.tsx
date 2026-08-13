@@ -101,6 +101,12 @@ export interface AgentInstallProps {
    * sem apagar chaves que a pessoa já tenha no formulário.
    */
   onResolved: (command: string, args: string[], env?: Record<string, string>) => void;
+  /** Escolha explícita que deve abrir a confirmação se for preciso instalar. */
+  installRequestToken?: number;
+  /** Preenche automaticamente uma instalação gerenciada quando o comando está vazio. */
+  autoResolveInstalled?: boolean;
+  /** Controles explícitos usados fora do fluxo automático do formulário. */
+  showManualActions?: boolean;
 }
 
 /**
@@ -121,7 +127,13 @@ export interface AgentInstallProps {
  *   - D13: os marcos viram frase na tela e anúncio, o erro nomeia a etapa, e o
  *     cancelamento diz que não sobrou nada no disco.
  */
-export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
+export const AgentInstall = ({
+  agentId,
+  onResolved,
+  installRequestToken = 0,
+  autoResolveInstalled = false,
+  showManualActions = true,
+}: AgentInstallProps) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const idBase = useId();
@@ -146,10 +158,6 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   // que o botão afirmativo faz mudam. Guardar qual dos dois abriu evita dois
   // diálogos quase iguais na tela e no teste.
   const [confirming, setConfirming] = useState<'' | 'install' | 'update'>('');
-  // Dois estados, e não um: `confirmingRemoval` é o diálogo aberto, e `removing`
-  // é o backend apagando o diretório. Só o segundo deixa o bloco ocupado, e ele
-  // não pode ser o `busy` da instalação — esse põe na tela um botão de cancelar
-  // que não teria instalação nenhuma para cancelar.
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [removing, setRemoving] = useState(false);
   // Diz que o que está em voo é uma atualização, e não uma instalação. É estado
@@ -185,6 +193,8 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
   // sem isto a tela ficaria ocupada para sempre — botão de instalar desabilitado
   // e o de cancelar oferecendo cancelar o que já acabou.
   const adotadaRef = useRef(false);
+  const handledInstallRequestRef = useRef(0);
+  const autoResolvedRef = useRef('');
   // O agente em refs porque os marcos chegam por evento e as respostas chegam
   // depois: os dois precisam saber de quem esta tela está falando agora, e não
   // de quem ela falava quando o pedido saiu.
@@ -239,6 +249,8 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     setConfirmingRemoval(false);
     setRemoving(false);
     setBusy(false);
+    handledInstallRequestRef.current = 0;
+    autoResolvedRef.current = '';
     adotadaRef.current = false;
     updateRef.current = '';
     setUpdatingNow(false);
@@ -484,6 +496,39 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     }
   };
 
+  useEffect(() => {
+    if (!plan?.agent_id || loading || busy) return;
+
+    if (plan.installed) {
+      const resolutionKey = `${agentId}\u0000${plan.installed.command}\u0000${(plan.installed.args || []).join('\n')}`;
+      const requested = installRequestToken > handledInstallRequestRef.current;
+      if ((autoResolveInstalled || requested) && autoResolvedRef.current !== resolutionKey) {
+        autoResolvedRef.current = resolutionKey;
+        if (requested) handledInstallRequestRef.current = installRequestToken;
+        onResolved(
+          plan.installed.command,
+          plan.installed.args || [],
+          plan.installed.env || undefined,
+        );
+      }
+      return;
+    }
+
+    if (installRequestToken <= handledInstallRequestRef.current) return;
+    handledInstallRequestRef.current = installRequestToken;
+    if (plan.can_install) {
+      setConfirming('install');
+    }
+  }, [
+    agentId,
+    autoResolveInstalled,
+    busy,
+    installRequestToken,
+    loading,
+    onResolved,
+    plan,
+  ]);
+
   // Tipo de provedor sem agente correspondente no catálogo não ganha bloco
   // nenhum: oferecer "instalar pelo catálogo" para o que o catálogo não publica
   // seria um botão que só sabe falhar. A falha de consulta, sim, aparece — quem
@@ -630,47 +675,40 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
               </Button>
             </div>
           )}
-          <div className="agent-install__actions">
-            <div className="agent-install__action">
-              <Button
-                type="button"
-                variant="secondary"
-                // Enquanto a atualização corre, o que está aqui é a versão que
-                // vai sair: preencher o campo com ela devolveria ao provedor o
-                // comando antigo depois de o backend já tê-lo repontado. O
-                // plano recarregado no fim traz a versão nova.
-                disabled={busy || removing || loading}
-                onClick={() => {
-                  onResolved(installed.command, installed.args || [], installed.env || undefined);
-                  // Preencher campo por clique não é visível a quem não vê o
-                  // campo: sem o anúncio, o botão pareceria não ter feito nada.
-                  announce(
-                    t('providerForm.agent.catalog.useAnnounce', { command: installed.command }),
-                    'polite',
-                  );
-                }}
-              >
-                {t('providerForm.agent.catalog.useBtn')}
-              </Button>
+          {showManualActions && (
+            <div className="agent-install__actions">
+              <div className="agent-install__action">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy || removing || loading}
+                  onClick={() => {
+                    onResolved(installed.command, installed.args || [], installed.env || undefined);
+                    announce(
+                      t('providerForm.agent.catalog.useAnnounce', { command: installed.command }),
+                      'polite',
+                    );
+                  }}
+                >
+                  {t('providerForm.agent.catalog.useBtn')}
+                </Button>
+              </div>
+              <div className="agent-install__action">
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={() => setConfirmingRemoval(true)}
+                  disabled={busy || removing}
+                  aria-describedby={removeHelpId}
+                >
+                  {t('providerForm.agent.catalog.removeBtn')}
+                </Button>
+                <p id={removeHelpId} className="agent-install__action-help">
+                  {t('providerForm.agent.catalog.removeBtnHelp')}
+                </p>
+              </div>
             </div>
-            <div className="agent-install__action">
-              <Button
-                type="button"
-                variant="danger"
-                onClick={() => setConfirmingRemoval(true)}
-                // Apagar a pasta no meio de uma atualização é apagar o que ela
-                // está escrevendo. Enquanto ela corre, o caminho de desistir é
-                // o cancelar acima.
-                disabled={busy || removing}
-                aria-describedby={removeHelpId}
-              >
-                {t('providerForm.agent.catalog.removeBtn')}
-              </Button>
-              <p id={removeHelpId} className="agent-install__action-help">
-                {t('providerForm.agent.catalog.removeBtnHelp')}
-              </p>
-            </div>
-          </div>
+          )}
         </>
       ) : (
         <>
@@ -708,7 +746,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
                 </p>
               )}
             </div>
-          ) : plan.can_install ? (
+          ) : plan.can_install && showManualActions ? (
             <div className="agent-install__actions">
               <div className="agent-install__action">
                 <Button
@@ -729,7 +767,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
                 </p>
               </div>
             </div>
-          ) : (
+          ) : !plan.can_install ? (
             <div className="agent-install__blocked">
               <p>
                 {plan.reason
@@ -737,7 +775,7 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
                   : t('providerForm.agent.catalog.unavailableUnknown')}
               </p>
             </div>
-          )}
+          ) : null}
           {/*
             O cancelar acompanha a instalação, e não o ramo em que a tela caiu:
             o plano pode passar a dizer "indisponível" — Node que sumiu do PATH,
@@ -918,31 +956,29 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
         </div>
       </Modal>
 
-      {/*
-        Remover apaga o diretório do agente e deixa o provedor de pé (D5). O
-        aviso diz isso: quem espera que o provedor suma junto precisa saber que
-        ele fica, com um comando que passou a não existir.
-      */}
-      <Modal
-        isOpen={confirmingRemoval}
-        onClose={() => setConfirmingRemoval(false)}
-        title={t('providerForm.agent.catalog.removeConfirm.title', {
-          agent: installed?.name || plan.name,
-        })}
-        size="sm"
-      >
-        <p className="agent-install__confirm-intro">
-          {t('providerForm.agent.catalog.removeConfirm.message', { dir: installed?.dir })}
-        </p>
-        <div className="agent-install__confirm-actions">
-          <Button type="button" variant="outline" onClick={() => setConfirmingRemoval(false)}>
-            {t('providerForm.agent.catalog.confirm.cancelBtn')}
-          </Button>
-          <Button type="button" variant="danger" onClick={handleRemove}>
-            {t('providerForm.agent.catalog.removeConfirm.confirmBtn')}
-          </Button>
-        </div>
-      </Modal>
+      {showManualActions && (
+        <Modal
+          isOpen={confirmingRemoval}
+          onClose={() => setConfirmingRemoval(false)}
+          title={t('providerForm.agent.catalog.removeConfirm.title', {
+            agent: installed?.name || plan.name,
+          })}
+          size="sm"
+        >
+          <p className="agent-install__confirm-intro">
+            {t('providerForm.agent.catalog.removeConfirm.message', { dir: installed?.dir })}
+          </p>
+          <div className="agent-install__confirm-actions">
+            <Button type="button" variant="outline" onClick={() => setConfirmingRemoval(false)}>
+              {t('providerForm.agent.catalog.confirm.cancelBtn')}
+            </Button>
+            <Button type="button" variant="danger" onClick={handleRemove}>
+              {t('providerForm.agent.catalog.removeConfirm.confirmBtn')}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
     </div>
   );
 };
