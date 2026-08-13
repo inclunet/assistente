@@ -57,13 +57,17 @@ vi.mock('react-router-dom', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, fallbackOrOptions?: string | { defaultValue?: string }) => {
+    t: (_key: string, fallbackOrOptions?: string | Record<string, unknown>) => {
       if (typeof fallbackOrOptions === 'string') return fallbackOrOptions;
-      let value = fallbackOrOptions?.defaultValue ?? _key;
-      for (const [placeholder, replacement] of Object.entries(fallbackOrOptions ?? {})) {
-        if (placeholder !== 'defaultValue') {
-          value = value.split(`{{${placeholder}}}`).join(String(replacement));
-        }
+      const options = fallbackOrOptions ?? {};
+      let value = (options.defaultValue as string | undefined) ?? _key;
+      // Marca as mensagens de portabilidade para o teste distinguir o texto
+      // que passou pela tradução do que veio cru do backend.
+      if (_key.startsWith('portability.messages.')) value = `[i18n] ${value}`;
+      const replacements = { ...options, ...((options.replace as Record<string, unknown> | undefined) ?? {}) };
+      for (const [placeholder, replacement] of Object.entries(replacements)) {
+        if (placeholder === 'defaultValue' || placeholder === 'replace') continue;
+        value = value.split(`{{${placeholder}}}`).join(String(replacement));
       }
       return value;
     },
@@ -369,6 +373,37 @@ describe('DataManagementPage', () => {
     });
   });
 
+  it('traduz avisos e motivos de conflito da analise', async () => {
+    const user = userEvent.setup();
+    const jsonData = JSON.stringify({
+      version: 2,
+      options: { includeCredentials: false, includeAudio: false },
+      resources: { conversations: [], providers: [], taskLists: [] },
+    });
+    mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
+    mockAnalyzeImportData.mockResolvedValue({
+      conflictCount: 1,
+      warnings: [{
+        code: 'import.emptyConversations',
+        params: { count: '2' },
+        message: '2 conversa(s) vazia(s) serão descartadas na importação.',
+      }],
+      mcpServerConflicts: [{
+        resourceType: 'mcpServer',
+        identifier: 'github',
+        reason: { code: 'conflict.mcpServerSlug', message: 'Já existe um servidor MCP registrado com o mesmo slug.' },
+      }],
+    });
+
+    render(<DataManagementPage />);
+    await user.click(screen.getByRole('button', { name: 'Selecionar arquivo JSON' }));
+
+    expect(await screen.findByRole('list', { name: 'Avisos' })).toHaveTextContent(
+      '[i18n] 2 conversa(s) vazia(s) serão descartadas na importação.',
+    );
+    expect(screen.getByText('[i18n] Já existe um servidor MCP registrado com o mesmo slug.', { exact: false })).toBeInTheDocument();
+  });
+
   it('rotula erros e avisos do resultado de importacao', async () => {
     const user = userEvent.setup();
     const jsonData = JSON.stringify({
@@ -391,8 +426,8 @@ describe('DataManagementPage', () => {
       skippedCredentialConflict: 0,
       skippedOther: 1,
       message: 'parcial',
-      errors: ['Falha ao importar conversa'],
-      warnings: ['Provider ignorado'],
+      errors: [{ code: 'conversation.missingId', params: { conversation: 'Sem id' }, message: 'Falha ao importar conversa' }],
+      warnings: [{ code: 'acp.commandNotFound', params: { providerId: 'cursor' }, message: 'Provider ignorado' }],
     });
 
     render(<DataManagementPage />);
@@ -403,15 +438,15 @@ describe('DataManagementPage', () => {
       expect(screen.getByText('Resultado da importação')).toBeInTheDocument();
     });
     expect(screen.getByText('Erros')).toBeInTheDocument();
-    expect(screen.getByRole('list', { name: 'Erros' })).toHaveTextContent('Falha ao importar conversa');
+    expect(screen.getByRole('list', { name: 'Erros' })).toHaveTextContent('[i18n] Falha ao importar conversa');
     expect(screen.getByText('Avisos')).toBeInTheDocument();
-    expect(screen.getByRole('list', { name: 'Avisos' })).toHaveTextContent('Provider ignorado');
+    expect(screen.getByRole('list', { name: 'Avisos' })).toHaveTextContent('[i18n] Provider ignorado');
     expect(mockAnnounce).toHaveBeenCalledWith(
-      expect.stringContaining('Falha ao importar conversa'),
+      expect.stringContaining('[i18n] Falha ao importar conversa'),
       'assertive',
     );
     expect(mockAnnounce).toHaveBeenCalledWith(
-      expect.stringContaining('Provider ignorado'),
+      expect.stringContaining('[i18n] Provider ignorado'),
       'assertive',
     );
     expect(mockAnnounce).toHaveBeenCalledWith(
