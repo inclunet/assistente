@@ -554,12 +554,12 @@ func ImportConversationsWithResolutions(
 
 	result := &ImportResult{
 		Success:                  true,
-		Errors:                   make([]string, 0),
-		Warnings:                 make([]string, 0),
+		Errors:                   make([]LocalizedMessage, 0),
+		Warnings:                 make([]LocalizedMessage, 0),
 		UnsupportedResourceTypes: unsupportedResourceTypes,
 	}
-	if warning := unsupportedResourcesWarning(unsupportedResourceTypes); warning != "" {
-		result.Warnings = append(result.Warnings, warning)
+	if len(unsupportedResourceTypes) > 0 {
+		result.Warnings = append(result.Warnings, unsupportedResourcesWarning(unsupportedResourceTypes))
 	}
 
 	for _, conv := range file.Resources.Conversations {
@@ -570,7 +570,7 @@ func ImportConversationsWithResolutions(
 		}
 		imported, err := importConversation(ctx, conv, file.Options.IncludeAudio)
 		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
+			result.Errors = append(result.Errors, messageFromError(err))
 			result.Failed++
 			continue
 		}
@@ -586,13 +586,13 @@ func ImportConversationsWithResolutions(
 	for _, provider := range file.Resources.Providers {
 		imported, err := importProvider(ctx, provider)
 		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
+			result.Errors = append(result.Errors, messageFromError(err))
 			result.Failed++
 			continue
 		}
 		if imported {
 			result.Imported++
-			if warning := acpCommandWarning(provider); warning != "" {
+			if warning, ok := acpCommandWarning(provider); ok {
 				result.Warnings = append(result.Warnings, warning)
 			}
 			if isACPExport(provider) && len(provider.ACPCredentialEnv) > 0 {
@@ -604,7 +604,7 @@ func ImportConversationsWithResolutions(
 	for _, server := range file.Resources.MCPServers {
 		imported, err := importMCPServerWithCredentials(ctx, credMgr, server)
 		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
+			result.Errors = append(result.Errors, messageFromError(err))
 			result.Failed++
 			continue
 		}
@@ -619,7 +619,7 @@ func ImportConversationsWithResolutions(
 	for _, taskList := range file.Resources.TaskLists {
 		imported, err := importTaskList(ctx, taskList)
 		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
+			result.Errors = append(result.Errors, messageFromError(err))
 			result.Failed++
 			continue
 		}
@@ -632,7 +632,7 @@ func ImportConversationsWithResolutions(
 	for _, memoryRecord := range file.Resources.MemoryRecords {
 		imported, err := importMemoryRecord(ctx, memorySvc, memoryRecord)
 		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
+			result.Errors = append(result.Errors, messageFromError(err))
 			result.Failed++
 			continue
 		}
@@ -643,7 +643,10 @@ func ImportConversationsWithResolutions(
 
 	if file.Options.IncludeCredentials && file.Resources.Credentials != nil {
 		if credMgr == nil || !credMgr.CanPersist() {
-			result.Errors = append(result.Errors, "cofre de credenciais indisponível para importação")
+			result.Errors = append(result.Errors, newMessage(
+				CodeCredentialVaultUnavailableImport, nil,
+				"cofre de credenciais indisponível para importação",
+			))
 			result.Failed++
 			result.Success = false
 		} else {
@@ -652,7 +655,7 @@ func ImportConversationsWithResolutions(
 			result.Skipped += skipped
 			result.SkippedCredentialConflict += skipped
 			if err != nil {
-				result.Errors = append(result.Errors, err.Error())
+				result.Errors = append(result.Errors, messageFromError(err))
 				result.Failed++
 				result.Success = false
 			}
@@ -886,7 +889,11 @@ func deleteChatToolInvocationsForConversationTx(ctx context.Context, tx *gorm.DB
 func createImportedConversation(ctx context.Context, tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {
 	conversationID := strings.TrimSpace(conv.ID)
 	if conversationID == "" {
-		return nil, fmt.Errorf("conversa %q sem id não pode ser importada no formato version %d", conv.Title, ExportVersion)
+		return nil, codedErrorf(
+			CodeConversationMissingID,
+			params("conversation", conv.Title, "version", itoa(ExportVersion)),
+			"conversa %q sem id não pode ser importada no formato version %d", conv.Title, ExportVersion,
+		)
 	}
 
 	newConv := &database.Conversation{
@@ -916,24 +923,32 @@ func importConversationMessages(tx *gorm.DB, conversationID string, conv Convers
 	for i, msg := range conv.Messages {
 		id := strings.TrimSpace(msg.ID)
 		if id == "" {
-			return fmt.Errorf("mensagem %d da conversa %q sem id não pode ser importada no formato version %d", i, conv.Title, ExportVersion)
+			return codedErrorf(
+				CodeMessageMissingID,
+				params("index", itoa(i), "conversation", conv.Title, "version", itoa(ExportVersion)),
+				"mensagem %d da conversa %q sem id não pode ser importada no formato version %d", i, conv.Title, ExportVersion,
+			)
 		}
 		if _, exists := exportedMessageIDs[id]; exists {
-			return fmt.Errorf("mensagem %d da conversa %q usa id duplicado %q", i, conv.Title, id)
+			return codedErrorf(
+				CodeMessageDuplicatedID,
+				params("index", itoa(i), "conversation", conv.Title, "id", id),
+				"mensagem %d da conversa %q usa id duplicado %q", i, conv.Title, id,
+			)
 		}
 		exportedMessageIDs[id] = struct{}{}
 	}
 
 	idMap := make(map[int]string, len(conv.Messages))
 	for i, msg := range conv.Messages {
-		parentID, err := resolveImportedMessageLink(msg.ParentID, msg.ParentIndex, exportedMessageIDs, idMap, "pai")
+		parentID, err := resolveImportedMessageLink(msg.ParentID, msg.ParentIndex, exportedMessageIDs, idMap, parentMessageLink)
 		if err != nil {
-			return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+			return withMessageContext(err, i, conv.Title)
 		}
 
-		turnID, err := resolveImportedMessageLink(msg.TurnID, msg.TurnIndex, exportedMessageIDs, idMap, "turno")
+		turnID, err := resolveImportedMessageLink(msg.TurnID, msg.TurnIndex, exportedMessageIDs, idMap, turnMessageLink)
 		if err != nil {
-			return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
+			return withMessageContext(err, i, conv.Title)
 		}
 
 		audio := ""
@@ -974,14 +989,32 @@ func importConversationMessages(tx *gorm.DB, conversationID string, conv Convers
 	return nil
 }
 
-func resolveImportedMessageReference(index *int, idMap map[int]string, label string) (*string, error) {
+// messageLinkKind diz qual das duas referências da mensagem está sendo
+// resolvida: os códigos vão para a UI traduzir, e o rótulo em português entra
+// no texto de reserva.
+type messageLinkKind struct {
+	idCode    string
+	indexCode string
+	label     string
+}
+
+var (
+	parentMessageLink = messageLinkKind{idCode: CodeMessageInvalidParentID, indexCode: CodeMessageInvalidParentIdx, label: "pai"}
+	turnMessageLink   = messageLinkKind{idCode: CodeMessageInvalidTurnID, indexCode: CodeMessageInvalidTurnIdx, label: "turno"}
+)
+
+func resolveImportedMessageReference(index *int, idMap map[int]string, kind messageLinkKind) (*string, error) {
 	if index == nil {
 		return nil, nil
 	}
 
 	mapped, ok := idMap[*index]
 	if !ok {
-		return nil, fmt.Errorf("referência de %s inválida: índice %d", label, *index)
+		return nil, codedErrorf(
+			kind.indexCode,
+			params("reference", itoa(*index)),
+			"referência de %s inválida: índice %d", kind.label, *index,
+		)
 	}
 	return &mapped, nil
 }
@@ -991,15 +1024,19 @@ func resolveImportedMessageLink(
 	index *int,
 	exportedIDs map[string]struct{},
 	idMap map[int]string,
-	label string,
+	kind messageLinkKind,
 ) (*string, error) {
 	if trimmed := strings.TrimSpace(stableID); trimmed != "" {
 		if _, ok := exportedIDs[trimmed]; !ok {
-			return nil, fmt.Errorf("referência de %s inválida: id %q", label, trimmed)
+			return nil, codedErrorf(
+				kind.idCode,
+				params("reference", trimmed),
+				"referência de %s inválida: id %q", kind.label, trimmed,
+			)
 		}
 		return &trimmed, nil
 	}
-	return resolveImportedMessageReference(index, idMap, label)
+	return resolveImportedMessageReference(index, idMap, kind)
 }
 
 func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]CredentialExport, error) {
@@ -1080,7 +1117,11 @@ func importCredentials(
 				continue
 			}
 			if resolution.Strategy != ConflictResolutionOverwrite {
-				return imported, skipped, fmt.Errorf("estratégia de conflito não suportada para credencial %q: %s", identifier, resolution.Strategy)
+				return imported, skipped, codedErrorf(
+					CodeCredentialStrategyUnsupported,
+					params("pattern", identifier, "strategy", string(resolution.Strategy)),
+					"estratégia de conflito não suportada para credencial %q: %s", identifier, resolution.Strategy,
+				)
 			}
 			credentialID = ""
 		}
@@ -1116,7 +1157,11 @@ func isPortableCredentialPattern(pattern string) bool {
 func validatePortableCredentialExport(cred CredentialExport) error {
 	pattern := strings.TrimSpace(cred.Pattern)
 	if !isPortableCredentialPattern(pattern) {
-		return fmt.Errorf("credencial gerenciada/interna não pode ser importada: %q", pattern)
+		return codedErrorf(
+			CodeCredentialManagedNotImportable,
+			params("pattern", pattern),
+			"credencial gerenciada/interna não pode ser importada: %q", pattern,
+		)
 	}
 	return nil
 }
@@ -1147,7 +1192,7 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		MCPServerConflicts:    make([]ImportConflict, 0),
 		TaskListConflicts:     make([]ImportConflict, 0),
 		CredentialConflicts:   make([]ImportConflict, 0),
-		Warnings:              make([]string, 0),
+		Warnings:              make([]LocalizedMessage, 0),
 	}
 
 	for _, conv := range file.Resources.Conversations {
@@ -1169,9 +1214,12 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 				continue
 			}
 			analysis.MCPServerConflicts = append(analysis.MCPServerConflicts, ImportConflict{
-				ResourceType:        "mcpServer",
-				Identifier:          slug,
-				Reason:              "Já existe um servidor MCP registrado com o mesmo slug.",
+				ResourceType: "mcpServer",
+				Identifier:   slug,
+				Reason: newMessage(
+					CodeConflictMCPServerSlug, nil,
+					"Já existe um servidor MCP registrado com o mesmo slug.",
+				),
 				SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip},
 			})
 		}
@@ -1180,15 +1228,24 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 	if analysis.IncludesCredentials {
 		analysis.RequiresCredentialPassword = true
 		if credMgr == nil {
-			analysis.Warnings = append(analysis.Warnings, "O cofre de credenciais atual não está disponível para analisar conflitos de credenciais.")
+			analysis.Warnings = append(analysis.Warnings, newMessage(
+				CodeCredentialVaultUnavailableCheck, nil,
+				"O cofre de credenciais atual não está disponível para analisar conflitos de credenciais.",
+			))
 		} else {
 			if strings.TrimSpace(credentialPassword) == "" {
-				analysis.Warnings = append(analysis.Warnings, "Informe a senha de exportação para analisar conflitos de credenciais.")
+				analysis.Warnings = append(analysis.Warnings, newMessage(
+					CodeCredentialPasswordRequired, nil,
+					"Informe a senha de exportação para analisar conflitos de credenciais.",
+				))
 			} else {
 				creds, err := decodeCredentialExports(file.Resources.Credentials, credentialPassword)
 				if err != nil {
 					analysis.CredentialAnalysisError = err.Error()
-					analysis.Warnings = append(analysis.Warnings, "Não foi possível analisar as credenciais com a senha informada.")
+					analysis.Warnings = append(analysis.Warnings, newMessage(
+						CodeCredentialAnalysisFailed, nil,
+						"Não foi possível analisar as credenciais com a senha informada.",
+					))
 				} else {
 					analysis.CredentialCount = len(creds)
 					existingCredentialIDs, existingCredentialPatterns, err := loadExistingCredentialIdentifiers(ctx)
@@ -1198,7 +1255,7 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 					for _, cred := range creds {
 						if err := validatePortableCredentialExport(cred); err != nil {
 							analysis.CredentialAnalysisError = err.Error()
-							analysis.Warnings = append(analysis.Warnings, err.Error())
+							analysis.Warnings = append(analysis.Warnings, messageFromError(err))
 							continue
 						}
 						if id := strings.TrimSpace(cred.ID); id != "" {
@@ -1211,9 +1268,12 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 							continue
 						}
 						analysis.CredentialConflicts = append(analysis.CredentialConflicts, ImportConflict{
-							ResourceType:        "credential",
-							Identifier:          identifier,
-							Reason:              "Já existe uma credencial registrada com o mesmo pattern.",
+							ResourceType: "credential",
+							Identifier:   identifier,
+							Reason: newMessage(
+								CodeConflictCredentialPattern, nil,
+								"Já existe uma credencial registrada com o mesmo pattern.",
+							),
 							SupportedStrategies: []ConflictResolutionStrategy{ConflictResolutionSkip, ConflictResolutionOverwrite},
 						})
 					}
@@ -1224,7 +1284,11 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 
 	analysis.ConflictCount = len(analysis.ConversationConflicts) + len(analysis.ProviderConflicts) + len(analysis.MCPServerConflicts) + len(analysis.TaskListConflicts) + len(analysis.CredentialConflicts)
 	if emptyCount := countEmptyConversations(file.Resources.Conversations); emptyCount > 0 {
-		analysis.Warnings = append(analysis.Warnings, fmt.Sprintf("%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount))
+		analysis.Warnings = append(analysis.Warnings, newMessage(
+			CodeEmptyConversations,
+			params("count", itoa(emptyCount)),
+			"%d conversa(s) vazia(s) serão descartadas na importação.", emptyCount,
+		))
 	}
 	return analysis, nil
 }
@@ -1347,13 +1411,13 @@ func hasPortableResourcePayload(raw json.RawMessage) bool {
 	}
 }
 
-func unsupportedResourcesWarning(resourceTypes []string) string {
-	if len(resourceTypes) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(
+func unsupportedResourcesWarning(resourceTypes []string) LocalizedMessage {
+	resources := strings.Join(resourceTypes, ", ")
+	return newMessage(
+		CodeUnsupportedResources,
+		params("resources", resources),
 		"Este arquivo inclui recursos fora do escopo atual (%s). Eles serão ignorados nesta fase e poderão ser suportados após as migrações planejadas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.",
-		strings.Join(resourceTypes, ", "),
+		resources,
 	)
 }
 

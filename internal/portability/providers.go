@@ -195,19 +195,34 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized.ACPAgentID = strings.TrimSpace(provider.ACPAgentID)
 
 	if normalized.ID == "" {
-		return ProviderExport{}, fmt.Errorf("provider sem id não pode ser importado")
+		return ProviderExport{}, codedErrorf(
+			CodeProviderMissingID, nil,
+			"provider sem id não pode ser importado",
+		)
 	}
 	if normalized.Name == "" {
-		return ProviderExport{}, fmt.Errorf("provider %q sem name não pode ser importado", normalized.ID)
+		return ProviderExport{}, codedErrorf(
+			CodeProviderMissingName,
+			params("providerId", normalized.ID),
+			"provider %q sem name não pode ser importado", normalized.ID,
+		)
 	}
 	if normalized.Type == "" {
-		return ProviderExport{}, fmt.Errorf("provider %q sem type não pode ser importado", normalized.ID)
+		return ProviderExport{}, codedErrorf(
+			CodeProviderMissingType,
+			params("providerId", normalized.ID),
+			"provider %q sem type não pode ser importado", normalized.ID,
+		)
 	}
 	if isACPExport(normalized) {
 		// O agente não tem endereço: o que o encontra é o comando, e é ele que
 		// passa a ser obrigatório.
 		if normalized.ACPCommand == "" {
-			return ProviderExport{}, fmt.Errorf("provider %q em formato acp sem acpCommand não pode ser importado", normalized.ID)
+			return ProviderExport{}, codedErrorf(
+				CodeProviderACPMissingCommand,
+				params("providerId", normalized.ID),
+				"provider %q em formato acp sem acpCommand não pode ser importado", normalized.ID,
+			)
 		}
 		// O provedor entra pelo vocabulário de hoje: quem sobe agente é do tipo
 		// único, seja qual for o nome que o arquivo deu a ele. Isso vale para o
@@ -235,10 +250,18 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	// em silêncio deixaria a pessoa achando que configurou alguma coisa.
 	if normalized.ACPCommand != "" || len(normalized.ACPArgs) > 0 || len(normalized.ACPEnv) > 0 ||
 		len(normalized.ACPCredentialEnv) > 0 || normalized.ACPAgentID != "" {
-		return ProviderExport{}, fmt.Errorf("provider %q traz configuração de agente mas apiFormat é %q; use %q", normalized.ID, normalized.APIFormat, acpAPIFormat)
+		return ProviderExport{}, codedErrorf(
+			CodeProviderACPOutsideACPFormat,
+			params("providerId", normalized.ID, "apiFormat", normalized.APIFormat, "expectedFormat", acpAPIFormat),
+			"provider %q traz configuração de agente mas apiFormat é %q; use %q", normalized.ID, normalized.APIFormat, acpAPIFormat,
+		)
 	}
 	if normalized.BaseURL == "" {
-		return ProviderExport{}, fmt.Errorf("provider %q sem baseUrl não pode ser importado", normalized.ID)
+		return ProviderExport{}, codedErrorf(
+			CodeProviderMissingBaseURL,
+			params("providerId", normalized.ID),
+			"provider %q sem baseUrl não pode ser importado", normalized.ID,
+		)
 	}
 	return normalized, nil
 }
@@ -260,14 +283,26 @@ func normalizedCredentialEnv(provider ProviderExport) (map[string]string, error)
 	out := make(map[string]string, len(provider.ACPCredentialEnv))
 	for name, pattern := range provider.ACPCredentialEnv {
 		if strings.TrimSpace(name) == "" {
-			return nil, fmt.Errorf("provider %q traz credencial do cofre sem o nome da variável de ambiente", provider.ID)
+			return nil, codedErrorf(
+				CodeProviderACPCredentialEnvNoName,
+				params("providerId", provider.ID),
+				"provider %q traz credencial do cofre sem o nome da variável de ambiente", provider.ID,
+			)
 		}
 		if strings.ContainsAny(name, "=\x00 \t\r\n") {
-			return nil, fmt.Errorf("provider %q traz nome de variável inválido para a credencial do cofre: %q", provider.ID, name)
+			return nil, codedErrorf(
+				CodeProviderACPCredentialEnvBadName,
+				params("providerId", provider.ID, "variable", name),
+				"provider %q traz nome de variável inválido para a credencial do cofre: %q", provider.ID, name,
+			)
 		}
 		trimmed := strings.TrimSpace(pattern)
 		if trimmed == "" {
-			return nil, fmt.Errorf("provider %q: a variável %s não diz de que entrada do cofre vem a credencial", provider.ID, name)
+			return nil, codedErrorf(
+				CodeProviderACPCredentialEnvNoPattern,
+				params("providerId", provider.ID, "variable", name),
+				"provider %q: a variável %s não diz de que entrada do cofre vem a credencial", provider.ID, name,
+			)
 		}
 		out[name] = trimmed
 	}
@@ -324,18 +359,23 @@ func isACPExport(provider ProviderExport) bool {
 // ter o Cursor em outro lugar, ou não tê-lo instalado aqui. O provider entra
 // assim mesmo — corrigir o comando é editá-lo, como em qualquer outro — mas
 // entrar calado faria a primeira conversa falhar sem explicação.
-func acpCommandWarning(provider ProviderExport) string {
+func acpCommandWarning(provider ProviderExport) (LocalizedMessage, bool) {
 	if !isACPExport(provider) {
-		return ""
+		return LocalizedMessage{}, false
 	}
 	command := strings.TrimSpace(provider.ACPCommand)
 	if command == "" {
-		return ""
+		return LocalizedMessage{}, false
 	}
 	if _, err := exec.LookPath(command); err == nil {
-		return ""
+		return LocalizedMessage{}, false
 	}
-	return fmt.Sprintf("Provider %q usa o agente %q, que não foi encontrado nesta máquina. Instale o agente ou edite o comando do provider antes de usá-lo.", provider.ID, command)
+	return newMessage(
+		CodeACPCommandNotFound,
+		params("providerId", provider.ID, "command", command),
+		"Provider %q usa o agente %q, que não foi encontrado nesta máquina. Instale o agente ou edite o comando do provider antes de usá-lo.",
+		provider.ID, command,
+	), true
 }
 
 // acpCredentialWarnings conta que o agente importado espera uma entrada do
@@ -350,7 +390,7 @@ func acpCommandWarning(provider ProviderExport) string {
 //
 // Os avisos saem em ordem de variável para o arquivo importado duas vezes dizer
 // a mesma coisa na mesma ordem.
-func acpCredentialWarnings(ctx context.Context, credMgr *credentials.Manager, provider ProviderExport) []string {
+func acpCredentialWarnings(ctx context.Context, credMgr *credentials.Manager, provider ProviderExport) []LocalizedMessage {
 	if !isACPExport(provider) || len(provider.ACPCredentialEnv) == 0 {
 		return nil
 	}
@@ -360,7 +400,7 @@ func acpCredentialWarnings(ctx context.Context, credMgr *credentials.Manager, pr
 	}
 	sort.Strings(nomes)
 
-	var avisos []string
+	var avisos []LocalizedMessage
 	for _, nome := range nomes {
 		pattern := strings.TrimSpace(provider.ACPCredentialEnv[nome])
 		if pattern == "" {
@@ -379,9 +419,12 @@ func acpCredentialWarnings(ctx context.Context, credMgr *credentials.Manager, pr
 		if err != nil || auth != nil {
 			continue
 		}
-		avisos = append(avisos, fmt.Sprintf(
+		avisos = append(avisos, newMessage(
+			CodeACPCredentialMissing,
+			params("providerId", provider.ID, "pattern", pattern, "variable", nome),
 			"Provider %q passa a credencial %q ao agente pela variável %s, e essa entrada não está no cofre desta máquina. Cadastre-a nas credenciais ou tire a variável do provider.",
-			provider.ID, pattern, nome))
+			provider.ID, pattern, nome,
+		))
 	}
 	return avisos
 }

@@ -162,7 +162,7 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 				{
 					ResourceType:        "provider",
 					Identifier:          "openai-custom",
-					Reason:              "provider já existe",
+					Reason:              portability.LocalizedMessage{Code: "conflict.providerId", Message: "provider já existe"},
 					SupportedStrategies: []portability.ConflictResolutionStrategy{portability.ConflictResolutionSkip, portability.ConflictResolutionRename},
 				},
 			},
@@ -170,11 +170,11 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 				{
 					ResourceType:        "credential",
 					Identifier:          "api.openai.com",
-					Reason:              "credencial já existe",
+					Reason:              portability.LocalizedMessage{Code: "conflict.credentialPattern", Message: "credencial já existe"},
 					SupportedStrategies: []portability.ConflictResolutionStrategy{portability.ConflictResolutionSkip, portability.ConflictResolutionOverwrite},
 				},
 			},
-			Warnings:                 []string{"arquivo contém metadados extras"},
+			Warnings:                 []portability.LocalizedMessage{{Message: "arquivo contém metadados extras"}},
 			UnsupportedResourceTypes: []string{"channels"},
 		},
 	}
@@ -252,7 +252,7 @@ func TestRunDataImport_ReturnsErrorWhenImportFails(t *testing.T) {
 		importResult: &app.ImportResult{
 			Success: false,
 			Failed:  1,
-			Errors:  []string{"provider inválido"},
+			Errors:  []portability.LocalizedMessage{{Code: "provider.missingBaseUrl", Message: "provider inválido"}},
 		},
 	}
 

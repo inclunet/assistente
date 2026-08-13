@@ -103,7 +103,10 @@ func ImportMCPServerWithContext(ctx context.Context, server MCPServerExport) (bo
 	}
 	server = normalizeMCPServerExport(server)
 	if server.Slug == "" {
-		return false, fmt.Errorf("slug do servidor MCP é obrigatório")
+		return false, codedErrorf(
+			CodeMCPServerMissingSlug, nil,
+			"slug do servidor MCP é obrigatório",
+		)
 	}
 
 	var existing database.MCPServer
@@ -166,19 +169,35 @@ func validateMCPServerExport(server MCPServerExport) error {
 	switch server.Transport {
 	case "stdio":
 		if strings.TrimSpace(server.Command) == "" {
-			return fmt.Errorf("servidor MCP %s usa transport stdio mas command é obrigatório", server.Slug)
+			return codedErrorf(
+				CodeMCPServerStdioMissingCommand,
+				params("slug", server.Slug),
+				"servidor MCP %s usa transport stdio mas command é obrigatório", server.Slug,
+			)
 		}
 	case "sse", "streamable":
 		rawURL := strings.TrimSpace(server.URL)
 		if rawURL == "" {
-			return fmt.Errorf("servidor MCP %s usa transport %s mas url é obrigatória", server.Slug, server.Transport)
+			return codedErrorf(
+				CodeMCPServerMissingURL,
+				params("slug", server.Slug, "transport", server.Transport),
+				"servidor MCP %s usa transport %s mas url é obrigatória", server.Slug, server.Transport,
+			)
 		}
 		parsed, err := url.Parse(rawURL)
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return fmt.Errorf("servidor MCP %s usa url inválida: %q", server.Slug, server.URL)
+			return codedErrorf(
+				CodeMCPServerInvalidURL,
+				params("slug", server.Slug, "url", server.URL),
+				"servidor MCP %s usa url inválida: %q", server.Slug, server.URL,
+			)
 		}
 	default:
-		return fmt.Errorf("servidor MCP %s tem transport inválido ou ausente: %q", server.Slug, server.Transport)
+		return codedErrorf(
+			CodeMCPServerInvalidTransport,
+			params("slug", server.Slug, "transport", server.Transport),
+			"servidor MCP %s tem transport inválido ou ausente: %q", server.Slug, server.Transport,
+		)
 	}
 	return nil
 }
