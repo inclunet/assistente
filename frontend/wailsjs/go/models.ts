@@ -5686,6 +5686,122 @@ export namespace speech {
 
 }
 
+export namespace subagent {
+	
+	export class CancelResult {
+	    conversation_id: string;
+	    run_id: string;
+	    status: string;
+	    cancelled: boolean;
+	    message?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CancelResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversation_id = source["conversation_id"];
+	        this.run_id = source["run_id"];
+	        this.status = source["status"];
+	        this.cancelled = source["cancelled"];
+	        this.message = source["message"];
+	    }
+	}
+	export class RunListItem {
+	    runId: string;
+	    conversationId: string;
+	    parentConversationId?: string;
+	    title?: string;
+	    status: string;
+	    background: boolean;
+	    active: boolean;
+	    error?: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    startedAt?: any;
+	    // Go type: time
+	    completedAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunListItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runId = source["runId"];
+	        this.conversationId = source["conversationId"];
+	        this.parentConversationId = source["parentConversationId"];
+	        this.title = source["title"];
+	        this.status = source["status"];
+	        this.background = source["background"];
+	        this.active = source["active"];
+	        this.error = source["error"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.completedAt = this.convertValues(source["completedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RunListResult {
+	    runs: RunListItem[];
+	    activeForUser: number;
+	    activeGlobal: number;
+	    maxConcurrentPerUser: number;
+	    maxConcurrentGlobal: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunListResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.runs = this.convertValues(source["runs"], RunListItem);
+	        this.activeForUser = source["activeForUser"];
+	        this.activeGlobal = source["activeGlobal"];
+	        this.maxConcurrentPerUser = source["maxConcurrentPerUser"];
+	        this.maxConcurrentGlobal = source["maxConcurrentGlobal"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace terminal {
 	
 	export class HistoryEntry {
