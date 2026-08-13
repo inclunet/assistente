@@ -38,3 +38,14 @@ func (a *App) wireSkills() {
 		wailsapi.AttachSkills(a.skillsAPI, wailsSession{app: a}, a.skillsCtrl)
 	}
 }
+
+// wireTools monta o ToolsController e associa o bind Wails (AEP-0088).
+func (a *App) wireTools() {
+	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
+		ToolRegistry: a.toolRegistry,
+		MCPMgr:       a.mcpMgr,
+	})
+	if a.toolsAPI != nil {
+		wailsapi.AttachTools(a.toolsAPI, wailsSession{app: a}, a.toolsCtrl)
+	}
+}
