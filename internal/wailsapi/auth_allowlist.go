@@ -17,4 +17,9 @@ var UnauthenticatedAppMethods = []string{
 	"SetupVault",
 	"UnlockVault",
 	"CreateAdminUser",
+	// Vault/credentials pré-sessão (permanecem no *App; CRUD migrou para wailsapi.Credentials).
+	"HasMasterKey",
+	"SetupMasterPassword",
+	"GetVaultIntegrityStatus",
+	"CanPersistCredentials",
 }

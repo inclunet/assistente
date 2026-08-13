@@ -83,3 +83,13 @@ func (a *App) wireProfiles() {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
 	}
 }
+
+// wireCredentials monta o CredentialsController e associa o bind Wails (AEP-0088).
+func (a *App) wireCredentials() {
+	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
+		CredMgr: a.credMgr,
+	})
+	if a.credentialsAPI != nil {
+		wailsapi.AttachCredentials(a.credentialsAPI, wailsSession{app: a}, a.credentialsCtrl)
+	}
+}

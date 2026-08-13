@@ -118,3 +118,20 @@ func TestWireProfilesAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireCredentialsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewCredentials()
+	SetCredentialsAPI(a, api)
+
+	a.wireCredentials()
+
+	if a.credentialsCtrl == nil {
+		t.Fatal("credentialsCtrl deve ser criado")
+	}
+	_, err := api.ListCredentials()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
