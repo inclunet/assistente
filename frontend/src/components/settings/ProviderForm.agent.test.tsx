@@ -47,7 +47,7 @@ vi.mock('react-i18next', async (importOriginal) => {
 });
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: announceMock }),
+  useAnnouncer: () => ({ announce: announceMock, announceRequest: vi.fn() }),
 }));
 
 const catalogMock = vi.hoisted(() => vi.fn());
@@ -132,7 +132,7 @@ const missing = {
 
 /** Escolhe um agente do catálogo, que é como o formulário sabe qual ele é. */
 async function escolherAgente(user: ReturnType<typeof userEvent.setup>, nomeDoAgente: string, agentId: string) {
-  await user.click(screen.getByRole('button', { name: /escolher agente no catálogo|trocar de agente/i }));
+  await user.click(screen.getByRole('button', { name: /agente acp/i }));
   await user.click(await screen.findByRole('option', { name: new RegExp(nomeDoAgente, 'i') }));
   await waitFor(() => expect(detectMock).toHaveBeenCalledWith(agentId));
 }
@@ -522,7 +522,7 @@ describe('ProviderForm — provedor de agente de código', () => {
 
     render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
     await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
-    expect(screen.getByText(/nenhum agente escolhido/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /agente acp/i })).toBeInTheDocument();
 
     await escolherAgente(user, 'Gemini CLI', 'gemini-cli');
 
@@ -553,7 +553,8 @@ describe('ProviderForm — provedor de agente de código', () => {
       />
     );
 
-    await waitFor(() => expect(detectMock).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toBeInTheDocument());
+    expect(detectMock).not.toHaveBeenCalled();
     expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('/opt/cursor/agente');
     expect(listModelsMock).not.toHaveBeenCalled();
 

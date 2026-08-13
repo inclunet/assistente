@@ -1751,17 +1751,18 @@ const es = {
         foundVersion: 'Agente encontrado en {{source}} (versión {{version}}).',
         notFound: 'Agente no encontrado en esta máquina.',
         typeLabel: 'Agente de código (ACP)',
-        noDetection: 'Esta aplicación no sabe buscar este agente en el disco. Instálalo desde el catálogo o escribe el comando manualmente.',
+        noDetection: 'Esta aplicación no sabe buscar este agente en el disco. Puede instalar una copia administrada después de tu confirmación, o puedes escribir el comando manualmente.',
         detectFailed: 'No se pudo buscar el agente en esta máquina.',
         picker: {
-          chosenTerm: 'Agente:',
-          none: 'Ningún agente elegido.',
-          pickBtn: 'Elegir agente en el catálogo',
-          changeBtn: 'Cambiar de agente',
-          help: 'Abre el catálogo del registro del ACP para elegir qué agente usará este proveedor. Cambiar de agente borra el comando y los argumentos.',
-          modalTitle: 'Elegir el agente del proveedor',
+          label: 'Agente ACP',
+          filterPlaceholder: 'Filtrar agentes...',
+          help: 'Elige el agente que usará este proveedor. La aplicación detecta una instalación existente o pide confirmación antes de instalar.',
+          loading: 'Cargando agentes...',
+          loadError: 'No se pudieron cargar los agentes.',
+          empty: 'No hay agentes disponibles.',
+          retry: 'Actualizar catálogo',
         },
-        installHelp: 'Instala el CLI del agente y haz clic en "Detectar y completar comando". Si ya está instalado en una ruta no estándar, escribe el comando manualmente en el campo de arriba.',
+        installHelp: 'No se encontró el agente. Elegirlo en el picker ofrece una instalación administrada; si ya está en una ruta no estándar, escribe el comando manualmente arriba.',
         searchedIn: 'Buscamos en el PATH y en: {{places}}.',
         workDir: 'Directorio de trabajo',
         workDirHelp: 'Es donde el agente lee y edita archivos. Corresponde al espacio de trabajo activo de la aplicación.',
@@ -1933,36 +1934,15 @@ const es = {
         'Agentes publicados en el registro oficial del ACP. Esta pantalla muestra lo que existe y lo que ya está en esta máquina.',
       introSelect:
         'Elige el agente que usará este proveedor. Si todavía no está instalado, el formulario del proveedor ofrece instalarlo.',
-      introActions:
-        'Agentes del registro oficial del ACP. En cada fila puedes instalar el agente en esta máquina o abrir un proveedor nuevo ya apuntando a él.',
       listLabel: 'Agentes del registro del ACP',
       navHelp:
         'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último.',
       navHelpSelect:
         'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último; Intro elige el agente enfocado.',
-      navHelpActions:
-        'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último. En cada agente, Tab va del botón Usar al Instalar.',
       loading: 'Cargando el catálogo de agentes...',
       count: 'Mostrando {{shown}} de {{total}} agentes.',
       manualPath:
         'Sin catálogo aún puedes agregar un agente a mano: crea un proveedor de tipo agente e indica su comando y sus argumentos.',
-      row: {
-        use: 'Usar en este proveedor',
-        install: 'Instalar',
-        useAria: 'Usar {{name}} en este proveedor',
-        installAria: 'Instalar {{name}}',
-      },
-      installModal: {
-        title: 'Instalar {{name}}',
-        intro:
-          'La instalación es la misma del formulario del proveedor: confirmación, descarga y comprobación de que el agente habla ACP. Después puedes crear el proveedor con Usar en este proveedor.',
-      },
-      announce: {
-        useOpened: 'Abriendo un proveedor nuevo para {{name}}.',
-      },
-      toast: {
-        installed: 'Agente instalado. Usa "Usar en este proveedor" en el catálogo para crear el proveedor.',
-      },
       actions: {
         refresh: 'Actualizar catálogo',
         refreshing: 'Actualizando...',
@@ -2081,15 +2061,22 @@ const es = {
         deleteTitle: 'Eliminar proveedor',
         deleteMessage:
           '¿Seguro que deseas eliminar el proveedor "{{name}}"? Esta acción no se puede deshacer.',
+        removeUnusedAgentTitle: '¿Eliminar y desinstalar el agente?',
+        removeUnusedAgentMessage:
+          'Ningún otro proveedor usa el agente "{{agent}}". ¿Deseas eliminar también la instalación administrada por la aplicación?',
+        removeUnusedAgentConfirm: 'Eliminar y desinstalar',
+        keepAgent: 'Mantener instalado',
       },
       toast: {
         duplicated: '¡Proveedor duplicado!',
         deleted: '¡Proveedor eliminado!',
+        agentRemoved: '¡Proveedor eliminado y agente desinstalado!',
       },
       error: {
         loadFailed: 'Error al cargar proveedores',
         duplicateFailed: 'Error al duplicar proveedor',
         deleteFailed: 'Error al eliminar proveedor',
+        removeUnusedAgentFailed: 'El proveedor se eliminó, pero no se pudo desinstalar el agente',
       },
     },
 

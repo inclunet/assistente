@@ -225,21 +225,6 @@ export const reasonText = (t: TFunction, catalog: Catalog): string => {
   }
 };
 
-/**
- * Diz se a linha do catálogo deve oferecer "Instalar".
- *
- * Quem já foi instalado pelo app troca o botão por gerenciar no fluxo de
- * instalação; sem alvo de plataforma ou sem runtime, o plano recusaria o
- * download — o botão não aparece, e o estado em texto já explica o motivo.
- */
-export function catalogOffersInstall(agent: CatalogAgent): boolean {
-  if (agent.installed_by_app) return false;
-  if (agent.state === 'requirement_missing' || agent.state === 'no_platform_target') {
-    return false;
-  }
-  return true;
-}
-
 export interface ACPAgentCatalogProps {
   /**
    * Escolher um agente da lista, em vez de só lê-la. É por aqui que o
@@ -251,47 +236,19 @@ export interface ACPAgentCatalogProps {
 
   /** O agente já escolhido, para a lista dizer qual é sem depender de cor. */
   selectedId?: string;
-
-  /**
-   * Abrir o formulário de um provedor novo já apontando para este agente.
-   * Só no modo browse da tela de provedores — no picker (`onSelect`) a escolha
-   * já preenche o formulário que está aberto.
-   */
-  onUseAgent?: (agent: CatalogAgent) => void;
-
-  /**
-   * Abrir a instalação deste agente sem criar o provedor ainda. Reusa o mesmo
-   * `AgentInstall` do formulário; o catálogo só dispara.
-   */
-  onInstallAgent?: (agent: CatalogAgent) => void;
-
-  /**
-   * Quando muda, o catálogo recarrega a cópia em cache (ex.: depois de instalar
-   * pelo modal da tela de provedores). Zero/undefined não dispara nada além da
-   * carga inicial.
-   */
-  refreshNonce?: number;
 }
 
 /**
  * O catálogo de agentes do registro oficial do ACP (AEP-0086).
  *
- * Três modos, uma lista:
- * - Com `onSelect`: caixa de listagem do formulário do provedor.
- * - Com `onUseAgent` / `onInstallAgent`: browse acionável na tela de provedores
- *   (instalar ou criar o provedor a partir da linha).
- * - Sem nenhum dos dois: só leitura (legado / testes).
- *
- * As três formas compartilham busca, estado e textos de propósito — quem age
- * precisa das mesmas informações de quem só lia.
+ * Sem `onSelect` ele é lista de leitura, que é como a tela de provedores o abre.
+ * Com `onSelect` ele vira caixa de listagem: a mesma lista, os mesmos textos e a
+ * mesma navegação por setas, e cada item passa a ser escolhível. As duas formas
+ * compartilham tudo de propósito — quem escolhe um agente precisa exatamente das
+ * informações que quem lê o catálogo tem, e uma segunda lista mais pobre faria a
+ * escolha ser feita com menos do que se sabe.
  */
-export const ACPAgentCatalog = ({
-  onSelect,
-  selectedId,
-  onUseAgent,
-  onInstallAgent,
-  refreshNonce = 0,
-}: ACPAgentCatalogProps = {}) => {
+export const ACPAgentCatalog = ({ onSelect, selectedId }: ACPAgentCatalogProps = {}) => {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const navHelpId = `${useId()}-nav-help`;
@@ -307,11 +264,7 @@ export const ACPAgentCatalog = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const actionable = !onSelect && (!!onUseAgent || !!onInstallAgent);
-
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
-  const useBtnRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const installBtnRefs = useRef<Array<HTMLButtonElement | null>>([]);
   // A resposta de uma carga que já não é a última não fala pela tela, e a de um
   // componente desmontado não fala por ninguém: o modal fecha, e um `setState`
   // depois disso descreveria uma tela que saiu do ar.
@@ -350,13 +303,6 @@ export const ACPAgentCatalog = ({
   useEffect(() => {
     void load('open');
   }, [load]);
-
-  // Recarrega depois de uma instalação feita fora deste componente (modal da
-  // tela de provedores), sem remontar a lista e perder busca/foco.
-  useEffect(() => {
-    if (!refreshNonce) return;
-    void load('refresh');
-  }, [load, refreshNonce]);
 
   const erroTexto = loadError === null ? '' : loadError || t('acpCatalog.error.loadFailed');
 
@@ -400,25 +346,10 @@ export const ACPAgentCatalog = ({
     setActiveIndex(0);
   };
 
-  const focusRow = (index: number) => {
-    setActiveIndex(index);
-    if (actionable) {
-      // Preferir "Usar"; se a linha só tiver "Instalar" (ou o ref ainda não
-      // montou o outro), o foco precisa ir a algum controle — senão as setas
-      // mudariam o índice ativo sem mover o foco de verdade.
-      const alvo = useBtnRefs.current[index] ?? installBtnRefs.current[index];
-      if (alvo) {
-        alvo.focus();
-        return;
-      }
-    }
-    itemRefs.current[index]?.focus();
-  };
-
-  const moveFocusByKey = (key: string): boolean => {
-    if (rows.length === 0) return false;
+  const handleListKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
+    if (rows.length === 0) return;
     let next = safeIndex;
-    switch (key) {
+    switch (event.key) {
       case 'ArrowDown':
         next = safeIndex + 1;
         break;
@@ -431,39 +362,27 @@ export const ACPAgentCatalog = ({
       case 'End':
         next = rows.length - 1;
         break;
+      case 'Enter':
+      case ' ':
+        // Escolher com o teclado é o mesmo gesto de qualquer caixa de listagem.
+        // Sem `onSelect` a lista é de leitura, e engolir Enter ali tiraria a
+        // tecla de quem só está navegando.
+        if (!onSelect) return;
+        event.preventDefault();
+        onSelect(rows[safeIndex]);
+        return;
       default:
-        return false;
+        return;
     }
+    event.preventDefault();
     if (next < 0 || next >= rows.length || next === safeIndex) {
+      // Bateu na ponta da lista. O som diz isso sem ocupar o anúncio, que é o
+      // mesmo recurso que a leitura do item está usando.
       playBumpSound();
-      return true;
-    }
-    focusRow(next);
-    return true;
-  };
-
-  const handleRowActionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    // Setas/Home/End nos botões da linha navegam a lista; sem isso o foco
-    // preso em "Usar" ou "Instalar" perderia o atalho descrito no navHelp.
-    if (moveFocusByKey(event.key)) {
-      event.preventDefault();
-    }
-  };
-
-  const handleListKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
-    if (rows.length === 0) return;
-    if (event.key === 'Enter' || event.key === ' ') {
-      // Escolher com o teclado é o mesmo gesto de qualquer caixa de listagem.
-      // Sem `onSelect` a lista ou é de leitura (Enter passa) ou acionável
-      // (Enter no botão "Usar" já dispara o próprio botão — não engolir aqui).
-      if (!onSelect) return;
-      event.preventDefault();
-      onSelect(rows[safeIndex]);
       return;
     }
-    if (moveFocusByKey(event.key)) {
-      event.preventDefault();
-    }
+    setActiveIndex(next);
+    itemRefs.current[next]?.focus();
   };
 
   const motivo = catalog ? reasonText(t, catalog) : '';
@@ -500,11 +419,7 @@ export const ACPAgentCatalog = ({
     // da lista velha e metade da nova.
     <div className="acp-catalog" aria-busy={loading || refreshing}>
       <p className="acp-catalog__intro">
-        {onSelect
-          ? t('acpCatalog.introSelect')
-          : actionable
-            ? t('acpCatalog.introActions')
-            : t('acpCatalog.intro')}
+        {onSelect ? t('acpCatalog.introSelect') : t('acpCatalog.intro')}
       </p>
 
       <div className="acp-catalog__controls">
@@ -548,11 +463,7 @@ export const ACPAgentCatalog = ({
             {t('acpCatalog.count', { shown: rows.length, total: catalog.agents.length })}
           </p>
           <p id={navHelpId} className="acp-catalog__nav-help">
-            {onSelect
-              ? t('acpCatalog.navHelpSelect')
-              : actionable
-                ? t('acpCatalog.navHelpActions')
-                : t('acpCatalog.navHelp')}
+            {onSelect ? t('acpCatalog.navHelpSelect') : t('acpCatalog.navHelp')}
           </p>
           {rows.length === 0 ? (
             <p className="acp-catalog__no-match">{t('acpCatalog.search.noMatch', { term: searchTerm })}</p>
@@ -576,8 +487,6 @@ export const ACPAgentCatalog = ({
                 // duas vezes por item traduziria o mesmo texto duas vezes.
                 const naoVerificada = installedIntegrityText(t, agent);
                 const integridade = integrityText(t, agent);
-                const podeInstalar = actionable && !!onInstallAgent && catalogOffersInstall(agent);
-                const ativo = index === safeIndex;
                 return (
                   <li
                     key={agent.id}
@@ -587,14 +496,12 @@ export const ACPAgentCatalog = ({
                     className="acp-catalog__item"
                     role={onSelect ? 'option' : undefined}
                     aria-selected={onSelect ? agent.id === selectedId : undefined}
-                    // No modo acionável o foco mora no botão "Usar" (e Tab vai
-                    // ao "Instalar"); a linha continua sendo o agrupador visual.
-                    tabIndex={actionable ? undefined : ativo ? 0 : -1}
-                    aria-label={actionable ? undefined : catalogItemLabel(t, agent)}
+                    tabIndex={index === safeIndex ? 0 : -1}
+                    aria-label={catalogItemLabel(t, agent)}
                     onFocus={() => setActiveIndex(index)}
                     onClick={onSelect ? () => onSelect(agent) : undefined}
                   >
-                    <h3 className="acp-catalog__name" id={actionable ? `acp-catalog-name-${agent.id}` : undefined}>
+                    <h3 className="acp-catalog__name">
                       {agent.name}
                       {!!agent.version && (
                         <span className="acp-catalog__version">
@@ -654,47 +561,6 @@ export const ACPAgentCatalog = ({
                         </div>
                       )}
                     </dl>
-
-                    {actionable && (
-                      <div
-                        className="acp-catalog__actions"
-                        role="group"
-                        aria-labelledby={`acp-catalog-name-${agent.id}`}
-                      >
-                        {onUseAgent && (
-                          <Button
-                            ref={(node) => {
-                              useBtnRefs.current[index] = node;
-                            }}
-                            type="button"
-                            variant="primary"
-                            tabIndex={ativo ? 0 : -1}
-                            aria-label={t('acpCatalog.row.useAria', { name: agent.name })}
-                            onFocus={() => setActiveIndex(index)}
-                            onKeyDown={handleRowActionKeyDown}
-                            onClick={() => onUseAgent(agent)}
-                          >
-                            {t('acpCatalog.row.use')}
-                          </Button>
-                        )}
-                        {podeInstalar && (
-                          <Button
-                            ref={(node) => {
-                              installBtnRefs.current[index] = node;
-                            }}
-                            type="button"
-                            variant="secondary"
-                            tabIndex={ativo ? 0 : -1}
-                            aria-label={t('acpCatalog.row.installAria', { name: agent.name })}
-                            onFocus={() => setActiveIndex(index)}
-                            onKeyDown={handleRowActionKeyDown}
-                            onClick={() => onInstallAgent?.(agent)}
-                          >
-                            {t('acpCatalog.row.install')}
-                          </Button>
-                        )}
-                      </div>
-                    )}
                   </li>
                 );
               })}

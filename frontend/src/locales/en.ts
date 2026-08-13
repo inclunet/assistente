@@ -1752,17 +1752,18 @@ const en = {
         foundVersion: 'Agent found at {{source}} (version {{version}}).',
         notFound: 'Agent not found on this machine.',
         typeLabel: 'Code agent (ACP)',
-        noDetection: 'This app does not know how to look for this agent on disk. Install it from the catalog or type the command manually.',
+        noDetection: 'This app does not know how to look for this agent on disk. It can install a managed copy after your confirmation, or you can enter the command manually.',
         detectFailed: 'Could not search for the agent on this machine.',
         picker: {
-          chosenTerm: 'Agent:',
-          none: 'No agent chosen yet.',
-          pickBtn: 'Choose an agent from the catalog',
-          changeBtn: 'Change agent',
-          help: 'Opens the ACP registry catalog to choose which agent this provider will use. Changing the agent clears the command and the arguments.',
-          modalTitle: 'Choose the provider agent',
+          label: 'ACP agent',
+          filterPlaceholder: 'Filter agents...',
+          help: 'Choose the agent this provider will use. The app detects an existing installation or asks for confirmation before installing.',
+          loading: 'Loading agents...',
+          loadError: 'Could not load agents.',
+          empty: 'No agents available.',
+          retry: 'Refresh catalog',
         },
-        installHelp: 'Install the agent CLI and click "Detect and fill in command". If it is already installed in a non-standard path, type the command manually in the field above.',
+        installHelp: 'The agent was not found. Choosing it in the picker offers a managed installation; if it is already in a non-standard path, enter the command manually above.',
         searchedIn: 'We looked in PATH and in: {{places}}.',
         workDir: 'Working directory',
         workDirHelp: 'This is where the agent reads and edits files. It matches the application\u2019s active workspace.',
@@ -1934,35 +1935,14 @@ const en = {
         'Agents published in the official ACP registry. This screen shows what exists and what is already on this machine.',
       introSelect:
         'Choose the agent this provider will use. If it is not installed yet, the provider form offers to install it.',
-      introActions:
-        'Agents from the official ACP registry. On each row you can install the agent on this machine or open a new provider already pointing to it.',
       listLabel: 'Agents from the ACP registry',
       navHelp: 'Use the up and down arrows to move through the agents; Home and End jump to the first and the last.',
       navHelpSelect:
         'Use the up and down arrows to move through the agents; Home and End jump to the first and the last; Enter picks the focused agent.',
-      navHelpActions:
-        'Use the up and down arrows to move through the agents; Home and End jump to the first and the last. On each agent, Tab moves from Use to Install.',
       loading: 'Loading the agent catalog...',
       count: 'Showing {{shown}} of {{total}} agents.',
       manualPath:
         'Without the catalog you can still add an agent by hand: create an agent provider and fill in its command and arguments.',
-      row: {
-        use: 'Use in this provider',
-        install: 'Install',
-        useAria: 'Use {{name}} in this provider',
-        installAria: 'Install {{name}}',
-      },
-      installModal: {
-        title: 'Install {{name}}',
-        intro:
-          'Installation is the same as in the provider form: confirmation, download, and a check that the agent speaks ACP. Afterwards you can create the provider with Use in this provider.',
-      },
-      announce: {
-        useOpened: 'Opening a new provider for {{name}}.',
-      },
-      toast: {
-        installed: 'Agent installed. Use "Use in this provider" in the catalog to create the provider.',
-      },
       actions: {
         refresh: 'Refresh catalog',
         refreshing: 'Refreshing...',
@@ -2081,15 +2061,22 @@ const en = {
         deleteTitle: 'Remove provider',
         deleteMessage:
           'Are you sure you want to remove the provider "{{name}}"? This cannot be undone.',
+        removeUnusedAgentTitle: 'Remove and uninstall agent?',
+        removeUnusedAgentMessage:
+          'No other provider uses the "{{agent}}" agent. Do you also want to remove the installation managed by the app?',
+        removeUnusedAgentConfirm: 'Remove and uninstall',
+        keepAgent: 'Keep installed',
       },
       toast: {
         duplicated: 'Provider duplicated!',
         deleted: 'Provider removed!',
+        agentRemoved: 'Provider removed and agent uninstalled!',
       },
       error: {
         loadFailed: 'Error loading providers',
         duplicateFailed: 'Error duplicating provider',
         deleteFailed: 'Error removing provider',
+        removeUnusedAgentFailed: 'The provider was removed, but the agent could not be uninstalled',
       },
     },
 

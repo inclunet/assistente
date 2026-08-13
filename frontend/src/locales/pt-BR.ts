@@ -1752,17 +1752,18 @@ const ptBR = {
         foundVersion: 'Agente encontrado em {{source}} (versão {{version}}).',
         notFound: 'Agente não encontrado nesta máquina.',
         typeLabel: 'Agente de código (ACP)',
-        noDetection: 'Este aplicativo não sabe procurar este agente no disco. Instale pelo catálogo ou informe o comando manualmente.',
+        noDetection: 'Este aplicativo não sabe procurar este agente no disco. Ele pode instalar uma cópia gerenciada após sua confirmação, ou você pode informar o comando manualmente.',
         detectFailed: 'Não foi possível procurar o agente nesta máquina.',
         picker: {
-          chosenTerm: 'Agente:',
-          none: 'Nenhum agente escolhido.',
-          pickBtn: 'Escolher agente no catálogo',
-          changeBtn: 'Trocar de agente',
-          help: 'Abre o catálogo do registro do ACP para escolher qual agente este provedor vai usar. Trocar de agente limpa o comando e os argumentos.',
-          modalTitle: 'Escolher o agente do provedor',
+          label: 'Agente ACP',
+          filterPlaceholder: 'Filtrar agentes...',
+          help: 'Escolha o agente que este provedor usará. O aplicativo detecta uma instalação existente ou pede confirmação antes de instalar.',
+          loading: 'Carregando agentes...',
+          loadError: 'Não foi possível carregar os agentes.',
+          empty: 'Nenhum agente disponível.',
+          retry: 'Atualizar catálogo',
         },
-        installHelp: 'Instale o CLI do agente e clique em "Detectar e preencher comando". Se ele já estiver instalado em um caminho fora do padrão, informe o comando manualmente no campo acima.',
+        installHelp: 'O agente não foi encontrado. A escolha no picker oferece uma instalação gerenciada; se ele já estiver em um caminho fora do padrão, informe o comando manualmente no campo acima.',
         searchedIn: 'Procuramos no PATH e em: {{places}}.',
         workDir: 'Diretório de trabalho',
         workDirHelp: 'É onde o agente lê e edita arquivos. Corresponde ao workspace ativo do aplicativo.',
@@ -1934,35 +1935,14 @@ const ptBR = {
         'Agentes publicados no registro oficial do ACP. Esta tela mostra o que existe e o que já está nesta máquina.',
       introSelect:
         'Escolha o agente que este provedor vai usar. Se ele ainda não estiver instalado, o formulário do provedor oferece instalar.',
-      introActions:
-        'Agentes do registro oficial do ACP. Em cada linha você pode instalar o agente nesta máquina ou abrir um provedor novo já apontando para ele.',
       listLabel: 'Agentes do registro do ACP',
       navHelp: 'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último.',
       navHelpSelect:
         'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último; Enter escolhe o agente em foco.',
-      navHelpActions:
-        'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último. Em cada agente, Tab vai do botão Usar ao Instalar.',
       loading: 'Carregando o catálogo de agentes...',
       count: 'Mostrando {{shown}} de {{total}} agentes.',
       manualPath:
         'Sem catálogo você ainda pode adicionar um agente à mão: crie um provedor do tipo agente e informe o comando e os argumentos dele.',
-      row: {
-        use: 'Usar neste provedor',
-        install: 'Instalar',
-        useAria: 'Usar {{name}} neste provedor',
-        installAria: 'Instalar {{name}}',
-      },
-      installModal: {
-        title: 'Instalar {{name}}',
-        intro:
-          'A instalação é a mesma do formulário do provedor: confirmação, download e verificação de que o agente fala ACP. Depois você pode criar o provedor com Usar neste provedor.',
-      },
-      announce: {
-        useOpened: 'Abrindo provedor novo para {{name}}.',
-      },
-      toast: {
-        installed: 'Agente instalado. Use "Usar neste provedor" no catálogo para criar o provedor.',
-      },
       actions: {
         refresh: 'Atualizar catálogo',
         refreshing: 'Atualizando...',
@@ -2081,15 +2061,22 @@ const ptBR = {
         deleteTitle: 'Remover provedor',
         deleteMessage:
           'Tem certeza de que deseja remover o provedor "{{name}}"? Esta ação não pode ser desfeita.',
+        removeUnusedAgentTitle: 'Remover e desinstalar agente?',
+        removeUnusedAgentMessage:
+          'Nenhum outro provedor usa o agente "{{agent}}". Deseja remover também a instalação gerenciada pelo aplicativo?',
+        removeUnusedAgentConfirm: 'Remover e desinstalar',
+        keepAgent: 'Manter instalado',
       },
       toast: {
         duplicated: 'Provedor duplicado!',
         deleted: 'Provedor removido!',
+        agentRemoved: 'Provedor removido e agente desinstalado!',
       },
       error: {
         loadFailed: 'Erro ao carregar provedores',
         duplicateFailed: 'Erro ao duplicar provedor',
         deleteFailed: 'Erro ao remover provedor',
+        removeUnusedAgentFailed: 'O provedor foi removido, mas não foi possível desinstalar o agente',
       },
     },
 
