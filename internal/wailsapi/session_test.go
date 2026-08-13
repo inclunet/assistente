@@ -27,11 +27,15 @@ func TestWithUserFailClosed(t *testing.T) {
 	}
 }
 
+type ctxKey string
+
+const ctxUID ctxKey = "uid"
+
 func TestWithUserOK(t *testing.T) {
 	t.Parallel()
-	ctx := context.WithValue(context.Background(), "uid", "u1")
+	ctx := context.WithValue(context.Background(), ctxUID, "u1")
 	got, err := WithUser(stubSession{ctx: ctx}, func(c context.Context) (string, error) {
-		if c.Value("uid") != "u1" {
+		if c.Value(ctxUID) != "u1" {
 			t.Fatalf("ctx perdido")
 		}
 		return "ok", nil
