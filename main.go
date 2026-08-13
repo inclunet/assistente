@@ -8,6 +8,7 @@ import (
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
+	"assistente/internal/wailsapi"
 
 	wailslib "github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -51,8 +52,11 @@ func main() {
 		OnShutdown: func(_ context.Context) {
 			a.Shutdown()
 		},
+		// AEP-0088: multi-bind — App (ciclo de vida + domínios ainda não
+		// migrados) e Probe (spike Fase 1). Domínios seguintes entram aqui.
 		Bind: []interface{}{
 			a,
+			wailsapi.NewProbe(),
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,
