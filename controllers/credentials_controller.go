@@ -7,34 +7,19 @@ import (
 	"sort"
 	"strings"
 
+	"assistente/internal/apidto"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 )
 
-// CredentialSummary descreve uma credencial para exibição (sem dados sensíveis).
-type CredentialSummary struct {
-	Pattern string `json:"pattern"`
-	Type    string `json:"type"`
-	Masked  string `json:"masked"`
-	Managed bool   `json:"managed"`
-}
+// CredentialSummary — alias estável durante a migração Strangler (AEP-0088 D5).
+type CredentialSummary = apidto.CredentialSummary
 
-// CredentialInput descreve a entrada para criar/atualizar credenciais.
-type CredentialInput struct {
-	Pattern     string `json:"pattern"`
-	Type        string `json:"type"`
-	Token       string `json:"token,omitempty"`
-	Username    string `json:"username,omitempty"`
-	Password    string `json:"password,omitempty"`
-	HeaderName  string `json:"headerName,omitempty"`
-	HeaderValue string `json:"headerValue,omitempty"`
-}
+// CredentialInput — alias estável durante a migração Strangler (AEP-0088 D5).
+type CredentialInput = apidto.CredentialInput
 
-// ExternalSourceSuggestion representa uma sugestão de fonte externa para autocomplete.
-type ExternalSourceSuggestion struct {
-	Value string `json:"value"`
-	Label string `json:"label"`
-}
+// ExternalSourceSuggestion — alias estável durante a migração Strangler (AEP-0088 D5).
+type ExternalSourceSuggestion = apidto.ExternalSourceSuggestion
 
 // CredentialsControllerConfig agrupa dependências do CredentialsController.
 type CredentialsControllerConfig struct {

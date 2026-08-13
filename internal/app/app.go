@@ -240,6 +240,10 @@ type App struct {
 	// netTrustAPI é o bind Wails do domínio nettrust (AEP-0088). Criado em main e
 	// wired após NewNetTrustController.
 	netTrustAPI *wailsapi.NetTrust
+
+	// credentialsAPI é o bind Wails do domínio credentials (AEP-0088). Criado em
+	// main e wired após NewCredentialsController.
+	credentialsAPI *wailsapi.Credentials
 }
 
 // ==================== Tipos para Threads ====================
@@ -339,12 +343,37 @@ func SetNetTrustAPI(a *App, api *wailsapi.NetTrust) {
 	a.netTrustAPI = api
 }
 
+// SetCredentialsAPI registra o bind Wails de credentials antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetCredentialsAPI(a *App, api *wailsapi.Credentials) {
+	if a == nil {
+		return
+	}
+	a.credentialsAPI = api
+}
+
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
 func ProfilesCtrl(a *App) *controllers.ProfilesController {
 	if a == nil {
 		return nil
 	}
 	return a.profilesCtrl
+}
+
+// CredentialsCtrl expõe o CredentialsController para a CLI (não entra no Bind Wails).
+func CredentialsCtrl(a *App) *controllers.CredentialsController {
+	if a == nil {
+		return nil
+	}
+	return a.credentialsCtrl
+}
+
+// AuthenticatedContext expõe o contexto autenticado para a CLI (não entra no Bind Wails).
+func AuthenticatedContext(a *App) (context.Context, error) {
+	if a == nil {
+		return nil, database.ErrUserScopeRequired
+	}
+	return a.requireAuthenticatedContext()
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
@@ -677,9 +706,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireTools()
 	a.wireUpdater()
 	a.wireNetTrust()
-	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
-		CredMgr: a.credMgr,
-	})
+	a.wireCredentials()
 	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
 		QuestionnaireMgr:           a.questionnaireMgr,
 		CredMgr:                    a.credMgr,

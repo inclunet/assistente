@@ -54,8 +54,12 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetMessagingStatus: () => mockGetMessagingStatus(),
   RestartChannel: (name: string) => mockRestartChannel(name),
   GetChannelTemplates: () => mockGetChannelTemplates(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
   ListCredentials: () => mockListCredentials(),
   DeleteCredential: (pattern: string) => mockDeleteCredential(pattern),
+  UpsertCredential: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({

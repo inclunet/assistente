@@ -14,10 +14,8 @@ import {
   GetMessagingStatus,
   RestartChannel,
   GetChannelTemplates,
-  ListCredentials,
-  UpsertCredential,
-  DeleteCredential,
 } from '@wailsjs/go/app/App';
+import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';

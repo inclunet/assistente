@@ -54,6 +54,9 @@ vi.mock('@wailsjs/go/app/App', () => ({
   CancelACPAgentInstall: vi.fn(),
   RemoveACPAgent: vi.fn(),
   UpdateACPAgent: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
   ListCredentials: listCredentialsMock,
 }));
 

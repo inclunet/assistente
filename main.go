@@ -36,6 +36,8 @@ func main() {
 	application.SetHotkeysAPI(a, hotkeysAPI)
 	netTrustAPI := wailsapi.NewNetTrust()
 	application.SetNetTrustAPI(a, netTrustAPI)
+	credentialsAPI := wailsapi.NewCredentials()
+	application.SetCredentialsAPI(a, credentialsAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -80,6 +82,7 @@ func main() {
 			profilesAPI,
 			hotkeysAPI,
 			netTrustAPI,
+			credentialsAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

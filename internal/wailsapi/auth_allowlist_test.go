@@ -133,3 +133,31 @@ func TestNetTrustMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestCredentialsCRUDMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ListCredentials",
+		"UpsertCredential",
+		"DeleteCredential",
+		"ListExternalSources",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Credentials/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
+func TestCredentialsVaultMethodsOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"HasMasterKey",
+		"SetupMasterPassword",
+		"GetVaultIntegrityStatus",
+		"CanPersistCredentials",
+	} {
+		if !slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é pré-sessão (vault/onboarding); deve estar na allowlist", name)
+		}
+	}
+}
