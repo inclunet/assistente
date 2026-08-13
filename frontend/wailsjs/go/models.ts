@@ -83,6 +83,120 @@ export namespace allowlist {
 
 export namespace apidto {
 	
+	export class RuntimeToolCatalogEntry {
+	    id: string;
+	    userId?: string;
+	    mcpServerId?: string;
+	    name: string;
+	    displayName: string;
+	    description?: string;
+	    origin: string;
+	    category?: string;
+	    class?: string;
+	    package?: string;
+	    risk?: string;
+	    schema?: number[];
+	    schemaHash?: string;
+	    schemaBytes?: number;
+	    tags?: string[];
+	    availabilityStatus: string;
+	    availabilityReason?: string;
+	    // Go type: time
+	    lastSeenAt?: any;
+	    // Go type: time
+	    lastAvailableAt?: any;
+	    // Go type: time
+	    lastUnavailableAt?: any;
+	    // Go type: time
+	    lastTestedAt?: any;
+	    lastTestStatus?: string;
+	    lastTestError?: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuntimeToolCatalogEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.userId = source["userId"];
+	        this.mcpServerId = source["mcpServerId"];
+	        this.name = source["name"];
+	        this.displayName = source["displayName"];
+	        this.description = source["description"];
+	        this.origin = source["origin"];
+	        this.category = source["category"];
+	        this.class = source["class"];
+	        this.package = source["package"];
+	        this.risk = source["risk"];
+	        this.schema = source["schema"];
+	        this.schemaHash = source["schemaHash"];
+	        this.schemaBytes = source["schemaBytes"];
+	        this.tags = source["tags"];
+	        this.availabilityStatus = source["availabilityStatus"];
+	        this.availabilityReason = source["availabilityReason"];
+	        this.lastSeenAt = this.convertValues(source["lastSeenAt"], null);
+	        this.lastAvailableAt = this.convertValues(source["lastAvailableAt"], null);
+	        this.lastUnavailableAt = this.convertValues(source["lastUnavailableAt"], null);
+	        this.lastTestedAt = this.convertValues(source["lastTestedAt"], null);
+	        this.lastTestStatus = source["lastTestStatus"];
+	        this.lastTestError = source["lastTestError"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RuntimeToolCatalogFilter {
+	    origin?: string;
+	    mcpServerId?: string;
+	    category?: string;
+	    class?: string;
+	    package?: string;
+	    risk?: string;
+	    availabilityStatus?: string;
+	    includeUnavailable?: boolean;
+	    limit?: number;
+	    offset?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuntimeToolCatalogFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.origin = source["origin"];
+	        this.mcpServerId = source["mcpServerId"];
+	        this.category = source["category"];
+	        this.class = source["class"];
+	        this.package = source["package"];
+	        this.risk = source["risk"];
+	        this.availabilityStatus = source["availabilityStatus"];
+	        this.includeUnavailable = source["includeUnavailable"];
+	        this.limit = source["limit"];
+	        this.offset = source["offset"];
+	    }
+	}
 	export class SkillCreateRequest {
 	    name: string;
 	    version: string;
@@ -297,6 +411,26 @@ export namespace apidto {
 		    }
 		    return a;
 		}
+	}
+	export class ToolInfo {
+	    name: string;
+	    display_name: string;
+	    description: string;
+	    source_type: string;
+	    source_label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.source_type = source["source_type"];
+	        this.source_label = source["source_label"];
+	    }
 	}
 
 }
@@ -1232,120 +1366,6 @@ export namespace app {
 		}
 	}
 	
-	export class RuntimeToolCatalogEntry {
-	    id: string;
-	    userId?: string;
-	    mcpServerId?: string;
-	    name: string;
-	    displayName: string;
-	    description?: string;
-	    origin: string;
-	    category?: string;
-	    class?: string;
-	    package?: string;
-	    risk?: string;
-	    schema?: number[];
-	    schemaHash?: string;
-	    schemaBytes?: number;
-	    tags?: string[];
-	    availabilityStatus: string;
-	    availabilityReason?: string;
-	    // Go type: time
-	    lastSeenAt?: any;
-	    // Go type: time
-	    lastAvailableAt?: any;
-	    // Go type: time
-	    lastUnavailableAt?: any;
-	    // Go type: time
-	    lastTestedAt?: any;
-	    lastTestStatus?: string;
-	    lastTestError?: string;
-	    // Go type: time
-	    createdAt: any;
-	    // Go type: time
-	    updatedAt: any;
-	
-	    static createFrom(source: any = {}) {
-	        return new RuntimeToolCatalogEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.userId = source["userId"];
-	        this.mcpServerId = source["mcpServerId"];
-	        this.name = source["name"];
-	        this.displayName = source["displayName"];
-	        this.description = source["description"];
-	        this.origin = source["origin"];
-	        this.category = source["category"];
-	        this.class = source["class"];
-	        this.package = source["package"];
-	        this.risk = source["risk"];
-	        this.schema = source["schema"];
-	        this.schemaHash = source["schemaHash"];
-	        this.schemaBytes = source["schemaBytes"];
-	        this.tags = source["tags"];
-	        this.availabilityStatus = source["availabilityStatus"];
-	        this.availabilityReason = source["availabilityReason"];
-	        this.lastSeenAt = this.convertValues(source["lastSeenAt"], null);
-	        this.lastAvailableAt = this.convertValues(source["lastAvailableAt"], null);
-	        this.lastUnavailableAt = this.convertValues(source["lastUnavailableAt"], null);
-	        this.lastTestedAt = this.convertValues(source["lastTestedAt"], null);
-	        this.lastTestStatus = source["lastTestStatus"];
-	        this.lastTestError = source["lastTestError"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class RuntimeToolCatalogFilter {
-	    origin?: string;
-	    mcpServerId?: string;
-	    category?: string;
-	    class?: string;
-	    package?: string;
-	    risk?: string;
-	    availabilityStatus?: string;
-	    includeUnavailable?: boolean;
-	    limit?: number;
-	    offset?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new RuntimeToolCatalogFilter(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.origin = source["origin"];
-	        this.mcpServerId = source["mcpServerId"];
-	        this.category = source["category"];
-	        this.class = source["class"];
-	        this.package = source["package"];
-	        this.risk = source["risk"];
-	        this.availabilityStatus = source["availabilityStatus"];
-	        this.includeUnavailable = source["includeUnavailable"];
-	        this.limit = source["limit"];
-	        this.offset = source["offset"];
-	    }
-	}
 	export class SynthesisResultInfo {
 	    audioBase64: string;
 	    format: string;
@@ -2013,26 +2033,6 @@ export namespace controllers {
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.provider_id = source["provider_id"];
-	    }
-	}
-	export class ToolInfo {
-	    name: string;
-	    display_name: string;
-	    description: string;
-	    source_type: string;
-	    source_label: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ToolInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.display_name = source["display_name"];
-	        this.description = source["description"];
-	        this.source_type = source["source_type"];
-	        this.source_label = source["source_label"];
 	    }
 	}
 	export class UpdateLLMProviderRequest {

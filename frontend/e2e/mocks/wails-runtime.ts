@@ -374,6 +374,7 @@ export function buildWailsMockScript(): string {
       Tokens: makeProxy('wailsapi.Tokens'),
       Skills: makeProxy('wailsapi.Skills'),
       Allowlists: makeProxy('wailsapi.Allowlists'),
+      Tools: makeProxy('wailsapi.Tools'),
     },
   };
 

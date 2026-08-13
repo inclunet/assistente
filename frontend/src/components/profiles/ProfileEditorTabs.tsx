@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { profiles, controllers, allowlist, contextprovider, skills } from '@wailsjs/go/models';
+import type { profiles, apidto, allowlist, contextprovider, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { announce } from '../../hooks/useAnnouncer';
@@ -38,7 +38,7 @@ function isVisibleFocusTarget(element: HTMLElement): boolean {
 
 export interface ProfileEditorTabsProps {
   editingProfile: profiles.Profile & { id?: string; source?: string; isActive?: boolean };
-  availableTools: controllers.ToolInfo[];
+  availableTools: apidto.ToolInfo[];
   availableSkills: Array<
     | skills.SkillInfo
     | { slug: string; name: string; description?: string; version?: string; source?: string }
