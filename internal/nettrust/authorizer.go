@@ -20,6 +20,11 @@ type PromptRequest struct {
 	Reason              string
 	SkillSlug           string   // skill que originou a chamada, se houver
 	SkillSuggestedHosts []string // hosts declarados pelo skill (melhora UX; não substitui consentimento)
+	// SkillHostMatch é o padrão declarado pelo skill que casa com o destino
+	// bloqueado (vazio quando nenhum casa). Serve para o diálogo destacar que
+	// este é o host esperado — o que não dispensa o consentimento (AEP-0082 D5),
+	// só evita que a pessoa precise comparar a lista de hosts na mão.
+	SkillHostMatch string
 }
 
 // PromptDecision é a resposta do usuário ao pedido de autorização.
@@ -94,6 +99,7 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 		Reason:              dest.Reason,
 		SkillSlug:           skillSlug,
 		SkillSuggestedHosts: suggested,
+		SkillHostMatch:      matchingSuggestedHost(suggested, host),
 	}
 
 	logging.Infof(ctx, "nettrust.authorizer",
@@ -195,6 +201,18 @@ func skillNetworkHints(ctx context.Context) (slug string, suggested []string) {
 		return ec.InvokedSkillSlug, append([]string(nil), ec.NetworkAllowedHost...)
 	}
 	return "", nil
+}
+
+// matchingSuggestedHost devolve o primeiro padrão declarado pelo skill que casa
+// com o host bloqueado, usando a MESMA regra de match da allowlist (exato ou
+// wildcard "*.dominio", que não casa o apex). Vazio quando nenhum casa.
+func matchingSuggestedHost(suggested []string, host string) string {
+	for _, pattern := range suggested {
+		if hostMatchesPattern(pattern, host) {
+			return pattern
+		}
+	}
+	return ""
 }
 
 func creatorFor(skillSlug string) string {

@@ -83,6 +83,66 @@ func TestOEscopoEscolhidoContinuaSendoParseadoDepoisDaTraducao(t *testing.T) {
 	}
 }
 
+// perguntaDoDialogo devolve a pergunta de um dado id no payload que foi à tela.
+func perguntaDoDialogo(t *testing.T, payload map[string]any, id string) questionnaire.Question {
+	t.Helper()
+	perguntas, ok := payload["questions"].([]questionnaire.Question)
+	if !ok {
+		t.Fatalf("questions veio como %T, quer []questionnaire.Question", payload["questions"])
+	}
+	for _, q := range perguntas {
+		if q.ID == id {
+			return q
+		}
+	}
+	t.Fatalf("pergunta %q não chegou ao diálogo", id)
+	return questionnaire.Question{}
+}
+
+func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
+	// Quem decide não deveria precisar comparar o destino com a lista de hosts
+	// do skill na mão para saber se é o host esperado.
+	payload, _ := dialogoDeRede(t,
+		nettrust.PromptRequest{
+			Host:                "api.nu.workflows.dev",
+			Category:            "cgnat",
+			SkillSlug:           "workflows-api",
+			SkillSuggestedHosts: []string{"*.nu.workflows.dev"},
+			SkillHostMatch:      "*.nu.workflows.dev",
+		},
+		scopeOptionText(networkScopeOptions[0]),
+	)
+
+	destaque := perguntaDoDialogo(t, payload, "details").Description
+	if destaque.Key == "" {
+		t.Errorf("destaque = %+v, quer chave de tradução", destaque)
+	}
+	if !strings.Contains(destaque.Fallback, "*.nu.workflows.dev") {
+		t.Errorf("destaque = %q, quer nomear o host declarado", destaque.Fallback)
+	}
+	if destaque.Params["pattern"] != "*.nu.workflows.dev" {
+		t.Errorf("params do destaque = %v, quer o host declarado", destaque.Params)
+	}
+}
+
+func TestODialogoNaoDestacaHostQuandoNenhumCasa(t *testing.T) {
+	// Um destaque genérico ("o skill esperava algum host") sobre um destino que
+	// o skill não declarou empurraria a pessoa a aprovar o que não devia.
+	payload, _ := dialogoDeRede(t,
+		nettrust.PromptRequest{
+			Host:                "api.nu.workflows.dev",
+			Category:            "cgnat",
+			SkillSlug:           "workflows-api",
+			SkillSuggestedHosts: []string{"outra.coisa.dev"},
+		},
+		scopeOptionText(networkScopeOptions[0]),
+	)
+
+	if destaque := perguntaDoDialogo(t, payload, "details").Description; !destaque.IsZero() {
+		t.Errorf("destaque = %+v, quer nenhum", destaque)
+	}
+}
+
 func TestADecisaoDeRedeSegueOEscopoQueAPessoaEscolheu(t *testing.T) {
 	_, decision := dialogoDeRede(t,
 		nettrust.PromptRequest{Host: "interno.local", Category: "private"},

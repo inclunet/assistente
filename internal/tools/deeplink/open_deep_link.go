@@ -40,7 +40,7 @@ func (t *OpenDeepLinkTool) Description() string {
   Conversation links accept an optional profile={slug} query parameter that forces the target conversation to use a specific profile (works for new, open and send). Add it with "?" when the URI has no query yet, or with "&" when it already has one — e.g. assistente://conversation/{id}?profile=techsupport or assistente://conversation/new?message=...&profile=programacao.
 - Tab open: assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
 - Tab create: assistente://tasklist/new?title=..., assistente://editor/new?title=..., assistente://editor/open?file=..., assistente://terminal/new?cmd=...
-- Navigate: assistente://navigate/{route} (routes: history, tasklists, settings, profiles, providers, credentials, skills, mcp, channels, allowlists, help, about, update)
+- Navigate: assistente://navigate/{route}. Settings screens are tabs, so the route keeps the settings/ prefix (routes: settings, settings/providers, settings/mcp, settings/skills, settings/channels, settings/contacts, settings/credentials, settings/allowlists, settings/network-allowlist, settings/appearance, settings/data, settings/restore-defaults, profiles, history, memories, tasklists, help, about, update)
 - Resource edit/new: assistente://{resource}/new, assistente://{resource}/edit/{id} (resources: profiles, providers, credentials, allowlists, skills, mcp, channels, tasklists)`
 }
 

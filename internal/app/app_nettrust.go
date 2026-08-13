@@ -99,6 +99,18 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		fmt.Fprintf(&details, "Hosts esperados pelo skill: %s\n", strings.Join(req.SkillSuggestedHosts, ", "))
 	}
 
+	// Quando o destino bloqueado é um dos hosts que o skill declarou esperar,
+	// dizer isso ao lado dos detalhes evita que a pessoa compare a lista na mão.
+	// Continua sendo só informação: a autorização depende da resposta (AEP-0082 D5).
+	var skillHostHint questionnaire.Text
+	if req.SkillHostMatch != "" {
+		skillHostHint = questionnaire.KeyedWith(
+			"app.questionnaire.network.skillHostMatch",
+			map[string]any{"pattern": req.SkillHostMatch},
+			fmt.Sprintf("Este destino casa com %s, declarado pelo skill como host esperado. Isso não dispensa a sua autorização.", req.SkillHostMatch),
+		)
+	}
+
 	resp, err := p.qm.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 		Title: questionnaire.Keyed(
 			"app.questionnaire.network.title",
@@ -114,9 +126,10 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		CancelLabel: questionnaire.Keyed("app.questionnaire.network.cancel", "Negar"),
 		Questions: []questionnaire.Question{
 			{
-				ID:     "details",
-				Type:   "readonly_code",
-				Prompt: questionnaire.Keyed("app.questionnaire.network.detailsPrompt", "Detalhes do destino"),
+				ID:          "details",
+				Type:        "readonly_code",
+				Prompt:      questionnaire.Keyed("app.questionnaire.network.detailsPrompt", "Detalhes do destino"),
+				Description: skillHostHint,
 				// Host, porta, IP e motivo são dados do pedido: vão como
 				// conteúdo, não como chave.
 				Content: details.String(),

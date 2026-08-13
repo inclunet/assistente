@@ -27,6 +27,7 @@ vi.mock('react-i18next', () => ({
         'settingsPage.tabs.contacts': 'Contatos',
         'settingsPage.tabs.credentials': 'Cred Manager',
         'settingsPage.tabs.allowlists': 'Allow Lists',
+        'settingsPage.tabs.network-allowlist': 'Allowlist de Rede',
         'settingsPage.tabs.agent-permissions': 'Autorizações do Agente',
         'settingsPage.tabs.appearance': 'Aparência',
         'settingsPage.tabs.data': 'Dados',
@@ -42,6 +43,7 @@ vi.mock('./ChannelsPage', () => ({ default: () => <button data-testid="channels-
 vi.mock('./ContactsPage', () => ({ default: () => <button data-testid="contacts-default">ContactsPage</button> }));
 vi.mock('./CredentialsPage', () => ({ default: () => <button data-testid="credentials-default">CredentialsPage</button> }));
 vi.mock('./AllowlistPage', () => ({ default: () => <button data-testid="allowlists-default">AllowlistPage</button> }));
+vi.mock('./NetworkAllowlistPage', () => ({ default: () => <button data-testid="network-allowlist-default">NetworkAllowlistPage</button> }));
 vi.mock('./AgentPermissionsPage', () => ({ default: () => <button data-testid="agent-permissions-default">AgentPermissionsPage</button> }));
 vi.mock('./AppearancePage', () => ({ default: () => <button data-testid="appearance-default">AppearancePage</button> }));
 vi.mock('./DataManagementPage', () => ({ default: () => <button data-testid="data-default">DataManagementPage</button> }));
@@ -69,6 +71,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Contatos')).toBeInTheDocument();
     expect(screen.getByText('Cred Manager')).toBeInTheDocument();
     expect(screen.getByText('Allow Lists')).toBeInTheDocument();
+    expect(screen.getByText('Allowlist de Rede')).toBeInTheDocument();
     expect(screen.getByText('Aparência')).toBeInTheDocument();
     expect(screen.getByText('Dados')).toBeInTheDocument();
     expect(screen.getByText('Restaurar Padrões')).toBeInTheDocument();
@@ -101,18 +104,18 @@ describe('SettingsPage', () => {
     expect(tablist).toHaveAttribute('aria-label', 'Configurações');
   });
 
-  it('renderiza todas as 11 tabs com role="tab"', () => {
+  it('renderiza todas as 12 tabs com role="tab"', () => {
     render(<SettingsPage />);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(11);
+    expect(tabs).toHaveLength(12);
   });
 
-  it('renderiza todos os 11 tabpanels', () => {
+  it('renderiza todos os 12 tabpanels', () => {
     render(<SettingsPage />);
 
     const panels = screen.getAllByRole('tabpanel', { hidden: true });
-    expect(panels).toHaveLength(11);
+    expect(panels).toHaveLength(12);
   });
 
   it('renderiza o conteúdo do ProvidersPage no panel correspondente', async () => {

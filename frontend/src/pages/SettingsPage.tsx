@@ -14,6 +14,7 @@ const ChannelsPage = lazy(() => import('./ChannelsPage'));
 const ContactsPage = lazy(() => import('./ContactsPage'));
 const CredentialsPage = lazy(() => import('./CredentialsPage'));
 const AllowlistPage = lazy(() => import('./AllowlistPage'));
+const NetworkAllowlistPage = lazy(() => import('./NetworkAllowlistPage'));
 const AgentPermissionsPage = lazy(() => import('./AgentPermissionsPage'));
 const AppearancePage = lazy(() => import('./AppearancePage'));
 const DataManagementPage = lazy(() => import('./DataManagementPage'));
@@ -27,6 +28,7 @@ const SETTINGS_TABS = [
   { id: 'contacts',         component: ContactsPage },
   { id: 'credentials',      component: CredentialsPage },
   { id: 'allowlists',       component: AllowlistPage },
+  { id: 'network-allowlist', component: NetworkAllowlistPage },
   { id: 'agent-permissions', component: AgentPermissionsPage },
   { id: 'appearance',       component: AppearancePage },
   { id: 'data',             component: DataManagementPage },
