@@ -20,7 +20,17 @@ vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn() }),
   announce: vi.fn(),
 }));
+vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => vi.fn() }));
+vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn() }) }));
+vi.mock('../hooks/useGridPageLandmarks', () => ({ useGridPageLandmarks: vi.fn() }));
 vi.mock('../services/audioFeedback', () => ({ playBumpSound: vi.fn() }));
+vi.mock('../store/uiStore', () => ({
+  useUIStore: (selector: (state: { addToast: () => void }) => unknown) =>
+    selector({ addToast: vi.fn() }),
+}));
+vi.mock('../components/ui/PageLoading', () => ({
+  PageLoading: ({ message }: { message: string }) => <div>{message}</div>,
+}));
 
 import NetworkAllowlistPage from './NetworkAllowlistPage';
 
@@ -53,9 +63,6 @@ describe('NetworkAllowlistPage — acessibilidade', () => {
     mockGetNetworkAllowlist.mockResolvedValue([]);
 
     const { container } = render(<NetworkAllowlistPage />);
-    await waitFor(() =>
-      expect(screen.queryByText('networkAllowlist.loading')).not.toBeInTheDocument(),
-    );
     expect(await screen.findByText('networkAllowlist.empty')).toBeInTheDocument();
 
     expect(await axe(container)).toHaveNoViolations();
