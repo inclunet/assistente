@@ -83,3 +83,15 @@ func (a *App) wireProfiles() {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
 	}
 }
+
+// wireHotkeys monta o HotkeysController e associa o bind Wails (AEP-0088).
+func (a *App) wireHotkeys() {
+	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
+		WindowPort: a.windowPort,
+	})
+	if a.hotkeysAPI != nil {
+		wailsapi.AttachHotkeys(a.hotkeysAPI, wailsSession{app: a}, a.hotkeyCtrl)
+	}
+}
