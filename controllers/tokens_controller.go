@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/logging"
 	"assistente/internal/profiles"
@@ -29,7 +30,7 @@ func NewTokensController(cfg TokensControllerConfig) *TokensController {
 }
 
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa.
-func (c *TokensController) GetConversationTokenStats(ctx context.Context, conversationID string) (*chat.TokenStats, error) {
+func (c *TokensController) GetConversationTokenStats(ctx context.Context, conversationID string) (*apidto.TokenStats, error) {
 	contextLimit := 0
 	var promptCacheEnabled *bool
 	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
@@ -46,7 +47,7 @@ func (c *TokensController) GetConversationTokenStats(ctx context.Context, conver
 }
 
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico.
-func (c *TokensController) GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*chat.TokenStats, error) {
+func (c *TokensController) GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*apidto.TokenStats, error) {
 	stats, err := c.tokenSvc.GetTurnStats(ctx, conversationID, turnID)
 	if err != nil {
 		return nil, err
@@ -60,7 +61,7 @@ func (c *TokensController) GetTurnTokenStats(ctx context.Context, conversationID
 	return stats, nil
 }
 
-func applyPromptCacheProfileState(stats *chat.TokenStats, promptCacheEnabled *bool) {
+func applyPromptCacheProfileState(stats *apidto.TokenStats, promptCacheEnabled *bool) {
 	if stats == nil {
 		return
 	}

@@ -170,12 +170,11 @@ Fora de escopo (podem ter issues/AEPs próprias):
 **Aceite:** domínio piloto sem `requireAuthenticatedContext` manual;
 allowlist coberta por teste; nenhum método autenticado fora do mecanismo.
 
-### Fase 3 — Pacote neutro de DTOs
+### Fase 3 — Pacote neutro de DTOs (feita)
 
-- Criar `internal/apidto`.
-- Mover os DTOs do domínio piloto (e os aliases óbvios compartilhados) para o
-  pacote neutro.
-- Controllers e `App`/binds passam a importar de lá.
+- Criado `internal/apidto` com `TokenStats` / `ToolUsageBreakdown`.
+- `chat` reexporta via alias; controller e bind `Tokens` tipam em `apidto`.
+- Zero aliases `type X = controllers.X` no caminho tokens.
 
 **Aceite:** zero aliases `controllers.*` no domínio piloto; job `bindings`
 verde; frontend tipado contra os structs gerados.
@@ -229,7 +228,7 @@ Quando os domínios migrados cobrirem a superfície útil:
 - [x] AEP-0088 publicado; Fase 1 fechou D2 (`WithUser`) e D5 (`internal/apidto`).
 - [x] Spike de multi-bind feito (`wailsapi.Probe` no `Bind`).
 - [x] Mecanismo único de auth na borda em produção para domínios migrados (`WithUser` + Tokens).
-- [ ] DTOs da borda fora de `controllers` para domínios migrados.
+- [x] DTOs da borda fora de `controllers` para domínios migrados (`internal/apidto` tokens).
 - [ ] `Startup` composto por `wireX` por domínio.
 - [ ] Maioria dos métodos Wails fora de `*App`; #248 fechada.
 - [ ] Frontend + job `bindings` verdes a cada fase.
