@@ -302,51 +302,51 @@ type ImportRequest struct {
 }
 
 type ImportResult struct {
-	Success                     bool     `json:"success"`
-	Imported                    int      `json:"imported"`
-	Skipped                     int      `json:"skipped"`
-	Failed                      int      `json:"failed"`
-	SkippedEmptyConversations   int      `json:"skippedEmptyConversations"`
-	SkippedConversationConflict int      `json:"skippedConversationConflict"`
-	SkippedProviderConflict     int      `json:"skippedProviderConflict"`
-	SkippedMCPServerConflict    int      `json:"skippedMcpServerConflict"`
-	SkippedTaskListConflict     int      `json:"skippedTaskListConflict"`
-	SkippedCredentialConflict   int      `json:"skippedCredentialConflict"`
-	SkippedOther                int      `json:"skippedOther"`
-	UnsupportedResourceTypes    []string `json:"unsupportedResourceTypes,omitempty"`
-	Warnings                    []string `json:"warnings,omitempty"`
-	Errors                      []string `json:"errors,omitempty"`
-	Message                     string   `json:"message"`
+	Success                     bool               `json:"success"`
+	Imported                    int                `json:"imported"`
+	Skipped                     int                `json:"skipped"`
+	Failed                      int                `json:"failed"`
+	SkippedEmptyConversations   int                `json:"skippedEmptyConversations"`
+	SkippedConversationConflict int                `json:"skippedConversationConflict"`
+	SkippedProviderConflict     int                `json:"skippedProviderConflict"`
+	SkippedMCPServerConflict    int                `json:"skippedMcpServerConflict"`
+	SkippedTaskListConflict     int                `json:"skippedTaskListConflict"`
+	SkippedCredentialConflict   int                `json:"skippedCredentialConflict"`
+	SkippedOther                int                `json:"skippedOther"`
+	UnsupportedResourceTypes    []string           `json:"unsupportedResourceTypes,omitempty"`
+	Warnings                    []LocalizedMessage `json:"warnings,omitempty"`
+	Errors                      []LocalizedMessage `json:"errors,omitempty"`
+	Message                     string             `json:"message"`
 }
 
 type ImportConflict struct {
 	ResourceType        string                       `json:"resourceType"`
 	Identifier          string                       `json:"identifier"`
-	Reason              string                       `json:"reason"`
+	Reason              LocalizedMessage             `json:"reason"`
 	SupportedStrategies []ConflictResolutionStrategy `json:"supportedStrategies,omitempty"`
 }
 
 type ImportAnalysis struct {
-	Version                    int              `json:"version"`
-	AppVersion                 string           `json:"appVersion,omitempty"`
-	ConversationCount          int              `json:"conversationCount"`
-	MessageCount               int              `json:"messageCount"`
-	ProviderCount              int              `json:"providerCount"`
-	MCPServerCount             int              `json:"mcpServerCount"`
-	TaskListCount              int              `json:"taskListCount"`
-	TaskCount                  int              `json:"taskCount"`
-	TaskNoteCount              int              `json:"taskNoteCount"`
-	MemoryRecordCount          int              `json:"memoryRecordCount"`
-	IncludesCredentials        bool             `json:"includesCredentials"`
-	RequiresCredentialPassword bool             `json:"requiresCredentialPassword"`
-	CredentialCount            int              `json:"credentialCount"`
-	ConflictCount              int              `json:"conflictCount"`
-	ConversationConflicts      []ImportConflict `json:"conversationConflicts,omitempty"`
-	ProviderConflicts          []ImportConflict `json:"providerConflicts,omitempty"`
-	MCPServerConflicts         []ImportConflict `json:"mcpServerConflicts,omitempty"`
-	TaskListConflicts          []ImportConflict `json:"taskListConflicts,omitempty"`
-	CredentialConflicts        []ImportConflict `json:"credentialConflicts,omitempty"`
-	UnsupportedResourceTypes   []string         `json:"unsupportedResourceTypes,omitempty"`
-	Warnings                   []string         `json:"warnings,omitempty"`
-	CredentialAnalysisError    string           `json:"credentialAnalysisError,omitempty"`
+	Version                    int                `json:"version"`
+	AppVersion                 string             `json:"appVersion,omitempty"`
+	ConversationCount          int                `json:"conversationCount"`
+	MessageCount               int                `json:"messageCount"`
+	ProviderCount              int                `json:"providerCount"`
+	MCPServerCount             int                `json:"mcpServerCount"`
+	TaskListCount              int                `json:"taskListCount"`
+	TaskCount                  int                `json:"taskCount"`
+	TaskNoteCount              int                `json:"taskNoteCount"`
+	MemoryRecordCount          int                `json:"memoryRecordCount"`
+	IncludesCredentials        bool               `json:"includesCredentials"`
+	RequiresCredentialPassword bool               `json:"requiresCredentialPassword"`
+	CredentialCount            int                `json:"credentialCount"`
+	ConflictCount              int                `json:"conflictCount"`
+	ConversationConflicts      []ImportConflict   `json:"conversationConflicts,omitempty"`
+	ProviderConflicts          []ImportConflict   `json:"providerConflicts,omitempty"`
+	MCPServerConflicts         []ImportConflict   `json:"mcpServerConflicts,omitempty"`
+	TaskListConflicts          []ImportConflict   `json:"taskListConflicts,omitempty"`
+	CredentialConflicts        []ImportConflict   `json:"credentialConflicts,omitempty"`
+	UnsupportedResourceTypes   []string           `json:"unsupportedResourceTypes,omitempty"`
+	Warnings                   []LocalizedMessage `json:"warnings,omitempty"`
+	CredentialAnalysisError    string             `json:"credentialAnalysisError,omitempty"`
 }

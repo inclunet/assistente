@@ -89,7 +89,10 @@ func exportMemoryRecord(row database.MemoryRecord) MemoryRecordExport {
 func importMemoryRecord(ctx context.Context, svc *memorysvc.Service, exported MemoryRecordExport) (bool, error) {
 	id := strings.TrimSpace(exported.ID)
 	if id == "" {
-		return false, fmt.Errorf("memória sem id não pode ser importada")
+		return false, codedErrorf(
+			CodeMemoryRecordMissingID, nil,
+			"memória sem id não pode ser importada",
+		)
 	}
 	record := database.MemoryRecord{
 		UUIDModel: database.UUIDModel{

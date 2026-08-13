@@ -1451,8 +1451,10 @@ func TestAnalyzeImportDataWarnsAboutEmptyConversations(t *testing.T) {
 	if len(analysis.Warnings) == 0 {
 		t.Fatal("expected warning about empty conversations")
 	}
-	if analysis.Warnings[0] != "1 conversa(s) vazia(s) serão descartadas na importação." {
-		t.Fatalf("unexpected warning: %q", analysis.Warnings[0])
+	warning := findMessageByCode(t, analysis.Warnings, CodeEmptyConversations)
+	requireParam(t, warning, "count", "1")
+	if warning.Message != "1 conversa(s) vazia(s) serão descartadas na importação." {
+		t.Fatalf("unexpected warning fallback: %q", warning.Message)
 	}
 }
 
@@ -1736,22 +1738,22 @@ func TestImportConversationsRejectsProviderMissingRequiredFields(t *testing.T) {
 	testCases := []struct {
 		name     string
 		provider ProviderExport
-		want     string
+		wantCode string
 	}{
 		{
 			name:     "name",
 			provider: ProviderExport{ID: "provider-missing-name", Type: "openai", BaseURL: "https://api.example/v1"},
-			want:     "sem name",
+			wantCode: CodeProviderMissingName,
 		},
 		{
 			name:     "type",
 			provider: ProviderExport{ID: "provider-missing-type", Name: "Provider", BaseURL: "https://api.example/v1"},
-			want:     "sem type",
+			wantCode: CodeProviderMissingType,
 		},
 		{
 			name:     "base url",
 			provider: ProviderExport{ID: "provider-missing-base-url", Name: "Provider", Type: "openai"},
-			want:     "sem baseUrl",
+			wantCode: CodeProviderMissingBaseURL,
 		},
 	}
 
@@ -1773,9 +1775,10 @@ func TestImportConversationsRejectsProviderMissingRequiredFields(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ImportConversations() error = %v", err)
 			}
-			if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], tc.want) {
+			if result.Failed != 1 || len(result.Errors) != 1 || result.Errors[0].Code != tc.wantCode {
 				t.Fatalf("unexpected result: %+v", result)
 			}
+			requireParam(t, result.Errors[0], "providerId", tc.provider.ID)
 		})
 	}
 }
@@ -2431,8 +2434,13 @@ func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 	if len(result.UnsupportedResourceTypes) != 1 || result.UnsupportedResourceTypes[0] != "profiles" {
 		t.Fatalf("unexpected unsupported resource types: %v", result.UnsupportedResourceTypes)
 	}
-	if len(result.Warnings) == 0 || !strings.Contains(result.Warnings[0], "fora do escopo atual (profiles)") {
-		t.Fatalf("unexpected warnings: %v", result.Warnings)
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected warning about unsupported resources")
+	}
+	warning := findMessageByCode(t, result.Warnings, CodeUnsupportedResources)
+	requireParam(t, warning, "resources", "profiles")
+	if !strings.Contains(warning.Message, "fora do escopo atual (profiles)") {
+		t.Fatalf("unexpected warning fallback: %q", warning.Message)
 	}
 }
 
@@ -2500,9 +2508,10 @@ func TestImportConversationsRejectsMissingStableConversationID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportConversations() error = %v", err)
 	}
-	if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "sem id") {
+	if result.Failed != 1 || len(result.Errors) != 1 || result.Errors[0].Code != CodeConversationMissingID {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+	requireParam(t, result.Errors[0], "conversation", "Sem id")
 }
 
 func TestImportConversationsRejectsMissingStableMessageID(t *testing.T) {
@@ -2534,9 +2543,11 @@ func TestImportConversationsRejectsMissingStableMessageID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportConversations() error = %v", err)
 	}
-	if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "mensagem 0") {
+	if result.Failed != 1 || len(result.Errors) != 1 || result.Errors[0].Code != CodeMessageMissingID {
 		t.Fatalf("unexpected result: %+v", result)
 	}
+	requireParam(t, result.Errors[0], "index", "0")
+	requireParam(t, result.Errors[0], "conversation", "Mensagem sem id")
 }
 
 func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
@@ -2545,7 +2556,7 @@ func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
 	testCases := []struct {
 		name     string
 		taskList TaskListExport
-		want     string
+		wantCode string
 	}{
 		{
 			name: "tasklist id",
@@ -2559,7 +2570,7 @@ func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
 					InitialStatusID: 1,
 				},
 			},
-			want: "tasklist",
+			wantCode: CodeTaskListMissingID,
 		},
 		{
 			name: "workflow id",
@@ -2573,7 +2584,7 @@ func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
 					InitialStatusID: 1,
 				},
 			},
-			want: "workflow",
+			wantCode: CodeTaskListWorkflowMissingID,
 		},
 		{
 			name: "task id",
@@ -2589,7 +2600,7 @@ func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
 				},
 				Tasks: []TaskExport{{Title: "Sem id", StatusID: 1}},
 			},
-			want: "task",
+			wantCode: CodeTaskMissingID,
 		},
 		{
 			name: "note id",
@@ -2612,7 +2623,7 @@ func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
 					},
 				},
 			},
-			want: "nota",
+			wantCode: CodeTaskNoteMissingID,
 		},
 	}
 
@@ -2634,7 +2645,7 @@ func TestImportConversationsRejectsMissingStableTaskListIDs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ImportConversations() error = %v", err)
 			}
-			if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], tc.want) {
+			if result.Failed != 1 || len(result.Errors) != 1 || result.Errors[0].Code != tc.wantCode {
 				t.Fatalf("unexpected result: %+v", result)
 			}
 		})
@@ -2851,7 +2862,7 @@ func TestImportCredentialsRejectsManagedPatterns(t *testing.T) {
 	if result.Success || result.Failed != 1 {
 		t.Fatalf("import result should fail managed credential import, got %+v", result)
 	}
-	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "gerenciada/interna") {
+	if len(result.Errors) != 1 || result.Errors[0].Code != CodeCredentialManagedNotImportable {
 		t.Fatalf("import errors = %#v, want managed/internal rejection", result.Errors)
 	}
 }

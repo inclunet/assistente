@@ -392,6 +392,32 @@ Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas r
 
 Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052 sejam concluídas, esta extensibilidade permanece como direção de evolução, não como requisito de implementação imediata desta PR.
 
+### D14 — Avisos e erros da importação viajam como código, não como texto
+
+O backend não sabe em que idioma a tela está, e o arquivo importado tampouco.
+Por isso aviso, erro e motivo de conflito saem de `ImportResult`,
+`ImportAnalysis` e `ImportConflict` como `LocalizedMessage`:
+
+```go
+type LocalizedMessage struct {
+    Code    string            `json:"code"`   // ex.: "acp.commandNotFound"
+    Params  map[string]string `json:"params,omitempty"`
+    Message string            `json:"message"` // texto pt-BR de reserva
+}
+```
+
+1. O **código** é o contrato. A UI traduz por `portability.messages.<código>`
+   nos três locales, e a CLI, que fala português, usa o texto de reserva.
+2. Os **parâmetros** vêm do arquivo importado (id de provider, caminho de
+   binário, pattern de credencial) e são interpolados como texto puro — a UI
+   nunca os trata como HTML.
+3. O **texto de reserva** existe para código desconhecido: um app cuja tradução
+   ainda não conhece o código mostra o texto do backend em vez de lista vazia.
+4. Erro que o pacote não previu (falha de banco, JSON quebrado) entra sem
+   código, e a UI mostra o texto como veio.
+5. Erro de validação é `CodedError`, que carrega o mesmo par e continua sendo um
+   `error` comum: embrulhar com contexto não apaga o código.
+
 ## Fases
 
 ### Fase 1 — Backend DB-only
@@ -463,3 +489,4 @@ DB-only descrito em D0.
 12. **HTML/PDF** são gerados a partir do mesmo modelo canônico de conversas do export JSON.
 13. **i18n**: todas as strings de UI novas existem nos 3 locales.
 14. **Acessibilidade**: modais de export/import são navegáveis por teclado, com foco gerenciado e feedback via announcer/toast.
+15. **Avisos e erros traduzíveis**: a lista de avisos, erros e motivos de conflito sai do backend com código e parâmetros (D14), aparece na tela e no announcer no idioma escolhido e cai no texto de reserva quando o código é desconhecido.

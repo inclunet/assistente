@@ -73,9 +73,16 @@ func TestImportaProvedorACPComComandoEArgumentos(t *testing.T) {
 	}
 
 	// Caminho de binário é a parte que não viaja: sem aviso, a primeira
-	// conversa falharia sem explicação.
-	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "não foi encontrado nesta máquina") {
-		t.Fatalf("avisos inesperados: %v", result.Warnings)
+	// conversa falharia sem explicação. O aviso sai como código, para a tela
+	// dizer isso no idioma de quem importou.
+	if len(result.Warnings) != 1 {
+		t.Fatalf("avisos inesperados: %v", messageCodes(result.Warnings))
+	}
+	aviso := findMessageByCode(t, result.Warnings, CodeACPCommandNotFound)
+	requireParam(t, aviso, "providerId", "cursor")
+	requireParam(t, aviso, "command", "agente-que-nao-existe-nesta-maquina")
+	if !strings.Contains(aviso.Message, "não foi encontrado nesta máquina") {
+		t.Errorf("texto de reserva = %q", aviso.Message)
 	}
 }
 
@@ -138,17 +145,17 @@ func TestAgenteEncontradoNaMaquinaNaoGeraAviso(t *testing.T) {
 		t.Skipf("sem caminho do executável de teste: %v", err)
 	}
 
-	aviso := acpCommandWarning(ProviderExport{ID: "cursor", APIFormat: "acp", ACPCommand: executavel})
-	if aviso != "" {
+	aviso, gerou := acpCommandWarning(ProviderExport{ID: "cursor", APIFormat: "acp", ACPCommand: executavel})
+	if gerou {
 		t.Errorf("aviso indevido: %q", aviso)
 	}
 }
 
 func TestProvedorHTTPNaoGeraAvisoDeAgente(t *testing.T) {
-	aviso := acpCommandWarning(ProviderExport{
+	aviso, gerou := acpCommandWarning(ProviderExport{
 		ID: "openai", APIFormat: "openai", BaseURL: "https://api.openai.com/v1",
 	})
-	if aviso != "" {
+	if gerou {
 		t.Errorf("aviso indevido: %q", aviso)
 	}
 }
@@ -159,12 +166,12 @@ func TestImportacaoRecusaProvedorACPSemComandoEAgenteEmProvedorHTTP(t *testing.T
 	casos := []struct {
 		nome     string
 		provider ProviderExport
-		contendo string
+		codigo   string
 	}{
 		{
 			nome:     "acp sem comando",
 			provider: ProviderExport{ID: "cursor", Name: "Cursor", Type: "custom", APIFormat: "acp"},
-			contendo: "sem acpCommand",
+			codigo:   CodeProviderACPMissingCommand,
 		},
 		{
 			nome: "comando em provedor http",
@@ -172,7 +179,7 @@ func TestImportacaoRecusaProvedorACPSemComandoEAgenteEmProvedorHTTP(t *testing.T
 				ID: "openai", Name: "OpenAI", Type: "openai", APIFormat: "openai",
 				BaseURL: "https://api.openai.com/v1", ACPCommand: "cursor-agent",
 			},
-			contendo: "configuração de agente",
+			codigo: CodeProviderACPOutsideACPFormat,
 		},
 		{
 			nome: "argumentos em provedor http",
@@ -180,7 +187,7 @@ func TestImportacaoRecusaProvedorACPSemComandoEAgenteEmProvedorHTTP(t *testing.T
 				ID: "openai", Name: "OpenAI", Type: "openai", APIFormat: "openai",
 				BaseURL: "https://api.openai.com/v1", ACPArgs: []string{"acp"},
 			},
-			contendo: "configuração de agente",
+			codigo: CodeProviderACPOutsideACPFormat,
 		},
 	}
 
@@ -200,9 +207,10 @@ func TestImportacaoRecusaProvedorACPSemComandoEAgenteEmProvedorHTTP(t *testing.T
 			if err != nil {
 				t.Fatalf("ImportConversations() error = %v", err)
 			}
-			if result.Failed != 1 || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], caso.contendo) {
+			if result.Failed != 1 || len(result.Errors) != 1 || result.Errors[0].Code != caso.codigo {
 				t.Fatalf("resultado inesperado: %+v", result)
 			}
+			requireParam(t, result.Errors[0], "providerId", caso.provider.ID)
 		})
 	}
 }
@@ -324,12 +332,12 @@ func TestImportacaoAvisaQuandoAEntradaDoCofreNaoExisteAqui(t *testing.T) {
 		t.Fatalf("resultado inesperado: %+v", result)
 	}
 	if len(result.Warnings) != 1 {
-		t.Fatalf("avisos = %v, esperado só o da entrada que falta", result.Warnings)
+		t.Fatalf("avisos = %v, esperado só o da entrada que falta", messageCodes(result.Warnings))
 	}
-	if !strings.Contains(result.Warnings[0], "api.openai.com") ||
-		!strings.Contains(result.Warnings[0], "OPENAI_API_KEY") {
-		t.Errorf("o aviso não nomeia o que falta: %q", result.Warnings[0])
-	}
+	aviso := findMessageByCode(t, result.Warnings, CodeACPCredentialMissing)
+	requireParam(t, aviso, "providerId", "codex")
+	requireParam(t, aviso, "pattern", "api.openai.com")
+	requireParam(t, aviso, "variable", "OPENAI_API_KEY")
 
 	// E o provedor entrou com a referência inteira, para bastar cadastrar a
 	// credencial que falta.

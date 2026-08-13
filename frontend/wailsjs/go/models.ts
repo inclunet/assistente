@@ -4290,10 +4290,26 @@ export namespace portability {
 	        this.includeMetadata = source["includeMetadata"];
 	    }
 	}
+	export class LocalizedMessage {
+	    code: string;
+	    params?: Record<string, string>;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalizedMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.params = source["params"];
+	        this.message = source["message"];
+	    }
+	}
 	export class ImportConflict {
 	    resourceType: string;
 	    identifier: string;
-	    reason: string;
+	    reason: LocalizedMessage;
 	    supportedStrategies?: string[];
 	
 	    static createFrom(source: any = {}) {
@@ -4304,9 +4320,27 @@ export namespace portability {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.resourceType = source["resourceType"];
 	        this.identifier = source["identifier"];
-	        this.reason = source["reason"];
+	        this.reason = this.convertValues(source["reason"], LocalizedMessage);
 	        this.supportedStrategies = source["supportedStrategies"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ImportAnalysis {
 	    version: number;
@@ -4329,7 +4363,7 @@ export namespace portability {
 	    taskListConflicts?: ImportConflict[];
 	    credentialConflicts?: ImportConflict[];
 	    unsupportedResourceTypes?: string[];
-	    warnings?: string[];
+	    warnings?: LocalizedMessage[];
 	    credentialAnalysisError?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -4358,7 +4392,7 @@ export namespace portability {
 	        this.taskListConflicts = this.convertValues(source["taskListConflicts"], ImportConflict);
 	        this.credentialConflicts = this.convertValues(source["credentialConflicts"], ImportConflict);
 	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];
-	        this.warnings = source["warnings"];
+	        this.warnings = this.convertValues(source["warnings"], LocalizedMessage);
 	        this.credentialAnalysisError = source["credentialAnalysisError"];
 	    }
 	
@@ -4447,8 +4481,8 @@ export namespace portability {
 	    skippedCredentialConflict: number;
 	    skippedOther: number;
 	    unsupportedResourceTypes?: string[];
-	    warnings?: string[];
-	    errors?: string[];
+	    warnings?: LocalizedMessage[];
+	    errors?: LocalizedMessage[];
 	    message: string;
 	
 	    static createFrom(source: any = {}) {
@@ -4469,10 +4503,28 @@ export namespace portability {
 	        this.skippedCredentialConflict = source["skippedCredentialConflict"];
 	        this.skippedOther = source["skippedOther"];
 	        this.unsupportedResourceTypes = source["unsupportedResourceTypes"];
-	        this.warnings = source["warnings"];
-	        this.errors = source["errors"];
+	        this.warnings = this.convertValues(source["warnings"], LocalizedMessage);
+	        this.errors = this.convertValues(source["errors"], LocalizedMessage);
 	        this.message = source["message"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
