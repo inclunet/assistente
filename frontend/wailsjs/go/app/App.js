@@ -674,10 +674,6 @@ export function InterruptTerminalCommand(arg1) {
   return window['go']['app']['App']['InterruptTerminalCommand'](arg1);
 }
 
-export function IsGlobalHotkeySupported() {
-  return window['go']['app']['App']['IsGlobalHotkeySupported']();
-}
-
 export function ListBoardCustomActions(arg1) {
   return window['go']['app']['App']['ListBoardCustomActions'](arg1);
 }

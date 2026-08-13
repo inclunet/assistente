@@ -107,6 +107,15 @@ export function buildWailsMockScript(): string {
     NeedsWelcomeWizard: false,
     RunWelcomeWizard: true,
     GetAppVersion: '1.0.0-test',
+    // Valida scope: defaults resolvem só por fnName; sem isso App.IsGlobalHotkeySupported
+    // mascararia regressão pós-migração (AEP-0088).
+    IsGlobalHotkeySupported: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Hotkeys') {
+        throw new Error('IsGlobalHotkeySupported deve ser chamado via wailsapi.Hotkeys');
+      }
+      return true;
+    },
 
     /* Auth */
     GetAuthStatus: {
@@ -378,6 +387,7 @@ export function buildWailsMockScript(): string {
       Tools: makeProxy('wailsapi.Tools'),
       Updater: makeProxy('wailsapi.Updater'),
       Profiles: makeProxy('wailsapi.Profiles'),
+      Hotkeys: makeProxy('wailsapi.Hotkeys'),
       NetTrust: makeProxy('wailsapi.NetTrust'),
     },
   };

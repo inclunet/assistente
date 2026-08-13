@@ -233,6 +233,10 @@ type App struct {
 	// wired após NewProfilesController.
 	profilesAPI *wailsapi.Profiles
 
+	// hotkeysAPI é o bind Wails do domínio hotkeys (AEP-0088). Criado em main e
+	// wired após NewHotkeysController.
+	hotkeysAPI *wailsapi.Hotkeys
+
 	// netTrustAPI é o bind Wails do domínio nettrust (AEP-0088). Criado em main e
 	// wired após NewNetTrustController.
 	netTrustAPI *wailsapi.NetTrust
@@ -315,6 +319,15 @@ func SetProfilesAPI(a *App, api *wailsapi.Profiles) {
 		return
 	}
 	a.profilesAPI = api
+}
+
+// SetHotkeysAPI registra o bind Wails de hotkeys antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetHotkeysAPI(a *App, api *wailsapi.Hotkeys) {
+	if a == nil {
+		return
+	}
+	a.hotkeysAPI = api
 }
 
 // SetNetTrustAPI registra o bind Wails de nettrust antes do Run (main.go).
@@ -541,11 +554,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 
 	// Inicializa hotkeys globais
-	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
-		ProfileMgr: a.profileManager,
-		Emitter:    a.emitter,
-		WindowPort: a.windowPort,
-	})
+	a.wireHotkeys()
 	a.initGlobalHotkeys()
 
 	// Registra hotkeys do perfil ativo

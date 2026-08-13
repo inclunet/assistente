@@ -356,8 +356,6 @@ export function InstallACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Pro
 
 export function InterruptTerminalCommand(arg1:string):Promise<void>;
 
-export function IsGlobalHotkeySupported():Promise<boolean>;
-
 export function ListBoardCustomActions(arg1:string):Promise<Array<app.CustomActionView>>;
 
 export function ListCardCustomActions(arg1:string,arg2:string):Promise<Array<app.CustomActionView>>;

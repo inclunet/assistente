@@ -84,6 +84,18 @@ func (a *App) wireProfiles() {
 	}
 }
 
+// wireHotkeys monta o HotkeysController e associa o bind Wails (AEP-0088).
+func (a *App) wireHotkeys() {
+	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
+		WindowPort: a.windowPort,
+	})
+	if a.hotkeysAPI != nil {
+		wailsapi.AttachHotkeys(a.hotkeysAPI, wailsSession{app: a}, a.hotkeyCtrl)
+	}
+}
+
 // wireNetTrust monta o NetTrustController e associa o bind Wails (AEP-0088).
 func (a *App) wireNetTrust() {
 	a.netTrustCtrl = controllers.NewNetTrustController(controllers.NetTrustControllerConfig{
