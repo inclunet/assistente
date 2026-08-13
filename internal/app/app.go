@@ -62,9 +62,6 @@ type CreateLLMProviderRequest = controllers.CreateLLMProviderRequest
 type TestLLMProviderRequest = controllers.TestLLMProviderRequest
 type UpdateLLMProviderRequest = controllers.UpdateLLMProviderRequest
 
-// SkillCreateRequest — type alias para controllers.
-type SkillCreateRequest = controllers.SkillCreateRequest
-
 // ChannelInfo — type alias para controllers.
 type ChannelInfo = controllers.ChannelInfo
 
@@ -218,6 +215,10 @@ type App struct {
 	// allowlistsAPI é o bind Wails do domínio allowlists (AEP-0088). Criado em
 	// main e wired após NewAllowlistController.
 	allowlistsAPI *wailsapi.Allowlists
+
+	// skillsAPI é o bind Wails do domínio skills (AEP-0088). Criado em main e
+	// wired após NewSkillsController.
+	skillsAPI *wailsapi.Skills
 }
 
 // ==================== Tipos para Threads ====================
@@ -253,6 +254,15 @@ func SetAllowlistsAPI(a *App, api *wailsapi.Allowlists) {
 		return
 	}
 	a.allowlistsAPI = api
+}
+
+// SetSkillsAPI registra o bind Wails de skills antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSkillsAPI(a *App, api *wailsapi.Skills) {
+	if a == nil {
+		return
+	}
+	a.skillsAPI = api
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
@@ -504,11 +514,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Emitter:          a.emitter,
 		OnProviderChange: a.initLLMClient,
 	})
-	a.skillsCtrl = controllers.NewSkillsController(controllers.SkillsControllerConfig{
-		SkillMgr:   a.skillMgr,
-		ProfileMgr: a.profileManager,
-		Emitter:    a.emitter,
-	})
 	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
 		CredMgr:     a.credMgr,
 		ProfileMgr:  a.profileManager,
@@ -599,6 +604,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		JobMgr: a.jobMgr,
 	})
 	a.wireTokens()
+	a.wireSkills()
+	a.wireAllowlist()
 	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
 		ToolRegistry: a.toolRegistry,
 		MCPMgr:       a.mcpMgr,
@@ -627,7 +634,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
 		TerminalMgr: a.terminalMgr,
 	})
-	a.wireAllowlist()
 	a.signalCtrl = controllers.NewSignalController()
 
 	if err := a.startHTTPAPI(); err != nil {

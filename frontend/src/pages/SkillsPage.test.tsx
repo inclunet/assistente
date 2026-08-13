@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
   Trans: ({ children, defaults }: { children?: ReactNode; defaults?: string }) => <>{defaults ?? children}</>,
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
   GetSkills: () => mockGetSkills(),
   GetSkill: (slug: string) => mockGetSkill(slug),
   GetSkillSearchPaths: () => mockGetSkillSearchPaths(),
@@ -24,11 +24,14 @@ vi.mock('@wailsjs/go/app/App', () => ({
   UpdateSkill: vi.fn(),
   DeleteSkill: vi.fn(),
   DuplicateSkill: (slug: string) => mockDuplicateSkill(slug),
+}));
+
+vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
-  main: {
+  apidto: {
     SkillCreateRequest: {
       createFrom: (data: unknown) => data,
     },

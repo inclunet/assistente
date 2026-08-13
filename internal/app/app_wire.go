@@ -26,3 +26,15 @@ func (a *App) wireAllowlist() {
 		wailsapi.AttachAllowlists(a.allowlistsAPI, wailsSession{app: a}, a.allowlistCtrl)
 	}
 }
+
+// wireSkills monta o SkillsController e associa o bind Wails (AEP-0088).
+func (a *App) wireSkills() {
+	a.skillsCtrl = controllers.NewSkillsController(controllers.SkillsControllerConfig{
+		SkillMgr:   a.skillMgr,
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
+	})
+	if a.skillsAPI != nil {
+		wailsapi.AttachSkills(a.skillsAPI, wailsSession{app: a}, a.skillsCtrl)
+	}
+}

@@ -10,7 +10,7 @@ import { buildSlashItems, filterSlashItems, type SlashItem } from './slashItems'
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { DIMENSIONS } from '../../constants/chat';
-import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/app/App';
+import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/wailsapi/Skills';
 import type { app, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 

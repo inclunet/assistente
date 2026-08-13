@@ -83,6 +83,119 @@ export namespace allowlist {
 
 export namespace apidto {
 	
+	export class SkillCreateRequest {
+	    name: string;
+	    version: string;
+	    description: string;
+	    displayName?: string;
+	    author?: string;
+	    authorEmail?: string;
+	    authorUrl?: string;
+	    license?: string;
+	    repository?: string;
+	    homepage?: string;
+	    keywords?: string[];
+	    category?: string;
+	    subcategory?: string;
+	    type?: string;
+	    difficulty?: string;
+	    audience?: string[];
+	    minVersion?: string;
+	    maxVersion?: string;
+	    platforms?: string[];
+	    languages?: string[];
+	    frameworks?: string[];
+	    disableModelInvocation?: boolean;
+	    userInvocable?: boolean;
+	    argumentHint?: string;
+	    context?: string;
+	    agent?: string;
+	    model?: string;
+	    // Go type: skills
+	    filesystem?: any;
+	    // Go type: skills
+	    network?: any;
+	    // Go type: skills
+	    tools?: any;
+	    // Go type: skills
+	    input?: any;
+	    // Go type: skills
+	    output?: any;
+	    // Go type: skills
+	    behavior?: any;
+	    // Go type: skills
+	    triggers?: any;
+	    hooks?: any;
+	    // Go type: skills
+	    dependencies?: any;
+	    // Go type: skills
+	    mcp?: any;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkillCreateRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.displayName = source["displayName"];
+	        this.author = source["author"];
+	        this.authorEmail = source["authorEmail"];
+	        this.authorUrl = source["authorUrl"];
+	        this.license = source["license"];
+	        this.repository = source["repository"];
+	        this.homepage = source["homepage"];
+	        this.keywords = source["keywords"];
+	        this.category = source["category"];
+	        this.subcategory = source["subcategory"];
+	        this.type = source["type"];
+	        this.difficulty = source["difficulty"];
+	        this.audience = source["audience"];
+	        this.minVersion = source["minVersion"];
+	        this.maxVersion = source["maxVersion"];
+	        this.platforms = source["platforms"];
+	        this.languages = source["languages"];
+	        this.frameworks = source["frameworks"];
+	        this.disableModelInvocation = source["disableModelInvocation"];
+	        this.userInvocable = source["userInvocable"];
+	        this.argumentHint = source["argumentHint"];
+	        this.context = source["context"];
+	        this.agent = source["agent"];
+	        this.model = source["model"];
+	        this.filesystem = this.convertValues(source["filesystem"], null);
+	        this.network = this.convertValues(source["network"], null);
+	        this.tools = this.convertValues(source["tools"], null);
+	        this.input = this.convertValues(source["input"], null);
+	        this.output = this.convertValues(source["output"], null);
+	        this.behavior = this.convertValues(source["behavior"], null);
+	        this.triggers = this.convertValues(source["triggers"], null);
+	        this.hooks = source["hooks"];
+	        this.dependencies = this.convertValues(source["dependencies"], null);
+	        this.mcp = this.convertValues(source["mcp"], null);
+	        this.content = source["content"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ToolUsageBreakdown {
 	    toolName: string;
 	    callCount: number;
@@ -1883,119 +1996,6 @@ export namespace controllers {
 	        this.value = source["value"];
 	        this.label = source["label"];
 	    }
-	}
-	export class SkillCreateRequest {
-	    name: string;
-	    version: string;
-	    description: string;
-	    displayName?: string;
-	    author?: string;
-	    authorEmail?: string;
-	    authorUrl?: string;
-	    license?: string;
-	    repository?: string;
-	    homepage?: string;
-	    keywords?: string[];
-	    category?: string;
-	    subcategory?: string;
-	    type?: string;
-	    difficulty?: string;
-	    audience?: string[];
-	    minVersion?: string;
-	    maxVersion?: string;
-	    platforms?: string[];
-	    languages?: string[];
-	    frameworks?: string[];
-	    disableModelInvocation?: boolean;
-	    userInvocable?: boolean;
-	    argumentHint?: string;
-	    context?: string;
-	    agent?: string;
-	    model?: string;
-	    // Go type: skills
-	    filesystem?: any;
-	    // Go type: skills
-	    network?: any;
-	    // Go type: skills
-	    tools?: any;
-	    // Go type: skills
-	    input?: any;
-	    // Go type: skills
-	    output?: any;
-	    // Go type: skills
-	    behavior?: any;
-	    // Go type: skills
-	    triggers?: any;
-	    hooks?: any;
-	    // Go type: skills
-	    dependencies?: any;
-	    // Go type: skills
-	    mcp?: any;
-	    content: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new SkillCreateRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.description = source["description"];
-	        this.displayName = source["displayName"];
-	        this.author = source["author"];
-	        this.authorEmail = source["authorEmail"];
-	        this.authorUrl = source["authorUrl"];
-	        this.license = source["license"];
-	        this.repository = source["repository"];
-	        this.homepage = source["homepage"];
-	        this.keywords = source["keywords"];
-	        this.category = source["category"];
-	        this.subcategory = source["subcategory"];
-	        this.type = source["type"];
-	        this.difficulty = source["difficulty"];
-	        this.audience = source["audience"];
-	        this.minVersion = source["minVersion"];
-	        this.maxVersion = source["maxVersion"];
-	        this.platforms = source["platforms"];
-	        this.languages = source["languages"];
-	        this.frameworks = source["frameworks"];
-	        this.disableModelInvocation = source["disableModelInvocation"];
-	        this.userInvocable = source["userInvocable"];
-	        this.argumentHint = source["argumentHint"];
-	        this.context = source["context"];
-	        this.agent = source["agent"];
-	        this.model = source["model"];
-	        this.filesystem = this.convertValues(source["filesystem"], null);
-	        this.network = this.convertValues(source["network"], null);
-	        this.tools = this.convertValues(source["tools"], null);
-	        this.input = this.convertValues(source["input"], null);
-	        this.output = this.convertValues(source["output"], null);
-	        this.behavior = this.convertValues(source["behavior"], null);
-	        this.triggers = this.convertValues(source["triggers"], null);
-	        this.hooks = source["hooks"];
-	        this.dependencies = this.convertValues(source["dependencies"], null);
-	        this.mcp = this.convertValues(source["mcp"], null);
-	        this.content = source["content"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class TestLLMProviderRequest {
 	    type: string;

@@ -10,3 +10,6 @@ var ErrTokensNotWired = errors.New("wailsapi: tokens bind not wired")
 
 // ErrAllowlistsNotWired indica que o bind Allowlists ainda não recebeu controller/session.
 var ErrAllowlistsNotWired = errors.New("wailsapi: allowlists bind not wired")
+
+// ErrSkillsNotWired indica que o bind Skills ainda não recebeu controller/session.
+var ErrSkillsNotWired = errors.New("wailsapi: skills bind not wired")
