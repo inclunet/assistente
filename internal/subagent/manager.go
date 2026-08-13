@@ -31,10 +31,28 @@ const maxResultSummary = 16 * 1024
 // descontrolada (sub-agente acordando o pai que delega de novo, etc.).
 const DefaultMaxChainDepth = 10
 
-// DefaultMaxConcurrentPerUser é o teto global de sub-agentes simultâneos por
+// DefaultMaxConcurrentPerUser é o teto de sub-agentes simultâneos por
 // usuário (AEP-0068 F5). Protege contra custo/concorrência descontrolados
 // quando muitos runs em background são disparados ao mesmo tempo.
 const DefaultMaxConcurrentPerUser = 4
+
+// DefaultMaxConcurrentGlobal é o teto AGREGADO de sub-agentes simultâneos no
+// processo, somando todos os usuários (AEP-0068 F5, "teto global de
+// concorrência"). O teto por usuário sozinho não limita o custo total: com N
+// usuários ativos o processo chegaria a N × MaxConcurrentPerUser runs, cada um
+// segurando uma goroutine, um stream LLM e tokens. 16 = quatro usuários no teto
+// individual simultaneamente, folga suficiente para uso legítimo num app
+// desktop e ainda um limite que o processo aguenta.
+const DefaultMaxConcurrentGlobal = 16
+
+// Eventos emitidos ao frontend quando um run começa e termina (AEP-0068 F5 +
+// AEP-0058: a UI anuncia início/fim de trabalho em segundo plano). O payload é
+// o RunEvent; o frontend o tipa à mão (payload de evento não entra nos
+// bindings gerados pelo Wails).
+const (
+	EventRunStarted  = "subagent:run-started"
+	EventRunFinished = "subagent:run-finished"
+)
 
 // completion carrega o resultado entregue pelo callback in-process do notifier.
 type completion struct {
@@ -63,9 +81,13 @@ type outcome struct {
 // sob m.mu.
 type activeRun struct {
 	childConversationID string
-	cancelCh            chan struct{}
-	cancelOnce          sync.Once
-	terminalStatus      string
+	// title é o título da sub-conversa no momento do disparo. Imutável após a
+	// criação; serve para nomear o run nos eventos de conclusão sem uma leitura
+	// extra ao banco no caminho terminal.
+	title          string
+	cancelCh       chan struct{}
+	cancelOnce     sync.Once
+	terminalStatus string
 }
 
 func (a *activeRun) cancel() {
@@ -76,18 +98,21 @@ func (a *activeRun) cancel() {
 // para criar/continuar sub-conversas; reusa o pipeline oficial via SendFunc e
 // detecta conclusão por callback in-process (ResponseNotifier).
 type Manager struct {
-	repo          Repository
-	notifier      *messaging.ResponseNotifier
-	send          SendFunc
-	delivery      ParentDelivery
-	cancelStrm    func(conversationID string)
-	now           func() time.Time
-	maxChainDepth int
-	maxConcurrent int
+	repo                Repository
+	notifier            *messaging.ResponseNotifier
+	send                SendFunc
+	delivery            ParentDelivery
+	cancelStrm          func(conversationID string)
+	emit                func(event string, data any)
+	now                 func() time.Time
+	maxChainDepth       int
+	maxConcurrent       int
+	maxConcurrentGlobal int
 
 	mu           sync.Mutex
 	active       map[string]*activeRun // runID -> run ativo
-	activeByUser map[string]int        // userID -> nº de runs ativos (teto de concorrência)
+	activeByUser map[string]int        // userID -> nº de runs ativos (teto por usuário)
+	activeTotal  int                   // nº de runs ativos somando todos os usuários (teto global)
 	activeConvs  map[string]struct{}   // childConversationID com run ativo (fail-fast resume)
 
 	// parentLocks serializa a entrega por conversa-pai (evita corrida no
@@ -114,14 +139,20 @@ type ManagerConfig struct {
 	// CancelStream cancela o streaming LLM de uma conversa (barge-in). Usado
 	// para interromper um sub-agente em background. Pode ser nil em testes.
 	CancelStream func(conversationID string)
+	// EmitEvent publica eventos de run ao frontend (Wails EventsEmit). Pode ser
+	// nil (testes/contextos headless); então os eventos são apenas omitidos.
+	EmitEvent func(event string, data any)
 	// Now é injetável para testes; nil usa time.Now.
 	Now func() time.Time
 	// MaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway).
 	// <=0 usa DefaultMaxChainDepth.
 	MaxChainDepth int
-	// MaxConcurrentPerUser é o teto global de sub-agentes simultâneos por
-	// usuário. <=0 usa DefaultMaxConcurrentPerUser.
+	// MaxConcurrentPerUser é o teto de sub-agentes simultâneos por usuário.
+	// <=0 usa DefaultMaxConcurrentPerUser.
 	MaxConcurrentPerUser int
+	// MaxConcurrentGlobal é o teto agregado de sub-agentes simultâneos no
+	// processo (todos os usuários). <=0 usa DefaultMaxConcurrentGlobal.
+	MaxConcurrentGlobal int
 }
 
 // NewManager cria um Manager com as dependências injetadas.
@@ -138,18 +169,24 @@ func NewManager(cfg ManagerConfig) *Manager {
 	if maxConcurrent <= 0 {
 		maxConcurrent = DefaultMaxConcurrentPerUser
 	}
+	maxConcurrentGlobal := cfg.MaxConcurrentGlobal
+	if maxConcurrentGlobal <= 0 {
+		maxConcurrentGlobal = DefaultMaxConcurrentGlobal
+	}
 	return &Manager{
-		repo:          cfg.Repo,
-		notifier:      cfg.Notifier,
-		send:          cfg.Send,
-		delivery:      cfg.Delivery,
-		cancelStrm:    cfg.CancelStream,
-		now:           now,
-		maxChainDepth: maxChainDepth,
-		maxConcurrent: maxConcurrent,
-		active:        make(map[string]*activeRun),
-		activeByUser:  make(map[string]int),
-		activeConvs:   make(map[string]struct{}),
+		repo:                cfg.Repo,
+		notifier:            cfg.Notifier,
+		send:                cfg.Send,
+		delivery:            cfg.Delivery,
+		cancelStrm:          cfg.CancelStream,
+		emit:                cfg.EmitEvent,
+		now:                 now,
+		maxChainDepth:       maxChainDepth,
+		maxConcurrent:       maxConcurrent,
+		maxConcurrentGlobal: maxConcurrentGlobal,
+		active:              make(map[string]*activeRun),
+		activeByUser:        make(map[string]int),
+		activeConvs:         make(map[string]struct{}),
 	}
 }
 
@@ -202,7 +239,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// existente (resume — Fase 3). O clear (reset) NÃO ocorre aqui — só após a
 	// reserva de concorrência abaixo, para não apagar dados de um run que será
 	// rejeitado pelo fail-fast.
-	childConvID, isNew, err := m.resolveChildConversation(ctx, p)
+	childConvID, childTitle, isNew, err := m.resolveChildConversation(ctx, p)
 	if err != nil {
 		m.releaseSlot(userID)
 		return RunResult{}, err
@@ -316,7 +353,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			}
 		},
 	})
-	ar := &activeRun{childConversationID: childConvID, cancelCh: make(chan struct{})}
+	ar := &activeRun{childConversationID: childConvID, title: childTitle, cancelCh: make(chan struct{})}
 	m.registerActive(run.ID, ar)
 
 	// 4. Marca running e dispara o envio pelo pipeline oficial.
@@ -342,6 +379,10 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		}
 		return finished, nil
 	}
+	// Evento de início SÓ depois de persistir running: a UI lista pelo banco e
+	// anunciaria "Na fila" se o started saísse ainda com status queued. A partir
+	// daqui todo caminho terminal passa por finalize (par EventRunFinished).
+	m.emitRun(EventRunStarted, run, childTitle)
 
 	// Anexa o run.ID à cadeia de proveniência ANTES do envio: o run.ID só existe
 	// após o Create, então o backstop acima checa a cadeia que chega; ao enviar,
@@ -433,15 +474,24 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	return finished, nil
 }
 
-// acquireSlot reserva uma vaga de concorrência para o usuário; falha se o teto
-// já foi atingido. releaseSlot devolve a vaga (idempotente em zero).
+// acquireSlot reserva uma vaga de concorrência para o usuário; falha se algum
+// dos dois tetos já foi atingido. releaseSlot devolve a vaga (idempotente em
+// zero).
+//
+// O teto GLOBAL é verificado antes do individual porque é o mais restritivo em
+// termos de sistema: o limite por usuário não impede que N usuários somem N ×
+// MaxConcurrentPerUser runs no mesmo processo.
 func (m *Manager) acquireSlot(userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.activeTotal >= m.maxConcurrentGlobal {
+		return fmt.Errorf("limite global de %d sub-agentes simultâneos atingido no aplicativo; aguarde a conclusão de um run ou cancele um existente", m.maxConcurrentGlobal)
+	}
 	if m.activeByUser[userID] >= m.maxConcurrent {
 		return fmt.Errorf("limite de %d sub-agentes simultâneos atingido para este usuário; aguarde a conclusão de um run ou cancele um existente", m.maxConcurrent)
 	}
 	m.activeByUser[userID]++
+	m.activeTotal++
 	return nil
 }
 
@@ -451,11 +501,26 @@ func (m *Manager) releaseSlot(userID string) {
 	// Remove a entrada ao zerar para não vazar chaves no map em processos
 	// long-lived com muitos userIDs distintos. Idempotente: chave ausente lê 0,
 	// então release a mais não recria a chave nem vai negativo.
-	if n := m.activeByUser[userID]; n > 1 {
+	n := m.activeByUser[userID]
+	if n > 1 {
 		m.activeByUser[userID] = n - 1
 	} else {
 		delete(m.activeByUser, userID)
 	}
+	// O contador agregado só desce se havia mesmo uma vaga desse usuário: um
+	// release a mais (idempotência) não pode zerar o teto global dos outros.
+	if n > 0 && m.activeTotal > 0 {
+		m.activeTotal--
+	}
+}
+
+// concurrencySnapshot devolve, sob lock, quantos runs estão ativos para o
+// usuário e no processo inteiro. Alimenta a superfície de visibilidade da UI
+// (AEP-0068 F5) sem expor os mapas internos.
+func (m *Manager) concurrencySnapshot(userID string) (forUser, global int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeByUser[userID], m.activeTotal
 }
 
 // resolveChildConversation decide a sub-conversa alvo do run, SEM efeitos
@@ -469,7 +534,9 @@ func (m *Manager) releaseSlot(userID string) {
 // nextTurnIndex (leitura sob a reserva). Assim uma 2ª chamada concorrente com
 // Clear=true falha no fail-fast ANTES de limpar qualquer coisa, e uma falha de
 // Create nunca deixa histórico apagado sem run (evita efeito destrutivo órfão).
-func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID string, isNew bool, err error) {
+// Devolve também o título da sub-conversa, usado nos eventos de run para a UI
+// poder nomear o sub-agente sem uma leitura extra.
+func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID, childTitle string, isNew bool, err error) {
 	// Normaliza UMA vez e usa o valor em todo o fluxo (decisão do modo, lookup e
 	// mensagens de erro): evita o estado inconsistente em que um id com espaços
 	// passa no teste de "não-vazio" mas falha como "não encontrada" no lookup.
@@ -480,7 +547,7 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (ch
 		// que resetar. Falhar explícito evita criar uma sub-conversa nova ignorando
 		// o reset (mascararia erro de wiring em chamadores diretos do Manager).
 		if p.Clear {
-			return "", false, fmt.Errorf("clear exige conversation_id: não há sub-conversa existente para resetar")
+			return "", "", false, fmt.Errorf("clear exige conversation_id: não há sub-conversa existente para resetar")
 		}
 		title := strings.TrimSpace(p.Title)
 		if title == "" {
@@ -488,21 +555,21 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (ch
 		}
 		conv, cerr := database.CreateSubAgentConversationWithContext(ctx, title, p.ParentConversationID)
 		if cerr != nil {
-			return "", false, fmt.Errorf("erro ao criar sub-conversa: %w", cerr)
+			return "", "", false, fmt.Errorf("erro ao criar sub-conversa: %w", cerr)
 		}
-		return conv.ID, true, nil
+		return conv.ID, title, true, nil
 	}
 
 	// Resume: a sub-conversa precisa existir, pertencer ao usuário (escopo
 	// AEP-0052, garantido por GetConversationInfoWithContext) e ser de sub-agente.
 	conv, gerr := database.GetConversationInfoWithContext(ctx, convID)
 	if gerr != nil {
-		return "", false, fmt.Errorf("sub-conversa não encontrada ou sem acesso: %w", gerr)
+		return "", "", false, fmt.Errorf("sub-conversa não encontrada ou sem acesso: %w", gerr)
 	}
 	if conv.Kind != database.ConversationKindSubagent {
-		return "", false, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", convID)
+		return "", "", false, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", convID)
 	}
-	return conv.ID, false, nil
+	return conv.ID, conv.Title, false, nil
 }
 
 // nextTurnIndex calcula o TurnIndex incremental da sub-conversa (último run + 1),
@@ -680,6 +747,31 @@ func (m *Manager) Status(ctx context.Context, conversationID, runID string) (Sta
 	}, nil
 }
 
+// ListRuns devolve os runs de sub-agente do usuário (ativos primeiro, depois os
+// mais recentes) junto da ocupação dos tetos de concorrência. É a superfície de
+// visibilidade da UI prevista na AEP-0068 F5; o LLM não a enxerga.
+func (m *Manager) ListRuns(ctx context.Context, limit int) (RunListResult, error) {
+	if m == nil || m.repo == nil {
+		return RunListResult{}, fmt.Errorf("subagent manager não configurado")
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return RunListResult{}, err
+	}
+	runs, err := m.repo.ListRecent(ctx, limit)
+	if err != nil {
+		return RunListResult{}, fmt.Errorf("erro ao listar runs de sub-agente: %w", err)
+	}
+	forUser, global := m.concurrencySnapshot(userID)
+	return RunListResult{
+		Runs:                 runs,
+		ActiveForUser:        forUser,
+		ActiveGlobal:         global,
+		MaxConcurrentPerUser: m.maxConcurrent,
+		MaxConcurrentGlobal:  m.maxConcurrentGlobal,
+	}, nil
+}
+
 // Cancel cancela um run em andamento. Se havia run ativo, retorna
 // Cancelled=true com Status=cancelled; se o run já era terminal/inexistente, é
 // no-op (Cancelled=false) retornando o status real (AEP-0068).
@@ -794,8 +886,29 @@ func (m *Manager) resolveRun(ctx context.Context, conversationID, runID string) 
 func (m *Manager) finalize(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
 	m.markCompleting(run.ID, o.status)
 	finished := m.finish(ctx, run, result, o)
+	// Lê o título ANTES de sair de `active` (o registro é removido logo abaixo).
+	title := m.activeTitle(run.ID)
 	m.unregisterActive(run.ID)
+	m.emitRun(EventRunFinished, run, title)
 	return finished
+}
+
+// emitRun publica um evento de run ao frontend. No-op sem emitter configurado
+// (testes/contextos headless). O payload é sempre o mesmo struct, com o status
+// corrente do run — o consumidor distingue início de fim pelo nome do evento.
+func (m *Manager) emitRun(event string, run *database.SubAgentRun, title string) {
+	if m == nil || m.emit == nil || run == nil {
+		return
+	}
+	m.emit(event, RunEvent{
+		RunID:                run.ID,
+		ConversationID:       run.ChildConversationID,
+		ParentConversationID: run.ParentConversationID,
+		Title:                title,
+		Status:               run.Status,
+		Background:           run.Background,
+		Error:                run.Error,
+	})
 }
 
 // finish atualiza o run com o desfecho e preenche o RunResult.
@@ -926,6 +1039,18 @@ func (m *Manager) unregisterActive(runID string) {
 	}
 	delete(m.active, runID)
 	m.mu.Unlock()
+}
+
+// activeTitle devolve o título registrado para um run ainda ativo (vazio se ele
+// já saiu de `active`). O campo é imutável após o registro, então a leitura sob
+// o lock que protege `active` basta.
+func (m *Manager) activeTitle(runID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ar := m.active[runID]; ar != nil {
+		return ar.title
+	}
+	return ""
 }
 
 func (m *Manager) lookupActive(runID string) *activeRun {

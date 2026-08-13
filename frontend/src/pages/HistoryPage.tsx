@@ -11,6 +11,7 @@ import {
   FileTextOutlined,
   FolderOpenOutlined,
   PlusOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { GetConversationsByIDs, GetConversationsPage, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { portability } from '@wailsjs/go/models';
@@ -27,6 +28,9 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useConfirm } from '../hooks/useConfirm';
+import { SubAgentRunsModal } from '../components/history/SubAgentRunsModal';
+import { useSubAgentRunsStore } from '../store/subAgentRunsStore';
+import { isActiveSubAgentRunStatus } from '../types/subagentRuns';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
@@ -46,9 +50,6 @@ interface Conversation {
   subAgentStatus?: string;
 }
 
-// Status de run de sub-agente considerados "ativos" — só nesses casos exibimos o
-// indicador de status ao lado do título (AEP-0068 Fase 5).
-const ACTIVE_SUBAGENT_STATUSES = new Set(['queued', 'running']);
 const HISTORY_PAGE_SIZE = 100;
 const HISTORY_AUTO_FILL_ERROR_RETRY_LIMIT = 3;
 
@@ -90,6 +91,7 @@ export default function HistoryPage() {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const [showSubAgents, setShowSubAgents] = useState(true);
+  const [runsModalOpen, setRunsModalOpen] = useState(false);
   const [exportRequest, setExportRequest] = useState<ActiveRichExport | null>(null);
   const [exportOptions, setExportOptions] = useState<ContentExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const conversationsRef = useRef<Conversation[]>([]);
@@ -104,6 +106,8 @@ export default function HistoryPage() {
   const searchRequestRef = useRef(0);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
+  const activeSubAgentRuns = useSubAgentRunsStore(state => state.activeForUser);
+  const fetchSubAgentRuns = useSubAgentRunsStore(state => state.fetchRuns);
   const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
   const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const workspaces = useWorkspaceStore(state => state.workspaces);
@@ -189,6 +193,13 @@ export default function HistoryPage() {
   useEffect(() => {
     void loadConversations({ reset: true });
   }, [loadConversations]);
+
+  // Carrega os runs uma vez para a toolbar poder anunciar quantos sub-agentes
+  // estão em execução antes mesmo de o painel ser aberto; dali em diante os
+  // eventos de run mantêm o número atualizado.
+  useEffect(() => {
+    void fetchSubAgentRuns();
+  }, [fetchSubAgentRuns]);
 
   useEffect(() => () => {
     if (autoFillRetryTimerRef.current) {
@@ -632,7 +643,7 @@ export default function HistoryPage() {
                 {t('history.subAgent', 'Sub-agente')}
               </span>
             )}
-            {item.isSubAgent && item.subAgentStatus && ACTIVE_SUBAGENT_STATUSES.has(item.subAgentStatus) && (
+            {item.isSubAgent && isActiveSubAgentRunStatus(item.subAgentStatus) && (
               <span className={`history-page__status history-page__status--${item.subAgentStatus}`}>
                 <span className="history-page__status-dot" aria-hidden="true" />
                 {t(`history.subAgentStatus.${item.subAgentStatus}`)}
@@ -745,6 +756,18 @@ export default function HistoryPage() {
             icon: <FolderOpenOutlined />,
             onClick: () => focusedRow && handleOpenConversation(focusedRow.id, focusedRow.title),
             disabled: !focusedRow,
+          },
+          {
+            key: 'subagent-runs',
+            label: activeSubAgentRuns > 0
+              ? t('subAgentRuns.openWithCount', {
+                  count: activeSubAgentRuns,
+                  defaultValue: 'Runs de sub-agentes ({{count}} em execução)',
+                })
+              : t('subAgentRuns.open', 'Runs de sub-agentes'),
+            icon: <ThunderboltOutlined />,
+            onClick: () => setRunsModalOpen(true),
+            variant: 'secondary',
           },
           {
             key: 'toggle-subagents',
@@ -876,6 +899,8 @@ export default function HistoryPage() {
           </Button>
         </div>
       </Modal>
+
+      <SubAgentRunsModal isOpen={runsModalOpen} onClose={() => setRunsModalOpen(false)} />
 
     </div>
   );
