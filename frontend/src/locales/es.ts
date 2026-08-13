@@ -3898,6 +3898,7 @@ const es = {
           submit: 'Autorizar',
           cancel: 'Denegar',
           detailsPrompt: 'Detalles del destino',
+          skillHostMatch: 'Este destino coincide con {{pattern}}, declarado por el skill como host esperado. Eso no sustituye su autorización.',
           scopePrompt: '¿Por cuánto tiempo autorizar este host?',
           reasonPrompt: 'Observación (opcional)',
           reasonPlaceholder: 'Ej.: API interna de workflows',

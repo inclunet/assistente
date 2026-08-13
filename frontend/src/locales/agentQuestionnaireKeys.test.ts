@@ -91,6 +91,24 @@ const elevationKeys = ['title', 'description', 'prompt', 'submit', 'cancel'].map
   (sufixo) => `app.questionnaire.updateElevation.${sufixo}`
 );
 
+/** Consentimento de acesso a host bloqueado pelo anti-SSRF (AEP-0082). */
+const networkKeys = [
+  'title',
+  'description',
+  'submit',
+  'cancel',
+  'detailsPrompt',
+  'skillHostMatch',
+  'scopePrompt',
+  'reasonPrompt',
+  'reasonPlaceholder',
+  'scope.once',
+  'scope.session',
+  'scope.workspace',
+  'scope.profile',
+  'scope.global',
+].map((sufixo) => `app.questionnaire.network.${sufixo}`);
+
 const welcomeKeys = [
   'submitContinue',
   'submitNext',
@@ -161,6 +179,8 @@ const requiredPlaceholders: Record<string, string[]> = {
   'app.questionnaire.welcome.authInvalid': ['{{detail}}'],
   'app.questionnaire.welcome.serverError': ['{{detail}}'],
   'app.questionnaire.welcome.modelDescription': ['{{models}}'],
+  'app.questionnaire.network.description': ['{{category}}'],
+  'app.questionnaire.network.skillHostMatch': ['{{pattern}}'],
 };
 
 /**
@@ -186,6 +206,7 @@ describe('chaves dos diálogos que o backend monta', () => {
     ...editConfirmationKeys,
     ...updateKeys,
     ...elevationKeys,
+    ...networkKeys,
     ...welcomeKeys,
   ];
 

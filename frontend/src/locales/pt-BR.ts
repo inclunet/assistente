@@ -3899,6 +3899,7 @@ const ptBR = {
           submit: 'Autorizar',
           cancel: 'Negar',
           detailsPrompt: 'Detalhes do destino',
+          skillHostMatch: 'Este destino casa com {{pattern}}, declarado pelo skill como host esperado. Isso não dispensa a sua autorização.',
           scopePrompt: 'Por quanto tempo autorizar este host?',
           reasonPrompt: 'Observação (opcional)',
           reasonPlaceholder: 'Ex.: API interna de workflows',

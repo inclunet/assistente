@@ -3898,6 +3898,7 @@ const en = {
           submit: 'Authorize',
           cancel: 'Deny',
           detailsPrompt: 'Destination details',
+          skillHostMatch: 'This destination matches {{pattern}}, declared by the skill as an expected host. That does not waive your authorization.',
           scopePrompt: 'For how long should this host be authorized?',
           reasonPrompt: 'Note (optional)',
           reasonPlaceholder: 'E.g.: internal workflow API',
