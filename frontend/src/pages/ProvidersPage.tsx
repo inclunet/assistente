@@ -11,7 +11,9 @@ import {
 import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
+  CanRemoveACPAgent,
   DeleteLLMProvider,
+  RemoveACPAgent,
   SetDefaultProvider,
 } from '@wailsjs/go/app/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -19,8 +21,6 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
-import { ACPAgentCatalog, type CatalogAgent } from '../components/settings/ACPAgentCatalog';
-import { CatalogAgentInstallModal } from '../components/settings/CatalogAgentInstallModal';
 import { AGENT_API_FORMAT } from '../config/providers';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -81,50 +81,6 @@ export default function ProvidersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
-  // O catálogo do registro do ACP mora aqui porque é daqui que sai um provedor
-  // de agente: a lista mostra o que existe, instala pelo mesmo bloco do
-  // formulário e abre o provedor já apontando para o agente escolhido.
-  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
-  const [catalogRefreshNonce, setCatalogRefreshNonce] = useState(0);
-  const [installingAgent, setInstallingAgent] = useState<CatalogAgent | null>(null);
-
-  const handleUseAgentFromCatalog = useCallback((agent: CatalogAgent) => {
-    setIsCatalogOpen(false);
-    setInstallingAgent(null);
-    // Rascunho sem `id`: o formulário cria o provedor. Tipo e agente já vêm
-    // preenchidos para o AgentInstall / detecção aparecerem na hora.
-    setEditingProvider({
-      name: agent.name,
-      type: 'acp',
-      base_url: '',
-      api_key: '',
-      api_format: AGENT_API_FORMAT,
-      acp_command: '',
-      acp_args: [],
-      acp_agent_id: agent.id,
-      acp_env: {},
-      acp_credential_env: {},
-    });
-    setIsEditing(true);
-    announce(t('acpCatalog.announce.useOpened', { name: agent.name }));
-  }, [announce, t]);
-
-  const handleInstallAgentFromCatalog = useCallback((agent: CatalogAgent) => {
-    // Um modal de cada vez: o de instalação reusa o focus trap do app, e
-    // empilhar os dois deixaria o catálogo inerte por baixo.
-    setIsCatalogOpen(false);
-    setInstallingAgent(agent);
-  }, []);
-
-  const handleCatalogInstalled = useCallback(() => {
-    setCatalogRefreshNonce((n) => n + 1);
-    addToast(t('acpCatalog.toast.installed'), 'success');
-  }, [addToast, t]);
-
-  const handleInstallModalClose = useCallback(() => {
-    setInstallingAgent(null);
-    setIsCatalogOpen(true);
-  }, []);
 
   const loadProviders = async () => {
     setLoading(true);
@@ -277,6 +233,9 @@ export default function ProvidersPage() {
       variant: 'danger',
     });
     if (!confirmed) return;
+    const removedAgentID = provider.api_format === AGENT_API_FORMAT
+      ? (provider.acp_agent_id || '').trim()
+      : '';
     try {
       type WailsContext = Parameters<typeof DeleteLLMProvider>[0];
       const emptyContext = null as unknown as WailsContext;
@@ -286,6 +245,31 @@ export default function ProvidersPage() {
       await loadProviders();
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('providers.error.deleteFailed'), 'error');
+      return;
+    }
+
+    if (!removedAgentID) return;
+    try {
+      const canRemove = await CanRemoveACPAgent(removedAgentID);
+      if (!canRemove) return;
+      const removeAgent = await confirm({
+        title: t('providers.confirm.removeUnusedAgentTitle'),
+        message: t('providers.confirm.removeUnusedAgentMessage', { agent: removedAgentID }),
+        confirmText: t('providers.confirm.removeUnusedAgentConfirm'),
+        cancelText: t('providers.confirm.keepAgent'),
+        variant: 'danger',
+      });
+      if (!removeAgent) return;
+      await RemoveACPAgent(removedAgentID);
+      addToast(t('providers.toast.agentRemoved'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+      announce(t('providers.toast.agentRemoved'));
+    } catch (error: unknown) {
+      addToast(
+        getErrorMessage(error) || t('providers.error.removeUnusedAgentFailed'),
+        'error',
+      );
     }
   };
 
@@ -417,11 +401,6 @@ export default function ProvidersPage() {
                 variant: 'primary',
               },
               {
-                key: 'acpCatalog',
-                label: t('acpCatalog.open'),
-                onClick: () => setIsCatalogOpen(true),
-              },
-              {
                 key: 'edit',
                 label: t('providers.actions.edit', 'Editar'),
                 onClick: () => focusedRow && handleEditProvider(focusedRow),
@@ -473,31 +452,6 @@ export default function ProvidersPage() {
             </div>
           </Modal>
 
-          {/*
-            O catálogo fica em `role="application"` (o padrão do `Modal`) e não em
-            modo de leitura: a lista responde a setas, e em modo de leitura o
-            leitor de telas ficaria com elas antes do componente.
-          */}
-          <Modal
-            isOpen={isCatalogOpen}
-            onClose={() => setIsCatalogOpen(false)}
-            title={t('acpCatalog.title')}
-            size="lg"
-          >
-            <ACPAgentCatalog
-              onUseAgent={handleUseAgentFromCatalog}
-              onInstallAgent={handleInstallAgentFromCatalog}
-              refreshNonce={catalogRefreshNonce}
-            />
-          </Modal>
-
-          <CatalogAgentInstallModal
-            isOpen={!!installingAgent}
-            agentId={installingAgent?.id || ''}
-            agentName={installingAgent?.name || ''}
-            onClose={handleInstallModalClose}
-            onInstalled={handleCatalogInstalled}
-          />
         </>
       )}
     </div>

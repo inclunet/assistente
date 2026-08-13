@@ -135,7 +135,12 @@ func (a *App) DeleteLLMProvider(_ context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return a.llmCtrl.DeleteLLMProvider(ctx, id)
+	if err := a.llmCtrl.DeleteLLMProvider(ctx, id); err != nil {
+		return err
+	}
+	// O registry é a visão em memória; apagar só nele faria o provedor voltar
+	// no próximo login e impediria reconhecer uma instalação ACP órfã.
+	return database.DeleteLLMProviderWithContext(ctx, id)
 }
 
 // saveLLMProviders, loadLLMProviders e ensureDefaultProvider são helpers

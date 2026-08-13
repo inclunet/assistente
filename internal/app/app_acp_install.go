@@ -12,6 +12,7 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
 	"assistente/internal/acpregistry"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/logging"
 	"assistente/internal/providers"
@@ -569,16 +570,41 @@ func (a *App) CancelACPAgentInstall(agentID string) error {
 	return nil
 }
 
-// RemoveACPAgent apaga o diretório do agente instalado (D5).
+// CanRemoveACPAgent diz se o agente foi instalado pelo app e ficou sem nenhum
+// provedor que o use. A instalação é da máquina, portanto a referência também é
+// verificada entre todos os usuários antes de a tela oferecer desinstalação.
+func (a *App) CanRemoveACPAgent(agentID string) (bool, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return false, err
+	}
+	inUse, err := database.HasAnyLLMProviderForACPAgent(ctx, agentID)
+	if err != nil || inUse {
+		return false, err
+	}
+	for _, installation := range a.acpCatalogServices().installer.List() {
+		if installation.AgentID == agentID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// RemoveACPAgent apaga o diretório de um agente sem provedores (D5).
 //
-// O que a remoção não faz é apagar o provider: ele é configuração de quem o
-// criou, e sumir com ele por causa de um clique em "remover agente" destruiria
-// escolha alheia. O provider fica com um comando que não existe, e o health do
-// AEP-0084 D12 já sabe dizer isso — não há estado novo a inventar.
+// A guarda é repetida aqui, mesmo que a tela tenha chamado CanRemoveACPAgent:
+// outro provedor pode ter sido criado entre a pergunta e a confirmação.
 func (a *App) RemoveACPAgent(agentID string) error {
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		return err
+	}
+	inUse, err := database.HasAnyLLMProviderForACPAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return errors.New("o agente ainda é usado por outro provedor")
 	}
 	return a.acpCatalogServices().installer.Remove(ctx, agentID)
 }

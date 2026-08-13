@@ -50,6 +50,8 @@ export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:strin
 
 export function CanPersistCredentials():Promise<boolean>;
 
+export function CanRemoveACPAgent(arg1:string):Promise<boolean>;
+
 export function CancelACPAgentInstall(arg1:string):Promise<void>;
 
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
