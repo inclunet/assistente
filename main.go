@@ -32,6 +32,8 @@ func main() {
 	application.SetUpdaterAPI(a, updaterAPI)
 	profilesAPI := wailsapi.NewProfiles()
 	application.SetProfilesAPI(a, profilesAPI)
+	hotkeysAPI := wailsapi.NewHotkeys()
+	application.SetHotkeysAPI(a, hotkeysAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -74,6 +76,7 @@ func main() {
 			toolsAPI,
 			updaterAPI,
 			profilesAPI,
+			hotkeysAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

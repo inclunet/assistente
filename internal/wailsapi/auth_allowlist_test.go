@@ -110,3 +110,14 @@ func TestProfilesMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestHotkeysMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"IsGlobalHotkeySupported",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Hotkeys/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
