@@ -10,3 +10,7 @@ type wailsSession struct {
 func (s wailsSession) AuthenticatedContext() (context.Context, error) {
 	return s.app.requireAuthenticatedContext()
 }
+
+func (s wailsSession) AdminContext() (context.Context, error) {
+	return s.app.requireAdminContext()
+}

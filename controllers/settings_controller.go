@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"assistente/internal/config"
@@ -109,6 +110,16 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 		return "", err
 	}
 	return cp.SendChat(ctx, messages, params)
+}
+
+// GetNativeTTSProviders retorna os IDs de provedores TTS nativos
+// disponíveis na plataforma atual (ex.: webspeech sempre, sapi5 apenas no Windows).
+func (c *SettingsController) GetNativeTTSProviders() []string {
+	providers := []string{"webspeech"}
+	if runtime.GOOS == "windows" {
+		providers = append(providers, "sapi5")
+	}
+	return providers
 }
 
 func (c *SettingsController) TestConnection() (bool, error) {

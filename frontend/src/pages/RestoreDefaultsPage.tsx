@@ -4,12 +4,14 @@ import { useTranslation } from 'react-i18next';
 import {
   ResetDatabase,
   ClearMessages,
+  CleanupLegacyChannelJSON,
+} from '@wailsjs/go/app/App';
+import {
   ClearAllCredentials,
   ClearAllProfiles,
   ClearAllSkills,
   ClearAllChannels,
-  CleanupLegacyChannelJSON,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Settings';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { Button } from '../components';

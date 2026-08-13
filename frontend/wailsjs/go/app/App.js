@@ -70,22 +70,6 @@ export function CleanupLegacyChannelJSON(arg1) {
   return window['go']['app']['App']['CleanupLegacyChannelJSON'](arg1);
 }
 
-export function ClearAllChannels() {
-  return window['go']['app']['App']['ClearAllChannels']();
-}
-
-export function ClearAllCredentials() {
-  return window['go']['app']['App']['ClearAllCredentials']();
-}
-
-export function ClearAllProfiles() {
-  return window['go']['app']['App']['ClearAllProfiles']();
-}
-
-export function ClearAllSkills() {
-  return window['go']['app']['App']['ClearAllSkills']();
-}
-
 export function ClearConversation(arg1) {
   return window['go']['app']['App']['ClearConversation'](arg1);
 }
@@ -538,10 +522,6 @@ export function GetModelsByProvider(arg1) {
   return window['go']['app']['App']['GetModelsByProvider'](arg1);
 }
 
-export function GetNativeTTSProviders() {
-  return window['go']['app']['App']['GetNativeTTSProviders']();
-}
-
 export function GetOpenAITTSVoices() {
   return window['go']['app']['App']['GetOpenAITTSVoices']();
 }
@@ -806,10 +786,6 @@ export function ReplayRun(arg1, arg2) {
   return window['go']['app']['App']['ReplayRun'](arg1, arg2);
 }
 
-export function ResetConfig() {
-  return window['go']['app']['App']['ResetConfig']();
-}
-
 export function ResetDatabase() {
   return window['go']['app']['App']['ResetDatabase']();
 }
@@ -1024,14 +1000,6 @@ export function SynthesizeOpenAIWithVoice(arg1, arg2) {
 
 export function TestACPAgent(arg1, arg2) {
   return window['go']['app']['App']['TestACPAgent'](arg1, arg2);
-}
-
-export function TestConnection() {
-  return window['go']['app']['App']['TestConnection']();
-}
-
-export function TestConnectionWithModels() {
-  return window['go']['app']['App']['TestConnectionWithModels']();
 }
 
 export function TestLLMProvider(arg1) {

@@ -85,6 +85,9 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
   GetSpeechProviders: vi.fn().mockResolvedValue([]),
   GetSTTModels: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Settings', () => ({
   GetNativeTTSProviders: vi.fn().mockResolvedValue(['webspeech', 'sapi5']),
 }));
 

@@ -54,14 +54,6 @@ export function CancelSubAgentRun(arg1:string,arg2:string):Promise<subagent.Canc
 
 export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
 
-export function ClearAllChannels():Promise<void>;
-
-export function ClearAllCredentials():Promise<void>;
-
-export function ClearAllProfiles():Promise<void>;
-
-export function ClearAllSkills():Promise<void>;
-
 export function ClearConversation(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;
@@ -288,8 +280,6 @@ export function GetModels():Promise<Array<string>>;
 
 export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
-export function GetNativeTTSProviders():Promise<Array<string>>;
-
 export function GetOpenAITTSVoices():Promise<Array<speech.TTSVoiceInfo>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
@@ -422,8 +412,6 @@ export function ReorderWorkspaceTabs(arg1:Array<string>):Promise<void>;
 
 export function ReplayRun(arg1:string,arg2:string):Promise<jobs.TestToolResult>;
 
-export function ResetConfig():Promise<void>;
-
 export function ResetDatabase():Promise<void>;
 
 export function RestartChannel(arg1:string):Promise<void>;
@@ -531,10 +519,6 @@ export function SynthesizeOpenAIStream(arg1:string,arg2:string,arg3:string):Prom
 export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<app.SynthesisResultInfo>;
 
 export function TestACPAgent(arg1:string,arg2:Array<string>):Promise<app.ACPAgentHealth>;
-
-export function TestConnection():Promise<boolean>;
-
-export function TestConnectionWithModels():Promise<Array<string>>;
 
 export function TestLLMProvider(arg1:controllers.TestLLMProviderRequest):Promise<boolean>;
 

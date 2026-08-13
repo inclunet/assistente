@@ -31,3 +31,6 @@ var ErrNetTrustNotWired = errors.New("wailsapi: nettrust bind not wired")
 
 // ErrCredentialsNotWired indica que o bind Credentials ainda não recebeu controller/session.
 var ErrCredentialsNotWired = errors.New("wailsapi: credentials bind not wired")
+
+// ErrSettingsNotWired indica que o bind Settings ainda não recebeu controller/session.
+var ErrSettingsNotWired = errors.New("wailsapi: settings bind not wired")

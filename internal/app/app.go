@@ -244,6 +244,10 @@ type App struct {
 	// credentialsAPI é o bind Wails do domínio credentials (AEP-0088). Criado em
 	// main e wired após NewCredentialsController.
 	credentialsAPI *wailsapi.Credentials
+
+	// settingsAPI é o bind Wails do domínio settings (AEP-0088). Criado em main e
+	// wired após NewSettingsController.
+	settingsAPI *wailsapi.Settings
 }
 
 // ==================== Tipos para Threads ====================
@@ -350,6 +354,15 @@ func SetCredentialsAPI(a *App, api *wailsapi.Credentials) {
 		return
 	}
 	a.credentialsAPI = api
+}
+
+// SetSettingsAPI registra o bind Wails de settings antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSettingsAPI(a *App, api *wailsapi.Settings) {
+	if a == nil {
+		return
+	}
+	a.settingsAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -611,19 +624,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Emitter:          a.emitter,
 		OnProviderChange: a.initLLMClient,
 	})
-	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
-		CredMgr:     a.credMgr,
-		ProfileMgr:  a.profileManager,
-		SkillMgr:    a.skillMgr,
-		Emitter:     a.emitter,
-		ProviderSvc: a.providerSvc,
-		RestartChannel: func(channelName string) error {
-			return a.RestartChannel(channelName)
-		},
-		GetModels: func() ([]string, error) {
-			return a.GetModels()
-		},
-	})
+	a.wireSettings()
 
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
 		Emitter:          a.emitter,

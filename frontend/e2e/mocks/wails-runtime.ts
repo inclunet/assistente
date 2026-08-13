@@ -391,6 +391,7 @@ export function buildWailsMockScript(): string {
       Hotkeys: makeProxy('wailsapi.Hotkeys'),
       NetTrust: makeProxy('wailsapi.NetTrust'),
       Credentials: makeProxy('wailsapi.Credentials'),
+      Settings: makeProxy('wailsapi.Settings'),
     },
   };
 
