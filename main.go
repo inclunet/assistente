@@ -32,6 +32,8 @@ func main() {
 	application.SetUpdaterAPI(a, updaterAPI)
 	profilesAPI := wailsapi.NewProfiles()
 	application.SetProfilesAPI(a, profilesAPI)
+	netTrustAPI := wailsapi.NewNetTrust()
+	application.SetNetTrustAPI(a, netTrustAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -74,6 +76,7 @@ func main() {
 			toolsAPI,
 			updaterAPI,
 			profilesAPI,
+			netTrustAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

@@ -110,3 +110,15 @@ func TestProfilesMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestNetTrustMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetNetworkAllowlist",
+		"RemoveNetworkAllowlistEntry",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via NetTrust/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

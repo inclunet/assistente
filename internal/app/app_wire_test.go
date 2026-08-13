@@ -118,3 +118,22 @@ func TestWireProfilesAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireNetTrustAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		profileManager: profiles.NewManager(),
+	}
+	api := wailsapi.NewNetTrust()
+	SetNetTrustAPI(a, api)
+
+	a.wireNetTrust()
+
+	if a.netTrustCtrl == nil {
+		t.Fatal("netTrustCtrl deve ser criado")
+	}
+	_, err := api.GetNetworkAllowlist()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}

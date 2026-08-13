@@ -83,3 +83,14 @@ func (a *App) wireProfiles() {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
 	}
 }
+
+// wireNetTrust monta o NetTrustController e associa o bind Wails (AEP-0088).
+func (a *App) wireNetTrust() {
+	a.netTrustCtrl = controllers.NewNetTrustController(controllers.NetTrustControllerConfig{
+		NetTrustMgr: a.netTrustMgr,
+		ProfileMgr:  a.profileManager,
+	})
+	if a.netTrustAPI != nil {
+		wailsapi.AttachNetTrust(a.netTrustAPI, wailsSession{app: a}, a.netTrustCtrl)
+	}
+}

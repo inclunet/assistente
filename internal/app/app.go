@@ -207,6 +207,7 @@ type App struct {
 	allowlistCtrl   *controllers.AllowlistController
 	signalCtrl      *controllers.SignalController
 	hotkeyCtrl      *controllers.HotkeysController
+	netTrustCtrl    *controllers.NetTrustController
 
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
 	// wired após NewTokensController.
@@ -231,6 +232,10 @@ type App struct {
 	// profilesAPI é o bind Wails do domínio profiles (AEP-0088). Criado em main e
 	// wired após NewProfilesController.
 	profilesAPI *wailsapi.Profiles
+
+	// netTrustAPI é o bind Wails do domínio nettrust (AEP-0088). Criado em main e
+	// wired após NewNetTrustController.
+	netTrustAPI *wailsapi.NetTrust
 }
 
 // ==================== Tipos para Threads ====================
@@ -310,6 +315,15 @@ func SetProfilesAPI(a *App, api *wailsapi.Profiles) {
 		return
 	}
 	a.profilesAPI = api
+}
+
+// SetNetTrustAPI registra o bind Wails de nettrust antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetNetTrustAPI(a *App, api *wailsapi.NetTrust) {
+	if a == nil {
+		return
+	}
+	a.netTrustAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -653,6 +667,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireAllowlist()
 	a.wireTools()
 	a.wireUpdater()
+	a.wireNetTrust()
 	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
 		CredMgr: a.credMgr,
 	})
