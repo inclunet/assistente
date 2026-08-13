@@ -542,10 +542,6 @@ export function GetNativeTTSProviders() {
   return window['go']['app']['App']['GetNativeTTSProviders']();
 }
 
-export function GetNetworkAllowlist() {
-  return window['go']['app']['App']['GetNetworkAllowlist']();
-}
-
 export function GetOpenAITTSVoices() {
   return window['go']['app']['App']['GetOpenAITTSVoices']();
 }
@@ -674,10 +670,6 @@ export function InterruptTerminalCommand(arg1) {
   return window['go']['app']['App']['InterruptTerminalCommand'](arg1);
 }
 
-export function IsGlobalHotkeySupported() {
-  return window['go']['app']['App']['IsGlobalHotkeySupported']();
-}
-
 export function ListBoardCustomActions(arg1) {
   return window['go']['app']['App']['ListBoardCustomActions'](arg1);
 }
@@ -784,10 +776,6 @@ export function RemoveACPAgent(arg1) {
 
 export function RemoveAuthorizedContact(arg1, arg2) {
   return window['go']['app']['App']['RemoveAuthorizedContact'](arg1, arg2);
-}
-
-export function RemoveNetworkAllowlistEntry(arg1, arg2, arg3) {
-  return window['go']['app']['App']['RemoveNetworkAllowlistEntry'](arg1, arg2, arg3);
 }
 
 export function RemoveWorkspaceTab(arg1) {

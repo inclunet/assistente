@@ -8,7 +8,7 @@ const mockAnnounce = vi.fn();
 const mockAnnounceRequest = vi.fn();
 const tStable = (key: string, fb?: string) => (typeof fb === 'string' ? fb : key);
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/NetTrust', () => ({
   GetNetworkAllowlist: (...args: unknown[]) => mockGetNetworkAllowlist(...args),
   RemoveNetworkAllowlistEntry: vi.fn(),
 }));
