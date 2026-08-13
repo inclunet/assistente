@@ -7,7 +7,7 @@ import { useUIStore } from '../store/uiStore';
 import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import { RunTerminalCommand } from '@wailsjs/go/app/App';
-import { GetProfile } from '@wailsjs/go/app/App';
+import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import { isBackendId } from './idUtils';
 import i18n from './i18n';

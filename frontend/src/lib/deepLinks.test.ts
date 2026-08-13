@@ -90,6 +90,9 @@ const mockGetProfile = vi.fn().mockResolvedValue({ slug: 'programacao' });
 vi.mock('@wailsjs/go/app/App', () => ({
   EditorReadFile: (...args: unknown[]) => mockEditorReadFile(...args),
   RunTerminalCommand: (...args: unknown[]) => mockRunTerminalCommand(...args),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
   GetProfile: (...args: unknown[]) => mockGetProfile(...args),
 }));
 

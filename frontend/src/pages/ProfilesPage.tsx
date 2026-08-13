@@ -17,7 +17,7 @@ import {
   DeleteProfile,
   DuplicateProfile,
   GetProfileSearchPaths,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Profiles';
 import { profiles } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';

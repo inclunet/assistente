@@ -3,7 +3,7 @@ import { useState, useEffect, forwardRef, useImperativeHandle, useCallback, type
 import { MessageOutlined, WarningOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
-import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/app/App';
+import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useTranslation } from 'react-i18next';
 

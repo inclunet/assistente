@@ -40,7 +40,7 @@ import { logger } from '../utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSTT } from './useSTT';
 import { useWakewordDetection } from './useWakewordDetection';
-import { GetActiveProfile, GetProfile } from '@wailsjs/go/app/App';
+import { GetActiveProfile, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';

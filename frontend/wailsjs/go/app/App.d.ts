@@ -9,14 +9,12 @@ import {updater} from '../models';
 import {context} from '../models';
 import {controllers} from '../models';
 import {memory} from '../models';
-import {profiles} from '../models';
 import {terminal} from '../models';
 import {mcp} from '../models';
 import {jobs} from '../models';
 import {speech} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
-import {contextprovider} from '../models';
 import {chat} from '../models';
 import {llm} from '../models';
 import {config} from '../models';
@@ -97,8 +95,6 @@ export function CreateMemoryRecord(arg1:memory.RecordInput):Promise<database.Mem
 
 export function CreateMessage(arg1:string,arg2:string,arg3:string):Promise<database.ChatMessage>;
 
-export function CreateProfile(arg1:profiles.Profile):Promise<string>;
-
 export function CreateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
 
 export function CreateTaskList(arg1:string,arg2:string,arg3:string):Promise<database.TaskList>;
@@ -127,8 +123,6 @@ export function DeleteMessage(arg1:string):Promise<void>;
 
 export function DeleteMessages(arg1:string,arg2:Array<string>):Promise<void>;
 
-export function DeleteProfile(arg1:string):Promise<void>;
-
 export function DeleteTask(arg1:string):Promise<void>;
 
 export function DeleteTaskList(arg1:string):Promise<void>;
@@ -150,8 +144,6 @@ export function DispatchSpeech(arg1:app.ChatSpeakRequest):Promise<void>;
 export function DryRunJob(arg1:string):Promise<jobs.DryRunResult>;
 
 export function DuplicateMCPServer(arg1:string):Promise<string>;
-
-export function DuplicateProfile(arg1:string):Promise<string>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
@@ -197,12 +189,6 @@ export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<spe
 
 export function GetACPCatalog():Promise<app.ACPCatalog>;
 
-export function GetActiveProfile():Promise<profiles.Profile>;
-
-export function GetActiveProfileAndSlug():Promise<profiles.ActiveProfile>;
-
-export function GetActiveProfileSlug():Promise<string>;
-
 export function GetActiveProviderInfo():Promise<Record<string, any>>;
 
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
@@ -238,8 +224,6 @@ export function GetChannelConfig(arg1:string):Promise<channels.ChannelConfig>;
 export function GetChannelConfigAsMap(arg1:string):Promise<Record<string, any>>;
 
 export function GetChannelTemplates():Promise<Array<channels.ChannelTemplate>>;
-
-export function GetContextProviders():Promise<Array<contextprovider.ProviderMetadata>>;
 
 export function GetConversation(arg1:string):Promise<database.Conversation>;
 
@@ -320,12 +304,6 @@ export function GetNativeTTSProviders():Promise<Array<string>>;
 export function GetNetworkAllowlist():Promise<Array<app.NetworkAllowlistView>>;
 
 export function GetOpenAITTSVoices():Promise<Array<speech.TTSVoiceInfo>>;
-
-export function GetProfile(arg1:string):Promise<profiles.Profile>;
-
-export function GetProfileSearchPaths():Promise<Array<string>>;
-
-export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
 
@@ -511,8 +489,6 @@ export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Pro
 
 export function SendTerminalInput(arg1:string,arg2:string):Promise<void>;
 
-export function SetActiveProfile(arg1:string):Promise<void>;
-
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
 
 export function SetAgentConversationWorkDir(arg1:string,arg2:string):Promise<app.AgentWorkDir>;
@@ -614,8 +590,6 @@ export function UpdateLLMProvider(arg1:string,arg2:controllers.UpdateLLMProvider
 export function UpdateMemoryRecord(arg1:string,arg2:memory.RecordInput):Promise<database.MemoryRecord>;
 
 export function UpdateMessage(arg1:string,arg2:string):Promise<void>;
-
-export function UpdateProfile(arg1:string,arg2:profiles.Profile):Promise<void>;
 
 export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void>;
 

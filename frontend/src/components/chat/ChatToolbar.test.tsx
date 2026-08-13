@@ -30,11 +30,14 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   ClearConversation: clearConversationMock,
-  GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
   GetAgentSessionOptions: getAgentSessionOptionsMock,
   SetAgentSessionOption: vi.fn(),
   GetAgentConversationWorkDir: getAgentWorkDirMock,
   SetAgentConversationWorkDir: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
+  GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({

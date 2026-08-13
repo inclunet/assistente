@@ -150,10 +150,6 @@ export function CreateMessage(arg1, arg2, arg3) {
   return window['go']['app']['App']['CreateMessage'](arg1, arg2, arg3);
 }
 
-export function CreateProfile(arg1) {
-  return window['go']['app']['App']['CreateProfile'](arg1);
-}
-
 export function CreateTask(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['app']['App']['CreateTask'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
@@ -210,10 +206,6 @@ export function DeleteMessages(arg1, arg2) {
   return window['go']['app']['App']['DeleteMessages'](arg1, arg2);
 }
 
-export function DeleteProfile(arg1) {
-  return window['go']['app']['App']['DeleteProfile'](arg1);
-}
-
 export function DeleteTask(arg1) {
   return window['go']['app']['App']['DeleteTask'](arg1);
 }
@@ -256,10 +248,6 @@ export function DryRunJob(arg1) {
 
 export function DuplicateMCPServer(arg1) {
   return window['go']['app']['App']['DuplicateMCPServer'](arg1);
-}
-
-export function DuplicateProfile(arg1) {
-  return window['go']['app']['App']['DuplicateProfile'](arg1);
 }
 
 export function EditorDeleteDraft(arg1) {
@@ -350,18 +338,6 @@ export function GetACPCatalog() {
   return window['go']['app']['App']['GetACPCatalog']();
 }
 
-export function GetActiveProfile() {
-  return window['go']['app']['App']['GetActiveProfile']();
-}
-
-export function GetActiveProfileAndSlug() {
-  return window['go']['app']['App']['GetActiveProfileAndSlug']();
-}
-
-export function GetActiveProfileSlug() {
-  return window['go']['app']['App']['GetActiveProfileSlug']();
-}
-
 export function GetActiveProviderInfo() {
   return window['go']['app']['App']['GetActiveProviderInfo']();
 }
@@ -432,10 +408,6 @@ export function GetChannelConfigAsMap(arg1) {
 
 export function GetChannelTemplates() {
   return window['go']['app']['App']['GetChannelTemplates']();
-}
-
-export function GetContextProviders() {
-  return window['go']['app']['App']['GetContextProviders']();
 }
 
 export function GetConversation(arg1) {
@@ -596,18 +568,6 @@ export function GetNetworkAllowlist() {
 
 export function GetOpenAITTSVoices() {
   return window['go']['app']['App']['GetOpenAITTSVoices']();
-}
-
-export function GetProfile(arg1) {
-  return window['go']['app']['App']['GetProfile'](arg1);
-}
-
-export function GetProfileSearchPaths() {
-  return window['go']['app']['App']['GetProfileSearchPaths']();
-}
-
-export function GetProfiles() {
-  return window['go']['app']['App']['GetProfiles']();
 }
 
 export function GetRecentMessages(arg1, arg2) {
@@ -978,10 +938,6 @@ export function SendTerminalInput(arg1, arg2) {
   return window['go']['app']['App']['SendTerminalInput'](arg1, arg2);
 }
 
-export function SetActiveProfile(arg1) {
-  return window['go']['app']['App']['SetActiveProfile'](arg1);
-}
-
 export function SetActiveWorkspaceTab(arg1) {
   return window['go']['app']['App']['SetActiveWorkspaceTab'](arg1);
 }
@@ -1184,10 +1140,6 @@ export function UpdateMemoryRecord(arg1, arg2) {
 
 export function UpdateMessage(arg1, arg2) {
   return window['go']['app']['App']['UpdateMessage'](arg1, arg2);
-}
-
-export function UpdateProfile(arg1, arg2) {
-  return window['go']['app']['App']['UpdateProfile'](arg1, arg2);
 }
 
 export function UpdateProfileMediaSupport(arg1, arg2) {

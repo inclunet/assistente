@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { GetAvailableTools, GetContextProviders } from '@wailsjs/go/app/App';
+import { GetAvailableTools } from '@wailsjs/go/app/App';
 import { GetAllowlists } from '@wailsjs/go/wailsapi/Allowlists';
+import { GetContextProviders } from '@wailsjs/go/wailsapi/Profiles';
 import { GetSkills } from '@wailsjs/go/wailsapi/Skills';
 import type { controllers, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
 
