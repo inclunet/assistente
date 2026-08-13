@@ -9,7 +9,7 @@ const mockConfirm = vi.fn();
 const mockAnnounce = vi.fn();
 const mockAddToast = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/NetTrust', () => ({
   GetNetworkAllowlist: (...args: unknown[]) => mockGetNetworkAllowlist(...args),
   RemoveNetworkAllowlistEntry: (...args: unknown[]) => mockRemoveNetworkAllowlistEntry(...args),
 }));

@@ -83,6 +83,32 @@ export namespace allowlist {
 
 export namespace apidto {
 	
+	export class NetworkAllowlistView {
+	    host: string;
+	    port?: string;
+	    scope: string;
+	    category?: string;
+	    resolvedIps?: string[];
+	    createdBy?: string;
+	    createdAt: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NetworkAllowlistView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.scope = source["scope"];
+	        this.category = source["category"];
+	        this.resolvedIps = source["resolvedIps"];
+	        this.createdBy = source["createdBy"];
+	        this.createdAt = source["createdAt"];
+	        this.reason = source["reason"];
+	    }
+	}
 	export class RuntimeToolCatalogEntry {
 	    id: string;
 	    userId?: string;
@@ -1283,32 +1309,6 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.refreshToken = source["refreshToken"];
-	    }
-	}
-	export class NetworkAllowlistView {
-	    host: string;
-	    port?: string;
-	    scope: string;
-	    category?: string;
-	    resolvedIps?: string[];
-	    createdBy?: string;
-	    createdAt: string;
-	    reason?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new NetworkAllowlistView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.host = source["host"];
-	        this.port = source["port"];
-	        this.scope = source["scope"];
-	        this.category = source["category"];
-	        this.resolvedIps = source["resolvedIps"];
-	        this.createdBy = source["createdBy"];
-	        this.createdAt = source["createdAt"];
-	        this.reason = source["reason"];
 	    }
 	}
 	export class RefreshRequest {

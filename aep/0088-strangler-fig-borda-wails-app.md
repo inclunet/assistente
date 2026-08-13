@@ -209,6 +209,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **updater** (version/check/apply/start → `wailsapi.Updater`)
 - [x] **profiles** (CRUD + active + context providers → `wailsapi.Profiles`)
 - [x] **hotkeys** (IsGlobalHotkeySupported → `wailsapi.Hotkeys`; WithUser fail-closed)
+- [x] **nettrust** (network allowlist → `wailsapi.NetTrust`; DTO em `apidto`)
 - [ ] MCP → …
 
 ### Fase N — `App` enxuto

@@ -76,7 +76,7 @@ func (a *App) initTerminalAndAllowlists() {
 	})
 	// Fallback do slug de perfil ativo: garante que o escopo "profile" persista e
 	// case mesmo quando o invocationctx da chamada não traz ProfileSlug — e de
-	// forma consistente com a API de gestão (networkManagementContext).
+	// forma consistente com a API de gestão (NetTrustController.managementContext).
 	a.netTrustMgr.SetActiveProfileSlugFunc(func() string {
 		if a.profileManager != nil {
 			return a.profileManager.GetActiveSlug()
