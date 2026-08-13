@@ -383,6 +383,7 @@ const es = {
         contacts: 'Contactos',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        'network-allowlist': 'Lista de Permitidos de Red',
         'agent-permissions': 'Permisos del Agente',
         appearance: 'Apariencia',
         data: 'Datos',
@@ -588,6 +589,49 @@ const es = {
       error: {
         loadFailed: 'Error al cargar los permisos del agente',
         revokeFailed: 'Error al revocar el permiso',
+      },
+    },
+
+    networkAllowlist: {
+      title: 'Lista de Permitidos de Red',
+      loading: 'Cargando la lista de permitidos de red...',
+      toolbarLabel: 'Barra de herramientas de la lista de permitidos de red',
+      gridLabel: 'Hosts autorizados en la lista de permitidos de red',
+      description: 'Hosts que resuelven a direcciones internas/privadas y que autorizó al asistente a acceder, a pesar de la política anti-SSRF. Cada entrada vale hasta que la elimine aquí.',
+      sessionNote: 'Las autorizaciones concedidas solo para la solicitud actual o solo para la conversación no aparecen en esta lista: caducan solas, sin pasar por el disco.',
+      empty: 'No hay hosts autorizados. Todo destino interno sigue bloqueado hasta que lo autorice.',
+      loadFailedBody: 'No se pudo cargar la lista de permitidos de red. Las autorizaciones que existan siguen vigentes: recargue para intentarlo de nuevo.',
+      defaultPorts: 'Predeterminado (80 y 443)',
+      columns: {
+        host: 'Host',
+        port: 'Puerto',
+        scope: 'Alcance',
+        category: 'Categoría del bloqueo',
+        resolvedIps: 'IPs resueltas',
+        createdBy: 'Autorizada por',
+        createdAt: 'Autorizada el',
+        reason: 'Observación',
+      },
+      scope: {
+        session: 'Esta conversación',
+        workspace: 'Este workspace',
+        profile: 'Este perfil',
+        global: 'Global',
+        unknown: 'Un alcance que esta app no reconoce',
+      },
+      actions: {
+        remove: 'Eliminar',
+        reload: 'Recargar',
+      },
+      confirm: {
+        title: 'Eliminar autorización de red',
+        message: '¿Eliminar la autorización de {{host}} ({{scope}})? El asistente volverá a bloquear ese destino y a pedir consentimiento.',
+      },
+      toast: { removed: 'Autorización de red eliminada' },
+      announce: { removed: 'Autorización de red eliminada: {{host}} ({{scope}}).' },
+      error: {
+        loadFailed: 'Error al cargar la lista de permitidos de red',
+        removeFailed: 'Error al eliminar la autorización de red',
       },
     },
 

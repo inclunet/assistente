@@ -384,6 +384,7 @@ const en = {
         contacts: 'Contacts',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        'network-allowlist': 'Network Allowlist',
         'agent-permissions': 'Agent Permissions',
         appearance: 'Appearance',
         data: 'Data',
@@ -589,6 +590,49 @@ const en = {
       error: {
         loadFailed: 'Error loading agent permissions',
         revokeFailed: 'Error revoking permission',
+      },
+    },
+
+    networkAllowlist: {
+      title: 'Network Allowlist',
+      loading: 'Loading network allowlist...',
+      toolbarLabel: 'Network allowlist toolbar',
+      gridLabel: 'Hosts allowed in the network allowlist',
+      description: 'Hosts that resolve to internal/private addresses and that you allowed the assistant to reach, despite the anti-SSRF policy. Each entry stays in effect until you remove it here.',
+      sessionNote: 'Authorizations granted only for the current request or only for the conversation are not listed here: they expire on their own, without touching the disk.',
+      empty: 'No allowed hosts. Every internal destination stays blocked until you allow it.',
+      loadFailedBody: 'Could not load the network allowlist. Any authorization that exists is still in effect — reload to try again.',
+      defaultPorts: 'Default (80 and 443)',
+      columns: {
+        host: 'Host',
+        port: 'Port',
+        scope: 'Scope',
+        category: 'Block category',
+        resolvedIps: 'Resolved IPs',
+        createdBy: 'Allowed by',
+        createdAt: 'Allowed on',
+        reason: 'Note',
+      },
+      scope: {
+        session: 'This conversation',
+        workspace: 'This workspace',
+        profile: 'This profile',
+        global: 'Global',
+        unknown: 'A scope this app does not recognize',
+      },
+      actions: {
+        remove: 'Remove',
+        reload: 'Reload',
+      },
+      confirm: {
+        title: 'Remove network authorization',
+        message: 'Remove the authorization for {{host}} ({{scope}})? The assistant will block that destination again and ask for consent.',
+      },
+      toast: { removed: 'Network authorization removed' },
+      announce: { removed: 'Network authorization removed: {{host}} ({{scope}}).' },
+      error: {
+        loadFailed: 'Error loading the network allowlist',
+        removeFailed: 'Error removing the network authorization',
       },
     },
 
