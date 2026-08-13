@@ -10,6 +10,8 @@ const mockUpdateConversation = vi.fn();
 const mockExportConversations = vi.fn();
 const mockExportConversationsToFile = vi.fn();
 const mockSearchConversationHistory = vi.fn();
+const mockListSubAgentRuns = vi.fn();
+const mockCancelSubAgentRun = vi.fn();
 const mockDownloadJSON = vi.fn();
 const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
@@ -70,6 +72,8 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ExportConversations: (ids: string[]) => mockExportConversations(ids),
   ExportConversationsToFile: (ids: string[], format: string, options: unknown) => mockExportConversationsToFile(ids, format, options),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
+  ListSubAgentRuns: (limit: number) => mockListSubAgentRuns(limit),
+  CancelSubAgentRun: (conversationId: string, runId: string) => mockCancelSubAgentRun(conversationId, runId),
 }));
 
 vi.mock('../lib/exportImport', async (importOriginal) => {
@@ -228,6 +232,14 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     mockExportConversations.mockResolvedValue('{}');
     mockExportConversationsToFile.mockResolvedValue('');
     mockSearchConversationHistory.mockResolvedValue([]);
+    mockListSubAgentRuns.mockResolvedValue({
+      runs: [],
+      activeForUser: 0,
+      activeGlobal: 0,
+      maxConcurrentPerUser: 4,
+      maxConcurrentGlobal: 16,
+    });
+    mockCancelSubAgentRun.mockResolvedValue({ run_id: '', status: '', cancelled: false });
     mockDownloadJSON.mockReset();
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,

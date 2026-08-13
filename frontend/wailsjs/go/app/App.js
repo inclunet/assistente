@@ -66,6 +66,10 @@ export function CancelStreamingForConversation(arg1) {
   return window['go']['app']['App']['CancelStreamingForConversation'](arg1);
 }
 
+export function CancelSubAgentRun(arg1, arg2) {
+  return window['go']['app']['App']['CancelSubAgentRun'](arg1, arg2);
+}
+
 export function CheckContextWindowThreshold(arg1, arg2) {
   return window['go']['app']['App']['CheckContextWindowThreshold'](arg1, arg2);
 }
@@ -836,6 +840,10 @@ export function ListMemoryRecords(arg1) {
 
 export function ListModelsRaw(arg1) {
   return window['go']['app']['App']['ListModelsRaw'](arg1);
+}
+
+export function ListSubAgentRuns(arg1) {
+  return window['go']['app']['App']['ListSubAgentRuns'](arg1);
 }
 
 export function ListTerminalSessions() {

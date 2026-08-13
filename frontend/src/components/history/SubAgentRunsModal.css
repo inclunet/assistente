@@ -1,0 +1,13 @@
+.subagent-runs__usage {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+}
+
+.subagent-runs__empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
