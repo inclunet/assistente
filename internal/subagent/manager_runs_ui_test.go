@@ -214,7 +214,9 @@ func TestManagerListRunsOrdersActiveFirst(t *testing.T) {
 func TestManagerListRunsScopedByUser(t *testing.T) {
 	repo, ctxA := setupManagerTest(t)
 	ctxB := database.WithUserID(context.Background(), "user-b")
-	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: messaging.NewResponseNotifier()})
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier})
 
 	runB := &database.SubAgentRun{ChildConversationID: "child-b", Status: database.SubAgentRunStatusRunning}
 	if err := repo.Create(ctxB, runB); err != nil {

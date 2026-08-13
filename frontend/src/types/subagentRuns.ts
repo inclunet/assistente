@@ -28,7 +28,7 @@ export interface SubAgentRunEvent {
   conversationId: string;
   parentConversationId?: string;
   title?: string;
-  status: string;
+  status: SubAgentRunStatus;
   background: boolean;
   error?: string;
 }
