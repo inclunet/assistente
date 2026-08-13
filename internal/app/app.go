@@ -233,8 +233,12 @@ func (a *App) Context() context.Context {
 	return a.ctx
 }
 
-// BindTokensAPI registra o bind Wails de tokens antes do Run (main.go).
-func (a *App) BindTokensAPI(api *wailsapi.Tokens) {
+// SetTokensAPI registra o bind Wails de tokens antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTokensAPI(a *App, api *wailsapi.Tokens) {
+	if a == nil {
+		return
+	}
 	a.tokensAPI = api
 }
 

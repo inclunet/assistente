@@ -54,8 +54,9 @@ describe('NetworkAllowlistPage — acessibilidade', () => {
 
     const { container } = render(<NetworkAllowlistPage />);
     await waitFor(() =>
-      expect(screen.getByText('networkAllowlist.empty')).toBeInTheDocument(),
+      expect(screen.queryByText('networkAllowlist.loading')).not.toBeInTheDocument(),
     );
+    expect(await screen.findByText('networkAllowlist.empty')).toBeInTheDocument();
 
     expect(await axe(container)).toHaveNoViolations();
   });

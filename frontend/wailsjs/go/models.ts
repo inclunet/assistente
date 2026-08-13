@@ -5920,23 +5920,6 @@ export namespace updater {
 
 }
 
-export namespace wailsapi {
-	
-	export class Tokens {
-	
-	
-	    static createFrom(source: any = {}) {
-	        return new Tokens(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	
-	    }
-	}
-
-}
-
 export namespace workspace {
 	
 	export class Tab {

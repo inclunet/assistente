@@ -21,7 +21,7 @@ var assets embed.FS
 func main() {
 	a := application.NewApp()
 	tokensAPI := wailsapi.NewTokens()
-	a.BindTokensAPI(tokensAPI)
+	application.SetTokensAPI(a, tokensAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
