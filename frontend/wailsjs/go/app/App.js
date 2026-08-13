@@ -406,10 +406,6 @@ export function GetAvailableChannels() {
   return window['go']['app']['App']['GetAvailableChannels']();
 }
 
-export function GetAvailableTools() {
-  return window['go']['app']['App']['GetAvailableTools']();
-}
-
 export function GetChannelConfig(arg1) {
   return window['go']['app']['App']['GetChannelConfig'](arg1);
 }
@@ -600,10 +596,6 @@ export function GetProfiles() {
 
 export function GetRecentMessages(arg1, arg2) {
   return window['go']['app']['App']['GetRecentMessages'](arg1, arg2);
-}
-
-export function GetRuntimeToolCatalog(arg1) {
-  return window['go']['app']['App']['GetRuntimeToolCatalog'](arg1);
 }
 
 export function GetSTTModels(arg1) {

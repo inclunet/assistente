@@ -220,6 +220,10 @@ type App struct {
 	// wired após NewSkillsController.
 	skillsAPI *wailsapi.Skills
 
+	// toolsAPI é o bind Wails do domínio tools (AEP-0088). Criado em main e
+	// wired após NewToolsController.
+	toolsAPI *wailsapi.Tools
+
 	// updaterAPI é o bind Wails do domínio updater (AEP-0088). Criado em main e
 	// wired após NewUpdaterController.
 	updaterAPI *wailsapi.Updater
@@ -267,6 +271,23 @@ func SetSkillsAPI(a *App, api *wailsapi.Skills) {
 		return
 	}
 	a.skillsAPI = api
+}
+
+// SetToolsAPI registra o bind Wails de tools antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetToolsAPI(a *App, api *wailsapi.Tools) {
+	if a == nil {
+		return
+	}
+	a.toolsAPI = api
+}
+
+// ListAvailableTools expõe o catálogo runtime para o CLI (não entra no Bind Wails).
+func ListAvailableTools(a *App) []controllers.ToolInfo {
+	if a == nil || a.toolsCtrl == nil {
+		return nil
+	}
+	return a.toolsCtrl.GetAvailableTools()
 }
 
 // SetUpdaterAPI registra o bind Wails de updater antes do Run (main.go).
@@ -619,10 +640,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireTokens()
 	a.wireSkills()
 	a.wireAllowlist()
-	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
-		ToolRegistry: a.toolRegistry,
-		MCPMgr:       a.mcpMgr,
-	})
+	a.wireTools()
 	a.wireUpdater()
 	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
 		CredMgr: a.credMgr,

@@ -62,3 +62,29 @@ func TestSkillsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestToolsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetAvailableTools",
+		"GetRuntimeToolCatalog",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Tools/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
+func TestUpdaterMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetAppVersion",
+		"CheckForUpdates",
+		"ApplyUpdate",
+		"StartUpdate",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Updater/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

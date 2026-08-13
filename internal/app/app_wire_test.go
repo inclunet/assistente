@@ -66,6 +66,23 @@ func TestWireSkillsAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireToolsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewTools()
+	SetToolsAPI(a, api)
+
+	a.wireTools()
+
+	if a.toolsCtrl == nil {
+		t.Fatal("toolsCtrl deve ser criado")
+	}
+	_, err := api.GetAvailableTools()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 func TestWireUpdaterAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{}

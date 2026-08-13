@@ -224,8 +224,6 @@ export function GetAuthorizedContacts():Promise<contacts.ContactsFile>;
 
 export function GetAvailableChannels():Promise<Array<controllers.ChannelInfo>>;
 
-export function GetAvailableTools():Promise<Array<controllers.ToolInfo>>;
-
 export function GetChannelConfig(arg1:string):Promise<channels.ChannelConfig>;
 
 export function GetChannelConfigAsMap(arg1:string):Promise<Record<string, any>>;
@@ -321,8 +319,6 @@ export function GetProfileSearchPaths():Promise<Array<string>>;
 export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
-
-export function GetRuntimeToolCatalog(arg1:app.RuntimeToolCatalogFilter):Promise<Array<app.RuntimeToolCatalogEntry>>;
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
 
