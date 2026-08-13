@@ -54,10 +54,6 @@ export function AuthorizeMessagingContactFull(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['AuthorizeMessagingContactFull'](arg1, arg2, arg3, arg4);
 }
 
-export function BindTokensAPI(arg1) {
-  return window['go']['app']['App']['BindTokensAPI'](arg1);
-}
-
 export function CanPersistCredentials() {
   return window['go']['app']['App']['CanPersistCredentials']();
 }
