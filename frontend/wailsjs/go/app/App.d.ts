@@ -5,7 +5,6 @@ import {database} from '../models';
 import {workspace} from '../models';
 import {portability} from '../models';
 import {subagent} from '../models';
-import {updater} from '../models';
 import {context} from '../models';
 import {controllers} from '../models';
 import {memory} from '../models';
@@ -37,8 +36,6 @@ export function AddWorkspaceTab(arg1:workspace.Tab):Promise<workspace.Workspace>
 
 export function AnalyzeImportData(arg1:string,arg2:string):Promise<portability.ImportAnalysis>;
 
-export function ApplyUpdate():Promise<void>;
-
 export function ArchiveMemoryRecord(arg1:string):Promise<database.MemoryRecord>;
 
 export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -54,8 +51,6 @@ export function CancelACPAgentInstall(arg1:string):Promise<void>;
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
 
 export function CancelSubAgentRun(arg1:string,arg2:string):Promise<subagent.CancelResult>;
-
-export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
 export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
 
@@ -207,8 +202,6 @@ export function GetAllTaskLists():Promise<Array<database.TaskList>>;
 
 export function GetAllTokenStats():Promise<Record<string, number>>;
 
-export function GetAppVersion():Promise<string>;
-
 export function GetAuthStatus():Promise<app.AuthStatus>;
 
 export function GetAuthUser():Promise<app.AuthUser>;
@@ -216,8 +209,6 @@ export function GetAuthUser():Promise<app.AuthUser>;
 export function GetAuthorizedContacts():Promise<contacts.ContactsFile>;
 
 export function GetAvailableChannels():Promise<Array<controllers.ChannelInfo>>;
-
-export function GetAvailableTools():Promise<Array<controllers.ToolInfo>>;
 
 export function GetChannelConfig(arg1:string):Promise<channels.ChannelConfig>;
 
@@ -306,8 +297,6 @@ export function GetNetworkAllowlist():Promise<Array<app.NetworkAllowlistView>>;
 export function GetOpenAITTSVoices():Promise<Array<speech.TTSVoiceInfo>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
-
-export function GetRuntimeToolCatalog(arg1:app.RuntimeToolCatalogFilter):Promise<Array<app.RuntimeToolCatalogEntry>>;
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
 
@@ -540,8 +529,6 @@ export function SignalVerify(arg1:string,arg2:string,arg3:string,arg4:string):Pr
 export function SpeakMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:string):Promise<speech.AudioResult>;
 
 export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:string,arg8:string):Promise<void>;
-
-export function StartUpdate():Promise<void>;
 
 export function StartupWithAdapters(arg1:context.Context,arg2:ports.Emitter,arg3:ports.WindowPort,arg4:ports.SystemDialogPort):Promise<void>;
 

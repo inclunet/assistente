@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FilterOutlined } from '@ant-design/icons';
-import { controllers, allowlist } from '@wailsjs/go/models';
+import { apidto, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useMCPStore } from '../../store/mcpStore';
@@ -20,7 +20,7 @@ const TOOL_POLICY_PRELOADED: ToolPolicyState = 'preloaded';
 const CONTROL_PLANE_TOOLS = new Set(['tool_catalog', 'load_skill']);
 
 export interface ProfileToolsSectionProps {
-  availableTools: controllers.ToolInfo[];
+  availableTools: apidto.ToolInfo[];
   enabledTools?: string[] | null;
   toolPolicy?: Record<string, string> | null;
   toolsDisabled?: boolean;

@@ -26,6 +26,10 @@ func main() {
 	application.SetAllowlistsAPI(a, allowlistsAPI)
 	skillsAPI := wailsapi.NewSkills()
 	application.SetSkillsAPI(a, skillsAPI)
+	toolsAPI := wailsapi.NewTools()
+	application.SetToolsAPI(a, toolsAPI)
+	updaterAPI := wailsapi.NewUpdater()
+	application.SetUpdaterAPI(a, updaterAPI)
 	profilesAPI := wailsapi.NewProfiles()
 	application.SetProfilesAPI(a, profilesAPI)
 
@@ -67,6 +71,8 @@ func main() {
 			tokensAPI,
 			allowlistsAPI,
 			skillsAPI,
+			toolsAPI,
+			updaterAPI,
 			profilesAPI,
 		},
 		Debug: options.Debug{

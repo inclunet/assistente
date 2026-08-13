@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { GetAvailableTools } from '@wailsjs/go/app/App';
 import { GetAllowlists } from '@wailsjs/go/wailsapi/Allowlists';
 import { GetContextProviders } from '@wailsjs/go/wailsapi/Profiles';
 import { GetSkills } from '@wailsjs/go/wailsapi/Skills';
-import type { controllers, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
+import { GetAvailableTools } from '@wailsjs/go/wailsapi/Tools';
+import type { apidto, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
 
 export interface ProfileDependencies {
-  tools: controllers.ToolInfo[];
+  tools: apidto.ToolInfo[];
   skills: skills.SkillInfo[];
   allowlists: allowlist.AllowlistInfo[];
   contextProviders: contextprovider.ProviderMetadata[];
@@ -23,11 +23,11 @@ function fulfilledOrEmpty<T>(result: PromiseSettledResult<T[]>): T[] {
  * - Ferramentas disponíveis (MCP + builtin)
  * - Skills disponíveis
  * - Allowlists disponíveis
- * 
+ *
  * Também escuta eventos MCP para atualizar ferramentas dinamicamente.
  */
 export function useProfileDependencies(): ProfileDependencies {
-  const [tools, setTools] = useState<controllers.ToolInfo[]>([]);
+  const [tools, setTools] = useState<apidto.ToolInfo[]>([]);
   const [skills, setSkills] = useState<skills.SkillInfo[]>([]);
   const [allowlists, setAllowlists] = useState<allowlist.AllowlistInfo[]>([]);
   const [contextProviders, setContextProviders] = useState<contextprovider.ProviderMetadata[]>([]);

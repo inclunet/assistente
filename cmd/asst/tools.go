@@ -7,13 +7,22 @@ import (
 	"text/tabwriter"
 
 	"assistente/controllers"
+	application "assistente/internal/app"
 
 	"github.com/spf13/cobra"
 )
 
-// toolsBackend abstracts the app methods used by tools commands.
+// toolsBackend abstracts listing used by tools commands.
 type toolsBackend interface {
 	GetAvailableTools() []controllers.ToolInfo
+}
+
+type appToolsBackend struct {
+	app *application.App
+}
+
+func (b appToolsBackend) GetAvailableTools() []controllers.ToolInfo {
+	return application.ListAvailableTools(b.app)
 }
 
 var toolsCmd = &cobra.Command{
@@ -25,7 +34,7 @@ var toolsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista ferramentas disponíveis (built-in + MCP)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runToolsList(rootApp, os.Stdout)
+		return runToolsList(appToolsBackend{rootApp}, os.Stdout)
 	},
 }
 

@@ -40,6 +40,31 @@ func (a *App) wireSkills() {
 	}
 }
 
+// wireTools monta o ToolsController e associa o bind Wails (AEP-0088).
+func (a *App) wireTools() {
+	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
+		ToolRegistry: a.toolRegistry,
+		MCPMgr:       a.mcpMgr,
+	})
+	if a.toolsAPI != nil {
+		wailsapi.AttachTools(a.toolsAPI, wailsSession{app: a}, a.toolsCtrl)
+	}
+}
+
+// wireUpdater monta o UpdaterController e associa o bind Wails (AEP-0088).
+func (a *App) wireUpdater() {
+	a.updaterCtrl = controllers.NewUpdaterController(controllers.UpdaterControllerConfig{
+		Updater:          a.updater,
+		Emitter:          a.emitter,
+		QuestionnaireMgr: a.questionnaireMgr,
+		ProviderSvc:      a.providerSvc,
+		AppVersion:       AppVersion,
+	})
+	if a.updaterAPI != nil {
+		wailsapi.AttachUpdater(a.updaterAPI, wailsSession{app: a}, a.updaterCtrl)
+	}
+}
+
 // wireProfiles monta o ProfilesController e associa o bind Wails (AEP-0088).
 func (a *App) wireProfiles() {
 	a.profilesCtrl = controllers.NewProfilesController(controllers.ProfilesControllerConfig{

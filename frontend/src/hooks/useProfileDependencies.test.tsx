@@ -12,7 +12,7 @@ const getContextProvidersMock = vi.fn();
 let eventsHandler: (() => void) | null = null;
 const unsubscribeMock = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Tools', () => ({
   GetAvailableTools: (...args: unknown[]) => getAvailableToolsMock(...args),
 }));
 
