@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { EditorGetFileInfo, EditorReadFile, EditorWriteFile, GetProfile } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWriteFile } from '@wailsjs/go/app/App';
+import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 
 const openToolbarMenuSpy = vi.fn();
 const editorPageMocks = vi.hoisted(() => {
@@ -381,7 +382,6 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('@wailsjs/go/app/App', () => ({
   EditorDeleteDraft: vi.fn(),
   EditorGetFileInfo: vi.fn(),
-  GetProfile: vi.fn(),
   EditorLoadSession: vi.fn(),
   EditorOpenFile: vi.fn(),
   EditorReadDraft: vi.fn(),
@@ -393,6 +393,10 @@ vi.mock('@wailsjs/go/app/App', () => ({
   EditorWatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWriteDraft: vi.fn(),
   EditorWriteFile: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
+  GetProfile: vi.fn(),
 }));
 
 import EditorPage from './EditorPage';

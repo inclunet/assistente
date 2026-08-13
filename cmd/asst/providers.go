@@ -41,7 +41,7 @@ var providersListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista provedores LLM com status de conexão",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersList(rootApp, os.Stdout)
+		return runProvidersList(asCLI(rootApp), os.Stdout)
 	},
 }
 
@@ -83,7 +83,7 @@ var providersAddCmd = &cobra.Command{
 	Long: `Wizard interativo para configurar um novo provedor LLM.
 Solicita tipo, API key e modelo, testa a conexão e salva.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersAdd(rootApp, os.Stdout, bufio.NewReader(os.Stdin), readPassword)
+		return runProvidersAdd(asCLI(rootApp), os.Stdout, bufio.NewReader(os.Stdin), readPassword)
 	},
 }
 
@@ -262,7 +262,7 @@ var providersTestCmd = &cobra.Command{
 	Short: "Testa conexão com um provedor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersTest(rootApp, os.Stdout, args[0])
+		return runProvidersTest(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -291,7 +291,7 @@ var providersModelsCmd = &cobra.Command{
 	Short: "Lista modelos disponíveis de um provedor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersModels(rootApp, os.Stdout, args[0])
+		return runProvidersModels(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -320,7 +320,7 @@ var providersDefaultCmd = &cobra.Command{
 	Short: "Define o provedor padrão",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersDefault(rootApp, os.Stdout, args[0])
+		return runProvidersDefault(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -339,7 +339,7 @@ var providersRemoveCmd = &cobra.Command{
 	Short: "Remove um provedor LLM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersRemove(rootApp, os.Stdout, args[0])
+		return runProvidersRemove(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 

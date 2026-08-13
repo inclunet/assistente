@@ -29,7 +29,7 @@ import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
 import type { MediaFile } from '../services/mediaService';
 import type { Message } from '../store/chatStore';
 import { isAppToolEvent } from '../types/chat';
-import { GetProfile } from '@wailsjs/go/app/App';
+import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import {
   buildEditorInlineChatSurfaceContext,
   findRevealSlideForMarkdownOffsets,

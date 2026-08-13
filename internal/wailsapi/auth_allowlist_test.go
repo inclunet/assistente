@@ -88,3 +88,25 @@ func TestUpdaterMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestProfilesMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetProfiles",
+		"GetProfile",
+		"GetActiveProfile",
+		"GetActiveProfileSlug",
+		"GetActiveProfileAndSlug",
+		"SetActiveProfile",
+		"CreateProfile",
+		"DuplicateProfile",
+		"UpdateProfile",
+		"DeleteProfile",
+		"GetProfileSearchPaths",
+		"GetContextProviders",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Profiles/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

@@ -99,3 +99,22 @@ func TestWireUpdaterAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireProfilesAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		profileManager: profiles.NewManager(),
+	}
+	api := wailsapi.NewProfiles()
+	SetProfilesAPI(a, api)
+
+	a.wireProfiles()
+
+	if a.profilesCtrl == nil {
+		t.Fatal("profilesCtrl deve ser criado")
+	}
+	_, err := api.GetProfiles()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}

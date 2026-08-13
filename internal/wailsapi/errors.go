@@ -19,3 +19,6 @@ var ErrToolsNotWired = errors.New("wailsapi: tools bind not wired")
 
 // ErrUpdaterNotWired indica que o bind Updater ainda não recebeu controller/session.
 var ErrUpdaterNotWired = errors.New("wailsapi: updater bind not wired")
+
+// ErrProfilesNotWired indica que o bind Profiles ainda não recebeu controller/session.
+var ErrProfilesNotWired = errors.New("wailsapi: profiles bind not wired")

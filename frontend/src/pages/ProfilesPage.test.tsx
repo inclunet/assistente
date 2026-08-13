@@ -12,7 +12,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
   GetProfiles: vi.fn().mockResolvedValue([
     {
       slug: 'padrao',
@@ -29,7 +29,6 @@ vi.mock('@wailsjs/go/app/App', () => ({
   UpdateProfile: vi.fn().mockResolvedValue(undefined),
   DeleteProfile: vi.fn().mockResolvedValue(undefined),
   DuplicateProfile: (slug: string) => mockDuplicateProfile(slug),
-  GetLLMProviders: vi.fn().mockResolvedValue([]),
   GetProfile: vi.fn().mockResolvedValue({
     name: 'Perfil Padrão',
     description: '',
@@ -77,6 +76,10 @@ vi.mock('@wailsjs/go/app/App', () => ({
       response_mode: 'mirror',
     },
   }),
+}));
+
+vi.mock('@wailsjs/go/app/App', () => ({
+  GetLLMProviders: vi.fn().mockResolvedValue([]),
   GetModels: vi.fn().mockResolvedValue([]),
   GetOpenAITTSVoices: vi.fn().mockResolvedValue([]),
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
@@ -199,7 +202,7 @@ vi.mock('../components/ui/EditorPanel', () => ({
 }));
 
 import ProfilesPage from './ProfilesPage';
-import { GetProfile } from '@wailsjs/go/app/App';
+import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 
 describe('ProfilesPage', { timeout: 60_000 }, () => {
   beforeEach(() => {

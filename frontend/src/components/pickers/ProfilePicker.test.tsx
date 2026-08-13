@@ -7,7 +7,7 @@ const getProfilesSpy = vi.fn();
 const getActiveSpy = vi.fn();
 const setActiveSpy = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
   GetProfiles: () => getProfilesSpy(),
   GetActiveProfileSlug: () => getActiveSpy(),
   SetActiveProfile: (slug: string) => setActiveSpy(slug),
