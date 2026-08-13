@@ -16,10 +16,13 @@ func (a *App) wireTokens() {
 	}
 }
 
-// wireAllowlist monta o AllowlistController (segundo wireX da Fase 4).
+// wireAllowlist monta o AllowlistController e associa o bind Wails (AEP-0088).
 func (a *App) wireAllowlist() {
 	a.allowlistCtrl = controllers.NewAllowlistController(controllers.AllowlistControllerConfig{
 		AllowlistMgr:     a.allowlistMgr,
 		QuestionnaireMgr: a.questionnaireMgr,
 	})
+	if a.allowlistsAPI != nil {
+		wailsapi.AttachAllowlists(a.allowlistsAPI, wailsSession{app: a}, a.allowlistCtrl)
+	}
 }

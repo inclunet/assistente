@@ -214,6 +214,10 @@ type App struct {
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
 	// wired após NewTokensController.
 	tokensAPI *wailsapi.Tokens
+
+	// allowlistsAPI é o bind Wails do domínio allowlists (AEP-0088). Criado em
+	// main e wired após NewAllowlistController.
+	allowlistsAPI *wailsapi.Allowlists
 }
 
 // ==================== Tipos para Threads ====================
@@ -240,6 +244,15 @@ func SetTokensAPI(a *App, api *wailsapi.Tokens) {
 		return
 	}
 	a.tokensAPI = api
+}
+
+// SetAllowlistsAPI registra o bind Wails de allowlists antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetAllowlistsAPI(a *App, api *wailsapi.Allowlists) {
+	if a == nil {
+		return
+	}
+	a.allowlistsAPI = api
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.

@@ -201,6 +201,11 @@ Para cada domínio da ordem D6:
 **Aceite por domínio:** frontend não importa mais esses métodos de `App`;
 pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 
+**Progresso:**
+- [x] **tokens** (piloto Fases 2–4)
+- [x] **allowlists** (CRUD + questionnaire → `wailsapi.Allowlists`)
+- [ ] skills → profiles → …
+
 ### Fase N — `App` enxuto
 
 Quando os domínios migrados cobrirem a superfície útil:

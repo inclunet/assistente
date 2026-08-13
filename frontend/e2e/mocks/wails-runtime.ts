@@ -22,7 +22,7 @@ declare global {
       setError: (fn: string, message: string) => void;
       clearError: (fn: string) => void;
       emit: (event: string, data?: unknown) => void;
-      getCallLog: () => Array<{ fn: string; args: unknown[] }>;
+      getCallLog: () => Array<{ fn: string; scope?: string; args: unknown[] }>;
       reset: () => void;
     };
     go: Record<string, Record<string, Record<string, (...args: unknown[]) => Promise<unknown>>>>;
@@ -244,12 +244,12 @@ export function buildWailsMockScript(): string {
 
   /* ---------- proxy de funções ---------- */
 
-  function makeProxy() {
+  function makeProxy(scope) {
     return new Proxy({}, {
       get(_target, prop) {
         const fnName = String(prop);
         return function(...args) {
-          _config.callLog.push({ fn: fnName, args });
+          _config.callLog.push({ fn: fnName, scope, args });
           if (fnName in _config.errors) {
             return Promise.reject(new Error(_config.errors[fnName]));
           }
@@ -360,19 +360,19 @@ export function buildWailsMockScript(): string {
     });
   }
 
-  /* ---------- window.go.{app,main}.App ---------- */
+  /* ---------- window.go.{app,main}.App + wailsapi.* ---------- */
 
-  const appProxy = makeProxy();
   window.go = {
     app: {
-      App: appProxy,
+      App: makeProxy('app.App'),
     },
     main: {
-      App: appProxy,
+      App: makeProxy('main.App'),
     },
     wailsapi: {
-      Probe: appProxy,
-      Tokens: appProxy,
+      Probe: makeProxy('wailsapi.Probe'),
+      Tokens: makeProxy('wailsapi.Tokens'),
+      Allowlists: makeProxy('wailsapi.Allowlists'),
     },
   };
 

@@ -16,7 +16,7 @@ const mockGetAllowlist = vi.fn<(slug: string) => Promise<Record<string, unknown>
 const mockGetAllowlists = vi.fn<() => Promise<unknown[]>>(async () => []);
 const mockDeleteAllowlist = vi.fn<(id: string) => Promise<void>>(async () => undefined);
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Allowlists', () => ({
   GetAllowlists: () => mockGetAllowlists(),
   GetAllowlist: (slug: string) => mockGetAllowlist(slug),
   CreateAllowlist: (payload: Record<string, unknown>) => mockCreateAllowlist(payload),

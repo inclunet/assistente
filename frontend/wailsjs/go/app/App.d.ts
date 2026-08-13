@@ -7,7 +7,6 @@ import {portability} from '../models';
 import {subagent} from '../models';
 import {updater} from '../models';
 import {context} from '../models';
-import {allowlist} from '../models';
 import {controllers} from '../models';
 import {memory} from '../models';
 import {profiles} from '../models';
@@ -87,8 +86,6 @@ export function Context():Promise<context.Context>;
 
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
 
-export function CreateAllowlist(arg1:allowlist.Allowlist):Promise<string>;
-
 export function CreateChannelFromTemplate(arg1:string,arg2:Record<string, any>):Promise<void>;
 
 export function CreateConversation(arg1:string,arg2:string):Promise<database.Conversation>;
@@ -114,8 +111,6 @@ export function CreateTaskNote(arg1:string,arg2:number,arg3:string,arg4:string,a
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
 export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
-
-export function DeleteAllowlist(arg1:string):Promise<void>;
 
 export function DeleteConversation(arg1:string):Promise<void>;
 
@@ -232,12 +227,6 @@ export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelCo
 export function GetAllTaskLists():Promise<Array<database.TaskList>>;
 
 export function GetAllTokenStats():Promise<Record<string, number>>;
-
-export function GetAllowlist(arg1:string):Promise<allowlist.Allowlist>;
-
-export function GetAllowlistSearchPaths():Promise<Array<string>>;
-
-export function GetAllowlists():Promise<Array<allowlist.AllowlistInfo>>;
 
 export function GetAppVersion():Promise<string>;
 
@@ -497,8 +486,6 @@ export function ResetConfig():Promise<void>;
 
 export function ResetDatabase():Promise<void>;
 
-export function RespondQuestionnaire(arg1:string,arg2:Record<string, any>,arg3:boolean):Promise<void>;
-
 export function RestartChannel(arg1:string):Promise<void>;
 
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
@@ -632,8 +619,6 @@ export function UnlockVault(arg1:string,arg2:string):Promise<void>;
 export function UnsubscribeFromMCPResource(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Promise<app.ACPInstallation>;
-
-export function UpdateAllowlist(arg1:string,arg2:allowlist.Allowlist):Promise<void>;
 
 export function UpdateConversation(arg1:string,arg2:string,arg3:string):Promise<void>;
 
