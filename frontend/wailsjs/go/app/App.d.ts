@@ -20,7 +20,6 @@ import {contextprovider} from '../models';
 import {chat} from '../models';
 import {llm} from '../models';
 import {config} from '../models';
-import {skills} from '../models';
 import {credentials} from '../models';
 import {ports} from '../models';
 
@@ -100,8 +99,6 @@ export function CreateMessage(arg1:string,arg2:string,arg3:string):Promise<datab
 
 export function CreateProfile(arg1:profiles.Profile):Promise<string>;
 
-export function CreateSkill(arg1:controllers.SkillCreateRequest):Promise<string>;
-
 export function CreateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
 
 export function CreateTaskList(arg1:string,arg2:string,arg3:string):Promise<database.TaskList>;
@@ -132,8 +129,6 @@ export function DeleteMessages(arg1:string,arg2:Array<string>):Promise<void>;
 
 export function DeleteProfile(arg1:string):Promise<void>;
 
-export function DeleteSkill(arg1:string):Promise<void>;
-
 export function DeleteTask(arg1:string):Promise<void>;
 
 export function DeleteTaskList(arg1:string):Promise<void>;
@@ -157,8 +152,6 @@ export function DryRunJob(arg1:string):Promise<jobs.DryRunResult>;
 export function DuplicateMCPServer(arg1:string):Promise<string>;
 
 export function DuplicateProfile(arg1:string):Promise<string>;
-
-export function DuplicateSkill(arg1:string):Promise<string>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
@@ -340,12 +333,6 @@ export function GetRuntimeToolCatalog(arg1:app.RuntimeToolCatalogFilter):Promise
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
 
-export function GetSkill(arg1:string):Promise<skills.Skill>;
-
-export function GetSkillSearchPaths():Promise<Array<string>>;
-
-export function GetSkills():Promise<Array<skills.SkillInfo>>;
-
 export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
 
 export function GetSubtasks(arg1:string):Promise<Array<database.Task>>;
@@ -381,8 +368,6 @@ export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEn
 export function GetTerminalStats():Promise<terminal.ManagerStats>;
 
 export function GetToolCatalog():Promise<Array<jobs.CatalogEntry>>;
-
-export function GetUserInvocableSkillsForProfile(arg1:string):Promise<Array<skills.SkillInfo>>;
 
 export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStatus>;
 
@@ -633,8 +618,6 @@ export function UpdateMessage(arg1:string,arg2:string):Promise<void>;
 export function UpdateProfile(arg1:string,arg2:profiles.Profile):Promise<void>;
 
 export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void>;
-
-export function UpdateSkill(arg1:string,arg2:controllers.SkillCreateRequest):Promise<void>;
 
 export function UpdateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 

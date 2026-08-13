@@ -154,10 +154,6 @@ export function CreateProfile(arg1) {
   return window['go']['app']['App']['CreateProfile'](arg1);
 }
 
-export function CreateSkill(arg1) {
-  return window['go']['app']['App']['CreateSkill'](arg1);
-}
-
 export function CreateTask(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['app']['App']['CreateTask'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
@@ -218,10 +214,6 @@ export function DeleteProfile(arg1) {
   return window['go']['app']['App']['DeleteProfile'](arg1);
 }
 
-export function DeleteSkill(arg1) {
-  return window['go']['app']['App']['DeleteSkill'](arg1);
-}
-
 export function DeleteTask(arg1) {
   return window['go']['app']['App']['DeleteTask'](arg1);
 }
@@ -268,10 +260,6 @@ export function DuplicateMCPServer(arg1) {
 
 export function DuplicateProfile(arg1) {
   return window['go']['app']['App']['DuplicateProfile'](arg1);
-}
-
-export function DuplicateSkill(arg1) {
-  return window['go']['app']['App']['DuplicateSkill'](arg1);
 }
 
 export function EditorDeleteDraft(arg1) {
@@ -634,18 +622,6 @@ export function GetSTTModels(arg1) {
   return window['go']['app']['App']['GetSTTModels'](arg1);
 }
 
-export function GetSkill(arg1) {
-  return window['go']['app']['App']['GetSkill'](arg1);
-}
-
-export function GetSkillSearchPaths() {
-  return window['go']['app']['App']['GetSkillSearchPaths']();
-}
-
-export function GetSkills() {
-  return window['go']['app']['App']['GetSkills']();
-}
-
 export function GetSpeechProviders() {
   return window['go']['app']['App']['GetSpeechProviders']();
 }
@@ -716,10 +692,6 @@ export function GetTerminalStats() {
 
 export function GetToolCatalog() {
   return window['go']['app']['App']['GetToolCatalog']();
-}
-
-export function GetUserInvocableSkillsForProfile(arg1) {
-  return window['go']['app']['App']['GetUserInvocableSkillsForProfile'](arg1);
 }
 
 export function GetVaultIntegrityStatus() {
@@ -1220,10 +1192,6 @@ export function UpdateProfile(arg1, arg2) {
 
 export function UpdateProfileMediaSupport(arg1, arg2) {
   return window['go']['app']['App']['UpdateProfileMediaSupport'](arg1, arg2);
-}
-
-export function UpdateSkill(arg1, arg2) {
-  return window['go']['app']['App']['UpdateSkill'](arg1, arg2);
 }
 
 export function UpdateTask(arg1, arg2, arg3, arg4, arg5) {

@@ -9,8 +9,8 @@ import {
   DeleteSkill,
   GetSkillSearchPaths,
   DuplicateSkill,
-} from '@wailsjs/go/app/App';
-import { skills, controllers } from '../../wailsjs/go/models';
+} from '@wailsjs/go/wailsapi/Skills';
+import { skills, apidto } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -103,7 +103,7 @@ export default function SkillsPage() {
       },
       createItem: async (data) => {
         const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = controllers.SkillCreateRequest.createFrom({
+        const req = apidto.SkillCreateRequest.createFrom({
           name: data.name.trim(),
           description: data.description.trim(),
           disableModelInvocation: !data.auto,
@@ -114,7 +114,7 @@ export default function SkillsPage() {
       },
       updateItem: async (id, data) => {
         const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = controllers.SkillCreateRequest.createFrom({
+        const req = apidto.SkillCreateRequest.createFrom({
           name: data.name.trim(),
           description: data.description.trim(),
           disableModelInvocation: !data.auto,
