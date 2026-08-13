@@ -27,3 +27,20 @@ func TestTokensMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestAllowlistsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"RespondQuestionnaire",
+		"GetAllowlists",
+		"GetAllowlist",
+		"CreateAllowlist",
+		"UpdateAllowlist",
+		"DeleteAllowlist",
+		"GetAllowlistSearchPaths",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Allowlists/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

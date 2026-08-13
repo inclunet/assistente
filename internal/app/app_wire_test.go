@@ -32,11 +32,22 @@ func TestWireTokensAttachesBind(t *testing.T) {
 	}
 }
 
-func TestWireAllowlist(t *testing.T) {
+func TestWireAllowlistAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{}
+	api := wailsapi.NewAllowlists()
+	SetAllowlistsAPI(a, api)
+
 	a.wireAllowlist()
+
 	if a.allowlistCtrl == nil {
 		t.Fatal("allowlistCtrl deve ser criado")
+	}
+	_, err := api.GetAllowlists()
+	if err == nil {
+		t.Fatal("sem sessão autenticada deve falhar (fail-closed)")
+	}
+	if errors.Is(err, wailsapi.ErrAllowlistsNotWired) {
+		t.Fatal("bind deveria estar wired; erro esperado é de auth, não ErrAllowlistsNotWired")
 	}
 }

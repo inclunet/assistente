@@ -22,6 +22,8 @@ func main() {
 	a := application.NewApp()
 	tokensAPI := wailsapi.NewTokens()
 	application.SetTokensAPI(a, tokensAPI)
+	allowlistsAPI := wailsapi.NewAllowlists()
+	application.SetAllowlistsAPI(a, allowlistsAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -55,11 +57,12 @@ func main() {
 			a.Shutdown()
 		},
 		// AEP-0088: multi-bind — App (ciclo de vida + domínios ainda não
-		// migrados), Probe (spike) e Tokens (piloto Fase 2).
+		// migrados), Probe, Tokens e Allowlists.
 		Bind: []interface{}{
 			a,
 			wailsapi.NewProbe(),
 			tokensAPI,
+			allowlistsAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,
