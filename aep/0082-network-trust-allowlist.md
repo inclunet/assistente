@@ -97,7 +97,74 @@ como sugestão no pedido — melhora a UX, mas **não** dispensa o consentimento
 
 Sem autorização (sem authorizer ou usuário negou), o Client devolve
 `BlockedDestinationError` com Host, IP resolvido, Regra (categoria + motivo) e
-Ações possíveis — sem esconder que houve bloqueio por política.
+Ações possíveis — sem esconder que houve bloqueio por política. Entre as ações
+vai o deep link `assistente://navigate/settings/network-allowlist` como link
+Markdown: quem leva o bloqueio na conversa chega à tela de gestão sem procurá-la
+nas configurações.
+
+### D7. Gestão pela UI: listar e remover, sem criar
+
+A aba **Allowlist de Rede** (Configurações) lista as entradas com host, porta,
+escopo, categoria do bloqueio, IPs resolvidos no momento da autorização, autor,
+data e observação, e remove uma entrada depois de confirmação. Não existe
+"criar entrada" pela tela: entrada de allowlist nasce de um consentimento sobre
+um destino concreto, com os IPs daquele momento registrados. Um formulário de
+criação produziria autorizações sem esse lastro de auditoria e transformaria a
+allowlist numa configuração editável — exatamente o que D5 evita.
+
+A tela só enxerga o que está em disco (workspace, perfil ativo e global): a API
+de gestão não roda dentro de uma conversa, então não há `ConversationID` para
+resolver o escopo de sessão. A tela diz isso em texto, porque uma lista que
+omite autorizações vigentes sem avisar seria lida como a relação completa do que
+está liberado. `RemoveNetworkAllowlistEntry` aceita apenas escopos persistidos.
+
+### D8. Escopo de sessão para comandos bash: adiado, com o modelo de escopo já fixado
+
+Levantado na revisão do backend: a autorização de rede ganhou escopos
+(`once/session/workspace/profile/global`), enquanto a confirmação de
+`run_command` (`internal/tools/shell`) continua **binária** e a allowlist de
+comandos (`internal/allowlist`) é um **documento curado** apontado pelo perfil.
+São dois eixos que evoluíram separados, e hoje cada domínio tem só um deles:
+
+| | Política curada por perfil | Trust de runtime escopado |
+|---|---|---|
+| Comandos (`internal/allowlist`) | tem (slug → documento) | não tem |
+| Rede (`internal/nettrust`) | não tem | tem (escopos + merge) |
+
+**Decisão: não implementar agora.** Dar escopos de runtime aos comandos exige
+extrair o núcleo escopado do `nettrust`, criar o armazenamento equivalente para
+comandos e mudar o resolvedor único de allowlist de comando
+(`getAllowlistFn`) — trabalho maior que a entrega de UI desta fase e com risco
+de segurança próprio (o que se persiste de um comando). Fazer junto inflaria o
+PR e misturaria uma mudança de UI com uma mudança de política de execução.
+
+Fica decidido desde já, para a implementação futura não reabrir o desenho:
+
+1. **Os escopos são os mesmos cinco**, com a mesma ordem de match
+   (sessão → perfil → workspace → global) e a mesma semântica de `once`.
+2. **Os dois eixos coexistem** num resolvedor único por domínio, nesta
+   precedência: (a) `deny` da política curada bloqueia sempre — trust de runtime
+   nunca anula deny; (b) `allow` de qualquer escopo de trust **ou** `approve` da
+   política curada libera; (c) senão vale o `default_action` do domínio (rede =
+   deny anti-SSRF; comando = confirm); (d) `confirm` dispara o consentimento
+   escopado, e a escolha vira entrada de trust.
+3. **Trust de comando grava programa + subcomandos normalizados**
+   (via `commandpolicy.Parse`), nunca a linha bruta: argumento de comando
+   carrega segredo, e persistir a linha inteira criaria um vazamento em disco
+   que a confirmação binária de hoje não tem.
+4. **O núcleo escopado vira `internal/trustscope`** (Scope, store por escopo,
+   `identity(ctx)`, `ClearSession`, escrita atômica), extraído do `nettrust` sem
+   mudar o formato em disco das allowlists de rede já persistidas.
+5. **A sessão de comando é limpa junto com a de rede** em
+   `resetConversationScopedState`, pelo mesmo motivo de D4: conversa reciclada
+   que reutilize o ID não pode herdar autorização.
+6. **Allowlist de rede curada por perfil fica fora do alvo.** A simetria
+   completa do 2x2 não tem demanda: o trust de runtime já cobre o caso de rede,
+   e um documento curado de rede seria mais uma fonte de verdade para auditar.
+
+Enquanto isso não for implementado, `run_command` mantém a confirmação binária
+com o documento de allowlist do perfil. A implementação terá AEP próprio
+(numerado na época) e issue dedicada.
 
 ## Segurança
 
@@ -111,8 +178,12 @@ Ações possíveis — sem esconder que houve bloqueio por política.
 
 1. **(entregue)** Backend: classificação, trust por-request, pacote `nettrust`,
    integração no Client, wiring de app (consentimento + API de gestão), testes.
-2. **(futuro — issue #363)** UI dedicada de gestão (listar/remover), deep link,
-   e avaliação de escopar autorizações de comandos bash por sessão/conversa.
+2. **(entregue — issue #363)** UI de gestão (listar/remover) em Configurações,
+   deep link `settings/network-allowlist` na rota e na mensagem de bloqueio,
+   destaque do host declarado pelo skill no consentimento (D7, D6, D5), e a
+   decisão sobre escopar comandos bash (D8).
+3. **(futuro)** Escopos de runtime para comandos bash e núcleo `trustscope`
+   compartilhado, conforme o modelo fixado em D8 — em AEP e issue próprios.
 
 ## Riscos / limitações
 
@@ -147,3 +218,8 @@ Ações possíveis — sem esconder que houve bloqueio por política.
 - [x] Host semelhante não autorizado continua bloqueado; IP fora do trust idem.
 - [x] Reexecução após autorização reenvia inclusive o body (POST).
 - [x] Mensagem de erro contém hostname, IP e categoria.
+- [x] A tela de gestão lista as entradas persistidas e remove depois de confirmar.
+- [x] A mensagem de bloqueio leva à tela de gestão por deep link.
+- [x] O consentimento diz qual host declarado pelo skill casa com o destino, sem
+  dispensar a autorização.
+- [x] A decisão sobre escopar comandos bash está registrada (D8).

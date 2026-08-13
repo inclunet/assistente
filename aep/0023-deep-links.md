@@ -59,18 +59,29 @@ Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`,
 
 ### Rotas Válidas para `navigate`
 
+As telas de configuração são **abas** de `settings` (`settings/:tab?` no
+roteador), então a rota inclui o prefixo: `settings/allowlists`, e não
+`allowlists`. `VALID_ROUTES` em `frontend/src/lib/deepLinks.ts` é a fonte de
+verdade — rota fora dela faz o parser devolver `null`.
+
 | Rota | Página |
 |------|--------|
 | *(vazio)* | Chat (workspace) |
-| `allowlists` | Allowlists |
-| `skills` | Skills |
-| `mcp` | Servidores MCP |
-| `channels` | Canais |
-| `credentials` | Credenciais |
-| `providers` | Provedores |
 | `settings` | Configurações |
+| `settings/providers` | Provedores |
+| `settings/mcp` | Servidores MCP |
+| `settings/skills` | Skills |
+| `settings/channels` | Canais |
+| `settings/contacts` | Contatos |
+| `settings/credentials` | Credenciais |
+| `settings/allowlists` | Allowlists de comandos |
+| `settings/network-allowlist` | Allowlist de rede (hosts autorizados apesar do anti-SSRF) |
+| `settings/appearance` | Aparência |
+| `settings/data` | Dados |
+| `settings/restore-defaults` | Restaurar padrões |
 | `profiles` | Perfis |
 | `history` | Histórico |
+| `memories` | Memórias |
 | `tasklists` | Listas de Tarefas |
 | `help` | Ajuda |
 | `about` | Sobre |
