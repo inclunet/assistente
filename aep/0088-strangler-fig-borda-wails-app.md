@@ -205,7 +205,8 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **tokens** (piloto Fases 2–4)
 - [x] **allowlists** (CRUD + questionnaire → `wailsapi.Allowlists`)
 - [x] **skills** (CRUD + invocable/search paths → `wailsapi.Skills`; DTO em `apidto`)
-- [ ] profiles → …
+- [x] **profiles** (CRUD + active + context providers → `wailsapi.Profiles`)
+- [ ] MCP → …
 
 ### Fase N — `App` enxuto
 
