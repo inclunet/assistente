@@ -234,6 +234,7 @@ export function buildWailsMockScript(): string {
     RespondQuestionnaire: undefined,
     ListCredentials: [],
     GetAllowlists: [],
+    GetNetworkAllowlist: [],
     GetAllTaskLists: [],
     CheckForUpdates: { available: false },
     ReloadLLMClient: undefined,
@@ -377,6 +378,7 @@ export function buildWailsMockScript(): string {
       Tools: makeProxy('wailsapi.Tools'),
       Updater: makeProxy('wailsapi.Updater'),
       Profiles: makeProxy('wailsapi.Profiles'),
+      NetTrust: makeProxy('wailsapi.NetTrust'),
     },
   };
 
