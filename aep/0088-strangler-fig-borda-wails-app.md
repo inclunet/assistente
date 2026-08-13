@@ -64,21 +64,22 @@ não migrou, seus métodos permanecem em `App` e o frontend continua importando
 de `@wailsjs/go/app/App`. Quando o domínio migra, o frontend passa a importar
 do módulo gerado daquele bind (e o CI de bindings cobre a regeneração).
 
-### D2. Autenticação em um único ponto na borda
+### D2. Autenticação em um único ponto na borda — `WithUser` (fechado na Fase 1)
 
 `requireAuthenticatedContext` deixa de ser chamado manualmente em cada método
-público.
+público dos binds de domínio.
 
-Opções aceitas (escolher uma na Fase 1 e padronizar):
+**Escolhido:** helper fail-closed `wailsapi.WithUser(session, fn)` no pacote
+`internal/wailsapi`. O `App` implementa a interface `Session` reusando
+`requireAuthenticatedContext`. Cada método autenticado do bind de domínio chama
+só `WithUser` — sem copy-paste do require.
 
-1. **Decorator/wrapper** na construção do bind (método público → fecha sobre o
-   handler autenticado);
-2. **Helper de invocação** obrigatório no pacote de borda (`WithUser(ctx,
-   fn)`), com lint/teste que falha se um método exportado do bind não passar
-   por ele (exceto allowlist explícita: login, status de sessão, etc.).
+**Rejeitado:** decorator por reflection na construção do bind — frágil com a
+geração de métodos do Wails e mais difícil de testar/ler no call site.
 
 Fail-closed permanece: sem usuário no contexto, a chamada retorna erro; não há
-caminho “anônimo” implícito para APIs autenticadas (AEP-0052).
+caminho “anônimo” implícito para APIs autenticadas (AEP-0052). Métodos sem auth
+(login, status de sessão, etc.) ficam no `App` com allowlist explícita.
 
 ### D3. API pública tipada — sem `map[string]any` na borda Wails
 
@@ -103,15 +104,15 @@ Regras:
 - falha de um domínio não-essencial pode degradar (quando o produto já tiver
   política de degradação); falha de auth/DB continua fatal.
 
-### D5. DTOs da borda em pacote neutro
+### D5. DTOs da borda em pacote neutro — `internal/apidto` (fechado na Fase 1)
 
 Os tipos que atravessam Wails **não** vivem em `controllers` nem são
 reexportados por `app`.
 
-Pacote alvo: `internal/api` (nome final na Fase 1; pode ser `internal/apidto`
-se `api` colidir semanticamente). Controllers e binds importam de lá.
-Aliases `type X = controllers.X` em `internal/app` são removidos ao migrar o
-domínio (ou numa fase dedicada de extração quando o tipo for compartilhado).
+**Pacote alvo:** `internal/apidto` (evita colidir semanticamente com a HTTP
+API / `internal/httpapi`). Controllers e binds importam de lá. Aliases
+`type X = controllers.X` em `internal/app` são removidos ao migrar o domínio
+(ou numa fase dedicada de extração quando o tipo for compartilhado).
 
 ### D6. Um domínio por PR (ou fatia menor)
 
@@ -123,13 +124,12 @@ Não há “big bang”. Cada PR:
 - mantém CI verde (inclui job `bindings`);
 - não reescreve domínios vizinhos “já que estamos aqui”.
 
-Ordem sugerida (ajustável na Fase 1 conforme acoplamento real):
+Ordem fechada na Fase 1 (piloto = **tokens**):
 
-1. Domínios já bem isolados e com pass-through puro (ex.: skills, profiles,
-   allowlists, tokens) — ganho rápido, risco baixo.
-2. Domínios médios (MCP, credentials, settings, updater).
-3. Domínios quentes / transversais por último (chat/messaging, workspace,
-   ACP) — mais eventos e estado compartilhado.
+1. **tokens** (piloto) → allowlists → skills → profiles — pass-through puro.
+2. Domínios médios: MCP, credentials, settings, updater, hotkeys, tools.
+3. Domínios quentes por último: chat/messaging, workspace, ACP, auth
+   (auth permanece no `App` por mais tempo por ser transversal).
 
 ### D7. Escopo explícito do que *não* é este AEP
 
@@ -142,23 +142,23 @@ Fora de escopo (podem ter issues/AEPs próprias):
 
 ## Fases
 
-### Fase 0 — Este AEP e vínculo com #248 (este PR)
+### Fase 0 — Este AEP e vínculo com #248 (feita)
 
 - Publicar AEP-0088 e indexar em `aep/README.md`.
 - Marcar a issue #248 como épico que implementa este AEP.
 
 **Aceite:** AEP revisável; decisão D1–D7 legíveis sem ler o código.
 
-### Fase 1 — Inventário + spike de multi-bind (sem migrar produto)
+### Fase 1 — Inventário + spike de multi-bind (feita)
 
-- Inventariar métodos de `App` por domínio (planilha/seção no AEP ou anexo).
-- Spike mínimo: bindar **um** struct vazio ou com um método de prova ao lado
-  do `App`, regenerar `wailsjs`, chamar do frontend em teste/dev.
-- Escolher e documentar o mecanismo de D2 (decorator vs helper+lint).
-- Confirmar o nome do pacote de DTOs (D5).
+- Inventário por arquivo/domínio no [Anexo A](#anexo-a--inventário-da-borda-app).
+- Spike: `internal/wailsapi.Probe` com `StranglerFigProbe()`, bindado em
+  `main.go` ao lado do `App`; `wailsjs` regenerado (`wailsapi` / `Probe`).
+- D2 fechado: `WithUser` (implementação na Fase 2).
+- D5 fechado: `internal/apidto`.
+- Piloto da Fase 2+: **tokens**.
 
-**Aceite:** spike mergeado ou registrado com evidência; inventário anexo;
-mecanismo de auth da borda escolhido.
+**Aceite:** spike no `Bind`; inventário anexo; D2/D5 fechados.
 
 ### Fase 2 — Auth único na borda + allowlist
 
@@ -172,7 +172,7 @@ allowlist coberta por teste; nenhum método autenticado fora do mecanismo.
 
 ### Fase 3 — Pacote neutro de DTOs
 
-- Criar `internal/api` (ou nome fechado na Fase 1).
+- Criar `internal/apidto`.
 - Mover os DTOs do domínio piloto (e os aliases óbvios compartilhados) para o
   pacote neutro.
 - Controllers e `App`/binds passam a importar de lá.
@@ -226,9 +226,8 @@ Quando os domínios migrados cobrirem a superfície útil:
 
 ## Critérios de aceitação (épico)
 
-- [ ] AEP-0088 aceito (status deixa de ser só Draft quando a Fase 1 fechar as
-      decisões operacionais restantes).
-- [ ] Spike de multi-bind feito e documentado.
+- [x] AEP-0088 publicado; Fase 1 fechou D2 (`WithUser`) e D5 (`internal/apidto`).
+- [x] Spike de multi-bind feito (`wailsapi.Probe` no `Bind`).
 - [ ] Mecanismo único de auth na borda em produção para domínios migrados.
 - [ ] DTOs da borda fora de `controllers` para domínios migrados.
 - [ ] `Startup` composto por `wireX` por domínio.
@@ -238,8 +237,47 @@ Quando os domínios migrados cobrirem a superfície útil:
 ## Referências
 
 - Issue [#248](https://github.com/inclunet/assistente/issues/248)
-- `main.go` (`Bind: []interface{}{a}`)
+- `main.go` (`Bind: []interface{}{a, wailsapi.NewProbe(), …}`)
 - `internal/app` (`App`, `StartupWithAdapters`, `requireAuthenticatedContext`)
+- `internal/wailsapi` (binds de domínio + Probe)
 - `controllers/` (camada atual de orquestração)
 - AEP-0052 (contas / escopo de usuário)
 - Regras de `frontend/wailsjs/` em `AGENTS.md`
+
+## Anexo A — Inventário da borda `App`
+
+Contagem de métodos exportados `func (a *App) NomeMaiúsculo` por arquivo
+`app_*.go` na `main` da Fase 1 (~326 métodos). O domínio **tokens** (4 métodos)
+é o piloto da Fase 2.
+
+| Arquivo / domínio | N | Métodos (resumo) |
+|-------------------|---|------------------|
+| tasklist | 37 | CRUD tarefas/listas/workflow/notas |
+| mcp | 20 | servers, tools, resources, OAuth, logs |
+| jobs | 17 | jobs, runs, catalog, dry-run |
+| speech | 17 | TTS/STT, providers, synthesize |
+| workspace | 16 | tabs, workspaces, import/export |
+| messaging | 15 | canais, contatos, assign |
+| llm_providers | 12 | CRUD providers, test, models |
+| profiles | 12 | CRUD profiles, active, context providers |
+| auth | 9 | login, vault, session |
+| credentials | 8 | vault credentials, external sources |
+| memory | 9 | CRUD memory + policy |
+| settings | 9 | test connection, clear*, native TTS |
+| skills | 8 | CRUD skills |
+| terminal | 8 | sessions, run, interrupt |
+| allowlists | 7 | CRUD allowlists + questionnaire |
+| acp_install | 7 | install/update/remove agents |
+| signal | 7 | Signal link/register |
+| database | 6 | reset, maintenance, stats |
+| tasklist_actions | 5 | custom actions |
+| **tokens (piloto)** | **4** | **stats conversa/turno, threshold** |
+| updater | 4 | version, check, apply |
+| app (ciclo de vida) | 4 | Context, Startup, ShowWindow, Shutdown |
+| tools | 2 | available tools, runtime catalog |
+| chat | 2 | SendMessage, RetryMessage |
+| nettrust | 2 | network allowlist |
+| welcome | 2 | wizard |
+| + ACP options/providers/registry/trust/workdir, hotkeys, media, speech_events, channels_legacy_cleanup, acp_commands | 1–2 cada | ver arquivos `app_*.go` |
+
+Spike Fase 1 (fora do `App`): `wailsapi.Probe.StranglerFigProbe`.
