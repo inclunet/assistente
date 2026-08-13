@@ -74,13 +74,24 @@ func (t *Tokens) GetRecentMessagesTokenCount(conversationID string, messageLimit
 	})
 }
 
+// ContextWindowThresholdResult é o retorno tipado de CheckContextWindowThreshold
+// na borda Wails (evita multi-retorno que o gerador descarta).
+type ContextWindowThresholdResult struct {
+	Above      bool    `json:"above"`
+	Percentage float64 `json:"percentage"`
+}
+
 // CheckContextWindowThreshold verifica se a conversa está próxima do limite de contexto.
-func (t *Tokens) CheckContextWindowThreshold(conversationID string, threshold float64) (bool, float64, error) {
+func (t *Tokens) CheckContextWindowThreshold(conversationID string, threshold float64) (*ContextWindowThresholdResult, error) {
 	session, ctrl, err := t.deps()
 	if err != nil {
-		return false, 0, err
+		return nil, err
 	}
-	return WithUser2(session, func(ctx context.Context) (bool, float64, error) {
-		return ctrl.CheckContextWindowThreshold(ctx, conversationID, threshold)
+	return WithUser(session, func(ctx context.Context) (*ContextWindowThresholdResult, error) {
+		above, pct, err := ctrl.CheckContextWindowThreshold(ctx, conversationID, threshold)
+		if err != nil {
+			return nil, err
+		}
+		return &ContextWindowThresholdResult{Above: above, Percentage: pct}, nil
 	})
 }
