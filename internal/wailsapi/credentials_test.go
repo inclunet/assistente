@@ -42,7 +42,7 @@ func TestCredentialsUsesWithUserNotRequireAuth(t *testing.T) {
 	if strings.Contains(body, "requireAuthenticatedContext(") {
 		t.Fatal("credentials.go não deve chamar requireAuthenticatedContext(; use WithUser")
 	}
-	if !strings.Contains(body, "WithUser(") {
-		t.Fatal("credentials.go deve chamar WithUser(")
+	if !strings.Contains(body, "WithUser(session,") {
+		t.Fatal("credentials.go deve chamar WithUser(session,")
 	}
 }
