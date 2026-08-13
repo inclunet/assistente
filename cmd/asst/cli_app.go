@@ -6,14 +6,16 @@ import (
 	"assistente/controllers"
 	"assistente/internal/apidto"
 	"assistente/internal/app"
+	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/profiles"
 )
 
 var errProfilesNotReady = fmt.Errorf("profiles controller não inicializado")
 var errCredentialsNotReady = fmt.Errorf("credentials controller não inicializado")
+var errMCPNotReady = fmt.Errorf("mcp controller não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
-// profiles/credentials saíram do Bind Wails e vivem nos controllers / wailsapi.
+// profiles/credentials/mcp saíram do Bind Wails e vivem nos controllers / wailsapi.
 type cliApp struct {
 	*app.App
 }
@@ -34,6 +36,14 @@ func (c cliApp) credentials() (*controllers.CredentialsController, error) {
 	ctrl := app.CredentialsCtrl(c.App)
 	if ctrl == nil {
 		return nil, errCredentialsNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) mcp() (*controllers.MCPController, error) {
+	ctrl := app.MCPCtrl(c.App)
+	if ctrl == nil {
+		return nil, errMCPNotReady
 	}
 	return ctrl, nil
 }
@@ -152,4 +162,52 @@ func (c cliApp) DeleteCredential(pattern string) error {
 		return err
 	}
 	return ctrl.DeleteCredentialWithContext(ctx, pattern)
+}
+
+func (c cliApp) ListMCPServers() []mcpmgr.ServerInfo {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return nil
+	}
+	return ctrl.ListMCPServers()
+}
+
+func (c cliApp) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.SaveMCPServer(slug, cfg)
+}
+
+func (c cliApp) ConnectMCPServer(slug string) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.ConnectMCPServer(slug)
+}
+
+func (c cliApp) DisconnectMCPServer(slug string) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.DisconnectMCPServer(slug)
+}
+
+func (c cliApp) GetMCPServerTools(slug string) []mcpmgr.MCPToolInfo {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return nil
+	}
+	return ctrl.GetMCPServerTools(slug)
+}
+
+func (c cliApp) DeleteMCPServer(slug string) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteMCPServer(slug)
 }

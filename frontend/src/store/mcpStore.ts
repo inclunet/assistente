@@ -9,7 +9,7 @@ import {
   DeleteMCPServer,
   GetMCPServerTools,
   GetMCPServerConfig,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/MCP';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { mcp } from '../../wailsjs/go/models';
 

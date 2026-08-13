@@ -37,7 +37,7 @@ vi.mock('../store/mcpStore', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/MCP', () => ({
   SaveMCPServerAuth: vi.fn(() => Promise.resolve()),
   DeleteMCPServerAuth: vi.fn(() => Promise.resolve()),
   GetMCPServerAuthInfo: vi.fn(() => Promise.resolve({ hasAuth: false })),

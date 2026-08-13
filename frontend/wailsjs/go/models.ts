@@ -139,6 +139,20 @@ export namespace apidto {
 	        this.label = source["label"];
 	    }
 	}
+	export class MCPServerAuthInfo {
+	    hasAuth: boolean;
+	    authType: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPServerAuthInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hasAuth = source["hasAuth"];
+	        this.authType = source["authType"];
+	    }
+	}
 	export class NetworkAllowlistView {
 	    host: string;
 	    port?: string;

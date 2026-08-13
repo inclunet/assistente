@@ -9,7 +9,6 @@ import {context} from '../models';
 import {controllers} from '../models';
 import {memory} from '../models';
 import {terminal} from '../models';
-import {mcp} from '../models';
 import {jobs} from '../models';
 import {speech} from '../models';
 import {channels} from '../models';
@@ -64,8 +63,6 @@ export function CloneTaskList(arg1:string,arg2:string):Promise<database.TaskList
 
 export function CloseTerminalSession(arg1:string):Promise<void>;
 
-export function ConnectMCPServer(arg1:string):Promise<void>;
-
 export function Context():Promise<context.Context>;
 
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
@@ -98,10 +95,6 @@ export function DeleteJob(arg1:string):Promise<void>;
 
 export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void>;
 
-export function DeleteMCPServer(arg1:string):Promise<void>;
-
-export function DeleteMCPServerAuth(arg1:string):Promise<void>;
-
 export function DeleteMemoryRecord(arg1:string):Promise<void>;
 
 export function DeleteMessage(arg1:string):Promise<void>;
@@ -120,15 +113,9 @@ export function DemoteTask(arg1:string,arg2:string):Promise<void>;
 
 export function DetectACPAgent(arg1:string):Promise<app.ACPAgentSetup>;
 
-export function DisconnectMCPServer(arg1:string):Promise<void>;
-
-export function DiscoverMCPServerAuth(arg1:string):Promise<mcp.OAuthDiscoveryResult>;
-
 export function DispatchSpeech(arg1:app.ChatSpeakRequest):Promise<void>;
 
 export function DryRunJob(arg1:string):Promise<jobs.DryRunResult>;
-
-export function DuplicateMCPServer(arg1:string):Promise<string>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
@@ -246,18 +233,6 @@ export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
 
 export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 
-export function GetMCPPrompt(arg1:string,arg2:string,arg3:Record<string, string>):Promise<Array<string>>;
-
-export function GetMCPServerAuthInfo(arg1:string):Promise<Record<string, any>>;
-
-export function GetMCPServerConfig(arg1:string):Promise<mcp.ServerConfig>;
-
-export function GetMCPServerLogs(arg1:string,arg2:number):Promise<Array<mcp.MCPServerLog>>;
-
-export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
-
-export function GetMCPWorkspaceRoots():Promise<Array<mcp.Root>>;
-
 export function GetMaintenanceSettings():Promise<config.MaintenanceSettings>;
 
 export function GetMemoryPolicySummary():Promise<memory.PolicySummary>;
@@ -352,8 +327,6 @@ export function ListInstalledACPAgents():Promise<Array<app.ACPInstallation>>;
 
 export function ListKnownEvents():Promise<Array<string>>;
 
-export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
-
 export function ListMemoryRecords(arg1:memory.Filter):Promise<memory.ListResult>;
 
 export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
@@ -374,11 +347,7 @@ export function NeedsWelcomeWizard():Promise<boolean>;
 
 export function PromoteTask(arg1:string):Promise<void>;
 
-export function ReadMCPResource(arg1:string,arg2:string):Promise<string>;
-
 export function RebuildSearchIndex():Promise<void>;
-
-export function ReconnectMCPServer(arg1:string):Promise<void>;
 
 export function RefreshACPCatalog():Promise<app.ACPCatalog>;
 
@@ -434,10 +403,6 @@ export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promi
 
 export function SaveJob(arg1:string):Promise<void>;
 
-export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
-
-export function SaveMCPServerAuth(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
-
 export function SaveMaintenanceSettings(arg1:config.MaintenanceSettings):Promise<void>;
 
 export function SaveMessageAudio(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -463,8 +428,6 @@ export function SetAgentSessionOption(arg1:string,arg2:string,arg3:string):Promi
 export function SetConversationModel(arg1:string,arg2:string):Promise<void>;
 
 export function SetDefaultProvider(arg1:string):Promise<void>;
-
-export function SetMCPWorkspaceRoots(arg1:Array<mcp.Root>):Promise<void>;
 
 export function SetOpenAITTSSpeed(arg1:number):Promise<void>;
 
@@ -508,8 +471,6 @@ export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg
 
 export function StartupWithAdapters(arg1:context.Context,arg2:ports.Emitter,arg3:ports.WindowPort,arg4:ports.SystemDialogPort):Promise<void>;
 
-export function SubscribeToMCPResource(arg1:string,arg2:string):Promise<void>;
-
 export function SwitchWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function SynthesizeOpenAI(arg1:string):Promise<app.SynthesisResultInfo>;
@@ -535,8 +496,6 @@ export function UnarchiveMemoryRecord(arg1:string,arg2:string):Promise<database.
 export function UnassignConversationFromChannel(arg1:string):Promise<void>;
 
 export function UnlockVault(arg1:string,arg2:string):Promise<void>;
-
-export function UnsubscribeFromMCPResource(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Promise<app.ACPInstallation>;
 
