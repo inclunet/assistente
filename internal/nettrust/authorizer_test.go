@@ -5,6 +5,7 @@ import (
 	"net"
 	"testing"
 
+	"assistente/internal/tools"
 	httpclient "assistente/internal/tools/http"
 )
 
@@ -231,6 +232,76 @@ func TestAuthorizer_NilManagerPersistentScopeDegrades(t *testing.T) {
 	}
 	if !ok || len(ips) == 0 {
 		t.Fatal("deveria liberar a request corrente mesmo sem manager")
+	}
+}
+
+// O pedido diz QUAL host declarado pelo skill casa com o destino bloqueado.
+// Sem isso, quem decide precisa comparar o destino com a lista de hosts na mão.
+func TestAuthorizer_PromptTrazHostDoSkillQueCasa(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug:   "workflows-api",
+		NetworkAllowedHost: []string{"outra.coisa.dev", "*.nu.workflows.dev"},
+	})
+
+	prompt := &spyPrompter{decision: PromptDecision{Approve: false}}
+	auth := NewAuthorizer(m, prompt)
+
+	if _, _, err := auth.Authorize(ctx, blockedDest()); err != nil {
+		t.Fatalf("não deveria retornar erro: %v", err)
+	}
+	if got := prompt.lastReq.SkillHostMatch; got != "*.nu.workflows.dev" {
+		t.Fatalf("host do skill que casa = %q, quer o wildcard declarado", got)
+	}
+}
+
+// Destaque só quando de fato casa: dizer "é o host esperado" sobre um destino
+// que o skill não declarou empurraria a pessoa a aprovar o que não devia.
+func TestAuthorizer_PromptSemDestaqueQuandoNenhumHostCasa(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug: "workflows-api",
+		// Wildcard não casa o apex, e o outro host é de outro domínio.
+		NetworkAllowedHost: []string{"*.api.nu.workflows.dev", "outra.coisa.dev"},
+	})
+
+	prompt := &spyPrompter{decision: PromptDecision{Approve: false}}
+	auth := NewAuthorizer(m, prompt)
+
+	if _, _, err := auth.Authorize(ctx, blockedDest()); err != nil {
+		t.Fatalf("não deveria retornar erro: %v", err)
+	}
+	if got := prompt.lastReq.SkillHostMatch; got != "" {
+		t.Fatalf("host do skill que casa = %q, quer vazio", got)
+	}
+	if len(prompt.lastReq.SkillSuggestedHosts) != 2 {
+		t.Fatalf("os hosts declarados deveriam continuar no pedido, got %v", prompt.lastReq.SkillSuggestedHosts)
+	}
+}
+
+// Casar o host do skill NÃO dispensa o consentimento (AEP-0082 D5).
+func TestAuthorizer_HostDoSkillNaoDispensaConsentimento(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug:   "workflows-api",
+		NetworkAllowedHost: []string{"api.nu.workflows.dev"},
+	})
+
+	prompt := &spyPrompter{decision: PromptDecision{Approve: false}}
+	auth := NewAuthorizer(m, prompt)
+
+	_, ok, err := auth.Authorize(ctx, blockedDest())
+	if err != nil {
+		t.Fatalf("não deveria retornar erro: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("esperado 1 pedido de consentimento, got %d", prompt.called)
+	}
+	if ok {
+		t.Fatal("negar deveria manter o bloqueio mesmo com o host declarado pelo skill")
 	}
 }
 

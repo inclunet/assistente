@@ -372,6 +372,19 @@ func TestBlockedDestinationError_Message(t *testing.T) {
 	}
 }
 
+// A mensagem de bloqueio leva à tela de gestão: sem o deep link, quem quer
+// revisar ou revogar o que já autorizou precisa caçar a tela nas configurações.
+func TestBlockedDestinationError_LinkaTelaDeGestao(t *testing.T) {
+	err := &BlockedDestinationError{
+		Host:        "api.nu.workflows.dev",
+		Category:    CategoryCGNAT,
+		Suggestions: defaultBlockSuggestions,
+	}
+	if !strings.Contains(err.Error(), "("+NetworkAllowlistDeepLink+")") {
+		t.Fatalf("mensagem deveria trazer o deep link da allowlist de rede, got:\n%s", err.Error())
+	}
+}
+
 // Classify deve mapear as categorias exigidas.
 func TestClassify_Categories(t *testing.T) {
 	cases := map[string]Category{
