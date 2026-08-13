@@ -1,10 +1,14 @@
 package main
 
 import (
+	"fmt"
+
 	"assistente/controllers"
 	"assistente/internal/app"
 	"assistente/internal/profiles"
 )
+
+var errProfilesNotReady = fmt.Errorf("profiles controller não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
 // profiles saíram do Bind Wails e vivem em ProfilesController / wailsapi.Profiles.
@@ -16,46 +20,90 @@ func asCLI(a *app.App) cliApp {
 	return cliApp{App: a}
 }
 
-func (c cliApp) profiles() *controllers.ProfilesController {
-	return app.ProfilesCtrl(c.App)
+func (c cliApp) profiles() (*controllers.ProfilesController, error) {
+	ctrl := app.ProfilesCtrl(c.App)
+	if ctrl == nil {
+		return nil, errProfilesNotReady
+	}
+	return ctrl, nil
 }
 
 func (c cliApp) GetProfiles() ([]profiles.ProfileInfo, error) {
-	return c.profiles().GetProfiles()
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetProfiles()
 }
 
 func (c cliApp) GetActiveProfileSlug() string {
-	return c.profiles().GetActiveProfileSlug()
+	ctrl, err := c.profiles()
+	if err != nil {
+		return ""
+	}
+	return ctrl.GetActiveProfileSlug()
 }
 
 func (c cliApp) GetProfile(slug string) (*profiles.Profile, error) {
-	return c.profiles().GetProfile(slug)
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetProfile(slug)
 }
 
 func (c cliApp) GetActiveProfile() (*profiles.Profile, error) {
-	return c.profiles().GetActiveProfile()
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetActiveProfile()
 }
 
 func (c cliApp) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
-	return c.profiles().GetActiveProfileAndSlug()
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetActiveProfileAndSlug()
 }
 
 func (c cliApp) SetActiveProfile(slug string) error {
-	return c.profiles().SetActiveProfile(slug)
+	ctrl, err := c.profiles()
+	if err != nil {
+		return err
+	}
+	return ctrl.SetActiveProfile(slug)
 }
 
 func (c cliApp) CreateProfile(p profiles.Profile) (string, error) {
-	return c.profiles().CreateProfile(p)
+	ctrl, err := c.profiles()
+	if err != nil {
+		return "", err
+	}
+	return ctrl.CreateProfile(p)
 }
 
 func (c cliApp) UpdateProfile(slug string, p profiles.Profile) error {
-	return c.profiles().UpdateProfile(slug, p)
+	ctrl, err := c.profiles()
+	if err != nil {
+		return err
+	}
+	return ctrl.UpdateProfile(slug, p)
 }
 
 func (c cliApp) DuplicateProfile(slug string) (string, error) {
-	return c.profiles().DuplicateProfile(slug)
+	ctrl, err := c.profiles()
+	if err != nil {
+		return "", err
+	}
+	return ctrl.DuplicateProfile(slug)
 }
 
 func (c cliApp) DeleteProfile(slug string) error {
-	return c.profiles().DeleteProfile(slug)
+	ctrl, err := c.profiles()
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteProfile(slug)
 }
