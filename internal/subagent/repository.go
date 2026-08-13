@@ -101,7 +101,9 @@ const (
 // O título vem de um LEFT JOIN com conversations (mesmo padrão da listagem
 // unificada do histórico): é a sub-conversa que dá nome ao run na UI, e um join
 // evita N leituras extras. O LEFT preserva o run mesmo que a sub-conversa tenha
-// sido excluída.
+// sido excluída. O JOIN também casa o user_id (defesa em profundidade,
+// AEP-0052): se um child_conversation_id inconsistente apontar para conversa de
+// outro dono, o título vem vazio em vez de vazar para a UI.
 func (r *DBRepository) ListRecent(ctx context.Context, limit int) ([]RunListItem, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
@@ -125,7 +127,7 @@ func (r *DBRepository) ListRecent(ctx context.Context, limit int) ([]RunListItem
 	var rows []row
 	err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.SubAgentRun{}), "sub_agent_runs.user_id").
 		Select("sub_agent_runs.*, conversations.title AS title").
-		Joins("LEFT JOIN conversations ON conversations.id = sub_agent_runs.child_conversation_id").
+		Joins("LEFT JOIN conversations ON conversations.id = sub_agent_runs.child_conversation_id AND conversations.user_id = sub_agent_runs.user_id").
 		Order(activeFirst).
 		Order("sub_agent_runs.created_at DESC, sub_agent_runs.id DESC").
 		Limit(limit).

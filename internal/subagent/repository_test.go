@@ -224,6 +224,60 @@ func TestRepositoryUpdatePreservesImmutableFields(t *testing.T) {
 	}
 }
 
+// TestRepositoryListRecentNaoVazaTituloDeOutroUsuario garante que o LEFT JOIN
+// com conversations casa também o user_id (AEP-0052): um run cujo
+// child_conversation_id aponte para conversa de outro dono vem sem título, em
+// vez de expor o título alheio na UI, enquanto o run com sub-conversa própria
+// continua trazendo o título.
+func TestRepositoryListRecentNaoVazaTituloDeOutroUsuario(t *testing.T) {
+	repo, ctxA := setupManagerTest(t) // ctx => user-a
+
+	convB := &database.Conversation{
+		UUIDModel: database.UUIDModel{ID: "conv-de-user-b"},
+		UserID:    "user-b",
+		Title:     "titulo secreto do user-b",
+	}
+	if err := repo.db.Create(convB).Error; err != nil {
+		t.Fatalf("criar conversa de user-b: %v", err)
+	}
+	convA := &database.Conversation{
+		UUIDModel: database.UUIDModel{ID: "conv-de-user-a"},
+		UserID:    "user-a",
+		Title:     "titulo do user-a",
+	}
+	if err := repo.db.Create(convA).Error; err != nil {
+		t.Fatalf("criar conversa de user-a: %v", err)
+	}
+
+	// Run inconsistente: pertence a user-a, mas aponta para a sub-conversa alheia.
+	runVazado := &database.SubAgentRun{ChildConversationID: convB.ID, Status: database.SubAgentRunStatusQueued}
+	if err := repo.Create(ctxA, runVazado); err != nil {
+		t.Fatalf("Create run vazado: %v", err)
+	}
+	runProprio := &database.SubAgentRun{ChildConversationID: convA.ID, Status: database.SubAgentRunStatusQueued}
+	if err := repo.Create(ctxA, runProprio); err != nil {
+		t.Fatalf("Create run próprio: %v", err)
+	}
+
+	items, err := repo.ListRecent(ctxA, 10)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("esperava 2 runs, veio %d", len(items))
+	}
+	titles := make(map[string]string, len(items))
+	for _, item := range items {
+		titles[item.RunID] = item.Title
+	}
+	if got := titles[runVazado.ID]; got != "" {
+		t.Fatalf("título de conversa de outro usuário vazou na listagem: %q", got)
+	}
+	if got := titles[runProprio.ID]; got != convA.Title {
+		t.Fatalf("título da própria sub-conversa esperado %q, veio %q", convA.Title, got)
+	}
+}
+
 // TestRepositoryCreateRequiresUserScope rejeita escrita sem usuário no contexto.
 func TestRepositoryCreateRequiresUserScope(t *testing.T) {
 	repo, _ := setupManagerTest(t)
