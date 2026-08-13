@@ -28,6 +28,8 @@ func main() {
 	application.SetSkillsAPI(a, skillsAPI)
 	toolsAPI := wailsapi.NewTools()
 	application.SetToolsAPI(a, toolsAPI)
+	updaterAPI := wailsapi.NewUpdater()
+	application.SetUpdaterAPI(a, updaterAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -68,6 +70,7 @@ func main() {
 			allowlistsAPI,
 			skillsAPI,
 			toolsAPI,
+			updaterAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

@@ -49,3 +49,17 @@ func (a *App) wireTools() {
 		wailsapi.AttachTools(a.toolsAPI, wailsSession{app: a}, a.toolsCtrl)
 	}
 }
+
+// wireUpdater monta o UpdaterController e associa o bind Wails (AEP-0088).
+func (a *App) wireUpdater() {
+	a.updaterCtrl = controllers.NewUpdaterController(controllers.UpdaterControllerConfig{
+		Updater:          a.updater,
+		Emitter:          a.emitter,
+		QuestionnaireMgr: a.questionnaireMgr,
+		ProviderSvc:      a.providerSvc,
+		AppVersion:       AppVersion,
+	})
+	if a.updaterAPI != nil {
+		wailsapi.AttachUpdater(a.updaterAPI, wailsSession{app: a}, a.updaterCtrl)
+	}
+}

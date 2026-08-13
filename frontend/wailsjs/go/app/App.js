@@ -34,10 +34,6 @@ export function AnalyzeImportData(arg1, arg2) {
   return window['go']['app']['App']['AnalyzeImportData'](arg1, arg2);
 }
 
-export function ApplyUpdate() {
-  return window['go']['app']['App']['ApplyUpdate']();
-}
-
 export function ArchiveMemoryRecord(arg1) {
   return window['go']['app']['App']['ArchiveMemoryRecord'](arg1);
 }
@@ -68,10 +64,6 @@ export function CancelStreamingForConversation(arg1) {
 
 export function CancelSubAgentRun(arg1, arg2) {
   return window['go']['app']['App']['CancelSubAgentRun'](arg1, arg2);
-}
-
-export function CheckForUpdates() {
-  return window['go']['app']['App']['CheckForUpdates']();
 }
 
 export function CleanupLegacyChannelJSON(arg1) {
@@ -396,10 +388,6 @@ export function GetAllTaskLists() {
 
 export function GetAllTokenStats() {
   return window['go']['app']['App']['GetAllTokenStats']();
-}
-
-export function GetAppVersion() {
-  return window['go']['app']['App']['GetAppVersion']();
 }
 
 export function GetAuthStatus() {
@@ -1076,10 +1064,6 @@ export function SpeakMessage(arg1, arg2, arg3, arg4, arg5, arg6) {
 
 export function SpeakPreview(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['app']['App']['SpeakPreview'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
-}
-
-export function StartUpdate() {
-  return window['go']['app']['App']['StartUpdate']();
 }
 
 export function StartupWithAdapters(arg1, arg2, arg3, arg4) {

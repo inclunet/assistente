@@ -107,23 +107,3 @@ func (a *App) initUpdater() {
 func (a *App) checkForUpdatesOnStartup() {
 	a.updaterCtrl.CheckForUpdatesOnStartup(a.ctx)
 }
-
-// GetAppVersion retorna a versão atual do aplicativo.
-func (a *App) GetAppVersion() string {
-	return a.updaterCtrl.GetAppVersion()
-}
-
-// CheckForUpdates verifica manualmente se há atualizações disponíveis.
-func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
-	return a.updaterCtrl.CheckForUpdates()
-}
-
-// ApplyUpdate aplica a atualização (chamado pelo frontend).
-func (a *App) ApplyUpdate() error {
-	return a.updaterCtrl.ApplyUpdate(a.ctx)
-}
-
-// StartUpdate inicia o processo de atualização (navega para página e inicia).
-func (a *App) StartUpdate() error {
-	return a.updaterCtrl.StartUpdate(a.ctx)
-}

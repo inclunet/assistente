@@ -223,6 +223,10 @@ type App struct {
 	// toolsAPI é o bind Wails do domínio tools (AEP-0088). Criado em main e
 	// wired após NewToolsController.
 	toolsAPI *wailsapi.Tools
+
+	// updaterAPI é o bind Wails do domínio updater (AEP-0088). Criado em main e
+	// wired após NewUpdaterController.
+	updaterAPI *wailsapi.Updater
 }
 
 // ==================== Tipos para Threads ====================
@@ -284,6 +288,15 @@ func ListAvailableTools(a *App) []controllers.ToolInfo {
 		return nil
 	}
 	return a.toolsCtrl.GetAvailableTools()
+}
+
+// SetUpdaterAPI registra o bind Wails de updater antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetUpdaterAPI(a *App, api *wailsapi.Updater) {
+	if a == nil {
+		return
+	}
+	a.updaterAPI = api
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
@@ -628,13 +641,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireSkills()
 	a.wireAllowlist()
 	a.wireTools()
-	a.updaterCtrl = controllers.NewUpdaterController(controllers.UpdaterControllerConfig{
-		Updater:          a.updater,
-		Emitter:          a.emitter,
-		QuestionnaireMgr: a.questionnaireMgr,
-		ProviderSvc:      a.providerSvc,
-		AppVersion:       AppVersion,
-	})
+	a.wireUpdater()
 	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
 		CredMgr: a.credMgr,
 	})
