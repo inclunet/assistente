@@ -14,6 +14,7 @@ import { QuestionnaireDialog } from './components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 import { useConnectionStatusListener } from './hooks/useConnectionStatusListener';
 import { usePartialRuntimeInitListener } from './hooks/usePartialRuntimeInitListener';
+import { useSubAgentRunEvents } from './hooks/useSubAgentRunEvents';
 import { ToastHost } from './components/ui/ToastHost';
 import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
@@ -94,6 +95,10 @@ function App() {
     // Aviso não-bloqueante de runtime parcialmente inicializado pós-login
     // (issue #250): toast + announce com ação "Tentar novamente".
     usePartialRuntimeInitListener();
+
+    // Runs de sub-agente em segundo plano (AEP-0068 F5): mantém a lista viva e
+    // anuncia início/fim pelo announcer global único (AEP-0058).
+    useSubAgentRunEvents();
 
     const showLegacyImportSummary = useCallback((eventData: LegacyImportSummaryEvent) => {
         const currentUserId = getCurrentAuthSnapshot().userId;
