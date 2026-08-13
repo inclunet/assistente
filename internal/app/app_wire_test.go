@@ -16,7 +16,7 @@ func TestWireTokensAttachesBind(t *testing.T) {
 		tokenSvc:       chat.NewTokenService(chat.NewDBMessageStore()),
 	}
 	api := wailsapi.NewTokens()
-	a.BindTokensAPI(api)
+	SetTokensAPI(a, api)
 
 	a.wireTokens()
 
