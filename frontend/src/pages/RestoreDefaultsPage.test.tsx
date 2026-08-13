@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
 import * as AppAPI from '@wailsjs/go/app/App';
+import * as SettingsAPI from '@wailsjs/go/wailsapi/Settings';
 import { app } from '@wailsjs/go/models';
 
 const emptyCleanupResult = () =>
@@ -81,6 +82,7 @@ vi.mock('../store/chatStore', () => ({
   },
 }));
 vi.mock('@wailsjs/go/app/App');
+vi.mock('@wailsjs/go/wailsapi/Settings');
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
     announce: mockAnnounce,
@@ -98,10 +100,10 @@ describe('RestoreDefaultsPage', () => {
     vi.clearAllMocks();
 
     vi.mocked(AppAPI.ClearMessages).mockResolvedValue(undefined);
-    vi.mocked(AppAPI.ClearAllCredentials).mockResolvedValue(undefined);
-    vi.mocked(AppAPI.ClearAllProfiles).mockResolvedValue(undefined);
-    vi.mocked(AppAPI.ClearAllSkills).mockResolvedValue(undefined);
-    vi.mocked(AppAPI.ClearAllChannels).mockResolvedValue(undefined);
+    vi.mocked(SettingsAPI.ClearAllCredentials).mockResolvedValue(undefined);
+    vi.mocked(SettingsAPI.ClearAllProfiles).mockResolvedValue(undefined);
+    vi.mocked(SettingsAPI.ClearAllSkills).mockResolvedValue(undefined);
+    vi.mocked(SettingsAPI.ClearAllChannels).mockResolvedValue(undefined);
     vi.mocked(AppAPI.ResetDatabase).mockResolvedValue(undefined);
     vi.mocked(AppAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
 

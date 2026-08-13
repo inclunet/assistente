@@ -377,6 +377,7 @@ export function buildWailsMockScript(): string {
       Tools: makeProxy('wailsapi.Tools'),
       Updater: makeProxy('wailsapi.Updater'),
       Profiles: makeProxy('wailsapi.Profiles'),
+      Settings: makeProxy('wailsapi.Settings'),
     },
   };
 
