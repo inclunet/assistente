@@ -5,7 +5,6 @@ import {database} from '../models';
 import {workspace} from '../models';
 import {portability} from '../models';
 import {context} from '../models';
-import {wailsapi} from '../models';
 import {subagent} from '../models';
 import {updater} from '../models';
 import {allowlist} from '../models';
@@ -51,8 +50,6 @@ export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string)
 export function AuthenticatedContext():Promise<context.Context>;
 
 export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
-
-export function BindTokensAPI(arg1:wailsapi.Tokens):Promise<void>;
 
 export function CanPersistCredentials():Promise<boolean>;
 
