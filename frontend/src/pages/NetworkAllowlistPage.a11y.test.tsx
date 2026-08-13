@@ -3,6 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { axe } from '../test/a11yAxe';
 
 const mockGetNetworkAllowlist = vi.fn();
+const mockAddToast = vi.fn();
+const mockAnnounce = vi.fn();
+const mockAnnounceRequest = vi.fn();
+const tStable = (key: string, fb?: string) => (typeof fb === 'string' ? fb : key);
 
 vi.mock('@wailsjs/go/app/App', () => ({
   GetNetworkAllowlist: (...args: unknown[]) => mockGetNetworkAllowlist(...args),
@@ -11,16 +15,26 @@ vi.mock('@wailsjs/go/app/App', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fb?: string) => (typeof fb === 'string' ? fb : key),
+    t: tStable,
     i18n: { language: 'pt-BR', changeLanguage: vi.fn() },
   }),
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn() }),
-  announce: vi.fn(),
+  useAnnouncer: () => ({ announce: mockAnnounce, announceRequest: mockAnnounceRequest }),
+  announce: (...args: unknown[]) => mockAnnounce(...args),
 }));
+vi.mock('../hooks/useConfirm', () => ({ useConfirm: () => vi.fn() }));
+vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn() }) }));
+vi.mock('../hooks/useGridPageLandmarks', () => ({ useGridPageLandmarks: vi.fn() }));
 vi.mock('../services/audioFeedback', () => ({ playBumpSound: vi.fn() }));
+vi.mock('../store/uiStore', () => ({
+  useUIStore: (selector: (state: { addToast: typeof mockAddToast }) => unknown) =>
+    selector({ addToast: mockAddToast }),
+}));
+vi.mock('../components/ui/PageLoading', () => ({
+  PageLoading: ({ message }: { message: string }) => <div>{message}</div>,
+}));
 
 import NetworkAllowlistPage from './NetworkAllowlistPage';
 
@@ -53,9 +67,9 @@ describe('NetworkAllowlistPage — acessibilidade', () => {
     mockGetNetworkAllowlist.mockResolvedValue([]);
 
     const { container } = render(<NetworkAllowlistPage />);
-    await waitFor(() =>
-      expect(screen.getByText('networkAllowlist.empty')).toBeInTheDocument(),
-    );
+    await waitFor(() => {
+      expect(screen.getByText('networkAllowlist.empty')).toBeInTheDocument();
+    });
 
     expect(await axe(container)).toHaveNoViolations();
   });

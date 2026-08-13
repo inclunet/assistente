@@ -70,10 +70,6 @@ export function CancelSubAgentRun(arg1, arg2) {
   return window['go']['app']['App']['CancelSubAgentRun'](arg1, arg2);
 }
 
-export function CheckContextWindowThreshold(arg1, arg2) {
-  return window['go']['app']['App']['CheckContextWindowThreshold'](arg1, arg2);
-}
-
 export function CheckForUpdates() {
   return window['go']['app']['App']['CheckForUpdates']();
 }
@@ -494,10 +490,6 @@ export function GetConversationSummary(arg1) {
   return window['go']['app']['App']['GetConversationSummary'](arg1);
 }
 
-export function GetConversationTokenStats(arg1) {
-  return window['go']['app']['App']['GetConversationTokenStats'](arg1);
-}
-
 export function GetConversationWithThreads(arg1) {
   return window['go']['app']['App']['GetConversationWithThreads'](arg1);
 }
@@ -654,10 +646,6 @@ export function GetRecentMessages(arg1, arg2) {
   return window['go']['app']['App']['GetRecentMessages'](arg1, arg2);
 }
 
-export function GetRecentMessagesTokenCount(arg1, arg2) {
-  return window['go']['app']['App']['GetRecentMessagesTokenCount'](arg1, arg2);
-}
-
 export function GetRuntimeToolCatalog(arg1) {
   return window['go']['app']['App']['GetRuntimeToolCatalog'](arg1);
 }
@@ -748,10 +736,6 @@ export function GetTerminalStats() {
 
 export function GetToolCatalog() {
   return window['go']['app']['App']['GetToolCatalog']();
-}
-
-export function GetTurnTokenStats(arg1, arg2) {
-  return window['go']['app']['App']['GetTurnTokenStats'](arg1, arg2);
 }
 
 export function GetUserInvocableSkillsForProfile(arg1) {

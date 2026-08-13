@@ -2,7 +2,7 @@ import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { BarChartOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetConversationTokenStats } from '@wailsjs/go/app/App';
+import { GetConversationTokenStats } from '@wailsjs/go/wailsapi/Tokens';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import './TokenStatsButton.css';
 

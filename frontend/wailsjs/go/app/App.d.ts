@@ -59,8 +59,6 @@ export function CancelStreamingForConversation(arg1:string):Promise<void>;
 
 export function CancelSubAgentRun(arg1:string,arg2:string):Promise<subagent.CancelResult>;
 
-export function CheckContextWindowThreshold(arg1:string,arg2:number):Promise<boolean>;
-
 export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
 export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
@@ -271,8 +269,6 @@ export function GetConversationMessageWindow(arg1:chat.MessageWindowRequest):Pro
 
 export function GetConversationSummary(arg1:string):Promise<app.ConversationSummaryInfo>;
 
-export function GetConversationTokenStats(arg1:string):Promise<chat.TokenStats>;
-
 export function GetConversationWithThreads(arg1:string):Promise<chat.ConversationWithThreads>;
 
 export function GetConversations():Promise<Array<database.Conversation>>;
@@ -351,8 +347,6 @@ export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
 
-export function GetRecentMessagesTokenCount(arg1:string,arg2:number):Promise<number>;
-
 export function GetRuntimeToolCatalog(arg1:app.RuntimeToolCatalogFilter):Promise<Array<app.RuntimeToolCatalogEntry>>;
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
@@ -398,8 +392,6 @@ export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEn
 export function GetTerminalStats():Promise<terminal.ManagerStats>;
 
 export function GetToolCatalog():Promise<Array<jobs.CatalogEntry>>;
-
-export function GetTurnTokenStats(arg1:string,arg2:string):Promise<chat.TokenStats>;
 
 export function GetUserInvocableSkillsForProfile(arg1:string):Promise<Array<skills.SkillInfo>>;
 

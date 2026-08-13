@@ -9,7 +9,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Tokens', () => ({
   GetConversationTokenStats: (id: string) => getStatsSpy(id),
 }));
 

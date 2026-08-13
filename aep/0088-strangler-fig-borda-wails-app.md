@@ -160,12 +160,12 @@ Fora de escopo (podem ter issues/AEPs próprias):
 
 **Aceite:** spike no `Bind`; inventário anexo; D2/D5 fechados.
 
-### Fase 2 — Auth único na borda + allowlist
+### Fase 2 — Auth único na borda + allowlist (feita)
 
-- Implementar o mecanismo D2.
-- Migrar um domínio piloto (o do spike ou o próximo da ordem D6) para o novo
-  padrão de auth.
-- Allowlist explícita de métodos públicos sem auth (login, etc.) com teste.
+- `wailsapi.Session` + `WithUser` / `WithUser2`; `App.AuthenticatedContext`.
+- Domínio piloto **tokens**: bind `wailsapi.Tokens` (4 métodos); removidos de
+  `App`; FE importa `@wailsjs/go/wailsapi/Tokens`.
+- Allowlist `UnauthenticatedAppMethods` + testes; Tokens só via `WithUser`.
 
 **Aceite:** domínio piloto sem `requireAuthenticatedContext` manual;
 allowlist coberta por teste; nenhum método autenticado fora do mecanismo.
@@ -228,7 +228,7 @@ Quando os domínios migrados cobrirem a superfície útil:
 
 - [x] AEP-0088 publicado; Fase 1 fechou D2 (`WithUser`) e D5 (`internal/apidto`).
 - [x] Spike de multi-bind feito (`wailsapi.Probe` no `Bind`).
-- [ ] Mecanismo único de auth na borda em produção para domínios migrados.
+- [x] Mecanismo único de auth na borda em produção para domínios migrados (`WithUser` + Tokens).
 - [ ] DTOs da borda fora de `controllers` para domínios migrados.
 - [ ] `Startup` composto por `wireX` por domínio.
 - [ ] Maioria dos métodos Wails fora de `*App`; #248 fechada.

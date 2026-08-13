@@ -204,7 +204,7 @@ export function buildWailsMockScript(): string {
     },
     GetTurnTokenStats: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
     GetRecentMessagesTokenCount: 0,
-    CheckContextWindowThreshold: false,
+    CheckContextWindowThreshold: { above: false, percentage: 0 },
 
     /* Speech */
     GetSpeechProviders: [],
@@ -369,6 +369,10 @@ export function buildWailsMockScript(): string {
     },
     main: {
       App: appProxy,
+    },
+    wailsapi: {
+      Probe: appProxy,
+      Tokens: appProxy,
     },
   };
 
