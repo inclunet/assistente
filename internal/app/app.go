@@ -585,13 +585,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
 		JobMgr: a.jobMgr,
 	})
-	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
-		ProfileMgr: a.profileManager,
-		TokenSvc:   a.tokenSvc,
-	})
-	if a.tokensAPI != nil {
-		wailsapi.AttachTokens(a.tokensAPI, wailsSession{app: a}, a.tokensCtrl)
-	}
+	a.wireTokens()
 	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
 		ToolRegistry: a.toolRegistry,
 		MCPMgr:       a.mcpMgr,
@@ -620,10 +614,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
 		TerminalMgr: a.terminalMgr,
 	})
-	a.allowlistCtrl = controllers.NewAllowlistController(controllers.AllowlistControllerConfig{
-		AllowlistMgr:     a.allowlistMgr,
-		QuestionnaireMgr: a.questionnaireMgr,
-	})
+	a.wireAllowlist()
 	a.signalCtrl = controllers.NewSignalController()
 
 	if err := a.startHTTPAPI(); err != nil {
