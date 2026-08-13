@@ -4,16 +4,14 @@ import (
 	"fmt"
 	"strings"
 
+	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 )
 
-// SkillCreateRequest é o payload para criar/atualizar um skill via frontend.
-type SkillCreateRequest struct {
-	skills.SkillMetadata `json:",inline"`
-	Content              string `json:"content"`
-}
+// SkillCreateRequest — alias estável durante a migração Strangler (AEP-0088 D5).
+type SkillCreateRequest = apidto.SkillCreateRequest
 
 // SkillsControllerConfig agrupa as dependências do SkillsController.
 type SkillsControllerConfig struct {
@@ -55,7 +53,7 @@ func (c *SkillsController) GetSkill(slug string) (*skills.Skill, error) {
 	return c.skillMgr.Get(slug)
 }
 
-func (c *SkillsController) CreateSkill(req SkillCreateRequest) (string, error) {
+func (c *SkillsController) CreateSkill(req apidto.SkillCreateRequest) (string, error) {
 	if err := c.guard(); err != nil {
 		return "", err
 	}
@@ -84,7 +82,7 @@ func (c *SkillsController) DuplicateSkill(slug string) (string, error) {
 	return newSlug, nil
 }
 
-func (c *SkillsController) UpdateSkill(slug string, req SkillCreateRequest) error {
+func (c *SkillsController) UpdateSkill(slug string, req apidto.SkillCreateRequest) error {
 	if err := c.guard(); err != nil {
 		return err
 	}
