@@ -14,9 +14,12 @@ const unsubscribeMock = vi.fn();
 
 vi.mock('@wailsjs/go/app/App', () => ({
   GetAvailableTools: (...args: unknown[]) => getAvailableToolsMock(...args),
-  GetAllowlists: (...args: unknown[]) => getAllowlistsMock(...args),
   GetSkills: (...args: unknown[]) => getSkillsMock(...args),
   GetContextProviders: (...args: unknown[]) => getContextProvidersMock(...args),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Allowlists', () => ({
+  GetAllowlists: (...args: unknown[]) => getAllowlistsMock(...args),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({

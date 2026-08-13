@@ -126,10 +126,6 @@ export function CreateAdminUser(arg1) {
   return window['go']['app']['App']['CreateAdminUser'](arg1);
 }
 
-export function CreateAllowlist(arg1) {
-  return window['go']['app']['App']['CreateAllowlist'](arg1);
-}
-
 export function CreateChannelFromTemplate(arg1, arg2) {
   return window['go']['app']['App']['CreateChannelFromTemplate'](arg1, arg2);
 }
@@ -180,10 +176,6 @@ export function CreateTerminalSession(arg1) {
 
 export function CreateWorkspace(arg1) {
   return window['go']['app']['App']['CreateWorkspace'](arg1);
-}
-
-export function DeleteAllowlist(arg1) {
-  return window['go']['app']['App']['DeleteAllowlist'](arg1);
 }
 
 export function DeleteConversation(arg1) {
@@ -416,18 +408,6 @@ export function GetAllTaskLists() {
 
 export function GetAllTokenStats() {
   return window['go']['app']['App']['GetAllTokenStats']();
-}
-
-export function GetAllowlist(arg1) {
-  return window['go']['app']['App']['GetAllowlist'](arg1);
-}
-
-export function GetAllowlistSearchPaths() {
-  return window['go']['app']['App']['GetAllowlistSearchPaths']();
-}
-
-export function GetAllowlists() {
-  return window['go']['app']['App']['GetAllowlists']();
 }
 
 export function GetAppVersion() {
@@ -946,10 +926,6 @@ export function ResetDatabase() {
   return window['go']['app']['App']['ResetDatabase']();
 }
 
-export function RespondQuestionnaire(arg1, arg2, arg3) {
-  return window['go']['app']['App']['RespondQuestionnaire'](arg1, arg2, arg3);
-}
-
 export function RestartChannel(arg1) {
   return window['go']['app']['App']['RestartChannel'](arg1);
 }
@@ -1216,10 +1192,6 @@ export function UnsubscribeFromMCPResource(arg1, arg2) {
 
 export function UpdateACPAgent(arg1, arg2) {
   return window['go']['app']['App']['UpdateACPAgent'](arg1, arg2);
-}
-
-export function UpdateAllowlist(arg1, arg2) {
-  return window['go']['app']['App']['UpdateAllowlist'](arg1, arg2);
 }
 
 export function UpdateConversation(arg1, arg2, arg3) {

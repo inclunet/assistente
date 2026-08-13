@@ -373,6 +373,7 @@ export function buildWailsMockScript(): string {
     wailsapi: {
       Probe: appProxy,
       Tokens: appProxy,
+      Allowlists: appProxy,
     },
   };
 
