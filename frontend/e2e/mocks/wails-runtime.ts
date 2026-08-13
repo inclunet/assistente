@@ -107,6 +107,7 @@ export function buildWailsMockScript(): string {
     NeedsWelcomeWizard: false,
     RunWelcomeWizard: true,
     GetAppVersion: '1.0.0-test',
+    IsGlobalHotkeySupported: true,
 
     /* Auth */
     GetAuthStatus: {
@@ -377,6 +378,7 @@ export function buildWailsMockScript(): string {
       Tools: makeProxy('wailsapi.Tools'),
       Updater: makeProxy('wailsapi.Updater'),
       Profiles: makeProxy('wailsapi.Profiles'),
+      Hotkeys: makeProxy('wailsapi.Hotkeys'),
     },
   };
 
