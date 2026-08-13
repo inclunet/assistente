@@ -179,13 +179,13 @@ allowlist coberta por teste; nenhum método autenticado fora do mecanismo.
 **Aceite:** zero aliases `controllers.*` no domínio piloto; job `bindings`
 verde; frontend tipado contra os structs gerados.
 
-### Fase 4 — Quebrar `StartupWithAdapters`
+### Fase 4 — Quebrar `StartupWithAdapters` (feita)
 
-- Extrair `wireX` por domínio sem mudar comportamento.
-- `Startup` orquestra; testes de boot por domínio onde fizer sentido.
+- Extraídos `wireTokens` e `wireAllowlist` de `StartupWithAdapters`.
+- Testes de wiring sem GUI (`app_wire_test.go`).
 
-**Aceite:** `StartupWithAdapters` (ou sucessor) legível (<~100 linhas de
-orquestração); wiring de pelo menos dois domínios em funções separadas.
+**Aceite:** `StartupWithAdapters` orquestra; wiring de pelo menos dois
+domínios em funções separadas.
 
 ### Fase 5+ — Migração Strangler por domínio
 
@@ -229,7 +229,7 @@ Quando os domínios migrados cobrirem a superfície útil:
 - [x] Spike de multi-bind feito (`wailsapi.Probe` no `Bind`).
 - [x] Mecanismo único de auth na borda em produção para domínios migrados (`WithUser` + Tokens).
 - [x] DTOs da borda fora de `controllers` para domínios migrados (`internal/apidto` tokens).
-- [ ] `Startup` composto por `wireX` por domínio.
+- [x] `Startup` composto por `wireX` por domínio (`wireTokens`, `wireAllowlist`).
 - [ ] Maioria dos métodos Wails fora de `*App`; #248 fechada.
 - [ ] Frontend + job `bindings` verdes a cada fase.
 
