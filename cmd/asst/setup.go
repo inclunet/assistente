@@ -61,7 +61,7 @@ Configura:
   - Provedor LLM (OpenAI, Claude, Ollama, etc.)
   - API key e modelo padrão`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runSetup(rootApp, readPassword, os.Stdout)
+		return runSetup(asCLI(rootApp), readPassword, os.Stdout)
 	},
 }
 

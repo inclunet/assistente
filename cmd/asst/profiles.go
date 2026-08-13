@@ -33,7 +33,7 @@ var profilesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista todos os perfis disponíveis",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProfilesList(rootApp, os.Stdout)
+		return runProfilesList(asCLI(rootApp), os.Stdout)
 	},
 }
 
@@ -62,7 +62,7 @@ var profilesShowCmd = &cobra.Command{
 	Short: "Exibe detalhes de um perfil",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProfilesShow(rootApp, os.Stdout, args[0])
+		return runProfilesShow(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -98,7 +98,7 @@ var profilesActivateCmd = &cobra.Command{
 	Short: "Ativa um perfil",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProfilesActivate(rootApp, os.Stdout, args[0])
+		return runProfilesActivate(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -127,7 +127,7 @@ Exemplos:
   assistente profiles create --name "Escritor" --temperature 0.9`,
 
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProfilesCreate(rootApp, os.Stdout, cmd)
+		return runProfilesCreate(asCLI(rootApp), os.Stdout, cmd)
 	},
 }
 
@@ -176,7 +176,7 @@ Exemplos:
   assistente profiles edit tradutor --name "Tradutor PRO" --temperature 0.3`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProfilesEdit(rootApp, os.Stdout, cmd, args[0])
+		return runProfilesEdit(asCLI(rootApp), os.Stdout, cmd, args[0])
 	},
 }
 
@@ -214,7 +214,7 @@ var profilesDuplicateCmd = &cobra.Command{
 	Short: "Duplica um perfil existente",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProfilesDuplicate(rootApp, os.Stdout, args[0])
+		return runProfilesDuplicate(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -234,7 +234,7 @@ var profilesDeleteCmd = &cobra.Command{
 	Short: "Remove um perfil",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProfilesDelete(rootApp, os.Stdout, args[0])
+		return runProfilesDelete(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"assistente/controllers"
+	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
 )
 
@@ -36,5 +37,24 @@ func (a *App) wireSkills() {
 	})
 	if a.skillsAPI != nil {
 		wailsapi.AttachSkills(a.skillsAPI, wailsSession{app: a}, a.skillsCtrl)
+	}
+}
+
+// wireProfiles monta o ProfilesController e associa o bind Wails (AEP-0088).
+func (a *App) wireProfiles() {
+	a.profilesCtrl = controllers.NewProfilesController(controllers.ProfilesControllerConfig{
+		ProfileMgr:       a.profileManager,
+		Emitter:          a.emitter,
+		ContextProviders: a.contextProviders,
+		OnProfileChanged: func(slug string) {
+			a.initLLMClient()
+			if err := a.InitSpeechManagerFromProfile(); err != nil {
+				logging.Errorf(a.ctx, "app.app_wire", "[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
+			}
+			a.registerActiveProfileHotkeys()
+		},
+	})
+	if a.profilesAPI != nil {
+		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
 	}
 }

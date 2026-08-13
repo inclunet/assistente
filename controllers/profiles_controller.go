@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
 	"assistente/internal/logging"
 	"assistente/internal/profiles"
@@ -13,6 +14,7 @@ import (
 type ProfilesController struct {
 	profileMgr       *profiles.Manager
 	emitter          ports.Emitter
+	contextProviders *contextprovider.Registry
 	onProfileChanged func(slug string) // callback para reinicializar LLM/Speech/Hotkeys
 }
 
@@ -20,6 +22,7 @@ type ProfilesController struct {
 type ProfilesControllerConfig struct {
 	ProfileMgr       *profiles.Manager
 	Emitter          ports.Emitter
+	ContextProviders *contextprovider.Registry
 	OnProfileChanged func(slug string)
 }
 
@@ -28,6 +31,7 @@ func NewProfilesController(cfg ProfilesControllerConfig) *ProfilesController {
 	return &ProfilesController{
 		profileMgr:       cfg.ProfileMgr,
 		emitter:          cfg.Emitter,
+		contextProviders: cfg.ContextProviders,
 		onProfileChanged: cfg.OnProfileChanged,
 	}
 }
@@ -110,6 +114,14 @@ func (c *ProfilesController) DeleteProfile(slug string) error {
 
 func (c *ProfilesController) GetProfileSearchPaths() []string {
 	return c.profileMgr.GetSearchPaths()
+}
+
+// GetContextProviders retorna os metadados dos context providers registrados.
+func (c *ProfilesController) GetContextProviders() []contextprovider.ProviderMetadata {
+	if c.contextProviders == nil {
+		return []contextprovider.ProviderMetadata{}
+	}
+	return c.contextProviders.Metadata()
 }
 
 // UpdateProfileMediaSupport atualiza o MediaSupport de um perfil e salva.

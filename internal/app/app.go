@@ -219,6 +219,10 @@ type App struct {
 	// skillsAPI é o bind Wails do domínio skills (AEP-0088). Criado em main e
 	// wired após NewSkillsController.
 	skillsAPI *wailsapi.Skills
+
+	// profilesAPI é o bind Wails do domínio profiles (AEP-0088). Criado em main e
+	// wired após NewProfilesController.
+	profilesAPI *wailsapi.Profiles
 }
 
 // ==================== Tipos para Threads ====================
@@ -263,6 +267,23 @@ func SetSkillsAPI(a *App, api *wailsapi.Skills) {
 		return
 	}
 	a.skillsAPI = api
+}
+
+// SetProfilesAPI registra o bind Wails de profiles antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetProfilesAPI(a *App, api *wailsapi.Profiles) {
+	if a == nil {
+		return
+	}
+	a.profilesAPI = api
+}
+
+// ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
+func ProfilesCtrl(a *App) *controllers.ProfilesController {
+	if a == nil {
+		return nil
+	}
+	return a.profilesCtrl
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
@@ -496,17 +517,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Instancia os Controllers (Fase 2 — Inbound Adapters por domínio)
 	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
-	a.profilesCtrl = controllers.NewProfilesController(controllers.ProfilesControllerConfig{
-		ProfileMgr: a.profileManager,
-		Emitter:    a.emitter,
-		OnProfileChanged: func(slug string) {
-			a.initLLMClient()
-			if err := a.InitSpeechManagerFromProfile(); err != nil {
-				logging.Errorf(ctx, "app.app", "[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
-			}
-			a.registerActiveProfileHotkeys()
-		},
-	})
+	a.wireProfiles()
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
 		LLMRegistry:      a.llmRegistry,
 		ProfileMgr:       a.profileManager,

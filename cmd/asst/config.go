@@ -57,7 +57,7 @@ var configShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Exibe visão geral da configuração",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runConfigShow(rootApp, os.Stdout)
+		return runConfigShow(asCLI(rootApp), os.Stdout)
 	},
 }
 
@@ -82,7 +82,7 @@ var configProvidersCmd = &cobra.Command{
 	Use:   "providers",
 	Short: "Lista provedores LLM configurados",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runConfigProviders(rootApp, os.Stdout)
+		return runConfigProviders(asCLI(rootApp), os.Stdout)
 	},
 }
 
@@ -110,7 +110,7 @@ var configModelCmd = &cobra.Command{
 	Short: "Altera o modelo do perfil ativo",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runConfigModel(rootApp, os.Stdout, args[0])
+		return runConfigModel(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
