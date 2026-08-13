@@ -9,6 +9,7 @@ import (
 	"assistente/internal/database"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // DBRepository é a implementação GORM de Repository, escopada por usuário
@@ -81,6 +82,77 @@ func (r *DBRepository) GetLatestByChildConversation(ctx context.Context, childCo
 		return nil, err
 	}
 	return &run, nil
+}
+
+// DefaultRunListLimit é o tamanho de página padrão da listagem de runs quando o
+// chamador não informa um limite; maxRunListLimit é o teto aceito, para uma
+// chamada da UI não varrer a tabela inteira.
+const (
+	DefaultRunListLimit = 50
+	maxRunListLimit     = 200
+)
+
+// ListRecent devolve os runs do usuário do contexto (AEP-0052) ordenados com os
+// ATIVOS primeiro e, dentro de cada grupo, do mais recente para o mais antigo.
+// Runs ativos vêm antes porque são os únicos acionáveis (cancelamento) e não
+// podem sumir da superfície só por serem antigos — um run em background pode
+// durar mais que a página de "recentes".
+//
+// O título vem de um LEFT JOIN com conversations (mesmo padrão da listagem
+// unificada do histórico): é a sub-conversa que dá nome ao run na UI, e um join
+// evita N leituras extras. O LEFT preserva o run mesmo que a sub-conversa tenha
+// sido excluída. O JOIN também casa o user_id (defesa em profundidade,
+// AEP-0052): se um child_conversation_id inconsistente apontar para conversa de
+// outro dono, o título vem vazio em vez de vazar para a UI.
+func (r *DBRepository) ListRecent(ctx context.Context, limit int) ([]RunListItem, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = DefaultRunListLimit
+	}
+	if limit > maxRunListLimit {
+		limit = maxRunListLimit
+	}
+
+	type row struct {
+		database.SubAgentRun
+		Title string
+	}
+	activeFirst := clause.OrderBy{Expression: gorm.Expr(
+		"CASE WHEN sub_agent_runs.status IN (?,?) THEN 0 ELSE 1 END",
+		database.SubAgentRunStatusQueued, database.SubAgentRunStatusRunning,
+	)}
+
+	var rows []row
+	err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.SubAgentRun{}), "sub_agent_runs.user_id").
+		Select("sub_agent_runs.*, conversations.title AS title").
+		Joins("LEFT JOIN conversations ON conversations.id = sub_agent_runs.child_conversation_id AND conversations.user_id = sub_agent_runs.user_id").
+		Order(activeFirst).
+		Order("sub_agent_runs.created_at DESC, sub_agent_runs.id DESC").
+		Limit(limit).
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]RunListItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, RunListItem{
+			RunID:                r.ID,
+			ConversationID:       r.ChildConversationID,
+			ParentConversationID: r.ParentConversationID,
+			Title:                r.Title,
+			Status:               r.Status,
+			Background:           r.Background,
+			Active:               IsActiveStatus(r.Status),
+			Error:                r.Error,
+			CreatedAt:            r.CreatedAt,
+			StartedAt:            r.StartedAt,
+			CompletedAt:          r.CompletedAt,
+		})
+	}
+	return items, nil
 }
 
 // Update persiste alterações de um run existente, escopado ao usuário do

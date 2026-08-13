@@ -243,6 +243,30 @@ propagada:
   sub-agentes"** permite ocultá-las. A busca (FTS) já cobre todas as conversas (o índice
   de mensagens não filtra por `kind`), então é uniforme. Teto global de concorrência por
   usuário + visibilidade de custo e passagem pelo rate-limiter (AEP-0065).
+  - **Dois tetos de concorrência, não um**: o teto por usuário
+    (`MaxConcurrentPerUser`, default 4) não limita o custo do processo — com N
+    usuários ativos ele autoriza N × 4 runs, cada um segurando uma goroutine, um
+    stream LLM e tokens. Existe também um teto **agregado**
+    (`MaxConcurrentGlobal`, default 16 = quatro usuários no teto individual ao
+    mesmo tempo), verificado antes do individual porque é o mais restritivo em
+    termos de sistema. Os dois são reservados no mesmo ponto (`acquireSlot`) e
+    liberados em todo caminho terminal; o erro identifica qual teto barrou o run,
+    para a pessoa saber se deve esperar ou cancelar algo próprio.
+  - **Visibilidade e cancelamento pela UI**: a listagem de sub-conversas no
+    Histórico responde "que conversas existem", não "o que está rodando agora".
+    Trabalho em segundo plano precisa de uma superfície própria de *runs*:
+    `ListSubAgentRuns` devolve os runs do usuário (ativos primeiro, depois os
+    recentes) com a ocupação dos dois tetos, e `CancelSubAgentRun` reusa o mesmo
+    `Manager.Cancel` da tool (sem caminho alternativo de cancelamento). Isso não
+    reabre a página dedicada removida acima: continua não havendo rota nem
+    listagem de *conversas* separada — é um painel de runs dentro do Histórico.
+  - **Anúncio de início/fim (AEP-0058)**: o Manager emite `subagent:run-started`
+    e `subagent:run-finished` (payload `RunEvent`, sempre com `conversationId`) em
+    todo run; o par é garantido porque o início é emitido junto do registro do run
+    ativo e o fim no `finalize`, o ponto único de finalização. O frontend anuncia
+    só os runs em **background** — o síncrono já aparece no turno do pai, e
+    anunciá-lo seria ruído. O anúncio de conclusão é `completion`, então respeita
+    a proteção de leitura do conteúdo do assistente da AEP-0058 §2.1.
   - **Histórico decisório**: a versão inicial desta fase entregou uma página dedicada
     (`/subagents`) com colunas operacionais (status, runs, tokens) e um binding próprio
     (`GetSubAgentConversations` → `Manager.ListSubConversations`). Isso foi revisto em

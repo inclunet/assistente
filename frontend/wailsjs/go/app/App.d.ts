@@ -6,6 +6,7 @@ import {workspace} from '../models';
 import {portability} from '../models';
 import {context} from '../models';
 import {wailsapi} from '../models';
+import {subagent} from '../models';
 import {updater} from '../models';
 import {allowlist} from '../models';
 import {controllers} from '../models';
@@ -60,6 +61,8 @@ export function CanRemoveACPAgent(arg1:string):Promise<boolean>;
 export function CancelACPAgentInstall(arg1:string):Promise<void>;
 
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
+
+export function CancelSubAgentRun(arg1:string,arg2:string):Promise<subagent.CancelResult>;
 
 export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
@@ -438,6 +441,8 @@ export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 export function ListMemoryRecords(arg1:memory.Filter):Promise<memory.ListResult>;
 
 export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
+
+export function ListSubAgentRuns(arg1:number):Promise<subagent.RunListResult>;
 
 export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;
 
