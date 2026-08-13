@@ -118,3 +118,22 @@ func TestWireProfilesAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireSettingsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		profileManager: profiles.NewManager(),
+	}
+	api := wailsapi.NewSettings()
+	SetSettingsAPI(a, api)
+
+	a.wireSettings()
+
+	if a.settingsCtrl == nil {
+		t.Fatal("settingsCtrl deve ser criado")
+	}
+	_, err := api.GetNativeTTSProviders()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}

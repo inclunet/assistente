@@ -83,3 +83,23 @@ func (a *App) wireProfiles() {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
 	}
 }
+
+// wireSettings monta o SettingsController e associa o bind Wails (AEP-0088).
+func (a *App) wireSettings() {
+	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
+		CredMgr:     a.credMgr,
+		ProfileMgr:  a.profileManager,
+		SkillMgr:    a.skillMgr,
+		Emitter:     a.emitter,
+		ProviderSvc: a.providerSvc,
+		RestartChannel: func(channelName string) error {
+			return a.RestartChannel(channelName)
+		},
+		GetModels: func() ([]string, error) {
+			return a.GetModels()
+		},
+	})
+	if a.settingsAPI != nil {
+		wailsapi.AttachSettings(a.settingsAPI, wailsSession{app: a}, a.settingsCtrl)
+	}
+}

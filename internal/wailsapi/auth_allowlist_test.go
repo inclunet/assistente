@@ -110,3 +110,21 @@ func TestProfilesMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetNativeTTSProviders",
+		"TestConnection",
+		"TestConnectionWithModels",
+		"ResetConfig",
+		"ClearAllCredentials",
+		"ClearAllProfiles",
+		"ClearAllSkills",
+		"ClearAllChannels",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Settings/WithUser|WithAdmin; não pertence à allowlist", name)
+		}
+	}
+}

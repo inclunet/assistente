@@ -22,3 +22,6 @@ var ErrUpdaterNotWired = errors.New("wailsapi: updater bind not wired")
 
 // ErrProfilesNotWired indica que o bind Profiles ainda não recebeu controller/session.
 var ErrProfilesNotWired = errors.New("wailsapi: profiles bind not wired")
+
+// ErrSettingsNotWired indica que o bind Settings ainda não recebeu controller/session.
+var ErrSettingsNotWired = errors.New("wailsapi: settings bind not wired")
