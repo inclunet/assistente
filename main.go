@@ -20,6 +20,8 @@ var assets embed.FS
 
 func main() {
 	a := application.NewApp()
+	tokensAPI := wailsapi.NewTokens()
+	a.BindTokensAPI(tokensAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -53,10 +55,11 @@ func main() {
 			a.Shutdown()
 		},
 		// AEP-0088: multi-bind — App (ciclo de vida + domínios ainda não
-		// migrados) e Probe (spike Fase 1). Domínios seguintes entram aqui.
+		// migrados), Probe (spike) e Tokens (piloto Fase 2).
 		Bind: []interface{}{
 			a,
 			wailsapi.NewProbe(),
+			tokensAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

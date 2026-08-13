@@ -4,8 +4,9 @@ import {app} from '../models';
 import {database} from '../models';
 import {workspace} from '../models';
 import {portability} from '../models';
-import {updater} from '../models';
 import {context} from '../models';
+import {wailsapi} from '../models';
+import {updater} from '../models';
 import {allowlist} from '../models';
 import {controllers} from '../models';
 import {memory} from '../models';
@@ -46,7 +47,11 @@ export function ArchiveMemoryRecord(arg1:string):Promise<database.MemoryRecord>;
 
 export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function AuthenticatedContext():Promise<context.Context>;
+
 export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function BindTokensAPI(arg1:wailsapi.Tokens):Promise<void>;
 
 export function CanPersistCredentials():Promise<boolean>;
 
@@ -55,8 +60,6 @@ export function CanRemoveACPAgent(arg1:string):Promise<boolean>;
 export function CancelACPAgentInstall(arg1:string):Promise<void>;
 
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
-
-export function CheckContextWindowThreshold(arg1:string,arg2:number):Promise<boolean>;
 
 export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
@@ -268,8 +271,6 @@ export function GetConversationMessageWindow(arg1:chat.MessageWindowRequest):Pro
 
 export function GetConversationSummary(arg1:string):Promise<app.ConversationSummaryInfo>;
 
-export function GetConversationTokenStats(arg1:string):Promise<chat.TokenStats>;
-
 export function GetConversationWithThreads(arg1:string):Promise<chat.ConversationWithThreads>;
 
 export function GetConversations():Promise<Array<database.Conversation>>;
@@ -348,8 +349,6 @@ export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
 
-export function GetRecentMessagesTokenCount(arg1:string,arg2:number):Promise<number>;
-
 export function GetRuntimeToolCatalog(arg1:app.RuntimeToolCatalogFilter):Promise<Array<app.RuntimeToolCatalogEntry>>;
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
@@ -395,8 +394,6 @@ export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEn
 export function GetTerminalStats():Promise<terminal.ManagerStats>;
 
 export function GetToolCatalog():Promise<Array<jobs.CatalogEntry>>;
-
-export function GetTurnTokenStats(arg1:string,arg2:string):Promise<chat.TokenStats>;
 
 export function GetUserInvocableSkillsForProfile(arg1:string):Promise<Array<skills.SkillInfo>>;
 

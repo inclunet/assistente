@@ -45,6 +45,7 @@ import (
 	"assistente/internal/toolprotocol"
 	"assistente/internal/tools"
 	"assistente/internal/updater"
+	"assistente/internal/wailsapi"
 	"assistente/internal/workspace"
 )
 
@@ -209,6 +210,10 @@ type App struct {
 	allowlistCtrl   *controllers.AllowlistController
 	signalCtrl      *controllers.SignalController
 	hotkeyCtrl      *controllers.HotkeysController
+
+	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
+	// wired após NewTokensController.
+	tokensAPI *wailsapi.Tokens
 }
 
 // ==================== Tipos para Threads ====================
@@ -226,6 +231,16 @@ func NewApp() *App {
 // Context retorna o contexto da aplicação.
 func (a *App) Context() context.Context {
 	return a.ctx
+}
+
+// BindTokensAPI registra o bind Wails de tokens antes do Run (main.go).
+func (a *App) BindTokensAPI(api *wailsapi.Tokens) {
+	a.tokensAPI = api
+}
+
+// AuthenticatedContext implementa wailsapi.Session (AEP-0088 D2).
+func (a *App) AuthenticatedContext() (context.Context, error) {
+	return a.requireAuthenticatedContext()
 }
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
@@ -373,7 +388,16 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ToolExecutor:     a.toolExecutor,
 		ToolInvocations:  a.toolInvocationSvc,
 		ResponseNotifier: a.responseNotifier,
-		GetTokenStats:    a.GetConversationTokenStats,
+		GetTokenStats: func(conversationID string) (*chat.TokenStats, error) {
+			ctx, err := a.requireAuthenticatedContext()
+			if err != nil {
+				return nil, err
+			}
+			if a.tokensCtrl == nil {
+				return nil, fmt.Errorf("tokens controller not ready")
+			}
+			return a.tokensCtrl.GetConversationTokenStats(ctx, conversationID)
+		},
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
 		OnSpeechRequest:  speechDispatcher,
 		// O interactor nasce depois deste ponto, então ele é resolvido na hora
@@ -563,6 +587,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ProfileMgr: a.profileManager,
 		TokenSvc:   a.tokenSvc,
 	})
+	if a.tokensAPI != nil {
+		wailsapi.AttachTokens(a.tokensAPI, a, a.tokensCtrl)
+	}
 	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
 		ToolRegistry: a.toolRegistry,
 		MCPMgr:       a.mcpMgr,

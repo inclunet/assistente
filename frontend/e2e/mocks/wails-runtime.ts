@@ -370,6 +370,10 @@ export function buildWailsMockScript(): string {
     main: {
       App: appProxy,
     },
+    wailsapi: {
+      Probe: appProxy,
+      Tokens: appProxy,
+    },
   };
 
   /* ---------- window.runtime ---------- */

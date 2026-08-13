@@ -1,0 +1,29 @@
+package wailsapi
+
+import (
+	"slices"
+	"testing"
+)
+
+func TestUnauthenticatedAllowlistHasLoginPath(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"Login", "GetAuthStatus", "Logout"} {
+		if !slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s deve estar na allowlist sem auth", name)
+		}
+	}
+}
+
+func TestTokensMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetConversationTokenStats",
+		"GetTurnTokenStats",
+		"GetRecentMessagesTokenCount",
+		"CheckContextWindowThreshold",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Tokens/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
