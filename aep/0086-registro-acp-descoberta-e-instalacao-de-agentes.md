@@ -280,8 +280,9 @@ modelos do AEP-0084 D6, onde recarregar é ato explícito.
 ### D3. Instalar é ação pedida, com o que vai ser baixado à vista
 
 Instalar software na máquina de alguém é ação sensível. Não existe instalação
-silenciosa, automática, em segundo plano, nem "junto com" outra coisa. O
-clique que instala é o clique cujo texto diz "instalar".
+silenciosa nem em segundo plano. Escolher um agente no picker é pedir para
+usá-lo: o app tenta detectar uma instalação existente e, quando não encontra,
+abre a confirmação de instalação. A escolha não baixa nada por si só.
 
 Antes de baixar qualquer byte, um `ConfirmDialog` mostra: nome e identificador do
 agente, versão, tipo de distribuição (binário, npm, uv), a origem — o host da
@@ -293,6 +294,11 @@ O diálogo é o mesmo componente das outras confirmações do app, com o mesmo
 comportamento de foco e teclado, e o texto que ele mostra é o texto que o
 announcer diz. Autorizar sem ver o que se autoriza é o erro que o AEP-0084 D9 já
 recusou nas permissões do agente; instalar um executável não pede menos.
+
+Não há botão separado de detectar nem de instalar. Campos já preenchidos são
+preservados; campos vazios disparam detecção e inferência. Toda instalação,
+verificada ou não, passa pelo diálogo. A ausência de digest acrescenta as
+guardas do D4, mas não é a única situação que pede confirmação.
 
 Quem não quiser instalar por aqui continua podendo apontar comando e argumentos
 à mão no formulário de hoje. O catálogo acrescenta um caminho; não fecha
@@ -431,11 +437,15 @@ perceber que ele mudou.
 Instalação por npm ou uv não tem nenhum dos dois: a verificação foi do
 gerenciador e não é o app quem a registra.
 
-Remover é apagar o diretório do agente. Provider que apontava para lá fica com
-um comando que não existe, e o health do AEP-0084 D12 já sabe dizer isso — não
-há estado novo a inventar. O que a remoção **não** faz é apagar o provider: ele
-é configuração de quem o criou, e sumir com ele por causa de um clique em
-"remover agente" destruiria escolha alheia.
+Remover começa pelo provider, com a confirmação comum da tela. Depois que ele
+foi removido, se o agente foi instalado pelo app e nenhum provider de nenhum
+usuário desta máquina ainda o referencia, uma segunda confirmação oferece
+**remover e desinstalar**. Recusar mantém a instalação para uso futuro.
+
+A verificação de uso acontece novamente no backend no instante da
+desinstalação. A tela não pode apagar o diretório se outro provider passou a
+referenciá-lo entre as duas confirmações. Não existe remoção isolada do agente
+enquanto há provider apontando para ele.
 
 A instalação é da máquina, e não do usuário do app. É a mesma limitação que o
 AEP-0084 já declara sobre a autenticação do agente (`agent login` vive fora do
@@ -485,9 +495,10 @@ O comportamento quando falta:
 
 - O agente **aparece no catálogo** normalmente, com o requisito dito em texto no
   próprio item ("requer Node.js, não encontrado nesta máquina").
-- O botão de instalar fica indisponível **com o motivo à vista**, e não apenas
-  desabilitado. Botão cinza sem explicação é o pior desfecho para quem navega
-  por teclado: descobre-se que não dá, sem descobrir o porquê.
+- A escolha não abre uma confirmação impossível: o motivo fica **à vista** no
+  lugar da oferta de instalação. Controle indisponível sem explicação é o pior
+  desfecho para quem navega por teclado: descobre-se que não dá, sem descobrir
+  o porquê.
 - Quando o runtime está lá, a versão encontrada é exibida — é o dado que resolve
   o caso seguinte, o do `npm install` que falha porque o Node é velho demais.
 - A procura do runtime é a que a detecção já faz: PATH, prefixos conhecidos,
@@ -934,17 +945,21 @@ rede, o cache anterior é servido com a idade dele; primeira execução sem rede
 devolve catálogo vazio com o motivo; documento com `version` de major
 desconhecido é recusado e o cache anterior permanece.
 
-### Fase 2 — O catálogo na tela de provedores (feita)
+### Fase 2 — Picker de agentes no formulário de provedor (feita)
 
-Lista navegável, com busca, ordenada por nome. Cada item traz nome, descrição,
-versão, autores, licença, o requisito de runtime e o estado nesta máquina:
-encontrado por detecção, não encontrado, ou requisito ausente. **Nenhum botão
-instala ainda** — esta fase entrega ver, e ver é o que precisa estar certo antes
-de agir.
+Combobox inline, com busca, no mesmo padrão dos pickers de provider, modelo,
+perfil e histórico. Cada opção traz nome e um resumo do estado e runtime; o nome
+acessível preserva descrição, versão, autores, licença, integridade e estado
+nesta máquina.
 
-**Aceite:** a lista é percorrível por teclado e cada item é lido inteiro por
-leitor de telas, com o estado em texto e não só em cor; a tela abre sem rede e
-explica; as strings existem nos três locales; os testes de `axe-core` passam.
+Escolher é usar: a seleção detecta e preenche uma instalação global ou abre a
+confirmação do D3 para instalar. Não há modal de catálogo nem botões por linha
+para "usar" e "instalar".
+
+**Aceite:** o picker é percorrível por teclado e cada opção é lida inteira por
+leitor de telas, com o estado em texto e não só em cor; abre do cache, explica
+falha e permite atualizar; as strings existem nos três locales; os testes de
+`axe-core` passam.
 
 ### Fase 3 — Instalar por npm em prefixo do app (feita)
 
@@ -956,11 +971,11 @@ Cobre **21 dos 38** agentes — os 19 só-npx mais os 2 que também têm binári
 aqui que o **Codex** entra, junto de Gemini CLI, GitHub Copilot CLI, Qwen Code,
 Cline, Factory Droid e o próprio adaptador do Claude Code.
 
-**Aceite:** numa máquina com Node, instalar o `codex-acp` pelo catálogo produz um
+**Aceite:** numa máquina com Node, escolher `codex-acp` no picker e confirmar produz um
 provider que sobe e responde `initialize` sem ninguém digitar caminho; sem Node,
 a instalação não é oferecida e o motivo está em texto; a instalação pode ser
-cancelada sem deixar resíduo; remover apaga o diretório e o provider passa a
-relatar comando inexistente pelo health que já existe.
+cancelada sem deixar resíduo; ao excluir o último provider, uma segunda
+confirmação pode apagar o diretório.
 
 ### Fase 4 — Instalar binário com verificação de digest (feita)
 
@@ -1126,8 +1141,8 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 
 ## Critérios de aceitação
 
-- A tela de provedores lista os agentes do registro, abre sem rede a partir do
-  cache e explica quando o catálogo não pôde ser carregado.
+- O formulário de provider oferece os agentes num picker pesquisável, abre sem
+  rede a partir do cache e explica quando o catálogo não pôde ser carregado.
 - Nenhuma instalação começa sem um pedido explícito, e o diálogo mostra agente,
   versão, origem e o que será verificado antes de qualquer download.
 - Binário cujo alvo publica `sha256` só é instalado com o digest conferido.
@@ -1136,14 +1151,15 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
   instalação resultante continua marcada como não verificada na tela e no
   `installed.json`.
 - Tudo o que o app instala fica em `~/.assistente/agents/`, sem alterar PATH nem
-  `node_modules` global, e pode ser removido pela tela.
+  `node_modules` global. Ao excluir seu último provider, a tela oferece remover
+  também a instalação, com confirmação separada e guarda de uso no backend.
 - Agente distribuído por npm é instalado uma vez em prefixo do app; nenhum turno
   spawna `npx`.
 - O comando de spawn é resolvido pelo app para um processo que ele consegue
   encerrar, e a instalação só é declarada concluída depois de um `initialize`
   bem-sucedido.
-- Falta de Node ou de `uv` é dita em texto, com o botão indisponível e o motivo
-  visível; o app não instala runtime.
+- Falta de Node ou de `uv` é dita em texto e impede a oferta de instalação, com
+  o motivo visível; o app não instala runtime.
 - Todo texto vindo do registro é saneado antes de virar tela ou anúncio, e nada
   dele vira comando por si: o que se executa é sempre um arquivo dentro do
   diretório do app, vindo do artefato que ele mesmo instalou.

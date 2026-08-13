@@ -162,6 +162,49 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe('AgentInstall — fluxo automático do picker', () => {
+  it('a escolha abre a confirmação sem mostrar botão separado de instalar', async () => {
+    planMock.mockResolvedValue(planoInstalavel);
+
+    render(
+      <AgentInstall
+        agentId="codex-acp"
+        installRequestToken={1}
+        showManualActions={false}
+        onResolved={() => {}}
+      />,
+    );
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/instalar codex pelo catálogo/i);
+    expect(screen.queryByRole('button', { name: /instalar pelo catálogo/i })).not.toBeInTheDocument();
+    expect(installMock).not.toHaveBeenCalled();
+  });
+
+  it('comando vazio usa automaticamente a instalação gerenciada existente', async () => {
+    planMock.mockResolvedValue({
+      ...planoInstalavel,
+      installed: instalacao,
+      can_install: false,
+    });
+    const onResolved = vi.fn();
+
+    render(
+      <AgentInstall
+        agentId="codex-acp"
+        autoResolveInstalled
+        showManualActions={false}
+        onResolved={onResolved}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onResolved).toHaveBeenCalledWith(instalacao.command, instalacao.args, undefined);
+    });
+    expect(screen.queryByRole('button', { name: /usar o comando instalado/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /remover agente instalado/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('AgentInstall — antes de baixar', () => {
   it('não baixa nada sem confirmação, e a confirmação diz o que vai ser baixado', async () => {
     // AEP-0086 D3: agente, versão, origem e o que será executado à vista antes

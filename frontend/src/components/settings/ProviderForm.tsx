@@ -114,6 +114,10 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   // Agente de código: o formulário deixa de pedir URL, chave e modelo e passa a
   // pedir o comando que sobe o agente (AEP-0084 D12).
   const isAgent = isAgentForm(formData);
+  // A escolha explícita é também o pedido para resolver o agente. O número
+  // distingue duas escolhas seguidas do mesmo item sem guardar estado no
+  // catálogo nem confundir a abertura de um provedor salvo com uma escolha.
+  const [agentSelectionToken, setAgentSelectionToken] = useState(0);
 
   // Referências estáveis: os campos do agente detectam a instalação em um efeito
   // e um callback recriado a cada render disparia detecção sem parar.
@@ -155,6 +159,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
    * CLI numa lista é trabalho que a tela já tem como poupar.
    */
   const handleAgentPick = useCallback((agent: CatalogAgent) => {
+    setAgentSelectionToken((token) => token + 1);
     setFormData((prev) => {
       if (prev.acp_agent_id === agent.id) return prev;
       return {
@@ -244,6 +249,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   }, [formData, t]);
 
   useEffect(() => {
+    setAgentSelectionToken(0);
     if (provider) {
       const provConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
       setFormData({
@@ -704,13 +710,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             commandError={errors.acp_command}
             credentialEnv={formData.acp_credential_env || {}}
             onCredentialEnvChange={handleCredentialEnvChange}
-            // Na edição o comando salvo é a escolha de quem configurou e não se
-            // toca — mas se o agente foi trocado, não há nada salvo para o novo,
-            // e deixar o campo vazio faria a pessoa procurar o caminho na mão
-            // sem motivo. Voltar ao agente salvo cai no primeiro caso: o comando
-            // restaurado é o que vale, e a detecção só informa o que existe na
-            // máquina.
-            autoFill={!formData.id || (formData.acp_agent_id || '') !== (provider?.acp_agent_id || '')}
+            selectionToken={agentSelectionToken}
           />
         </>
       ) : (

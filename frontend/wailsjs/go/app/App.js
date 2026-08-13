@@ -54,6 +54,10 @@ export function CanPersistCredentials() {
   return window['go']['app']['App']['CanPersistCredentials']();
 }
 
+export function CanRemoveACPAgent(arg1) {
+  return window['go']['app']['App']['CanRemoveACPAgent'](arg1);
+}
+
 export function CancelACPAgentInstall(arg1) {
   return window['go']['app']['App']['CancelACPAgentInstall'](arg1);
 }

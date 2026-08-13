@@ -6,13 +6,17 @@ import userEvent from '@testing-library/user-event';
 const mockGetProviders = vi.fn();
 const mockCreateProvider = vi.fn();
 const mockDeleteProvider = vi.fn();
+const mockCanRemoveAgent = vi.fn();
+const mockRemoveAgent = vi.fn();
+const mockConfirm = vi.fn();
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (key: string, fallback?: string | Record<string, unknown>) =>
+      typeof fallback === 'string' ? fallback : key,
     i18n: { language: 'pt-BR' },
   }),
 }));
@@ -20,7 +24,9 @@ vi.mock('react-i18next', () => ({
 vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: () => mockGetProviders(),
   CreateLLMProvider: (payload: unknown) => mockCreateProvider(payload),
+  CanRemoveACPAgent: (agentID: string) => mockCanRemoveAgent(agentID),
   DeleteLLMProvider: (_ctx: unknown, id: string) => mockDeleteProvider(id),
+  RemoveACPAgent: (agentID: string) => mockRemoveAgent(agentID),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -43,7 +49,7 @@ vi.mock('../store/uiStore', () => ({
 }));
 
 vi.mock('../hooks/useConfirm', () => ({
-  useConfirm: () => vi.fn(() => Promise.resolve(true)),
+  useConfirm: () => mockConfirm,
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
@@ -135,8 +141,16 @@ describe('ProvidersPage', () => {
         credential_status: 'configured',
       },
     ]);
+    mockCreateProvider.mockReset();
+    mockDeleteProvider.mockReset();
+    mockCanRemoveAgent.mockReset();
+    mockRemoveAgent.mockReset();
+    mockConfirm.mockReset();
     mockCreateProvider.mockResolvedValue(undefined);
     mockDeleteProvider.mockResolvedValue(undefined);
+    mockCanRemoveAgent.mockResolvedValue(false);
+    mockRemoveAgent.mockResolvedValue(undefined);
+    mockConfirm.mockResolvedValue(true);
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
     nowSpy.mockReturnValue(123);
@@ -257,5 +271,42 @@ describe('ProvidersPage', () => {
     await waitFor(() => {
       expect(mockDeleteProvider).toHaveBeenCalledWith('openai-1');
     });
+  });
+
+  it('oferece desinstalar depois de remover o ultimo provedor do agente', async () => {
+    mockGetProviders.mockResolvedValue([
+      {
+        id: 'cursor-1',
+        name: 'Cursor local',
+        type: 'acp',
+        api_format: 'acp',
+        base_url: '',
+        credential_required: false,
+        credential_status: 'none',
+        acp_agent_id: 'cursor',
+        acp_command: 'cursor-agent',
+        acp_args: ['acp'],
+      },
+    ]);
+    mockCanRemoveAgent.mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    await screen.findByText('Cursor local');
+    const deleteButtons = screen.getAllByRole('button', { name: 'Excluir' });
+    const rowDelete = deleteButtons.find((button) => !button.hasAttribute('disabled'));
+    await user.click(rowDelete!);
+
+    await waitFor(() => {
+      expect(mockDeleteProvider).toHaveBeenCalledWith('cursor-1');
+      expect(mockCanRemoveAgent).toHaveBeenCalledWith('cursor');
+      expect(mockRemoveAgent).toHaveBeenCalledWith('cursor');
+    });
+    expect(mockConfirm).toHaveBeenCalledTimes(2);
+    expect(mockConfirm.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      title: 'providers.confirm.removeUnusedAgentTitle',
+      confirmText: 'providers.confirm.removeUnusedAgentConfirm',
+      cancelText: 'providers.confirm.keepAgent',
+    }));
   });
 });

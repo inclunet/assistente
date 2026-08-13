@@ -1,18 +1,12 @@
 .agent-picker {
+  width: 100%;
+}
+
+.agent-picker__field {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  align-items: flex-start;
-}
-
-.agent-picker__chosen {
-  margin: 0;
-  font-size: var(--font-size-base);
-  color: var(--text-primary);
-}
-
-.agent-picker__term {
-  color: var(--text-secondary);
+  width: 100%;
 }
 
 .agent-picker__help {
