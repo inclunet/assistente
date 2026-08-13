@@ -6,6 +6,7 @@ const mockGetNetworkAllowlist = vi.fn();
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
 const mockAnnounceRequest = vi.fn();
+const tStable = (key: string, fb?: string) => (typeof fb === 'string' ? fb : key);
 
 vi.mock('@wailsjs/go/app/App', () => ({
   GetNetworkAllowlist: (...args: unknown[]) => mockGetNetworkAllowlist(...args),
@@ -14,7 +15,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fb?: string) => (typeof fb === 'string' ? fb : key),
+    t: tStable,
     i18n: { language: 'pt-BR', changeLanguage: vi.fn() },
   }),
 }));
