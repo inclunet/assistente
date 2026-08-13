@@ -10,7 +10,7 @@ import {
   LinkOutlined,
   RobotOutlined,
 } from '@ant-design/icons';
-import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/app/App';
+import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/wailsapi/Updater';
 import { useUIStore } from '../store/uiStore';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './AboutPage.css';

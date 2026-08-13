@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Updater', () => ({
   GetAppVersion: () => mockGetVersion(),
   CheckForUpdates: () => mockCheckForUpdates(),
   StartUpdate: () => mockStartUpdate(),
