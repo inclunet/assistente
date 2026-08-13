@@ -233,6 +233,7 @@ export function buildWailsMockScript(): string {
     /* Misc */
     RespondQuestionnaire: undefined,
     ListCredentials: [],
+    ListExternalSources: [],
     GetAllowlists: [],
     GetAllTaskLists: [],
     CheckForUpdates: { available: false },
@@ -377,6 +378,7 @@ export function buildWailsMockScript(): string {
       Tools: makeProxy('wailsapi.Tools'),
       Updater: makeProxy('wailsapi.Updater'),
       Profiles: makeProxy('wailsapi.Profiles'),
+      Credentials: makeProxy('wailsapi.Credentials'),
     },
   };
 

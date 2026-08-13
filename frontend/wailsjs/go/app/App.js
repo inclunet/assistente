@@ -166,10 +166,6 @@ export function DeleteConversation(arg1) {
   return window['go']['app']['App']['DeleteConversation'](arg1);
 }
 
-export function DeleteCredential(arg1) {
-  return window['go']['app']['App']['DeleteCredential'](arg1);
-}
-
 export function DeleteJob(arg1) {
   return window['go']['app']['App']['DeleteJob'](arg1);
 }
@@ -690,14 +686,6 @@ export function ListCardCustomActions(arg1, arg2) {
   return window['go']['app']['App']['ListCardCustomActions'](arg1, arg2);
 }
 
-export function ListCredentials() {
-  return window['go']['app']['App']['ListCredentials']();
-}
-
-export function ListExternalSources(arg1) {
-  return window['go']['app']['App']['ListExternalSources'](arg1);
-}
-
 export function ListInstalledACPAgents() {
   return window['go']['app']['App']['ListInstalledACPAgents']();
 }
@@ -1156,10 +1144,6 @@ export function UpdateWorkflowFull(arg1, arg2, arg3, arg4, arg5) {
 
 export function UpdateWorkspaceTab(arg1, arg2) {
   return window['go']['app']['App']['UpdateWorkspaceTab'](arg1, arg2);
-}
-
-export function UpsertCredential(arg1) {
-  return window['go']['app']['App']['UpsertCredential'](arg1);
 }
 
 export function ValidateStatusTransition(arg1, arg2, arg3) {
