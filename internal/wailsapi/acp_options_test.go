@@ -2,11 +2,8 @@ package wailsapi
 
 import (
 	"assistente/internal/acp"
+	"assistente/internal/apidto"
 	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -52,21 +49,22 @@ func TestACPOptionsPreservesConversationIDOnAuthError(t *testing.T) {
 	}
 }
 
-func TestACPOptionsUsesWithUserNotRequireAuth(t *testing.T) {
+// TestACPOptionsSemAuthNaoMexeNaSessaoDoAgente é o outro lado do fail-closed:
+// além de o erro subir, nada do domínio chega a acontecer — a troca não é pedida
+// ao agente e o aviso de barreira de permissão não é disparado.
+func TestACPOptionsSemAuthNaoMexeNaSessaoDoAgente(t *testing.T) {
 	t.Parallel()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller")
-	}
-	src, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "acp_options.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := string(src)
-	if strings.Contains(body, "requireAuthenticatedContext(") {
-		t.Fatal("acp_options.go não deve chamar requireAuthenticatedContext(; use WithUser")
-	}
-	if !strings.Contains(body, "WithUser(session,") {
-		t.Fatal("acp_options.go deve chamar WithUser(session,")
+	mgr := acp.NewManager(acp.ManagerConfig{
+		WorkDir: func() (string, error) { return t.TempDir(), nil },
+	})
+	t.Cleanup(mgr.Shutdown)
+	api := NewACPOptions()
+	AttachACPOptions(api, stubSession{err: errors.New("sem sessão")}, mgr,
+		func(string, string, string, []apidto.AgentConfigOption) {
+			t.Fatal("avisou mudança de barreira sem contexto autenticado")
+		})
+
+	if _, err := api.SetAgentSessionOption("conversa-1", "mode", "dontAsk"); err == nil {
+		t.Fatal("trocou a opção sem contexto autenticado")
 	}
 }
