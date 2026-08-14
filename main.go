@@ -48,6 +48,8 @@ func main() {
 	application.SetTerminalAPI(a, terminalAPI)
 	memoryAPI := wailsapi.NewMemory()
 	application.SetMemoryAPI(a, memoryAPI)
+	welcomeAPI := wailsapi.NewWelcome()
+	application.SetWelcomeAPI(a, welcomeAPI)
 	subagentAPI := wailsapi.NewSubagent()
 	application.SetSubagentAPI(a, subagentAPI)
 
@@ -100,6 +102,7 @@ func main() {
 			signalAPI,
 			terminalAPI,
 			memoryAPI,
+			welcomeAPI,
 			subagentAPI,
 		},
 		Debug: options.Debug{

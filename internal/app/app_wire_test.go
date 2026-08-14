@@ -268,6 +268,23 @@ func TestWireMemoryAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireWelcomeAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewWelcome()
+	SetWelcomeAPI(a, api)
+
+	a.wireWelcome()
+
+	if a.welcomeCtrl == nil {
+		t.Fatal("welcomeCtrl deve ser criado")
+	}
+	// Sem master key/db: fail-safe true (Attach não exige sessão).
+	if !api.NeedsWelcomeWizard() {
+		t.Fatal("NeedsWelcomeWizard após Attach parcial deve permanecer fail-safe true sem master key/db")
+	}
+}
+
 func TestWireSubagentAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{
