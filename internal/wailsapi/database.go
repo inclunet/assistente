@@ -62,7 +62,7 @@ func (d *Database) ResetDatabase() error {
 	}
 	_, err = WithAdmin(session, func(ctx context.Context) (struct{}, error) {
 		if err := ctrl.ResetDatabase(); err != nil {
-			logging.Errorf(context.Background(), "wailsapi.database", "[ResetDatabase] falha: %v", err)
+			logging.Errorf(ctx, "wailsapi.database", "[ResetDatabase] falha: %v", err)
 			return struct{}{}, ErrDatabaseResetFailed
 		}
 		if afterReset != nil {
