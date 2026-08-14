@@ -63,8 +63,7 @@ func (api *ACPTrust) GetAgentPermissions() ([]apidto.AgentPermissionView, error)
 	if err != nil {
 		return nil, err
 	}
-	return WithUser(session, func(ctx context.Context) ([]apidto.AgentPermissionView, error) {
-		_ = ctx
+	return WithUser(session, func(_ context.Context) ([]apidto.AgentPermissionView, error) {
 		var names map[string]string
 		if profileNames != nil {
 			names = profileNames()
@@ -106,8 +105,7 @@ func (api *ACPTrust) RevokeAgentPermission(profileSlug, action string) error {
 	if err != nil {
 		return err
 	}
-	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		_ = ctx
+	_, err = WithUser(session, func(_ context.Context) (struct{}, error) {
 		if err := trust.Revoke(profileSlug, action); err != nil {
 			if errors.Is(err, acptrust.ErrEntryNotFound) {
 				// Dizer "revogado" sem ter revogado nada faria a pessoa acreditar

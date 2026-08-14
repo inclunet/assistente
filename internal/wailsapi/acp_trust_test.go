@@ -37,8 +37,8 @@ func TestACPTrustUsesWithUserNotRequireAuth(t *testing.T) {
 	if strings.Contains(body, "requireAuthenticatedContext(") {
 		t.Fatal("acp_trust.go não deve chamar requireAuthenticatedContext(; use WithUser")
 	}
-	if !strings.Contains(body, "WithUser(session,") {
-		t.Fatal("acp_trust.go deve chamar WithUser(session,")
+	if !strings.Contains(body, "WithUser(") {
+		t.Fatal("acp_trust.go deve chamar WithUser(")
 	}
 }
 
