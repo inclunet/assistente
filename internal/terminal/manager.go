@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -40,7 +42,7 @@ type ManagerStats struct {
 	MaxSessions   int `json:"maxSessions"`
 }
 
-// Manager gerencia o pool de sessões PTY compartilhado entre LLM e usuário.
+// Manager gerencia sessões PTY independentes compartilháveis entre chat e UI.
 type Manager struct {
 	sessions  map[string]*Session
 	mu        sync.RWMutex
@@ -84,21 +86,42 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 	// Callback para output filtrado (durante RunCommand com markers)
 	onOutput := func(sessionID, commandID, chunk string) {
 		m.emitEvent("terminal:command_output", map[string]string{
-			"sessionId": sessionID,
-			"commandId": commandID,
-			"output":    chunk,
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"commandId":  commandID,
+			"output":     chunk,
 		})
 	}
 
 	// Callback para raw output (streaming contínuo para Terminal Page)
 	onRawOutput := func(sessionID, chunk string) {
 		m.emitEvent("terminal:raw_output", map[string]string{
-			"sessionId": sessionID,
-			"output":    chunk,
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"output":     chunk,
+		})
+	}
+	onCommandStart := func(sessionID, commandID, command, source string) {
+		m.emitEvent("terminal:command_start", map[string]any{
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"commandId":  commandID,
+			"command":    command,
+			"source":     source,
+		})
+	}
+	onExit := func(sessionID string, exitErr error) {
+		m.mu.Lock()
+		delete(m.sessions, sessionID)
+		m.mu.Unlock()
+		m.emitEvent("terminal:exited", map[string]any{
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"error":      errToString(exitErr),
 		})
 	}
 
-	session, err := newSession(name, workDir, m.config.DefaultShell, onOutput, onRawOutput)
+	session, err := newSession(name, workDir, m.config.DefaultShell, onOutput, onRawOutput, onCommandStart, onExit)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +129,7 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 	m.mu.Lock()
 	m.sessions[session.id] = session
 	m.mu.Unlock()
+	session.Start()
 
 	// Emite evento de criação
 	m.emitEvent("terminal:session_created", session.Info())
@@ -113,33 +137,22 @@ func (m *Manager) Create(name, workDir string) (*Session, error) {
 	return session, nil
 }
 
-// Acquire busca uma sessão idle ou cria uma nova.
-// Usada pelo LLM (via run_command tool) para obter uma sessão automaticamente.
+// CreateInfo cria uma sessão e retorna somente seu contrato público.
+func (m *Manager) CreateInfo(name, workDir string) (SessionInfo, error) {
+	session, err := m.Create(name, workDir)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	return session.Info(), nil
+}
+
+// Acquire cria uma sessão nova.
+//
+// Mantido temporariamente para compatibilidade com consumidores antigos. A
+// AEP-0089 proíbe adquirir implicitamente uma sessão idle global, pois isso
+// permitiria ao chat capturar um terminal manual sem informar o usuário.
 func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error) {
-	m.mu.RLock()
-
-	// Procura sessão idle (preferencialmente com mesmo cwd)
-	var bestSession *Session
-	for _, s := range m.sessions {
-		if s.State() == StateIdle {
-			if s.cwd == workDir {
-				bestSession = s
-				break // match perfeito
-			}
-			if bestSession == nil {
-				bestSession = s
-			}
-		}
-	}
-
-	m.mu.RUnlock()
-
-	if bestSession != nil {
-		logging.Infof(ctx, "terminal.manager", "[Terminal] Reutilizando sessão idle: id=%s cwd=%s", bestSession.id, bestSession.cwd)
-		return bestSession, nil
-	}
-
-	// Nenhuma sessão idle — cria uma nova
+	logging.Infof(ctx, "terminal.manager", "[Terminal] Criando sessão explícita para comando cwd=%s", workDir)
 	return m.Create("", workDir)
 }
 
@@ -175,20 +188,19 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 		timeout = m.config.DefaultTimeout
 	}
 
-	// Emite evento de início
+	commandID := uuid.NewString()
 	entry := &HistoryEntry{
+		ID:        commandID,
 		Command:   command,
 		Source:    source,
 		StartedAt: time.Now(),
 	}
-	m.emitEvent("terminal:command_start", map[string]any{
-		"sessionId": sessionID,
-		"command":   command,
-		"source":    source,
-	})
+	if err := session.beginCommand(); err != nil {
+		return nil, err
+	}
 
 	// Executa o comando
-	result, err := session.RunCommand(ctx, command, timeout, source)
+	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
 
 	if result != nil {
 		entry = result
@@ -196,11 +208,12 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 
 	// Emite evento de fim
 	m.emitEvent("terminal:command_end", map[string]any{
-		"sessionId": sessionID,
-		"commandId": entry.ID,
-		"output":    entry.Output,
-		"exitCode":  entry.ExitCode,
-		"error":     errToString(err),
+		"sessionId":  sessionID,
+		"terminalId": sessionID,
+		"commandId":  entry.ID,
+		"output":     entry.Output,
+		"exitCode":   entry.ExitCode,
+		"error":      errToString(err),
 	})
 
 	return result, err
@@ -217,14 +230,8 @@ func (m *Manager) SendInput(sessionID, input string) (*HistoryEntry, error) {
 		return nil, fmt.Errorf("sessão '%s' não encontrada", sessionID)
 	}
 
-	// Emite evento de início de comando
-	m.emitEvent("terminal:command_start", map[string]any{
-		"sessionId": sessionID,
-		"command":   input,
-		"source":    "user-raw",
-	})
-
-	entry, err := session.SendInput(input)
+	commandID := uuid.NewString()
+	entry, err := session.SendInput(input, commandID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +258,14 @@ func (m *Manager) Get(sessionID string) (*Session, bool) {
 	defer m.mu.RUnlock()
 	s, ok := m.sessions[sessionID]
 	return s, ok
+}
+
+// Has informa se o ID ainda identifica uma sessão viva.
+func (m *Manager) Has(sessionID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	session, ok := m.sessions[sessionID]
+	return ok && session.State() != StateExited
 }
 
 // List retorna informações de todas as sessões ativas.

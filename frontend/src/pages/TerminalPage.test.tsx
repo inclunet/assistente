@@ -17,6 +17,10 @@ const terminalPageMocks = vi.hoisted(() => ({
   registeredAdapter: null as unknown,
 }));
 
+const workspaceMocks = vi.hoisted(() => ({
+  updateTab: vi.fn(),
+}));
+
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp' }],
   historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
@@ -38,6 +42,7 @@ vi.mock('react-i18next', () => ({
         'terminal.pageTitle': 'Terminal',
         'terminal.buttons.stop': 'Parar',
         'terminal.buttons.new': 'Novo',
+        'terminal.buttons.terminate': 'Encerrar terminal',
         'terminal.placeholders.creating': 'Criando terminal...',
         'terminal.placeholders.command': 'Digite um comando',
         'terminal.aria.toolbar': 'Barra de ferramentas do terminal',
@@ -85,9 +90,9 @@ vi.mock('../store/workspaceStore', () => ({
     (selector: (state: Record<string, unknown>) => unknown) => selector({
       workspace: { tabs: [], profile: undefined },
       getActiveTab: () => undefined,
-      updateTab: vi.fn(),
+      updateTab: workspaceMocks.updateTab,
     }),
-    { getState: () => ({ workspace: { tabs: [] }, getActiveTab: () => undefined }), subscribe: () => () => {} }
+    { getState: () => ({ workspace: { tabs: [] }, getActiveTab: () => undefined, updateTab: workspaceMocks.updateTab }), subscribe: () => () => {} }
   ),
   useActiveTab: () => undefined,
 }));
@@ -99,9 +104,12 @@ vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, right }: { left?: ReactNode; right?: ReactNode }) => (
+  Toolbar: ({ left, right, actions = [] }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; disabled?: boolean; onClick: () => void }> }) => (
     <div>
       {left}
+      {actions.map((action) => (
+        <button key={action.key} disabled={action.disabled} onClick={action.onClick}>{action.label}</button>
+      ))}
       {right}
     </div>
   ),
@@ -136,6 +144,7 @@ describe('TerminalPage', () => {
     storeMocks.closeSession.mockReset();
     storeMocks.sendInput.mockReset();
     storeMocks.interrupt.mockReset();
+    workspaceMocks.updateTab.mockReset();
     terminalPageMocks.registeredAdapter = null;
     storeState.historyBySession = { 'term-1': [] };
   });
@@ -153,7 +162,21 @@ describe('TerminalPage', () => {
 
   it('exibe o titulo da sessao ativa', () => {
     renderTerminalPage();
-    expect(screen.getByText('Terminal 1')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Terminal 1' })).toBeInTheDocument();
+  });
+
+  it('cria um terminal explicitamente e conecta a aba', async () => {
+    storeMocks.createSession.mockResolvedValue('term-2');
+    const user = userEvent.setup();
+    renderTerminalPage();
+
+    await user.click(screen.getByRole('button', { name: 'Novo' }));
+
+    expect(storeMocks.createSession).toHaveBeenCalled();
+    expect(storeMocks.loadSessions).toHaveBeenCalled();
+    expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
+      state: { sessionId: 'term-2' },
+    });
   });
 
   it('não intercepta Ctrl+C quando há texto selecionado no input', () => {

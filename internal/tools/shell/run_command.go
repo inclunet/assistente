@@ -42,6 +42,13 @@ type SessionManager interface {
 	Release(sessionID string)
 }
 
+// sessionLookup é implementada pelo terminal.Manager e permite que o chat
+// escolha explicitamente uma sessão já conhecida sem ampliar o contrato dos
+// mocks legados de SessionManager.
+type sessionLookup interface {
+	Has(sessionID string) bool
+}
+
 // RunCommand é a ferramenta que executa comandos shell via PTY.
 // Suporta allowlist para controle de acesso e confirmação do usuário.
 type RunCommand struct {
@@ -76,7 +83,7 @@ func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (rc *RunCommand) Description() string {
-	return `Runs a shell command in a persistent PTY session. Use for builds, tests, file inspection, git, etc. Respects allowlist and may require user confirmation. working_directory is project-relative; timeout_seconds max is 300.`
+	return `Runs a shell command in a persistent PTY session. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new terminal. Existing terminals are never selected silently. Results include a deep link for inspection. Respects allowlist and may require user confirmation. working_directory is project-relative; timeout_seconds max is 300.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {
@@ -91,6 +98,10 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 				"type": "string",
 				"description": "Diretório de trabalho para execução do comando. Caminho relativo ao diretório do projeto. Se omitido, usa o diretório raiz do projeto."
 			},
+			"terminal_id": {
+				"type": "string",
+				"description": "ID de um terminal vivo escolhido explicitamente. Se omitido, uma nova sessão é criada; nenhuma sessão existente é reutilizada silenciosamente."
+			},
 			"timeout_seconds": {
 				"type": "integer",
 				"description": "Timeout em segundos para a execução do comando. Padrão: 30, máximo: 300."
@@ -104,6 +115,7 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 type runCommandArgs struct {
 	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory"`
+	TerminalID       string `json:"terminal_id"`
 	TimeoutSeconds   int    `json:"timeout_seconds"`
 }
 
@@ -193,20 +205,39 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	}
 
-	// Adquire sessão PTY
-	session, err := rc.sessionMgr.Acquire(ctx, workDir)
-	if err != nil {
-		return tools.ToolResult{
-			Content: fmt.Sprintf("Erro ao obter sessão de terminal: %v", err),
-			IsError: true,
-		}, nil
+	var sessionID string
+	var err error
+	if a.TerminalID != "" {
+		lookup, ok := rc.sessionMgr.(sessionLookup)
+		if !ok {
+			return tools.ToolResult{Content: "O gerenciador não suporta seleção explícita de terminal", IsError: true}, nil
+		}
+		if !lookup.Has(a.TerminalID) {
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Terminal %q não existe ou já foi encerrado", a.TerminalID),
+				IsError: true,
+			}, nil
+		}
+		sessionID = a.TerminalID
+	} else {
+		// AEP-0089: Acquire cria uma sessão nova e nunca captura uma idle.
+		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
+		err = acquireErr
+		if err != nil {
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err),
+				IsError: true,
+			}, nil
+		}
+		sessionID = session.ID()
 	}
 
 	// Executa o comando
-	entry, err := rc.sessionMgr.RunCommand(ctx, session.ID(), a.Command, timeout, "llm")
+	entry, err := rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
 
-	// Libera a sessão para uso futuro (mesmo com erro)
-	rc.sessionMgr.Release(session.ID())
+	// Compatibilidade: a Session já volta a idle ao terminar, mas managers
+	// antigos ainda podem depender de Release.
+	rc.sessionMgr.Release(sessionID)
 
 	if err != nil {
 		// Timeout ou erro — mas se temos output parcial, retorna como sucesso
@@ -231,12 +262,15 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return tools.ToolResult{
 				Content: content,
 				Metadata: map[string]any{
-					"command":   a.Command,
-					"workDir":   workDir,
-					"exitCode":  -1,
-					"timeout":   true,
-					"duration":  timeout.String(),
-					"sessionId": session.ID(),
+					"command":    a.Command,
+					"workDir":    workDir,
+					"exitCode":   -1,
+					"timeout":    true,
+					"duration":   timeout.String(),
+					"sessionId":  sessionID,
+					"terminalId": sessionID,
+					"commandId":  entry.ID,
+					"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
 				},
 			}, nil
 		}
@@ -246,9 +280,12 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			Content: fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
 			IsError: true,
 			Metadata: map[string]any{
-				"command":  a.Command,
-				"workDir":  workDir,
-				"exitCode": -1,
+				"command":    a.Command,
+				"workDir":    workDir,
+				"exitCode":   -1,
+				"sessionId":  sessionID,
+				"terminalId": sessionID,
+				"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
 			},
 		}, nil
 	}
@@ -269,11 +306,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	return tools.ToolResult{
 		Content: content,
 		Metadata: map[string]any{
-			"command":   a.Command,
-			"workDir":   workDir,
-			"exitCode":  entry.ExitCode,
-			"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
-			"sessionId": session.ID(),
+			"command":    a.Command,
+			"workDir":    workDir,
+			"exitCode":   entry.ExitCode,
+			"duration":   entry.EndedAt.Sub(entry.StartedAt).String(),
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"commandId":  entry.ID,
+			"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
 		},
 	}, nil
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
@@ -10,6 +10,9 @@ import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { TerminalPicker } from '../components/pickers/TerminalPicker';
+import { announce } from '../hooks/useAnnouncer';
 import { useTabScrollState } from '../hooks/useTabScrollState';
 import { boundedSurfaceSnapshotValue, buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import './TerminalPage.css';
@@ -48,12 +51,17 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const currentSessionId = explicitSessionId ?? panelSessionId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
+  const [isTerminateConfirmOpen, setTerminateConfirmOpen] = useState(false);
   useTabScrollState(historyContainerRef, panelTab.id);
 
   const {
     sessions,
     historyBySession,
+    activeEntryBySession = {},
     loadingHistoryBySession,
+    createSession,
+    closeSession,
+    loadSessions,
     sendInput,
     interrupt,
     setupEventListeners,
@@ -98,12 +106,48 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
+  const currentRunningCommandId = currentSessionId ? activeEntryBySession[currentSessionId] : null;
   const isCurrentHistoryLoading = currentSessionId ? Boolean(loadingHistoryBySession[currentSessionId]) : false;
 
   const handleSendInput = useCallback(async (input: string) => {
     if (!currentSessionId) return;
     await sendInput(currentSessionId, input);
   }, [currentSessionId, sendInput]);
+
+  const bindSession = useCallback(async (sessionId: string) => {
+    await useWorkspaceStore.getState().updateTab(panelTab.id, {
+      state: { ...panelTab.state, sessionId },
+    });
+    announce(t('terminal.announce.selected', {
+      name: sessions.find((session) => session.id === sessionId)?.name || sessionId,
+    }));
+  }, [panelTab.id, panelTab.state, sessions, t]);
+
+  const handleCreateSession = useCallback(async () => {
+    const newSessionId = await createSession();
+    if (!newSessionId) {
+      announce(t('terminal.announce.createFailed'));
+      return;
+    }
+    await loadSessions();
+    await bindSession(newSessionId);
+    announce(t('terminal.announce.created'));
+  }, [bindSession, createSession, loadSessions, t]);
+
+  const handleTerminateSession = useCallback(async () => {
+    if (!currentSessionId) return;
+    const closed = await closeSession(currentSessionId);
+    if (!closed) {
+      setTerminateConfirmOpen(false);
+      announce(t('terminal.announce.terminateFailed'));
+      return;
+    }
+    await useWorkspaceStore.getState().updateTab(panelTab.id, {
+      state: { ...panelTab.state, sessionId: undefined },
+    });
+    setTerminateConfirmOpen(false);
+    announce(t('terminal.announce.terminated'));
+  }, [closeSession, currentSessionId, panelTab.id, panelTab.state, t]);
 
   const handleArrowUp = useCallback(() => {
     const container = historyContainerRef.current;
@@ -201,11 +245,31 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         <Toolbar
           ariaLabel={t('terminal.aria.toolbar')}
           left={
-            <h1 className="page-toolbar__title" id="terminal-heading">
-              {activeSession?.name || t('terminal.pageTitle')}
-            </h1>
+            <>
+              <h1 className="page-toolbar__title" id="terminal-heading">
+                {activeSession?.name || t('terminal.pageTitle')}
+              </h1>
+              <TerminalPicker
+                sessions={sessions}
+                value={currentSessionId}
+                onChange={(sessionId) => { void bindSession(sessionId); }}
+                onOpen={() => { void loadSessions(); }}
+                onAnnounce={announce}
+              />
+            </>
           }
           actions={[
+            {
+              key: 'new-terminal',
+              label: t('terminal.buttons.new'),
+              onClick: () => { void handleCreateSession(); },
+            },
+            {
+              key: 'terminate-terminal',
+              label: t('terminal.buttons.terminate'),
+              disabled: !activeSession,
+              onClick: () => setTerminateConfirmOpen(true),
+            },
             {
               key: 'chat-modal',
               label: t('editor.chatModal.title'),
@@ -243,7 +307,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
       <TerminalHistory
         ref={historyContainerRef}
         entries={currentHistory}
-        runningCommandId={null}
+        runningCommandId={currentRunningCommandId}
         isLoading={isCurrentHistoryLoading}
         onReachEnd={handleReachEnd}
       />
@@ -263,6 +327,16 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         />
       </div>
       </div>
+      <ConfirmDialog
+        isOpen={isTerminateConfirmOpen}
+        title={t('terminal.terminate.title')}
+        message={t('terminal.terminate.message', { name: activeSession?.name || t('terminal.pageTitle') })}
+        confirmText={t('terminal.buttons.terminate')}
+        cancelText={t('common.cancel')}
+        variant="danger"
+        onConfirm={() => { void handleTerminateSession(); }}
+        onCancel={() => setTerminateConfirmOpen(false)}
+      />
     </div>
   );
 }

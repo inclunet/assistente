@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useTerminalStore } from '../../store/terminalStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 
@@ -8,9 +8,7 @@ function isWorkspaceTabActive(tabId: string): boolean {
 }
 
 export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolean) {
-  const updateWorkspaceTab = useWorkspaceStore((state) => state.updateTab);
   const isWsInitialized = useWorkspaceStore((state) => state.isInitialized);
-  const creatingRef = useRef(false);
 
   const sessionId = (tab.state?.sessionId as string) || '';
   useEffect(() => {
@@ -26,7 +24,7 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
         return;
       }
 
-      store.loadSessions().then(() => {
+      void store.loadSessions().then(() => {
         if (!isWorkspaceTabActive(tab.id)) return;
 
         const reloaded = useTerminalStore.getState();
@@ -34,48 +32,13 @@ export function useTerminalSurfaceController(tab: WorkspaceTab, isActive: boolea
           if (!reloaded.historyBySession[sessionId]) {
             void reloaded.loadHistory(sessionId);
           }
-        } else {
-          void recoverStaleSession(tab.id);
         }
       }).catch((error: unknown) => {
-        if (!isWorkspaceTabActive(tab.id)) return;
-
-        logger.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
-        void recoverStaleSession(tab.id);
+        if (isWorkspaceTabActive(tab.id)) {
+          logger.error('[TerminalSurfaceController] Erro ao carregar sessões:', error);
+        }
       });
       return;
     }
-
-    if (!creatingRef.current) {
-      void createSessionForTab(tab.id);
-    }
   }, [isActive, isWsInitialized, sessionId, tab.id, tab.type]);
-
-  async function recoverStaleSession(tabId: string) {
-    creatingRef.current = true;
-    try {
-      const newSessionId = await useTerminalStore.getState().createSession();
-      if (newSessionId) {
-        await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
-      }
-    } catch (error) {
-      logger.error('[TerminalSurfaceController] Erro ao recuperar sessão obsoleta:', error);
-    } finally {
-      creatingRef.current = false;
-    }
-  }
-
-  async function createSessionForTab(tabId: string) {
-    creatingRef.current = true;
-    try {
-      const newSessionId = await useTerminalStore.getState().createSession();
-      if (newSessionId) {
-        await updateWorkspaceTab(tabId, { state: { sessionId: newSessionId } });
-      }
-    } catch (error) {
-      logger.error('[TerminalSurfaceController] Erro ao criar sessão:', error);
-    } finally {
-      creatingRef.current = false;
-    }
-  }
 }

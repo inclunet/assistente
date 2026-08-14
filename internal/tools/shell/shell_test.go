@@ -177,10 +177,12 @@ func TestParameters(t *testing.T) {
 
 // MockSessionManager implementa SessionManager para testes
 type MockSessionManager struct {
-	acquireCalls   int
-	releaseCalls   int
+	acquireCalls    int
+	releaseCalls    int
 	runCommandCalls int
-	
+	runSessionID    string
+	liveSessions    map[string]bool
+
 	// Controladores de behavior
 	fakeSession *terminal.Session
 	fakeSessErr error
@@ -206,6 +208,7 @@ func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*term
 
 func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error) {
 	m.runCommandCalls++
+	m.runSessionID = sessionID
 	if m.fakeRunErr != nil {
 		return m.fakeEntry, m.fakeRunErr
 	}
@@ -218,6 +221,10 @@ func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, c
 		}
 	}
 	return m.fakeEntry, nil
+}
+
+func (m *MockSessionManager) Has(sessionID string) bool {
+	return m.liveSessions[sessionID]
 }
 
 func (m *MockSessionManager) Release(sessionID string) {
@@ -257,6 +264,51 @@ func TestSuccessfulExecution(t *testing.T) {
 	}
 	if mgr.releaseCalls != 1 {
 		t.Errorf("esperado 1 Release call, got %d", mgr.releaseCalls)
+	}
+}
+
+func TestExecutionUsesExplicitTerminalWithoutAcquire(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+		fakeEntry: &terminal.HistoryEntry{
+			ID:       "cmd-explicit",
+			Output:   "ok",
+			ExitCode: 0,
+		},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit"}`,
+	))
+	if err != nil || result.IsError {
+		t.Fatalf("Execute: result=%#v err=%v", result, err)
+	}
+	if mgr.acquireCalls != 0 {
+		t.Fatalf("Acquire chamado %d vez(es)", mgr.acquireCalls)
+	}
+	if mgr.runSessionID != "term-explicit" {
+		t.Fatalf("RunCommand recebeu %q", mgr.runSessionID)
+	}
+	if result.Metadata["deepLink"] != "assistente://terminal/term-explicit" {
+		t.Fatalf("deepLink = %#v", result.Metadata["deepLink"])
+	}
+}
+
+func TestExecutionRejectsDeadExplicitTerminal(t *testing.T) {
+	mgr := &MockSessionManager{liveSessions: map[string]bool{}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-dead"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.runCommandCalls != 0 {
+		t.Fatalf("resultado=%#v runCalls=%d", result, mgr.runCommandCalls)
 	}
 }
 
@@ -462,7 +514,7 @@ func TestTimeoutExceedsMaxTimeout(t *testing.T) {
 	}
 
 	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
-	
+
 	// Req timeout: 600 segundos (máximo é 300s / 5min)
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"long-task", "timeout_seconds":600}`))
 
@@ -472,7 +524,7 @@ func TestTimeoutExceedsMaxTimeout(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("esperado sucesso, got: %s", result.Content)
 	}
-	
+
 	// Validar que timeout foi clipped (não há forma de confirmar diretamente,
 	// mas o Manager foi chamado, logo timeout foi calculado e respeitado)
 	if mgr.runCommandCalls != 1 {
@@ -628,7 +680,7 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("esperado error quando timeout sem output")
 	}
-	
+
 	// Validar que metadata contém exitCode=-1
 	if exitCode, ok := result.Metadata["exitCode"].(int); !ok || exitCode != -1 {
 		t.Errorf("esperado exitCode=-1 em metadata, got %v", result.Metadata["exitCode"])

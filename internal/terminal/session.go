@@ -22,11 +22,18 @@ const (
 	// StateIdle indica que a sessão está livre para receber comandos.
 	StateIdle SessionState = iota
 
-	// StateBusy indica que a sessão está executando um comando.
-	StateBusy
+	// StateRunning indica que a sessão está executando um comando estruturado.
+	StateRunning
 
-	// StateClosed indica que a sessão foi encerrada.
-	StateClosed
+	// StateClosing indica encerramento solicitado, ainda liberando recursos.
+	StateClosing
+
+	// StateExited indica que o processo terminou e o ID não é reconectável.
+	StateExited
+
+	// Aliases legados para consumidores durante a migração da AEP-0089.
+	StateBusy   = StateRunning
+	StateClosed = StateExited
 )
 
 // String retorna a representação textual do estado.
@@ -34,10 +41,12 @@ func (s SessionState) String() string {
 	switch s {
 	case StateIdle:
 		return "idle"
-	case StateBusy:
-		return "busy"
-	case StateClosed:
-		return "closed"
+	case StateRunning:
+		return "running"
+	case StateClosing:
+		return "closing"
+	case StateExited:
+		return "exited"
 	default:
 		return "unknown"
 	}
@@ -73,6 +82,8 @@ type outputCallback func(sessionID, commandID, chunk string)
 // Usado para streaming contínuo no Terminal Page (modo raw).
 type rawOutputCallback func(sessionID, chunk string)
 
+type commandStartCallback func(sessionID, commandID, command, source string)
+
 // Session encapsula uma sessão PTY persistente com um shell.
 type Session struct {
 	id         string
@@ -94,13 +105,17 @@ type Session struct {
 	onOutput outputCallback
 
 	// onRawOutput é chamado para cada chunk lido do PTY (para Terminal Page)
-	onRawOutput rawOutputCallback
+	onRawOutput    rawOutputCallback
+	onCommandStart commandStartCallback
 
 	// suppressRawOutput quando true, readLoop não emite via onRawOutput (durante RunCommand)
 	suppressRawOutput bool
 
 	// cancelReader para cancelar o goroutine de leitura
 	cancelReader context.CancelFunc
+	readerCtx    context.Context
+	onExit       func(sessionID string, err error)
+	exitOnce     sync.Once
 }
 
 const (
@@ -136,7 +151,7 @@ func shellType(shell string) string {
 }
 
 // newSession cria e inicializa uma nova sessão PTY.
-func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutput rawOutputCallback) (*Session, error) {
+func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutput rawOutputCallback, onCommandStart commandStartCallback, onExit func(string, error)) (*Session, error) {
 	if shell == "" {
 		shell = defaultShell()
 	}
@@ -157,25 +172,30 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 	}
 
 	s := &Session{
-		id:           uuid.New().String()[:8],
-		name:         name,
-		ptySession:   ptySession,
-		state:        StateIdle,
-		shell:        shell,
-		cwd:          workDir,
-		history:      make([]HistoryEntry, 0, 32),
-		createdAt:    time.Now(),
-		lastUsed:     time.Now(),
-		onOutput:     onOutput,
-		onRawOutput:  onRawOutput,
-		cancelReader: cancel,
+		id:             uuid.NewString(),
+		name:           name,
+		ptySession:     ptySession,
+		state:          StateIdle,
+		shell:          shell,
+		cwd:            workDir,
+		history:        make([]HistoryEntry, 0, 32),
+		createdAt:      time.Now(),
+		lastUsed:       time.Now(),
+		onOutput:       onOutput,
+		onRawOutput:    onRawOutput,
+		onCommandStart: onCommandStart,
+		cancelReader:   cancel,
+		readerCtx:      ctx,
+		onExit:         onExit,
 	}
-
-	// Goroutine para ler output do PTY em background
-	go s.readLoop(ctx)
 
 	logging.Infof(ctx, "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
 	return s, nil
+}
+
+// Start inicia a leitura somente depois que o Manager registrou a sessão.
+func (s *Session) Start() {
+	go s.readLoop(s.readerCtx)
 }
 
 // readLoop lê continuamente do PTY e acumula no buffer.
@@ -215,28 +235,40 @@ func (s *Session) readLoop(ctx context.Context) {
 		if err != nil {
 			if err != io.EOF {
 				logging.Errorf(ctx, "terminal.session", "[Terminal] Erro de leitura na sessão %s: %v", s.id, err)
+			} else {
+				err = nil
 			}
+			s.markExited(err)
 			return
 		}
 	}
 }
 
+func (s *Session) markExited(err error) {
+	s.exitOnce.Do(func() {
+		s.mu.Lock()
+		s.state = StateExited
+		s.mu.Unlock()
+		if s.onExit != nil {
+			s.onExit(s.id, err)
+		}
+	})
+}
+
+func (s *Session) beginCommand() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state != StateIdle {
+		return fmt.Errorf("sessão %s não está disponível (estado: %s)", s.id, s.state.String())
+	}
+	s.state = StateRunning
+	s.lastUsed = time.Now()
+	return nil
+}
+
 // RunCommand executa um comando na sessão PTY e retorna o output.
 // O comando é envolvido com markers para detectar início/fim e exit code.
-func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
-	s.mu.Lock()
-	if s.state == StateClosed {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("sessão %s está fechada", s.id)
-	}
-	if s.state == StateBusy {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("sessão %s está ocupada", s.id)
-	}
-	s.state = StateBusy
-	s.lastUsed = time.Now()
-	s.mu.Unlock()
-
+func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
 	defer func() {
 		s.mu.Lock()
 		if s.state != StateClosed {
@@ -245,11 +277,17 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 		s.mu.Unlock()
 	}()
 
+	if commandID == "" {
+		commandID = uuid.NewString()
+	}
 	entry := &HistoryEntry{
-		ID:        uuid.New().String()[:8],
+		ID:        commandID,
 		Command:   command,
 		StartedAt: time.Now(),
 		Source:    source,
+	}
+	if s.onCommandStart != nil {
+		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
 	}
 
 	// Cria marker único para esta execução
@@ -477,14 +515,13 @@ func (s *Session) State() SessionState {
 // SendInput envia input raw para o PTY sem markers.
 // Usado para comandos do usuário no Terminal Page e para input de programas interativos.
 // Não bloqueia — o output vem via streaming (onRawOutput).
-func (s *Session) SendInput(input string) (*HistoryEntry, error) {
+func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 	s.mu.Lock()
-	if s.state == StateClosed {
+	if s.state != StateIdle {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("sessão %s está fechada", s.id)
+		return nil, fmt.Errorf("sessão %s não aceita input manual no estado %s", s.id, s.state.String())
 	}
 	s.lastUsed = time.Now()
-	s.mu.Unlock()
 
 	// Windows ConPTY espera CR (\r) para simular Enter.
 	// Unix PTY espera LF (\n) para executar o comando.
@@ -493,18 +530,25 @@ func (s *Session) SendInput(input string) (*HistoryEntry, error) {
 		enter = "\r"
 	}
 
-	_, err := s.ptySession.PtyWriter().Write([]byte(input + enter))
-	if err != nil {
-		return nil, fmt.Errorf("falha ao enviar input para sessão %s: %w", s.id, err)
+	if commandID == "" {
+		commandID = uuid.NewString()
 	}
-
 	entry := &HistoryEntry{
-		ID:        uuid.New().String()[:8],
+		ID:        commandID,
 		Command:   input,
 		StartedAt: time.Now(),
 		ExitCode:  -999, // sentinel: "raw/interativo, sem exit code"
 		Source:    "user-raw",
 	}
+	if s.onCommandStart != nil {
+		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
+	}
+	_, err := s.ptySession.PtyWriter().Write([]byte(input + enter))
+	s.mu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("falha ao enviar input para sessão %s: %w", s.id, err)
+	}
+
 	s.addHistoryEntry(entry)
 
 	return entry, nil
@@ -536,7 +580,7 @@ func (s *Session) Close() error {
 		return nil
 	}
 
-	s.state = StateClosed
+	s.state = StateClosing
 
 	// Para o goroutine de leitura
 	if s.cancelReader != nil {
@@ -548,6 +592,7 @@ func (s *Session) Close() error {
 		_ = s.ptySession.Kill()
 		_ = s.ptySession.Close()
 	}
+	s.state = StateExited
 
 	logging.Infof(context.Background(), "terminal.session", "[Terminal] Sessão encerrada: id=%s name=%s", s.id, s.name)
 	return nil

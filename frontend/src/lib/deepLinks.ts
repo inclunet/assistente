@@ -4,6 +4,7 @@ import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
 import { useNavigationStore, type EditableResource } from '../store/navigationStore';
 import { useUIStore } from '../store/uiStore';
+import { useTerminalStore } from '../store/terminalStore';
 import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import { RunTerminalCommand } from '@wailsjs/go/wailsapi/Terminal';
@@ -429,6 +430,20 @@ export async function executeDeepLink(
     }
 
     case 'tab:open': {
+      if (action.tabType === 'terminal') {
+        await useTerminalStore.getState().loadSessions();
+        const isLive = useTerminalStore.getState().sessions.some(
+          (session) => session.id === action.contentId,
+        );
+        if (!isLive) {
+          const message = t('deepLink.terminalUnavailable', { id: action.contentId });
+          useUIStore.getState().addToast(message, 'warning', undefined, undefined, {
+            suppressAnnounce: true,
+          });
+          announce(message);
+          break;
+        }
+      }
       const tabs = wsStore.workspace?.tabs || [];
       // Find existing tab by type-specific content identifier
       const existing = tabs.find((tab) => {
@@ -462,20 +477,19 @@ export async function executeDeepLink(
         const tabId = await wsStore.addTab('editor', title, { filePath: action.file });
         useEditorStore.getState().createDocument({ id: tabId, title, markdown: content, filePath: action.file });
       } else if (action.tabType === 'terminal') {
-        const tabId = await wsStore.addTab('terminal', action.title || i18n.t('terminal.pageTitle'));
+        const sessionId = await useTerminalStore.getState().createSession(action.title);
+        if (!sessionId) {
+          const message = t('terminal.announce.createFailed');
+          useUIStore.getState().addToast(message, 'error');
+          announce(message);
+          break;
+        }
+        await wsStore.addTab(
+          'terminal',
+          action.title || i18n.t('terminal.pageTitle'),
+          { sessionId },
+        );
         if (action.cmd) {
-          const waitForSessionId = (): Promise<string> => new Promise((resolve) => {
-            const check = () => {
-              const tab = (useWorkspaceStore.getState().workspace?.tabs || []).find(
-                (t) => t.id === tabId,
-              );
-              const sid = tab?.state?.sessionId as string | undefined;
-              if (sid) { resolve(sid); return; }
-              setTimeout(check, 50);
-            };
-            check();
-          });
-          const sessionId = await waitForSessionId();
           await RunTerminalCommand(sessionId, action.cmd);
         }
       } else {
