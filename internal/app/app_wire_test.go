@@ -373,6 +373,20 @@ func TestWireACPProvidersAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireACPInstallAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewACPInstall()
+	SetACPInstallAPI(a, api)
+
+	a.wireACPInstall()
+
+	_, err := api.ACPAgentInstallPlan("codex-acp")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 func TestWireACPCommandsAttachesBind(t *testing.T) {
 	t.Parallel()
 	mgr := acp.NewManager(acp.ManagerConfig{

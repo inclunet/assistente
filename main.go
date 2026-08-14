@@ -66,6 +66,8 @@ func main() {
 	application.SetACPCommandsAPI(a, acpCommandsAPI)
 	acpProvidersAPI := wailsapi.NewACPProviders()
 	application.SetACPProvidersAPI(a, acpProvidersAPI)
+	acpInstallAPI := wailsapi.NewACPInstall()
+	application.SetACPInstallAPI(a, acpInstallAPI)
 	acpTrustAPI := wailsapi.NewACPTrust()
 	application.SetACPTrustAPI(a, acpTrustAPI)
 
@@ -127,6 +129,7 @@ func main() {
 			llmProvidersAPI,
 			acpCommandsAPI,
 			acpProvidersAPI,
+			acpInstallAPI,
 			acpTrustAPI,
 		},
 		Debug: options.Debug{

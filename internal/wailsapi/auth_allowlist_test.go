@@ -330,6 +330,23 @@ func TestACPProvidersMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestACPInstallMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ACPAgentInstallPlan",
+		"InstallACPAgent",
+		"UpdateACPAgent",
+		"CancelACPAgentInstall",
+		"CanRemoveACPAgent",
+		"RemoveACPAgent",
+		"ListInstalledACPAgents",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via ACPInstall/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestACPCommandsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

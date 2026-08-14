@@ -299,8 +299,13 @@ type App struct {
 	acpCommandsAPI *wailsapi.ACPCommands
 
 	// acpProvidersAPI é o bind Wails de detect/test de agentes ACP (AEP-0088).
-	// Criado em main e wired após initACP. acp_install permanece no *App.
+	// Criado em main e wired após initACP.
 	acpProvidersAPI *wailsapi.ACPProviders
+
+	// acpInstallAPI é o bind Wails de install/update/remove de agentes ACP
+	// (AEP-0088). Criado em main; helpers de handshake/progresso/repontar
+	// permanecem no *App e entram via hooks.
+	acpInstallAPI *wailsapi.ACPInstall
 
 	// acpTrustAPI é o bind Wails de autorizações permanentes ACP (AEP-0088).
 	// Criado em main e wired após initACP (reusa acpTrust). Handlers de
@@ -538,6 +543,15 @@ func SetACPProvidersAPI(a *App, api *wailsapi.ACPProviders) {
 		return
 	}
 	a.acpProvidersAPI = api
+}
+
+// SetACPInstallAPI registra o bind Wails de acp_install antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPInstallAPI(a *App, api *wailsapi.ACPInstall) {
+	if a == nil {
+		return
+	}
+	a.acpInstallAPI = api
 }
 
 // SetACPTrustAPI registra o bind Wails de acp_trust antes do Run (main.go).
@@ -924,6 +938,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireSubagent()
 	a.wireACPCommands()
 	a.wireACPProviders()
+	a.wireACPInstall()
 	a.wireACPTrust()
 	a.wireSignal()
 	a.wireTerminal()
