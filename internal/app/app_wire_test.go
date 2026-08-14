@@ -8,6 +8,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/memory"
 	"assistente/internal/profiles"
+	"assistente/internal/subagent"
 	"assistente/internal/terminal"
 	"assistente/internal/wailsapi"
 )
@@ -281,5 +282,21 @@ func TestWireWelcomeAttachesBind(t *testing.T) {
 	// Sem master key/db: fail-safe true (Attach não exige sessão).
 	if !api.NeedsWelcomeWizard() {
 		t.Fatal("NeedsWelcomeWizard após Attach parcial deve permanecer fail-safe true sem master key/db")
+	}
+}
+
+func TestWireSubagentAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		subagentMgr: subagent.NewManager(subagent.ManagerConfig{}),
+	}
+	api := wailsapi.NewSubagent()
+	SetSubagentAPI(a, api)
+
+	a.wireSubagent()
+
+	_, err := api.ListSubAgentRuns(10)
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }

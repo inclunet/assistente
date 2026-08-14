@@ -397,6 +397,7 @@ export function buildWailsMockScript(): string {
       Terminal: makeProxy('wailsapi.Terminal'),
       Memory: makeProxy('wailsapi.Memory'),
       Welcome: makeProxy('wailsapi.Welcome'),
+      Subagent: makeProxy('wailsapi.Subagent'),
     },
   };
 

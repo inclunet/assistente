@@ -49,3 +49,6 @@ var ErrMemoryNotWired = errors.New("wailsapi: memory bind not wired")
 
 // ErrWelcomeNotWired indica que o bind Welcome ainda não recebeu controller/runtime.
 var ErrWelcomeNotWired = errors.New("wailsapi: welcome bind not wired")
+
+// ErrSubagentNotWired indica que o bind Subagent ainda não recebeu manager/session.
+var ErrSubagentNotWired = errors.New("wailsapi: subagent bind not wired")

@@ -78,40 +78,6 @@ func buildSubagentNotice(n subagent.ParentNotice) string {
 	return b.String()
 }
 
-// --- Métodos Wails-bound para o frontend (AEP-0068 F5) ---
-
-// ListSubAgentRuns devolve os runs de sub-agente do usuário autenticado —
-// ativos primeiro, depois os mais recentes — junto da ocupação dos tetos de
-// concorrência. Alimenta a superfície de visibilidade de trabalho em segundo
-// plano no histórico. limit <= 0 usa o padrão do repositório.
-func (a *App) ListSubAgentRuns(limit int) (subagent.RunListResult, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return subagent.RunListResult{}, err
-	}
-	if a.subagentMgr == nil {
-		return subagent.RunListResult{}, fmt.Errorf("gerenciador de sub-agentes indisponível")
-	}
-	return a.subagentMgr.ListRuns(ctx, limit)
-}
-
-// CancelSubAgentRun cancela um run de sub-agente a partir da UI. Reusa o mesmo
-// Manager.Cancel da tool (sem caminho alternativo de cancelamento): se o run já
-// era terminal, devolve no-op com o status real (Cancelled=false).
-//
-// conversationID é obrigatório, como no contrato do AEP-0068 — a UI já o tem em
-// mãos, porque a listagem devolve o par run/sub-conversa.
-func (a *App) CancelSubAgentRun(conversationID, runID string) (subagent.CancelResult, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return subagent.CancelResult{}, err
-	}
-	if a.subagentMgr == nil {
-		return subagent.CancelResult{}, fmt.Errorf("gerenciador de sub-agentes indisponível")
-	}
-	return a.subagentMgr.Cancel(ctx, conversationID, runID)
-}
-
 // sanitizeUntrusted neutraliza tentativas de "fechar" o bloco de dados não
 // confiáveis (fence-breakout): remove ocorrências dos próprios delimitadores no
 // conteúdo do sub-agente, de modo que ele não consiga encerrar o bloco e injetar

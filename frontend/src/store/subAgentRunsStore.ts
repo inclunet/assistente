@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CancelSubAgentRun, ListSubAgentRuns } from '@wailsjs/go/app/App';
+import { CancelSubAgentRun, ListSubAgentRuns } from '@wailsjs/go/wailsapi/Subagent';
 import type { subagent } from '@wailsjs/go/models';
 
 /**

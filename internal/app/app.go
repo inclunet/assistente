@@ -268,6 +268,10 @@ type App struct {
 	// welcomeAPI é o bind Wails do domínio welcome (AEP-0088). Criado em main e
 	// wired após NewWelcomeController.
 	welcomeAPI *wailsapi.Welcome
+
+	// subagentAPI é o bind Wails do domínio subagent (AEP-0088). Criado em main
+	// e wired após a criação do subagentMgr.
+	subagentAPI *wailsapi.Subagent
 }
 
 // ==================== Tipos para Threads ====================
@@ -428,6 +432,15 @@ func SetWelcomeAPI(a *App, api *wailsapi.Welcome) {
 		return
 	}
 	a.welcomeAPI = api
+}
+
+// SetSubagentAPI registra o bind Wails de subagent antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSubagentAPI(a *App, api *wailsapi.Subagent) {
+	if a == nil {
+		return
+	}
+	a.subagentAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -780,6 +793,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireCredentials()
 	a.wireMemory()
 	a.wireWelcome()
+	a.wireSubagent()
 	a.wireSignal()
 	a.wireTerminal()
 
