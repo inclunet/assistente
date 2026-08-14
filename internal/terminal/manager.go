@@ -213,7 +213,7 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 		"error":      errToString(err),
 	})
 
-	return result, err
+	return entry, err
 }
 
 func completeCommandEntry(entry, result *HistoryEntry, err error) *HistoryEntry {

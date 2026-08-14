@@ -286,17 +286,21 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 
 		// Erro real (sem output ou sem timeout)
+		metadata := map[string]any{
+			"command":    a.Command,
+			"workDir":    workDir,
+			"exitCode":   -1,
+			"sessionId":  sessionID,
+			"terminalId": sessionID,
+			"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
+		}
+		if entry != nil {
+			metadata["commandId"] = entry.ID
+		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
-			IsError: true,
-			Metadata: map[string]any{
-				"command":    a.Command,
-				"workDir":    workDir,
-				"exitCode":   -1,
-				"sessionId":  sessionID,
-				"terminalId": sessionID,
-				"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
-			},
+			Content:  fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
+			IsError:  true,
+			Metadata: metadata,
 		}, nil
 	}
 

@@ -732,6 +732,9 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	if exitCode, ok := result.Metadata["exitCode"].(int); !ok || exitCode != -1 {
 		t.Errorf("esperado exitCode=-1 em metadata, got %v", result.Metadata["exitCode"])
 	}
+	if commandID, ok := result.Metadata["commandId"].(string); !ok || commandID != "cmd-132" {
+		t.Errorf("esperado commandId=cmd-132 em metadata, got %v", result.Metadata["commandId"])
+	}
 }
 
 // TestMultipleExecutionsReleaseSession valida que Release é chamado sempre
