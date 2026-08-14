@@ -101,6 +101,15 @@ func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools
 		workDir := strings.TrimSpace(args.WorkingDirectory)
 		if workDir == "" {
 			workDir = t.workDir
+		} else {
+			resolvedWorkDir, resolveErr := resolveProjectWorkDir(t.workDir, workDir)
+			if resolveErr != nil {
+				return tools.ToolResult{
+					Content: "working_directory inválido: " + resolveErr.Error(),
+					IsError: true,
+				}, nil
+			}
+			workDir = resolvedWorkDir
 		}
 		info, err := t.manager.CreateInfo(strings.TrimSpace(args.Name), workDir)
 		if err != nil {

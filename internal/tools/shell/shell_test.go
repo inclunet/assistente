@@ -319,6 +319,22 @@ func TestExecutionRejectsWorkingDirectoryWithExplicitTerminal(t *testing.T) {
 	}
 }
 
+func TestExecutionRejectsWorkingDirectoryOutsideProject(t *testing.T) {
+	mgr := &MockSessionManager{}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, t.TempDir())
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","working_directory":"../../outside"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.acquireCalls != 0 {
+		t.Fatalf("resultado=%#v acquireCalls=%d", result, mgr.acquireCalls)
+	}
+}
+
 func TestExplicitTerminalConfirmationUsesSessionCWD(t *testing.T) {
 	mgr := &MockSessionManager{
 		liveSessions: map[string]bool{"term-explicit": true},

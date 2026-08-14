@@ -83,6 +83,20 @@ func TestTerminalSessionCreateUsesIDWhenNameIsEmpty(t *testing.T) {
 	}
 }
 
+func TestTerminalSessionCreateRejectsWorkingDirectoryOutsideProject(t *testing.T) {
+	manager := &fakeTerminalSessionManager{}
+	result, err := NewTerminalSession(manager, t.TempDir()).Execute(
+		context.Background(),
+		json.RawMessage(`{"action":"create","working_directory":"../../outside"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || manager.createdDir != "" {
+		t.Fatalf("resultado=%#v createdDir=%q", result, manager.createdDir)
+	}
+}
+
 func TestTerminalSessionInterruptAndClose(t *testing.T) {
 	manager := &fakeTerminalSessionManager{}
 	tool := NewTerminalSession(manager, "/workspace")

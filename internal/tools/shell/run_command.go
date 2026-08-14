@@ -162,7 +162,14 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 		workDir = info.CWD
 	} else if a.WorkingDirectory != "" {
-		workDir = a.WorkingDirectory
+		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
+		if resolveErr != nil {
+			return tools.ToolResult{
+				Content: "working_directory inválido: " + resolveErr.Error(),
+				IsError: true,
+			}, nil
+		}
+		workDir = resolvedWorkDir
 	}
 
 	// Calcula timeout
