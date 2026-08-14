@@ -264,6 +264,22 @@ func TestMemoryMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestDatabaseMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ResetDatabase",
+		"ClearMessages",
+		"GetMaintenanceSettings",
+		"SaveMaintenanceSettings",
+		"GetDatabaseStats",
+		"RunDatabaseMaintenance",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Database/WithUser|WithAdmin; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestWelcomeMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	// welcome vive em wailsapi.Welcome (não *App). NeedsWelcomeWizard é dual-mode

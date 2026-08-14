@@ -52,6 +52,8 @@ func main() {
 	application.SetWelcomeAPI(a, welcomeAPI)
 	legacyCleanupAPI := wailsapi.NewLegacyCleanup()
 	application.SetLegacyCleanupAPI(a, legacyCleanupAPI)
+	databaseAPI := wailsapi.NewDatabase()
+	application.SetDatabaseAPI(a, databaseAPI)
 	subagentAPI := wailsapi.NewSubagent()
 	application.SetSubagentAPI(a, subagentAPI)
 
@@ -106,6 +108,7 @@ func main() {
 			memoryAPI,
 			welcomeAPI,
 			legacyCleanupAPI,
+			databaseAPI,
 			subagentAPI,
 		},
 		Debug: options.Debug{

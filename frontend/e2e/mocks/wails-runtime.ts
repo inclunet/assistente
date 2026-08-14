@@ -398,6 +398,7 @@ export function buildWailsMockScript(): string {
       Memory: makeProxy('wailsapi.Memory'),
       Welcome: makeProxy('wailsapi.Welcome'),
       LegacyCleanup: makeProxy('wailsapi.LegacyCleanup'),
+      Database: makeProxy('wailsapi.Database'),
       Subagent: makeProxy('wailsapi.Subagent'),
     },
   };

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"assistente/internal/database"
+	"assistente/internal/profiles"
+	"assistente/internal/wailsapi"
 )
 
 // TestRequireAdminContext_FailsPreLogin garante que `requireAdminContext`
@@ -76,15 +78,28 @@ func TestRequireAdminContext_AllowsAdminUser(t *testing.T) {
 	}
 }
 
+func wireTestDatabaseAPI(t *testing.T, a *App) *wailsapi.Database {
+	t.Helper()
+	if a.profileManager == nil {
+		a.profileManager = profiles.NewManager()
+	}
+	api := wailsapi.NewDatabase()
+	SetDatabaseAPI(a, api)
+	a.wireSettings()
+	a.wireDatabase()
+	return api
+}
+
 // TestResetDatabase_RejectsPreAuth garante que `ResetDatabase`,
-// exposto via Wails Bind como método público de `*App`, recusa
-// chamadas pré-login antes de tocar em qualquer arquivo. Sem isso
-// o método silenciosamente derrubava o DB inteiro — descoberto
-// durante triage do Bloco 7 (não estava no review original).
+// exposto via Wails Bind em `wailsapi.Database`, recusa chamadas
+// pré-login antes de tocar em qualquer arquivo. Sem isso o método
+// silenciosamente derrubava o DB inteiro — descoberto durante triage
+// do Bloco 7 (não estava no review original).
 func TestResetDatabase_RejectsPreAuth(t *testing.T) {
 	a := &App{}
+	api := wireTestDatabaseAPI(t, a)
 
-	err := a.ResetDatabase()
+	err := api.ResetDatabase()
 	if err == nil {
 		t.Fatal("ResetDatabase pré-login deveria falhar")
 	}
@@ -104,8 +119,9 @@ func TestResetDatabase_RejectsRegularUser(t *testing.T) {
 		SessionID: "sess-1",
 		Role:      database.UserRoleUser,
 	})
+	api := wireTestDatabaseAPI(t, a)
 
-	err := a.ResetDatabase()
+	err := api.ResetDatabase()
 	if err == nil {
 		t.Fatal("ResetDatabase para role=user deveria falhar")
 	}

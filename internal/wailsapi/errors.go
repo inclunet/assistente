@@ -53,5 +53,13 @@ var ErrWelcomeNotWired = errors.New("wailsapi: welcome bind not wired")
 // ErrLegacyCleanupNotWired indica que o bind LegacyCleanup ainda não recebeu session.
 var ErrLegacyCleanupNotWired = errors.New("wailsapi: legacy cleanup bind not wired")
 
+// ErrDatabaseNotWired indica que o bind Database ainda não recebeu controller/session.
+var ErrDatabaseNotWired = errors.New("wailsapi: database bind not wired")
+
+// ErrDatabaseResetFailed é o erro genérico devolvido ao caller quando
+// ResetDatabase falha. O detalhe real (paths, syscalls) só vai para o logger
+// local — defesa contra leak de filesystem em multi-user (AEP-0052).
+var ErrDatabaseResetFailed = errors.New("database reset failed")
+
 // ErrSubagentNotWired indica que o bind Subagent ainda não recebeu manager/session.
 var ErrSubagentNotWired = errors.New("wailsapi: subagent bind not wired")

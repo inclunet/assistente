@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
-import * as AppAPI from '@wailsjs/go/app/App';
+import * as DatabaseAPI from '@wailsjs/go/wailsapi/Database';
 import * as LegacyCleanupAPI from '@wailsjs/go/wailsapi/LegacyCleanup';
 import * as SettingsAPI from '@wailsjs/go/wailsapi/Settings';
 import { apidto } from '@wailsjs/go/models';
@@ -83,6 +83,7 @@ vi.mock('../store/chatStore', () => ({
   },
 }));
 vi.mock('@wailsjs/go/app/App');
+vi.mock('@wailsjs/go/wailsapi/Database');
 vi.mock('@wailsjs/go/wailsapi/LegacyCleanup');
 vi.mock('@wailsjs/go/wailsapi/Settings');
 vi.mock('../hooks/useAnnouncer', () => ({
@@ -101,12 +102,12 @@ describe('RestoreDefaultsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    vi.mocked(AppAPI.ClearMessages).mockResolvedValue(undefined);
+    vi.mocked(DatabaseAPI.ClearMessages).mockResolvedValue(undefined);
     vi.mocked(SettingsAPI.ClearAllCredentials).mockResolvedValue(undefined);
     vi.mocked(SettingsAPI.ClearAllProfiles).mockResolvedValue(undefined);
     vi.mocked(SettingsAPI.ClearAllSkills).mockResolvedValue(undefined);
     vi.mocked(SettingsAPI.ClearAllChannels).mockResolvedValue(undefined);
-    vi.mocked(AppAPI.ResetDatabase).mockResolvedValue(undefined);
+    vi.mocked(DatabaseAPI.ResetDatabase).mockResolvedValue(undefined);
     vi.mocked(LegacyCleanupAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
 
     mockConfirm.mockReset();
@@ -201,7 +202,7 @@ describe('RestoreDefaultsPage', () => {
       if (actionButton) {
         await user.click(actionButton);
         // Nenhuma operação Wails foi executada porque confirmação foi recusada
-        expect(AppAPI.ClearMessages).not.toHaveBeenCalled();
+        expect(DatabaseAPI.ClearMessages).not.toHaveBeenCalled();
       }
     });
   });
@@ -232,7 +233,7 @@ describe('RestoreDefaultsPage', () => {
       if (actionButtons.length > 1) {
         await user.click(actionButtons[1]);
         await waitFor(() => {
-          expect(AppAPI.ResetDatabase).toHaveBeenCalled();
+          expect(DatabaseAPI.ResetDatabase).toHaveBeenCalled();
         });
       }
     });

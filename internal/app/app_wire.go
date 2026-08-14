@@ -137,6 +137,20 @@ func (a *App) wireSettings() {
 	}
 }
 
+// wireDatabase associa o bind Wails de database/manutenção (AEP-0088).
+// Reusa settingsCtrl (montado em wireSettings) e callbacks ACP do App.
+func (a *App) wireDatabase() {
+	if a.databaseAPI != nil {
+		wailsapi.AttachDatabase(
+			a.databaseAPI,
+			wailsSession{app: a},
+			a.settingsCtrl,
+			a.resetACPRuntime,
+			a.closeAllACPSessions,
+		)
+	}
+}
+
 // wireMCP monta o MCPController e associa o bind Wails (AEP-0088).
 func (a *App) wireMCP() {
 	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
