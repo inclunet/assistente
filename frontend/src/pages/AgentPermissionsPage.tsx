@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { GetAgentPermissions, RevokeAgentPermission } from '@wailsjs/go/app/App';
+import { GetAgentPermissions, RevokeAgentPermission } from '@wailsjs/go/wailsapi/ACPTrust';
 
 import { logger } from '../utils/logger';
 import { useUIStore } from '../store/uiStore';

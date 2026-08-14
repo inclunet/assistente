@@ -123,6 +123,20 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', commands: [] };
     },
+    GetAgentPermissions: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPTrust') {
+        throw new Error('GetAgentPermissions deve ser chamado via wailsapi.ACPTrust');
+      }
+      return [];
+    },
+    RevokeAgentPermission: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPTrust') {
+        throw new Error('RevokeAgentPermission deve ser chamado via wailsapi.ACPTrust');
+      }
+      return undefined;
+    },
     // Mesmo padrão: UpdateProfileMediaSupport migrou para wailsapi.Profiles.
     UpdateProfileMediaSupport: function() {
       const last = _config.callLog[_config.callLog.length - 1];
@@ -425,6 +439,7 @@ export function buildWailsMockScript(): string {
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
+      ACPTrust: makeProxy('wailsapi.ACPTrust'),
     },
   };
 

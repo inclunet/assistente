@@ -9,7 +9,7 @@ const mockConfirm = vi.fn();
 const mockAnnounce = vi.fn();
 const mockAddToast = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPTrust', () => ({
   GetAgentPermissions: (...args: unknown[]) => mockGetAgentPermissions(...args),
   RevokeAgentPermission: (...args: unknown[]) => mockRevokeAgentPermission(...args),
 }));

@@ -282,3 +282,11 @@ func (a *App) wireACPProviders() {
 		wailsapi.AttachACPProviders(a.acpProvidersAPI, wailsSession{app: a}, a.acpMgr, a.acpWorkDir)
 	}
 }
+
+// wireACPTrust associa o bind Wails de autorizações permanentes ACP (AEP-0088).
+// Handlers de permissão em tempo de turno (app_acp_permissions.go) permanecem no App.
+func (a *App) wireACPTrust() {
+	if a.acpTrustAPI != nil {
+		wailsapi.AttachACPTrust(a.acpTrustAPI, wailsSession{app: a}, a.acpTrust, a.profileNames)
+	}
+}

@@ -231,6 +231,24 @@ export namespace apidto {
 	        this.acceptsInput = source["acceptsInput"];
 	    }
 	}
+	export class AgentPermissionView {
+	    profileSlug: string;
+	    profileName?: string;
+	    action: string;
+	    grantedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentPermissionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profileSlug = source["profileSlug"];
+	        this.profileName = source["profileName"];
+	        this.action = source["action"];
+	        this.grantedAt = source["grantedAt"];
+	    }
+	}
 	export class AgentSessionCommands {
 	    conversationId: string;
 	    commands: AgentCommand[];
@@ -1206,24 +1224,6 @@ export namespace app {
 		}
 	}
 	
-	export class AgentPermissionView {
-	    profileSlug: string;
-	    profileName?: string;
-	    action: string;
-	    grantedAt: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AgentPermissionView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.profileSlug = source["profileSlug"];
-	        this.profileName = source["profileName"];
-	        this.action = source["action"];
-	        this.grantedAt = source["grantedAt"];
-	    }
-	}
 	export class AgentSessionOptions {
 	    conversationId: string;
 	    available: boolean;
