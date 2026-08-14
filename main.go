@@ -42,6 +42,8 @@ func main() {
 	application.SetSettingsAPI(a, settingsAPI)
 	mcpAPI := wailsapi.NewMCP()
 	application.SetMCPAPI(a, mcpAPI)
+	memoryAPI := wailsapi.NewMemory()
+	application.SetMemoryAPI(a, memoryAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -89,6 +91,7 @@ func main() {
 			credentialsAPI,
 			settingsAPI,
 			mcpAPI,
+			memoryAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

@@ -6,6 +6,7 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/memory"
 	"assistente/internal/profiles"
 	"assistente/internal/wailsapi"
 )
@@ -205,6 +206,25 @@ func TestWireMCPAttachesBind(t *testing.T) {
 		t.Fatal("mcpCtrl deve ser criado")
 	}
 	_, err := api.ListMCPServers()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireMemoryAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		memorySvc: memory.NewService(nil),
+	}
+	api := wailsapi.NewMemory()
+	SetMemoryAPI(a, api)
+
+	a.wireMemory()
+
+	if a.memoryCtrl == nil {
+		t.Fatal("memoryCtrl deve ser criado")
+	}
+	_, err := api.ListMemoryRecords(memory.Filter{})
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

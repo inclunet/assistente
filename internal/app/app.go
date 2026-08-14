@@ -252,6 +252,10 @@ type App struct {
 	// mcpAPI é o bind Wails do domínio MCP (AEP-0088). Criado em main e
 	// wired após NewMCPController.
 	mcpAPI *wailsapi.MCP
+
+	// memoryAPI é o bind Wails do domínio memory (AEP-0088). Criado em main e
+	// wired após NewMemoryController.
+	memoryAPI *wailsapi.Memory
 }
 
 // ==================== Tipos para Threads ====================
@@ -376,6 +380,15 @@ func SetMCPAPI(a *App, api *wailsapi.MCP) {
 		return
 	}
 	a.mcpAPI = api
+}
+
+// SetMemoryAPI registra o bind Wails de memory antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetMemoryAPI(a *App, api *wailsapi.Memory) {
+	if a == nil {
+		return
+	}
+	a.memoryAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -713,9 +726,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
 	})
-	a.memoryCtrl = controllers.NewMemoryController(controllers.MemoryControllerConfig{
-		MemorySvc: a.memorySvc,
-	})
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
 		SpeechSvc: a.speechSvc,
 	})
@@ -729,6 +739,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireUpdater()
 	a.wireNetTrust()
 	a.wireCredentials()
+	a.wireMemory()
 	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
 		QuestionnaireMgr:           a.questionnaireMgr,
 		CredMgr:                    a.credMgr,
