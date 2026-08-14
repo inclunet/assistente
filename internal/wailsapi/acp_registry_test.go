@@ -1,6 +1,9 @@
 package wailsapi
 
 import (
+	"assistente/internal/acpregistry"
+	"assistente/internal/apidto"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,6 +20,17 @@ func TestACPRegistryNotWired(t *testing.T) {
 	}
 	if _, err := api.RefreshACPCatalog(); !errors.Is(err, ErrACPRegistryNotWired) {
 		t.Fatalf("RefreshACPCatalog: got %v", err)
+	}
+}
+
+func TestACPRegistryNilRegistryIsNotWired(t *testing.T) {
+	t.Parallel()
+	api := NewACPRegistry()
+	AttachACPRegistry(api, stubSession{}, nil, func(context.Context, acpregistry.Catalog) apidto.ACPCatalog {
+		return apidto.ACPCatalog{}
+	})
+	if _, err := api.GetACPCatalog(); !errors.Is(err, ErrACPRegistryNotWired) {
+		t.Fatalf("GetACPCatalog com registry nil: got %v", err)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"assistente/internal/acpregistry"
 	"assistente/internal/apidto"
 	"context"
-	"errors"
 	"sync"
 )
 
@@ -45,7 +44,7 @@ func AttachACPRegistry(
 func (api *ACPRegistry) deps() (Session, *acpregistry.Service, func(context.Context, acpregistry.Catalog) apidto.ACPCatalog, error) {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
-	if api.session == nil || api.catalogOf == nil {
+	if api.session == nil || api.registry == nil || api.catalogOf == nil {
 		return nil, nil, nil, ErrACPRegistryNotWired
 	}
 	return api.session, api.registry, api.catalogOf, nil
@@ -62,9 +61,6 @@ func (api *ACPRegistry) GetACPCatalog() (apidto.ACPCatalog, error) {
 		return apidto.ACPCatalog{}, err
 	}
 	return WithUser(session, func(ctx context.Context) (apidto.ACPCatalog, error) {
-		if registry == nil {
-			return apidto.ACPCatalog{}, errors.New("serviço do registro de agentes ACP não inicializado")
-		}
 		return catalogOf(ctx, registry.Catalog(ctx)), nil
 	})
 }
@@ -81,9 +77,6 @@ func (api *ACPRegistry) RefreshACPCatalog() (apidto.ACPCatalog, error) {
 		return apidto.ACPCatalog{}, err
 	}
 	return WithUser(session, func(ctx context.Context) (apidto.ACPCatalog, error) {
-		if registry == nil {
-			return apidto.ACPCatalog{}, errors.New("serviço do registro de agentes ACP não inicializado")
-		}
 		// O erro não sobe: ele já está dentro do catálogo, como motivo que a tela
 		// diz no idioma de quem lê. Subir também faria a tela mostrar duas versões
 		// da mesma falha, uma delas em português.
