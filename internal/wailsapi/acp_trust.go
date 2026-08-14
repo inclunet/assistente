@@ -81,10 +81,12 @@ func (api *ACPTrust) GetAgentPermissions() ([]apidto.AgentPermissionView, error)
 				out = append(out, apidto.AgentPermissionView{
 					ProfileSlug: slug,
 					ProfileName: names[slug],
-					// A classe vai como está guardada, e não pelo conjunto que o
-					// app conhece hoje: o que ele não reconhecesse viraria "other"
-					// na tela e na revogação, que então não casaria com a entrada
-					// do arquivo — a linha ficaria lá, impossível de tirar.
+					// A classe vai na mesma forma que o Store usa para casar as
+					// entradas (minúscula, sem espaços em volta), e não traduzida
+					// para o conjunto que o app conhece hoje: o que ele não
+					// reconhecesse viraria "other" na tela e na revogação, que
+					// então não casaria com a entrada do arquivo — a linha ficaria
+					// lá, impossível de tirar.
 					Action:    strings.ToLower(strings.TrimSpace(entry.Kind)),
 					GrantedAt: entry.GrantedAt.Format(time.RFC3339),
 				})
