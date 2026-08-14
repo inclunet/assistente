@@ -409,6 +409,7 @@ export function buildWailsMockScript(): string {
       Database: makeProxy('wailsapi.Database'),
       Subagent: makeProxy('wailsapi.Subagent'),
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
+      Jobs: makeProxy('wailsapi.Jobs'),
     },
   };
 

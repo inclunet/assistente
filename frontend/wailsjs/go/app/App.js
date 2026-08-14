@@ -118,10 +118,6 @@ export function DeleteConversation(arg1) {
   return window['go']['app']['App']['DeleteConversation'](arg1);
 }
 
-export function DeleteJob(arg1) {
-  return window['go']['app']['App']['DeleteJob'](arg1);
-}
-
 export function DeleteLLMProvider(arg1, arg2) {
   return window['go']['app']['App']['DeleteLLMProvider'](arg1, arg2);
 }
@@ -160,10 +156,6 @@ export function DetectACPAgent(arg1) {
 
 export function DispatchSpeech(arg1) {
   return window['go']['app']['App']['DispatchSpeech'](arg1);
-}
-
-export function DryRunJob(arg1) {
-  return window['go']['app']['App']['DryRunJob'](arg1);
 }
 
 export function EditorDeleteDraft(arg1) {
@@ -358,30 +350,6 @@ export function GetEffectiveModel() {
   return window['go']['app']['App']['GetEffectiveModel']();
 }
 
-export function GetJob(arg1) {
-  return window['go']['app']['App']['GetJob'](arg1);
-}
-
-export function GetJobEvents(arg1) {
-  return window['go']['app']['App']['GetJobEvents'](arg1);
-}
-
-export function GetJobEventsPage(arg1, arg2, arg3) {
-  return window['go']['app']['App']['GetJobEventsPage'](arg1, arg2, arg3);
-}
-
-export function GetJobPipelines() {
-  return window['go']['app']['App']['GetJobPipelines']();
-}
-
-export function GetJobRuns(arg1, arg2) {
-  return window['go']['app']['App']['GetJobRuns'](arg1, arg2);
-}
-
-export function GetJobs() {
-  return window['go']['app']['App']['GetJobs']();
-}
-
 export function GetLLMProvider(arg1) {
   return window['go']['app']['App']['GetLLMProvider'](arg1);
 }
@@ -494,10 +462,6 @@ export function GetTasksByTaskListID(arg1) {
   return window['go']['app']['App']['GetTasksByTaskListID'](arg1);
 }
 
-export function GetToolCatalog() {
-  return window['go']['app']['App']['GetToolCatalog']();
-}
-
 export function GetVaultIntegrityStatus() {
   return window['go']['app']['App']['GetVaultIntegrityStatus']();
 }
@@ -526,10 +490,6 @@ export function ImportWorkspace(arg1) {
   return window['go']['app']['App']['ImportWorkspace'](arg1);
 }
 
-export function InferEventSchema(arg1) {
-  return window['go']['app']['App']['InferEventSchema'](arg1);
-}
-
 export function InitSpeechManagerFromProfile() {
   return window['go']['app']['App']['InitSpeechManagerFromProfile']();
 }
@@ -540,10 +500,6 @@ export function InstallACPAgent(arg1, arg2) {
 
 export function ListInstalledACPAgents() {
   return window['go']['app']['App']['ListInstalledACPAgents']();
-}
-
-export function ListKnownEvents() {
-  return window['go']['app']['App']['ListKnownEvents']();
 }
 
 export function ListModelsRaw(arg1) {
@@ -594,10 +550,6 @@ export function RefreshModelsByProvider(arg1) {
   return window['go']['app']['App']['RefreshModelsByProvider'](arg1);
 }
 
-export function RegenerateJobCatalog() {
-  return window['go']['app']['App']['RegenerateJobCatalog']();
-}
-
 export function ReloadLLMClient() {
   return window['go']['app']['App']['ReloadLLMClient']();
 }
@@ -634,10 +586,6 @@ export function ReorderWorkspaceTabs(arg1) {
   return window['go']['app']['App']['ReorderWorkspaceTabs'](arg1);
 }
 
-export function ReplayRun(arg1, arg2) {
-  return window['go']['app']['App']['ReplayRun'](arg1, arg2);
-}
-
 export function RestartChannel(arg1) {
   return window['go']['app']['App']['RestartChannel'](arg1);
 }
@@ -654,16 +602,8 @@ export function RevokeAgentPermission(arg1, arg2) {
   return window['go']['app']['App']['RevokeAgentPermission'](arg1, arg2);
 }
 
-export function RunJob(arg1) {
-  return window['go']['app']['App']['RunJob'](arg1);
-}
-
 export function SaveChannelConfig(arg1, arg2) {
   return window['go']['app']['App']['SaveChannelConfig'](arg1, arg2);
-}
-
-export function SaveJob(arg1) {
-  return window['go']['app']['App']['SaveJob'](arg1);
 }
 
 export function SaveMessageAudio(arg1, arg2, arg3) {
@@ -780,14 +720,6 @@ export function TestACPAgent(arg1, arg2) {
 
 export function TestLLMProvider(arg1) {
   return window['go']['app']['App']['TestLLMProvider'](arg1);
-}
-
-export function TestToolDryRun(arg1) {
-  return window['go']['app']['App']['TestToolDryRun'](arg1);
-}
-
-export function ToggleJob(arg1, arg2) {
-  return window['go']['app']['App']['ToggleJob'](arg1, arg2);
 }
 
 export function TranscribeWhisper(arg1, arg2) {

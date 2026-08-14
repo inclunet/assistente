@@ -5,7 +5,7 @@ import { Select, SelectOption } from '../../ui/Select';
 import { Button } from '../../ui/Button';
 import { FormField } from '../../ui/FormField';
 import { Combobox, type ComboboxItem } from '../../pickers/Combobox';
-import { InferEventSchema } from '@wailsjs/go/app/App';
+import { InferEventSchema } from '@wailsjs/go/wailsapi/Jobs';
 import './TriggerEditor.css';
 
 export interface TriggerData {

@@ -12,7 +12,7 @@ import {
   SaveJob,
   DeleteJob,
   TestToolDryRun,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Jobs';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { jobs } from '@wailsjs/go/models';
 import { parseToolSource } from '../utils/toolSource';
