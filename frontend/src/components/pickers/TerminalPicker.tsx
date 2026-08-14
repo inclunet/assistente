@@ -39,9 +39,8 @@ export function TerminalPicker({
       label={t('terminal.picker.label')}
       description={t('terminal.picker.description')}
       icon={<CodeOutlined />}
-      placeholder={sessions.length > 0
-        ? t('terminal.picker.placeholder')
-        : t('terminal.picker.empty')}
+      placeholder={t('terminal.picker.placeholder')}
+      emptyLabel={t('terminal.picker.empty')}
       disabled={disabled}
       maxWidth="260px"
       onAnnounce={onAnnounce}

@@ -10,7 +10,7 @@ vi.mock('react-i18next', () => ({
       if (key === 'terminal.picker.description') return 'Escolha o terminal';
       if (key === 'terminal.picker.placeholder') return 'Buscar terminal';
       if (key === 'terminal.picker.empty') return 'Nenhum terminal vivo';
-      if (key === 'pickers.base.empty') return 'Nenhum terminal vivo';
+      if (key === 'pickers.base.empty') return 'Nenhuma opção disponível';
       if (key === 'terminal.picker.itemDescription') return `${params?.state} — ${params?.cwd}`;
       if (key === 'terminal.states.idle') return 'ocioso';
       if (key === 'terminal.states.running') return 'executando';
