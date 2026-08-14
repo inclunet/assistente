@@ -11,7 +11,7 @@ import {
 import {
   CanRemoveACPAgent,
   RemoveACPAgent,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/ACPInstall';
 import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,

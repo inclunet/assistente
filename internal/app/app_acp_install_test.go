@@ -2,15 +2,30 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
-	"time"
 
-	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/wailsapi"
 )
+
+func installAPI(a *App) *wailsapi.ACPInstall {
+	api := wailsapi.NewACPInstall()
+	wailsapi.AttachACPInstall(api, wailsSession{app: a}, wailsapi.ACPInstallHooks{
+		Installer: func() *acpinstall.Installer {
+			return a.acpCatalogServices().installer
+		},
+		ProvidersFrom:            a.acpProvidersFrom,
+		RefuseUpdateDuringTurn:   a.refuseUpdateDuringTurn,
+		RepointProviders:         a.repointACPProviders,
+		RemoveSupersededVersions: a.removeSupersededVersions,
+	})
+	return api
+}
 
 func TestProgressoDaInstalacaoVaiParaATelaComOAgenteQueOMotivou(t *testing.T) {
 	// Todo marco carrega o identificador do agente: duas instalações podem estar
@@ -92,6 +107,7 @@ func TestAgenteSoPodeSerDesinstaladoDepoisDoUltimoProvider(t *testing.T) {
 			installer: acpinstall.New(acpinstall.Config{Root: root}),
 		}
 	})
+	api := installAPI(a)
 
 	if _, err := a.createLLMProvider(CreateLLMProviderRequest{
 		ID:         "codex-1",
@@ -105,28 +121,28 @@ func TestAgenteSoPodeSerDesinstaladoDepoisDoUltimoProvider(t *testing.T) {
 		t.Fatalf("criar provider: %v", err)
 	}
 
-	canRemove, err := a.CanRemoveACPAgent("codex-acp")
+	canRemove, err := api.CanRemoveACPAgent("codex-acp")
 	if err != nil {
 		t.Fatalf("consultar uso: %v", err)
 	}
 	if canRemove {
 		t.Fatal("ofereceu desinstalar um agente ainda usado")
 	}
-	if err := a.RemoveACPAgent("codex-acp"); err == nil {
+	if err := api.RemoveACPAgent("codex-acp"); err == nil {
 		t.Fatal("desinstalou um agente ainda usado")
 	}
 
 	if err := a.deleteLLMProvider("codex-1"); err != nil {
 		t.Fatalf("remover provider: %v", err)
 	}
-	canRemove, err = a.CanRemoveACPAgent("codex-acp")
+	canRemove, err = api.CanRemoveACPAgent("codex-acp")
 	if err != nil {
 		t.Fatalf("consultar órfão: %v", err)
 	}
 	if !canRemove {
 		t.Fatal("não ofereceu desinstalar o agente órfão")
 	}
-	if err := a.RemoveACPAgent("codex-acp"); err != nil {
+	if err := api.RemoveACPAgent("codex-acp"); err != nil {
 		t.Fatalf("desinstalar agente órfão: %v", err)
 	}
 	if installations := a.acpCatalogServices().installer.List(); len(installations) != 0 {
@@ -138,14 +154,15 @@ func TestPlanoQueNaoOfereceNadaAindaTrazAListaDeArgumentos(t *testing.T) {
 	// O DTO promete `run_args` sempre presente para a tela não ter de distinguir
 	// "sem argumentos" de "campo ausente". O plano que não oferece nada é
 	// justamente onde o literal zerado mandaria `null`.
-	a := &App{}
-	// O Once é consumido aqui para o instalador de mentira não ser trocado pelo
-	// de verdade, que consultaria o registro pela rede.
+	a := newAppForTest(
+		credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")),
+		llm.NewProviderRegistry(),
+	)
 	a.acpCatalogOnce.Do(func() {
 		a.acpCatalogSvc = &acpCatalog{installer: acpinstall.New(acpinstall.Config{})}
 	})
 
-	plano, err := a.acpInstallPlan(context.Background(), "nao-esta-no-catalogo")
+	plano, err := installAPI(a).ACPAgentInstallPlan("nao-esta-no-catalogo")
 	if err != nil {
 		t.Fatalf("o plano falhou em vez de explicar: %v", err)
 	}
@@ -177,62 +194,13 @@ func TestHandshakeSemServicoDeAgentesRecusaEmVezDeAceitarSemProva(t *testing.T) 
 	}
 }
 
-func TestPlanoTraduzidoNuncaEntregaListaAusente(t *testing.T) {
-	// `null` faria a tela distinguir "sem argumentos" de "campo ausente" antes de
-	// exibir o que será executado.
-	dto := installPlanDTO(acpinstall.Plan{AgentID: "codex-acp", Name: "Codex"}, false)
-
-	if dto.RunArgs == nil {
-		t.Error("argumentos de execução vieram nulos")
-	}
-	if dto.Installed != nil {
-		t.Error("disse que havia instalação onde não há")
-	}
-}
-
-func TestPlanoTraduzidoLevaOEstadoDeJaInstaladoEODaInstalacaoEmVoo(t *testing.T) {
-	quando := time.Date(2026, 8, 6, 15, 4, 5, 0, time.UTC)
-	dto := installPlanDTO(acpinstall.Plan{
-		AgentID:      "codex-acp",
-		Name:         "Codex",
-		Version:      "1.1.9",
-		Distribution: acpinstall.DistributionNPM,
-		Origin:       "@agentclientprotocol/codex-acp@1.1.9",
-		Runtime:      acpinstall.RuntimeStatus{Name: acpinstall.RuntimeNode, Found: true, Path: "node"},
-		Installed: &acpinstall.Installation{
-			AgentID:     "codex-acp",
-			Version:     "1.1.9",
-			Command:     "node",
-			InstalledAt: quando,
-		},
-	}, true)
-
-	if dto.Installed == nil {
-		t.Fatal("perdeu o estado de já instalado")
-	}
-	if dto.Installed.InstalledAt != "2026-08-06T15:04:05Z" {
-		t.Errorf("data = %q, queria RFC 3339 para a tela formatar no idioma de quem lê", dto.Installed.InstalledAt)
-	}
-	if dto.Installed.Args == nil {
-		t.Error("argumentos do comando instalado vieram nulos")
-	}
-	if !dto.Installing {
-		t.Error("perdeu a instalação em voo, e então a tela não teria o que cancelar")
-	}
-}
-
-func TestRuntimeAusenteChegaATelaComOndeSeProcurou(t *testing.T) {
-	// Sem Node a instalação não é oferecida, e o motivo precisa ser verificável
-	// (D7): "não encontrei" sem dizer onde se olhou não ajuda quem vai instalar.
-	dto := runtimeStatusDTO(acp.NodeRuntime{Searched: []string{"C:\\Program Files\\nodejs\\node.exe"}})
-
-	if dto.Found {
-		t.Error("disse que achou o Node")
-	}
-	if dto.Name != acpinstall.RuntimeNode {
-		t.Errorf("nome = %q, queria o do pré-requisito", dto.Name)
-	}
-	if len(dto.Searched) == 0 {
-		t.Error("não disse onde procurou")
+func TestACPInstallFailClosedSemSessao(t *testing.T) {
+	a := &App{}
+	a.acpCatalogOnce.Do(func() {
+		a.acpCatalogSvc = &acpCatalog{installer: acpinstall.New(acpinstall.Config{})}
+	})
+	_, err := installAPI(a).ListInstalledACPAgents()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("want ErrUserScopeRequired, got %v", err)
 	}
 }

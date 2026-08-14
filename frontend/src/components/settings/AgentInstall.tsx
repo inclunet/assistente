@@ -7,9 +7,9 @@ import {
   InstallACPAgent,
   RemoveACPAgent,
   UpdateACPAgent,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/ACPInstall';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import type { app } from '@wailsjs/go/models';
+import type { apidto } from '@wailsjs/go/models';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -22,7 +22,7 @@ import './AgentInstall.css';
  */
 const INSTALL_PROGRESS_EVENT = 'acp:install:progress';
 
-type InstallPlan = app.ACPInstallPlan;
+type InstallPlan = apidto.ACPInstallPlan;
 
 /**
  * Marco da instalação, como o backend o emite (`ACPInstallProgress`, em
