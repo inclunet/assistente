@@ -352,3 +352,19 @@ func TestWireSubagentAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireJobsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		jobsCtrl: controllers.NewJobsController(controllers.JobsControllerConfig{}),
+	}
+	api := wailsapi.NewJobs()
+	SetJobsAPI(a, api)
+
+	a.wireJobs()
+
+	_, err := api.GetJobs()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}

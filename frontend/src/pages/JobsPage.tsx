@@ -13,7 +13,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useUIStore } from '../store/uiStore';
 import { jobs } from '@wailsjs/go/models';
-import { ReplayRun, RunJob as WailsRunJob } from '@wailsjs/go/app/App';
+import { ReplayRun, RunJob as WailsRunJob } from '@wailsjs/go/wailsapi/Jobs';
 import './JobsPage.css';
 
 function formatTriggers(triggers: jobs.Trigger[] | undefined, t: (key: string) => string): string {
