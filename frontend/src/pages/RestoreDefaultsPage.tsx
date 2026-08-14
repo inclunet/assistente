@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 import {
   ResetDatabase,
   ClearMessages,
-  CleanupLegacyChannelJSON,
 } from '@wailsjs/go/app/App';
+import { CleanupLegacyChannelJSON } from '@wailsjs/go/wailsapi/LegacyCleanup';
 import {
   ClearAllCredentials,
   ClearAllProfiles,

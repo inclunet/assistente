@@ -47,8 +47,6 @@ export function CancelStreamingForConversation(arg1:string):Promise<void>;
 
 export function CancelSubAgentRun(arg1:string,arg2:string):Promise<subagent.CancelResult>;
 
-export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
-
 export function ClearConversation(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;
