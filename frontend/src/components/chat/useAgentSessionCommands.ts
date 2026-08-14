@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GetAgentSessionCommands } from '@wailsjs/go/app/App';
+import { GetAgentSessionCommands } from '@wailsjs/go/wailsapi/ACPCommands';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { logger } from '../../utils/logger';
 

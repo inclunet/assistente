@@ -229,3 +229,11 @@ func (a *App) wireSubagent() {
 		wailsapi.AttachSubagent(a.subagentAPI, wailsSession{app: a}, a.subagentMgr)
 	}
 }
+
+// wireACPCommands associa o bind Wails ao Manager ACP já criado em initACP (AEP-0088).
+// agentSessionCommandsChanged permanece no App.
+func (a *App) wireACPCommands() {
+	if a.acpCommandsAPI != nil {
+		wailsapi.AttachACPCommands(a.acpCommandsAPI, wailsSession{app: a}, a.acpMgr)
+	}
+}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { app, skills } from '../../../wailsjs/go/models';
+import type { apidto, skills } from '../../../wailsjs/go/models';
 import { buildSlashItems, filterSlashItems, type SlashItem, type SlashItemSource } from './slashItems';
 import './SlashCommandMenu.css';
 
@@ -8,7 +8,7 @@ export interface SlashCommandMenuProps {
   /** Lista de skills invocáveis pelo usuário */
   skills: skills.SkillInfo[];
   /** Comandos que o agente de código desta conversa oferece (AEP-0084 D8) */
-  agentCommands?: app.AgentCommand[];
+  agentCommands?: apidto.AgentCommand[];
   /** Texto de filtro digitado após o "/" */
   filter: string;
   /** Índice do item selecionado */
@@ -140,7 +140,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
  */
 export function countFilteredSlashItems(
   skillList: skills.SkillInfo[],
-  agentCommands: app.AgentCommand[],
+  agentCommands: apidto.AgentCommand[],
   filter: string,
 ): number {
   return filterSlashItems(buildSlashItems(skillList, agentCommands), filter).length;

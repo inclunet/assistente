@@ -116,6 +116,13 @@ export function buildWailsMockScript(): string {
       }
       return true;
     },
+    GetAgentSessionCommands: function(conversationId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPCommands') {
+        throw new Error('GetAgentSessionCommands deve ser chamado via wailsapi.ACPCommands');
+      }
+      return { conversationId: conversationId || '', commands: [] };
+    },
 
     /* Auth */
     GetAuthStatus: {
@@ -401,6 +408,7 @@ export function buildWailsMockScript(): string {
       Database: makeProxy('wailsapi.Database'),
       Subagent: makeProxy('wailsapi.Subagent'),
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
+      ACPCommands: makeProxy('wailsapi.ACPCommands'),
     },
   };
 

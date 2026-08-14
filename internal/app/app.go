@@ -284,6 +284,10 @@ type App struct {
 	// tasklistActionsAPI é o bind Wails do domínio tasklist_actions / custom
 	// actions (AEP-0088). Criado em main e wired após NewTaskListController.
 	tasklistActionsAPI *wailsapi.TasklistActions
+
+	// acpCommandsAPI é o bind Wails do domínio acp_commands (AEP-0088). Criado
+	// em main e wired após initACP (reusa acpMgr).
+	acpCommandsAPI *wailsapi.ACPCommands
 }
 
 // ==================== Tipos para Threads ====================
@@ -480,6 +484,15 @@ func SetTasklistActionsAPI(a *App, api *wailsapi.TasklistActions) {
 		return
 	}
 	a.tasklistActionsAPI = api
+}
+
+// SetACPCommandsAPI registra o bind Wails de acp_commands antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPCommandsAPI(a *App, api *wailsapi.ACPCommands) {
+	if a == nil {
+		return
+	}
+	a.acpCommandsAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -836,6 +849,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireWelcome()
 	a.wireLegacyCleanup()
 	a.wireSubagent()
+	a.wireACPCommands()
 	a.wireSignal()
 	a.wireTerminal()
 
