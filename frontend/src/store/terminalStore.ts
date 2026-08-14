@@ -55,7 +55,7 @@ interface TerminalState {
   loadingHistoryBySession: Record<string, boolean>;
 
   // Actions
-  loadSessions: () => Promise<void>;
+  loadSessions: () => Promise<boolean>;
   createSession: (name?: string) => Promise<string | null>;
   closeSession: (id: string) => Promise<boolean>;
   sendInput: (sessionId: string, input: string) => Promise<void>;
@@ -76,8 +76,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     try {
       const sessions = await ListTerminalSessions();
       set({ sessions: sessions || [] });
+      return true;
     } catch (err) {
       logger.error('[Terminal] Erro ao carregar sessões:', err);
+      return false;
     } finally {
       set({ isLoadingSessions: false });
     }

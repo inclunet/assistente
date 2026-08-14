@@ -3353,6 +3353,7 @@ const en = {
       newTab: 'New {{type}}',
       announcedNewTab: 'New {{type}} created',
       terminalUnavailable: 'Terminal {{id}} does not exist or has already exited',
+      terminalListFailed: 'Could not verify the available terminals',
       invalidProfile: 'Profile "{{profile}}" not found; using the default profile',
       profileLoadError: 'Failed to load profile "{{profile}}"; using the default profile',
     },

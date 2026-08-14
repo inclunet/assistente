@@ -43,7 +43,7 @@ vi.mock('../store/chatStore', () => ({
   },
 }));
 
-const mockLoadTerminalSessions = vi.fn().mockResolvedValue(undefined);
+const mockLoadTerminalSessions = vi.fn().mockResolvedValue(true);
 const mockCreateTerminalSession = vi.fn().mockResolvedValue('term-created');
 let mockTerminalSessions: Array<{ id: string }> = [];
 
@@ -706,6 +706,7 @@ describe('executeDeepLink', () => {
     mockWsTabs = [];
     mockWsProfile = undefined;
     mockTerminalSessions = [];
+    mockLoadTerminalSessions.mockResolvedValue(true);
     mockCreateTerminalSession.mockResolvedValue('term-created');
     mockWsAddTab.mockResolvedValue('tab-created');
     mockGetProfile.mockResolvedValue({ slug: 'programacao' });
@@ -1090,6 +1091,24 @@ describe('executeDeepLink', () => {
       expect(mockAddToast).toHaveBeenCalledWith(
         'deepLink.terminalUnavailable',
         'warning',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+    });
+
+    it('diferencia falha de listagem de terminal encerrado', async () => {
+      mockLoadTerminalSessions.mockResolvedValueOnce(false);
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'terminal', contentId: 'terminal-unknown' },
+        deps,
+      );
+
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'deepLink.terminalListFailed',
+        'error',
         undefined,
         undefined,
         { suppressAnnounce: true },

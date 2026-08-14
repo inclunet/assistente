@@ -3353,6 +3353,7 @@ const ptBR = {
       newTab: 'Novo {{type}}',
       announcedNewTab: 'Novo {{type}} criado',
       terminalUnavailable: 'O terminal {{id}} não existe ou já foi encerrado',
+      terminalListFailed: 'Não foi possível verificar os terminais disponíveis',
       invalidProfile: 'Perfil "{{profile}}" não encontrado; usando o perfil padrão',
       profileLoadError: 'Falha ao carregar o perfil "{{profile}}"; usando o perfil padrão',
     },

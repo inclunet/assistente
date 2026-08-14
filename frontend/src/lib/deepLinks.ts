@@ -431,7 +431,15 @@ export async function executeDeepLink(
 
     case 'tab:open': {
       if (action.tabType === 'terminal') {
-        await useTerminalStore.getState().loadSessions();
+        const sessionsLoaded = await useTerminalStore.getState().loadSessions();
+        if (!sessionsLoaded) {
+          const message = t('deepLink.terminalListFailed');
+          useUIStore.getState().addToast(message, 'error', undefined, undefined, {
+            suppressAnnounce: true,
+          });
+          announce(message);
+          break;
+        }
         const isLive = useTerminalStore.getState().sessions.some(
           (session) => session.id === action.contentId,
         );

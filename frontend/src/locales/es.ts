@@ -3353,6 +3353,7 @@ const es = {
       newTab: 'Nuevo {{type}}',
       announcedNewTab: 'Nuevo {{type}} creado',
       terminalUnavailable: 'El terminal {{id}} no existe o ya finalizó',
+      terminalListFailed: 'No se pudieron verificar los terminales disponibles',
       invalidProfile: 'Perfil "{{profile}}" no encontrado; usando el perfil predeterminado',
       profileLoadError: 'Error al cargar el perfil "{{profile}}"; usando el perfil predeterminado',
     },
