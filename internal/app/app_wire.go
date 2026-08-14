@@ -173,3 +173,11 @@ func (a *App) wireMemory() {
 		wailsapi.AttachMemory(a.memoryAPI, wailsSession{app: a}, a.memoryCtrl)
 	}
 }
+
+// wireSubagent associa o bind Wails ao Manager já criado no startup (AEP-0088).
+// subagentParentDelivery e a criação do Manager permanecem no App.
+func (a *App) wireSubagent() {
+	if a.subagentAPI != nil {
+		wailsapi.AttachSubagent(a.subagentAPI, wailsSession{app: a}, a.subagentMgr)
+	}
+}
