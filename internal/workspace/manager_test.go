@@ -8,6 +8,90 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestInitialize_NewWorkspaceHasActiveChatTab(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	ws := m.Active()
+	if ws == nil {
+		t.Fatal("expected active workspace")
+	}
+	if len(ws.Tabs.Items) != 1 {
+		t.Fatalf("expected one default tab, got %d", len(ws.Tabs.Items))
+	}
+
+	tab := ws.Tabs.Items[0]
+	if tab.Type != TabTypeChat {
+		t.Fatalf("expected default chat tab, got %q", tab.Type)
+	}
+	if ws.Tabs.Active != tab.ID {
+		t.Fatalf("expected tab %q to be active, got %q", tab.ID, ws.Tabs.Active)
+	}
+}
+
+func TestInitialize_RepairsPersistedWorkspaceWithoutTabs(t *testing.T) {
+	homeDir := t.TempDir()
+	workDir := t.TempDir()
+	m := NewManager(homeDir)
+	if err := m.saveWorkspace(&Workspace{
+		ID:   "ws-empty",
+		Name: "Empty",
+		Tabs: TabsState{Items: []Tab{}},
+	}, workDir); err != nil {
+		t.Fatalf("saveWorkspace: %v", err)
+	}
+
+	if err := m.Initialize(workDir); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	ws := m.Active()
+	if ws == nil || len(ws.Tabs.Items) != 1 {
+		t.Fatalf("expected repaired workspace with one tab, got %#v", ws)
+	}
+	if ws.Tabs.Active != ws.Tabs.Items[0].ID {
+		t.Fatalf("expected repaired tab to be active, got %q", ws.Tabs.Active)
+	}
+
+	reloaded := NewManager(homeDir)
+	if err := reloaded.Initialize(workDir); err != nil {
+		t.Fatalf("reload Initialize: %v", err)
+	}
+	if got := reloaded.Active(); got == nil || len(got.Tabs.Items) != 1 || got.Tabs.Active == "" {
+		t.Fatalf("expected repair to persist, got %#v", got)
+	}
+}
+
+func TestInitialize_RepairsMissingActiveTab(t *testing.T) {
+	homeDir := t.TempDir()
+	workDir := t.TempDir()
+	m := NewManager(homeDir)
+	if err := m.saveWorkspace(&Workspace{
+		ID:   "ws-invalid-active",
+		Name: "Invalid active",
+		Tabs: TabsState{
+			Active: "tab-missing",
+			Items: []Tab{{
+				ID:    "tab-existing",
+				Type:  TabTypeChat,
+				Title: "Chat",
+			}},
+		},
+	}, workDir); err != nil {
+		t.Fatalf("saveWorkspace: %v", err)
+	}
+
+	if err := m.Initialize(workDir); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	if got := m.Active().Tabs.Active; got != "tab-existing" {
+		t.Fatalf("expected existing tab to become active, got %q", got)
+	}
+}
+
 func TestOpenEditorFilePaths_NoActiveWorkspace(t *testing.T) {
 	m := NewManager(t.TempDir())
 	paths := m.OpenEditorFilePaths()

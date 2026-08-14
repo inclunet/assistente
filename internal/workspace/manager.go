@@ -699,14 +699,25 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 
 func (m *Manager) newWorkspace(name string) *Workspace {
 	now := time.Now()
+	defaultTab := newDefaultChatTab()
 	return &Workspace{
 		ID:        fmt.Sprintf("ws-%s", generateID()),
 		Name:      name,
 		CreatedAt: now,
 		LastUsed:  now,
 		Tabs: TabsState{
-			Items: []Tab{},
+			Active: defaultTab.ID,
+			Items:  []Tab{defaultTab},
 		},
+	}
+}
+
+func newDefaultChatTab() Tab {
+	return Tab{
+		ID:       fmt.Sprintf("tab-%s", generateID()),
+		Type:     TabTypeChat,
+		Title:    "Nova conversa",
+		Position: 0,
 	}
 }
 
@@ -877,6 +888,19 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	sort.Slice(ws.Tabs.Items, func(i, j int) bool {
 		return ws.Tabs.Items[i].Position < ws.Tabs.Items[j].Position
 	})
+
+	// Workspaces criados por versões anteriores podiam persistir sem abas ou
+	// com uma referência ativa ausente. Restaura a invariável da AEP-0034 para
+	// que a interface sempre tenha uma superfície utilizável ao reabrir o app.
+	if len(ws.Tabs.Items) == 0 {
+		defaultTab := newDefaultChatTab()
+		ws.Tabs.Items = []Tab{defaultTab}
+		ws.Tabs.Active = defaultTab.ID
+		needsSave = true
+	} else if ws.FindTab(ws.Tabs.Active) == nil {
+		ws.Tabs.Active = ws.Tabs.Items[0].ID
+		needsSave = true
+	}
 
 	// Persiste migração imediatamente para não repetir no próximo load.
 	// O remap NÃO é apagado aqui — Initialize() cuida de processar todos os
