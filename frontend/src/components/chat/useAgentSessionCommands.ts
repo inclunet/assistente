@@ -4,13 +4,19 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import type { apidto } from '../../../wailsjs/go/models';
 import { logger } from '../../utils/logger';
 
+interface AgentCommandEvent {
+  name: string;
+  description?: string;
+  acceptsInput: boolean;
+}
+
 /**
  * Payload tipado à mão de `chat:agent_commands` (espelha
  * `App.AgentSessionCommandsEvent` no backend). Não importar de `@wailsjs/go/models`.
  */
 export interface AgentSessionCommandsEvent {
   conversationId: string;
-  commands: apidto.AgentCommand[];
+  commands: AgentCommandEvent[];
 }
 
 /**
