@@ -5,7 +5,6 @@ import (
 	"assistente/internal/apidto"
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +23,12 @@ type ACPTrust struct {
 	trust        *acptrust.Store
 	profileNames func() map[string]string
 }
+
+// ErrAgentPermissionNotFound é o contrato de erro para revogar o que já não
+// existe. A mensagem é um código estável, e não texto para ler: a interface
+// traduz esse código no idioma de quem está usando o app, em vez de exibir
+// uma frase em português vinda do backend.
+var ErrAgentPermissionNotFound = errors.New("agent_permission_not_found")
 
 // NewACPTrust cria o bind vazio; AttachACPTrust preenche deps no startup.
 func NewACPTrust() *ACPTrust {
@@ -110,7 +115,7 @@ func (api *ACPTrust) RevokeAgentPermission(profileSlug, action string) error {
 			if errors.Is(err, acptrust.ErrEntryNotFound) {
 				// Dizer "revogado" sem ter revogado nada faria a pessoa acreditar
 				// que fechou uma porta que continua aberta.
-				return struct{}{}, fmt.Errorf("essa autorização não existe mais")
+				return struct{}{}, ErrAgentPermissionNotFound
 			}
 			return struct{}{}, err
 		}

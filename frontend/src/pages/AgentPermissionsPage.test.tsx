@@ -173,18 +173,31 @@ describe('AgentPermissionsPage', () => {
     expect(mockRevokeAgentPermission).not.toHaveBeenCalled();
   });
 
-  it('mostra o motivo quando a revogação falha', async () => {
+  it('traduz o código de autorização inexistente em vez de exibir o texto do backend', async () => {
     // Dizer "revogado" sem ter revogado faria a pessoa acreditar que fechou
     // uma porta que continua aberta.
     const user = userEvent.setup();
-    mockRevokeAgentPermission.mockRejectedValue(new Error('essa autorização não existe mais'));
+    mockRevokeAgentPermission.mockRejectedValue(new Error('agent_permission_not_found'));
     render(<AgentPermissionsPage />);
     await waitFor(() => expect(screen.getByText('Cursor')).toBeInTheDocument());
 
     await user.click(screen.getByRole('button', { name: 'agentPermissions.actions.revoke' }));
 
     await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith('essa autorização não existe mais', 'error');
+      expect(mockAddToast).toHaveBeenCalledWith('agentPermissions.error.notFound', 'error');
+    });
+  });
+
+  it('não joga na tela a mensagem crua de um erro qualquer da revogação', async () => {
+    const user = userEvent.setup();
+    mockRevokeAgentPermission.mockRejectedValue(new Error('open trust.json: permission denied'));
+    render(<AgentPermissionsPage />);
+    await waitFor(() => expect(screen.getByText('Cursor')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'agentPermissions.actions.revoke' }));
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('agentPermissions.error.revokeFailed', 'error');
     });
   });
 

@@ -163,8 +163,13 @@ func TestRevogarOQueNaoExisteNaoDizQueFechouAPorta(t *testing.T) {
 	if err == nil {
 		t.Fatal("disse ter revogado uma autorização que não existia")
 	}
-	if !strings.Contains(err.Error(), "não existe") {
-		t.Errorf("erro = %q, quer dizer que a autorização não existe mais", err)
+	if !errors.Is(err, ErrAgentPermissionNotFound) {
+		t.Errorf("erro = %v, quer ErrAgentPermissionNotFound", err)
+	}
+	// A interface traduz esse código; se ele virar frase, a tela volta a exibir
+	// português para quem escolheu outro idioma.
+	if err.Error() != "agent_permission_not_found" {
+		t.Errorf("mensagem = %q, quer o código estável agent_permission_not_found", err)
 	}
 }
 
