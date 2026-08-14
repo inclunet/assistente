@@ -112,10 +112,11 @@ type Session struct {
 	suppressRawOutput bool
 
 	// cancelReader para cancelar o goroutine de leitura
-	cancelReader context.CancelFunc
-	readerCtx    context.Context
-	onExit       func(sessionID string, err error)
-	exitOnce     sync.Once
+	cancelReader  context.CancelFunc
+	readerCtx     context.Context
+	onExit        func(sessionID string, err error)
+	exitOnce      sync.Once
+	explicitClose bool
 }
 
 const (
@@ -248,8 +249,9 @@ func (s *Session) markExited(err error) {
 	s.exitOnce.Do(func() {
 		s.mu.Lock()
 		s.state = StateExited
+		explicitClose := s.explicitClose
 		s.mu.Unlock()
-		if s.onExit != nil {
+		if !explicitClose && s.onExit != nil {
 			s.onExit(s.id, err)
 		}
 	})
@@ -574,26 +576,31 @@ func (s *Session) Interrupt() error {
 // Close encerra a sessão PTY e libera recursos.
 func (s *Session) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.state == StateClosed {
+	if s.state == StateClosing || s.state == StateExited {
+		s.mu.Unlock()
 		return nil
 	}
 
 	s.state = StateClosing
+	s.explicitClose = true
+	cancelReader := s.cancelReader
+	ptySession := s.ptySession
+	id, name := s.id, s.name
+	s.mu.Unlock()
 
 	// Para o goroutine de leitura
-	if s.cancelReader != nil {
-		s.cancelReader()
+	if cancelReader != nil {
+		cancelReader()
 	}
 
-	// Encerra a sessão PTY
-	if s.ptySession != nil {
-		_ = s.ptySession.Kill()
-		_ = s.ptySession.Close()
+	// I/O potencialmente bloqueante acontece sem manter o mutex de estado.
+	if ptySession != nil {
+		_ = ptySession.Kill()
+		_ = ptySession.Close()
 	}
-	s.state = StateExited
 
-	logging.Infof(context.Background(), "terminal.session", "[Terminal] Sessão encerrada: id=%s name=%s", s.id, s.name)
+	s.markExited(nil)
+
+	logging.Infof(context.Background(), "terminal.session", "[Terminal] Sessão encerrada: id=%s name=%s", id, name)
 	return nil
 }

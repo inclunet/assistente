@@ -34,3 +34,27 @@ func TestHasRejectsExitedSession(t *testing.T) {
 		t.Fatal("sessão encerrada foi considerada viva")
 	}
 }
+
+func TestCloseIsIdempotentWithoutPTY(t *testing.T) {
+	exitEvents := 0
+	session := &Session{
+		id:    "term-close",
+		state: StateIdle,
+		onExit: func(string, error) {
+			exitEvents++
+		},
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("primeiro Close: %v", err)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatalf("segundo Close: %v", err)
+	}
+	if got := session.State(); got != StateExited {
+		t.Fatalf("estado = %s, esperado exited", got.String())
+	}
+	if exitEvents != 0 {
+		t.Fatalf("fechamento explícito emitiu %d eventos exited", exitEvents)
+	}
+}
