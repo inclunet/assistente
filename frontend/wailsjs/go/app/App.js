@@ -242,10 +242,6 @@ export function GetAgentPermissions() {
   return window['go']['app']['App']['GetAgentPermissions']();
 }
 
-export function GetAgentSessionOptions(arg1) {
-  return window['go']['app']['App']['GetAgentSessionOptions'](arg1);
-}
-
 export function GetAllChannelConfigs() {
   return window['go']['app']['App']['GetAllChannelConfigs']();
 }
@@ -588,10 +584,6 @@ export function SetActiveWorkspaceTab(arg1) {
 
 export function SetAgentConversationWorkDir(arg1, arg2) {
   return window['go']['app']['App']['SetAgentConversationWorkDir'](arg1, arg2);
-}
-
-export function SetAgentSessionOption(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SetAgentSessionOption'](arg1, arg2, arg3);
 }
 
 export function SetConversationModel(arg1, arg2) {

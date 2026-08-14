@@ -66,6 +66,8 @@ func main() {
 	application.SetACPCommandsAPI(a, acpCommandsAPI)
 	acpProvidersAPI := wailsapi.NewACPProviders()
 	application.SetACPProvidersAPI(a, acpProvidersAPI)
+	acpOptionsAPI := wailsapi.NewACPOptions()
+	application.SetACPOptionsAPI(a, acpOptionsAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -125,6 +127,7 @@ func main() {
 			llmProvidersAPI,
 			acpCommandsAPI,
 			acpProvidersAPI,
+			acpOptionsAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

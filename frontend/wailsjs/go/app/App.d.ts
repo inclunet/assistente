@@ -134,8 +134,6 @@ export function GetAgentConversationWorkDir(arg1:string):Promise<app.AgentWorkDi
 
 export function GetAgentPermissions():Promise<Array<app.AgentPermissionView>>;
 
-export function GetAgentSessionOptions(arg1:string):Promise<app.AgentSessionOptions>;
-
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
 
 export function GetAllTaskLists():Promise<Array<database.TaskList>>;
@@ -307,8 +305,6 @@ export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Pro
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
 
 export function SetAgentConversationWorkDir(arg1:string,arg2:string):Promise<app.AgentWorkDir>;
-
-export function SetAgentSessionOption(arg1:string,arg2:string,arg3:string):Promise<app.AgentSessionOptions>;
 
 export function SetConversationModel(arg1:string,arg2:string):Promise<void>;
 

@@ -123,6 +123,20 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', commands: [] };
     },
+    GetAgentSessionOptions: function(conversationId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPOptions') {
+        throw new Error('GetAgentSessionOptions deve ser chamado via wailsapi.ACPOptions');
+      }
+      return { conversationId: conversationId || '', available: false, options: [] };
+    },
+    SetAgentSessionOption: function(conversationId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPOptions') {
+        throw new Error('SetAgentSessionOption deve ser chamado via wailsapi.ACPOptions');
+      }
+      return { conversationId: conversationId || '', available: false, options: [] };
+    },
     // Mesmo padrão: UpdateProfileMediaSupport migrou para wailsapi.Profiles.
     UpdateProfileMediaSupport: function() {
       const last = _config.callLog[_config.callLog.length - 1];
@@ -425,6 +439,7 @@ export function buildWailsMockScript(): string {
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
+      ACPOptions: makeProxy('wailsapi.ACPOptions'),
     },
   };
 
