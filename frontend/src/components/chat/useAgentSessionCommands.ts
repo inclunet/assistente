@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react';
 import { GetAgentSessionCommands } from '@wailsjs/go/wailsapi/ACPCommands';
 import { EventsOn } from '@wailsjs/runtime/runtime';
+import type { apidto } from '../../../wailsjs/go/models';
 import { logger } from '../../utils/logger';
 
-export interface AgentCommand {
-  name: string;
-  description?: string;
-  acceptsInput: boolean;
-}
-
+/**
+ * Payload tipado à mão de `chat:agent_commands` (espelha
+ * `App.AgentSessionCommandsEvent` no backend). Não importar de `@wailsjs/go/models`.
+ */
 export interface AgentSessionCommandsEvent {
   conversationId: string;
-  commands: AgentCommand[];
+  commands: apidto.AgentCommand[];
 }
 
 /**
@@ -30,8 +29,10 @@ export interface AgentSessionCommandsEvent {
  * Nada aqui é anunciado ao leitor de telas. É uma lista que só aparece quando
  * alguém a pede, e falar dela sozinha atropelaria a leitura do que está em curso.
  */
-export function useAgentSessionCommands(conversationId?: string | null): AgentCommand[] {
-  const [commands, setCommands] = useState<AgentCommand[]>([]);
+export function useAgentSessionCommands(
+  conversationId?: string | null,
+): apidto.AgentCommand[] {
+  const [commands, setCommands] = useState<apidto.AgentCommand[]>([]);
 
   useEffect(() => {
     if (!conversationId) {
