@@ -211,3 +211,9 @@ func (c cliApp) DeleteMCPServer(slug string) error {
 	}
 	return ctrl.DeleteMCPServer(slug)
 }
+
+// NeedsWelcomeWizard delega à lógica dual-mode do domínio welcome (AEP-0088),
+// sem método no *App (fora do Bind Wails).
+func (c cliApp) NeedsWelcomeWizard() bool {
+	return app.NeedsWelcomeWizard(c.App)
+}

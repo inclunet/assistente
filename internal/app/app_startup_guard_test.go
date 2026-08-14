@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"testing"
+
+	"assistente/internal/wailsapi"
 )
 
 func TestWorkspaceBindingsAreSafeBeforeStartup(t *testing.T) {
@@ -19,9 +21,13 @@ func TestWorkspaceBindingsAreSafeBeforeStartup(t *testing.T) {
 
 func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 	a := &App{}
+	api := wailsapi.NewWelcome()
 
-	if !a.NeedsWelcomeWizard() {
+	if !api.NeedsWelcomeWizard() {
 		t.Fatal("NeedsWelcomeWizard() = false before startup, want conservative true")
+	}
+	if !NeedsWelcomeWizard(a) {
+		t.Fatal("NeedsWelcomeWizard(a) = false before startup, want conservative true")
 	}
 
 	result := a.validateWizardConnection("https://example.com", "")
@@ -29,7 +35,7 @@ func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 		t.Fatalf("validateWizardConnection() ErrorType = %q, want app_initializing", result.ErrorType)
 	}
 
-	if _, err := a.RunWelcomeWizard(); err == nil || !strings.Contains(err.Error(), "welcome controller not initialized") {
-		t.Fatalf("RunWelcomeWizard() error = %v, want initialization error", err)
+	if _, err := api.RunWelcomeWizard(); err == nil || !strings.Contains(err.Error(), "welcome bind not wired") {
+		t.Fatalf("RunWelcomeWizard() error = %v, want not wired", err)
 	}
 }

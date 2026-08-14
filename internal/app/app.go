@@ -264,6 +264,10 @@ type App struct {
 	// memoryAPI é o bind Wails do domínio memory (AEP-0088). Criado em main e
 	// wired após NewMemoryController.
 	memoryAPI *wailsapi.Memory
+
+	// welcomeAPI é o bind Wails do domínio welcome (AEP-0088). Criado em main e
+	// wired após NewWelcomeController.
+	welcomeAPI *wailsapi.Welcome
 }
 
 // ==================== Tipos para Threads ====================
@@ -415,6 +419,15 @@ func SetMemoryAPI(a *App, api *wailsapi.Memory) {
 		return
 	}
 	a.memoryAPI = api
+}
+
+// SetWelcomeAPI registra o bind Wails de welcome antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetWelcomeAPI(a *App, api *wailsapi.Welcome) {
+	if a == nil {
+		return
+	}
+	a.welcomeAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -766,17 +779,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireNetTrust()
 	a.wireCredentials()
 	a.wireMemory()
-	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
-		QuestionnaireMgr:           a.questionnaireMgr,
-		CredMgr:                    a.credMgr,
-		ProviderSvc:                a.providerSvc,
-		LLMRegistry:                a.llmRegistry,
-		Updater:                    a.updater,
-		UpdaterCtrl:                a.updaterCtrl,
-		ConfigureCredentialManager: a.configureCredentialManager,
-		InitLLMClient:              a.initLLMClient,
-		SaveLLMProviders:           a.saveLLMProviders,
-	})
+	a.wireWelcome()
 	a.wireSignal()
 	a.wireTerminal()
 

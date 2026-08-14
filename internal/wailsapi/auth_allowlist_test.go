@@ -263,3 +263,17 @@ func TestMemoryMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestWelcomeMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	// welcome vive em wailsapi.Welcome (não *App). NeedsWelcomeWizard é dual-mode
+	// sem WithUser, mas UnauthenticatedAppMethods só lista métodos do *App.
+	for _, name := range []string{
+		"NeedsWelcomeWizard",
+		"RunWelcomeWizard",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s está em wailsapi.Welcome; não pertence à allowlist de *App", name)
+		}
+	}
+}

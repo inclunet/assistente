@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RespondQuestionnaire } from "@wailsjs/go/wailsapi/Allowlists";
-import { NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/app/App";
+import { NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/wailsapi/Welcome";
 import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useAuthStore } from './store/authStore';
 import { useUIStore } from './store/uiStore';
