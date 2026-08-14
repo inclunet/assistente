@@ -14,11 +14,11 @@ import (
 
 // mcpBackend abstracts the app methods used by mcp commands.
 type mcpBackend interface {
-	ListMCPServers() []mcpmgr.ServerInfo
+	ListMCPServers() ([]mcpmgr.ServerInfo, error)
 	SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error
 	ConnectMCPServer(slug string) error
 	DisconnectMCPServer(slug string) error
-	GetMCPServerTools(slug string) []mcpmgr.MCPToolInfo
+	GetMCPServerTools(slug string) ([]mcpmgr.MCPToolInfo, error)
 	DeleteMCPServer(slug string) error
 }
 
@@ -39,7 +39,10 @@ var mcpListCmd = &cobra.Command{
 }
 
 func runMCPList(svc mcpBackend, out io.Writer) error {
-	servers := svc.ListMCPServers()
+	servers, err := svc.ListMCPServers()
+	if err != nil {
+		return err
+	}
 	if len(servers) == 0 {
 		_, err := fmt.Fprintln(out, "Nenhum servidor MCP configurado.")
 		return err
@@ -166,7 +169,10 @@ var mcpToolsCmd = &cobra.Command{
 }
 
 func runMCPTools(svc mcpBackend, out io.Writer, slug string) error {
-	tools := svc.GetMCPServerTools(slug)
+	tools, err := svc.GetMCPServerTools(slug)
+	if err != nil {
+		return err
+	}
 	if len(tools) == 0 {
 		_, err := fmt.Fprintf(out, "Nenhuma tool no servidor '%s'.\n", slug)
 		return err

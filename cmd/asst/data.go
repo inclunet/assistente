@@ -23,7 +23,7 @@ type dataBackend interface {
 	GetConversations() ([]app.Conversation, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	GetAllTaskLists() ([]app.TaskList, error)
-	ListMCPServers() []mcpmgr.ServerInfo
+	ListMCPServers() ([]mcpmgr.ServerInfo, error)
 }
 
 var dataCmd = &cobra.Command{
@@ -199,7 +199,10 @@ func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection 
 	}
 
 	if selection.MCPServers {
-		servers := svc.ListMCPServers()
+		servers, err := svc.ListMCPServers()
+		if err != nil {
+			return req, fmt.Errorf("erro ao listar servidores MCP para exportação: %w", err)
+		}
 		slugs := make([]string, 0, len(servers))
 		for _, server := range servers {
 			slugs = append(slugs, strings.TrimSpace(server.Slug))

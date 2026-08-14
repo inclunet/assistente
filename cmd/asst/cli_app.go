@@ -164,12 +164,12 @@ func (c cliApp) DeleteCredential(pattern string) error {
 	return ctrl.DeleteCredentialWithContext(ctx, pattern)
 }
 
-func (c cliApp) ListMCPServers() []mcpmgr.ServerInfo {
+func (c cliApp) ListMCPServers() ([]mcpmgr.ServerInfo, error) {
 	ctrl, err := c.mcp()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return ctrl.ListMCPServers()
+	return ctrl.ListMCPServers(), nil
 }
 
 func (c cliApp) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
@@ -196,12 +196,12 @@ func (c cliApp) DisconnectMCPServer(slug string) error {
 	return ctrl.DisconnectMCPServer(slug)
 }
 
-func (c cliApp) GetMCPServerTools(slug string) []mcpmgr.MCPToolInfo {
+func (c cliApp) GetMCPServerTools(slug string) ([]mcpmgr.MCPToolInfo, error) {
 	ctrl, err := c.mcp()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return ctrl.GetMCPServerTools(slug)
+	return ctrl.GetMCPServerTools(slug), nil
 }
 
 func (c cliApp) DeleteMCPServer(slug string) error {

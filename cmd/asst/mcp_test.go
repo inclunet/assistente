@@ -16,6 +16,8 @@ import (
 type mockMCPBackend struct {
 	servers    []mcpmgr.ServerInfo
 	tools      []mcpmgr.MCPToolInfo
+	listErr    error
+	toolsErr   error
 	saveErr    error
 	connectErr error
 	disconnErr error
@@ -29,8 +31,8 @@ type mockMCPBackend struct {
 	delSlug   string
 }
 
-func (m *mockMCPBackend) ListMCPServers() []mcpmgr.ServerInfo {
-	return m.servers
+func (m *mockMCPBackend) ListMCPServers() ([]mcpmgr.ServerInfo, error) {
+	return m.servers, m.listErr
 }
 
 func (m *mockMCPBackend) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
@@ -49,8 +51,8 @@ func (m *mockMCPBackend) DisconnectMCPServer(slug string) error {
 	return m.disconnErr
 }
 
-func (m *mockMCPBackend) GetMCPServerTools(slug string) []mcpmgr.MCPToolInfo {
-	return m.tools
+func (m *mockMCPBackend) GetMCPServerTools(slug string) ([]mcpmgr.MCPToolInfo, error) {
+	return m.tools, m.toolsErr
 }
 
 func (m *mockMCPBackend) DeleteMCPServer(slug string) error {
@@ -100,6 +102,22 @@ func TestMCPList_Empty(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Nenhum servidor MCP configurado") {
 		t.Error("expected empty message")
+	}
+}
+
+func TestMCPList_ControllerNotReady(t *testing.T) {
+	mock := &mockMCPBackend{listErr: errMCPNotReady}
+
+	var out bytes.Buffer
+	err := runMCPList(mock, &out)
+	if err == nil {
+		t.Fatal("esperado erro quando MCP não está pronto")
+	}
+	if !strings.Contains(err.Error(), "mcp controller") {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("não deve imprimir lista vazia ao falhar: %q", out.String())
 	}
 }
 
@@ -291,6 +309,19 @@ func TestMCPTools_Empty(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Nenhuma tool") {
 		t.Error("expected empty message")
+	}
+}
+
+func TestMCPTools_ControllerNotReady(t *testing.T) {
+	mock := &mockMCPBackend{toolsErr: errMCPNotReady}
+
+	var out bytes.Buffer
+	err := runMCPTools(mock, &out, "filesystem")
+	if err == nil {
+		t.Fatal("esperado erro quando MCP não está pronto")
+	}
+	if !strings.Contains(err.Error(), "mcp controller") {
+		t.Fatalf("erro inesperado: %v", err)
 	}
 }
 
