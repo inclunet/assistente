@@ -34,10 +34,6 @@ export function AnalyzeImportData(arg1, arg2) {
   return window['go']['app']['App']['AnalyzeImportData'](arg1, arg2);
 }
 
-export function ArchiveMemoryRecord(arg1) {
-  return window['go']['app']['App']['ArchiveMemoryRecord'](arg1);
-}
-
 export function AssignConversationToChannel(arg1, arg2, arg3) {
   return window['go']['app']['App']['AssignConversationToChannel'](arg1, arg2, arg3);
 }
@@ -114,10 +110,6 @@ export function CreateLLMProvider(arg1) {
   return window['go']['app']['App']['CreateLLMProvider'](arg1);
 }
 
-export function CreateMemoryRecord(arg1) {
-  return window['go']['app']['App']['CreateMemoryRecord'](arg1);
-}
-
 export function CreateMessage(arg1, arg2, arg3) {
   return window['go']['app']['App']['CreateMessage'](arg1, arg2, arg3);
 }
@@ -152,10 +144,6 @@ export function DeleteJob(arg1) {
 
 export function DeleteLLMProvider(arg1, arg2) {
   return window['go']['app']['App']['DeleteLLMProvider'](arg1, arg2);
-}
-
-export function DeleteMemoryRecord(arg1) {
-  return window['go']['app']['App']['DeleteMemoryRecord'](arg1);
 }
 
 export function DeleteMessage(arg1) {
@@ -434,14 +422,6 @@ export function GetMaintenanceSettings() {
   return window['go']['app']['App']['GetMaintenanceSettings']();
 }
 
-export function GetMemoryPolicySummary() {
-  return window['go']['app']['App']['GetMemoryPolicySummary']();
-}
-
-export function GetMemoryRecord(arg1) {
-  return window['go']['app']['App']['GetMemoryRecord'](arg1);
-}
-
 export function GetMessageAudio(arg1) {
   return window['go']['app']['App']['GetMessageAudio'](arg1);
 }
@@ -618,10 +598,6 @@ export function ListKnownEvents() {
   return window['go']['app']['App']['ListKnownEvents']();
 }
 
-export function ListMemoryRecords(arg1) {
-  return window['go']['app']['App']['ListMemoryRecords'](arg1);
-}
-
 export function ListModelsRaw(arg1) {
   return window['go']['app']['App']['ListModelsRaw'](arg1);
 }
@@ -786,10 +762,6 @@ export function SearchConversationHistory(arg1, arg2) {
   return window['go']['app']['App']['SearchConversationHistory'](arg1, arg2);
 }
 
-export function SearchMemoryRecords(arg1, arg2) {
-  return window['go']['app']['App']['SearchMemoryRecords'](arg1, arg2);
-}
-
 export function SendMessage(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['SendMessage'](arg1, arg2, arg3, arg4);
 }
@@ -946,10 +918,6 @@ export function TriggerCustomAction(arg1, arg2, arg3) {
   return window['go']['app']['App']['TriggerCustomAction'](arg1, arg2, arg3);
 }
 
-export function UnarchiveMemoryRecord(arg1, arg2) {
-  return window['go']['app']['App']['UnarchiveMemoryRecord'](arg1, arg2);
-}
-
 export function UnassignConversationFromChannel(arg1) {
   return window['go']['app']['App']['UnassignConversationFromChannel'](arg1);
 }
@@ -972,10 +940,6 @@ export function UpdateConversationModel(arg1, arg2) {
 
 export function UpdateLLMProvider(arg1, arg2) {
   return window['go']['app']['App']['UpdateLLMProvider'](arg1, arg2);
-}
-
-export function UpdateMemoryRecord(arg1, arg2) {
-  return window['go']['app']['App']['UpdateMemoryRecord'](arg1, arg2);
 }
 
 export function UpdateMessage(arg1, arg2) {
