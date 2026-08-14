@@ -76,7 +76,7 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 	}
 
 	// Criar provider
-	resp, err := app.CreateLLMProvider(req)
+	resp, err := app.createLLMProvider(req)
 	if err != nil {
 		t.Fatalf("CreateLLMProvider falhou: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestUpdateProvider(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 		APIKey:  "sk-old-key",
 	}
-	_, err := app.CreateLLMProvider(initialReq)
+	_, err := app.createLLMProvider(initialReq)
 	if err != nil {
 		t.Fatalf("Setup falhou: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestUpdateProvider(t *testing.T) {
 		Name:   "Updated Name",
 		APIKey: "sk-new-key",
 	}
-	resp, err := app.UpdateLLMProvider("test-update", updateReq)
+	resp, err := app.updateLLMProvider("test-update", updateReq)
 	if err != nil {
 		t.Fatalf("UpdateLLMProvider falhou: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestCreateLocalAIProviderUsesOptionalAuth(t *testing.T) {
 	llmRegistry := llm.NewProviderRegistry()
 	app := newAppForTest(credMgr, llmRegistry)
 
-	resp, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+	resp, err := app.createLLMProvider(CreateLLMProviderRequest{
 		ID:      "localai-test",
 		Name:    "LocalAI Test",
 		Type:    "localai",
@@ -222,8 +222,6 @@ func TestDeleteProvider(t *testing.T) {
 
 	app := newAppForTest(credMgr, llmRegistry)
 
-	ctx := context.Background()
-
 	// Criar provider
 	req := CreateLLMProviderRequest{
 		ID:      "test-delete",
@@ -232,13 +230,13 @@ func TestDeleteProvider(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 		APIKey:  "sk-delete-me",
 	}
-	_, err := app.CreateLLMProvider(req)
+	_, err := app.createLLMProvider(req)
 	if err != nil {
 		t.Fatalf("Setup falhou: %v", err)
 	}
 
 	// Deletar provider
-	err = app.DeleteLLMProvider(ctx, "test-delete")
+	err = app.deleteLLMProvider("test-delete")
 	if err != nil {
 		t.Fatalf("DeleteLLMProvider falhou: %v", err)
 	}
@@ -265,7 +263,7 @@ func TestListProvidersWithStatus(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 		APIKey:  "sk-has-key",
 	}
-	_, _ = app.CreateLLMProvider(req1)
+	_, _ = app.createLLMProvider(req1)
 
 	// Criar provider SEM credencial (Ollama local)
 	req2 := CreateLLMProviderRequest{
@@ -275,10 +273,10 @@ func TestListProvidersWithStatus(t *testing.T) {
 		BaseURL: "http://localhost:11434/api",
 		APIKey:  "", // Sem credencial
 	}
-	_, _ = app.CreateLLMProvider(req2)
+	_, _ = app.createLLMProvider(req2)
 
 	// Listar providers
-	providers := app.GetLLMProvidersWithStatus()
+	providers := app.getLLMProvidersWithStatus()
 
 	// Validar
 	if len(providers) != 2 {

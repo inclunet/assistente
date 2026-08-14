@@ -8,8 +8,8 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
-  GetLLMProviders: () => getProvidersSpy(),
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
+  GetLLMProvidersWithStatus: () => getProvidersSpy(),
 }));
 
 vi.mock('./BasePicker', () => ({

@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"assistente/controllers"
+	"assistente/internal/apidto"
 	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
@@ -21,8 +22,8 @@ type setupBackend interface {
 	NeedsWelcomeWizard() bool
 	HasMasterKey() bool
 	SetupMasterPassword(password string) (string, error)
-	TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error)
-	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
+	TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error)
+	ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error)
 	CreateDefaultLLMProvider(providerType, apiKey string) error
 	SetDefaultProvider(id string) error
 	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
@@ -153,7 +154,7 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprint(out, "Testando conexão... ")
 
-	ok, testErr := svc.TestLLMProvider(controllers.TestLLMProviderRequest{
+	ok, testErr := svc.TestLLMProvider(apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	})
@@ -175,7 +176,7 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 	// === Passo 5: Escolher modelo ===
 	model := info.DefaultModel
 
-	models, modelsErr := svc.ListModelsRaw(controllers.TestLLMProviderRequest{
+	models, modelsErr := svc.ListModelsRaw(apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	})

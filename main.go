@@ -58,6 +58,12 @@ func main() {
 	application.SetSubagentAPI(a, subagentAPI)
 	tasklistActionsAPI := wailsapi.NewTasklistActions()
 	application.SetTasklistActionsAPI(a, tasklistActionsAPI)
+	jobsAPI := wailsapi.NewJobs()
+	application.SetJobsAPI(a, jobsAPI)
+	llmProvidersAPI := wailsapi.NewLLMProviders()
+	application.SetLLMProvidersAPI(a, llmProvidersAPI)
+	acpCommandsAPI := wailsapi.NewACPCommands()
+	application.SetACPCommandsAPI(a, acpCommandsAPI)
 	acpProvidersAPI := wailsapi.NewACPProviders()
 	application.SetACPProvidersAPI(a, acpProvidersAPI)
 
@@ -115,6 +121,9 @@ func main() {
 			databaseAPI,
 			subagentAPI,
 			tasklistActionsAPI,
+			jobsAPI,
+			llmProvidersAPI,
+			acpCommandsAPI,
 			acpProvidersAPI,
 		},
 		Debug: options.Debug{

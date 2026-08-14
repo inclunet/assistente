@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"assistente/controllers"
 	"assistente/internal/apidto"
 	"assistente/internal/app"
+	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/profiles"
 )
@@ -13,9 +15,11 @@ import (
 var errProfilesNotReady = fmt.Errorf("profiles controller não inicializado")
 var errCredentialsNotReady = fmt.Errorf("credentials controller não inicializado")
 var errMCPNotReady = fmt.Errorf("mcp controller não inicializado")
+var errLLMNotReady = fmt.Errorf("llm controller não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
-// profiles/credentials/mcp saíram do Bind Wails e vivem nos controllers / wailsapi.
+// profiles/credentials/mcp/llm_providers saíram do Bind Wails e vivem nos
+// controllers / wailsapi.
 type cliApp struct {
 	*app.App
 }
@@ -44,6 +48,14 @@ func (c cliApp) mcp() (*controllers.MCPController, error) {
 	ctrl := app.MCPCtrl(c.App)
 	if ctrl == nil {
 		return nil, errMCPNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) llm() (*controllers.LLMController, error) {
+	ctrl := app.LLMCtrl(c.App)
+	if ctrl == nil {
+		return nil, errLLMNotReady
 	}
 	return ctrl, nil
 }
@@ -216,4 +228,98 @@ func (c cliApp) DeleteMCPServer(slug string) error {
 // sem método no *App (fora do Bind Wails).
 func (c cliApp) NeedsWelcomeWizard() bool {
 	return app.NeedsWelcomeWizard(c.App)
+}
+
+func (c cliApp) GetLLMProviders() []*llm.ProviderConfig {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil
+	}
+	return ctrl.GetLLMProviders()
+}
+
+func (c cliApp) GetLLMProvidersWithStatus() []map[string]interface{} {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil
+	}
+	return ctrl.GetLLMProvidersWithStatus(ctx)
+}
+
+func (c cliApp) TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error) {
+	ctrl, err := c.llm()
+	if err != nil {
+		return false, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return false, err
+	}
+	return ctrl.TestLLMProvider(ctx, req)
+}
+
+func (c cliApp) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error) {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.ListModelsRaw(ctx, req)
+}
+
+func (c cliApp) CreateDefaultLLMProvider(providerType, apiKey string) error {
+	return app.CreateDefaultLLMProvider(c.App, providerType, apiKey)
+}
+
+func (c cliApp) CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error) {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	created, err := ctrl.CreateLLMProvider(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if id, _ := created["id"].(string); id != "" {
+		app.ApplyInstalledBinaryEnv(c.App, ctx, id, req.ACPAgentID)
+	}
+	return created, nil
+}
+
+func (c cliApp) SetDefaultProvider(id string) error {
+	ctrl, err := c.llm()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.SetDefaultProvider(ctx, id)
+}
+
+func (c cliApp) DeleteLLMProvider(_ context.Context, id string) error {
+	ctrl, err := c.llm()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.DeleteLLMProvider(ctx, id); err != nil {
+		return err
+	}
+	return app.PersistLLMProviderDelete(c.App, ctx, id)
 }

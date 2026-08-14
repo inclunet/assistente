@@ -1,4 +1,4 @@
-package app
+package wailsapi
 
 import (
 	"context"
@@ -17,16 +17,16 @@ import (
 	"gorm.io/gorm"
 )
 
-type appDryRunMCPTool struct{}
+type jobsDryRunMCPTool struct{}
 
-func (appDryRunMCPTool) Name() string                { return "mcp_jira__create_issue" }
-func (appDryRunMCPTool) Description() string         { return "create issue" }
-func (appDryRunMCPTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
-func (appDryRunMCPTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+func (jobsDryRunMCPTool) Name() string                { return "mcp_jira__create_issue" }
+func (jobsDryRunMCPTool) Description() string         { return "create issue" }
+func (jobsDryRunMCPTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (jobsDryRunMCPTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: `{"created":true}`}, nil
 }
 
-func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
+func TestJobsTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -38,9 +38,9 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(prev) })
 
-	userID := "user-app"
+	userID := "user-jobs"
 	ctx := database.WithUserID(context.Background(), userID)
-	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: userID}, Username: "user-app"}).Error; err != nil {
+	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: userID}, Username: "user-jobs"}).Error; err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	if err := db.Create(&database.MCPServer{
@@ -55,7 +55,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	}
 
 	registry := tools.NewRegistry()
-	registry.MustRegister(appDryRunMCPTool{})
+	registry.MustRegister(jobsDryRunMCPTool{})
 	mcpRepo := mcp.NewDBRepository(db)
 	catalog := toolcatalog.NewService(toolcatalog.NewDBRepository(db))
 	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
@@ -79,13 +79,17 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	mcpMgr := mcp.NewManager(registry, nil, nil)
 	mcpMgr.SetRepository(mcpRepo)
 	mcpMgr.SetCatalog(catalog)
-	app := &App{
-		currentUserID: userID,
-		jobsCtrl:      controllers.NewJobsController(controllers.JobsControllerConfig{JobMgr: jobMgr}),
-		mcpMgr:        mcpMgr,
-	}
 
-	result, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"create_issue","inputs":{}}`)
+	api := NewJobs()
+	AttachJobs(
+		api,
+		stubSession{ctx: ctx},
+		controllers.NewJobsController(controllers.JobsControllerConfig{JobMgr: jobMgr}),
+		mcpMgr,
+		nil,
+	)
+
+	result, err := api.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"create_issue","inputs":{}}`)
 	if err != nil {
 		t.Fatalf("TestToolDryRun error: %v", err)
 	}
@@ -113,7 +117,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("expected catalog last_test_status=ok, got %#v", entries)
 	}
 
-	unresolved, err := app.TestToolDryRun(`{"tool_name":"mcp_jira__create_issue","inputs":{}}`)
+	unresolved, err := api.TestToolDryRun(`{"tool_name":"mcp_jira__create_issue","inputs":{}}`)
 	if err != nil {
 		t.Fatalf("TestToolDryRun unresolved MCP error: %v", err)
 	}
@@ -133,7 +137,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("seed unavailable tool catalog: %v", err)
 	}
 
-	unavailable, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"delete_issue","inputs":{}}`)
+	unavailable, err := api.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"delete_issue","inputs":{}}`)
 	if err != nil {
 		t.Fatalf("TestToolDryRun unavailable error: %v", err)
 	}
@@ -185,7 +189,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed second native tool catalog: %v", err)
 	}
-	nativeBlocked, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"filesystem","inputs":{}}`)
+	nativeBlocked, err := api.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"filesystem","inputs":{}}`)
 	if err != nil {
 		t.Fatalf("TestToolDryRun native error: %v", err)
 	}
@@ -226,7 +230,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed unavailable native tool catalog: %v", err)
 	}
-	nativeUnavailable, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"offline","inputs":{}}`)
+	nativeUnavailable, err := api.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"offline","inputs":{}}`)
 	if err != nil {
 		t.Fatalf("TestToolDryRun unavailable native error: %v", err)
 	}
@@ -260,7 +264,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed missing runtime tool catalog: %v", err)
 	}
-	missingRuntime, err := app.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"missing_tool","inputs":{}}`)
+	missingRuntime, err := api.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"missing_tool","inputs":{}}`)
 	if err != nil {
 		t.Fatalf("TestToolDryRun missing runtime tool error: %v", err)
 	}

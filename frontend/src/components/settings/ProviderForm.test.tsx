@@ -53,17 +53,13 @@ vi.mock('react-i18next', () => ({
 }));
 
 // Mock Wails API
-vi.mock("@wailsjs/go/app/App", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wailsjs/go/app/App")>();
-  return {
-    ...actual,
-    ListModelsRaw: vi.fn(() => Promise.resolve(["gpt-4o", "gpt-4o-mini"])),
-    CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
-    UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
-  };
-});
+vi.mock("@wailsjs/go/wailsapi/LLMProviders", () => ({
+  ListModelsRaw: vi.fn(() => Promise.resolve(["gpt-4o", "gpt-4o-mini"])),
+  CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
+  UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
+}));
 
-import * as App from "@wailsjs/go/app/App";
+import * as App from "@wailsjs/go/wailsapi/LLMProviders";
 
 describe("PROVIDER_CONFIG", () => {
   it("deve ter configuração para OpenAI", () => {

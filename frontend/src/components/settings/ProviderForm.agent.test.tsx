@@ -53,9 +53,6 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 const catalogMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  CreateLLMProvider: createMock,
-  UpdateLLMProvider: updateMock,
-  ListModelsRaw: listModelsMock,
   GetACPCatalog: catalogMock,
   RefreshACPCatalog: catalogMock,
   // A instalação pelo catálogo tem teste próprio; aqui basta ela não aparecer.
@@ -68,6 +65,12 @@ vi.mock('@wailsjs/go/app/App', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/ACPProviders', () => ({
   DetectACPAgent: detectMock,
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
+  CreateLLMProvider: createMock,
+  UpdateLLMProvider: updateMock,
+  ListModelsRaw: listModelsMock,
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({

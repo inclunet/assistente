@@ -2,8 +2,10 @@ package app
 
 import (
 	"assistente/controllers"
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
+	"context"
 )
 
 // wireTokens monta o TokensController e associa o bind Wails (AEP-0088 Fase 4).
@@ -227,6 +229,49 @@ func (a *App) wireTasklistActions() {
 func (a *App) wireSubagent() {
 	if a.subagentAPI != nil {
 		wailsapi.AttachSubagent(a.subagentAPI, wailsSession{app: a}, a.subagentMgr)
+	}
+}
+
+// wireJobs associa o bind Wails de jobs após NewJobsController (AEP-0088).
+// initJobs (Manager) permanece no App; dry-run MCP e custom action events via hooks.
+func (a *App) wireJobs() {
+	if a.jobsAPI != nil {
+		wailsapi.AttachJobs(
+			a.jobsAPI,
+			wailsSession{app: a},
+			a.jobsCtrl,
+			a.mcpMgr,
+			a.customActionEventNames,
+		)
+	}
+}
+
+// wireLLMProviders monta o LLMController e associa o bind Wails (AEP-0088).
+func (a *App) wireLLMProviders() {
+	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
+		LLMRegistry:      a.llmRegistry,
+		ProfileMgr:       a.profileManager,
+		ProviderSvc:      a.providerSvc,
+		Emitter:          a.emitter,
+		OnProviderChange: a.initLLMClient,
+	})
+	if a.llmProvidersAPI != nil {
+		wailsapi.AttachLLMProviders(a.llmProvidersAPI, wailsSession{app: a}, a.llmCtrl, wailsapi.LLMProvidersHooks{
+			ApplyInstalledBinaryEnv: a.applyInstalledBinaryEnv,
+			ReloadClient:            a.initLLMClient,
+			PersistDelete: func(ctx context.Context, id string) error {
+				return database.DeleteLLMProviderWithContext(ctx, id)
+			},
+			CreateDefault: a.createDefaultLLMProvider,
+		})
+	}
+}
+
+// wireACPCommands associa o bind Wails ao Manager ACP já criado em initACP (AEP-0088).
+// agentSessionCommandsChanged permanece no App.
+func (a *App) wireACPCommands() {
+	if a.acpCommandsAPI != nil {
+		wailsapi.AttachACPCommands(a.acpCommandsAPI, wailsSession{app: a}, a.acpMgr)
 	}
 }
 

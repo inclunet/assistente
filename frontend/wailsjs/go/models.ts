@@ -215,6 +215,54 @@ export namespace apidto {
 	}
 	
 	
+	export class AgentCommand {
+	    name: string;
+	    description?: string;
+	    acceptsInput: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentCommand(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.acceptsInput = source["acceptsInput"];
+	    }
+	}
+	export class AgentSessionCommands {
+	    conversationId: string;
+	    commands: AgentCommand[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentSessionCommands(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.commands = this.convertValues(source["commands"], AgentCommand);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CleanupLegacyChannelJSONItem {
 	    path: string;
 	    kind: string;
@@ -288,6 +336,38 @@ export namespace apidto {
 		    }
 		    return a;
 		}
+	}
+	export class CreateLLMProviderRequest {
+	    id: string;
+	    name: string;
+	    type: string;
+	    base_url: string;
+	    api_key?: string;
+	    default_model?: string;
+	    api_format?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
+	    acp_agent_id?: string;
+	    acp_credential_env?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateLLMProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
+	        this.default_model = source["default_model"];
+	        this.api_format = source["api_format"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
+	        this.acp_agent_id = source["acp_agent_id"];
+	        this.acp_credential_env = source["acp_credential_env"];
+	    }
 	}
 	export class CredentialInput {
 	    pattern: string;
@@ -656,6 +736,24 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class TestLLMProviderRequest {
+	    type: string;
+	    base_url: string;
+	    api_key?: string;
+	    provider_id?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TestLLMProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
+	        this.provider_id = source["provider_id"];
+	    }
+	}
 	export class ToolUsageBreakdown {
 	    toolName: string;
 	    callCount: number;
@@ -776,6 +874,37 @@ export namespace apidto {
 	        this.description = source["description"];
 	        this.source_type = source["source_type"];
 	        this.source_label = source["source_label"];
+	    }
+	}
+	
+	export class UpdateLLMProviderRequest {
+	    name?: string;
+	    type?: string;
+	    base_url?: string;
+	    api_key?: string;
+	    default_model?: string;
+	    api_format?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
+	    acp_agent_id?: string;
+	    acp_credential_env?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateLLMProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
+	        this.default_model = source["default_model"];
+	        this.api_format = source["api_format"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
+	        this.acp_agent_id = source["acp_agent_id"];
+	        this.acp_credential_env = source["acp_credential_env"];
 	    }
 	}
 
@@ -1024,22 +1153,6 @@ export namespace app {
 	}
 	
 	
-	export class AgentCommand {
-	    name: string;
-	    description?: string;
-	    acceptsInput: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new AgentCommand(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.acceptsInput = source["acceptsInput"];
-	    }
-	}
 	export class AgentConfigValue {
 	    value: string;
 	    name?: string;
@@ -1110,38 +1223,6 @@ export namespace app {
 	        this.action = source["action"];
 	        this.grantedAt = source["grantedAt"];
 	    }
-	}
-	export class AgentSessionCommands {
-	    conversationId: string;
-	    commands: AgentCommand[];
-	
-	    static createFrom(source: any = {}) {
-	        return new AgentSessionCommands(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversationId = source["conversationId"];
-	        this.commands = this.convertValues(source["commands"], AgentCommand);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class AgentSessionOptions {
 	    conversationId: string;
@@ -2018,86 +2099,6 @@ export namespace controllers {
 		    }
 		    return a;
 		}
-	}
-	export class CreateLLMProviderRequest {
-	    id: string;
-	    name: string;
-	    type: string;
-	    base_url: string;
-	    api_key?: string;
-	    default_model?: string;
-	    api_format?: string;
-	    acp_command?: string;
-	    acp_args?: string[];
-	    acp_agent_id?: string;
-	    acp_credential_env?: Record<string, string>;
-	
-	    static createFrom(source: any = {}) {
-	        return new CreateLLMProviderRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.type = source["type"];
-	        this.base_url = source["base_url"];
-	        this.api_key = source["api_key"];
-	        this.default_model = source["default_model"];
-	        this.api_format = source["api_format"];
-	        this.acp_command = source["acp_command"];
-	        this.acp_args = source["acp_args"];
-	        this.acp_agent_id = source["acp_agent_id"];
-	        this.acp_credential_env = source["acp_credential_env"];
-	    }
-	}
-	export class TestLLMProviderRequest {
-	    type: string;
-	    base_url: string;
-	    api_key?: string;
-	    provider_id?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TestLLMProviderRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.type = source["type"];
-	        this.base_url = source["base_url"];
-	        this.api_key = source["api_key"];
-	        this.provider_id = source["provider_id"];
-	    }
-	}
-	export class UpdateLLMProviderRequest {
-	    name?: string;
-	    type?: string;
-	    base_url?: string;
-	    api_key?: string;
-	    default_model?: string;
-	    api_format?: string;
-	    acp_command?: string;
-	    acp_args?: string[];
-	    acp_agent_id?: string;
-	    acp_credential_env?: Record<string, string>;
-	
-	    static createFrom(source: any = {}) {
-	        return new UpdateLLMProviderRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.type = source["type"];
-	        this.base_url = source["base_url"];
-	        this.api_key = source["api_key"];
-	        this.default_model = source["default_model"];
-	        this.api_format = source["api_format"];
-	        this.acp_command = source["acp_command"];
-	        this.acp_args = source["acp_args"];
-	        this.acp_agent_id = source["acp_agent_id"];
-	        this.acp_credential_env = source["acp_credential_env"];
-	    }
 	}
 
 }

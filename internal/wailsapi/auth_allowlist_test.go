@@ -104,6 +104,7 @@ func TestProfilesMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"DeleteProfile",
 		"GetProfileSearchPaths",
 		"GetContextProviders",
+		"UpdateProfileMediaSupport",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s é autenticado via Profiles/WithUser; não pertence à allowlist", name)
@@ -325,6 +326,68 @@ func TestACPProvidersMethodsNotOnUnauthAllowlist(t *testing.T) {
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s é autenticado via ACPProviders/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
+func TestACPCommandsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetAgentSessionCommands",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via ACPCommands/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
+func TestLLMProvidersMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	// CreateDefaultLLMProvider é bootstrap pré-login sem WithUser, mas vive em
+	// wailsapi.LLMProviders — UnauthenticatedAppMethods só lista métodos do *App.
+	for _, name := range []string{
+		"GetLLMProviders",
+		"GetLLMProvider",
+		"GetActiveProviderInfo",
+		"GetLLMProvidersWithStatus",
+		"TestLLMProvider",
+		"ListModelsRaw",
+		"CreateLLMProvider",
+		"UpdateLLMProvider",
+		"SetDefaultProvider",
+		"DeleteLLMProvider",
+		"ReloadLLMClient",
+		"CreateDefaultLLMProvider",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s está em wailsapi.LLMProviders; não pertence à allowlist de *App", name)
+		}
+	}
+}
+
+func TestJobsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetJobs",
+		"GetJob",
+		"ToggleJob",
+		"RunJob",
+		"DryRunJob",
+		"GetJobRuns",
+		"ReplayRun",
+		"GetJobEvents",
+		"GetJobEventsPage",
+		"GetJobPipelines",
+		"GetToolCatalog",
+		"RegenerateJobCatalog",
+		"SaveJob",
+		"TestToolDryRun",
+		"InferEventSchema",
+		"ListKnownEvents",
+		"DeleteJob",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Jobs/WithUser; não pertence à allowlist", name)
 		}
 	}
 }
