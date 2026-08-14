@@ -72,16 +72,6 @@ func (a *App) noticePermissionBarrier(conversationID, previousMode, currentMode 
 	})
 }
 
-// currentModeOf lê o modo corrente do conjunto que o agente mandou. Por
-// categoria, nunca pelo identificador, que é escolha dele.
-func currentModeOf(options []acp.ConfigOption) string {
-	option, ok := acp.OptionByCategory(options, acp.CategoryMode)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(option.CurrentValue)
-}
-
 // agentModeName nomeia o modo como o seletor o nomeia: o rótulo que o agente deu
 // e, quando ele não deu nenhum, o valor cru — o último recurso, mas melhor do
 // que um aviso que não diz de que modo fala.

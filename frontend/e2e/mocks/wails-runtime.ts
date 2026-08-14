@@ -137,6 +137,40 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', available: false, options: [] };
     },
+    ACPAgentInstallPlan: function(agentId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPInstall') {
+        throw new Error('ACPAgentInstallPlan deve ser chamado via wailsapi.ACPInstall');
+      }
+      return {
+        agent_id: agentId || '',
+        name: '',
+        version: '',
+        distribution: '',
+        origin: '',
+        dir: '',
+        run_args: [],
+        runtime: { name: 'node', required: false, found: false },
+        can_install: false,
+        update: false,
+        can_update: false,
+        installing: false,
+      };
+    },
+    ListInstalledACPAgents: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPInstall') {
+        throw new Error('ListInstalledACPAgents deve ser chamado via wailsapi.ACPInstall');
+      }
+      return [];
+    },
+    CanRemoveACPAgent: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPInstall') {
+        throw new Error('CanRemoveACPAgent deve ser chamado via wailsapi.ACPInstall');
+      }
+      return false;
+    },
     // Mesmo padrão: UpdateProfileMediaSupport migrou para wailsapi.Profiles.
     UpdateProfileMediaSupport: function() {
       const last = _config.callLog[_config.callLog.length - 1];
@@ -440,6 +474,7 @@ export function buildWailsMockScript(): string {
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
       ACPOptions: makeProxy('wailsapi.ACPOptions'),
+      ACPInstall: makeProxy('wailsapi.ACPInstall'),
     },
   };
 

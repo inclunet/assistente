@@ -225,8 +225,9 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **media** (UpdateProfileMediaSupport → `wailsapi.Profiles`; estendido em Profiles, sem domínio Media novo; `extractAudioFromMedia` permanece interno no `App`)
 - [x] **llm_providers** (CRUD/test/models/default/reload → `wailsapi.LLMProviders`; DTOs em `apidto`; `CreateDefaultLLMProvider` sem WithUser para bootstrap wizard/CLI; helpers `applyInstalledBinaryEnv`/`initLLMClient`/… permanecem no `App`)
 - [x] **acp_commands** (`GetAgentSessionCommands` → `wailsapi.ACPCommands`; DTOs em `apidto`; `agentSessionCommandsChanged` permanece no `App`)
-- [x] **acp_providers** (DetectACPAgent + TestACPAgent → `wailsapi.ACPProviders`; DTOs em `apidto`; `acp_install` permanece no `*App`)
+- [x] **acp_providers** (DetectACPAgent + TestACPAgent → `wailsapi.ACPProviders`; DTOs em `apidto`)
 - [x] **acp_options** (GetAgentSessionOptions + SetAgentSessionOption → `wailsapi.ACPOptions`; DTOs em `apidto`; `agentSessionOptionsChanged` / `noticePermissionBarrier` permanecem no `*App`)
+- [x] **acp_install** (plan/install/update/cancel/remove/list → `wailsapi.ACPInstall`; DTOs em `apidto`; handshake/progresso/repontar permanecem no `*App` via hooks)
 - [ ] …
 
 ### Fase N — `App` enxuto
