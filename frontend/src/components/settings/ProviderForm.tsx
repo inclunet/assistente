@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { EyeOutlined, EyeInvisibleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/app/App';
+import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/wailsapi/LLMProviders';
 import { Input, Select, Button, FormField } from '../';
 import { AGENT_API_FORMAT, PROVIDER_CONFIG } from '../../config/providers';
 import { useAnnouncer } from '../../hooks/useAnnouncer';

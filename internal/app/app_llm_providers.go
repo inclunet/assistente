@@ -6,97 +6,16 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"time"
 
-	"assistente/controllers"
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 )
 
 // ============================================================================
-// LLM Provider API — delegação para LLMController
-// Os métodos abaixo existem para manter compatibilidade com o Wails Bind
-// enquanto a migração para controllers/ está em andamento (Strangler Fig).
+// LLM Provider — helpers internos (AEP-0088)
+// Pass-throughs Wails migraram para wailsapi.LLMProviders.
 // ============================================================================
-
-func (a *App) GetLLMProviders() []*llm.ProviderConfig       { return a.llmCtrl.GetLLMProviders() }
-func (a *App) GetLLMProvider(id string) *llm.ProviderConfig { return a.llmCtrl.GetLLMProvider(id) }
-func (a *App) GetActiveProviderInfo() map[string]interface{} {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return nil
-	}
-	return a.llmCtrl.GetActiveProviderInfo(ctx)
-}
-func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return nil
-	}
-	return a.llmCtrl.GetLLMProvidersWithStatus(ctx)
-}
-
-func (a *App) TestLLMProvider(req controllers.TestLLMProviderRequest) (ok bool, retErr error) {
-	if a.ctx == nil {
-		return false, fmt.Errorf("aplicação ainda não está pronta, aguarde")
-	}
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return false, err
-	}
-	return a.llmCtrl.TestLLMProvider(ctx, req)
-}
-
-func (a *App) ListModelsRaw(req controllers.TestLLMProviderRequest) (models []string, retErr error) {
-	if a.ctx == nil {
-		return nil, fmt.Errorf("aplicação ainda não está pronta, aguarde")
-	}
-	authCtx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(authCtx, 15*time.Second)
-	defer cancel()
-	return a.llmCtrl.ListModelsRaw(ctx, req)
-}
-
-func (a *App) CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return nil, err
-	}
-	created, err := a.llmCtrl.CreateLLMProvider(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	// ACPEnv não atravessa a fronteira Create (token costuma parar aí). O env
-	// do alvo binário instalado vem do installed.json, pelo agent_id — a tela
-	// só escolhe o agente; o app aplica a configuração publicada no registro.
-	if id, _ := created["id"].(string); id != "" {
-		a.applyInstalledBinaryEnv(ctx, id, req.ACPAgentID)
-	}
-	return created, nil
-}
-
-func (a *App) UpdateLLMProvider(id string, req controllers.UpdateLLMProviderRequest) (map[string]interface{}, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return nil, err
-	}
-	updated, err := a.llmCtrl.UpdateLLMProvider(ctx, id, req)
-	if err != nil {
-		return nil, err
-	}
-	agentID := ""
-	if req.ACPAgentID != nil {
-		agentID = *req.ACPAgentID
-	} else if existing := a.llmCtrl.GetLLMProvider(id); existing != nil {
-		agentID = existing.ACPAgentID
-	}
-	a.applyInstalledBinaryEnv(ctx, id, agentID)
-	return updated, nil
-}
 
 // applyInstalledBinaryEnv põe no provedor o env{} do artefato binário que o
 // app instalou para este agente (AEP-0086). Sem UI de edição de ACPEnv: a
@@ -120,27 +39,6 @@ func (a *App) applyInstalledBinaryEnv(ctx context.Context, providerID, agentID s
 			"não foi possível aplicar o env do agente instalado %s ao provedor %s: %v",
 			agentID, providerID, err)
 	}
-}
-
-func (a *App) SetDefaultProvider(id string) error {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return err
-	}
-	return a.llmCtrl.SetDefaultProvider(ctx, id)
-}
-
-func (a *App) DeleteLLMProvider(_ context.Context, id string) error {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return err
-	}
-	if err := a.llmCtrl.DeleteLLMProvider(ctx, id); err != nil {
-		return err
-	}
-	// O registry é a visão em memória; apagar só nele faria o provedor voltar
-	// no próximo login e impediria reconhecer uma instalação ACP órfã.
-	return database.DeleteLLMProviderWithContext(ctx, id)
 }
 
 // saveLLMProviders, loadLLMProviders e ensureDefaultProvider são helpers
@@ -194,11 +92,6 @@ func (a *App) initLLMClient() {
 	logging.Infof(context.Background(), "app.app-llm-providers", "[initLLMClient] Provedor ativo: %s (api_format=%s)", provider.Name, provider.GetAPIFormat())
 }
 
-// ReloadLLMClient recarrega o cliente LLM (chamado quando config muda)
-func (a *App) ReloadLLMClient() {
-	a.initLLMClient()
-}
-
 // resolveProfileDefaults substitui sentinelas "$default" no profile pelo
 // provedor/modelo padrão do usuário autenticado.
 //
@@ -247,19 +140,31 @@ func (a *App) initLLMProviders(ctx context.Context) {
 	}
 }
 
-// CreateDefaultLLMProvider cria o primeiro provedor durante o wizard ou
+// createDefaultLLMProvider cria o primeiro provedor durante o wizard ou
 // CLI setup. É um dos poucos pontos legítimos de bootstrap pré-login: quando
 // o ctx do app não carrega userID (caminho CLI antes do primeiro login),
 // marcamos explicitamente com WithBootstrap para que providers.DBStore.Save
 // aceite a gravação. Pós-login (wizard de UI rodando após AuthGate) o ctx
 // já carrega userID e WithBootstrap não é aplicado — o provedor é criado
 // com user_id do usuário autenticado.
-func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
+//
+// Exposto ao Bind via wailsapi.LLMProviders.CreateDefaultLLMProvider (sem
+// WithUser) e à CLI via CreateDefaultLLMProvider (função de pacote).
+func (a *App) createDefaultLLMProvider(providerType, apiKey string) error {
 	ctx := a.internalBootstrapCtx()
 	if _, ok := database.UserIDFromContext(ctx); !ok {
 		ctx = database.WithBootstrap(ctx)
 	}
 	return a.providerSvc.CreateFromTemplate(ctx, providerType, apiKey)
+}
+
+// CreateDefaultLLMProvider expõe o helper de bootstrap para a CLI (não entra
+// no Bind Wails — a superfície Wails vive em wailsapi.LLMProviders).
+func CreateDefaultLLMProvider(a *App, providerType, apiKey string) error {
+	if a == nil {
+		return fmt.Errorf("app não inicializado")
+	}
+	return a.createDefaultLLMProvider(providerType, apiKey)
 }
 
 // getChatProviderForProvider é uma fina camada de delegação para providerSvc.GetChatProvider.
@@ -273,4 +178,67 @@ func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, e
 		return nil, err
 	}
 	return a.providerSvc.GetChatProvider(ctx, providerID)
+}
+
+// Helpers não-exportados para testes do pacote (não entram no Bind Wails).
+
+func (a *App) createLLMProvider(req CreateLLMProviderRequest) (map[string]interface{}, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	created, err := a.llmCtrl.CreateLLMProvider(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if id, _ := created["id"].(string); id != "" {
+		a.applyInstalledBinaryEnv(ctx, id, req.ACPAgentID)
+	}
+	return created, nil
+}
+
+func (a *App) updateLLMProvider(id string, req UpdateLLMProviderRequest) (map[string]interface{}, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	updated, err := a.llmCtrl.UpdateLLMProvider(ctx, id, req)
+	if err != nil {
+		return nil, err
+	}
+	agentID := ""
+	if req.ACPAgentID != nil {
+		agentID = *req.ACPAgentID
+	} else if existing := a.llmCtrl.GetLLMProvider(id); existing != nil {
+		agentID = existing.ACPAgentID
+	}
+	a.applyInstalledBinaryEnv(ctx, id, agentID)
+	return updated, nil
+}
+
+func (a *App) deleteLLMProvider(id string) error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	if err := a.llmCtrl.DeleteLLMProvider(ctx, id); err != nil {
+		return err
+	}
+	return database.DeleteLLMProviderWithContext(ctx, id)
+}
+
+func (a *App) testLLMProvider(req TestLLMProviderRequest) (bool, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return false, err
+	}
+	return a.llmCtrl.TestLLMProvider(ctx, req)
+}
+
+func (a *App) getLLMProvidersWithStatus() []map[string]interface{} {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
+	}
+	return a.llmCtrl.GetLLMProvidersWithStatus(ctx)
 }

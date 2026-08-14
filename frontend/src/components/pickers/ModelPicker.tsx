@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next';
 import {
   GetModels,
   GetModelCatalogByProvider,
-  GetLLMProvidersWithStatus,
   RefreshModels,
   RefreshModelCatalogByProvider,
 } from '@wailsjs/go/app/App';
+import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';
 import { Button } from '../ui/Button';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';

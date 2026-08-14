@@ -25,6 +25,9 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetModelCatalogByProvider: (providerId: string) => getModelsSpy(providerId),
   RefreshModels: () => refreshModelsSpy(),
   RefreshModelCatalogByProvider: (providerId: string) => refreshModelsSpy(providerId),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => Promise.resolve([]),
 }));
 

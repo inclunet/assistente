@@ -22,11 +22,15 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
+  CanRemoveACPAgent: (agentID: string) => mockCanRemoveAgent(agentID),
+  RemoveACPAgent: (agentID: string) => mockRemoveAgent(agentID),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => mockGetProviders(),
   CreateLLMProvider: (payload: unknown) => mockCreateProvider(payload),
-  CanRemoveACPAgent: (agentID: string) => mockCanRemoveAgent(agentID),
-  DeleteLLMProvider: (_ctx: unknown, id: string) => mockDeleteProvider(id),
-  RemoveACPAgent: (agentID: string) => mockRemoveAgent(agentID),
+  DeleteLLMProvider: (id: string) => mockDeleteProvider(id),
+  SetDefaultProvider: vi.fn(),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({

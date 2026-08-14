@@ -2,7 +2,7 @@ import { logger } from '../../utils/logger';
 import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { CloseCircleOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetLLMProvidersWithStatus } from '@wailsjs/go/app/App';
+import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './LLMProviderPicker.css';

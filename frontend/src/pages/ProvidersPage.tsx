@@ -9,13 +9,15 @@ import {
   StarOutlined,
 } from '@ant-design/icons';
 import {
+  CanRemoveACPAgent,
+  RemoveACPAgent,
+} from '@wailsjs/go/app/App';
+import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
-  CanRemoveACPAgent,
   DeleteLLMProvider,
-  RemoveACPAgent,
   SetDefaultProvider,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/LLMProviders';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -237,9 +239,7 @@ export default function ProvidersPage() {
       ? (provider.acp_agent_id || '').trim()
       : '';
     try {
-      type WailsContext = Parameters<typeof DeleteLLMProvider>[0];
-      const emptyContext = null as unknown as WailsContext;
-      await DeleteLLMProvider(emptyContext, provider.id);
+      await DeleteLLMProvider(provider.id);
       addToast(t('providers.toast.deleted'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.deleted'));
       await loadProviders();

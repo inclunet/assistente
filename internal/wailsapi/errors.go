@@ -66,3 +66,6 @@ var ErrSubagentNotWired = errors.New("wailsapi: subagent bind not wired")
 
 // ErrTasklistActionsNotWired indica que o bind TasklistActions ainda não recebeu controller/session.
 var ErrTasklistActionsNotWired = errors.New("wailsapi: tasklist actions bind not wired")
+
+// ErrLLMProvidersNotWired indica que o bind LLMProviders ainda não recebeu controller/session.
+var ErrLLMProvidersNotWired = errors.New("wailsapi: llm providers bind not wired")

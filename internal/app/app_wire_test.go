@@ -352,3 +352,20 @@ func TestWireSubagentAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireLLMProvidersAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewLLMProviders()
+	SetLLMProvidersAPI(a, api)
+
+	a.wireLLMProviders()
+
+	if a.llmCtrl == nil {
+		t.Fatal("llmCtrl deve ser criado")
+	}
+	_, err := api.GetLLMProviders()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
