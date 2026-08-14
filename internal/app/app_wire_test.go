@@ -209,3 +209,20 @@ func TestWireMCPAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireSignalAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewSignal()
+	SetSignalAPI(a, api)
+
+	a.wireSignal()
+
+	if a.signalCtrl == nil {
+		t.Fatal("signalCtrl deve ser criado")
+	}
+	_, err := api.SignalListAccounts("http://x", "")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}

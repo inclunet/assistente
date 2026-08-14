@@ -144,3 +144,11 @@ func (a *App) wireMCP() {
 		wailsapi.AttachMCP(a.mcpAPI, wailsSession{app: a}, a.mcpCtrl)
 	}
 }
+
+// wireSignal monta o SignalController e associa o bind Wails (AEP-0088).
+func (a *App) wireSignal() {
+	a.signalCtrl = controllers.NewSignalController()
+	if a.signalAPI != nil {
+		wailsapi.AttachSignal(a.signalAPI, wailsSession{app: a}, a.signalCtrl)
+	}
+}
