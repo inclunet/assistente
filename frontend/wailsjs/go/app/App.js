@@ -866,34 +866,6 @@ export function Shutdown() {
   return window['go']['app']['App']['Shutdown']();
 }
 
-export function SignalCheckAPI(arg1, arg2) {
-  return window['go']['app']['App']['SignalCheckAPI'](arg1, arg2);
-}
-
-export function SignalLink(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SignalLink'](arg1, arg2, arg3);
-}
-
-export function SignalLinkRaw(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SignalLinkRaw'](arg1, arg2, arg3);
-}
-
-export function SignalListAccounts(arg1, arg2) {
-  return window['go']['app']['App']['SignalListAccounts'](arg1, arg2);
-}
-
-export function SignalRegister(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['app']['App']['SignalRegister'](arg1, arg2, arg3, arg4, arg5);
-}
-
-export function SignalUnregister(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['SignalUnregister'](arg1, arg2, arg3, arg4);
-}
-
-export function SignalVerify(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['SignalVerify'](arg1, arg2, arg3, arg4);
-}
-
 export function SpeakMessage(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['app']['App']['SpeakMessage'](arg1, arg2, arg3, arg4, arg5, arg6);
 }

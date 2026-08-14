@@ -252,6 +252,10 @@ type App struct {
 	// mcpAPI é o bind Wails do domínio MCP (AEP-0088). Criado em main e
 	// wired após NewMCPController.
 	mcpAPI *wailsapi.MCP
+
+	// signalAPI é o bind Wails do domínio Signal (AEP-0088). Criado em main e
+	// wired após NewSignalController.
+	signalAPI *wailsapi.Signal
 }
 
 // ==================== Tipos para Threads ====================
@@ -376,6 +380,15 @@ func SetMCPAPI(a *App, api *wailsapi.MCP) {
 		return
 	}
 	a.mcpAPI = api
+}
+
+// SetSignalAPI registra o bind Wails de Signal antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSignalAPI(a *App, api *wailsapi.Signal) {
+	if a == nil {
+		return
+	}
+	a.signalAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -743,7 +756,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
 		TerminalMgr: a.terminalMgr,
 	})
-	a.signalCtrl = controllers.NewSignalController()
+	a.wireSignal()
 
 	if err := a.startHTTPAPI(); err != nil {
 		return err
