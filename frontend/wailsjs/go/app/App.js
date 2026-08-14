@@ -58,10 +58,6 @@ export function CancelStreamingForConversation(arg1) {
   return window['go']['app']['App']['CancelStreamingForConversation'](arg1);
 }
 
-export function CleanupLegacyChannelJSON(arg1) {
-  return window['go']['app']['App']['CleanupLegacyChannelJSON'](arg1);
-}
-
 export function ClearConversation(arg1) {
   return window['go']['app']['App']['ClearConversation'](arg1);
 }

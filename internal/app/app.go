@@ -269,6 +269,10 @@ type App struct {
 	// wired após NewWelcomeController.
 	welcomeAPI *wailsapi.Welcome
 
+	// legacyCleanupAPI é o bind Wails do cleanup de JSON legado (AEP-0088).
+	// Criado em main e wired sem controller (chama channels diretamente).
+	legacyCleanupAPI *wailsapi.LegacyCleanup
+
 	// subagentAPI é o bind Wails do domínio subagent (AEP-0088). Criado em main
 	// e wired após a criação do subagentMgr.
 	subagentAPI *wailsapi.Subagent
@@ -432,6 +436,15 @@ func SetWelcomeAPI(a *App, api *wailsapi.Welcome) {
 		return
 	}
 	a.welcomeAPI = api
+}
+
+// SetLegacyCleanupAPI registra o bind Wails de legacy cleanup antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetLegacyCleanupAPI(a *App, api *wailsapi.LegacyCleanup) {
+	if a == nil {
+		return
+	}
+	a.legacyCleanupAPI = api
 }
 
 // SetSubagentAPI registra o bind Wails de subagent antes do Run (main.go).
@@ -793,6 +806,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireCredentials()
 	a.wireMemory()
 	a.wireWelcome()
+	a.wireLegacyCleanup()
 	a.wireSubagent()
 	a.wireSignal()
 	a.wireTerminal()

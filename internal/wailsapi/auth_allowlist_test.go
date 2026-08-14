@@ -278,6 +278,17 @@ func TestWelcomeMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestLegacyCleanupMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"CleanupLegacyChannelJSON",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via LegacyCleanup/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestSubagentMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

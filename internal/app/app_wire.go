@@ -192,6 +192,14 @@ func (a *App) wireWelcome() {
 	}
 }
 
+// wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).
+// Sem controller: o bind chama channels.CleanupLegacyJSONFiles diretamente.
+func (a *App) wireLegacyCleanup() {
+	if a.legacyCleanupAPI != nil {
+		wailsapi.AttachLegacyCleanup(a.legacyCleanupAPI, wailsSession{app: a})
+	}
+}
+
 // wireSubagent associa o bind Wails ao Manager já criado no startup (AEP-0088).
 // subagentParentDelivery e a criação do Manager permanecem no App.
 func (a *App) wireSubagent() {
