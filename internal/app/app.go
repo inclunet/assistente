@@ -306,6 +306,10 @@ type App struct {
 	// em main e wired após initACP (reusa acpMgr). Eventos lowercase permanecem no *App.
 	acpOptionsAPI *wailsapi.ACPOptions
 
+	// acpWorkDirAPI é o bind Wails do domínio acp_workdir (AEP-0088). Criado em
+	// main e wired após initACP. Helpers ConversationDir permanecem no *App.
+	acpWorkDirAPI *wailsapi.ACPWorkDir
+
 	// acpInstallAPI é o bind Wails de install/update/remove de agentes ACP
 	// (AEP-0088). Criado em main; helpers de handshake/progresso/repontar
 	// permanecem no *App e entram via hooks.
@@ -551,6 +555,15 @@ func SetACPOptionsAPI(a *App, api *wailsapi.ACPOptions) {
 		return
 	}
 	a.acpOptionsAPI = api
+}
+
+// SetACPWorkDirAPI registra o bind Wails de acp_workdir antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPWorkDirAPI(a *App, api *wailsapi.ACPWorkDir) {
+	if a == nil {
+		return
+	}
+	a.acpWorkDirAPI = api
 }
 
 // SetACPInstallAPI registra o bind Wails de acp_install antes do Run (main.go).
@@ -938,6 +951,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireACPCommands()
 	a.wireACPProviders()
 	a.wireACPOptions()
+	a.wireACPWorkDir()
 	a.wireACPInstall()
 	a.wireSignal()
 	a.wireTerminal()

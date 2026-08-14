@@ -130,6 +130,9 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetActiveProviderInfo: vi.fn().mockResolvedValue({
     supports_assistant_prefill: true,
   }),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
   // A conversa destes testes não fala com agente de código: não há
   // diretório de agente a mostrar.
   GetAgentConversationWorkDir: vi.fn().mockRejectedValue(new Error('sem agente')),

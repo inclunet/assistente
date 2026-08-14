@@ -137,6 +137,32 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', available: false, options: [] };
     },
+    GetAgentConversationWorkDir: function(conversationId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPWorkDir') {
+        throw new Error('GetAgentConversationWorkDir deve ser chamado via wailsapi.ACPWorkDir');
+      }
+      return {
+        conversationId: conversationId || '',
+        available: false,
+        dir: '',
+        workspaceDir: '',
+        pinned: false,
+      };
+    },
+    SetAgentConversationWorkDir: function(conversationId, dir) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPWorkDir') {
+        throw new Error('SetAgentConversationWorkDir deve ser chamado via wailsapi.ACPWorkDir');
+      }
+      return {
+        conversationId: conversationId || '',
+        available: Boolean(dir),
+        dir: dir || '',
+        workspaceDir: '',
+        pinned: Boolean(dir),
+      };
+    },
     ACPAgentInstallPlan: function(agentId) {
       const last = _config.callLog[_config.callLog.length - 1];
       if (!last || last.scope !== 'wailsapi.ACPInstall') {
@@ -474,6 +500,7 @@ export function buildWailsMockScript(): string {
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
       ACPOptions: makeProxy('wailsapi.ACPOptions'),
+      ACPWorkDir: makeProxy('wailsapi.ACPWorkDir'),
       ACPInstall: makeProxy('wailsapi.ACPInstall'),
     },
   };

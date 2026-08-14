@@ -496,6 +496,28 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class AgentWorkDir {
+	    conversationId: string;
+	    available: boolean;
+	    dir: string;
+	    workspaceDir: string;
+	    pinned: boolean;
+	    sessionDir?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentWorkDir(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.available = source["available"];
+	        this.dir = source["dir"];
+	        this.workspaceDir = source["workspaceDir"];
+	        this.pinned = source["pinned"];
+	        this.sessionDir = source["sessionDir"];
+	    }
+	}
 	export class CleanupLegacyChannelJSONItem {
 	    path: string;
 	    kind: string;
@@ -1256,28 +1278,6 @@ export namespace app {
 	        this.profileName = source["profileName"];
 	        this.action = source["action"];
 	        this.grantedAt = source["grantedAt"];
-	    }
-	}
-	export class AgentWorkDir {
-	    conversationId: string;
-	    available: boolean;
-	    dir: string;
-	    workspaceDir: string;
-	    pinned: boolean;
-	    sessionDir?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AgentWorkDir(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversationId = source["conversationId"];
-	        this.available = source["available"];
-	        this.dir = source["dir"];
-	        this.workspaceDir = source["workspaceDir"];
-	        this.pinned = source["pinned"];
-	        this.sessionDir = source["sessionDir"];
 	    }
 	}
 	export class AuthStatus {
