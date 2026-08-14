@@ -39,6 +39,19 @@ func TestHasRejectsExitedSession(t *testing.T) {
 	}
 }
 
+func TestListOmitsClosingAndExitedSessions(t *testing.T) {
+	manager := NewManager(DefaultManagerConfig(), nil)
+	manager.sessions["live"] = &Session{id: "live", name: "Live", state: StateIdle}
+	manager.sessions["closing"] = &Session{id: "closing", state: StateClosing}
+	manager.sessions["dead"] = &Session{id: "dead", state: StateExited}
+
+	sessions := manager.List()
+
+	if len(sessions) != 1 || sessions[0].ID != "live" {
+		t.Fatalf("sessões listadas = %#v", sessions)
+	}
+}
+
 func TestCloseIsIdempotentWithoutPTY(t *testing.T) {
 	exitEvents := 0
 	session := &Session{

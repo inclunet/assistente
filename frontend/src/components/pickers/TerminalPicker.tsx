@@ -23,7 +23,7 @@ export function TerminalPicker({
   const { t } = useTranslation();
   const items = sessions.map((session) => ({
     value: session.id,
-    label: session.name,
+    label: session.name || session.id,
     sublabel: t('terminal.picker.itemDescription', {
       cwd: session.cwd,
       state: t(`terminal.states.${session.state}`),
@@ -35,7 +35,7 @@ export function TerminalPicker({
       variant="toolbar"
       items={items}
       selected={value || ''}
-      onSelect={onChange}
+      onSelect={(sessionId) => onChange(sessionId)}
       label={t('terminal.picker.label')}
       description={t('terminal.picker.description')}
       icon={<CodeOutlined />}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +66,20 @@ func TestTerminalSessionCreateReturnsDeepLink(t *testing.T) {
 	}
 	if got := metadata["deepLink"]; got != "assistente://terminal/term-1" {
 		t.Fatalf("deepLink = %#v", got)
+	}
+}
+
+func TestTerminalSessionCreateUsesIDWhenNameIsEmpty(t *testing.T) {
+	manager := &fakeTerminalSessionManager{}
+	result, err := NewTerminalSession(manager, "/workspace").Execute(
+		context.Background(),
+		json.RawMessage(`{"action":"create"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || !strings.Contains(result.Content, "Terminal criado: term-1") {
+		t.Fatalf("resultado=%#v", result)
 	}
 }
 

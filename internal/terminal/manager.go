@@ -302,7 +302,8 @@ func (m *Manager) List() []SessionInfo {
 
 	result := make([]SessionInfo, 0, len(m.sessions))
 	for _, s := range m.sessions {
-		if s.State() != StateClosed {
+		state := s.State()
+		if state != StateClosing && state != StateExited {
 			result = append(result, s.Info())
 		}
 	}

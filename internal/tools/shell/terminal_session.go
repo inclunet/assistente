@@ -104,8 +104,16 @@ func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools
 			return tools.ToolResult{Content: "Erro ao criar terminal: " + err.Error(), IsError: true}, nil
 		}
 		link := fmt.Sprintf("assistente://terminal/%s", info.ID)
+		displayName := strings.TrimSpace(info.Name)
+		createdLabel := ""
+		if displayName == "" {
+			displayName = info.ID
+			createdLabel = displayName
+		} else {
+			createdLabel = fmt.Sprintf("%s (%s)", displayName, info.ID)
+		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Terminal criado: %s (%s)\nAbrir para inspeção: %s", info.Name, info.ID, link),
+			Content: fmt.Sprintf("Terminal criado: %s\nAbrir para inspeção: %s", createdLabel, link),
 			Metadata: map[string]any{
 				"terminalId": info.ID,
 				"sessionId":  info.ID,

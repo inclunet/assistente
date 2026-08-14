@@ -37,12 +37,28 @@ describe('TerminalPicker', () => {
     await user.click(screen.getByRole('button', { name: /Terminal conectado, Build/i }));
     await user.click(await screen.findByRole('option', { name: /Testes/i }));
 
-    expect(onChange).toHaveBeenCalledWith('term-2', expect.objectContaining({ value: 'term-2' }));
+    expect(onChange).toHaveBeenCalledWith('term-2');
   });
 
   it('informa quando não existem terminais vivos', () => {
     render(<TerminalPicker sessions={[]} onChange={vi.fn()} />);
 
     expect(screen.getByText('Nenhum terminal vivo')).toBeInTheDocument();
+  });
+
+  it('usa o ID como nome acessível quando a sessão não tem nome', async () => {
+    const user = userEvent.setup();
+    render(
+      <TerminalPicker
+        sessions={[
+          { id: 'term-sem-nome', name: '', cwd: '/repo', state: 'idle', shell: 'bash', createdAt: '', lastUsed: '' },
+        ]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Terminal conectado/i }));
+
+    expect(await screen.findByRole('option', { name: /term-sem-nome/i })).toBeInTheDocument();
   });
 });
