@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 		t.Fatalf("validateWizardConnection() ErrorType = %q, want app_initializing", result.ErrorType)
 	}
 
-	if _, err := api.RunWelcomeWizard(); err == nil || !strings.Contains(err.Error(), "welcome bind not wired") {
-		t.Fatalf("RunWelcomeWizard() error = %v, want not wired", err)
+	if _, err := api.RunWelcomeWizard(); !errors.Is(err, wailsapi.ErrWelcomeNotWired) {
+		t.Fatalf("RunWelcomeWizard() error = %v, want ErrWelcomeNotWired", err)
 	}
 }
