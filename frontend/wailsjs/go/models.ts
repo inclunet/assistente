@@ -309,6 +309,152 @@ export namespace apidto {
 		}
 	}
 	
+	export class ACPInstallConfirmation {
+	    distribution?: string;
+	    origin?: string;
+	    sha256?: string;
+	    accept_unverified?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPInstallConfirmation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.distribution = source["distribution"];
+	        this.origin = source["origin"];
+	        this.sha256 = source["sha256"];
+	        this.accept_unverified = source["accept_unverified"];
+	    }
+	}
+	export class ACPInstallation {
+	    agent_id: string;
+	    name: string;
+	    version: string;
+	    distribution: string;
+	    target: string;
+	    command: string;
+	    args: string[];
+	    dir: string;
+	    env?: Record<string, string>;
+	    sha256?: string;
+	    sha256_origin?: string;
+	    disk_bytes?: number;
+	    installed_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPInstallation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agent_id = source["agent_id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.distribution = source["distribution"];
+	        this.target = source["target"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.dir = source["dir"];
+	        this.env = source["env"];
+	        this.sha256 = source["sha256"];
+	        this.sha256_origin = source["sha256_origin"];
+	        this.disk_bytes = source["disk_bytes"];
+	        this.installed_at = source["installed_at"];
+	    }
+	}
+	export class ACPRuntimeStatus {
+	    name: string;
+	    required: boolean;
+	    found: boolean;
+	    path?: string;
+	    version?: string;
+	    searched?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPRuntimeStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.required = source["required"];
+	        this.found = source["found"];
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.searched = source["searched"];
+	    }
+	}
+	export class ACPInstallPlan {
+	    agent_id: string;
+	    name: string;
+	    version: string;
+	    distribution: string;
+	    origin: string;
+	    bytes?: number;
+	    target?: string;
+	    sha256?: string;
+	    unverified?: boolean;
+	    dir: string;
+	    install_command?: string;
+	    run_args: string[];
+	    runtime: ACPRuntimeStatus;
+	    can_install: boolean;
+	    reason?: string;
+	    installed?: ACPInstallation;
+	    update: boolean;
+	    can_update: boolean;
+	    update_reason?: string;
+	    installing: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPInstallPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agent_id = source["agent_id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.distribution = source["distribution"];
+	        this.origin = source["origin"];
+	        this.bytes = source["bytes"];
+	        this.target = source["target"];
+	        this.sha256 = source["sha256"];
+	        this.unverified = source["unverified"];
+	        this.dir = source["dir"];
+	        this.install_command = source["install_command"];
+	        this.run_args = source["run_args"];
+	        this.runtime = this.convertValues(source["runtime"], ACPRuntimeStatus);
+	        this.can_install = source["can_install"];
+	        this.reason = source["reason"];
+	        this.installed = this.convertValues(source["installed"], ACPInstallation);
+	        this.update = source["update"];
+	        this.can_update = source["can_update"];
+	        this.update_reason = source["update_reason"];
+	        this.installing = source["installing"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	
 	export class AgentCommand {
 	    name: string;
@@ -1006,152 +1152,6 @@ export namespace apidto {
 }
 
 export namespace app {
-	
-	export class ACPInstallConfirmation {
-	    distribution?: string;
-	    origin?: string;
-	    sha256?: string;
-	    accept_unverified?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPInstallConfirmation(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.distribution = source["distribution"];
-	        this.origin = source["origin"];
-	        this.sha256 = source["sha256"];
-	        this.accept_unverified = source["accept_unverified"];
-	    }
-	}
-	export class ACPInstallation {
-	    agent_id: string;
-	    name: string;
-	    version: string;
-	    distribution: string;
-	    target: string;
-	    command: string;
-	    args: string[];
-	    dir: string;
-	    env?: Record<string, string>;
-	    sha256?: string;
-	    sha256_origin?: string;
-	    disk_bytes?: number;
-	    installed_at: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPInstallation(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agent_id = source["agent_id"];
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.distribution = source["distribution"];
-	        this.target = source["target"];
-	        this.command = source["command"];
-	        this.args = source["args"];
-	        this.dir = source["dir"];
-	        this.env = source["env"];
-	        this.sha256 = source["sha256"];
-	        this.sha256_origin = source["sha256_origin"];
-	        this.disk_bytes = source["disk_bytes"];
-	        this.installed_at = source["installed_at"];
-	    }
-	}
-	export class ACPRuntimeStatus {
-	    name: string;
-	    required: boolean;
-	    found: boolean;
-	    path?: string;
-	    version?: string;
-	    searched?: string[];
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPRuntimeStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.required = source["required"];
-	        this.found = source["found"];
-	        this.path = source["path"];
-	        this.version = source["version"];
-	        this.searched = source["searched"];
-	    }
-	}
-	export class ACPInstallPlan {
-	    agent_id: string;
-	    name: string;
-	    version: string;
-	    distribution: string;
-	    origin: string;
-	    bytes?: number;
-	    target?: string;
-	    sha256?: string;
-	    unverified?: boolean;
-	    dir: string;
-	    install_command?: string;
-	    run_args: string[];
-	    runtime: ACPRuntimeStatus;
-	    can_install: boolean;
-	    reason?: string;
-	    installed?: ACPInstallation;
-	    update: boolean;
-	    can_update: boolean;
-	    update_reason?: string;
-	    installing: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPInstallPlan(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agent_id = source["agent_id"];
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.distribution = source["distribution"];
-	        this.origin = source["origin"];
-	        this.bytes = source["bytes"];
-	        this.target = source["target"];
-	        this.sha256 = source["sha256"];
-	        this.unverified = source["unverified"];
-	        this.dir = source["dir"];
-	        this.install_command = source["install_command"];
-	        this.run_args = source["run_args"];
-	        this.runtime = this.convertValues(source["runtime"], ACPRuntimeStatus);
-	        this.can_install = source["can_install"];
-	        this.reason = source["reason"];
-	        this.installed = this.convertValues(source["installed"], ACPInstallation);
-	        this.update = source["update"];
-	        this.can_update = source["can_update"];
-	        this.update_reason = source["update_reason"];
-	        this.installing = source["installing"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
 	
 	export class AgentConfigValue {
 	    value: string;

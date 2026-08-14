@@ -10,7 +10,7 @@ import (
 
 // ACPRegistry é o bind Wails do domínio acp_registry — catálogo do registro
 // oficial ACP para a tela (AEP-0088). Helpers de montagem (acpCatalogOf etc.)
-// e acp_install permanecem no *App.
+// permanecem no *App.
 // Auth só via WithUser — sem chamar o helper de auth do App no call site.
 type ACPRegistry struct {
 	mu        sync.RWMutex
