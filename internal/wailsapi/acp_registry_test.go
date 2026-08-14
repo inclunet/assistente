@@ -5,10 +5,6 @@ import (
 	"assistente/internal/apidto"
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -34,21 +30,34 @@ func TestACPRegistryNilRegistryIsNotWired(t *testing.T) {
 	}
 }
 
-func TestACPRegistryUsesWithUserNotRequireAuth(t *testing.T) {
+// TestACPRegistrySemAuthNaoTocaNoCatalogo cobre o fail-closed dos dois métodos:
+// sem contexto autenticado nada do domínio roda — nem a montagem do catálogo,
+// nem a ida ao registro — e o erro da sessão sobe como veio.
+func TestACPRegistrySemAuthNaoTocaNoCatalogo(t *testing.T) {
 	t.Parallel()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller")
+	semAuth := errors.New("sessão não autenticada")
+	casos := map[string]func(*ACPRegistry) (apidto.ACPCatalog, error){
+		"GetACPCatalog":     (*ACPRegistry).GetACPCatalog,
+		"RefreshACPCatalog": (*ACPRegistry).RefreshACPCatalog,
 	}
-	src, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "acp_registry.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := string(src)
-	if strings.Contains(body, "requireAuthenticatedContext(") {
-		t.Fatal("acp_registry.go não deve chamar requireAuthenticatedContext(; use WithUser")
-	}
-	if !strings.Contains(body, "WithUser(session,") {
-		t.Fatal("acp_registry.go deve chamar WithUser(session,")
+	for nome, chamar := range casos {
+		t.Run(nome, func(t *testing.T) {
+			t.Parallel()
+			api := NewACPRegistry()
+			AttachACPRegistry(api, stubSession{err: semAuth}, acpregistry.New(acpregistry.Config{}),
+				func(context.Context, acpregistry.Catalog) apidto.ACPCatalog {
+					t.Fatal("montou o catálogo sem contexto autenticado")
+					return apidto.ACPCatalog{}
+				})
+
+			catalog, err := chamar(api)
+
+			if !errors.Is(err, semAuth) {
+				t.Fatalf("erro = %v, quer o da sessão", err)
+			}
+			if len(catalog.Agents) != 0 {
+				t.Errorf("catálogo = %+v, quer vazio sem auth", catalog)
+			}
+		})
 	}
 }
