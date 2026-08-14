@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/memory"
@@ -262,6 +263,20 @@ func TestWireMemoryAttachesBind(t *testing.T) {
 		t.Fatal("memoryCtrl deve ser criado")
 	}
 	_, err := api.ListMemoryRecords(memory.Filter{})
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireLegacyCleanupAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewLegacyCleanup()
+	SetLegacyCleanupAPI(a, api)
+
+	a.wireLegacyCleanup()
+
+	_, err := api.CleanupLegacyChannelJSON(apidto.CleanupLegacyChannelJSONOptions{})
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

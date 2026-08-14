@@ -173,3 +173,11 @@ func (a *App) wireMemory() {
 		wailsapi.AttachMemory(a.memoryAPI, wailsSession{app: a}, a.memoryCtrl)
 	}
 }
+
+// wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).
+// Sem controller: o bind chama channels.CleanupLegacyJSONFiles diretamente.
+func (a *App) wireLegacyCleanup() {
+	if a.legacyCleanupAPI != nil {
+		wailsapi.AttachLegacyCleanup(a.legacyCleanupAPI, wailsSession{app: a})
+	}
+}
