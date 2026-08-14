@@ -62,7 +62,7 @@ function backendTabToFrontend(bt: workspace.Tab): WorkspaceTab {
     id: bt.id,
     type: bt.type as TabType,
     conversationId: bt.conversation_id || undefined,
-    title: bt.title,
+    title: bt.title || (bt.type === 'chat' ? i18next.t('chat.newConversation') : ''),
     position: bt.position,
     profileOverride: bt.profile_override,
     state: bt.state,
@@ -187,7 +187,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
             const tab: WorkspaceTab = {
               id: generateTabId(),
               type: 'chat',
-              title: 'Nova conversa',
+              title: i18next.t('chat.newConversation'),
               position: 0,
             };
             const backendTab = frontendTabToBackend(tab);
@@ -373,7 +373,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       const newTab = frontendTabToBackend({
         id: newTabId,
         type: 'chat',
-        title: 'Nova conversa',
+        title: i18next.t('chat.newConversation'),
         position: 0,
       });
       await AddWorkspaceTab(newTab);
