@@ -116,6 +116,14 @@ export function buildWailsMockScript(): string {
       }
       return true;
     },
+    // Mesmo padrão: UpdateProfileMediaSupport migrou para wailsapi.Profiles.
+    UpdateProfileMediaSupport: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Profiles') {
+        throw new Error('UpdateProfileMediaSupport deve ser chamado via wailsapi.Profiles');
+      }
+      return undefined;
+    },
 
     /* Auth */
     GetAuthStatus: {
@@ -176,7 +184,6 @@ export function buildWailsMockScript(): string {
     GetProfiles: [defaultProfile],
     GetProfile: defaultProfile,
     SetActiveProfile: undefined,
-    UpdateProfileMediaSupport: undefined,
 
     /* Providers */
     GetLLMProviders: [],
