@@ -669,7 +669,7 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 	}
 
 	// Gera novos IDs
-	ws := m.newWorkspace(imported.Name)
+	ws := m.newWorkspaceBase(imported.Name)
 	ws.Profile = imported.Profile
 
 	for _, tab := range imported.Tabs.Items {
@@ -682,7 +682,11 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 		ws.Tabs.Items = append(ws.Tabs.Items, newTab)
 	}
 
-	if len(ws.Tabs.Items) > 0 {
+	if len(ws.Tabs.Items) == 0 {
+		defaultTab := newDefaultChatTab()
+		ws.Tabs.Items = []Tab{defaultTab}
+		ws.Tabs.Active = defaultTab.ID
+	} else {
 		ws.Tabs.Active = ws.Tabs.Items[0].ID
 	}
 
@@ -698,15 +702,31 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 // === Persistência YAML ===
 
 func (m *Manager) newWorkspace(name string) *Workspace {
+	ws := m.newWorkspaceBase(name)
+	defaultTab := newDefaultChatTab()
+	ws.Tabs = TabsState{
+		Active: defaultTab.ID,
+		Items:  []Tab{defaultTab},
+	}
+	return ws
+}
+
+func (m *Manager) newWorkspaceBase(name string) *Workspace {
 	now := time.Now()
 	return &Workspace{
 		ID:        fmt.Sprintf("ws-%s", generateID()),
 		Name:      name,
 		CreatedAt: now,
 		LastUsed:  now,
-		Tabs: TabsState{
-			Items: []Tab{},
-		},
+		Tabs:      TabsState{Items: []Tab{}},
+	}
+}
+
+func newDefaultChatTab() Tab {
+	return Tab{
+		ID:       fmt.Sprintf("tab-%s", generateID()),
+		Type:     TabTypeChat,
+		Position: 0,
 	}
 }
 
@@ -877,6 +897,19 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	sort.Slice(ws.Tabs.Items, func(i, j int) bool {
 		return ws.Tabs.Items[i].Position < ws.Tabs.Items[j].Position
 	})
+
+	// Workspaces criados por versões anteriores podiam persistir sem abas ou
+	// com uma referência ativa ausente. Restaura a invariável da AEP-0034 para
+	// que a interface sempre tenha uma superfície utilizável ao reabrir o app.
+	if len(ws.Tabs.Items) == 0 {
+		defaultTab := newDefaultChatTab()
+		ws.Tabs.Items = []Tab{defaultTab}
+		ws.Tabs.Active = defaultTab.ID
+		needsSave = true
+	} else if ws.FindTab(ws.Tabs.Active) == nil {
+		ws.Tabs.Active = ws.Tabs.Items[0].ID
+		needsSave = true
+	}
 
 	// Persiste migração imediatamente para não repetir no próximo load.
 	// O remap NÃO é apagado aqui — Initialize() cuida de processar todos os
