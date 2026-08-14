@@ -19,6 +19,11 @@ let announceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingOutput = '';
 let terminalEventListenerRefCount = 0;
 let terminalEventListenerCleanup: (() => void) | null = null;
+let legacyCommandSequence = 0;
+
+export function resolveTerminalCommandId(sessionId: string, commandId?: string): string {
+  return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
+}
 
 function scheduleOutputAnnounce(chunk: string) {
   pendingOutput += chunk;
@@ -212,7 +217,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
 
       const tempEntry: HistoryEntry = terminal.HistoryEntry.createFrom({
-        id: data.commandId || `legacy-${data.sessionId}`,
+        id: resolveTerminalCommandId(data.sessionId, data.commandId),
         command: data.command,
         output: '',
         exitCode: -999, // sentinel para "em execução / raw"

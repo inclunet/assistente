@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { terminal } from '../../wailsjs/go/models';
-import { useTerminalStore } from './terminalStore';
+import { resolveTerminalCommandId, useTerminalStore } from './terminalStore';
 
 const mockGetTerminalHistory = vi.fn();
 
@@ -79,5 +79,13 @@ describe('terminalStore', () => {
 
     expect(useTerminalStore.getState().historyBySession).not.toHaveProperty('session-1');
     expect(useTerminalStore.getState().loadingHistoryBySession).not.toHaveProperty('session-1');
+  });
+
+  it('gera IDs distintos para eventos legados sem commandId', () => {
+    const first = resolveTerminalCommandId('session-1');
+    const second = resolveTerminalCommandId('session-1');
+
+    expect(first).not.toBe(second);
+    expect(resolveTerminalCommandId('session-1', 'cmd-authoritative')).toBe('cmd-authoritative');
   });
 });

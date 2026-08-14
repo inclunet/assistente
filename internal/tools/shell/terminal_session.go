@@ -85,7 +85,10 @@ func (t *TerminalSession) Execute(_ context.Context, raw json.RawMessage) (tools
 		sessions := t.manager.List()
 		payload, err := json.Marshal(sessions)
 		if err != nil {
-			return tools.ToolResult{}, err
+			return tools.ToolResult{
+				Content: "Erro ao serializar terminais: " + err.Error(),
+				IsError: true,
+			}, nil
 		}
 		return tools.ToolResult{
 			Content: string(payload),

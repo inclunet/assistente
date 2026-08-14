@@ -106,7 +106,9 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
-  const currentRunningCommandId = currentSessionId ? activeEntryBySession[currentSessionId] : null;
+  const currentRunningCommandId = currentSessionId
+    ? (activeEntryBySession[currentSessionId] ?? null)
+    : null;
   const isCurrentHistoryLoading = currentSessionId ? Boolean(loadingHistoryBySession[currentSessionId]) : false;
 
   const handleSendInput = useCallback(async (input: string) => {
@@ -118,10 +120,13 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
     await useWorkspaceStore.getState().updateTab(panelTab.id, {
       state: { ...panelTab.state, sessionId },
     });
+    const selectedSession = useTerminalStore.getState().sessions.find(
+      (session) => session.id === sessionId,
+    );
     announce(t('terminal.announce.selected', {
-      name: sessions.find((session) => session.id === sessionId)?.name || sessionId,
+      name: selectedSession?.name || sessionId,
     }));
-  }, [panelTab.id, panelTab.state, sessions, t]);
+  }, [panelTab.id, panelTab.state, t]);
 
   const handleCreateSession = useCallback(async () => {
     const newSessionId = await createSession();
