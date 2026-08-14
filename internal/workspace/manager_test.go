@@ -26,6 +26,9 @@ func TestInitialize_NewWorkspaceHasActiveChatTab(t *testing.T) {
 	if tab.Type != TabTypeChat {
 		t.Fatalf("expected default chat tab, got %q", tab.Type)
 	}
+	if tab.Title != "" {
+		t.Fatalf("expected locale-neutral default title, got %q", tab.Title)
+	}
 	if ws.Tabs.Active != tab.ID {
 		t.Fatalf("expected tab %q to be active, got %q", tab.ID, ws.Tabs.Active)
 	}

@@ -716,7 +716,6 @@ func newDefaultChatTab() Tab {
 	return Tab{
 		ID:       fmt.Sprintf("tab-%s", generateID()),
 		Type:     TabTypeChat,
-		Title:    "Nova conversa",
 		Position: 0,
 	}
 }
