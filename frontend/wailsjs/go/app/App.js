@@ -138,10 +138,6 @@ export function DemoteTask(arg1, arg2) {
   return window['go']['app']['App']['DemoteTask'](arg1, arg2);
 }
 
-export function DetectACPAgent(arg1) {
-  return window['go']['app']['App']['DetectACPAgent'](arg1);
-}
-
 export function DispatchSpeech(arg1) {
   return window['go']['app']['App']['DispatchSpeech'](arg1);
 }
@@ -668,10 +664,6 @@ export function SynthesizeOpenAIStream(arg1, arg2, arg3) {
 
 export function SynthesizeOpenAIWithVoice(arg1, arg2) {
   return window['go']['app']['App']['SynthesizeOpenAIWithVoice'](arg1, arg2);
-}
-
-export function TestACPAgent(arg1, arg2) {
-  return window['go']['app']['App']['TestACPAgent'](arg1, arg2);
 }
 
 export function TranscribeWhisper(arg1, arg2) {

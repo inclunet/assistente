@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { DetectACPAgent, TestACPAgent } from '@wailsjs/go/app/App';
-import type { app } from '@wailsjs/go/models';
+import { DetectACPAgent, TestACPAgent } from '@wailsjs/go/wailsapi/ACPProviders';
+import type { apidto } from '@wailsjs/go/models';
 import { Button, FormField, Input, Textarea } from '../';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { AgentCredentialEnv } from './AgentCredentialEnv';
@@ -10,10 +10,10 @@ import { AgentInstall } from './AgentInstall';
 import './AgentProviderFields.css';
 
 /** O que a detecção do backend devolve sobre o agente instalado. */
-type AgentSetup = app.ACPAgentSetup;
+type AgentSetup = apidto.ACPAgentSetup;
 
 /** O que a sondagem do backend devolve sobre o agente configurado. */
-type AgentHealth = app.ACPAgentHealth;
+type AgentHealth = apidto.ACPAgentHealth;
 
 /** Identifica a configuração testada, para o resultado não sobreviver a ela. */
 const configSignature = (command: string, args: string[]): string => `${command.trim()}\u0000${args.join('\n')}`;

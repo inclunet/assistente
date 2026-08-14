@@ -297,6 +297,10 @@ type App struct {
 	// acpCommandsAPI é o bind Wails do domínio acp_commands (AEP-0088). Criado
 	// em main e wired após initACP (reusa acpMgr).
 	acpCommandsAPI *wailsapi.ACPCommands
+
+	// acpProvidersAPI é o bind Wails de detect/test de agentes ACP (AEP-0088).
+	// Criado em main e wired após initACP. acp_install permanece no *App.
+	acpProvidersAPI *wailsapi.ACPProviders
 }
 
 // ==================== Tipos para Threads ====================
@@ -520,6 +524,15 @@ func SetACPCommandsAPI(a *App, api *wailsapi.ACPCommands) {
 		return
 	}
 	a.acpCommandsAPI = api
+}
+
+// SetACPProvidersAPI registra o bind Wails de acp_providers antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPProvidersAPI(a *App, api *wailsapi.ACPProviders) {
+	if a == nil {
+		return
+	}
+	a.acpProvidersAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -896,6 +909,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireLegacyCleanup()
 	a.wireSubagent()
 	a.wireACPCommands()
+	a.wireACPProviders()
 	a.wireSignal()
 	a.wireTerminal()
 
