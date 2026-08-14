@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/acp"
 	"assistente/internal/database"
+	"assistente/internal/wailsapi"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -55,6 +56,12 @@ func appComAgenteEBanco(t *testing.T, agente *agenteFalso) (*App, string) {
 	return a, workspace
 }
 
+func workDirAPI(a *App) *wailsapi.ACPWorkDir {
+	api := wailsapi.NewACPWorkDir()
+	wailsapi.AttachACPWorkDir(api, wailsSession{app: a}, a.acpMgr)
+	return api
+}
+
 // conversaNoBanco cria a conversa como o app cria, para que ler o diretório dela
 // passe pelo mesmo registro que o turno lê.
 func conversaNoBanco(t *testing.T, a *App, titulo string) string {
@@ -77,7 +84,7 @@ func TestConversaSemAgenteNaoTemDiretorioAMostrar(t *testing.T) {
 	a, _ := appComAgenteEBanco(t, novoAgenteFalso())
 	conversa := conversaNoBanco(t, a, "Conversa")
 
-	out, err := a.GetAgentConversationWorkDir(conversa)
+	out, err := workDirAPI(a).GetAgentConversationWorkDir(conversa)
 	if err != nil {
 		t.Fatalf("GetAgentConversationWorkDir: %v", err)
 	}
@@ -94,7 +101,7 @@ func TestConversaComSessaoMostraODiretorioDoWorkspace(t *testing.T) {
 	conversa := conversaNoBanco(t, a, "Conversa")
 	conversaComSessao(t, a, conversa)
 
-	out, err := a.GetAgentConversationWorkDir(conversa)
+	out, err := workDirAPI(a).GetAgentConversationWorkDir(conversa)
 	if err != nil {
 		t.Fatalf("GetAgentConversationWorkDir: %v", err)
 	}
@@ -110,7 +117,7 @@ func TestConversaComSessaoMostraODiretorioDoWorkspace(t *testing.T) {
 	if out.Pinned {
 		t.Error("a conversa que nunca escolheu diretório apareceu presa a um")
 	}
-	if out.PendingRecreate() {
+	if wailsapi.PendingRecreate(out) {
 		t.Errorf("a sessão que nasceu no diretório certo anunciou recriação pendente: %+v", out)
 	}
 }
@@ -123,14 +130,14 @@ func TestConversaQueEscolheuDiretorioMostraOControle(t *testing.T) {
 	conversa := conversaNoBanco(t, a, "Conversa")
 	escolhido := t.TempDir()
 
-	out, err := a.SetAgentConversationWorkDir(conversa, escolhido)
+	out, err := workDirAPI(a).SetAgentConversationWorkDir(conversa, escolhido)
 	if err != nil {
 		t.Fatalf("SetAgentConversationWorkDir: %v", err)
 	}
 	if !out.Available || !out.Pinned {
 		t.Fatalf("a escolha guardada não apareceu na tela: %+v", out)
 	}
-	if out.PendingRecreate() {
+	if wailsapi.PendingRecreate(out) {
 		t.Error("conversa sem sessão de pé anunciou recriação pendente")
 	}
 }
@@ -176,8 +183,9 @@ func TestEscolherDiretorioPrendeAConversaEAnunciaARecriacao(t *testing.T) {
 	conversa := conversaNoBanco(t, a, "Conversa")
 	conversaComSessao(t, a, conversa)
 	escolhido := t.TempDir()
+	api := workDirAPI(a)
 
-	out, err := a.SetAgentConversationWorkDir(conversa, escolhido)
+	out, err := api.SetAgentConversationWorkDir(conversa, escolhido)
 	if err != nil {
 		t.Fatalf("SetAgentConversationWorkDir: %v", err)
 	}
@@ -190,21 +198,21 @@ func TestEscolherDiretorioPrendeAConversaEAnunciaARecriacao(t *testing.T) {
 	if !acp.SameDir(out.SessionDir, workspace) {
 		t.Fatalf("a sessão de pé estaria em %q, quer o workspace de antes %q", out.SessionDir, workspace)
 	}
-	if !out.PendingRecreate() {
+	if !wailsapi.PendingRecreate(out) {
 		t.Fatal("a troca de diretório não avisou que a sessão será recriada")
 	}
 
 	// O turno seguinte é quem recria: a sessão nasce no diretório novo e a
 	// conversa passa a dizer que não há mais nada pendente.
 	conversaComSessao(t, a, conversa)
-	depois, err := a.GetAgentConversationWorkDir(conversa)
+	depois, err := api.GetAgentConversationWorkDir(conversa)
 	if err != nil {
 		t.Fatalf("GetAgentConversationWorkDir: %v", err)
 	}
 	if !acp.SameDir(depois.SessionDir, escolhido) {
 		t.Fatalf("a sessão nova ficou em %q, quer %q", depois.SessionDir, escolhido)
 	}
-	if depois.PendingRecreate() {
+	if wailsapi.PendingRecreate(depois) {
 		t.Error("a sessão já recriada ainda anuncia recriação pendente")
 	}
 }
@@ -214,11 +222,12 @@ func TestEscolherDiretorioPrendeAConversaEAnunciaARecriacao(t *testing.T) {
 func TestDiretorioVazioDevolveAConversaAoWorkspace(t *testing.T) {
 	a, workspace := appComAgenteEBanco(t, novoAgenteFalso())
 	conversa := conversaNoBanco(t, a, "Conversa")
+	api := workDirAPI(a)
 
-	if _, err := a.SetAgentConversationWorkDir(conversa, t.TempDir()); err != nil {
+	if _, err := api.SetAgentConversationWorkDir(conversa, t.TempDir()); err != nil {
 		t.Fatalf("prender ao diretório: %v", err)
 	}
-	out, err := a.SetAgentConversationWorkDir(conversa, "  ")
+	out, err := api.SetAgentConversationWorkDir(conversa, "  ")
 	if err != nil {
 		t.Fatalf("soltar do diretório: %v", err)
 	}
@@ -237,11 +246,12 @@ func TestDiretorioInexistenteEhRecusado(t *testing.T) {
 	a, _ := appComAgenteEBanco(t, novoAgenteFalso())
 	conversa := conversaNoBanco(t, a, "Conversa")
 	inexistente := filepath.Join(t.TempDir(), "nao-existe")
+	api := workDirAPI(a)
 
-	if _, err := a.SetAgentConversationWorkDir(conversa, inexistente); err == nil {
+	if _, err := api.SetAgentConversationWorkDir(conversa, inexistente); err == nil {
 		t.Fatal("um caminho que não existe virou o alcance do agente")
 	}
-	out, err := a.GetAgentConversationWorkDir(conversa)
+	out, err := api.GetAgentConversationWorkDir(conversa)
 	if err != nil {
 		t.Fatalf("GetAgentConversationWorkDir: %v", err)
 	}
@@ -260,7 +270,7 @@ func TestArquivoNaoServeComoDiretorio(t *testing.T) {
 		t.Fatalf("criar arquivo: %v", err)
 	}
 
-	_, err := a.SetAgentConversationWorkDir(conversa, arquivo)
+	_, err := workDirAPI(a).SetAgentConversationWorkDir(conversa, arquivo)
 	if err == nil {
 		t.Fatal("um arquivo foi aceito como diretório de trabalho")
 	}
@@ -276,7 +286,7 @@ func TestCaminhoRelativoViraAbsoluto(t *testing.T) {
 	a, _ := appComAgenteEBanco(t, novoAgenteFalso())
 	conversa := conversaNoBanco(t, a, "Conversa")
 
-	out, err := a.SetAgentConversationWorkDir(conversa, ".")
+	out, err := workDirAPI(a).SetAgentConversationWorkDir(conversa, ".")
 	if err != nil {
 		t.Fatalf("SetAgentConversationWorkDir: %v", err)
 	}
@@ -291,11 +301,12 @@ func TestOutraConversaNaoHerdaODiretorioEscolhido(t *testing.T) {
 	a, workspace := appComAgenteEBanco(t, novoAgenteFalso())
 	primeira := conversaNoBanco(t, a, "Primeira")
 	segunda := conversaNoBanco(t, a, "Segunda")
+	api := workDirAPI(a)
 
-	if _, err := a.SetAgentConversationWorkDir(primeira, t.TempDir()); err != nil {
+	if _, err := api.SetAgentConversationWorkDir(primeira, t.TempDir()); err != nil {
 		t.Fatalf("prender a primeira: %v", err)
 	}
-	out, err := a.GetAgentConversationWorkDir(segunda)
+	out, err := api.GetAgentConversationWorkDir(segunda)
 	if err != nil {
 		t.Fatalf("GetAgentConversationWorkDir: %v", err)
 	}
@@ -313,7 +324,7 @@ func TestConversaDeOutraPessoaNaoAceitaEscolha(t *testing.T) {
 		t.Fatalf("criar conversa alheia: %v", err)
 	}
 
-	if _, err := a.SetAgentConversationWorkDir(outra.ID, t.TempDir()); err == nil {
+	if _, err := workDirAPI(a).SetAgentConversationWorkDir(outra.ID, t.TempDir()); err == nil {
 		t.Fatal("a escolha foi gravada numa conversa de outra pessoa")
 	}
 }

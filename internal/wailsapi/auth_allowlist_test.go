@@ -358,6 +358,18 @@ func TestACPCommandsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestACPWorkDirMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetAgentConversationWorkDir",
+		"SetAgentConversationWorkDir",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via ACPWorkDir/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestLLMProvidersMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	// CreateDefaultLLMProvider é bootstrap pré-login sem WithUser, mas vive em
