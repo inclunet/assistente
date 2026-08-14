@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -372,6 +373,31 @@ func TestExecutionRejectsDeadExplicitTerminal(t *testing.T) {
 	}
 	if !result.IsError || mgr.runCommandCalls != 0 {
 		t.Fatalf("resultado=%#v runCalls=%d", result, mgr.runCommandCalls)
+	}
+}
+
+func TestExecutionDoesNotReleaseExplicitTerminalAfterFailure(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+		sessionCWD:   map[string]string{"term-explicit": "/workspace/repo"},
+		fakeRunErr:   errors.New("sessão ocupada"),
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.acquireCalls != 0 || mgr.releaseCalls != 0 {
+		t.Fatalf(
+			"resultado=%#v acquireCalls=%d releaseCalls=%d",
+			result,
+			mgr.acquireCalls,
+			mgr.releaseCalls,
+		)
 	}
 }
 

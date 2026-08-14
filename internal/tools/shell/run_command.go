@@ -234,6 +234,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	var sessionID string
 	var err error
+	acquiredSession := false
 	if a.TerminalID != "" {
 		sessionID = a.TerminalID
 	} else {
@@ -247,14 +248,18 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}, nil
 		}
 		sessionID = session.ID()
+		acquiredSession = true
 	}
 
 	// Executa o comando
 	entry, err := rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
 
 	// Compatibilidade: a Session já volta a idle ao terminar, mas managers
-	// antigos ainda podem depender de Release.
-	rc.sessionMgr.Release(sessionID)
+	// antigos ainda podem depender de Release para sessões criadas via Acquire.
+	// Uma sessão explícita tem ciclo de vida independente desta execução.
+	if acquiredSession {
+		rc.sessionMgr.Release(sessionID)
+	}
 
 	if err != nil {
 		// Timeout ou erro — mas se temos output parcial, retorna como sucesso
