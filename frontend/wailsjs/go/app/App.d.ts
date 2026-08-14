@@ -130,8 +130,6 @@ export function GetACPCatalog():Promise<app.ACPCatalog>;
 
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
-export function GetAgentConversationWorkDir(arg1:string):Promise<app.AgentWorkDir>;
-
 export function GetAgentPermissions():Promise<Array<app.AgentPermissionView>>;
 
 export function GetAgentSessionOptions(arg1:string):Promise<app.AgentSessionOptions>;
@@ -305,8 +303,6 @@ export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatPar
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
-
-export function SetAgentConversationWorkDir(arg1:string,arg2:string):Promise<app.AgentWorkDir>;
 
 export function SetAgentSessionOption(arg1:string,arg2:string,arg3:string):Promise<app.AgentSessionOptions>;
 

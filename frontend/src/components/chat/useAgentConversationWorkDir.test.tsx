@@ -10,7 +10,7 @@ import {
 const getWorkDir = vi.fn();
 const setWorkDir = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
   GetAgentConversationWorkDir: (id: string) => getWorkDir(id),
   SetAgentConversationWorkDir: (id: string, dir: string) => setWorkDir(id, dir),
 }));

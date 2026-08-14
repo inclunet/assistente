@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   GetAgentConversationWorkDir,
   SetAgentConversationWorkDir,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/ACPWorkDir';
 import { logger } from '../../utils/logger';
 
 export interface AgentWorkDirState {

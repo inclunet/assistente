@@ -122,6 +122,9 @@ vi.mock('../hooks/useContextMenu', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   DeleteMessage: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
   // A conversa destes testes não fala com agente de código: sem
   // diretório de agente a mostrar.
   GetAgentConversationWorkDir: vi.fn().mockRejectedValue(new Error('sem agente')),

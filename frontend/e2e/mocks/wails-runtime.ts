@@ -123,6 +123,32 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', commands: [] };
     },
+    GetAgentConversationWorkDir: function(conversationId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPWorkDir') {
+        throw new Error('GetAgentConversationWorkDir deve ser chamado via wailsapi.ACPWorkDir');
+      }
+      return {
+        conversationId: conversationId || '',
+        available: false,
+        dir: '',
+        workspaceDir: '',
+        pinned: false,
+      };
+    },
+    SetAgentConversationWorkDir: function(conversationId, dir) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPWorkDir') {
+        throw new Error('SetAgentConversationWorkDir deve ser chamado via wailsapi.ACPWorkDir');
+      }
+      return {
+        conversationId: conversationId || '',
+        available: Boolean(dir),
+        dir: dir || '',
+        workspaceDir: '',
+        pinned: Boolean(dir),
+      };
+    },
     // Mesmo padrão: UpdateProfileMediaSupport migrou para wailsapi.Profiles.
     UpdateProfileMediaSupport: function() {
       const last = _config.callLog[_config.callLog.length - 1];
@@ -425,6 +451,7 @@ export function buildWailsMockScript(): string {
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
+      ACPWorkDir: makeProxy('wailsapi.ACPWorkDir'),
     },
   };
 
