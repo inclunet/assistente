@@ -1,4 +1,4 @@
-import type { app, skills } from '../../../wailsjs/go/models';
+import type { apidto, skills } from '../../../wailsjs/go/models';
 
 /**
  * De onde veio o item do menu da barra. As duas origens convivem na mesma lista
@@ -33,7 +33,7 @@ export interface SlashItem {
  */
 export function buildSlashItems(
   skillList: skills.SkillInfo[],
-  agentCommands: app.AgentCommand[] = [],
+  agentCommands: apidto.AgentCommand[] = [],
 ): SlashItem[] {
   const items: SlashItem[] = skillList.map((skill) => ({
     key: `skill:${skill.slug}`,

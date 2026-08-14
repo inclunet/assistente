@@ -116,6 +116,13 @@ export function buildWailsMockScript(): string {
       }
       return true;
     },
+    GetAgentSessionCommands: function(conversationId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPCommands') {
+        throw new Error('GetAgentSessionCommands deve ser chamado via wailsapi.ACPCommands');
+      }
+      return { conversationId: conversationId || '', commands: [] };
+    },
     // Mesmo padrão: UpdateProfileMediaSupport migrou para wailsapi.Profiles.
     UpdateProfileMediaSupport: function() {
       const last = _config.callLog[_config.callLog.length - 1];
@@ -416,6 +423,7 @@ export function buildWailsMockScript(): string {
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
+      ACPCommands: makeProxy('wailsapi.ACPCommands'),
     },
   };
 

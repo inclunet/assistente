@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"assistente/internal/acp"
+	"assistente/internal/apidto"
+	"assistente/internal/wailsapi"
 )
 
 // anunciaComandos é o agente contando quais comandos a sessão oferece, que é o
@@ -20,12 +22,18 @@ func anunciaComandos(a *agenteFalso, commands ...acp.Command) {
 	aviso("sessao-1", commands)
 }
 
-func nomesDeComandos(commands []AgentCommand) []string {
+func nomesDeComandos(commands []apidto.AgentCommand) []string {
 	nomes := make([]string, 0, len(commands))
 	for _, command := range commands {
 		nomes = append(nomes, command.Name)
 	}
 	return nomes
+}
+
+func commandsAPI(a *App) *wailsapi.ACPCommands {
+	api := wailsapi.NewACPCommands()
+	wailsapi.AttachACPCommands(api, wailsSession{app: a}, a.acpMgr)
+	return api
 }
 
 // Quem abre uma conversa que já estava conversando precisa ver os comandos que
@@ -37,7 +45,7 @@ func TestComandosDaConversaSaoConsultaveis(t *testing.T) {
 	conversaComSessao(t, a, "conversa-1")
 	anunciaComandos(agente, acp.Command{Name: "plan", Description: "Monta um plano", AcceptsInput: true})
 
-	out, err := a.GetAgentSessionCommands("conversa-1")
+	out, err := commandsAPI(a).GetAgentSessionCommands("conversa-1")
 	if err != nil {
 		t.Fatalf("GetAgentSessionCommands: %v", err)
 	}
@@ -61,7 +69,7 @@ func TestConversaSemSessaoNaoTemComandosNemSobeAgente(t *testing.T) {
 	agente := novoAgenteFalso()
 	a, _ := appComAgente(t, agente)
 
-	out, err := a.GetAgentSessionCommands("conversa-que-nunca-falou")
+	out, err := commandsAPI(a).GetAgentSessionCommands("conversa-que-nunca-falou")
 	if err != nil {
 		t.Fatalf("GetAgentSessionCommands: %v", err)
 	}
@@ -119,8 +127,14 @@ func TestListaVaziaDeComandosChegaATela(t *testing.T) {
 
 func TestComandosExigemSessaoAutenticada(t *testing.T) {
 	a := &App{ctx: context.Background()}
+	mgr := acp.NewManager(acp.ManagerConfig{
+		WorkDir: func() (string, error) { return t.TempDir(), nil },
+	})
+	t.Cleanup(mgr.Shutdown)
+	api := wailsapi.NewACPCommands()
+	wailsapi.AttachACPCommands(api, wailsSession{app: a}, mgr)
 
-	if _, err := a.GetAgentSessionCommands("conversa-1"); err == nil {
+	if _, err := api.GetAgentSessionCommands("conversa-1"); err == nil {
 		t.Fatal("GetAgentSessionCommands sem sessão autenticada deveria falhar")
 	}
 }

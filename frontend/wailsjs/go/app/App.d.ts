@@ -136,8 +136,6 @@ export function GetAgentConversationWorkDir(arg1:string):Promise<app.AgentWorkDi
 
 export function GetAgentPermissions():Promise<Array<app.AgentPermissionView>>;
 
-export function GetAgentSessionCommands(arg1:string):Promise<app.AgentSessionCommands>;
-
 export function GetAgentSessionOptions(arg1:string):Promise<app.AgentSessionOptions>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
