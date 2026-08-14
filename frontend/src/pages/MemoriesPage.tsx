@@ -9,7 +9,7 @@ import {
   ListMemoryRecords,
   UnarchiveMemoryRecord,
   UpdateMemoryRecord,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Memory';
 import { database, memory } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
