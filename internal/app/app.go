@@ -264,6 +264,10 @@ type App struct {
 	// memoryAPI é o bind Wails do domínio memory (AEP-0088). Criado em main e
 	// wired após NewMemoryController.
 	memoryAPI *wailsapi.Memory
+
+	// databaseAPI é o bind Wails do domínio database/manutenção (AEP-0088).
+	// Criado em main e wired após wireSettings (reusa settingsCtrl).
+	databaseAPI *wailsapi.Database
 }
 
 // ==================== Tipos para Threads ====================
@@ -415,6 +419,15 @@ func SetMemoryAPI(a *App, api *wailsapi.Memory) {
 		return
 	}
 	a.memoryAPI = api
+}
+
+// SetDatabaseAPI registra o bind Wails de database antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetDatabaseAPI(a *App, api *wailsapi.Database) {
+	if a == nil {
+		return
+	}
+	a.databaseAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -685,6 +698,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		OnProviderChange: a.initLLMClient,
 	})
 	a.wireSettings()
+	a.wireDatabase()
 
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
 		Emitter:          a.emitter,

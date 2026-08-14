@@ -70,10 +70,6 @@ export function ClearConversation(arg1) {
   return window['go']['app']['App']['ClearConversation'](arg1);
 }
 
-export function ClearMessages() {
-  return window['go']['app']['App']['ClearMessages']();
-}
-
 export function ClearTaskList(arg1) {
   return window['go']['app']['App']['ClearTaskList'](arg1);
 }
@@ -366,10 +362,6 @@ export function GetConversationsPage(arg1, arg2) {
   return window['go']['app']['App']['GetConversationsPage'](arg1, arg2);
 }
 
-export function GetDatabaseStats() {
-  return window['go']['app']['App']['GetDatabaseStats']();
-}
-
 export function GetEffectiveModel() {
   return window['go']['app']['App']['GetEffectiveModel']();
 }
@@ -408,10 +400,6 @@ export function GetLLMProviders() {
 
 export function GetLLMProvidersWithStatus() {
   return window['go']['app']['App']['GetLLMProvidersWithStatus']();
-}
-
-export function GetMaintenanceSettings() {
-  return window['go']['app']['App']['GetMaintenanceSettings']();
 }
 
 export function GetMessageAudio(arg1) {
@@ -678,10 +666,6 @@ export function ReplayRun(arg1, arg2) {
   return window['go']['app']['App']['ReplayRun'](arg1, arg2);
 }
 
-export function ResetDatabase() {
-  return window['go']['app']['App']['ResetDatabase']();
-}
-
 export function RestartChannel(arg1) {
   return window['go']['app']['App']['RestartChannel'](arg1);
 }
@@ -698,10 +682,6 @@ export function RevokeAgentPermission(arg1, arg2) {
   return window['go']['app']['App']['RevokeAgentPermission'](arg1, arg2);
 }
 
-export function RunDatabaseMaintenance(arg1) {
-  return window['go']['app']['App']['RunDatabaseMaintenance'](arg1);
-}
-
 export function RunJob(arg1) {
   return window['go']['app']['App']['RunJob'](arg1);
 }
@@ -716,10 +696,6 @@ export function SaveChannelConfig(arg1, arg2) {
 
 export function SaveJob(arg1) {
   return window['go']['app']['App']['SaveJob'](arg1);
-}
-
-export function SaveMaintenanceSettings(arg1) {
-  return window['go']['app']['App']['SaveMaintenanceSettings'](arg1);
 }
 
 export function SaveMessageAudio(arg1, arg2, arg3) {

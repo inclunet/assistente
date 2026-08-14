@@ -46,3 +46,11 @@ var ErrTerminalNotWired = errors.New("wailsapi: terminal bind not wired")
 
 // ErrMemoryNotWired indica que o bind Memory ainda não recebeu controller/session.
 var ErrMemoryNotWired = errors.New("wailsapi: memory bind not wired")
+
+// ErrDatabaseNotWired indica que o bind Database ainda não recebeu controller/session.
+var ErrDatabaseNotWired = errors.New("wailsapi: database bind not wired")
+
+// ErrDatabaseResetFailed é o erro genérico devolvido ao caller quando
+// ResetDatabase falha. O detalhe real (paths, syscalls) só vai para o logger
+// local — defesa contra leak de filesystem em multi-user (AEP-0052).
+var ErrDatabaseResetFailed = errors.New("database reset failed")

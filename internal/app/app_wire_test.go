@@ -266,3 +266,23 @@ func TestWireMemoryAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireDatabaseAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		profileManager: profiles.NewManager(),
+	}
+	api := wailsapi.NewDatabase()
+	SetDatabaseAPI(a, api)
+
+	a.wireSettings()
+	a.wireDatabase()
+
+	if a.settingsCtrl == nil {
+		t.Fatal("settingsCtrl deve existir para o bind Database")
+	}
+	_, err := api.GetMaintenanceSettings()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
