@@ -144,3 +144,14 @@ func (a *App) wireMCP() {
 		wailsapi.AttachMCP(a.mcpAPI, wailsSession{app: a}, a.mcpCtrl)
 	}
 }
+
+// wireTerminal monta o TerminalController e associa o bind Wails (AEP-0088).
+// initTerminalAndAllowlists (managers) e Shutdown/CloseAll permanecem no App.
+func (a *App) wireTerminal() {
+	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
+		TerminalMgr: a.terminalMgr,
+	})
+	if a.terminalAPI != nil {
+		wailsapi.AttachTerminal(a.terminalAPI, wailsSession{app: a}, a.terminalCtrl)
+	}
+}

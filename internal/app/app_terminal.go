@@ -12,40 +12,12 @@ import (
 )
 
 // ============================================================================
-// Terminal Management API (sessões PTY compartilhadas LLM + usuário)
+// Terminal Management API — migrada para wailsapi.Terminal (AEP-0088).
+//
+// Os 8 métodos Wails (List/Create/Close/GetHistory/Run/SendInput/Interrupt/
+// GetStats) saíram do *App; ver internal/wailsapi/terminal.go. Este arquivo
+// mantém só o wiring de managers que permanece no App (ciclo de vida).
 // ============================================================================
-
-func (a *App) ListTerminalSessions() []terminal.SessionInfo {
-	return a.terminalCtrl.ListTerminalSessions()
-}
-
-func (a *App) CreateTerminalSession(name string) (*terminal.SessionInfo, error) {
-	return a.terminalCtrl.CreateTerminalSession(name)
-}
-
-func (a *App) CloseTerminalSession(sessionID string) error {
-	return a.terminalCtrl.CloseTerminalSession(sessionID)
-}
-
-func (a *App) GetTerminalHistory(sessionID string) ([]terminal.HistoryEntry, error) {
-	return a.terminalCtrl.GetTerminalHistory(sessionID)
-}
-
-func (a *App) RunTerminalCommand(sessionID string, command string) error {
-	return a.terminalCtrl.RunTerminalCommand(sessionID, command)
-}
-
-func (a *App) SendTerminalInput(sessionID string, input string) error {
-	return a.terminalCtrl.SendTerminalInput(sessionID, input)
-}
-
-func (a *App) InterruptTerminalCommand(sessionID string) error {
-	return a.terminalCtrl.InterruptTerminalCommand(sessionID)
-}
-
-func (a *App) GetTerminalStats() *terminal.ManagerStats {
-	return a.terminalCtrl.GetTerminalStats()
-}
 
 // initTerminalAndAllowlists inicializa os managers de terminal, questionário e allowlists.
 func (a *App) initTerminalAndAllowlists() {
