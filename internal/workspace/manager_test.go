@@ -95,6 +95,50 @@ func TestInitialize_RepairsMissingActiveTab(t *testing.T) {
 	}
 }
 
+func TestImportWorkspace_PreservesImportedTabCount(t *testing.T) {
+	m := NewManager(t.TempDir())
+	data, err := yaml.Marshal(&Workspace{
+		Name: "Imported",
+		Tabs: TabsState{Items: []Tab{
+			{Type: TabTypeChat, Title: "Chat", Position: 0},
+			{Type: TabTypeEditor, Title: "Editor", Position: 1},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("yaml.Marshal: %v", err)
+	}
+
+	ws, err := m.ImportWorkspace(data)
+	if err != nil {
+		t.Fatalf("ImportWorkspace: %v", err)
+	}
+	if len(ws.Tabs.Items) != 2 {
+		t.Fatalf("expected exactly two imported tabs, got %d", len(ws.Tabs.Items))
+	}
+	if ws.Tabs.Active != ws.Tabs.Items[0].ID {
+		t.Fatalf("expected first imported tab to be active, got %q", ws.Tabs.Active)
+	}
+}
+
+func TestImportWorkspace_EmptyImportGetsDefaultTab(t *testing.T) {
+	m := NewManager(t.TempDir())
+	data, err := yaml.Marshal(&Workspace{Name: "Empty import"})
+	if err != nil {
+		t.Fatalf("yaml.Marshal: %v", err)
+	}
+
+	ws, err := m.ImportWorkspace(data)
+	if err != nil {
+		t.Fatalf("ImportWorkspace: %v", err)
+	}
+	if len(ws.Tabs.Items) != 1 {
+		t.Fatalf("expected one default tab, got %d", len(ws.Tabs.Items))
+	}
+	if ws.Tabs.Items[0].Type != TabTypeChat || ws.Tabs.Active != ws.Tabs.Items[0].ID {
+		t.Fatalf("expected active default chat tab, got %#v", ws.Tabs)
+	}
+}
+
 func TestOpenEditorFilePaths_NoActiveWorkspace(t *testing.T) {
 	m := NewManager(t.TempDir())
 	paths := m.OpenEditorFilePaths()

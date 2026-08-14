@@ -669,7 +669,7 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 	}
 
 	// Gera novos IDs
-	ws := m.newWorkspace(imported.Name)
+	ws := m.newWorkspaceBase(imported.Name)
 	ws.Profile = imported.Profile
 
 	for _, tab := range imported.Tabs.Items {
@@ -682,7 +682,11 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 		ws.Tabs.Items = append(ws.Tabs.Items, newTab)
 	}
 
-	if len(ws.Tabs.Items) > 0 {
+	if len(ws.Tabs.Items) == 0 {
+		defaultTab := newDefaultChatTab()
+		ws.Tabs.Items = []Tab{defaultTab}
+		ws.Tabs.Active = defaultTab.ID
+	} else {
 		ws.Tabs.Active = ws.Tabs.Items[0].ID
 	}
 
@@ -698,17 +702,23 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 // === Persistência YAML ===
 
 func (m *Manager) newWorkspace(name string) *Workspace {
-	now := time.Now()
+	ws := m.newWorkspaceBase(name)
 	defaultTab := newDefaultChatTab()
+	ws.Tabs = TabsState{
+		Active: defaultTab.ID,
+		Items:  []Tab{defaultTab},
+	}
+	return ws
+}
+
+func (m *Manager) newWorkspaceBase(name string) *Workspace {
+	now := time.Now()
 	return &Workspace{
 		ID:        fmt.Sprintf("ws-%s", generateID()),
 		Name:      name,
 		CreatedAt: now,
 		LastUsed:  now,
-		Tabs: TabsState{
-			Active: defaultTab.ID,
-			Items:  []Tab{defaultTab},
-		},
+		Tabs:      TabsState{Items: []Tab{}},
 	}
 }
 
