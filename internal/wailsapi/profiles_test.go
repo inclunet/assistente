@@ -13,7 +13,10 @@ func TestProfilesNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewProfiles()
 	if _, err := api.GetProfiles(); !errors.Is(err, ErrProfilesNotWired) {
-		t.Fatalf("got %v", err)
+		t.Fatalf("GetProfiles: got %v", err)
+	}
+	if err := api.UpdateProfileMediaSupport("audio", false); !errors.Is(err, ErrProfilesNotWired) {
+		t.Fatalf("UpdateProfileMediaSupport: got %v", err)
 	}
 }
 

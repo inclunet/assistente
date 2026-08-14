@@ -176,3 +176,18 @@ func (p *Profiles) GetContextProviders() ([]contextprovider.ProviderMetadata, er
 		return ctrl.GetContextProviders(), nil
 	})
 }
+
+// UpdateProfileMediaSupport atualiza o MediaSupport do perfil ativo e salva.
+// O controller não retorna error (falhas são logadas); a borda só propaga
+// ErrProfilesNotWired / falha de auth via WithUser.
+func (p *Profiles) UpdateProfileMediaSupport(mediaType string, supported bool) error {
+	session, ctrl, err := p.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		ctrl.UpdateProfileMediaSupport(mediaType, supported)
+		return struct{}{}, nil
+	})
+	return err
+}

@@ -176,6 +176,7 @@ export function buildWailsMockScript(): string {
     GetProfiles: [defaultProfile],
     GetProfile: defaultProfile,
     SetActiveProfile: undefined,
+    UpdateProfileMediaSupport: undefined,
 
     /* Providers */
     GetLLMProviders: [],

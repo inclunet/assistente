@@ -425,8 +425,6 @@ export function UpdateLLMProvider(arg1:string,arg2:controllers.UpdateLLMProvider
 
 export function UpdateMessage(arg1:string,arg2:string):Promise<void>;
 
-export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void>;
-
 export function UpdateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
 export function UpdateTaskAssignee(arg1:string,arg2:string,arg3:string):Promise<void>;

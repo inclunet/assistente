@@ -26,3 +26,5 @@ export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 export function SetActiveProfile(arg1:string):Promise<void>;
 
 export function UpdateProfile(arg1:string,arg2:profiles.Profile):Promise<void>;
+
+export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void>;
