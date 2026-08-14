@@ -12,7 +12,6 @@ import {channels} from '../models';
 import {contacts} from '../models';
 import {chat} from '../models';
 import {llm} from '../models';
-import {config} from '../models';
 import {credentials} from '../models';
 import {ports} from '../models';
 
@@ -44,11 +43,7 @@ export function CancelACPAgentInstall(arg1:string):Promise<void>;
 
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
 
-export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
-
 export function ClearConversation(arg1:string):Promise<void>;
-
-export function ClearMessages():Promise<void>;
 
 export function ClearTaskList(arg1:string):Promise<void>;
 
@@ -196,8 +191,6 @@ export function GetConversationsByIDs(arg1:Array<string>):Promise<Array<database
 
 export function GetConversationsPage(arg1:number,arg2:number):Promise<database.ConversationListResult>;
 
-export function GetDatabaseStats():Promise<database.DatabaseStats>;
-
 export function GetEffectiveModel():Promise<string>;
 
 export function GetJob(arg1:string):Promise<jobs.Job>;
@@ -217,8 +210,6 @@ export function GetLLMProvider(arg1:string):Promise<llm.ProviderConfig>;
 export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
 
 export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
-
-export function GetMaintenanceSettings():Promise<config.MaintenanceSettings>;
 
 export function GetMessageAudio(arg1:string):Promise<speech.AudioResult>;
 
@@ -306,8 +297,6 @@ export function Logout(arg1:app.LogoutRequest):Promise<void>;
 
 export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Workspace>;
 
-export function NeedsWelcomeWizard():Promise<boolean>;
-
 export function PromoteTask(arg1:string):Promise<void>;
 
 export function RebuildSearchIndex():Promise<void>;
@@ -344,8 +333,6 @@ export function ReorderWorkspaceTabs(arg1:Array<string>):Promise<void>;
 
 export function ReplayRun(arg1:string,arg2:string):Promise<jobs.TestToolResult>;
 
-export function ResetDatabase():Promise<void>;
-
 export function RestartChannel(arg1:string):Promise<void>;
 
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
@@ -354,17 +341,11 @@ export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
 
 export function RevokeAgentPermission(arg1:string,arg2:string):Promise<void>;
 
-export function RunDatabaseMaintenance(arg1:boolean):Promise<database.CompactionResult>;
-
 export function RunJob(arg1:string):Promise<jobs.RunLog>;
-
-export function RunWelcomeWizard():Promise<boolean>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
 export function SaveJob(arg1:string):Promise<void>;
-
-export function SaveMaintenanceSettings(arg1:config.MaintenanceSettings):Promise<void>;
 
 export function SaveMessageAudio(arg1:string,arg2:string,arg3:string):Promise<void>;
 

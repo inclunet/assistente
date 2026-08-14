@@ -137,6 +137,20 @@ func (a *App) wireSettings() {
 	}
 }
 
+// wireDatabase associa o bind Wails de database/manutenção (AEP-0088).
+// Reusa settingsCtrl (montado em wireSettings) e callbacks ACP do App.
+func (a *App) wireDatabase() {
+	if a.databaseAPI != nil {
+		wailsapi.AttachDatabase(
+			a.databaseAPI,
+			wailsSession{app: a},
+			a.settingsCtrl,
+			a.resetACPRuntime,
+			a.closeAllACPSessions,
+		)
+	}
+}
+
 // wireMCP monta o MCPController e associa o bind Wails (AEP-0088).
 func (a *App) wireMCP() {
 	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
@@ -171,6 +185,32 @@ func (a *App) wireMemory() {
 	})
 	if a.memoryAPI != nil {
 		wailsapi.AttachMemory(a.memoryAPI, wailsSession{app: a}, a.memoryCtrl)
+	}
+}
+
+// wireWelcome monta o WelcomeController e associa o bind Wails (AEP-0088).
+func (a *App) wireWelcome() {
+	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
+		QuestionnaireMgr:           a.questionnaireMgr,
+		CredMgr:                    a.credMgr,
+		ProviderSvc:                a.providerSvc,
+		LLMRegistry:                a.llmRegistry,
+		Updater:                    a.updater,
+		UpdaterCtrl:                a.updaterCtrl,
+		ConfigureCredentialManager: a.configureCredentialManager,
+		InitLLMClient:              a.initLLMClient,
+		SaveLLMProviders:           a.saveLLMProviders,
+	})
+	if a.welcomeAPI != nil {
+		wailsapi.AttachWelcome(a.welcomeAPI, wailsSession{app: a}, a.welcomeCtrl, welcomeRuntime{app: a})
+	}
+}
+
+// wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).
+// Sem controller: o bind chama channels.CleanupLegacyJSONFiles diretamente.
+func (a *App) wireLegacyCleanup() {
+	if a.legacyCleanupAPI != nil {
+		wailsapi.AttachLegacyCleanup(a.legacyCleanupAPI, wailsSession{app: a})
 	}
 }
 

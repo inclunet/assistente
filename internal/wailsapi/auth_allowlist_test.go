@@ -264,6 +264,47 @@ func TestMemoryMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestDatabaseMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ResetDatabase",
+		"ClearMessages",
+		"GetMaintenanceSettings",
+		"SaveMaintenanceSettings",
+		"GetDatabaseStats",
+		"RunDatabaseMaintenance",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Database/WithUser|WithAdmin; não pertence à allowlist", name)
+		}
+	}
+}
+
+func TestWelcomeMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	// welcome vive em wailsapi.Welcome (não *App). NeedsWelcomeWizard é dual-mode
+	// sem WithUser, mas UnauthenticatedAppMethods só lista métodos do *App.
+	for _, name := range []string{
+		"NeedsWelcomeWizard",
+		"RunWelcomeWizard",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s está em wailsapi.Welcome; não pertence à allowlist de *App", name)
+		}
+	}
+}
+
+func TestLegacyCleanupMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"CleanupLegacyChannelJSON",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via LegacyCleanup/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestSubagentMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
