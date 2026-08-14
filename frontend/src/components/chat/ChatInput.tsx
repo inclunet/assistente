@@ -11,7 +11,7 @@ import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { DIMENSIONS } from '../../constants/chat';
 import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/wailsapi/Skills';
-import type { app, skills } from '../../../wailsjs/go/models';
+import type { apidto, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
 export interface ChatInputProps {
@@ -34,7 +34,7 @@ export interface ChatInputProps {
    * entram no mesmo menu da barra: quem digita "/" quer ver o que pode pedir,
    * e não de onde cada coisa vem.
    */
-  agentCommands?: app.AgentCommand[];
+  agentCommands?: apidto.AgentCommand[];
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((

@@ -5,7 +5,7 @@ import { useAgentSessionCommands, type AgentSessionCommandsEvent } from './useAg
 const getCommandsSpy = vi.fn();
 const listeners = new Map<string, (data: unknown) => void>();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPCommands', () => ({
   GetAgentSessionCommands: (conversationId: string) => getCommandsSpy(conversationId),
 }));
 

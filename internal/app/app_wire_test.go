@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"assistente/controllers"
+	"assistente/internal/acp"
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -348,6 +349,24 @@ func TestWireSubagentAttachesBind(t *testing.T) {
 	a.wireSubagent()
 
 	_, err := api.ListSubAgentRuns(10)
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireACPCommandsAttachesBind(t *testing.T) {
+	t.Parallel()
+	mgr := acp.NewManager(acp.ManagerConfig{
+		WorkDir: func() (string, error) { return t.TempDir(), nil },
+	})
+	t.Cleanup(mgr.Shutdown)
+	a := &App{acpMgr: mgr}
+	api := wailsapi.NewACPCommands()
+	SetACPCommandsAPI(a, api)
+
+	a.wireACPCommands()
+
+	_, err := api.GetAgentSessionCommands("conversa-1")
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
