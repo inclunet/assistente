@@ -78,11 +78,12 @@ Eventos de comando também carregam `commandId`, origem e timestamps.
 
 O backend emite, no mínimo:
 
-- `terminal:created`;
-- `terminal:state_changed`;
-- `terminal:command_started`;
+- `terminal:session_created`;
+- `terminal:command_start`;
 - `terminal:command_output`;
-- `terminal:command_finished`;
+- `terminal:command_end`;
+- `terminal:raw_output`;
+- `terminal:session_closed`;
 - `terminal:exited`.
 
 Listeners podem ser globais como infraestrutura, mas todo estado visual é

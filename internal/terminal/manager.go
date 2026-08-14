@@ -201,10 +201,7 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 
 	// Executa o comando
 	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
-
-	if result != nil {
-		entry = result
-	}
+	entry = completeCommandEntry(entry, result, err)
 
 	// Emite evento de fim
 	m.emitEvent("terminal:command_end", map[string]any{
@@ -217,6 +214,17 @@ func (m *Manager) RunCommand(ctx context.Context, sessionID, command string, tim
 	})
 
 	return result, err
+}
+
+func completeCommandEntry(entry, result *HistoryEntry, err error) *HistoryEntry {
+	if result != nil {
+		return result
+	}
+	if err != nil {
+		entry.ExitCode = -1
+		entry.EndedAt = time.Now()
+	}
+	return entry
 }
 
 // SendInput envia input raw para uma sessão PTY (modo interativo, sem markers).
@@ -265,7 +273,26 @@ func (m *Manager) Has(sessionID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	session, ok := m.sessions[sessionID]
-	return ok && session.State() != StateExited
+	if !ok {
+		return false
+	}
+	state := session.State()
+	return state != StateClosing && state != StateExited
+}
+
+// Info retorna o contrato público de uma sessão viva.
+func (m *Manager) Info(sessionID string) (SessionInfo, bool) {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return SessionInfo{}, false
+	}
+	state := session.State()
+	if state == StateClosing || state == StateExited {
+		return SessionInfo{}, false
+	}
+	return session.Info(), true
 }
 
 // List retorna informações de todas as sessões ativas.

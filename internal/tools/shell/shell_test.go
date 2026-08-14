@@ -182,6 +182,7 @@ type MockSessionManager struct {
 	runCommandCalls int
 	runSessionID    string
 	liveSessions    map[string]bool
+	sessionCWD      map[string]string
 
 	// Controladores de behavior
 	fakeSession *terminal.Session
@@ -223,8 +224,11 @@ func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, c
 	return m.fakeEntry, nil
 }
 
-func (m *MockSessionManager) Has(sessionID string) bool {
-	return m.liveSessions[sessionID]
+func (m *MockSessionManager) Info(sessionID string) (terminal.SessionInfo, bool) {
+	if !m.liveSessions[sessionID] {
+		return terminal.SessionInfo{}, false
+	}
+	return terminal.SessionInfo{ID: sessionID, CWD: m.sessionCWD[sessionID]}, true
 }
 
 func (m *MockSessionManager) Release(sessionID string) {
@@ -270,6 +274,7 @@ func TestSuccessfulExecution(t *testing.T) {
 func TestExecutionUsesExplicitTerminalWithoutAcquire(t *testing.T) {
 	mgr := &MockSessionManager{
 		liveSessions: map[string]bool{"term-explicit": true},
+		sessionCWD:   map[string]string{"term-explicit": "/workspace/repo"},
 		fakeEntry: &terminal.HistoryEntry{
 			ID:       "cmd-explicit",
 			Output:   "ok",
@@ -293,6 +298,48 @@ func TestExecutionUsesExplicitTerminalWithoutAcquire(t *testing.T) {
 	}
 	if result.Metadata["deepLink"] != "assistente://terminal/term-explicit" {
 		t.Fatalf("deepLink = %#v", result.Metadata["deepLink"])
+	}
+}
+
+func TestExecutionRejectsWorkingDirectoryWithExplicitTerminal(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit","working_directory":"outro"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.runCommandCalls != 0 {
+		t.Fatalf("resultado=%#v runCalls=%d", result, mgr.runCommandCalls)
+	}
+}
+
+func TestExplicitTerminalConfirmationUsesSessionCWD(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+		sessionCWD:   map[string]string{"term-explicit": "/workspace/repo"},
+	}
+	al := &allowlist.Allowlist{DefaultAction: "confirm"}
+	confirmedCWD := ""
+	confirmFn := func(_ context.Context, _, workDir string) (bool, error) {
+		confirmedCWD = workDir
+		return false, nil
+	}
+	rc := NewRunCommand(mgr, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || confirmedCWD != "/workspace/repo" {
+		t.Fatalf("resultado=%#v cwd=%q", result, confirmedCWD)
 	}
 }
 

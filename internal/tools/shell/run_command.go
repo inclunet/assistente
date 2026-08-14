@@ -46,7 +46,7 @@ type SessionManager interface {
 // escolha explicitamente uma sessão já conhecida sem ampliar o contrato dos
 // mocks legados de SessionManager.
 type sessionLookup interface {
-	Has(sessionID string) bool
+	Info(sessionID string) (terminal.SessionInfo, bool)
 }
 
 // RunCommand é a ferramenta que executa comandos shell via PTY.
@@ -83,7 +83,7 @@ func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (rc *RunCommand) Description() string {
-	return `Runs a shell command in a persistent PTY session. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new terminal. Existing terminals are never selected silently. Results include a deep link for inspection. Respects allowlist and may require user confirmation. working_directory is project-relative; timeout_seconds max is 300.`
+	return `Runs a shell command in a persistent PTY session. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new terminal. Existing terminals are never selected silently. working_directory applies only to a new terminal and cannot be combined with terminal_id. Results include a deep link for inspection. Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {
@@ -96,7 +96,7 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 			},
 			"working_directory": {
 				"type": "string",
-				"description": "Diretório de trabalho para execução do comando. Caminho relativo ao diretório do projeto. Se omitido, usa o diretório raiz do projeto."
+				"description": "Diretório inicial da nova sessão, relativo ao projeto. Só pode ser usado quando terminal_id é omitido; com terminal_id, o comando usa o diretório atual daquela sessão."
 			},
 			"terminal_id": {
 				"type": "string",
@@ -139,9 +139,29 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		return result, nil
 	}
 
-	// Resolve diretório de trabalho
+	// Resolve a sessão e o diretório exibido na confirmação antes de qualquer
+	// efeito colateral. Um terminal existente é autoritativo sobre seu CWD.
 	workDir := rc.workDir
-	if a.WorkingDirectory != "" {
+	if a.TerminalID != "" {
+		if strings.TrimSpace(a.WorkingDirectory) != "" {
+			return tools.ToolResult{
+				Content: "working_directory não pode ser combinado com terminal_id; o terminal selecionado mantém seu próprio diretório atual",
+				IsError: true,
+			}, nil
+		}
+		lookup, ok := rc.sessionMgr.(sessionLookup)
+		if !ok {
+			return tools.ToolResult{Content: "O gerenciador não suporta seleção explícita de terminal", IsError: true}, nil
+		}
+		info, live := lookup.Info(a.TerminalID)
+		if !live {
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Terminal %q não existe ou já foi encerrado", a.TerminalID),
+				IsError: true,
+			}, nil
+		}
+		workDir = info.CWD
+	} else if a.WorkingDirectory != "" {
 		workDir = a.WorkingDirectory
 	}
 
@@ -208,16 +228,6 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	var sessionID string
 	var err error
 	if a.TerminalID != "" {
-		lookup, ok := rc.sessionMgr.(sessionLookup)
-		if !ok {
-			return tools.ToolResult{Content: "O gerenciador não suporta seleção explícita de terminal", IsError: true}, nil
-		}
-		if !lookup.Has(a.TerminalID) {
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Terminal %q não existe ou já foi encerrado", a.TerminalID),
-				IsError: true,
-			}, nil
-		}
 		sessionID = a.TerminalID
 	} else {
 		// AEP-0089: Acquire cria uma sessão nova e nunca captura uma idle.

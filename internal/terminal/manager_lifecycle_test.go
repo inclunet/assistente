@@ -25,6 +25,7 @@ func TestRunCommandDoesNotEmitStartForBusySession(t *testing.T) {
 func TestHasRejectsExitedSession(t *testing.T) {
 	manager := NewManager(DefaultManagerConfig(), nil)
 	manager.sessions["live"] = &Session{id: "live", state: StateIdle}
+	manager.sessions["closing"] = &Session{id: "closing", state: StateClosing}
 	manager.sessions["dead"] = &Session{id: "dead", state: StateExited}
 
 	if !manager.Has("live") {
@@ -32,6 +33,9 @@ func TestHasRejectsExitedSession(t *testing.T) {
 	}
 	if manager.Has("dead") {
 		t.Fatal("sessão encerrada foi considerada viva")
+	}
+	if manager.Has("closing") {
+		t.Fatal("sessão em encerramento foi considerada viva")
 	}
 }
 
@@ -66,5 +70,19 @@ func TestFinishCommandPreservesClosingState(t *testing.T) {
 
 	if got := session.State(); got != StateClosing {
 		t.Fatalf("estado = %s, esperado closing", got.String())
+	}
+}
+
+func TestCompleteCommandEntryMarksFailureWithoutResult(t *testing.T) {
+	startedAt := time.Now()
+	entry := &HistoryEntry{ID: "cmd-failed", StartedAt: startedAt}
+
+	got := completeCommandEntry(entry, nil, context.DeadlineExceeded)
+
+	if got.ExitCode != -1 {
+		t.Fatalf("exitCode = %d, esperado -1", got.ExitCode)
+	}
+	if got.EndedAt.IsZero() || got.EndedAt.Before(startedAt) {
+		t.Fatalf("endedAt inválido: %v", got.EndedAt)
 	}
 }
