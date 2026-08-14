@@ -49,3 +49,6 @@ var ErrMemoryNotWired = errors.New("wailsapi: memory bind not wired")
 
 // ErrLegacyCleanupNotWired indica que o bind LegacyCleanup ainda não recebeu session.
 var ErrLegacyCleanupNotWired = errors.New("wailsapi: legacy cleanup bind not wired")
+
+// ErrSubagentNotWired indica que o bind Subagent ainda não recebeu manager/session.
+var ErrSubagentNotWired = errors.New("wailsapi: subagent bind not wired")

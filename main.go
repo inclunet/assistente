@@ -50,6 +50,8 @@ func main() {
 	application.SetMemoryAPI(a, memoryAPI)
 	legacyCleanupAPI := wailsapi.NewLegacyCleanup()
 	application.SetLegacyCleanupAPI(a, legacyCleanupAPI)
+	subagentAPI := wailsapi.NewSubagent()
+	application.SetSubagentAPI(a, subagentAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -101,6 +103,7 @@ func main() {
 			terminalAPI,
 			memoryAPI,
 			legacyCleanupAPI,
+			subagentAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,
