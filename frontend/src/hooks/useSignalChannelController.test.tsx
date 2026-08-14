@@ -111,6 +111,17 @@ describe('useSignalChannelController', () => {
     expect(announceMock).toHaveBeenCalledWith(expect.stringContaining('accounts +5511888888888'));
   });
 
+  it('exibe build=0 como valor válido em vez de cair no fallback "?"', async () => {
+    mockSignalCheckAPI.mockResolvedValue({ version: '1.0.0', build: 0, mode: 'native', versions: ['v1'], capabilities: {} });
+    const { result } = renderController();
+
+    await act(async () => {
+      await result.current.handleSignalCheckAPI();
+    });
+
+    expect(result.current.signalAPIInfo).toContain('API 1.0.0 0');
+  });
+
   it('registra por SMS e verifica o código informado', async () => {
     const { result } = renderController();
 
