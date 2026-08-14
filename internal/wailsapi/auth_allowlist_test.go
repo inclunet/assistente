@@ -104,6 +104,7 @@ func TestProfilesMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"DeleteProfile",
 		"GetProfileSearchPaths",
 		"GetContextProviders",
+		"UpdateProfileMediaSupport",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s é autenticado via Profiles/WithUser; não pertence à allowlist", name)

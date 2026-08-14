@@ -754,10 +754,6 @@ export function UpdateMessage(arg1, arg2) {
   return window['go']['app']['App']['UpdateMessage'](arg1, arg2);
 }
 
-export function UpdateProfileMediaSupport(arg1, arg2) {
-  return window['go']['app']['App']['UpdateProfileMediaSupport'](arg1, arg2);
-}
-
 export function UpdateTask(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['UpdateTask'](arg1, arg2, arg3, arg4, arg5);
 }
