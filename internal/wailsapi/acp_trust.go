@@ -95,7 +95,7 @@ func (api *ACPTrust) GetAgentPermissions() ([]apidto.AgentPermissionView, error)
 		// Ordem estável: a lista é lida em sequência por leitor de telas, e uma
 		// ordem que muda a cada carregamento faria a pessoa procurar de novo o que
 		// acabou de encontrar.
-		sort.Slice(out, func(i, j int) bool {
+		sort.SliceStable(out, func(i, j int) bool {
 			if out[i].ProfileSlug != out[j].ProfileSlug {
 				return out[i].ProfileSlug < out[j].ProfileSlug
 			}
