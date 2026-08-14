@@ -256,6 +256,10 @@ type App struct {
 	// signalAPI é o bind Wails do domínio Signal (AEP-0088). Criado em main e
 	// wired após NewSignalController.
 	signalAPI *wailsapi.Signal
+
+	// terminalAPI é o bind Wails do domínio terminal (AEP-0088). Criado em
+	// main e wired após NewTerminalController.
+	terminalAPI *wailsapi.Terminal
 }
 
 // ==================== Tipos para Threads ====================
@@ -389,6 +393,15 @@ func SetSignalAPI(a *App, api *wailsapi.Signal) {
 		return
 	}
 	a.signalAPI = api
+}
+
+// SetTerminalAPI registra o bind Wails de terminal antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTerminalAPI(a *App, api *wailsapi.Terminal) {
+	if a == nil {
+		return
+	}
+	a.terminalAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -753,10 +766,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		InitLLMClient:              a.initLLMClient,
 		SaveLLMProviders:           a.saveLLMProviders,
 	})
-	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
-		TerminalMgr: a.terminalMgr,
-	})
 	a.wireSignal()
+	a.wireTerminal()
 
 	if err := a.startHTTPAPI(); err != nil {
 		return err

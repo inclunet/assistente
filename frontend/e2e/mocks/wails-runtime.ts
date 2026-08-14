@@ -394,6 +394,7 @@ export function buildWailsMockScript(): string {
       Settings: makeProxy('wailsapi.Settings'),
       MCP: makeProxy('wailsapi.MCP'),
       Signal: makeProxy('wailsapi.Signal'),
+      Terminal: makeProxy('wailsapi.Terminal'),
     },
   };
 

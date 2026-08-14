@@ -180,6 +180,24 @@ func TestSettingsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestTerminalMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ListTerminalSessions",
+		"CreateTerminalSession",
+		"CloseTerminalSession",
+		"GetTerminalHistory",
+		"RunTerminalCommand",
+		"SendTerminalInput",
+		"InterruptTerminalCommand",
+		"GetTerminalStats",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Terminal/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

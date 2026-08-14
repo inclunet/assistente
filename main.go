@@ -44,6 +44,8 @@ func main() {
 	application.SetMCPAPI(a, mcpAPI)
 	signalAPI := wailsapi.NewSignal()
 	application.SetSignalAPI(a, signalAPI)
+	terminalAPI := wailsapi.NewTerminal()
+	application.SetTerminalAPI(a, terminalAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -92,6 +94,7 @@ func main() {
 			settingsAPI,
 			mcpAPI,
 			signalAPI,
+			terminalAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,
