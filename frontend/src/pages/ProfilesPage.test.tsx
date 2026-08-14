@@ -79,12 +79,15 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetLLMProviders: vi.fn().mockResolvedValue([]),
   GetModels: vi.fn().mockResolvedValue([]),
   GetOpenAITTSVoices: vi.fn().mockResolvedValue([]),
-  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
   GetSpeechProviders: vi.fn().mockResolvedValue([]),
   GetSTTModels: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
+  GetLLMProviders: vi.fn().mockResolvedValue([]),
+  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Settings', () => ({

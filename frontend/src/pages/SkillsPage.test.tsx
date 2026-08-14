@@ -26,7 +26,7 @@ vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
   DuplicateSkill: (slug: string) => mockDuplicateSkill(slug),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 

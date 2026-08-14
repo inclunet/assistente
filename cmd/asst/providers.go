@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 
 	"assistente/controllers"
+	"assistente/internal/apidto"
 	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
@@ -19,10 +20,10 @@ import (
 // providersBackend abstracts the app methods used by providers commands.
 type providersBackend interface {
 	GetLLMProvidersWithStatus() []map[string]interface{}
-	TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error)
-	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
+	TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error)
+	ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error)
 	CreateDefaultLLMProvider(providerType, apiKey string) error
-	CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error)
+	CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error)
 	SetDefaultProvider(id string) error
 	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
 	UpdateProfile(slug string, p profiles.Profile) error
@@ -139,7 +140,7 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 
 	// Passo 4: Testar conexão
 	_, _ = fmt.Fprint(out, "Testando conexão... ")
-	testReq := controllers.TestLLMProviderRequest{
+	testReq := apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	}
@@ -165,7 +166,7 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 
 	// Passo 5: Escolher modelo
 	model := info.DefaultModel
-	modelsReq := controllers.TestLLMProviderRequest{
+	modelsReq := apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	}
@@ -225,7 +226,7 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 		if apiFormat == "" {
 			apiFormat = "openai"
 		}
-		_, err = svc.CreateLLMProvider(controllers.CreateLLMProviderRequest{
+		_, err = svc.CreateLLMProvider(apidto.CreateLLMProviderRequest{
 			ID:           info.ID,
 			Name:         info.Name,
 			Type:         providerType,
@@ -269,7 +270,7 @@ var providersTestCmd = &cobra.Command{
 func runProvidersTest(svc providersBackend, out io.Writer, id string) error {
 	_, _ = fmt.Fprintf(out, "Testando provedor '%s'... ", id)
 
-	ok, err := svc.TestLLMProvider(controllers.TestLLMProviderRequest{
+	ok, err := svc.TestLLMProvider(apidto.TestLLMProviderRequest{
 		ProviderID: id,
 	})
 	if err != nil {
@@ -296,7 +297,7 @@ var providersModelsCmd = &cobra.Command{
 }
 
 func runProvidersModels(svc providersBackend, out io.Writer, id string) error {
-	models, err := svc.ListModelsRaw(controllers.TestLLMProviderRequest{
+	models, err := svc.ListModelsRaw(apidto.TestLLMProviderRequest{
 		ProviderID: id,
 	})
 	if err != nil {

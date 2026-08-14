@@ -123,6 +123,14 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', commands: [] };
     },
+    // Mesmo padrão: UpdateProfileMediaSupport migrou para wailsapi.Profiles.
+    UpdateProfileMediaSupport: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Profiles') {
+        throw new Error('UpdateProfileMediaSupport deve ser chamado via wailsapi.Profiles');
+      }
+      return undefined;
+    },
 
     /* Auth */
     GetAuthStatus: {
@@ -184,13 +192,20 @@ export function buildWailsMockScript(): string {
     GetProfile: defaultProfile,
     SetActiveProfile: undefined,
 
-    /* Providers */
+    /* Providers — defaults também em wailsapi.LLMProviders */
     GetLLMProviders: [],
     GetLLMProvidersWithStatus: [],
     GetActiveProviderInfo: {},
     GetModels: [],
     GetEffectiveModel: 'gpt-4',
     ListModelsRaw: ['gpt-4', 'gpt-4o'],
+    SetDefaultProvider: undefined,
+    ReloadLLMClient: undefined,
+    CreateLLMProvider: {},
+    UpdateLLMProvider: {},
+    DeleteLLMProvider: undefined,
+    CreateDefaultLLMProvider: undefined,
+    TestLLMProvider: true,
 
     /* Skills */
     GetUserInvocableSkillsForProfile: [],
@@ -244,7 +259,6 @@ export function buildWailsMockScript(): string {
 
     /* Settings */
     ResetConfig: undefined,
-    SetDefaultProvider: undefined,
 
     /* Misc */
     RespondQuestionnaire: undefined,
@@ -254,7 +268,6 @@ export function buildWailsMockScript(): string {
     GetNetworkAllowlist: [],
     GetAllTaskLists: [],
     CheckForUpdates: { available: false },
-    ReloadLLMClient: undefined,
     TestConnection: { success: true },
     ExportConversations: '',
     ImportConversations: undefined,
@@ -408,6 +421,8 @@ export function buildWailsMockScript(): string {
       Database: makeProxy('wailsapi.Database'),
       Subagent: makeProxy('wailsapi.Subagent'),
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
+      Jobs: makeProxy('wailsapi.Jobs'),
+      LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
     },
   };

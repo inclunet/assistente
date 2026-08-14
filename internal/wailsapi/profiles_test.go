@@ -1,19 +1,34 @@
 package wailsapi
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"assistente/controllers"
 )
 
 func TestProfilesNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewProfiles()
 	if _, err := api.GetProfiles(); !errors.Is(err, ErrProfilesNotWired) {
-		t.Fatalf("got %v", err)
+		t.Fatalf("GetProfiles: got %v", err)
+	}
+	if err := api.UpdateProfileMediaSupport("audio", false); !errors.Is(err, ErrProfilesNotWired) {
+		t.Fatalf("UpdateProfileMediaSupport: got %v", err)
+	}
+}
+
+func TestUpdateProfileMediaSupportUnknownTypeNoOp(t *testing.T) {
+	t.Parallel()
+	api := NewProfiles()
+	AttachProfiles(api, stubSession{ctx: context.Background()}, &controllers.ProfilesController{})
+	if err := api.UpdateProfileMediaSupport("unknown-type", true); err != nil {
+		t.Fatalf("tipo desconhecido deve ser no-op após auth, got %v", err)
 	}
 }
 

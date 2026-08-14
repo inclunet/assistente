@@ -176,3 +176,31 @@ func (p *Profiles) GetContextProviders() ([]contextprovider.ProviderMetadata, er
 		return ctrl.GetContextProviders(), nil
 	})
 }
+
+// knownProfileMediaTypes são os únicos tipos aceitos por UpdateProfileMediaSupport
+// (espelha o switch do ProfilesController). Tipos desconhecidos são no-op após auth.
+var knownProfileMediaTypes = map[string]struct{}{
+	"audio":    {},
+	"image":    {},
+	"document": {},
+	"video":    {},
+}
+
+// UpdateProfileMediaSupport atualiza o MediaSupport do perfil ativo e salva.
+// O controller não retorna error (falhas são logadas); a borda só propaga
+// ErrProfilesNotWired / falha de auth via WithUser.
+// mediaType desconhecido: WithUser ainda roda (auth), mas não chama o controller.
+func (p *Profiles) UpdateProfileMediaSupport(mediaType string, supported bool) error {
+	session, ctrl, err := p.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		if _, ok := knownProfileMediaTypes[mediaType]; !ok {
+			return struct{}{}, nil
+		}
+		ctrl.UpdateProfileMediaSupport(mediaType, supported)
+		return struct{}{}, nil
+	})
+	return err
+}

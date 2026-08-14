@@ -93,7 +93,7 @@ func TestAgenteSoPodeSerDesinstaladoDepoisDoUltimoProvider(t *testing.T) {
 		}
 	})
 
-	if _, err := a.CreateLLMProvider(CreateLLMProviderRequest{
+	if _, err := a.createLLMProvider(CreateLLMProviderRequest{
 		ID:         "codex-1",
 		Name:       "Codex",
 		Type:       "acp",
@@ -116,7 +116,7 @@ func TestAgenteSoPodeSerDesinstaladoDepoisDoUltimoProvider(t *testing.T) {
 		t.Fatal("desinstalou um agente ainda usado")
 	}
 
-	if err := a.DeleteLLMProvider(context.Background(), "codex-1"); err != nil {
+	if err := a.deleteLLMProvider("codex-1"); err != nil {
 		t.Fatalf("remover provider: %v", err)
 	}
 	canRemove, err = a.CanRemoveACPAgent("codex-acp")

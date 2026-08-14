@@ -221,8 +221,11 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **database** (reset/clear + maintenance/stats → `wailsapi.Database`; tipos de `config`/`database`, sem DTO extra)
 - [x] **subagent** (ListSubAgentRuns + CancelSubAgentRun → `wailsapi.Subagent`; Manager e delivery parent permanecem no `*App`)
 - [x] **tasklist_actions** (custom actions → `wailsapi.TasklistActions`; `CustomActionView` em `apidto`; `customActionEventNames` permanece no `App` para jobs)
+- [x] **jobs** (CRUD/runs/catalog/dry-run → `wailsapi.Jobs`; `customActionEventNames` injetado no Attach; helpers MCP dry-run em `jobs_dryrun.go`)
+- [x] **media** (UpdateProfileMediaSupport → `wailsapi.Profiles`; estendido em Profiles, sem domínio Media novo; `extractAudioFromMedia` permanece interno no `App`)
+- [x] **llm_providers** (CRUD/test/models/default/reload → `wailsapi.LLMProviders`; DTOs em `apidto`; `CreateDefaultLLMProvider` sem WithUser para bootstrap wizard/CLI; helpers `applyInstalledBinaryEnv`/`initLLMClient`/… permanecem no `App`)
 - [x] **acp_commands** (`GetAgentSessionCommands` → `wailsapi.ACPCommands`; DTOs em `apidto`; `agentSessionCommandsChanged` permanece no `App`)
-- [ ] llm_providers → …
+- [ ] …
 
 ### Fase N — `App` enxuto
 

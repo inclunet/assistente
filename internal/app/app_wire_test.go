@@ -371,3 +371,36 @@ func TestWireACPCommandsAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireLLMProvidersAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewLLMProviders()
+	SetLLMProvidersAPI(a, api)
+
+	a.wireLLMProviders()
+
+	if a.llmCtrl == nil {
+		t.Fatal("llmCtrl deve ser criado")
+	}
+	_, err := api.GetLLMProviders()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireJobsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		jobsCtrl: controllers.NewJobsController(controllers.JobsControllerConfig{}),
+	}
+	api := wailsapi.NewJobs()
+	SetJobsAPI(a, api)
+
+	a.wireJobs()
+
+	_, err := api.GetJobs()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
