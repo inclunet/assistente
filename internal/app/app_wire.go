@@ -274,3 +274,11 @@ func (a *App) wireACPCommands() {
 		wailsapi.AttachACPCommands(a.acpCommandsAPI, wailsSession{app: a}, a.acpMgr)
 	}
 }
+
+// wireACPProviders associa o bind Wails de detect/test de agentes ACP (AEP-0088).
+// initACP (Manager) e acp_install permanecem no App.
+func (a *App) wireACPProviders() {
+	if a.acpProvidersAPI != nil {
+		wailsapi.AttachACPProviders(a.acpProvidersAPI, wailsSession{app: a}, a.acpMgr, a.acpWorkDir)
+	}
+}

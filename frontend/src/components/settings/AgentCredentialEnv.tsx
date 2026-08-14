@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListCredentials } from '@wailsjs/go/wailsapi/Credentials';
-import type { app } from '@wailsjs/go/models';
+import type { apidto } from '@wailsjs/go/models';
 import { Button, FormField, Input, Select } from '../';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './AgentCredentialEnv.css';
@@ -51,7 +51,7 @@ export interface AgentCredentialEnvProps {
    * qual variável ele lê, e perguntar isso a quem configura é pedir que se
    * adivinhe o que já está publicado.
    */
-  suggestedVars?: app.ACPAuthEnvVar[];
+  suggestedVars?: apidto.ACPAuthEnvVar[];
   /** O emissor da credencial que o agente pede, quando ele o nomeia. */
   suggestedProvider?: string;
 }

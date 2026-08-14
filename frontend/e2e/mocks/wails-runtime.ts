@@ -424,6 +424,7 @@ export function buildWailsMockScript(): string {
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
+      ACPProviders: makeProxy('wailsapi.ACPProviders'),
     },
   };
 
