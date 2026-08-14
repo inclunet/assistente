@@ -3,10 +3,6 @@ package wailsapi
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	"assistente/internal/acptrust"
@@ -23,22 +19,36 @@ func TestACPTrustNotWired(t *testing.T) {
 	}
 }
 
-func TestACPTrustUsesWithUserNotRequireAuth(t *testing.T) {
+// TestACPTrustSemAuthNaoListaNemRevoga cobre o fail-closed dos dois métodos:
+// sem contexto autenticado o erro da sessão sobe, a lista não vaza o que os
+// perfis autorizaram e a autorização continua de pé — revogar sem auth deixaria
+// o agente pedindo permissão de novo por conta de quem não se identificou.
+func TestACPTrustSemAuthNaoListaNemRevoga(t *testing.T) {
 	t.Parallel()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller")
+	semAuth := errors.New("sessão não autenticada")
+	store := acptrust.NewStoreWithDir(t.TempDir())
+	if err := store.Allow("cursor", "execute"); err != nil {
+		t.Fatalf("autorizar: %v", err)
 	}
-	src, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "acp_trust.go"))
-	if err != nil {
-		t.Fatal(err)
+	api := NewACPTrust()
+	AttachACPTrust(api, stubSession{err: semAuth}, store, func() map[string]string {
+		t.Fatal("leu os nomes de perfil sem contexto autenticado")
+		return nil
+	})
+
+	lista, err := api.GetAgentPermissions()
+	if !errors.Is(err, semAuth) {
+		t.Fatalf("GetAgentPermissions: erro = %v, quer o da sessão", err)
 	}
-	body := string(src)
-	if strings.Contains(body, "requireAuthenticatedContext(") {
-		t.Fatal("acp_trust.go não deve chamar requireAuthenticatedContext(; use WithUser")
+	if len(lista) != 0 {
+		t.Errorf("lista = %+v, quer nada sem auth", lista)
 	}
-	if !strings.Contains(body, "WithUser(") {
-		t.Fatal("acp_trust.go deve chamar WithUser(")
+
+	if err := api.RevokeAgentPermission("cursor", "execute"); !errors.Is(err, semAuth) {
+		t.Fatalf("RevokeAgentPermission: erro = %v, quer o da sessão", err)
+	}
+	if !store.Allows("cursor", "execute") {
+		t.Error("revogou a autorização sem contexto autenticado")
 	}
 }
 
