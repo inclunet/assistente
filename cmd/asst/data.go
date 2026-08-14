@@ -23,7 +23,7 @@ type dataBackend interface {
 	GetConversations() ([]app.Conversation, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	GetAllTaskLists() ([]app.TaskList, error)
-	ListMCPServers() []mcpmgr.ServerInfo
+	ListMCPServers() ([]mcpmgr.ServerInfo, error)
 }
 
 var dataCmd = &cobra.Command{
@@ -79,7 +79,7 @@ Exemplos:
 			CredentialExportPassword: dataExportCredentialPassword,
 			IncludeAudio:             dataExportIncludeAudio,
 		}
-		req, err := prepareDataExportRequest(rootApp, req, dataExportSelection{
+		req, err := prepareDataExportRequest(asCLI(rootApp), req, dataExportSelection{
 			Conversations:   dataExportConversations,
 			Providers:       dataExportProviders,
 			MCPServers:      dataExportMCPServers,
@@ -89,7 +89,7 @@ Exemplos:
 		if err != nil {
 			return err
 		}
-		return runDataExport(rootApp, os.Stdout, req, dataExportOut)
+		return runDataExport(asCLI(rootApp), os.Stdout, req, dataExportOut)
 	},
 }
 
@@ -106,7 +106,7 @@ var dataAnalyzeCmd = &cobra.Command{
 	Short: "Analisa um arquivo de importação",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runDataAnalyze(rootApp, os.Stdout, os.ReadFile, args[0], dataAnalyzeCredentialPassword)
+		return runDataAnalyze(asCLI(rootApp), os.Stdout, os.ReadFile, args[0], dataAnalyzeCredentialPassword)
 	},
 }
 
@@ -116,7 +116,7 @@ var dataImportCmd = &cobra.Command{
 	Long:  "Importa um arquivo portátil do assistente no modelo UUID versionado.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runDataImport(rootApp, os.Stdout, os.ReadFile, args[0], dataImportCredentialPassword)
+		return runDataImport(asCLI(rootApp), os.Stdout, os.ReadFile, args[0], dataImportCredentialPassword)
 	},
 }
 
@@ -199,7 +199,10 @@ func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection 
 	}
 
 	if selection.MCPServers {
-		servers := svc.ListMCPServers()
+		servers, err := svc.ListMCPServers()
+		if err != nil {
+			return req, fmt.Errorf("erro ao listar servidores MCP para exportação: %w", err)
+		}
 		slugs := make([]string, 0, len(servers))
 		for _, server := range servers {
 			slugs = append(slugs, strings.TrimSpace(server.Slug))

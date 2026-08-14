@@ -73,8 +73,8 @@ func (m *mockDataBackend) GetAllTaskLists() ([]app.TaskList, error) {
 	return m.taskLists, m.taskListsErr
 }
 
-func (m *mockDataBackend) ListMCPServers() []mcpmgr.ServerInfo {
-	return []mcpmgr.ServerInfo{{Slug: "github"}, {Slug: "filesystem"}}
+func (m *mockDataBackend) ListMCPServers() ([]mcpmgr.ServerInfo, error) {
+	return []mcpmgr.ServerInfo{{Slug: "github"}, {Slug: "filesystem"}}, nil
 }
 
 func TestRunDataExport_Stdout(t *testing.T) {

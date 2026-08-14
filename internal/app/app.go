@@ -248,6 +248,10 @@ type App struct {
 	// settingsAPI é o bind Wails do domínio settings (AEP-0088). Criado em main e
 	// wired após NewSettingsController.
 	settingsAPI *wailsapi.Settings
+
+	// mcpAPI é o bind Wails do domínio MCP (AEP-0088). Criado em main e
+	// wired após NewMCPController.
+	mcpAPI *wailsapi.MCP
 }
 
 // ==================== Tipos para Threads ====================
@@ -365,6 +369,15 @@ func SetSettingsAPI(a *App, api *wailsapi.Settings) {
 	a.settingsAPI = api
 }
 
+// SetMCPAPI registra o bind Wails de MCP antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetMCPAPI(a *App, api *wailsapi.MCP) {
+	if a == nil {
+		return
+	}
+	a.mcpAPI = api
+}
+
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
 func ProfilesCtrl(a *App) *controllers.ProfilesController {
 	if a == nil {
@@ -379,6 +392,14 @@ func CredentialsCtrl(a *App) *controllers.CredentialsController {
 		return nil
 	}
 	return a.credentialsCtrl
+}
+
+// MCPCtrl expõe o MCPController para a CLI (não entra no Bind Wails).
+func MCPCtrl(a *App) *controllers.MCPController {
+	if a == nil {
+		return nil
+	}
+	return a.mcpCtrl
 }
 
 // AuthenticatedContext expõe o contexto autenticado para a CLI (não entra no Bind Wails).
@@ -615,7 +636,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initUpdater()
 
 	// Instancia os Controllers (Fase 2 — Inbound Adapters por domínio)
-	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
+	a.wireMCP()
 	a.wireProfiles()
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
 		LLMRegistry:      a.llmRegistry,

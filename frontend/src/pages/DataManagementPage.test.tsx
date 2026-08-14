@@ -28,12 +28,15 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: () => mockGetConversations(),
   GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
-  ListMCPServers: () => mockListMCPServers(),
   ListMemoryRecords: (filter: unknown) => mockListMemoryRecords(filter),
   GetMaintenanceSettings: () => mockGetMaintenanceSettings(),
   GetDatabaseStats: () => mockGetDatabaseStats(),
   SaveMaintenanceSettings: (settings: unknown) => mockSaveMaintenanceSettings(settings),
   RunDatabaseMaintenance: (force: boolean) => mockRunDatabaseMaintenance(force),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/MCP', () => ({
+  ListMCPServers: () => mockListMCPServers(),
 }));
 
 vi.mock('../lib/exportImport', async () => {

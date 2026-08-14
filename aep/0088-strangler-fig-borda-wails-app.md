@@ -212,7 +212,8 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **nettrust** (network allowlist → `wailsapi.NetTrust`; DTO em `apidto`)
 - [x] **credentials** (CRUD List/Upsert/Delete/ListExternalSources → `wailsapi.Credentials`; DTOs em `apidto`; vault pré-sessão permanece no `App`)
 - [x] **settings** (clear*/test connection/native TTS/reset config → `wailsapi.Settings`)
-- [ ] MCP → …
+- [x] **MCP** (servers/tools/resources/OAuth/logs → `wailsapi.MCP`; `MCPServerAuthInfo` em `apidto`)
+- [ ] memory → …
 
 ### Fase N — `App` enxuto
 

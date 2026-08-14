@@ -192,3 +192,20 @@ func TestWireSettingsAttachesBind(t *testing.T) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
+
+func TestWireMCPAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewMCP()
+	SetMCPAPI(a, api)
+
+	a.wireMCP()
+
+	if a.mcpCtrl == nil {
+		t.Fatal("mcpCtrl deve ser criado")
+	}
+	_, err := api.ListMCPServers()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}

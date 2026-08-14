@@ -179,3 +179,33 @@ func TestSettingsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ListMCPServers",
+		"ConnectMCPServer",
+		"DisconnectMCPServer",
+		"ReconnectMCPServer",
+		"SaveMCPServer",
+		"DuplicateMCPServer",
+		"DeleteMCPServer",
+		"GetMCPServerTools",
+		"GetMCPServerConfig",
+		"ReadMCPResource",
+		"GetMCPPrompt",
+		"SetMCPWorkspaceRoots",
+		"GetMCPWorkspaceRoots",
+		"SubscribeToMCPResource",
+		"UnsubscribeFromMCPResource",
+		"SaveMCPServerAuth",
+		"DeleteMCPServerAuth",
+		"GetMCPServerAuthInfo",
+		"DiscoverMCPServerAuth",
+		"GetMCPServerLogs",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via MCP/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

@@ -90,10 +90,6 @@ export function CloseTerminalSession(arg1) {
   return window['go']['app']['App']['CloseTerminalSession'](arg1);
 }
 
-export function ConnectMCPServer(arg1) {
-  return window['go']['app']['App']['ConnectMCPServer'](arg1);
-}
-
 export function Context() {
   return window['go']['app']['App']['Context']();
 }
@@ -158,14 +154,6 @@ export function DeleteLLMProvider(arg1, arg2) {
   return window['go']['app']['App']['DeleteLLMProvider'](arg1, arg2);
 }
 
-export function DeleteMCPServer(arg1) {
-  return window['go']['app']['App']['DeleteMCPServer'](arg1);
-}
-
-export function DeleteMCPServerAuth(arg1) {
-  return window['go']['app']['App']['DeleteMCPServerAuth'](arg1);
-}
-
 export function DeleteMemoryRecord(arg1) {
   return window['go']['app']['App']['DeleteMemoryRecord'](arg1);
 }
@@ -202,24 +190,12 @@ export function DetectACPAgent(arg1) {
   return window['go']['app']['App']['DetectACPAgent'](arg1);
 }
 
-export function DisconnectMCPServer(arg1) {
-  return window['go']['app']['App']['DisconnectMCPServer'](arg1);
-}
-
-export function DiscoverMCPServerAuth(arg1) {
-  return window['go']['app']['App']['DiscoverMCPServerAuth'](arg1);
-}
-
 export function DispatchSpeech(arg1) {
   return window['go']['app']['App']['DispatchSpeech'](arg1);
 }
 
 export function DryRunJob(arg1) {
   return window['go']['app']['App']['DryRunJob'](arg1);
-}
-
-export function DuplicateMCPServer(arg1) {
-  return window['go']['app']['App']['DuplicateMCPServer'](arg1);
 }
 
 export function EditorDeleteDraft(arg1) {
@@ -454,30 +430,6 @@ export function GetLLMProvidersWithStatus() {
   return window['go']['app']['App']['GetLLMProvidersWithStatus']();
 }
 
-export function GetMCPPrompt(arg1, arg2, arg3) {
-  return window['go']['app']['App']['GetMCPPrompt'](arg1, arg2, arg3);
-}
-
-export function GetMCPServerAuthInfo(arg1) {
-  return window['go']['app']['App']['GetMCPServerAuthInfo'](arg1);
-}
-
-export function GetMCPServerConfig(arg1) {
-  return window['go']['app']['App']['GetMCPServerConfig'](arg1);
-}
-
-export function GetMCPServerLogs(arg1, arg2) {
-  return window['go']['app']['App']['GetMCPServerLogs'](arg1, arg2);
-}
-
-export function GetMCPServerTools(arg1) {
-  return window['go']['app']['App']['GetMCPServerTools'](arg1);
-}
-
-export function GetMCPWorkspaceRoots() {
-  return window['go']['app']['App']['GetMCPWorkspaceRoots']();
-}
-
 export function GetMaintenanceSettings() {
   return window['go']['app']['App']['GetMaintenanceSettings']();
 }
@@ -666,10 +618,6 @@ export function ListKnownEvents() {
   return window['go']['app']['App']['ListKnownEvents']();
 }
 
-export function ListMCPServers() {
-  return window['go']['app']['App']['ListMCPServers']();
-}
-
 export function ListMemoryRecords(arg1) {
   return window['go']['app']['App']['ListMemoryRecords'](arg1);
 }
@@ -710,16 +658,8 @@ export function PromoteTask(arg1) {
   return window['go']['app']['App']['PromoteTask'](arg1);
 }
 
-export function ReadMCPResource(arg1, arg2) {
-  return window['go']['app']['App']['ReadMCPResource'](arg1, arg2);
-}
-
 export function RebuildSearchIndex() {
   return window['go']['app']['App']['RebuildSearchIndex']();
-}
-
-export function ReconnectMCPServer(arg1) {
-  return window['go']['app']['App']['ReconnectMCPServer'](arg1);
 }
 
 export function RefreshACPCatalog() {
@@ -830,14 +770,6 @@ export function SaveJob(arg1) {
   return window['go']['app']['App']['SaveJob'](arg1);
 }
 
-export function SaveMCPServer(arg1, arg2) {
-  return window['go']['app']['App']['SaveMCPServer'](arg1, arg2);
-}
-
-export function SaveMCPServerAuth(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['SaveMCPServerAuth'](arg1, arg2, arg3, arg4, arg5, arg6);
-}
-
 export function SaveMaintenanceSettings(arg1) {
   return window['go']['app']['App']['SaveMaintenanceSettings'](arg1);
 }
@@ -888,10 +820,6 @@ export function SetConversationModel(arg1, arg2) {
 
 export function SetDefaultProvider(arg1) {
   return window['go']['app']['App']['SetDefaultProvider'](arg1);
-}
-
-export function SetMCPWorkspaceRoots(arg1) {
-  return window['go']['app']['App']['SetMCPWorkspaceRoots'](arg1);
 }
 
 export function SetOpenAITTSSpeed(arg1) {
@@ -978,10 +906,6 @@ export function StartupWithAdapters(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['StartupWithAdapters'](arg1, arg2, arg3, arg4);
 }
 
-export function SubscribeToMCPResource(arg1, arg2) {
-  return window['go']['app']['App']['SubscribeToMCPResource'](arg1, arg2);
-}
-
 export function SwitchWorkspace(arg1) {
   return window['go']['app']['App']['SwitchWorkspace'](arg1);
 }
@@ -1032,10 +956,6 @@ export function UnassignConversationFromChannel(arg1) {
 
 export function UnlockVault(arg1, arg2) {
   return window['go']['app']['App']['UnlockVault'](arg1, arg2);
-}
-
-export function UnsubscribeFromMCPResource(arg1, arg2) {
-  return window['go']['app']['App']['UnsubscribeFromMCPResource'](arg1, arg2);
 }
 
 export function UpdateACPAgent(arg1, arg2) {

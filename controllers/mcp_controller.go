@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
 	"assistente/internal/jobs"
 	"assistente/internal/logging"
@@ -149,17 +150,17 @@ func (c *MCPController) DeleteMCPServerAuth(slug string) error {
 	return c.mcpMgr.DeleteServerAuth(slug)
 }
 
-func (c *MCPController) GetMCPServerAuthInfo(slug string) (map[string]any, error) {
+func (c *MCPController) GetMCPServerAuthInfo(slug string) (apidto.MCPServerAuthInfo, error) {
 	if err := c.guardMgr(); err != nil {
-		return nil, err
+		return apidto.MCPServerAuthInfo{}, err
 	}
 	authType, hasAuth, err := c.mcpMgr.GetServerAuthInfo(slug)
 	if err != nil {
-		return nil, err
+		return apidto.MCPServerAuthInfo{}, err
 	}
-	return map[string]any{
-		"hasAuth":  hasAuth,
-		"authType": authType,
+	return apidto.MCPServerAuthInfo{
+		HasAuth:  hasAuth,
+		AuthType: authType,
 	}, nil
 }
 

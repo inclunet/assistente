@@ -16,7 +16,7 @@ import {
   GetMCPServerAuthInfo,
   DiscoverMCPServerAuth,
   DuplicateMCPServer,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/MCP';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { MenuButton } from '../components/layout/MenuButton';
