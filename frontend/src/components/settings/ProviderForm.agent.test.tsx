@@ -53,7 +53,6 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 const catalogMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  DetectACPAgent: detectMock,
   CreateLLMProvider: createMock,
   UpdateLLMProvider: updateMock,
   ListModelsRaw: listModelsMock,
@@ -65,6 +64,10 @@ vi.mock('@wailsjs/go/app/App', () => ({
   CancelACPAgentInstall: vi.fn(),
   RemoveACPAgent: vi.fn(),
   UpdateACPAgent: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/ACPProviders', () => ({
+  DetectACPAgent: detectMock,
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({

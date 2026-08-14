@@ -83,6 +83,138 @@ export namespace allowlist {
 
 export namespace apidto {
 	
+	export class ACPAuthEnvVar {
+	    name: string;
+	    label?: string;
+	    optional?: boolean;
+	    secret?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPAuthEnvVar(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.label = source["label"];
+	        this.optional = source["optional"];
+	        this.secret = source["secret"];
+	    }
+	}
+	export class ACPLoginMethod {
+	    id: string;
+	    name?: string;
+	    description?: string;
+	    command?: string;
+	    env_vars?: ACPAuthEnvVar[];
+	    credential_provider?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPLoginMethod(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.command = source["command"];
+	        this.env_vars = this.convertValues(source["env_vars"], ACPAuthEnvVar);
+	        this.credential_provider = source["credential_provider"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ACPAgentHealth {
+	    state: string;
+	    agent_name?: string;
+	    agent_version?: string;
+	    login_methods?: ACPLoginMethod[];
+	    login_command?: string;
+	    work_dir?: string;
+	    latency_ms: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPAgentHealth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.agent_name = source["agent_name"];
+	        this.agent_version = source["agent_version"];
+	        this.login_methods = this.convertValues(source["login_methods"], ACPLoginMethod);
+	        this.login_command = source["login_command"];
+	        this.work_dir = source["work_dir"];
+	        this.latency_ms = source["latency_ms"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ACPAgentSetup {
+	    found: boolean;
+	    detectable: boolean;
+	    command: string;
+	    args: string[];
+	    version?: string;
+	    source?: string;
+	    login_command?: string;
+	    searched?: string[];
+	    work_dir?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPAgentSetup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.found = source["found"];
+	        this.detectable = source["detectable"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.login_command = source["login_command"];
+	        this.searched = source["searched"];
+	        this.work_dir = source["work_dir"];
+	    }
+	}
+	
+	
 	export class CleanupLegacyChannelJSONItem {
 	    path: string;
 	    kind: string;
@@ -651,137 +783,6 @@ export namespace apidto {
 
 export namespace app {
 	
-	export class ACPAuthEnvVar {
-	    name: string;
-	    label?: string;
-	    optional?: boolean;
-	    secret?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPAuthEnvVar(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.label = source["label"];
-	        this.optional = source["optional"];
-	        this.secret = source["secret"];
-	    }
-	}
-	export class ACPLoginMethod {
-	    id: string;
-	    name?: string;
-	    description?: string;
-	    command?: string;
-	    env_vars?: ACPAuthEnvVar[];
-	    credential_provider?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPLoginMethod(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.command = source["command"];
-	        this.env_vars = this.convertValues(source["env_vars"], ACPAuthEnvVar);
-	        this.credential_provider = source["credential_provider"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class ACPAgentHealth {
-	    state: string;
-	    agent_name?: string;
-	    agent_version?: string;
-	    login_methods?: ACPLoginMethod[];
-	    login_command?: string;
-	    work_dir?: string;
-	    latency_ms: number;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPAgentHealth(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.state = source["state"];
-	        this.agent_name = source["agent_name"];
-	        this.agent_version = source["agent_version"];
-	        this.login_methods = this.convertValues(source["login_methods"], ACPLoginMethod);
-	        this.login_command = source["login_command"];
-	        this.work_dir = source["work_dir"];
-	        this.latency_ms = source["latency_ms"];
-	        this.error = source["error"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class ACPAgentSetup {
-	    found: boolean;
-	    detectable: boolean;
-	    command: string;
-	    args: string[];
-	    version?: string;
-	    source?: string;
-	    login_command?: string;
-	    searched?: string[];
-	    work_dir?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPAgentSetup(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.found = source["found"];
-	        this.detectable = source["detectable"];
-	        this.command = source["command"];
-	        this.args = source["args"];
-	        this.version = source["version"];
-	        this.source = source["source"];
-	        this.login_command = source["login_command"];
-	        this.searched = source["searched"];
-	        this.work_dir = source["work_dir"];
-	    }
-	}
-	
 	export class ACPCatalogAgent {
 	    id: string;
 	    name: string;
@@ -1021,7 +1022,6 @@ export namespace app {
 		    return a;
 		}
 	}
-	
 	
 	
 	export class AgentCommand {

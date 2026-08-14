@@ -91,8 +91,6 @@ export function DeleteWorkspace(arg1:string):Promise<void>;
 
 export function DemoteTask(arg1:string,arg2:string):Promise<void>;
 
-export function DetectACPAgent(arg1:string):Promise<app.ACPAgentSetup>;
-
 export function DispatchSpeech(arg1:app.ChatSpeakRequest):Promise<void>;
 
 export function DryRunJob(arg1:string):Promise<jobs.DryRunResult>;
@@ -400,8 +398,6 @@ export function SynthesizeOpenAI(arg1:string):Promise<app.SynthesisResultInfo>;
 export function SynthesizeOpenAIStream(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<app.SynthesisResultInfo>;
-
-export function TestACPAgent(arg1:string,arg2:Array<string>):Promise<app.ACPAgentHealth>;
 
 export function TestLLMProvider(arg1:controllers.TestLLMProviderRequest):Promise<boolean>;
 
