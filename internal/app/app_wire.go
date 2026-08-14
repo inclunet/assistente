@@ -229,3 +229,17 @@ func (a *App) wireSubagent() {
 		wailsapi.AttachSubagent(a.subagentAPI, wailsSession{app: a}, a.subagentMgr)
 	}
 }
+
+// wireJobs associa o bind Wails de jobs após NewJobsController (AEP-0088).
+// initJobs (Manager) permanece no App; dry-run MCP e custom action events via hooks.
+func (a *App) wireJobs() {
+	if a.jobsAPI != nil {
+		wailsapi.AttachJobs(
+			a.jobsAPI,
+			wailsSession{app: a},
+			a.jobsCtrl,
+			a.mcpMgr,
+			a.customActionEventNames,
+		)
+	}
+}

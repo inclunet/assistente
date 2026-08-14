@@ -316,3 +316,30 @@ func TestSubagentMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestJobsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetJobs",
+		"GetJob",
+		"ToggleJob",
+		"RunJob",
+		"DryRunJob",
+		"GetJobRuns",
+		"ReplayRun",
+		"GetJobEvents",
+		"GetJobEventsPage",
+		"GetJobPipelines",
+		"GetToolCatalog",
+		"RegenerateJobCatalog",
+		"SaveJob",
+		"TestToolDryRun",
+		"InferEventSchema",
+		"ListKnownEvents",
+		"DeleteJob",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Jobs/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

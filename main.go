@@ -58,6 +58,8 @@ func main() {
 	application.SetSubagentAPI(a, subagentAPI)
 	tasklistActionsAPI := wailsapi.NewTasklistActions()
 	application.SetTasklistActionsAPI(a, tasklistActionsAPI)
+	jobsAPI := wailsapi.NewJobs()
+	application.SetJobsAPI(a, jobsAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -113,6 +115,7 @@ func main() {
 			databaseAPI,
 			subagentAPI,
 			tasklistActionsAPI,
+			jobsAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

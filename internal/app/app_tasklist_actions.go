@@ -7,7 +7,7 @@ import (
 
 // customActionEventNames coleta os nomes de eventos das custom actions de todas
 // as listas do usuário (para o picker do JobBuilder / ListKnownEvents).
-// Permanece no App porque jobs ainda não migrou (AEP-0088).
+// Injetado no bind wailsapi.Jobs via AttachJobs (AEP-0088).
 func (a *App) customActionEventNames(ctx context.Context) []string {
 	// GetAllTaskLists já traz a coluna custom_actions de todas as listas do
 	// usuário numa única consulta; parseamos em memória para evitar um N+1

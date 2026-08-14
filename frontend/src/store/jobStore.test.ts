@@ -9,7 +9,7 @@ const { mockGetToolCatalog, mockTestToolDryRun, mockToggleJob } = vi.hoisted(() 
   mockToggleJob: vi.fn(),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Jobs', () => ({
   GetJobs: vi.fn(),
   GetJob: vi.fn(),
   ToggleJob: (id: string, enabled: boolean) => mockToggleJob(id, enabled),

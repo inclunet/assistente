@@ -6,7 +6,6 @@ import {workspace} from '../models';
 import {portability} from '../models';
 import {context} from '../models';
 import {controllers} from '../models';
-import {jobs} from '../models';
 import {speech} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
@@ -73,8 +72,6 @@ export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function DeleteConversation(arg1:string):Promise<void>;
 
-export function DeleteJob(arg1:string):Promise<void>;
-
 export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void>;
 
 export function DeleteMessage(arg1:string):Promise<void>;
@@ -94,8 +91,6 @@ export function DemoteTask(arg1:string,arg2:string):Promise<void>;
 export function DetectACPAgent(arg1:string):Promise<app.ACPAgentSetup>;
 
 export function DispatchSpeech(arg1:app.ChatSpeakRequest):Promise<void>;
-
-export function DryRunJob(arg1:string):Promise<jobs.DryRunResult>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
@@ -193,18 +188,6 @@ export function GetConversationsPage(arg1:number,arg2:number):Promise<database.C
 
 export function GetEffectiveModel():Promise<string>;
 
-export function GetJob(arg1:string):Promise<jobs.Job>;
-
-export function GetJobEvents(arg1:string):Promise<Array<jobs.EventEntry>>;
-
-export function GetJobEventsPage(arg1:string,arg2:number,arg3:number):Promise<Array<jobs.EventEntry>>;
-
-export function GetJobPipelines():Promise<Array<jobs.PipelineInfo>>;
-
-export function GetJobRuns(arg1:string,arg2:number):Promise<Array<jobs.RunLog>>;
-
-export function GetJobs():Promise<Array<jobs.JobInfo>>;
-
 export function GetLLMProvider(arg1:string):Promise<llm.ProviderConfig>;
 
 export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
@@ -261,8 +244,6 @@ export function GetTasksByStatus(arg1:string,arg2:number):Promise<Array<database
 
 export function GetTasksByTaskListID(arg1:string):Promise<Array<database.Task>>;
 
-export function GetToolCatalog():Promise<Array<jobs.CatalogEntry>>;
-
 export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStatus>;
 
 export function GetWorkflow(arg1:string):Promise<database.TaskListWorkflow>;
@@ -277,15 +258,11 @@ export function ImportDataWithResolutions(arg1:portability.ImportRequest):Promis
 
 export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
 
-export function InferEventSchema(arg1:string):Promise<Record<string, any>>;
-
 export function InitSpeechManagerFromProfile():Promise<void>;
 
 export function InstallACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Promise<app.ACPInstallation>;
 
 export function ListInstalledACPAgents():Promise<Array<app.ACPInstallation>>;
-
-export function ListKnownEvents():Promise<Array<string>>;
 
 export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
 
@@ -311,8 +288,6 @@ export function RefreshModels():Promise<Array<string>>;
 
 export function RefreshModelsByProvider(arg1:string):Promise<Array<string>>;
 
-export function RegenerateJobCatalog():Promise<void>;
-
 export function ReloadLLMClient():Promise<void>;
 
 export function RemoveACPAgent(arg1:string):Promise<void>;
@@ -331,8 +306,6 @@ export function ReorderWorkflowStatuses(arg1:string,arg2:Array<number>):Promise<
 
 export function ReorderWorkspaceTabs(arg1:Array<string>):Promise<void>;
 
-export function ReplayRun(arg1:string,arg2:string):Promise<jobs.TestToolResult>;
-
 export function RestartChannel(arg1:string):Promise<void>;
 
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
@@ -341,11 +314,7 @@ export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
 
 export function RevokeAgentPermission(arg1:string,arg2:string):Promise<void>;
 
-export function RunJob(arg1:string):Promise<jobs.RunLog>;
-
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
-
-export function SaveJob(arg1:string):Promise<void>;
 
 export function SaveMessageAudio(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -404,10 +373,6 @@ export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<app.S
 export function TestACPAgent(arg1:string,arg2:Array<string>):Promise<app.ACPAgentHealth>;
 
 export function TestLLMProvider(arg1:controllers.TestLLMProviderRequest):Promise<boolean>;
-
-export function TestToolDryRun(arg1:string):Promise<jobs.TestToolResult>;
-
-export function ToggleJob(arg1:string,arg2:boolean):Promise<void>;
 
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<speech.TranscriptionResult>;
 
