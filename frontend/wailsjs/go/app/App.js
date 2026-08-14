@@ -222,10 +222,6 @@ export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
 }
 
-export function GetAgentConversationWorkDir(arg1) {
-  return window['go']['app']['App']['GetAgentConversationWorkDir'](arg1);
-}
-
 export function GetAgentSessionOptions(arg1) {
   return window['go']['app']['App']['GetAgentSessionOptions'](arg1);
 }
@@ -552,10 +548,6 @@ export function SendMessageSync(arg1, arg2) {
 
 export function SetActiveWorkspaceTab(arg1) {
   return window['go']['app']['App']['SetActiveWorkspaceTab'](arg1);
-}
-
-export function SetAgentConversationWorkDir(arg1, arg2) {
-  return window['go']['app']['App']['SetAgentConversationWorkDir'](arg1, arg2);
 }
 
 export function SetAgentSessionOption(arg1, arg2, arg3) {
