@@ -60,6 +60,8 @@ func main() {
 	application.SetTasklistActionsAPI(a, tasklistActionsAPI)
 	jobsAPI := wailsapi.NewJobs()
 	application.SetJobsAPI(a, jobsAPI)
+	llmProvidersAPI := wailsapi.NewLLMProviders()
+	application.SetLLMProvidersAPI(a, llmProvidersAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -116,6 +118,7 @@ func main() {
 			subagentAPI,
 			tasklistActionsAPI,
 			jobsAPI,
+			llmProvidersAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

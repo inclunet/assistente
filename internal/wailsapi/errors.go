@@ -69,3 +69,6 @@ var ErrTasklistActionsNotWired = errors.New("wailsapi: tasklist actions bind not
 
 // ErrJobsNotWired indica que o bind Jobs ainda não recebeu controller/session.
 var ErrJobsNotWired = errors.New("wailsapi: jobs bind not wired")
+
+// ErrLLMProvidersNotWired indica que o bind LLMProviders ainda não recebeu controller/session.
+var ErrLLMProvidersNotWired = errors.New("wailsapi: llm providers bind not wired")

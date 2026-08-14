@@ -318,6 +318,30 @@ func TestSubagentMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestLLMProvidersMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	// CreateDefaultLLMProvider é bootstrap pré-login sem WithUser, mas vive em
+	// wailsapi.LLMProviders — UnauthenticatedAppMethods só lista métodos do *App.
+	for _, name := range []string{
+		"GetLLMProviders",
+		"GetLLMProvider",
+		"GetActiveProviderInfo",
+		"GetLLMProvidersWithStatus",
+		"TestLLMProvider",
+		"ListModelsRaw",
+		"CreateLLMProvider",
+		"UpdateLLMProvider",
+		"SetDefaultProvider",
+		"DeleteLLMProvider",
+		"ReloadLLMClient",
+		"CreateDefaultLLMProvider",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s está em wailsapi.LLMProviders; não pertence à allowlist de *App", name)
+		}
+	}
+}
+
 func TestJobsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

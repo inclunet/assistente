@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"assistente/controllers"
+	"assistente/internal/apidto"
 	"assistente/internal/profiles"
 )
 
@@ -44,11 +44,11 @@ func (m *mockSetupBackend) SetupMasterPassword(password string) (string, error) 
 	return m.setupPwdReturn, m.setupPwdErr
 }
 
-func (m *mockSetupBackend) TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error) {
+func (m *mockSetupBackend) TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error) {
 	return m.testProviderOK, m.testProviderErr
 }
 
-func (m *mockSetupBackend) ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error) {
+func (m *mockSetupBackend) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error) {
 	return m.listModels, m.listModelsErr
 }
 

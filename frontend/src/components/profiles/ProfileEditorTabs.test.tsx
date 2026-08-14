@@ -8,7 +8,7 @@ import { ProfileEditorTabs } from './ProfileEditorTabs';
 const mockAnnounce = vi.fn();
 const providersSpy = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => providersSpy(),
 }));
 

@@ -5,10 +5,10 @@ import {database} from '../models';
 import {workspace} from '../models';
 import {portability} from '../models';
 import {context} from '../models';
-import {controllers} from '../models';
 import {speech} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
+import {controllers} from '../models';
 import {chat} from '../models';
 import {llm} from '../models';
 import {credentials} from '../models';
@@ -56,10 +56,6 @@ export function CreateChannelFromTemplate(arg1:string,arg2:Record<string, any>):
 
 export function CreateConversation(arg1:string,arg2:string):Promise<database.Conversation>;
 
-export function CreateDefaultLLMProvider(arg1:string,arg2:string):Promise<void>;
-
-export function CreateLLMProvider(arg1:controllers.CreateLLMProviderRequest):Promise<Record<string, any>>;
-
 export function CreateMessage(arg1:string,arg2:string,arg3:string):Promise<database.ChatMessage>;
 
 export function CreateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
@@ -71,8 +67,6 @@ export function CreateTaskNote(arg1:string,arg2:number,arg3:string,arg4:string,a
 export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function DeleteConversation(arg1:string):Promise<void>;
-
-export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void>;
 
 export function DeleteMessage(arg1:string):Promise<void>;
 
@@ -136,8 +130,6 @@ export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<spe
 
 export function GetACPCatalog():Promise<app.ACPCatalog>;
 
-export function GetActiveProviderInfo():Promise<Record<string, any>>;
-
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
 export function GetAgentConversationWorkDir(arg1:string):Promise<app.AgentWorkDir>;
@@ -187,12 +179,6 @@ export function GetConversationsByIDs(arg1:Array<string>):Promise<Array<database
 export function GetConversationsPage(arg1:number,arg2:number):Promise<database.ConversationListResult>;
 
 export function GetEffectiveModel():Promise<string>;
-
-export function GetLLMProvider(arg1:string):Promise<llm.ProviderConfig>;
-
-export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
-
-export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 
 export function GetMessageAudio(arg1:string):Promise<speech.AudioResult>;
 
@@ -264,8 +250,6 @@ export function InstallACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Pro
 
 export function ListInstalledACPAgents():Promise<Array<app.ACPInstallation>>;
 
-export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
-
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
 
 export function Login(arg1:app.LoginRequest):Promise<app.AuthUser>;
@@ -287,8 +271,6 @@ export function RefreshModelCatalogByProvider(arg1:string):Promise<llm.ModelCata
 export function RefreshModels():Promise<Array<string>>;
 
 export function RefreshModelsByProvider(arg1:string):Promise<Array<string>>;
-
-export function ReloadLLMClient():Promise<void>;
 
 export function RemoveACPAgent(arg1:string):Promise<void>;
 
@@ -334,8 +316,6 @@ export function SetAgentSessionOption(arg1:string,arg2:string,arg3:string):Promi
 
 export function SetConversationModel(arg1:string,arg2:string):Promise<void>;
 
-export function SetDefaultProvider(arg1:string):Promise<void>;
-
 export function SetOpenAITTSSpeed(arg1:number):Promise<void>;
 
 export function SetOpenAITTSVoice(arg1:string):Promise<void>;
@@ -372,8 +352,6 @@ export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<app.S
 
 export function TestACPAgent(arg1:string,arg2:Array<string>):Promise<app.ACPAgentHealth>;
 
-export function TestLLMProvider(arg1:controllers.TestLLMProviderRequest):Promise<boolean>;
-
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<speech.TranscriptionResult>;
 
 export function UnassignConversationFromChannel(arg1:string):Promise<void>;
@@ -385,8 +363,6 @@ export function UpdateACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Prom
 export function UpdateConversation(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function UpdateConversationModel(arg1:string,arg2:string):Promise<void>;
-
-export function UpdateLLMProvider(arg1:string,arg2:controllers.UpdateLLMProviderRequest):Promise<Record<string, any>>;
 
 export function UpdateMessage(arg1:string,arg2:string):Promise<void>;
 

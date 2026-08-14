@@ -86,14 +86,6 @@ export function CreateConversation(arg1, arg2) {
   return window['go']['app']['App']['CreateConversation'](arg1, arg2);
 }
 
-export function CreateDefaultLLMProvider(arg1, arg2) {
-  return window['go']['app']['App']['CreateDefaultLLMProvider'](arg1, arg2);
-}
-
-export function CreateLLMProvider(arg1) {
-  return window['go']['app']['App']['CreateLLMProvider'](arg1);
-}
-
 export function CreateMessage(arg1, arg2, arg3) {
   return window['go']['app']['App']['CreateMessage'](arg1, arg2, arg3);
 }
@@ -116,10 +108,6 @@ export function CreateWorkspace(arg1) {
 
 export function DeleteConversation(arg1) {
   return window['go']['app']['App']['DeleteConversation'](arg1);
-}
-
-export function DeleteLLMProvider(arg1, arg2) {
-  return window['go']['app']['App']['DeleteLLMProvider'](arg1, arg2);
 }
 
 export function DeleteMessage(arg1) {
@@ -246,10 +234,6 @@ export function GetACPCatalog() {
   return window['go']['app']['App']['GetACPCatalog']();
 }
 
-export function GetActiveProviderInfo() {
-  return window['go']['app']['App']['GetActiveProviderInfo']();
-}
-
 export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
 }
@@ -348,18 +332,6 @@ export function GetConversationsPage(arg1, arg2) {
 
 export function GetEffectiveModel() {
   return window['go']['app']['App']['GetEffectiveModel']();
-}
-
-export function GetLLMProvider(arg1) {
-  return window['go']['app']['App']['GetLLMProvider'](arg1);
-}
-
-export function GetLLMProviders() {
-  return window['go']['app']['App']['GetLLMProviders']();
-}
-
-export function GetLLMProvidersWithStatus() {
-  return window['go']['app']['App']['GetLLMProvidersWithStatus']();
 }
 
 export function GetMessageAudio(arg1) {
@@ -502,10 +474,6 @@ export function ListInstalledACPAgents() {
   return window['go']['app']['App']['ListInstalledACPAgents']();
 }
 
-export function ListModelsRaw(arg1) {
-  return window['go']['app']['App']['ListModelsRaw'](arg1);
-}
-
 export function ListWorkspaces() {
   return window['go']['app']['App']['ListWorkspaces']();
 }
@@ -548,10 +516,6 @@ export function RefreshModels() {
 
 export function RefreshModelsByProvider(arg1) {
   return window['go']['app']['App']['RefreshModelsByProvider'](arg1);
-}
-
-export function ReloadLLMClient() {
-  return window['go']['app']['App']['ReloadLLMClient']();
 }
 
 export function RemoveACPAgent(arg1) {
@@ -642,10 +606,6 @@ export function SetConversationModel(arg1, arg2) {
   return window['go']['app']['App']['SetConversationModel'](arg1, arg2);
 }
 
-export function SetDefaultProvider(arg1) {
-  return window['go']['app']['App']['SetDefaultProvider'](arg1);
-}
-
 export function SetOpenAITTSSpeed(arg1) {
   return window['go']['app']['App']['SetOpenAITTSSpeed'](arg1);
 }
@@ -718,10 +678,6 @@ export function TestACPAgent(arg1, arg2) {
   return window['go']['app']['App']['TestACPAgent'](arg1, arg2);
 }
 
-export function TestLLMProvider(arg1) {
-  return window['go']['app']['App']['TestLLMProvider'](arg1);
-}
-
 export function TranscribeWhisper(arg1, arg2) {
   return window['go']['app']['App']['TranscribeWhisper'](arg1, arg2);
 }
@@ -744,10 +700,6 @@ export function UpdateConversation(arg1, arg2, arg3) {
 
 export function UpdateConversationModel(arg1, arg2) {
   return window['go']['app']['App']['UpdateConversationModel'](arg1, arg2);
-}
-
-export function UpdateLLMProvider(arg1, arg2) {
-  return window['go']['app']['App']['UpdateLLMProvider'](arg1, arg2);
 }
 
 export function UpdateMessage(arg1, arg2) {

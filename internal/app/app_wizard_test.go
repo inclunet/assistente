@@ -751,7 +751,7 @@ func TestSaveLoadRoundtrip_DefaultFieldsSurvive(t *testing.T) {
 func TestCreateLLMProvider_FirstProviderIsAutoDefault(t *testing.T) {
 	app := setupWizardTestApp(t)
 
-	result, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+	result, err := app.createLLMProvider(CreateLLMProviderRequest{
 		ID:           "first-prov",
 		Name:         "First Provider",
 		Type:         "openai",
@@ -781,7 +781,7 @@ func TestCreateLLMProvider_FirstProviderIsAutoDefault(t *testing.T) {
 func TestCreateLLMProvider_APIFormatPersisted(t *testing.T) {
 	app := setupWizardTestApp(t)
 
-	_, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+	_, err := app.createLLMProvider(CreateLLMProviderRequest{
 		ID:        "openai-test",
 		Name:      "OpenAI Test",
 		Type:      "openai",
@@ -815,7 +815,7 @@ func TestCreateLLMProvider_APIFormatPersisted(t *testing.T) {
 func TestCreateLLMProvider_OpenAICompatibleKeepsDefaultFormat(t *testing.T) {
 	app := setupWizardTestApp(t)
 
-	_, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+	_, err := app.createLLMProvider(CreateLLMProviderRequest{
 		ID:        "groq-test",
 		Name:      "Groq Test",
 		Type:      "groq",
@@ -839,7 +839,7 @@ func TestCreateLLMProvider_SecondProviderIsNotAutoDefault(t *testing.T) {
 	app := setupWizardTestApp(t)
 
 	// Create first (becomes default)
-	_, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+	_, err := app.createLLMProvider(CreateLLMProviderRequest{
 		ID: "prov-1", Name: "First", Type: "openai", BaseURL: "https://api.openai.com/v1",
 	})
 	if err != nil {
@@ -847,7 +847,7 @@ func TestCreateLLMProvider_SecondProviderIsNotAutoDefault(t *testing.T) {
 	}
 
 	// Create second (should NOT become default)
-	result, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+	result, err := app.createLLMProvider(CreateLLMProviderRequest{
 		ID: "prov-2", Name: "Second", Type: "openai", BaseURL: "https://api.anthropic.com",
 	})
 	if err != nil {

@@ -26,8 +26,11 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ExportData: (payload: unknown) => mockExportData(payload),
   GetAllTaskLists: () => mockGetAllTaskLists(),
   GetConversations: () => mockGetConversations(),
-  GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
+  GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Database', () => ({

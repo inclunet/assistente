@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"assistente/controllers"
+	"assistente/internal/apidto"
 	"assistente/internal/profiles"
 )
 
@@ -30,10 +30,10 @@ type mockProvidersBackend struct {
 	deleteErr           error
 
 	// Capture calls
-	testedReq         controllers.TestLLMProviderRequest
+	testedReq         apidto.TestLLMProviderRequest
 	createdDefault    string
 	createdDefaultKey string
-	createdReq        controllers.CreateLLMProviderRequest
+	createdReq        apidto.CreateLLMProviderRequest
 	defaultProviderID string
 	chatModelSet      string
 	deletedID         string
@@ -43,12 +43,12 @@ func (m *mockProvidersBackend) GetLLMProvidersWithStatus() []map[string]interfac
 	return m.providersWithStatus
 }
 
-func (m *mockProvidersBackend) TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error) {
+func (m *mockProvidersBackend) TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error) {
 	m.testedReq = req
 	return m.testOK, m.testErr
 }
 
-func (m *mockProvidersBackend) ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error) {
+func (m *mockProvidersBackend) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error) {
 	return m.models, m.modelsErr
 }
 
@@ -58,7 +58,7 @@ func (m *mockProvidersBackend) CreateDefaultLLMProvider(providerType, apiKey str
 	return m.createDefaultErr
 }
 
-func (m *mockProvidersBackend) CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error) {
+func (m *mockProvidersBackend) CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error) {
 	m.createdReq = req
 	return m.createResult, m.createErr
 }

@@ -14,6 +14,7 @@ import (
 	"assistente/internal/acptrust"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
+	"assistente/internal/apidto"
 	"assistente/internal/auth"
 	"assistente/internal/chat"
 	"assistente/internal/connstatus"
@@ -56,11 +57,11 @@ import (
 // (internal/jobs/manager.go).
 const subagentReconcileTimeout = 30 * time.Second
 
-// Request structs for LLM Provider Management — type aliases para controllers.
+// Request structs for LLM Provider Management — type aliases para apidto.
 // Mantém compatibilidade com código e testes existentes durante a migração.
-type CreateLLMProviderRequest = controllers.CreateLLMProviderRequest
-type TestLLMProviderRequest = controllers.TestLLMProviderRequest
-type UpdateLLMProviderRequest = controllers.UpdateLLMProviderRequest
+type CreateLLMProviderRequest = apidto.CreateLLMProviderRequest
+type TestLLMProviderRequest = apidto.TestLLMProviderRequest
+type UpdateLLMProviderRequest = apidto.UpdateLLMProviderRequest
 
 // ChannelInfo — type alias para controllers.
 type ChannelInfo = controllers.ChannelInfo
@@ -288,6 +289,10 @@ type App struct {
 	// jobsAPI é o bind Wails do domínio jobs (AEP-0088). Criado em main e
 	// wired após NewJobsController.
 	jobsAPI *wailsapi.Jobs
+
+	// llmProvidersAPI é o bind Wails do domínio llm_providers (AEP-0088).
+	// Criado em main e wired após NewLLMController.
+	llmProvidersAPI *wailsapi.LLMProviders
 }
 
 // ==================== Tipos para Threads ====================
@@ -495,12 +500,45 @@ func SetJobsAPI(a *App, api *wailsapi.Jobs) {
 	a.jobsAPI = api
 }
 
+// SetLLMProvidersAPI registra o bind Wails de llm_providers antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetLLMProvidersAPI(a *App, api *wailsapi.LLMProviders) {
+	if a == nil {
+		return
+	}
+	a.llmProvidersAPI = api
+}
+
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
 func ProfilesCtrl(a *App) *controllers.ProfilesController {
 	if a == nil {
 		return nil
 	}
 	return a.profilesCtrl
+}
+
+// LLMCtrl expõe o LLMController para a CLI (não entra no Bind Wails).
+func LLMCtrl(a *App) *controllers.LLMController {
+	if a == nil {
+		return nil
+	}
+	return a.llmCtrl
+}
+
+// ApplyInstalledBinaryEnv expõe applyInstalledBinaryEnv para a CLI (não entra no Bind Wails).
+func ApplyInstalledBinaryEnv(a *App, ctx context.Context, providerID, agentID string) {
+	if a == nil {
+		return
+	}
+	a.applyInstalledBinaryEnv(ctx, providerID, agentID)
+}
+
+// PersistLLMProviderDelete remove o provedor do store (side effect de Delete; não entra no Bind).
+func PersistLLMProviderDelete(a *App, ctx context.Context, id string) error {
+	if a == nil {
+		return fmt.Errorf("app não inicializado")
+	}
+	return database.DeleteLLMProviderWithContext(ctx, id)
 }
 
 // CredentialsCtrl expõe o CredentialsController para a CLI (não entra no Bind Wails).
@@ -755,13 +793,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Instancia os Controllers (Fase 2 — Inbound Adapters por domínio)
 	a.wireMCP()
 	a.wireProfiles()
-	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
-		LLMRegistry:      a.llmRegistry,
-		ProfileMgr:       a.profileManager,
-		ProviderSvc:      a.providerSvc,
-		Emitter:          a.emitter,
-		OnProviderChange: a.initLLMClient,
-	})
+	a.wireLLMProviders()
 	a.wireSettings()
 	a.wireDatabase()
 

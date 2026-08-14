@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GetLLMProvidersWithStatus } from '@wailsjs/go/app/App';
+import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';
 import { AGENT_API_FORMAT } from '../config/providers';
 
 const DEFAULT_PROVIDER_SENTINEL = '$default';
