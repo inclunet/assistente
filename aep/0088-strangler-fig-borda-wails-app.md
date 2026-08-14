@@ -226,6 +226,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **llm_providers** (CRUD/test/models/default/reload → `wailsapi.LLMProviders`; DTOs em `apidto`; `CreateDefaultLLMProvider` sem WithUser para bootstrap wizard/CLI; helpers `applyInstalledBinaryEnv`/`initLLMClient`/… permanecem no `App`)
 - [x] **acp_commands** (`GetAgentSessionCommands` → `wailsapi.ACPCommands`; DTOs em `apidto`; `agentSessionCommandsChanged` permanece no `App`)
 - [x] **acp_providers** (DetectACPAgent + TestACPAgent → `wailsapi.ACPProviders`; DTOs em `apidto`; `acp_install` permanece no `*App`)
+- [x] **acp_registry** (GetACPCatalog + RefreshACPCatalog → `wailsapi.ACPRegistry`; DTOs em `apidto`; helpers de montagem e `acp_install` permanecem no `*App`)
 - [ ] …
 
 ### Fase N — `App` enxuto

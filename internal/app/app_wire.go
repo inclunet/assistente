@@ -282,3 +282,11 @@ func (a *App) wireACPProviders() {
 		wailsapi.AttachACPProviders(a.acpProvidersAPI, wailsSession{app: a}, a.acpMgr, a.acpWorkDir)
 	}
 }
+
+// wireACPRegistry associa o bind Wails do catálogo ACP (AEP-0088).
+// Helpers de montagem (acpCatalogOf) e acp_install permanecem no App.
+func (a *App) wireACPRegistry() {
+	if a.acpRegistryAPI != nil {
+		wailsapi.AttachACPRegistry(a.acpRegistryAPI, wailsSession{app: a}, a.acpRegistry, a.acpCatalogOf)
+	}
+}

@@ -330,6 +330,18 @@ func TestACPProvidersMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestACPRegistryMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetACPCatalog",
+		"RefreshACPCatalog",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via ACPRegistry/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestACPCommandsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

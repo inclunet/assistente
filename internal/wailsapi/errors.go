@@ -78,3 +78,6 @@ var ErrACPCommandsNotWired = errors.New("wailsapi: acp commands bind not wired")
 
 // ErrACPProvidersNotWired indica que o bind ACPProviders ainda não recebeu manager/session.
 var ErrACPProvidersNotWired = errors.New("wailsapi: acp providers bind not wired")
+
+// ErrACPRegistryNotWired indica que o bind ACPRegistry ainda não recebeu session/catalogOf.
+var ErrACPRegistryNotWired = errors.New("wailsapi: acp registry bind not wired")

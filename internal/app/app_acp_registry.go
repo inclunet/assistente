@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -10,204 +9,22 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
 	"assistente/internal/acpregistry"
+	"assistente/internal/apidto"
 	"assistente/internal/logging"
 )
 
 const acpCatalogComponent = "app.app-acp-registry"
 
-// Estados de um agente do catálogo nesta máquina (AEP-0086 Fase 2).
-//
-// São seis, e não os três que a Fase 2 enumera, porque três não cobrem o que o
-// app de fato sabe. A Fase 2 lista "encontrado por detecção", "não encontrado" e
-// "requisito ausente"; os outros três existem para não transformar ignorância em
-// afirmação:
-//
-//   - a detecção sabe procurar dois agentes dos 38 (D1), e dizer "não
-//     encontrado" para os outros 36 alegaria uma procura que não aconteceu;
-//   - um agente distribuído só como binário pode não ter alvo para esta
-//     plataforma — em Windows ARM isso é a regra, não a exceção;
-//   - a procura pode não ter dado para ser concluída (permissão negada), e aí
-//     "não encontrado" mandaria reinstalar o que talvez já esteja lá.
-const (
-	// ACPCatalogStateInstalled é o agente que está nesta máquina, seja porque o
-	// app o instalou (D5), seja porque a detecção o achou instalado por fora
-	// (D1). Qual dos dois foi está em InstalledByApp, porque o que dá para fazer
-	// com um e com o outro é diferente.
-	ACPCatalogStateInstalled = "installed"
-
-	// ACPCatalogStateRequirementMissing é o runtime que o agente exige e não
-	// está aqui (D7). Vence "não encontrado" porque é o que bloqueia primeiro:
-	// sem Node, instalar o pacote npm não é uma opção.
-	ACPCatalogStateRequirementMissing = "requirement_missing"
-
-	// ACPCatalogStateNoPlatformTarget é o agente sem forma de chegar a esta
-	// máquina: só binário, e sem alvo para este sistema e arquitetura.
-	ACPCatalogStateNoPlatformTarget = "no_platform_target"
-
-	// ACPCatalogStateNotInstalled é o agente que a detecção procurou e não
-	// achou. Só vale para os agentes que a detecção conhece.
-	ACPCatalogStateNotInstalled = "not_installed"
-
-	// ACPCatalogStateNoDetection é o agente para o qual este app não tem
-	// detecção. Não é "não instalado": o app não olhou, e não tem como olhar.
-	ACPCatalogStateNoDetection = "no_detection"
-
-	// ACPCatalogStateDetectionFailed é a procura que não pôde ser concluída.
-	ACPCatalogStateDetectionFailed = "detection_failed"
-)
-
-// ACPCatalog é o catálogo do registro ACP pronto para a tela (AEP-0086 Fase 2).
-//
-// Ele já vem resolvido: o estado de cada agente nesta máquina, o runtime que ele
-// exige e o que se sabe sobre a integridade do artefato saem de regras do AEP, e
-// deixar a tela deduzi-las do documento cru seria reimplementar o AEP em
-// TypeScript.
-type ACPCatalog struct {
-	// Version é o `version` do documento do registro, já validado.
-	Version string `json:"version,omitempty"`
-
-	// Agents é o catálogo inteiro, ordenado por nome. Vazio quando não houve
-	// como carregá-lo — e aí ReasonCode diz por quê (D2).
-	Agents []ACPCatalogAgent `json:"agents"`
-
-	// FetchedAt é quando o catálogo foi coletado, em RFC 3339. Vazio quando não
-	// há catálogo. A tela mostra a idade em texto, e é ela quem formata: só ela
-	// sabe o idioma de quem lê.
-	FetchedAt string `json:"fetched_at,omitempty"`
-
-	// AgeSeconds é a idade do que está sendo servido.
-	AgeSeconds int64 `json:"age_seconds"`
-
-	// FromCache diz que o catálogo veio do que estava guardado em disco.
-	FromCache bool `json:"from_cache"`
-
-	// Stale diz que a idade passou do prazo de revalidação. O conteúdo continua
-	// útil, e a revalidação já foi disparada em segundo plano (D2).
-	Stale bool `json:"stale"`
-
-	// ReasonCode explica, como vocabulário fechado, por que o catálogo está
-	// vazio ou por que a última atualização não aconteceu. A frase é da tela,
-	// nos três locales.
-	ReasonCode string `json:"reason_code,omitempty"`
-
-	// ReasonDetail é a parte variável do motivo, quando existe: o erro de
-	// transporte, já saneado.
-	ReasonDetail string `json:"reason_detail,omitempty"`
-
-	// Platform é o alvo desta máquina no vocabulário do registro
-	// (`windows-x86_64`). Vazio quando o registro não nomeia esta combinação de
-	// sistema e arquitetura.
-	Platform string `json:"platform,omitempty"`
-}
-
-// ACPCatalogAgent é uma linha do catálogo com o que a tela precisa dizer sobre
-// ela. Todo o texto já passou pelo saneamento da fronteira (D9).
-type ACPCatalogAgent struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Version     string   `json:"version,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Authors     []string `json:"authors,omitempty"`
-	License     string   `json:"license,omitempty"`
-	Website     string   `json:"website,omitempty"`
-	Repository  string   `json:"repository,omitempty"`
-
-	// Distributions são as formas de obter o agente: `binary`, `npx`, `uvx`.
-	Distributions []string `json:"distributions"`
-
-	// Runtime é o pré-requisito nomeado desta máquina — `node`, `uv` — ou vazio
-	// quando o agente não exige nenhum (D7).
-	Runtime string `json:"runtime,omitempty"`
-
-	// RuntimeFound diz se esse pré-requisito está nesta máquina. Sem Runtime, é
-	// sempre falso e não quer dizer nada: não há o que encontrar.
-	RuntimeFound bool `json:"runtime_found"`
-
-	// RuntimePath é o executável do runtime que atendeu. Ele fica visível porque
-	// é a prova de qual instalação o app achou, que é o dado de quem tem duas
-	// versões de Node na máquina.
-	RuntimePath string `json:"runtime_path,omitempty"`
-
-	// Integrity é o que se sabe sobre conferir o artefato binário nesta
-	// plataforma (D4): `not_distributed`, `no_platform_target`, `digest` ou
-	// `no_digest`.
-	Integrity string `json:"integrity"`
-
-	// State é o estado nesta máquina, entre as constantes ACPCatalogState*.
-	State string `json:"state"`
-
-	// StateDetail é o complemento técnico do estado, quando ele tem um: o
-	// caminho da instalação encontrada, ou o motivo de a procura não ter dado.
-	// Já saneado, e ele complementa a frase da tela em vez de substituí-la.
-	StateDetail string `json:"state_detail,omitempty"`
-
-	// DetectedVersion é a versão da instalação que a detecção achou, quando o
-	// layout dela revela. Não é a versão do registro: são duas coisas, e é a
-	// diferença entre as duas que a Fase 7 vai usar para avisar de atualização.
-	DetectedVersion string `json:"detected_version,omitempty"`
-
-	// InstalledByApp diz que quem pôs este agente na máquina foi este app (D5).
-	// A distinção importa porque muda o que dá para fazer com ele: o que o app
-	// instalou, ele sabe onde está, sabe atualizar e sabe remover; o que veio de
-	// fora, ele apenas reconheceu.
-	InstalledByApp bool `json:"installed_by_app,omitempty"`
-
-	// InstalledVersion é a versão que o app instalou. Ela é separada da
-	// detectada porque as duas têm destinos diferentes: é esta que a Fase 7
-	// compara com a do registro, já que atualizar só faz sentido para o que o
-	// app mesmo pôs ali.
-	InstalledVersion string `json:"installed_version,omitempty"`
-
-	// InstalledUnverified é a instalação cujo artefato o app não teve como
-	// conferir contra digest publicado (D4). A marca acompanha o agente depois
-	// de instalado, e não desaparece com o diálogo em que ela foi aceita: quem
-	// abrir o catálogo semanas depois precisa saber o que aquele arquivo vale.
-	InstalledUnverified bool `json:"installed_unverified,omitempty"`
-}
-
-// GetACPCatalog devolve o catálogo do registro ACP para a tela de provedores.
-//
-// Ela abre sem rede (D2): o que está em cache é servido na hora e a revalidação
-// acontece em segundo plano. Sem cache e sem rede, o catálogo vem vazio com o
-// motivo — e isso não é erro desta chamada, é o estado que a tela explica.
-func (a *App) GetACPCatalog() (ACPCatalog, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return ACPCatalog{}, err
-	}
-	if a.acpRegistry == nil {
-		return ACPCatalog{}, errors.New("serviço do registro de agentes ACP não inicializado")
-	}
-	return a.acpCatalogOf(ctx, a.acpRegistry.Catalog(ctx)), nil
-}
-
-// RefreshACPCatalog busca o índice agora, a pedido de quem clicou.
-//
-// Ela existe porque recarregar é ato explícito (D2): a revalidação automática só
-// acontece depois do prazo, e quem estava sem rede quando a tela abriu não tem
-// por que esperar por ele para tentar de novo. Falha não custa o catálogo que já
-// estava servindo — o que volta é o anterior, com o motivo.
-func (a *App) RefreshACPCatalog() (ACPCatalog, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return ACPCatalog{}, err
-	}
-	if a.acpRegistry == nil {
-		return ACPCatalog{}, errors.New("serviço do registro de agentes ACP não inicializado")
-	}
-	// O erro não sobe: ele já está dentro do catálogo, como motivo que a tela
-	// diz no idioma de quem lê. Subir também faria a tela mostrar duas versões
-	// da mesma falha, uma delas em português.
-	catalog, _ := a.acpRegistry.Refresh(ctx)
-	return a.acpCatalogOf(ctx, catalog), nil
-}
+// GetACPCatalog / RefreshACPCatalog migraram para wailsapi.ACPRegistry (AEP-0088).
+// Os helpers abaixo (acpCatalogOf, acpAppInstalls, …) permanecem no App porque
+// acp_install e a montagem do catálogo ainda dependem deles.
 
 // acpCatalogOf pergunta à máquina o que ela tem e monta o catálogo da tela.
 //
 // A detecção é consultada uma vez por tipo de agente, e o runtime uma vez por
 // runtime — não uma vez por linha: a procura vai ao sistema de arquivos, e
 // repeti-la por agente custaria dezenas de varreduras para responder sobre dois.
-func (a *App) acpCatalogOf(ctx context.Context, catalog acpregistry.Catalog) ACPCatalog {
+func (a *App) acpCatalogOf(ctx context.Context, catalog acpregistry.Catalog) apidto.ACPCatalog {
 	platform := acpregistry.Platform()
 	if len(catalog.Agents) == 0 {
 		// Sem agente não há o que procurar na máquina, e a tela só precisa do
@@ -264,10 +81,10 @@ func (a *App) acpAppInstalls() map[string]acpinstall.Installation {
 // A máquina entra por parâmetro, e não é consultada aqui, para esta tradução
 // poder ser exercitada contra uma máquina descrita — com Node e sem Cursor, com
 // a procura falhando — em vez de contra a máquina que roda o teste.
-func acpCatalogFrom(catalog acpregistry.Catalog, platform string, machine acpMachine) ACPCatalog {
-	out := ACPCatalog{
+func acpCatalogFrom(catalog acpregistry.Catalog, platform string, machine acpMachine) apidto.ACPCatalog {
+	out := apidto.ACPCatalog{
 		Version:      catalog.Version,
-		Agents:       make([]ACPCatalogAgent, 0, len(catalog.Agents)),
+		Agents:       make([]apidto.ACPCatalogAgent, 0, len(catalog.Agents)),
 		AgeSeconds:   int64(catalog.Age.Seconds()),
 		FromCache:    catalog.FromCache,
 		Stale:        catalog.Stale,
@@ -285,7 +102,7 @@ func acpCatalogFrom(catalog acpregistry.Catalog, platform string, machine acpMac
 	// Ordenada por nome, como a Fase 2 pede, com o identificador desempatando:
 	// dois agentes de mesmo nome existiriam em ordem sorteada, e a lista mudaria
 	// de posição entre duas aberturas da tela.
-	slices.SortFunc(out.Agents, func(x, y ACPCatalogAgent) int {
+	slices.SortFunc(out.Agents, func(x, y apidto.ACPCatalogAgent) int {
 		if order := strings.Compare(strings.ToLower(x.Name), strings.ToLower(y.Name)); order != 0 {
 			return order
 		}
@@ -345,9 +162,9 @@ func detectACPRuntimes(ctx context.Context, agents []acpregistry.Agent, platform
 
 // acpCatalogAgentFrom monta a linha da tela a partir da entrada do registro, do
 // que a detecção achou e do que esta máquina tem.
-func acpCatalogAgentFrom(agent acpregistry.Agent, platform string, machine acpMachine) ACPCatalogAgent {
+func acpCatalogAgentFrom(agent acpregistry.Agent, platform string, machine acpMachine) apidto.ACPCatalogAgent {
 	fit := acpregistry.FitFor(agent, platform)
-	row := ACPCatalogAgent{
+	row := apidto.ACPCatalogAgent{
 		ID:            agent.ID,
 		Name:          agent.Name,
 		Version:       agent.Version,
@@ -382,7 +199,7 @@ func acpCatalogAgentFrom(agent acpregistry.Agent, platform string, machine acpMa
 	// das duas: o app sabe o que escreveu e onde. A de fora continua valendo
 	// para quem já tinha o agente, e é o que a detecção responde a seguir.
 	if installation, ok := machine.installed[agent.ID]; ok {
-		row.State = ACPCatalogStateInstalled
+		row.State = apidto.ACPCatalogStateInstalled
 		row.StateDetail = acp.SanitizeLabel(installation.Dir)
 		row.InstalledByApp = true
 		row.InstalledVersion = acp.SanitizeLabel(installation.Version)
@@ -421,22 +238,22 @@ func acpCatalogState(
 		found := installs[kind]
 		switch {
 		case found.install.Found:
-			return ACPCatalogStateInstalled, acp.SanitizeLabel(found.install.Source), found.install.Version
+			return apidto.ACPCatalogStateInstalled, acp.SanitizeLabel(found.install.Source), found.install.Version
 		case found.err != nil:
-			return ACPCatalogStateDetectionFailed, acp.SanitizeLabel(found.err.Error()), ""
+			return apidto.ACPCatalogStateDetectionFailed, acp.SanitizeLabel(found.err.Error()), ""
 		}
 	}
 
 	switch {
 	case !runtimeOK:
-		return ACPCatalogStateRequirementMissing, "", ""
+		return apidto.ACPCatalogStateRequirementMissing, "", ""
 	case fit.Integrity == acpregistry.IntegrityNoPlatformTarget && fit.Runtime == "":
 		// Só binário, e sem alvo para este sistema: não há caminho nenhum aqui,
 		// e não há o que instalar nem o que procurar.
-		return ACPCatalogStateNoPlatformTarget, "", ""
+		return apidto.ACPCatalogStateNoPlatformTarget, "", ""
 	case detectable:
-		return ACPCatalogStateNotInstalled, "", ""
+		return apidto.ACPCatalogStateNotInstalled, "", ""
 	default:
-		return ACPCatalogStateNoDetection, "", ""
+		return apidto.ACPCatalogStateNoDetection, "", ""
 	}
 }

@@ -214,6 +214,101 @@ export namespace apidto {
 	    }
 	}
 	
+	export class ACPCatalogAgent {
+	    id: string;
+	    name: string;
+	    version?: string;
+	    description?: string;
+	    authors?: string[];
+	    license?: string;
+	    website?: string;
+	    repository?: string;
+	    distributions: string[];
+	    runtime?: string;
+	    runtime_found: boolean;
+	    runtime_path?: string;
+	    integrity: string;
+	    state: string;
+	    state_detail?: string;
+	    detected_version?: string;
+	    installed_by_app?: boolean;
+	    installed_version?: string;
+	    installed_unverified?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPCatalogAgent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.authors = source["authors"];
+	        this.license = source["license"];
+	        this.website = source["website"];
+	        this.repository = source["repository"];
+	        this.distributions = source["distributions"];
+	        this.runtime = source["runtime"];
+	        this.runtime_found = source["runtime_found"];
+	        this.runtime_path = source["runtime_path"];
+	        this.integrity = source["integrity"];
+	        this.state = source["state"];
+	        this.state_detail = source["state_detail"];
+	        this.detected_version = source["detected_version"];
+	        this.installed_by_app = source["installed_by_app"];
+	        this.installed_version = source["installed_version"];
+	        this.installed_unverified = source["installed_unverified"];
+	    }
+	}
+	export class ACPCatalog {
+	    version?: string;
+	    agents: ACPCatalogAgent[];
+	    fetched_at?: string;
+	    age_seconds: number;
+	    from_cache: boolean;
+	    stale: boolean;
+	    reason_code?: string;
+	    reason_detail?: string;
+	    platform?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPCatalog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.agents = this.convertValues(source["agents"], ACPCatalogAgent);
+	        this.fetched_at = source["fetched_at"];
+	        this.age_seconds = source["age_seconds"];
+	        this.from_cache = source["from_cache"];
+	        this.stale = source["stale"];
+	        this.reason_code = source["reason_code"];
+	        this.reason_detail = source["reason_detail"];
+	        this.platform = source["platform"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class AgentCommand {
 	    name: string;
@@ -911,101 +1006,6 @@ export namespace apidto {
 }
 
 export namespace app {
-	
-	export class ACPCatalogAgent {
-	    id: string;
-	    name: string;
-	    version?: string;
-	    description?: string;
-	    authors?: string[];
-	    license?: string;
-	    website?: string;
-	    repository?: string;
-	    distributions: string[];
-	    runtime?: string;
-	    runtime_found: boolean;
-	    runtime_path?: string;
-	    integrity: string;
-	    state: string;
-	    state_detail?: string;
-	    detected_version?: string;
-	    installed_by_app?: boolean;
-	    installed_version?: string;
-	    installed_unverified?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPCatalogAgent(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.description = source["description"];
-	        this.authors = source["authors"];
-	        this.license = source["license"];
-	        this.website = source["website"];
-	        this.repository = source["repository"];
-	        this.distributions = source["distributions"];
-	        this.runtime = source["runtime"];
-	        this.runtime_found = source["runtime_found"];
-	        this.runtime_path = source["runtime_path"];
-	        this.integrity = source["integrity"];
-	        this.state = source["state"];
-	        this.state_detail = source["state_detail"];
-	        this.detected_version = source["detected_version"];
-	        this.installed_by_app = source["installed_by_app"];
-	        this.installed_version = source["installed_version"];
-	        this.installed_unverified = source["installed_unverified"];
-	    }
-	}
-	export class ACPCatalog {
-	    version?: string;
-	    agents: ACPCatalogAgent[];
-	    fetched_at?: string;
-	    age_seconds: number;
-	    from_cache: boolean;
-	    stale: boolean;
-	    reason_code?: string;
-	    reason_detail?: string;
-	    platform?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPCatalog(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.version = source["version"];
-	        this.agents = this.convertValues(source["agents"], ACPCatalogAgent);
-	        this.fetched_at = source["fetched_at"];
-	        this.age_seconds = source["age_seconds"];
-	        this.from_cache = source["from_cache"];
-	        this.stale = source["stale"];
-	        this.reason_code = source["reason_code"];
-	        this.reason_detail = source["reason_detail"];
-	        this.platform = source["platform"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	
 	export class ACPInstallConfirmation {
 	    distribution?: string;

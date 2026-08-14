@@ -6,6 +6,7 @@ import (
 
 	"assistente/controllers"
 	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -367,6 +368,22 @@ func TestWireACPProvidersAttachesBind(t *testing.T) {
 	a.wireACPProviders()
 
 	_, err := api.DetectACPAgent("cursor")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireACPRegistryAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		acpRegistry: acpregistry.New(acpregistry.Config{}),
+	}
+	api := wailsapi.NewACPRegistry()
+	SetACPRegistryAPI(a, api)
+
+	a.wireACPRegistry()
+
+	_, err := api.GetACPCatalog()
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
