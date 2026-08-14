@@ -56,13 +56,17 @@ func (api *ACPCommands) GetAgentSessionCommands(conversationID string) (apidto.A
 	if err != nil {
 		return out, err
 	}
-	return WithUser(session, func(ctx context.Context) (apidto.AgentSessionCommands, error) {
+	result, err := WithUser(session, func(ctx context.Context) (apidto.AgentSessionCommands, error) {
 		if conversationID == "" {
 			return out, errors.New("conversa sem identificador")
 		}
 		out.Commands = agentCommandsFrom(mgr.ConversationCommands(conversationID))
 		return out, nil
 	})
+	if err != nil {
+		return out, err
+	}
+	return result, nil
 }
 
 func agentCommandsFrom(commands []acp.Command) []apidto.AgentCommand {
