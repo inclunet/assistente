@@ -284,6 +284,14 @@ func (a *App) wireACPProviders() {
 	}
 }
 
+// wireACPWorkDir associa o bind Wails de diretório por conversa (AEP-0088).
+// agentConversationDir / conversationAgentDir / acpWorkDir permanecem no App.
+func (a *App) wireACPWorkDir() {
+	if a.acpWorkDirAPI != nil {
+		wailsapi.AttachACPWorkDir(a.acpWorkDirAPI, wailsSession{app: a}, a.acpMgr)
+	}
+}
+
 // wireACPInstall associa o bind Wails de install/update/remove de agentes ACP
 // (AEP-0088). Handshake, progresso e repontar provedores permanecem no App.
 func (a *App) wireACPInstall() {
