@@ -6,7 +6,7 @@ import { useNavigationStore, type EditableResource } from '../store/navigationSt
 import { useUIStore } from '../store/uiStore';
 import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/app/App';
-import { RunTerminalCommand } from '@wailsjs/go/app/App';
+import { RunTerminalCommand } from '@wailsjs/go/wailsapi/Terminal';
 import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import { isBackendId } from './idUtils';

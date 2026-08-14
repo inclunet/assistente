@@ -4,7 +4,7 @@ import { useTerminalStore } from './terminalStore';
 
 const mockGetTerminalHistory = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Terminal', () => ({
   ListTerminalSessions: vi.fn().mockResolvedValue([]),
   CreateTerminalSession: vi.fn().mockResolvedValue(null),
   CloseTerminalSession: vi.fn().mockResolvedValue(undefined),
