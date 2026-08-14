@@ -145,6 +145,14 @@ func (a *App) wireMCP() {
 	}
 }
 
+// wireSignal monta o SignalController e associa o bind Wails (AEP-0088).
+func (a *App) wireSignal() {
+	a.signalCtrl = controllers.NewSignalController()
+	if a.signalAPI != nil {
+		wailsapi.AttachSignal(a.signalAPI, wailsSession{app: a}, a.signalCtrl)
+	}
+}
+
 // wireTerminal monta o TerminalController e associa o bind Wails (AEP-0088).
 // initTerminalAndAllowlists (managers) e Shutdown/CloseAll permanecem no App.
 func (a *App) wireTerminal() {

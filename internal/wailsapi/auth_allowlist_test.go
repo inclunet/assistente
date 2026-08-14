@@ -227,3 +227,20 @@ func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestSignalMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"SignalRegister",
+		"SignalVerify",
+		"SignalLink",
+		"SignalLinkRaw",
+		"SignalUnregister",
+		"SignalCheckAPI",
+		"SignalListAccounts",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Signal/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
