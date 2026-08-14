@@ -265,6 +265,10 @@ type App struct {
 	// wired após NewMemoryController.
 	memoryAPI *wailsapi.Memory
 
+	// welcomeAPI é o bind Wails do domínio welcome (AEP-0088). Criado em main e
+	// wired após NewWelcomeController.
+	welcomeAPI *wailsapi.Welcome
+
 	// legacyCleanupAPI é o bind Wails do cleanup de JSON legado (AEP-0088).
 	// Criado em main e wired sem controller (chama channels diretamente).
 	legacyCleanupAPI *wailsapi.LegacyCleanup
@@ -423,6 +427,15 @@ func SetMemoryAPI(a *App, api *wailsapi.Memory) {
 		return
 	}
 	a.memoryAPI = api
+}
+
+// SetWelcomeAPI registra o bind Wails de welcome antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetWelcomeAPI(a *App, api *wailsapi.Welcome) {
+	if a == nil {
+		return
+	}
+	a.welcomeAPI = api
 }
 
 // SetLegacyCleanupAPI registra o bind Wails de legacy cleanup antes do Run (main.go).
@@ -792,19 +805,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireNetTrust()
 	a.wireCredentials()
 	a.wireMemory()
+	a.wireWelcome()
 	a.wireLegacyCleanup()
 	a.wireSubagent()
-	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
-		QuestionnaireMgr:           a.questionnaireMgr,
-		CredMgr:                    a.credMgr,
-		ProviderSvc:                a.providerSvc,
-		LLMRegistry:                a.llmRegistry,
-		Updater:                    a.updater,
-		UpdaterCtrl:                a.updaterCtrl,
-		ConfigureCredentialManager: a.configureCredentialManager,
-		InitLLMClient:              a.initLLMClient,
-		SaveLLMProviders:           a.saveLLMProviders,
-	})
 	a.wireSignal()
 	a.wireTerminal()
 

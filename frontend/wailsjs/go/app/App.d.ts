@@ -310,8 +310,6 @@ export function Logout(arg1:app.LogoutRequest):Promise<void>;
 
 export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Workspace>;
 
-export function NeedsWelcomeWizard():Promise<boolean>;
-
 export function PromoteTask(arg1:string):Promise<void>;
 
 export function RebuildSearchIndex():Promise<void>;
@@ -361,8 +359,6 @@ export function RevokeAgentPermission(arg1:string,arg2:string):Promise<void>;
 export function RunDatabaseMaintenance(arg1:boolean):Promise<database.CompactionResult>;
 
 export function RunJob(arg1:string):Promise<jobs.RunLog>;
-
-export function RunWelcomeWizard():Promise<boolean>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
