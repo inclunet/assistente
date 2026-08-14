@@ -72,6 +72,9 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ExportConversations: (ids: string[]) => mockExportConversations(ids),
   ExportConversationsToFile: (ids: string[], format: string, options: unknown) => mockExportConversationsToFile(ids, format, options),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Subagent', () => ({
   ListSubAgentRuns: (limit: number) => mockListSubAgentRuns(limit),
   CancelSubAgentRun: (conversationId: string, runId: string) => mockCancelSubAgentRun(conversationId, runId),
 }));
