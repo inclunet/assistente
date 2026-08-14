@@ -2,9 +2,24 @@ package terminal
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 )
+
+type fakePTYSession struct {
+	killCalls  int
+	closeCalls int
+}
+
+func (f *fakePTYSession) PtyReader() io.Reader  { return nil }
+func (f *fakePTYSession) PtyWriter() io.Writer  { return io.Discard }
+func (f *fakePTYSession) Resize(int, int) error { return nil }
+func (f *fakePTYSession) Wait() error           { return nil }
+func (f *fakePTYSession) Kill() error           { f.killCalls++; return nil }
+func (f *fakePTYSession) Close() error          { f.closeCalls++; return nil }
+func (f *fakePTYSession) Pid() int              { return 1 }
+func (f *fakePTYSession) CloseStdin() error     { return nil }
 
 func TestRunCommandDoesNotEmitStartForBusySession(t *testing.T) {
 	var events []string
@@ -73,6 +88,18 @@ func TestCloseIsIdempotentWithoutPTY(t *testing.T) {
 	}
 	if exitEvents != 0 {
 		t.Fatalf("fechamento explícito emitiu %d eventos exited", exitEvents)
+	}
+}
+
+func TestClosePTYReleasesNaturalExitOnlyOnce(t *testing.T) {
+	ptySession := &fakePTYSession{}
+	session := &Session{id: "term-natural-exit", ptySession: ptySession}
+
+	session.closePTY(false)
+	session.closePTY(false)
+
+	if ptySession.closeCalls != 1 || ptySession.killCalls != 0 {
+		t.Fatalf("close=%d kill=%d", ptySession.closeCalls, ptySession.killCalls)
 	}
 }
 

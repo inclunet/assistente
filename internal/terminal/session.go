@@ -117,6 +117,7 @@ type Session struct {
 	readerCtx     context.Context
 	onExit        func(sessionID string, err error)
 	exitOnce      sync.Once
+	ptyCloseOnce  sync.Once
 	explicitClose bool
 }
 
@@ -240,10 +241,25 @@ func (s *Session) readLoop(ctx context.Context) {
 			} else {
 				err = nil
 			}
+			s.closePTY(false)
 			s.markExited(err)
 			return
 		}
 	}
+}
+
+func (s *Session) closePTY(kill bool) {
+	s.ptyCloseOnce.Do(func() {
+		s.ioMu.Lock()
+		defer s.ioMu.Unlock()
+		if s.ptySession == nil {
+			return
+		}
+		if kill {
+			_ = s.ptySession.Kill()
+		}
+		_ = s.ptySession.Close()
+	})
 }
 
 func (s *Session) markExited(err error) {
@@ -607,7 +623,6 @@ func (s *Session) Close() error {
 	s.state = StateClosing
 	s.explicitClose = true
 	cancelReader := s.cancelReader
-	ptySession := s.ptySession
 	id, name := s.id, s.name
 	s.mu.Unlock()
 
@@ -617,12 +632,7 @@ func (s *Session) Close() error {
 	}
 
 	// I/O potencialmente bloqueante acontece sem manter o mutex de estado.
-	if ptySession != nil {
-		s.ioMu.Lock()
-		_ = ptySession.Kill()
-		_ = ptySession.Close()
-		s.ioMu.Unlock()
-	}
+	s.closePTY(true)
 
 	s.markExited(nil)
 
