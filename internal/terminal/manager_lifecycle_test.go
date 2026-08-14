@@ -58,3 +58,13 @@ func TestCloseIsIdempotentWithoutPTY(t *testing.T) {
 		t.Fatalf("fechamento explícito emitiu %d eventos exited", exitEvents)
 	}
 }
+
+func TestFinishCommandPreservesClosingState(t *testing.T) {
+	session := &Session{id: "term-closing", state: StateClosing}
+
+	session.finishCommand()
+
+	if got := session.State(); got != StateClosing {
+		t.Fatalf("estado = %s, esperado closing", got.String())
+	}
+}

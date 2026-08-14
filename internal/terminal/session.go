@@ -93,6 +93,7 @@ type Session struct {
 	shell      string
 	cwd        string
 	mu         sync.Mutex
+	ioMu       sync.Mutex
 	history    []HistoryEntry
 	createdAt  time.Time
 	lastUsed   time.Time
@@ -268,16 +269,18 @@ func (s *Session) beginCommand() error {
 	return nil
 }
 
+func (s *Session) finishCommand() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state == StateRunning {
+		s.state = StateIdle
+	}
+}
+
 // RunCommand executa um comando na sessão PTY e retorna o output.
 // O comando é envolvido com markers para detectar início/fim e exit code.
 func (s *Session) RunCommand(ctx context.Context, command string, timeout time.Duration, source, commandID string) (*HistoryEntry, error) {
-	defer func() {
-		s.mu.Lock()
-		if s.state != StateClosed {
-			s.state = StateIdle
-		}
-		s.mu.Unlock()
-	}()
+	defer s.finishCommand()
 
 	if commandID == "" {
 		commandID = uuid.NewString()
@@ -317,7 +320,16 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 	}
 	logging.Debugf(ctx, "terminal.session", "[Terminal] RunCommand session=%s os=%s enter=%q cmdLen=%d shell=%s",
 		s.id, runtime.GOOS, enter, len(wrappedCmd), s.shell)
+	s.ioMu.Lock()
+	s.mu.Lock()
+	canWrite := s.state == StateRunning
+	s.mu.Unlock()
+	if !canWrite {
+		s.ioMu.Unlock()
+		return nil, fmt.Errorf("sessão %s foi encerrada antes do início do comando", s.id)
+	}
 	nWritten, err := s.ptySession.PtyWriter().Write([]byte(wrappedCmd + enter))
+	s.ioMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, err)
 	}
@@ -369,11 +381,13 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			logging.Errorf(ctx, "terminal.session", "[Terminal] TIMEOUT session=%s bufLen=%d", s.id, len(raw))
 
 			// Envia Ctrl+C para interromper o comando travado e liberar o shell
+			s.ioMu.Lock()
 			if _, writeErr := s.ptySession.PtyWriter().Write([]byte{0x03}); writeErr != nil {
 				logging.Errorf(ctx, "terminal.session", "[Terminal] Erro ao enviar Ctrl+C após timeout: %v", writeErr)
 			} else {
 				logging.Warnf(ctx, "terminal.session", "[Terminal] Ctrl+C enviado após timeout na sessão %s", s.id)
 			}
+			s.ioMu.Unlock()
 
 			// Extrai output útil (entre start marker e o fim, se houver start marker)
 			output := cleaned
@@ -518,12 +532,10 @@ func (s *Session) State() SessionState {
 // Usado para comandos do usuário no Terminal Page e para input de programas interativos.
 // Não bloqueia — o output vem via streaming (onRawOutput).
 func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
-	s.mu.Lock()
-	if s.state != StateIdle {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("sessão %s não aceita input manual no estado %s", s.id, s.state.String())
+	if err := s.beginCommand(); err != nil {
+		return nil, err
 	}
-	s.lastUsed = time.Now()
+	defer s.finishCommand()
 
 	// Windows ConPTY espera CR (\r) para simular Enter.
 	// Unix PTY espera LF (\n) para executar o comando.
@@ -545,8 +557,16 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 	if s.onCommandStart != nil {
 		s.onCommandStart(s.id, entry.ID, entry.Command, entry.Source)
 	}
-	_, err := s.ptySession.PtyWriter().Write([]byte(input + enter))
+	s.ioMu.Lock()
+	s.mu.Lock()
+	canWrite := s.state == StateRunning
 	s.mu.Unlock()
+	if !canWrite {
+		s.ioMu.Unlock()
+		return nil, fmt.Errorf("sessão %s foi encerrada antes do envio do input", s.id)
+	}
+	_, err := s.ptySession.PtyWriter().Write([]byte(input + enter))
+	s.ioMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar input para sessão %s: %w", s.id, err)
 	}
@@ -558,8 +578,11 @@ func (s *Session) SendInput(input, commandID string) (*HistoryEntry, error) {
 
 // Interrupt envia Ctrl+C (byte 0x03) ao PTY para interromper o processo em execução.
 func (s *Session) Interrupt() error {
+	s.ioMu.Lock()
+	defer s.ioMu.Unlock()
+
 	s.mu.Lock()
-	if s.state == StateClosed {
+	if s.state == StateClosing || s.state == StateExited {
 		s.mu.Unlock()
 		return fmt.Errorf("sessão %s está fechada", s.id)
 	}
@@ -595,8 +618,10 @@ func (s *Session) Close() error {
 
 	// I/O potencialmente bloqueante acontece sem manter o mutex de estado.
 	if ptySession != nil {
+		s.ioMu.Lock()
 		_ = ptySession.Kill()
 		_ = ptySession.Close()
+		s.ioMu.Unlock()
 	}
 
 	s.markExited(nil)
