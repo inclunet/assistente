@@ -58,6 +58,8 @@ func main() {
 	application.SetSubagentAPI(a, subagentAPI)
 	tasklistActionsAPI := wailsapi.NewTasklistActions()
 	application.SetTasklistActionsAPI(a, tasklistActionsAPI)
+	jobsAPI := wailsapi.NewJobs()
+	application.SetJobsAPI(a, jobsAPI)
 	llmProvidersAPI := wailsapi.NewLLMProviders()
 	application.SetLLMProvidersAPI(a, llmProvidersAPI)
 
@@ -115,6 +117,7 @@ func main() {
 			databaseAPI,
 			subagentAPI,
 			tasklistActionsAPI,
+			jobsAPI,
 			llmProvidersAPI,
 		},
 		Debug: options.Debug{

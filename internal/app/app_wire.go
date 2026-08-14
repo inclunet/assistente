@@ -232,6 +232,20 @@ func (a *App) wireSubagent() {
 	}
 }
 
+// wireJobs associa o bind Wails de jobs após NewJobsController (AEP-0088).
+// initJobs (Manager) permanece no App; dry-run MCP e custom action events via hooks.
+func (a *App) wireJobs() {
+	if a.jobsAPI != nil {
+		wailsapi.AttachJobs(
+			a.jobsAPI,
+			wailsSession{app: a},
+			a.jobsCtrl,
+			a.mcpMgr,
+			a.customActionEventNames,
+		)
+	}
+}
+
 // wireLLMProviders monta o LLMController e associa o bind Wails (AEP-0088).
 func (a *App) wireLLMProviders() {
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{

@@ -49,3 +49,7 @@ export function SetActiveProfile(arg1) {
 export function UpdateProfile(arg1, arg2) {
   return window['go']['wailsapi']['Profiles']['UpdateProfile'](arg1, arg2);
 }
+
+export function UpdateProfileMediaSupport(arg1, arg2) {
+  return window['go']['wailsapi']['Profiles']['UpdateProfileMediaSupport'](arg1, arg2);
+}

@@ -286,6 +286,10 @@ type App struct {
 	// actions (AEP-0088). Criado em main e wired após NewTaskListController.
 	tasklistActionsAPI *wailsapi.TasklistActions
 
+	// jobsAPI é o bind Wails do domínio jobs (AEP-0088). Criado em main e
+	// wired após NewJobsController.
+	jobsAPI *wailsapi.Jobs
+
 	// llmProvidersAPI é o bind Wails do domínio llm_providers (AEP-0088).
 	// Criado em main e wired após NewLLMController.
 	llmProvidersAPI *wailsapi.LLMProviders
@@ -485,6 +489,15 @@ func SetTasklistActionsAPI(a *App, api *wailsapi.TasklistActions) {
 		return
 	}
 	a.tasklistActionsAPI = api
+}
+
+// SetJobsAPI registra o bind Wails de jobs antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetJobsAPI(a *App, api *wailsapi.Jobs) {
+	if a == nil {
+		return
+	}
+	a.jobsAPI = api
 }
 
 // SetLLMProvidersAPI registra o bind Wails de llm_providers antes do Run (main.go).
@@ -857,6 +870,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
 		JobMgr: a.jobMgr,
 	})
+	a.wireJobs()
 	a.wireTokens()
 	a.wireSkills()
 	a.wireAllowlist()
