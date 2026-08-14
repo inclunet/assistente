@@ -8,6 +8,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/memory"
 	"assistente/internal/profiles"
+	"assistente/internal/subagent"
 	"assistente/internal/terminal"
 	"assistente/internal/wailsapi"
 )
@@ -282,6 +283,22 @@ func TestWireDatabaseAttachesBind(t *testing.T) {
 		t.Fatal("settingsCtrl deve existir para o bind Database")
 	}
 	_, err := api.GetMaintenanceSettings()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireSubagentAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		subagentMgr: subagent.NewManager(subagent.ManagerConfig{}),
+	}
+	api := wailsapi.NewSubagent()
+	SetSubagentAPI(a, api)
+
+	a.wireSubagent()
+
+	_, err := api.ListSubAgentRuns(10)
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

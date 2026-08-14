@@ -54,3 +54,6 @@ var ErrDatabaseNotWired = errors.New("wailsapi: database bind not wired")
 // ResetDatabase falha. O detalhe real (paths, syscalls) só vai para o logger
 // local — defesa contra leak de filesystem em multi-user (AEP-0052).
 var ErrDatabaseResetFailed = errors.New("database reset failed")
+
+// ErrSubagentNotWired indica que o bind Subagent ainda não recebeu manager/session.
+var ErrSubagentNotWired = errors.New("wailsapi: subagent bind not wired")

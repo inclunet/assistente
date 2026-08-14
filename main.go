@@ -50,6 +50,8 @@ func main() {
 	application.SetMemoryAPI(a, memoryAPI)
 	databaseAPI := wailsapi.NewDatabase()
 	application.SetDatabaseAPI(a, databaseAPI)
+	subagentAPI := wailsapi.NewSubagent()
+	application.SetSubagentAPI(a, subagentAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -101,6 +103,7 @@ func main() {
 			terminalAPI,
 			memoryAPI,
 			databaseAPI,
+			subagentAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,
