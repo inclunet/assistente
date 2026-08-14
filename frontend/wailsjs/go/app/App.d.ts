@@ -7,7 +7,6 @@ import {portability} from '../models';
 import {subagent} from '../models';
 import {context} from '../models';
 import {controllers} from '../models';
-import {memory} from '../models';
 import {jobs} from '../models';
 import {speech} from '../models';
 import {channels} from '../models';
@@ -33,8 +32,6 @@ export function AddMessageWithTokensAndMedia(arg1:string,arg2:string,arg3:string
 export function AddWorkspaceTab(arg1:workspace.Tab):Promise<workspace.Workspace>;
 
 export function AnalyzeImportData(arg1:string,arg2:string):Promise<portability.ImportAnalysis>;
-
-export function ArchiveMemoryRecord(arg1:string):Promise<database.MemoryRecord>;
 
 export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -72,8 +69,6 @@ export function CreateDefaultLLMProvider(arg1:string,arg2:string):Promise<void>;
 
 export function CreateLLMProvider(arg1:controllers.CreateLLMProviderRequest):Promise<Record<string, any>>;
 
-export function CreateMemoryRecord(arg1:memory.RecordInput):Promise<database.MemoryRecord>;
-
 export function CreateMessage(arg1:string,arg2:string,arg3:string):Promise<database.ChatMessage>;
 
 export function CreateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
@@ -89,8 +84,6 @@ export function DeleteConversation(arg1:string):Promise<void>;
 export function DeleteJob(arg1:string):Promise<void>;
 
 export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void>;
-
-export function DeleteMemoryRecord(arg1:string):Promise<void>;
 
 export function DeleteMessage(arg1:string):Promise<void>;
 
@@ -230,10 +223,6 @@ export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 
 export function GetMaintenanceSettings():Promise<config.MaintenanceSettings>;
 
-export function GetMemoryPolicySummary():Promise<memory.PolicySummary>;
-
-export function GetMemoryRecord(arg1:string):Promise<database.MemoryRecord>;
-
 export function GetMessageAudio(arg1:string):Promise<speech.AudioResult>;
 
 export function GetMessageChildren(arg1:string):Promise<Array<chat.MessageNode>>;
@@ -316,8 +305,6 @@ export function ListInstalledACPAgents():Promise<Array<app.ACPInstallation>>;
 
 export function ListKnownEvents():Promise<Array<string>>;
 
-export function ListMemoryRecords(arg1:memory.Filter):Promise<memory.ListResult>;
-
 export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
 
 export function ListSubAgentRuns(arg1:number):Promise<subagent.RunListResult>;
@@ -396,8 +383,6 @@ export function SaveWorkspace():Promise<void>;
 
 export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array<database.MessageSearchResult>>;
 
-export function SearchMemoryRecords(arg1:string,arg2:memory.Filter):Promise<memory.ListResult>;
-
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<string>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
@@ -460,8 +445,6 @@ export function TranscribeWhisper(arg1:string,arg2:string):Promise<speech.Transc
 
 export function TriggerCustomAction(arg1:string,arg2:string,arg3:string):Promise<string>;
 
-export function UnarchiveMemoryRecord(arg1:string,arg2:string):Promise<database.MemoryRecord>;
-
 export function UnassignConversationFromChannel(arg1:string):Promise<void>;
 
 export function UnlockVault(arg1:string,arg2:string):Promise<void>;
@@ -473,8 +456,6 @@ export function UpdateConversation(arg1:string,arg2:string,arg3:string):Promise<
 export function UpdateConversationModel(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateLLMProvider(arg1:string,arg2:controllers.UpdateLLMProviderRequest):Promise<Record<string, any>>;
-
-export function UpdateMemoryRecord(arg1:string,arg2:memory.RecordInput):Promise<database.MemoryRecord>;
 
 export function UpdateMessage(arg1:string,arg2:string):Promise<void>;
 

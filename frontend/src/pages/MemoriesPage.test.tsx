@@ -14,7 +14,7 @@ const mockConfirm = vi.fn();
 const mockAnnounce = vi.fn();
 const mockAddToast = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Memory', () => ({
   ListMemoryRecords: (...args: unknown[]) => mockListMemoryRecords(...args),
   GetMemoryRecord: (...args: unknown[]) => mockGetMemoryRecord(...args),
   CreateMemoryRecord: (...args: unknown[]) => mockCreateMemoryRecord(...args),

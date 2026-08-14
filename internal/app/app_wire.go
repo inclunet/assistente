@@ -163,3 +163,13 @@ func (a *App) wireTerminal() {
 		wailsapi.AttachTerminal(a.terminalAPI, wailsSession{app: a}, a.terminalCtrl)
 	}
 }
+
+// wireMemory monta o MemoryController e associa o bind Wails (AEP-0088).
+func (a *App) wireMemory() {
+	a.memoryCtrl = controllers.NewMemoryController(controllers.MemoryControllerConfig{
+		MemorySvc: a.memorySvc,
+	})
+	if a.memoryAPI != nil {
+		wailsapi.AttachMemory(a.memoryAPI, wailsSession{app: a}, a.memoryCtrl)
+	}
+}
