@@ -1,9 +1,7 @@
 import { logger } from '../utils/logger';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  CleanupLegacyChannelJSON,
-} from '@wailsjs/go/app/App';
+import { CleanupLegacyChannelJSON } from '@wailsjs/go/wailsapi/LegacyCleanup';
 import {
   ClearMessages,
   ResetDatabase,

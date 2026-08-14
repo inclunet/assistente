@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/memory"
@@ -283,6 +284,37 @@ func TestWireDatabaseAttachesBind(t *testing.T) {
 		t.Fatal("settingsCtrl deve existir para o bind Database")
 	}
 	_, err := api.GetMaintenanceSettings()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireWelcomeAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewWelcome()
+	SetWelcomeAPI(a, api)
+
+	a.wireWelcome()
+
+	if a.welcomeCtrl == nil {
+		t.Fatal("welcomeCtrl deve ser criado")
+	}
+	// Sem master key/db: fail-safe true (Attach não exige sessão).
+	if !api.NeedsWelcomeWizard() {
+		t.Fatal("NeedsWelcomeWizard após Attach parcial deve permanecer fail-safe true sem master key/db")
+	}
+}
+
+func TestWireLegacyCleanupAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewLegacyCleanup()
+	SetLegacyCleanupAPI(a, api)
+
+	a.wireLegacyCleanup()
+
+	_, err := api.CleanupLegacyChannelJSON(apidto.CleanupLegacyChannelJSONOptions{})
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

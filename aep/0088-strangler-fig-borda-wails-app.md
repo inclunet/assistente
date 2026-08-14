@@ -216,6 +216,8 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **signal** (register/verify/link/unregister/checkAPI/listAccounts → `wailsapi.Signal`; `SignalAPIStatus` em `apidto`)
 - [x] **terminal** (sessões PTY: list/create/close/history/run/input/interrupt/stats → `wailsapi.Terminal`; managers e eventos `terminal:*` permanecem no `*App`)
 - [x] **memory** (CRUD + search + policy summary → `wailsapi.Memory`; tipos de `memory`/`database`, sem DTO extra)
+- [x] **welcome** (NeedsWelcomeWizard dual-mode + RunWelcomeWizard → `wailsapi.Welcome`; sem `WithUser`; não entra em `UnauthenticatedAppMethods` — allowlist só de `*App`)
+- [x] **channels_legacy_cleanup** / legacy cleanup (`CleanupLegacyChannelJSON` → `wailsapi.LegacyCleanup`; DTOs em `apidto`)
 - [x] **database** (reset/clear + maintenance/stats → `wailsapi.Database`; tipos de `config`/`database`, sem DTO extra)
 - [x] **subagent** (ListSubAgentRuns + CancelSubAgentRun → `wailsapi.Subagent`; Manager e delivery parent permanecem no `*App`)
 - [ ] llm_providers → …

@@ -58,10 +58,6 @@ export function CancelStreamingForConversation(arg1) {
   return window['go']['app']['App']['CancelStreamingForConversation'](arg1);
 }
 
-export function CleanupLegacyChannelJSON(arg1) {
-  return window['go']['app']['App']['CleanupLegacyChannelJSON'](arg1);
-}
-
 export function ClearConversation(arg1) {
   return window['go']['app']['App']['ClearConversation'](arg1);
 }
@@ -582,10 +578,6 @@ export function MoveWorkspaceTabTo(arg1, arg2) {
   return window['go']['app']['App']['MoveWorkspaceTabTo'](arg1, arg2);
 }
 
-export function NeedsWelcomeWizard() {
-  return window['go']['app']['App']['NeedsWelcomeWizard']();
-}
-
 export function PromoteTask(arg1) {
   return window['go']['app']['App']['PromoteTask'](arg1);
 }
@@ -676,10 +668,6 @@ export function RevokeAgentPermission(arg1, arg2) {
 
 export function RunJob(arg1) {
   return window['go']['app']['App']['RunJob'](arg1);
-}
-
-export function RunWelcomeWizard() {
-  return window['go']['app']['App']['RunWelcomeWizard']();
 }
 
 export function SaveChannelConfig(arg1, arg2) {

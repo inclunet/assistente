@@ -83,6 +83,80 @@ export namespace allowlist {
 
 export namespace apidto {
 	
+	export class CleanupLegacyChannelJSONItem {
+	    path: string;
+	    kind: string;
+	    slug?: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CleanupLegacyChannelJSONItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.kind = source["kind"];
+	        this.slug = source["slug"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class CleanupLegacyChannelJSONOptions {
+	    confirm: boolean;
+	    noBackup: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CleanupLegacyChannelJSONOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.confirm = source["confirm"];
+	        this.noBackup = source["noBackup"];
+	    }
+	}
+	export class CleanupLegacyChannelJSONResult {
+	    dryRun: boolean;
+	    eligible: CleanupLegacyChannelJSONItem[];
+	    removed: string[];
+	    backedUpTo?: string;
+	    skipped: CleanupLegacyChannelJSONItem[];
+	    errors: string[];
+	    warnings: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CleanupLegacyChannelJSONResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dryRun = source["dryRun"];
+	        this.eligible = this.convertValues(source["eligible"], CleanupLegacyChannelJSONItem);
+	        this.removed = source["removed"];
+	        this.backedUpTo = source["backedUpTo"];
+	        this.skipped = this.convertValues(source["skipped"], CleanupLegacyChannelJSONItem);
+	        this.errors = source["errors"];
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CredentialInput {
 	    pattern: string;
 	    type: string;
@@ -1156,80 +1230,6 @@ export namespace app {
 	        this.origin = source["origin"];
 	        this.interrupt = source["interrupt"];
 	    }
-	}
-	export class CleanupLegacyChannelJSONItem {
-	    path: string;
-	    kind: string;
-	    slug?: string;
-	    reason: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CleanupLegacyChannelJSONItem(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.kind = source["kind"];
-	        this.slug = source["slug"];
-	        this.reason = source["reason"];
-	    }
-	}
-	export class CleanupLegacyChannelJSONOptions {
-	    confirm: boolean;
-	    noBackup: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new CleanupLegacyChannelJSONOptions(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.confirm = source["confirm"];
-	        this.noBackup = source["noBackup"];
-	    }
-	}
-	export class CleanupLegacyChannelJSONResult {
-	    dryRun: boolean;
-	    eligible: CleanupLegacyChannelJSONItem[];
-	    removed: string[];
-	    backedUpTo?: string;
-	    skipped: CleanupLegacyChannelJSONItem[];
-	    errors: string[];
-	    warnings: string[];
-	
-	    static createFrom(source: any = {}) {
-	        return new CleanupLegacyChannelJSONResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.dryRun = source["dryRun"];
-	        this.eligible = this.convertValues(source["eligible"], CleanupLegacyChannelJSONItem);
-	        this.removed = source["removed"];
-	        this.backedUpTo = source["backedUpTo"];
-	        this.skipped = this.convertValues(source["skipped"], CleanupLegacyChannelJSONItem);
-	        this.errors = source["errors"];
-	        this.warnings = source["warnings"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class ConversationSummaryInfo {
 	    summary: string;

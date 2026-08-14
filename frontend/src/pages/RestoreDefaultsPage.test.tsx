@@ -2,12 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
-import * as AppAPI from '@wailsjs/go/app/App';
 import * as DatabaseAPI from '@wailsjs/go/wailsapi/Database';
+import * as LegacyCleanupAPI from '@wailsjs/go/wailsapi/LegacyCleanup';
 import * as SettingsAPI from '@wailsjs/go/wailsapi/Settings';
-import { app } from '@wailsjs/go/models';
+import { apidto } from '@wailsjs/go/models';
+
 const emptyCleanupResult = () =>
-  app.CleanupLegacyChannelJSONResult.createFrom({
+  apidto.CleanupLegacyChannelJSONResult.createFrom({
     dryRun: true,
     eligible: [],
     removed: [],
@@ -83,6 +84,7 @@ vi.mock('../store/chatStore', () => ({
 }));
 vi.mock('@wailsjs/go/app/App');
 vi.mock('@wailsjs/go/wailsapi/Database');
+vi.mock('@wailsjs/go/wailsapi/LegacyCleanup');
 vi.mock('@wailsjs/go/wailsapi/Settings');
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
@@ -106,7 +108,7 @@ describe('RestoreDefaultsPage', () => {
     vi.mocked(SettingsAPI.ClearAllSkills).mockResolvedValue(undefined);
     vi.mocked(SettingsAPI.ClearAllChannels).mockResolvedValue(undefined);
     vi.mocked(DatabaseAPI.ResetDatabase).mockResolvedValue(undefined);
-    vi.mocked(AppAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
+    vi.mocked(LegacyCleanupAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
 
     mockConfirm.mockReset();
     mockConfirm.mockResolvedValue(true);
@@ -268,7 +270,7 @@ describe('RestoreDefaultsPage', () => {
 
     it('deve anunciar quando não há JSON legado elegível', async () => {
       const user = userEvent.setup();
-      vi.mocked(AppAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
+      vi.mocked(LegacyCleanupAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
 
       render(<RestoreDefaultsPage />);
 
@@ -279,7 +281,7 @@ describe('RestoreDefaultsPage', () => {
       await user.click(cleanupBtn);
 
       await waitFor(() => {
-        expect(AppAPI.CleanupLegacyChannelJSON).toHaveBeenCalledWith({
+        expect(LegacyCleanupAPI.CleanupLegacyChannelJSON).toHaveBeenCalledWith({
           confirm: false,
           noBackup: false,
         });
@@ -290,9 +292,9 @@ describe('RestoreDefaultsPage', () => {
 
     it('deve confirmar e remover JSON legado elegível', async () => {
       const user = userEvent.setup();
-      vi.mocked(AppAPI.CleanupLegacyChannelJSON)
+      vi.mocked(LegacyCleanupAPI.CleanupLegacyChannelJSON)
         .mockResolvedValueOnce(
-          app.CleanupLegacyChannelJSONResult.createFrom({
+          apidto.CleanupLegacyChannelJSONResult.createFrom({
             dryRun: true,
             eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
             removed: [],
@@ -302,7 +304,7 @@ describe('RestoreDefaultsPage', () => {
           })
         )
         .mockResolvedValueOnce(
-          app.CleanupLegacyChannelJSONResult.createFrom({
+          apidto.CleanupLegacyChannelJSONResult.createFrom({
             dryRun: false,
             eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
             removed: ['/tmp/channels/telegram.json'],
@@ -325,7 +327,7 @@ describe('RestoreDefaultsPage', () => {
       await waitFor(() => {
         expect(mockConfirm).toHaveBeenCalledTimes(2);
       });
-      expect(AppAPI.CleanupLegacyChannelJSON).toHaveBeenNthCalledWith(2, {
+      expect(LegacyCleanupAPI.CleanupLegacyChannelJSON).toHaveBeenNthCalledWith(2, {
         confirm: true,
         noBackup: false,
       });
@@ -336,9 +338,9 @@ describe('RestoreDefaultsPage', () => {
 
     it('deve tratar errors da API como falha', async () => {
       const user = userEvent.setup();
-      vi.mocked(AppAPI.CleanupLegacyChannelJSON)
+      vi.mocked(LegacyCleanupAPI.CleanupLegacyChannelJSON)
         .mockResolvedValueOnce(
-          app.CleanupLegacyChannelJSONResult.createFrom({
+          apidto.CleanupLegacyChannelJSONResult.createFrom({
             dryRun: true,
             eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
             removed: [],
@@ -371,9 +373,9 @@ describe('RestoreDefaultsPage', () => {
 
     it('não anuncia sucesso total quando nenhum arquivo foi removido após confirmação', async () => {
       const user = userEvent.setup();
-      vi.mocked(AppAPI.CleanupLegacyChannelJSON)
+      vi.mocked(LegacyCleanupAPI.CleanupLegacyChannelJSON)
         .mockResolvedValueOnce(
-          app.CleanupLegacyChannelJSONResult.createFrom({
+          apidto.CleanupLegacyChannelJSONResult.createFrom({
             dryRun: true,
             eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
             removed: [],
@@ -383,7 +385,7 @@ describe('RestoreDefaultsPage', () => {
           })
         )
         .mockResolvedValueOnce(
-          app.CleanupLegacyChannelJSONResult.createFrom({
+          apidto.CleanupLegacyChannelJSONResult.createFrom({
             dryRun: false,
             eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
             removed: [],

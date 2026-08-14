@@ -5,6 +5,8 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/providers"
+	"assistente/internal/wailsapi"
+	"context"
 	"fmt"
 )
 
@@ -50,72 +52,6 @@ func (a *App) validateWizardURL(baseURL string) error {
 	return ctrl.ValidateWizardURL(a.ctx, baseURL)
 }
 
-// NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas.
-//
-// Question 14 + Blocker C do re-review do AEP-0052: o wizard tem partes
-// per-instance (master key, primeiro usuário) e parte per-user (provedores
-// LLM). Sem distinguir os dois modos a função engolia ErrUserScopeRequired
-// silenciosamente e dava certo "por acidente". A versão dual-mode explícita:
-//
-//   - Pré-login (CLI `assistente setup` ou primeira boot da UI antes do
-//     AuthGate): wizard é puramente instance-wide. Decide só por (a)
-//     existência de master key e (b) existência de algum usuário cadastrado.
-//     NÃO consulta provedores — eles são per-user.
-//   - Pós-login (UI rodando depois do AuthGate): ctx carrega o userID; o
-//     check de provedores fica per-user via requireAuthenticatedContext.
-//
-// Esse é o único binding Wails que tolera "sem sessão", e mesmo assim só
-// para devolver true/false consistentes — nada é lido de tabelas de usuário
-// pré-login.
-func (a *App) NeedsWelcomeWizard() bool {
-	store := credentials.NewDBStore()
-	hasMasterKey, err := store.HasKeyWrap(a.appContext(), credentials.KeyWrapKindMaster)
-	if err != nil {
-		return true
-	}
-
-	a.authMu.RLock()
-	loggedIn := a.currentUserID != ""
-	a.authMu.RUnlock()
-
-	if !loggedIn {
-		var userCount int64
-		if database.DB() == nil {
-			return true
-		}
-		if err := database.DB().Model(&database.User{}).Count(&userCount).Error; err != nil {
-			return true
-		}
-		return !hasMasterKey || userCount == 0
-	}
-
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return true
-	}
-	if a.welcomeCtrl != nil {
-		return a.welcomeCtrl.NeedsWelcomeWizard(ctx)
-	}
-	if a.providerSvc == nil {
-		return true
-	}
-	count, err := a.providerSvc.Count(ctx)
-	if err != nil {
-		return true
-	}
-	return count == 0 || !hasMasterKey
-}
-
-// RunWelcomeWizard executa o wizard de boas-vindas.
-// Retorna true se completou com sucesso, false se cancelado.
-func (a *App) RunWelcomeWizard() (bool, error) {
-	ctrl, err := a.welcomeController()
-	if err != nil {
-		return false, err
-	}
-	return ctrl.RunWelcomeWizard(a.ctx)
-}
-
 // createWizardProvider cria o provedor LLM escolhido durante o wizard (thin-wrap para testes).
 func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string) (string, error) {
 	ctrl, err := a.welcomeController()
@@ -123,4 +59,59 @@ func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string
 		return "", err
 	}
 	return ctrl.CreateWizardProvider(a.ctx, providerChoice, baseURL, apiKey, model)
+}
+
+// welcomeRuntime adapta *App para wailsapi.WelcomeRuntime sem expor métodos no Bind.
+type welcomeRuntime struct {
+	app *App
+}
+
+func (r welcomeRuntime) AppContext() context.Context {
+	if r.app == nil {
+		return context.Background()
+	}
+	return r.app.appContext()
+}
+
+func (r welcomeRuntime) IsLoggedIn() bool {
+	if r.app == nil {
+		return false
+	}
+	r.app.authMu.RLock()
+	defer r.app.authMu.RUnlock()
+	return r.app.currentUserID != ""
+}
+
+func (r welcomeRuntime) HasMasterKey() (bool, error) {
+	store := credentials.NewDBStore()
+	return store.HasKeyWrap(r.AppContext(), credentials.KeyWrapKindMaster)
+}
+
+func (r welcomeRuntime) UserCount() (int64, error) {
+	if database.DB() == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	var userCount int64
+	if err := database.DB().Model(&database.User{}).Count(&userCount).Error; err != nil {
+		return 0, err
+	}
+	return userCount, nil
+}
+
+func (r welcomeRuntime) ProviderCount(ctx context.Context) (int64, error) {
+	if r.app == nil || r.app.providerSvc == nil {
+		return 0, fmt.Errorf("provider service not initialized")
+	}
+	count, err := r.app.providerSvc.Count(ctx)
+	return int64(count), err
+}
+
+// NeedsWelcomeWizard avalia o wizard dual-mode para a CLI (cmd/asst).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails;
+// a UI usa wailsapi.Welcome.
+func NeedsWelcomeWizard(a *App) bool {
+	if a == nil {
+		return true
+	}
+	return wailsapi.EvaluateNeedsWelcomeWizard(wailsSession{app: a}, a.welcomeCtrl, welcomeRuntime{app: a})
 }

@@ -48,6 +48,10 @@ func main() {
 	application.SetTerminalAPI(a, terminalAPI)
 	memoryAPI := wailsapi.NewMemory()
 	application.SetMemoryAPI(a, memoryAPI)
+	welcomeAPI := wailsapi.NewWelcome()
+	application.SetWelcomeAPI(a, welcomeAPI)
+	legacyCleanupAPI := wailsapi.NewLegacyCleanup()
+	application.SetLegacyCleanupAPI(a, legacyCleanupAPI)
 	databaseAPI := wailsapi.NewDatabase()
 	application.SetDatabaseAPI(a, databaseAPI)
 	subagentAPI := wailsapi.NewSubagent()
@@ -102,6 +106,8 @@ func main() {
 			signalAPI,
 			terminalAPI,
 			memoryAPI,
+			welcomeAPI,
+			legacyCleanupAPI,
 			databaseAPI,
 			subagentAPI,
 		},

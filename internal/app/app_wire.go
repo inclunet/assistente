@@ -188,6 +188,32 @@ func (a *App) wireMemory() {
 	}
 }
 
+// wireWelcome monta o WelcomeController e associa o bind Wails (AEP-0088).
+func (a *App) wireWelcome() {
+	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
+		QuestionnaireMgr:           a.questionnaireMgr,
+		CredMgr:                    a.credMgr,
+		ProviderSvc:                a.providerSvc,
+		LLMRegistry:                a.llmRegistry,
+		Updater:                    a.updater,
+		UpdaterCtrl:                a.updaterCtrl,
+		ConfigureCredentialManager: a.configureCredentialManager,
+		InitLLMClient:              a.initLLMClient,
+		SaveLLMProviders:           a.saveLLMProviders,
+	})
+	if a.welcomeAPI != nil {
+		wailsapi.AttachWelcome(a.welcomeAPI, wailsSession{app: a}, a.welcomeCtrl, welcomeRuntime{app: a})
+	}
+}
+
+// wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).
+// Sem controller: o bind chama channels.CleanupLegacyJSONFiles diretamente.
+func (a *App) wireLegacyCleanup() {
+	if a.legacyCleanupAPI != nil {
+		wailsapi.AttachLegacyCleanup(a.legacyCleanupAPI, wailsSession{app: a})
+	}
+}
+
 // wireSubagent associa o bind Wails ao Manager já criado no startup (AEP-0088).
 // subagentParentDelivery e a criação do Manager permanecem no App.
 func (a *App) wireSubagent() {

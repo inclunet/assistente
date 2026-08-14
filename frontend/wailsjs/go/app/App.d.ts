@@ -43,8 +43,6 @@ export function CancelACPAgentInstall(arg1:string):Promise<void>;
 
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
 
-export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
-
 export function ClearConversation(arg1:string):Promise<void>;
 
 export function ClearTaskList(arg1:string):Promise<void>;
@@ -305,8 +303,6 @@ export function Logout(arg1:app.LogoutRequest):Promise<void>;
 
 export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Workspace>;
 
-export function NeedsWelcomeWizard():Promise<boolean>;
-
 export function PromoteTask(arg1:string):Promise<void>;
 
 export function RebuildSearchIndex():Promise<void>;
@@ -352,8 +348,6 @@ export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
 export function RevokeAgentPermission(arg1:string,arg2:string):Promise<void>;
 
 export function RunJob(arg1:string):Promise<jobs.RunLog>;
-
-export function RunWelcomeWizard():Promise<boolean>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
