@@ -214,6 +214,14 @@ func (a *App) wireLegacyCleanup() {
 	}
 }
 
+// wireTasklistActions associa o bind Wails de custom actions (AEP-0088).
+// Reusa taskListCtrl + jobMgr já montados; CRUD geral de tasklist permanece no App.
+func (a *App) wireTasklistActions() {
+	if a.tasklistActionsAPI != nil {
+		wailsapi.AttachTasklistActions(a.tasklistActionsAPI, wailsSession{app: a}, a.taskListCtrl, a.jobMgr)
+	}
+}
+
 // wireSubagent associa o bind Wails ao Manager já criado no startup (AEP-0088).
 // subagentParentDelivery e a criação do Manager permanecem no App.
 func (a *App) wireSubagent() {

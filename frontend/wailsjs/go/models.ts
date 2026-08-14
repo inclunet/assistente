@@ -199,6 +199,30 @@ export namespace apidto {
 	        this.managed = source["managed"];
 	    }
 	}
+	export class CustomActionView {
+	    id: string;
+	    label: string;
+	    icon?: string;
+	    danger?: boolean;
+	    confirm?: string;
+	    hasEvent: boolean;
+	    hasLink: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CustomActionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.icon = source["icon"];
+	        this.danger = source["danger"];
+	        this.confirm = source["confirm"];
+	        this.hasEvent = source["hasEvent"];
+	        this.hasLink = source["hasLink"];
+	    }
+	}
 	export class ExternalSourceSuggestion {
 	    value: string;
 	    label: string;
@@ -1261,30 +1285,6 @@ export namespace app {
 	        this.username = source["username"];
 	        this.displayName = source["displayName"];
 	        this.password = source["password"];
-	    }
-	}
-	export class CustomActionView {
-	    id: string;
-	    label: string;
-	    icon?: string;
-	    danger?: boolean;
-	    confirm?: string;
-	    hasEvent: boolean;
-	    hasLink: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new CustomActionView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.label = source["label"];
-	        this.icon = source["icon"];
-	        this.danger = source["danger"];
-	        this.confirm = source["confirm"];
-	        this.hasEvent = source["hasEvent"];
-	        this.hasLink = source["hasLink"];
 	    }
 	}
 	export class EditorFileInfo {

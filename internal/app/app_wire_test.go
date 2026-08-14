@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"assistente/controllers"
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -315,6 +316,22 @@ func TestWireLegacyCleanupAttachesBind(t *testing.T) {
 	a.wireLegacyCleanup()
 
 	_, err := api.CleanupLegacyChannelJSON(apidto.CleanupLegacyChannelJSONOptions{})
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireTasklistActionsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		taskListCtrl: controllers.NewTaskListController(controllers.TaskListControllerConfig{}),
+	}
+	api := wailsapi.NewTasklistActions()
+	SetTasklistActionsAPI(a, api)
+
+	a.wireTasklistActions()
+
+	_, err := api.GetTaskListCustomActions("list")
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
