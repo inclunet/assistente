@@ -130,12 +130,24 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', available: false, options: [] };
     },
-    SetAgentSessionOption: function(conversationId) {
+    SetAgentSessionOption: function(conversationId, optionId, value) {
       const last = _config.callLog[_config.callLog.length - 1];
       if (!last || last.scope !== 'wailsapi.ACPOptions') {
         throw new Error('SetAgentSessionOption deve ser chamado via wailsapi.ACPOptions');
       }
-      return { conversationId: conversationId || '', available: false, options: [] };
+      // Argumento faltando ou trocado escolheria a opção errada no agente; o
+      // mock precisa reprovar isso em vez de responder "deu certo".
+      if (typeof optionId !== 'string' || optionId === '') {
+        throw new Error('SetAgentSessionOption exige optionId como segundo argumento');
+      }
+      if (typeof value !== 'string' || value === '') {
+        throw new Error('SetAgentSessionOption exige value como terceiro argumento');
+      }
+      return {
+        conversationId: conversationId || '',
+        available: true,
+        options: [{ id: optionId, name: optionId, currentValue: value, values: [] }],
+      };
     },
     GetAgentConversationWorkDir: function(conversationId) {
       const last = _config.callLog[_config.callLog.length - 1];
