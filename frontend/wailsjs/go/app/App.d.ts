@@ -451,20 +451,6 @@ export function ShowWindow():Promise<void>;
 
 export function Shutdown():Promise<void>;
 
-export function SignalCheckAPI(arg1:string,arg2:string):Promise<Record<string, any>>;
-
-export function SignalLink(arg1:string,arg2:string,arg3:string):Promise<string>;
-
-export function SignalLinkRaw(arg1:string,arg2:string,arg3:string):Promise<string>;
-
-export function SignalListAccounts(arg1:string,arg2:string):Promise<Array<string>>;
-
-export function SignalRegister(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
-
-export function SignalUnregister(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<void>;
-
-export function SignalVerify(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
-
 export function SpeakMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:string):Promise<speech.AudioResult>;
 
 export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:string,arg8:string):Promise<void>;

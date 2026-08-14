@@ -7,7 +7,7 @@ import {
   SignalVerify,
   SignalLink,
   SignalUnregister,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Signal';
 import type { AddToastOptions, ToastAction } from '../store/uiStore';
 import type { ConfirmOptions } from '../store/confirmStore';
 import type {
@@ -119,7 +119,7 @@ export function useSignalChannelController({
         SignalListAccounts(signalForm.apiURL, apiToken).catch(() => [] as string[]),
       ]);
       setSignalAccounts(accounts || []);
-      let infoText = t('channels.signal.apiInfo', { version: info['version'] || '?', build: info['build'] || '?' });
+      let infoText = t('channels.signal.apiInfo', { version: info.version || '?', build: info.build || '?' });
       if (accounts && accounts.length > 0) {
         infoText += ` ${t('channels.signal.apiAccounts', { accounts: accounts.join(', ') })}`;
         if (!signalForm.account) {

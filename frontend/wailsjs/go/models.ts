@@ -293,6 +293,26 @@ export namespace apidto {
 	        this.offset = source["offset"];
 	    }
 	}
+	export class SignalAPIStatus {
+	    versions: string[];
+	    build: number;
+	    mode: string;
+	    version: string;
+	    capabilities: Record<string, Array<string>>;
+	
+	    static createFrom(source: any = {}) {
+	        return new SignalAPIStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.versions = source["versions"];
+	        this.build = source["build"];
+	        this.mode = source["mode"];
+	        this.version = source["version"];
+	        this.capabilities = source["capabilities"];
+	    }
+	}
 	export class SkillCreateRequest {
 	    name: string;
 	    version: string;
