@@ -8,6 +8,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/memory"
 	"assistente/internal/profiles"
+	"assistente/internal/terminal"
 	"assistente/internal/wailsapi"
 )
 
@@ -206,6 +207,42 @@ func TestWireMCPAttachesBind(t *testing.T) {
 		t.Fatal("mcpCtrl deve ser criado")
 	}
 	_, err := api.ListMCPServers()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireSignalAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewSignal()
+	SetSignalAPI(a, api)
+
+	a.wireSignal()
+
+	if a.signalCtrl == nil {
+		t.Fatal("signalCtrl deve ser criado")
+	}
+	_, err := api.SignalListAccounts("http://x", "")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireTerminalAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		terminalMgr: terminal.NewManager(terminal.DefaultManagerConfig(), func(string, any) {}),
+	}
+	api := wailsapi.NewTerminal()
+	SetTerminalAPI(a, api)
+
+	a.wireTerminal()
+
+	if a.terminalCtrl == nil {
+		t.Fatal("terminalCtrl deve ser criado")
+	}
+	_, err := api.ListTerminalSessions()
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

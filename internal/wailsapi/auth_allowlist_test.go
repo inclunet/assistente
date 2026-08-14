@@ -180,6 +180,24 @@ func TestSettingsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestTerminalMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ListTerminalSessions",
+		"CreateTerminalSession",
+		"CloseTerminalSession",
+		"GetTerminalHistory",
+		"RunTerminalCommand",
+		"SendTerminalInput",
+		"InterruptTerminalCommand",
+		"GetTerminalStats",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Terminal/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
@@ -206,6 +224,23 @@ func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s é autenticado via MCP/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
+func TestSignalMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"SignalRegister",
+		"SignalVerify",
+		"SignalLink",
+		"SignalLinkRaw",
+		"SignalUnregister",
+		"SignalCheckAPI",
+		"SignalListAccounts",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Signal/WithUser; não pertence à allowlist", name)
 		}
 	}
 }

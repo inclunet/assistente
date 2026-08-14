@@ -213,7 +213,10 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **credentials** (CRUD List/Upsert/Delete/ListExternalSources → `wailsapi.Credentials`; DTOs em `apidto`; vault pré-sessão permanece no `App`)
 - [x] **settings** (clear*/test connection/native TTS/reset config → `wailsapi.Settings`)
 - [x] **MCP** (servers/tools/resources/OAuth/logs → `wailsapi.MCP`; `MCPServerAuthInfo` em `apidto`)
+- [x] **signal** (register/verify/link/unregister/checkAPI/listAccounts → `wailsapi.Signal`; `SignalAPIStatus` em `apidto`)
+- [x] **terminal** (sessões PTY: list/create/close/history/run/input/interrupt/stats → `wailsapi.Terminal`; managers e eventos `terminal:*` permanecem no `*App`)
 - [x] **memory** (CRUD + search + policy summary → `wailsapi.Memory`; tipos de `memory`/`database`, sem DTO extra)
+- [ ] llm_providers → …
 
 ### Fase N — `App` enxuto
 

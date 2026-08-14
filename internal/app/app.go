@@ -253,6 +253,14 @@ type App struct {
 	// wired após NewMCPController.
 	mcpAPI *wailsapi.MCP
 
+	// signalAPI é o bind Wails do domínio Signal (AEP-0088). Criado em main e
+	// wired após NewSignalController.
+	signalAPI *wailsapi.Signal
+
+	// terminalAPI é o bind Wails do domínio terminal (AEP-0088). Criado em
+	// main e wired após NewTerminalController.
+	terminalAPI *wailsapi.Terminal
+
 	// memoryAPI é o bind Wails do domínio memory (AEP-0088). Criado em main e
 	// wired após NewMemoryController.
 	memoryAPI *wailsapi.Memory
@@ -380,6 +388,24 @@ func SetMCPAPI(a *App, api *wailsapi.MCP) {
 		return
 	}
 	a.mcpAPI = api
+}
+
+// SetSignalAPI registra o bind Wails de Signal antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSignalAPI(a *App, api *wailsapi.Signal) {
+	if a == nil {
+		return
+	}
+	a.signalAPI = api
+}
+
+// SetTerminalAPI registra o bind Wails de terminal antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTerminalAPI(a *App, api *wailsapi.Terminal) {
+	if a == nil {
+		return
+	}
+	a.terminalAPI = api
 }
 
 // SetMemoryAPI registra o bind Wails de memory antes do Run (main.go).
@@ -751,10 +777,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		InitLLMClient:              a.initLLMClient,
 		SaveLLMProviders:           a.saveLLMProviders,
 	})
-	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
-		TerminalMgr: a.terminalMgr,
-	})
-	a.signalCtrl = controllers.NewSignalController()
+	a.wireSignal()
+	a.wireTerminal()
 
 	if err := a.startHTTPAPI(); err != nil {
 		return err

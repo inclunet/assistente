@@ -82,10 +82,6 @@ export function CloneTaskList(arg1, arg2) {
   return window['go']['app']['App']['CloneTaskList'](arg1, arg2);
 }
 
-export function CloseTerminalSession(arg1) {
-  return window['go']['app']['App']['CloseTerminalSession'](arg1);
-}
-
 export function Context() {
   return window['go']['app']['App']['Context']();
 }
@@ -124,10 +120,6 @@ export function CreateTaskList(arg1, arg2, arg3) {
 
 export function CreateTaskNote(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['CreateTaskNote'](arg1, arg2, arg3, arg4, arg5);
-}
-
-export function CreateTerminalSession(arg1) {
-  return window['go']['app']['App']['CreateTerminalSession'](arg1);
 }
 
 export function CreateWorkspace(arg1) {
@@ -526,14 +518,6 @@ export function GetTasksByTaskListID(arg1) {
   return window['go']['app']['App']['GetTasksByTaskListID'](arg1);
 }
 
-export function GetTerminalHistory(arg1) {
-  return window['go']['app']['App']['GetTerminalHistory'](arg1);
-}
-
-export function GetTerminalStats() {
-  return window['go']['app']['App']['GetTerminalStats']();
-}
-
 export function GetToolCatalog() {
   return window['go']['app']['App']['GetToolCatalog']();
 }
@@ -578,10 +562,6 @@ export function InstallACPAgent(arg1, arg2) {
   return window['go']['app']['App']['InstallACPAgent'](arg1, arg2);
 }
 
-export function InterruptTerminalCommand(arg1) {
-  return window['go']['app']['App']['InterruptTerminalCommand'](arg1);
-}
-
 export function ListBoardCustomActions(arg1) {
   return window['go']['app']['App']['ListBoardCustomActions'](arg1);
 }
@@ -604,10 +584,6 @@ export function ListModelsRaw(arg1) {
 
 export function ListSubAgentRuns(arg1) {
   return window['go']['app']['App']['ListSubAgentRuns'](arg1);
-}
-
-export function ListTerminalSessions() {
-  return window['go']['app']['App']['ListTerminalSessions']();
 }
 
 export function ListWorkspaces() {
@@ -730,10 +706,6 @@ export function RunJob(arg1) {
   return window['go']['app']['App']['RunJob'](arg1);
 }
 
-export function RunTerminalCommand(arg1, arg2) {
-  return window['go']['app']['App']['RunTerminalCommand'](arg1, arg2);
-}
-
 export function RunWelcomeWizard() {
   return window['go']['app']['App']['RunWelcomeWizard']();
 }
@@ -768,10 +740,6 @@ export function SendMessage(arg1, arg2, arg3, arg4) {
 
 export function SendMessageSync(arg1, arg2) {
   return window['go']['app']['App']['SendMessageSync'](arg1, arg2);
-}
-
-export function SendTerminalInput(arg1, arg2) {
-  return window['go']['app']['App']['SendTerminalInput'](arg1, arg2);
 }
 
 export function SetActiveWorkspaceTab(arg1) {
@@ -836,34 +804,6 @@ export function ShowWindow() {
 
 export function Shutdown() {
   return window['go']['app']['App']['Shutdown']();
-}
-
-export function SignalCheckAPI(arg1, arg2) {
-  return window['go']['app']['App']['SignalCheckAPI'](arg1, arg2);
-}
-
-export function SignalLink(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SignalLink'](arg1, arg2, arg3);
-}
-
-export function SignalLinkRaw(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SignalLinkRaw'](arg1, arg2, arg3);
-}
-
-export function SignalListAccounts(arg1, arg2) {
-  return window['go']['app']['App']['SignalListAccounts'](arg1, arg2);
-}
-
-export function SignalRegister(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['app']['App']['SignalRegister'](arg1, arg2, arg3, arg4, arg5);
-}
-
-export function SignalUnregister(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['SignalUnregister'](arg1, arg2, arg3, arg4);
-}
-
-export function SignalVerify(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['SignalVerify'](arg1, arg2, arg3, arg4);
 }
 
 export function SpeakMessage(arg1, arg2, arg3, arg4, arg5, arg6) {

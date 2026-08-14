@@ -7,7 +7,6 @@ import {portability} from '../models';
 import {subagent} from '../models';
 import {context} from '../models';
 import {controllers} from '../models';
-import {terminal} from '../models';
 import {jobs} from '../models';
 import {speech} from '../models';
 import {channels} from '../models';
@@ -58,8 +57,6 @@ export function ClearTaskList(arg1:string):Promise<void>;
 
 export function CloneTaskList(arg1:string,arg2:string):Promise<database.TaskList>;
 
-export function CloseTerminalSession(arg1:string):Promise<void>;
-
 export function Context():Promise<context.Context>;
 
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
@@ -79,8 +76,6 @@ export function CreateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:
 export function CreateTaskList(arg1:string,arg2:string,arg3:string):Promise<database.TaskList>;
 
 export function CreateTaskNote(arg1:string,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.TaskNote>;
-
-export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
 export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
 
@@ -280,10 +275,6 @@ export function GetTasksByStatus(arg1:string,arg2:number):Promise<Array<database
 
 export function GetTasksByTaskListID(arg1:string):Promise<Array<database.Task>>;
 
-export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEntry>>;
-
-export function GetTerminalStats():Promise<terminal.ManagerStats>;
-
 export function GetToolCatalog():Promise<Array<jobs.CatalogEntry>>;
 
 export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStatus>;
@@ -306,8 +297,6 @@ export function InitSpeechManagerFromProfile():Promise<void>;
 
 export function InstallACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Promise<app.ACPInstallation>;
 
-export function InterruptTerminalCommand(arg1:string):Promise<void>;
-
 export function ListBoardCustomActions(arg1:string):Promise<Array<app.CustomActionView>>;
 
 export function ListCardCustomActions(arg1:string,arg2:string):Promise<Array<app.CustomActionView>>;
@@ -319,8 +308,6 @@ export function ListKnownEvents():Promise<Array<string>>;
 export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
 
 export function ListSubAgentRuns(arg1:number):Promise<subagent.RunListResult>;
-
-export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;
 
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
 
@@ -382,8 +369,6 @@ export function RunDatabaseMaintenance(arg1:boolean):Promise<database.Compaction
 
 export function RunJob(arg1:string):Promise<jobs.RunLog>;
 
-export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
-
 export function RunWelcomeWizard():Promise<boolean>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
@@ -401,8 +386,6 @@ export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<string>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
-
-export function SendTerminalInput(arg1:string,arg2:string):Promise<void>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
 
@@ -435,20 +418,6 @@ export function SetupVault(arg1:string):Promise<string>;
 export function ShowWindow():Promise<void>;
 
 export function Shutdown():Promise<void>;
-
-export function SignalCheckAPI(arg1:string,arg2:string):Promise<Record<string, any>>;
-
-export function SignalLink(arg1:string,arg2:string,arg3:string):Promise<string>;
-
-export function SignalLinkRaw(arg1:string,arg2:string,arg3:string):Promise<string>;
-
-export function SignalListAccounts(arg1:string,arg2:string):Promise<Array<string>>;
-
-export function SignalRegister(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
-
-export function SignalUnregister(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<void>;
-
-export function SignalVerify(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SpeakMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:string):Promise<speech.AudioResult>;
 

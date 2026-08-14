@@ -38,5 +38,11 @@ var ErrSettingsNotWired = errors.New("wailsapi: settings bind not wired")
 // ErrMCPNotWired indica que o bind MCP ainda não recebeu controller/session.
 var ErrMCPNotWired = errors.New("wailsapi: mcp bind not wired")
 
+// ErrSignalNotWired indica que o bind Signal ainda não recebeu controller/session.
+var ErrSignalNotWired = errors.New("wailsapi: signal bind not wired")
+
+// ErrTerminalNotWired indica que o bind Terminal ainda não recebeu controller/session.
+var ErrTerminalNotWired = errors.New("wailsapi: terminal bind not wired")
+
 // ErrMemoryNotWired indica que o bind Memory ainda não recebeu controller/session.
 var ErrMemoryNotWired = errors.New("wailsapi: memory bind not wired")

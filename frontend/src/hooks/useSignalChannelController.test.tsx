@@ -14,7 +14,7 @@ const mockSignalVerify = vi.fn();
 const mockSignalLink = vi.fn();
 const mockSignalUnregister = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Signal', () => ({
   SignalCheckAPI: (...args: unknown[]) => mockSignalCheckAPI(...args),
   SignalListAccounts: (...args: unknown[]) => mockSignalListAccounts(...args),
   SignalRegister: (...args: unknown[]) => mockSignalRegister(...args),
@@ -78,7 +78,7 @@ describe('useSignalChannelController', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-02T12:00:00Z'));
-    mockSignalCheckAPI.mockResolvedValue({ version: '1.2.3', build: 'abc' });
+    mockSignalCheckAPI.mockResolvedValue({ version: '1.2.3', build: 2, mode: 'native', versions: ['v1', 'v2'], capabilities: {} });
     mockSignalListAccounts.mockResolvedValue([]);
     mockSignalRegister.mockResolvedValue(undefined);
     mockSignalVerify.mockResolvedValue(undefined);
@@ -109,6 +109,17 @@ describe('useSignalChannelController', () => {
     expect(result.current.signalForm.account).toBe('+5511888888888');
     expect(result.current.signalAPIInfo).toContain('accounts +5511888888888');
     expect(announceMock).toHaveBeenCalledWith(expect.stringContaining('accounts +5511888888888'));
+  });
+
+  it('exibe build=0 como valor válido em vez de cair no fallback "?"', async () => {
+    mockSignalCheckAPI.mockResolvedValue({ version: '1.0.0', build: 0, mode: 'native', versions: ['v1'], capabilities: {} });
+    const { result } = renderController();
+
+    await act(async () => {
+      await result.current.handleSignalCheckAPI();
+    });
+
+    expect(result.current.signalAPIInfo).toContain('API 1.0.0 0');
   });
 
   it('registra por SMS e verifica o código informado', async () => {
