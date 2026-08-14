@@ -173,3 +173,11 @@ func (a *App) wireMemory() {
 		wailsapi.AttachMemory(a.memoryAPI, wailsSession{app: a}, a.memoryCtrl)
 	}
 }
+
+// wireTasklistActions associa o bind Wails de custom actions (AEP-0088).
+// Reusa taskListCtrl + jobMgr já montados; CRUD geral de tasklist permanece no App.
+func (a *App) wireTasklistActions() {
+	if a.tasklistActionsAPI != nil {
+		wailsapi.AttachTasklistActions(a.tasklistActionsAPI, wailsSession{app: a}, a.taskListCtrl, a.jobMgr)
+	}
+}

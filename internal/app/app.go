@@ -264,6 +264,10 @@ type App struct {
 	// memoryAPI é o bind Wails do domínio memory (AEP-0088). Criado em main e
 	// wired após NewMemoryController.
 	memoryAPI *wailsapi.Memory
+
+	// tasklistActionsAPI é o bind Wails do domínio tasklist_actions / custom
+	// actions (AEP-0088). Criado em main e wired após NewTaskListController.
+	tasklistActionsAPI *wailsapi.TasklistActions
 }
 
 // ==================== Tipos para Threads ====================
@@ -415,6 +419,15 @@ func SetMemoryAPI(a *App, api *wailsapi.Memory) {
 		return
 	}
 	a.memoryAPI = api
+}
+
+// SetTasklistActionsAPI registra o bind Wails de tasklist_actions antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTasklistActionsAPI(a *App, api *wailsapi.TasklistActions) {
+	if a == nil {
+		return
+	}
+	a.tasklistActionsAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -752,6 +765,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
 	})
+	a.wireTasklistActions()
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
 		SpeechSvc: a.speechSvc,
 	})
