@@ -2,6 +2,7 @@ package app
 
 import (
 	"assistente/controllers"
+	"assistente/internal/acpinstall"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
@@ -276,7 +277,7 @@ func (a *App) wireACPCommands() {
 }
 
 // wireACPProviders associa o bind Wails de detect/test de agentes ACP (AEP-0088).
-// initACP (Manager) e acp_install permanecem no App.
+// initACP (Manager) permanece no App.
 func (a *App) wireACPProviders() {
 	if a.acpProvidersAPI != nil {
 		wailsapi.AttachACPProviders(a.acpProvidersAPI, wailsSession{app: a}, a.acpMgr, a.acpWorkDir)
@@ -288,5 +289,21 @@ func (a *App) wireACPProviders() {
 func (a *App) wireACPWorkDir() {
 	if a.acpWorkDirAPI != nil {
 		wailsapi.AttachACPWorkDir(a.acpWorkDirAPI, wailsSession{app: a}, a.acpMgr)
+	}
+}
+
+// wireACPInstall associa o bind Wails de install/update/remove de agentes ACP
+// (AEP-0088). Handshake, progresso e repontar provedores permanecem no App.
+func (a *App) wireACPInstall() {
+	if a.acpInstallAPI != nil {
+		wailsapi.AttachACPInstall(a.acpInstallAPI, wailsSession{app: a}, wailsapi.ACPInstallHooks{
+			Installer: func() *acpinstall.Installer {
+				return a.acpCatalogServices().installer
+			},
+			ProvidersFrom:            a.acpProvidersFrom,
+			RefuseUpdateDuringTurn:   a.refuseUpdateDuringTurn,
+			RepointProviders:         a.repointACPProviders,
+			RemoveSupersededVersions: a.removeSupersededVersions,
+		})
 	}
 }
