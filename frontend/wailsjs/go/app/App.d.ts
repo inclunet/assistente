@@ -4,7 +4,6 @@ import {app} from '../models';
 import {database} from '../models';
 import {workspace} from '../models';
 import {portability} from '../models';
-import {subagent} from '../models';
 import {context} from '../models';
 import {controllers} from '../models';
 import {jobs} from '../models';
@@ -44,8 +43,6 @@ export function CanRemoveACPAgent(arg1:string):Promise<boolean>;
 export function CancelACPAgentInstall(arg1:string):Promise<void>;
 
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
-
-export function CancelSubAgentRun(arg1:string,arg2:string):Promise<subagent.CancelResult>;
 
 export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
 
@@ -300,8 +297,6 @@ export function ListInstalledACPAgents():Promise<Array<app.ACPInstallation>>;
 export function ListKnownEvents():Promise<Array<string>>;
 
 export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
-
-export function ListSubAgentRuns(arg1:number):Promise<subagent.RunListResult>;
 
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
 

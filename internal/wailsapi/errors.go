@@ -47,5 +47,8 @@ var ErrTerminalNotWired = errors.New("wailsapi: terminal bind not wired")
 // ErrMemoryNotWired indica que o bind Memory ainda não recebeu controller/session.
 var ErrMemoryNotWired = errors.New("wailsapi: memory bind not wired")
 
+// ErrSubagentNotWired indica que o bind Subagent ainda não recebeu manager/session.
+var ErrSubagentNotWired = errors.New("wailsapi: subagent bind not wired")
+
 // ErrTasklistActionsNotWired indica que o bind TasklistActions ainda não recebeu controller/session.
 var ErrTasklistActionsNotWired = errors.New("wailsapi: tasklist actions bind not wired")

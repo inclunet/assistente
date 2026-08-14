@@ -181,3 +181,11 @@ func (a *App) wireTasklistActions() {
 		wailsapi.AttachTasklistActions(a.tasklistActionsAPI, wailsSession{app: a}, a.taskListCtrl, a.jobMgr)
 	}
 }
+
+// wireSubagent associa o bind Wails ao Manager já criado no startup (AEP-0088).
+// subagentParentDelivery e a criação do Manager permanecem no App.
+func (a *App) wireSubagent() {
+	if a.subagentAPI != nil {
+		wailsapi.AttachSubagent(a.subagentAPI, wailsSession{app: a}, a.subagentMgr)
+	}
+}

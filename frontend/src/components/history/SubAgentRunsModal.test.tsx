@@ -9,7 +9,7 @@ import { useSubAgentRunsStore } from '../../store/subAgentRunsStore';
 const mockListSubAgentRuns = vi.fn();
 const mockCancelSubAgentRun = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Subagent', () => ({
   ListSubAgentRuns: (limit: number) => mockListSubAgentRuns(limit),
   CancelSubAgentRun: (conversationId: string, runId: string) =>
     mockCancelSubAgentRun(conversationId, runId),
