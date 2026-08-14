@@ -118,7 +118,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const bindSession = useCallback(async (sessionId: string) => {
     await useWorkspaceStore.getState().updateTab(panelTab.id, {
-      state: { ...panelTab.state, sessionId },
+      state: { ...(panelTab.state ?? {}), sessionId },
     });
     const selectedSession = useTerminalStore.getState().sessions.find(
       (session) => session.id === sessionId,
@@ -148,7 +148,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
       return;
     }
     await useWorkspaceStore.getState().updateTab(panelTab.id, {
-      state: { ...panelTab.state, sessionId: undefined },
+      state: { ...(panelTab.state ?? {}), sessionId: undefined },
     });
     setTerminateConfirmOpen(false);
     announce(t('terminal.announce.terminated'));

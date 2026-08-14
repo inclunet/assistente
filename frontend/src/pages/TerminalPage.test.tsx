@@ -179,6 +179,22 @@ describe('TerminalPage', () => {
     });
   });
 
+  it('conecta terminal quando a aba ainda não tem estado', async () => {
+    storeMocks.createSession.mockResolvedValue('term-2');
+    const user = userEvent.setup();
+    render(
+      <WorkspacePanelProvider value={{ tab: { ...terminalTab, state: undefined }, isActive: true }}>
+        <TerminalPage />
+      </WorkspacePanelProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Novo' }));
+
+    expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
+      state: { sessionId: 'term-2' },
+    });
+  });
+
   it('não intercepta Ctrl+C quando há texto selecionado no input', () => {
     renderTerminalPage();
 
