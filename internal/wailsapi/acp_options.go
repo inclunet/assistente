@@ -72,7 +72,7 @@ func (api *ACPOptions) GetAgentSessionOptions(conversationID string) (apidto.Age
 		if conversationID == "" {
 			return out, errors.New("conversa sem identificador")
 		}
-		options := agentOptionsFrom(mgr.ConversationOptions(conversationID))
+		options := AgentOptionsFrom(mgr.ConversationOptions(conversationID))
 		out.Options = options
 		out.Available = len(options) > 0
 		return out, nil
@@ -111,7 +111,7 @@ func (api *ACPOptions) SetAgentSessionOption(conversationID, optionID, value str
 			// houve.
 			return out, err
 		}
-		out.Options = agentOptionsFrom(options)
+		out.Options = AgentOptionsFrom(options)
 		out.Available = len(out.Options) > 0
 		// Pelo estado que voltou, e não pelo valor pedido: o agente às vezes acomoda
 		// o pedido em outro modo, e o aviso precisa falar do que passou a valer.
@@ -134,7 +134,15 @@ func currentModeOf(options []acp.ConfigOption) string {
 	return strings.TrimSpace(option.CurrentValue)
 }
 
-func agentOptionsFrom(options []acp.ConfigOption) []apidto.AgentConfigOption {
+// AgentOptionsFrom traduz as opções do transporte para o que a tela consome. As
+// que não têm valor para escolher ficam de fora: um seletor sem opções é um
+// controle mudo, e há opções no protocolo que este app ainda não desenha.
+//
+// Exportada porque o handler de `chat:agent_options`, que segue no App, precisa
+// entregar à tela exatamente o mesmo formato que este bind entrega. Duas cópias
+// dessa tradução acabariam divergindo, e a tela veria o seletor mudar de forma
+// conforme a opção tivesse vindo de um clique ou de um aviso do agente.
+func AgentOptionsFrom(options []acp.ConfigOption) []apidto.AgentConfigOption {
 	out := make([]apidto.AgentConfigOption, 0, len(options))
 	for _, option := range options {
 		if len(option.Values) == 0 {

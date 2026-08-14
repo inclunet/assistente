@@ -8,6 +8,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
 	"assistente/internal/logging"
+	"assistente/internal/wailsapi"
 )
 
 const acpOptionsComponent = "app.app-acp-options"
@@ -108,7 +109,7 @@ func (a *App) agentSessionOptionsChanged(event acp.SessionOptionsEvent) {
 	if a == nil || a.emitter == nil {
 		return
 	}
-	options := agentOptionsFrom(event.Options)
+	options := wailsapi.AgentOptionsFrom(event.Options)
 	if len(options) == 0 && !event.Announceable() {
 		// Conjunto do qual nada é aproveitável não descreve seletor nenhum, e
 		// nada mudou: não há o que dizer nem o que desenhar.
@@ -143,28 +144,4 @@ func (a *App) agentSessionOptionsChanged(event acp.SessionOptionsEvent) {
 		// inicial dela e não uma troca.
 		a.noticePermissionBarrier(event.ConversationID, event.PreviousMode, event.Mode, options)
 	}
-}
-
-// agentOptionsFrom traduz as opções do transporte para o que a tela consome. As
-// que não têm valor para escolher ficam de fora: um seletor sem opções é um
-// controle mudo, e há opções no protocolo que este app ainda não desenha.
-func agentOptionsFrom(options []acp.ConfigOption) []apidto.AgentConfigOption {
-	out := make([]apidto.AgentConfigOption, 0, len(options))
-	for _, option := range options {
-		if len(option.Values) == 0 {
-			continue
-		}
-		converted := apidto.AgentConfigOption{
-			ID:           option.ID,
-			Name:         option.Name,
-			Category:     option.Category,
-			CurrentValue: option.CurrentValue,
-			Values:       make([]apidto.AgentConfigValue, 0, len(option.Values)),
-		}
-		for _, value := range option.Values {
-			converted.Values = append(converted.Values, apidto.AgentConfigValue{Value: value.Value, Name: value.Name})
-		}
-		out = append(out, converted)
-	}
-	return out
 }
