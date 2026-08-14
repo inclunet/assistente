@@ -30,32 +30,6 @@ func instalacaoDoCodex(root, versao string) acpinstall.Installation {
 	}
 }
 
-func TestOPlanoTraduzidoLevaOAvisoDeVersaoNova(t *testing.T) {
-	// O aviso e a oferta são campos próprios do DTO: deduzi-los na tela
-	// comparando duas versões em texto seria reimplementar em TypeScript a
-	// regra que decide se dá para atualizar (D10).
-	dto := installPlanDTO(acpinstall.Plan{
-		AgentID:      "codex-acp",
-		Name:         "Codex",
-		Version:      "1.2.0",
-		Distribution: acpinstall.DistributionNPM,
-		Installed:    &acpinstall.Installation{AgentID: "codex-acp", Version: "1.1.9", Command: "node"},
-		Update:       true,
-		CanUpdate:    false,
-		UpdateReason: "o Node.js não foi encontrado nesta máquina",
-	}, false)
-
-	if !dto.Update {
-		t.Error("perdeu o aviso de que o catálogo publica outra versão")
-	}
-	if dto.CanUpdate {
-		t.Error("ofereceu atualizar contra o que o plano decidiu")
-	}
-	if dto.UpdateReason == "" {
-		t.Error("botão indisponível sem o motivo à vista (D7)")
-	}
-}
-
 func TestSoOsProvedoresQueSobemAInstalacaoSaoRepontados(t *testing.T) {
 	// A pergunta é pelo diretório, e não pelo `acp_agent_id`: um provedor pode
 	// apontar para o mesmo agente instalado por fora, à mão, e repontar esse

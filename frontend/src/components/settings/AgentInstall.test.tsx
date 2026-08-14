@@ -50,7 +50,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: announceMock }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPInstall', () => ({
   ACPAgentInstallPlan: planMock,
   InstallACPAgent: installMock,
   CancelACPAgentInstall: cancelMock,

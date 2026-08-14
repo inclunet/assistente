@@ -9,7 +9,7 @@ import (
 )
 
 // ACPProviders é o bind Wails do domínio acp_providers — detect/test de agentes
-// antes de virarem provider (AEP-0088). acp_install permanece no *App.
+// antes de virarem provider (AEP-0088).
 // Auth só via WithUser — sem chamar o helper de auth do App no call site.
 type ACPProviders struct {
 	mu      sync.RWMutex

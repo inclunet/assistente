@@ -21,7 +21,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPInstall', () => ({
   CanRemoveACPAgent: (agentID: string) => mockCanRemoveAgent(agentID),
   RemoveACPAgent: (agentID: string) => mockRemoveAgent(agentID),
 }));

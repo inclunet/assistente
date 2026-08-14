@@ -43,7 +43,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: announceMock }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPInstall', () => ({
   // A instalação pelo catálogo tem teste próprio. Aqui ela só precisa não
   // aparecer: um plano sem agente é o tipo de provedor que o catálogo não
   // publica, e o bloco não é renderizado.
