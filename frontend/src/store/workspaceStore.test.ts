@@ -47,6 +47,7 @@ import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
 import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/app/App';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 import { workspace } from '../../wailsjs/go/models';
+import i18next from 'i18next';
 
 const mockedGetActiveWorkspace = vi.mocked(GetActiveWorkspace);
 const mockedListWorkspaces = vi.mocked(ListWorkspaces);
@@ -428,6 +429,29 @@ describe('initialize', () => {
       expect(mockedListWorkspaces).toHaveBeenCalledTimes(1);
       expect(useWorkspaceStore.getState().isInitialized).toBe(true);
     });
+  });
+
+  it('apresenta titulo traduzido para aba padrao sem titulo persistido', async () => {
+    mockedWaitForWailsBridge.mockResolvedValueOnce(undefined);
+    mockedGetActiveWorkspace.mockResolvedValueOnce({
+      id: 'ws-default',
+      name: 'Default',
+      tabs: {
+        active: 'tab-default',
+        items: [{
+          id: 'tab-default',
+          type: 'chat',
+          title: '',
+          position: 0,
+        }],
+      },
+    } as workspace.Workspace);
+    mockedListWorkspaces.mockResolvedValueOnce([]);
+
+    await useWorkspaceStore.getState().initialize();
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.title)
+      .toBe(i18next.t('chat.newConversation'));
   });
 });
 
