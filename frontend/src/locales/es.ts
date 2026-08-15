@@ -665,6 +665,7 @@ const es = {
       error: {
         loadFailed: 'Error al cargar los permisos del agente',
         revokeFailed: 'Error al revocar el permiso',
+        notFound: 'Ese permiso ya no existe. La lista se ha actualizado.',
       },
     },
 
