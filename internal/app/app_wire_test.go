@@ -356,6 +356,22 @@ func TestWireConversationsAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireSpeechAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		speechCtrl: controllers.NewSpeechController(controllers.SpeechControllerConfig{}),
+	}
+	api := wailsapi.NewSpeech()
+	SetSpeechAPI(a, api)
+
+	a.wireSpeech()
+
+	_, err := api.GetSpeechProviders()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 func TestWireTasklistActionsAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{

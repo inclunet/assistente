@@ -76,8 +76,10 @@ func (a *App) wireProfiles() {
 		ContextProviders: a.contextProviders,
 		OnProfileChanged: func(slug string) {
 			a.initLLMClient()
-			if err := a.InitSpeechManagerFromProfile(); err != nil {
-				logging.Errorf(a.ctx, "app.app_wire", "[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
+			if a.speechSvc != nil {
+				if err := a.speechSvc.InitFromProfile(a.ctx); err != nil {
+					logging.Errorf(a.ctx, "app.app_wire", "[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
+				}
 			}
 			a.registerActiveProfileHotkeys()
 		},
@@ -230,6 +232,14 @@ func (a *App) wireTasklist() {
 func (a *App) wireConversations() {
 	if a.conversationsAPI != nil {
 		wailsapi.AttachConversations(a.conversationsAPI, wailsSession{app: a}, a.conversationsCtrl)
+	}
+}
+
+// wireSpeech associa o bind Wails de speech/TTS/STT (AEP-0088).
+// Reusa speechCtrl; helpers dispatchSpeechEvent/resolveSpeechProfile permanecem no App.
+func (a *App) wireSpeech() {
+	if a.speechAPI != nil {
+		wailsapi.AttachSpeech(a.speechAPI, wailsSession{app: a}, a.speechCtrl, speechDispatcher{app: a})
 	}
 }
 
