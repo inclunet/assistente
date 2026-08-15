@@ -224,6 +224,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **tasklist** (CRUD listas/tarefas/workflow/notas/stats/hierarchy → `wailsapi.Tasklist`; tipos de `database`; helpers `linkedTaskListsForConversation`/`newTaskListService` permanecem no `*App`)
 - [x] **conversations** (CRUD conversas/mensagens/search/summary/token stats agregados → `wailsapi.Conversations`; tipos de `database`/`chat`/`apidto`; helpers `resetConversationScopedState`/`resetLoadedToolsForConversation` permanecem no `*App`; SendMessage/RetryMessage ficam no chat)
 - [x] **speech** (TTS/STT/providers/synthesize/SpeakMessage/DispatchSpeech → `wailsapi.Speech`; `SynthesisResultInfo`/`ChatSpeak*` em `apidto`; helpers `dispatchSpeechEvent`/`resolveSpeechProfile`/`buildChatSpeakEvent` permanecem no `*App`)
+- [x] **workspace** (CRUD workspaces/tabs/export-import → `wailsapi.Workspace`; tipos de `workspace`; `initWorkspace`/manager/eventos `workspace:*` permanecem no `*App`)
 - [x] **jobs** (CRUD/runs/catalog/dry-run → `wailsapi.Jobs`; `customActionEventNames` injetado no Attach; helpers MCP dry-run em `jobs_dryrun.go`)
 - [x] **media** (UpdateProfileMediaSupport → `wailsapi.Profiles`; estendido em Profiles, sem domínio Media novo; `extractAudioFromMedia` permanece interno no `App`)
 - [x] **llm_providers** (CRUD/test/models/default/reload → `wailsapi.LLMProviders`; DTOs em `apidto`; `CreateDefaultLLMProvider` sem WithUser para bootstrap wizard/CLI; helpers `applyInstalledBinaryEnv`/`initLLMClient`/… permanecem no `App`)

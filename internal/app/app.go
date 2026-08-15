@@ -271,6 +271,10 @@ type App struct {
 	// wired após NewWelcomeController.
 	welcomeAPI *wailsapi.Welcome
 
+	// workspaceAPI é o bind Wails do domínio workspace/tabs (AEP-0088). Criado
+	// em main e wired após initWorkspace.
+	workspaceAPI *wailsapi.Workspace
+
 	// legacyCleanupAPI é o bind Wails do cleanup de JSON legado (AEP-0088).
 	// Criado em main e wired sem controller (chama channels diretamente).
 	legacyCleanupAPI *wailsapi.LegacyCleanup
@@ -496,6 +500,15 @@ func SetWelcomeAPI(a *App, api *wailsapi.Welcome) {
 		return
 	}
 	a.welcomeAPI = api
+}
+
+// SetWorkspaceAPI registra o bind Wails de workspace antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetWorkspaceAPI(a *App, api *wailsapi.Workspace) {
+	if a == nil {
+		return
+	}
+	a.workspaceAPI = api
 }
 
 // SetLegacyCleanupAPI registra o bind Wails de legacy cleanup antes do Run (main.go).
@@ -1039,6 +1052,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireCredentials()
 	a.wireMemory()
 	a.wireWelcome()
+	a.wireWorkspace()
 	a.wireLegacyCleanup()
 	a.wireSubagent()
 	a.wireACPCommands()

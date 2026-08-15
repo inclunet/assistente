@@ -17,7 +17,7 @@ import {
   MoveWorkspaceTabTo,
   ExportWorkspace,
   ImportWorkspace,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Workspace';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { workspace } from '../../wailsjs/go/models';
 import i18next from 'i18next';

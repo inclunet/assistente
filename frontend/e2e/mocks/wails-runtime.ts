@@ -253,16 +253,118 @@ export function buildWailsMockScript(): string {
     Logout: undefined,
 
     /* Workspace */
-    GetActiveWorkspace: defaultWorkspace,
-    ListWorkspaces: [{ id: 'ws-1', name: 'Workspace', path: '', profile: '', tab_count: 1, is_active: true }],
-    AddWorkspaceTab: defaultWorkspace,
-    SaveWorkspace: defaultWorkspace,
-    CreateWorkspace: defaultWorkspace,
-    RemoveWorkspaceTab: defaultWorkspace,
-    MoveWorkspaceTabTo: defaultWorkspace,
-    ReorderWorkspaceTabs: defaultWorkspace,
-    SetActiveWorkspaceTab: undefined,
-    UpdateWorkspaceTab: defaultWorkspace,
+    GetActiveWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('GetActiveWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return defaultWorkspace;
+    },
+    ListWorkspaces: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('ListWorkspaces deve ser chamado via wailsapi.Workspace');
+      }
+      return [{ id: 'ws-1', name: 'Workspace', path: '', profile: '', tab_count: 1, is_active: true }];
+    },
+    AddWorkspaceTab: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('AddWorkspaceTab deve ser chamado via wailsapi.Workspace');
+      }
+      return defaultWorkspace;
+    },
+    SaveWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('SaveWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return undefined;
+    },
+    CreateWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('CreateWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return defaultWorkspace;
+    },
+    RemoveWorkspaceTab: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('RemoveWorkspaceTab deve ser chamado via wailsapi.Workspace');
+      }
+      return defaultWorkspace;
+    },
+    MoveWorkspaceTabTo: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('MoveWorkspaceTabTo deve ser chamado via wailsapi.Workspace');
+      }
+      return defaultWorkspace;
+    },
+    ReorderWorkspaceTabs: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('ReorderWorkspaceTabs deve ser chamado via wailsapi.Workspace');
+      }
+      return undefined;
+    },
+    SetActiveWorkspaceTab: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('SetActiveWorkspaceTab deve ser chamado via wailsapi.Workspace');
+      }
+      return undefined;
+    },
+    UpdateWorkspaceTab: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('UpdateWorkspaceTab deve ser chamado via wailsapi.Workspace');
+      }
+      return undefined;
+    },
+    SwitchWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('SwitchWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return defaultWorkspace;
+    },
+    RenameWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('RenameWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return undefined;
+    },
+    DeleteWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('DeleteWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return undefined;
+    },
+    SetWorkspaceProfile: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('SetWorkspaceProfile deve ser chamado via wailsapi.Workspace');
+      }
+      return undefined;
+    },
+    ExportWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('ExportWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return '';
+    },
+    ImportWorkspace: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Workspace') {
+        throw new Error('ImportWorkspace deve ser chamado via wailsapi.Workspace');
+      }
+      return defaultWorkspace;
+    },
 
     /* Conversations */
     EnsureConversation: defaultConversation,
@@ -559,6 +661,7 @@ export function buildWailsMockScript(): string {
       Terminal: makeProxy('wailsapi.Terminal'),
       Memory: makeProxy('wailsapi.Memory'),
       Welcome: makeProxy('wailsapi.Welcome'),
+      Workspace: makeProxy('wailsapi.Workspace'),
       LegacyCleanup: makeProxy('wailsapi.LegacyCleanup'),
       Database: makeProxy('wailsapi.Database'),
       Subagent: makeProxy('wailsapi.Subagent'),

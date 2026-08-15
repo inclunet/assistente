@@ -374,6 +374,22 @@ func TestWireSpeechAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireWorkspaceAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		workspaceCtrl: controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{}),
+	}
+	api := wailsapi.NewWorkspace()
+	SetWorkspaceAPI(a, api)
+
+	a.wireWorkspace()
+
+	_, err := api.ListWorkspaces()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 type fatalSpeechProfileProvider struct {
 	t *testing.T
 }
