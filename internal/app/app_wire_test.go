@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/memory"
 	"assistente/internal/profiles"
+	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/terminal"
 	"assistente/internal/wailsapi"
@@ -370,6 +372,32 @@ func TestWireSpeechAttachesBind(t *testing.T) {
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
+}
+
+type fatalSpeechProfileProvider struct {
+	t *testing.T
+}
+
+func (p fatalSpeechProfileProvider) GetActive() (*profiles.Profile, error) {
+	p.t.Fatal("InitFromProfile não deve rodar sem userID no contexto")
+	return nil, errors.New("unreachable")
+}
+
+func (p fatalSpeechProfileProvider) ResolveDefaults(ctx context.Context, profile *profiles.Profile) *profiles.Profile {
+	p.t.Fatal("ResolveDefaults não deve rodar sem userID no contexto")
+	return profile
+}
+
+func TestReinitSpeechFromActiveProfileSemSessaoNaoTocaNoCofre(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		ctx: context.Background(),
+		speechSvc: speech.NewService(speech.ServiceConfig{
+			ProfileProvider: fatalSpeechProfileProvider{t: t},
+		}),
+	}
+
+	a.reinitSpeechFromActiveProfile("qualquer")
 }
 
 func TestWireTasklistActionsAttachesBind(t *testing.T) {
