@@ -23,6 +23,7 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen } from '../ui/Modal';
 import { useUIStore } from '../../store/uiStore';
+import { createWorkspaceTab } from '../../lib/createWorkspaceTab';
 import './WorkspaceToolbar.css';
 
 const TAB_TYPE_OPTIONS: { type: TabType; icon: ReactNode; labelKey: string; chordKey: string }[] = [
@@ -36,8 +37,8 @@ export function WorkspaceToolbar() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const addToast = useUIStore((s) => s.addToast);
-  const { workspace, workspaces, addTab, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, addTab: s.addTab, setProfile: s.setProfile, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
+  const { workspace, workspaces, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, setProfile: s.setProfile, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
   );
 
   const newTabButtonRef = useRef<HTMLButtonElement>(null);
@@ -191,11 +192,16 @@ export function WorkspaceToolbar() {
       icon,
       shortcut: chordKey,
       action: () => {
-        void addTab(type, t(labelKey));
-        announce(`${t('workspace.tabCreated')}: ${t(labelKey)}`);
+        const title = t(labelKey);
+        void createWorkspaceTab(type, title)
+          .then(() => announce(`${t('workspace.tabCreated')}: ${title}`))
+          .catch((error: unknown) => {
+            logger.error('[WorkspaceToolbar] Erro ao criar aba:', error);
+            addToast(t('workspace.tabCreateFailed'), 'error');
+          });
       },
     })),
-  [addTab, announce, t]);
+  [addToast, announce, t]);
 
   const handleOpenNewTab = useCallback(() => {
     if (newTabMenu.visible) {

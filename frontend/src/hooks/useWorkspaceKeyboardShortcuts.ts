@@ -22,6 +22,9 @@ import { useShortcutsHelpStore } from '../store/shortcutsHelpStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
+import { createWorkspaceTab } from '../lib/createWorkspaceTab';
+import { useUIStore } from '../store/uiStore';
+import { logger } from '../utils/logger';
 
 const CHORD_TIMEOUT_MS = 1500;
 
@@ -117,8 +120,12 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
           event.preventDefault();
           event.stopPropagation();
           const title = i18next.t(match.titleKey);
-          void addTab(match.type, title);
-          announce(`${i18next.t('workspace.tabCreated')}: ${title}`);
+          void createWorkspaceTab(match.type, title)
+            .then(() => announce(`${i18next.t('workspace.tabCreated')}: ${title}`))
+            .catch((error: unknown) => {
+              logger.error('[WorkspaceShortcuts] Erro ao criar aba:', error);
+              useUIStore.getState().addToast(i18next.t('workspace.tabCreateFailed'), 'error');
+            });
         }
         chordPendingRef.current = false;
         if (chordTimerRef.current) {
