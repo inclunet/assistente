@@ -68,6 +68,8 @@ func main() {
 	application.SetACPProvidersAPI(a, acpProvidersAPI)
 	acpOptionsAPI := wailsapi.NewACPOptions()
 	application.SetACPOptionsAPI(a, acpOptionsAPI)
+	acpRegistryAPI := wailsapi.NewACPRegistry()
+	application.SetACPRegistryAPI(a, acpRegistryAPI)
 	acpWorkDirAPI := wailsapi.NewACPWorkDir()
 	application.SetACPWorkDirAPI(a, acpWorkDirAPI)
 	acpInstallAPI := wailsapi.NewACPInstall()
@@ -134,6 +136,7 @@ func main() {
 			acpCommandsAPI,
 			acpProvidersAPI,
 			acpOptionsAPI,
+			acpRegistryAPI,
 			acpWorkDirAPI,
 			acpInstallAPI,
 			acpTrustAPI,

@@ -536,6 +536,7 @@ export function buildWailsMockScript(): string {
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
       ACPOptions: makeProxy('wailsapi.ACPOptions'),
+      ACPRegistry: makeProxy('wailsapi.ACPRegistry'),
       ACPWorkDir: makeProxy('wailsapi.ACPWorkDir'),
       ACPInstall: makeProxy('wailsapi.ACPInstall'),
       ACPTrust: makeProxy('wailsapi.ACPTrust'),

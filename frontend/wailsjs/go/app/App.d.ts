@@ -120,8 +120,6 @@ export function ExportWorkspace():Promise<string>;
 
 export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<speech.AudioResult>;
 
-export function GetACPCatalog():Promise<app.ACPCatalog>;
-
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
@@ -241,8 +239,6 @@ export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Wo
 export function PromoteTask(arg1:string):Promise<void>;
 
 export function RebuildSearchIndex():Promise<void>;
-
-export function RefreshACPCatalog():Promise<app.ACPCatalog>;
 
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 

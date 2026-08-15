@@ -73,27 +73,27 @@ type App struct {
 	bgWG              sync.WaitGroup        // join das goroutines de background no Shutdown
 	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
 	profileManager    *profiles.Manager
-	toolRegistry      *tools.Registry             // Registro de ferramentas disponíveis
-	toolExecutor      *tools.Executor             // Executor de ferramentas com paralelismo e timeout
-	toolInvocationSvc *toolinvocations.Service    // Persistência e execução comum de tool calls
-	terminalMgr       *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr  *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr      *allowlist.Manager          // Gerenciador de allowlists de comandos
-	netTrustMgr       *nettrust.Manager           // Allowlist de rede escopável (anti-SSRF override)
-	mcpMgr            *mcpmgr.Manager             // Gerenciador de servidores MCP
-	acpMgr            *acp.Manager                // Processos e sessões dos agentes ACP (AEP-0084)
-	acpTrust          *acptrust.Store             // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
-	acpRegistry       *acpregistry.Service        // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
-	skillMgr          *skills.Manager             // Gerenciador de skills
+	toolRegistry      *tools.Registry          // Registro de ferramentas disponíveis
+	toolExecutor      *tools.Executor          // Executor de ferramentas com paralelismo e timeout
+	toolInvocationSvc *toolinvocations.Service // Persistência e execução comum de tool calls
+	terminalMgr       *terminal.Manager        // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr  *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr      *allowlist.Manager       // Gerenciador de allowlists de comandos
+	netTrustMgr       *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
+	mcpMgr            *mcpmgr.Manager          // Gerenciador de servidores MCP
+	acpMgr            *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
+	acpTrust          *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
+	acpRegistry       *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
+	skillMgr          *skills.Manager          // Gerenciador de skills
 	// acpCatalogSvc é o catálogo do registro ACP: o serviço acima e o instalador
 	// de agentes (AEP-0086). Montado na primeira chamada que precisa dele — ver
 	// acpCatalogServices em app_acp_install.go —, porque o instalador só existe
 	// para quem for instalar, e nada no startup depende dele.
-	acpCatalogSvc  *acpCatalog
-	acpCatalogOnce sync.Once
-	responseNotifier  *messaging.ResponseNotifier // Notificador de respostas para mensageiros
-	msgGateway        *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
-	updater           *updater.Updater            // Gerenciador de atualizações automáticas
+	acpCatalogSvc    *acpCatalog
+	acpCatalogOnce   sync.Once
+	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
+	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
+	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 
 	credMgr           *credentials.Manager
 	credStore         credentials.Store
@@ -305,6 +305,10 @@ type App struct {
 	// acpOptionsAPI é o bind Wails do domínio acp_options (AEP-0088). Criado
 	// em main e wired após initACP (reusa acpMgr). Eventos lowercase permanecem no *App.
 	acpOptionsAPI *wailsapi.ACPOptions
+
+	// acpRegistryAPI é o bind Wails do catálogo do registro ACP (AEP-0088).
+	// Criado em main e wired após initACP. Helpers de montagem permanecem no *App.
+	acpRegistryAPI *wailsapi.ACPRegistry
 
 	// acpWorkDirAPI é o bind Wails do domínio acp_workdir (AEP-0088). Criado em
 	// main e wired após initACP. Helpers ConversationDir permanecem no *App.
@@ -560,6 +564,15 @@ func SetACPOptionsAPI(a *App, api *wailsapi.ACPOptions) {
 		return
 	}
 	a.acpOptionsAPI = api
+}
+
+// SetACPRegistryAPI registra o bind Wails de acp_registry antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPRegistryAPI(a *App, api *wailsapi.ACPRegistry) {
+	if a == nil {
+		return
+	}
+	a.acpRegistryAPI = api
 }
 
 // SetACPWorkDirAPI registra o bind Wails de acp_workdir antes do Run (main.go).
@@ -965,6 +978,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireACPCommands()
 	a.wireACPProviders()
 	a.wireACPOptions()
+	a.wireACPRegistry()
 	a.wireACPWorkDir()
 	a.wireACPInstall()
 	a.wireACPTrust()

@@ -9,6 +9,7 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
 	"assistente/internal/acpregistry"
+	"assistente/internal/apidto"
 )
 
 // O catálogo da tela é a tradução do índice mais o que esta máquina tem
@@ -46,7 +47,7 @@ func catalogoDe(agents ...acpregistry.Agent) acpregistry.Catalog {
 	return acpregistry.Catalog{Version: "1.0.0", Agents: agents, FetchedAt: time.Unix(1770000000, 0)}
 }
 
-func acharPorID(t *testing.T, catalogo ACPCatalog, id string) ACPCatalogAgent {
+func acharPorID(t *testing.T, catalogo apidto.ACPCatalog, id string) apidto.ACPCatalogAgent {
 	t.Helper()
 	for _, agent := range catalogo.Agents {
 		if agent.ID == id {
@@ -54,7 +55,7 @@ func acharPorID(t *testing.T, catalogo ACPCatalog, id string) ACPCatalogAgent {
 		}
 	}
 	t.Fatalf("o agente %q não está no catálogo", id)
-	return ACPCatalogAgent{}
+	return apidto.ACPCatalogAgent{}
 }
 
 func TestOCatalogoVemOrdenadoPorNome(t *testing.T) {
@@ -94,8 +95,8 @@ func TestOAgenteEncontradoPelaDeteccaoDizOndeEstá(t *testing.T) {
 	)
 
 	cursor := acharPorID(t, catalogo, "cursor")
-	if cursor.State != ACPCatalogStateInstalled {
-		t.Fatalf("estado = %q, quer %q", cursor.State, ACPCatalogStateInstalled)
+	if cursor.State != apidto.ACPCatalogStateInstalled {
+		t.Fatalf("estado = %q, quer %q", cursor.State, apidto.ACPCatalogStateInstalled)
 	}
 	if cursor.StateDetail != `C:\cursor\index.js` {
 		t.Errorf("detalhe = %q, quer o arquivo que decidiu a detecção", cursor.StateDetail)
@@ -170,8 +171,8 @@ func TestOQueOAppInstalouApareceComoInstaladoAindaQueADeteccaoNaoOConheca(t *tes
 	)
 
 	codex := acharPorID(t, catalogo, "codex-acp")
-	if codex.State != ACPCatalogStateInstalled {
-		t.Fatalf("estado = %q, quer %q", codex.State, ACPCatalogStateInstalled)
+	if codex.State != apidto.ACPCatalogStateInstalled {
+		t.Fatalf("estado = %q, quer %q", codex.State, apidto.ACPCatalogStateInstalled)
 	}
 	if !codex.InstalledByApp {
 		t.Error("a instalação é do app, e é isso que decide se dá para removê-la daqui")
@@ -408,8 +409,8 @@ func TestOAgenteQueADeteccaoNaoConheceNaoEDitoComoNaoEncontrado(t *testing.T) {
 	)
 
 	codex := acharPorID(t, catalogo, "codex-acp")
-	if codex.State != ACPCatalogStateNoDetection {
-		t.Errorf("estado = %q, quer %q", codex.State, ACPCatalogStateNoDetection)
+	if codex.State != apidto.ACPCatalogStateNoDetection {
+		t.Errorf("estado = %q, quer %q", codex.State, apidto.ACPCatalogStateNoDetection)
 	}
 }
 
@@ -423,8 +424,8 @@ func TestOAgenteConhecidoQueNaoEstaNaMaquinaEDitoComoNaoEncontrado(t *testing.T)
 		"linux-x86_64", acpMachine{detected: installs},
 	)
 
-	if cursor := acharPorID(t, catalogo, "cursor"); cursor.State != ACPCatalogStateNotInstalled {
-		t.Errorf("estado = %q, quer %q", cursor.State, ACPCatalogStateNotInstalled)
+	if cursor := acharPorID(t, catalogo, "cursor"); cursor.State != apidto.ACPCatalogStateNotInstalled {
+		t.Errorf("estado = %q, quer %q", cursor.State, apidto.ACPCatalogStateNotInstalled)
 	}
 }
 
@@ -441,8 +442,8 @@ func TestAProcuraQueFalhouNaoViraNaoEncontrado(t *testing.T) {
 	)
 
 	cursor := acharPorID(t, catalogo, "cursor")
-	if cursor.State != ACPCatalogStateDetectionFailed {
-		t.Fatalf("estado = %q, quer %q", cursor.State, ACPCatalogStateDetectionFailed)
+	if cursor.State != apidto.ACPCatalogStateDetectionFailed {
+		t.Fatalf("estado = %q, quer %q", cursor.State, apidto.ACPCatalogStateDetectionFailed)
 	}
 	if cursor.StateDetail == "" {
 		t.Error("sem o motivo não há o que dizer a quem vai corrigir")
@@ -468,8 +469,8 @@ func TestORuntimeAusenteVenceOsOutrosEstados(t *testing.T) {
 
 	for _, id := range []string{"claude-acp", "codex-acp"} {
 		agent := acharPorID(t, catalogo, id)
-		if agent.State != ACPCatalogStateRequirementMissing {
-			t.Errorf("%s: estado = %q, quer %q", id, agent.State, ACPCatalogStateRequirementMissing)
+		if agent.State != apidto.ACPCatalogStateRequirementMissing {
+			t.Errorf("%s: estado = %q, quer %q", id, agent.State, apidto.ACPCatalogStateRequirementMissing)
 		}
 		if agent.Runtime != string(acp.RuntimeNode) {
 			t.Errorf("%s: runtime = %q, quer %q nomeado em texto", id, agent.Runtime, acp.RuntimeNode)
@@ -496,7 +497,7 @@ func TestARuntimeEncontradoNaoBloqueiaEDizOndeEsta(t *testing.T) {
 	if codex.RuntimePath != `C:\Program Files\nodejs\node.exe` {
 		t.Errorf("caminho do runtime = %q, quer o que a procura achou", codex.RuntimePath)
 	}
-	if codex.State == ACPCatalogStateRequirementMissing {
+	if codex.State == apidto.ACPCatalogStateRequirementMissing {
 		t.Error("estado de requisito ausente com o requisito presente")
 	}
 }
@@ -510,8 +511,8 @@ func TestOAgenteSemAlvoParaEstaPlataformaEDitoAssim(t *testing.T) {
 	)
 
 	goose := acharPorID(t, catalogo, "goose")
-	if goose.State != ACPCatalogStateNoPlatformTarget {
-		t.Errorf("estado = %q, quer %q", goose.State, ACPCatalogStateNoPlatformTarget)
+	if goose.State != apidto.ACPCatalogStateNoPlatformTarget {
+		t.Errorf("estado = %q, quer %q", goose.State, apidto.ACPCatalogStateNoPlatformTarget)
 	}
 	if goose.Integrity != string(acpregistry.IntegrityNoPlatformTarget) {
 		t.Errorf("integridade = %q, quer %q", goose.Integrity, acpregistry.IntegrityNoPlatformTarget)

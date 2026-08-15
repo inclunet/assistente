@@ -52,7 +52,7 @@ vi.mock('../../services/audioFeedback', () => ({
   playBumpSound: bumpMock,
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPRegistry', () => ({
   GetACPCatalog: getCatalogMock,
   RefreshACPCatalog: refreshCatalogMock,
 }));

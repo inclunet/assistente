@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { GetACPCatalog, RefreshACPCatalog } from '@wailsjs/go/app/App';
+import { GetACPCatalog, RefreshACPCatalog } from '@wailsjs/go/wailsapi/ACPRegistry';
 import { Button, Input } from '../';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -13,7 +13,7 @@ import './ACPAgentCatalog.css';
  * Uma linha do catálogo, já resolvida pelo backend.
  *
  * O formato é descrito aqui em vez de vir dos tipos gerados do Wails porque
- * `app.ACPCatalog` é classe com método: um objeto literal de teste não satisfaz
+ * `apidto.ACPCatalog` é classe com método: um objeto literal de teste não satisfaz
  * o tipo, e o teste passaria a existir para agradar o compilador.
  *
  * Opcional aqui é exatamente o que é opcional no backend: os campos que o Go
