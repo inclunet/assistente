@@ -143,10 +143,20 @@ export function buildWailsMockScript(): string {
       if (typeof value !== 'string' || value === '') {
         throw new Error('SetAgentSessionOption exige value como terceiro argumento');
       }
+      // O backend descarta opção sem values; a UI monta o picker a partir deles.
+      // Devolver values vazio faria o e2e aceitar um payload que o app real
+      // nunca entrega e o seletor nasceria mudo.
+      const category = /mode/i.test(optionId) ? 'mode' : 'model';
       return {
         conversationId: conversationId || '',
         available: true,
-        options: [{ id: optionId, name: optionId, currentValue: value, values: [] }],
+        options: [{
+          id: optionId,
+          name: optionId,
+          category,
+          currentValue: value,
+          values: [{ value, name: value }],
+        }],
       };
     },
     GetAgentPermissions: function() {

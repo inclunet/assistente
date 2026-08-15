@@ -67,8 +67,7 @@ func (api *ACPOptions) GetAgentSessionOptions(conversationID string) (apidto.Age
 	if err != nil {
 		return out, err
 	}
-	result, err := WithUser(session, func(ctx context.Context) (apidto.AgentSessionOptions, error) {
-		_ = ctx
+	result, err := WithUser(session, func(_ context.Context) (apidto.AgentSessionOptions, error) {
 		if conversationID == "" {
 			return out, errors.New("conversa sem identificador")
 		}
