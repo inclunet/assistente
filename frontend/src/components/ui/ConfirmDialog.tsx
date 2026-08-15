@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './Button';
+import { DialogActions } from './DialogActions';
 import { Modal } from './Modal';
 import './ConfirmDialog.css';
 
@@ -44,14 +45,19 @@ export function ConfirmDialog({
         </p>
       </div>
 
-      <div className="confirm-dialog__footer">
-        <Button variant="outline" onClick={onCancel}>
-          {cancelText ?? t('common.cancel')}
-        </Button>
-        <Button variant={variant === 'danger' ? 'danger' : 'primary'} onClick={onConfirm}>
-          {confirmText ?? t('common.confirm')}
-        </Button>
-      </div>
+      <DialogActions
+        className="confirm-dialog__footer"
+        primary={
+          <Button variant={variant === 'danger' ? 'danger' : 'primary'} onClick={onConfirm}>
+            {confirmText ?? t('common.confirm')}
+          </Button>
+        }
+        secondary={
+          <Button variant="outline" onClick={onCancel}>
+            {cancelText ?? t('common.cancel')}
+          </Button>
+        }
+      />
     </Modal>
   );
 }

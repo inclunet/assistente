@@ -24,6 +24,11 @@ describe('ConfirmHost', () => {
 
     expect(screen.getByText('Tem certeza')).toBeInTheDocument();
 
+    const footerButtons = screen
+      .getAllByRole('button')
+      .filter((b) => b.textContent === 'Confirmar' || b.textContent === 'Cancelar');
+    expect(footerButtons.map((b) => b.textContent)).toEqual(['Confirmar', 'Cancelar']);
+
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
 
