@@ -6,6 +6,7 @@ import (
 
 	"assistente/controllers"
 	"assistente/internal/acp"
+	"assistente/internal/acptrust"
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -417,6 +418,20 @@ func TestWireACPWorkDirAttachesBind(t *testing.T) {
 	a.wireACPWorkDir()
 
 	_, err := api.GetAgentConversationWorkDir("conversa-1")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireACPTrustAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{acpTrust: acptrust.NewStoreWithDir(t.TempDir())}
+	api := wailsapi.NewACPTrust()
+	SetACPTrustAPI(a, api)
+
+	a.wireACPTrust()
+
+	_, err := api.GetAgentPermissions()
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

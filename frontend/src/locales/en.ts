@@ -666,6 +666,7 @@ const en = {
       error: {
         loadFailed: 'Error loading agent permissions',
         revokeFailed: 'Error revoking permission',
+        notFound: 'This permission no longer exists. The list has been refreshed.',
       },
     },
 

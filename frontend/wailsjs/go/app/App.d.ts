@@ -124,8 +124,6 @@ export function GetACPCatalog():Promise<app.ACPCatalog>;
 
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
-export function GetAgentPermissions():Promise<Array<app.AgentPermissionView>>;
-
 export function GetAgentSessionOptions(arg1:string):Promise<app.AgentSessionOptions>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
@@ -275,8 +273,6 @@ export function RestartChannel(arg1:string):Promise<void>;
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
 
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
-
-export function RevokeAgentPermission(arg1:string,arg2:string):Promise<void>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 

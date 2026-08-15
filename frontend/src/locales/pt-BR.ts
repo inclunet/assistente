@@ -666,6 +666,7 @@ const ptBR = {
       error: {
         loadFailed: 'Erro ao carregar as autorizações do agente',
         revokeFailed: 'Erro ao revogar a autorização',
+        notFound: 'Essa autorização não existe mais. A lista foi atualizada.',
       },
     },
 
