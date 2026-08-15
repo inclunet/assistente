@@ -100,7 +100,7 @@ describe('Topbar', () => {
   it('mostra botão voltar em sub-rota', () => {
     render(<Topbar />);
 
-    const backButton = screen.getByRole('button', { name: 'menu.backToWorkspace' });
+    const backButton = screen.getByRole('button', { name: /menu\.backToWorkspace/ });
     expect(backButton).toBeInTheDocument();
 
     fireEvent.click(backButton);
@@ -119,12 +119,25 @@ describe('Topbar', () => {
     ['e', '/settings/data?action=export'],
     ['i', '/settings/data?action=import'],
     ['p', '/profiles'],
+    ['w', '/'],
+    ['c', '/settings'],
+    ['l', '/memories'],
+    ['t', '/tasklists'],
+    ['j', '/jobs'],
   ])('navega com Alt+%s para %s', (key, route) => {
     render(<Topbar />);
     navigateSpy.mockClear();
 
     fireEvent.keyDown(window, { key, altKey: true });
     expect(navigateSpy).toHaveBeenCalledWith(route);
+  });
+
+  it('navega para workspace com Alt+Backspace', () => {
+    render(<Topbar />);
+    navigateSpy.mockClear();
+
+    fireEvent.keyDown(window, { key: 'Backspace', altKey: true });
+    expect(navigateSpy).toHaveBeenCalledWith('/');
   });
 
   it('não navega se Ctrl também está pressionado', () => {
