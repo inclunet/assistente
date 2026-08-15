@@ -8,6 +8,7 @@ import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
+import { editorFileDialogLabels } from '../lib/editorDialogLabels';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import {
   EditorDeleteDraft,
@@ -69,7 +70,7 @@ export function useEditorFileActions({
 
   const openFile = async () => {
     try {
-      const res = await EditorOpenFile();
+      const res = await EditorOpenFile(editorFileDialogLabels(t, 'open'));
       const path = String(res?.path || '').trim();
       if (!path) return;
 
@@ -235,7 +236,7 @@ export function useEditorFileActions({
 
       // Ainda não tem destino: pedir path
       const suggested = (activeTab.title || t('editor.fallback.newDoc')) + '.md';
-      const path = String(await EditorSaveFileDialog(suggested) || '').trim();
+      const path = String(await EditorSaveFileDialog(suggested, editorFileDialogLabels(t, 'save')) || '').trim();
       if (!path) return;
 
       markSelfWrite(path);
@@ -267,7 +268,7 @@ export function useEditorFileActions({
     try {
       if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
       const suggested = basenameFromPath(activeTab.filePath);
-      const path = String(await EditorSaveFileDialog(suggested) || '').trim();
+      const path = String(await EditorSaveFileDialog(suggested, editorFileDialogLabels(t, 'save')) || '').trim();
       if (!path) return;
       const content = getCachedMarkdownForTab(activeTab);
       updateLatestMarkdownForTab(activeTab.id, content);

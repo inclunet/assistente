@@ -10,7 +10,7 @@ export function EditorGetFileInfo(arg1:string):Promise<apidto.EditorFileInfo>;
 
 export function EditorLoadState():Promise<apidto.EditorState>;
 
-export function EditorOpenFile():Promise<apidto.EditorOpenResult>;
+export function EditorOpenFile(arg1:apidto.FileDialogLabels):Promise<apidto.EditorOpenResult>;
 
 export function EditorReadDraft(arg1:string):Promise<string>;
 
@@ -18,7 +18,7 @@ export function EditorReadFile(arg1:string):Promise<string>;
 
 export function EditorRenameFile(arg1:string,arg2:string):Promise<string>;
 
-export function EditorSaveFileDialog(arg1:string):Promise<string>;
+export function EditorSaveFileDialog(arg1:string,arg2:apidto.FileDialogLabels):Promise<string>;
 
 export function EditorSaveState(arg1:apidto.EditorState):Promise<void>;
 

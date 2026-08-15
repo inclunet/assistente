@@ -22,6 +22,15 @@ type EditorOpenResult struct {
 	Content string `json:"content"`
 }
 
+// FileDialogLabels carrega os rótulos já traduzidos pelo frontend para os
+// diálogos nativos do SO (o SO renderiza a string crua; não há i18n no backend).
+type FileDialogLabels struct {
+	Title           string `json:"title"`
+	MarkdownFilter  string `json:"markdownFilter"`
+	AllFilesFilter  string `json:"allFilesFilter"`
+	DefaultFilename string `json:"defaultFilename"`
+}
+
 // EditorFileInfo retorna metadados simples do arquivo para detectar mudanças externas.
 type EditorFileInfo struct {
 	Path      string `json:"path"`

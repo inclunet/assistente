@@ -957,6 +957,24 @@ export namespace apidto {
 	        this.label = source["label"];
 	    }
 	}
+	export class FileDialogLabels {
+	    title: string;
+	    markdownFilter: string;
+	    allFilesFilter: string;
+	    defaultFilename: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileDialogLabels(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.markdownFilter = source["markdownFilter"];
+	        this.allFilesFilter = source["allFilesFilter"];
+	        this.defaultFilename = source["defaultFilename"];
+	    }
+	}
 	export class MCPServerAuthInfo {
 	    hasAuth: boolean;
 	    authType: string;
