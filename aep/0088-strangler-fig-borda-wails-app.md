@@ -1,6 +1,6 @@
 # AEP-0088 — Concluir a migração Strangler Fig da borda Wails (`App`)
 
-**Status:** 📝 Draft  
+**Status:** ✅ Done  
 **Issue:** [#248](https://github.com/inclunet/assistente/issues/248)
 
 ## Resumo
@@ -240,19 +240,27 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **export_import** (export/import conversas e dados portáteis → `wailsapi.ExportImport`; tipos de `portability`, sem apidto novo; CLI via `ExportImportAPI`)
 - [x] **llm_models** (catálogo/lista/refresh de modelos + `CancelStreamingForConversation` → `wailsapi.LLMModels`; tipos de `llm.ModelCatalog`; `streamMgr` permanece no `*App` via hook; CRUD de providers fica em `LLMProviders`)
 - [x] **chat** (SendMessage + RetryMessage + `SendMessageSync` → `wailsapi.Chat`; `SendMessageSync` é probe de acessibilidade/testes — fora do pipeline AEP-0040, lógica em `SettingsController` via `SyncChatSender`; `sendMessageFromChannel` permanece no `*App`; ChatController/streamMgr/eventos/gateway fora do escopo)
-- [ ] …
 
-### Fase N — `App` enxuto
+### Fase N — `App` enxuto (concluída)
 
-Quando os domínios migrados cobrirem a superfície útil:
+Superfície Wails migrável esgotada. O `*App` ficou só com o que é
+comprovadamente ciclo de vida / pré-sessão (meta qualitativa: <~20 métodos
+públicos Wails). Contagem na `main` ao fechar o AEP: **17** métodos em
+`frontend/wailsjs/go/app/App.d.ts`:
 
-- `App` só ciclo de vida + o que for comprovadamente global;
-- critério métrico: número de `func (a *App)` públicos Wails reduzido ao
-  essencial (meta qualitativa: <~20 métodos de ciclo de vida/utilitários, o
-  restante nos binds de domínio);
-- issue #248 fechada.
+| Grupo | Métodos | Motivo de permanecer no `*App` |
+|-------|---------|--------------------------------|
+| Auth / sessão | `Login`, `Logout`, `RefreshAuth`, `GetAuthStatus`, `GetAuthUser`, `CreateAdminUser`, `RetryUserRuntimeInit` | Orquestram sessão, runtime pós-login e allowlist pré-auth |
+| Vault pré-sessão | `SetupVault`, `UnlockVault`, `HasMasterKey`, `SetupMasterPassword`, `CanPersistCredentials`, `GetVaultIntegrityStatus` | Disponíveis antes de haver usuário autenticado |
+| Lifecycle | `StartupWithAdapters`, `Context`, `ShowWindow`, `Shutdown` | Ciclo de vida do processo Wails |
 
-**Aceite:** métrica atingida; README/AEP marcados ✅ Done; #248 fechada.
+Infraestrutura que **não** é superfície Wails (controllers, `streamMgr`,
+gateway de canais, watchers, eventos `*:fileChanged` / `chat:*` / `workspace:*`,
+helpers `wireX` / `initX`) continua no pacote `internal/app` por desenho — a
+migração foi da **borda** exportada ao frontend, não de todo o wiring.
+
+**Aceite:** métrica atingida (17 < ~20); README/AEP marcados ✅ Done; #248
+fechada.
 
 ## Riscos
 
@@ -271,8 +279,24 @@ Quando os domínios migrados cobrirem a superfície útil:
 - [x] Mecanismo único de auth na borda em produção para domínios migrados (`WithUser` + Tokens).
 - [x] DTOs da borda fora de `controllers` para domínios migrados (`internal/apidto` tokens).
 - [x] `Startup` composto por `wireX` por domínio (`wireTokens`, `wireAllowlist`).
-- [ ] Maioria dos métodos Wails fora de `*App`; #248 fechada.
-- [ ] Frontend + job `bindings` verdes a cada fase.
+- [x] Maioria dos métodos Wails fora de `*App` (17 restantes = Fase N); #248 fechada.
+- [x] Frontend + job `bindings` verdes a cada fase da migração.
+
+## Conclusão
+
+AEP-0088 está **concluído**. A borda Wails deixou de ser uma fachada monolítica:
+os domínios listados na Fase 5+ vivem em `internal/wailsapi` com `WithUser`
+fail-closed (ou allowlist explícita, no caso de Welcome / bootstrap), DTOs em
+`internal/apidto` quando necessário, e regeneração de `frontend/wailsjs/`
+validada pelo job `bindings` do CI.
+
+O que **não** entra em novo bind sem AEP novo:
+
+- auth, vault pré-sessão e lifecycle (tabela da Fase N);
+- callbacks internos (`sendMessageFromChannel`, hooks de watch/streaming, etc.).
+
+Qualquer domínio novo na borda Wails deve nascer já em `wailsapi`, não em
+`func (a *App)`.
 
 ## Referências
 
@@ -284,11 +308,12 @@ Quando os domínios migrados cobrirem a superfície útil:
 - AEP-0052 (contas / escopo de usuário)
 - Regras de `frontend/wailsjs/` em `AGENTS.md`
 
-## Anexo A — Inventário da borda `App`
+## Anexo A — Inventário da borda `App` (histórico — Fase 1)
 
 Contagem de métodos exportados `func (a *App) NomeMaiúsculo` por arquivo
 `app_*.go` na `main` da Fase 1 (~326 métodos). O domínio **tokens** (4 métodos)
-é o piloto da Fase 2.
+foi o piloto da Fase 2. O inventário abaixo é o **estado de partida**; o estado
+final está na tabela da Fase N (17 métodos).
 
 | Arquivo / domínio | N | Métodos (resumo) |
 |-------------------|---|------------------|
