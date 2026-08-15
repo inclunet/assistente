@@ -464,3 +464,43 @@ func TestEditorSaveFileDialogAppliesFallbackWhenLabelsEmpty(t *testing.T) {
 		t.Fatalf("all filter = %q", fake.lastSave.Filters[1].DisplayName)
 	}
 }
+
+func TestEditorWatchNormalizaPathNaBorda(t *testing.T) {
+	var observados []string
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return nil },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile: func(path string) error {
+			observados = append(observados, path)
+			return nil
+		},
+		UnwatchFile: func(path string) error {
+			observados = append(observados, path)
+			return nil
+		},
+	})
+
+	if err := api.EditorWatchFile("  C:/tmp/doc.md  "); err != nil {
+		t.Fatalf("EditorWatchFile: %v", err)
+	}
+	if err := api.EditorUnwatchFile("  C:/tmp/doc.md  "); err != nil {
+		t.Fatalf("EditorUnwatchFile: %v", err)
+	}
+	for _, got := range observados {
+		if got != "C:/tmp/doc.md" {
+			t.Fatalf("hook recebeu %q, quer path sem espaços", got)
+		}
+	}
+
+	if err := api.EditorWatchFile("   "); err == nil {
+		t.Fatal("EditorWatchFile com path vazio deveria falhar na borda")
+	}
+	if err := api.EditorUnwatchFile("   "); err == nil {
+		t.Fatal("EditorUnwatchFile com path vazio deveria falhar na borda")
+	}
+	if len(observados) != 2 {
+		t.Fatalf("hooks chamados %d vezes, quer 2 (path vazio não chega ao watcher)", len(observados))
+	}
+}

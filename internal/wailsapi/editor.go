@@ -431,7 +431,11 @@ func (api *Editor) EditorWatchFile(path string) error {
 		if hooks.AppContext() == nil {
 			return struct{}{}, fmt.Errorf("app não inicializado")
 		}
-		return struct{}{}, hooks.WatchFile(path)
+		p := strings.TrimSpace(path)
+		if p == "" {
+			return struct{}{}, fmt.Errorf("path vazio")
+		}
+		return struct{}{}, hooks.WatchFile(p)
 	})
 	return err
 }
@@ -446,7 +450,11 @@ func (api *Editor) EditorUnwatchFile(path string) error {
 		if hooks.AppContext() == nil {
 			return struct{}{}, fmt.Errorf("app não inicializado")
 		}
-		return struct{}{}, hooks.UnwatchFile(path)
+		p := strings.TrimSpace(path)
+		if p == "" {
+			return struct{}{}, fmt.Errorf("path vazio")
+		}
+		return struct{}{}, hooks.UnwatchFile(p)
 	})
 	return err
 }
