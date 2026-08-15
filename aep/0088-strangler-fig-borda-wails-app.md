@@ -226,6 +226,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **llm_providers** (CRUD/test/models/default/reload → `wailsapi.LLMProviders`; DTOs em `apidto`; `CreateDefaultLLMProvider` sem WithUser para bootstrap wizard/CLI; helpers `applyInstalledBinaryEnv`/`initLLMClient`/… permanecem no `App`)
 - [x] **acp_commands** (`GetAgentSessionCommands` → `wailsapi.ACPCommands`; DTOs em `apidto`; `agentSessionCommandsChanged` permanece no `App`)
 - [x] **acp_providers** (DetectACPAgent + TestACPAgent → `wailsapi.ACPProviders`; DTOs em `apidto`)
+- [x] **acp_options** (GetAgentSessionOptions + SetAgentSessionOption → `wailsapi.ACPOptions`; DTOs em `apidto`; `agentSessionOptionsChanged` / `noticePermissionBarrier` permanecem no `*App`)
 - [x] **acp_registry** (GetACPCatalog + RefreshACPCatalog → `wailsapi.ACPRegistry`; DTOs em `apidto`; helpers de montagem permanecem no `*App`)
 - [x] **acp_install** (plan/install/update/cancel/remove/list → `wailsapi.ACPInstall`; DTOs em `apidto`; handshake/progresso/repontar permanecem no `*App` via hooks)
 - [x] **acp_workdir** (Get/SetAgentConversationWorkDir → `wailsapi.ACPWorkDir`; DTO em `apidto`; helpers `agentConversationDir`/`conversationAgentDir`/`acpWorkDir` permanecem no `*App`)

@@ -370,6 +370,18 @@ func TestACPCommandsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestACPOptionsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetAgentSessionOptions",
+		"SetAgentSessionOption",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via ACPOptions/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestACPWorkDirMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

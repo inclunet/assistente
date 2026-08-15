@@ -302,6 +302,10 @@ type App struct {
 	// Criado em main e wired após initACP.
 	acpProvidersAPI *wailsapi.ACPProviders
 
+	// acpOptionsAPI é o bind Wails do domínio acp_options (AEP-0088). Criado
+	// em main e wired após initACP (reusa acpMgr). Eventos lowercase permanecem no *App.
+	acpOptionsAPI *wailsapi.ACPOptions
+
 	// acpRegistryAPI é o bind Wails do catálogo do registro ACP (AEP-0088).
 	// Criado em main e wired após initACP. Helpers de montagem permanecem no *App.
 	acpRegistryAPI *wailsapi.ACPRegistry
@@ -551,6 +555,15 @@ func SetACPProvidersAPI(a *App, api *wailsapi.ACPProviders) {
 		return
 	}
 	a.acpProvidersAPI = api
+}
+
+// SetACPOptionsAPI registra o bind Wails de acp_options antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPOptionsAPI(a *App, api *wailsapi.ACPOptions) {
+	if a == nil {
+		return
+	}
+	a.acpOptionsAPI = api
 }
 
 // SetACPRegistryAPI registra o bind Wails de acp_registry antes do Run (main.go).
@@ -964,6 +977,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireSubagent()
 	a.wireACPCommands()
 	a.wireACPProviders()
+	a.wireACPOptions()
 	a.wireACPRegistry()
 	a.wireACPWorkDir()
 	a.wireACPInstall()

@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPOptions', () => ({
   GetAgentSessionOptions: (id: string) => getOptions(id),
   SetAgentSessionOption: (id: string, optionId: string, value: string) => setOption(id, optionId, value),
 }));

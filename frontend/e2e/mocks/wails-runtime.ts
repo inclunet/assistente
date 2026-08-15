@@ -123,6 +123,42 @@ export function buildWailsMockScript(): string {
       }
       return { conversationId: conversationId || '', commands: [] };
     },
+    GetAgentSessionOptions: function(conversationId) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPOptions') {
+        throw new Error('GetAgentSessionOptions deve ser chamado via wailsapi.ACPOptions');
+      }
+      return { conversationId: conversationId || '', available: false, options: [] };
+    },
+    SetAgentSessionOption: function(conversationId, optionId, value) {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPOptions') {
+        throw new Error('SetAgentSessionOption deve ser chamado via wailsapi.ACPOptions');
+      }
+      // Argumento faltando ou trocado escolheria a opção errada no agente; o
+      // mock precisa reprovar isso em vez de responder "deu certo".
+      if (typeof optionId !== 'string' || optionId === '') {
+        throw new Error('SetAgentSessionOption exige optionId como segundo argumento');
+      }
+      if (typeof value !== 'string' || value === '') {
+        throw new Error('SetAgentSessionOption exige value como terceiro argumento');
+      }
+      // O backend descarta opção sem values; a UI monta o picker a partir deles.
+      // Devolver values vazio faria o e2e aceitar um payload que o app real
+      // nunca entrega e o seletor nasceria mudo.
+      const category = /mode/i.test(optionId) ? 'mode' : 'model';
+      return {
+        conversationId: conversationId || '',
+        available: true,
+        options: [{
+          id: optionId,
+          name: optionId,
+          category,
+          currentValue: value,
+          values: [{ value, name: value }],
+        }],
+      };
+    },
     GetAgentPermissions: function() {
       const last = _config.callLog[_config.callLog.length - 1];
       if (!last || last.scope !== 'wailsapi.ACPTrust') {
@@ -499,6 +535,7 @@ export function buildWailsMockScript(): string {
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
+      ACPOptions: makeProxy('wailsapi.ACPOptions'),
       ACPRegistry: makeProxy('wailsapi.ACPRegistry'),
       ACPWorkDir: makeProxy('wailsapi.ACPWorkDir'),
       ACPInstall: makeProxy('wailsapi.ACPInstall'),

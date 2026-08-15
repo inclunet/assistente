@@ -218,10 +218,6 @@ export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
 }
 
-export function GetAgentSessionOptions(arg1) {
-  return window['go']['app']['App']['GetAgentSessionOptions'](arg1);
-}
-
 export function GetAllChannelConfigs() {
   return window['go']['app']['App']['GetAllChannelConfigs']();
 }
@@ -540,10 +536,6 @@ export function SendMessageSync(arg1, arg2) {
 
 export function SetActiveWorkspaceTab(arg1) {
   return window['go']['app']['App']['SetActiveWorkspaceTab'](arg1);
-}
-
-export function SetAgentSessionOption(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SetAgentSessionOption'](arg1, arg2, arg3);
 }
 
 export function SetConversationModel(arg1, arg2) {
