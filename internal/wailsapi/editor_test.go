@@ -35,7 +35,7 @@ func TestEditorNotWired(t *testing.T) {
 	if err := api.EditorSaveState(apidto.EditorState{}); !errors.Is(err, ErrEditorNotWired) {
 		t.Fatalf("EditorSaveState: got %v", err)
 	}
-	if _, err := api.EditorOpenFile(); !errors.Is(err, ErrEditorNotWired) {
+	if _, err := api.EditorOpenFile(apidto.FileDialogLabels{}); !errors.Is(err, ErrEditorNotWired) {
 		t.Fatalf("EditorOpenFile: got %v", err)
 	}
 	if _, err := api.EditorReadFile("x"); !errors.Is(err, ErrEditorNotWired) {
@@ -50,7 +50,7 @@ func TestEditorNotWired(t *testing.T) {
 	if _, err := api.EditorRenameFile("a", "b"); !errors.Is(err, ErrEditorNotWired) {
 		t.Fatalf("EditorRenameFile: got %v", err)
 	}
-	if _, err := api.EditorSaveFileDialog("x"); !errors.Is(err, ErrEditorNotWired) {
+	if _, err := api.EditorSaveFileDialog("x", apidto.FileDialogLabels{}); !errors.Is(err, ErrEditorNotWired) {
 		t.Fatalf("EditorSaveFileDialog: got %v", err)
 	}
 	if err := api.EditorWatchFile("x"); !errors.Is(err, ErrEditorNotWired) {
@@ -108,7 +108,7 @@ func TestEditorUsesWithUserNotRequireAuth(t *testing.T) {
 			return api.EditorSaveState(apidto.EditorState{})
 		}},
 		{"EditorOpenFile", func() error {
-			_, err := api.EditorOpenFile()
+			_, err := api.EditorOpenFile(apidto.FileDialogLabels{})
 			return err
 		}},
 		{"EditorReadFile", func() error {
@@ -127,7 +127,7 @@ func TestEditorUsesWithUserNotRequireAuth(t *testing.T) {
 			return err
 		}},
 		{"EditorSaveFileDialog", func() error {
-			_, err := api.EditorSaveFileDialog("x")
+			_, err := api.EditorSaveFileDialog("x", apidto.FileDialogLabels{})
 			return err
 		}},
 		{"EditorWatchFile", func() error {
@@ -313,5 +313,154 @@ func TestEditorWriteFilePreservesExistingMode(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0600 {
 		t.Fatalf("perm = %04o, quer preservar 0600", got)
+	}
+}
+
+// fakeDialog captura as opções passadas ao SystemDialogPort nos testes.
+type fakeDialog struct {
+	lastOpen ports.OpenFileOptions
+	lastSave ports.SaveFileOptions
+}
+
+func (f *fakeDialog) OpenFileDialog(opts ports.OpenFileOptions) (string, error) {
+	f.lastOpen = opts
+	return "", nil
+}
+
+func (f *fakeDialog) SaveFileDialog(opts ports.SaveFileOptions) (string, error) {
+	f.lastSave = opts
+	return "", nil
+}
+
+func setupEditorAPIWithDialog(t *testing.T, dialog ports.SystemDialogPort) *Editor {
+	t.Helper()
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return dialog },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile:     func(path string) error { return nil },
+		UnwatchFile:   func(path string) error { return nil },
+	})
+	return api
+}
+
+func TestEditorOpenFilePassesFrontendLabels(t *testing.T) {
+	fake := &fakeDialog{}
+	api := setupEditorAPIWithDialog(t, fake)
+
+	labels := apidto.FileDialogLabels{
+		Title:          "Open file",
+		MarkdownFilter: "Markdown files",
+		AllFilesFilter: "All files",
+	}
+	if _, err := api.EditorOpenFile(labels); err != nil {
+		t.Fatalf("EditorOpenFile: %v", err)
+	}
+	if fake.lastOpen.Title != "Open file" {
+		t.Fatalf("Title = %q, quer Open file", fake.lastOpen.Title)
+	}
+	if len(fake.lastOpen.Filters) != 2 {
+		t.Fatalf("filters = %d, quer 2", len(fake.lastOpen.Filters))
+	}
+	if fake.lastOpen.Filters[0].DisplayName != "Markdown files" {
+		t.Fatalf("markdown filter = %q", fake.lastOpen.Filters[0].DisplayName)
+	}
+	if fake.lastOpen.Filters[1].DisplayName != "All files" {
+		t.Fatalf("all filter = %q", fake.lastOpen.Filters[1].DisplayName)
+	}
+}
+
+func TestEditorOpenFileAppliesFallbackWhenLabelsEmpty(t *testing.T) {
+	fake := &fakeDialog{}
+	api := setupEditorAPIWithDialog(t, fake)
+
+	if _, err := api.EditorOpenFile(apidto.FileDialogLabels{}); err != nil {
+		t.Fatalf("EditorOpenFile: %v", err)
+	}
+	if fake.lastOpen.Title != "Abrir arquivo" {
+		t.Fatalf("Title = %q, quer fallback pt-BR", fake.lastOpen.Title)
+	}
+	if len(fake.lastOpen.Filters) != 2 {
+		t.Fatalf("filters = %d, quer 2", len(fake.lastOpen.Filters))
+	}
+	if fake.lastOpen.Filters[0].DisplayName != "Markdown" {
+		t.Fatalf("markdown filter = %q", fake.lastOpen.Filters[0].DisplayName)
+	}
+	if fake.lastOpen.Filters[1].DisplayName != "Todos os arquivos" {
+		t.Fatalf("all filter = %q", fake.lastOpen.Filters[1].DisplayName)
+	}
+}
+
+func TestEditorSaveFileDialogPassesFrontendLabels(t *testing.T) {
+	fake := &fakeDialog{}
+	api := setupEditorAPIWithDialog(t, fake)
+
+	labels := apidto.FileDialogLabels{
+		Title:           "Save file",
+		MarkdownFilter:  "Markdown files",
+		AllFilesFilter:  "All files",
+		DefaultFilename: "notes.md",
+	}
+	if _, err := api.EditorSaveFileDialog("", labels); err != nil {
+		t.Fatalf("EditorSaveFileDialog: %v", err)
+	}
+	if fake.lastSave.Title != "Save file" {
+		t.Fatalf("Title = %q, quer Save file", fake.lastSave.Title)
+	}
+	if fake.lastSave.DefaultFilename != "notes.md" {
+		t.Fatalf("DefaultFilename = %q, quer notes.md", fake.lastSave.DefaultFilename)
+	}
+	if len(fake.lastSave.Filters) != 2 {
+		t.Fatalf("filters = %d, quer 2", len(fake.lastSave.Filters))
+	}
+	if fake.lastSave.Filters[0].DisplayName != "Markdown files" {
+		t.Fatalf("markdown filter = %q", fake.lastSave.Filters[0].DisplayName)
+	}
+	if fake.lastSave.Filters[1].DisplayName != "All files" {
+		t.Fatalf("all filter = %q", fake.lastSave.Filters[1].DisplayName)
+	}
+}
+
+func TestEditorSaveFileDialogSuggestedFilenameTakesPrecedence(t *testing.T) {
+	fake := &fakeDialog{}
+	api := setupEditorAPIWithDialog(t, fake)
+
+	labels := apidto.FileDialogLabels{DefaultFilename: "from-labels.md"}
+	if _, err := api.EditorSaveFileDialog("suggested.md", labels); err != nil {
+		t.Fatalf("EditorSaveFileDialog: %v", err)
+	}
+	if fake.lastSave.DefaultFilename != "suggested.md" {
+		t.Fatalf("DefaultFilename = %q, quer suggested.md", fake.lastSave.DefaultFilename)
+	}
+}
+
+func TestEditorSaveFileDialogAppliesFallbackWhenLabelsEmpty(t *testing.T) {
+	fake := &fakeDialog{}
+	api := setupEditorAPIWithDialog(t, fake)
+
+	if _, err := api.EditorSaveFileDialog("", apidto.FileDialogLabels{}); err != nil {
+		t.Fatalf("EditorSaveFileDialog: %v", err)
+	}
+	if fake.lastSave.Title != "Salvar arquivo" {
+		t.Fatalf("Title = %q, quer fallback pt-BR", fake.lastSave.Title)
+	}
+	if fake.lastSave.DefaultFilename != "documento.md" {
+		t.Fatalf("DefaultFilename = %q, quer documento.md", fake.lastSave.DefaultFilename)
+	}
+	if len(fake.lastSave.Filters) != 2 {
+		t.Fatalf("filters = %d, quer 2", len(fake.lastSave.Filters))
+	}
+	if fake.lastSave.Filters[0].DisplayName != "Markdown" {
+		t.Fatalf("markdown filter = %q", fake.lastSave.Filters[0].DisplayName)
+	}
+	if fake.lastSave.Filters[1].DisplayName != "Todos os arquivos" {
+		t.Fatalf("all filter = %q", fake.lastSave.Filters[1].DisplayName)
 	}
 }

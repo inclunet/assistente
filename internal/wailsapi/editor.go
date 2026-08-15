@@ -244,8 +244,28 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 	return err
 }
 
+// orDefault devolve v se não for vazio; senão fallback.
+// Não é i18n: o SO renderiza a string crua. O frontend envia rótulos já
+// traduzidos; o fallback pt-BR evita diálogo com título/filtro em branco
+// quando CLI, testes ou chamadas antigas passam FileDialogLabels{} zerado
+// (degradação segura, não tradução).
+func orDefault(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(v)
+}
+
+func dialogFilters(labels apidto.FileDialogLabels) []ports.FileFilter {
+	return []ports.FileFilter{
+		{DisplayName: orDefault(labels.MarkdownFilter, "Markdown"), Pattern: "*.md;*.markdown;*.txt"},
+		{DisplayName: orDefault(labels.AllFilesFilter, "Todos os arquivos"), Pattern: "*.*"},
+	}
+}
+
 // EditorOpenFile abre o diálogo nativo e retorna conteúdo + path.
-func (api *Editor) EditorOpenFile() (*apidto.EditorOpenResult, error) {
+// labels deve vir já traduzido do frontend (i18n); campos vazios usam fallback pt-BR.
+func (api *Editor) EditorOpenFile(labels apidto.FileDialogLabels) (*apidto.EditorOpenResult, error) {
 	session, hooks, err := api.deps()
 	if err != nil {
 		return nil, err
@@ -260,11 +280,8 @@ func (api *Editor) EditorOpenFile() (*apidto.EditorOpenResult, error) {
 		}
 
 		path, err := dialog.OpenFileDialog(ports.OpenFileOptions{
-			Title: "Abrir arquivo",
-			Filters: []ports.FileFilter{
-				{DisplayName: "Markdown", Pattern: "*.md;*.markdown;*.txt"},
-				{DisplayName: "Todos os arquivos", Pattern: "*.*"},
-			},
+			Title:   orDefault(labels.Title, "Abrir arquivo"),
+			Filters: dialogFilters(labels),
 		})
 		if err != nil {
 			return nil, err
@@ -373,7 +390,9 @@ func (api *Editor) EditorRenameFile(oldPath string, newBaseName string) (string,
 }
 
 // EditorSaveFileDialog abre o diálogo nativo de salvar e retorna o path escolhido.
-func (api *Editor) EditorSaveFileDialog(suggestedFilename string) (string, error) {
+// labels deve vir já traduzido do frontend (i18n); campos vazios usam fallback pt-BR.
+// Precedência do nome sugerido: suggestedFilename > labels.DefaultFilename > "documento.md".
+func (api *Editor) EditorSaveFileDialog(suggestedFilename string, labels apidto.FileDialogLabels) (string, error) {
 	session, hooks, err := api.deps()
 	if err != nil {
 		return "", err
@@ -388,15 +407,12 @@ func (api *Editor) EditorSaveFileDialog(suggestedFilename string) (string, error
 		}
 		def := strings.TrimSpace(suggestedFilename)
 		if def == "" {
-			def = "documento.md"
+			def = orDefault(labels.DefaultFilename, "documento.md")
 		}
 		path, err := dialog.SaveFileDialog(ports.SaveFileOptions{
-			Title:           "Salvar arquivo",
+			Title:           orDefault(labels.Title, "Salvar arquivo"),
 			DefaultFilename: def,
-			Filters: []ports.FileFilter{
-				{DisplayName: "Markdown", Pattern: "*.md;*.markdown;*.txt"},
-				{DisplayName: "Todos os arquivos", Pattern: "*.*"},
-			},
+			Filters:         dialogFilters(labels),
 		})
 		if err != nil {
 			return "", err

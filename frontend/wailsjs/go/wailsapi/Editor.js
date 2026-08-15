@@ -18,8 +18,8 @@ export function EditorLoadState() {
   return window['go']['wailsapi']['Editor']['EditorLoadState']();
 }
 
-export function EditorOpenFile() {
-  return window['go']['wailsapi']['Editor']['EditorOpenFile']();
+export function EditorOpenFile(arg1) {
+  return window['go']['wailsapi']['Editor']['EditorOpenFile'](arg1);
 }
 
 export function EditorReadDraft(arg1) {
@@ -34,8 +34,8 @@ export function EditorRenameFile(arg1, arg2) {
   return window['go']['wailsapi']['Editor']['EditorRenameFile'](arg1, arg2);
 }
 
-export function EditorSaveFileDialog(arg1) {
-  return window['go']['wailsapi']['Editor']['EditorSaveFileDialog'](arg1);
+export function EditorSaveFileDialog(arg1, arg2) {
+  return window['go']['wailsapi']['Editor']['EditorSaveFileDialog'](arg1, arg2);
 }
 
 export function EditorSaveState(arg1) {
