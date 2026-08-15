@@ -1,10 +1,11 @@
 package wailsapi
 
 import (
-	"assistente/controllers"
-	"assistente/internal/llm"
 	"context"
 	"sync"
+
+	"assistente/controllers"
+	"assistente/internal/llm"
 )
 
 // Chat é o bind Wails do domínio chat/envio (AEP-0088): SendMessage e
