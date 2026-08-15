@@ -286,6 +286,10 @@ type App struct {
 	// actions (AEP-0088). Criado em main e wired após NewTaskListController.
 	tasklistActionsAPI *wailsapi.TasklistActions
 
+	// tasklistAPI é o bind Wails do domínio tasklist CRUD (AEP-0088). Criado em
+	// main e wired após NewTaskListController.
+	tasklistAPI *wailsapi.Tasklist
+
 	// jobsAPI é o bind Wails do domínio jobs (AEP-0088). Criado em main e
 	// wired após NewJobsController.
 	jobsAPI *wailsapi.Jobs
@@ -521,6 +525,15 @@ func SetTasklistActionsAPI(a *App, api *wailsapi.TasklistActions) {
 	a.tasklistActionsAPI = api
 }
 
+// SetTasklistAPI registra o bind Wails de tasklist CRUD antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTasklistAPI(a *App, api *wailsapi.Tasklist) {
+	if a == nil {
+		return
+	}
+	a.tasklistAPI = api
+}
+
 // SetJobsAPI registra o bind Wails de jobs antes do Run (main.go).
 // Função de pacote (não método) para não entrar na superfície Bind do Wails.
 func SetJobsAPI(a *App, api *wailsapi.Jobs) {
@@ -648,6 +661,14 @@ func MCPCtrl(a *App) *controllers.MCPController {
 		return nil
 	}
 	return a.mcpCtrl
+}
+
+// TaskListCtrl expõe o TaskListController para a CLI (não entra no Bind Wails).
+func TaskListCtrl(a *App) *controllers.TaskListController {
+	if a == nil {
+		return nil
+	}
+	return a.taskListCtrl
 }
 
 // AuthenticatedContext expõe o contexto autenticado para a CLI (não entra no Bind Wails).
@@ -956,6 +977,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
 	})
+	a.wireTasklist()
 	a.wireTasklistActions()
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
 		SpeechSvc: a.speechSvc,

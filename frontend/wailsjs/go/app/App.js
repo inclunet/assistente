@@ -50,14 +50,6 @@ export function ClearConversation(arg1) {
   return window['go']['app']['App']['ClearConversation'](arg1);
 }
 
-export function ClearTaskList(arg1) {
-  return window['go']['app']['App']['ClearTaskList'](arg1);
-}
-
-export function CloneTaskList(arg1, arg2) {
-  return window['go']['app']['App']['CloneTaskList'](arg1, arg2);
-}
-
 export function Context() {
   return window['go']['app']['App']['Context']();
 }
@@ -78,18 +70,6 @@ export function CreateMessage(arg1, arg2, arg3) {
   return window['go']['app']['App']['CreateMessage'](arg1, arg2, arg3);
 }
 
-export function CreateTask(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['CreateTask'](arg1, arg2, arg3, arg4, arg5, arg6);
-}
-
-export function CreateTaskList(arg1, arg2, arg3) {
-  return window['go']['app']['App']['CreateTaskList'](arg1, arg2, arg3);
-}
-
-export function CreateTaskNote(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['app']['App']['CreateTaskNote'](arg1, arg2, arg3, arg4, arg5);
-}
-
 export function CreateWorkspace(arg1) {
   return window['go']['app']['App']['CreateWorkspace'](arg1);
 }
@@ -106,24 +86,8 @@ export function DeleteMessages(arg1, arg2) {
   return window['go']['app']['App']['DeleteMessages'](arg1, arg2);
 }
 
-export function DeleteTask(arg1) {
-  return window['go']['app']['App']['DeleteTask'](arg1);
-}
-
-export function DeleteTaskList(arg1) {
-  return window['go']['app']['App']['DeleteTaskList'](arg1);
-}
-
-export function DeleteTaskNote(arg1) {
-  return window['go']['app']['App']['DeleteTaskNote'](arg1);
-}
-
 export function DeleteWorkspace(arg1) {
   return window['go']['app']['App']['DeleteWorkspace'](arg1);
-}
-
-export function DemoteTask(arg1, arg2) {
-  return window['go']['app']['App']['DemoteTask'](arg1, arg2);
 }
 
 export function DispatchSpeech(arg1) {
@@ -220,10 +184,6 @@ export function GetActiveWorkspace() {
 
 export function GetAllChannelConfigs() {
   return window['go']['app']['App']['GetAllChannelConfigs']();
-}
-
-export function GetAllTaskLists() {
-  return window['go']['app']['App']['GetAllTaskLists']();
 }
 
 export function GetAllTokenStats() {
@@ -346,10 +306,6 @@ export function GetSpeechProviders() {
   return window['go']['app']['App']['GetSpeechProviders']();
 }
 
-export function GetSubtasks(arg1) {
-  return window['go']['app']['App']['GetSubtasks'](arg1);
-}
-
 export function GetTTSModels(arg1) {
   return window['go']['app']['App']['GetTTSModels'](arg1);
 }
@@ -358,52 +314,8 @@ export function GetTTSVoices(arg1, arg2) {
   return window['go']['app']['App']['GetTTSVoices'](arg1, arg2);
 }
 
-export function GetTask(arg1) {
-  return window['go']['app']['App']['GetTask'](arg1);
-}
-
-export function GetTaskCountsByStatus(arg1) {
-  return window['go']['app']['App']['GetTaskCountsByStatus'](arg1);
-}
-
-export function GetTaskList(arg1) {
-  return window['go']['app']['App']['GetTaskList'](arg1);
-}
-
-export function GetTaskListStats(arg1) {
-  return window['go']['app']['App']['GetTaskListStats'](arg1);
-}
-
-export function GetTaskListWithHierarchy(arg1) {
-  return window['go']['app']['App']['GetTaskListWithHierarchy'](arg1);
-}
-
-export function GetTaskListsByConversation(arg1) {
-  return window['go']['app']['App']['GetTaskListsByConversation'](arg1);
-}
-
-export function GetTaskNotes(arg1) {
-  return window['go']['app']['App']['GetTaskNotes'](arg1);
-}
-
-export function GetTasksByConversation(arg1) {
-  return window['go']['app']['App']['GetTasksByConversation'](arg1);
-}
-
-export function GetTasksByStatus(arg1, arg2) {
-  return window['go']['app']['App']['GetTasksByStatus'](arg1, arg2);
-}
-
-export function GetTasksByTaskListID(arg1) {
-  return window['go']['app']['App']['GetTasksByTaskListID'](arg1);
-}
-
 export function GetVaultIntegrityStatus() {
   return window['go']['app']['App']['GetVaultIntegrityStatus']();
-}
-
-export function GetWorkflow(arg1) {
-  return window['go']['app']['App']['GetWorkflow'](arg1);
 }
 
 export function HasMasterKey() {
@@ -446,10 +358,6 @@ export function MoveWorkspaceTabTo(arg1, arg2) {
   return window['go']['app']['App']['MoveWorkspaceTabTo'](arg1, arg2);
 }
 
-export function PromoteTask(arg1) {
-  return window['go']['app']['App']['PromoteTask'](arg1);
-}
-
 export function RebuildSearchIndex() {
   return window['go']['app']['App']['RebuildSearchIndex']();
 }
@@ -484,14 +392,6 @@ export function RenameConversation(arg1, arg2) {
 
 export function RenameWorkspace(arg1) {
   return window['go']['app']['App']['RenameWorkspace'](arg1);
-}
-
-export function ReorderTasks(arg1, arg2, arg3) {
-  return window['go']['app']['App']['ReorderTasks'](arg1, arg2, arg3);
-}
-
-export function ReorderWorkflowStatuses(arg1, arg2) {
-  return window['go']['app']['App']['ReorderWorkflowStatuses'](arg1, arg2);
 }
 
 export function ReorderWorkspaceTabs(arg1) {
@@ -548,18 +448,6 @@ export function SetOpenAITTSSpeed(arg1) {
 
 export function SetOpenAITTSVoice(arg1) {
   return window['go']['app']['App']['SetOpenAITTSVoice'](arg1);
-}
-
-export function SetTaskConversation(arg1, arg2) {
-  return window['go']['app']['App']['SetTaskConversation'](arg1, arg2);
-}
-
-export function SetTaskListConversation(arg1, arg2) {
-  return window['go']['app']['App']['SetTaskListConversation'](arg1, arg2);
-}
-
-export function SetTaskListViewMode(arg1, arg2) {
-  return window['go']['app']['App']['SetTaskListViewMode'](arg1, arg2);
 }
 
 export function SetWorkspaceProfile(arg1) {
@@ -634,42 +522,6 @@ export function UpdateMessage(arg1, arg2) {
   return window['go']['app']['App']['UpdateMessage'](arg1, arg2);
 }
 
-export function UpdateTask(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['app']['App']['UpdateTask'](arg1, arg2, arg3, arg4, arg5);
-}
-
-export function UpdateTaskAssignee(arg1, arg2, arg3) {
-  return window['go']['app']['App']['UpdateTaskAssignee'](arg1, arg2, arg3);
-}
-
-export function UpdateTaskFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['app']['App']['UpdateTaskFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
-}
-
-export function UpdateTaskList(arg1, arg2, arg3) {
-  return window['go']['app']['App']['UpdateTaskList'](arg1, arg2, arg3);
-}
-
-export function UpdateTaskNote(arg1, arg2) {
-  return window['go']['app']['App']['UpdateTaskNote'](arg1, arg2);
-}
-
-export function UpdateTaskStatus(arg1, arg2) {
-  return window['go']['app']['App']['UpdateTaskStatus'](arg1, arg2);
-}
-
-export function UpdateWorkflow(arg1, arg2, arg3) {
-  return window['go']['app']['App']['UpdateWorkflow'](arg1, arg2, arg3);
-}
-
-export function UpdateWorkflowFull(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['app']['App']['UpdateWorkflowFull'](arg1, arg2, arg3, arg4, arg5);
-}
-
 export function UpdateWorkspaceTab(arg1, arg2) {
   return window['go']['app']['App']['UpdateWorkspaceTab'](arg1, arg2);
-}
-
-export function ValidateStatusTransition(arg1, arg2, arg3) {
-  return window['go']['app']['App']['ValidateStatusTransition'](arg1, arg2, arg3);
 }

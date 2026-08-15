@@ -7,6 +7,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/apidto"
 	"assistente/internal/app"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/profiles"
@@ -16,9 +17,10 @@ var errProfilesNotReady = fmt.Errorf("profiles controller não inicializado")
 var errCredentialsNotReady = fmt.Errorf("credentials controller não inicializado")
 var errMCPNotReady = fmt.Errorf("mcp controller não inicializado")
 var errLLMNotReady = fmt.Errorf("llm controller não inicializado")
+var errTaskListNotReady = fmt.Errorf("tasklist controller não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
-// profiles/credentials/mcp/llm_providers saíram do Bind Wails e vivem nos
+// profiles/credentials/mcp/llm_providers/tasklist saíram do Bind Wails e vivem nos
 // controllers / wailsapi.
 type cliApp struct {
 	*app.App
@@ -56,6 +58,14 @@ func (c cliApp) llm() (*controllers.LLMController, error) {
 	ctrl := app.LLMCtrl(c.App)
 	if ctrl == nil {
 		return nil, errLLMNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) tasklist() (*controllers.TaskListController, error) {
+	ctrl := app.TaskListCtrl(c.App)
+	if ctrl == nil {
+		return nil, errTaskListNotReady
 	}
 	return ctrl, nil
 }
@@ -182,6 +192,18 @@ func (c cliApp) ListMCPServers() ([]mcpmgr.ServerInfo, error) {
 		return nil, err
 	}
 	return ctrl.ListMCPServers(), nil
+}
+
+func (c cliApp) GetAllTaskLists() ([]database.TaskList, error) {
+	ctrl, err := c.tasklist()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetAllTaskLists(ctx)
 }
 
 func (c cliApp) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {

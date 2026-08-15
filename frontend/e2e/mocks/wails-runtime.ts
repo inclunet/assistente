@@ -530,6 +530,7 @@ export function buildWailsMockScript(): string {
       LegacyCleanup: makeProxy('wailsapi.LegacyCleanup'),
       Database: makeProxy('wailsapi.Database'),
       Subagent: makeProxy('wailsapi.Subagent'),
+      Tasklist: makeProxy('wailsapi.Tasklist'),
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),

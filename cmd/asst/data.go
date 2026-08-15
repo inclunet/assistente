@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 
 	"assistente/internal/app"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/portability"
@@ -22,7 +23,7 @@ type dataBackend interface {
 	ImportData(jsonData string, credentialExportPassword string) (*app.ImportResult, error)
 	GetConversations() ([]app.Conversation, error)
 	GetLLMProviders() []*llm.ProviderConfig
-	GetAllTaskLists() ([]app.TaskList, error)
+	GetAllTaskLists() ([]database.TaskList, error)
 	ListMCPServers() ([]mcpmgr.ServerInfo, error)
 }
 
