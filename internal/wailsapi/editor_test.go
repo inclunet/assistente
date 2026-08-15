@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"assistente/internal/apidto"
+	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
 )
 
@@ -163,5 +164,154 @@ func TestEditorUsesWithUserNotRequireAuthSource(t *testing.T) {
 	}
 	if !strings.Contains(body, "WithUser(session,") {
 		t.Fatal("editor.go deve chamar WithUser(session,")
+	}
+}
+
+func setupEditorAPITest(t *testing.T) *Editor {
+	t.Helper()
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return nil },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile:     func(path string) error { return nil },
+		UnwatchFile:   func(path string) error { return nil },
+	})
+	return api
+}
+
+func TestEditorPrivateFilesUse0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissões POSIX não se aplicam no Windows")
+	}
+	api := setupEditorAPITest(t)
+
+	if err := api.EditorWriteDraft("draft-privado", "conteudo sensivel"); err != nil {
+		t.Fatalf("EditorWriteDraft: %v", err)
+	}
+	draftPath, err := api.EditorGetDraftPath("draft-privado")
+	if err != nil {
+		t.Fatalf("EditorGetDraftPath: %v", err)
+	}
+	info, err := os.Stat(draftPath)
+	if err != nil {
+		t.Fatalf("stat draft: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("draft perm = %04o, quer 0600", got)
+	}
+	draftDirInfo, err := os.Stat(filepath.Dir(draftPath))
+	if err != nil {
+		t.Fatalf("stat draft dir: %v", err)
+	}
+	if got := draftDirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("draft dir perm = %04o, quer 0700", got)
+	}
+
+	if err := api.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{}}); err != nil {
+		t.Fatalf("EditorSaveState: %v", err)
+	}
+	statePath := editorStatePath()
+	stateInfo, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatalf("stat state: %v", err)
+	}
+	if got := stateInfo.Mode().Perm(); got != 0600 {
+		t.Fatalf("state.json perm = %04o, quer 0600", got)
+	}
+	stateDirInfo, err := os.Stat(filepath.Dir(statePath))
+	if err != nil {
+		t.Fatalf("stat editor dir: %v", err)
+	}
+	if got := stateDirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("editor dir perm = %04o, quer 0700", got)
+	}
+}
+
+func TestEditorPrivateFilesTightenLegacyModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissões POSIX não se aplicam no Windows")
+	}
+	api := setupEditorAPITest(t)
+
+	draftPath, err := api.EditorGetDraftPath("legado")
+	if err != nil {
+		t.Fatalf("EditorGetDraftPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(draftPath), 0755); err != nil {
+		t.Fatalf("mkdir legado: %v", err)
+	}
+	if err := os.WriteFile(draftPath, []byte("antigo"), 0644); err != nil {
+		t.Fatalf("seed draft: %v", err)
+	}
+	if err := api.EditorWriteDraft("legado", "novo"); err != nil {
+		t.Fatalf("EditorWriteDraft: %v", err)
+	}
+	info, err := os.Stat(draftPath)
+	if err != nil {
+		t.Fatalf("stat draft: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("draft legado perm = %04o, quer 0600 após rewrite", got)
+	}
+	dirInfo, err := os.Stat(filepath.Dir(draftPath))
+	if err != nil {
+		t.Fatalf("stat draft dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("draft dir legado perm = %04o, quer 0700 após rewrite", got)
+	}
+
+	statePath := editorStatePath()
+	if err := os.MkdirAll(filepath.Dir(statePath), 0755); err != nil {
+		t.Fatalf("mkdir state legado: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{}`), 0644); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	if err := api.EditorSaveState(apidto.EditorState{}); err != nil {
+		t.Fatalf("EditorSaveState: %v", err)
+	}
+	stateInfo, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatalf("stat state: %v", err)
+	}
+	if got := stateInfo.Mode().Perm(); got != 0600 {
+		t.Fatalf("state legado perm = %04o, quer 0600 após rewrite", got)
+	}
+	stateDirInfo, err := os.Stat(filepath.Dir(statePath))
+	if err != nil {
+		t.Fatalf("stat editor dir: %v", err)
+	}
+	if got := stateDirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("editor dir legado perm = %04o, quer 0700 após rewrite", got)
+	}
+}
+
+func TestEditorWriteFilePreservesExistingMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissões POSIX não se aplicam no Windows")
+	}
+	api := setupEditorAPITest(t)
+
+	path := filepath.Join(t.TempDir(), "secreto.md")
+	if err := os.WriteFile(path, []byte("antes"), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := api.EditorWriteFile(path, "depois"); err != nil {
+		t.Fatalf("EditorWriteFile: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("perm = %04o, quer preservar 0600", got)
 	}
 }

@@ -83,6 +83,19 @@ func editorDraftPath(draftId string) (string, error) {
 	return filepath.Join(editorDraftDir(), id+".md"), nil
 }
 
+// ensurePrivatePath reforça 0700 no diretório e 0600 no arquivo.
+// Necessário porque os.WriteFile/MkdirAll não corrigem modo de paths já
+// existentes criados com permissões mais abertas em versões anteriores.
+func ensurePrivatePath(filePath string) error {
+	if err := os.Chmod(filepath.Dir(filePath), 0700); err != nil {
+		return fmt.Errorf("falha ao restringir diretório privado: %w", err)
+	}
+	if err := os.Chmod(filePath, 0600); err != nil {
+		return fmt.Errorf("falha ao restringir arquivo privado: %w", err)
+	}
+	return nil
+}
+
 func emptyEditorState() *apidto.EditorState {
 	return &apidto.EditorState{
 		FileModeByPath:       map[string]string{},
@@ -112,18 +125,22 @@ func (api *Editor) EditorWriteDraft(draftId string, content string) error {
 		if err != nil {
 			return struct{}{}, err
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao criar diretório de drafts: %w", err)
 		}
 		commit := hooks.MarkSelfWrite(p)
-		if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
+		if err := filesystem.WriteFileBytes(p, []byte(content), 0600); err != nil {
 			if commit != nil {
 				commit(false)
 			}
 			return struct{}{}, fmt.Errorf("falha ao salvar draft: %w", err)
 		}
+		// Self-write commit antes do Chmod: o conteúdo já está no disco.
 		if commit != nil {
 			commit(true)
+		}
+		if err := ensurePrivatePath(p); err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	})
@@ -209,15 +226,18 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		p := editorStatePath()
-		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao criar diretório do editor: %w", err)
 		}
 		b, err := json.MarshalIndent(&state, "", "  ")
 		if err != nil {
 			return struct{}{}, fmt.Errorf("falha ao serializar editor state: %w", err)
 		}
-		if err := os.WriteFile(p, b, 0644); err != nil {
+		if err := os.WriteFile(p, b, 0600); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao salvar editor/state.json: %w", err)
+		}
+		if err := ensurePrivatePath(p); err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	})
@@ -322,8 +342,12 @@ func (api *Editor) EditorWriteFile(path string, content string) error {
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
 		}
+		perm := os.FileMode(0644)
+		if info, statErr := os.Stat(p); statErr == nil {
+			perm = info.Mode().Perm()
+		}
 		commit := hooks.MarkSelfWrite(p)
-		if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
+		if err := filesystem.WriteFileBytes(p, []byte(content), perm); err != nil {
 			if commit != nil {
 				commit(false)
 			}

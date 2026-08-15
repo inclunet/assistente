@@ -382,7 +382,12 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorDeleteDraft: vi.fn(),
   EditorGetFileInfo: vi.fn(),
-  EditorLoadState: vi.fn().mockResolvedValue({ fileModeByPath: {}, mergeSessionsByTabId: {} }),
+  // Throw síncrono (não Promise rejeitada): setSessionLoaded roda no effect
+  // dentro do act(render). Promise rejeitada deixa sessionLoaded=false na
+  // closure de syncAssistedChangeForTab e quebra os testes de tool edit_file.
+  EditorLoadState: vi.fn(() => {
+    throw new Error('editor state unavailable in test');
+  }),
   EditorLoadSession: vi.fn(),
   EditorOpenFile: vi.fn(),
   EditorReadDraft: vi.fn(),

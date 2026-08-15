@@ -18,7 +18,7 @@ const workspaceMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
-  EditorReadFile: vi.fn().mockResolvedValue({ content: '# Arquivo' }),
+  EditorReadFile: vi.fn().mockResolvedValue('# Arquivo'),
 }));
 
 vi.mock('../../store/editorStore', () => ({
