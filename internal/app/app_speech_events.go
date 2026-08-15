@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 
+	"assistente/internal/apidto"
 	"assistente/internal/profiles"
 	"assistente/internal/textutil"
 )
@@ -13,57 +14,28 @@ func stripMarkdownForTTSInLanguage(text, language string) string {
 	return textutil.StripMarkdownForSpeechLabeled(text, textutil.CodeBlockSpeechLabel(language))
 }
 
-type ChatSpeakStrategy string
-
-const (
-	ChatSpeakStrategyNone         ChatSpeakStrategy = "none"
-	ChatSpeakStrategyAnnounce     ChatSpeakStrategy = "announce"
-	ChatSpeakStrategyWebSpeech    ChatSpeakStrategy = "webspeech"
-	ChatSpeakStrategyBackendAudio ChatSpeakStrategy = "backend_audio"
+// Aliases da borda (AEP-0088 D5): tipos canônicos em apidto; helpers internos do App
+// e testes do pacote continuam usando estes nomes curtos.
+type (
+	ChatSpeakStrategy = apidto.ChatSpeakStrategy
+	ChatSpeakOrigin   = apidto.ChatSpeakOrigin
+	ChatSpeakRequest  = apidto.ChatSpeakRequest
+	ChatSpeakEvent    = apidto.ChatSpeakEvent
 )
 
-type ChatSpeakOrigin string
-
 const (
-	ChatSpeakOriginAssistantMessage ChatSpeakOrigin = "assistant_message"
-	ChatSpeakOriginUserMessage      ChatSpeakOrigin = "user_message"
-	ChatSpeakOriginSystemMessage    ChatSpeakOrigin = "system_message"
-	ChatSpeakOriginThinking         ChatSpeakOrigin = "thinking"
-	ChatSpeakOriginToolStatus       ChatSpeakOrigin = "tool_status"
-	ChatSpeakOriginSegment          ChatSpeakOrigin = "segment"
+	ChatSpeakStrategyNone         = apidto.ChatSpeakStrategyNone
+	ChatSpeakStrategyAnnounce     = apidto.ChatSpeakStrategyAnnounce
+	ChatSpeakStrategyWebSpeech    = apidto.ChatSpeakStrategyWebSpeech
+	ChatSpeakStrategyBackendAudio = apidto.ChatSpeakStrategyBackendAudio
+
+	ChatSpeakOriginAssistantMessage = apidto.ChatSpeakOriginAssistantMessage
+	ChatSpeakOriginUserMessage      = apidto.ChatSpeakOriginUserMessage
+	ChatSpeakOriginSystemMessage    = apidto.ChatSpeakOriginSystemMessage
+	ChatSpeakOriginThinking         = apidto.ChatSpeakOriginThinking
+	ChatSpeakOriginToolStatus       = apidto.ChatSpeakOriginToolStatus
+	ChatSpeakOriginSegment          = apidto.ChatSpeakOriginSegment
 )
-
-type ChatSpeakRequest struct {
-	ConversationID string            `json:"conversationId"`
-	MessageID string            `json:"messageId,omitempty"`
-	ProfileSlug    string          `json:"profileSlug,omitempty"`
-	Role           string          `json:"role"`
-	Text           string          `json:"text"`
-	Origin         ChatSpeakOrigin `json:"origin"`
-	Interrupt      *bool           `json:"interrupt,omitempty"`
-}
-
-type ChatSpeakEvent struct {
-	MessageID string              `json:"messageId,omitempty"`
-	ConversationID string              `json:"conversationId"`
-	Role             string            `json:"role"`
-	Text             string            `json:"text"`
-	Strategy         ChatSpeakStrategy `json:"strategy"`
-	FallbackStrategy ChatSpeakStrategy `json:"fallbackStrategy,omitempty"`
-	AutoRead         bool              `json:"autoRead"`
-	ProviderID       string            `json:"providerId,omitempty"`
-	VoiceID          string            `json:"voiceId,omitempty"`
-	Model            string            `json:"model,omitempty"`
-	Rate             float64           `json:"rate,omitempty"`
-	Pitch            float64           `json:"pitch,omitempty"`
-	Volume           float64           `json:"volume,omitempty"`
-	Origin           ChatSpeakOrigin   `json:"origin"`
-	Interrupt        bool              `json:"interrupt"`
-	// SpeechLanguage é o idioma do perfil que resolveu este evento. A strategy
-	// backend_audio regenera o áudio a partir da mensagem persistida, então
-	// precisa do mesmo idioma para não falar rótulos de outro perfil.
-	SpeechLanguage string `json:"speechLanguage,omitempty"`
-}
 
 func boolValueOrDefault(v *bool, fallback bool) bool {
 	if v == nil {
@@ -84,8 +56,11 @@ func effectiveVoiceProviderID(cfg profiles.VoiceRoleConfig) string {
 	}
 }
 
-func (a *App) DispatchSpeech(req ChatSpeakRequest) error {
-	_, err := a.dispatchSpeechEvent(req)
+// speechDispatcher adapta helpers lowercase do App para o bind wailsapi.Speech.
+type speechDispatcher struct{ app *App }
+
+func (d speechDispatcher) DispatchSpeech(req apidto.ChatSpeakRequest) error {
+	_, err := d.app.dispatchSpeechEvent(req)
 	return err
 }
 

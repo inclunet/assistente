@@ -295,6 +295,10 @@ type App struct {
 	// (AEP-0088). Criado em main e wired após NewConversationsController.
 	conversationsAPI *wailsapi.Conversations
 
+	// speechAPI é o bind Wails do domínio speech/TTS/STT (AEP-0088). Criado em
+	// main e wired após NewSpeechController.
+	speechAPI *wailsapi.Speech
+
 	// jobsAPI é o bind Wails do domínio jobs (AEP-0088). Criado em main e
 	// wired após NewJobsController.
 	jobsAPI *wailsapi.Jobs
@@ -546,6 +550,15 @@ func SetConversationsAPI(a *App, api *wailsapi.Conversations) {
 		return
 	}
 	a.conversationsAPI = api
+}
+
+// SetSpeechAPI registra o bind Wails de speech antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSpeechAPI(a *App, api *wailsapi.Speech) {
+	if a == nil {
+		return
+	}
+	a.speechAPI = api
 }
 
 // SetJobsAPI registra o bind Wails de jobs antes do Run (main.go).
@@ -1012,6 +1025,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
 		SpeechSvc: a.speechSvc,
 	})
+	a.wireSpeech()
 	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
 		JobMgr: a.jobMgr,
 	})

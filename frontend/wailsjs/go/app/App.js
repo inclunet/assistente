@@ -46,10 +46,6 @@ export function DeleteWorkspace(arg1) {
   return window['go']['app']['App']['DeleteWorkspace'](arg1);
 }
 
-export function DispatchSpeech(arg1) {
-  return window['go']['app']['App']['DispatchSpeech'](arg1);
-}
-
 export function EditorDeleteDraft(arg1) {
   return window['go']['app']['App']['EditorDeleteDraft'](arg1);
 }
@@ -126,10 +122,6 @@ export function ExportWorkspace() {
   return window['go']['app']['App']['ExportWorkspace']();
 }
 
-export function GenerateAndSaveMessageAudio(arg1, arg2) {
-  return window['go']['app']['App']['GenerateAndSaveMessageAudio'](arg1, arg2);
-}
-
 export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
 }
@@ -170,10 +162,6 @@ export function GetConversationChannel(arg1) {
   return window['go']['app']['App']['GetConversationChannel'](arg1);
 }
 
-export function GetMessageAudio(arg1) {
-  return window['go']['app']['App']['GetMessageAudio'](arg1);
-}
-
 export function GetMessagingStatus() {
   return window['go']['app']['App']['GetMessagingStatus']();
 }
@@ -188,26 +176,6 @@ export function GetModels() {
 
 export function GetModelsByProvider(arg1) {
   return window['go']['app']['App']['GetModelsByProvider'](arg1);
-}
-
-export function GetOpenAITTSVoices() {
-  return window['go']['app']['App']['GetOpenAITTSVoices']();
-}
-
-export function GetSTTModels(arg1) {
-  return window['go']['app']['App']['GetSTTModels'](arg1);
-}
-
-export function GetSpeechProviders() {
-  return window['go']['app']['App']['GetSpeechProviders']();
-}
-
-export function GetTTSModels(arg1) {
-  return window['go']['app']['App']['GetTTSModels'](arg1);
-}
-
-export function GetTTSVoices(arg1, arg2) {
-  return window['go']['app']['App']['GetTTSVoices'](arg1, arg2);
 }
 
 export function GetVaultIntegrityStatus() {
@@ -232,10 +200,6 @@ export function ImportDataWithResolutions(arg1) {
 
 export function ImportWorkspace(arg1) {
   return window['go']['app']['App']['ImportWorkspace'](arg1);
-}
-
-export function InitSpeechManagerFromProfile() {
-  return window['go']['app']['App']['InitSpeechManagerFromProfile']();
 }
 
 export function ListWorkspaces() {
@@ -302,10 +266,6 @@ export function SaveChannelConfig(arg1, arg2) {
   return window['go']['app']['App']['SaveChannelConfig'](arg1, arg2);
 }
 
-export function SaveMessageAudio(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SaveMessageAudio'](arg1, arg2, arg3);
-}
-
 export function SaveWorkspace() {
   return window['go']['app']['App']['SaveWorkspace']();
 }
@@ -320,14 +280,6 @@ export function SendMessageSync(arg1, arg2) {
 
 export function SetActiveWorkspaceTab(arg1) {
   return window['go']['app']['App']['SetActiveWorkspaceTab'](arg1);
-}
-
-export function SetOpenAITTSSpeed(arg1) {
-  return window['go']['app']['App']['SetOpenAITTSSpeed'](arg1);
-}
-
-export function SetOpenAITTSVoice(arg1) {
-  return window['go']['app']['App']['SetOpenAITTSVoice'](arg1);
 }
 
 export function SetWorkspaceProfile(arg1) {
@@ -350,36 +302,12 @@ export function Shutdown() {
   return window['go']['app']['App']['Shutdown']();
 }
 
-export function SpeakMessage(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['app']['App']['SpeakMessage'](arg1, arg2, arg3, arg4, arg5, arg6);
-}
-
-export function SpeakPreview(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
-  return window['go']['app']['App']['SpeakPreview'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
-}
-
 export function StartupWithAdapters(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['StartupWithAdapters'](arg1, arg2, arg3, arg4);
 }
 
 export function SwitchWorkspace(arg1) {
   return window['go']['app']['App']['SwitchWorkspace'](arg1);
-}
-
-export function SynthesizeOpenAI(arg1) {
-  return window['go']['app']['App']['SynthesizeOpenAI'](arg1);
-}
-
-export function SynthesizeOpenAIStream(arg1, arg2, arg3) {
-  return window['go']['app']['App']['SynthesizeOpenAIStream'](arg1, arg2, arg3);
-}
-
-export function SynthesizeOpenAIWithVoice(arg1, arg2) {
-  return window['go']['app']['App']['SynthesizeOpenAIWithVoice'](arg1, arg2);
-}
-
-export function TranscribeWhisper(arg1, arg2) {
-  return window['go']['app']['App']['TranscribeWhisper'](arg1, arg2);
 }
 
 export function UnassignConversationFromChannel(arg1) {

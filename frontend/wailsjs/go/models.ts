@@ -631,6 +631,30 @@ export namespace apidto {
 	        this.sessionDir = source["sessionDir"];
 	    }
 	}
+	export class ChatSpeakRequest {
+	    conversationId: string;
+	    messageId?: string;
+	    profileSlug?: string;
+	    role: string;
+	    text: string;
+	    origin: string;
+	    interrupt?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatSpeakRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.messageId = source["messageId"];
+	        this.profileSlug = source["profileSlug"];
+	        this.role = source["role"];
+	        this.text = source["text"];
+	        this.origin = source["origin"];
+	        this.interrupt = source["interrupt"];
+	    }
+	}
 	export class CleanupLegacyChannelJSONItem {
 	    path: string;
 	    kind: string;
@@ -1120,6 +1144,22 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class SynthesisResultInfo {
+	    audioBase64: string;
+	    format: string;
+	    provider: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SynthesisResultInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.audioBase64 = source["audioBase64"];
+	        this.format = source["format"];
+	        this.provider = source["provider"];
+	    }
+	}
 	export class TestLLMProviderRequest {
 	    type: string;
 	    base_url: string;
@@ -1328,30 +1368,6 @@ export namespace app {
 	        this.role = source["role"];
 	    }
 	}
-	export class ChatSpeakRequest {
-	    conversationId: string;
-	    messageId?: string;
-	    profileSlug?: string;
-	    role: string;
-	    text: string;
-	    origin: string;
-	    interrupt?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ChatSpeakRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversationId = source["conversationId"];
-	        this.messageId = source["messageId"];
-	        this.profileSlug = source["profileSlug"];
-	        this.role = source["role"];
-	        this.text = source["text"];
-	        this.origin = source["origin"];
-	        this.interrupt = source["interrupt"];
-	    }
-	}
 	export class CreateAdminRequest {
 	    username: string;
 	    displayName: string;
@@ -1535,23 +1551,6 @@ export namespace app {
 		    }
 		    return a;
 		}
-	}
-	
-	export class SynthesisResultInfo {
-	    audioBase64: string;
-	    format: string;
-	    provider: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new SynthesisResultInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.audioBase64 = source["audioBase64"];
-	        this.format = source["format"];
-	        this.provider = source["provider"];
-	    }
 	}
 
 }

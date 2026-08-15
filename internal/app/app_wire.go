@@ -76,14 +76,31 @@ func (a *App) wireProfiles() {
 		ContextProviders: a.contextProviders,
 		OnProfileChanged: func(slug string) {
 			a.initLLMClient()
-			if err := a.InitSpeechManagerFromProfile(); err != nil {
-				logging.Errorf(a.ctx, "app.app_wire", "[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
-			}
+			a.reinitSpeechFromActiveProfile(slug)
 			a.registerActiveProfileHotkeys()
 		},
 	})
 	if a.profilesAPI != nil {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
+	}
+}
+
+// reinitSpeechFromActiveProfile reinicia o speech manager após troca de perfil.
+// Precisa do userID: InitFromProfile resolve API keys no cofre com
+// GetByPatternWithContext. Sem sessão autenticada não tenta — a.ctx puro
+// deixaria TTS/STT sem credencial mesmo com chave cadastrada (comportamento
+// que InitSpeechManagerFromProfile no App já garantia).
+func (a *App) reinitSpeechFromActiveProfile(slug string) {
+	if a == nil || a.speechSvc == nil {
+		return
+	}
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		logging.Errorf(a.ctx, "app.app_wire", "[Profile] Sem sessão para reinicializar speech no perfil %s: %v", slug, err)
+		return
+	}
+	if err := a.speechSvc.InitFromProfile(ctx); err != nil {
+		logging.Errorf(ctx, "app.app_wire", "[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
 	}
 }
 
@@ -230,6 +247,14 @@ func (a *App) wireTasklist() {
 func (a *App) wireConversations() {
 	if a.conversationsAPI != nil {
 		wailsapi.AttachConversations(a.conversationsAPI, wailsSession{app: a}, a.conversationsCtrl)
+	}
+}
+
+// wireSpeech associa o bind Wails de speech/TTS/STT (AEP-0088).
+// Reusa speechCtrl; helpers dispatchSpeechEvent/resolveSpeechProfile permanecem no App.
+func (a *App) wireSpeech() {
+	if a.speechAPI != nil {
+		wailsapi.AttachSpeech(a.speechAPI, wailsSession{app: a}, a.speechCtrl, speechDispatcher{app: a})
 	}
 }
 

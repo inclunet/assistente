@@ -5,7 +5,6 @@ import {portability} from '../models';
 import {context} from '../models';
 import {app} from '../models';
 import {database} from '../models';
-import {speech} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
 import {controllers} from '../models';
@@ -34,8 +33,6 @@ export function CreateChannelFromTemplate(arg1:string,arg2:Record<string, any>):
 export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function DeleteWorkspace(arg1:string):Promise<void>;
-
-export function DispatchSpeech(arg1:app.ChatSpeakRequest):Promise<void>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
@@ -75,8 +72,6 @@ export function ExportDataToFile(arg1:portability.ExportRequest,arg2:string):Pro
 
 export function ExportWorkspace():Promise<string>;
 
-export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<speech.AudioResult>;
-
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
@@ -97,8 +92,6 @@ export function GetChannelTemplates():Promise<Array<channels.ChannelTemplate>>;
 
 export function GetConversationChannel(arg1:string):Promise<string>;
 
-export function GetMessageAudio(arg1:string):Promise<speech.AudioResult>;
-
 export function GetMessagingStatus():Promise<Record<string, string>>;
 
 export function GetModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>;
@@ -106,16 +99,6 @@ export function GetModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>
 export function GetModels():Promise<Array<string>>;
 
 export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
-
-export function GetOpenAITTSVoices():Promise<Array<speech.TTSVoiceInfo>>;
-
-export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
-
-export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
-
-export function GetTTSModels(arg1:string):Promise<Array<speech.TTSModelInfo>>;
-
-export function GetTTSVoices(arg1:string,arg2:string):Promise<Array<speech.TTSVoiceInfo>>;
 
 export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStatus>;
 
@@ -128,8 +111,6 @@ export function ImportData(arg1:string,arg2:string):Promise<portability.ImportRe
 export function ImportDataWithResolutions(arg1:portability.ImportRequest):Promise<portability.ImportResult>;
 
 export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
-
-export function InitSpeechManagerFromProfile():Promise<void>;
 
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
 
@@ -163,8 +144,6 @@ export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
-export function SaveMessageAudio(arg1:string,arg2:string,arg3:string):Promise<void>;
-
 export function SaveWorkspace():Promise<void>;
 
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<string>;
@@ -172,10 +151,6 @@ export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatPar
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
-
-export function SetOpenAITTSSpeed(arg1:number):Promise<void>;
-
-export function SetOpenAITTSVoice(arg1:string):Promise<void>;
 
 export function SetWorkspaceProfile(arg1:string):Promise<void>;
 
@@ -187,21 +162,9 @@ export function ShowWindow():Promise<void>;
 
 export function Shutdown():Promise<void>;
 
-export function SpeakMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:string):Promise<speech.AudioResult>;
-
-export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:string,arg8:string):Promise<void>;
-
 export function StartupWithAdapters(arg1:context.Context,arg2:ports.Emitter,arg3:ports.WindowPort,arg4:ports.SystemDialogPort):Promise<void>;
 
 export function SwitchWorkspace(arg1:string):Promise<workspace.Workspace>;
-
-export function SynthesizeOpenAI(arg1:string):Promise<app.SynthesisResultInfo>;
-
-export function SynthesizeOpenAIStream(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<app.SynthesisResultInfo>;
-
-export function TranscribeWhisper(arg1:string,arg2:string):Promise<speech.TranscriptionResult>;
 
 export function UnassignConversationFromChannel(arg1:string):Promise<void>;
 

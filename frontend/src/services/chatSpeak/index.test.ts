@@ -11,7 +11,7 @@ const stopTTSMock = vi.fn();
 const getVolumeMock = vi.fn().mockReturnValue(0.7);
 const speakWithOverrideMock = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Speech', () => ({
   DispatchSpeech: (...args: unknown[]) => dispatchSpeechMock(...args),
 }));
 
