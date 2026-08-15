@@ -1135,6 +1135,13 @@ const ptBR = {
       buttons: { apply: 'Aplicar', notNow: 'Agora não', file: 'Arquivo', format: 'Formatar', insert: 'Inserir', mode: 'Modo' },
       prompts: { file: 'Arquivo', diff: 'Diff (disco → minha versão)', diskPreview: 'Versão do disco (preview)', localPreview: 'Sua versão (preview)', action: 'Ação' },
       options: { useDisk: 'Usar versão do disco', resolveMerge: 'Resolver conflitos (estilo Git)', useMine: 'Usar minha versão', saveAs: 'Salvar como…' },
+      dialog: {
+        openTitle: 'Abrir arquivo',
+        saveTitle: 'Salvar arquivo',
+        filterMarkdown: 'Markdown',
+        filterAll: 'Todos os arquivos',
+        defaultFilename: 'documento.md',
+      },
       fallback: { title: 'Editor', newDoc: 'Novo documento', fromChat: 'Do chat' },
       sendToEditor: {
         action: 'Enviar ao editor',
