@@ -30,13 +30,16 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   ClearConversation: clearConversationMock,
-  GetAgentSessionOptions: getAgentSessionOptionsMock,
-  SetAgentSessionOption: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
   GetAgentConversationWorkDir: getAgentWorkDirMock,
   SetAgentConversationWorkDir: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/ACPOptions', () => ({
+  GetAgentSessionOptions: getAgentSessionOptionsMock,
+  SetAgentSessionOption: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({

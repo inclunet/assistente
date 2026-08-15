@@ -284,6 +284,14 @@ func (a *App) wireACPProviders() {
 	}
 }
 
+// wireACPOptions associa o bind Wails de opções de sessão ACP (AEP-0088).
+// agentSessionOptionsChanged e noticePermissionBarrier permanecem no App.
+func (a *App) wireACPOptions() {
+	if a.acpOptionsAPI != nil {
+		wailsapi.AttachACPOptions(a.acpOptionsAPI, wailsSession{app: a}, a.acpMgr, a.noticePermissionBarrier)
+	}
+}
+
 // wireACPRegistry associa o bind Wails do catálogo ACP (AEP-0088).
 // Helpers de montagem (acpCatalogOf) permanecem no App.
 func (a *App) wireACPRegistry() {

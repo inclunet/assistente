@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetAgentSessionOptions, SetAgentSessionOption } from '@wailsjs/go/app/App';
+import { GetAgentSessionOptions, SetAgentSessionOption } from '@wailsjs/go/wailsapi/ACPOptions';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { logger } from '../../utils/logger';

@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"assistente/internal/acp"
+	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
+	"assistente/internal/wailsapi"
 )
 
 // agenteFalso é o agente do outro lado das ligações de modelo: guarda as opções
@@ -221,6 +223,12 @@ func appComAgente(t *testing.T, agente *agenteFalso) (*App, *testEmitter) {
 	return a, emissor
 }
 
+func optionsAPI(a *App) *wailsapi.ACPOptions {
+	api := wailsapi.NewACPOptions()
+	wailsapi.AttachACPOptions(api, wailsSession{app: a}, a.acpMgr, a.noticePermissionBarrier)
+	return api
+}
+
 // conversaComSessao faz nascer a sessão da conversa pelo caminho que o turno
 // usa. Sem isso não há o que mostrar nem o que trocar, e é justamente a diferença
 // entre a conversa que já falou com o agente e a que ainda não falou.
@@ -237,7 +245,7 @@ func TestOptionsDaConversaTrazemModeloEModoDoAgente(t *testing.T) {
 	a, _ := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	out, err := a.GetAgentSessionOptions("conversa-1")
+	out, err := optionsAPI(a).GetAgentSessionOptions("conversa-1")
 	if err != nil {
 		t.Fatalf("GetAgentSessionOptions: %v", err)
 	}
@@ -267,7 +275,7 @@ func TestConversaSemSessaoNaoMostraSeletorNemSobeAgente(t *testing.T) {
 	agente := novoAgenteFalso()
 	a, _ := appComAgente(t, agente)
 
-	out, err := a.GetAgentSessionOptions("conversa-que-nunca-falou")
+	out, err := optionsAPI(a).GetAgentSessionOptions("conversa-que-nunca-falou")
 	if err != nil {
 		t.Fatalf("GetAgentSessionOptions: %v", err)
 	}
@@ -287,7 +295,7 @@ func TestTrocarModeloPelaTelaValeNoAgente(t *testing.T) {
 	a, _ := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	out, err := a.SetAgentSessionOption("conversa-1", "model", "modelo-b")
+	out, err := optionsAPI(a).SetAgentSessionOption("conversa-1", "model", "modelo-b")
 	if err != nil {
 		t.Fatalf("SetAgentSessionOption: %v", err)
 	}
@@ -300,7 +308,7 @@ func TestTrocarModeloPelaTelaValeNoAgente(t *testing.T) {
 
 	// O turno seguinte é o que precisa sair no modelo novo: quem lê o estado
 	// depois da troca precisa ver o que o agente passou a usar.
-	depois, err := a.GetAgentSessionOptions("conversa-1")
+	depois, err := optionsAPI(a).GetAgentSessionOptions("conversa-1")
 	if err != nil {
 		t.Fatalf("GetAgentSessionOptions depois da troca: %v", err)
 	}
@@ -314,7 +322,7 @@ func TestTrocarModoPelaTelaValeNoAgente(t *testing.T) {
 	a, _ := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	out, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "plan")
+	out, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "plan")
 	if err != nil {
 		t.Fatalf("SetAgentSessionOption: %v", err)
 	}
@@ -327,7 +335,7 @@ func TestTrocaEmConversaSemSessaoExplicaEmVezDeCalar(t *testing.T) {
 	agente := novoAgenteFalso()
 	a, _ := appComAgente(t, agente)
 
-	_, err := a.SetAgentSessionOption("conversa-sem-sessao", "model", "modelo-b")
+	_, err := optionsAPI(a).SetAgentSessionOption("conversa-sem-sessao", "model", "modelo-b")
 	if err == nil {
 		t.Fatal("trocar modelo de conversa sem sessão deveria explicar o motivo")
 	}
@@ -427,7 +435,7 @@ func TestTrocarParaModoQueDispensaAPerguntaAvisaAConversa(t *testing.T) {
 	a, emissor := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
 		t.Fatalf("SetAgentSessionOption: %v", err)
 	}
 
@@ -452,7 +460,7 @@ func TestModoSemRotuloDoAgenteEntraNoAvisoPeloValorCru(t *testing.T) {
 	a, emissor := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "bypassPermissions"); err != nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "bypassPermissions"); err != nil {
 		t.Fatalf("SetAgentSessionOption: %v", err)
 	}
 
@@ -469,7 +477,7 @@ func TestOModoENomeadoMesmoQuandoOAgenteMudaACaixaDoValor(t *testing.T) {
 	a, emissor := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "DONTASK"); err != nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "DONTASK"); err != nil {
 		t.Fatalf("SetAgentSessionOption: %v", err)
 	}
 
@@ -490,10 +498,10 @@ func TestVoltarParaModoQuePerguntaAvisaQueABarreiraVoltou(t *testing.T) {
 	a, emissor := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
 		t.Fatalf("ligar o modo sem pergunta: %v", err)
 	}
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "plan"); err != nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "plan"); err != nil {
 		t.Fatalf("voltar ao modo que pergunta: %v", err)
 	}
 
@@ -517,10 +525,10 @@ func TestTrocarEntreDoisModosSemPerguntaNaoRepeteOAviso(t *testing.T) {
 	a, emissor := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
 		t.Fatalf("ligar o modo sem pergunta: %v", err)
 	}
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "bypassPermissions"); err != nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "bypassPermissions"); err != nil {
 		t.Fatalf("trocar para o outro modo sem pergunta: %v", err)
 	}
 
@@ -539,7 +547,7 @@ func TestTrocaEntreModosQueContinuamPerguntandoNaoRendeAviso(t *testing.T) {
 	conversaComSessao(t, a, "conversa-1")
 
 	for _, modo := range []string{"plan", "acceptEdits", "agent"} {
-		if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, modo); err != nil {
+		if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, modo); err != nil {
 			t.Fatalf("trocar para %q: %v", modo, err)
 		}
 	}
@@ -557,7 +565,7 @@ func TestTrocaDeModoRecusadaPeloAgenteNaoAvisaNada(t *testing.T) {
 	a, emissor := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err == nil {
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err == nil {
 		t.Fatal("a recusa do agente deveria virar erro")
 	}
 
@@ -627,17 +635,23 @@ func avisoUnico(t *testing.T, emissor *testEmitter) ports.ChatNoticeEvent {
 
 func TestLigacoesDeModeloExigemSessaoAutenticada(t *testing.T) {
 	a := &App{ctx: context.Background()}
+	mgr := acp.NewManager(acp.ManagerConfig{
+		WorkDir: func() (string, error) { return t.TempDir(), nil },
+	})
+	t.Cleanup(mgr.Shutdown)
+	api := wailsapi.NewACPOptions()
+	wailsapi.AttachACPOptions(api, wailsSession{app: a}, mgr, a.noticePermissionBarrier)
 
-	if _, err := a.GetAgentSessionOptions("conversa-1"); err == nil {
+	if _, err := api.GetAgentSessionOptions("conversa-1"); err == nil {
 		t.Fatal("GetAgentSessionOptions sem sessão autenticada deveria falhar")
 	}
-	if _, err := a.SetAgentSessionOption("conversa-1", "model", "modelo-b"); err == nil {
+	if _, err := api.SetAgentSessionOption("conversa-1", "model", "modelo-b"); err == nil {
 		t.Fatal("SetAgentSessionOption sem sessão autenticada deveria falhar")
 	}
 }
 
 // opcaoPorCategoria acha a opção de uma categoria no que a tela recebeu.
-func opcaoPorCategoria(options []AgentConfigOption, category string) *AgentConfigOption {
+func opcaoPorCategoria(options []apidto.AgentConfigOption, category string) *apidto.AgentConfigOption {
 	for i := range options {
 		if strings.EqualFold(options[i].Category, category) {
 			return &options[i]

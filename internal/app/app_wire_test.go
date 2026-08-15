@@ -422,6 +422,24 @@ func TestWireACPCommandsAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireACPOptionsAttachesBind(t *testing.T) {
+	t.Parallel()
+	mgr := acp.NewManager(acp.ManagerConfig{
+		WorkDir: func() (string, error) { return t.TempDir(), nil },
+	})
+	t.Cleanup(mgr.Shutdown)
+	a := &App{acpMgr: mgr}
+	api := wailsapi.NewACPOptions()
+	SetACPOptionsAPI(a, api)
+
+	a.wireACPOptions()
+
+	_, err := api.GetAgentSessionOptions("conversa-1")
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 func TestWireACPWorkDirAttachesBind(t *testing.T) {
 	t.Parallel()
 	mgr := acp.NewManager(acp.ManagerConfig{
