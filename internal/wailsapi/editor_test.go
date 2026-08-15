@@ -170,26 +170,10 @@ func TestEditorUsesWithUserNotRequireAuthSource(t *testing.T) {
 func setupEditorAPITest(t *testing.T) *Editor {
 	t.Helper()
 	tempDir := t.TempDir()
-	oldHome, _ := os.LookupEnv("HOME")
-	oldUserProfile, _ := os.LookupEnv("USERPROFILE")
-
-	_ = os.Setenv("HOME", tempDir)
-	_ = os.Setenv("USERPROFILE", tempDir)
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
 	configdir.ResetForTests()
-
-	t.Cleanup(func() {
-		if oldHome == "" {
-			_ = os.Unsetenv("HOME")
-		} else {
-			_ = os.Setenv("HOME", oldHome)
-		}
-		if oldUserProfile == "" {
-			_ = os.Unsetenv("USERPROFILE")
-		} else {
-			_ = os.Setenv("USERPROFILE", oldUserProfile)
-		}
-		configdir.ResetForTests()
-	})
+	t.Cleanup(configdir.ResetForTests)
 
 	api := NewEditor()
 	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{

@@ -11,7 +11,7 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { getMaybeContent } from '../lib/editorContent';
 import { EditorDeleteDraft, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/wailsapi/Editor';
-import type { apidto } from '@wailsjs/go/models';
+import { apidto } from '@wailsjs/go/models';
 import type { UseEditorMergeResult } from './useEditorMerge';
 
 interface UseEditorDocumentArgs {
@@ -67,11 +67,11 @@ export function useEditorDocument({
     } catch {
       // best-effort
     }
-    const payload = {
+    const payload = apidto.EditorState.createFrom({
       fileModeByPath: fileModeByPathRef.current,
       mergeSessionsByTabId: mergeSessionByTabRef.current,
-    };
-    EditorSaveState(payload as unknown as apidto.EditorState).catch((e: unknown) => {
+    });
+    EditorSaveState(payload).catch((e: unknown) => {
       logger.warn('[EditorPage] falha ao salvar estado:', e);
     });
   };
