@@ -376,7 +376,7 @@ func TestCancelStreaming_CancelsContextAndRemovesEntry(t *testing.T) {
 	app := newMinimalApp()
 	ctx, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("30", cancel)
-	app.CancelStreamingForConversation("30")
+	CancelStreamingForConversation(app, "30")
 
 	select {
 	case <-ctx.Done():
@@ -408,7 +408,7 @@ func TestCancelStreaming_NotifiesResponseNotifier(t *testing.T) {
 
 	_, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("30", cancel)
-	app.CancelStreamingForConversation("30")
+	CancelStreamingForConversation(app, "30")
 
 	if notifier.PendingCount() != 0 {
 		t.Errorf("esperava 0 pending após cancel, obteve %d", notifier.PendingCount())
@@ -418,7 +418,7 @@ func TestCancelStreaming_NotifiesResponseNotifier(t *testing.T) {
 func TestCancelStreaming_NonExistent_DoesNotNotify(t *testing.T) {
 	// Cancela conversa que nunca teve streaming registrado — PendingCount deve permanecer 0.
 	app := newMinimalApp()
-	app.CancelStreamingForConversation("999")
+	CancelStreamingForConversation(app, "999")
 	if app.responseNotifier.PendingCount() != 0 {
 		t.Errorf("pendingCount deveria ser 0, obteve %d", app.responseNotifier.PendingCount())
 	}
@@ -428,8 +428,8 @@ func TestCancelStreaming_Idempotent_DoesNotPanic(t *testing.T) {
 	app := newMinimalApp()
 	_, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("40", cancel)
-	app.CancelStreamingForConversation("40")
-	app.CancelStreamingForConversation("40") // segunda chamada não deve panicar
+	CancelStreamingForConversation(app, "40")
+	CancelStreamingForConversation(app, "40") // segunda chamada não deve panicar
 }
 
 func TestCancelStreaming_NilNotifier_DoesNotPanic(t *testing.T) {
@@ -437,7 +437,7 @@ func TestCancelStreaming_NilNotifier_DoesNotPanic(t *testing.T) {
 	app.responseNotifier = nil
 	_, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("5", cancel)
-	app.CancelStreamingForConversation("5")
+	CancelStreamingForConversation(app, "5")
 }
 
 // ==================== loadConversationHistory ====================
@@ -743,7 +743,7 @@ func TestCancelStreaming_ConcurrentCancels_DoNotPanic(t *testing.T) {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			app.CancelStreamingForConversation(id)
+			CancelStreamingForConversation(app, id)
 		}(fmt.Sprintf("%d", i))
 	}
 	wg.Wait()

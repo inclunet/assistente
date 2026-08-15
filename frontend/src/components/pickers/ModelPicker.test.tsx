@@ -20,7 +20,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
   GetModels: () => getModelsSpy(),
   GetModelCatalogByProvider: (providerId: string) => getModelsSpy(providerId),
   RefreshModels: () => refreshModelsSpy(),

@@ -6,7 +6,7 @@ import {
   GetModelCatalogByProvider,
   RefreshModels,
   RefreshModelCatalogByProvider,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/LLMModels';
 import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';
 import { Button } from '../ui/Button';
 import { ComboboxItem } from './Combobox';

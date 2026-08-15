@@ -72,6 +72,8 @@ func main() {
 	application.SetJobsAPI(a, jobsAPI)
 	llmProvidersAPI := wailsapi.NewLLMProviders()
 	application.SetLLMProvidersAPI(a, llmProvidersAPI)
+	llmModelsAPI := wailsapi.NewLLMModels()
+	application.SetLLMModelsAPI(a, llmModelsAPI)
 	acpCommandsAPI := wailsapi.NewACPCommands()
 	application.SetACPCommandsAPI(a, acpCommandsAPI)
 	acpProvidersAPI := wailsapi.NewACPProviders()
@@ -152,6 +154,7 @@ func main() {
 			tasklistActionsAPI,
 			jobsAPI,
 			llmProvidersAPI,
+			llmModelsAPI,
 			acpCommandsAPI,
 			acpProvidersAPI,
 			acpOptionsAPI,

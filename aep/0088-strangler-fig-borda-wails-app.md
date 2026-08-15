@@ -238,6 +238,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **acp_trust** (GetAgentPermissions + RevokeAgentPermission → `wailsapi.ACPTrust`; DTO em `apidto`; handlers de permissão em tempo de turno e `profileNames` permanecem no `*App`)
 - [x] **editor** (drafts/state/files/dialogs/watch → `wailsapi.Editor`; DTOs em `apidto`; watcher/`editor:fileChanged`/assisted writes permanecem no `*App` via hooks)
 - [x] **export_import** (export/import conversas e dados portáteis → `wailsapi.ExportImport`; tipos de `portability`, sem apidto novo; CLI via `ExportImportAPI`)
+- [x] **llm_models** (catálogo/lista/refresh de modelos + `CancelStreamingForConversation` → `wailsapi.LLMModels`; tipos de `llm.ModelCatalog`; `streamMgr` permanece no `*App` via hook; CRUD de providers fica em `LLMProviders`)
 - [ ] …
 
 ### Fase N — `App` enxuto

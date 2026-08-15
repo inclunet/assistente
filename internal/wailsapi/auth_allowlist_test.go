@@ -472,6 +472,23 @@ func TestLLMProvidersMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestLLMModelsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetModels",
+		"GetModelsByProvider",
+		"RefreshModels",
+		"RefreshModelsByProvider",
+		"GetModelCatalogByProvider",
+		"RefreshModelCatalogByProvider",
+		"CancelStreamingForConversation",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s está em wailsapi.LLMModels; não pertence à allowlist de *App", name)
+		}
+	}
+}
+
 func TestJobsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

@@ -6,10 +6,6 @@ export function CanPersistCredentials() {
   return window['go']['app']['App']['CanPersistCredentials']();
 }
 
-export function CancelStreamingForConversation(arg1) {
-  return window['go']['app']['App']['CancelStreamingForConversation'](arg1);
-}
-
 export function Context() {
   return window['go']['app']['App']['Context']();
 }
@@ -24,18 +20,6 @@ export function GetAuthStatus() {
 
 export function GetAuthUser() {
   return window['go']['app']['App']['GetAuthUser']();
-}
-
-export function GetModelCatalogByProvider(arg1) {
-  return window['go']['app']['App']['GetModelCatalogByProvider'](arg1);
-}
-
-export function GetModels() {
-  return window['go']['app']['App']['GetModels']();
-}
-
-export function GetModelsByProvider(arg1) {
-  return window['go']['app']['App']['GetModelsByProvider'](arg1);
 }
 
 export function GetVaultIntegrityStatus() {
@@ -56,18 +40,6 @@ export function Logout(arg1) {
 
 export function RefreshAuth(arg1) {
   return window['go']['app']['App']['RefreshAuth'](arg1);
-}
-
-export function RefreshModelCatalogByProvider(arg1) {
-  return window['go']['app']['App']['RefreshModelCatalogByProvider'](arg1);
-}
-
-export function RefreshModels() {
-  return window['go']['app']['App']['RefreshModels']();
-}
-
-export function RefreshModelsByProvider(arg1) {
-  return window['go']['app']['App']['RefreshModelsByProvider'](arg1);
 }
 
 export function RetryMessage(arg1, arg2, arg3) {

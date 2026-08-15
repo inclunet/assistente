@@ -156,7 +156,15 @@ func (a *App) wireSettings() {
 			return a.messagingAPI.RestartChannel(channelName)
 		},
 		GetModels: func() ([]string, error) {
-			return a.GetModels()
+			if a.llmModelsAPI != nil {
+				return a.llmModelsAPI.GetModels()
+			}
+			ctx, err := a.requireAuthenticatedContext()
+			if err != nil {
+				return nil, err
+			}
+			activeProfile, _ := a.profileManager.GetActive()
+			return a.providerSvc.GetModels(ctx, activeProfile)
 		},
 	})
 	if a.settingsAPI != nil {
@@ -359,6 +367,26 @@ func (a *App) wireLLMProviders() {
 			CreateDefault: a.createDefaultLLMProvider,
 		})
 	}
+}
+
+// wireLLMModels associa o bind Wails de catálogo/refresh/cancel (AEP-0088).
+// streamMgr permanece no App; cancel entra via hook (sem duplicar estado).
+// Na CLI o bind é criado aqui (main GUI já registra via SetLLMModelsAPI).
+func (a *App) wireLLMModels() {
+	if a.llmModelsAPI == nil {
+		a.llmModelsAPI = wailsapi.NewLLMModels()
+	}
+	wailsapi.AttachLLMModels(
+		a.llmModelsAPI,
+		wailsSession{app: a},
+		a.providerSvc,
+		a.profileManager,
+		wailsapi.LLMModelsHooks{
+			CancelStreaming: func(conversationID string) {
+				CancelStreamingForConversation(a, conversationID)
+			},
+		},
+	)
 }
 
 // wireACPCommands associa o bind Wails ao Manager ACP já criado em initACP (AEP-0088).

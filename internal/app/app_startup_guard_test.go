@@ -52,6 +52,17 @@ func TestExportImportBindingsAreSafeBeforeStartup(t *testing.T) {
 	}
 }
 
+func TestLLMModelsBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewLLMModels()
+
+	if _, err := api.GetModels(); !errors.Is(err, wailsapi.ErrLLMModelsNotWired) {
+		t.Fatalf("GetModels() error = %v, want ErrLLMModelsNotWired", err)
+	}
+	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, wailsapi.ErrLLMModelsNotWired) {
+		t.Fatalf("CancelStreamingForConversation() error = %v, want ErrLLMModelsNotWired", err)
+	}
+}
+
 func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 	a := &App{}
 	api := wailsapi.NewWelcome()

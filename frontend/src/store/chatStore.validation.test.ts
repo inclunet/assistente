@@ -27,6 +27,9 @@ const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/app/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
   RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
   CancelStreamingForConversation: vi.fn(),
 }));
 
