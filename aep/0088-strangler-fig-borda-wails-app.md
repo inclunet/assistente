@@ -237,6 +237,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **acp_workdir** (Get/SetAgentConversationWorkDir → `wailsapi.ACPWorkDir`; DTO em `apidto`; helpers `agentConversationDir`/`conversationAgentDir`/`acpWorkDir` permanecem no `*App`)
 - [x] **acp_trust** (GetAgentPermissions + RevokeAgentPermission → `wailsapi.ACPTrust`; DTO em `apidto`; handlers de permissão em tempo de turno e `profileNames` permanecem no `*App`)
 - [x] **editor** (drafts/state/files/dialogs/watch → `wailsapi.Editor`; DTOs em `apidto`; watcher/`editor:fileChanged`/assisted writes permanecem no `*App` via hooks)
+- [x] **export_import** (export/import conversas e dados portáteis → `wailsapi.ExportImport`; tipos de `portability`, sem apidto novo; CLI via `ExportImportAPI`)
 - [ ] …
 
 ### Fase N — `App` enxuto
