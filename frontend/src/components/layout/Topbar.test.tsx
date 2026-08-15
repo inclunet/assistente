@@ -190,6 +190,22 @@ describe('Topbar', () => {
     }
   });
 
+  it('Alt+Backspace previne o default mas não navega com um modal aberto', () => {
+    modalState.open = true;
+    try {
+      render(<Topbar />);
+      navigateSpy.mockClear();
+
+      const event = new KeyboardEvent('keydown', { key: 'Backspace', altKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(navigateSpy).not.toHaveBeenCalled();
+    } finally {
+      modalState.open = false;
+    }
+  });
+
   it('Alt+M não age quando um modal está aberto', () => {
     modalState.open = true;
     try {

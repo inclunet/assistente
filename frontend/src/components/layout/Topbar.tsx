@@ -280,23 +280,28 @@ export function Topbar() {
         return;
       }
 
-      // Os atalhos de navegação (Alt+…) não devem agir na UI de fundo
-      // enquanto qualquer modal está aberto (incl. o painel de atalhos, que se
-      // registra no stack via Modal).
-      if (isModalOpen()) return;
-      if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+      const isPlainAlt = event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey;
 
-      // Alt+Backspace → workspace (alternativa acessível a Alt+W). Em campos
-      // editáveis, Alt+Backspace costuma apagar palavra; ignoramos ali para não
-      // navegar por engano nem descartar texto do usuário (Alt+W segue global).
-      if (event.key === 'Backspace') {
+      // Alt+Backspace → workspace (alternativa acessível a Alt+W). Tratado antes
+      // do guard de modal porque Alt+Backspace tem "voltar" padrão no
+      // navegador/WebView: sempre prevenimos (fora de campo editável) para não
+      // vazar, inclusive com modal aberto — onde apenas prevenimos, sem navegar.
+      // Em campos editáveis Alt+Backspace costuma apagar palavra, então saímos.
+      if (isPlainAlt && event.key === 'Backspace') {
         if (isEditableTarget(event.target)) return;
         event.preventDefault();
+        if (isModalOpen()) return;
         // Anúncio usa o nome da página (menu.chat), como ROUTE_I18N_KEYS[''],
         // para o NVDA falar "Navegou para Chat" e não a ação "Voltar ao workspace".
         navigateTo('/', 'menu.chat');
         return;
       }
+
+      // Os demais atalhos de navegação (Alt+…) não devem agir na UI de fundo
+      // enquanto qualquer modal está aberto (incl. o painel de atalhos, que se
+      // registra no stack via Modal).
+      if (isModalOpen()) return;
+      if (!isPlainAlt) return;
 
       const key = event.key.toLowerCase();
       if (key === 'm') {
