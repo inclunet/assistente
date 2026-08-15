@@ -388,13 +388,11 @@ vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorLoadState: vi.fn(() => {
     throw new Error('editor state unavailable in test');
   }),
-  EditorLoadSession: vi.fn(),
   EditorOpenFile: vi.fn(),
   EditorReadDraft: vi.fn(),
   EditorReadFile: vi.fn(),
   EditorSaveFileDialog: vi.fn(),
   EditorSaveState: vi.fn().mockResolvedValue(undefined),
-  EditorSaveSession: vi.fn(),
   EditorUnwatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWriteDraft: vi.fn(),
