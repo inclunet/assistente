@@ -42,7 +42,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn() }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPRegistry', () => ({
   GetACPCatalog: catalogMock,
   RefreshACPCatalog: catalogMock,
 }));
