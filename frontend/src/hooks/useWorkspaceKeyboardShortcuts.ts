@@ -28,6 +28,11 @@ import { logger } from '../utils/logger';
 
 const CHORD_TIMEOUT_MS = 1500;
 
+function reportTabCreationError(error: unknown) {
+  logger.error('[WorkspaceShortcuts] Erro ao criar aba:', error);
+  useUIStore.getState().addToast(i18next.t('workspace.tabCreateFailed'), 'error');
+}
+
 // Títulos resolvidos via i18next.t(titleKey) no momento do uso (CHORD_MAP é
 // const de módulo, avaliada uma vez): assim a aba criada respeita o idioma
 // corrente, inclusive após troca em runtime. Reutiliza chaves existentes.
@@ -44,8 +49,8 @@ export interface UseWorkspaceKeyboardShortcutsOptions {
 
 export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShortcutsOptions = {}) {
   const { onTabShortcutNavigation } = options;
-  const { workspace, addTab, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, addTab: s.addTab, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
+  const { workspace, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
   );
   const { announce } = useAnnouncer();
 
@@ -121,10 +126,7 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
           event.stopPropagation();
           const title = i18next.t(match.titleKey);
           void createWorkspaceTab(match.type, title)
-            .catch((error: unknown) => {
-              logger.error('[WorkspaceShortcuts] Erro ao criar aba:', error);
-              useUIStore.getState().addToast(i18next.t('workspace.tabCreateFailed'), 'error');
-            });
+            .catch(reportTabCreationError);
         }
         chordPendingRef.current = false;
         if (chordTimerRef.current) {
@@ -163,7 +165,8 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
         if (isInput) return;
         event.preventDefault();
         if (isModalOpen()) return;
-        void addTab('chat', i18next.t('chat.newConversation'));
+        void createWorkspaceTab('chat', i18next.t('chat.newConversation'))
+          .catch(reportTabCreationError);
         return;
       }
 
@@ -263,5 +266,5 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, createWorkspace, announce, onTabShortcutNavigation]);
+  }, [tabs, activeTabId, removeTab, setActiveTab, createWorkspace, announce, onTabShortcutNavigation]);
 }
