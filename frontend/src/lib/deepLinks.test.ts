@@ -43,6 +43,20 @@ vi.mock('../store/chatStore', () => ({
   },
 }));
 
+const mockLoadTerminalSessions = vi.fn().mockResolvedValue(true);
+const mockCreateTerminalSession = vi.fn().mockResolvedValue('term-created');
+let mockTerminalSessions: Array<{ id: string }> = [];
+
+vi.mock('../store/terminalStore', () => ({
+  useTerminalStore: {
+    getState: () => ({
+      sessions: mockTerminalSessions,
+      loadSessions: mockLoadTerminalSessions,
+      createSession: mockCreateTerminalSession,
+    }),
+  },
+}));
+
 const mockRequestResourceEdit = vi.fn();
 
 vi.mock('../store/navigationStore', () => ({
@@ -691,6 +705,9 @@ describe('executeDeepLink', () => {
     vi.useRealTimers();
     mockWsTabs = [];
     mockWsProfile = undefined;
+    mockTerminalSessions = [];
+    mockLoadTerminalSessions.mockResolvedValue(true);
+    mockCreateTerminalSession.mockResolvedValue('term-created');
     mockWsAddTab.mockResolvedValue('tab-created');
     mockGetProfile.mockResolvedValue({ slug: 'programacao' });
   });
@@ -1046,6 +1063,57 @@ describe('executeDeepLink', () => {
       expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', 'tasklist 5', { tasklistId: '5' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
+
+    it('abre exatamente o terminal vivo solicitado', async () => {
+      mockTerminalSessions = [{ id: 'terminal-live' }];
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'terminal', contentId: 'terminal-live' },
+        deps,
+      );
+
+      expect(mockLoadTerminalSessions).toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith(
+        'terminal',
+        'terminal terminal-live',
+        { sessionId: 'terminal-live' },
+      );
+    });
+
+    it('não substitui silenciosamente um terminal encerrado', async () => {
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'terminal', contentId: 'terminal-dead' },
+        deps,
+      );
+
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockWsSetActiveTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'deepLink.terminalUnavailable',
+        'warning',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+    });
+
+    it('diferencia falha de listagem de terminal encerrado', async () => {
+      mockLoadTerminalSessions.mockResolvedValueOnce(false);
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'terminal', contentId: 'terminal-unknown' },
+        deps,
+      );
+
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'deepLink.terminalListFailed',
+        'error',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+    });
   });
 
   describe('tab:new', () => {
@@ -1094,9 +1162,21 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', 'Terminal');
+      expect(mockCreateTerminalSession).toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', 'Terminal', { sessionId: 'term-created' });
       expect(mockRunTerminalCommand).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('cria terminal antes de executar cmd do deep link', async () => {
+      await executeDeepLink(
+        { type: 'tab:new', tabType: 'terminal', title: 'Build', cmd: 'go test ./...' },
+        deps,
+      );
+
+      expect(mockCreateTerminalSession).toHaveBeenCalledWith('Build');
+      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', 'Build', { sessionId: 'term-created' });
+      expect(mockRunTerminalCommand).toHaveBeenCalledWith('term-created', 'go test ./...');
     });
   });
 
