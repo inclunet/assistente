@@ -250,6 +250,66 @@ func TestEditorPrivateFilesUse0600(t *testing.T) {
 	}
 }
 
+func TestEditorPrivateFilesTightenLegacyModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissões POSIX não se aplicam no Windows")
+	}
+	api := setupEditorAPITest(t)
+
+	draftPath, err := api.EditorGetDraftPath("legado")
+	if err != nil {
+		t.Fatalf("EditorGetDraftPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(draftPath), 0755); err != nil {
+		t.Fatalf("mkdir legado: %v", err)
+	}
+	if err := os.WriteFile(draftPath, []byte("antigo"), 0644); err != nil {
+		t.Fatalf("seed draft: %v", err)
+	}
+	if err := api.EditorWriteDraft("legado", "novo"); err != nil {
+		t.Fatalf("EditorWriteDraft: %v", err)
+	}
+	info, err := os.Stat(draftPath)
+	if err != nil {
+		t.Fatalf("stat draft: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("draft legado perm = %04o, quer 0600 após rewrite", got)
+	}
+	dirInfo, err := os.Stat(filepath.Dir(draftPath))
+	if err != nil {
+		t.Fatalf("stat draft dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("draft dir legado perm = %04o, quer 0700 após rewrite", got)
+	}
+
+	statePath := editorStatePath()
+	if err := os.MkdirAll(filepath.Dir(statePath), 0755); err != nil {
+		t.Fatalf("mkdir state legado: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{}`), 0644); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	if err := api.EditorSaveState(apidto.EditorState{}); err != nil {
+		t.Fatalf("EditorSaveState: %v", err)
+	}
+	stateInfo, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatalf("stat state: %v", err)
+	}
+	if got := stateInfo.Mode().Perm(); got != 0600 {
+		t.Fatalf("state legado perm = %04o, quer 0600 após rewrite", got)
+	}
+	stateDirInfo, err := os.Stat(filepath.Dir(statePath))
+	if err != nil {
+		t.Fatalf("stat editor dir: %v", err)
+	}
+	if got := stateDirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("editor dir legado perm = %04o, quer 0700 após rewrite", got)
+	}
+}
+
 func TestEditorWriteFilePreservesExistingMode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permissões POSIX não se aplicam no Windows")

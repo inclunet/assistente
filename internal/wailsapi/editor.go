@@ -83,6 +83,14 @@ func editorDraftPath(draftId string) (string, error) {
 	return filepath.Join(editorDraftDir(), id+".md"), nil
 }
 
+// ensurePrivatePath reforça 0700 no diretório e 0600 no arquivo.
+// Necessário porque os.WriteFile/MkdirAll não corrigem modo de paths já
+// existentes criados com permissões mais abertas em versões anteriores.
+func ensurePrivatePath(filePath string) {
+	_ = os.Chmod(filepath.Dir(filePath), 0700)
+	_ = os.Chmod(filePath, 0600)
+}
+
 func emptyEditorState() *apidto.EditorState {
 	return &apidto.EditorState{
 		FileModeByPath:       map[string]string{},
@@ -122,6 +130,7 @@ func (api *Editor) EditorWriteDraft(draftId string, content string) error {
 			}
 			return struct{}{}, fmt.Errorf("falha ao salvar draft: %w", err)
 		}
+		ensurePrivatePath(p)
 		if commit != nil {
 			commit(true)
 		}
@@ -219,6 +228,7 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 		if err := os.WriteFile(p, b, 0600); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao salvar editor/state.json: %w", err)
 		}
+		ensurePrivatePath(p)
 		return struct{}{}, nil
 	})
 	return err
