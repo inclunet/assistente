@@ -6,7 +6,7 @@ import { Checkbox } from '../../ui/Checkbox';
 import { Textarea } from '../../ui/Textarea';
 import { FormField } from '../../ui/FormField';
 import { Combobox, type ComboboxItem } from '../../pickers/Combobox';
-import { GetAllTaskLists } from '@wailsjs/go/app/App';
+import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { TemplateEditor, type TemplateEditorContext } from './TemplateEditor';
 import './SchemaForm.css';
 

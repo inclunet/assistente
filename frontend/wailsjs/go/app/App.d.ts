@@ -38,10 +38,6 @@ export function CancelStreamingForConversation(arg1:string):Promise<void>;
 
 export function ClearConversation(arg1:string):Promise<void>;
 
-export function ClearTaskList(arg1:string):Promise<void>;
-
-export function CloneTaskList(arg1:string,arg2:string):Promise<database.TaskList>;
-
 export function Context():Promise<context.Context>;
 
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
@@ -52,12 +48,6 @@ export function CreateConversation(arg1:string,arg2:string):Promise<database.Con
 
 export function CreateMessage(arg1:string,arg2:string,arg3:string):Promise<database.ChatMessage>;
 
-export function CreateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
-
-export function CreateTaskList(arg1:string,arg2:string,arg3:string):Promise<database.TaskList>;
-
-export function CreateTaskNote(arg1:string,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.TaskNote>;
-
 export function CreateWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function DeleteConversation(arg1:string):Promise<void>;
@@ -66,15 +56,7 @@ export function DeleteMessage(arg1:string):Promise<void>;
 
 export function DeleteMessages(arg1:string,arg2:Array<string>):Promise<void>;
 
-export function DeleteTask(arg1:string):Promise<void>;
-
-export function DeleteTaskList(arg1:string):Promise<void>;
-
-export function DeleteTaskNote(arg1:string):Promise<void>;
-
 export function DeleteWorkspace(arg1:string):Promise<void>;
-
-export function DemoteTask(arg1:string,arg2:string):Promise<void>;
 
 export function DispatchSpeech(arg1:app.ChatSpeakRequest):Promise<void>;
 
@@ -123,8 +105,6 @@ export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<spe
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
-
-export function GetAllTaskLists():Promise<Array<database.TaskList>>;
 
 export function GetAllTokenStats():Promise<Record<string, number>>;
 
@@ -186,35 +166,11 @@ export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>
 
 export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
 
-export function GetSubtasks(arg1:string):Promise<Array<database.Task>>;
-
 export function GetTTSModels(arg1:string):Promise<Array<speech.TTSModelInfo>>;
 
 export function GetTTSVoices(arg1:string,arg2:string):Promise<Array<speech.TTSVoiceInfo>>;
 
-export function GetTask(arg1:string):Promise<database.Task>;
-
-export function GetTaskCountsByStatus(arg1:string):Promise<Record<number, number>>;
-
-export function GetTaskList(arg1:string):Promise<database.TaskList>;
-
-export function GetTaskListStats(arg1:string):Promise<Record<string, any>>;
-
-export function GetTaskListWithHierarchy(arg1:string):Promise<database.TaskList>;
-
-export function GetTaskListsByConversation(arg1:string):Promise<Array<database.TaskList>>;
-
-export function GetTaskNotes(arg1:string):Promise<Array<database.TaskNote>>;
-
-export function GetTasksByConversation(arg1:string):Promise<Array<database.Task>>;
-
-export function GetTasksByStatus(arg1:string,arg2:number):Promise<Array<database.Task>>;
-
-export function GetTasksByTaskListID(arg1:string):Promise<Array<database.Task>>;
-
 export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStatus>;
-
-export function GetWorkflow(arg1:string):Promise<database.TaskListWorkflow>;
 
 export function HasMasterKey():Promise<boolean>;
 
@@ -236,8 +192,6 @@ export function Logout(arg1:app.LogoutRequest):Promise<void>;
 
 export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Workspace>;
 
-export function PromoteTask(arg1:string):Promise<void>;
-
 export function RebuildSearchIndex():Promise<void>;
 
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
@@ -255,10 +209,6 @@ export function RemoveWorkspaceTab(arg1:string):Promise<workspace.Workspace>;
 export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 
 export function RenameWorkspace(arg1:string):Promise<void>;
-
-export function ReorderTasks(arg1:string,arg2:number,arg3:Array<string>):Promise<void>;
-
-export function ReorderWorkflowStatuses(arg1:string,arg2:Array<number>):Promise<void>;
 
 export function ReorderWorkspaceTabs(arg1:Array<string>):Promise<void>;
 
@@ -287,12 +237,6 @@ export function SetConversationModel(arg1:string,arg2:string):Promise<void>;
 export function SetOpenAITTSSpeed(arg1:number):Promise<void>;
 
 export function SetOpenAITTSVoice(arg1:string):Promise<void>;
-
-export function SetTaskConversation(arg1:string,arg2:any):Promise<void>;
-
-export function SetTaskListConversation(arg1:string,arg2:any):Promise<void>;
-
-export function SetTaskListViewMode(arg1:string,arg2:string):Promise<void>;
 
 export function SetWorkspaceProfile(arg1:string):Promise<void>;
 
@@ -330,22 +274,4 @@ export function UpdateConversationModel(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateMessage(arg1:string,arg2:string):Promise<void>;
 
-export function UpdateTask(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
-
-export function UpdateTaskAssignee(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function UpdateTaskFull(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string):Promise<void>;
-
-export function UpdateTaskList(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function UpdateTaskNote(arg1:string,arg2:string):Promise<void>;
-
-export function UpdateTaskStatus(arg1:string,arg2:number):Promise<void>;
-
-export function UpdateWorkflow(arg1:string,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>):Promise<void>;
-
-export function UpdateWorkflowFull(arg1:string,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>,arg4:number,arg5:Record<number, number>):Promise<void>;
-
 export function UpdateWorkspaceTab(arg1:string,arg2:Record<string, any>):Promise<void>;
-
-export function ValidateStatusTransition(arg1:string,arg2:number,arg3:number):Promise<void>;
