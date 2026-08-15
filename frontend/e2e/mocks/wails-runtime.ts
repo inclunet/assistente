@@ -348,17 +348,49 @@ export function buildWailsMockScript(): string {
     CheckContextWindowThreshold: { above: false, percentage: 0 },
 
     /* Speech */
-    GetSpeechProviders: [],
+    GetSpeechProviders: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Speech') {
+        throw new Error('GetSpeechProviders deve ser chamado via wailsapi.Speech');
+      }
+      return [];
+    },
     GetNativeTTSProviders: ['webspeech'],
-    GetTTSModels: [],
-    GetTTSVoices: [],
-    GetSTTModels: [],
-    GetOpenAITTSVoices: [],
+    GetTTSModels: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Speech') {
+        throw new Error('GetTTSModels deve ser chamado via wailsapi.Speech');
+      }
+      return [];
+    },
+    GetTTSVoices: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Speech') {
+        throw new Error('GetTTSVoices deve ser chamado via wailsapi.Speech');
+      }
+      return [];
+    },
+    GetSTTModels: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Speech') {
+        throw new Error('GetSTTModels deve ser chamado via wailsapi.Speech');
+      }
+      return [];
+    },
+    GetOpenAITTSVoices: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Speech') {
+        throw new Error('GetOpenAITTSVoices deve ser chamado via wailsapi.Speech');
+      }
+      return [];
+    },
     InitSpeechManager: undefined,
     InitSpeechManagerFromProfile: undefined,
     SpeakMessage: undefined,
     GetMessageAudio: null,
     GenerateAndSaveMessageAudio: null,
+    SpeakPreview: undefined,
+    DispatchSpeech: undefined,
 
     /* MCP */
     ListMCPServers: [],
@@ -533,6 +565,7 @@ export function buildWailsMockScript(): string {
       Tasklist: makeProxy('wailsapi.Tasklist'),
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
       Conversations: makeProxy('wailsapi.Conversations'),
+      Speech: makeProxy('wailsapi.Speech'),
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),

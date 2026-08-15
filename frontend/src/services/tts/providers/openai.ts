@@ -7,14 +7,14 @@ import { logger } from '../../../utils/logger';
 import { BaseTTSProvider } from './base';
 import { TTSProvider, TTSVoice } from '../types';
 import { base64ToBlob } from '../../../lib/audioUtils';
-import { 
+import {
   GetOpenAITTSVoices,
   SynthesizeOpenAIWithVoice,
   SynthesizeOpenAIStream,
   SetOpenAITTSSpeed,
   SetOpenAITTSVoice
-} from '@wailsjs/go/app/App';
-import { app } from '../../../../wailsjs/go/models';
+} from '@wailsjs/go/wailsapi/Speech';
+import { apidto } from '../../../../wailsjs/go/models';
 import { getStreamPlayer, TTSStreamPlayer } from '../streamPlayer';
 
 interface OpenAITTSVoiceInfo {
@@ -290,7 +290,7 @@ export class OpenAIProvider extends BaseTTSProvider {
       await SetOpenAITTSSpeed(this.calculateBackendRate());
       
       // Chama backend para sintetizar
-      const result: app.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
+      const result: apidto.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
         text, 
         this._currentVoice || 'nova'
       );

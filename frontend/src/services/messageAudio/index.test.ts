@@ -12,7 +12,7 @@ const backendProvider = {
   rate: 1,
 };
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Speech', () => ({
   SpeakMessage: (...args: unknown[]) => speakMessageMock(...args),
 }));
 

@@ -1,4 +1,4 @@
-import { DispatchSpeech } from '@wailsjs/go/app/App';
+import { DispatchSpeech } from '@wailsjs/go/wailsapi/Speech';
 import i18next from 'i18next';
 
 import { messageAudioService } from '../messageAudio';

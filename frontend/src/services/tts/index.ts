@@ -10,28 +10,29 @@ import { ttsFactory } from './factory';
 import { getStreamPlayer } from './streamPlayer';
 import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
+type WailsSpeech = {
+  GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
+  GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
+  SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string) => Promise<void>;
+};
+
 type WailsApp = {
   go?: {
+    wailsapi?: {
+      Speech?: WailsSpeech;
+    };
     app?: {
-      App?: {
-        GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
-        GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
-        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string) => Promise<void>;
-      };
+      App?: WailsSpeech;
     };
     main?: {
-      App?: {
-        GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
-        GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
-        SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string) => Promise<void>;
-      };
+      App?: WailsSpeech;
     };
   };
 };
 
-const getWailsApp = () => {
+const getWailsSpeech = () => {
   const go = (window as unknown as WailsApp).go;
-  return go?.app?.App ?? go?.main?.App;
+  return go?.wailsapi?.Speech ?? go?.app?.App ?? go?.main?.App;
 };
 
 type BackendVoice = {
@@ -52,15 +53,15 @@ type BackendModel = {
 };
 
 const getTTSModels = async (providerId: string): Promise<BackendModel[]> => {
-  const app = getWailsApp();
-  if (!app?.GetTTSModels) return [];
-  return app.GetTTSModels(providerId);
+  const speech = getWailsSpeech();
+  if (!speech?.GetTTSModels) return [];
+  return speech.GetTTSModels(providerId);
 };
 
 const getTTSVoices = async (providerId: string, modelId: string): Promise<BackendVoice[]> => {
-  const app = getWailsApp();
-  if (!app?.GetTTSVoices) return [];
-  return app.GetTTSVoices(providerId, modelId);
+  const speech = getWailsSpeech();
+  if (!speech?.GetTTSVoices) return [];
+  return speech.GetTTSVoices(providerId, modelId);
 };
 
 /** Configuração de voz por role (assistant, user, system) */
@@ -536,15 +537,15 @@ class TTSService {
     volume: number,
     language: string,
   ): Promise<void> {
-    const app = getWailsApp();
-    const speakPreview = app?.SpeakPreview as ((
+    const speech = getWailsSpeech();
+    const speakPreview = speech?.SpeakPreview as ((
       providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string,
     ) => Promise<void>) | undefined;
 
     if (!speakPreview) {
       logger.error('[TTSService] SpeakPreview não disponível no backend');
       return;
-    }
+   }
 
     const sessionId = `preview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 

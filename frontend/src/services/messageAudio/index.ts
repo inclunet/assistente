@@ -9,7 +9,7 @@
  */
 
 import { logger } from '../../utils/logger';
-import { SpeakMessage } from '@wailsjs/go/app/App';
+import { SpeakMessage } from '@wailsjs/go/wailsapi/Speech';
 import { base64ToBlob } from '../../lib/audioUtils';
 
 // ---------------------------------------------------------------------------

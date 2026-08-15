@@ -10,8 +10,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
-  GetLLMProviders: () => Promise.resolve([]),
+vi.mock('@wailsjs/go/wailsapi/Speech', () => ({
   GetSpeechProviders: () => Promise.resolve([]),
   GetSTTModels: () => Promise.resolve([]),
 }));
