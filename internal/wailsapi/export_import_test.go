@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
 	"assistente/internal/portability"
 )
@@ -22,7 +23,7 @@ func TestExportImportNotWired(t *testing.T) {
 	if _, err := api.ExportData(portability.ExportRequest{}); !errors.Is(err, ErrExportImportNotWired) {
 		t.Fatalf("ExportData: got %v", err)
 	}
-	if _, err := api.ExportConversationsToFile(nil, portability.FormatHTML, portability.ContentExportOptions{}); !errors.Is(err, ErrExportImportNotWired) {
+	if _, err := api.ExportConversationsToFile(nil, portability.FormatHTML, portability.ContentExportOptions{}, apidto.FileDialogLabels{}); !errors.Is(err, ErrExportImportNotWired) {
 		t.Fatalf("ExportConversationsToFile: got %v", err)
 	}
 	if _, err := api.ExportDataToFile(portability.ExportRequest{}, "x"); !errors.Is(err, ErrExportImportNotWired) {
@@ -70,7 +71,7 @@ func TestExportImportUsesWithUserNotRequireAuth(t *testing.T) {
 			return err
 		}},
 		{"ExportConversationsToFile", func() error {
-			_, err := api.ExportConversationsToFile(nil, portability.FormatHTML, portability.ContentExportOptions{})
+			_, err := api.ExportConversationsToFile(nil, portability.FormatHTML, portability.ContentExportOptions{}, apidto.FileDialogLabels{})
 			return err
 		}},
 		{"ExportDataToFile", func() error {
