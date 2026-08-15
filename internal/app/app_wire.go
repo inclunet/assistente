@@ -226,6 +226,14 @@ func (a *App) wireWelcome() {
 	}
 }
 
+// wireWorkspace associa o bind Wails de workspace/tabs (AEP-0088).
+// Reusa workspaceCtrl criado em initWorkspace; eventos workspace:* permanecem no App.
+func (a *App) wireWorkspace() {
+	if a.workspaceAPI != nil {
+		wailsapi.AttachWorkspace(a.workspaceAPI, wailsSession{app: a}, a.workspaceCtrl)
+	}
+}
+
 // wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).
 // Sem controller: o bind chama channels.CleanupLegacyJSONFiles diretamente.
 func (a *App) wireLegacyCleanup() {

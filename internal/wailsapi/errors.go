@@ -76,6 +76,9 @@ var ErrConversationsNotWired = errors.New("wailsapi: conversations bind not wire
 // ErrSpeechNotWired indica que o bind Speech ainda não recebeu controller/session/dispatcher.
 var ErrSpeechNotWired = errors.New("wailsapi: speech bind not wired")
 
+// ErrWorkspaceNotWired indica que o bind Workspace ainda não recebeu controller/session.
+var ErrWorkspaceNotWired = errors.New("wailsapi: workspace bind not wired")
+
 // ErrJobsNotWired indica que o bind Jobs ainda não recebeu controller/session.
 var ErrJobsNotWired = errors.New("wailsapi: jobs bind not wired")
 

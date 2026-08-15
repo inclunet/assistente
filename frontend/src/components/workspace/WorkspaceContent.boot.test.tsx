@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // que este arquivo cobre vive justamente na ponte entre o seletor e o
 // useSyncExternalStore do zustand, que um mock síncrono do hook esconde.
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   GetActiveWorkspace: vi.fn(),
   ListWorkspaces: vi.fn(),
   CreateWorkspace: vi.fn(),

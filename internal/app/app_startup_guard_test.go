@@ -2,21 +2,19 @@ package app
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"assistente/internal/wailsapi"
 )
 
 func TestWorkspaceBindingsAreSafeBeforeStartup(t *testing.T) {
-	a := &App{}
+	api := wailsapi.NewWorkspace()
 
-	if got := a.GetActiveWorkspace(); got != nil {
-		t.Fatalf("GetActiveWorkspace() = %+v, want nil before startup", got)
+	if _, err := api.GetActiveWorkspace(); !errors.Is(err, wailsapi.ErrWorkspaceNotWired) {
+		t.Fatalf("GetActiveWorkspace() error = %v, want ErrWorkspaceNotWired", err)
 	}
-
-	if _, err := a.ListWorkspaces(); err == nil || !strings.Contains(err.Error(), "workspace controller not initialized") {
-		t.Fatalf("ListWorkspaces() error = %v, want initialization error", err)
+	if _, err := api.ListWorkspaces(); !errors.Is(err, wailsapi.ErrWorkspaceNotWired) {
+		t.Fatalf("ListWorkspaces() error = %v, want ErrWorkspaceNotWired", err)
 	}
 }
 

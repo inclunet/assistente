@@ -5,7 +5,7 @@ const { mockedAnnounce, mockedIsModalOpen } = vi.hoisted(() => ({
   mockedIsModalOpen: vi.fn(() => false),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   GetActiveWorkspace: vi.fn(),
   ListWorkspaces: vi.fn(),
   CreateWorkspace: vi.fn(),
@@ -44,7 +44,7 @@ vi.mock('../lib/waitForWailsBridge', () => ({
 }));
 
 import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
-import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/app/App';
+import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/wailsapi/Workspace';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 import { workspace } from '../../wailsjs/go/models';
 import i18next from 'i18next';
