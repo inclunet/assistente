@@ -1,6 +1,6 @@
 # AEP-0088 — Concluir a migração Strangler Fig da borda Wails (`App`)
 
-**Status:** ✅ Done  
+**Status:** ✅ Done (conclusão documentada em [#545](https://github.com/inclunet/assistente/pull/545))  
 **Issue:** [#248](https://github.com/inclunet/assistente/issues/248)
 
 ## Resumo
