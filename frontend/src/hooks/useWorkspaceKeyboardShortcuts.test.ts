@@ -8,6 +8,11 @@ const removeTab = vi.fn(() => Promise.resolve());
 const requestOpen = vi.fn(() => Promise.resolve());
 const modalOpen = vi.fn(() => false);
 const setActiveTab = vi.fn();
+const createWorkspaceTab = vi.fn((_type: unknown, _title: unknown) => Promise.resolve('tab-new'));
+const errorMocks = vi.hoisted(() => ({
+  addToast: vi.fn(),
+  logError: vi.fn(),
+}));
 
 vi.mock('zustand/shallow', () => ({
   useShallow: <T,>(fn: T) => fn,
@@ -32,6 +37,14 @@ vi.mock('../store/shortcutsHelpStore', () => ({
   useShortcutsHelpStore: { getState: () => ({ toggle }) },
 }));
 
+vi.mock('../store/uiStore', () => ({
+  useUIStore: { getState: () => ({ addToast: errorMocks.addToast }) },
+}));
+
+vi.mock('../utils/logger', () => ({
+  logger: { error: errorMocks.logError },
+}));
+
 vi.mock('../components/ui/Modal', () => ({
   isModalOpen: () => modalOpen(),
 }));
@@ -42,6 +55,10 @@ vi.mock('./useAnnouncer', () => ({
 
 vi.mock('./useDefaultFocus', () => ({
   restoreDefaultFocus: vi.fn(),
+}));
+
+vi.mock('../lib/createWorkspaceTab', () => ({
+  createWorkspaceTab: (type: unknown, title: unknown) => createWorkspaceTab(type, title),
 }));
 
 import { useWorkspaceKeyboardShortcuts } from './useWorkspaceKeyboardShortcuts';
@@ -56,6 +73,9 @@ describe('useWorkspaceKeyboardShortcuts - atalho Ctrl+?', () => {
   beforeEach(() => {
     toggle.mockClear();
     addTab.mockClear();
+    createWorkspaceTab.mockClear();
+    errorMocks.addToast.mockClear();
+    errorMocks.logError.mockClear();
     removeTab.mockClear();
     setActiveTab.mockClear();
     modalOpen.mockReturnValue(false);
@@ -93,6 +113,9 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
   beforeEach(() => {
     toggle.mockClear();
     addTab.mockClear();
+    createWorkspaceTab.mockClear();
+    errorMocks.addToast.mockClear();
+    errorMocks.logError.mockClear();
     removeTab.mockClear();
     setActiveTab.mockClear();
     requestOpen.mockClear();
@@ -125,7 +148,8 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     dispatchKey({ ctrlKey: true, key: 't' });
     dispatchKey({ ctrlKey: true, key: 'w' });
 
-    expect(addTab).toHaveBeenCalledTimes(1);
+    expect(createWorkspaceTab).toHaveBeenCalledWith('chat', expect.any(String));
+    expect(addTab).not.toHaveBeenCalled();
     expect(removeTab).toHaveBeenCalledTimes(1);
     // Fechar a aba restaura o foco depois da promessa e de um quadro, e aqui o
     // `requestAnimationFrame` é o do jsdom. Sem esperar por isso, o teste
@@ -141,8 +165,21 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     dispatchKey({ ctrlKey: true, key: 't' });
     dispatchKey({ ctrlKey: true, key: 'w' });
 
+    expect(createWorkspaceTab).not.toHaveBeenCalled();
     expect(addTab).not.toHaveBeenCalled();
     expect(removeTab).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+T informa a falha de criação sem rejeição não tratada', async () => {
+    createWorkspaceTab.mockRejectedValueOnce(new Error('falha ao salvar'));
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    dispatchKey({ ctrlKey: true, key: 't' });
+
+    await vi.waitFor(() => {
+      expect(errorMocks.addToast).toHaveBeenCalledWith(expect.any(String), 'error');
+    });
+    expect(errorMocks.logError).toHaveBeenCalled();
   });
 
   it('com um modal aberto, Ctrl+? ainda alterna (permite fechar o painel)', () => {
@@ -164,7 +201,7 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
 
     modalOpen.mockReturnValue(false);
     dispatchKey({ ctrlKey: true, key: 't' });
-    expect(addTab).toHaveBeenCalledTimes(1);
+    expect(createWorkspaceTab).toHaveBeenCalledTimes(1);
   });
 });
 

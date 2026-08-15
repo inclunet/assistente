@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { useWorkspaceKeyboardShortcuts } from './useWorkspaceKeyboardShortcuts';
 import { dispatchKey, expectGlobalShortcutIgnoredWhileModalOpen } from '../test/a11yHelpers';
 
@@ -16,6 +16,7 @@ const setActiveTab = vi.fn();
 const addTab = vi.fn();
 const removeTab = vi.fn(() => Promise.resolve());
 const createWorkspace = vi.fn();
+const createWorkspaceTab = vi.fn();
 const announce = vi.fn();
 
 const workspaceState = {
@@ -51,9 +52,14 @@ vi.mock('./useAnnouncer', () => ({
   useAnnouncer: () => ({ announce }),
 }));
 
+vi.mock('../lib/createWorkspaceTab', () => ({
+  createWorkspaceTab: (...args: unknown[]) => createWorkspaceTab(...args),
+}));
+
 describe('useWorkspaceKeyboardShortcuts — atalhos globais respeitam o modal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    createWorkspaceTab.mockResolvedValue('terminal-tab');
   });
 
   it('Ctrl+2 (ir para aba) é ignorado enquanto um Modal está aberto', () => {
@@ -82,5 +88,17 @@ describe('useWorkspaceKeyboardShortcuts — atalhos globais respeitam o modal', 
     dispatchKey({ key: '2', ctrlKey: true });
 
     expect(setActiveTab).toHaveBeenCalledWith('t2');
+  });
+
+  it('Ctrl+N, R cria uma aba de terminal conectada pelo fluxo de domínio', async () => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    dispatchKey({ key: 'n', ctrlKey: true });
+    dispatchKey({ key: 'r' });
+
+    await waitFor(() => {
+      expect(createWorkspaceTab).toHaveBeenCalledWith('terminal', expect.any(String));
+    });
+    expect(addTab).not.toHaveBeenCalled();
   });
 });
