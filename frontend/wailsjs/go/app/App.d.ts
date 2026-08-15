@@ -18,34 +18,6 @@ export function Context():Promise<context.Context>;
 
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
 
-export function EditorDeleteDraft(arg1:string):Promise<void>;
-
-export function EditorGetDraftPath(arg1:string):Promise<string>;
-
-export function EditorGetFileInfo(arg1:string):Promise<app.EditorFileInfo>;
-
-export function EditorLoadState():Promise<app.EditorState>;
-
-export function EditorOpenFile():Promise<app.EditorOpenResult>;
-
-export function EditorReadDraft(arg1:string):Promise<string>;
-
-export function EditorReadFile(arg1:string):Promise<string>;
-
-export function EditorRenameFile(arg1:string,arg2:string):Promise<string>;
-
-export function EditorSaveFileDialog(arg1:string):Promise<string>;
-
-export function EditorSaveState(arg1:app.EditorState):Promise<void>;
-
-export function EditorUnwatchFile(arg1:string):Promise<void>;
-
-export function EditorWatchFile(arg1:string):Promise<void>;
-
-export function EditorWriteDraft(arg1:string,arg2:string):Promise<void>;
-
-export function EditorWriteFile(arg1:string,arg2:string):Promise<void>;
-
 export function ExportConversations(arg1:Array<string>):Promise<string>;
 
 export function ExportConversationsToFile(arg1:Array<string>,arg2:string,arg3:portability.ContentExportOptions):Promise<string>;

@@ -1,6 +1,6 @@
 import { createTwoFilesPatch } from 'diff';
 import type { TFunction } from 'i18next';
-import type { app } from '@wailsjs/go/models';
+import type { apidto } from '@wailsjs/go/models';
 
 /** Metadados de disco usados para detectar mudanças externas em um arquivo. */
 export type DiskInfo = { exists: boolean; isDir: boolean; size: number; modTimeMs: number };
@@ -9,7 +9,7 @@ export type DiskInfo = { exists: boolean; isDir: boolean; size: number; modTimeM
 export type TextPreview = { preview: string; truncated: boolean; total: number };
 
 /** Normaliza o retorno do backend (`EditorFileInfo`) para o formato `DiskInfo`. */
-export function normalizeDiskInfo(info: app.EditorFileInfo | null | undefined): DiskInfo {
+export function normalizeDiskInfo(info: apidto.EditorFileInfo | null | undefined): DiskInfo {
   return {
     exists: !!info?.exists,
     isDir: !!info?.isDir,

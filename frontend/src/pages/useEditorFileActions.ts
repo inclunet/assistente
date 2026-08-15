@@ -15,7 +15,7 @@ import {
   EditorReadDraft,
   EditorSaveFileDialog,
   EditorWriteFile,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Editor';
 import type { UseEditorMergeResult } from './useEditorMerge';
 
 interface UseEditorFileActionsArgs {

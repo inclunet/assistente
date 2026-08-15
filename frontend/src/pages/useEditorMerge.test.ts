@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { EditorGetFileInfo, EditorReadFile, EditorWriteDraft } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWriteDraft } from '@wailsjs/go/wailsapi/Editor';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -32,7 +32,7 @@ vi.mock('../store/editorStore', () => ({
   ),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorDeleteDraft: vi.fn().mockResolvedValue(undefined),
   EditorGetFileInfo: vi.fn(),
   EditorReadFile: vi.fn(),

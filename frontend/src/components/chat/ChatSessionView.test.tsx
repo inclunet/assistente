@@ -124,12 +124,12 @@ vi.mock('../../hooks/useContextMenu', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
-  DeleteMessage: vi.fn(),
+vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorGetDraftPath: vi.fn().mockResolvedValue(''),
-  GetActiveProviderInfo: vi.fn().mockResolvedValue({
-    supports_assistant_prefill: true,
-  }),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
+  DeleteMessage: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({

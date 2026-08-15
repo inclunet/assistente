@@ -13,7 +13,7 @@ import {
   EditorSaveFileDialog,
   EditorWriteDraft,
   EditorWriteFile,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Editor';
 import {
   type DiskInfo,
   buildUnifiedDiff,

@@ -24,7 +24,7 @@ import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
 import { DeleteMessage } from '@wailsjs/go/wailsapi/Conversations';
-import { EditorGetDraftPath } from '@wailsjs/go/app/App';
+import { EditorGetDraftPath } from '@wailsjs/go/wailsapi/Editor';
 import { GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce, useAnnouncer } from '../../hooks/useAnnouncer';
