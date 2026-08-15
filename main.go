@@ -72,6 +72,8 @@ func main() {
 	application.SetACPWorkDirAPI(a, acpWorkDirAPI)
 	acpInstallAPI := wailsapi.NewACPInstall()
 	application.SetACPInstallAPI(a, acpInstallAPI)
+	acpTrustAPI := wailsapi.NewACPTrust()
+	application.SetACPTrustAPI(a, acpTrustAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -134,6 +136,7 @@ func main() {
 			acpRegistryAPI,
 			acpWorkDirAPI,
 			acpInstallAPI,
+			acpTrustAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

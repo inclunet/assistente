@@ -229,6 +229,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **acp_registry** (GetACPCatalog + RefreshACPCatalog → `wailsapi.ACPRegistry`; DTOs em `apidto`; helpers de montagem permanecem no `*App`)
 - [x] **acp_install** (plan/install/update/cancel/remove/list → `wailsapi.ACPInstall`; DTOs em `apidto`; handshake/progresso/repontar permanecem no `*App` via hooks)
 - [x] **acp_workdir** (Get/SetAgentConversationWorkDir → `wailsapi.ACPWorkDir`; DTO em `apidto`; helpers `agentConversationDir`/`conversationAgentDir`/`acpWorkDir` permanecem no `*App`)
+- [x] **acp_trust** (GetAgentPermissions + RevokeAgentPermission → `wailsapi.ACPTrust`; DTO em `apidto`; handlers de permissão em tempo de turno e `profileNames` permanecem no `*App`)
 - [ ] …
 
 ### Fase N — `App` enxuto

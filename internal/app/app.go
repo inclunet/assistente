@@ -314,6 +314,11 @@ type App struct {
 	// (AEP-0088). Criado em main; helpers de handshake/progresso/repontar
 	// permanecem no *App e entram via hooks.
 	acpInstallAPI *wailsapi.ACPInstall
+
+	// acpTrustAPI é o bind Wails de autorizações permanentes ACP (AEP-0088).
+	// Criado em main e wired após initACP (reusa acpTrust). Handlers de
+	// permissão em tempo de turno permanecem no *App.
+	acpTrustAPI *wailsapi.ACPTrust
 }
 
 // ==================== Tipos para Threads ====================
@@ -573,6 +578,15 @@ func SetACPInstallAPI(a *App, api *wailsapi.ACPInstall) {
 		return
 	}
 	a.acpInstallAPI = api
+}
+
+// SetACPTrustAPI registra o bind Wails de acp_trust antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPTrustAPI(a *App, api *wailsapi.ACPTrust) {
+	if a == nil {
+		return
+	}
+	a.acpTrustAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -953,6 +967,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireACPRegistry()
 	a.wireACPWorkDir()
 	a.wireACPInstall()
+	a.wireACPTrust()
 	a.wireSignal()
 	a.wireTerminal()
 
