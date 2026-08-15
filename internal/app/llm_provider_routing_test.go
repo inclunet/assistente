@@ -554,21 +554,6 @@ func TestProfileManagerNilDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestSendMessageSync_NoProfileReturnsError verifica que SendMessageSync
-// retorna erro quando não há perfil/provedor configurado.
-func TestSendMessageSync_NoProfileReturnsError(t *testing.T) {
-	setupRoutingTestDB(t)
-
-	app := &App{
-		profileManager: profiles.NewManager(),
-	}
-
-	_, err := app.SendMessageSync(nil, ChatParams{})
-	if err == nil {
-		t.Fatal("Expected error when no profile/provider configured")
-	}
-}
-
 // setupRoutingTestDB creates an in-memory SQLite for routing integration tests.
 func setupRoutingTestDB(t *testing.T) {
 	t.Helper()
