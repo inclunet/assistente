@@ -22,62 +22,6 @@ export function CreateAdminUser(arg1) {
   return window['go']['app']['App']['CreateAdminUser'](arg1);
 }
 
-export function EditorDeleteDraft(arg1) {
-  return window['go']['app']['App']['EditorDeleteDraft'](arg1);
-}
-
-export function EditorGetDraftPath(arg1) {
-  return window['go']['app']['App']['EditorGetDraftPath'](arg1);
-}
-
-export function EditorGetFileInfo(arg1) {
-  return window['go']['app']['App']['EditorGetFileInfo'](arg1);
-}
-
-export function EditorLoadState() {
-  return window['go']['app']['App']['EditorLoadState']();
-}
-
-export function EditorOpenFile() {
-  return window['go']['app']['App']['EditorOpenFile']();
-}
-
-export function EditorReadDraft(arg1) {
-  return window['go']['app']['App']['EditorReadDraft'](arg1);
-}
-
-export function EditorReadFile(arg1) {
-  return window['go']['app']['App']['EditorReadFile'](arg1);
-}
-
-export function EditorRenameFile(arg1, arg2) {
-  return window['go']['app']['App']['EditorRenameFile'](arg1, arg2);
-}
-
-export function EditorSaveFileDialog(arg1) {
-  return window['go']['app']['App']['EditorSaveFileDialog'](arg1);
-}
-
-export function EditorSaveState(arg1) {
-  return window['go']['app']['App']['EditorSaveState'](arg1);
-}
-
-export function EditorUnwatchFile(arg1) {
-  return window['go']['app']['App']['EditorUnwatchFile'](arg1);
-}
-
-export function EditorWatchFile(arg1) {
-  return window['go']['app']['App']['EditorWatchFile'](arg1);
-}
-
-export function EditorWriteDraft(arg1, arg2) {
-  return window['go']['app']['App']['EditorWriteDraft'](arg1, arg2);
-}
-
-export function EditorWriteFile(arg1, arg2) {
-  return window['go']['app']['App']['EditorWriteFile'](arg1, arg2);
-}
-
 export function ExportConversations(arg1) {
   return window['go']['app']['App']['ExportConversations'](arg1);
 }

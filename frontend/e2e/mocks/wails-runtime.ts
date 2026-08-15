@@ -427,8 +427,21 @@ export function buildWailsMockScript(): string {
     GetAvailableTools: [],
     GetToolCatalog: {},
 
-    /* Editor */
-    EditorLoadState: { tabs: [], active: '' },
+    /* Editor — defaults também em wailsapi.Editor */
+    EditorLoadState: { fileModeByPath: {}, mergeSessionsByTabId: {} },
+    EditorGetDraftPath: '',
+    EditorReadDraft: '',
+    EditorReadFile: '',
+    EditorGetFileInfo: { path: '', exists: false, isDir: false, size: 0, modTimeMs: 0 },
+    EditorOpenFile: { path: '', content: '' },
+    EditorWriteDraft: undefined,
+    EditorWriteFile: undefined,
+    EditorDeleteDraft: undefined,
+    EditorSaveState: undefined,
+    EditorSaveFileDialog: '',
+    EditorRenameFile: '',
+    EditorWatchFile: undefined,
+    EditorUnwatchFile: undefined,
 
     /* Tokens */
     GetAllTokenStats: {},
@@ -754,6 +767,7 @@ export function buildWailsMockScript(): string {
       ACPWorkDir: makeProxy('wailsapi.ACPWorkDir'),
       ACPInstall: makeProxy('wailsapi.ACPInstall'),
       ACPTrust: makeProxy('wailsapi.ACPTrust'),
+      Editor: makeProxy('wailsapi.Editor'),
     },
   };
 

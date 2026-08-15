@@ -1134,6 +1134,13 @@ const es = {
       buttons: { apply: 'Aplicar', notNow: 'Ahora no', file: 'Archivo', format: 'Formatear', insert: 'Insertar', mode: 'Modo' },
       prompts: { file: 'Archivo', diff: 'Diff (disco → mi versión)', diskPreview: 'Versión del disco (vista previa)', localPreview: 'Tu versión (vista previa)', action: 'Acción' },
       options: { useDisk: 'Usar versión del disco', resolveMerge: 'Resolver conflictos (estilo Git)', useMine: 'Usar mi versión', saveAs: 'Guardar como…' },
+      dialog: {
+        openTitle: 'Abrir archivo',
+        saveTitle: 'Guardar archivo',
+        filterMarkdown: 'Markdown',
+        filterAll: 'Todos los archivos',
+        defaultFilename: 'documento.md',
+      },
       fallback: { title: 'Editor', newDoc: 'Nuevo documento', fromChat: 'Desde el chat' },
       sendToEditor: {
         action: 'Enviar al editor',

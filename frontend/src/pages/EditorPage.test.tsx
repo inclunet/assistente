@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { EditorGetFileInfo, EditorReadFile, EditorWriteFile } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWriteFile } from '@wailsjs/go/wailsapi/Editor';
 import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 
 const openToolbarMenuSpy = vi.fn();
@@ -379,16 +379,20 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   },
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorDeleteDraft: vi.fn(),
   EditorGetFileInfo: vi.fn(),
-  EditorLoadSession: vi.fn(),
+  // Throw síncrono (não Promise rejeitada): setSessionLoaded roda no effect
+  // dentro do act(render). Promise rejeitada deixa sessionLoaded=false na
+  // closure de syncAssistedChangeForTab e quebra os testes de tool edit_file.
+  EditorLoadState: vi.fn(() => {
+    throw new Error('editor state unavailable in test');
+  }),
   EditorOpenFile: vi.fn(),
   EditorReadDraft: vi.fn(),
   EditorReadFile: vi.fn(),
   EditorSaveFileDialog: vi.fn(),
   EditorSaveState: vi.fn().mockResolvedValue(undefined),
-  EditorSaveSession: vi.fn(),
   EditorUnwatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWriteDraft: vi.fn(),

@@ -8,7 +8,7 @@ import { normalizeEditorInsertContent } from '../lib/editorInsertNormalize';
 import { applyRichTextInsert, applyRichTextInsertAtEnd, type RichTextEditorLike } from '../lib/richTextPatchApply';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
-import { EditorGetDraftPath } from '@wailsjs/go/app/App';
+import { EditorGetDraftPath } from '@wailsjs/go/wailsapi/Editor';
 import type { AddToastFn } from './editorMenus';
 import type { MonacoCodeEditor, MonacoNamespace, TipTapEditor } from './editorTypes';
 

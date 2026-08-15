@@ -14,7 +14,7 @@ import {
   EditorWatchFile,
   EditorWriteDraft,
   EditorWriteFile,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Editor';
 import type { EditorFileChangedEvent } from './editorTypes';
 import type { UseEditorMergeResult } from './useEditorMerge';
 import { decideExternalChange, type ReconcileTrigger } from './editorReconciler';

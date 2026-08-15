@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger';
 import { useEffect, useRef } from 'react';
-import { EditorReadFile } from '@wailsjs/go/app/App';
+import { EditorReadFile } from '@wailsjs/go/wailsapi/Editor';
 import i18next from 'i18next';
 import { useEditorStore, DEFAULT_MD } from '../../store/editorStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';

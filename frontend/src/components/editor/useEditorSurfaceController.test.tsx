@@ -17,8 +17,8 @@ const workspaceMocks = vi.hoisted(() => ({
   activeTabId: 'editor-tab' as string | null,
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
-  EditorReadFile: vi.fn().mockResolvedValue({ content: '# Arquivo' }),
+vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
+  EditorReadFile: vi.fn().mockResolvedValue('# Arquivo'),
 }));
 
 vi.mock('../../store/editorStore', () => ({
@@ -126,7 +126,7 @@ describe('useEditorSurfaceController', () => {
 
   it('não cria nem ativa documento se a aba deixa de estar ativa durante leitura assíncrona', async () => {
     let resolveRead: (value: string) => void = () => undefined;
-    const { EditorReadFile } = await import('@wailsjs/go/app/App');
+    const { EditorReadFile } = await import('@wailsjs/go/wailsapi/Editor');
     vi.mocked(EditorReadFile).mockImplementationOnce(() => new Promise((resolve) => {
       resolveRead = resolve;
     }));

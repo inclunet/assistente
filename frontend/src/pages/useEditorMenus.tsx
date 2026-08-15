@@ -17,7 +17,7 @@ import {
   buildInsertMenuItemsForContextMenu,
   buildModeMenuItemsForContextMenu,
 } from './editorMenus';
-import { EditorGetDraftPath } from '@wailsjs/go/app/App';
+import { EditorGetDraftPath } from '@wailsjs/go/wailsapi/Editor';
 import type { AddToastFn } from './editorMenus/types';
 import type { TipTapEditor } from './editorTypes';
 import type { ParsedRevealDeck } from '../lib/revealMarkdown';

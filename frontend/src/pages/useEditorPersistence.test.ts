@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hashStringFNV1a32, type DiskInfo } from '../lib/editorMergeUtils';
 import { useEditorStore, type EditorDocument } from '../store/editorStore';
-import { EditorGetFileInfo, EditorReadFile, EditorWatchFile, EditorWriteFile } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWatchFile, EditorWriteFile } from '@wailsjs/go/wailsapi/Editor';
 import type { EditorFileChangedEvent } from './editorTypes';
 import type { TabDiskState } from './editorReconciler';
 import { useEditorPersistence } from './useEditorPersistence';
@@ -18,7 +18,7 @@ vi.mock('../store/uiStore', () => ({
   useUIStore: (selector: (s: { addToast: typeof addToast }) => unknown) => selector({ addToast }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorGetFileInfo: vi.fn(),
   EditorReadFile: vi.fn(),
   EditorUnwatchFile: vi.fn().mockResolvedValue(undefined),

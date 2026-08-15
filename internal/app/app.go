@@ -341,6 +341,11 @@ type App struct {
 	// Criado em main e wired após initACP (reusa acpTrust). Handlers de
 	// permissão em tempo de turno permanecem no *App.
 	acpTrustAPI *wailsapi.ACPTrust
+
+	// editorAPI é o bind Wails do domínio editor (AEP-0088). Criado em main;
+	// watcher, eventos editor:fileChanged e assisted writes permanecem no *App
+	// e entram via hooks.
+	editorAPI *wailsapi.Editor
 }
 
 // ==================== Tipos para Threads ====================
@@ -663,6 +668,15 @@ func SetACPTrustAPI(a *App, api *wailsapi.ACPTrust) {
 		return
 	}
 	a.acpTrustAPI = api
+}
+
+// SetEditorAPI registra o bind Wails de editor antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetEditorAPI(a *App, api *wailsapi.Editor) {
+	if a == nil {
+		return
+	}
+	a.editorAPI = api
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -1064,6 +1078,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireWelcome()
 	a.wireWorkspace()
 	a.wireMessaging()
+	a.wireEditor()
 	a.wireLegacyCleanup()
 	a.wireSubagent()
 	a.wireACPCommands()

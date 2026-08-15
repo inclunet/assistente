@@ -13,7 +13,7 @@ import {
   EditorSaveFileDialog,
   EditorWriteDraft,
   EditorWriteFile,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Editor';
 import {
   type DiskInfo,
   buildUnifiedDiff,
@@ -23,6 +23,7 @@ import {
   normalizeDiskInfo,
   safeDraftIdPart,
 } from '../lib/editorMergeUtils';
+import { editorFileDialogLabels } from '../lib/editorDialogLabels';
 import type { MergeSession } from './editorTypes';
 import { createEmptyTabDiskState, type TabDiskState } from './editorReconciler';
 
@@ -435,8 +436,8 @@ export function useEditorMerge() {
       }
 
       if (choice.startsWith(t('editor.options.saveAs'))) {
-        const suggested = basenameFromPath(filePath) || 'documento.md';
-        const newPath = String((await EditorSaveFileDialog(suggested)) || '').trim();
+        const suggested = basenameFromPath(filePath) || t('editor.dialog.defaultFilename');
+        const newPath = String((await EditorSaveFileDialog(suggested, editorFileDialogLabels(t, 'save'))) || '').trim();
         if (!newPath) return;
 
         updateLatestMarkdownForTab(tabId, localContent);

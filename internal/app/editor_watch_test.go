@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"assistente/internal/configdir"
+	"assistente/internal/tools/filesystem"
 )
 
 // A marcação NÃO é consumida no primeiro match: no Windows uma única gravação
@@ -567,8 +568,15 @@ func TestEditorWriteFileMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
 		t.Fatalf("normalizeWatchPath: %v", err)
 	}
 
-	if err := app.EditorWriteFile(filePath, "conteudo salvo pelo editor"); err != nil {
-		t.Fatalf("EditorWriteFile: %v", err)
+	commit := app.markEditorSelfWrite(filePath)
+	if err := filesystem.WriteFileBytes(filePath, []byte("conteudo salvo pelo editor"), 0644); err != nil {
+		if commit != nil {
+			commit(false)
+		}
+		t.Fatalf("WriteFileBytes: %v", err)
+	}
+	if commit != nil {
+		commit(true)
 	}
 
 	origin, ok := app.resolveEditorSelfWrite(norm)
@@ -595,8 +603,15 @@ func TestEditorWriteFileMarkerInvalidatedByExternalChange(t *testing.T) {
 		t.Fatalf("normalizeWatchPath: %v", err)
 	}
 
-	if err := app.EditorWriteFile(filePath, "conteudo salvo pelo editor"); err != nil {
-		t.Fatalf("EditorWriteFile: %v", err)
+	commit := app.markEditorSelfWrite(filePath)
+	if err := filesystem.WriteFileBytes(filePath, []byte("conteudo salvo pelo editor"), 0644); err != nil {
+		if commit != nil {
+			commit(false)
+		}
+		t.Fatalf("WriteFileBytes: %v", err)
+	}
+	if commit != nil {
+		commit(true)
 	}
 	if err := os.WriteFile(filePath, []byte("conteudo escrito por outro programa"), 0644); err != nil {
 		t.Fatalf("overwrite file: %v", err)
@@ -634,14 +649,22 @@ func TestEditorWriteDraftMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
 	t.Cleanup(configdir.ResetForTests)
 
 	app := &App{}
-	if err := app.EditorWriteDraft("draft-teste", "conteudo do draft"); err != nil {
-		t.Fatalf("EditorWriteDraft: %v", err)
+	draftID := "draft-teste"
+	p := filepath.Join(draftDir(), draftID+".md")
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	commit := app.markEditorSelfWrite(p)
+	if err := filesystem.WriteFileBytes(p, []byte("conteudo do draft"), 0644); err != nil {
+		if commit != nil {
+			commit(false)
+		}
+		t.Fatalf("WriteFileBytes: %v", err)
+	}
+	if commit != nil {
+		commit(true)
 	}
 
-	p, err := draftPath("draft-teste")
-	if err != nil {
-		t.Fatalf("draftPath: %v", err)
-	}
 	norm, err := normalizeWatchPath(p)
 	if err != nil {
 		t.Fatalf("normalizeWatchPath: %v", err)

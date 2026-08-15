@@ -29,6 +29,17 @@ func TestMessagingBindingsAreSafeBeforeStartup(t *testing.T) {
 	}
 }
 
+func TestEditorBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewEditor()
+
+	if _, err := api.EditorLoadState(); !errors.Is(err, wailsapi.ErrEditorNotWired) {
+		t.Fatalf("EditorLoadState() error = %v, want ErrEditorNotWired", err)
+	}
+	if err := api.EditorWriteFile("x", ""); !errors.Is(err, wailsapi.ErrEditorNotWired) {
+		t.Fatalf("EditorWriteFile() error = %v, want ErrEditorNotWired", err)
+	}
+}
+
 func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 	a := &App{}
 	api := wailsapi.NewWelcome()

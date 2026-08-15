@@ -109,3 +109,6 @@ var ErrACPInstallNotWired = errors.New("wailsapi: acp install bind not wired")
 
 // ErrACPTrustNotWired indica que o bind ACPTrust ainda não recebeu store/session.
 var ErrACPTrustNotWired = errors.New("wailsapi: acp trust bind not wired")
+
+// ErrEditorNotWired indica que o bind Editor ainda não recebeu session/hooks.
+var ErrEditorNotWired = errors.New("wailsapi: editor bind not wired")

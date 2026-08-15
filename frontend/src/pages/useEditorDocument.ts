@@ -10,8 +10,8 @@ import {
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { getMaybeContent } from '../lib/editorContent';
-import { EditorDeleteDraft, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/app/App';
-import type { app } from '@wailsjs/go/models';
+import { EditorDeleteDraft, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/wailsapi/Editor';
+import { apidto } from '@wailsjs/go/models';
 import type { UseEditorMergeResult } from './useEditorMerge';
 
 interface UseEditorDocumentArgs {
@@ -67,11 +67,12 @@ export function useEditorDocument({
     } catch {
       // best-effort
     }
-    const payload = {
-      fileModeByPath: fileModeByPathRef.current,
-      mergeSessionsByTabId: mergeSessionByTabRef.current,
-    };
-    EditorSaveState(payload as unknown as app.EditorState).catch((e: unknown) => {
+    // Cópia rasa: createFrom/convertValues(asMap) muta o objeto passado.
+    const payload = apidto.EditorState.createFrom({
+      fileModeByPath: { ...fileModeByPathRef.current },
+      mergeSessionsByTabId: { ...mergeSessionByTabRef.current },
+    });
+    EditorSaveState(payload).catch((e: unknown) => {
       logger.warn('[EditorPage] falha ao salvar estado:', e);
     });
   };
