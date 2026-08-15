@@ -7,6 +7,7 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
 	"context"
+	"fmt"
 )
 
 // wireTokens monta o TokensController e associa o bind Wails (AEP-0088 Fase 4).
@@ -146,7 +147,10 @@ func (a *App) wireSettings() {
 		Emitter:     a.emitter,
 		ProviderSvc: a.providerSvc,
 		RestartChannel: func(channelName string) error {
-			return a.RestartChannel(channelName)
+			if a.msgCtrl == nil {
+				return fmt.Errorf("messaging controller não inicializado")
+			}
+			return a.msgCtrl.RestartChannel(channelName)
 		},
 		GetModels: func() ([]string, error) {
 			return a.GetModels()
@@ -231,6 +235,14 @@ func (a *App) wireWelcome() {
 func (a *App) wireWorkspace() {
 	if a.workspaceAPI != nil {
 		wailsapi.AttachWorkspace(a.workspaceAPI, wailsSession{app: a}, a.workspaceCtrl)
+	}
+}
+
+// wireMessaging associa o bind Wails de messaging/canais/contatos (AEP-0088).
+// Reusa msgCtrl criado em initMessaging; StartAdapters permanece no App.
+func (a *App) wireMessaging() {
+	if a.messagingAPI != nil {
+		wailsapi.AttachMessaging(a.messagingAPI, wailsSession{app: a}, a.msgCtrl)
 	}
 }
 

@@ -1,7 +1,7 @@
 import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetChannelTemplates, CreateChannelFromTemplate } from '@wailsjs/go/app/App';
+import { GetChannelTemplates, CreateChannelFromTemplate } from '@wailsjs/go/wailsapi/Messaging';
 import { channels } from '../../../wailsjs/go/models';
 import { Button, Input } from '..';
 import { Modal } from '../ui/Modal';

@@ -63,9 +63,6 @@ type CreateLLMProviderRequest = apidto.CreateLLMProviderRequest
 type TestLLMProviderRequest = apidto.TestLLMProviderRequest
 type UpdateLLMProviderRequest = apidto.UpdateLLMProviderRequest
 
-// ChannelInfo — type alias para controllers.
-type ChannelInfo = controllers.ChannelInfo
-
 // App struct
 type App struct {
 	ctx               context.Context
@@ -266,6 +263,10 @@ type App struct {
 	// memoryAPI é o bind Wails do domínio memory (AEP-0088). Criado em main e
 	// wired após NewMemoryController.
 	memoryAPI *wailsapi.Memory
+
+	// messagingAPI é o bind Wails do domínio messaging/canais/contatos (AEP-0088).
+	// Criado em main e wired após initMessaging.
+	messagingAPI *wailsapi.Messaging
 
 	// welcomeAPI é o bind Wails do domínio welcome (AEP-0088). Criado em main e
 	// wired após NewWelcomeController.
@@ -491,6 +492,15 @@ func SetMemoryAPI(a *App, api *wailsapi.Memory) {
 		return
 	}
 	a.memoryAPI = api
+}
+
+// SetMessagingAPI registra o bind Wails de messaging antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetMessagingAPI(a *App, api *wailsapi.Messaging) {
+	if a == nil {
+		return
+	}
+	a.messagingAPI = api
 }
 
 // SetWelcomeAPI registra o bind Wails de welcome antes do Run (main.go).
@@ -1053,6 +1063,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireMemory()
 	a.wireWelcome()
 	a.wireWorkspace()
+	a.wireMessaging()
 	a.wireLegacyCleanup()
 	a.wireSubagent()
 	a.wireACPCommands()

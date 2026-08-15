@@ -390,6 +390,22 @@ func TestWireWorkspaceAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireMessagingAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		msgCtrl: controllers.NewMessagingController(controllers.MessagingControllerConfig{}),
+	}
+	api := wailsapi.NewMessaging()
+	SetMessagingAPI(a, api)
+
+	a.wireMessaging()
+
+	_, err := api.GetMessagingStatus()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 type fatalSpeechProfileProvider struct {
 	t *testing.T
 }

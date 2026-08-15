@@ -48,6 +48,8 @@ func main() {
 	application.SetTerminalAPI(a, terminalAPI)
 	memoryAPI := wailsapi.NewMemory()
 	application.SetMemoryAPI(a, memoryAPI)
+	messagingAPI := wailsapi.NewMessaging()
+	application.SetMessagingAPI(a, messagingAPI)
 	welcomeAPI := wailsapi.NewWelcome()
 	application.SetWelcomeAPI(a, welcomeAPI)
 	workspaceAPI := wailsapi.NewWorkspace()
@@ -136,6 +138,7 @@ func main() {
 			signalAPI,
 			terminalAPI,
 			memoryAPI,
+			messagingAPI,
 			welcomeAPI,
 			workspaceAPI,
 			legacyCleanupAPI,

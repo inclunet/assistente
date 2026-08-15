@@ -18,6 +18,17 @@ func TestWorkspaceBindingsAreSafeBeforeStartup(t *testing.T) {
 	}
 }
 
+func TestMessagingBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewMessaging()
+
+	if _, err := api.GetMessagingStatus(); !errors.Is(err, wailsapi.ErrMessagingNotWired) {
+		t.Fatalf("GetMessagingStatus() error = %v, want ErrMessagingNotWired", err)
+	}
+	if _, err := api.GetAllChannelConfigs(); !errors.Is(err, wailsapi.ErrMessagingNotWired) {
+		t.Fatalf("GetAllChannelConfigs() error = %v, want ErrMessagingNotWired", err)
+	}
+}
+
 func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 	a := &App{}
 	api := wailsapi.NewWelcome()

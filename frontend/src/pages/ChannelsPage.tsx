@@ -14,7 +14,7 @@ import {
   GetMessagingStatus,
   RestartChannel,
   GetChannelTemplates,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Messaging';
 import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
