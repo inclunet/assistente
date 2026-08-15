@@ -41,6 +41,7 @@ func TestACPRegistrySemAuthNaoTocaNoCatalogo(t *testing.T) {
 		"RefreshACPCatalog": (*ACPRegistry).RefreshACPCatalog,
 	}
 	for nome, chamar := range casos {
+		nome, chamar := nome, chamar
 		t.Run(nome, func(t *testing.T) {
 			t.Parallel()
 			api := NewACPRegistry()
