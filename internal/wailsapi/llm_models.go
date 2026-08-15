@@ -58,7 +58,7 @@ func AttachLLMModels(
 func (m *LLMModels) deps() (Session, *providers.Service, *profiles.Manager, LLMModelsHooks, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.session == nil || m.providerSvc == nil || m.profileMgr == nil || m.hooks.CancelStreaming == nil {
+	if m.session == nil || m.providerSvc == nil || m.profileMgr == nil {
 		return nil, nil, nil, LLMModelsHooks{}, ErrLLMModelsNotWired
 	}
 	return m.session, m.providerSvc, m.profileMgr, m.hooks, nil
@@ -141,6 +141,9 @@ func (m *LLMModels) CancelStreamingForConversation(conversationID string) error 
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		if hooks.CancelStreaming == nil {
+			return struct{}{}, ErrLLMModelsNotWired
+		}
 		hooks.CancelStreaming(conversationID)
 		return struct{}{}, nil
 	})
