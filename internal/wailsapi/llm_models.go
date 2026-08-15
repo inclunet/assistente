@@ -140,7 +140,7 @@ func (m *LLMModels) CancelStreamingForConversation(conversationID string) error 
 	if err != nil {
 		return err
 	}
-	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+	_, err = WithUser(session, func(_ context.Context) (struct{}, error) {
 		if hooks.CancelStreaming == nil {
 			return struct{}{}, ErrLLMModelsNotWired
 		}
