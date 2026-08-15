@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import {
   SendMessage,
   RetryMessage,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Chat';
 import { CancelStreamingForConversation } from '@wailsjs/go/wailsapi/LLMModels';
 import {
   AssignConversationToChannel,

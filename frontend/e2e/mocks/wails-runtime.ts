@@ -392,7 +392,20 @@ export function buildWailsMockScript(): string {
     SearchConversationHistory: [],
 
     /* Messages */
-    SendMessage: '01926b90-0000-7000-8000-000000000002',
+    SendMessage: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Chat') {
+        throw new Error('SendMessage deve ser chamado via wailsapi.Chat');
+      }
+      return '01926b90-0000-7000-8000-000000000002';
+    },
+    RetryMessage: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Chat') {
+        throw new Error('RetryMessage deve ser chamado via wailsapi.Chat');
+      }
+      return '01926b90-0000-7000-8000-000000000003';
+    },
     AddMessage: { id: '01926b90-0000-7000-8000-000000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: '', createdAt: now },
     DeleteMessage: undefined,
     UpdateMessage: undefined,
@@ -809,6 +822,7 @@ export function buildWailsMockScript(): string {
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       LLMModels: makeProxy('wailsapi.LLMModels'),
+      Chat: makeProxy('wailsapi.Chat'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
       ACPOptions: makeProxy('wailsapi.ACPOptions'),

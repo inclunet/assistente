@@ -389,6 +389,16 @@ func (a *App) wireLLMModels() {
 	)
 }
 
+// wireChat associa o bind Wails de SendMessage/RetryMessage (AEP-0088).
+// ChatController, streamMgr, sendMessageFromChannel e SendMessageSync permanecem no App.
+// Na CLI o bind é criado aqui (main GUI já registra via SetChatAPI).
+func (a *App) wireChat() {
+	if a.chatAPI == nil {
+		a.chatAPI = wailsapi.NewChat()
+	}
+	wailsapi.AttachChat(a.chatAPI, wailsSession{app: a}, a.chatCtrl)
+}
+
 // wireACPCommands associa o bind Wails ao Manager ACP já criado em initACP (AEP-0088).
 // agentSessionCommandsChanged permanece no App.
 func (a *App) wireACPCommands() {

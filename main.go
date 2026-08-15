@@ -74,6 +74,8 @@ func main() {
 	application.SetLLMProvidersAPI(a, llmProvidersAPI)
 	llmModelsAPI := wailsapi.NewLLMModels()
 	application.SetLLMModelsAPI(a, llmModelsAPI)
+	chatAPI := wailsapi.NewChat()
+	application.SetChatAPI(a, chatAPI)
 	acpCommandsAPI := wailsapi.NewACPCommands()
 	application.SetACPCommandsAPI(a, acpCommandsAPI)
 	acpProvidersAPI := wailsapi.NewACPProviders()
@@ -155,6 +157,7 @@ func main() {
 			jobsAPI,
 			llmProvidersAPI,
 			llmModelsAPI,
+			chatAPI,
 			acpCommandsAPI,
 			acpProvidersAPI,
 			acpOptionsAPI,

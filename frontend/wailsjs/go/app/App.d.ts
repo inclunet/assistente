@@ -27,11 +27,7 @@ export function Logout(arg1:app.LogoutRequest):Promise<void>;
 
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 
-export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
-
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
-
-export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<string>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 

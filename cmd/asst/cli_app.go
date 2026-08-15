@@ -23,9 +23,10 @@ var errLLMNotReady = fmt.Errorf("llm controller não inicializado")
 var errTaskListNotReady = fmt.Errorf("tasklist controller não inicializado")
 var errConversationsNotReady = fmt.Errorf("conversations controller não inicializado")
 var errExportImportNotReady = fmt.Errorf("export/import bind não inicializado")
+var errChatNotReady = fmt.Errorf("chat bind não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
-// profiles/credentials/mcp/llm_providers/llm_models/tasklist/conversations saíram do Bind
+// profiles/credentials/mcp/llm_providers/llm_models/chat/tasklist/conversations saíram do Bind
 // Wails e vivem nos controllers / wailsapi.
 type cliApp struct {
 	*app.App
@@ -91,10 +92,26 @@ func (c cliApp) exportImport() (*wailsapi.ExportImport, error) {
 	return api, nil
 }
 
+func (c cliApp) chat() (*wailsapi.Chat, error) {
+	api := app.ChatAPI(c.App)
+	if api == nil {
+		return nil, errChatNotReady
+	}
+	return api, nil
+}
+
 func (c cliApp) CancelStreamingForConversation(conversationID string) {
 	// Helper de pacote: não exige bind Wails (CLI/testes). O bind LLMModels
 	// também cancela via o mesmo streamMgr.
 	app.CancelStreamingForConversation(c.App, conversationID)
+}
+
+func (c cliApp) SendMessage(conversationID string, userContent, userMedia string, params app.ChatParams) (string, error) {
+	api, err := c.chat()
+	if err != nil {
+		return "", err
+	}
+	return api.SendMessage(conversationID, userContent, userMedia, params)
 }
 
 func (c cliApp) ExportData(req portability.ExportRequest) (string, error) {
