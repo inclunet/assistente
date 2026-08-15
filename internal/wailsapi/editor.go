@@ -86,9 +86,14 @@ func editorDraftPath(draftId string) (string, error) {
 // ensurePrivatePath reforça 0700 no diretório e 0600 no arquivo.
 // Necessário porque os.WriteFile/MkdirAll não corrigem modo de paths já
 // existentes criados com permissões mais abertas em versões anteriores.
-func ensurePrivatePath(filePath string) {
-	_ = os.Chmod(filepath.Dir(filePath), 0700)
-	_ = os.Chmod(filePath, 0600)
+func ensurePrivatePath(filePath string) error {
+	if err := os.Chmod(filepath.Dir(filePath), 0700); err != nil {
+		return fmt.Errorf("falha ao restringir diretório privado: %w", err)
+	}
+	if err := os.Chmod(filePath, 0600); err != nil {
+		return fmt.Errorf("falha ao restringir arquivo privado: %w", err)
+	}
+	return nil
 }
 
 func emptyEditorState() *apidto.EditorState {
@@ -130,9 +135,12 @@ func (api *Editor) EditorWriteDraft(draftId string, content string) error {
 			}
 			return struct{}{}, fmt.Errorf("falha ao salvar draft: %w", err)
 		}
-		ensurePrivatePath(p)
+		// Self-write commit antes do Chmod: o conteúdo já está no disco.
 		if commit != nil {
 			commit(true)
+		}
+		if err := ensurePrivatePath(p); err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	})
@@ -228,7 +236,9 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 		if err := os.WriteFile(p, b, 0600); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao salvar editor/state.json: %w", err)
 		}
-		ensurePrivatePath(p)
+		if err := ensurePrivatePath(p); err != nil {
+			return struct{}{}, err
+		}
 		return struct{}{}, nil
 	})
 	return err
