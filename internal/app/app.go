@@ -316,6 +316,11 @@ type App struct {
 	// refresh e cancel de streaming. Criado em main; streamMgr permanece no *App.
 	llmModelsAPI *wailsapi.LLMModels
 
+	// chatAPI é o bind Wails do domínio chat/envio (AEP-0088): SendMessage e
+	// RetryMessage. Criado em main e wired após NewChatController.
+	// SendMessageSync e sendMessageFromChannel permanecem no *App.
+	chatAPI *wailsapi.Chat
+
 	// acpCommandsAPI é o bind Wails do domínio acp_commands (AEP-0088). Criado
 	// em main e wired após initACP (reusa acpMgr).
 	acpCommandsAPI *wailsapi.ACPCommands
@@ -630,6 +635,23 @@ func LLMModelsAPI(a *App) *wailsapi.LLMModels {
 		return nil
 	}
 	return a.llmModelsAPI
+}
+
+// SetChatAPI registra o bind Wails de chat/envio antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetChatAPI(a *App, api *wailsapi.Chat) {
+	if a == nil {
+		return
+	}
+	a.chatAPI = api
+}
+
+// ChatAPI expõe o bind de chat para a CLI (não entra no Bind Wails).
+func ChatAPI(a *App) *wailsapi.Chat {
+	if a == nil {
+		return nil
+	}
+	return a.chatAPI
 }
 
 // SetACPCommandsAPI registra o bind Wails de acp_commands antes do Run (main.go).
@@ -1041,6 +1063,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		OnSpeechRequest:  speechDispatcher,
 		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
 	})
+	a.wireChat()
 	// Conecta adapters de canal só agora — SendMessageFromChannel precisa de chatCtrl.
 	if a.msgCtrl != nil {
 		if a.msgGateway != nil {

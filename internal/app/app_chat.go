@@ -10,25 +10,6 @@ import (
 	"assistente/internal/prompt"
 )
 
-// SendMessage é o binding Wails para envio de mensagens. Source padrão: "wails".
-// A bridge canal↔Wails é gerenciada internamente pelo ChatController.
-func (a *App) SendMessage(conversationID string, userContent string, userMedia string, params ChatParams) (string, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return "", err
-	}
-	return a.chatCtrl.SendMessage(ctx, conversationID, userContent, userMedia, params)
-}
-
-// RetryMessage reexecuta a resposta a partir de uma mensagem do usuário já persistida.
-func (a *App) RetryMessage(conversationID string, messageID string, params ChatParams) (string, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return "", err
-	}
-	return a.chatCtrl.RetryMessage(ctx, conversationID, messageID, params)
-}
-
 // sendMessageFromChannel é chamado pelo Gateway de mensageria com um ctx que
 // carrega o OwnerUserID do canal (AEP-0052). NÃO usa requireAuthenticatedContext:
 // mensagens de canal precisam funcionar mesmo com a UI fechada/sem login —
@@ -42,7 +23,8 @@ func (a *App) RetryMessage(conversationID string, messageID string, params ChatP
 // poder logar/notificar.
 //
 // É deliberadamente não exportado — não é binding Wails, só callback do
-// SendMessageFunc do gateway.
+// SendMessageFunc do gateway. SendMessage/RetryMessage da UI vivem em
+// wailsapi.Chat (AEP-0088).
 func (a *App) sendMessageFromChannel(ctx context.Context, conversationID string, content, media string, params ChatParams, source string) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err

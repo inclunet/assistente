@@ -489,6 +489,18 @@ func TestLLMModelsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestChatMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"SendMessage",
+		"RetryMessage",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s está em wailsapi.Chat; não pertence à allowlist de *App", name)
+		}
+	}
+}
+
 func TestJobsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

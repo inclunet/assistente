@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"assistente/internal/llm"
 	"assistente/internal/portability"
 	"assistente/internal/wailsapi"
 )
@@ -60,6 +61,17 @@ func TestLLMModelsBindingsAreSafeBeforeStartup(t *testing.T) {
 	}
 	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, wailsapi.ErrLLMModelsNotWired) {
 		t.Fatalf("CancelStreamingForConversation() error = %v, want ErrLLMModelsNotWired", err)
+	}
+}
+
+func TestChatBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewChat()
+
+	if _, err := api.SendMessage("c1", "hi", "", llm.ChatParams{}); !errors.Is(err, wailsapi.ErrChatNotWired) {
+		t.Fatalf("SendMessage() error = %v, want ErrChatNotWired", err)
+	}
+	if _, err := api.RetryMessage("c1", "m1", llm.ChatParams{}); !errors.Is(err, wailsapi.ErrChatNotWired) {
+		t.Fatalf("RetryMessage() error = %v, want ErrChatNotWired", err)
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 
 // Conversations é o bind Wails do domínio conversations/persistência (AEP-0088).
 // Auth só via WithUser — sem chamar o helper de auth do App no call site.
-// Helpers de reset de escopo e SendMessage/RetryMessage permanecem no *App.
+// Helpers de reset de escopo permanecem no *App; SendMessage/RetryMessage em wailsapi.Chat.
 type Conversations struct {
 	mu      sync.RWMutex
 	session Session

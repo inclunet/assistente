@@ -222,7 +222,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **subagent** (ListSubAgentRuns + CancelSubAgentRun → `wailsapi.Subagent`; Manager e delivery parent permanecem no `*App`)
 - [x] **tasklist_actions** (custom actions → `wailsapi.TasklistActions`; `CustomActionView` em `apidto`; `customActionEventNames` permanece no `App` para jobs)
 - [x] **tasklist** (CRUD listas/tarefas/workflow/notas/stats/hierarchy → `wailsapi.Tasklist`; tipos de `database`; helpers `linkedTaskListsForConversation`/`newTaskListService` permanecem no `*App`)
-- [x] **conversations** (CRUD conversas/mensagens/search/summary/token stats agregados → `wailsapi.Conversations`; tipos de `database`/`chat`/`apidto`; helpers `resetConversationScopedState`/`resetLoadedToolsForConversation` permanecem no `*App`; SendMessage/RetryMessage ficam no chat)
+- [x] **conversations** (CRUD conversas/mensagens/search/summary/token stats agregados → `wailsapi.Conversations`; tipos de `database`/`chat`/`apidto`; helpers `resetConversationScopedState`/`resetLoadedToolsForConversation` permanecem no `*App`; SendMessage/RetryMessage em `wailsapi.Chat`)
 - [x] **speech** (TTS/STT/providers/synthesize/SpeakMessage/DispatchSpeech → `wailsapi.Speech`; `SynthesisResultInfo`/`ChatSpeak*` em `apidto`; helpers `dispatchSpeechEvent`/`resolveSpeechProfile`/`buildChatSpeakEvent` permanecem no `*App`)
 - [x] **workspace** (CRUD workspaces/tabs/export-import → `wailsapi.Workspace`; tipos de `workspace`; `initWorkspace`/manager/eventos `workspace:*` permanecem no `*App`)
 - [x] **messaging** (canais/contatos/assign → `wailsapi.Messaging`; ownership `OwnerUserID`/`channelOwnedBy` na borda; `initMessaging`/`StartAdapters`/gateway permanecem no `*App`)
@@ -239,6 +239,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **editor** (drafts/state/files/dialogs/watch → `wailsapi.Editor`; DTOs em `apidto`; watcher/`editor:fileChanged`/assisted writes permanecem no `*App` via hooks)
 - [x] **export_import** (export/import conversas e dados portáteis → `wailsapi.ExportImport`; tipos de `portability`, sem apidto novo; CLI via `ExportImportAPI`)
 - [x] **llm_models** (catálogo/lista/refresh de modelos + `CancelStreamingForConversation` → `wailsapi.LLMModels`; tipos de `llm.ModelCatalog`; `streamMgr` permanece no `*App` via hook; CRUD de providers fica em `LLMProviders`)
+- [x] **chat** (SendMessage + RetryMessage → `wailsapi.Chat`; `SendMessageSync` e `sendMessageFromChannel` permanecem no `*App`; ChatController/streamMgr/eventos/gateway fora do escopo)
 - [ ] …
 
 ### Fase N — `App` enxuto

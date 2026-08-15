@@ -24,7 +24,7 @@ const mockGetConversationMessageWindow = vi.fn().mockResolvedValue({
   hasAfter: false,
 });
 const mockGetConversationInfo = vi.fn().mockResolvedValue({});
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Chat', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
   RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
 }));

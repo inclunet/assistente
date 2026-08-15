@@ -12,6 +12,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/llm"
 	"assistente/internal/memory"
 	"assistente/internal/portability"
 	"assistente/internal/profiles"
@@ -639,6 +640,22 @@ func TestWireLLMModelsAttachesBind(t *testing.T) {
 	a.wireLLMModels()
 
 	_, err := api.GetModels()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireChatAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		chatCtrl: controllers.NewChatController(controllers.ChatControllerConfig{}),
+	}
+	api := wailsapi.NewChat()
+	SetChatAPI(a, api)
+
+	a.wireChat()
+
+	_, err := api.SendMessage("c1", "hi", "", llm.ChatParams{})
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
