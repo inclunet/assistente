@@ -150,13 +150,17 @@ func AgentOptionsFrom(options []acp.ConfigOption) []apidto.AgentConfigOption {
 		}
 		converted := apidto.AgentConfigOption{
 			ID:           option.ID,
-			Name:         option.Name,
+			// Nome é rótulo do agente: vira seletor, ARIA e anúncio (AEP-0084 D11).
+			Name:         acp.SanitizeLabel(option.Name),
 			Category:     option.Category,
 			CurrentValue: option.CurrentValue,
 			Values:       make([]apidto.AgentConfigValue, 0, len(option.Values)),
 		}
 		for _, value := range option.Values {
-			converted.Values = append(converted.Values, apidto.AgentConfigValue{Value: value.Value, Name: value.Name})
+			converted.Values = append(converted.Values, apidto.AgentConfigValue{
+				Value: value.Value,
+				Name:  acp.SanitizeLabel(value.Name),
+			})
 		}
 		out = append(out, converted)
 	}

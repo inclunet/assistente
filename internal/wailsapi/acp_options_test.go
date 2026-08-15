@@ -69,3 +69,30 @@ func TestACPOptionsSemAuthNaoMexeNaSessaoDoAgente(t *testing.T) {
 		t.Fatal("trocou a opção sem contexto autenticado")
 	}
 }
+
+func TestAgentOptionsFromSanitizaRotulosDoAgente(t *testing.T) {
+	t.Parallel()
+	// Controles e espaços estranhos no rótulo virariam UI/ARIA/anúncio crua.
+	got := AgentOptionsFrom([]acp.ConfigOption{{
+		ID:           "model",
+		Name:         "Modelo\u0007  turbo",
+		Category:     "model",
+		CurrentValue: "turbo",
+		Values: []acp.ConfigValue{{
+			Value: "turbo",
+			Name:  "Turbo\u200b max",
+		}},
+	}})
+	if len(got) != 1 {
+		t.Fatalf("opções = %d, quer 1", len(got))
+	}
+	if got[0].Name != "Modelo turbo" {
+		t.Errorf("Name = %q, quer sanidade de rótulo", got[0].Name)
+	}
+	if len(got[0].Values) != 1 || got[0].Values[0].Name != "Turbo max" {
+		t.Errorf("Values = %+v, quer Name saneado", got[0].Values)
+	}
+	if got[0].Values[0].Value != "turbo" {
+		t.Errorf("Value = %q, quer o identificador intacto", got[0].Values[0].Value)
+	}
+}
