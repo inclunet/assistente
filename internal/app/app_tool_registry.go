@@ -260,6 +260,7 @@ func (a *App) initToolRegistry() {
 		return al
 	}
 	a.toolRegistry.MustRegister(shell.NewRunCommand(a.terminalMgr, confirmFn, getAllowlistFn, workDir))
+	a.toolRegistry.MustRegister(shell.NewTerminalSession(a.terminalMgr, workDir))
 
 	// Registra ferramenta de questionário (collect_responses)
 	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
