@@ -147,10 +147,12 @@ func (a *App) wireSettings() {
 		Emitter:     a.emitter,
 		ProviderSvc: a.providerSvc,
 		RestartChannel: func(channelName string) error {
-			if a.msgCtrl == nil {
-				return fmt.Errorf("messaging controller não inicializado")
+			// Via Messaging bind: WithUser + SetCredentialUserID + ownership
+			// (não chamar msgCtrl.RestartChannel direto — perde escopo de credenciais).
+			if a.messagingAPI == nil {
+				return fmt.Errorf("messaging API não inicializado")
 			}
-			return a.msgCtrl.RestartChannel(channelName)
+			return a.messagingAPI.RestartChannel(channelName)
 		},
 		GetModels: func() ([]string, error) {
 			return a.GetModels()

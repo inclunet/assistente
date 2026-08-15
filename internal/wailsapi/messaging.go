@@ -269,8 +269,11 @@ func (api *Messaging) CreateChannelFromTemplate(templateType string, values map[
 			return struct{}{}, err
 		}
 		created, err := channels.Load(templateType)
-		if err != nil || created == nil {
+		if err != nil {
 			return struct{}{}, err
+		}
+		if created == nil {
+			return struct{}{}, fmt.Errorf("canal %s não encontrado após criação", templateType)
 		}
 		created.OwnerUserID = userID
 		return struct{}{}, channels.Save(templateType, created)
