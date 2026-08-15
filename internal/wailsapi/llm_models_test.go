@@ -39,6 +39,21 @@ func TestLLMModelsNotWired(t *testing.T) {
 	}
 }
 
+func TestLLMModelsCancelStreamingRequiresHook(t *testing.T) {
+	t.Parallel()
+	api := NewLLMModels()
+	AttachLLMModels(
+		api,
+		stubSession{},
+		providers.NewService(providers.ServiceConfig{}),
+		profiles.NewManager(),
+		LLMModelsHooks{}, // CancelStreaming nil
+	)
+	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, ErrLLMModelsNotWired) {
+		t.Fatalf("CancelStreaming sem hook: got %v, quer ErrLLMModelsNotWired", err)
+	}
+}
+
 func TestLLMModelsUsesWithUserNotRequireAuth(t *testing.T) {
 	t.Parallel()
 	_, thisFile, _, ok := runtime.Caller(0)

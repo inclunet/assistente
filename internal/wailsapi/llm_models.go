@@ -58,7 +58,7 @@ func AttachLLMModels(
 func (m *LLMModels) deps() (Session, *providers.Service, *profiles.Manager, LLMModelsHooks, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.session == nil || m.providerSvc == nil || m.profileMgr == nil {
+	if m.session == nil || m.providerSvc == nil || m.profileMgr == nil || m.hooks.CancelStreaming == nil {
 		return nil, nil, nil, LLMModelsHooks{}, ErrLLMModelsNotWired
 	}
 	return m.session, m.providerSvc, m.profileMgr, m.hooks, nil
@@ -133,16 +133,15 @@ func (m *LLMModels) RefreshModelCatalogByProvider(providerID string) (llm.ModelC
 }
 
 // CancelStreamingForConversation cancela o streaming LLM em andamento para uma
-// conversa (barge-in SIP/UI). Erro só de auth/wire; o cancel em si não falha.
+// conversa (barge-in SIP/UI). Erro de auth/wire (inclui hook ausente); o cancel
+// em si não falha.
 func (m *LLMModels) CancelStreamingForConversation(conversationID string) error {
 	session, _, _, hooks, err := m.deps()
 	if err != nil {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		if hooks.CancelStreaming != nil {
-			hooks.CancelStreaming(conversationID)
-		}
+		hooks.CancelStreaming(conversationID)
 		return struct{}{}, nil
 	})
 	return err
