@@ -7,6 +7,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/apidto"
 	"assistente/internal/app"
+	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
@@ -18,10 +19,11 @@ var errCredentialsNotReady = fmt.Errorf("credentials controller não inicializad
 var errMCPNotReady = fmt.Errorf("mcp controller não inicializado")
 var errLLMNotReady = fmt.Errorf("llm controller não inicializado")
 var errTaskListNotReady = fmt.Errorf("tasklist controller não inicializado")
+var errConversationsNotReady = fmt.Errorf("conversations controller não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
-// profiles/credentials/mcp/llm_providers/tasklist saíram do Bind Wails e vivem nos
-// controllers / wailsapi.
+// profiles/credentials/mcp/llm_providers/tasklist/conversations saíram do Bind
+// Wails e vivem nos controllers / wailsapi.
 type cliApp struct {
 	*app.App
 }
@@ -66,6 +68,14 @@ func (c cliApp) tasklist() (*controllers.TaskListController, error) {
 	ctrl := app.TaskListCtrl(c.App)
 	if ctrl == nil {
 		return nil, errTaskListNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) conversations() (*controllers.ConversationsController, error) {
+	ctrl := app.ConversationsCtrl(c.App)
+	if ctrl == nil {
+		return nil, errConversationsNotReady
 	}
 	return ctrl, nil
 }
@@ -204,6 +214,78 @@ func (c cliApp) GetAllTaskLists() ([]database.TaskList, error) {
 		return nil, err
 	}
 	return ctrl.GetAllTaskLists(ctx)
+}
+
+func (c cliApp) GetConversations() ([]app.Conversation, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetConversations(ctx)
+}
+
+func (c cliApp) GetConversation(id string) (*app.Conversation, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetConversation(ctx, id)
+}
+
+func (c cliApp) EnsureConversation(title string) (*app.Conversation, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.EnsureConversation(ctx, title)
+}
+
+func (c cliApp) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetMessages(ctx, conversationID, parentID)
+}
+
+func (c cliApp) DeleteConversation(id string) error {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteConversation(ctx, id)
+}
+
+func (c cliApp) SearchConversationHistory(query string, limit int) ([]database.MessageSearchResult, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.SearchConversationHistory(ctx, query, limit)
 }
 
 func (c cliApp) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
