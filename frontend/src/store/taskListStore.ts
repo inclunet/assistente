@@ -32,7 +32,7 @@ import {
   GetTaskNotes,
   UpdateTaskNote,
   DeleteTaskNote,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Tasklist';
 import {
   GetTaskListCustomActions,
   SetTaskListCustomActions,

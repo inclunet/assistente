@@ -31,7 +31,7 @@ type mockDataBackend struct {
 	conversations     []app.Conversation
 	conversationsErr  error
 	providers         []*llm.ProviderConfig
-	taskLists         []app.TaskList
+	taskLists         []database.TaskList
 	taskListsErr      error
 }
 
@@ -69,7 +69,7 @@ func (m *mockDataBackend) GetLLMProviders() []*llm.ProviderConfig {
 	return m.providers
 }
 
-func (m *mockDataBackend) GetAllTaskLists() ([]app.TaskList, error) {
+func (m *mockDataBackend) GetAllTaskLists() ([]database.TaskList, error) {
 	return m.taskLists, m.taskListsErr
 }
 
@@ -299,7 +299,7 @@ func TestPrepareDataExportRequest_ExpandsTypeSelections(t *testing.T) {
 			{ID: "openai-custom"},
 			{ID: "anthropic-main"},
 		},
-		taskLists: []app.TaskList{
+		taskLists: []database.TaskList{
 			{UUIDModel: database.UUIDModel{ID: "7"}},
 		},
 	}

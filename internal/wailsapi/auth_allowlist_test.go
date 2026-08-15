@@ -456,3 +456,50 @@ func TestJobsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestTasklistMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"CreateTaskList",
+		"GetTaskList",
+		"GetAllTaskLists",
+		"UpdateTaskList",
+		"SetTaskListViewMode",
+		"SetTaskListConversation",
+		"GetTaskListsByConversation",
+		"CloneTaskList",
+		"ClearTaskList",
+		"DeleteTaskList",
+		"GetWorkflow",
+		"UpdateWorkflow",
+		"UpdateWorkflowFull",
+		"GetTaskCountsByStatus",
+		"ReorderWorkflowStatuses",
+		"ValidateStatusTransition",
+		"CreateTask",
+		"GetTask",
+		"GetTasksByTaskListID",
+		"GetTasksByStatus",
+		"UpdateTask",
+		"UpdateTaskFull",
+		"UpdateTaskAssignee",
+		"SetTaskConversation",
+		"GetTasksByConversation",
+		"UpdateTaskStatus",
+		"ReorderTasks",
+		"PromoteTask",
+		"DemoteTask",
+		"DeleteTask",
+		"GetSubtasks",
+		"CreateTaskNote",
+		"GetTaskNotes",
+		"UpdateTaskNote",
+		"DeleteTaskNote",
+		"GetTaskListStats",
+		"GetTaskListWithHierarchy",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Tasklist/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
