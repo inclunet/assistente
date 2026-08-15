@@ -214,10 +214,6 @@ export function GenerateAndSaveMessageAudio(arg1, arg2) {
   return window['go']['app']['App']['GenerateAndSaveMessageAudio'](arg1, arg2);
 }
 
-export function GetACPCatalog() {
-  return window['go']['app']['App']['GetACPCatalog']();
-}
-
 export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
 }
@@ -460,10 +456,6 @@ export function PromoteTask(arg1) {
 
 export function RebuildSearchIndex() {
   return window['go']['app']['App']['RebuildSearchIndex']();
-}
-
-export function RefreshACPCatalog() {
-  return window['go']['app']['App']['RefreshACPCatalog']();
 }
 
 export function RefreshAuth(arg1) {

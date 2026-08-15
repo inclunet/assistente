@@ -284,6 +284,14 @@ func (a *App) wireACPProviders() {
 	}
 }
 
+// wireACPRegistry associa o bind Wails do catálogo ACP (AEP-0088).
+// Helpers de montagem (acpCatalogOf) permanecem no App.
+func (a *App) wireACPRegistry() {
+	if a.acpRegistryAPI != nil {
+		wailsapi.AttachACPRegistry(a.acpRegistryAPI, wailsSession{app: a}, a.acpRegistry, a.acpCatalogOf)
+	}
+}
+
 // wireACPWorkDir associa o bind Wails de diretório por conversa (AEP-0088).
 // agentConversationDir / conversationAgentDir / acpWorkDir permanecem no App.
 func (a *App) wireACPWorkDir() {
