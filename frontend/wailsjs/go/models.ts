@@ -729,6 +729,20 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class ConversationChannel {
+	    channel: string;
+	    contactId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationChannel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.channel = source["channel"];
+	        this.contactId = source["contactId"];
+	    }
+	}
 	export class ConversationSummaryInfo {
 	    summary: string;
 	    summary_up_to_message_id: string;

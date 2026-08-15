@@ -600,3 +600,28 @@ func TestWorkspaceMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestMessagingMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"GetMessagingStatus",
+		"GetChannelConfig",
+		"SaveChannelConfig",
+		"RestartChannel",
+		"GetAllChannelConfigs",
+		"GetChannelTemplates",
+		"CreateChannelFromTemplate",
+		"GetChannelConfigAsMap",
+		"AuthorizeMessagingContactFull",
+		"RemoveAuthorizedContact",
+		"GetAuthorizedContacts",
+		"GetAvailableChannels",
+		"AssignConversationToChannel",
+		"UnassignConversationFromChannel",
+		"GetConversationChannel",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Messaging/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

@@ -4,18 +4,11 @@ import {portability} from '../models';
 import {context} from '../models';
 import {app} from '../models';
 import {database} from '../models';
-import {channels} from '../models';
-import {contacts} from '../models';
-import {controllers} from '../models';
 import {llm} from '../models';
 import {credentials} from '../models';
 import {ports} from '../models';
 
 export function AnalyzeImportData(arg1:string,arg2:string):Promise<portability.ImportAnalysis>;
-
-export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function CanPersistCredentials():Promise<boolean>;
 
@@ -24,8 +17,6 @@ export function CancelStreamingForConversation(arg1:string):Promise<void>;
 export function Context():Promise<context.Context>;
 
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
-
-export function CreateChannelFromTemplate(arg1:string,arg2:Record<string, any>):Promise<void>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
@@ -63,25 +54,9 @@ export function ExportData(arg1:portability.ExportRequest):Promise<string>;
 
 export function ExportDataToFile(arg1:portability.ExportRequest,arg2:string):Promise<string>;
 
-export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
-
 export function GetAuthStatus():Promise<app.AuthStatus>;
 
 export function GetAuthUser():Promise<app.AuthUser>;
-
-export function GetAuthorizedContacts():Promise<contacts.ContactsFile>;
-
-export function GetAvailableChannels():Promise<Array<controllers.ChannelInfo>>;
-
-export function GetChannelConfig(arg1:string):Promise<channels.ChannelConfig>;
-
-export function GetChannelConfigAsMap(arg1:string):Promise<Record<string, any>>;
-
-export function GetChannelTemplates():Promise<Array<channels.ChannelTemplate>>;
-
-export function GetConversationChannel(arg1:string):Promise<string>;
-
-export function GetMessagingStatus():Promise<Record<string, string>>;
 
 export function GetModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>;
 
@@ -111,15 +86,9 @@ export function RefreshModels():Promise<Array<string>>;
 
 export function RefreshModelsByProvider(arg1:string):Promise<Array<string>>;
 
-export function RemoveAuthorizedContact(arg1:string,arg2:string):Promise<void>;
-
-export function RestartChannel(arg1:string):Promise<void>;
-
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
 
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
-
-export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<string>;
 
@@ -134,7 +103,5 @@ export function ShowWindow():Promise<void>;
 export function Shutdown():Promise<void>;
 
 export function StartupWithAdapters(arg1:context.Context,arg2:ports.Emitter,arg3:ports.WindowPort,arg4:ports.SystemDialogPort):Promise<void>;
-
-export function UnassignConversationFromChannel(arg1:string):Promise<void>;
 
 export function UnlockVault(arg1:string,arg2:string):Promise<void>;

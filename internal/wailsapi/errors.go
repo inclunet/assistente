@@ -47,6 +47,9 @@ var ErrTerminalNotWired = errors.New("wailsapi: terminal bind not wired")
 // ErrMemoryNotWired indica que o bind Memory ainda não recebeu controller/session.
 var ErrMemoryNotWired = errors.New("wailsapi: memory bind not wired")
 
+// ErrMessagingNotWired indica que o bind Messaging ainda não recebeu controller/session.
+var ErrMessagingNotWired = errors.New("wailsapi: messaging bind not wired")
+
 // ErrWelcomeNotWired indica que o bind Welcome ainda não recebeu controller/runtime.
 var ErrWelcomeNotWired = errors.New("wailsapi: welcome bind not wired")
 

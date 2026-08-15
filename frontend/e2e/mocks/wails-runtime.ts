@@ -498,8 +498,83 @@ export function buildWailsMockScript(): string {
     ListMCPServers: [],
 
     /* Channels */
-    GetAvailableChannels: [],
-    GetAllChannelConfigs: {},
+    GetAvailableChannels: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('GetAvailableChannels deve ser chamado via wailsapi.Messaging');
+      }
+      return [];
+    },
+    GetAllChannelConfigs: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('GetAllChannelConfigs deve ser chamado via wailsapi.Messaging');
+      }
+      return {};
+    },
+    GetMessagingStatus: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('GetMessagingStatus deve ser chamado via wailsapi.Messaging');
+      }
+      return {};
+    },
+    GetChannelTemplates: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('GetChannelTemplates deve ser chamado via wailsapi.Messaging');
+      }
+      return [];
+    },
+    SaveChannelConfig: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('SaveChannelConfig deve ser chamado via wailsapi.Messaging');
+      }
+      return undefined;
+    },
+    RestartChannel: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('RestartChannel deve ser chamado via wailsapi.Messaging');
+      }
+      return undefined;
+    },
+    CreateChannelFromTemplate: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('CreateChannelFromTemplate deve ser chamado via wailsapi.Messaging');
+      }
+      return undefined;
+    },
+    GetAuthorizedContacts: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('GetAuthorizedContacts deve ser chamado via wailsapi.Messaging');
+      }
+      return {};
+    },
+    RemoveAuthorizedContact: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('RemoveAuthorizedContact deve ser chamado via wailsapi.Messaging');
+      }
+      return undefined;
+    },
+    AssignConversationToChannel: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('AssignConversationToChannel deve ser chamado via wailsapi.Messaging');
+      }
+      return undefined;
+    },
+    UnassignConversationFromChannel: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.Messaging') {
+        throw new Error('UnassignConversationFromChannel deve ser chamado via wailsapi.Messaging');
+      }
+      return undefined;
+    },
 
     /* Settings */
     ResetConfig: undefined,
@@ -660,6 +735,7 @@ export function buildWailsMockScript(): string {
       Signal: makeProxy('wailsapi.Signal'),
       Terminal: makeProxy('wailsapi.Terminal'),
       Memory: makeProxy('wailsapi.Memory'),
+      Messaging: makeProxy('wailsapi.Messaging'),
       Welcome: makeProxy('wailsapi.Welcome'),
       Workspace: makeProxy('wailsapi.Workspace'),
       LegacyCleanup: makeProxy('wailsapi.LegacyCleanup'),

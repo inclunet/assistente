@@ -6,14 +6,6 @@ export function AnalyzeImportData(arg1, arg2) {
   return window['go']['app']['App']['AnalyzeImportData'](arg1, arg2);
 }
 
-export function AssignConversationToChannel(arg1, arg2, arg3) {
-  return window['go']['app']['App']['AssignConversationToChannel'](arg1, arg2, arg3);
-}
-
-export function AuthorizeMessagingContactFull(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['AuthorizeMessagingContactFull'](arg1, arg2, arg3, arg4);
-}
-
 export function CanPersistCredentials() {
   return window['go']['app']['App']['CanPersistCredentials']();
 }
@@ -28,10 +20,6 @@ export function Context() {
 
 export function CreateAdminUser(arg1) {
   return window['go']['app']['App']['CreateAdminUser'](arg1);
-}
-
-export function CreateChannelFromTemplate(arg1, arg2) {
-  return window['go']['app']['App']['CreateChannelFromTemplate'](arg1, arg2);
 }
 
 export function EditorDeleteDraft(arg1) {
@@ -106,44 +94,12 @@ export function ExportDataToFile(arg1, arg2) {
   return window['go']['app']['App']['ExportDataToFile'](arg1, arg2);
 }
 
-export function GetAllChannelConfigs() {
-  return window['go']['app']['App']['GetAllChannelConfigs']();
-}
-
 export function GetAuthStatus() {
   return window['go']['app']['App']['GetAuthStatus']();
 }
 
 export function GetAuthUser() {
   return window['go']['app']['App']['GetAuthUser']();
-}
-
-export function GetAuthorizedContacts() {
-  return window['go']['app']['App']['GetAuthorizedContacts']();
-}
-
-export function GetAvailableChannels() {
-  return window['go']['app']['App']['GetAvailableChannels']();
-}
-
-export function GetChannelConfig(arg1) {
-  return window['go']['app']['App']['GetChannelConfig'](arg1);
-}
-
-export function GetChannelConfigAsMap(arg1) {
-  return window['go']['app']['App']['GetChannelConfigAsMap'](arg1);
-}
-
-export function GetChannelTemplates() {
-  return window['go']['app']['App']['GetChannelTemplates']();
-}
-
-export function GetConversationChannel(arg1) {
-  return window['go']['app']['App']['GetConversationChannel'](arg1);
-}
-
-export function GetMessagingStatus() {
-  return window['go']['app']['App']['GetMessagingStatus']();
 }
 
 export function GetModelCatalogByProvider(arg1) {
@@ -202,24 +158,12 @@ export function RefreshModelsByProvider(arg1) {
   return window['go']['app']['App']['RefreshModelsByProvider'](arg1);
 }
 
-export function RemoveAuthorizedContact(arg1, arg2) {
-  return window['go']['app']['App']['RemoveAuthorizedContact'](arg1, arg2);
-}
-
-export function RestartChannel(arg1) {
-  return window['go']['app']['App']['RestartChannel'](arg1);
-}
-
 export function RetryMessage(arg1, arg2, arg3) {
   return window['go']['app']['App']['RetryMessage'](arg1, arg2, arg3);
 }
 
 export function RetryUserRuntimeInit() {
   return window['go']['app']['App']['RetryUserRuntimeInit']();
-}
-
-export function SaveChannelConfig(arg1, arg2) {
-  return window['go']['app']['App']['SaveChannelConfig'](arg1, arg2);
 }
 
 export function SendMessage(arg1, arg2, arg3, arg4) {
@@ -248,10 +192,6 @@ export function Shutdown() {
 
 export function StartupWithAdapters(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['StartupWithAdapters'](arg1, arg2, arg3, arg4);
-}
-
-export function UnassignConversationFromChannel(arg1) {
-  return window['go']['app']['App']['UnassignConversationFromChannel'](arg1);
 }
 
 export function UnlockVault(arg1, arg2) {
