@@ -244,8 +244,16 @@ func TestEditorPrivateFilesTightenLegacyModes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EditorGetDraftPath: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(draftPath), 0755); err != nil {
+	draftDir := filepath.Dir(draftPath)
+	editorDir := filepath.Dir(draftDir)
+	if err := os.MkdirAll(draftDir, 0755); err != nil {
 		t.Fatalf("mkdir legado: %v", err)
+	}
+	if err := os.Chmod(editorDir, 0755); err != nil {
+		t.Fatalf("chmod editor legado: %v", err)
+	}
+	if err := os.Chmod(draftDir, 0755); err != nil {
+		t.Fatalf("chmod drafts legado: %v", err)
 	}
 	if err := os.WriteFile(draftPath, []byte("antigo"), 0644); err != nil {
 		t.Fatalf("seed draft: %v", err)
@@ -260,12 +268,19 @@ func TestEditorPrivateFilesTightenLegacyModes(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0600 {
 		t.Fatalf("draft legado perm = %04o, quer 0600 após rewrite", got)
 	}
-	dirInfo, err := os.Stat(filepath.Dir(draftPath))
+	dirInfo, err := os.Stat(draftDir)
 	if err != nil {
 		t.Fatalf("stat draft dir: %v", err)
 	}
 	if got := dirInfo.Mode().Perm(); got != 0700 {
 		t.Fatalf("draft dir legado perm = %04o, quer 0700 após rewrite", got)
+	}
+	editorInfo, err := os.Stat(editorDir)
+	if err != nil {
+		t.Fatalf("stat editor dir: %v", err)
+	}
+	if got := editorInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("editor dir legado perm = %04o, quer 0700 após rewrite de draft", got)
 	}
 
 	statePath := editorStatePath()
