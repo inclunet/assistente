@@ -124,11 +124,15 @@ func (api *ExportImport) ExportConversationsToFile(ids []string, format string, 
 			return "", err
 		}
 
+		formatFilter := strings.ToUpper(format)
+		if format == portability.FormatMarkdown {
+			formatFilter = "Markdown"
+		}
 		path, err := dialog.SaveFileDialog(ports.SaveFileOptions{
 			Title:           orDefault(labels.Title, "Exportar conversas"),
 			DefaultFilename: orDefault(labels.DefaultFilename, defaultConversationExportFilename(format)),
 			Filters: []ports.FileFilter{
-				{DisplayName: orDefault(labels.MarkdownFilter, strings.ToUpper(format)), Pattern: "*." + format},
+				{DisplayName: orDefault(labels.MarkdownFilter, formatFilter), Pattern: "*." + format},
 				{DisplayName: orDefault(labels.AllFilesFilter, "Todos os arquivos"), Pattern: "*.*"},
 			},
 		})
