@@ -48,6 +48,13 @@ const CANONICAL_SHORTCUT_COMBOS = [
   'Ctrl+?',                       // ajuda
   'F1',                           // página de ajuda
   'Alt+M',                        // abrir menu
+  'Alt+W / Alt+Backspace',        // voltar ao workspace
+  'Alt+C',                        // configurações
+  'Alt+H',                        // histórico
+  'Alt+L',                        // memórias
+  'Alt+T',                        // listas de tarefas
+  'Alt+J',                        // jobs
+  'Alt+P',                        // perfis
   'Esc',                          // fechar diálogos
 ];
 

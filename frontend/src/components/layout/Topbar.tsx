@@ -47,6 +47,13 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/update': 'menu.about',
 };
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== 'string') return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+}
+
 const ROUTE_IDS: Record<string, string> = {
   '/history': 'history',
   '/memories': 'memories',
@@ -242,15 +249,15 @@ export function Topbar() {
 
   const mainMenuItems: MenuButtonItem[] = useMemo(() => [
     ...(!isWorkspaceRoute ? [
-      { id: 'back-to-workspace', label: t('menu.backToWorkspace'), icon: <ArrowLeftOutlined />, onClick: () => navigate('/') },
+      { id: 'back-to-workspace', label: t('menu.backToWorkspace'), icon: <ArrowLeftOutlined />, shortcut: 'Alt+W', onClick: () => navigate('/') },
       { id: 'sep-back', separator: true as const },
     ] : []),
     { id: 'history', label: t('menu.history'), icon: <HistoryOutlined />, shortcut: 'Alt+H', onClick: () => navigate('/history') },
-    { id: 'memories', label: t('menu.memories'), icon: <ReadOutlined />, onClick: () => navigate('/memories') },
-    { id: 'tasklists', label: t('menu.tasklists'), icon: <CheckSquareOutlined />, onClick: () => navigate('/tasklists') },
-    { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, onClick: () => navigate('/jobs') },
+    { id: 'memories', label: t('menu.memories'), icon: <ReadOutlined />, shortcut: 'Alt+L', onClick: () => navigate('/memories') },
+    { id: 'tasklists', label: t('menu.tasklists'), icon: <CheckSquareOutlined />, shortcut: 'Alt+T', onClick: () => navigate('/tasklists') },
+    { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, shortcut: 'Alt+J', onClick: () => navigate('/jobs') },
     { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
-    { id: 'settings', label: t('menu.settings'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
+    { id: 'settings', label: t('menu.settings'), icon: <SettingOutlined />, shortcut: 'Alt+C', onClick: () => navigate('/settings') },
     { id: 'help', label: t('menu.help'), icon: <QuestionCircleOutlined />, shortcut: 'F1', onClick: () => navigate('/help') },
     { id: 'keyboard-shortcuts', label: t('menu.keyboardShortcuts'), icon: <KeyOutlined />, shortcut: 'Ctrl+?', onClick: () => openShortcutsHelp() },
     { id: 'about', label: t('menu.about'), icon: <InfoCircleOutlined />, onClick: () => navigate('/about') },
@@ -258,27 +265,71 @@ export function Topbar() {
 
   // --- Keyboard shortcuts ---
   useEffect(() => {
+    const navigateTo = (path: string, pageKey: string) => {
+      navigate(path);
+      announce(t('deepLink.announcedNavigate', { page: t(pageKey) }));
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
       // F1 (ajuda) é tratado primeiro e SEMPRE faz preventDefault, mesmo com um
       // modal aberto, para nunca vazar para o comportamento padrão do
       // navegador/OS.
-      if (event.key === 'F1') { event.preventDefault(); navigate('/help'); return; }
+      if (event.key === 'F1') {
+        event.preventDefault();
+        navigateTo('/help', 'menu.help');
+        return;
+      }
 
-      // Os atalhos de navegação (Alt+M/H/E/I/P) não devem agir na UI de fundo
+      const isPlainAlt = event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey;
+
+      // Alt+Backspace → workspace (alternativa acessível a Alt+W). Tratado antes
+      // do guard de modal porque Alt+Backspace tem "voltar" padrão no
+      // navegador/WebView: sempre prevenimos (fora de campo editável) para não
+      // vazar, inclusive com modal aberto — onde apenas prevenimos, sem navegar.
+      // Em campos editáveis Alt+Backspace costuma apagar palavra, então saímos.
+      if (isPlainAlt && event.key === 'Backspace') {
+        if (isEditableTarget(event.target)) return;
+        event.preventDefault();
+        if (isModalOpen()) return;
+        // Anúncio usa o nome da página (menu.chat), como ROUTE_I18N_KEYS[''],
+        // para o NVDA falar "Navegou para Chat" e não a ação "Voltar ao workspace".
+        navigateTo('/', 'menu.chat');
+        return;
+      }
+
+      // Os demais atalhos de navegação (Alt+…) não devem agir na UI de fundo
       // enquanto qualquer modal está aberto (incl. o painel de atalhos, que se
       // registra no stack via Modal).
       if (isModalOpen()) return;
-      if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
-        const key = event.key.toLowerCase();
-        if (key === 'm') { event.preventDefault(); menuButtonRef.current?.toggleMenu(); return; }
-        const altRoutes: Record<string, string> = { h: '/history', e: '/settings/data?action=export', i: '/settings/data?action=import', p: '/profiles' };
-        const target = altRoutes[key];
-        if (target) { event.preventDefault(); navigate(target); return; }
+      if (!isPlainAlt) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'm') {
+        event.preventDefault();
+        menuButtonRef.current?.toggleMenu();
+        return;
+      }
+
+      const altRoutes: Record<string, { path: string; pageKey: string }> = {
+        w: { path: '/', pageKey: 'menu.chat' },
+        c: { path: '/settings', pageKey: 'menu.settings' },
+        h: { path: '/history', pageKey: 'menu.history' },
+        l: { path: '/memories', pageKey: 'menu.memories' },
+        t: { path: '/tasklists', pageKey: 'menu.tasklists' },
+        j: { path: '/jobs', pageKey: 'menu.jobs' },
+        p: { path: '/profiles', pageKey: 'menu.profiles' },
+        e: { path: '/settings/data?action=export', pageKey: 'menu.settings' },
+        i: { path: '/settings/data?action=import', pageKey: 'menu.settings' },
+      };
+      const target = altRoutes[key];
+      if (target) {
+        event.preventDefault();
+        navigateTo(target.path, target.pageKey);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate]);
+  }, [navigate, announce, t]);
 
   return (
     <>
@@ -335,8 +386,8 @@ export function Topbar() {
             <button
               className="topbar__back"
               onClick={() => navigate('/')}
-              aria-label={t('menu.backToWorkspace')}
-              title={t('menu.backToWorkspace')}
+              aria-label={t('menu.backToWorkspaceWithShortcut')}
+              title={t('menu.backToWorkspaceWithShortcut')}
               tabIndex={-1}
             >
               <ArrowLeftOutlined aria-hidden="true" />
