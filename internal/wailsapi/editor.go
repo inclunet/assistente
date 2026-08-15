@@ -116,7 +116,7 @@ func (api *Editor) EditorWriteDraft(draftId string, content string) error {
 			return struct{}{}, fmt.Errorf("falha ao criar diretório de drafts: %w", err)
 		}
 		commit := hooks.MarkSelfWrite(p)
-		if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
+		if err := filesystem.WriteFileBytes(p, []byte(content), 0600); err != nil {
 			if commit != nil {
 				commit(false)
 			}
@@ -216,7 +216,7 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 		if err != nil {
 			return struct{}{}, fmt.Errorf("falha ao serializar editor state: %w", err)
 		}
-		if err := os.WriteFile(p, b, 0644); err != nil {
+		if err := os.WriteFile(p, b, 0600); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao salvar editor/state.json: %w", err)
 		}
 		return struct{}{}, nil
@@ -322,8 +322,12 @@ func (api *Editor) EditorWriteFile(path string, content string) error {
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
 		}
+		perm := os.FileMode(0644)
+		if info, statErr := os.Stat(p); statErr == nil {
+			perm = info.Mode().Perm()
+		}
 		commit := hooks.MarkSelfWrite(p)
-		if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
+		if err := filesystem.WriteFileBytes(p, []byte(content), perm); err != nil {
 			if commit != nil {
 				commit(false)
 			}

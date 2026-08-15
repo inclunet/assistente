@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"assistente/internal/apidto"
+	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
 )
 
@@ -163,5 +164,95 @@ func TestEditorUsesWithUserNotRequireAuthSource(t *testing.T) {
 	}
 	if !strings.Contains(body, "WithUser(session,") {
 		t.Fatal("editor.go deve chamar WithUser(session,")
+	}
+}
+
+func setupEditorAPITest(t *testing.T) *Editor {
+	t.Helper()
+	tempDir := t.TempDir()
+	oldHome, _ := os.LookupEnv("HOME")
+	oldUserProfile, _ := os.LookupEnv("USERPROFILE")
+
+	_ = os.Setenv("HOME", tempDir)
+	_ = os.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+
+	t.Cleanup(func() {
+		if oldHome == "" {
+			_ = os.Unsetenv("HOME")
+		} else {
+			_ = os.Setenv("HOME", oldHome)
+		}
+		if oldUserProfile == "" {
+			_ = os.Unsetenv("USERPROFILE")
+		} else {
+			_ = os.Setenv("USERPROFILE", oldUserProfile)
+		}
+		configdir.ResetForTests()
+	})
+
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return nil },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile:     func(path string) error { return nil },
+		UnwatchFile:   func(path string) error { return nil },
+	})
+	return api
+}
+
+func TestEditorPrivateFilesUse0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissões POSIX não se aplicam no Windows")
+	}
+	api := setupEditorAPITest(t)
+
+	if err := api.EditorWriteDraft("draft-privado", "conteudo sensivel"); err != nil {
+		t.Fatalf("EditorWriteDraft: %v", err)
+	}
+	draftPath, err := api.EditorGetDraftPath("draft-privado")
+	if err != nil {
+		t.Fatalf("EditorGetDraftPath: %v", err)
+	}
+	info, err := os.Stat(draftPath)
+	if err != nil {
+		t.Fatalf("stat draft: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("draft perm = %04o, quer 0600", got)
+	}
+
+	if err := api.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{}}); err != nil {
+		t.Fatalf("EditorSaveState: %v", err)
+	}
+	stateInfo, err := os.Stat(editorStatePath())
+	if err != nil {
+		t.Fatalf("stat state: %v", err)
+	}
+	if got := stateInfo.Mode().Perm(); got != 0600 {
+		t.Fatalf("state.json perm = %04o, quer 0600", got)
+	}
+}
+
+func TestEditorWriteFilePreservesExistingMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissões POSIX não se aplicam no Windows")
+	}
+	api := setupEditorAPITest(t)
+
+	path := filepath.Join(t.TempDir(), "secreto.md")
+	if err := os.WriteFile(path, []byte("antes"), 0600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := api.EditorWriteFile(path, "depois"); err != nil {
+		t.Fatalf("EditorWriteFile: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("perm = %04o, quer preservar 0600", got)
 	}
 }
