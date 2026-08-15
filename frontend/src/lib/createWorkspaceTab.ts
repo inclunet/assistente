@@ -21,7 +21,10 @@ export async function createWorkspaceTab(type: TabType, title: string): Promise<
   }
 
   const sessionsLoaded = await terminalStore.loadSessions();
-  if (!sessionsLoaded) {
+  const sessionIsLive = useTerminalStore.getState().sessions.some(
+    (session) => session.id === sessionId,
+  );
+  if (!sessionsLoaded || !sessionIsLive) {
     await terminalStore.closeSession(sessionId);
     throw new Error('não foi possível confirmar a sessão de terminal criada');
   }

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   loadSessions: vi.fn(),
   closeSession: vi.fn(),
+  sessions: [] as Array<{ id: string }>,
 }));
 
 vi.mock('../store/workspaceStore', () => ({
@@ -20,6 +21,7 @@ vi.mock('../store/terminalStore', () => ({
       createSession: mocks.createSession,
       loadSessions: mocks.loadSessions,
       closeSession: mocks.closeSession,
+      sessions: mocks.sessions,
     }),
   },
 }));
@@ -31,6 +33,7 @@ describe('createWorkspaceTab', () => {
     mocks.createSession.mockResolvedValue('session-1');
     mocks.loadSessions.mockResolvedValue(true);
     mocks.closeSession.mockResolvedValue(true);
+    mocks.sessions = [{ id: 'session-1' }];
   });
 
   it('cria e conecta uma sessão ao abrir nova aba de terminal', async () => {
@@ -47,6 +50,17 @@ describe('createWorkspaceTab', () => {
     mocks.loadSessions.mockResolvedValue(false);
 
     await expect(createWorkspaceTab('terminal', 'Terminal')).rejects.toThrow();
+
+    expect(mocks.addTab).not.toHaveBeenCalled();
+    expect(mocks.closeSession).toHaveBeenCalledWith('session-1');
+  });
+
+  it('rejeita a aba quando a listagem não contém a sessão recém-criada', async () => {
+    mocks.sessions = [{ id: 'outra-session' }];
+
+    await expect(createWorkspaceTab('terminal', 'Terminal')).rejects.toThrow(
+      'não foi possível confirmar',
+    );
 
     expect(mocks.addTab).not.toHaveBeenCalled();
     expect(mocks.closeSession).toHaveBeenCalledWith('session-1');
