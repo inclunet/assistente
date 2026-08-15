@@ -2,7 +2,7 @@ import { logger } from '../utils/logger';
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
-import { RenameConversation } from '@wailsjs/go/app/App';
+import { RenameConversation } from '@wailsjs/go/wailsapi/Conversations';
 import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
 import type { TabType } from '../store/workspaceStore';
 

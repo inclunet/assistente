@@ -705,6 +705,22 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class ConversationSummaryInfo {
+	    summary: string;
+	    summary_up_to_message_id: string;
+	    summarizing_in_progress: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationSummaryInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.summary = source["summary"];
+	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
+	        this.summarizing_in_progress = source["summarizing_in_progress"];
+	    }
+	}
 	export class CreateLLMProviderRequest {
 	    id: string;
 	    name: string;
@@ -1334,22 +1350,6 @@ export namespace app {
 	        this.text = source["text"];
 	        this.origin = source["origin"];
 	        this.interrupt = source["interrupt"];
-	    }
-	}
-	export class ConversationSummaryInfo {
-	    summary: string;
-	    summary_up_to_message_id: string;
-	    summarizing_in_progress: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ConversationSummaryInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.summary = source["summary"];
-	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
-	        this.summarizing_in_progress = source["summarizing_in_progress"];
 	    }
 	}
 	export class CreateAdminRequest {

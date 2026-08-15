@@ -2,7 +2,7 @@ import {
   GetConversationInfo,
   GetConversationMessageWindow,
   GetMessageChildren,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Conversations';
 import i18next from 'i18next';
 import {
   withOriginalIndex,

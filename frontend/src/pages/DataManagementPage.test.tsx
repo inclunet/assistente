@@ -24,8 +24,11 @@ let mockPathname = '/settings/data';
 vi.mock('@wailsjs/go/app/App', () => ({
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
   ExportData: (payload: unknown) => mockExportData(payload),
-  GetConversations: () => mockGetConversations(),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
+  GetConversations: () => mockGetConversations(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Tasklist', () => ({

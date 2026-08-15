@@ -3,10 +3,10 @@ import {
   SendMessage,
   RetryMessage,
   CancelStreamingForConversation,
-  EnsureConversation,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
 } from '@wailsjs/go/app/App';
+import { EnsureConversation } from '@wailsjs/go/wailsapi/Conversations';
 import { MediaFile } from '../services/mediaService';
 import { llm } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';

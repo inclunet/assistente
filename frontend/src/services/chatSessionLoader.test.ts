@@ -12,7 +12,7 @@ const mockGetConversationInfo = vi.fn();
 const mockGetConversationMessageWindow = vi.fn();
 const mockGetMessageChildren = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   GetConversationMessageWindow: (...args: unknown[]) => mockGetConversationMessageWindow(...args),
   GetMessageChildren: (...args: unknown[]) => mockGetMessageChildren(...args),

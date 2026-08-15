@@ -13,7 +13,14 @@ import {
   PlusOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { GetConversationsByIDs, GetConversationsPage, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { ExportConversations, ExportConversationsToFile } from '@wailsjs/go/app/App';
+import {
+  GetConversationsByIDs,
+  GetConversationsPage,
+  DeleteConversation,
+  UpdateConversation,
+  SearchConversationHistory,
+} from '@wailsjs/go/wailsapi/Conversations';
 import { portability } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';

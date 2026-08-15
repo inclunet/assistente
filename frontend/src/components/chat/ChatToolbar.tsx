@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigationStore } from '../../store/navigationStore';
-import { ClearConversation } from '@wailsjs/go/app/App';
+import { ClearConversation } from '@wailsjs/go/wailsapi/Conversations';
 import { GetActiveProfileSlug } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
