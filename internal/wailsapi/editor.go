@@ -86,9 +86,19 @@ func editorDraftPath(draftId string) (string, error) {
 // ensurePrivatePath reforça 0700 no diretório e 0600 no arquivo.
 // Necessário porque os.WriteFile/MkdirAll não corrigem modo de paths já
 // existentes criados com permissões mais abertas em versões anteriores.
+// Para drafts em editor/drafts, também restringe o pai editor (legado 0755).
 func ensurePrivatePath(filePath string) error {
-	if err := os.Chmod(filepath.Dir(filePath), 0700); err != nil {
+	dir := filepath.Dir(filePath)
+	if err := os.Chmod(dir, 0700); err != nil {
 		return fmt.Errorf("falha ao restringir diretório privado: %w", err)
+	}
+	if filepath.Base(dir) == "drafts" {
+		parent := filepath.Dir(dir)
+		if filepath.Base(parent) == "editor" {
+			if err := os.Chmod(parent, 0700); err != nil {
+				return fmt.Errorf("falha ao restringir diretório editor: %w", err)
+			}
+		}
 	}
 	if err := os.Chmod(filePath, 0600); err != nil {
 		return fmt.Errorf("falha ao restringir arquivo privado: %w", err)
