@@ -194,7 +194,6 @@ export function WorkspaceToolbar() {
       action: () => {
         const title = t(labelKey);
         void createWorkspaceTab(type, title)
-          .then(() => announce(`${t('workspace.tabCreated')}: ${title}`))
           .catch((error: unknown) => {
             logger.error('[WorkspaceToolbar] Erro ao criar aba:', error);
             addToast(t('workspace.tabCreateFailed'), 'error');

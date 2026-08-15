@@ -121,7 +121,6 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
           event.stopPropagation();
           const title = i18next.t(match.titleKey);
           void createWorkspaceTab(match.type, title)
-            .then(() => announce(`${i18next.t('workspace.tabCreated')}: ${title}`))
             .catch((error: unknown) => {
               logger.error('[WorkspaceShortcuts] Erro ao criar aba:', error);
               useUIStore.getState().addToast(i18next.t('workspace.tabCreateFailed'), 'error');
@@ -165,7 +164,6 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
         event.preventDefault();
         if (isModalOpen()) return;
         void addTab('chat', i18next.t('chat.newConversation'));
-        announce(i18next.t('workspace.tabCreated'));
         return;
       }
 
