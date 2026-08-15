@@ -3174,6 +3174,11 @@ const ptBR = {
       exportIncludeReasoning: 'Incluir raciocínio (reasoning)',
       exportIncludeMetadata: 'Incluir metadados (modelo, provedor, tokens)',
       exportSaved: 'Arquivo exportado: {{path}}',
+      dialog: {
+        exportTitle: 'Exportar conversas',
+        filterAll: 'Todos os arquivos',
+        defaultFilenamePrefix: 'conversas',
+      },
       exportSuccess: 'Dados exportados com sucesso!',
       exportSelected: 'Exportar Selecionadas',
       exportAll: 'Exportar Todas',

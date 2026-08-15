@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -84,7 +85,9 @@ func (api *ExportImport) ExportData(req portability.ExportRequest) (string, erro
 }
 
 // ExportConversationsToFile renderiza conversas e salva via diálogo nativo.
-func (api *ExportImport) ExportConversationsToFile(ids []string, format string, options portability.ContentExportOptions) (string, error) {
+// labels deve vir já traduzido do frontend (i18n); campos vazios usam fallback pt-BR.
+// MarkdownFilter carrega o rótulo do filtro do formato (HTML/PDF/Markdown).
+func (api *ExportImport) ExportConversationsToFile(ids []string, format string, options portability.ContentExportOptions, labels apidto.FileDialogLabels) (string, error) {
 	session, credMgr, dialogFn, appVersion, err := api.deps()
 	if err != nil {
 		return "", err
@@ -122,11 +125,11 @@ func (api *ExportImport) ExportConversationsToFile(ids []string, format string, 
 		}
 
 		path, err := dialog.SaveFileDialog(ports.SaveFileOptions{
-			Title:           "Exportar conversas",
-			DefaultFilename: defaultConversationExportFilename(format),
+			Title:           orDefault(labels.Title, "Exportar conversas"),
+			DefaultFilename: orDefault(labels.DefaultFilename, defaultConversationExportFilename(format)),
 			Filters: []ports.FileFilter{
-				{DisplayName: strings.ToUpper(format), Pattern: "*." + format},
-				{DisplayName: "Todos os arquivos", Pattern: "*.*"},
+				{DisplayName: orDefault(labels.MarkdownFilter, strings.ToUpper(format)), Pattern: "*." + format},
+				{DisplayName: orDefault(labels.AllFilesFilter, "Todos os arquivos"), Pattern: "*.*"},
 			},
 		})
 		if err != nil {
@@ -298,7 +301,7 @@ func exportData(ctx context.Context, credMgr *credentials.Manager, appVersion st
 		return portability.ExportPortableDataWithContext(ctx, conversationIDs, providerIDs, taskListIDs, credMgr, req, appVersion)
 	case portability.FormatHTML:
 		if hasUnsupportedRichConversationSelections(originalReq) {
-			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
+			return "", fmt.Errorf("exportação HTML atualmente suporta apenas conversas")
 		}
 		req, err = normalizeRichConversationExportRequest(req)
 		if err != nil {

@@ -10,8 +10,8 @@ export function ExportConversations(arg1) {
   return window['go']['wailsapi']['ExportImport']['ExportConversations'](arg1);
 }
 
-export function ExportConversationsToFile(arg1, arg2, arg3) {
-  return window['go']['wailsapi']['ExportImport']['ExportConversationsToFile'](arg1, arg2, arg3);
+export function ExportConversationsToFile(arg1, arg2, arg3, arg4) {
+  return window['go']['wailsapi']['ExportImport']['ExportConversationsToFile'](arg1, arg2, arg3, arg4);
 }
 
 export function ExportData(arg1) {

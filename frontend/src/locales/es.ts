@@ -3174,6 +3174,11 @@ const es = {
       exportIncludeReasoning: 'Incluir razonamiento (reasoning)',
       exportIncludeMetadata: 'Incluir metadatos (modelo, proveedor, tokens)',
       exportSaved: 'Archivo exportado: {{path}}',
+      dialog: {
+        exportTitle: 'Exportar conversaciones',
+        filterAll: 'Todos los archivos',
+        defaultFilenamePrefix: 'conversaciones',
+      },
       exportSuccess: 'Datos exportados correctamente.',
       exportSelected: 'Exportar seleccionadas',
       exportAll: 'Exportar todas',
