@@ -432,3 +432,53 @@ func TestGetAuthorizedContacts_FiltersByOwnerAndMissingConfig(t *testing.T) {
 		t.Fatalf("user-b deveria ver o próprio contato signal: %+v", got)
 	}
 }
+
+func TestMessagingPropagatesChannelLoadError(t *testing.T) {
+	// Sem UseDatabase, Load retorna ErrDBNotEnabled — não pode virar
+	// "canal não configurado" (fail-closed + diagnóstico).
+	channels.UseDatabase(nil)
+	t.Cleanup(func() { channels.UseDatabase(nil) })
+
+	api := NewMessaging()
+	AttachMessaging(api, messagingUserSession("user-a"), newTestMessagingController(t))
+
+	casos := []struct {
+		nome string
+		fn   func() error
+	}{
+		{"SaveChannelConfig", func() error {
+			return api.SaveChannelConfig("telegram", &channels.ChannelConfig{})
+		}},
+		{"RestartChannel", func() error {
+			return api.RestartChannel("telegram")
+		}},
+		{"CreateChannelFromTemplate", func() error {
+			return api.CreateChannelFromTemplate("telegram", nil)
+		}},
+		{"GetChannelConfigAsMap", func() error {
+			_, err := api.GetChannelConfigAsMap("telegram")
+			return err
+		}},
+		{"AuthorizeMessagingContactFull", func() error {
+			return api.AuthorizeMessagingContactFull("telegram", "1", "n", "u")
+		}},
+		{"RemoveAuthorizedContact", func() error {
+			return api.RemoveAuthorizedContact("telegram", "1")
+		}},
+		{"AssignConversationToChannel", func() error {
+			return api.AssignConversationToChannel("c", "telegram", "1")
+		}},
+	}
+	for _, c := range casos {
+		c := c
+		t.Run(c.nome, func(t *testing.T) {
+			err := c.fn()
+			if !errors.Is(err, channels.ErrDBNotEnabled) {
+				t.Fatalf("erro = %v, want ErrDBNotEnabled", err)
+			}
+			if strings.Contains(err.Error(), "não configurado") {
+				t.Fatalf("mascarou ErrDBNotEnabled como inexistente: %v", err)
+			}
+		})
+	}
+}

@@ -71,6 +71,23 @@ func errCrossUserChannel(channelName string) error {
 	return fmt.Errorf("canal %s não disponível", channelName)
 }
 
+// requireOwnedChannel carrega o canal e exige ownership (ou legado sem dono).
+// Propaga erro de Load (ex.: DB desabilitado) em vez de mascarar como
+// "não configurado".
+func requireOwnedChannel(name, userID string) (*channels.ChannelConfig, error) {
+	existing, err := channels.Load(name)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("canal %s não configurado", name)
+	}
+	if !channelOwnedBy(existing, userID) {
+		return nil, errCrossUserChannel(name)
+	}
+	return existing, nil
+}
+
 // redactChannelSecrets remove tokens em texto plano do cfg antes de
 // expor ao frontend. Os refs (BotTokenRef etc.) ficam — a UI usa só
 // para mostrar "configurado" e o backend resolve no momento de uso.
@@ -155,7 +172,11 @@ func (api *Messaging) SaveChannelConfig(channelName string, cfg *channels.Channe
 		if cfg == nil {
 			cfg = &channels.ChannelConfig{}
 		}
-		if existing, _ := channels.Load(channelName); existing != nil {
+		existing, err := channels.Load(channelName)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if existing != nil {
 			owner := strings.TrimSpace(existing.OwnerUserID)
 			if owner != "" && owner != userID {
 				return struct{}{}, errCrossUserChannel(channelName)
@@ -181,12 +202,9 @@ func (api *Messaging) RestartChannel(channelName string) error {
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		userID, _ := database.UserIDFromContext(ctx)
-		existing, _ := channels.Load(channelName)
-		if existing == nil {
-			return struct{}{}, fmt.Errorf("canal %s não configurado", channelName)
-		}
-		if !channelOwnedBy(existing, userID) {
-			return struct{}{}, errCrossUserChannel(channelName)
+		existing, err := requireOwnedChannel(channelName, userID)
+		if err != nil {
+			return struct{}{}, err
 		}
 		if strings.TrimSpace(existing.OwnerUserID) == "" {
 			return struct{}{}, fmt.Errorf("canal %s precisa ser reativado (configurações > salvar) antes de reiniciar", channelName)
@@ -259,7 +277,11 @@ func (api *Messaging) CreateChannelFromTemplate(templateType string, values map[
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		userID, _ := database.UserIDFromContext(ctx)
-		if existing, _ := channels.Load(templateType); existing != nil {
+		existing, err := channels.Load(templateType)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if existing != nil {
 			owner := strings.TrimSpace(existing.OwnerUserID)
 			if owner != "" && owner != userID {
 				return struct{}{}, errCrossUserChannel(templateType)
@@ -289,7 +311,10 @@ func (api *Messaging) GetChannelConfigAsMap(channelName string) (map[string]inte
 	}
 	return WithUser(session, func(ctx context.Context) (map[string]interface{}, error) {
 		userID, _ := database.UserIDFromContext(ctx)
-		existing, _ := channels.Load(channelName)
+		existing, err := channels.Load(channelName)
+		if err != nil {
+			return nil, err
+		}
 		if existing != nil && !channelOwnedBy(existing, userID) {
 			return nil, errCrossUserChannel(channelName)
 		}
@@ -316,12 +341,8 @@ func (api *Messaging) AuthorizeMessagingContactFull(channel, contactID, displayN
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		userID, _ := database.UserIDFromContext(ctx)
-		existing, _ := channels.Load(channel)
-		if existing == nil {
-			return struct{}{}, fmt.Errorf("canal %s não configurado", channel)
-		}
-		if !channelOwnedBy(existing, userID) {
-			return struct{}{}, errCrossUserChannel(channel)
+		if _, err := requireOwnedChannel(channel, userID); err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, ctrl.AuthorizeMessagingContactFull(channel, contactID, displayName, username)
 	})
@@ -336,12 +357,8 @@ func (api *Messaging) RemoveAuthorizedContact(channel, contactID string) error {
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		userID, _ := database.UserIDFromContext(ctx)
-		existing, _ := channels.Load(channel)
-		if existing == nil {
-			return struct{}{}, fmt.Errorf("canal %s não configurado", channel)
-		}
-		if !channelOwnedBy(existing, userID) {
-			return struct{}{}, errCrossUserChannel(channel)
+		if _, err := requireOwnedChannel(channel, userID); err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, ctrl.RemoveAuthorizedContact(channel, contactID)
 	})
@@ -415,12 +432,8 @@ func (api *Messaging) AssignConversationToChannel(conversationID string, channel
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		userID, _ := database.UserIDFromContext(ctx)
-		existing, _ := channels.Load(channel)
-		if existing == nil {
-			return struct{}{}, fmt.Errorf("canal %s não configurado", channel)
-		}
-		if !channelOwnedBy(existing, userID) {
-			return struct{}{}, errCrossUserChannel(channel)
+		if _, err := requireOwnedChannel(channel, userID); err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, ctrl.AssignConversationToChannel(ctx, conversationID, channel, contactID)
 	})
