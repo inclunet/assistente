@@ -503,3 +503,46 @@ func TestTasklistMethodsNotOnUnauthAllowlist(t *testing.T) {
 		}
 	}
 }
+
+func TestConversationsMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"CreateConversation",
+		"GetConversations",
+		"GetConversationsPage",
+		"GetConversationsByIDs",
+		"GetConversation",
+		"EnsureConversation",
+		"GetMessages",
+		"GetRecentMessages",
+		"GetMessagesBefore",
+		"GetConversationMessageWindow",
+		"GetConversationInfo",
+		"GetConversationWithThreads",
+		"GetMessageChildren",
+		"UpdateConversation",
+		"DeleteConversation",
+		"DeleteMessage",
+		"UpdateMessage",
+		"UpdateConversationModel",
+		"CreateMessage",
+		"AddMessage",
+		"AddMessageWithMedia",
+		"AddMessageWithTokens",
+		"AddMessageWithTokensAndMedia",
+		"AddChildMessage",
+		"GetAllTokenStats",
+		"GetConversationSummary",
+		"RenameConversation",
+		"ClearConversation",
+		"DeleteMessages",
+		"SearchConversationHistory",
+		"RebuildSearchIndex",
+		"SetConversationModel",
+		"GetEffectiveModel",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Conversations/WithUser; não pertence à allowlist", name)
+		}
+	}
+}

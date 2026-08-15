@@ -120,7 +120,7 @@ vi.mock('../hooks/useContextMenu', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   DeleteMessage: vi.fn(),
 }));
 

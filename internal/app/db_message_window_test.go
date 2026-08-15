@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/controllers"
 	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -62,8 +63,14 @@ func setupMessageWindowAppTestDB(t *testing.T) {
 
 const messageWindowTestUserID = "user-message-window"
 
-func newMessageWindowTestApp() *App {
-	return &App{currentUserID: messageWindowTestUserID}
+func messageWindowTestCtx() context.Context {
+	return database.WithUserID(context.Background(), messageWindowTestUserID)
+}
+
+func newMessageWindowTestController() *controllers.ConversationsController {
+	return controllers.NewConversationsController(controllers.ConversationsControllerConfig{
+		MsgRepo: chat.NewDBMessageStore(),
+	})
 }
 
 func createMessageWindowTestConversation(t *testing.T, title string) *database.Conversation {
@@ -78,7 +85,7 @@ func createMessageWindowTestConversation(t *testing.T, title string) *database.C
 
 func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -86,7 +93,7 @@ func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 		t.Fatalf("create message: %v", err)
 	}
 
-	_, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	_, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
 		Direction:      "sideways",
@@ -96,7 +103,7 @@ func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 		t.Fatalf("expected direction validation error, got %v", err)
 	}
 
-	_, err = app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	_, err = ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
 		Direction:      chat.MessageWindowDirectionAround,
@@ -109,7 +116,7 @@ func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 
 func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -122,7 +129,7 @@ func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 		t.Fatalf("create child: %v", err)
 	}
 
-	_, err = app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	_, err = ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeThread,
 		ThreadParentID: child.ID,
@@ -137,7 +144,7 @@ func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 
 func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -145,7 +152,7 @@ func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 		t.Fatalf("create message: %v", err)
 	}
 
-	_, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	_, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID:  conv.ID,
 		Scope:           chat.MessageWindowScopeConversation,
 		AnchorMessageID: "missing-message",
@@ -159,7 +166,7 @@ func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 
 func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -169,7 +176,7 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 		}
 	}
 
-	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
@@ -186,7 +193,7 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 
 func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -237,7 +244,7 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 		t.Fatalf("create child for consolidated representative: %v", err)
 	}
 
-	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
@@ -292,7 +299,7 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 
 func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMessageToolCalls(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -343,7 +350,7 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 		t.Fatalf("create tool invocation: %v", err)
 	}
 
-	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
@@ -371,7 +378,7 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 
 func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -414,7 +421,7 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID:  conv.ID,
 		Scope:           chat.MessageWindowScopeConversation,
 		AnchorMessageID: assistant.ID,
@@ -431,7 +438,7 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 
 func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceholder(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -464,7 +471,7 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 		t.Fatalf("create tool invocation: %v", err)
 	}
 
-	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
 		ConversationID: conv.ID,
 		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorStart,
@@ -497,8 +504,7 @@ func TestGetConversationMessageWindow_TurnWithoutAssistantReturnsAssistantPlaceh
 
 func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
-	app.msgRepo = chat.NewDBMessageStore()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -511,7 +517,7 @@ func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
 		t.Fatalf("create child: %v", err)
 	}
 
-	nodes, err := app.GetMessageChildren(root.ID)
+	nodes, err := ctrl.GetMessageChildren(messageWindowTestCtx(), root.ID)
 	if err != nil {
 		t.Fatalf("GetMessageChildren: %v", err)
 	}
@@ -522,8 +528,7 @@ func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
 
 func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
-	app.msgRepo = chat.NewDBMessageStore()
+	ctrl := newMessageWindowTestController()
 
 	otherCtx := database.WithUserID(context.Background(), "other-user")
 	otherConv, err := database.CreateConversationWithContext(otherCtx, "Outra", "")
@@ -535,7 +540,7 @@ func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 		t.Fatalf("create root: %v", err)
 	}
 
-	_, err = app.GetMessageChildren(root.ID)
+	_, err = ctrl.GetMessageChildren(messageWindowTestCtx(), root.ID)
 	if err == nil {
 		t.Fatal("expected cross-user message children to be rejected")
 	}
@@ -543,7 +548,7 @@ func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 
 func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -590,7 +595,7 @@ func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T
 		}
 	}
 
-	nodes, err := app.GetRecentMessages(conv.ID, 6)
+	nodes, err := ctrl.GetRecentMessages(messageWindowTestCtx(), conv.ID, 6)
 	if err != nil {
 		t.Fatalf("GetRecentMessages: %v", err)
 	}
@@ -610,7 +615,7 @@ func TestGetRecentMessages_OverfetchesToHonorLimitWithMultiRowTurns(t *testing.T
 
 func TestGetMessagesBefore_OverfetchesAndTrimsFromEndWithMultiRowTurns(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	app := newMessageWindowTestApp()
+	ctrl := newMessageWindowTestController()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -663,7 +668,7 @@ func TestGetMessagesBefore_OverfetchesAndTrimsFromEndWithMultiRowTurns(t *testin
 	}
 
 	// Pagina para trás a partir do início do turno 4; espera os últimos 2 turns completos antes dele.
-	nodes, err := app.GetMessagesBefore(conv.ID, turn4UserID, 4)
+	nodes, err := ctrl.GetMessagesBefore(messageWindowTestCtx(), conv.ID, turn4UserID, 4)
 	if err != nil {
 		t.Fatalf("GetMessagesBefore: %v", err)
 	}

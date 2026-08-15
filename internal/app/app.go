@@ -194,21 +194,22 @@ type App struct {
 	skillsCtrl      *controllers.SkillsController
 	settingsCtrl    *controllers.SettingsController
 	chatCtrl        *controllers.ChatController
-	taskListCtrl    *controllers.TaskListController
-	memoryCtrl      *controllers.MemoryController
-	speechCtrl      *controllers.SpeechController
-	jobsCtrl        *controllers.JobsController
-	workspaceCtrl   *controllers.WorkspaceController
-	tokensCtrl      *controllers.TokensController
-	toolsCtrl       *controllers.ToolsController
-	updaterCtrl     *controllers.UpdaterController
-	credentialsCtrl *controllers.CredentialsController
-	welcomeCtrl     *controllers.WelcomeController
-	terminalCtrl    *controllers.TerminalController
-	allowlistCtrl   *controllers.AllowlistController
-	signalCtrl      *controllers.SignalController
-	hotkeyCtrl      *controllers.HotkeysController
-	netTrustCtrl    *controllers.NetTrustController
+	taskListCtrl      *controllers.TaskListController
+	conversationsCtrl *controllers.ConversationsController
+	memoryCtrl        *controllers.MemoryController
+	speechCtrl        *controllers.SpeechController
+	jobsCtrl          *controllers.JobsController
+	workspaceCtrl     *controllers.WorkspaceController
+	tokensCtrl        *controllers.TokensController
+	toolsCtrl         *controllers.ToolsController
+	updaterCtrl       *controllers.UpdaterController
+	credentialsCtrl   *controllers.CredentialsController
+	welcomeCtrl       *controllers.WelcomeController
+	terminalCtrl      *controllers.TerminalController
+	allowlistCtrl     *controllers.AllowlistController
+	signalCtrl        *controllers.SignalController
+	hotkeyCtrl        *controllers.HotkeysController
+	netTrustCtrl      *controllers.NetTrustController
 
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
 	// wired após NewTokensController.
@@ -289,6 +290,10 @@ type App struct {
 	// tasklistAPI é o bind Wails do domínio tasklist CRUD (AEP-0088). Criado em
 	// main e wired após NewTaskListController.
 	tasklistAPI *wailsapi.Tasklist
+
+	// conversationsAPI é o bind Wails do domínio conversations/persistência
+	// (AEP-0088). Criado em main e wired após NewConversationsController.
+	conversationsAPI *wailsapi.Conversations
 
 	// jobsAPI é o bind Wails do domínio jobs (AEP-0088). Criado em main e
 	// wired após NewJobsController.
@@ -534,6 +539,15 @@ func SetTasklistAPI(a *App, api *wailsapi.Tasklist) {
 	a.tasklistAPI = api
 }
 
+// SetConversationsAPI registra o bind Wails de conversations antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetConversationsAPI(a *App, api *wailsapi.Conversations) {
+	if a == nil {
+		return
+	}
+	a.conversationsAPI = api
+}
+
 // SetJobsAPI registra o bind Wails de jobs antes do Run (main.go).
 // Função de pacote (não método) para não entrar na superfície Bind do Wails.
 func SetJobsAPI(a *App, api *wailsapi.Jobs) {
@@ -669,6 +683,14 @@ func TaskListCtrl(a *App) *controllers.TaskListController {
 		return nil
 	}
 	return a.taskListCtrl
+}
+
+// ConversationsCtrl expõe o ConversationsController para a CLI (não entra no Bind Wails).
+func ConversationsCtrl(a *App) *controllers.ConversationsController {
+	if a == nil {
+		return nil
+	}
+	return a.conversationsCtrl
 }
 
 // AuthenticatedContext expõe o contexto autenticado para a CLI (não entra no Bind Wails).
@@ -979,6 +1001,14 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 	a.wireTasklist()
 	a.wireTasklistActions()
+	a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{
+		MsgRepo:               a.msgRepo,
+		Emitter:               a.emitter,
+		ResetScopedState:      a.resetConversationScopedState,
+		ConfirmDeleteMessage:  a.confirmDeleteMessageQuestionnaire,
+		GetEffectiveModelFunc: a.effectiveModelFromActiveProfile,
+	})
+	a.wireConversations()
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
 		SpeechSvc: a.speechSvc,
 	})
