@@ -217,8 +217,16 @@ func (a *App) wireLegacyCleanup() {
 	}
 }
 
+// wireTasklist associa o bind Wails de CRUD de tasklist (AEP-0088).
+// Reusa taskListCtrl já montado; helpers internos permanecem no App.
+func (a *App) wireTasklist() {
+	if a.tasklistAPI != nil {
+		wailsapi.AttachTasklist(a.tasklistAPI, wailsSession{app: a}, a.taskListCtrl)
+	}
+}
+
 // wireTasklistActions associa o bind Wails de custom actions (AEP-0088).
-// Reusa taskListCtrl + jobMgr já montados; CRUD geral de tasklist permanece no App.
+// Reusa taskListCtrl + jobMgr já montados; domínio separado do CRUD de tasklist.
 func (a *App) wireTasklistActions() {
 	if a.tasklistActionsAPI != nil {
 		wailsapi.AttachTasklistActions(a.tasklistActionsAPI, wailsSession{app: a}, a.taskListCtrl, a.jobMgr)

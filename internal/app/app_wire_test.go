@@ -324,6 +324,22 @@ func TestWireLegacyCleanupAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireTasklistAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		taskListCtrl: controllers.NewTaskListController(controllers.TaskListControllerConfig{}),
+	}
+	api := wailsapi.NewTasklist()
+	SetTasklistAPI(a, api)
+
+	a.wireTasklist()
+
+	_, err := api.GetAllTaskLists()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 func TestWireTasklistActionsAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{
