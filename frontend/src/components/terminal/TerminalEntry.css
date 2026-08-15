@@ -28,6 +28,12 @@
   border-radius: var(--radius-sm);
 }
 
+.terminal-node__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .terminal-node__reading-badge {
   margin-bottom: 6px;
   color: var(--accent);

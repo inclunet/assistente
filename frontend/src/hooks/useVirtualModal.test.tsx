@@ -12,9 +12,15 @@ interface HarnessProps {
   onClose?: () => void;
 }
 
+const labels = {
+  openAnnouncement: 'reading.open',
+  closeAnnouncement: 'reading.close',
+  dialogLabel: 'reading.dialog',
+};
+
 function VirtualModalHarness({ isActive, onClose = () => {} }: HarnessProps) {
   const ref = useRef<HTMLDivElement>(null);
-  useVirtualModal({ elementRef: ref, isActive, onClose });
+  useVirtualModal({ elementRef: ref, isActive, onClose, ...labels });
   return (
     <div ref={ref} data-testid="message-node">
       <div className="chat-message__text" data-testid="message-text">
@@ -28,7 +34,7 @@ function VirtualModalHarness({ isActive, onClose = () => {} }: HarnessProps) {
 // blocos de tool calls) vive dentro de `.chat-message__content`.
 function AgenticHarness({ isActive, onClose = () => {} }: HarnessProps) {
   const ref = useRef<HTMLDivElement>(null);
-  useVirtualModal({ elementRef: ref, isActive, onClose });
+  useVirtualModal({ elementRef: ref, isActive, onClose, ...labels });
   return (
     <div ref={ref} data-testid="message-node">
       <div className="chat-message" aria-label="conclusao do turno">
@@ -53,10 +59,28 @@ function AgenticHarness({ isActive, onClose = () => {} }: HarnessProps) {
 // conteúdo real para receber `role="document"`.
 function NoContentHarness({ isActive, onClose = () => {} }: HarnessProps) {
   const ref = useRef<HTMLDivElement>(null);
-  useVirtualModal({ elementRef: ref, isActive, onClose });
+  useVirtualModal({ elementRef: ref, isActive, onClose, ...labels });
   return (
     <div ref={ref} data-testid="message-node">
       <span data-testid="plain-child">sem container de conteúdo</span>
+    </div>
+  );
+}
+
+function MissingCustomContentHarness({ isActive, onClose = () => {} }: HarnessProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useVirtualModal({
+    elementRef: ref,
+    isActive,
+    onClose,
+    contentSelector: '.missing-content',
+    ...labels,
+  });
+  return (
+    <div ref={ref} data-testid="message-node">
+      <div className="chat-message__text" data-testid="message-text">
+        Conteúdo de fallback
+      </div>
     </div>
   );
 }
@@ -85,6 +109,14 @@ describe('useVirtualModal', () => {
 
     expect(content).not.toHaveAttribute('role');
     expect(content).not.toHaveAttribute('tabindex');
+  });
+
+  it('usa o conteúdo padrão quando o seletor customizado não encontra elemento', () => {
+    render(<MissingCustomContentHarness isActive={true} />);
+
+    const content = screen.getByTestId('message-text');
+    expect(content).toHaveAttribute('role', 'document');
+    expect(content).toHaveFocus();
   });
 
   // Issue #163 (Parte A): num turno agêntico o alvo de foco/role="document" deve
