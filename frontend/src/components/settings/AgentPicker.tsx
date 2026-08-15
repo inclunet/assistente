@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetACPCatalog, RefreshACPCatalog } from '@wailsjs/go/app/App';
+import { GetACPCatalog, RefreshACPCatalog } from '@wailsjs/go/wailsapi/ACPRegistry';
 import { BasePicker } from '../pickers/BasePicker';
 import type { ComboboxItem } from '../pickers/Combobox';
 import {
