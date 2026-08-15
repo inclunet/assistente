@@ -21,7 +21,7 @@ const mockNavigate = vi.fn();
 let mockSearch = '';
 let mockPathname = '/settings/data';
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ExportImport', () => ({
   AnalyzeImportData: (payload: string, password: string) => mockAnalyzeImportData(payload, password),
   ExportData: (payload: unknown) => mockExportData(payload),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),

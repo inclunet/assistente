@@ -13,7 +13,7 @@ import {
   PlusOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { ExportConversations, ExportConversationsToFile } from '@wailsjs/go/app/App';
+import { ExportConversations, ExportConversationsToFile } from '@wailsjs/go/wailsapi/ExportImport';
 import {
   GetConversationsByIDs,
   GetConversationsPage,
