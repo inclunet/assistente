@@ -59,6 +59,7 @@ const es = {
       navLabel: 'Menú de navegación (Alt+M)',
       appTitle: 'Asistente IA',
       backToWorkspace: 'Volver al workspace',
+      backToWorkspaceWithShortcut: 'Volver al workspace (Alt+W)',
       navMain: 'Navegación principal',
     },
 

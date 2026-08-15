@@ -60,6 +60,7 @@ const ptBR = {
       navLabel: 'Menu de navegação (Alt+M)',
       appTitle: 'Assistente IA',
       backToWorkspace: 'Voltar ao workspace',
+      backToWorkspaceWithShortcut: 'Voltar ao workspace (Alt+W)',
       navMain: 'Navegação principal',
     },
 

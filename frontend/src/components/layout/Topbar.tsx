@@ -369,8 +369,8 @@ export function Topbar() {
             <button
               className="topbar__back"
               onClick={() => navigate('/')}
-              aria-label={`${t('menu.backToWorkspace')} (Alt+W)`}
-              title={`${t('menu.backToWorkspace')} (Alt+W)`}
+              aria-label={t('menu.backToWorkspaceWithShortcut')}
+              title={t('menu.backToWorkspaceWithShortcut')}
               tabIndex={-1}
             >
               <ArrowLeftOutlined aria-hidden="true" />

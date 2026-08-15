@@ -60,6 +60,7 @@ const en = {
       navLabel: 'Navigation menu (Alt+M)',
       appTitle: 'AI Assistant',
       backToWorkspace: 'Back to workspace',
+      backToWorkspaceWithShortcut: 'Back to workspace (Alt+W)',
       navMain: 'Main navigation',
     },
 
