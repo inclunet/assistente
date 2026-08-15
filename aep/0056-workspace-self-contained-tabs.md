@@ -45,7 +45,8 @@ Cada tipo de aba deve controlar seu conteúdo:
 
 - chat controla sua conversa por `conversationId`;
 - editor controla seu documento por `documentId`/`tabId`;
-- terminal controla sua sessão por `sessionId`;
+- terminal controla sua referência explícita a uma sessão viva por `sessionId`,
+  conforme a AEP-0089;
 - tasklist controla sua lista por `tasklistId`.
 
 Estados visuais como loading, scroll, streaming, expansão de threads, tool calls, seleção e edição devem ser escopados ao controller da aba ou ao conteúdo persistido, não a um singleton global que represente toda a aplicação.
@@ -116,6 +117,11 @@ Quando uma ação parte de um painel, a identidade deve ser capturada no ponto d
 - adapters são registrados por `tabId` e não por "aba ativa";
 - handlers globais validam `isActive` apenas para permissão de captura/foco, não para descobrir o alvo de dados;
 - fechamento, retry, envio, interrupção e persistência sempre operam sobre IDs explícitos.
+
+Para terminal, fechar a aba significa apenas desconectar a visualização.
+Interromper um comando e encerrar o PTY são operações de domínio distintas; a
+sessão só termina por ação explícita ou pela saída do processo, conforme a
+AEP-0089.
 
 O uso de um singleton global para orquestrar um modal é aceitável como passo intermediário, desde que o singleton seja apenas transporte de estado já vinculado a uma superfície. A evolução preferida é migrar modais e painéis embutidos para controllers por superfície, preservando estado por `tabId`/`surfaceId` quando isso for necessário para UX.
 

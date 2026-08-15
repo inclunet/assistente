@@ -19,6 +19,11 @@ let announceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingOutput = '';
 let terminalEventListenerRefCount = 0;
 let terminalEventListenerCleanup: (() => void) | null = null;
+let legacyCommandSequence = 0;
+
+export function resolveTerminalCommandId(sessionId: string, commandId?: string): string {
+  return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
+}
 
 function scheduleOutputAnnounce(chunk: string) {
   pendingOutput += chunk;
@@ -50,9 +55,9 @@ interface TerminalState {
   loadingHistoryBySession: Record<string, boolean>;
 
   // Actions
-  loadSessions: () => Promise<void>;
+  loadSessions: () => Promise<boolean>;
   createSession: (name?: string) => Promise<string | null>;
-  closeSession: (id: string) => Promise<void>;
+  closeSession: (id: string) => Promise<boolean>;
   sendInput: (sessionId: string, input: string) => Promise<void>;
   interrupt: (sessionId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
@@ -71,8 +76,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     try {
       const sessions = await ListTerminalSessions();
       set({ sessions: sessions || [] });
+      return true;
     } catch (err) {
       logger.error('[Terminal] Erro ao carregar sessões:', err);
+      return false;
     } finally {
       set({ isLoadingSessions: false });
     }
@@ -94,8 +101,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   closeSession: async (id: string) => {
     try {
       await CloseTerminalSession(id);
+      return true;
     } catch (err) {
       logger.error('[Terminal] Erro ao fechar sessão:', err);
+      return false;
     }
   },
 
@@ -182,31 +191,35 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     }));
 
     // Sessão fechada
-    unsubs.push(EventsOn('terminal:session_closed', (data: { sessionId: string }) => {
+    const removeExitedSession = (data: { sessionId?: string; terminalId?: string }) => {
+      const sessionId = data.terminalId || data.sessionId;
+      if (!sessionId) return;
       set(state => {
         const newHistory = { ...state.historyBySession };
-        delete newHistory[data.sessionId];
+        delete newHistory[sessionId];
         const newActiveEntry = { ...state.activeEntryBySession };
-        delete newActiveEntry[data.sessionId];
+        delete newActiveEntry[sessionId];
         const newLoadingHistory = { ...state.loadingHistoryBySession };
-        delete newLoadingHistory[data.sessionId];
+        delete newLoadingHistory[sessionId];
         return {
-          sessions: state.sessions.filter(s => s.id !== data.sessionId),
+          sessions: state.sessions.filter(s => s.id !== sessionId),
           historyBySession: newHistory,
           activeEntryBySession: newActiveEntry,
           loadingHistoryBySession: newLoadingHistory,
         };
       });
-    }));
+    };
+    unsubs.push(EventsOn('terminal:session_closed', removeExitedSession));
+    unsubs.push(EventsOn('terminal:exited', removeExitedSession));
 
     // Comando iniciado (raw mode — cria entry para receber output)
-    unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; command: string; source: string }) => {
+    unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId?: string; command: string; source: string }) => {
       // Limpa pending output do comando anterior
       pendingOutput = '';
       if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
 
       const tempEntry: HistoryEntry = terminal.HistoryEntry.createFrom({
-        id: `raw-${Date.now()}`,
+        id: resolveTerminalCommandId(data.sessionId, data.commandId),
         command: data.command,
         output: '',
         exitCode: -999, // sentinel para "em execução / raw"
@@ -226,6 +239,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             ...state.activeEntryBySession,
             [data.sessionId]: tempEntry.id,
           },
+          sessions: data.source === 'user-raw'
+            ? state.sessions
+            : state.sessions.map(session => (
+              session.id === data.sessionId
+                ? terminal.SessionInfo.createFrom({ ...session, state: 'running' })
+                : session
+            )),
         };
       });
     }));
@@ -314,6 +334,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           sessions: state.sessions.map(s =>
             s.id === data.sessionId ? terminal.SessionInfo.createFrom({ ...s, state: 'idle' }) : s
           ),
+          activeEntryBySession: {
+            ...state.activeEntryBySession,
+            [data.sessionId]: null,
+          },
         };
       });
     }));
