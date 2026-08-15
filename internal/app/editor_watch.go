@@ -305,20 +305,6 @@ func (a *App) resolveEditorSelfWrite(normalizedAbsPath string) (string, bool) {
 	}
 }
 
-func (a *App) EditorWatchFile(path string) error {
-	if a.ctx == nil {
-		return fmt.Errorf("app não inicializado")
-	}
-	return a.editorWatchFile(path)
-}
-
-func (a *App) EditorUnwatchFile(path string) error {
-	if a.ctx == nil {
-		return fmt.Errorf("app não inicializado")
-	}
-	return a.editorUnwatchFile(path)
-}
-
 func (a *App) editorWatchFile(path string) error {
 	a.ensureEditorWatchInit()
 

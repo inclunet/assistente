@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/acpinstall"
+	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
@@ -245,6 +246,20 @@ func (a *App) wireWorkspace() {
 func (a *App) wireMessaging() {
 	if a.messagingAPI != nil {
 		wailsapi.AttachMessaging(a.messagingAPI, wailsSession{app: a}, a.msgCtrl)
+	}
+}
+
+// wireEditor associa o bind Wails do domínio editor (AEP-0088).
+// Watcher, eventos editor:fileChanged e assisted writes permanecem no App via hooks.
+func (a *App) wireEditor() {
+	if a.editorAPI != nil {
+		wailsapi.AttachEditor(a.editorAPI, wailsSession{app: a}, wailsapi.EditorHooks{
+			AppContext:    func() context.Context { return a.ctx },
+			Dialog:        func() ports.SystemDialogPort { return a.dialogPort },
+			MarkSelfWrite: a.markEditorSelfWrite,
+			WatchFile:     a.editorWatchFile,
+			UnwatchFile:   a.editorUnwatchFile,
+		})
 	}
 }
 

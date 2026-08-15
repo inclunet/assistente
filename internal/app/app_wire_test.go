@@ -406,6 +406,20 @@ func TestWireMessagingAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireEditorAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewEditor()
+	SetEditorAPI(a, api)
+
+	a.wireEditor()
+
+	_, err := api.EditorLoadState()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 type fatalSpeechProfileProvider struct {
 	t *testing.T
 }

@@ -359,6 +359,30 @@ func TestACPInstallMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestEditorMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"EditorGetDraftPath",
+		"EditorWriteDraft",
+		"EditorReadDraft",
+		"EditorDeleteDraft",
+		"EditorLoadState",
+		"EditorSaveState",
+		"EditorOpenFile",
+		"EditorReadFile",
+		"EditorGetFileInfo",
+		"EditorWriteFile",
+		"EditorRenameFile",
+		"EditorSaveFileDialog",
+		"EditorWatchFile",
+		"EditorUnwatchFile",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via Editor/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestACPCommandsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
