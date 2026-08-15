@@ -222,16 +222,31 @@ func TestEditorPrivateFilesUse0600(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0600 {
 		t.Fatalf("draft perm = %04o, quer 0600", got)
 	}
+	draftDirInfo, err := os.Stat(filepath.Dir(draftPath))
+	if err != nil {
+		t.Fatalf("stat draft dir: %v", err)
+	}
+	if got := draftDirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("draft dir perm = %04o, quer 0700", got)
+	}
 
 	if err := api.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{}}); err != nil {
 		t.Fatalf("EditorSaveState: %v", err)
 	}
-	stateInfo, err := os.Stat(editorStatePath())
+	statePath := editorStatePath()
+	stateInfo, err := os.Stat(statePath)
 	if err != nil {
 		t.Fatalf("stat state: %v", err)
 	}
 	if got := stateInfo.Mode().Perm(); got != 0600 {
 		t.Fatalf("state.json perm = %04o, quer 0600", got)
+	}
+	stateDirInfo, err := os.Stat(filepath.Dir(statePath))
+	if err != nil {
+		t.Fatalf("stat editor dir: %v", err)
+	}
+	if got := stateDirInfo.Mode().Perm(); got != 0700 {
+		t.Fatalf("editor dir perm = %04o, quer 0700", got)
 	}
 }
 

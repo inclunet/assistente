@@ -112,7 +112,7 @@ func (api *Editor) EditorWriteDraft(draftId string, content string) error {
 		if err != nil {
 			return struct{}{}, err
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao criar diretório de drafts: %w", err)
 		}
 		commit := hooks.MarkSelfWrite(p)
@@ -209,7 +209,7 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		p := editorStatePath()
-		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao criar diretório do editor: %w", err)
 		}
 		b, err := json.MarshalIndent(&state, "", "  ")
