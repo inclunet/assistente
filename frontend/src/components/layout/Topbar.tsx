@@ -47,6 +47,13 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/update': 'menu.about',
 };
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== 'string') return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+}
+
 const ROUTE_IDS: Record<string, string> = {
   '/history': 'history',
   '/memories': 'memories',
@@ -279,8 +286,11 @@ export function Topbar() {
       if (isModalOpen()) return;
       if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
 
-      // Alt+Backspace → workspace (alternativa acessível a Alt+W)
+      // Alt+Backspace → workspace (alternativa acessível a Alt+W). Em campos
+      // editáveis, Alt+Backspace costuma apagar palavra; ignoramos ali para não
+      // navegar por engano nem descartar texto do usuário (Alt+W segue global).
       if (event.key === 'Backspace') {
+        if (isEditableTarget(event.target)) return;
         event.preventDefault();
         // Anúncio usa o nome da página (menu.chat), como ROUTE_I18N_KEYS[''],
         // para o NVDA falar "Navegou para Chat" e não a ação "Voltar ao workspace".

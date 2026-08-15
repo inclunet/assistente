@@ -100,11 +100,25 @@ describe('Topbar', () => {
   it('mostra botão voltar em sub-rota', () => {
     render(<Topbar />);
 
-    const backButton = screen.getByRole('button', { name: /menu\.backToWorkspace/ });
+    const backButton = screen.getByRole('button', { name: 'menu.backToWorkspaceWithShortcut' });
     expect(backButton).toBeInTheDocument();
 
     fireEvent.click(backButton);
     expect(navigateSpy).toHaveBeenCalledWith('/');
+  });
+
+  it('não navega com Alt+Backspace quando o foco está em campo editável', () => {
+    render(<Topbar />);
+    navigateSpy.mockClear();
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    fireEvent.keyDown(input, { key: 'Backspace', altKey: true });
+    expect(navigateSpy).not.toHaveBeenCalled();
+
+    document.body.removeChild(input);
   });
 
   it('abre menu com Alt+M', () => {
