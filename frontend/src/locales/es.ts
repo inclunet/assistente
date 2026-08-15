@@ -77,6 +77,9 @@ const es = {
       assistant: 'Asistente',
       system: 'Sistema',
       reading: 'Leyendo',
+      readingDialog: 'Lectura de mensaje. Presiona Escape para salir.',
+      readingOpen: 'Modo de lectura activado. Presiona Escape para salir.',
+      readingClose: 'Modo de lectura desactivado.',
       sent: 'enviado',
       received: 'recibido',
       via: 'Vía',
@@ -1320,7 +1323,7 @@ const es = {
         title: 'Finalizar terminal',
         message: '¿Finalizar "{{name}}" y todos los procesos en ejecución? Otras pestañas y chats conectados perderán acceso.',
       },
-      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Salida', running: 'ejecutando', empty: 'vacía', exitCode: 'Código de salida:', duration: 'Duración:', exit: 'exit:', executing: 'Ejecutando...', truncated: 'truncado' },
+      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Salida', running: 'ejecutando', empty: 'vacía', exitCode: 'Código de salida:', duration: 'Duración:', exit: 'exit:', executing: 'Ejecutando...', truncated: 'truncado', reading: 'Modo de lectura', readingDialog: 'Lectura de entrada del terminal. Presiona Escape para salir.', readingOpen: 'Modo de lectura del terminal activado. Presiona Escape para salir.', readingClose: 'Modo de lectura del terminal desactivado.' },
       history: { label: 'Historial del terminal', loading: 'Cargando...', emptyTitle: 'Ningún comando ejecutado.', emptyHint: 'Escribe un comando abajo para comenzar.', commandPrefix: 'Comando:' },
       tabs: { closed: 'Terminal cerrado.', of: 'de', label: 'Terminales', listLabel: 'Lista de terminales abiertos', running: 'Ejecutando', close: 'Cerrar', newShortcut: 'Crear nuevo terminal, Ctrl+T', newTooltip: 'Nuevo terminal (Ctrl+T)' },
       announce: {

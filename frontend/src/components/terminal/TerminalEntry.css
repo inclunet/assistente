@@ -14,6 +14,33 @@
   border-radius: var(--radius-sm);
 }
 
+.terminal-node.terminal-node--reading {
+  position: relative;
+  z-index: 10;
+  background-color: var(--bg-surface);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-lg);
+}
+
+.terminal-node__content:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.terminal-node__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.terminal-node__reading-badge {
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
 /* Separador visual entre pares comando/saída */
 .terminal-node--command {
   padding-top: 10px;

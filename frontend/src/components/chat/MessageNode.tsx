@@ -93,6 +93,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     elementRef: nodeRef,
     isActive: isReading,
     onClose: () => setIsReading(false),
+    openAnnouncement: t('chat.readingOpen'),
+    closeAnnouncement: t('chat.readingClose'),
+    dialogLabel: t('chat.readingDialog'),
   });
   
   // SIMPLIFICADO: Usa apenas node.children da store

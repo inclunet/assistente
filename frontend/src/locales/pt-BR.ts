@@ -78,6 +78,9 @@ const ptBR = {
       assistant: 'Assistente',
       system: 'Sistema',
       reading: 'Lendo',
+      readingDialog: 'Leitura de mensagem. Pressione Escape para sair.',
+      readingOpen: 'Modo de leitura ativado. Pressione Escape para sair.',
+      readingClose: 'Modo de leitura desativado.',
       sent: 'enviado',
       received: 'recebido',
       via: 'Via',
@@ -1321,7 +1324,7 @@ const ptBR = {
         title: 'Encerrar terminal',
         message: 'Encerrar "{{name}}" e todos os processos em execução? Outras abas e chats conectados perderão acesso.',
       },
-      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Saída', running: 'executando', empty: 'vazia', exitCode: 'Código de saída:', duration: 'Duração:', exit: 'exit:', executing: 'Executando...', truncated: 'truncado' },
+      entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Saída', running: 'executando', empty: 'vazia', exitCode: 'Código de saída:', duration: 'Duração:', exit: 'exit:', executing: 'Executando...', truncated: 'truncado', reading: 'Modo de leitura', readingDialog: 'Leitura de entrada do terminal. Pressione Escape para sair.', readingOpen: 'Modo de leitura do terminal ativado. Pressione Escape para sair.', readingClose: 'Modo de leitura do terminal desativado.' },
       history: { label: 'Histórico do terminal', loading: 'Carregando...', emptyTitle: 'Nenhum comando executado.', emptyHint: 'Digite um comando abaixo para começar.', commandPrefix: 'Comando:' },
       tabs: { closed: 'Terminal fechado.', of: 'de', label: 'Terminais', listLabel: 'Lista de terminais abertos', running: 'Executando', close: 'Fechar', newShortcut: 'Criar novo terminal, Ctrl+T', newTooltip: 'Novo terminal (Ctrl+T)' },
       announce: {
