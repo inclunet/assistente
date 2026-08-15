@@ -13,6 +13,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/memory"
+	"assistente/internal/portability"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
@@ -415,6 +416,20 @@ func TestWireEditorAttachesBind(t *testing.T) {
 	a.wireEditor()
 
 	_, err := api.EditorLoadState()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireExportImportAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{}
+	api := wailsapi.NewExportImport()
+	SetExportImportAPI(a, api)
+
+	a.wireExportImport()
+
+	_, err := api.ExportData(portability.ExportRequest{})
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

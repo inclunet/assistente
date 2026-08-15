@@ -263,6 +263,21 @@ func (a *App) wireEditor() {
 	}
 }
 
+// wireExportImport associa o bind Wails de export/import (AEP-0088).
+// Na CLI o bind é criado aqui (main GUI já registra via SetExportImportAPI).
+func (a *App) wireExportImport() {
+	if a.exportImportAPI == nil {
+		a.exportImportAPI = wailsapi.NewExportImport()
+	}
+	wailsapi.AttachExportImport(
+		a.exportImportAPI,
+		wailsSession{app: a},
+		a.credMgr,
+		func() ports.SystemDialogPort { return a.dialogPort },
+		AppVersion,
+	)
+}
+
 // wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).
 // Sem controller: o bind chama channels.CleanupLegacyJSONFiles diretamente.
 func (a *App) wireLegacyCleanup() {

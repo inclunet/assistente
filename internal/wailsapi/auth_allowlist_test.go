@@ -383,6 +383,24 @@ func TestEditorMethodsNotOnUnauthAllowlist(t *testing.T) {
 	}
 }
 
+func TestExportImportMethodsNotOnUnauthAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{
+		"ExportConversations",
+		"ExportData",
+		"ExportConversationsToFile",
+		"ExportDataToFile",
+		"ImportConversations",
+		"ImportData",
+		"ImportDataWithResolutions",
+		"AnalyzeImportData",
+	} {
+		if slices.Contains(UnauthenticatedAppMethods, name) {
+			t.Fatalf("%s é autenticado via ExportImport/WithUser; não pertence à allowlist", name)
+		}
+	}
+}
+
 func TestACPCommandsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{

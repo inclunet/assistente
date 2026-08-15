@@ -346,6 +346,10 @@ type App struct {
 	// watcher, eventos editor:fileChanged e assisted writes permanecem no *App
 	// e entram via hooks.
 	editorAPI *wailsapi.Editor
+
+	// exportImportAPI é o bind Wails de export/import (AEP-0088). Criado em
+	// main (GUI) ou lazy no wire (CLI); lógica vive no bind.
+	exportImportAPI *wailsapi.ExportImport
 }
 
 // ==================== Tipos para Threads ====================
@@ -677,6 +681,23 @@ func SetEditorAPI(a *App, api *wailsapi.Editor) {
 		return
 	}
 	a.editorAPI = api
+}
+
+// SetExportImportAPI registra o bind Wails de export/import antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetExportImportAPI(a *App, api *wailsapi.ExportImport) {
+	if a == nil {
+		return
+	}
+	a.exportImportAPI = api
+}
+
+// ExportImportAPI expõe o bind de export/import para a CLI (não entra no Bind Wails).
+func ExportImportAPI(a *App) *wailsapi.ExportImport {
+	if a == nil {
+		return nil
+	}
+	return a.exportImportAPI
 }
 
 // ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
@@ -1079,6 +1100,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireWorkspace()
 	a.wireMessaging()
 	a.wireEditor()
+	a.wireExportImport()
 	a.wireLegacyCleanup()
 	a.wireSubagent()
 	a.wireACPCommands()

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"assistente/internal/portability"
 	"assistente/internal/wailsapi"
 )
 
@@ -37,6 +38,17 @@ func TestEditorBindingsAreSafeBeforeStartup(t *testing.T) {
 	}
 	if err := api.EditorWriteFile("x", ""); !errors.Is(err, wailsapi.ErrEditorNotWired) {
 		t.Fatalf("EditorWriteFile() error = %v, want ErrEditorNotWired", err)
+	}
+}
+
+func TestExportImportBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewExportImport()
+
+	if _, err := api.ExportData(portability.ExportRequest{}); !errors.Is(err, wailsapi.ErrExportImportNotWired) {
+		t.Fatalf("ExportData() error = %v, want ErrExportImportNotWired", err)
+	}
+	if _, err := api.ImportData("", ""); !errors.Is(err, wailsapi.ErrExportImportNotWired) {
+		t.Fatalf("ImportData() error = %v, want ErrExportImportNotWired", err)
 	}
 }
 

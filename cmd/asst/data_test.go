@@ -18,12 +18,12 @@ type mockDataBackend struct {
 	exportErr         error
 	exportedToFile    string
 	exportToFileErr   error
-	analysis          *app.ImportAnalysis
+	analysis          *portability.ImportAnalysis
 	analysisErr       error
-	importResult      *app.ImportResult
+	importResult      *portability.ImportResult
 	importErr         error
-	lastExportReq     app.ExportRequest
-	lastExportFileReq app.ExportRequest
+	lastExportReq     portability.ExportRequest
+	lastExportFileReq portability.ExportRequest
 	lastAnalyzeJSON   string
 	lastAnalyzePwd    string
 	lastImportJSON    string
@@ -35,12 +35,12 @@ type mockDataBackend struct {
 	taskListsErr      error
 }
 
-func (m *mockDataBackend) ExportData(req app.ExportRequest) (string, error) {
+func (m *mockDataBackend) ExportData(req portability.ExportRequest) (string, error) {
 	m.lastExportReq = req
 	return m.exportOutput, m.exportErr
 }
 
-func (m *mockDataBackend) ExportDataToFile(req app.ExportRequest, path string) (string, error) {
+func (m *mockDataBackend) ExportDataToFile(req portability.ExportRequest, path string) (string, error) {
 	m.lastExportFileReq = req
 	m.exportedToFile = path
 	if m.exportToFileErr != nil {
@@ -49,13 +49,13 @@ func (m *mockDataBackend) ExportDataToFile(req app.ExportRequest, path string) (
 	return path, nil
 }
 
-func (m *mockDataBackend) AnalyzeImportData(jsonData string, credentialExportPassword string) (*app.ImportAnalysis, error) {
+func (m *mockDataBackend) AnalyzeImportData(jsonData string, credentialExportPassword string) (*portability.ImportAnalysis, error) {
 	m.lastAnalyzeJSON = jsonData
 	m.lastAnalyzePwd = credentialExportPassword
 	return m.analysis, m.analysisErr
 }
 
-func (m *mockDataBackend) ImportData(jsonData string, credentialExportPassword string) (*app.ImportResult, error) {
+func (m *mockDataBackend) ImportData(jsonData string, credentialExportPassword string) (*portability.ImportResult, error) {
 	m.lastImportJSON = jsonData
 	m.lastImportPwd = credentialExportPassword
 	return m.importResult, m.importErr
@@ -83,7 +83,7 @@ func TestRunDataExport_Stdout(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runDataExport(mock, &out, app.ExportRequest{
+	err := runDataExport(mock, &out, portability.ExportRequest{
 		OutputFormat:       portability.FormatJSON,
 		ConversationIDs:    []string{"12"},
 		IncludeCredentials: true,
@@ -124,7 +124,7 @@ func TestRunDataExport_ToFile(t *testing.T) {
 	mock := &mockDataBackend{}
 
 	var out bytes.Buffer
-	err := runDataExport(mock, &out, app.ExportRequest{
+	err := runDataExport(mock, &out, portability.ExportRequest{
 		OutputFormat:    portability.FormatPDF,
 		ConversationIDs: []string{"7"},
 	}, "backup.pdf")
@@ -145,7 +145,7 @@ func TestRunDataExport_ToFile(t *testing.T) {
 
 func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 	mock := &mockDataBackend{
-		analysis: &app.ImportAnalysis{
+		analysis: &portability.ImportAnalysis{
 			Version:                    portability.ExportVersion,
 			AppVersion:                 "dev",
 			ConversationCount:          2,
@@ -215,7 +215,7 @@ func TestRunDataAnalyze_PrintsConflictsAndWarnings(t *testing.T) {
 
 func TestRunDataImport_ForwardsPayload(t *testing.T) {
 	mock := &mockDataBackend{
-		importResult: &app.ImportResult{
+		importResult: &portability.ImportResult{
 			Success:  true,
 			Imported: 4,
 			Skipped:  1,
@@ -249,7 +249,7 @@ func TestRunDataImport_ForwardsPayload(t *testing.T) {
 
 func TestRunDataImport_ReturnsErrorWhenImportFails(t *testing.T) {
 	mock := &mockDataBackend{
-		importResult: &app.ImportResult{
+		importResult: &portability.ImportResult{
 			Success: false,
 			Failed:  1,
 			Errors:  []portability.LocalizedMessage{{Code: "provider.missingBaseUrl", Message: "provider inválido"}},
@@ -304,7 +304,7 @@ func TestPrepareDataExportRequest_ExpandsTypeSelections(t *testing.T) {
 		},
 	}
 
-	req, err := prepareDataExportRequest(mock, app.ExportRequest{}, dataExportSelection{
+	req, err := prepareDataExportRequest(mock, portability.ExportRequest{}, dataExportSelection{
 		Conversations: true,
 		Providers:     true,
 		TaskLists:     true,
@@ -328,7 +328,7 @@ func TestPrepareDataExportRequest_ExpandsTypeSelections(t *testing.T) {
 }
 
 func TestPrepareDataExportRequest_OnlyCredentials(t *testing.T) {
-	req, err := prepareDataExportRequest(&mockDataBackend{}, app.ExportRequest{}, dataExportSelection{
+	req, err := prepareDataExportRequest(&mockDataBackend{}, portability.ExportRequest{}, dataExportSelection{
 		CredentialsOnly: true,
 	})
 	if err != nil {
@@ -347,7 +347,7 @@ func TestPrepareDataExportRequest_OnlyCredentials(t *testing.T) {
 }
 
 func TestPrepareDataExportRequest_RejectsConflictingSelections(t *testing.T) {
-	_, err := prepareDataExportRequest(&mockDataBackend{}, app.ExportRequest{All: true}, dataExportSelection{
+	_, err := prepareDataExportRequest(&mockDataBackend{}, portability.ExportRequest{All: true}, dataExportSelection{
 		Providers: true,
 	})
 	if err == nil {
@@ -366,7 +366,7 @@ func TestPrepareDataExportRequest_MergesSpecificAndExpandedIDs(t *testing.T) {
 		},
 	}
 
-	req, err := prepareDataExportRequest(mock, app.ExportRequest{
+	req, err := prepareDataExportRequest(mock, portability.ExportRequest{
 		ProviderIDs: []string{"anthropic-main", "manual-provider"},
 	}, dataExportSelection{
 		Providers: true,
