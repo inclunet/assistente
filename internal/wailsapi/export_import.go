@@ -145,6 +145,9 @@ func (api *ExportImport) ExportConversationsToFile(ids []string, format string, 
 		if err := os.WriteFile(path, rendered, 0600); err != nil {
 			return "", err
 		}
+		if err := ensureExportFileMode(path); err != nil {
+			return "", err
+		}
 		return path, nil
 	})
 }
@@ -176,6 +179,9 @@ func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path st
 			if err := os.WriteFile(path, []byte(rendered), 0600); err != nil {
 				return "", err
 			}
+			if err := ensureExportFileMode(path); err != nil {
+				return "", err
+			}
 			return path, nil
 		case portability.FormatHTML, portability.FormatPDF, portability.FormatMarkdown:
 			conversationIDs, err := resolveConversationIDs(ctx, req)
@@ -200,6 +206,9 @@ func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path st
 				return "", err
 			}
 			if err := os.WriteFile(path, rendered, 0600); err != nil {
+				return "", err
+			}
+			if err := ensureExportFileMode(path); err != nil {
 				return "", err
 			}
 			return path, nil
@@ -584,4 +593,13 @@ func resolveMemoryRecordIDs(ctx context.Context, req portability.ExportRequest) 
 func defaultConversationExportFilename(format string) string {
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	return "conversas_" + timestamp + "." + format
+}
+
+// ensureExportFileMode reforça 0600 após WriteFile: o modo do WriteFile
+// não altera arquivos já existentes criados com permissões mais abertas.
+func ensureExportFileMode(path string) error {
+	if err := os.Chmod(path, 0600); err != nil {
+		return fmt.Errorf("falha ao restringir permissões do arquivo exportado: %w", err)
+	}
+	return nil
 }
