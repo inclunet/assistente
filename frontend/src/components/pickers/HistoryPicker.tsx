@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { HistoryOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
-import { GetConversations } from '@wailsjs/go/app/App';
+import { GetConversations } from '@wailsjs/go/wailsapi/Conversations';
 import { database } from '../../../wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 

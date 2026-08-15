@@ -5,7 +5,7 @@ import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType, Message } from '../../store/chatStore';
 import { useChatNodeSessionState } from './ChatSessionContext';
 import { playBumpSound } from '../../services/audioFeedback';
-import { UpdateMessage } from '@wailsjs/go/app/App';
+import { UpdateMessage } from '@wailsjs/go/wailsapi/Conversations';
 import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import { handleError, ErrorSeverity } from '../../utils/errorHandler';

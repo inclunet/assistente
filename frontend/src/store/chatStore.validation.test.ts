@@ -27,14 +27,18 @@ const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/app/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
   RetryMessage: (...args: unknown[]) => mockRetryMessage(...args),
+  AssignConversationToChannel: vi.fn(),
+  UnassignConversationFromChannel: vi.fn(),
+  CancelStreamingForConversation: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   GetMessages: (...args: unknown[]) => mockGetMessages(...args),
   GetRecentMessages: (...args: unknown[]) => mockGetRecentMessages(...args),
   GetMessagesBefore: (...args: unknown[]) => mockGetMessagesBefore(...args),
   GetConversationMessageWindow: (...args: unknown[]) => mockGetConversationMessageWindow(...args),
   GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   EnsureConversation: vi.fn().mockResolvedValue("01926b90-7a5a-7c4e-8d3f-000000000001"),
-  AssignConversationToChannel: vi.fn(),
-  UnassignConversationFromChannel: vi.fn(),
   GetMessageChildren: vi.fn().mockResolvedValue([]),
 }));
 

@@ -65,12 +65,15 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
+  ExportConversations: (ids: string[]) => mockExportConversations(ids),
+  ExportConversationsToFile: (ids: string[], format: string, options: unknown) => mockExportConversationsToFile(ids, format, options),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   GetConversationsByIDs: (ids: string[]) => mockGetConversationsByIDs(ids),
   GetConversationsPage: (limit: number, offset: number) => mockGetConversationsPage(limit, offset),
   DeleteConversation: (id: string) => mockDeleteConversation(id),
   UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
-  ExportConversations: (ids: string[]) => mockExportConversations(ids),
-  ExportConversationsToFile: (ids: string[], format: string, options: unknown) => mockExportConversationsToFile(ids, format, options),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
 }));
 

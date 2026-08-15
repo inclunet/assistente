@@ -532,6 +532,7 @@ export function buildWailsMockScript(): string {
       Subagent: makeProxy('wailsapi.Subagent'),
       Tasklist: makeProxy('wailsapi.Tasklist'),
       TasklistActions: makeProxy('wailsapi.TasklistActions'),
+      Conversations: makeProxy('wailsapi.Conversations'),
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),

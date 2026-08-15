@@ -65,10 +65,10 @@ Exemplos:
 
 		// Se ainda não tem mensagem, entra no modo interativo (REPL)
 		if message == "" {
-			return runREPL(rootApp, cliEmitter)
+			return runREPL(asCLI(rootApp), cliEmitter)
 		}
 
-		return sendAndWait(rootApp, cliEmitter, message)
+		return sendAndWait(asCLI(rootApp), cliEmitter, message)
 	},
 }
 
