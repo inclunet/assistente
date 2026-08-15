@@ -545,7 +545,7 @@ class TTSService {
     if (!speakPreview) {
       logger.error('[TTSService] SpeakPreview não disponível no backend');
       return;
-   }
+    }
 
     const sessionId = `preview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
