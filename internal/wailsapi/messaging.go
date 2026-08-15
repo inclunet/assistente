@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"assistente/controllers"
+	"assistente/internal/apidto"
 	"assistente/internal/channels"
 	"assistente/internal/contacts"
 	"assistente/internal/database"
@@ -357,10 +358,16 @@ func (api *Messaging) GetAuthorizedContacts() (contacts.ContactsFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		allChannels, _ := channels.ListAll()
+		allChannels, err := channels.ListAll()
+		if err != nil {
+			// Sem o mapa de donos não dá para saber o que é nosso: falhar
+			// fechado evita vazar contato de canal alheio (ou sem config).
+			return nil, err
+		}
 		result := make(contacts.ContactsFile, len(all))
 		for channelName, list := range all {
-			if cfg, ok := allChannels[channelName]; ok && !channelOwnedBy(cfg, userID) {
+			cfg, ok := allChannels[channelName]
+			if !ok || !channelOwnedBy(cfg, userID) {
 				continue
 			}
 			result[channelName] = list
@@ -378,7 +385,10 @@ func (api *Messaging) GetAvailableChannels() ([]controllers.ChannelInfo, error) 
 	}
 	return WithUser(session, func(ctx context.Context) ([]controllers.ChannelInfo, error) {
 		userID, _ := database.UserIDFromContext(ctx)
-		allChannels, _ := channels.ListAll()
+		allChannels, err := channels.ListAll()
+		if err != nil {
+			return nil, err
+		}
 		all := ctrl.GetAvailableChannels()
 		filtered := make([]controllers.ChannelInfo, 0, len(all))
 		for _, info := range all {
@@ -428,13 +438,19 @@ func (api *Messaging) UnassignConversationFromChannel(conversationID string) err
 }
 
 // GetConversationChannel delega para MessagingController, validando
-// ownership da conversa via ctx escopado.
-func (api *Messaging) GetConversationChannel(conversationID string) (string, string, error) {
+// ownership da conversa via ctx escopado. Devolve um DTO único: o Wails
+// só serializa o primeiro valor além do error, e (channel, contactID)
+// separados perderiam o contactID no frontend.
+func (api *Messaging) GetConversationChannel(conversationID string) (apidto.ConversationChannel, error) {
 	session, ctrl, err := api.deps()
 	if err != nil {
-		return "", "", err
+		return apidto.ConversationChannel{}, err
 	}
-	return WithUser2(session, func(ctx context.Context) (string, string, error) {
-		return ctrl.GetConversationChannel(ctx, conversationID)
+	return WithUser(session, func(ctx context.Context) (apidto.ConversationChannel, error) {
+		channel, contactID, err := ctrl.GetConversationChannel(ctx, conversationID)
+		if err != nil {
+			return apidto.ConversationChannel{}, err
+		}
+		return apidto.ConversationChannel{Channel: channel, ContactID: contactID}, nil
 	})
 }

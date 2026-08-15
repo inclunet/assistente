@@ -3,6 +3,7 @@
 import {channels} from '../models';
 import {contacts} from '../models';
 import {controllers} from '../models';
+import {apidto} from '../models';
 
 export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -22,7 +23,7 @@ export function GetChannelConfigAsMap(arg1:string):Promise<Record<string, any>>;
 
 export function GetChannelTemplates():Promise<Array<channels.ChannelTemplate>>;
 
-export function GetConversationChannel(arg1:string):Promise<string>;
+export function GetConversationChannel(arg1:string):Promise<apidto.ConversationChannel>;
 
 export function GetMessagingStatus():Promise<Record<string, string>>;
 

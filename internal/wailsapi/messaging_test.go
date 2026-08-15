@@ -64,7 +64,7 @@ func TestMessagingNotWired(t *testing.T) {
 	if err := api.UnassignConversationFromChannel("c"); !errors.Is(err, ErrMessagingNotWired) {
 		t.Fatalf("UnassignConversationFromChannel: got %v", err)
 	}
-	if _, _, err := api.GetConversationChannel("c"); !errors.Is(err, ErrMessagingNotWired) {
+	if _, err := api.GetConversationChannel("c"); !errors.Is(err, ErrMessagingNotWired) {
 		t.Fatalf("GetConversationChannel: got %v", err)
 	}
 }
@@ -142,7 +142,7 @@ func TestMessagingUsesWithUserNotRequireAuth(t *testing.T) {
 			return api.UnassignConversationFromChannel("c")
 		}},
 		{"GetConversationChannel", func() error {
-			_, _, err := api.GetConversationChannel("c")
+			_, err := api.GetConversationChannel("c")
 			return err
 		}},
 	}
@@ -376,5 +376,59 @@ func TestGetAllChannelConfigs_FiltersByOwner(t *testing.T) {
 		t.Fatal("canal legado deveria aparecer na lista")
 	} else if cfg.BotToken != "" {
 		t.Fatalf("BotToken legado não foi redacted: %q", cfg.BotToken)
+	}
+}
+
+func TestGetAuthorizedContacts_FiltersByOwnerAndMissingConfig(t *testing.T) {
+	api := setupMessagingAPITest(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-a",
+		Type:        "telegram",
+	}); err != nil {
+		t.Fatalf("setup canal de A: %v", err)
+	}
+	if err := channels.Save("signal", &channels.ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-b",
+		Type:        "signal",
+	}); err != nil {
+		t.Fatalf("setup canal de B: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "contato-a", "Alice", "alice", 100); err != nil {
+		t.Fatalf("autorizar contato de A: %v", err)
+	}
+	if err := contacts.Authorize("signal", "contato-b", "Bob", "bob", 100); err != nil {
+		t.Fatalf("autorizar contato de B: %v", err)
+	}
+	// Contato órfão: canal existiu o bastante para gravar o contato e depois
+	// sumiu do ListAll — com o filtro antigo (`ok && !owned`) ele vazaria.
+	if err := channels.Save("ghost", &channels.ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-b",
+		Type:        "telegram",
+	}); err != nil {
+		t.Fatalf("setup canal ghost: %v", err)
+	}
+	if err := contacts.Authorize("ghost", "contato-x", "X", "x", 100); err != nil {
+		t.Fatalf("autorizar contato órfão: %v", err)
+	}
+	if err := channels.Delete("ghost"); err != nil {
+		t.Fatalf("apagar canal ghost: %v", err)
+	}
+
+	got, err := api.GetAuthorizedContacts()
+	if err != nil {
+		t.Fatalf("GetAuthorizedContacts: %v", err)
+	}
+	if _, leaked := got["telegram"]; leaked {
+		t.Fatal("contato de canal alheio vazou para user-b")
+	}
+	if _, leaked := got["ghost"]; leaked {
+		t.Fatal("contato de canal sem config vazou")
+	}
+	if list, ok := got["signal"]; !ok || len(list) == 0 {
+		t.Fatalf("user-b deveria ver o próprio contato signal: %+v", got)
 	}
 }
