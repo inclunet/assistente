@@ -101,7 +101,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0085](0085-i18n-de-dialogos-do-questionnaire.md) | i18n dos diálogos que o backend manda para a tela (questionnaire) | ✅ Done |
 | [0086](0086-registro-acp-descoberta-e-instalacao-de-agentes.md) | Descoberta e instalação de agentes pelo registro ACP | ✅ Done |
 | [0087](0087-tela-de-erro-acessivel-e-diagnosticavel.md) | Tela de erro acessível e diagnosticável | 🚧 In Progress |
-| [0088](0088-strangler-fig-borda-wails-app.md) | Concluir migração Strangler Fig da borda Wails (`App`) | 📝 Draft |
+| [0088](0088-strangler-fig-borda-wails-app.md) | Concluir migração Strangler Fig da borda Wails (`App`) | ✅ Done |
 | [0089](0089-terminais-como-recursos-efemeros.md) | Terminais como recursos efêmeros | 📝 Draft |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
