@@ -149,6 +149,20 @@ export function buildWailsMockScript(): string {
         options: [{ id: optionId, name: optionId, currentValue: value, values: [] }],
       };
     },
+    GetAgentPermissions: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPTrust') {
+        throw new Error('GetAgentPermissions deve ser chamado via wailsapi.ACPTrust');
+      }
+      return [];
+    },
+    RevokeAgentPermission: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.ACPTrust') {
+        throw new Error('RevokeAgentPermission deve ser chamado via wailsapi.ACPTrust');
+      }
+      return undefined;
+    },
     GetAgentConversationWorkDir: function(conversationId) {
       const last = _config.callLog[_config.callLog.length - 1];
       if (!last || last.scope !== 'wailsapi.ACPWorkDir') {
@@ -514,6 +528,7 @@ export function buildWailsMockScript(): string {
       ACPOptions: makeProxy('wailsapi.ACPOptions'),
       ACPWorkDir: makeProxy('wailsapi.ACPWorkDir'),
       ACPInstall: makeProxy('wailsapi.ACPInstall'),
+      ACPTrust: makeProxy('wailsapi.ACPTrust'),
     },
   };
 

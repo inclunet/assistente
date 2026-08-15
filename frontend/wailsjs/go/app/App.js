@@ -222,10 +222,6 @@ export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
 }
 
-export function GetAgentPermissions() {
-  return window['go']['app']['App']['GetAgentPermissions']();
-}
-
 export function GetAllChannelConfigs() {
   return window['go']['app']['App']['GetAllChannelConfigs']();
 }
@@ -520,10 +516,6 @@ export function RetryMessage(arg1, arg2, arg3) {
 
 export function RetryUserRuntimeInit() {
   return window['go']['app']['App']['RetryUserRuntimeInit']();
-}
-
-export function RevokeAgentPermission(arg1, arg2) {
-  return window['go']['app']['App']['RevokeAgentPermission'](arg1, arg2);
 }
 
 export function SaveChannelConfig(arg1, arg2) {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { GetAgentPermissions, RevokeAgentPermission } from '@wailsjs/go/app/App';
+import { GetAgentPermissions, RevokeAgentPermission } from '@wailsjs/go/wailsapi/ACPTrust';
 
 import { logger } from '../utils/logger';
 import { useUIStore } from '../store/uiStore';
@@ -15,6 +15,9 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { PageLoading } from '../components/ui/PageLoading';
 import { agentActionClassName } from '../lib/agentAction';
 import './AgentPermissionsPage.css';
+
+/** Código que o bind ACPTrust devolve quando a autorização já não existe. */
+const AGENT_PERMISSION_NOT_FOUND = 'agent_permission_not_found';
 
 interface PermissionRow {
   id: string;
@@ -108,8 +111,19 @@ export default function AgentPermissionsPage() {
         announce(t('agentPermissions.announce.revoked', { action, profile: row.profileName }));
         await load();
       } catch (error) {
+        // O backend devolve código, não frase: exibir a mensagem crua faria a
+        // tela falar português com quem escolheu outro idioma.
         const message = error instanceof Error ? error.message : String(error ?? '');
-        addToast(message || t('agentPermissions.error.revokeFailed'), 'error');
+        const key =
+          message.trim() === AGENT_PERMISSION_NOT_FOUND
+            ? 'agentPermissions.error.notFound'
+            : 'agentPermissions.error.revokeFailed';
+        addToast(t(key), 'error');
+        if (key === 'agentPermissions.error.notFound') {
+          // A linha revogada por outro caminho continuaria na tela, convidando
+          // a revogar de novo o que já não existe.
+          await load();
+        }
       }
     },
     [actionName, addToast, announce, load, requestConfirm, t],
