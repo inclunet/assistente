@@ -282,7 +282,9 @@ export function Topbar() {
       // Alt+Backspace → workspace (alternativa acessível a Alt+W)
       if (event.key === 'Backspace') {
         event.preventDefault();
-        navigateTo('/', 'menu.backToWorkspace');
+        // Anúncio usa o nome da página (menu.chat), como ROUTE_I18N_KEYS[''],
+        // para o NVDA falar "Navegou para Chat" e não a ação "Voltar ao workspace".
+        navigateTo('/', 'menu.chat');
         return;
       }
 
@@ -294,7 +296,7 @@ export function Topbar() {
       }
 
       const altRoutes: Record<string, { path: string; pageKey: string }> = {
-        w: { path: '/', pageKey: 'menu.backToWorkspace' },
+        w: { path: '/', pageKey: 'menu.chat' },
         c: { path: '/settings', pageKey: 'menu.settings' },
         h: { path: '/history', pageKey: 'menu.history' },
         l: { path: '/memories', pageKey: 'menu.memories' },

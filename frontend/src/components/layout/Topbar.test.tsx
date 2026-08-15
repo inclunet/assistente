@@ -127,17 +127,21 @@ describe('Topbar', () => {
   ])('navega com Alt+%s para %s', (key, route) => {
     render(<Topbar />);
     navigateSpy.mockClear();
+    announceSpy.mockClear();
 
     fireEvent.keyDown(window, { key, altKey: true });
     expect(navigateSpy).toHaveBeenCalledWith(route);
+    expect(announceSpy).toHaveBeenCalledWith('deepLink.announcedNavigate');
   });
 
   it('navega para workspace com Alt+Backspace', () => {
     render(<Topbar />);
     navigateSpy.mockClear();
+    announceSpy.mockClear();
 
     fireEvent.keyDown(window, { key: 'Backspace', altKey: true });
     expect(navigateSpy).toHaveBeenCalledWith('/');
+    expect(announceSpy).toHaveBeenCalledWith('deepLink.announcedNavigate');
   });
 
   it('não navega se Ctrl também está pressionado', () => {
