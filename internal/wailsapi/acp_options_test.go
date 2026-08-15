@@ -1,10 +1,11 @@
 package wailsapi
 
 import (
-	"assistente/internal/acp"
-	"assistente/internal/apidto"
 	"errors"
 	"testing"
+
+	"assistente/internal/acp"
+	"assistente/internal/apidto"
 )
 
 func TestACPOptionsNotWired(t *testing.T) {

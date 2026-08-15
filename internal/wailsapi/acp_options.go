@@ -1,12 +1,13 @@
 package wailsapi
 
 import (
-	"assistente/internal/acp"
-	"assistente/internal/apidto"
 	"context"
 	"errors"
 	"strings"
 	"sync"
+
+	"assistente/internal/acp"
+	"assistente/internal/apidto"
 )
 
 // ACPOptions é o bind Wails do domínio acp_options (AEP-0088).
