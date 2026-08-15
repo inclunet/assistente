@@ -12,6 +12,10 @@ export interface UseVirtualModalOptions {
   openAnnouncement?: string;
   /** Label para anúncio ao fechar */
   closeAnnouncement?: string;
+  /** Seletor do conteúdo que receberá role="document" */
+  contentSelector?: string;
+  /** Nome acessível do dialog virtual */
+  dialogLabel?: string;
 }
 
 /**
@@ -31,6 +35,8 @@ export function useVirtualModal({
   onClose,
   openAnnouncement = 'Modo de leitura ativado. Pressione Escape para sair.',
   closeAnnouncement = 'Modo de leitura desativado.',
+  contentSelector,
+  dialogLabel = 'Leitura de mensagem. Pressione Escape para sair.',
 }: UseVirtualModalOptions) {
   const previousActiveElement = useRef<HTMLElement | null>(null);
   const previousAriaAttrs = useRef<{
@@ -67,7 +73,7 @@ export function useVirtualModal({
       // Transforma em dialog
       el.setAttribute('role', 'dialog');
       el.setAttribute('aria-modal', 'true');
-      el.setAttribute('aria-label', 'Leitura de mensagem. Pressione Escape para sair.');
+      el.setAttribute('aria-label', dialogLabel);
       el.setAttribute('tabindex', '-1');
 
       // Virtual modal vive dentro de #root, então não podemos marcar #root como
@@ -82,8 +88,10 @@ export function useVirtualModal({
       // `role="document"` aqui expõe o turno inteiro à navegação do leitor de tela
       // (Issue #163). Mantém o fallback para `.chat-message__text` (mensagens
       // simples e harness de teste).
-      const contentEl = el.querySelector('.chat-message__content') as HTMLElement | null
-        ?? el.querySelector('.chat-message__text') as HTMLElement | null;
+      const contentEl = contentSelector
+        ? el.querySelector<HTMLElement>(contentSelector)
+        : el.querySelector<HTMLElement>('.chat-message__content')
+          ?? el.querySelector<HTMLElement>('.chat-message__text');
 
       if (contentEl && contentEl !== el) {
         // Só aplicamos `role="document"`/`tabindex` (e salvamos para restaurar)
