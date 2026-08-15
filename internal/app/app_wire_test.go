@@ -340,6 +340,22 @@ func TestWireTasklistAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireConversationsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		conversationsCtrl: controllers.NewConversationsController(controllers.ConversationsControllerConfig{}),
+	}
+	api := wailsapi.NewConversations()
+	SetConversationsAPI(a, api)
+
+	a.wireConversations()
+
+	_, err := api.GetConversations()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 func TestWireTasklistActionsAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{

@@ -225,6 +225,14 @@ func (a *App) wireTasklist() {
 	}
 }
 
+// wireConversations associa o bind Wails de conversations/persistência (AEP-0088).
+// Reusa conversationsCtrl; helpers reset* permanecem no App.
+func (a *App) wireConversations() {
+	if a.conversationsAPI != nil {
+		wailsapi.AttachConversations(a.conversationsAPI, wailsSession{app: a}, a.conversationsCtrl)
+	}
+}
+
 // wireTasklistActions associa o bind Wails de custom actions (AEP-0088).
 // Reusa taskListCtrl + jobMgr já montados; domínio separado do CRUD de tasklist.
 func (a *App) wireTasklistActions() {

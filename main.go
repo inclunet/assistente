@@ -60,6 +60,8 @@ func main() {
 	application.SetTasklistAPI(a, tasklistAPI)
 	tasklistActionsAPI := wailsapi.NewTasklistActions()
 	application.SetTasklistActionsAPI(a, tasklistActionsAPI)
+	conversationsAPI := wailsapi.NewConversations()
+	application.SetConversationsAPI(a, conversationsAPI)
 	jobsAPI := wailsapi.NewJobs()
 	application.SetJobsAPI(a, jobsAPI)
 	llmProvidersAPI := wailsapi.NewLLMProviders()
@@ -123,6 +125,7 @@ func main() {
 			hotkeysAPI,
 			netTrustAPI,
 			credentialsAPI,
+			conversationsAPI,
 			settingsAPI,
 			mcpAPI,
 			signalAPI,
