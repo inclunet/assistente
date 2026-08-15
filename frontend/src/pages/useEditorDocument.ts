@@ -67,9 +67,10 @@ export function useEditorDocument({
     } catch {
       // best-effort
     }
+    // Cópia rasa: createFrom/convertValues(asMap) muta o objeto passado.
     const payload = apidto.EditorState.createFrom({
-      fileModeByPath: fileModeByPathRef.current,
-      mergeSessionsByTabId: mergeSessionByTabRef.current,
+      fileModeByPath: { ...fileModeByPathRef.current },
+      mergeSessionsByTabId: { ...mergeSessionByTabRef.current },
     });
     EditorSaveState(payload).catch((e: unknown) => {
       logger.warn('[EditorPage] falha ao salvar estado:', e);
