@@ -88,6 +88,8 @@ func main() {
 	application.SetACPTrustAPI(a, acpTrustAPI)
 	editorAPI := wailsapi.NewEditor()
 	application.SetEditorAPI(a, editorAPI)
+	exportImportAPI := wailsapi.NewExportImport()
+	application.SetExportImportAPI(a, exportImportAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -158,6 +160,7 @@ func main() {
 			acpInstallAPI,
 			acpTrustAPI,
 			editorAPI,
+			exportImportAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

@@ -11,7 +11,9 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/portability"
 	"assistente/internal/profiles"
+	"assistente/internal/wailsapi"
 )
 
 var errProfilesNotReady = fmt.Errorf("profiles controller não inicializado")
@@ -20,6 +22,7 @@ var errMCPNotReady = fmt.Errorf("mcp controller não inicializado")
 var errLLMNotReady = fmt.Errorf("llm controller não inicializado")
 var errTaskListNotReady = fmt.Errorf("tasklist controller não inicializado")
 var errConversationsNotReady = fmt.Errorf("conversations controller não inicializado")
+var errExportImportNotReady = fmt.Errorf("export/import bind não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
 // profiles/credentials/mcp/llm_providers/tasklist/conversations saíram do Bind
@@ -78,6 +81,46 @@ func (c cliApp) conversations() (*controllers.ConversationsController, error) {
 		return nil, errConversationsNotReady
 	}
 	return ctrl, nil
+}
+
+func (c cliApp) exportImport() (*wailsapi.ExportImport, error) {
+	api := app.ExportImportAPI(c.App)
+	if api == nil {
+		return nil, errExportImportNotReady
+	}
+	return api, nil
+}
+
+func (c cliApp) ExportData(req portability.ExportRequest) (string, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return "", err
+	}
+	return api.ExportData(req)
+}
+
+func (c cliApp) ExportDataToFile(req portability.ExportRequest, path string) (string, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return "", err
+	}
+	return api.ExportDataToFile(req, path)
+}
+
+func (c cliApp) AnalyzeImportData(jsonData string, credentialExportPassword string) (*portability.ImportAnalysis, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return nil, err
+	}
+	return api.AnalyzeImportData(jsonData, credentialExportPassword)
+}
+
+func (c cliApp) ImportData(jsonData string, credentialExportPassword string) (*portability.ImportResult, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return nil, err
+	}
+	return api.ImportData(jsonData, credentialExportPassword)
 }
 
 func (c cliApp) GetProfiles() ([]profiles.ProfileInfo, error) {

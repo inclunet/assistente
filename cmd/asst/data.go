@@ -17,10 +17,10 @@ import (
 )
 
 type dataBackend interface {
-	ExportData(req app.ExportRequest) (string, error)
-	ExportDataToFile(req app.ExportRequest, path string) (string, error)
-	AnalyzeImportData(jsonData string, credentialExportPassword string) (*app.ImportAnalysis, error)
-	ImportData(jsonData string, credentialExportPassword string) (*app.ImportResult, error)
+	ExportData(req portability.ExportRequest) (string, error)
+	ExportDataToFile(req portability.ExportRequest, path string) (string, error)
+	AnalyzeImportData(jsonData string, credentialExportPassword string) (*portability.ImportAnalysis, error)
+	ImportData(jsonData string, credentialExportPassword string) (*portability.ImportResult, error)
 	GetConversations() ([]app.Conversation, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	GetAllTaskLists() ([]database.TaskList, error)
@@ -69,7 +69,7 @@ Exemplos:
   asst data export --conversation-id 12 --format pdf --out conversa.pdf
   asst data export --all --include-credentials --credential-password "senha" --out backup.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		req := app.ExportRequest{
+		req := portability.ExportRequest{
 			OutputFormat:             strings.ToLower(strings.TrimSpace(dataExportFormat)),
 			All:                      dataExportAll,
 			ConversationIDs:          append([]string(nil), dataExportConversationIDs...),
@@ -121,7 +121,7 @@ var dataImportCmd = &cobra.Command{
 	},
 }
 
-func runDataExport(svc dataBackend, out io.Writer, req app.ExportRequest, outPath string) error {
+func runDataExport(svc dataBackend, out io.Writer, req portability.ExportRequest, outPath string) error {
 	if strings.TrimSpace(req.OutputFormat) == "" {
 		req.OutputFormat = portability.FormatJSON
 	}
@@ -148,7 +148,7 @@ func runDataExport(svc dataBackend, out io.Writer, req app.ExportRequest, outPat
 	return err
 }
 
-func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection dataExportSelection) (app.ExportRequest, error) {
+func prepareDataExportRequest(svc dataBackend, req portability.ExportRequest, selection dataExportSelection) (portability.ExportRequest, error) {
 	hasSpecificIDs := len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.MCPServerSlugs) > 0 || len(req.TaskListIDs) > 0
 	hasTypeSelection := selection.Conversations || selection.Providers || selection.MCPServers || selection.TaskLists
 

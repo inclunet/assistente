@@ -768,6 +768,7 @@ export function buildWailsMockScript(): string {
       ACPInstall: makeProxy('wailsapi.ACPInstall'),
       ACPTrust: makeProxy('wailsapi.ACPTrust'),
       Editor: makeProxy('wailsapi.Editor'),
+      ExportImport: makeProxy('wailsapi.ExportImport'),
     },
   };
 

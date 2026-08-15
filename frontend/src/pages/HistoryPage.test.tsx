@@ -64,9 +64,9 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ExportImport', () => ({
   ExportConversations: (ids: string[]) => mockExportConversations(ids),
-  ExportConversationsToFile: (ids: string[], format: string, options: unknown) => mockExportConversationsToFile(ids, format, options),
+  ExportConversationsToFile: (ids: string[], format: string, options: unknown, labels?: unknown) => mockExportConversationsToFile(ids, format, options, labels),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
@@ -783,6 +783,11 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
           includeTimestamps: true,
           includeReasoning: false,
           includeMetadata: true,
+        }),
+        expect.objectContaining({
+          title: expect.any(String),
+          allFilesFilter: expect.any(String),
+          defaultFilename: expect.stringMatching(/\.md$/),
         }),
       );
     });

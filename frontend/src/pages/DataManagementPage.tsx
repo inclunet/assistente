@@ -2,7 +2,7 @@ import { logger } from '../utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ExportOutlined, ImportOutlined } from '@ant-design/icons';
-import { AnalyzeImportData, ExportData, ImportData } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, ExportData, ImportData } from '@wailsjs/go/wailsapi/ExportImport';
 import { GetConversations } from '@wailsjs/go/wailsapi/Conversations';
 import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';

@@ -13,7 +13,7 @@ import {
   PlusOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { ExportConversations, ExportConversationsToFile } from '@wailsjs/go/app/App';
+import { ExportConversations, ExportConversationsToFile } from '@wailsjs/go/wailsapi/ExportImport';
 import {
   GetConversationsByIDs,
   GetConversationsPage,
@@ -42,6 +42,7 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, generateFilename } from '../lib/exportImport';
+import { exportConversationsFileDialogLabels } from '../lib/exportDialogLabels';
 import './HistoryPage.css';
 
 interface Conversation {
@@ -430,6 +431,7 @@ export default function HistoryPage() {
         idsToExport,
         format,
         portability.ContentExportOptions.createFrom(options),
+        exportConversationsFileDialogLabels(t, format),
       );
       if (!savedPath) return;
       announce(t('history.exportSaved', { path: savedPath, defaultValue: `Arquivo exportado: ${savedPath}` }));

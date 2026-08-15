@@ -112,3 +112,6 @@ var ErrACPTrustNotWired = errors.New("wailsapi: acp trust bind not wired")
 
 // ErrEditorNotWired indica que o bind Editor ainda não recebeu session/hooks.
 var ErrEditorNotWired = errors.New("wailsapi: editor bind not wired")
+
+// ErrExportImportNotWired indica que o bind ExportImport ainda não recebeu session/deps.
+var ErrExportImportNotWired = errors.New("wailsapi: export_import bind not wired")
