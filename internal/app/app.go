@@ -312,6 +312,10 @@ type App struct {
 	// Criado em main e wired após NewLLMController.
 	llmProvidersAPI *wailsapi.LLMProviders
 
+	// llmModelsAPI é o bind Wails do domínio llm_models (AEP-0088): catálogo,
+	// refresh e cancel de streaming. Criado em main; streamMgr permanece no *App.
+	llmModelsAPI *wailsapi.LLMModels
+
 	// acpCommandsAPI é o bind Wails do domínio acp_commands (AEP-0088). Criado
 	// em main e wired após initACP (reusa acpMgr).
 	acpCommandsAPI *wailsapi.ACPCommands
@@ -609,6 +613,23 @@ func SetLLMProvidersAPI(a *App, api *wailsapi.LLMProviders) {
 		return
 	}
 	a.llmProvidersAPI = api
+}
+
+// SetLLMModelsAPI registra o bind Wails de llm_models antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetLLMModelsAPI(a *App, api *wailsapi.LLMModels) {
+	if a == nil {
+		return
+	}
+	a.llmModelsAPI = api
+}
+
+// LLMModelsAPI expõe o bind de llm_models para a CLI (não entra no Bind Wails).
+func LLMModelsAPI(a *App) *wailsapi.LLMModels {
+	if a == nil {
+		return nil
+	}
+	return a.llmModelsAPI
 }
 
 // SetACPCommandsAPI registra o bind Wails de acp_commands antes do Run (main.go).
@@ -1001,6 +1022,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireMCP()
 	a.wireProfiles()
 	a.wireLLMProviders()
+	a.wireLLMModels()
 	a.wireSettings()
 	a.wireDatabase()
 

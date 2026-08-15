@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import {
   SendMessage,
   RetryMessage,
-  CancelStreamingForConversation,
 } from '@wailsjs/go/app/App';
+import { CancelStreamingForConversation } from '@wailsjs/go/wailsapi/LLMModels';
 import {
   AssignConversationToChannel,
   UnassignConversationFromChannel,

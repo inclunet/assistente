@@ -9,8 +9,6 @@ import {ports} from '../models';
 
 export function CanPersistCredentials():Promise<boolean>;
 
-export function CancelStreamingForConversation(arg1:string):Promise<void>;
-
 export function Context():Promise<context.Context>;
 
 export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.User>;
@@ -18,12 +16,6 @@ export function CreateAdminUser(arg1:app.CreateAdminRequest):Promise<database.Us
 export function GetAuthStatus():Promise<app.AuthStatus>;
 
 export function GetAuthUser():Promise<app.AuthUser>;
-
-export function GetModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>;
-
-export function GetModels():Promise<Array<string>>;
-
-export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
 export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStatus>;
 
@@ -34,12 +26,6 @@ export function Login(arg1:app.LoginRequest):Promise<app.AuthUser>;
 export function Logout(arg1:app.LogoutRequest):Promise<void>;
 
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
-
-export function RefreshModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>;
-
-export function RefreshModels():Promise<Array<string>>;
-
-export function RefreshModelsByProvider(arg1:string):Promise<Array<string>>;
 
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
 

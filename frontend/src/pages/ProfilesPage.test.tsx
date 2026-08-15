@@ -78,7 +78,7 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
   GetModels: vi.fn().mockResolvedValue([]),
 }));
 

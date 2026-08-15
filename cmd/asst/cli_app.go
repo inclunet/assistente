@@ -25,7 +25,7 @@ var errConversationsNotReady = fmt.Errorf("conversations controller não inicial
 var errExportImportNotReady = fmt.Errorf("export/import bind não inicializado")
 
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
-// profiles/credentials/mcp/llm_providers/tasklist/conversations saíram do Bind
+// profiles/credentials/mcp/llm_providers/llm_models/tasklist/conversations saíram do Bind
 // Wails e vivem nos controllers / wailsapi.
 type cliApp struct {
 	*app.App
@@ -89,6 +89,12 @@ func (c cliApp) exportImport() (*wailsapi.ExportImport, error) {
 		return nil, errExportImportNotReady
 	}
 	return api, nil
+}
+
+func (c cliApp) CancelStreamingForConversation(conversationID string) {
+	// Helper de pacote: não exige bind Wails (CLI/testes). O bind LLMModels
+	// também cancela via o mesmo streamMgr.
+	app.CancelStreamingForConversation(c.App, conversationID)
 }
 
 func (c cliApp) ExportData(req portability.ExportRequest) (string, error) {

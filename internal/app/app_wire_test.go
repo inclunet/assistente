@@ -15,6 +15,7 @@ import (
 	"assistente/internal/memory"
 	"assistente/internal/portability"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/terminal"
@@ -621,6 +622,23 @@ func TestWireLLMProvidersAttachesBind(t *testing.T) {
 		t.Fatal("llmCtrl deve ser criado")
 	}
 	_, err := api.GetLLMProviders()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
+func TestWireLLMModelsAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		providerSvc:    providers.NewService(providers.ServiceConfig{}),
+		profileManager: profiles.NewManager(),
+	}
+	api := wailsapi.NewLLMModels()
+	SetLLMModelsAPI(a, api)
+
+	a.wireLLMModels()
+
+	_, err := api.GetModels()
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
 	}

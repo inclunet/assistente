@@ -408,7 +408,55 @@ export function buildWailsMockScript(): string {
     GetLLMProviders: [],
     GetLLMProvidersWithStatus: [],
     GetActiveProviderInfo: {},
-    GetModels: [],
+    /* Models — defaults também em wailsapi.LLMModels */
+    GetModels: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.LLMModels') {
+        throw new Error('GetModels deve ser chamado via wailsapi.LLMModels');
+      }
+      return [];
+    },
+    GetModelsByProvider: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.LLMModels') {
+        throw new Error('GetModelsByProvider deve ser chamado via wailsapi.LLMModels');
+      }
+      return [];
+    },
+    RefreshModels: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.LLMModels') {
+        throw new Error('RefreshModels deve ser chamado via wailsapi.LLMModels');
+      }
+      return [];
+    },
+    RefreshModelsByProvider: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.LLMModels') {
+        throw new Error('RefreshModelsByProvider deve ser chamado via wailsapi.LLMModels');
+      }
+      return [];
+    },
+    GetModelCatalogByProvider: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.LLMModels') {
+        throw new Error('GetModelCatalogByProvider deve ser chamado via wailsapi.LLMModels');
+      }
+      return { models: [], agent: false };
+    },
+    RefreshModelCatalogByProvider: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.LLMModels') {
+        throw new Error('RefreshModelCatalogByProvider deve ser chamado via wailsapi.LLMModels');
+      }
+      return { models: [], agent: false };
+    },
+    CancelStreamingForConversation: function() {
+      const last = _config.callLog[_config.callLog.length - 1];
+      if (!last || last.scope !== 'wailsapi.LLMModels') {
+        throw new Error('CancelStreamingForConversation deve ser chamado via wailsapi.LLMModels');
+      }
+    },
     GetEffectiveModel: 'gpt-4',
     ListModelsRaw: ['gpt-4', 'gpt-4o'],
     SetDefaultProvider: undefined,
@@ -760,6 +808,7 @@ export function buildWailsMockScript(): string {
       Speech: makeProxy('wailsapi.Speech'),
       Jobs: makeProxy('wailsapi.Jobs'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
+      LLMModels: makeProxy('wailsapi.LLMModels'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
       ACPOptions: makeProxy('wailsapi.ACPOptions'),
