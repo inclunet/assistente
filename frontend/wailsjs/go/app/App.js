@@ -46,10 +46,6 @@ export function RetryUserRuntimeInit() {
   return window['go']['app']['App']['RetryUserRuntimeInit']();
 }
 
-export function SendMessageSync(arg1, arg2) {
-  return window['go']['app']['App']['SendMessageSync'](arg1, arg2);
-}
-
 export function SetupMasterPassword(arg1) {
   return window['go']['app']['App']['SetupMasterPassword'](arg1);
 }

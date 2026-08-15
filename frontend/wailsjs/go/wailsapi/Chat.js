@@ -9,3 +9,7 @@ export function RetryMessage(arg1, arg2, arg3) {
 export function SendMessage(arg1, arg2, arg3, arg4) {
   return window['go']['wailsapi']['Chat']['SendMessage'](arg1, arg2, arg3, arg4);
 }
+
+export function SendMessageSync(arg1, arg2) {
+  return window['go']['wailsapi']['Chat']['SendMessageSync'](arg1, arg2);
+}

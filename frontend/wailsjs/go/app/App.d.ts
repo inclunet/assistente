@@ -4,7 +4,6 @@ import {context} from '../models';
 import {app} from '../models';
 import {database} from '../models';
 import {credentials} from '../models';
-import {llm} from '../models';
 import {ports} from '../models';
 
 export function CanPersistCredentials():Promise<boolean>;
@@ -28,8 +27,6 @@ export function Logout(arg1:app.LogoutRequest):Promise<void>;
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
-
-export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
 export function SetupMasterPassword(arg1:string):Promise<string>;
 
