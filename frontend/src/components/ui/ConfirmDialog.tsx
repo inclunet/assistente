@@ -13,6 +13,11 @@ export interface ConfirmDialogProps {
   variant?: 'danger' | 'warning' | 'info';
   onConfirm: () => void;
   onCancel: () => void;
+  /**
+   * Se false, o chamador restaura o foco (ConfirmHost/confirmStore).
+   * Default true para usos diretos (ex.: TerminalPage).
+   */
+  returnFocusOnClose?: boolean;
 }
 
 function toSeverity(variant: ConfirmDialogProps['variant']): DecisionSeverity {

@@ -16,6 +16,8 @@ export function ConfirmHost() {
       variant={active?.variant}
       onConfirm={confirm}
       onCancel={cancel}
+      // confirmStore restaura o elemento que abriu o pedido.
+      returnFocusOnClose={false}
     />
   );
 }
