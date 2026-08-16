@@ -69,11 +69,7 @@ type appNetworkPrompter struct {
 	qm *questionnaire.Manager
 }
 
-func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req nettrust.PromptRequest) (nettrust.PromptDecision, error) {
-	if p.qm == nil {
-		return nettrust.PromptDecision{}, fmt.Errorf("questionnaire manager não inicializado")
-	}
-
+func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.RequestPayload {
 	var details strings.Builder
 	fmt.Fprintf(&details, "Host: %s\n", req.Host)
 	if req.Port != "" {
@@ -90,7 +86,6 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		fmt.Fprintf(&details, "Hosts esperados pelo skill: %s\n", strings.Join(req.SkillSuggestedHosts, ", "))
 	}
 
-	// Hint traduzível (não vai no Body cru): o match com host do skill.
 	var skillHostHint questionnaire.Text
 	if req.SkillHostMatch != "" {
 		skillHostHint = questionnaire.KeyedWith(
@@ -100,7 +95,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		)
 	}
 
-	resp, err := p.qm.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+	return questionnaire.RequestPayload{
 		Kind: questionnaire.KindDecision,
 		Title: questionnaire.Keyed(
 			"app.questionnaire.network.title",
@@ -115,7 +110,15 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		Body:        details.String(),
 		AllowCancel: true,
 		Actions:     networkDecisionActions(),
-	})
+	}
+}
+
+func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req nettrust.PromptRequest) (nettrust.PromptDecision, error) {
+	if p.qm == nil {
+		return nettrust.PromptDecision{}, fmt.Errorf("questionnaire manager não inicializado")
+	}
+
+	resp, err := p.qm.RequestQuestionnaire(ctx, networkConfirmationPayload(req))
 	if err != nil {
 		return nettrust.PromptDecision{}, err
 	}

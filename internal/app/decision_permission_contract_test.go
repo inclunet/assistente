@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
 )
 
@@ -33,8 +34,11 @@ func assertDecisionOnly(t *testing.T, nome string, payload questionnaire.Request
 func TestPermissoesCriticasUsamSoDecisionDialog(t *testing.T) {
 	assertDecisionOnly(t, "shell", shellConfirmationPayload("echo ok", "C:/tmp"))
 	assertDecisionOnly(t, "http", httpConfirmationPayload("POST", "https://exemplo/api", `{"a":1}`))
-	assertDecisionOnly(t, "rede", questionnaire.RequestPayload{
-		Kind:    questionnaire.KindDecision,
-		Actions: networkDecisionActions(),
-	})
+	// Mesmo builder que PromptNetworkAuthorization envia ao questionnaire —
+	// montar o payload à mão deixaria o prompter livre para regressar.
+	assertDecisionOnly(t, "rede", networkConfirmationPayload(nettrust.PromptRequest{
+		Host:     "interno.local",
+		Category: "private",
+		Reason:   "teste",
+	}))
 }
