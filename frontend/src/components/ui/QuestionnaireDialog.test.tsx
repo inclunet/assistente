@@ -502,94 +502,8 @@ describe('QuestionnaireDialog', () => {
     );
   });
 
-  describe('motivo da rejeição (rejectReason)', () => {
-    const editConfirmData = {
-      id: 'q-edit',
-      title: 'Aplicar alteração?',
-      description: 'Revise a alteração em "doc.md" e clique em Aplicar para confirmar.',
-      submitLabel: 'Aplicar',
-      cancelLabel: 'Rejeitar',
-      allowCancel: true,
-      rejectReason: {
-        id: 'reject_reason',
-        label: 'Motivo da rejeição (opcional)',
-        placeholder: 'Explique o que deveria ser diferente',
-        maxLen: 2000,
-      },
-      questions: [
-        { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
-        { id: 'after', type: 'readonly_code' as const, prompt: 'Depois', content: 'texto novo' },
-      ],
-    };
-
-    it('ordem DOM do rodapé é Aplicar → motivo → Rejeitar', () => {
-      render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
-      );
-
-      const submit = screen.getByRole('button', { name: 'Aplicar' });
-      const reason = screen.getByLabelText('Motivo da rejeição (opcional)');
-      const cancel = screen.getByRole('button', { name: 'Rejeitar' });
-
-      // DOM order = ordem de tabulação (nenhum elemento usa tabindex positivo)
-      expect(submit.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(reason.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(submit).not.toHaveAttribute('tabindex');
-      expect(reason).not.toHaveAttribute('tabindex');
-      expect(cancel).not.toHaveAttribute('tabindex');
-    });
-
-    it('limite de caracteres do motivo vem do payload', () => {
-      render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
-      );
-
-      expect(screen.getByLabelText('Motivo da rejeição (opcional)')).toHaveAttribute('maxlength', '2000');
-    });
-
-    it('rejeitar envia o motivo digitado nas answers', async () => {
-      const user = userEvent.setup();
-      const onCancel = vi.fn();
-      render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={onCancel} />
-      );
-
-      await user.type(
-        screen.getByLabelText('Motivo da rejeição (opcional)'),
-        'Prefiro manter o texto original'
-      );
-      await user.click(screen.getByRole('button', { name: 'Rejeitar' }));
-
-      expect(onCancel).toHaveBeenCalledWith({ reject_reason: 'Prefiro manter o texto original' });
-    });
-
-    it('rejeitar sem motivo mantém o cancel sem answers', async () => {
-      const user = userEvent.setup();
-      const onCancel = vi.fn();
-      render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={onCancel} />
-      );
-
-      await user.click(screen.getByRole('button', { name: 'Rejeitar' }));
-
-      expect(onCancel).toHaveBeenCalledTimes(1);
-      expect(onCancel).toHaveBeenCalledWith();
-    });
-
-    it('motivo só com espaços é descartado', async () => {
-      const user = userEvent.setup();
-      const onCancel = vi.fn();
-      render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={onCancel} />
-      );
-
-      await user.type(screen.getByLabelText('Motivo da rejeição (opcional)'), '   ');
-      await user.click(screen.getByRole('button', { name: 'Rejeitar' }));
-
-      expect(onCancel).toHaveBeenCalledWith();
-    });
-
-    it('sem rejectReason o rodapé mantém a ordem Enviar → Cancelar e não exibe o campo', () => {
+  describe('foco inicial e rodapé (AEP-0090)', () => {
+    it('rodapé mantém a ordem Enviar → Cancelar', () => {
       render(
         <QuestionnaireDialog
           isOpen
@@ -604,11 +518,8 @@ describe('QuestionnaireDialog', () => {
         />
       );
 
-      expect(screen.queryByLabelText('Motivo da rejeição (opcional)')).not.toBeInTheDocument();
-
       const cancel = screen.getByRole('button', { name: 'Cancelar' });
       const submit = screen.getByRole('button', { name: 'Enviar' });
-      // AEP-0090: primária antes de cancelar no DOM.
       expect(submit.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
       const actions = document.querySelector('[data-dialog-actions]');
@@ -619,9 +530,10 @@ describe('QuestionnaireDialog', () => {
       ]);
     });
 
-    it('foco inicial vai para a pergunta com autoFocus, não para o campo de motivo', async () => {
+    it('foco inicial vai para a pergunta com autoFocus', async () => {
       const data = {
-        ...editConfirmData,
+        id: 'q-edit',
+        title: 'Revisar alteração',
         questions: [
           { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
           {
@@ -641,12 +553,12 @@ describe('QuestionnaireDialog', () => {
       await waitFor(() => {
         expect(screen.getByRole('region', { name: '2. Depois' })).toHaveFocus();
       });
-      expect(screen.getByLabelText('Motivo da rejeição (opcional)')).not.toHaveFocus();
     });
 
     it('autoFocus em pergunta de escolha foca o primeiro input do grupo', async () => {
       const data = {
-        ...editConfirmData,
+        id: 'q-choice',
+        title: 'Escolha',
         questions: [
           { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
           {
@@ -668,39 +580,28 @@ describe('QuestionnaireDialog', () => {
       });
     });
 
-    it('Enter com foco no botão Rejeitar cancela em vez de submeter', async () => {
-      const user = userEvent.setup();
-      const onSubmit = vi.fn();
-      const onCancel = vi.fn();
+    it('ignora rejectReason no formulário (motivo vive no DecisionDialog)', () => {
       render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={onSubmit} onCancel={onCancel} />
+        <QuestionnaireDialog
+          isOpen
+          data={{
+            id: 'q-ignore-rr',
+            title: 'Formulário',
+            questions: [{ id: 'nome', type: 'text', prompt: 'Nome' }],
+            allowCancel: true,
+            rejectReason: {
+              id: 'reject_reason',
+              label: 'Motivo da rejeição (opcional)',
+            },
+          }}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
       );
 
-      screen.getByRole('button', { name: 'Rejeitar' }).focus();
-      await user.keyboard('{Enter}');
-
-      expect(onSubmit).not.toHaveBeenCalled();
-      expect(onCancel).toHaveBeenCalledTimes(1);
-    });
-
-    it('sem autoFocus o foco inicial segue a heurística padrão', async () => {
-      render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
-      );
-
-      // Sem autoFocus, o primeiro campo editável do diálogo é o motivo da rejeição.
-      await waitFor(() => {
-        expect(screen.getByLabelText('Motivo da rejeição (opcional)')).toHaveFocus();
-      });
-    });
-
-    it('diálogo com rejectReason não tem violações de acessibilidade', async () => {
-      render(
-        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
-      );
-
-      const dialog = screen.getByRole('dialog');
-      expect(await axe(dialog)).toHaveNoViolations();
+      expect(screen.queryByLabelText('Motivo da rejeição (opcional)')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Enviar' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancelar' })).toBeInTheDocument();
     });
   });
 

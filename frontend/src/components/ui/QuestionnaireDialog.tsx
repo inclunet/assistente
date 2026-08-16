@@ -67,6 +67,10 @@ export interface QuestionnairePayload {
   allowCancel?: boolean;
   submitLabel?: QuestionnaireText;
   cancelLabel?: QuestionnaireText;
+  /**
+   * Motivo opcional ao rejeitar — só o DecisionDialog renderiza (confirmação
+   * de edição). O QuestionnaireDialog de formulário ignora este campo.
+   */
   rejectReason?: QuestionnaireRejectReason;
   createdAt?: string;
 }
@@ -115,7 +119,6 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   const { t } = useTranslation();
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [rejectReasonText, setRejectReasonText] = useState('');
 
   const allowCancel = data?.allowCancel !== false;
   const title = resolveQuestionnaireText(t, data?.title, t('ui.questionnaire.defaultTitle', 'Questionário'));
@@ -135,9 +138,8 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     [questions]
   );
 
-  // Pergunta marcada pelo backend para receber o foco inicial (ex.: bloco
-  // "Depois" na confirmação de edição, para o usuário ouvir primeiro como o
-  // texto vai ficar em vez de cair no campo de motivo da rejeição).
+  // Pergunta marcada pelo backend/UI para receber o foco inicial (ex.: bloco
+  // "Depois" no editor, ou o primeiro rádio de uma escolha).
   // Perguntas de escolha (boolean/single_choice/multiple_choice) não têm
   // elemento com id `question-<id>`; nelas o alvo é o primeiro input do grupo.
   const initialFocusSelector = useMemo(() => {
@@ -160,7 +162,6 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     }
     setAnswers(initial);
     setErrors({});
-    setRejectReasonText('');
   }, [isOpen, data]);
 
   useEffect(() => {
@@ -199,11 +200,6 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   const handleCancel = () => {
     if (!allowCancel) return;
     if (!onCancel) return;
-    const reason = rejectReasonText.trim();
-    if (data?.rejectReason && reason) {
-      onCancel({ [data.rejectReason.id]: reason });
-      return;
-    }
     onCancel();
   };
 
@@ -442,48 +438,21 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           );
         })}
 
-        {data.rejectReason && allowCancel ? (
-          /* Ordem DOM (= ordem de Tab) intencional: Aplicar → motivo → Rejeitar,
-             para que quem vai aprovar não precise atravessar o campo de justificativa. */
-          <div className="questionnaire-dialog__footer questionnaire-dialog__footer--reject-reason">
+        <DialogActions
+          className="questionnaire-dialog__footer"
+          primary={
             <button type="submit" className="questionnaire-dialog__button primary">
               {submitLabel}
             </button>
-            <div className="questionnaire-dialog__reject-reason">
-              <label className="questionnaire-dialog__label" htmlFor="questionnaire-reject-reason">
-                {resolveQuestionnaireText(t, data.rejectReason.label)}
-              </label>
-              <textarea
-                id="questionnaire-reject-reason"
-                className="questionnaire-dialog__textarea"
-                rows={3}
-                value={rejectReasonText}
-                placeholder={resolveQuestionnaireText(t, data.rejectReason.placeholder) || undefined}
-                onChange={(e) => setRejectReasonText(e.target.value)}
-                maxLength={data.rejectReason.maxLen && data.rejectReason.maxLen > 0 ? data.rejectReason.maxLen : undefined}
-              />
-            </div>
-            <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
-              {cancelLabel}
-            </button>
-          </div>
-        ) : (
-          <DialogActions
-            className="questionnaire-dialog__footer"
-            primary={
-              <button type="submit" className="questionnaire-dialog__button primary">
-                {submitLabel}
+          }
+          secondary={
+            allowCancel ? (
+              <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
+                {cancelLabel}
               </button>
-            }
-            secondary={
-              allowCancel ? (
-                <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
-                  {cancelLabel}
-                </button>
-              ) : undefined
-            }
-          />
-        )}
+            ) : undefined
+          }
+        />
       </form>
     </Modal>
   );
