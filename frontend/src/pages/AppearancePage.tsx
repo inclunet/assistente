@@ -164,9 +164,12 @@ export default function AppearancePage() {
             <Checkbox
               label={t('appearance.decisionAlertSound')}
               checked={decisionAlertSound}
+              aria-describedby="appearance-decision-alert-hint"
               onChange={(e) => handleDecisionAlertSoundChange(e.target.checked)}
             />
-            <p className="appearance-pref__hint">{t('appearance.decisionAlertSoundHint')}</p>
+            <p id="appearance-decision-alert-hint" className="appearance-pref__hint">
+              {t('appearance.decisionAlertSoundHint')}
+            </p>
           </div>
         </section>
       </main>
