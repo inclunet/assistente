@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/wailsapi/LLMProviders';
 import { Input, Select, Button, FormField } from '../';
+import { DialogActions } from '../ui/DialogActions';
 import { AGENT_API_FORMAT, PROVIDER_CONFIG } from '../../config/providers';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { CatalogAgent } from './ACPAgentCatalog';
@@ -904,23 +905,28 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         </div>
       )}
 
-      <div className="provider-form__actions">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          {t('common.cancel')}
-        </Button>
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={saving || (!isAgent && !apiTested)}
-          title={!isAgent && !apiTested ? t('providerForm.error.testFirst') : undefined}
-        >
-          {saving
-            ? t('common.saving')
-            : formData.id
-              ? t('providerForm.updateBtn')
-              : t('common.create')}
-        </Button>
-      </div>
+      <DialogActions
+        className="provider-form__actions"
+        primary={
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={saving || (!isAgent && !apiTested)}
+            title={!isAgent && !apiTested ? t('providerForm.error.testFirst') : undefined}
+          >
+            {saving
+              ? t('common.saving')
+              : formData.id
+                ? t('providerForm.updateBtn')
+                : t('common.create')}
+          </Button>
+        }
+        secondary={
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            {t('common.cancel')}
+          </Button>
+        }
+      />
     </form>
   );
 };

@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import { DialogActions } from '../ui/DialogActions';
 import type {
   TaskListWorkflowStatus,
   WorkflowTransitions,
@@ -395,15 +396,20 @@ export default function WorkflowEditor({
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="workflow-editor-actions">
-        <Button variant="secondary" onClick={onCancel} disabled={isSaving}>
-          {t('tasklist.workflow.cancel', 'Cancelar')}
-        </Button>
-        <Button variant="primary" onClick={handleSave} disabled={isSaving}>
-          {isSaving ? t('common.saving', 'Salvando...') : t('tasklist.workflow.save', 'Salvar Workflow')}
-        </Button>
-      </div>
+      {/* Actions — AEP-0090: primária antes de cancelar */}
+      <DialogActions
+        className="workflow-editor-actions"
+        primary={
+          <Button variant="primary" onClick={handleSave} disabled={isSaving}>
+            {isSaving ? t('common.saving', 'Salvando...') : t('tasklist.workflow.save', 'Salvar Workflow')}
+          </Button>
+        }
+        secondary={
+          <Button variant="secondary" onClick={onCancel} disabled={isSaving}>
+            {t('tasklist.workflow.cancel', 'Cancelar')}
+          </Button>
+        }
+      />
     </div>
   );
 }

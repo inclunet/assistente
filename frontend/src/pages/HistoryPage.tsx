@@ -31,6 +31,7 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { Modal } from '../components/ui/Modal';
 import { Checkbox } from '../components/ui/Checkbox';
 import { Button } from '../components/ui/Button';
+import { DialogActions } from '../components/ui/DialogActions';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -899,14 +900,19 @@ export default function HistoryPage() {
             label={t('history.exportIncludeMetadata', 'Incluir metadados (modelo, provedor, tokens)')}
           />
         </fieldset>
-        <div className="history-page__export-actions">
-          <Button variant="secondary" onClick={closeExportModal}>
-            {t('common.cancel', 'Cancelar')}
-          </Button>
-          <Button variant="primary" onClick={() => void confirmRichExport()}>
-            {t('history.exportConfirm', 'Exportar')}
-          </Button>
-        </div>
+        <DialogActions
+          className="history-page__export-actions"
+          primary={
+            <Button variant="primary" onClick={() => void confirmRichExport()}>
+              {t('history.exportConfirm', 'Exportar')}
+            </Button>
+          }
+          secondary={
+            <Button variant="secondary" onClick={closeExportModal}>
+              {t('common.cancel', 'Cancelar')}
+            </Button>
+          }
+        />
       </Modal>
 
       <SubAgentRunsModal isOpen={runsModalOpen} onClose={() => setRunsModalOpen(false)} />

@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/Button';
+import { DialogActions } from '../../ui/DialogActions';
 import { Input } from '../../ui/Input';
 import { Textarea } from '../../ui/Textarea';
 import { Select } from '../../ui/Select';
@@ -762,14 +763,20 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         </CollapsibleSection>
       </div>
 
-      {/* Footer */}
+      {/* Footer — AEP-0090: primária antes de cancelar */}
       <div className="job-builder__footer">
-        <Button variant="ghost" onClick={onClose}>
-          {t('common.cancel')}
-        </Button>
-        <Button variant="primary" onClick={handleSave} loading={saving} disabled={saving || !canSave}>
-          {isEditing ? t('common.save') : t('jobs.builder.createJob')}
-        </Button>
+        <DialogActions
+          primary={
+            <Button variant="primary" onClick={handleSave} loading={saving} disabled={saving || !canSave}>
+              {isEditing ? t('common.save') : t('jobs.builder.createJob')}
+            </Button>
+          }
+          secondary={
+            <Button variant="ghost" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+          }
+        />
       </div>
     </div>
   );

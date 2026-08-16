@@ -83,6 +83,14 @@ Migrar footers que ainda fazem Cancelar → Salvar/Confirmar, preferindo
 JobBuilder, EditorPanel footers, Signal flows, etc.). Um PR por lote
 quando fizer sentido.
 
+- [x] Memories, History (export), ProviderForm, JobBuilder, WorkflowEditor
+- [x] TaskDetailModal (nota), CustomActionsEditor, MermaidEditorModal
+- [x] Credentials, Channels, Allowlist, Skills, Mcp (CRUD com exclusão auxiliar)
+- [x] AgentWorkDirControl; AgentInstall (confirm install/update + remove),
+      mantendo `initialFocusSelector` no cancelar quando artefato não verificado
+- [ ] QuestionnaireDialog — Fase 3
+
+
 ### Fase 3 — QuestionnaireDialog (footer padrão)
 
 Alinhar o footer padrão (hoje Cancelar → Submit) a D1, preservando a

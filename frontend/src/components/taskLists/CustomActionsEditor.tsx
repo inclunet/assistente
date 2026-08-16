@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useUIStore } from '../../store/uiStore';
 import type { CustomAction, CustomActionSurface } from '../../types/tasklist';
+import { DialogActions } from '../ui/DialogActions';
 import './CustomActionsEditor.css';
 
 interface CustomActionsEditorProps {
@@ -276,12 +277,18 @@ export default function CustomActionsEditor({ taskListId, onClose, onSaved }: Cu
           <PlusOutlined aria-hidden="true" /> {t('tasklist.customActions.add', 'Adicionar ação')}
         </button>
         <div className="custom-actions-editor__footer-spacer" />
-        <button type="button" className="custom-actions-editor__cancel" onClick={onClose} disabled={isSaving}>
-          {t('common.cancel', 'Cancelar')}
-        </button>
-        <button type="button" className="custom-actions-editor__save" onClick={() => void handleSave()} disabled={isSaving}>
-          {isSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
-        </button>
+        <DialogActions
+          primary={
+            <button type="button" className="custom-actions-editor__save" onClick={() => void handleSave()} disabled={isSaving}>
+              {isSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
+            </button>
+          }
+          secondary={
+            <button type="button" className="custom-actions-editor__cancel" onClick={onClose} disabled={isSaving}>
+              {t('common.cancel', 'Cancelar')}
+            </button>
+          }
+        />
       </div>
     </div>
   );

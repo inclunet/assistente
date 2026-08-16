@@ -27,6 +27,7 @@ import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { DataGrid, type DataGridColumn } from '../components/ui/DataGrid';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFields, EditorPanelFooter } from '../components/ui/EditorPanel';
+import { DialogActions } from '../components/ui/DialogActions';
 import { ContextMenu, MenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import CreateChannelModal from '../components/modals/CreateChannelModal';
@@ -744,14 +745,20 @@ export default function ChannelsPage() {
               {t('channels.buttons.reconnect')}
             </Button>
           )}
-          <Button variant="ghost" onClick={handleCloseEditor}>
-            {t('common.cancel')}
-          </Button>
-          {editingChannel && (
-            <Button onClick={() => handleSaveChannel(editingChannel)} loading={saving}>
-              {t('common.save')}
-            </Button>
-          )}
+          <DialogActions
+            primary={
+              editingChannel ? (
+                <Button onClick={() => handleSaveChannel(editingChannel)} loading={saving}>
+                  {t('common.save')}
+                </Button>
+              ) : null
+            }
+            secondary={
+              <Button variant="ghost" onClick={handleCloseEditor}>
+                {t('common.cancel')}
+              </Button>
+            }
+          />
         </EditorPanelFooter>
       </Modal>
 

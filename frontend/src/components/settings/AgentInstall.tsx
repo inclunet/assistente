@@ -11,6 +11,7 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import type { apidto } from '@wailsjs/go/models';
 import { Button } from '../ui/Button';
+import { DialogActions } from '../ui/DialogActions';
 import { Modal } from '../ui/Modal';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { formatFileSize } from '../../services/mediaService';
@@ -919,41 +920,49 @@ export const AgentInstall = ({
             </>
           )}
         </dl>
-        <div className="agent-install__confirm-actions">
-          <Button
-            type="button"
-            variant="outline"
-            data-confirm-cancel=""
-            onClick={() => setConfirming('')}
-          >
-            {t('providerForm.agent.catalog.confirm.cancelBtn')}
-          </Button>
-          {/*
-            Confirmar duas vezes é um clique repetido, e não dois pedidos: o
-            diálogo fecha no primeiro, mas o segundo pode chegar antes disso.
+        <DialogActions
+          className="agent-install__confirm-actions"
+          primary={
+            /*
+              Confirmar duas vezes é um clique repetido, e não dois pedidos: o
+              diálogo fecha no primeiro, mas o segundo pode chegar antes disso.
 
-            O rótulo do artefato sem digest diz o que está sendo aceito, e não
-            "confirmar": num leitor de telas o nome do botão é o que se ouve
-            antes de acioná-lo, e ele é a última chance de a frase acima não ter
-            passado batida.
-          */}
-          <Button
-            type="button"
-            variant="primary"
-            onClick={() => void (updating ? handleUpdate(unverified) : handleInstall(unverified))}
-            disabled={busy}
-          >
-            {t(
-              updating
-                ? unverified
-                  ? 'providerForm.agent.catalog.confirm.confirmUpdateUnverifiedBtn'
-                  : 'providerForm.agent.catalog.confirm.confirmUpdateBtn'
-                : unverified
-                  ? 'providerForm.agent.catalog.confirm.confirmUnverifiedBtn'
-                  : 'providerForm.agent.catalog.confirm.confirmBtn',
-            )}
-          </Button>
-        </div>
+              O rótulo do artefato sem digest diz o que está sendo aceito, e não
+              "confirmar": num leitor de telas o nome do botão é o que se ouve
+              antes de acioná-lo, e ele é a última chance de a frase acima não ter
+              passado batida.
+
+              Ordem DOM: primária → cancelar (AEP-0090). Com artefato não
+              verificado, initialFocusSelector ainda foca o cancelar.
+            */
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => void (updating ? handleUpdate(unverified) : handleInstall(unverified))}
+              disabled={busy}
+            >
+              {t(
+                updating
+                  ? unverified
+                    ? 'providerForm.agent.catalog.confirm.confirmUpdateUnverifiedBtn'
+                    : 'providerForm.agent.catalog.confirm.confirmUpdateBtn'
+                  : unverified
+                    ? 'providerForm.agent.catalog.confirm.confirmUnverifiedBtn'
+                    : 'providerForm.agent.catalog.confirm.confirmBtn',
+              )}
+            </Button>
+          }
+          secondary={
+            <Button
+              type="button"
+              variant="outline"
+              data-confirm-cancel=""
+              onClick={() => setConfirming('')}
+            >
+              {t('providerForm.agent.catalog.confirm.cancelBtn')}
+            </Button>
+          }
+        />
       </Modal>
 
       {showManualActions && (
@@ -968,14 +977,19 @@ export const AgentInstall = ({
           <p className="agent-install__confirm-intro">
             {t('providerForm.agent.catalog.removeConfirm.message', { dir: installed?.dir })}
           </p>
-          <div className="agent-install__confirm-actions">
-            <Button type="button" variant="outline" onClick={() => setConfirmingRemoval(false)}>
-              {t('providerForm.agent.catalog.confirm.cancelBtn')}
-            </Button>
-            <Button type="button" variant="danger" onClick={handleRemove}>
-              {t('providerForm.agent.catalog.removeConfirm.confirmBtn')}
-            </Button>
-          </div>
+          <DialogActions
+            className="agent-install__confirm-actions"
+            primary={
+              <Button type="button" variant="danger" onClick={handleRemove}>
+                {t('providerForm.agent.catalog.removeConfirm.confirmBtn')}
+              </Button>
+            }
+            secondary={
+              <Button type="button" variant="outline" onClick={() => setConfirmingRemoval(false)}>
+                {t('providerForm.agent.catalog.confirm.cancelBtn')}
+              </Button>
+            }
+          />
         </Modal>
       )}
 
