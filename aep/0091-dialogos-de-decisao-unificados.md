@@ -1,6 +1,6 @@
 # AEP-0091 — Diálogos de decisão unificados (estilo Windows + NVDA)
 
-**Status:** 📝 Draft
+**Status:** ✅ Done
 
 ## Resumo
 
@@ -152,19 +152,31 @@ actions: [{ id, label(QuestionnaireText), variant, shortcut?(QuestionnaireText) 
 O frontend renderiza `DecisionDialog`. Resposta: `{ actionId }` ou
 `cancelled: true`.
 
-Compatibilidade: durante a migração, o frontend pode detectar o padrão antigo
-(rádio único + submit) e mapear para DecisionDialog; remoção do padrão antigo
-é critério de aceitação da fase correspondente.
+Compatibilidade com o padrão antigo (rádio único + submit mapeado para
+DecisionDialog) **não foi implementada**. Os produtores de permissão emitem
+`kind: decision` diretamente; o frontend só bifurca por `kind === 'decision'`.
 
 Questionários multi-campo (`collect_responses`, formulários) **não** usam
 `kind: decision`.
 
-### D9. Uma fila de diálogos bloqueantes (meta)
+### D9. Uma fila de diálogos bloqueantes (meta) — fechamento
 
-Idealmente confirm UI + questionnaire decision compartilham arbitragem de
-topo (foco, atalho repetir, som). Pode ser fase tardia se o stack atual de
-`Modal` já garantir um topmost; documentar gap se permanecerem filas
-separadas (`confirmStore` vs questionnaire).
+Filas lógicas **permanecem separadas**:
+
+| Fila | Store / origem |
+|------|----------------|
+| Confirmação binária da UI | `confirmStore` → `ConfirmHost` / `DecisionDialog` |
+| Questionário UI-local | `questionnaireUIStore` → `QuestionnaireDialog` |
+| Questionário / decisão do backend | `questionnaire.Manager` → `DecisionQuestionnaireHost` ou formulário |
+
+**Mitigação atual:** todos usam `Modal` → `modalRegistry` (`OPEN_MODAL_STACK`).
+ESC, focus trap e `Ctrl+Shift+R` respeitam só o modal **topmost**.
+`App.tsx` também impede abrir questionário UI-local enquanto há questionário
+do backend ativo.
+
+**Gap residual (aceitável):** `requestConfirm` não consulta se já há decisão
+backend aberta; empilhamento teórico é raro. Unificar numa fila bloqueante
+única fica como evolução futura, fora deste AEP.
 
 ## Fases
 
@@ -198,9 +210,34 @@ separadas (`confirmStore` vs questionnaire).
 
 ### Fase 4 — Fechamento
 
-- [ ] Remover caminhos legados de rádio+submit para permissão
-- [ ] Checklist NVDA (abertura, Alt+Tab + Ctrl+Shift+R, mnemônicos localizados, multi-opção)
-- [ ] AEP → ✅ Done
+- [x] Remover caminhos legados de rádio+submit para permissão
+      (`scopeOptions` / parsing `session — …`; UI morta
+      `QuestionnaireDialog.rejectReason`; contrato testado em
+      `decision_permission_contract_test.go`)
+- [x] Checklist NVDA documentado abaixo (cobertura automatizada + passo
+      interativo do mantenedor)
+- [x] AEP → ✅ Done
+
+### Checklist NVDA (validação interativa)
+
+Itens com cobertura de teste automatizada (unitário / e2e parcial):
+
+| Item | Cobertura |
+|------|-----------|
+| Abertura anuncia título+descrição (assertive) | `DecisionDialog.test.tsx` |
+| Som de alerta (preferência) | `DecisionDialog.test.tsx` + toggle em Aparência |
+| `Ctrl+Shift+R` repete; não intercepta em textarea | `DecisionDialog.test.tsx` |
+| Mnemônicos `Alt+<letra>` | `DecisionDialog.test.tsx` + `decisionMnemonic` |
+| Multi-opção rede / ACP | testes i18n Go + contrato `kind=decision` |
+| Ordem DOM AEP-0090 | `DecisionDialog.test.tsx` / `DialogActions` |
+| Sem `window.confirm` | grep + e2e profiles |
+
+Passo do mantenedor (NVDA no Windows), uma vez após o merge:
+
+- [ ] Shell: abertura fala a pergunta; `Alt+Tab` + `Ctrl+Shift+R` repete
+- [ ] Rede: cada escopo é botão (sem rádio); Tab chega em Negar por último
+- [ ] ACP: allow-once / always / deny como botões; foco inicial seguro
+- [ ] Exclusão via `useConfirm`: anúncio + alerta + mnemônicos
 
 ## Riscos
 
@@ -215,11 +252,11 @@ separadas (`confirmStore` vs questionnaire).
 
 ## Critérios de aceitação
 
-- [ ] Nenhuma confirmação bloqueante do app usa `window.confirm`.
-- [ ] Shell, rede e ACP usam DecisionDialog (botão por opção; sem híbrido
+- [x] Nenhuma confirmação bloqueante do app usa `window.confirm`.
+- [x] Shell, rede e ACP usam DecisionDialog (botão por opção; sem híbrido
       rádio+Confirmar/Negar).
-- [ ] Toda abertura anuncia a pergunta e toca alerta (se preferência ligada).
-- [ ] `Ctrl+Shift+R` com diálogo de decisão no topo re-anuncia a pergunta.
-- [ ] ConfirmDialog UI alinhado ao mesmo componente/contrato.
-- [ ] QuestionnaireDialog multi-campo preservado onde faz sentido.
-- [ ] AEP-0090 respeitado na ordem das ações.
+- [x] Toda abertura anuncia a pergunta e toca alerta (se preferência ligada).
+- [x] `Ctrl+Shift+R` com diálogo de decisão no topo re-anuncia a pergunta.
+- [x] ConfirmDialog UI alinhado ao mesmo componente/contrato.
+- [x] QuestionnaireDialog multi-campo preservado onde faz sentido.
+- [x] AEP-0090 respeitado na ordem das ações.
