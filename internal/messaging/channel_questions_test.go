@@ -87,8 +87,8 @@ func superficieDeCanal() questionnaire.Surface {
 	return questionnaire.ChannelSurface("conversa-1", "telegram", "contato-1")
 }
 
-// pedidoDePermissao é o diálogo que o handler de permissão monta: o que está em
-// jogo, o bloco com a ação pedida e a decisão de uma escolha.
+// pedidoDePermissao é o diálogo legado (rádio): ainda usado por fluxos que
+// não migraram. ACP/shell/rede usam pedidoDeDecisao (AEP-0091).
 func pedidoDePermissao() questionnaire.RequestPayload {
 	return questionnaire.RequestPayload{
 		Title:       questionnaire.Keyed("app.x.title", "O agente pede permissão"),
@@ -107,6 +107,30 @@ func pedidoDePermissao() questionnaire.RequestPayload {
 				Prompt:   questionnaire.Keyed("app.x.choicePrompt", "O que o agente pode fazer?"),
 				Options:  questionnaire.PlainTexts([]string{"Permitir uma vez", "Negar"}),
 				Required: true,
+			},
+		},
+	}
+}
+
+// pedidoDeDecisao é o contrato AEP-0091 (botão por ação, Answers[actionId]).
+func pedidoDeDecisao() questionnaire.RequestPayload {
+	return questionnaire.RequestPayload{
+		Kind:        questionnaire.KindDecision,
+		Title:       questionnaire.Keyed("app.x.title", "O agente pede permissão"),
+		Description: questionnaire.Keyed("app.x.description", "O agente quer executar uma ação na sua máquina."),
+		Body:        "npm install",
+		AllowCancel: true,
+		Actions: []questionnaire.DecisionAction{
+			{
+				ID:      "allow-once",
+				Label:   questionnaire.Plain("Permitir uma vez"),
+				Variant: "primary",
+				Primary: true,
+			},
+			{
+				ID:      "deny",
+				Label:   questionnaire.Plain("Negar"),
+				Variant: "outline",
 			},
 		},
 	}
@@ -190,6 +214,34 @@ func TestNegarPeloCanalVoltaComoEscolha(t *testing.T) {
 	}
 	if resultado.resp.Answers["decision"] != "Negar" {
 		t.Errorf("resposta = %v, quer a negativa", resultado.resp.Answers)
+	}
+}
+
+func TestDecisaoNoCanalRespondeComActionId(t *testing.T) {
+	perguntas, canal := mecanismoDePergunta(time.Minute)
+	pronto := perguntaEmVoo(t, perguntas, pedidoDeDecisao())
+
+	mensagem := canal.esperarMensagem(t)
+	for _, trecho := range []string{
+		"O agente pede permissão",
+		"npm install",
+		"1 - Permitir uma vez",
+		"2 - Negar",
+	} {
+		if !strings.Contains(mensagem.texto, trecho) {
+			t.Errorf("a mensagem não trouxe %q:\n%s", trecho, mensagem.texto)
+		}
+	}
+
+	if res := perguntas.TryAnswer(context.Background(), "conversa-1", "contato-1", "1"); res != AnswerDelivered {
+		t.Fatalf("resultado = %v, quer a resposta entregue", res)
+	}
+	resultado := esperarResultado(t, pronto)
+	if resultado.err != nil {
+		t.Fatalf("erro inesperado: %v", resultado.err)
+	}
+	if got := resultado.resp.Answers[questionnaire.AnswerActionID]; got != "allow-once" {
+		t.Errorf("Answers[%s] = %v, quer allow-once", questionnaire.AnswerActionID, got)
 	}
 }
 
