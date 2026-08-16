@@ -161,3 +161,18 @@ func TestADecisaoDeRedeSegueOEscopoQueAPessoaEscolheu(t *testing.T) {
 		t.Errorf("escopo = %q, quer %q", decision.Scope, nettrust.ScopeSession)
 	}
 }
+
+// Negar precisa ser seguro mesmo se o actionId vier com espaços — TrimSpace
+// depois de DecisionActionID, antes do atalho decisionDeny.
+func TestNegarComEspacosNoActionIdContinuaNegando(t *testing.T) {
+	_, decision := dialogoDeRede(t,
+		nettrust.PromptRequest{Host: "interno.local", Category: "private"},
+		"  deny  ",
+	)
+	if decision.Approve {
+		t.Fatal("deny com espaços foi tratado como autorização")
+	}
+	if decision.Scope != "" {
+		t.Errorf("escopo = %q, quer vazio na negativa", decision.Scope)
+	}
+}

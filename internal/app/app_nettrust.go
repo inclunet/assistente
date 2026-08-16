@@ -134,6 +134,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 	if !ok {
 		return nettrust.PromptDecision{}, fmt.Errorf("resposta de autorização de rede sem ação")
 	}
+	actionID = strings.TrimSpace(actionID)
 	if actionID == decisionDeny {
 		return nettrust.PromptDecision{Approve: false}, nil
 	}
