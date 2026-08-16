@@ -109,10 +109,11 @@ Enquanto um DecisionDialog (ou Modal de decisão) for o topo do stack:
 ### D6. Atalhos de ação (estilo Windows)
 
 - Decisão **binária** (Sim/Não, Permitir/Negar, OK/Cancelar):
-  - Cada ação declara um **mnemônico derivado do rótulo localizado**
-    (ex.: pt-BR “Sim” → `S` / `Alt+S`; “Não” → `N` / `Alt+N`; en “Yes” →
-    `Y` / `Alt+Y`; “No” → `N` / `Alt+N`). Não fixar `Y`+`Alt+S` juntos: o
-    atalho ativo é o do idioma corrente.
+  - Cada ação declara um **mnemônico** (letra do rótulo localizado, ex. a
+    letra sublinhada). O **atalho de teclado** é `Alt+<mnemônico>` no idioma
+    corrente (ex.: pt-BR “Sim” → mnemônico `S`, atalho `Alt+S`; “Não” → `N` /
+    `Alt+N`; en “Yes” → `Y` / `Alt+Y`; “No” → `N` / `Alt+N`). Não há atalho
+    fixo multi-idioma: só vale o do locale ativo.
   - ESC cancela/fecha sem autorizar (equivalente à ação negativa quando
     existir).
 - Decisão **multi-opção**: atalho opcional por ação (`shortcut` no payload,
