@@ -158,18 +158,22 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 
 	eventData := map[string]any{
 		"id":          req.ID,
-		"kind":        req.Kind,
 		"title":       req.Title,
 		"description": req.Description,
-		"body":        req.Body,
 		"questions":   req.Questions,
 		"allowCancel": req.AllowCancel,
 		"submitLabel": req.SubmitLabel,
 		"cancelLabel": req.CancelLabel,
 		"createdAt":   req.CreatedAt,
 	}
-	// hint/actions só existem em kind=decision: incluí-los sempre mandaria
-	// hint vazio e actions=null para todo formulário, poluindo o contrato.
+	// kind/body/hint/actions só existem em kind=decision: incluí-los sempre
+	// mandaria campos vazios para todo formulário, poluindo o contrato.
+	if req.Kind != "" {
+		eventData["kind"] = req.Kind
+	}
+	if req.Body != "" {
+		eventData["body"] = req.Body
+	}
 	if !req.Hint.IsZero() {
 		eventData["hint"] = req.Hint
 	}
