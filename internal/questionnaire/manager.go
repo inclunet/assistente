@@ -74,10 +74,16 @@ type RejectReasonConfig struct {
 // RequestPayload representa uma solicitação de questionário pendente. Os
 // textos visíveis são Text: quem monta o diálogo diz a chave de tradução e o
 // texto pronto, e quem o exibe escolhe entre os dois (AEP-0085).
+//
+// Kind=KindDecision (AEP-0091): título/descrição/body + Actions como botões;
+// Questions fica vazio. Resposta em Answers[AnswerActionID].
 type RequestPayload struct {
 	ID           string              `json:"id"`
+	Kind         string              `json:"kind,omitempty"`
 	Title        Text                `json:"title,omitzero"`
 	Description  Text                `json:"description,omitzero"`
+	Body         string              `json:"body,omitempty"`
+	Actions      []DecisionAction    `json:"actions,omitempty"`
 	Questions    []Question          `json:"questions"`
 	AllowCancel  bool                `json:"allowCancel,omitempty"`
 	SubmitLabel  Text                `json:"submitLabel,omitzero"`
@@ -119,8 +125,11 @@ func NewManager(emitEvent func(event string, data any)) *Manager {
 func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPayload) (Response, error) {
 	req := &RequestPayload{
 		ID:           uuid.New().String()[:8],
+		Kind:         payload.Kind,
 		Title:        payload.Title,
 		Description:  payload.Description,
+		Body:         payload.Body,
+		Actions:      payload.Actions,
 		Questions:    payload.Questions,
 		AllowCancel:  payload.AllowCancel,
 		SubmitLabel:  payload.SubmitLabel,
@@ -142,8 +151,11 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 
 	eventData := map[string]any{
 		"id":          req.ID,
+		"kind":        req.Kind,
 		"title":       req.Title,
 		"description": req.Description,
+		"body":        req.Body,
+		"actions":     req.Actions,
 		"questions":   req.Questions,
 		"allowCancel": req.AllowCancel,
 		"submitLabel": req.SubmitLabel,
