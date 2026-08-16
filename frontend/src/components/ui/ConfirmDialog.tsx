@@ -39,6 +39,7 @@ export function ConfirmDialog({
   variant = 'danger',
   onConfirm,
   onCancel,
+  returnFocusOnClose = true,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
   const confirmLabel = confirmText ?? t('common.confirm');
@@ -70,8 +71,7 @@ export function ConfirmDialog({
         else onCancel();
       }}
       onCancel={onCancel}
-      // confirmStore restaura o elemento que abriu o pedido.
-      returnFocusOnClose={false}
+      returnFocusOnClose={returnFocusOnClose}
     />
   );
 }
