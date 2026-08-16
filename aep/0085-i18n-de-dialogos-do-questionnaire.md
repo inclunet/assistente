@@ -97,13 +97,15 @@ Consequências:
 
 ### D5. O valor da opção é o do backend, nunca a tradução
 
-Em `single_choice`/`multiple_choice`, o rótulo exibido é traduzido, mas o valor
-que volta em `answers` é o **fallback** (`questionnaireOptionValue`). O backend
-reencontra a escolha pelo que ele mesmo mandou. Se a resposta viesse traduzida,
-autorizar "durante esta conversa" com o app em inglês não casaria com nenhum
-escopo — `scopeFromOption` devolveria "não reconhecido" e a autorização se
-perderia. Por isso os rótulos de escopo do `nettrust` mantêm o prefixo estável
-(`session — ...`) no fallback.
+Em `single_choice`/`multiple_choice` (formulários), o rótulo exibido é
+traduzido, mas o valor que volta em `answers` é o **fallback**
+(`questionnaireOptionValue`). O backend reencontra a escolha pelo que ele
+mesmo mandou.
+
+Nas **decisões** (AEP-0091 `kind: decision`), o valor é o `id` da ação
+(`actionId`) — estável e independente do idioma. Autorização de rede usa ids
+de escopo (`session`, `workspace`, …) resolvidos por `scopeFromActionID`; o
+prefixo legado `session — …` no fallback do rádio foi removido na Fase 4.
 
 ### D6. O que **nunca** vira chave de tradução
 

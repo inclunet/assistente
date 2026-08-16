@@ -110,7 +110,7 @@ de telas.
 ### Componentes reutilizáveis
 Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - `DataGrid` para tabelas (já tem role="grid" e navegação por teclado)
-- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` / futuro `DecisionDialog` para confirmações (AEP-0091); `DialogActions` para rodapé primária→cancelar (AEP-0090)
+- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` / `DecisionDialog` para confirmações (AEP-0091); `DialogActions` para rodapé primária→cancelar (AEP-0090)
 - `Button` para botões (variantes: primary, secondary, danger, ghost, outline)
 - `Toolbar` para barras de ferramentas (ARIA toolbar)
 - **Não** usar `window.confirm` — migrar para o contrato AEP-0091

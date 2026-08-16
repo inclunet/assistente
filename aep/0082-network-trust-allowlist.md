@@ -82,13 +82,14 @@ O `Authorizer` (`nettrust`) implementa `http.NetworkAuthorizer`: se houver match
 na allowlist, libera sem perguntar; senão pede consentimento via um `Prompter`.
 A implementação do `Prompter` (`internal/app/app_nettrust.go`) usa o
 `questionnaire` manager — o MESMO mecanismo já usado para confirmar operações
-destrutivas de HTTP e execução de comandos. Apresenta host/IP/categoria, um
-`single_choice` de escopo e um campo de observação. Cancelar = negar.
+destrutivas de HTTP e execução de comandos. Apresenta host/IP/categoria e um
+`DecisionDialog` (AEP-0091) com um botão por escopo + Negar. Cancelar = negar.
 
-Cada option de escopo carrega um **valor estável** como prefixo (`session — …`,
-`workspace — …`) e o backend faz o parse apenas por esse prefixo
-(`scopeFromOption`), nunca pelo rótulo humano — assim o copy pode mudar ou ganhar
-i18n sem quebrar o consentimento.
+O **id da ação** é o valor estável do escopo (`once`, `session`, `workspace`,
+…). O backend resolve com `scopeFromActionID`, nunca pelo rótulo traduzido —
+assim o copy pode mudar ou ganhar i18n sem quebrar o consentimento
+(AEP-0085 / AEP-0091). O formato legado `session — rótulo` (era rádio) foi
+removido na Fase 4 do AEP-0091.
 
 Skills que declaram `NetworkPermissions.AllowedHosts` têm esses hosts exibidos
 como sugestão no pedido — melhora a UX, mas **não** dispensa o consentimento.
