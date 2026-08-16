@@ -400,7 +400,7 @@ function App() {
                 <DecisionQuestionnaireHost
                     data={questionnaireData}
                     onAction={handleQuestionnaireSubmit}
-                    onCancel={() => { void handleQuestionnaireCancel(); }}
+                    onCancel={(answers) => { void handleQuestionnaireCancel(answers); }}
                 />
                 <QuestionnaireDialog
                     isOpen={formQuestionnaireOpen}

@@ -28,7 +28,15 @@ func (f *fakeQuestionnaireRequester) RequestQuestionnaire(ctx context.Context, p
 	if f.onRequest != nil {
 		f.onRequest()
 	}
-	return f.response, f.err
+	if f.err != nil {
+		return questionnaire.Response{}, f.err
+	}
+	resp := f.response
+	// Aprovação padrão nos testes: kind=decision exige actionId apply.
+	if !resp.Cancelled && resp.Answers == nil {
+		resp.Answers = map[string]any{questionnaire.AnswerActionID: "apply"}
+	}
+	return resp, nil
 }
 
 // editorCtx cria um contexto de invocação de aba de editor com o arquivo ativo.
@@ -96,8 +104,18 @@ func TestTextEdit_QuestionnaireShowsBeforeAfter(t *testing.T) {
 	if quest.lastPayload.Questions[0].Content != "antes" || quest.lastPayload.Questions[1].Content != "depois" {
 		t.Errorf("conteúdo Antes/Depois incorreto: %#v", quest.lastPayload.Questions)
 	}
-	if quest.lastPayload.SubmitLabel.String() != "Aplicar" || quest.lastPayload.CancelLabel.String() != "Rejeitar" {
-		t.Errorf("labels incorretos: submit=%q cancel=%q", quest.lastPayload.SubmitLabel, quest.lastPayload.CancelLabel)
+	if quest.lastPayload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", quest.lastPayload.Kind, questionnaire.KindDecision)
+	}
+	actionByID := map[string]questionnaire.DecisionAction{}
+	for _, a := range quest.lastPayload.Actions {
+		actionByID[a.ID] = a
+	}
+	if apply, ok := actionByID["apply"]; !ok || apply.Label.String() != "Aplicar" {
+		t.Errorf("ação apply incorreta: %+v", apply)
+	}
+	if reject, ok := actionByID["reject"]; !ok || reject.Label.String() != "Rejeitar" {
+		t.Errorf("ação reject incorreta: %+v", reject)
 	}
 	if !containsString(quest.lastPayload.Description.String(), "melhoria de clareza") {
 		t.Errorf("notes deveria aparecer na descrição: %q", quest.lastPayload.Description)

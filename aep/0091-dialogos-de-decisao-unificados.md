@@ -192,9 +192,9 @@ separadas (`confirmStore` vs questionnaire).
 
 ### Fase 3 — Demais produtores
 
-- [ ] Edição de arquivo, HTTP, updater, exclusão de mensagem
-- [ ] AgentInstall → DecisionDialog
-- [ ] Eliminar todo `window.confirm` do frontend
+- [x] Edição de arquivo, HTTP, updater, exclusão de mensagem
+- [x] AgentInstall → DecisionDialog
+- [x] Eliminar todo `window.confirm` do frontend
 
 ### Fase 4 — Fechamento
 

@@ -1,6 +1,5 @@
 import type { ChangeEvent, ReactNode, KeyboardEventHandler, FocusEventHandler } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import type { MockInstance } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -9,6 +8,11 @@ const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
 const mockListExternalSources = vi.fn();
 const mockAnnounce = vi.fn();
+const mockConfirm = vi.fn();
+
+vi.mock('../hooks/useConfirm', () => ({
+  useConfirm: () => mockConfirm,
+}));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -159,8 +163,6 @@ vi.mock('../components', () => ({
 import CredentialsPage from './CredentialsPage';
 
 describe('CredentialsPage', () => {
-  let confirmSpy: MockInstance<(message?: string) => boolean>;
-
   beforeEach(() => {
     mockList.mockResolvedValue([
       { pattern: '*.github.com', type: 'bearer', masked: '••••1234', managed: false },
@@ -169,11 +171,12 @@ describe('CredentialsPage', () => {
     mockDelete.mockResolvedValue(undefined);
     mockListExternalSources.mockResolvedValue([]);
     mockAnnounce.mockClear();
-    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(true);
   });
 
   afterEach(() => {
-    confirmSpy.mockRestore();
+    vi.clearAllMocks();
   });
 
   it('carrega credenciais e abre editor', async () => {

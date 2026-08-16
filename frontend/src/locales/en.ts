@@ -1836,6 +1836,8 @@ const en = {
       cannotDelete: 'Cannot delete this {{name}}',
       deleteSuccess: '{{name}} deleted successfully!',
       deleteError: 'Error deleting {{name}}',
+      deleteConfirmTitle: 'Delete {{name}}',
+      deleteConfirm: 'Are you sure you want to delete "{{name}}"?',
     },
 
     update: {
@@ -3702,6 +3704,7 @@ const en = {
         eventName: 'Event name',
         hotkeyKeys: 'Hotkey',
         removeTrigger: 'Remove trigger {{n}}',
+        deleteConfirmTitle: 'Delete job',
         deleteConfirm: 'Are you sure you want to delete "{{name}}"?',
         deleteSuccess: 'Job deleted successfully',
         noJobsHintBuilder: 'Click "New Job" to create your first job',
@@ -3819,6 +3822,7 @@ const en = {
       editTask: 'Edit Task',
       deleteTask: 'Delete Task',
       confirmDeleteTask: 'Are you sure you want to delete this task?',
+      deleteTaskTitle: 'Delete task',
       emptyTaskTitle: 'Task title is required',
       taskTitleDescription: 'Brief summary of the task',
       taskTitlePlaceholder: 'What needs to be done?',
@@ -4070,6 +4074,12 @@ const en = {
           prompt: 'Allow this {{method}} operation?',
           submit: 'Allow',
           cancel: 'Deny',
+        },
+        deleteMessage: {
+          title: 'Delete message',
+          description: 'Are you sure you want to delete this message and all its replies? This action cannot be undone.',
+          submit: 'Delete',
+          cancel: 'Cancel',
         },
         network: {
           title: 'Authorize access to a blocked host (anti-SSRF)',

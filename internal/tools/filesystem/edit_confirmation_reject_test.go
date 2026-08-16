@@ -17,7 +17,12 @@ type rejectReasonFakeRequester struct {
 
 func (f *rejectReasonFakeRequester) RequestQuestionnaire(_ context.Context, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
 	f.calls = append(f.calls, payload)
-	return f.response, nil
+	resp := f.response
+	// Aprovação padrão: kind=decision exige actionId apply.
+	if !resp.Cancelled && resp.Answers == nil {
+		resp.Answers = map[string]any{questionnaire.AnswerActionID: "apply"}
+	}
+	return resp, nil
 }
 
 func TestConfirmEditWithDiff_PayloadIncludesRejectReason(t *testing.T) {
@@ -31,12 +36,26 @@ func TestConfirmEditWithDiff_PayloadIncludesRejectReason(t *testing.T) {
 	if len(quest.calls) != 1 {
 		t.Fatalf("questionário deve ser solicitado 1 vez, foi %d", len(quest.calls))
 	}
-	rr := quest.calls[0].RejectReason
+	payload := quest.calls[0]
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("Kind deve ser %q, obtido %q", questionnaire.KindDecision, payload.Kind)
+	}
+	actionByID := map[string]questionnaire.DecisionAction{}
+	for _, a := range payload.Actions {
+		actionByID[a.ID] = a
+	}
+	if apply, ok := actionByID["apply"]; !ok || !apply.Primary || apply.Variant != "primary" {
+		t.Errorf("ação apply incorreta: %+v", apply)
+	}
+	if reject, ok := actionByID["reject"]; !ok || reject.Variant != "outline" {
+		t.Errorf("ação reject incorreta: %+v", reject)
+	}
+	rr := payload.RejectReason
 	if rr == nil {
 		t.Fatal("payload deve incluir RejectReason")
 	}
 	autoFocusByID := map[string]bool{}
-	for _, q := range quest.calls[0].Questions {
+	for _, q := range payload.Questions {
 		autoFocusByID[q.ID] = q.AutoFocus
 	}
 	if focus, ok := autoFocusByID["before"]; !ok {
@@ -78,6 +97,37 @@ func TestConfirmEditWithDiff_RejectedWithReason(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "Motivo informado: Prefiro manter o parágrafo original.") {
 		t.Errorf("mensagem deve conter o motivo com espaços aparados: %s", result.Content)
+	}
+}
+
+func TestConfirmEditWithDiff_RejectedViaActionIdWithReason(t *testing.T) {
+	quest := &rejectReasonFakeRequester{response: questionnaire.Response{
+		Answers: map[string]any{
+			questionnaire.AnswerActionID: "reject",
+			"reject_reason":              "Quero outro tom.",
+		},
+	}}
+
+	ok, result := confirmEditWithDiff(context.Background(), quest, questionnaire.Plain("Título"), questionnaire.Plain("Descrição"), "antes", "depois")
+	if ok {
+		t.Fatal("rejeição via actionId deve retornar ok=false")
+	}
+	if !strings.Contains(result.Content, "Motivo informado: Quero outro tom.") {
+		t.Errorf("mensagem deve conter o motivo: %s", result.Content)
+	}
+}
+
+func TestConfirmEditWithDiff_UnknownActionIdErrors(t *testing.T) {
+	quest := &rejectReasonFakeRequester{response: questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: "maybe"},
+	}}
+
+	ok, result := confirmEditWithDiff(context.Background(), quest, questionnaire.Plain("Título"), questionnaire.Plain("Descrição"), "antes", "depois")
+	if ok {
+		t.Fatal("ação desconhecida deve retornar ok=false")
+	}
+	if !result.IsError || !strings.Contains(result.Content, "desconhecida") {
+		t.Errorf("deve sinalizar ação desconhecida: %+v", result)
 	}
 }
 

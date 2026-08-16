@@ -21,15 +21,27 @@ vi.mock('./useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: announceMock }),
 }));
 
+vi.mock('./useConfirm', () => ({
+  useConfirm: () => confirmMock,
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: string | Record<string, unknown>) => {
+      if (typeof opts === 'string') return opts;
+      if (opts && typeof opts === 'object' && 'defaultValue' in opts && typeof opts.defaultValue === 'string') {
+        return opts.defaultValue;
+      }
+      return key;
+    },
+  }),
+}));
+
 describe('useEditableList', () => {
   beforeEach(() => {
     addToastMock = vi.fn();
     announceMock = vi.fn();
-    confirmMock = vi.fn().mockReturnValue(true);
-    const globalWithConfirm = globalThis as typeof globalThis & {
-      confirm: (message?: string) => boolean;
-    };
-    globalWithConfirm.confirm = confirmMock;
+    confirmMock = vi.fn().mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -156,7 +168,7 @@ describe('useEditableList', () => {
     });
   });
 
-  it('deleteItem com canDelete assíncrono e skipBuiltInDeleteConfirm não chama window.confirm', async () => {
+  it('deleteItem com canDelete assíncrono e skipBuiltInDeleteConfirm não chama useConfirm', async () => {
     const deleteItemMock = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -212,7 +224,7 @@ describe('useEditableList', () => {
   });
 
   it('deleteItem não chama delete quando usuário cancela', async () => {
-    confirmMock.mockReturnValue(false);
+    confirmMock.mockResolvedValue(false);
     const { result, operations } = setup();
 
     await act(async () => {

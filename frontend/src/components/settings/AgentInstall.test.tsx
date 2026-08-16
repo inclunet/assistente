@@ -7,6 +7,7 @@ import { axe } from '../../test/a11yAxe';
 import { AgentInstall } from './AgentInstall';
 
 const announceMock = vi.hoisted(() => vi.fn());
+const announceRequestMock = vi.hoisted(() => vi.fn());
 const planMock = vi.hoisted(() => vi.fn());
 const installMock = vi.hoisted(() => vi.fn());
 const cancelMock = vi.hoisted(() => vi.fn());
@@ -47,7 +48,20 @@ vi.mock('react-i18next', async (importOriginal) => {
 });
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: announceMock }),
+  useAnnouncer: () => ({
+    announce: announceMock,
+    announceRequest: announceRequestMock,
+  }),
+}));
+
+vi.mock('../../services/audioFeedback', () => ({
+  playSound: vi.fn(),
+  SOUND_TYPES: { ALERT: 'alert' },
+}));
+
+vi.mock('../../store/settingsStore', () => ({
+  useSettingsStore: (selector: (s: { config: { decisionAlertSound: boolean } }) => unknown) =>
+    selector({ config: { decisionAlertSound: false } }),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPInstall', () => ({
@@ -175,7 +189,7 @@ describe('AgentInstall — fluxo automático do picker', () => {
       />,
     );
 
-    expect(await screen.findByRole('dialog')).toHaveTextContent(/instalar codex pelo catálogo/i);
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent(/instalar codex pelo catálogo/i);
     expect(screen.queryByRole('button', { name: /instalar pelo catálogo/i })).not.toBeInTheDocument();
     expect(installMock).not.toHaveBeenCalled();
   });
@@ -218,7 +232,7 @@ describe('AgentInstall — antes de baixar', () => {
 
     await user.click(botao);
 
-    const dialogo = await screen.findByRole('dialog');
+    const dialogo = await screen.findByRole('alertdialog');
     expect(dialogo).toHaveTextContent(/instalar codex pelo catálogo\?/i);
     expect(dialogo).toHaveTextContent('1.1.9');
     expect(dialogo).toHaveTextContent('@agentclientprotocol/codex-acp@1.1.9');
@@ -236,7 +250,7 @@ describe('AgentInstall — antes de baixar', () => {
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
     await user.click(await screen.findByRole('button', { name: /^cancelar$/i }));
 
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(installMock).not.toHaveBeenCalled();
   });
 
@@ -384,7 +398,7 @@ describe('AgentInstall — artefato binário', () => {
     render(<Host agentId="opencode" />);
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-    const dialogo = await screen.findByRole('dialog');
+    const dialogo = await screen.findByRole('alertdialog');
     expect(dialogo).toHaveTextContent(/código de verificação publicado pelo registro/i);
     expect(dialogo).toHaveTextContent(planoBinario.origin);
     expect(dialogo).toHaveTextContent(planoBinario.target);
@@ -400,7 +414,7 @@ describe('AgentInstall — artefato binário', () => {
     render(<Host agentId="opencode" />);
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-    const dialogo = await screen.findByRole('dialog');
+    const dialogo = await screen.findByRole('alertdialog');
     expect(dialogo).toHaveTextContent(/tamanho do download/i);
     expect(dialogo).toHaveTextContent('1.5 MB');
   });
@@ -412,7 +426,7 @@ describe('AgentInstall — artefato binário', () => {
     render(<Host agentId="opencode" />);
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-    const dialogo = await screen.findByRole('dialog');
+    const dialogo = await screen.findByRole('alertdialog');
     expect(dialogo).not.toHaveTextContent(/tamanho do download/i);
   });
 
@@ -423,7 +437,7 @@ describe('AgentInstall — artefato binário', () => {
     render(<Host agentId="opencode" />);
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-    expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
+    expect(await axe(screen.getByRole('alertdialog'))).toHaveNoViolations();
   });
 
   describe('sem código de verificação publicado', () => {
@@ -447,7 +461,7 @@ describe('AgentInstall — artefato binário', () => {
       render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-      const dialogo = await screen.findByRole('dialog');
+      const dialogo = await screen.findByRole('alertdialog');
       expect(dialogo).toHaveTextContent(/não publica verificação de integridade/i);
       expect(dialogo).toHaveTextContent(/não tem como conferir que o arquivo baixado/i);
       expect(dialogo).toHaveTextContent(/não publicado pelo registro/i);
@@ -465,7 +479,7 @@ describe('AgentInstall — artefato binário', () => {
       render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-      const dialogo = await screen.findByRole('dialog');
+      const dialogo = await screen.findByRole('alertdialog');
       expect(dialogo).toHaveAccessibleDescription(/não publica verificação de integridade/i);
     });
 
@@ -490,14 +504,14 @@ describe('AgentInstall — artefato binário', () => {
 
         render(<Host agentId="cursor" />);
         await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
-        await screen.findByRole('dialog');
+        await screen.findByRole('alertdialog');
 
         const cancelar = screen.getByRole('button', { name: /^cancelar$/i });
         await waitFor(() => expect(cancelar).toHaveFocus());
 
         await user.keyboard('{Enter}');
         expect(installMock).not.toHaveBeenCalled();
-        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
       } finally {
         if (descritor) {
           Object.defineProperty(HTMLElement.prototype, 'offsetParent', descritor);
@@ -516,7 +530,7 @@ describe('AgentInstall — artefato binário', () => {
       render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-      await screen.findByRole('dialog');
+      await screen.findByRole('alertdialog');
       expect(screen.getByRole('button', { name: /baixar mesmo sem verificação/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^baixar e instalar$/i })).not.toBeInTheDocument();
     });
@@ -600,7 +614,7 @@ describe('AgentInstall — artefato binário', () => {
       render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
-      expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
+      expect(await axe(screen.getByRole('alertdialog'))).toHaveNoViolations();
     });
   });
 });
@@ -962,7 +976,7 @@ describe('AgentInstall — já instalado', () => {
     render(<Host />);
     await user.click(await screen.findByRole('button', { name: /remover agente instalado/i }));
 
-    const dialogo = await screen.findByRole('dialog');
+    const dialogo = await screen.findByRole('alertdialog');
     expect(dialogo).toHaveTextContent(/remover codex\?/i);
     expect(dialogo).toHaveTextContent(instalacao.dir);
     expect(dialogo).toHaveTextContent(/o provedor continua salvo/i);
@@ -1062,7 +1076,7 @@ describe('AgentInstall — versão nova', () => {
     render(<Host />);
     await user.click(await screen.findByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
 
-    const dialogo = await screen.findByRole('dialog');
+    const dialogo = await screen.findByRole('alertdialog');
     expect(dialogo).toHaveTextContent(/atualizar codex para a versão 1\.2\.0\?/i);
     expect(dialogo).toHaveTextContent(/versão instalada agora/i);
     expect(dialogo).toHaveTextContent('1.1.9');
@@ -1234,7 +1248,7 @@ describe('AgentInstall — versão nova', () => {
     expect(await axe(container)).toHaveNoViolations();
 
     await user.click(screen.getByRole('button', { name: /atualizar para a versão 1\.2\.0/i }));
-    expect(await axe(await screen.findByRole('dialog'))).toHaveNoViolations();
+    expect(await axe(await screen.findByRole('alertdialog'))).toHaveNoViolations();
   });
 });
 
@@ -1271,7 +1285,7 @@ describe('AgentInstall — acessibilidade', () => {
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
     // O diálogo sai por portal, fora do container do teste.
-    expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
+    expect(await axe(screen.getByRole('alertdialog'))).toHaveNoViolations();
   });
 
   it('não tem violação com o agente já instalado', async () => {

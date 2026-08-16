@@ -2,6 +2,18 @@
   max-width: 450px;
 }
 
+.modal-content.decision-dialog-modal.decision-dialog-modal--size-md {
+  max-width: 560px;
+}
+
+.modal-content.decision-dialog-modal.decision-dialog-modal--size-lg {
+  max-width: 720px;
+}
+
+.modal-content.decision-dialog-modal.decision-dialog-modal--size-xl {
+  max-width: 900px;
+}
+
 .modal-content.decision-dialog-modal--destructive {
   border-top: 4px solid var(--color-danger);
 }
@@ -42,12 +54,99 @@
   overflow: auto;
 }
 
+.modal-content.decision-dialog-modal--size-md .decision-dialog__extra,
+.modal-content.decision-dialog-modal--size-lg .decision-dialog__extra,
+.modal-content.decision-dialog-modal--size-xl .decision-dialog__extra {
+  max-height: min(60vh, 480px);
+}
+
+.decision-dialog__questions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.decision-dialog__question {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.decision-dialog__question-label {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.decision-dialog__question-content {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  color: var(--text-code);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow: auto;
+}
+
 .decision-dialog__footer {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-start;
   align-items: center;
+}
+
+/* Motivo da rejeição: coluna com Aplicar → campo → Rejeitar (ordem de Tab). */
+.decision-dialog__footer--reject-reason {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.decision-dialog__footer--reject-reason > .btn {
+  align-self: flex-start;
+}
+
+.decision-dialog__reject-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.decision-dialog__reject-reason-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.decision-dialog__reject-reason-input {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.decision-dialog__reject-reason-input:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.decision-dialog__reject-reason-input::placeholder {
+  color: var(--text-muted);
 }
 
 .decision-dialog__mnemonic {

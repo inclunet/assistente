@@ -1835,6 +1835,8 @@ const es = {
       cannotDelete: 'No se puede eliminar este {{name}}',
       deleteSuccess: '¡{{name}} eliminado con éxito!',
       deleteError: 'Error al eliminar {{name}}',
+      deleteConfirmTitle: 'Eliminar {{name}}',
+      deleteConfirm: '¿Seguro que desea eliminar "{{name}}"?',
     },
 
     update: {
@@ -3702,6 +3704,7 @@ const es = {
         eventName: 'Nombre del evento',
         hotkeyKeys: 'Teclas de atajo',
         removeTrigger: 'Eliminar trigger {{n}}',
+        deleteConfirmTitle: 'Eliminar job',
         deleteConfirm: '¿Está seguro de que desea eliminar "{{name}}"?',
         deleteSuccess: 'Job eliminado exitosamente',
         noJobsHintBuilder: 'Haga clic en "Nuevo Job" para crear su primer job',
@@ -3819,6 +3822,7 @@ const es = {
       editTask: 'Editar tarea',
       deleteTask: 'Eliminar tarea',
       confirmDeleteTask: '¿Está seguro de que desea eliminar esta tarea?',
+      deleteTaskTitle: 'Eliminar tarea',
       emptyTaskTitle: 'El título de la tarea es obligatorio',
       taskTitleDescription: 'Resumen breve de la tarea',
       taskTitlePlaceholder: '¿Qué necesita ser hecho?',
@@ -4070,6 +4074,12 @@ const es = {
           prompt: '¿Permitir esta operación {{method}}?',
           submit: 'Permitir',
           cancel: 'Denegar',
+        },
+        deleteMessage: {
+          title: 'Eliminar mensaje',
+          description: '¿Seguro que desea eliminar este mensaje y todas sus respuestas? Esta acción no se puede deshacer.',
+          submit: 'Eliminar',
+          cancel: 'Cancelar',
         },
         network: {
           title: 'Autorizar acceso a un host bloqueado (anti-SSRF)',

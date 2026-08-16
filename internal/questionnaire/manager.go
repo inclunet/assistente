@@ -75,8 +75,10 @@ type RejectReasonConfig struct {
 // textos visíveis são Text: quem monta o diálogo diz a chave de tradução e o
 // texto pronto, e quem o exibe escolhe entre os dois (AEP-0085).
 //
-// Kind=KindDecision (AEP-0091): título/descrição/body + Actions como botões;
-// Questions fica vazio. Resposta em Answers[AnswerActionID].
+// Kind=KindDecision (AEP-0091): título/descrição/body + Actions como botões.
+// Questions em geral fica vazio; pode incluir readonly_code (ex.: confirmação
+// de edição Antes/Depois) para o host renderizar no body. Resposta em
+// Answers[AnswerActionID].
 type RequestPayload struct {
 	ID           string              `json:"id"`
 	Kind         string              `json:"kind,omitempty"`

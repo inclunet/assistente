@@ -23,8 +23,12 @@ func textosDoDialogo(payload questionnaire.RequestPayload) map[string]questionna
 
 	incluir("title", payload.Title)
 	incluir("description", payload.Description)
+	incluir("hint", payload.Hint)
 	incluir("submitLabel", payload.SubmitLabel)
 	incluir("cancelLabel", payload.CancelLabel)
+	for _, action := range payload.Actions {
+		incluir("action:"+action.ID, action.Label)
+	}
 	for _, pergunta := range payload.Questions {
 		incluir("prompt:"+pergunta.ID, pergunta.Prompt)
 		incluir("placeholder:"+pergunta.ID, pergunta.Placeholder)

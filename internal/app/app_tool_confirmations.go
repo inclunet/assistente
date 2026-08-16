@@ -57,33 +57,35 @@ func shellConfirmationPayload(cmd, workDir string) questionnaire.RequestPayload 
 	}
 }
 
-// httpConfirmationPayload monta a confirmação de operação HTTP mutável.
-// Ainda no formato clássico (Fase 3 do AEP-0091 migra para DecisionDialog).
+// httpConfirmationPayload monta a confirmação de operação HTTP mutável (AEP-0091).
 func httpConfirmationPayload(method, url, bodyPreview string) questionnaire.RequestPayload {
 	return questionnaire.RequestPayload{
+		Kind: questionnaire.KindDecision,
 		Title: questionnaire.KeyedWith(
 			"app.questionnaire.http.title",
 			map[string]any{"method": method},
 			fmt.Sprintf("Confirmar operação %s", method),
 		),
 		Description: questionnaire.KeyedWith(
-			"app.questionnaire.http.description",
-			map[string]any{"method": method, "url": url, "body": bodyPreview},
-			fmt.Sprintf("O assistente quer executar:\n\n%s %s\n\nBody:\n%s", method, url, bodyPreview),
+			"app.questionnaire.http.prompt",
+			map[string]any{"method": method},
+			fmt.Sprintf("Permitir esta operação %s?", method),
 		),
+		// Pedido cru no Body (método, URL e body); rótulos localizados ficam
+		// fora para não vazar pt-BR em en/es.
+		Body:        fmt.Sprintf("%s %s\n\n%s", method, url, bodyPreview),
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Keyed("app.questionnaire.http.submit", "Permitir"),
-		CancelLabel: questionnaire.Keyed("app.questionnaire.http.cancel", "Negar"),
-		Questions: []questionnaire.Question{
+		Actions: []questionnaire.DecisionAction{
 			{
-				ID:   "approve",
-				Type: "boolean",
-				Prompt: questionnaire.KeyedWith(
-					"app.questionnaire.http.prompt",
-					map[string]any{"method": method},
-					fmt.Sprintf("Permitir esta operação %s?", method),
-				),
-				Required: true,
+				ID:      decisionAllow,
+				Label:   questionnaire.Keyed("app.questionnaire.http.submit", "Permitir"),
+				Variant: "primary",
+				Primary: true,
+			},
+			{
+				ID:      decisionDeny,
+				Label:   questionnaire.Keyed("app.questionnaire.http.cancel", "Negar"),
+				Variant: "outline",
 			},
 		},
 	}

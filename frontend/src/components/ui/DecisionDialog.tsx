@@ -4,6 +4,7 @@ import {
   useId,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, type ButtonProps } from './Button';
@@ -32,6 +33,14 @@ export interface DecisionAction {
   primary?: boolean;
 }
 
+/** Campo opcional de motivo ao rejeitar (confirmação de edição). */
+export interface DecisionRejectReason {
+  id: string;
+  label: string;
+  placeholder?: string;
+  maxLen?: number;
+}
+
 export interface DecisionDialogProps {
   isOpen: boolean;
   title: string;
@@ -41,9 +50,9 @@ export interface DecisionDialogProps {
   actions: [DecisionAction, ...DecisionAction[]];
   /** Afeta foco inicial (AEP-0091 D7). Default: info. */
   severity?: DecisionSeverity;
-  onAction: (actionId: string) => void;
+  onAction: (actionId: string, extras?: Record<string, unknown>) => void;
   /** ESC / Fechar (X) / clique fora — não autoriza. */
-  onCancel: () => void;
+  onCancel: (extras?: Record<string, unknown>) => void;
   className?: string;
   /** id da ação segura para foco destrutivo; default = última ação. */
   safeActionId?: string;
@@ -57,6 +66,15 @@ export interface DecisionDialogProps {
    * das ações (não há fechamento neutro). Default true.
    */
   allowClose?: boolean;
+  /** Motivo opcional ao rejeitar (ordem DOM: primárias → campo → outline). */
+  rejectReason?: DecisionRejectReason;
+  /** Tamanho do Modal; default sm. */
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  /**
+   * Sobrescreve o seletor de foco inicial (ex.: cancelar em AgentInstall
+   * não verificado). Quando omitido, usa a regra de severity (D7).
+   */
+  initialFocusSelector?: string;
 }
 
 function MnemonicLabel({ label, mnemonic }: { label: string; mnemonic: string }) {
@@ -81,6 +99,17 @@ function buildAnnouncement(
   bodyHint?: string,
 ): string {
   return [title, description, bodyHint].filter(Boolean).join('. ');
+}
+
+function isRejectLikeAction(_action: DecisionAction | undefined, actionId: string): boolean {
+  // Só IDs semânticos de rejeição/cancelamento — não usar variant outline,
+  // que também marca ações seguras como "Mais tarde" / "Negar" genéricas
+  // em diálogos sem rejectReason.
+  return (
+    actionId === 'reject' ||
+    actionId === 'cancel' ||
+    actionId === 'deny'
+  );
 }
 
 /** Atalhos precisam viver DENTRO do Modal para `useModalIsTopmost` funcionar. */
@@ -142,14 +171,19 @@ export function DecisionDialog({
   safeActionId,
   returnFocusOnClose = true,
   allowClose = true,
+  rejectReason,
+  size = 'sm',
+  initialFocusSelector: initialFocusOverride,
 }: DecisionDialogProps) {
   const { t } = useTranslation();
   const descriptionId = useId();
   const bodyId = useId();
+  const rejectReasonFieldId = useId();
   const { announceRequest } = useAnnouncer();
   const decisionAlertSound = useSettingsStore((s) => s.config.decisionAlertSound);
   const announcementRef = useRef('');
   const openedForIdRef = useRef<string | null>(null);
+  const [rejectReasonText, setRejectReasonText] = useState('');
 
   const mnemonics = useMemo(() => assignMnemonics(actions), [actions]);
 
@@ -159,7 +193,24 @@ export function DecisionDialog({
 
   const bodyHint = body ? t('ui.decisionDialog.bodyHint') : undefined;
 
-  const initialFocusSelector = useMemo(() => {
+  // Ordem DOM com motivo (AEP-0090): afirmativas → textarea → restante
+  // (reject/outline por último). Sem `primary`, a primeira ação vai antes do campo.
+  const { footerPrimary, footerRest } = useMemo(() => {
+    const marked = actions.filter((a) => a.primary);
+    if (marked.length > 0) {
+      const ids = new Set(marked.map((a) => a.id));
+      return {
+        footerPrimary: marked,
+        footerRest: actions.filter((a) => !ids.has(a.id)),
+      };
+    }
+    return {
+      footerPrimary: [actions[0]],
+      footerRest: actions.slice(1),
+    };
+  }, [actions]);
+
+  const severityFocusSelector = useMemo(() => {
     if (severity === 'destructive') {
       return `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`;
     }
@@ -176,6 +227,36 @@ export function DecisionDialog({
       : undefined;
   }, [severity, resolvedSafeId, body, actions]);
 
+  const initialFocusSelector = initialFocusOverride ?? severityFocusSelector;
+
+  const extrasForAction = (actionId: string): Record<string, unknown> | undefined => {
+    if (!rejectReason) return undefined;
+    const trimmed = rejectReasonText.trim();
+    if (!trimmed) return undefined;
+    const action = actions.find((a) => a.id === actionId);
+    if (!isRejectLikeAction(action, actionId)) return undefined;
+    return { [rejectReason.id]: trimmed };
+  };
+
+  const extrasForCancel = (): Record<string, unknown> | undefined => {
+    if (!rejectReason) return undefined;
+    const trimmed = rejectReasonText.trim();
+    if (!trimmed) return undefined;
+    return { [rejectReason.id]: trimmed };
+  };
+
+  const fireAction = (actionId: string) => {
+    const extras = extrasForAction(actionId);
+    if (extras) onAction(actionId, extras);
+    else onAction(actionId);
+  };
+
+  const fireCancel = () => {
+    const extras = extrasForCancel();
+    if (extras) onCancel(extras);
+    else onCancel();
+  };
+
   const reannounce = () => {
     const message = announcementRef.current;
     if (!message) return;
@@ -191,6 +272,7 @@ export function DecisionDialog({
     if (!isOpen) {
       openedForIdRef.current = null;
       announcementRef.current = '';
+      setRejectReasonText('');
       return;
     }
 
@@ -214,25 +296,53 @@ export function DecisionDialog({
   }, [isOpen, title, description, body, bodyHint, announceRequest, decisionAlertSound]);
 
   const variantClass = `decision-dialog-modal--${severity}`;
+  const sizeClass = size !== 'sm' ? ` decision-dialog-modal--size-${size}` : '';
+
+  const renderActionButton = (action: DecisionAction, indexInActions: number) => {
+    const mnemonic = mnemonics[indexInActions] ?? '';
+    const { displayLabel } = parseMnemonicMarker(action.label);
+    const buttonVariant =
+      action.variant ??
+      (action.primary ? 'primary' : indexInActions === actions.length - 1 ? 'outline' : 'secondary');
+
+    return (
+      <Button
+        key={action.id}
+        type="button"
+        variant={buttonVariant}
+        data-decision-action={action.id}
+        onClick={() => fireAction(action.id)}
+        aria-label={displayLabel}
+        aria-keyshortcuts={mnemonic ? `Alt+${mnemonic.toUpperCase()}` : undefined}
+      >
+        <MnemonicLabel label={action.label} mnemonic={mnemonic} />
+      </Button>
+    );
+  };
+
+  const actionIndex = (action: DecisionAction) =>
+    actions.findIndex((a) => a.id === action.id);
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onCancel}
+      onClose={fireCancel}
       title={title}
-      size="sm"
+      size={size}
       role="alertdialog"
-      className={`decision-dialog-modal ${variantClass}${className ? ` ${className}` : ''}`}
+      className={`decision-dialog-modal ${variantClass}${sizeClass}${className ? ` ${className}` : ''}`}
       ariaDescribedBy={describedBy}
       returnFocusOnClose={returnFocusOnClose}
       allowClose={allowClose}
       initialFocusSelector={initialFocusSelector}
-      readingMode={Boolean(body)}
+      // readingMode (role=document) só quando o body é só leitura. Com
+      // rejectReason (textarea), o NVDA precisa permanecer em modo de foco.
+      readingMode={Boolean(body) && !rejectReason}
     >
       <DecisionDialogHotkeys
         actions={actions}
         mnemonics={mnemonics}
-        onAction={onAction}
+        onAction={fireAction}
         onRepeat={reannounce}
       />
 
@@ -252,28 +362,40 @@ export function DecisionDialog({
         )}
       </div>
 
-      <div className="decision-dialog__footer" data-dialog-actions="">
-        {actions.map((action, index) => {
-          const mnemonic = mnemonics[index] ?? '';
-          const { displayLabel } = parseMnemonicMarker(action.label);
-          const buttonVariant =
-            action.variant ??
-            (action.primary ? 'primary' : index === actions.length - 1 ? 'outline' : 'secondary');
-
-          return (
-            <Button
-              key={action.id}
-              type="button"
-              variant={buttonVariant}
-              data-decision-action={action.id}
-              onClick={() => onAction(action.id)}
-              aria-label={displayLabel}
-              aria-keyshortcuts={mnemonic ? `Alt+${mnemonic.toUpperCase()}` : undefined}
-            >
-              <MnemonicLabel label={action.label} mnemonic={mnemonic} />
-            </Button>
-          );
-        })}
+      <div
+        className={
+          rejectReason
+            ? 'decision-dialog__footer decision-dialog__footer--reject-reason'
+            : 'decision-dialog__footer'
+        }
+        data-dialog-actions=""
+      >
+        {rejectReason ? (
+          <>
+            {footerPrimary.map((action) => renderActionButton(action, actionIndex(action)))}
+            <div className="decision-dialog__reject-reason">
+              <label className="decision-dialog__reject-reason-label" htmlFor={rejectReasonFieldId}>
+                {rejectReason.label}
+              </label>
+              <textarea
+                id={rejectReasonFieldId}
+                className="decision-dialog__reject-reason-input"
+                rows={3}
+                value={rejectReasonText}
+                placeholder={rejectReason.placeholder}
+                maxLength={
+                  rejectReason.maxLen && rejectReason.maxLen > 0
+                    ? rejectReason.maxLen
+                    : undefined
+                }
+                onChange={(e) => setRejectReasonText(e.target.value)}
+              />
+            </div>
+            {footerRest.map((action) => renderActionButton(action, actionIndex(action)))}
+          </>
+        ) : (
+          actions.map((action, index) => renderActionButton(action, index))
+        )}
       </div>
     </Modal>
   );

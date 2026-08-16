@@ -29,26 +29,26 @@ func updateElevationTextKey(field string) string {
 // está autorizando (AEP-0085).
 func updateElevationPayload() questionnaire.RequestPayload {
 	return questionnaire.RequestPayload{
+		Kind:  questionnaire.KindDecision,
 		Title: questionnaire.Keyed(updateElevationTextKey("title"), "Permissão Necessária"),
 		Description: questionnaire.Keyed(
 			updateElevationTextKey("description"),
 			"Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
 		),
-		Questions: []questionnaire.Question{
+		AllowCancel: true,
+		Actions: []questionnaire.DecisionAction{
 			{
-				ID:   "allow",
-				Type: "boolean",
-				Prompt: questionnaire.Keyed(
-					updateElevationTextKey("prompt"),
-					"Permitir atualização com privilégios de administrador?",
-				),
-				Required: true,
-				Default:  true,
+				ID:      "allow",
+				Label:   questionnaire.Keyed(updateElevationTextKey("submit"), "Permitir"),
+				Variant: "primary",
+				Primary: true,
+			},
+			{
+				ID:      "deny",
+				Label:   questionnaire.Keyed(updateElevationTextKey("cancel"), "Cancelar"),
+				Variant: "outline",
 			},
 		},
-		AllowCancel: true,
-		SubmitLabel: questionnaire.Keyed(updateElevationTextKey("submit"), "Permitir"),
-		CancelLabel: questionnaire.Keyed(updateElevationTextKey("cancel"), "Cancelar"),
 	}
 }
 
@@ -93,11 +93,12 @@ func (a *App) initUpdater() {
 			logging.Infof(context.Background(), "app.app-updater", "[Updater] Usuário cancelou a solicitação de elevação")
 			return false
 		}
-		if allow, ok := resp.Answers["allow"].(bool); ok && allow {
-			logging.Infof(context.Background(), "app.app-updater", "[Updater] Usuário autorizou elevação")
-			return true
+		id, ok := questionnaire.DecisionActionID(resp)
+		if !ok || id != "allow" {
+			return false
 		}
-		return false
+		logging.Infof(context.Background(), "app.app-updater", "[Updater] Usuário autorizou elevação")
+		return true
 	})
 
 	logging.Infof(context.Background(), "app.app-updater", "[Updater] Inicializado (versão atual: %s)", AppVersion)
