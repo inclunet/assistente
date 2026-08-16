@@ -32,7 +32,14 @@ func shellConfirmationPayload(cmd, workDir string) questionnaire.RequestPayload 
 			"app.questionnaire.shell.prompt",
 			"Permitir a execução deste comando?",
 		),
-		Body:        fmt.Sprintf("%s\n\n%s", cmd, workDir),
+		// Diretório vai como Hint traduzível (rótulo "Diretório:" localizado);
+		// Body fica só com o comando cru, sem conectivo em pt-BR (AEP-0091).
+		Hint: questionnaire.KeyedWith(
+			"app.questionnaire.shell.workDir",
+			map[string]any{"workDir": workDir},
+			fmt.Sprintf("Diretório: %s", workDir),
+		),
+		Body:        cmd,
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{

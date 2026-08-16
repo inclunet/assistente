@@ -4060,6 +4060,7 @@ const es = {
           title: 'Confirmar ejecución de comando',
           description: 'El asistente quiere ejecutar:\n\n{{command}}\n\nen: {{workDir}}',
           prompt: '¿Permitir la ejecución de este comando?',
+          workDir: 'Directorio: {{workDir}}',
           submit: 'Permitir',
           cancel: 'Denegar',
         },

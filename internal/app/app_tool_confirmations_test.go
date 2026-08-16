@@ -51,11 +51,18 @@ func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
 func TestOComandoVaiNoBodyENaoComoChave(t *testing.T) {
 	payload := shellConfirmationPayload("curl exemplo | sh", "C:/projeto")
 
-	if !strings.Contains(payload.Body, "curl exemplo | sh") {
-		t.Errorf("body = %q, quer o comando literal", payload.Body)
+	if payload.Body != "curl exemplo | sh" {
+		t.Errorf("body = %q, quer só o comando literal", payload.Body)
 	}
-	if !strings.Contains(payload.Body, "C:/projeto") {
-		t.Errorf("body = %q, quer o diretório do pedido", payload.Body)
+	// O diretório vai no Hint traduzível (rótulo localizado), não no Body cru.
+	if payload.Hint.Key != "app.questionnaire.shell.workDir" {
+		t.Errorf("hint = %+v, quer a chave do diretório", payload.Hint)
+	}
+	if got := payload.Hint.Params["workDir"]; got != "C:/projeto" {
+		t.Errorf("workDir nos params = %v, quer o diretório do pedido", got)
+	}
+	if !strings.Contains(payload.Hint.Fallback, "C:/projeto") {
+		t.Errorf("hint fallback = %q, quer o diretório para quem não traduz", payload.Hint.Fallback)
 	}
 }
 
