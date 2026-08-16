@@ -9,6 +9,7 @@ import { RunLogViewer } from '../components/jobs/RunLogViewer';
 import { EventTimeline } from '../components/jobs/EventTimeline';
 import { JobBuilder } from '../components/jobs/builder';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useConfirm } from '../hooks/useConfirm';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useUIStore } from '../store/uiStore';
@@ -66,6 +67,7 @@ export default function JobsPage() {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
+  const confirm = useConfirm();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'jobs-page' });
 
@@ -201,7 +203,14 @@ export default function JobsPage() {
   }, [fetchJobDetail, addToast, t]);
 
   const handleDeleteJob = useCallback(async (job: jobs.JobInfo) => {
-    if (!window.confirm(t('jobs.builder.deleteConfirm', { name: job.name || job.id }))) return;
+    const ok = await confirm({
+      title: t('jobs.builder.deleteConfirmTitle', 'Excluir job'),
+      message: t('jobs.builder.deleteConfirm', { name: job.name || job.id }),
+      confirmText: t('common.delete', 'Excluir'),
+      cancelText: t('common.cancel', 'Cancelar'),
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteJob(job.id);
       addToast(t('jobs.builder.deleteSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
@@ -209,7 +218,7 @@ export default function JobsPage() {
     } catch {
       addToast(t('common.error'), 'error');
     }
-  }, [deleteJob, addToast, announce, t]);
+  }, [confirm, deleteJob, addToast, announce, t]);
 
   const getJobRowActions = useCallback(
     (job: jobs.JobInfo) => {

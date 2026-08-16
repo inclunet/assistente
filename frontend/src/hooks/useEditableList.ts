@@ -2,6 +2,7 @@ import { logger } from '../utils/logger';
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAnnouncer } from './useAnnouncer';
+import { useConfirm } from './useConfirm';
 import { useUIStore } from '../store/uiStore';
 
 export interface EditableItem {
@@ -74,7 +75,7 @@ export interface EditableListOptions<T extends EditableItem> {
    */
   canDelete?: (item: T) => boolean | string | Promise<boolean | string>;
   /**
-   * Quando true, não chama window.confirm após canDelete (ex.: confirmação já feita em canDelete).
+   * Quando true, não chama o DecisionDialog após canDelete (ex.: confirmação já feita em canDelete).
    */
   skipBuiltInDeleteConfirm?: boolean;
 }
@@ -110,6 +111,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { t } = useTranslation();
+  const confirm = useConfirm();
 
   // Estado da lista
   const [items, setItems] = useState<T[]>([]);
@@ -265,13 +267,27 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       }
     }
 
-    // Confirmação nativa (omitida quando a página usa confirmação própria, ex. useConfirm em canDelete)
+    // Confirmação acessível via DecisionDialog (omitida quando a página usa
+    // confirmação própria, ex. useConfirm em canDelete).
     if (!options.skipBuiltInDeleteConfirm) {
       const confirmMessage =
         typeof messages.deleteConfirm === 'function'
           ? messages.deleteConfirm(item)
-          : messages.deleteConfirm || `Tem certeza que deseja excluir "${getName(item)}"?`;
-      if (!confirm(confirmMessage)) return;
+          : messages.deleteConfirm || t('editableList.deleteConfirm', {
+              name: getName(item),
+              defaultValue: `Tem certeza que deseja excluir "${getName(item)}"?`,
+            });
+      const ok = await confirm({
+        title: t('editableList.deleteConfirmTitle', {
+          name: options.entityName,
+          defaultValue: `Excluir ${options.entityName}`,
+        }),
+        message: confirmMessage,
+        confirmText: t('common.delete', 'Excluir'),
+        cancelText: t('common.cancel', 'Cancelar'),
+        variant: 'danger',
+      });
+      if (!ok) return;
     }
 
     try {
@@ -299,7 +315,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         'error'
       );
     }
-  }, [operations, options, messages, addToast, announce, t, editingId, closeEditor, loadItems]);
+  }, [operations, options, messages, addToast, announce, t, confirm, editingId, closeEditor, loadItems]);
 
   return {
     // Lista

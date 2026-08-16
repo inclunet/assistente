@@ -155,9 +155,6 @@ test.describe('Perfis — exclusão', () => {
       return !!button && !button.disabled;
     }, { timeout: 5_000 });
 
-    // Monta handler de diálogo nativo (window.confirm)
-    page.on('dialog', dialog => dialog.accept());
-
     // Clica no botão Delete
     await page.evaluate(() => {
       const button = document.querySelector('button[aria-label="Delete"]') as HTMLButtonElement | null;
@@ -166,6 +163,12 @@ test.describe('Perfis — exclusão', () => {
       }
       button.click();
     });
+
+    // Confirma exclusão no DecisionDialog (AEP-0091), não no window.confirm nativo
+    const confirmDialog = page.locator('.confirm-dialog-modal');
+    await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
+    await confirmDialog.getByRole('button', { name: /delete|excluir/i }).click();
+    await expect(confirmDialog).not.toBeVisible({ timeout: 3_000 });
 
     // Aguarda o processamento
     await page.waitForFunction(() => {

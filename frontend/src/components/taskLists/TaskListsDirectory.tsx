@@ -5,6 +5,7 @@ import { useTaskListStore } from '../../store/taskListStore';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Button } from '../ui/Button';
 import { Toolbar } from '../ui/Toolbar';
+import { useConfirm } from '../../hooks/useConfirm';
 import type { TaskListWithWorkflow } from '../../types/tasklist';
 import './TaskListsDirectory.css';
 
@@ -18,6 +19,7 @@ export default function TaskListsDirectory({
   onOpenList,
 }: TaskListsDirectoryProps) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const taskLists = useTaskListStore((state) => state.taskLists);
 
   // Usa useMemo para evitar recalcular o array a cada render
@@ -30,9 +32,14 @@ export default function TaskListsDirectory({
   };
 
   const handleDeleteList = async (_taskListId: string) => {
-    if (!confirm(t('tasklist.confirmDelete', 'Tem certeza que deseja deletar esta lista?'))) {
-      return;
-    }
+    const ok = await confirm({
+      title: t('tasklist.deleteConfirmTitle', 'Deletar Lista'),
+      message: t('tasklist.confirmDelete', 'Tem certeza que deseja deletar esta lista?'),
+      confirmText: t('common.delete', 'Excluir'),
+      cancelText: t('common.cancel', 'Cancelar'),
+      variant: 'danger',
+    });
+    if (!ok) return;
     // Delete será feito pelo store
   };
 

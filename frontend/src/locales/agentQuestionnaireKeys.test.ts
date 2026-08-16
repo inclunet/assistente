@@ -100,6 +100,16 @@ const shellKeys = [
   'cancel',
 ].map((sufixo) => `app.questionnaire.shell.${sufixo}`);
 
+/** Confirmação HTTP mutável (AEP-0091 Fase 3). */
+const httpKeys = ['title', 'prompt', 'submit', 'cancel'].map(
+  (sufixo) => `app.questionnaire.http.${sufixo}`,
+);
+
+/** Exclusão de mensagem (AEP-0091 Fase 3). */
+const deleteMessageKeys = ['title', 'description', 'submit', 'cancel'].map(
+  (sufixo) => `app.questionnaire.deleteMessage.${sufixo}`,
+);
+
 /** Consentimento de acesso a host bloqueado pelo anti-SSRF (AEP-0082). */
 const networkKeys = [
   'title',
@@ -217,6 +227,8 @@ describe('chaves dos diálogos que o backend monta', () => {
     ...updateKeys,
     ...elevationKeys,
     ...shellKeys,
+    ...httpKeys,
+    ...deleteMessageKeys,
     ...networkKeys,
     ...welcomeKeys,
   ];

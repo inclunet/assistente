@@ -11,8 +11,7 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import type { apidto } from '@wailsjs/go/models';
 import { Button } from '../ui/Button';
-import { DialogActions } from '../ui/DialogActions';
-import { Modal } from '../ui/Modal';
+import { DecisionDialog } from '../ui/DecisionDialog';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { formatFileSize } from '../../services/mediaService';
 import './AgentInstall.css';
@@ -142,7 +141,6 @@ export const AgentInstall = ({
   const installHelpId = `${idBase}-install-help`;
   const updateHelpId = `${idBase}-update-help`;
   const removeHelpId = `${idBase}-remove-help`;
-  const confirmId = `${idBase}-confirm`;
   const unverifiedId = `${idBase}-unverified`;
 
   // O plano guarda de qual agente ele fala, pelo mesmo motivo que a detecção ao
@@ -809,9 +807,9 @@ export const AgentInstall = ({
         antes de qualquer byte sair da rede (D3). Os pares ficam em `dl` para o
         rótulo e o valor chegarem ligados a quem usa leitor de telas.
       */}
-      <Modal
+      <DecisionDialog
         isOpen={!!confirming}
-        onClose={() => setConfirming('')}
+        onCancel={() => setConfirming('')}
         title={
           updating
             ? t('providerForm.agent.catalog.confirm.titleUpdate', {
@@ -820,177 +818,157 @@ export const AgentInstall = ({
               })
             : t('providerForm.agent.catalog.confirm.title', { agent: plan.name })
         }
-        size="md"
-        /*
-          A descrição do diálogo inclui o aviso quando ele existe. Um leitor de
-          telas lê o que está apontado aqui ao abrir, e deixar de fora a frase
-          que nomeia a ausência de verificação a transformaria em texto que só
-          quem varre a tela encontra.
-        */
-        ariaDescribedBy={unverified ? `${confirmId} ${unverifiedId}` : confirmId}
-        /*
-          O foco começa em cancelar quando não há como conferir o artefato
-          (D4). O Enter continua ativando o botão focado, como em qualquer
-          diálogo; o que muda é onde ele começa, e instalar passa a exigir mover
-          o foco até o outro botão — é esse movimento que separa ler do reflexo
-          de confirmar. O seletor é explícito para a regra não depender da ordem
-          em que os botões estão no DOM.
-        */
-        initialFocusSelector={unverified ? '[data-confirm-cancel]' : undefined}
-      >
-        {/*
-          A abertura descreve o que vai acontecer, e o artefato sem digest tem a
-          sua: a do binário promete conferir o arquivo contra o código publicado
-          pelo registro, e repeti-la aqui diria o contrário do aviso logo abaixo.
-        */}
-        <p id={confirmId} className="agent-install__confirm-intro">
-          {t(
-            updating
-              ? 'providerForm.agent.catalog.confirm.introUpdate'
-              : unverified
-                ? 'providerForm.agent.catalog.confirm.introUnverified'
-                : binary
-                  ? 'providerForm.agent.catalog.confirm.introBinary'
-                  : 'providerForm.agent.catalog.confirm.intro',
-          )}
-        </p>
-        {/*
-          A frase nomeia a ausência, e é texto: ícone de alerta como único sinal
-          não chega a quem não vê a tela, e "não verificado" sem dizer o que isso
-          significa não é informação (D4).
-        */}
-        {unverified && (
-          <p id={unverifiedId} className="agent-install__unverified">
-            {t('providerForm.agent.catalog.confirm.unverified')}
-          </p>
+        description={t(
+          updating
+            ? 'providerForm.agent.catalog.confirm.introUpdate'
+            : unverified
+              ? 'providerForm.agent.catalog.confirm.introUnverified'
+              : binary
+                ? 'providerForm.agent.catalog.confirm.introBinary'
+                : 'providerForm.agent.catalog.confirm.intro',
         )}
-        <dl className="agent-install__details">
-          <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
-          <dd>{plan.name}</dd>
-          {/*
-            Na atualização as duas versões aparecem, e nesta ordem: a que sai é
-            o que dá sentido à que entra, e o diálogo é o único lugar onde as
-            duas ficam lado a lado antes de o download começar.
-          */}
-          {updating && !!installed && (
-            <>
-              <dt>{t('providerForm.agent.catalog.confirm.installedVersion')}</dt>
-              <dd>{installed.version}</dd>
-            </>
-          )}
-          <dt>
-            {t(
+        size="md"
+        severity={unverified ? 'permission' : 'info'}
+        /*
+          Artefato sem digest: foco em Cancelar (D4 / AEP-0091). Sem override,
+          permission+body focaria o corpo e Enter não fecharia no cancelar.
+        */
+        initialFocusSelector={
+          unverified ? '[data-decision-action="cancel"]' : undefined
+        }
+        safeActionId="cancel"
+        actions={[
+          {
+            id: 'confirm',
+            label: t(
               updating
-                ? 'providerForm.agent.catalog.confirm.newVersion'
-                : 'providerForm.agent.catalog.confirm.version',
+                ? unverified
+                  ? 'providerForm.agent.catalog.confirm.confirmUpdateUnverifiedBtn'
+                  : 'providerForm.agent.catalog.confirm.confirmUpdateBtn'
+                : unverified
+                  ? 'providerForm.agent.catalog.confirm.confirmUnverifiedBtn'
+                  : 'providerForm.agent.catalog.confirm.confirmBtn',
+            ),
+            primary: true,
+            variant: 'primary',
+          },
+          {
+            id: 'cancel',
+            label: t('providerForm.agent.catalog.confirm.cancelBtn'),
+            variant: 'outline',
+          },
+        ]}
+        onAction={(actionId) => {
+          if (actionId === 'confirm') {
+            if (busy) return;
+            void (updating ? handleUpdate(unverified) : handleInstall(unverified));
+            return;
+          }
+          setConfirming('');
+        }}
+        body={
+          <>
+            {/*
+              A frase nomeia a ausência, e é texto: ícone de alerta como único sinal
+              não chega a quem não vê a tela, e "não verificado" sem dizer o que isso
+              significa não é informação (D4).
+            */}
+            {unverified && (
+              <p id={unverifiedId} className="agent-install__unverified">
+                {t('providerForm.agent.catalog.confirm.unverified')}
+              </p>
             )}
-          </dt>
-          <dd>{plan.version}</dd>
-          <dt>{t('providerForm.agent.catalog.confirm.origin')}</dt>
-          <dd className="agent-install__details-code">{plan.origin}</dd>
-          {!!plan.bytes && plan.bytes > 0 && (
-            <>
-              <dt>{t('providerForm.agent.catalog.confirm.size')}</dt>
-              <dd>{formatFileSize(plan.bytes)}</dd>
-            </>
-          )}
-          <dt>{t('providerForm.agent.catalog.confirm.dir')}</dt>
-          <dd className="agent-install__details-code">{plan.dir}</dd>
-          {/*
-            O que é baixado depende da distribuição, e o diálogo diz o que de
-            fato vai acontecer (D3): o pacote é instalado por uma linha de
-            comando, enquanto o artefato binário é um arquivo por plataforma
-            cujo digest será conferido contra o que chegar.
-          */}
-          {binary ? (
-            <>
-              <dt>{t('providerForm.agent.catalog.confirm.target')}</dt>
-              <dd className="agent-install__details-code">{plan.target}</dd>
-              <dt>{t('providerForm.agent.catalog.confirm.digest')}</dt>
-              <dd className={unverified ? undefined : 'agent-install__details-code'}>
-                {unverified
-                  ? t('providerForm.agent.catalog.confirm.digestMissing')
-                  : plan.sha256}
-              </dd>
-            </>
-          ) : (
-            <>
-              <dt>{t('providerForm.agent.catalog.confirm.command')}</dt>
-              <dd className="agent-install__details-code">{plan.install_command}</dd>
-            </>
-          )}
-        </dl>
-        <DialogActions
-          className="agent-install__confirm-actions"
-          primary={
-            /*
-              Confirmar duas vezes é um clique repetido, e não dois pedidos: o
-              diálogo fecha no primeiro, mas o segundo pode chegar antes disso.
-
-              O rótulo do artefato sem digest diz o que está sendo aceito, e não
-              "confirmar": num leitor de telas o nome do botão é o que se ouve
-              antes de acioná-lo, e ele é a última chance de a frase acima não ter
-              passado batida.
-
-              Ordem DOM: primária → cancelar (AEP-0090). Com artefato não
-              verificado, initialFocusSelector ainda foca o cancelar.
-            */
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => void (updating ? handleUpdate(unverified) : handleInstall(unverified))}
-              disabled={busy}
-            >
-              {t(
-                updating
-                  ? unverified
-                    ? 'providerForm.agent.catalog.confirm.confirmUpdateUnverifiedBtn'
-                    : 'providerForm.agent.catalog.confirm.confirmUpdateBtn'
-                  : unverified
-                    ? 'providerForm.agent.catalog.confirm.confirmUnverifiedBtn'
-                    : 'providerForm.agent.catalog.confirm.confirmBtn',
+            <dl className="agent-install__details">
+              <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
+              <dd>{plan.name}</dd>
+              {/*
+                Na atualização as duas versões aparecem, e nesta ordem: a que sai é
+                o que dá sentido à que entra, e o diálogo é o único lugar onde as
+                duas ficam lado a lado antes de o download começar.
+              */}
+              {updating && !!installed && (
+                <>
+                  <dt>{t('providerForm.agent.catalog.confirm.installedVersion')}</dt>
+                  <dd>{installed.version}</dd>
+                </>
               )}
-            </Button>
-          }
-          secondary={
-            <Button
-              type="button"
-              variant="outline"
-              data-confirm-cancel=""
-              onClick={() => setConfirming('')}
-            >
-              {t('providerForm.agent.catalog.confirm.cancelBtn')}
-            </Button>
-          }
-        />
-      </Modal>
+              <dt>
+                {t(
+                  updating
+                    ? 'providerForm.agent.catalog.confirm.newVersion'
+                    : 'providerForm.agent.catalog.confirm.version',
+                )}
+              </dt>
+              <dd>{plan.version}</dd>
+              <dt>{t('providerForm.agent.catalog.confirm.origin')}</dt>
+              <dd className="agent-install__details-code">{plan.origin}</dd>
+              {!!plan.bytes && plan.bytes > 0 && (
+                <>
+                  <dt>{t('providerForm.agent.catalog.confirm.size')}</dt>
+                  <dd>{formatFileSize(plan.bytes)}</dd>
+                </>
+              )}
+              <dt>{t('providerForm.agent.catalog.confirm.dir')}</dt>
+              <dd className="agent-install__details-code">{plan.dir}</dd>
+              {/*
+                O que é baixado depende da distribuição, e o diálogo diz o que de
+                fato vai acontecer (D3): o pacote é instalado por uma linha de
+                comando, enquanto o artefato binário é um arquivo por plataforma
+                cujo digest será conferido contra o que chegar.
+              */}
+              {binary ? (
+                <>
+                  <dt>{t('providerForm.agent.catalog.confirm.target')}</dt>
+                  <dd className="agent-install__details-code">{plan.target}</dd>
+                  <dt>{t('providerForm.agent.catalog.confirm.digest')}</dt>
+                  <dd className={unverified ? undefined : 'agent-install__details-code'}>
+                    {unverified
+                      ? t('providerForm.agent.catalog.confirm.digestMissing')
+                      : plan.sha256}
+                  </dd>
+                </>
+              ) : (
+                <>
+                  <dt>{t('providerForm.agent.catalog.confirm.command')}</dt>
+                  <dd className="agent-install__details-code">{plan.install_command}</dd>
+                </>
+              )}
+            </dl>
+          </>
+        }
+      />
 
       {showManualActions && (
-        <Modal
+        <DecisionDialog
           isOpen={confirmingRemoval}
-          onClose={() => setConfirmingRemoval(false)}
+          onCancel={() => setConfirmingRemoval(false)}
           title={t('providerForm.agent.catalog.removeConfirm.title', {
             agent: installed?.name || plan.name,
           })}
+          description={t('providerForm.agent.catalog.removeConfirm.message', {
+            dir: installed?.dir,
+          })}
           size="sm"
-        >
-          <p className="agent-install__confirm-intro">
-            {t('providerForm.agent.catalog.removeConfirm.message', { dir: installed?.dir })}
-          </p>
-          <DialogActions
-            className="agent-install__confirm-actions"
-            primary={
-              <Button type="button" variant="danger" onClick={handleRemove}>
-                {t('providerForm.agent.catalog.removeConfirm.confirmBtn')}
-              </Button>
-            }
-            secondary={
-              <Button type="button" variant="outline" onClick={() => setConfirmingRemoval(false)}>
-                {t('providerForm.agent.catalog.confirm.cancelBtn')}
-              </Button>
-            }
-          />
-        </Modal>
+          severity="destructive"
+          safeActionId="cancel"
+          actions={[
+            {
+              id: 'confirm',
+              label: t('providerForm.agent.catalog.removeConfirm.confirmBtn'),
+              primary: true,
+              variant: 'danger',
+            },
+            {
+              id: 'cancel',
+              label: t('providerForm.agent.catalog.confirm.cancelBtn'),
+              variant: 'outline',
+            },
+          ]}
+          onAction={(actionId) => {
+            if (actionId === 'confirm') handleRemove();
+            else setConfirmingRemoval(false);
+          }}
+        />
       )}
 
     </div>

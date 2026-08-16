@@ -1836,6 +1836,8 @@ const ptBR = {
       cannotDelete: 'Não é possível excluir este {{name}}',
       deleteSuccess: '{{name}} excluído com sucesso!',
       deleteError: 'Erro ao excluir {{name}}',
+      deleteConfirmTitle: 'Excluir {{name}}',
+      deleteConfirm: 'Tem certeza que deseja excluir "{{name}}"?',
     },
 
     update: {
@@ -3702,6 +3704,7 @@ const ptBR = {
         eventName: 'Nome do evento',
         hotkeyKeys: 'Teclas de atalho',
         removeTrigger: 'Remover trigger {{n}}',
+        deleteConfirmTitle: 'Excluir job',
         deleteConfirm: 'Tem certeza que deseja excluir "{{name}}"?',
         deleteSuccess: 'Job excluído com sucesso',
         noJobsHintBuilder: 'Clique em "Novo Job" para criar seu primeiro job',
@@ -3819,6 +3822,7 @@ const ptBR = {
       editTask: 'Editar Tarefa',
       deleteTask: 'Deletar Tarefa',
       confirmDeleteTask: 'Tem certeza que deseja deletar esta tarefa?',
+      deleteTaskTitle: 'Excluir tarefa',
       emptyTaskTitle: 'Título da tarefa é obrigatório',
       taskTitleDescription: 'Resumo breve da tarefa',
       taskTitlePlaceholder: 'O que precisa ser feito?',
@@ -4071,6 +4075,12 @@ const ptBR = {
           prompt: 'Permitir esta operação {{method}}?',
           submit: 'Permitir',
           cancel: 'Negar',
+        },
+        deleteMessage: {
+          title: 'Excluir mensagem',
+          description: 'Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita.',
+          submit: 'Excluir',
+          cancel: 'Cancelar',
         },
         network: {
           title: 'Autorizar acesso a host bloqueado (anti-SSRF)',
