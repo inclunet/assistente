@@ -33,23 +33,47 @@ func (c *canalFalso) AskOnChannel(_ context.Context, surface questionnaire.Surfa
 	if c.escolhe == nil {
 		return questionnaire.Response{}, errors.New("ninguém decidiu")
 	}
+	escolha := c.escolhe(c.opcoesOferecidas())
+	if payload.Kind == questionnaire.KindDecision {
+		return questionnaire.Response{
+			Answers: map[string]any{questionnaire.AnswerActionID: actionIDDaAcao(payload, escolha)},
+		}, nil
+	}
 	return questionnaire.Response{
-		Answers: map[string]any{permissionAnswerID: c.escolhe(c.opcoesOferecidas())},
+		Answers: map[string]any{permissionAnswerID: escolha},
 	}, nil
 }
 
-// opcoesOferecidas é o que a pessoa vê na mensagem: os valores estáveis das
-// opções, os mesmos que a tela devolveria.
+// opcoesOferecidas é o que a pessoa vê na mensagem: ids das ações (decision)
+// ou valores estáveis das opções de rádio (legado).
 func (c *canalFalso) opcoesOferecidas() []string {
 	if len(c.pedidos) == 0 {
 		return nil
 	}
-	for _, pergunta := range c.pedidos[len(c.pedidos)-1].Questions {
+	ultimo := c.pedidos[len(c.pedidos)-1]
+	if ultimo.Kind == questionnaire.KindDecision {
+		out := make([]string, 0, len(ultimo.Actions))
+		for _, action := range ultimo.Actions {
+			out = append(out, action.ID)
+		}
+		return out
+	}
+	for _, pergunta := range ultimo.Questions {
 		if pergunta.ID == permissionAnswerID {
 			return questionnaire.TextValues(pergunta.Options)
 		}
 	}
 	return nil
+}
+
+// actionIDDaAcao aceita id estável ou rótulo (resposta malformada nos testes).
+func actionIDDaAcao(payload questionnaire.RequestPayload, escolha string) string {
+	for _, action := range payload.Actions {
+		if action.ID == escolha || action.Label.String() == escolha {
+			return action.ID
+		}
+	}
+	return escolha
 }
 
 func (c *canalFalso) quantosPedidos() int { return len(c.pedidos) }

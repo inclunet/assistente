@@ -84,8 +84,32 @@ func (t *telaFalsa) aoPerguntar(event string, data any) {
 			_ = t.manager.Respond(id, nil, true)
 			return
 		}
-		_ = t.manager.Respond(id, map[string]any{permissionAnswerID: t.escolhe(opcoes)}, false)
+		escolha := t.escolhe(opcoes)
+		_ = t.manager.Respond(id, decisionAnswers(payload, escolha), false)
 	}()
+}
+
+// decisionAnswers monta Answers no contrato atual (actionId) ou legado (rótulo).
+func decisionAnswers(payload map[string]any, escolha string) map[string]any {
+	kind, _ := payload["kind"].(string)
+	if kind == questionnaire.KindDecision {
+		return map[string]any{questionnaire.AnswerActionID: actionIDDaEscolha(payload, escolha)}
+	}
+	return map[string]any{permissionAnswerID: escolha}
+}
+
+func actionIDDaEscolha(payload map[string]any, escolha string) string {
+	for _, action := range actionsDe(payload) {
+		if action.ID == escolha || action.Label.String() == escolha {
+			return action.ID
+		}
+	}
+	return escolha
+}
+
+func actionsDe(payload map[string]any) []questionnaire.DecisionAction {
+	actions, _ := payload["actions"].([]questionnaire.DecisionAction)
+	return actions
 }
 
 func avisar(ch chan struct{}) {
@@ -116,9 +140,17 @@ func (t *telaFalsa) esperarFechamento(tb testing.TB) fechamentoNaTela {
 	return t.fechados[len(t.fechados)-1]
 }
 
-// opcoesDe devolve o que a pessoa vê e escolhe: o valor estável de cada opção,
-// que é o que volta em Answers.
+// opcoesDe devolve o que a pessoa vê e escolhe: rótulos das ações (decision)
+// ou das opções de rádio (legado).
 func (t *telaFalsa) opcoesDe(payload map[string]any) []string {
+	kind, _ := payload["kind"].(string)
+	if kind == questionnaire.KindDecision {
+		out := make([]string, 0, len(actionsDe(payload)))
+		for _, action := range actionsDe(payload) {
+			out = append(out, action.Label.String())
+		}
+		return out
+	}
 	for _, pergunta := range perguntasDe(payload) {
 		if pergunta.ID == permissionAnswerID {
 			return questionnaire.TextValues(pergunta.Options)
@@ -142,6 +174,9 @@ func textoDoDialogo(payload map[string]any, campo string) string {
 // acaoNaTela é o texto do bloco que a pessoa lê antes de decidir.
 func acaoNaTela(tb testing.TB, payload map[string]any) string {
 	tb.Helper()
+	if body, ok := payload["body"].(string); ok && body != "" {
+		return body
+	}
 	for _, pergunta := range perguntasDe(payload) {
 		if pergunta.ID == permissionActionID {
 			return pergunta.Content
@@ -699,8 +734,14 @@ func TestOBotaoDeConfirmarDizOQueEleFaz(t *testing.T) {
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
 	pergunta := tela.ultimaPergunta(t)
-	if rotulo := textoDoDialogo(pergunta, "submitLabel"); rotulo == "" {
-		t.Error("o diálogo foi para a tela com o botão genérico de enviar")
+	actions := actionsDe(pergunta)
+	if len(actions) == 0 {
+		t.Fatal("o diálogo de decisão não trouxe ações")
+	}
+	for _, action := range actions {
+		if action.Label.String() == "" {
+			t.Errorf("ação %q sem rótulo", action.ID)
+		}
 	}
 }
 

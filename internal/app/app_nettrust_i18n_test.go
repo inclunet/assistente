@@ -10,7 +10,7 @@ import (
 )
 
 // dialogoDeRede abre o consentimento de rede e devolve o payload que chegaria à
-// tela, respondendo o que o teste combinou.
+// tela, respondendo o que o teste combinou (id de ação ou valor legado de escopo).
 func dialogoDeRede(t *testing.T, req nettrust.PromptRequest, escolha string) (map[string]any, nettrust.PromptDecision) {
 	t.Helper()
 
@@ -24,7 +24,11 @@ func dialogoDeRede(t *testing.T, req nettrust.PromptRequest, escolha string) (ma
 		recebido = payload
 		id, _ := payload["id"].(string)
 		go func() {
-			_ = mgr.Respond(id, map[string]any{"scope": escolha, "reason": "API interna"}, false)
+			actionID := escolha
+			if escopo, ok := scopeFromOption(escolha); ok {
+				actionID = string(escopo)
+			}
+			_ = mgr.Respond(id, map[string]any{questionnaire.AnswerActionID: actionID}, false)
 		}()
 	})
 
@@ -42,10 +46,10 @@ func dialogoDeRede(t *testing.T, req nettrust.PromptRequest, escolha string) (ma
 func TestAutorizacaoDeRedeVaiTraduzivelParaATela(t *testing.T) {
 	payload, _ := dialogoDeRede(t,
 		nettrust.PromptRequest{Host: "interno.local", Category: "private", Reason: "webhook"},
-		scopeOptionText(networkScopeOptions[0]),
+		string(nettrust.ScopeOnce),
 	)
 
-	for _, campo := range []string{"title", "description", "submitLabel", "cancelLabel"} {
+	for _, campo := range []string{"title", "description"} {
 		texto, ok := payload[campo].(questionnaire.Text)
 		if !ok {
 			t.Fatalf("%s veio como %T, quer questionnaire.Text", campo, payload[campo])
@@ -58,6 +62,20 @@ func TestAutorizacaoDeRedeVaiTraduzivelParaATela(t *testing.T) {
 		}
 	}
 
+	if kind, _ := payload["kind"].(string); kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", kind, questionnaire.KindDecision)
+	}
+
+	actions, ok := payload["actions"].([]questionnaire.DecisionAction)
+	if !ok || len(actions) == 0 {
+		t.Fatalf("actions = %T %#v, quer []DecisionAction", payload["actions"], payload["actions"])
+	}
+	for _, action := range actions {
+		if action.Label.Key == "" || action.Label.Fallback == "" {
+			t.Errorf("ação %q = %+v, quer chave e fallback", action.ID, action.Label)
+		}
+	}
+
 	descricao, _ := payload["description"].(questionnaire.Text)
 	if got := descricao.Params["category"]; got != "private" {
 		t.Errorf("categoria nos params = %v, quer a do pedido", got)
@@ -65,43 +83,32 @@ func TestAutorizacaoDeRedeVaiTraduzivelParaATela(t *testing.T) {
 }
 
 func TestOEscopoEscolhidoContinuaSendoParseadoDepoisDaTraducao(t *testing.T) {
-	// O rótulo do escopo passa a ser traduzido, mas o valor que volta em
-	// Answers é o fallback, com o prefixo estável que o backend parseia. Sem
-	// isso, autorizar "durante esta conversa" em inglês viraria escopo inválido.
-	for _, opcao := range scopeOptions() {
-		if opcao.Key == "" {
-			t.Errorf("opção %+v sem chave: o escopo continuaria só em português", opcao)
-		}
-		escopo, ok := scopeFromOption(opcao.String())
-		if !ok {
-			t.Errorf("o valor da opção %q não volta a um escopo", opcao.String())
+	// Os ids das ações são os escopos estáveis; labels traduzem sem afetar o parse.
+	for _, action := range networkDecisionActions() {
+		if action.ID == decisionDeny {
 			continue
 		}
-		if !strings.HasPrefix(opcao.String(), string(escopo)) {
-			t.Errorf("valor da opção = %q, quer começar pelo escopo %q", opcao.String(), escopo)
+		if action.Label.Key == "" {
+			t.Errorf("ação %+v sem chave: o escopo continuaria só em português", action)
+		}
+		escopo, ok := scopeFromOption(action.ID)
+		if !ok {
+			t.Errorf("o id da ação %q não volta a um escopo", action.ID)
+			continue
+		}
+		if string(escopo) != action.ID {
+			t.Errorf("escopo = %q, quer %q", escopo, action.ID)
 		}
 	}
-}
-
-// perguntaDoDialogo devolve a pergunta de um dado id no payload que foi à tela.
-func perguntaDoDialogo(t *testing.T, payload map[string]any, id string) questionnaire.Question {
-	t.Helper()
-	perguntas, ok := payload["questions"].([]questionnaire.Question)
-	if !ok {
-		t.Fatalf("questions veio como %T, quer []questionnaire.Question", payload["questions"])
-	}
-	for _, q := range perguntas {
-		if q.ID == id {
-			return q
+	// Compat: valores legados "session — …" ainda parseiam.
+	for _, opcao := range scopeOptions() {
+		if _, ok := scopeFromOption(opcao.String()); !ok {
+			t.Errorf("valor legado %q não parseia", opcao.String())
 		}
 	}
-	t.Fatalf("pergunta %q não chegou ao diálogo", id)
-	return questionnaire.Question{}
 }
 
 func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
-	// Quem decide não deveria precisar comparar o destino com a lista de hosts
-	// do skill na mão para saber se é o host esperado.
 	payload, _ := dialogoDeRede(t,
 		nettrust.PromptRequest{
 			Host:                "api.nu.workflows.dev",
@@ -110,24 +117,16 @@ func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
 			SkillSuggestedHosts: []string{"*.nu.workflows.dev"},
 			SkillHostMatch:      "*.nu.workflows.dev",
 		},
-		scopeOptionText(networkScopeOptions[0]),
+		string(nettrust.ScopeOnce),
 	)
 
-	destaque := perguntaDoDialogo(t, payload, "details").Description
-	if destaque.Key == "" {
-		t.Errorf("destaque = %+v, quer chave de tradução", destaque)
-	}
-	if !strings.Contains(destaque.Fallback, "*.nu.workflows.dev") {
-		t.Errorf("destaque = %q, quer nomear o host declarado", destaque.Fallback)
-	}
-	if destaque.Params["pattern"] != "*.nu.workflows.dev" {
-		t.Errorf("params do destaque = %v, quer o host declarado", destaque.Params)
+	body, _ := payload["body"].(string)
+	if !strings.Contains(body, "*.nu.workflows.dev") {
+		t.Errorf("body = %q, quer nomear o host declarado", body)
 	}
 }
 
 func TestODialogoNaoDestacaHostQuandoNenhumCasa(t *testing.T) {
-	// Um destaque genérico ("o skill esperava algum host") sobre um destino que
-	// o skill não declarou empurraria a pessoa a aprovar o que não devia.
 	payload, _ := dialogoDeRede(t,
 		nettrust.PromptRequest{
 			Host:                "api.nu.workflows.dev",
@@ -135,18 +134,19 @@ func TestODialogoNaoDestacaHostQuandoNenhumCasa(t *testing.T) {
 			SkillSlug:           "workflows-api",
 			SkillSuggestedHosts: []string{"outra.coisa.dev"},
 		},
-		scopeOptionText(networkScopeOptions[0]),
+		string(nettrust.ScopeOnce),
 	)
 
-	if destaque := perguntaDoDialogo(t, payload, "details").Description; !destaque.IsZero() {
-		t.Errorf("destaque = %+v, quer nenhum", destaque)
+	body, _ := payload["body"].(string)
+	if strings.Contains(body, "casa com") {
+		t.Errorf("body = %q, não quer destaque de match", body)
 	}
 }
 
 func TestADecisaoDeRedeSegueOEscopoQueAPessoaEscolheu(t *testing.T) {
 	_, decision := dialogoDeRede(t,
 		nettrust.PromptRequest{Host: "interno.local", Category: "private"},
-		scopeOptionText(networkScopeOptions[1]),
+		string(nettrust.ScopeSession),
 	)
 
 	if !decision.Approve {

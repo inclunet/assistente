@@ -143,35 +143,12 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	// impõe ao handler. Um prazo maior que o teto tiraria de quem decide a
 	// chance de responder (AEP-0084 D9).
 	resp, err := h.askOnSurface(ctx, surface, questionnaire.RequestPayload{
+		Kind:        questionnaire.KindDecision,
 		Title:       questionnaire.Keyed(permissionTextKey("title"), "O agente pede permissão"),
 		Description: permissionDescriptionText(choices, kind),
+		Body:        action,
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Keyed(permissionTextKey("submit"), "Confirmar"),
-		CancelLabel: questionnaire.Keyed(permissionTextKey("cancel"), "Negar"),
-		Questions: []questionnaire.Question{
-			{
-				// A ação vai inteira, em bloco: é o que a pessoa lê para
-				// decidir, e um resumo faria autorizar o que não apareceu na
-				// tela. É o mesmo formato da confirmação de edição e da
-				// autorização de rede. O conteúdo do bloco é do agente: vai
-				// como texto, sem chave de tradução (AEP-0085 D6).
-				ID:      permissionActionID,
-				Type:    "readonly_code",
-				Prompt:  questionnaire.Keyed(permissionTextKey("actionPrompt"), "Ação pedida"),
-				Content: action,
-			},
-			{
-				ID:   permissionAnswerID,
-				Type: "single_choice",
-				// Rótulo que o agente mandou é texto, nunca chave de tradução:
-				// traduzir o que vem de fora exibiria o texto de outro lugar do
-				// app no lugar da opção que ele ofereceu (AEP-0085).
-				Prompt:    questionnaire.Keyed(permissionTextKey("choicePrompt"), "O que o agente pode fazer?"),
-				Options:   questionnaire.PlainTexts(choices.labels()),
-				Required:  true,
-				AutoFocus: true,
-			},
-		},
+		Actions:     permissionDecisionActions(choices),
 	})
 	if err != nil {
 		// Prazo estourado, turno cancelado, diálogo indisponível ou app
@@ -190,8 +167,12 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		return acp.PermissionOutcome{}
 	}
 
-	label, _ := resp.Answers[permissionAnswerID].(string)
-	choice, ok := choices.byLabel(label)
+	actionID, ok := questionnaire.DecisionActionID(resp)
+	if !ok {
+		logging.Warnf(ctx, acpPermissionComponent, "[ACP] resposta de permissão sem ação; negando")
+		return acp.PermissionOutcome{}
+	}
+	choice, ok := choices.byID(actionID)
 	if !ok {
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] resposta de permissão fora das opções oferecidas; negando")
 		return acp.PermissionOutcome{}
@@ -514,8 +495,8 @@ func (c permissionChoices) labels() []string {
 	return out
 }
 
-// byLabel reencontra a opção pelo rótulo escolhido. É por rótulo porque é o
-// que o questionário devolve — daí os rótulos precisarem ser distintos.
+// byLabel reencontra a opção pelo rótulo escolhido. Mantido para canais e
+// superfícies que ainda devolvem o rótulo em Answers (legado).
 func (c permissionChoices) byLabel(label string) (permissionChoice, bool) {
 	for _, choice := range c {
 		if choice.label == label {
@@ -523,6 +504,39 @@ func (c permissionChoices) byLabel(label string) (permissionChoice, bool) {
 		}
 	}
 	return permissionChoice{}, false
+}
+
+// byID reencontra a opção pelo OptionID do agente (resposta kind=decision).
+func (c permissionChoices) byID(id string) (permissionChoice, bool) {
+	for _, choice := range c {
+		if choice.id == id {
+			return choice, true
+		}
+	}
+	return permissionChoice{}, false
+}
+
+// permissionDecisionActions monta os botões do DecisionDialog: id = OptionID.
+func permissionDecisionActions(choices permissionChoices) []questionnaire.DecisionAction {
+	out := make([]questionnaire.DecisionAction, 0, len(choices))
+	for _, choice := range choices {
+		action := questionnaire.DecisionAction{
+			ID:      choice.id,
+			Label:   questionnaire.Plain(choice.label),
+			Variant: "secondary",
+		}
+		switch choice.kind {
+		case optionAllowOnce:
+			action.Primary = true
+			action.Variant = "primary"
+		case optionAllowAlways:
+			action.Variant = "secondary"
+		default:
+			action.Variant = "outline"
+		}
+		out = append(out, action)
+	}
+	return out
 }
 
 // hasAlways diz se o agente ofereceu autorizar para sempre. Só então o diálogo

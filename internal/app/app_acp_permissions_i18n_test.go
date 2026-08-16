@@ -69,20 +69,27 @@ func dialogoDePermissao(t *testing.T, pedido acp.PermissionRequest) map[string]a
 func TestOPedidoDePermissaoVaiTraduzivelParaATela(t *testing.T) {
 	payload := dialogoDePermissao(t, pedidoDeExecucao())
 
-	exigirChaveEFallback(t, payload, "title", "description", "submitLabel", "cancelLabel")
-	for campo, esperado := range map[string]string{
-		"title":       "O agente pede permissão",
-		"submitLabel": "Confirmar",
-		"cancelLabel": "Negar",
-	} {
-		if got := textoDoDialogo(payload, campo); got != esperado {
-			t.Errorf("%s = %q, quer o texto de antes %q", campo, got, esperado)
+	exigirChaveEFallback(t, payload, "title", "description")
+	if got := textoDoDialogo(payload, "title"); got != "O agente pede permissão" {
+		t.Errorf("title = %q, quer o texto de antes", got)
+	}
+	if kind, _ := payload["kind"].(string); kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", kind, questionnaire.KindDecision)
+	}
+	if body, _ := payload["body"].(string); body == "" {
+		t.Error("body vazio: a ação pedida precisa aparecer no diálogo")
+	}
+	actions := actionsDe(payload)
+	if len(actions) == 0 {
+		t.Fatal("sem ações no DecisionDialog")
+	}
+	for _, action := range actions {
+		// Rótulos do agente são Plain (sem chave): traduzir o que vem de fora
+		// exibiria texto de outro lugar do app (AEP-0085).
+		if action.Label.Fallback == "" && action.Label.String() == "" {
+			t.Errorf("ação %q sem rótulo", action.ID)
 		}
 	}
-	exigirRotulosDasPerguntas(t, payload, map[string]string{
-		permissionActionID: "Ação pedida",
-		permissionAnswerID: "O que o agente pode fazer?",
-	})
 }
 
 // A classe da ação é enumerável e ganha chave própria, em vez de entrar
