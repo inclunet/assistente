@@ -37,12 +37,12 @@ function shellDecision(): QuestionnairePayload {
   return {
     id: 'q1',
     kind: 'decision',
-    title: { key: 'app.questionnaire.shell.title', fallback: 'Confirmar execução' },
-    description: { key: 'app.questionnaire.shell.description', fallback: 'O agente quer executar:' },
+    title: { key: 'app.questionnaire.shell.title', fallback: 'Confirmar execução de comando' },
+    description: { key: 'app.questionnaire.shell.prompt', fallback: 'Permitir a execução deste comando?' },
     body: 'ls -la',
     actions: [
-      { id: 'allow', label: { key: 'app.questionnaire.shell.allow', fallback: 'Permitir' }, primary: true, variant: 'primary' },
-      { id: 'deny', label: { key: 'app.questionnaire.shell.deny', fallback: 'Negar' }, variant: 'outline' },
+      { id: 'allow', label: { key: 'app.questionnaire.shell.submit', fallback: 'Permitir' }, primary: true, variant: 'primary' },
+      { id: 'deny', label: { key: 'app.questionnaire.shell.cancel', fallback: 'Negar' }, variant: 'outline' },
     ],
     questions: [],
   };

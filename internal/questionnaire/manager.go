@@ -161,14 +161,20 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		"kind":        req.Kind,
 		"title":       req.Title,
 		"description": req.Description,
-		"hint":        req.Hint,
 		"body":        req.Body,
-		"actions":     req.Actions,
 		"questions":   req.Questions,
 		"allowCancel": req.AllowCancel,
 		"submitLabel": req.SubmitLabel,
 		"cancelLabel": req.CancelLabel,
 		"createdAt":   req.CreatedAt,
+	}
+	// hint/actions só existem em kind=decision: incluí-los sempre mandaria
+	// hint vazio e actions=null para todo formulário, poluindo o contrato.
+	if !req.Hint.IsZero() {
+		eventData["hint"] = req.Hint
+	}
+	if len(req.Actions) > 0 {
+		eventData["actions"] = req.Actions
 	}
 	if req.RejectReason != nil {
 		eventData["rejectReason"] = req.RejectReason
