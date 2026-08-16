@@ -84,8 +84,11 @@ export function DecisionQuestionnaireHost({
       safeActionId={safeActionId}
       // App restaura o foco após submit/cancel; evita restauração dupla.
       returnFocusOnClose={false}
+      // allowCancel=false esconde o X e desliga ESC/clique fora (sem armadilha
+      // de foco); só as ações fecham o diálogo.
+      allowClose={allowCancel}
       onAction={(actionId) => onAction({ [DECISION_ANSWER_ACTION_ID]: actionId })}
-      onCancel={allowCancel ? onCancel : () => {}}
+      onCancel={onCancel}
     />
   );
 }

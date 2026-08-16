@@ -52,6 +52,11 @@ export interface DecisionDialogProps {
    * Default true — restaura via Modal ao fechar.
    */
   returnFocusOnClose?: boolean;
+  /**
+   * Se false, esconde o X e desabilita ESC/clique fora: o diálogo exige uma
+   * das ações (não há fechamento neutro). Default true.
+   */
+  allowClose?: boolean;
 }
 
 function MnemonicLabel({ label, mnemonic }: { label: string; mnemonic: string }) {
@@ -136,6 +141,7 @@ export function DecisionDialog({
   className,
   safeActionId,
   returnFocusOnClose = true,
+  allowClose = true,
 }: DecisionDialogProps) {
   const { t } = useTranslation();
   const descriptionId = useId();
@@ -219,6 +225,7 @@ export function DecisionDialog({
       className={`decision-dialog-modal ${variantClass}${className ? ` ${className}` : ''}`}
       ariaDescribedBy={describedBy}
       returnFocusOnClose={returnFocusOnClose}
+      allowClose={allowClose}
       initialFocusSelector={initialFocusSelector}
       readingMode={Boolean(body)}
     >
