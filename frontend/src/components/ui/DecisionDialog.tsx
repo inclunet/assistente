@@ -37,7 +37,8 @@ export interface DecisionDialogProps {
   title: string;
   description: string;
   body?: ReactNode;
-  actions: DecisionAction[];
+  /** Pelo menos uma ação (confirm/cancel, allow/deny, etc.). */
+  actions: [DecisionAction, ...DecisionAction[]];
   /** Afeta foco inicial (AEP-0091 D7). Default: info. */
   severity?: DecisionSeverity;
   onAction: (actionId: string) => void;
@@ -96,6 +97,7 @@ function DecisionDialogHotkeys({
       if (!isTopmost()) return;
 
       if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'r') {
+        if (isEditableKeyboardTarget(e.target)) return;
         e.preventDefault();
         e.stopPropagation();
         onRepeat();

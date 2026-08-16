@@ -146,6 +146,31 @@ describe('DecisionDialog', () => {
     );
   });
 
+  it('Ctrl+Shift+R nao intercepta em campo editavel', async () => {
+    render(
+      <DecisionDialog
+        isOpen
+        title="Título"
+        description="Pergunta"
+        body={<textarea aria-label="motivo" defaultValue="" />}
+        actions={[
+          { id: 'ok', label: 'OK', primary: true },
+          { id: 'cancel', label: 'Cancelar', variant: 'outline' },
+        ]}
+        onAction={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(announceRequest).toHaveBeenCalled());
+    announceRequest.mockClear();
+
+    const field = screen.getByLabelText('motivo');
+    field.focus();
+    fireEvent.keyDown(field, { key: 'R', ctrlKey: true, shiftKey: true });
+    expect(announceRequest).not.toHaveBeenCalled();
+  });
+
   it('não tem violações axe', async () => {
     render(
       <DecisionDialog
