@@ -31,6 +31,8 @@ describe('ConfirmDialog', () => {
         isOpen={true}
         title="Apagar"
         message="Tem certeza"
+        confirmText="Sim, apagar"
+        cancelText="Não"
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
       />
@@ -38,7 +40,7 @@ describe('ConfirmDialog', () => {
 
     const footerButtons = screen
       .getAllByRole('button')
-      .filter((b) => b.textContent === 'Confirmar' || b.textContent === 'Cancelar');
-    expect(footerButtons.map((b) => b.textContent)).toEqual(['Confirmar', 'Cancelar']);
+      .filter((b) => b.textContent === 'Sim, apagar' || b.textContent === 'Não');
+    expect(footerButtons.map((b) => b.textContent)).toEqual(['Sim, apagar', 'Não']);
   });
 });

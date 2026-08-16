@@ -90,7 +90,7 @@ de telas.
 - Menus: setas para navegar, Enter para selecionar, ESC para fechar
 - Foco DEVE ser restaurado ao fechar modais/menus
 - Em rodapés de diálogo/modal/formulário com par confirmação/cancelamento,
-  a **ação primaria** (Confirmar, OK, Salvar, Aplicar, Ir) vem **antes** de
+  a **ação primária** (Confirmar, OK, Salvar, Aplicar, Ir) vem **antes** de
   Cancelar no DOM (ordem de Tab e NVDA). Usar `DialogActions`. Não mascarar
   com `row-reverse`/`order`. O Fechar (X) do `Modal` permanece no header
   (AEP-0090).
@@ -104,7 +104,7 @@ de telas.
 ### Componentes reutilizáveis
 Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - `DataGrid` para tabelas (já tem role="grid" e navegação por teclado)
-- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` (wrapper sobre o `Modal`) para confirmações; `DialogActions` para rodapé primaria→cancelar (AEP-0090)
+- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` (wrapper sobre o `Modal`) para confirmações; `DialogActions` para rodapé primária→cancelar (AEP-0090)
 - `Button` para botões (variantes: primary, secondary, danger, ghost, outline)
 - `Toolbar` para barras de ferramentas (ARIA toolbar)
 

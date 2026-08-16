@@ -6,11 +6,11 @@
 
 Em modais, diálogos e rodapés de formulário do tipo
 “cancelar / confirmar”, a ordem no DOM (e portanto a ordem de Tab e a
-leitura no NVDA) hoje coloca **Cancelar antes** da ação primaria
+leitura no NVDA) hoje coloca **Cancelar antes** da ação primária
 (Confirmar, OK, Salvar, Ir). Para quem usa leitor de telas, isso atrasa
 a ação afirmativa e empurra o fluxo para a opção de desistir primeiro.
 
-Este AEP padroniza: **ação primaria/confirmação vem antes de cancelar**
+Este AEP padroniza: **ação primária/confirmação vem antes de cancelar**
 no DOM. O botão **Fechar (X)** do `Modal` permanece no header. A ordem
 visual acompanha o DOM (estilo Windows: Confirmar | Cancelar), sem
 `flex-direction: row-reverse` que mascare ordem errada.
@@ -28,18 +28,18 @@ visual acompanha o DOM (estilo Windows: Confirmar | Cancelar), sem
 
 ## Decisões
 
-### D1. Ordem canônica no DOM: primaria → secundaria (cancelar)
+### D1. Ordem canônica no DOM: primária → secundária (cancelar)
 
-Em qualquer rodapé de diálogo/modal/formulario com par
+Em qualquer rodapé de diálogo/modal/formulário com par
 confirmação/cancelamento:
 
-1. Botão de **confirmação / salvar / OK / aplicar / ir** (acao primaria)
+1. Botão de **confirmação / salvar / OK / aplicar / ir** (ação primária)
 2. Botão de **cancelar** (e equivalentes: descartar, rejeitar quando for a
    saída sem aplicar)
 
 Ações auxiliares (ex.: “Testar conexão”) ficam **antes** do par
-primaria/secundaria, ou em outra região — não entre eles de forma a
-empurrar a primaria para depois do cancelar.
+primária/secundária, ou em outra região — não entre eles de forma a
+empurrar a primária para depois do cancelar.
 
 ### D2. Fechar (X) do `Modal` não muda de lugar
 
@@ -98,12 +98,12 @@ variante com motivo de rejeição já correta (Aplicar → motivo → Rejeitar).
 
 ## Critérios de aceitação
 
-- [ ] `ConfirmDialog` / `ConfirmHost`: no DOM, Confirmar aparece antes de
+- [x] `ConfirmDialog` / `ConfirmHost`: no DOM, Confirmar aparece antes de
       Cancelar; teste cobre a ordem.
-- [ ] `DialogActions` exportado e documentado como caminho preferido.
-- [ ] `AGENTS.md` e AEP descrevem a regra; Fechar (X) explicitamente fora
+- [x] `DialogActions` exportado e documentado como caminho preferido.
+- [x] `AGENTS.md` e AEP descrevem a regra; Fechar (X) explicitamente fora
       do escopo de reordenação.
-- [ ] Nenhum uso novo de `row-reverse`/`order` para inverter
-      primaria/secundaria.
+- [x] Nenhum uso novo de `row-reverse`/`order` para inverter
+      primária/secundária.
 - [ ] Fases 2–3 podem ficar abertas; Fase 1 entrega o contrato e o
       ponto global de confirmação.
