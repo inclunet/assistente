@@ -25,6 +25,7 @@ import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
 import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
+import { DialogActions } from '../components/ui/DialogActions';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -813,22 +814,28 @@ export default function McpPage() {
                   {t('mcp.buttons.delete')}
                 </Button>
               )}
-              <Button variant="ghost" onClick={handleCloseEditor} aria-label={t('mcp.aria.closeEditor')}>
-                {t('mcp.buttons.close')}
-              </Button>
-              <Button
-                onClick={handleSave}
-                loading={saving}
-                aria-label={
-                  saving
-                    ? t('mcp.aria.saving')
-                    : t('mcp.aria.saveServer', {
-                        name: formName || editingSlug || t('mcp.pageTitle'),
-                      })
+              <DialogActions
+                primary={
+                  <Button
+                    onClick={handleSave}
+                    loading={saving}
+                    aria-label={
+                      saving
+                        ? t('mcp.aria.saving')
+                        : t('mcp.aria.saveServer', {
+                            name: formName || editingSlug || t('mcp.pageTitle'),
+                          })
+                    }
+                  >
+                    {t('common.save')}
+                  </Button>
                 }
-              >
-                {t('common.save')}
-              </Button>
+                secondary={
+                  <Button variant="ghost" onClick={handleCloseEditor} aria-label={t('mcp.aria.closeEditor')}>
+                    {t('mcp.buttons.close')}
+                  </Button>
+                }
+              />
             </EditorPanelFooter>
           </div>
         )}

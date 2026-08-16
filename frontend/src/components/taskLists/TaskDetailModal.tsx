@@ -3,6 +3,7 @@ import { CalendarOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, LinkO
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
+import { DialogActions } from '../ui/DialogActions';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { HistoryPicker } from '../pickers/HistoryPicker';
 import { useTaskListStore } from '../../store/taskListStore';
@@ -451,12 +452,17 @@ function NoteForm({
         aria-label={t('tasklist.noteContent')}
         autoFocus
       />
-      <div className="task-detail__note-form-actions">
-        <button onClick={onCancel}>{t('common.cancel', 'Cancelar')}</button>
-        <button data-primary="" onClick={onSave} disabled={!noteContent.trim()}>
-          {t('common.save', 'Salvar')}
-        </button>
-      </div>
+      <DialogActions
+        className="task-detail__note-form-actions"
+        primary={
+          <button type="button" data-primary="" onClick={onSave} disabled={!noteContent.trim()}>
+            {t('common.save', 'Salvar')}
+          </button>
+        }
+        secondary={
+          <button type="button" onClick={onCancel}>{t('common.cancel', 'Cancelar')}</button>
+        }
+      />
     </div>
   );
 }

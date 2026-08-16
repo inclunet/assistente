@@ -4,6 +4,7 @@ import { FolderOpenOutlined } from '@ant-design/icons';
 import { ToolbarButton } from '../ui/Toolbar';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
+import { DialogActions } from '../ui/DialogActions';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import {
   dirName,
@@ -143,16 +144,22 @@ export const AgentWorkDirControl: React.FC<AgentWorkDirControlProps> = ({
             >
               {t('chat.agentWorkDir.useWorkspace')}
             </Button>
-            <Button variant="ghost" onClick={close} disabled={saving}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => void apply(typed)}
-              disabled={saving}
-            >
-              {t('chat.agentWorkDir.confirm')}
-            </Button>
+            <DialogActions
+              primary={
+                <Button
+                  variant="primary"
+                  onClick={() => void apply(typed)}
+                  disabled={saving}
+                >
+                  {t('chat.agentWorkDir.confirm')}
+                </Button>
+              }
+              secondary={
+                <Button variant="ghost" onClick={close} disabled={saving}>
+                  {t('common.cancel')}
+                </Button>
+              }
+            />
           </div>
         </div>
       </Modal>

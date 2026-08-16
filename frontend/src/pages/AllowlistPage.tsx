@@ -21,6 +21,7 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
+import { DialogActions } from '../components/ui/DialogActions';
 import { AllowlistGeneralSection } from '../components/allowlist/AllowlistGeneralSection';
 import { AllowlistRulesSection } from '../components/allowlist/AllowlistRulesSection';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -380,12 +381,18 @@ export default function AllowlistPage() {
                   {t('allowlist.buttons.delete')}
                 </Button>
               )}
-              <Button variant="ghost" onClick={crud.closeEditor}>
-                {t('common.cancel')}
-              </Button>
-              <Button onClick={crud.save} loading={crud.saving}>
-                {t('common.save')}
-              </Button>
+              <DialogActions
+                primary={
+                  <Button onClick={crud.save} loading={crud.saving}>
+                    {t('common.save')}
+                  </Button>
+                }
+                secondary={
+                  <Button variant="ghost" onClick={crud.closeEditor}>
+                    {t('common.cancel')}
+                  </Button>
+                }
+              />
             </EditorPanelFooter>
           </div>
         )}

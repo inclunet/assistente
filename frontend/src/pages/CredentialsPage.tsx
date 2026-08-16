@@ -7,6 +7,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button, Input, Select } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
+import { DialogActions } from '../components/ui/DialogActions';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -578,12 +579,18 @@ export default function CredentialsPage() {
               {t('credentials.buttons.delete')}
             </Button>
           )}
-          <Button variant="ghost" onClick={() => { resetSuggestions(); crud.closeEditor(); }}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={crud.save} loading={crud.saving}>
-            {crud.isNew ? t('credentials.buttons.create') : t('common.save')}
-          </Button>
+          <DialogActions
+            primary={
+              <Button onClick={crud.save} loading={crud.saving}>
+                {crud.isNew ? t('credentials.buttons.create') : t('common.save')}
+              </Button>
+            }
+            secondary={
+              <Button variant="ghost" onClick={() => { resetSuggestions(); crud.closeEditor(); }}>
+                {t('common.cancel')}
+              </Button>
+            }
+          />
         </EditorPanelFooter>
       </Modal>
 

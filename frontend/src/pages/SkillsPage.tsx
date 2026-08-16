@@ -17,6 +17,7 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { Button, PageLoading } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
+import { DialogActions } from '../components/ui/DialogActions';
 import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
 import { SkillContentSection } from '../components/skills/SkillContentSection';
 import { SkillToolsSection } from '../components/skills/SkillToolsSection';
@@ -439,16 +440,22 @@ export default function SkillsPage() {
                   {t('skills.deleteBtn', 'Excluir')}
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                onClick={crud.closeEditor}
-                aria-label={t('skills.closeBtnLabel', 'Fechar editor, Escape')}
-              >
-                {t('skills.closeBtn', 'Fechar')}
-              </Button>
-              <Button onClick={crud.save} loading={crud.saving}>
-                {t('skills.saveBtn', 'Salvar')}
-              </Button>
+              <DialogActions
+                primary={
+                  <Button onClick={crud.save} loading={crud.saving}>
+                    {t('skills.saveBtn', 'Salvar')}
+                  </Button>
+                }
+                secondary={
+                  <Button
+                    variant="ghost"
+                    onClick={crud.closeEditor}
+                    aria-label={t('skills.closeBtnLabel', 'Fechar editor, Escape')}
+                  >
+                    {t('skills.closeBtn', 'Fechar')}
+                  </Button>
+                }
+              />
             </EditorPanelFooter>
           </div>
         )}

@@ -15,6 +15,7 @@ import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Combobox, type ComboboxItem } from '../components/pickers/Combobox';
 import { Button } from '../components/ui/Button';
+import { DialogActions } from '../components/ui/DialogActions';
 import { Modal } from '../components/ui/Modal';
 import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -517,10 +518,15 @@ export default function MemoriesPage() {
             <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder={t('memories.fields.tagsPlaceholder')} />
           </label>
           <p className="memories-page__policy-help">{t(`memories.policyHelp.${form.loadPolicy}`)}</p>
-          <div className="memories-page__modal-actions">
-            <Button type="button" variant="secondary" onClick={closeModal} disabled={saving}>{t('common.cancel')}</Button>
-            <Button type="submit" variant="primary" disabled={saving}>{t('common.save')}</Button>
-          </div>
+          <DialogActions
+            className="memories-page__modal-actions"
+            primary={
+              <Button type="submit" variant="primary" disabled={saving}>{t('common.save')}</Button>
+            }
+            secondary={
+              <Button type="button" variant="secondary" onClick={closeModal} disabled={saving}>{t('common.cancel')}</Button>
+            }
+          />
         </form>
       </Modal>
     </div>
