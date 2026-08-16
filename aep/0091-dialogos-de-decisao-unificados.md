@@ -176,11 +176,11 @@ separadas (`confirmStore` vs questionnaire).
 
 ### Fase 1 — Fundação no frontend
 
-- [ ] `DecisionDialog` (ou evolução do `ConfirmDialog`) com D3–D7
-- [ ] Adicionar `SOUND_TYPES.ALERT` em `audioFeedback` + preferência do usuário
-- [ ] `Ctrl+Shift+R` repeat
-- [ ] Migrar `ConfirmDialog` / `useConfirm`
-- [ ] Testes: anúncio, som (mock), atalhos, axe, ordem AEP-0090
+- [x] `DecisionDialog` (ou evolução do `ConfirmDialog`) com D3–D7
+- [x] Adicionar `SOUND_TYPES.ALERT` em `audioFeedback` + preferência do usuário
+- [x] `Ctrl+Shift+R` repeat
+- [x] Migrar `ConfirmDialog` / `useConfirm`
+- [x] Testes: anúncio, som (mock), atalhos, axe, ordem AEP-0090
 
 ### Fase 2 — Shell, rede, ACP
 

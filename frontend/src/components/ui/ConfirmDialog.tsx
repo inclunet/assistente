@@ -1,9 +1,8 @@
-import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from './Button';
-import { DialogActions } from './DialogActions';
-import { Modal } from './Modal';
-import './ConfirmDialog.css';
+import {
+  DecisionDialog,
+  type DecisionSeverity,
+} from './DecisionDialog';
 
 export interface ConfirmDialogProps {
   isOpen: boolean;
@@ -16,48 +15,56 @@ export interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
+function toSeverity(variant: ConfirmDialogProps['variant']): DecisionSeverity {
+  if (variant === 'danger') return 'destructive';
+  if (variant === 'warning') return 'permission';
+  return 'info';
+}
+
+/**
+ * Confirmação binária (AEP-0091): wrapper sobre DecisionDialog.
+ * Mantém a API de useConfirm / ConfirmHost.
+ */
 export function ConfirmDialog({
   isOpen,
   title,
   message,
-  confirmText = 'Confirmar',
-  cancelText = 'Cancelar',
+  confirmText,
+  cancelText,
   variant = 'danger',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
-  const messageId = useId();
+  const confirmLabel = confirmText ?? t('common.confirm');
+  const cancelLabel = cancelText ?? t('common.cancel');
 
   return (
-    <Modal
+    <DecisionDialog
       isOpen={isOpen}
-      onClose={onCancel}
       title={title}
-      size="sm"
+      description={message}
+      severity={toSeverity(variant)}
       className={`confirm-dialog-modal confirm-dialog-modal--${variant}`}
-      ariaDescribedBy={messageId}
-      returnFocusOnClose={false}
-    >
-      <div className="confirm-dialog__body">
-        <p id={messageId} className="confirm-dialog__message">
-          {message}
-        </p>
-      </div>
-
-      <DialogActions
-        className="confirm-dialog__footer"
-        primary={
-          <Button variant={variant === 'danger' ? 'danger' : 'primary'} onClick={onConfirm}>
-            {confirmText ?? t('common.confirm')}
-          </Button>
-        }
-        secondary={
-          <Button variant="outline" onClick={onCancel}>
-            {cancelText ?? t('common.cancel')}
-          </Button>
-        }
-      />
-    </Modal>
+      safeActionId="cancel"
+      actions={[
+        {
+          id: 'confirm',
+          label: confirmLabel,
+          variant: variant === 'danger' ? 'danger' : 'primary',
+          primary: true,
+        },
+        {
+          id: 'cancel',
+          label: cancelLabel,
+          variant: 'outline',
+        },
+      ]}
+      onAction={(id) => {
+        if (id === 'confirm') onConfirm();
+        else onCancel();
+      }}
+      onCancel={onCancel}
+    />
   );
 }

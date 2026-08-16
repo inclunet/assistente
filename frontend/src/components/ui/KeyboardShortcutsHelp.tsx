@@ -77,6 +77,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
         { keys: 'Alt+T', description: t('ui.shortcuts.goToTasklists') },
         { keys: 'Alt+J', description: t('ui.shortcuts.goToJobs') },
         { keys: 'Alt+P', description: t('ui.shortcuts.goToProfiles') },
+        { keys: 'Ctrl+Shift+R', description: t('ui.shortcuts.repeatDecisionPrompt') },
         { keys: 'Esc', description: t('ui.shortcuts.closeDialog') },
       ],
     },

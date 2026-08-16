@@ -7,6 +7,8 @@ import { persist } from 'zustand/middleware';
 export interface AppConfig {
   theme: 'assistente' | 'amethyst' | 'midnight' | 'light' | 'high-contrast';
   language: 'pt-BR' | 'en' | 'es';
+  /** Som de alerta na abertura de DecisionDialog (AEP-0091). Default: true. */
+  decisionAlertSound: boolean;
 }
 
 interface SettingsState {
@@ -26,7 +28,22 @@ const validLanguages: AppConfig['language'][] = ['pt-BR', 'en', 'es'];
 const defaultConfig: AppConfig = {
   theme: 'assistente',
   language: 'pt-BR',
+  decisionAlertSound: true,
 };
+
+function sanitizeConfig(persistedConfig: Partial<AppConfig> | null | undefined): AppConfig {
+  const config: AppConfig = { ...defaultConfig };
+  if (validThemes.includes(persistedConfig?.theme as AppConfig['theme'])) {
+    config.theme = persistedConfig!.theme as AppConfig['theme'];
+  }
+  if (validLanguages.includes(persistedConfig?.language as AppConfig['language'])) {
+    config.language = persistedConfig!.language as AppConfig['language'];
+  }
+  if (typeof persistedConfig?.decisionAlertSound === 'boolean') {
+    config.decisionAlertSound = persistedConfig.decisionAlertSound;
+  }
+  return config;
+}
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
@@ -40,30 +57,23 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'assistente-settings',
-      version: 1,
+      version: 2,
       migrate: (persisted: unknown, version: number) => {
         const persistedState =
           typeof persisted === 'object' && persisted !== null
             ? (persisted as { config?: Partial<AppConfig> | null })
             : {};
-        const persistedConfig = persistedState.config ?? {};
+        const config = sanitizeConfig(persistedState.config);
 
-        // Whitelist explícito: só migramos as chaves suportadas (theme/language).
-        // Versões antigas persistiam LLM/credenciais (apiKey, baseURL, ...) neste
-        // mesmo objeto; fazer spread cego as manteria no localStorage. Aqui elas
-        // são descartadas (teardown do config.json legado — #299).
-        const config: AppConfig = { ...defaultConfig };
-        if (validThemes.includes(persistedConfig.theme as AppConfig['theme'])) {
-          config.theme = persistedConfig.theme as AppConfig['theme'];
-        }
-        if (validLanguages.includes(persistedConfig.language as AppConfig['language'])) {
-          config.language = persistedConfig.language as AppConfig['language'];
-        }
+        // Whitelist explícito: só migramos as chaves suportadas.
+        // Versões antigas persistiam LLM/credenciais neste mesmo objeto;
+        // spread cego as manteria no localStorage (#299).
 
         if (version === 0 && config.theme === 'amethyst') {
           config.theme = 'assistente';
         }
 
+        // v1 → v2: decisionAlertSound default true se ausente (já no sanitize).
         return { config };
       },
       partialize: (state) => ({ config: state.config }),

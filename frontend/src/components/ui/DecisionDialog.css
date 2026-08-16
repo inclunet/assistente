@@ -1,0 +1,73 @@
+.modal-content.decision-dialog-modal {
+  max-width: 450px;
+}
+
+.modal-content.decision-dialog-modal--destructive {
+  border-top: 4px solid var(--color-danger);
+}
+
+.modal-content.decision-dialog-modal--permission {
+  border-top: 4px solid var(--color-warning);
+}
+
+.modal-content.decision-dialog-modal--info {
+  border-top: 4px solid var(--color-info);
+}
+
+.decision-dialog__body {
+  margin-bottom: 20px;
+}
+
+.decision-dialog__description {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.decision-dialog__extra {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.decision-dialog__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.decision-dialog__mnemonic {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Compat: ConfirmDialog ainda aplica confirm-dialog-modal via className. */
+.modal-content.confirm-dialog-modal {
+  max-width: 450px;
+}
+
+.modal-content.confirm-dialog-modal--danger {
+  border-top: 4px solid var(--color-danger);
+}
+
+.modal-content.confirm-dialog-modal--warning {
+  border-top: 4px solid var(--color-warning);
+}
+
+.modal-content.confirm-dialog-modal--info {
+  border-top: 4px solid var(--color-info);
+}

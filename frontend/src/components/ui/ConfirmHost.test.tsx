@@ -5,6 +5,23 @@ import { ConfirmHost } from './ConfirmHost';
 const confirmSpy = vi.fn();
 const cancelSpy = vi.fn();
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: vi.fn(),
+    announceRequest: vi.fn(),
+  }),
+}));
+
+vi.mock('../../services/audioFeedback', () => ({
+  playSound: vi.fn(),
+  SOUND_TYPES: { ALERT: 'alert' },
+}));
+
+vi.mock('../../store/settingsStore', () => ({
+  useSettingsStore: (selector: (s: { config: { decisionAlertSound: boolean } }) => unknown) =>
+    selector({ config: { decisionAlertSound: false } }),
+}));
+
 vi.mock('../../store/confirmStore', () => ({
   useConfirmStore: (selector: (state: {
     active: { title: string; message: string; confirmText?: string; cancelText?: string } | null;
@@ -23,6 +40,7 @@ describe('ConfirmHost', () => {
     render(<ConfirmHost />);
 
     expect(screen.getByText('Tem certeza')).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
     const actions = document.querySelector('[data-dialog-actions]');
     expect(actions).not.toBeNull();

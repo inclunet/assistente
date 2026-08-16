@@ -25,6 +25,9 @@ export const SOUND_TYPES = {
   FOCUS: 'focus',         // Foco em elemento
   BOUNDARY: 'boundary',   // Limite de navegação
   BUMP: 'bump',           // Bateu no limite (som de tambor)
+
+  // Diálogos de decisão (AEP-0091)
+  ALERT: 'alert',         // Alerta na abertura de DecisionDialog
 } as const;
 
 export type SoundType = typeof SOUND_TYPES[keyof typeof SOUND_TYPES];
@@ -262,6 +265,26 @@ export function playSound(type: SoundType): void {
           osc2.stop(now + duration);
         }
         break;
+
+      case SOUND_TYPES.ALERT:
+        // Alerta de decisão: agudo → médio (atenção; distinto do ERROR plano em 330Hz)
+        {
+          const { oscillator: osc1, gainNode: gain1 } = createTone(ctx);
+          osc1.frequency.setValueAtTime(880, now);
+          gain1.gain.setValueAtTime(0.22, now);
+          gain1.gain.linearRampToValueAtTime(0, now + 0.08);
+          osc1.start(now);
+          osc1.stop(now + 0.08);
+
+          const { oscillator: osc2, gainNode: gain2 } = createTone(ctx);
+          osc2.frequency.setValueAtTime(660, now + 0.1);
+          gain2.gain.setValueAtTime(0, now);
+          gain2.gain.setValueAtTime(0.22, now + 0.1);
+          gain2.gain.linearRampToValueAtTime(0, now + 0.2);
+          osc2.start(now + 0.1);
+          osc2.stop(now + 0.2);
+        }
+        break;
         
       default:
         logger.warn(`Unknown sound type: ${type}`);
@@ -296,3 +319,4 @@ export const playListeningSound = () => playSound(SOUND_TYPES.LISTENING);
 export const playFocusSound = () => playSound(SOUND_TYPES.FOCUS);
 export const playBoundarySound = () => playSound(SOUND_TYPES.BOUNDARY);
 export const playBumpSound = () => playSound(SOUND_TYPES.BUMP);
+export const playAlertSound = () => playSound(SOUND_TYPES.ALERT);

@@ -607,8 +607,18 @@ const en = {
       themeTitle: 'Theme',
       languageTitle: 'Language',
       languageDescription: 'Select the interface language. The change is applied immediately.',
+      accessibilityTitle: 'Accessibility',
+      accessibilityDescription: 'Preferences that help screen readers and auditory feedback.',
+      decisionAlertSound: 'Alert sound on confirmations',
+      decisionAlertSoundHint:
+        'Plays a short sound when decision dialogs open (deletions, permissions, etc.).',
       aria: { selectTheme: 'Select theme', selectLanguage: 'Select language' },
-      announce: { themeChanged: 'Theme changed to {{label}}', languageChanged: 'Language changed to {{label}}' },
+      announce: {
+        themeChanged: 'Theme changed to {{label}}',
+        languageChanged: 'Language changed to {{label}}',
+        decisionAlertSoundOn: 'Alert sound on confirmations enabled',
+        decisionAlertSoundOff: 'Alert sound on confirmations disabled',
+      },
       themes: {
         assistente: { label: 'Assistant', desc: 'Vibrant dark blue theme (default)' },
         amethyst: { label: 'Amethyst', desc: 'Dark violet theme' },
@@ -2321,6 +2331,7 @@ const en = {
         goToTasklists: 'Open task lists',
         goToJobs: 'Open jobs',
         goToProfiles: 'Open interaction profiles',
+        repeatDecisionPrompt: 'Repeat the open decision dialog question',
         closeDialog: 'Close dialogs and menus',
         escToClose: 'Press Esc to close',
       },

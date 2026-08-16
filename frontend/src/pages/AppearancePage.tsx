@@ -7,12 +7,14 @@ import { useSettingsStore } from '../store/settingsStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import { useRadioGroup } from '../hooks/useRadioGroup';
+import { Checkbox } from '../components/ui/Checkbox';
 import './AppearancePage.css';
 
 export default function AppearancePage() {
   const { t } = useTranslation();
   const { theme: currentTheme, setTheme } = useTheme();
   const updateConfig = useSettingsStore((s) => s.updateConfig);
+  const decisionAlertSound = useSettingsStore((s) => s.config.decisionAlertSound);
   const { announce } = useAnnouncer();
   const currentLang = i18n.language as LanguageId;
   useContentPageLandmarks({ pageClass: 'appearance-page' });
@@ -36,6 +38,18 @@ export default function AppearancePage() {
       updateConfig({ language: id });
       const label = LANGUAGES.find((l) => l.id === id)?.nativeLabel ?? id;
       announce(t('appearance.announce.languageChanged', { label }));
+    },
+    [updateConfig, announce, t],
+  );
+
+  const handleDecisionAlertSoundChange = useCallback(
+    (enabled: boolean) => {
+      updateConfig({ decisionAlertSound: enabled });
+      announce(
+        enabled
+          ? t('appearance.announce.decisionAlertSoundOn')
+          : t('appearance.announce.decisionAlertSoundOff'),
+      );
     },
     [updateConfig, announce, t],
   );
@@ -136,6 +150,23 @@ export default function AppearancePage() {
                 )}
               </button>
             ))}
+          </div>
+        </section>
+
+        <section className="appearance-section">
+          <h2 className="appearance-section__title">
+            {t('appearance.accessibilityTitle')}
+          </h2>
+          <p className="appearance-section__description">
+            {t('appearance.accessibilityDescription')}
+          </p>
+          <div className="appearance-pref">
+            <Checkbox
+              label={t('appearance.decisionAlertSound')}
+              checked={decisionAlertSound}
+              onChange={(e) => handleDecisionAlertSoundChange(e.target.checked)}
+            />
+            <p className="appearance-pref__hint">{t('appearance.decisionAlertSoundHint')}</p>
           </div>
         </section>
       </main>

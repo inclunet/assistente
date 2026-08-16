@@ -77,6 +77,16 @@ describe('audioFeedback', () => {
     expect(freqs).toEqual([330, 330]);
   });
 
+  it('toca o som de alerta agudo→médio (880Hz, 660Hz)', () => {
+    expect(() => playSound(SOUND_TYPES.ALERT)).not.toThrow();
+    expect(oscillatorStarts).toBe(2);
+
+    const freqs = (lastContext?.createdOscillators ?? []).flatMap((osc) =>
+      osc.frequency.setValueAtTime.mock.calls.map((call) => call[0] as number)
+    );
+    expect(freqs).toEqual([880, 660]);
+  });
+
   it('avisa em tipos desconhecidos', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
