@@ -24,9 +24,9 @@ describe('ConfirmHost', () => {
 
     expect(screen.getByText('Tem certeza')).toBeInTheDocument();
 
-    const footerButtons = screen
-      .getAllByRole('button')
-      .filter((b) => b.textContent === 'Confirmar' || b.textContent === 'Cancelar');
+    const actions = document.querySelector('[data-dialog-actions]');
+    expect(actions).not.toBeNull();
+    const footerButtons = Array.from(actions!.querySelectorAll('button'));
     expect(footerButtons.map((b) => b.textContent)).toEqual(['Confirmar', 'Cancelar']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));

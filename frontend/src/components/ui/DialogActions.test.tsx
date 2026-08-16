@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { DialogActions } from './DialogActions';
 import { Button } from './Button';
 
@@ -12,13 +12,17 @@ describe('DialogActions', () => {
       />
     );
 
-    const buttons = screen.getAllByRole('button');
+    const actions = document.querySelector('[data-dialog-actions]');
+    expect(actions).not.toBeNull();
+    const buttons = Array.from(actions!.querySelectorAll('button'));
     expect(buttons.map((b) => b.textContent)).toEqual(['Confirmar', 'Cancelar']);
   });
 
   it('permite omitir secundária', () => {
     render(<DialogActions primary={<Button onClick={vi.fn()}>Salvar</Button>} />);
 
-    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Salvar']);
+    const actions = document.querySelector('[data-dialog-actions]');
+    expect(actions).not.toBeNull();
+    expect(Array.from(actions!.querySelectorAll('button')).map((b) => b.textContent)).toEqual(['Salvar']);
   });
 });

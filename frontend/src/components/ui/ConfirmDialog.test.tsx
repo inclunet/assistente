@@ -38,9 +38,9 @@ describe('ConfirmDialog', () => {
       />
     );
 
-    const footerButtons = screen
-      .getAllByRole('button')
-      .filter((b) => b.textContent === 'Sim, apagar' || b.textContent === 'Não');
+    const actions = document.querySelector('[data-dialog-actions]');
+    expect(actions).not.toBeNull();
+    const footerButtons = Array.from(actions!.querySelectorAll('button'));
     expect(footerButtons.map((b) => b.textContent)).toEqual(['Sim, apagar', 'Não']);
   });
 });
