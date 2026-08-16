@@ -498,25 +498,33 @@ func (c permissionChoices) byID(id string) (permissionChoice, bool) {
 }
 
 // permissionDecisionActions monta os botões do DecisionDialog: id = OptionID.
+// A ordem segue o contrato de teclado/NVDA (AEP-0090/AEP-0091): a ação primária
+// (autorizar esta vez) vem primeiro, depois as secundárias e, por último, a
+// negação (outline). Dentro de cada grupo mantém a ordem que o agente enviou.
 func permissionDecisionActions(choices permissionChoices) []questionnaire.DecisionAction {
-	out := make([]questionnaire.DecisionAction, 0, len(choices))
+	var primary, secondary, deny []questionnaire.DecisionAction
 	for _, choice := range choices {
 		action := questionnaire.DecisionAction{
-			ID:      choice.id,
-			Label:   questionnaire.Plain(choice.label),
-			Variant: "secondary",
+			ID:    choice.id,
+			Label: questionnaire.Plain(choice.label),
 		}
 		switch choice.kind {
 		case optionAllowOnce:
 			action.Primary = true
 			action.Variant = "primary"
+			primary = append(primary, action)
 		case optionAllowAlways:
 			action.Variant = "secondary"
+			secondary = append(secondary, action)
 		default:
 			action.Variant = "outline"
+			deny = append(deny, action)
 		}
-		out = append(out, action)
 	}
+	out := make([]questionnaire.DecisionAction, 0, len(choices))
+	out = append(out, primary...)
+	out = append(out, secondary...)
+	out = append(out, deny...)
 	return out
 }
 
