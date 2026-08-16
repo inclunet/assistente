@@ -58,9 +58,21 @@ func camposVisiveis(t *testing.T, payload questionnaire.RequestPayload) map[stri
 	campos := map[string]questionnaire.Text{
 		"title":       payload.Title,
 		"description": payload.Description,
-		"submitLabel": payload.SubmitLabel,
-		"cancelLabel": payload.CancelLabel,
 	}
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
+	}
+	actionByID := make(map[string]questionnaire.DecisionAction, len(payload.Actions))
+	for _, action := range payload.Actions {
+		actionByID[action.ID] = action
+	}
+	apply, okApply := actionByID["apply"]
+	reject, okReject := actionByID["reject"]
+	if !okApply || !okReject {
+		t.Fatalf("ações da decisão: quer apply+reject, obtido %+v", payload.Actions)
+	}
+	campos["submitLabel"] = apply.Label
+	campos["cancelLabel"] = reject.Label
 	for _, pergunta := range payload.Questions {
 		campos["rótulo de "+pergunta.ID] = pergunta.Prompt
 	}

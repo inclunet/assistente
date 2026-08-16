@@ -27,7 +27,12 @@ func (f *writeConfirmFakeRequester) RequestQuestionnaire(_ context.Context, payl
 	if f.err != nil {
 		return questionnaire.Response{}, f.err
 	}
-	return questionnaire.Response{Cancelled: f.cancelled}, nil
+	if f.cancelled {
+		return questionnaire.Response{Cancelled: true}, nil
+	}
+	return questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: "apply"},
+	}, nil
 }
 
 func writeConfirmEditorCtx(activeFilePath string) context.Context {
@@ -75,8 +80,21 @@ func TestWriteFile_EditorActiveFile_ApprovedWrites(t *testing.T) {
 	if payload.Questions[1].Prompt.String() != "Depois" || payload.Questions[1].Content != "conteúdo novo" {
 		t.Errorf("questão 'Depois' incorreta: %+v", payload.Questions[1])
 	}
-	if payload.SubmitLabel.String() != "Aplicar" || payload.CancelLabel.String() != "Rejeitar" || !payload.AllowCancel {
-		t.Errorf("labels/cancel incorretos: %+v", payload)
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
+	}
+	actionByID := map[string]questionnaire.DecisionAction{}
+	for _, a := range payload.Actions {
+		actionByID[a.ID] = a
+	}
+	if apply, ok := actionByID["apply"]; !ok || apply.Label.String() != "Aplicar" || !apply.Primary {
+		t.Errorf("ação apply incorreta: %+v", apply)
+	}
+	if reject, ok := actionByID["reject"]; !ok || reject.Label.String() != "Rejeitar" || reject.Variant != "outline" {
+		t.Errorf("ação reject incorreta: %+v", reject)
+	}
+	if !payload.AllowCancel {
+		t.Error("AllowCancel deve ser true")
 	}
 
 	data, _ := os.ReadFile(filePath)

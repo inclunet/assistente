@@ -137,4 +137,63 @@ describe('DecisionQuestionnaireHost', () => {
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
     expect(onCancel).toHaveBeenCalled();
   });
+
+  it('renderiza readonly_code no body e envia rejectReason com reject', () => {
+    const onAction = vi.fn();
+    const data: QuestionnairePayload = {
+      id: 'edit-1',
+      kind: 'decision',
+      title: { fallback: 'Confirmar edição' },
+      description: { fallback: 'Revise a alteração' },
+      actions: [
+        { id: 'apply', label: { fallback: 'Aplicar' }, primary: true, variant: 'primary' },
+        { id: 'reject', label: { fallback: 'Rejeitar' }, variant: 'outline' },
+      ],
+      questions: [
+        { id: 'before', type: 'readonly_code', prompt: { fallback: 'Antes' }, content: 'old' },
+        { id: 'after', type: 'readonly_code', prompt: { fallback: 'Depois' }, content: 'new' },
+      ],
+      rejectReason: {
+        id: 'reject_reason',
+        label: { fallback: 'Motivo da rejeição (opcional)' },
+        placeholder: { fallback: 'Explique' },
+        maxLen: 2000,
+      },
+    };
+
+    render(
+      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('region', { name: 'Antes' })).toHaveTextContent('old');
+    expect(screen.getByRole('region', { name: 'Depois' })).toHaveTextContent('new');
+
+    fireEvent.change(screen.getByLabelText(/Motivo da rejeição/i), {
+      target: { value: 'prefiro o original' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Rejeitar/i }));
+    expect(onAction).toHaveBeenCalledWith({
+      [DECISION_ANSWER_ACTION_ID]: 'reject',
+      reject_reason: 'prefiro o original',
+    });
+  });
+
+  it('passa answers no onCancel com motivo', () => {
+    const onCancel = vi.fn();
+    const data: QuestionnairePayload = {
+      ...shellDecision(),
+      rejectReason: {
+        id: 'reject_reason',
+        label: { fallback: 'Motivo' },
+      },
+    };
+    render(
+      <DecisionQuestionnaireHost data={data} onAction={vi.fn()} onCancel={onCancel} />,
+    );
+    fireEvent.change(screen.getByLabelText('Motivo'), {
+      target: { value: 'depois' },
+    });
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledWith({ reject_reason: 'depois' });
+  });
 });

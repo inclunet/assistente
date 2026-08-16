@@ -1,12 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DecisionDialog,
   type DecisionAction,
+  type DecisionRejectReason,
 } from './DecisionDialog';
 import {
   isDecisionQuestionnaire,
   type QuestionnairePayload,
+  type QuestionnaireQuestion,
 } from './QuestionnaireDialog';
 import { resolveQuestionnaireText } from '../../lib/questionnaireText';
 
@@ -16,7 +18,12 @@ export const DECISION_ANSWER_ACTION_ID = 'actionId';
 export interface DecisionQuestionnaireHostProps {
   data: QuestionnairePayload | null;
   onAction: (answers: Record<string, unknown>) => void;
-  onCancel: () => void;
+  onCancel: (answers?: Record<string, unknown>) => void;
+}
+
+function questionHasBodyContent(q: QuestionnaireQuestion): boolean {
+  if (q.type === 'readonly_code') return true;
+  return typeof q.content === 'string' && q.content.length > 0;
 }
 
 /**
@@ -42,7 +49,51 @@ export function DecisionQuestionnaireHost({
     resolveQuestionnaireText(t, data?.hint),
   ].filter(Boolean);
   const description = descriptionParts.join(' ') || title;
-  const body = data?.body?.trim() ? data.body : undefined;
+
+  const bodyQuestions = useMemo(
+    () => (data?.questions ?? []).filter(questionHasBodyContent),
+    [data?.questions],
+  );
+
+  const body: ReactNode = useMemo(() => {
+    if (bodyQuestions.length > 0) {
+      return (
+        <div className="decision-dialog__questions">
+          {bodyQuestions.map((q) => {
+            const labelId = `decision-q-label-${q.id}`;
+            const prompt = resolveQuestionnaireText(t, q.prompt, q.id);
+            return (
+              <section key={q.id} className="decision-dialog__question">
+                <h3 id={labelId} className="decision-dialog__question-label">
+                  {prompt}
+                </h3>
+                <pre
+                  className="decision-dialog__question-content"
+                  tabIndex={0}
+                  role="region"
+                  aria-labelledby={labelId}
+                >
+                  {q.content ?? ''}
+                </pre>
+              </section>
+            );
+          })}
+        </div>
+      );
+    }
+    const plain = data?.body?.trim();
+    return plain || undefined;
+  }, [bodyQuestions, data?.body, t]);
+
+  const rejectReason: DecisionRejectReason | undefined = useMemo(() => {
+    if (!data?.rejectReason) return undefined;
+    return {
+      id: data.rejectReason.id,
+      label: resolveQuestionnaireText(t, data.rejectReason.label),
+      placeholder: resolveQuestionnaireText(t, data.rejectReason.placeholder) || undefined,
+      maxLen: data.rejectReason.maxLen,
+    };
+  }, [data?.rejectReason, t]);
 
   const actions: DecisionAction[] = useMemo(() => {
     if (!open || !data?.actions) return [];
@@ -58,9 +109,16 @@ export function DecisionQuestionnaireHost({
   }, [open, data?.actions, t]);
 
   const safeActionId = useMemo(() => {
-    const deny = actions.find((a) => a.id === 'deny' || a.variant === 'outline');
+    const deny = actions.find((a) => a.id === 'deny' || a.id === 'cancel' || a.id === 'reject' || a.variant === 'outline');
     return deny?.id ?? actions[actions.length - 1]?.id;
   }, [actions]);
+
+  const severity = useMemo(
+    () => (actions.some((a) => a.variant === 'danger') ? 'destructive' : 'permission'),
+    [actions],
+  );
+
+  const size = bodyQuestions.length > 0 ? 'lg' : 'sm';
 
   // Respeita o contrato: allowCancel=false bloqueia ESC/X/clique fora, para o
   // backend não receber Cancelled=true de um pedido que exige uma das ações.
@@ -79,16 +137,20 @@ export function DecisionQuestionnaireHost({
       title={title}
       description={description || title}
       body={body}
+      size={size}
+      rejectReason={rejectReason}
       actions={actions as [DecisionAction, ...DecisionAction[]]}
-      severity="permission"
+      severity={severity}
       safeActionId={safeActionId}
       // App restaura o foco após submit/cancel; evita restauração dupla.
       returnFocusOnClose={false}
       // allowCancel=false esconde o X e desliga ESC/clique fora (sem armadilha
       // de foco); só as ações fecham o diálogo.
       allowClose={allowCancel}
-      onAction={(actionId) => onAction({ [DECISION_ANSWER_ACTION_ID]: actionId })}
-      onCancel={onCancel}
+      onAction={(actionId, extras) =>
+        onAction({ [DECISION_ANSWER_ACTION_ID]: actionId, ...extras })
+      }
+      onCancel={(extras) => onCancel(extras)}
     />
   );
 }

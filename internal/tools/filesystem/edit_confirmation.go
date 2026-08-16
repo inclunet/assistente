@@ -158,8 +158,25 @@ func extractRejectReason(answers map[string]any) string {
 	return reason
 }
 
-// confirmEditWithDiff exibe um questionário Antes/Depois (Aplicar/Rejeitar) e aguarda
-// a confirmação do usuário. Compartilhado por edit_file, write_file e text_edit.
+const (
+	editDecisionApply  = "apply"
+	editDecisionReject = "reject"
+)
+
+// rejectedEditResult monta o ToolResult de rejeição, com motivo opcional.
+func rejectedEditResult(answers map[string]any) tools.ToolResult {
+	if reason := extractRejectReason(answers); reason != "" {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Alteração rejeitada pelo usuário. Motivo informado: %s", reason),
+			IsError: true,
+		}
+	}
+	return tools.ToolResult{Content: "Alteração rejeitada pelo usuário", IsError: true}
+}
+
+// confirmEditWithDiff exibe uma decisão Antes/Depois (Aplicar/Rejeitar) e aguarda
+// a confirmação do usuário (AEP-0091 kind=decision). Compartilhado por edit_file,
+// write_file e text_edit.
 // Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
 // Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
 // O conteúdo dos blocos é o texto do arquivo: vai cru, sem chave de tradução,
@@ -172,8 +189,10 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 	}
 
 	resp, err := questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Kind:        questionnaire.KindDecision,
 		Title:       title,
 		Description: description,
+		// readonly_code: o DecisionQuestionnaireHost renderiza Antes/Depois no body.
 		Questions: []questionnaire.Question{
 			{
 				ID:      "before",
@@ -181,8 +200,8 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 				Prompt:  questionnaire.Keyed(editConfirmationTextKey("beforePrompt"), "Antes"),
 				Content: before,
 			},
-			// Foco inicial no "Depois": o usuário quer ouvir primeiro como o
-			// texto vai ficar, não preencher o motivo de rejeição.
+			// AutoFocus no "Depois": o usuário quer ouvir primeiro como o texto
+			// vai ficar (o host de decisão foca o body quando há conteúdo).
 			{
 				ID:        "after",
 				Type:      "readonly_code",
@@ -192,8 +211,19 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 			},
 		},
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Keyed(editConfirmationTextKey("submit"), "Aplicar"),
-		CancelLabel: questionnaire.Keyed(editConfirmationTextKey("cancel"), "Rejeitar"),
+		Actions: []questionnaire.DecisionAction{
+			{
+				ID:      editDecisionApply,
+				Label:   questionnaire.Keyed(editConfirmationTextKey("submit"), "Aplicar"),
+				Variant: "primary",
+				Primary: true,
+			},
+			{
+				ID:      editDecisionReject,
+				Label:   questionnaire.Keyed(editConfirmationTextKey("cancel"), "Rejeitar"),
+				Variant: "outline",
+			},
+		},
 		RejectReason: &questionnaire.RejectReasonConfig{
 			ID:    rejectReasonAnswerID,
 			Label: questionnaire.Keyed(editConfirmationTextKey("rejectReasonLabel"), "Motivo da rejeição (opcional)"),
@@ -207,13 +237,25 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 	if err != nil {
 		return false, tools.ToolResult{Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err), IsError: true}
 	}
+	// ESC / Fechar: rejeição com motivo opcional (mesmo contrato de reject).
 	if resp.Cancelled {
-		if reason := extractRejectReason(resp.Answers); reason != "" {
-			return false, tools.ToolResult{Content: fmt.Sprintf("Alteração rejeitada pelo usuário. Motivo informado: %s", reason), IsError: true}
-		}
-		return false, tools.ToolResult{Content: "Alteração rejeitada pelo usuário", IsError: true}
+		return false, rejectedEditResult(resp.Answers)
 	}
-	return true, tools.ToolResult{}
+	id, ok := questionnaire.DecisionActionID(resp)
+	if !ok {
+		return false, tools.ToolResult{Content: "Resposta inválida para confirmação de edição", IsError: true}
+	}
+	switch id {
+	case editDecisionApply:
+		return true, tools.ToolResult{}
+	case editDecisionReject:
+		return false, rejectedEditResult(resp.Answers)
+	default:
+		return false, tools.ToolResult{
+			Content: fmt.Sprintf("Ação de decisão desconhecida: %q", id),
+			IsError: true,
+		}
+	}
 }
 
 // Limites de truncamento dos previews de confirmação (write_file substitui o arquivo inteiro,

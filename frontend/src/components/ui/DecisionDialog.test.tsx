@@ -113,6 +113,89 @@ describe('DecisionDialog', () => {
     expect(onAction).toHaveBeenCalledWith('yes');
   });
 
+  it('envia rejectReason no extras ao rejeitar e na ordem AEP-0090', () => {
+    const onAction = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Editar"
+        description="Aplicar?"
+        rejectReason={{
+          id: 'reject_reason',
+          label: 'Motivo (opcional)',
+          placeholder: 'Explique',
+        }}
+        actions={[
+          { id: 'apply', label: 'Aplicar', primary: true, variant: 'primary' },
+          { id: 'reject', label: 'Rejeitar', variant: 'outline' },
+        ]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const actions = document.querySelector('[data-dialog-actions]');
+    const children = Array.from(actions!.children);
+    expect(children[0].getAttribute('data-decision-action')).toBe('apply');
+    expect(children[1].classList.contains('decision-dialog__reject-reason')).toBe(true);
+    expect(children[2].getAttribute('data-decision-action')).toBe('reject');
+
+    fireEvent.change(screen.getByLabelText('Motivo (opcional)'), {
+      target: { value: '  Quero outro tom  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Rejeitar/i }));
+    expect(onAction).toHaveBeenCalledWith('reject', { reject_reason: 'Quero outro tom' });
+  });
+
+  it('não envia extras ao aplicar mesmo com motivo preenchido', () => {
+    const onAction = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Editar"
+        description="Aplicar?"
+        rejectReason={{ id: 'reject_reason', label: 'Motivo' }}
+        actions={[
+          { id: 'apply', label: 'Aplicar', primary: true },
+          { id: 'reject', label: 'Rejeitar', variant: 'outline' },
+        ]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Motivo'), {
+      target: { value: 'ignorar isto no apply' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Aplicar/i }));
+    expect(onAction).toHaveBeenCalledWith('apply');
+    expect(onAction.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('passa motivo no onCancel quando ESC com texto', () => {
+    const onCancel = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Editar"
+        description="Aplicar?"
+        rejectReason={{ id: 'reject_reason', label: 'Motivo' }}
+        actions={[
+          { id: 'apply', label: 'Aplicar', primary: true },
+          { id: 'reject', label: 'Rejeitar', variant: 'outline' },
+        ]}
+        onAction={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Motivo'), {
+      target: { value: 'via ESC' },
+    });
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledWith({ reject_reason: 'via ESC' });
+  });
+
   it('Ctrl+Shift+R repete o anúncio', async () => {
     render(
       <DecisionDialog
