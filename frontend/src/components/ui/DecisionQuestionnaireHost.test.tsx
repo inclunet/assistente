@@ -111,4 +111,30 @@ describe('DecisionQuestionnaireHost', () => {
     expect(onAction).toHaveBeenCalledWith({ [DECISION_ANSWER_ACTION_ID]: 'deny' });
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  it('respeita allowCancel=false ignorando ESC', () => {
+    const onCancel = vi.fn();
+    render(
+      <DecisionQuestionnaireHost
+        data={{ ...shellDecision(), allowCancel: false }}
+        onAction={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('permite ESC quando allowCancel não é false', () => {
+    const onCancel = vi.fn();
+    render(
+      <DecisionQuestionnaireHost
+        data={{ ...shellDecision(), allowCancel: true }}
+        onAction={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalled();
+  });
 });

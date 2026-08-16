@@ -62,6 +62,10 @@ export function DecisionQuestionnaireHost({
     return deny?.id ?? actions[actions.length - 1]?.id;
   }, [actions]);
 
+  // Respeita o contrato: allowCancel=false bloqueia ESC/X/clique fora, para o
+  // backend não receber Cancelled=true de um pedido que exige uma das ações.
+  const allowCancel = data?.allowCancel !== false;
+
   if (!open || actions.length === 0) {
     return null;
   }
@@ -81,7 +85,7 @@ export function DecisionQuestionnaireHost({
       // App restaura o foco após submit/cancel; evita restauração dupla.
       returnFocusOnClose={false}
       onAction={(actionId) => onAction({ [DECISION_ANSWER_ACTION_ID]: actionId })}
-      onCancel={onCancel}
+      onCancel={allowCancel ? onCancel : () => {}}
     />
   );
 }
