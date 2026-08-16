@@ -121,6 +121,14 @@ func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
 	if strings.Contains(body, "casa com") {
 		t.Errorf("body = %q, o hint traduzível não deve ir no Body cru", body)
 	}
+	for _, rotuloPT := range []string{"Host:", "Porta:", "Motivo:", "IP resolvido:", "Hosts esperados"} {
+		if strings.Contains(body, rotuloPT) {
+			t.Errorf("body = %q, vazou rótulo em pt-BR %q", body, rotuloPT)
+		}
+	}
+	if !strings.Contains(body, "host: api.nu.workflows.dev") {
+		t.Errorf("body = %q, quer o host cru", body)
+	}
 }
 
 func TestODialogoNaoDestacaHostQuandoNenhumCasa(t *testing.T) {

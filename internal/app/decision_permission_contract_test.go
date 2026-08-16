@@ -18,9 +18,10 @@ func assertDecisionOnly(t *testing.T, nome string, payload questionnaire.Request
 		t.Errorf("%s: actions vazias; decisão precisa de botões", nome)
 	}
 	for _, q := range payload.Questions {
-		switch q.Type {
-		case "single_choice", "boolean", "multiple_choice":
-			t.Errorf("%s: pergunta %q tipo %q — permissão não usa rádio/checkbox", nome, q.ID, q.Type)
+		// Permissão crítica = só botões (+ readonly_code no body, se houver).
+		// text/long_text/boolean/single_choice reabririam o híbrido.
+		if q.Type != "readonly_code" {
+			t.Errorf("%s: pergunta %q tipo %q — permissão só admite readonly_code ou nenhuma", nome, q.ID, q.Type)
 		}
 	}
 	if payload.SubmitLabel.Key != "" || payload.SubmitLabel.Fallback != "" {

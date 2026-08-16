@@ -70,20 +70,24 @@ type appNetworkPrompter struct {
 }
 
 func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.RequestPayload {
+	// Body só com valores e chaves de protocolo (host/port/…), sem prosa em
+	// pt-BR — o título/descrição/hint carregam o texto traduzível (AEP-0085).
 	var details strings.Builder
-	fmt.Fprintf(&details, "Host: %s\n", req.Host)
+	fmt.Fprintf(&details, "host: %s\n", req.Host)
 	if req.Port != "" {
-		fmt.Fprintf(&details, "Porta: %s\n", req.Port)
+		fmt.Fprintf(&details, "port: %s\n", req.Port)
 	}
 	if len(req.IPs) > 0 {
-		fmt.Fprintf(&details, "IP resolvido: %s\n", strings.Join(req.IPs, ", "))
+		fmt.Fprintf(&details, "ips: %s\n", strings.Join(req.IPs, ", "))
 	}
-	fmt.Fprintf(&details, "Motivo: %s\n", req.Reason)
+	if req.Reason != "" {
+		fmt.Fprintf(&details, "reason: %s\n", req.Reason)
+	}
 	if req.SkillSlug != "" {
-		fmt.Fprintf(&details, "Skill: %s\n", req.SkillSlug)
+		fmt.Fprintf(&details, "skill: %s\n", req.SkillSlug)
 	}
 	if len(req.SkillSuggestedHosts) > 0 {
-		fmt.Fprintf(&details, "Hosts esperados pelo skill: %s\n", strings.Join(req.SkillSuggestedHosts, ", "))
+		fmt.Fprintf(&details, "expected_hosts: %s\n", strings.Join(req.SkillSuggestedHosts, ", "))
 	}
 
 	var skillHostHint questionnaire.Text
