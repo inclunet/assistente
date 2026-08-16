@@ -146,7 +146,7 @@ actions: [{ id, label(QuestionnaireText), variant, shortcut?(QuestionnaireText) 
 - `label` e `shortcut` (quando enviado) são `QuestionnaireText` — localizados
   no idioma ativo, alinhados a D6.
 - Se `shortcut` for omitido, o frontend deriva o mnemônico da letra marcada
-  no `label` localizado (ex. `&S`im → `S` / `Alt+S`). Não há atalho fixo
+  no `label` localizado (ex. `&Sim` → `S` / `Alt+S`). Não há atalho fixo
   multi-idioma no schema.
 
 O frontend renderiza `DecisionDialog`. Resposta: `{ actionId }` ou
