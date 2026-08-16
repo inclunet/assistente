@@ -184,10 +184,11 @@ separadas (`confirmStore` vs questionnaire).
 
 ### Fase 2 — Shell, rede, ACP
 
-- [ ] Payload `kind: decision` (ou adapter) em
+- [x] Payload `kind: decision` (ou adapter) em
       `app_tool_confirmations.go`, `app_nettrust.go`, `app_acp_permissions.go`
-- [ ] UI sem rádio+Confirmar/Negar
-- [ ] Atualizar testes Go de i18n/permissão/rede/shell
+- [x] UI sem rádio+Confirmar/Negar
+- [x] Atualizar testes Go de i18n/permissão/rede/shell
+      (+ canal numera ações; frontend `DecisionQuestionnaireHost`)
 
 ### Fase 3 — Demais produtores
 
