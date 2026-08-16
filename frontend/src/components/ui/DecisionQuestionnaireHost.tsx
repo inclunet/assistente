@@ -68,6 +68,9 @@ export function DecisionQuestionnaireHost({
 
   return (
     <DecisionDialog
+      // key={data.id}: decisões em fila trocam o `data` sem o Modal fechar;
+      // remontar força reanúncio e foco inicial para o novo pedido (NVDA).
+      key={data?.id}
       isOpen
       title={title}
       description={description || title}
@@ -75,6 +78,8 @@ export function DecisionQuestionnaireHost({
       actions={actions as [DecisionAction, ...DecisionAction[]]}
       severity="permission"
       safeActionId={safeActionId}
+      // App restaura o foco após submit/cancel; evita restauração dupla.
+      returnFocusOnClose={false}
       onAction={(actionId) => onAction({ [DECISION_ANSWER_ACTION_ID]: actionId })}
       onCancel={onCancel}
     />
