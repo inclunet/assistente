@@ -81,14 +81,17 @@ seguida de submit.
 Todo DecisionDialog:
 
 1. Usa `role="alertdialog"` (ou Modal com variante alertdialog).
-2. Na abertura: `announce(title + description [+ resumo do body], 'assertive')`
-   com `protectsReading` quando o body for longo (diff/comando).
+2. Na abertura: anuncia título + descrição [+ resumo do body] de forma
+   **assertive**. Bodies longos (diff/comando) usam o caminho do broker com
+   `protectsReading` (`announceWithOrigin` / `announceRequest`), não só
+   `useAnnouncer().announce(priority)`, cuja API atual não carrega essa flag.
 3. `aria-describedby` aponta para a região da pergunta (e body quando houver).
 
 ### D4. Som de alerta na abertura
 
-Reproduzir tom dedicado `SOUND_TYPES.ALERT` (ou equivalente) via
-`audioFeedback` quando o DecisionDialog do topo abre.
+Reproduzir tom dedicado de alerta via `audioFeedback` quando o
+DecisionDialog do topo abre. **Na Fase 1:** adicionar `SOUND_TYPES.ALERT`
+(hoje o enum não tem essa constante; não reutilizar `ERROR` sem documentar).
 
 - Preferência do usuário: configurável em Aparência/Acessibilidade
   (default **ligado** no perfil de uso com leitor; default do app a decidir na
@@ -168,7 +171,7 @@ separadas (`confirmStore` vs questionnaire).
 ### Fase 1 — Fundação no frontend
 
 - [ ] `DecisionDialog` (ou evolução do `ConfirmDialog`) com D3–D7
-- [ ] `SOUND_TYPES.ALERT` + preferência
+- [ ] Adicionar `SOUND_TYPES.ALERT` em `audioFeedback` + preferência do usuário
 - [ ] `Ctrl+Shift+R` repeat
 - [ ] Migrar `ConfirmDialog` / `useConfirm`
 - [ ] Testes: anúncio, som (mock), atalhos, axe, ordem AEP-0090
@@ -189,15 +192,15 @@ separadas (`confirmStore` vs questionnaire).
 ### Fase 4 — Fechamento
 
 - [ ] Remover caminhos legados de rádio+submit para permissão
-- [ ] Checklist NVDA (abertura, Alt+Tab + Ctrl+Shift+R, Y/N, multi-opção)
+- [ ] Checklist NVDA (abertura, Alt+Tab + Ctrl+Shift+R, mnemônicos localizados, multi-opção)
 - [ ] AEP → ✅ Done
 
 ## Riscos
 
 - Mudança de UX em permissões ACP/rede é sensível; testes de contrato de
   `OptionID` / escopo devem falhar alto se o id da ação mudar.
-- Atalhos de letra (Y/N) em layout não-QWERTY / outros idiomas: preferir
-  mnemônico i18n ou Alt+letra documentada.
+- Atalhos `Alt+<mnemônico>` em layouts não-QWERTY / outros idiomas: o
+  mnemônico vem do rótulo localizado (não há par Y/N fixo global).
 - Som de alerta pode irritar; precisa toggle.
 - Diffs longos: anúncio completo pode ser verboso — anunciar título +
   descrição e indicar que o corpo está no diálogo; Ctrl+Shift+R repete o
