@@ -157,20 +157,23 @@ func updatePromptPayload(info *updater.UpdateInfo) questionnaire.RequestPayload 
 	}
 
 	return questionnaire.RequestPayload{
+		Kind:        questionnaire.KindDecision,
 		Title:       questionnaire.Keyed(updateTextKey("title"), "Atualização Disponível"),
 		Description: questionnaire.KeyedWith(updateTextKey(campo), params, fallback),
-		Questions: []questionnaire.Question{
+		AllowCancel: true,
+		Actions: []questionnaire.DecisionAction{
 			{
-				ID:       "confirm",
-				Type:     "boolean",
-				Prompt:   questionnaire.Keyed(updateTextKey("prompt"), "Deseja atualizar agora?"),
-				Required: true,
-				Default:  true,
+				ID:      "update",
+				Label:   questionnaire.Keyed(updateTextKey("submit"), "Atualizar"),
+				Variant: "primary",
+				Primary: true,
+			},
+			{
+				ID:      "later",
+				Label:   questionnaire.Keyed(updateTextKey("cancel"), "Mais Tarde"),
+				Variant: "outline",
 			},
 		},
-		AllowCancel: true,
-		SubmitLabel: questionnaire.Keyed(updateTextKey("submit"), "Atualizar"),
-		CancelLabel: questionnaire.Keyed(updateTextKey("cancel"), "Mais Tarde"),
 	}
 }
 
@@ -196,10 +199,13 @@ func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.U
 		return
 	}
 
-	if confirm, ok := resp.Answers["confirm"].(bool); ok && confirm {
-		c.emitter.Emit("navigate:update", nil)
-		go c.applyUpdateWithProgress(ctx)
+	id, ok := questionnaire.DecisionActionID(resp)
+	if !ok || id != "update" {
+		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Usuário adiou a atualização")
+		return
 	}
+	c.emitter.Emit("navigate:update", nil)
+	go c.applyUpdateWithProgress(ctx)
 }
 
 // applyUpdateWithProgress aplica a atualização com feedback de progresso via eventos.

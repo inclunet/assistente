@@ -196,14 +196,7 @@ func (a *App) initToolRegistry() {
 		if err != nil {
 			return false, err
 		}
-		if resp.Cancelled {
-			return false, nil
-		}
-		approved, ok := resp.Answers["approve"].(bool)
-		if !ok {
-			return false, fmt.Errorf("resposta inválida para aprovação")
-		}
-		return approved, nil
+		return approvedFromShellDecision(resp)
 	})
 	a.toolRegistry.MustRegister(httpReqTool)
 

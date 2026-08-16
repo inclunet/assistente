@@ -13,14 +13,16 @@ import (
 func TestOPedidoDeElevacaoVaiTraduzivelParaATela(t *testing.T) {
 	payload := updateElevationPayload()
 
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
+	}
+
 	campos := map[string]questionnaire.Text{
 		"title":       payload.Title,
 		"description": payload.Description,
-		"submitLabel": payload.SubmitLabel,
-		"cancelLabel": payload.CancelLabel,
 	}
-	for _, pergunta := range payload.Questions {
-		campos["rótulo de "+pergunta.ID] = pergunta.Prompt
+	for _, action := range payload.Actions {
+		campos["ação "+action.ID] = action.Label
 	}
 
 	for nome, texto := range campos {
@@ -33,11 +35,10 @@ func TestOPedidoDeElevacaoVaiTraduzivelParaATela(t *testing.T) {
 	}
 
 	for nome, esperado := range map[string]string{
-		"title":           "Permissão Necessária",
-		"description":     "Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
-		"submitLabel":     "Permitir",
-		"cancelLabel":     "Cancelar",
-		"rótulo de allow": "Permitir atualização com privilégios de administrador?",
+		"title":       "Permissão Necessária",
+		"description": "Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
+		"ação allow":  "Permitir",
+		"ação deny":   "Cancelar",
 	} {
 		if got := campos[nome].Fallback; got != esperado {
 			t.Errorf("%s = %q, quer o texto de antes %q", nome, got, esperado)

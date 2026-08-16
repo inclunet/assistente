@@ -13,13 +13,15 @@ func TestOConviteParaAtualizarVaiTraduzivelParaATela(t *testing.T) {
 		LatestVersion:  "1.3.0",
 	})
 
+	if payload.Kind != "decision" {
+		t.Errorf("kind = %q, quer decision", payload.Kind)
+	}
 	exigirContratoDoDialogo(t, "convite para atualizar", payload, dialogoEsperado{
 		traduzido: map[string]string{
-			"title":          "Atualização Disponível",
-			"description":    "Versão atual: 1.2.0\nNova versão: 1.3.0",
-			"submitLabel":    "Atualizar",
-			"cancelLabel":    "Mais Tarde",
-			"prompt:confirm": "Deseja atualizar agora?",
+			"title":         "Atualização Disponível",
+			"description":   "Versão atual: 1.2.0\nNova versão: 1.3.0",
+			"action:update": "Atualizar",
+			"action:later":  "Mais Tarde",
 		},
 	})
 	exigirParametrosSemNomesReservados(t, "convite para atualizar", payload)

@@ -48,17 +48,27 @@ func (a *App) confirmDeleteMessageQuestionnaire() error {
 		return fmt.Errorf("questionnaire manager não inicializado")
 	}
 	resp, err := a.questionnaireMgr.RequestQuestionnaire(a.ctx, questionnaire.RequestPayload{
-		Title:       questionnaire.Plain("Excluir mensagem"),
-		Description: questionnaire.Plain("Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita."),
+		Kind: questionnaire.KindDecision,
+		Title: questionnaire.Keyed(
+			"app.questionnaire.deleteMessage.title",
+			"Excluir mensagem",
+		),
+		Description: questionnaire.Keyed(
+			"app.questionnaire.deleteMessage.description",
+			"Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita.",
+		),
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Plain("Excluir"),
-		CancelLabel: questionnaire.Plain("Cancelar"),
-		Questions: []questionnaire.Question{
+		Actions: []questionnaire.DecisionAction{
 			{
-				ID:       "confirm",
-				Type:     "boolean",
-				Prompt:   questionnaire.Plain("Confirmar exclusão?"),
-				Required: true,
+				ID:      "delete",
+				Label:   questionnaire.Keyed("app.questionnaire.deleteMessage.submit", "Excluir"),
+				Variant: "danger",
+				Primary: true,
+			},
+			{
+				ID:      "cancel",
+				Label:   questionnaire.Keyed("app.questionnaire.deleteMessage.cancel", "Cancelar"),
+				Variant: "outline",
 			},
 		},
 	})
@@ -68,8 +78,8 @@ func (a *App) confirmDeleteMessageQuestionnaire() error {
 	if resp.Cancelled {
 		return fmt.Errorf("exclusão cancelada pelo usuário")
 	}
-	confirmed, ok := resp.Answers["confirm"].(bool)
-	if !ok || !confirmed {
+	id, ok := questionnaire.DecisionActionID(resp)
+	if !ok || id != "delete" {
 		return fmt.Errorf("exclusão cancelada pelo usuário")
 	}
 	return nil
