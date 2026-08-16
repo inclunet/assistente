@@ -7,20 +7,6 @@ import (
 	"assistente/internal/questionnaire"
 )
 
-// textosDoDialogo devolve todos os textos visíveis de um payload clássico.
-func textosDoDialogo(payload questionnaire.RequestPayload) map[string]questionnaire.Text {
-	textos := map[string]questionnaire.Text{
-		"title":       payload.Title,
-		"description": payload.Description,
-		"submitLabel": payload.SubmitLabel,
-		"cancelLabel": payload.CancelLabel,
-	}
-	for _, pergunta := range payload.Questions {
-		textos["prompt:"+pergunta.ID] = pergunta.Prompt
-	}
-	return textos
-}
-
 func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
 	payload := shellConfirmationPayload("rm -rf build", "C:/projeto")
 
