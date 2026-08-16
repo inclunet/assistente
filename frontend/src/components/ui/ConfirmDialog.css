@@ -27,8 +27,7 @@
   overflow-wrap: anywhere;
 }
 
+/* Layout do rodapé vem de DialogActions; classe mantida para escopo/hooks CSS. */
 .confirm-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
+  margin-top: 0;
 }

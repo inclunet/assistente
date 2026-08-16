@@ -24,4 +24,23 @@ describe('ConfirmDialog', () => {
     expect(onCancel).toHaveBeenCalled();
     expect(onConfirm).toHaveBeenCalled();
   });
+
+  it('coloca Confirmar antes de Cancelar no DOM (AEP-0090)', () => {
+    render(
+      <ConfirmDialog
+        isOpen={true}
+        title="Apagar"
+        message="Tem certeza"
+        confirmText="Sim, apagar"
+        cancelText="Não"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const actions = document.querySelector('[data-dialog-actions]');
+    expect(actions).not.toBeNull();
+    const footerButtons = Array.from(actions!.querySelectorAll('button'));
+    expect(footerButtons.map((b) => b.textContent)).toEqual(['Sim, apagar', 'Não']);
+  });
 });

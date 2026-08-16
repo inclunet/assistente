@@ -89,6 +89,11 @@ de telas.
 - Todo elemento interativo DEVE ser acessível por Tab
 - Menus: setas para navegar, Enter para selecionar, ESC para fechar
 - Foco DEVE ser restaurado ao fechar modais/menus
+- Em rodapés de diálogo/modal/formulário com par confirmação/cancelamento,
+  a **ação primária** (Confirmar, OK, Salvar, Aplicar, Ir) vem **antes** de
+  Cancelar no DOM (ordem de Tab e NVDA). Usar `DialogActions`. Não mascarar
+  com `row-reverse`/`order`. O Fechar (X) do `Modal` permanece no header
+  (AEP-0090).
 
 ### ARIA e Leitores de tela
 - Usar `announce()` via `useAnnouncer` para feedback de ações
@@ -99,7 +104,7 @@ de telas.
 ### Componentes reutilizáveis
 Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - `DataGrid` para tabelas (já tem role="grid" e navegação por teclado)
-- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` (wrapper sobre o `Modal`) para confirmações
+- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` (wrapper sobre o `Modal`) para confirmações; `DialogActions` para rodapé primária→cancelar (AEP-0090)
 - `Button` para botões (variantes: primary, secondary, danger, ghost, outline)
 - `Toolbar` para barras de ferramentas (ARIA toolbar)
 
