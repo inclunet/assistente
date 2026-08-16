@@ -133,6 +133,7 @@ export function DecisionDialog({
   onCancel,
   className,
   safeActionId,
+  returnFocusOnClose = true,
 }: DecisionDialogProps) {
   const { t } = useTranslation();
   const descriptionId = useId();
@@ -215,7 +216,7 @@ export function DecisionDialog({
       role="alertdialog"
       className={`decision-dialog-modal ${variantClass}${className ? ` ${className}` : ''}`}
       ariaDescribedBy={describedBy}
-      returnFocusOnClose={false}
+      returnFocusOnClose={returnFocusOnClose}
       initialFocusSelector={initialFocusSelector}
       readingMode={Boolean(body)}
     >
