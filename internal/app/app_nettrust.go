@@ -13,10 +13,10 @@ import (
 // Network Trust (allowlist anti-SSRF escopável) — Prompter
 // ============================================================================
 
-// scopeOption associa o rótulo exibido ao usuário ao Scope correspondente. A
-// ordem define a apresentação (do mais efêmero ao mais amplo).
+// scopeOption associa a chave de tradução ao Scope correspondente. A ordem
+// define a apresentação (do mais efêmero ao mais amplo). O id da ação no
+// DecisionDialog é o próprio Scope (AEP-0091) — sem prefixo "session — …".
 type scopeOption struct {
-	// key é a chave de tradução do rótulo; label é o texto pronto em pt-BR.
 	key   string
 	label string
 	scope nettrust.Scope
@@ -28,24 +28,6 @@ var networkScopeOptions = []scopeOption{
 	{"app.questionnaire.network.scope.workspace", "Neste workspace (projeto)", nettrust.ScopeWorkspace},
 	{"app.questionnaire.network.scope.profile", "Neste perfil", nettrust.ScopeProfile},
 	{"app.questionnaire.network.scope.global", "Global (todos os workspaces e perfis)", nettrust.ScopeGlobal},
-}
-
-// scopeOptionSep separa o valor ESTÁVEL do escopo (parseável pelo backend) do
-// rótulo humano dentro da mesma option legada. Mantido para scopeFromOption
-// aceitar respostas antigas "session — …" e ids novos ("session").
-const scopeOptionSep = " — "
-
-func scopeOptionText(o scopeOption) string {
-	return string(o.scope) + scopeOptionSep + o.label
-}
-
-// scopeOptions monta as opções legadas (rádio). Preferir networkDecisionActions.
-func scopeOptions() []questionnaire.Text {
-	out := make([]questionnaire.Text, 0, len(networkScopeOptions))
-	for _, o := range networkScopeOptions {
-		out = append(out, questionnaire.Keyed(o.key, scopeOptionText(o)))
-	}
-	return out
 }
 
 func networkDecisionActions() []questionnaire.DecisionAction {
@@ -69,15 +51,9 @@ func networkDecisionActions() []questionnaire.DecisionAction {
 	return out
 }
 
-// scopeFromOption extrai o Scope da option escolhida usando apenas o prefixo
-// estável antes de scopeOptionSep (com tolerância a uma resposta que já venha só
-// com o valor do escopo). Não depende do rótulo humano.
-func scopeFromOption(option string) (nettrust.Scope, bool) {
-	value := option
-	if i := strings.Index(option, scopeOptionSep); i >= 0 {
-		value = option[:i]
-	}
-	value = strings.TrimSpace(value)
+// scopeFromActionID resolve o Scope pelo id da ação do DecisionDialog.
+func scopeFromActionID(actionID string) (nettrust.Scope, bool) {
+	value := strings.TrimSpace(actionID)
 	for _, o := range networkScopeOptions {
 		if string(o.scope) == value {
 			return o.scope, true
@@ -155,7 +131,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		return nettrust.PromptDecision{Approve: false}, nil
 	}
 
-	scope, ok := scopeFromOption(actionID)
+	scope, ok := scopeFromActionID(actionID)
 	if !ok {
 		return nettrust.PromptDecision{}, fmt.Errorf("escopo de autorização inválido: %q", actionID)
 	}

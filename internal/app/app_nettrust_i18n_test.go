@@ -10,7 +10,7 @@ import (
 )
 
 // dialogoDeRede abre o consentimento de rede e devolve o payload que chegaria à
-// tela, respondendo o que o teste combinou (id de ação ou valor legado de escopo).
+// tela, respondendo com o id de ação do DecisionDialog.
 func dialogoDeRede(t *testing.T, req nettrust.PromptRequest, escolha string) (map[string]any, nettrust.PromptDecision) {
 	t.Helper()
 
@@ -24,11 +24,7 @@ func dialogoDeRede(t *testing.T, req nettrust.PromptRequest, escolha string) (ma
 		recebido = payload
 		id, _ := payload["id"].(string)
 		go func() {
-			actionID := escolha
-			if escopo, ok := scopeFromOption(escolha); ok {
-				actionID = string(escopo)
-			}
-			_ = mgr.Respond(id, map[string]any{questionnaire.AnswerActionID: actionID}, false)
+			_ = mgr.Respond(id, map[string]any{questionnaire.AnswerActionID: escolha}, false)
 		}()
 	})
 
@@ -91,19 +87,13 @@ func TestOEscopoEscolhidoContinuaSendoParseadoDepoisDaTraducao(t *testing.T) {
 		if action.Label.Key == "" {
 			t.Errorf("ação %+v sem chave: o escopo continuaria só em português", action)
 		}
-		escopo, ok := scopeFromOption(action.ID)
+		escopo, ok := scopeFromActionID(action.ID)
 		if !ok {
 			t.Errorf("o id da ação %q não volta a um escopo", action.ID)
 			continue
 		}
 		if string(escopo) != action.ID {
 			t.Errorf("escopo = %q, quer %q", escopo, action.ID)
-		}
-	}
-	// Compat: valores legados "session — …" ainda parseiam.
-	for _, opcao := range scopeOptions() {
-		if _, ok := scopeFromOption(opcao.String()); !ok {
-			t.Errorf("valor legado %q não parseia", opcao.String())
 		}
 	}
 }
