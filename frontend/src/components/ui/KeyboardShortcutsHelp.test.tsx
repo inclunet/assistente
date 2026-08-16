@@ -55,6 +55,7 @@ const CANONICAL_SHORTCUT_COMBOS = [
   'Alt+T',                        // listas de tarefas
   'Alt+J',                        // jobs
   'Alt+P',                        // perfis
+  'Ctrl+Shift+R',                 // repetir pergunta do DecisionDialog (AEP-0091)
   'Esc',                          // fechar diálogos
 ];
 

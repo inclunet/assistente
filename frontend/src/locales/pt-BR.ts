@@ -607,8 +607,18 @@ const ptBR = {
       themeTitle: 'Tema',
       languageTitle: 'Idioma',
       languageDescription: 'Selecione o idioma da interface. A alteração é aplicada imediatamente.',
+      accessibilityTitle: 'Acessibilidade',
+      accessibilityDescription: 'Preferências que ajudam leitores de tela e feedback auditivo.',
+      decisionAlertSound: 'Som de alerta em confirmações',
+      decisionAlertSoundHint:
+        'Toca um som curto ao abrir diálogos de decisão (exclusões, permissões, etc.).',
       aria: { selectTheme: 'Selecionar tema', selectLanguage: 'Selecionar idioma' },
-      announce: { themeChanged: 'Tema alterado para {{label}}', languageChanged: 'Idioma alterado para {{label}}' },
+      announce: {
+        themeChanged: 'Tema alterado para {{label}}',
+        languageChanged: 'Idioma alterado para {{label}}',
+        decisionAlertSoundOn: 'Som de alerta em confirmações ativado',
+        decisionAlertSoundOff: 'Som de alerta em confirmações desativado',
+      },
       themes: {
         assistente: { label: 'Assistente', desc: 'Tema escuro azul vibrante (padrão)' },
         amethyst: { label: 'Ametista', desc: 'Tema escuro violeta' },
@@ -2277,6 +2287,9 @@ const ptBR = {
         hintEscape: 'Pressione Escape para limpar a seleção.',
       },
       confirm: { title: 'Confirmar' },
+      decisionDialog: {
+        bodyHint: 'Há conteúdo adicional no diálogo para leitura.',
+      },
       questionnaire: {
         defaultTitle: 'Questionário',
         submit: 'Enviar',
@@ -2321,6 +2334,7 @@ const ptBR = {
         goToTasklists: 'Abrir listas de tarefas',
         goToJobs: 'Abrir jobs',
         goToProfiles: 'Abrir perfis de interação',
+        repeatDecisionPrompt: 'Repetir a pergunta do diálogo de decisão aberto',
         closeDialog: 'Fechar diálogos e menus',
         escToClose: 'Pressione Esc para fechar',
       },

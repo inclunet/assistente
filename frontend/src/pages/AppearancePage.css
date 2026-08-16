@@ -49,6 +49,20 @@
   line-height: 1.5;
 }
 
+.appearance-pref {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.appearance-pref__hint {
+  margin: 0;
+  margin-left: 1.75rem;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 /* ── Theme grid ── */
 
 .theme-grid {

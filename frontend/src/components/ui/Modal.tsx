@@ -100,6 +100,11 @@ export interface ModalProps {
    * não encontrar um elemento focável visível, a heurística padrão é usada.
    */
   initialFocusSelector?: string;
+  /**
+   * Papel ARIA do overlay. Decisões bloqueantes usam `alertdialog` (AEP-0091);
+   * demais diálogos mantêm `dialog` (default).
+   */
+  role?: 'dialog' | 'alertdialog';
 }
 
 export function Modal({
@@ -114,6 +119,7 @@ export function Modal({
   allowClose = true,
   readingMode = false,
   initialFocusSelector,
+  role = 'dialog',
 }: ModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -324,7 +330,7 @@ export function Modal({
     <ModalTopmostContext.Provider value={topmostValue}>
       <div
         className="modal-overlay"
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={ariaDescribedBy}
