@@ -201,7 +201,7 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 				Content: before,
 			},
 			// AutoFocus no "Depois": o usuário quer ouvir primeiro como o texto
-			// vai ficar (o host de decisão foca o body quando há conteúdo).
+			// vai ficar, e não o original (o host de decisão foca este bloco).
 			{
 				ID:        "after",
 				Type:      "readonly_code",

@@ -69,6 +69,7 @@ export function DecisionQuestionnaireHost({
                 </h3>
                 <pre
                   className="decision-dialog__question-content"
+                  data-decision-question={q.id}
                   tabIndex={0}
                   role="region"
                   aria-labelledby={labelId}
@@ -120,6 +121,15 @@ export function DecisionQuestionnaireHost({
 
   const size = bodyQuestions.length > 0 ? 'lg' : 'sm';
 
+  // Focar o container do body faria a leitura começar no primeiro bloco. A
+  // confirmação de edição marca o "Depois" com autoFocus justamente para o
+  // NVDA abrir no texto resultante, e não no original.
+  const initialFocusSelector = useMemo(() => {
+    const target = bodyQuestions.find((q) => q.autoFocus);
+    if (!target) return undefined;
+    return `[data-decision-question="${CSS.escape(target.id)}"]`;
+  }, [bodyQuestions]);
+
   // Respeita o contrato: allowCancel=false bloqueia ESC/X/clique fora, para o
   // backend não receber Cancelled=true de um pedido que exige uma das ações.
   const allowCancel = data?.allowCancel !== false;
@@ -142,6 +152,7 @@ export function DecisionQuestionnaireHost({
       actions={actions as [DecisionAction, ...DecisionAction[]]}
       severity={severity}
       safeActionId={safeActionId}
+      initialFocusSelector={initialFocusSelector}
       // App restaura o foco após submit/cancel; evita restauração dupla.
       returnFocusOnClose={false}
       // allowCancel=false esconde o X e desliga ESC/clique fora (sem armadilha

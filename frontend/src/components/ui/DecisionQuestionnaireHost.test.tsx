@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import {
   DecisionQuestionnaireHost,
   DECISION_ANSWER_ACTION_ID,
@@ -176,6 +176,55 @@ describe('DecisionQuestionnaireHost', () => {
       [DECISION_ANSWER_ACTION_ID]: 'reject',
       reject_reason: 'prefiro o original',
     });
+  });
+
+  it('foca o bloco marcado com autoFocus, não o começo do body', async () => {
+    const data: QuestionnairePayload = {
+      id: 'edit-2',
+      kind: 'decision',
+      title: { fallback: 'Confirmar edição' },
+      description: { fallback: 'Revise a alteração' },
+      actions: [
+        { id: 'apply', label: { fallback: 'Aplicar' }, primary: true, variant: 'primary' },
+        { id: 'reject', label: { fallback: 'Rejeitar' }, variant: 'outline' },
+      ],
+      questions: [
+        { id: 'before', type: 'readonly_code', prompt: { fallback: 'Antes' }, content: 'old' },
+        {
+          id: 'after',
+          type: 'readonly_code',
+          prompt: { fallback: 'Depois' },
+          content: 'new',
+          autoFocus: true,
+        },
+      ],
+    };
+
+    // O jsdom não faz layout: sem encenar o `offsetParent` o modal considera
+    // invisível todo alvo de foco e cai no container, mascarando o que se testa.
+    const descritor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() {
+        return document.body;
+      },
+    });
+    try {
+      render(
+        <DecisionQuestionnaireHost data={data} onAction={vi.fn()} onCancel={vi.fn()} />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('region', { name: 'Depois' })).toHaveFocus();
+      });
+      expect(screen.getByRole('region', { name: 'Antes' })).not.toHaveFocus();
+    } finally {
+      if (descritor) {
+        Object.defineProperty(HTMLElement.prototype, 'offsetParent', descritor);
+      } else {
+        delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+      }
+    }
   });
 
   it('passa answers no onCancel com motivo', () => {
