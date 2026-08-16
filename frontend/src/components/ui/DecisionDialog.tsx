@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, type ButtonProps } from './Button';
 import { Modal, useModalIsTopmost } from './Modal';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -63,8 +64,12 @@ function MnemonicLabel({ label, mnemonic }: { label: string; mnemonic: string })
   );
 }
 
-function buildAnnouncement(title: string, description: string): string {
-  return [title, description].filter(Boolean).join('. ');
+function buildAnnouncement(
+  title: string,
+  description: string,
+  bodyHint?: string,
+): string {
+  return [title, description, bodyHint].filter(Boolean).join('. ');
 }
 
 /** Atalhos precisam viver DENTRO do Modal para `useModalIsTopmost` funcionar. */
@@ -124,6 +129,7 @@ export function DecisionDialog({
   className,
   safeActionId,
 }: DecisionDialogProps) {
+  const { t } = useTranslation();
   const descriptionId = useId();
   const bodyId = useId();
   const { announceRequest } = useAnnouncer();
@@ -136,6 +142,8 @@ export function DecisionDialog({
   const describedBy = body ? `${descriptionId} ${bodyId}` : descriptionId;
 
   const resolvedSafeId = safeActionId ?? actions[actions.length - 1]?.id ?? '';
+
+  const bodyHint = body ? t('ui.decisionDialog.bodyHint') : undefined;
 
   const initialFocusSelector = useMemo(() => {
     if (severity === 'destructive') {
@@ -172,11 +180,11 @@ export function DecisionDialog({
       return;
     }
 
-    const openKey = `${title}\0${description}`;
+    const openKey = `${title}\0${description}\0${bodyHint ?? ''}`;
     if (openedForIdRef.current === openKey) return;
     openedForIdRef.current = openKey;
 
-    const message = buildAnnouncement(title, description);
+    const message = buildAnnouncement(title, description, bodyHint);
     announcementRef.current = message;
 
     announceRequest({
@@ -189,7 +197,7 @@ export function DecisionDialog({
     if (decisionAlertSound) {
       playSound(SOUND_TYPES.ALERT);
     }
-  }, [isOpen, title, description, body, announceRequest, decisionAlertSound]);
+  }, [isOpen, title, description, body, bodyHint, announceRequest, decisionAlertSound]);
 
   const variantClass = `decision-dialog-modal--${severity}`;
 

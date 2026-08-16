@@ -2287,6 +2287,9 @@ const es = {
         hintEscape: 'Presiona Escape para limpiar la selección.',
       },
       confirm: { title: 'Confirmar' },
+      decisionDialog: {
+        bodyHint: 'Hay contenido adicional en el diálogo para leer.',
+      },
       questionnaire: {
         defaultTitle: 'Cuestionario',
         submit: 'Enviar',

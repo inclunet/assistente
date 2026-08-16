@@ -16,7 +16,7 @@ describe('decisionMnemonic', () => {
     expect(parseMnemonicMarker('&Áudio')).toEqual({ displayLabel: 'Áudio', mnemonic: 'a' });
   });
 
-  it('atribuí mnemônicos únicos evitando colisão', () => {
+  it('atribui mnemônicos únicos evitando colisão', () => {
     expect(assignMnemonics([{ label: 'Confirmar' }, { label: 'Cancelar' }])).toEqual([
       'c',
       'a',

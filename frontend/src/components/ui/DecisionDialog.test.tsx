@@ -6,6 +6,18 @@ import { axe } from '../../test/a11yAxe';
 const announceRequest = vi.fn();
 const playSound = vi.fn();
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => {
+      const map: Record<string, string> = {
+        'ui.decisionDialog.bodyHint': 'Há conteúdo adicional no diálogo para leitura.',
+        'ui.modal.close': 'Fechar',
+      };
+      return map[key] ?? key;
+    },
+  }),
+}));
+
 vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
     announce: vi.fn(),
@@ -107,6 +119,7 @@ describe('DecisionDialog', () => {
         isOpen
         title="Título"
         description="Pergunta"
+        body={<code>ls -la</code>}
         actions={[
           { id: 'ok', label: 'OK', primary: true },
           { id: 'cancel', label: 'Cancelar', variant: 'outline' },
@@ -117,12 +130,17 @@ describe('DecisionDialog', () => {
     );
 
     await waitFor(() => expect(announceRequest).toHaveBeenCalled());
+    expect(announceRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('conteúdo adicional'),
+      }),
+    );
     announceRequest.mockClear();
 
     fireEvent.keyDown(document, { key: 'R', ctrlKey: true, shiftKey: true });
     expect(announceRequest).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Título. Pergunta',
+        message: expect.stringContaining('conteúdo adicional'),
         announcePriority: 'assertive',
       }),
     );

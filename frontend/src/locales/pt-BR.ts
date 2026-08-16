@@ -2287,6 +2287,9 @@ const ptBR = {
         hintEscape: 'Pressione Escape para limpar a seleção.',
       },
       confirm: { title: 'Confirmar' },
+      decisionDialog: {
+        bodyHint: 'Há conteúdo adicional no diálogo para leitura.',
+      },
       questionnaire: {
         defaultTitle: 'Questionário',
         submit: 'Enviar',
