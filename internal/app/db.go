@@ -79,7 +79,12 @@ func (a *App) confirmDeleteMessageQuestionnaire() error {
 		return fmt.Errorf("exclusão cancelada pelo usuário")
 	}
 	id, ok := questionnaire.DecisionActionID(resp)
-	if !ok || id != "delete" {
+	if !ok {
+		// A mensagem sobrevive até o usuário: dizer "cancelada" quando o
+		// frontend respondeu sem actionId esconderia o defeito de integração.
+		return fmt.Errorf("resposta de decisão inválida: sem %q", questionnaire.AnswerActionID)
+	}
+	if id != "delete" {
 		return fmt.Errorf("exclusão cancelada pelo usuário")
 	}
 	return nil

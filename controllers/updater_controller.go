@@ -200,7 +200,14 @@ func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.U
 	}
 
 	id, ok := questionnaire.DecisionActionID(resp)
-	if !ok || id != "update" {
+	if !ok {
+		// Resposta sem actionId não é adiamento: é o contrato quebrado. Não
+		// atualizar continua sendo o certo, mas registrado como o defeito que é.
+		logging.Warnf(ctx, "controllers.updater-controller",
+			"[Updater] Resposta de decisão sem %q; atualização não aplicada", questionnaire.AnswerActionID)
+		return
+	}
+	if id != "update" {
 		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Usuário adiou a atualização")
 		return
 	}
