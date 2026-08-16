@@ -487,25 +487,6 @@ func (c permissionChoice) always() bool {
 
 type permissionChoices []permissionChoice
 
-func (c permissionChoices) labels() []string {
-	out := make([]string, 0, len(c))
-	for _, choice := range c {
-		out = append(out, choice.label)
-	}
-	return out
-}
-
-// byLabel reencontra a opção pelo rótulo escolhido. Mantido para canais e
-// superfícies que ainda devolvem o rótulo em Answers (legado).
-func (c permissionChoices) byLabel(label string) (permissionChoice, bool) {
-	for _, choice := range c {
-		if choice.label == label {
-			return choice, true
-		}
-	}
-	return permissionChoice{}, false
-}
-
 // byID reencontra a opção pelo OptionID do agente (resposta kind=decision).
 func (c permissionChoices) byID(id string) (permissionChoice, bool) {
 	for _, choice := range c {
