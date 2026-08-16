@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/questionnaire"
 	"assistente/internal/updater"
 )
 
@@ -13,8 +14,8 @@ func TestOConviteParaAtualizarVaiTraduzivelParaATela(t *testing.T) {
 		LatestVersion:  "1.3.0",
 	})
 
-	if payload.Kind != "decision" {
-		t.Errorf("kind = %q, quer decision", payload.Kind)
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
 	}
 	exigirContratoDoDialogo(t, "convite para atualizar", payload, dialogoEsperado{
 		traduzido: map[string]string{
