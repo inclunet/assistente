@@ -37,7 +37,11 @@ export function DecisionQuestionnaireHost({
     data?.title,
     t('ui.questionnaire.defaultTitle', 'Questionário'),
   );
-  const description = resolveQuestionnaireText(t, data?.description);
+  const descriptionParts = [
+    resolveQuestionnaireText(t, data?.description),
+    resolveQuestionnaireText(t, data?.hint),
+  ].filter(Boolean);
+  const description = descriptionParts.join(' ') || title;
   const body = data?.body?.trim() ? data.body : undefined;
 
   const actions: DecisionAction[] = useMemo(() => {

@@ -113,8 +113,15 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 	if len(req.SkillSuggestedHosts) > 0 {
 		fmt.Fprintf(&details, "Hosts esperados pelo skill: %s\n", strings.Join(req.SkillSuggestedHosts, ", "))
 	}
+
+	// Hint traduzível (não vai no Body cru): o match com host do skill.
+	var skillHostHint questionnaire.Text
 	if req.SkillHostMatch != "" {
-		fmt.Fprintf(&details, "\nEste destino casa com %s, declarado pelo skill como host esperado. Isso não dispensa a sua autorização.\n", req.SkillHostMatch)
+		skillHostHint = questionnaire.KeyedWith(
+			"app.questionnaire.network.skillHostMatch",
+			map[string]any{"pattern": req.SkillHostMatch},
+			fmt.Sprintf("Este destino casa com %s, declarado pelo skill como host esperado. Isso não dispensa a sua autorização.", req.SkillHostMatch),
+		)
 	}
 
 	resp, err := p.qm.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
@@ -128,6 +135,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 			map[string]any{"category": req.Category},
 			fmt.Sprintf("O assistente tentou acessar um host que resolve para um endereço interno/privado (%s). Autorize apenas se você confia neste destino.", req.Category),
 		),
+		Hint:        skillHostHint,
 		Body:        details.String(),
 		AllowCancel: true,
 		Actions:     networkDecisionActions(),
@@ -152,5 +160,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		return nettrust.PromptDecision{}, fmt.Errorf("escopo de autorização inválido: %q", actionID)
 	}
 
+	// Observação livre saiu com o DecisionDialog (só botões). Reason vazio
+	// até haver campo opcional sem voltar ao híbrido rádio+texto (AEP-0091).
 	return nettrust.PromptDecision{Approve: true, Scope: scope}, nil
 }

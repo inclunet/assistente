@@ -82,6 +82,9 @@ type RequestPayload struct {
 	Kind         string              `json:"kind,omitempty"`
 	Title        Text                `json:"title,omitzero"`
 	Description  Text                `json:"description,omitzero"`
+	// Hint é texto traduzível secundário (ex.: match de host do skill),
+	// anexado à descrição no DecisionDialog sem misturar com Body cru.
+	Hint         Text                `json:"hint,omitzero"`
 	Body         string              `json:"body,omitempty"`
 	Actions      []DecisionAction    `json:"actions,omitempty"`
 	Questions    []Question          `json:"questions"`
@@ -128,6 +131,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		Kind:         payload.Kind,
 		Title:        payload.Title,
 		Description:  payload.Description,
+		Hint:         payload.Hint,
 		Body:         payload.Body,
 		Actions:      payload.Actions,
 		Questions:    payload.Questions,
@@ -137,6 +141,9 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		RejectReason: payload.RejectReason,
 		CreatedAt:    time.Now().Format(time.RFC3339),
 		response:     make(chan Response, 1),
+	}
+	if req.Questions == nil {
+		req.Questions = []Question{}
 	}
 
 	m.mu.Lock()
@@ -154,6 +161,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		"kind":        req.Kind,
 		"title":       req.Title,
 		"description": req.Description,
+		"hint":        req.Hint,
 		"body":        req.Body,
 		"actions":     req.Actions,
 		"questions":   req.Questions,

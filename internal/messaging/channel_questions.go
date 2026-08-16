@@ -382,7 +382,7 @@ func channelFormOfDecision(payload questionnaire.RequestPayload, timeout time.Du
 	values := make([]any, 0, len(payload.Actions))
 	for _, action := range payload.Actions {
 		label := sanitizeChannelText(action.Label.String())
-		if label == "" {
+		if label == "" || action.ID == "" {
 			continue
 		}
 		labels = append(labels, label)
@@ -408,6 +408,10 @@ func renderChannelDecision(payload questionnaire.RequestPayload, labels []string
 	}
 	if description := sanitizeChannelText(payload.Description.String()); description != "" {
 		head.WriteString(description)
+		head.WriteString("\n\n")
+	}
+	if hint := sanitizeChannelText(payload.Hint.String()); hint != "" {
+		head.WriteString(hint)
 		head.WriteString("\n\n")
 	}
 	content := sanitizeChannelText(payload.Body)

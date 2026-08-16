@@ -337,11 +337,14 @@ function App() {
     };
 
     const effectiveQuestionnaireOpen = !!questionnaireData || !!uiQuestionnaireData;
-    const effectiveQuestionnaireData = questionnaireData || uiQuestionnaireData;
     const isBackendDecision = isDecisionQuestionnaire(questionnaireData);
+    // Enquanto houver questionário do backend, não abrir outro da UI (focus trap / NVDA).
     const formQuestionnaireOpen =
-      (!!questionnaireData && !isBackendDecision) || !!uiQuestionnaireData;
-    const formQuestionnaireData = isBackendDecision ? uiQuestionnaireData : effectiveQuestionnaireData;
+      (!!questionnaireData && !isBackendDecision) ||
+      (!questionnaireData && !!uiQuestionnaireData);
+    const formQuestionnaireData = isBackendDecision
+      ? null
+      : (questionnaireData || uiQuestionnaireData);
 
     // Restaura foco quando qualquer questionário fecha
     useEffect(() => {

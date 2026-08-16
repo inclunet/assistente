@@ -32,7 +32,7 @@ func shellConfirmationPayload(cmd, workDir string) questionnaire.RequestPayload 
 			"app.questionnaire.shell.prompt",
 			"Permitir a execução deste comando?",
 		),
-		Body:        fmt.Sprintf("%s\n\nem: %s", cmd, workDir),
+		Body:        fmt.Sprintf("%s\n\n%s", cmd, workDir),
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{

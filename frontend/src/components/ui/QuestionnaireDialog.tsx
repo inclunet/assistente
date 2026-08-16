@@ -60,6 +60,8 @@ export interface QuestionnairePayload {
   description?: QuestionnaireText;
   /** Conteúdo só leitura (comando, URL, ação ACP). */
   body?: string;
+  /** Texto traduzível secundário (ex.: hint de skill host). */
+  hint?: QuestionnaireText;
   actions?: QuestionnaireDecisionAction[];
   questions: QuestionnaireQuestion[];
   allowCancel?: boolean;

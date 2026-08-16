@@ -120,9 +120,16 @@ func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
 		string(nettrust.ScopeOnce),
 	)
 
+	hint, ok := payload["hint"].(questionnaire.Text)
+	if !ok || hint.Key == "" {
+		t.Fatalf("hint = %#v, quer Text traduzível do skillHostMatch", payload["hint"])
+	}
+	if got := hint.Params["pattern"]; got != "*.nu.workflows.dev" {
+		t.Errorf("pattern nos params = %v, quer o host declarado", got)
+	}
 	body, _ := payload["body"].(string)
-	if !strings.Contains(body, "*.nu.workflows.dev") {
-		t.Errorf("body = %q, quer nomear o host declarado", body)
+	if strings.Contains(body, "casa com") {
+		t.Errorf("body = %q, o hint traduzível não deve ir no Body cru", body)
 	}
 }
 
@@ -137,9 +144,9 @@ func TestODialogoNaoDestacaHostQuandoNenhumCasa(t *testing.T) {
 		string(nettrust.ScopeOnce),
 	)
 
-	body, _ := payload["body"].(string)
-	if strings.Contains(body, "casa com") {
-		t.Errorf("body = %q, não quer destaque de match", body)
+	hint, _ := payload["hint"].(questionnaire.Text)
+	if hint.Key != "" || hint.Fallback != "" {
+		t.Errorf("hint = %+v, não quer destaque de match", hint)
 	}
 }
 
