@@ -54,14 +54,41 @@ export interface QuestionnaireRejectReason {
 
 export interface QuestionnairePayload {
   id: string;
+  /** AEP-0091: "decision" renderiza DecisionDialog em vez do formulário. */
+  kind?: string;
   title?: QuestionnaireText;
   description?: QuestionnaireText;
+  /** Conteúdo só leitura (comando, URL, ação ACP). */
+  body?: string;
+  actions?: QuestionnaireDecisionAction[];
   questions: QuestionnaireQuestion[];
   allowCancel?: boolean;
   submitLabel?: QuestionnaireText;
   cancelLabel?: QuestionnaireText;
   rejectReason?: QuestionnaireRejectReason;
   createdAt?: string;
+}
+
+export interface QuestionnaireDecisionAction {
+  id: string;
+  label: QuestionnaireText;
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
+  shortcut?: QuestionnaireText;
+  primary?: boolean;
+}
+
+export function isDecisionQuestionnaire(
+  data: QuestionnairePayload | null | undefined,
+): data is QuestionnairePayload & {
+  kind: 'decision';
+  actions: [QuestionnaireDecisionAction, ...QuestionnaireDecisionAction[]];
+} {
+  return (
+    !!data &&
+    data.kind === 'decision' &&
+    Array.isArray(data.actions) &&
+    data.actions.length > 0
+  );
 }
 
 export interface QuestionnaireDialogProps {
