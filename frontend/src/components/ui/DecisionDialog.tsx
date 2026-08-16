@@ -101,9 +101,15 @@ function buildAnnouncement(
   return [title, description, bodyHint].filter(Boolean).join('. ');
 }
 
-function isRejectLikeAction(action: DecisionAction | undefined, actionId: string): boolean {
-  if (actionId === 'reject' || actionId === 'cancel' || actionId === 'deny') return true;
-  return action?.variant === 'outline';
+function isRejectLikeAction(_action: DecisionAction | undefined, actionId: string): boolean {
+  // Só IDs semânticos de rejeição/cancelamento — não usar variant outline,
+  // que também marca ações seguras como "Mais tarde" / "Negar" genéricas
+  // em diálogos sem rejectReason.
+  return (
+    actionId === 'reject' ||
+    actionId === 'cancel' ||
+    actionId === 'deny'
+  );
 }
 
 /** Atalhos precisam viver DENTRO do Modal para `useModalIsTopmost` funcionar. */
@@ -329,7 +335,9 @@ export function DecisionDialog({
       returnFocusOnClose={returnFocusOnClose}
       allowClose={allowClose}
       initialFocusSelector={initialFocusSelector}
-      readingMode={Boolean(body)}
+      // readingMode (role=document) só quando o body é só leitura. Com
+      // rejectReason (textarea), o NVDA precisa permanecer em modo de foco.
+      readingMode={Boolean(body) && !rejectReason}
     >
       <DecisionDialogHotkeys
         actions={actions}
