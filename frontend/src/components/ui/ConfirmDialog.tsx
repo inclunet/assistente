@@ -65,6 +65,8 @@ export function ConfirmDialog({
         else onCancel();
       }}
       onCancel={onCancel}
+      // confirmStore restaura o elemento que abriu o pedido.
+      returnFocusOnClose={false}
     />
   );
 }

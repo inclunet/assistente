@@ -46,6 +46,11 @@ export interface DecisionDialogProps {
   className?: string;
   /** id da ação segura para foco destrutivo; default = última ação. */
   safeActionId?: string;
+  /**
+   * Se false, o chamador restaura o foco (ex.: confirmStore).
+   * Default true — restaura via Modal ao fechar.
+   */
+  returnFocusOnClose?: boolean;
 }
 
 function MnemonicLabel({ label, mnemonic }: { label: string; mnemonic: string }) {
