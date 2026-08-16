@@ -7,12 +7,13 @@ export function parseMnemonicMarker(label: string): {
   displayLabel: string;
   mnemonic: string | undefined;
 } {
-  const match = label.match(/&([A-Za-z0-9])/);
+  // Aceita letra acentuada após `&`; o mnemônico de atalho é normalizado (sem diacrítico).
+  const match = label.match(/&(\p{L}|\p{N})/u);
   if (match && match.index !== undefined) {
     const letter = match[1];
     const displayLabel =
       label.slice(0, match.index) + letter + label.slice(match.index + 2);
-    return { displayLabel, mnemonic: letter.toLowerCase() };
+    return { displayLabel, mnemonic: normalizeKeyChar(letter) };
   }
   return { displayLabel: label, mnemonic: undefined };
 }
@@ -21,6 +22,15 @@ function normalizeKeyChar(ch: string): string | undefined {
   const normalized = ch.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
   if (/^[a-z0-9]$/.test(normalized)) return normalized;
   return undefined;
+}
+
+/** Índice do caractere em `displayLabel` que corresponde ao mnemônico normalizado. */
+export function findMnemonicIndex(displayLabel: string, mnemonic: string): number {
+  const target = mnemonic.toLowerCase();
+  for (let i = 0; i < displayLabel.length; i += 1) {
+    if (normalizeKeyChar(displayLabel[i]) === target) return i;
+  }
+  return -1;
 }
 
 /**

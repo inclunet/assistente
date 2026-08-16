@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assignMnemonics,
+  findMnemonicIndex,
   isEditableKeyboardTarget,
   parseMnemonicMarker,
 } from './decisionMnemonic';
@@ -12,6 +13,7 @@ describe('decisionMnemonic', () => {
       displayLabel: 'Cancelar',
       mnemonic: 'n',
     });
+    expect(parseMnemonicMarker('&Áudio')).toEqual({ displayLabel: 'Áudio', mnemonic: 'a' });
   });
 
   it('atribuí mnemônicos únicos evitando colisão', () => {
@@ -28,6 +30,10 @@ describe('decisionMnemonic', () => {
         { label: 'Negar', shortcut: 'n' },
       ]),
     ).toEqual(['p', 'n']);
+  });
+
+  it('findMnemonicIndex casa letra acentuada com mnemônico normalizado', () => {
+    expect(findMnemonicIndex('Áudio', 'a')).toBe(0);
   });
 
   it('detecta alvo editável', () => {

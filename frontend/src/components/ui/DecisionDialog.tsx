@@ -12,6 +12,7 @@ import { playSound, SOUND_TYPES } from '../../services/audioFeedback';
 import { useSettingsStore } from '../../store/settingsStore';
 import {
   assignMnemonics,
+  findMnemonicIndex,
   isEditableKeyboardTarget,
   parseMnemonicMarker,
 } from '../../lib/decisionMnemonic';
@@ -50,7 +51,7 @@ function MnemonicLabel({ label, mnemonic }: { label: string; mnemonic: string })
   const { displayLabel } = parseMnemonicMarker(label);
   if (!mnemonic) return <>{displayLabel}</>;
 
-  const idx = displayLabel.toLowerCase().indexOf(mnemonic.toLowerCase());
+  const idx = findMnemonicIndex(displayLabel, mnemonic);
   if (idx < 0) return <>{displayLabel}</>;
 
   return (
@@ -140,12 +141,12 @@ export function DecisionDialog({
     if (severity === 'destructive') {
       return `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`;
     }
-    if (severity === 'permission' && body) {
-      return '[data-decision-body]';
-    }
     if (severity === 'permission') {
-      const first = actions[0]?.id;
-      return first ? `[data-decision-action="${CSS.escape(first)}"]` : undefined;
+      // D7: body readonly se houver; senão a ação segura (não “sempre”).
+      if (body) return '[data-decision-body]';
+      return resolvedSafeId
+        ? `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`
+        : undefined;
     }
     const primary = actions.find((a) => a.primary) ?? actions[0];
     return primary
