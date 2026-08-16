@@ -94,20 +94,26 @@ de telas.
   Cancelar no DOM (ordem de Tab e NVDA). Usar `DialogActions`. Não mascarar
   com `row-reverse`/`order`. O Fechar (X) do `Modal` permanece no header
   (AEP-0090).
+- Diálogos de **decisão bloqueante** (shell, rede, ACP, confirmações da UI,
+  etc.) seguem o contrato unificado do **AEP-0091** (`DecisionDialog`):
+  anúncio na abertura, som de alerta, `Ctrl+Shift+R` para repetir a pergunta,
+  ações como botões (sem híbrido rádio+Confirmar/Negar). Formulários
+  multi-campo continuam no `QuestionnaireDialog`.
 
 ### ARIA e Leitores de tela
 - Usar `announce()` via `useAnnouncer` para feedback de ações
 - Labels obrigatórios: `htmlFor` em `<label>`, `aria-label` em botões sem texto
 - Nunca usar apenas cor para transmitir informação
 - Modais de leitura pesada usam `readingMode` (`role="document"`) no `Modal`; modais de formulário mantêm `role="application"`
+- Diálogos de decisão usam `role="alertdialog"` e anunciam título+mensagem na abertura (AEP-0091)
 
 ### Componentes reutilizáveis
 Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - `DataGrid` para tabelas (já tem role="grid" e navegação por teclado)
-- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` (wrapper sobre o `Modal`) para confirmações; `DialogActions` para rodapé primária→cancelar (AEP-0090)
+- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` / futuro `DecisionDialog` para confirmações (AEP-0091); `DialogActions` para rodapé primária→cancelar (AEP-0090)
 - `Button` para botões (variantes: primary, secondary, danger, ghost, outline)
 - `Toolbar` para barras de ferramentas (ARIA toolbar)
-
+- **Não** usar `window.confirm` — migrar para o contrato AEP-0091
 ## Stack Técnica
 - **Backend**: Go + Wails v2
 - **Frontend**: React + TypeScript + Vite
