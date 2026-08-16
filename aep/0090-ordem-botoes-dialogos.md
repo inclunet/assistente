@@ -1,6 +1,6 @@
 # AEP-0090 — Ordem de botões em diálogos (confirmação antes de cancelar)
 
-**Status:** 🚧 In Progress
+**Status:** ✅ Done
 
 ## Resumo
 
@@ -88,13 +88,14 @@ quando fizer sentido.
 - [x] Credentials, Channels, Allowlist, Skills, Mcp (CRUD com exclusão auxiliar)
 - [x] AgentWorkDirControl; AgentInstall (confirm install/update + remove),
       mantendo `initialFocusSelector` no cancelar quando artefato não verificado
-- [ ] QuestionnaireDialog — Fase 3
+- [x] QuestionnaireDialog — Fase 3
 
 
 ### Fase 3 — QuestionnaireDialog (footer padrão)
 
-Alinhar o footer padrão (hoje Cancelar → Submit) a D1, preservando a
-variante com motivo de rejeição já correta (Aplicar → motivo → Rejeitar).
+- [x] Footer padrão via `DialogActions` (Submit → Cancelar)
+- [x] Variante com motivo de rejeição preservada (Aplicar → motivo → Rejeitar)
+- [x] Removido `column-reverse` no mobile que mascarava a ordem DOM
 
 ## Riscos
 
@@ -113,5 +114,5 @@ variante com motivo de rejeição já correta (Aplicar → motivo → Rejeitar).
       do escopo de reordenação.
 - [x] Nenhum uso novo de `row-reverse`/`order` para inverter
       primária/secundária.
-- [ ] Fases 2–3 podem ficar abertas; Fase 1 entrega o contrato e o
-      ponto global de confirmação.
+- [x] Fases 2–3 concluídas; Fase 1 entregou o contrato e o ponto global de
+      confirmação.

@@ -589,7 +589,7 @@ describe('QuestionnaireDialog', () => {
       expect(onCancel).toHaveBeenCalledWith();
     });
 
-    it('sem rejectReason o rodapé mantém a ordem Rejeitar → Enviar e não exibe o campo', () => {
+    it('sem rejectReason o rodapé mantém a ordem Enviar → Cancelar e não exibe o campo', () => {
       render(
         <QuestionnaireDialog
           isOpen
@@ -608,7 +608,15 @@ describe('QuestionnaireDialog', () => {
 
       const cancel = screen.getByRole('button', { name: 'Cancelar' });
       const submit = screen.getByRole('button', { name: 'Enviar' });
-      expect(cancel.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // AEP-0090: primária antes de cancelar no DOM.
+      expect(submit.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      const actions = document.querySelector('[data-dialog-actions]');
+      expect(actions).not.toBeNull();
+      expect(Array.from(actions!.querySelectorAll('button')).map((b) => b.textContent)).toEqual([
+        'Enviar',
+        'Cancelar',
+      ]);
     });
 
     it('foco inicial vai para a pergunta com autoFocus, não para o campo de motivo', async () => {

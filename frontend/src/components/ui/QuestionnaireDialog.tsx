@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from './Modal';
+import { DialogActions } from './DialogActions';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import {
   questionnaireOptionValue,
@@ -438,16 +439,21 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             </button>
           </div>
         ) : (
-          <div className="questionnaire-dialog__footer">
-            {allowCancel && (
-              <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
-                {cancelLabel}
+          <DialogActions
+            className="questionnaire-dialog__footer"
+            primary={
+              <button type="submit" className="questionnaire-dialog__button primary">
+                {submitLabel}
               </button>
-            )}
-            <button type="submit" className="questionnaire-dialog__button primary">
-              {submitLabel}
-            </button>
-          </div>
+            }
+            secondary={
+              allowCancel ? (
+                <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
+                  {cancelLabel}
+                </button>
+              ) : undefined
+            }
+          />
         )}
       </form>
     </Modal>

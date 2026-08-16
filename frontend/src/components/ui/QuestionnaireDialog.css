@@ -118,15 +118,12 @@
   font-size: 0.9rem;
 }
 
-.questionnaire-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 /* Variante com campo de motivo da rejeição: layout em coluna preservando a
    ordem DOM (Aplicar → motivo → Rejeitar), que define a ordem de tabulação. */
 .questionnaire-dialog__footer--reject-reason {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
   flex-direction: column;
   align-items: stretch;
 }
@@ -160,8 +157,10 @@
 }
 
 @media (max-width: 640px) {
+  /* Empilha na ordem DOM (primária → cancelar), sem column-reverse que
+     mascararia a ordem de Tab/NVDA (AEP-0090 D3). */
   .questionnaire-dialog__footer {
-    flex-direction: column-reverse;
+    flex-direction: column;
     align-items: stretch;
   }
 
