@@ -4060,6 +4060,7 @@ const en = {
           title: 'Confirm command execution',
           description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',
           prompt: 'Allow running this command?',
+          workDir: 'Directory: {{workDir}}',
           submit: 'Allow',
           cancel: 'Deny',
         },

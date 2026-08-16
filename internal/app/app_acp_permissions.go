@@ -143,35 +143,12 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	// impõe ao handler. Um prazo maior que o teto tiraria de quem decide a
 	// chance de responder (AEP-0084 D9).
 	resp, err := h.askOnSurface(ctx, surface, questionnaire.RequestPayload{
+		Kind:        questionnaire.KindDecision,
 		Title:       questionnaire.Keyed(permissionTextKey("title"), "O agente pede permissão"),
 		Description: permissionDescriptionText(choices, kind),
+		Body:        action,
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Keyed(permissionTextKey("submit"), "Confirmar"),
-		CancelLabel: questionnaire.Keyed(permissionTextKey("cancel"), "Negar"),
-		Questions: []questionnaire.Question{
-			{
-				// A ação vai inteira, em bloco: é o que a pessoa lê para
-				// decidir, e um resumo faria autorizar o que não apareceu na
-				// tela. É o mesmo formato da confirmação de edição e da
-				// autorização de rede. O conteúdo do bloco é do agente: vai
-				// como texto, sem chave de tradução (AEP-0085 D6).
-				ID:      permissionActionID,
-				Type:    "readonly_code",
-				Prompt:  questionnaire.Keyed(permissionTextKey("actionPrompt"), "Ação pedida"),
-				Content: action,
-			},
-			{
-				ID:   permissionAnswerID,
-				Type: "single_choice",
-				// Rótulo que o agente mandou é texto, nunca chave de tradução:
-				// traduzir o que vem de fora exibiria o texto de outro lugar do
-				// app no lugar da opção que ele ofereceu (AEP-0085).
-				Prompt:    questionnaire.Keyed(permissionTextKey("choicePrompt"), "O que o agente pode fazer?"),
-				Options:   questionnaire.PlainTexts(choices.labels()),
-				Required:  true,
-				AutoFocus: true,
-			},
-		},
+		Actions:     permissionDecisionActions(choices),
 	})
 	if err != nil {
 		// Prazo estourado, turno cancelado, diálogo indisponível ou app
@@ -190,8 +167,12 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		return acp.PermissionOutcome{}
 	}
 
-	label, _ := resp.Answers[permissionAnswerID].(string)
-	choice, ok := choices.byLabel(label)
+	actionID, ok := questionnaire.DecisionActionID(resp)
+	if !ok {
+		logging.Warnf(ctx, acpPermissionComponent, "[ACP] resposta de permissão sem ação; negando")
+		return acp.PermissionOutcome{}
+	}
+	choice, ok := choices.byID(actionID)
 	if !ok {
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] resposta de permissão fora das opções oferecidas; negando")
 		return acp.PermissionOutcome{}
@@ -506,23 +487,45 @@ func (c permissionChoice) always() bool {
 
 type permissionChoices []permissionChoice
 
-func (c permissionChoices) labels() []string {
-	out := make([]string, 0, len(c))
+// byID reencontra a opção pelo OptionID do agente (resposta kind=decision).
+func (c permissionChoices) byID(id string) (permissionChoice, bool) {
 	for _, choice := range c {
-		out = append(out, choice.label)
-	}
-	return out
-}
-
-// byLabel reencontra a opção pelo rótulo escolhido. É por rótulo porque é o
-// que o questionário devolve — daí os rótulos precisarem ser distintos.
-func (c permissionChoices) byLabel(label string) (permissionChoice, bool) {
-	for _, choice := range c {
-		if choice.label == label {
+		if choice.id == id {
 			return choice, true
 		}
 	}
 	return permissionChoice{}, false
+}
+
+// permissionDecisionActions monta os botões do DecisionDialog: id = OptionID.
+// A ordem segue o contrato de teclado/NVDA (AEP-0090/AEP-0091): a ação primária
+// (autorizar esta vez) vem primeiro, depois as secundárias e, por último, a
+// negação (outline). Dentro de cada grupo mantém a ordem que o agente enviou.
+func permissionDecisionActions(choices permissionChoices) []questionnaire.DecisionAction {
+	var primary, secondary, deny []questionnaire.DecisionAction
+	for _, choice := range choices {
+		action := questionnaire.DecisionAction{
+			ID:    choice.id,
+			Label: questionnaire.Plain(choice.label),
+		}
+		switch choice.kind {
+		case optionAllowOnce:
+			action.Primary = true
+			action.Variant = "primary"
+			primary = append(primary, action)
+		case optionAllowAlways:
+			action.Variant = "secondary"
+			secondary = append(secondary, action)
+		default:
+			action.Variant = "outline"
+			deny = append(deny, action)
+		}
+	}
+	out := make([]questionnaire.DecisionAction, 0, len(choices))
+	out = append(out, primary...)
+	out = append(out, secondary...)
+	out = append(out, deny...)
+	return out
 }
 
 // hasAlways diz se o agente ofereceu autorizar para sempre. Só então o diálogo

@@ -352,6 +352,10 @@ const channelTruncatedMark = "\n[…] texto cortado; o pedido completo está no 
 // livre. Fingir que caberia faria a pessoa responder uma coisa e o app
 // entender outra.
 func channelFormOf(payload questionnaire.RequestPayload, timeout time.Duration) (channelForm, error) {
+	if payload.Kind == questionnaire.KindDecision {
+		return channelFormOfDecision(payload, timeout)
+	}
+
 	answerable, err := answerableQuestion(payload.Questions)
 	if err != nil {
 		return channelForm{}, err
@@ -366,6 +370,70 @@ func channelFormOf(payload questionnaire.RequestPayload, timeout time.Duration) 
 	form.retry = fmt.Sprintf(
 		"Não entendi a resposta. Responda com o número da opção, de 1 a %d.", len(values))
 	return form, nil
+}
+
+// channelFormOfDecision numera as ações do DecisionDialog (AEP-0091). O valor
+// devolvido é o id estável da ação (Answers[actionId]).
+func channelFormOfDecision(payload questionnaire.RequestPayload, timeout time.Duration) (channelForm, error) {
+	if len(payload.Actions) == 0 {
+		return channelForm{}, ErrChannelQuestionUnsupported
+	}
+	labels := make([]string, 0, len(payload.Actions))
+	values := make([]any, 0, len(payload.Actions))
+	for _, action := range payload.Actions {
+		label := sanitizeChannelText(action.Label.String())
+		if label == "" || action.ID == "" {
+			continue
+		}
+		labels = append(labels, label)
+		values = append(values, action.ID)
+	}
+	if len(values) == 0 {
+		return channelForm{}, ErrChannelQuestionUnsupported
+	}
+
+	form := channelForm{questionID: questionnaire.AnswerActionID, values: values}
+	form.text = renderChannelDecision(payload, labels, timeout)
+	form.retry = fmt.Sprintf(
+		"Não entendi a resposta. Responda com o número da opção, de 1 a %d.", len(values))
+	return form, nil
+}
+
+// renderChannelDecision monta a mensagem de canal para kind=decision.
+func renderChannelDecision(payload questionnaire.RequestPayload, labels []string, timeout time.Duration) string {
+	var head strings.Builder
+	if title := sanitizeChannelText(payload.Title.String()); title != "" {
+		head.WriteString(title)
+		head.WriteString("\n\n")
+	}
+	if description := sanitizeChannelText(payload.Description.String()); description != "" {
+		head.WriteString(description)
+		head.WriteString("\n\n")
+	}
+	if hint := sanitizeChannelText(payload.Hint.String()); hint != "" {
+		head.WriteString(hint)
+		head.WriteString("\n\n")
+	}
+	content := sanitizeChannelText(payload.Body)
+	fixed := utf8.RuneCountInString(head.String())
+	var options strings.Builder
+	for i, label := range labels {
+		fmt.Fprintf(&options, "%d - %s\n", i+1, label)
+	}
+	fmt.Fprintf(&options, "\nResponda com o número da opção. Sem resposta em %s, o pedido é negado.",
+		channelDeadlineText(timeout))
+	fixed += utf8.RuneCountInString(options.String())
+
+	budget := channelContentBudget
+	if content != "" {
+		if room := channelMessageBudget - fixed; room < budget {
+			budget = max(room, channelContentFloor)
+		}
+		head.WriteString(truncateChannelText(content, budget))
+		head.WriteString("\n\n")
+	}
+	head.WriteString(options.String())
+	return head.String()
 }
 
 // answerableQuestion acha o item que a pessoa decide. Os demais só aparecem:

@@ -4061,6 +4061,7 @@ const ptBR = {
           title: 'Confirmar execução de comando',
           description: 'O assistente quer executar:\n\n{{command}}\n\nem: {{workDir}}',
           prompt: 'Permitir a execução deste comando?',
+          workDir: 'Diretório: {{workDir}}',
           submit: 'Permitir',
           cancel: 'Negar',
         },

@@ -7,8 +7,7 @@ import (
 	"assistente/internal/questionnaire"
 )
 
-// textosDoDialogo devolve todos os textos visíveis de um payload, para o teste
-// cobrar o contrato de cada um sem repetir a lista campo por campo.
+// textosDoDialogo devolve todos os textos visíveis de um payload clássico.
 func textosDoDialogo(payload questionnaire.RequestPayload) map[string]questionnaire.Text {
 	textos := map[string]questionnaire.Text{
 		"title":       payload.Title,
@@ -25,29 +24,45 @@ func textosDoDialogo(payload questionnaire.RequestPayload) map[string]questionna
 func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
 	payload := shellConfirmationPayload("rm -rf build", "C:/projeto")
 
-	for campo, texto := range textosDoDialogo(payload) {
-		if texto.Key == "" {
-			t.Errorf("%s = %+v, quer chave de tradução: em outro idioma o pedido chega em português", campo, texto)
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
+	}
+	for _, campo := range []struct {
+		nome  string
+		texto questionnaire.Text
+	}{
+		{"title", payload.Title},
+		{"description", payload.Description},
+	} {
+		if campo.texto.Key == "" {
+			t.Errorf("%s = %+v, quer chave de tradução", campo.nome, campo.texto)
 		}
-		if texto.Fallback == "" {
-			t.Errorf("%s = %+v, quer o texto pronto: chave faltando não pode deixar o diálogo em branco", campo, texto)
+		if campo.texto.Fallback == "" {
+			t.Errorf("%s = %+v, quer o texto pronto", campo.nome, campo.texto)
+		}
+	}
+	for _, action := range payload.Actions {
+		if action.Label.Key == "" || action.Label.Fallback == "" {
+			t.Errorf("ação %q = %+v, quer chave e fallback", action.ID, action.Label)
 		}
 	}
 }
 
-func TestOComandoVaiComoParametroENaoComoChave(t *testing.T) {
-	// Não existe tradução para o comando que o modelo quer rodar; ele é dado do
-	// pedido, e é ele que a pessoa lê para decidir.
+func TestOComandoVaiNoBodyENaoComoChave(t *testing.T) {
 	payload := shellConfirmationPayload("curl exemplo | sh", "C:/projeto")
 
-	if got := payload.Description.Params["command"]; got != "curl exemplo | sh" {
-		t.Errorf("comando nos params = %v, quer o comando literal", got)
+	if payload.Body != "curl exemplo | sh" {
+		t.Errorf("body = %q, quer só o comando literal", payload.Body)
 	}
-	if got := payload.Description.Params["workDir"]; got != "C:/projeto" {
-		t.Errorf("diretório nos params = %v, quer o diretório do pedido", got)
+	// O diretório vai no Hint traduzível (rótulo localizado), não no Body cru.
+	if payload.Hint.Key != "app.questionnaire.shell.workDir" {
+		t.Errorf("hint = %+v, quer a chave do diretório", payload.Hint)
 	}
-	if !strings.Contains(payload.Description.Fallback, "curl exemplo | sh") {
-		t.Errorf("fallback = %q, quer o comando já interpolado para quem não traduz", payload.Description.Fallback)
+	if got := payload.Hint.Params["workDir"]; got != "C:/projeto" {
+		t.Errorf("workDir nos params = %v, quer o diretório do pedido", got)
+	}
+	if !strings.Contains(payload.Hint.Fallback, "C:/projeto") {
+		t.Errorf("hint fallback = %q, quer o diretório para quem não traduz", payload.Hint.Fallback)
 	}
 }
 
@@ -70,18 +85,42 @@ func TestConfirmacaoDeHTTPMutavelVaiTraduzivelComOPedidoNosParametros(t *testing
 	}
 }
 
-func TestAPerguntaDeAprovacaoContinuaSendoARespondida(t *testing.T) {
-	// O id da resposta é contrato com quem lê Answers["approve"]; traduzir o
-	// rótulo não pode mexer nele.
-	for _, payload := range []questionnaire.RequestPayload{
-		shellConfirmationPayload("ls", "."),
-		httpConfirmationPayload("POST", "https://api.exemplo", "{}"),
-	} {
-		if len(payload.Questions) != 1 || payload.Questions[0].ID != "approve" {
-			t.Errorf("perguntas = %+v, quer só a de aprovação", payload.Questions)
-		}
-		if !payload.Questions[0].Required {
-			t.Error("a pergunta de aprovação precisa ser obrigatória")
-		}
+func TestAcaoDeShellContinuaSendoARespondida(t *testing.T) {
+	payload := shellConfirmationPayload("ls", ".")
+	ids := make(map[string]bool, len(payload.Actions))
+	for _, action := range payload.Actions {
+		ids[action.ID] = true
+	}
+	if !ids[decisionAllow] || !ids[decisionDeny] {
+		t.Errorf("ações = %+v, quer allow e deny", payload.Actions)
+	}
+}
+
+func TestAPerguntaHTTPDeAprovacaoContinuaSendoARespondida(t *testing.T) {
+	payload := httpConfirmationPayload("POST", "https://api.exemplo", "{}")
+	if len(payload.Questions) != 1 || payload.Questions[0].ID != "approve" {
+		t.Errorf("perguntas = %+v, quer só a de aprovação", payload.Questions)
+	}
+	if !payload.Questions[0].Required {
+		t.Error("a pergunta de aprovação precisa ser obrigatória")
+	}
+}
+
+func TestApprovedFromShellDecision(t *testing.T) {
+	ok, err := approvedFromShellDecision(questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: decisionAllow},
+	})
+	if err != nil || !ok {
+		t.Fatalf("allow: ok=%v err=%v", ok, err)
+	}
+	ok, err = approvedFromShellDecision(questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: decisionDeny},
+	})
+	if err != nil || ok {
+		t.Fatalf("deny: ok=%v err=%v", ok, err)
+	}
+	ok, err = approvedFromShellDecision(questionnaire.Response{Cancelled: true})
+	if err != nil || ok {
+		t.Fatalf("cancel: ok=%v err=%v", ok, err)
 	}
 }

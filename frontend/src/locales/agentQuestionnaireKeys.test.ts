@@ -91,6 +91,15 @@ const elevationKeys = ['title', 'description', 'prompt', 'submit', 'cancel'].map
   (sufixo) => `app.questionnaire.updateElevation.${sufixo}`
 );
 
+/** Confirmação de execução de comando shell (AEP-0091, kind=decision). */
+const shellKeys = [
+  'title',
+  'prompt',
+  'workDir',
+  'submit',
+  'cancel',
+].map((sufixo) => `app.questionnaire.shell.${sufixo}`);
+
 /** Consentimento de acesso a host bloqueado pelo anti-SSRF (AEP-0082). */
 const networkKeys = [
   'title',
@@ -181,6 +190,7 @@ const requiredPlaceholders: Record<string, string[]> = {
   'app.questionnaire.welcome.modelDescription': ['{{models}}'],
   'app.questionnaire.network.description': ['{{category}}'],
   'app.questionnaire.network.skillHostMatch': ['{{pattern}}'],
+  'app.questionnaire.shell.workDir': ['{{workDir}}'],
 };
 
 /**
@@ -206,6 +216,7 @@ describe('chaves dos diálogos que o backend monta', () => {
     ...editConfirmationKeys,
     ...updateKeys,
     ...elevationKeys,
+    ...shellKeys,
     ...networkKeys,
     ...welcomeKeys,
   ];

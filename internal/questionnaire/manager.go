@@ -74,10 +74,19 @@ type RejectReasonConfig struct {
 // RequestPayload representa uma solicitação de questionário pendente. Os
 // textos visíveis são Text: quem monta o diálogo diz a chave de tradução e o
 // texto pronto, e quem o exibe escolhe entre os dois (AEP-0085).
+//
+// Kind=KindDecision (AEP-0091): título/descrição/body + Actions como botões;
+// Questions fica vazio. Resposta em Answers[AnswerActionID].
 type RequestPayload struct {
 	ID           string              `json:"id"`
+	Kind         string              `json:"kind,omitempty"`
 	Title        Text                `json:"title,omitzero"`
 	Description  Text                `json:"description,omitzero"`
+	// Hint é texto traduzível secundário (ex.: match de host do skill),
+	// anexado à descrição no DecisionDialog sem misturar com Body cru.
+	Hint         Text                `json:"hint,omitzero"`
+	Body         string              `json:"body,omitempty"`
+	Actions      []DecisionAction    `json:"actions,omitempty"`
 	Questions    []Question          `json:"questions"`
 	AllowCancel  bool                `json:"allowCancel,omitempty"`
 	SubmitLabel  Text                `json:"submitLabel,omitzero"`
@@ -119,8 +128,12 @@ func NewManager(emitEvent func(event string, data any)) *Manager {
 func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPayload) (Response, error) {
 	req := &RequestPayload{
 		ID:           uuid.New().String()[:8],
+		Kind:         payload.Kind,
 		Title:        payload.Title,
 		Description:  payload.Description,
+		Hint:         payload.Hint,
+		Body:         payload.Body,
+		Actions:      payload.Actions,
 		Questions:    payload.Questions,
 		AllowCancel:  payload.AllowCancel,
 		SubmitLabel:  payload.SubmitLabel,
@@ -128,6 +141,9 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		RejectReason: payload.RejectReason,
 		CreatedAt:    time.Now().Format(time.RFC3339),
 		response:     make(chan Response, 1),
+	}
+	if req.Questions == nil {
+		req.Questions = []Question{}
 	}
 
 	m.mu.Lock()
@@ -149,6 +165,20 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		"submitLabel": req.SubmitLabel,
 		"cancelLabel": req.CancelLabel,
 		"createdAt":   req.CreatedAt,
+	}
+	// kind/body/hint/actions só existem em kind=decision: incluí-los sempre
+	// mandaria campos vazios para todo formulário, poluindo o contrato.
+	if req.Kind != "" {
+		eventData["kind"] = req.Kind
+	}
+	if req.Body != "" {
+		eventData["body"] = req.Body
+	}
+	if !req.Hint.IsZero() {
+		eventData["hint"] = req.Hint
+	}
+	if len(req.Actions) > 0 {
+		eventData["actions"] = req.Actions
 	}
 	if req.RejectReason != nil {
 		eventData["rejectReason"] = req.RejectReason

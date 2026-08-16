@@ -16,8 +16,7 @@ import (
 // scopeOption associa o rótulo exibido ao usuário ao Scope correspondente. A
 // ordem define a apresentação (do mais efêmero ao mais amplo).
 type scopeOption struct {
-	// key é a chave de tradução do rótulo; label é o texto pronto em pt-BR,
-	// que também compõe o valor estável da opção.
+	// key é a chave de tradução do rótulo; label é o texto pronto em pt-BR.
 	key   string
 	label string
 	scope nettrust.Scope
@@ -32,24 +31,41 @@ var networkScopeOptions = []scopeOption{
 }
 
 // scopeOptionSep separa o valor ESTÁVEL do escopo (parseável pelo backend) do
-// rótulo humano dentro da mesma option. O parse (scopeFromOption) usa apenas o
-// prefixo estável, então o copy pode mudar — ou ganhar i18n — sem quebrar o
-// fluxo de consentimento. Ex.: "session — Durante esta conversa".
+// rótulo humano dentro da mesma option legada. Mantido para scopeFromOption
+// aceitar respostas antigas "session — …" e ids novos ("session").
 const scopeOptionSep = " — "
 
 func scopeOptionText(o scopeOption) string {
 	return string(o.scope) + scopeOptionSep + o.label
 }
 
-// scopeOptions monta as opções para a tela. O valor que volta em Answers é o
-// fallback (scopeOptionText), com o prefixo estável que scopeFromOption parseia;
-// a tradução mostra só o rótulo humano, porque o prefixo é máquina e quem lê o
-// diálogo não tem o que fazer com ele (AEP-0085).
+// scopeOptions monta as opções legadas (rádio). Preferir networkDecisionActions.
 func scopeOptions() []questionnaire.Text {
 	out := make([]questionnaire.Text, 0, len(networkScopeOptions))
 	for _, o := range networkScopeOptions {
 		out = append(out, questionnaire.Keyed(o.key, scopeOptionText(o)))
 	}
+	return out
+}
+
+func networkDecisionActions() []questionnaire.DecisionAction {
+	out := make([]questionnaire.DecisionAction, 0, len(networkScopeOptions)+1)
+	for i, o := range networkScopeOptions {
+		out = append(out, questionnaire.DecisionAction{
+			ID:      string(o.scope),
+			Label:   questionnaire.Keyed(o.key, o.label),
+			Variant: "secondary",
+			Primary: i == 0,
+		})
+	}
+	if len(out) > 0 {
+		out[0].Variant = "primary"
+	}
+	out = append(out, questionnaire.DecisionAction{
+		ID:      decisionDeny,
+		Label:   questionnaire.Keyed("app.questionnaire.network.cancel", "Negar"),
+		Variant: "outline",
+	})
 	return out
 }
 
@@ -98,9 +114,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		fmt.Fprintf(&details, "Hosts esperados pelo skill: %s\n", strings.Join(req.SkillSuggestedHosts, ", "))
 	}
 
-	// Quando o destino bloqueado é um dos hosts que o skill declarou esperar,
-	// dizer isso ao lado dos detalhes evita que a pessoa compare a lista na mão.
-	// Continua sendo só informação: a autorização depende da resposta (AEP-0082 D5).
+	// Hint traduzível (não vai no Body cru): o match com host do skill.
 	var skillHostHint questionnaire.Text
 	if req.SkillHostMatch != "" {
 		skillHostHint = questionnaire.KeyedWith(
@@ -111,6 +125,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 	}
 
 	resp, err := p.qm.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Kind: questionnaire.KindDecision,
 		Title: questionnaire.Keyed(
 			"app.questionnaire.network.title",
 			"Autorizar acesso a host bloqueado (anti-SSRF)",
@@ -120,34 +135,10 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 			map[string]any{"category": req.Category},
 			fmt.Sprintf("O assistente tentou acessar um host que resolve para um endereço interno/privado (%s). Autorize apenas se você confia neste destino.", req.Category),
 		),
+		Hint:        skillHostHint,
+		Body:        details.String(),
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Keyed("app.questionnaire.network.submit", "Autorizar"),
-		CancelLabel: questionnaire.Keyed("app.questionnaire.network.cancel", "Negar"),
-		Questions: []questionnaire.Question{
-			{
-				ID:          "details",
-				Type:        "readonly_code",
-				Prompt:      questionnaire.Keyed("app.questionnaire.network.detailsPrompt", "Detalhes do destino"),
-				Description: skillHostHint,
-				// Host, porta, IP e motivo são dados do pedido: vão como
-				// conteúdo, não como chave.
-				Content: details.String(),
-			},
-			{
-				ID:       "scope",
-				Type:     "single_choice",
-				Prompt:   questionnaire.Keyed("app.questionnaire.network.scopePrompt", "Por quanto tempo autorizar este host?"),
-				Required: true,
-				Options:  scopeOptions(),
-				Default:  scopeOptionText(networkScopeOptions[0]),
-			},
-			{
-				ID:          "reason",
-				Type:        "text",
-				Prompt:      questionnaire.Keyed("app.questionnaire.network.reasonPrompt", "Observação (opcional)"),
-				Placeholder: questionnaire.Keyed("app.questionnaire.network.reasonPlaceholder", "Ex.: API interna de workflows"),
-			},
-		},
+		Actions:     networkDecisionActions(),
 	})
 	if err != nil {
 		return nettrust.PromptDecision{}, err
@@ -156,13 +147,20 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		return nettrust.PromptDecision{Approve: false}, nil
 	}
 
-	option, _ := resp.Answers["scope"].(string)
-	scope, ok := scopeFromOption(option)
+	actionID, ok := questionnaire.DecisionActionID(resp)
 	if !ok {
-		return nettrust.PromptDecision{}, fmt.Errorf("escopo de autorização inválido: %q", option)
+		return nettrust.PromptDecision{}, fmt.Errorf("resposta de autorização de rede sem ação")
 	}
-	reason, _ := resp.Answers["reason"].(string)
+	if actionID == decisionDeny {
+		return nettrust.PromptDecision{Approve: false}, nil
+	}
 
-	return nettrust.PromptDecision{Approve: true, Scope: scope, Reason: reason}, nil
+	scope, ok := scopeFromOption(actionID)
+	if !ok {
+		return nettrust.PromptDecision{}, fmt.Errorf("escopo de autorização inválido: %q", actionID)
+	}
+
+	// Observação livre saiu com o DecisionDialog (só botões). Reason vazio
+	// até haver campo opcional sem voltar ao híbrido rádio+texto (AEP-0091).
+	return nettrust.PromptDecision{Approve: true, Scope: scope}, nil
 }
-

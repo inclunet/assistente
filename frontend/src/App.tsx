@@ -11,7 +11,8 @@ import { useChatStore } from './store/chatStore';
 import { parseDeepLink, executeDeepLink } from './lib/deepLinks';
 import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 import { ConfirmHost } from './components/ui/ConfirmHost';
-import { QuestionnaireDialog } from './components/ui/QuestionnaireDialog';
+import { QuestionnaireDialog, isDecisionQuestionnaire } from './components/ui/QuestionnaireDialog';
+import { DecisionQuestionnaireHost } from './components/ui/DecisionQuestionnaireHost';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 import { useConnectionStatusListener } from './hooks/useConnectionStatusListener';
 import { usePartialRuntimeInitListener } from './hooks/usePartialRuntimeInitListener';
@@ -336,7 +337,14 @@ function App() {
     };
 
     const effectiveQuestionnaireOpen = !!questionnaireData || !!uiQuestionnaireData;
-    const effectiveQuestionnaireData = questionnaireData || uiQuestionnaireData;
+    const isBackendDecision = isDecisionQuestionnaire(questionnaireData);
+    // Enquanto houver questionário do backend, não abrir outro da UI (focus trap / NVDA).
+    const formQuestionnaireOpen =
+      (!!questionnaireData && !isBackendDecision) ||
+      (!questionnaireData && !!uiQuestionnaireData);
+    const formQuestionnaireData = isBackendDecision
+      ? null
+      : (questionnaireData || uiQuestionnaireData);
 
     // Restaura foco quando qualquer questionário fecha
     useEffect(() => {
@@ -389,9 +397,14 @@ function App() {
             <AuthGate>
                 <Outlet />
                 <ConfirmHost />
+                <DecisionQuestionnaireHost
+                    data={questionnaireData}
+                    onAction={handleQuestionnaireSubmit}
+                    onCancel={() => { void handleQuestionnaireCancel(); }}
+                />
                 <QuestionnaireDialog
-                    isOpen={effectiveQuestionnaireOpen}
-                    data={effectiveQuestionnaireData}
+                    isOpen={formQuestionnaireOpen}
+                    data={formQuestionnaireData}
                     onSubmit={handleQuestionnaireSubmit}
                     onCancel={handleQuestionnaireCancel}
                 />
