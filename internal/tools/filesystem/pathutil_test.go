@@ -241,79 +241,65 @@ func contains(s, substr string) bool {
 	return false
 }
 
-// TestValidatePathWithPolicy_OpenEditorPaths testa que arquivos abertos em abas de editor
-// podem ser lidos/editados mesmo fora do workDir.
-func TestValidatePathWithPolicy_OpenEditorPaths(t *testing.T) {
+// TestValidatePathWithPolicy_OpenEditorPaths_NoLongerBypass (AEP-0092): abrir no
+// editor NÃO libera path fora do sandbox sem PathAuthorizer.
+func TestValidatePathWithPolicy_OpenEditorPaths_NoLongerBypass(t *testing.T) {
 	workDir := t.TempDir()
-	outsideDir := t.TempDir() // diretório fora do workDir
-
-	// Cria arquivo fora do workDir
+	outsideDir := t.TempDir()
 	outsideFile := filepath.Join(outsideDir, "doc.txt")
 	_ = os.WriteFile(outsideFile, []byte("conteúdo"), 0644)
 
-	// Confirma que sem open editor paths, o arquivo é bloqueado
-	ctx := context.Background()
+	ctx := tools.WithOpenEditorPaths(context.Background(), []string{outsideFile})
 	if err := validatePathWithPolicy(ctx, outsideFile, workDir, ToolPolicy(), "read"); err == nil {
-		t.Fatal("arquivo fora do workDir deveria ser bloqueado sem open editor paths")
-	}
-
-	// Injeta o arquivo como open editor path
-	ctxWithEditors := tools.WithOpenEditorPaths(ctx, []string{outsideFile})
-
-	tests := []struct {
-		name      string
-		path      string
-		op        string
-		shouldErr bool
-	}{
-		{"read_open_editor", outsideFile, "read", false},
-		{"write_open_editor", outsideFile, "write", false},
-		{"edit_open_editor", outsideFile, "edit", false},
-		{"move_from_open_editor_blocked", outsideFile, "move_from", true},
-		{"move_to_open_editor_blocked", outsideFile, "move_to", true},
-		{"delete_open_editor_blocked", outsideFile, "delete", true},
-		{"copy_from_open_editor_blocked", outsideFile, "copy_from", true},
-		{"copy_to_open_editor_blocked", outsideFile, "copy_to", true},
-		{"mkdir_open_editor_blocked", outsideDir, "mkdir", true},
-		{"list_open_editor_blocked", outsideDir, "list", true},
-		{"search_open_editor_blocked", outsideDir, "search", true},
-		{"grep_open_editor_dir_blocked", outsideDir, "grep", true},
-		{"grep_open_editor_file", outsideFile, "grep", false},
-		{"other_file_still_blocked", filepath.Join(outsideDir, "other.txt"), "read", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validatePathWithPolicy(ctxWithEditors, tt.path, workDir, ToolPolicy(), tt.op)
-			if tt.shouldErr && err == nil {
-				t.Errorf("esperado erro para %s com op=%s", tt.path, tt.op)
-			}
-			if !tt.shouldErr && err != nil {
-				t.Errorf("esperado sucesso para %s com op=%s, got: %v", tt.path, tt.op, err)
-			}
-		})
+		t.Fatal("arquivo fora do workDir não deve ser liberado só por estar aberto no editor")
 	}
 }
 
-// TestValidatePathWithPolicy_OpenEditorSensitiveStillBlocked testa que a exceção de open editor
-// NÃO permite acessar arquivos sensíveis via ToolPolicy.
-func TestValidatePathWithPolicy_OpenEditorSensitiveStillBlocked(t *testing.T) {
+type stubPathAuthorizer struct {
+	allow bool
+	err   error
+}
+
+func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation string) error {
+	if s.err != nil {
+		return s.err
+	}
+	if s.allow {
+		return nil
+	}
+	return errOutsideAllowedDirs
+}
+
+func TestValidatePathWithPolicy_PathAuthorizerAllowsOutside(t *testing.T) {
 	workDir := t.TempDir()
 	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "doc.txt")
+	_ = os.WriteFile(outsideFile, []byte("ok"), 0644)
 
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	pathAuthorizer = stubPathAuthorizer{allow: true}
+
+	if err := validatePathWithPolicy(context.Background(), outsideFile, workDir, ToolPolicy(), "read"); err != nil {
+		t.Fatalf("authorizer allow deveria liberar: %v", err)
+	}
+}
+
+func TestValidatePathWithPolicy_PathAuthorizerSensitiveStillBlocked(t *testing.T) {
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
 	envFile := filepath.Join(outsideDir, ".env")
 	_ = os.WriteFile(envFile, []byte("SECRET=value"), 0600)
 
-	ctx := tools.WithOpenEditorPaths(context.Background(), []string{envFile})
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	pathAuthorizer = stubPathAuthorizer{allow: true}
 
-	// Mesmo sendo open editor file, ToolPolicy bloqueia arquivos sensíveis
-	if err := validatePathWithPolicy(ctx, envFile, workDir, ToolPolicy(), "read"); err == nil {
-		t.Error("arquivo sensível deveria ser bloqueado mesmo como open editor path com ToolPolicy")
+	if err := validatePathWithPolicy(context.Background(), envFile, workDir, ToolPolicy(), "read"); err == nil {
+		t.Fatal("arquivo sensível deve continuar bloqueado mesmo com PathAuthorizer")
 	}
-
-	// EditorPolicy permite
-	if err := validatePathWithPolicy(ctx, envFile, workDir, EditorPolicy(), "read"); err != nil {
-		t.Errorf("EditorPolicy deveria permitir open editor file .env: %v", err)
+	if err := validatePathWithPolicy(context.Background(), envFile, workDir, EditorPolicy(), "read"); err != nil {
+		t.Fatalf("EditorPolicy deveria permitir após authorizer: %v", err)
 	}
 }
 
@@ -334,14 +320,13 @@ func TestValidatePathWithPolicy_OpenEditorInsideWorkDirUnchanged(t *testing.T) {
 }
 
 // TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed testa que erros de workDir
-// inválido NÃO são bypassados pela exceção de open editor (sentinel error).
+// inválido NÃO são bypassados.
 func TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed(t *testing.T) {
 	someFile := filepath.Join(t.TempDir(), "file.txt")
 	_ = os.WriteFile(someFile, []byte("data"), 0644)
 
 	ctx := tools.WithOpenEditorPaths(context.Background(), []string{someFile})
 
-	// workDir vazio → erro de input, não "fora dos diretórios" → bypass não se aplica
 	if err := validatePathWithPolicy(ctx, someFile, "", ToolPolicy(), "read"); err == nil {
 		t.Error("workDir inválido deveria retornar erro mesmo com open editor paths")
 	}
@@ -356,11 +341,9 @@ func TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked(t *testing.T) {
 
 	dir := t.TempDir()
 
-	// Cria arquivo sensível real
 	envFile := filepath.Join(dir, ".env")
 	_ = os.WriteFile(envFile, []byte("SECRET=value"), 0600)
 
-	// Cria symlink com nome não-sensível apontando para .env
 	linkFile := filepath.Join(dir, "innocent.txt")
 	if err := os.Symlink(envFile, linkFile); err != nil {
 		t.Fatalf("falha ao criar symlink: %v", err)
@@ -368,16 +351,34 @@ func TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked(t *testing.T) {
 
 	ctx := tools.WithOpenEditorPaths(context.Background(), []string{linkFile})
 
-	// O symlink aponta para .env → isOpenEditorAllowed deve rejeitar
 	if isOpenEditorAllowed(ctx, linkFile, "read") {
 		t.Error("symlink para arquivo sensível deveria ser bloqueado")
 	}
 
-	// Arquivo não-sensível sem symlink deve funcionar
 	normalFile := filepath.Join(dir, "normal.txt")
 	_ = os.WriteFile(normalFile, []byte("ok"), 0644)
 	ctx2 := tools.WithOpenEditorPaths(context.Background(), []string{normalFile})
 	if !isOpenEditorAllowed(ctx2, normalFile, "read") {
 		t.Error("arquivo normal deveria ser permitido como open editor")
+	}
+}
+
+func TestValidatePath_SandboxRootFunc(t *testing.T) {
+	bootDir := t.TempDir()
+	active := t.TempDir()
+	fileInActive := filepath.Join(active, "x.txt")
+	_ = os.WriteFile(fileInActive, []byte("x"), 0644)
+
+	prev := sandboxRootFunc
+	t.Cleanup(func() { sandboxRootFunc = prev })
+	sandboxRootFunc = func() string { return active }
+
+	if err := validatePath(fileInActive, bootDir); err != nil {
+		t.Fatalf("path no workspace ativo deveria passar: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "y.txt")
+	_ = os.WriteFile(outside, []byte("y"), 0644)
+	if err := validatePath(outside, bootDir); err == nil {
+		t.Fatal("path fora do workspace ativo deveria falhar")
 	}
 }

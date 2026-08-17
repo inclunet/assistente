@@ -25,6 +25,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/deeplinkprotocol"
 	"assistente/internal/events"
+	"assistente/internal/fstrust"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
@@ -77,6 +78,7 @@ type App struct {
 	questionnaireMgr  *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
 	allowlistMgr      *allowlist.Manager       // Gerenciador de allowlists de comandos
 	netTrustMgr       *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
+	fsTrustMgr        *fstrust.Manager         // Allowlist de paths fora do sandbox (AEP-0092)
 	mcpMgr            *mcpmgr.Manager          // Gerenciador de servidores MCP
 	acpMgr            *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
 	acpTrust          *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
@@ -184,13 +186,13 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
-	msgCtrl         *controllers.MessagingController
-	mcpCtrl         *controllers.MCPController
-	profilesCtrl    *controllers.ProfilesController
-	llmCtrl         *controllers.LLMController
-	skillsCtrl      *controllers.SkillsController
-	settingsCtrl    *controllers.SettingsController
-	chatCtrl        *controllers.ChatController
+	msgCtrl           *controllers.MessagingController
+	mcpCtrl           *controllers.MCPController
+	profilesCtrl      *controllers.ProfilesController
+	llmCtrl           *controllers.LLMController
+	skillsCtrl        *controllers.SkillsController
+	settingsCtrl      *controllers.SettingsController
+	chatCtrl          *controllers.ChatController
 	taskListCtrl      *controllers.TaskListController
 	conversationsCtrl *controllers.ConversationsController
 	memoryCtrl        *controllers.MemoryController

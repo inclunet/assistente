@@ -9,6 +9,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/fstrust"
 	"assistente/internal/nettrust"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
@@ -160,6 +161,19 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(filesystem.NewCopyFile(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewDeleteFile(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewMakeDirectory(workDir))
+
+	// AEP-0092: raiz do sandbox = workspace ativo; paths fora → fstrust + DecisionDialog.
+	filesystem.SetSandboxRootFunc(func() string {
+		if a.workspaceMgr != nil {
+			if base := a.workspaceMgr.ActivePath(); base != "" {
+				return base
+			}
+		}
+		return workDir
+	})
+	if a.fsTrustMgr != nil {
+		filesystem.SetPathAuthorizer(fstrust.NewAuthorizer(a.fsTrustMgr, &appFSPrompter{qm: a.questionnaireMgr}))
+	}
 
 	// Authorizer anti-SSRF: liga a allowlist de rede escopável (netTrustMgr) ao
 	// fluxo de consentimento via questionnaire. Instalado nas tools de rede para

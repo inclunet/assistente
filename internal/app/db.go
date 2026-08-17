@@ -37,6 +37,9 @@ func (a *App) resetConversationScopedState(ctx context.Context, conversationID s
 	if a != nil && a.netTrustMgr != nil {
 		a.netTrustMgr.ClearSession(conversationID)
 	}
+	if a != nil && a.fsTrustMgr != nil {
+		a.fsTrustMgr.ClearSession(conversationID)
+	}
 	// A sessão do agente é onde vive o histórico dessa conversa do lado dele
 	// (AEP-0084 D4): mantê-la faria o agente responder com base em mensagens
 	// que a pessoa já não vê na tela.

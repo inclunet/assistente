@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/internal/allowlist"
 	"assistente/internal/configdir"
+	"assistente/internal/fstrust"
 	"assistente/internal/logging"
 	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
@@ -50,6 +51,24 @@ func (a *App) initTerminalAndAllowlists() {
 	// case mesmo quando o invocationctx da chamada não traz ProfileSlug — e de
 	// forma consistente com a API de gestão (NetTrustController.managementContext).
 	a.netTrustMgr.SetActiveProfileSlugFunc(func() string {
+		if a.profileManager != nil {
+			return a.profileManager.GetActiveSlug()
+		}
+		return ""
+	})
+
+	// Allowlist de paths fora do sandbox (AEP-0092): mesmos escopos/resolvedores
+	// que a rede, para workspace ativo e perfil ficarem alinhados.
+	a.fsTrustMgr = fstrust.NewManager()
+	a.fsTrustMgr.SetWorkspaceDirFunc(func() string {
+		if a.workspaceMgr != nil {
+			if base := a.workspaceMgr.ActivePath(); base != "" {
+				return filepath.Join(base, ".assistente")
+			}
+		}
+		return configdir.GetWorkDir()
+	})
+	a.fsTrustMgr.SetActiveProfileSlugFunc(func() string {
 		if a.profileManager != nil {
 			return a.profileManager.GetActiveSlug()
 		}

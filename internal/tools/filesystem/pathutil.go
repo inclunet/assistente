@@ -13,10 +13,34 @@ import (
 	"assistente/internal/tools"
 )
 
-// errOutsideAllowedDirs é retornado quando um caminho está fora dos diretórios permitidos.
-// Distingue-se de erros de input inválido (workDir vazio, caminho malformado) para que
-// a exceção de open editors só se aplique a esse caso específico.
+// errOutsideAllowedDirs é retornado quando um caminho está fora dos diretórios permitidos
+// (workspace ativo / workDir da tool e ~/.assistente) e ainda não passou pelo
+// PathAuthorizer (AEP-0092).
 var errOutsideAllowedDirs = errors.New("caminho fora dos diretórios permitidos")
+
+// PathAuthorizer autoriza paths fora do sandbox (allowlist escopável + DecisionDialog).
+// Implementado por internal/fstrust.Authorizer; nil = deny seco (testes / bootstrap).
+type PathAuthorizer interface {
+	Authorize(ctx context.Context, absPath, operation string) error
+}
+
+var (
+	pathAuthorizer PathAuthorizer
+	// sandboxRootFunc, quando definido, devolve a raiz do workspace ATIVO
+	// (AEP-0092 D5). Avaliado a cada validatePath; "" cai no workDir da tool.
+	sandboxRootFunc func() string
+)
+
+// SetPathAuthorizer instala o authorizer de paths fora do sandbox (AEP-0092).
+func SetPathAuthorizer(a PathAuthorizer) {
+	pathAuthorizer = a
+}
+
+// SetSandboxRootFunc instala o resolvedor dinâmico da raiz permitida (workspace
+// ativo). Sem isto, as tools ficam amarradas ao cwd do boot.
+func SetSandboxRootFunc(f func() string) {
+	sandboxRootFunc = f
+}
 
 // expandTilde expande ~ e ~/ no início de um caminho para o diretório home do usuário.
 // No Windows, ~ não é expandido pelo sistema — esta função resolve isso de forma portável.
@@ -87,25 +111,41 @@ func isWithinRoot(absPath string, absRoot string) bool {
 	return true
 }
 
-func validatePath(fullPath, workDir string) error {
+func effectiveSandboxRoot(workDir string) (string, error) {
+	if sandboxRootFunc != nil {
+		if root := strings.TrimSpace(sandboxRootFunc()); root != "" {
+			abs, err := filepath.Abs(filepath.Clean(root))
+			if err != nil {
+				return "", fmt.Errorf("sandbox root inválido: %v", err)
+			}
+			return abs, nil
+		}
+	}
 	wd := strings.TrimSpace(workDir)
 	if wd == "" {
-		return fmt.Errorf("workDir inválido")
+		return "", fmt.Errorf("workDir inválido")
 	}
+	abs, err := filepath.Abs(filepath.Clean(wd))
+	if err != nil {
+		return "", fmt.Errorf("workDir inválido: %v", err)
+	}
+	return abs, nil
+}
 
+func validatePath(fullPath, workDir string) error {
 	absPath, err := filepath.Abs(filepath.Clean(fullPath))
 	if err != nil {
 		return fmt.Errorf("caminho inválido: %v", err)
 	}
-	absWorkDir, err := filepath.Abs(filepath.Clean(wd))
+	absRoot, err := effectiveSandboxRoot(workDir)
 	if err != nil {
-		return fmt.Errorf("workDir inválido: %v", err)
+		return err
 	}
 
-	allowedRoots := []string{absWorkDir}
+	allowedRoots := []string{absRoot}
 	if homeBase := strings.TrimSpace(configdir.GetHomeDir()); homeBase != "" {
 		if absHomeBase, err := filepath.Abs(filepath.Clean(homeBase)); err == nil {
-			if normalizeForComparison(absHomeBase) != normalizeForComparison(absWorkDir) {
+			if normalizeForComparison(absHomeBase) != normalizeForComparison(absRoot) {
 				allowedRoots = append(allowedRoots, absHomeBase)
 			}
 		}
@@ -121,10 +161,15 @@ func validatePath(fullPath, workDir string) error {
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
 	if err := validatePath(fullPath, workDir); err != nil {
-		// Exceção de open editors: aplica-se APENAS quando o erro é "fora dos diretórios"
-		// (não para workDir inválido, caminho malformado, etc.) e somente para read/write/edit/grep.
-		if !errors.Is(err, errOutsideAllowedDirs) || !isOpenEditorAllowed(ctx, fullPath, operation) {
+		if !errors.Is(err, errOutsideAllowedDirs) {
 			return err
+		}
+		// AEP-0092: fora do sandbox → allowlist / DecisionDialog (não open-editor bypass).
+		if pathAuthorizer == nil {
+			return err
+		}
+		if authErr := pathAuthorizer.Authorize(ctx, fullPath, operation); authErr != nil {
+			return authErr
 		}
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {
@@ -148,9 +193,7 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 }
 
 // isOpenEditorAllowed verifica se o arquivo está aberto em uma aba de editor e se a operação é permitida.
-// Leitura, escrita/edição e grep são permitidos; operações estruturais (list, search, move, delete) não.
-// Rejeita diretórios para todas as operações — a exceção de open editors é apenas para arquivos exatos.
-// Resolve symlinks: se o target real for arquivo sensível (bypass via symlink), rejeita.
+// Mantido para UX (ex.: confirmação de diff). NÃO é mais bypass de sandbox (AEP-0092).
 func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
 	switch operation {
 	case "read", "write", "edit", "grep":

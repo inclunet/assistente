@@ -97,7 +97,7 @@ func (p *SurfaceContextProvider) Build(_ context.Context, req contextprovider.Bu
 
 func workspaceInstructionsBlock() string {
 	return `<workspace_instructions>
-open_editor_file[...] entries are exact editor-open files: only read_file, write_file, edit_file, and grep_search may use those exact paths outside the workspace; structural operations, sensitive files, denylisted files, and active skill restrictions still apply.
+open_editor_file[...] entries list files currently open in editor tabs (context only). They do NOT grant filesystem tool access outside the active workspace or ~/.assistente. Outside paths require explicit user authorization (path allowlist) for each operation; sensitive files, skill denylists, and structural restrictions still apply.
 </workspace_instructions>`
 }
 

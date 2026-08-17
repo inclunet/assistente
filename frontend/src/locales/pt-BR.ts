@@ -4100,6 +4100,25 @@ const ptBR = {
             global: 'Global (todos os workspaces e perfis)',
           },
         },
+        fstrust: {
+          title: 'Autorizar acesso a caminho fora do workspace',
+          description: 'O assistente pediu a operação "{{operation}}" em um caminho fora do workspace ativo e de ~/.assistente. Autorize apenas o path exato desta tentativa, ou escolha explicitamente liberar a pasta pai.',
+          cancel: 'Negar',
+          scope: {
+            once: 'Somente esta tentativa',
+            session: 'Durante esta conversa',
+            workspace: 'Neste workspace (projeto)',
+            profile: 'Neste perfil',
+            global: 'Global (todos os workspaces e perfis)',
+            dir: {
+              once: 'Pasta pai — somente esta tentativa',
+              session: 'Pasta pai — durante esta conversa',
+              workspace: 'Pasta pai — neste workspace (projeto)',
+              profile: 'Pasta pai — neste perfil',
+              global: 'Pasta pai — global (todos os workspaces e perfis)',
+            },
+          },
+        },
         agentPermission: {
           title: 'O agente pede permissão',
           submit: 'Confirmar',

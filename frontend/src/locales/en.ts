@@ -4099,6 +4099,25 @@ const en = {
             global: 'Global (all workspaces and profiles)',
           },
         },
+        fstrust: {
+          title: 'Authorize access to a path outside the workspace',
+          description: 'The assistant requested the "{{operation}}" operation on a path outside the active workspace and ~/.assistente. Authorize only the exact path for this attempt, or explicitly choose to allow the parent folder.',
+          cancel: 'Deny',
+          scope: {
+            once: 'This attempt only',
+            session: 'For this conversation',
+            workspace: 'In this workspace (project)',
+            profile: 'In this profile',
+            global: 'Global (all workspaces and profiles)',
+            dir: {
+              once: 'Parent folder — this attempt only',
+              session: 'Parent folder — for this conversation',
+              workspace: 'Parent folder — in this workspace (project)',
+              profile: 'Parent folder — in this profile',
+              global: 'Parent folder — global (all workspaces and profiles)',
+            },
+          },
+        },
         agentPermission: {
           title: 'The agent is asking for permission',
           submit: 'Confirm',
