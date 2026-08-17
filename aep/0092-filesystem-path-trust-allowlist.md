@@ -41,6 +41,7 @@ deixa de ser bypass de segurança.
 | D-Q4 | Ops estruturais (`list`, `search`, `move`, `delete`, `mkdir`, `copy`) entram no **mesmo** fluxo. |
 | D-Q5 | Arquivos sensíveis (`.env`, chaves, `.pem`…) continuam **hard-deny**; allowlist não libera. |
 | D-Q6 | Raiz sempre permitida = **workspace ativo** + `~/.assistente` (corrige cwd do boot). |
+| D-Q7 | A **raiz** de um walk (`grep`, `list`, `search`) passa pelo fluxo normal e pode pedir autorização; as **entradas percorridas** que escapam do sandbox são **puladas em silêncio**, nunca viram prompt. |
 
 **Fase 2 (não bloqueia Fase 1):** denylist explícita que pode restringir até
 dentro do workdir — “sempre permitido” deixa de ser absoluto quando houver
@@ -59,6 +60,20 @@ branch `errOutsideAllowedDirs` deixa de ser deny seco e passa a:
 
 Skill `FilesystemScope` e `isSensitiveFile` continuam **depois** do trust e
 com precedência de deny (skill deny / sensível nunca são anulados por trust).
+
+Toda comparação de sandbox usa o **destino real** do path (symlinks resolvidos,
+inclusive quando o alvo ainda não existe). Sem isso, um link dentro da raiz
+apontando para fora passaria no `isWithinRoot` pelo nome literal e a leitura
+sairia do sandbox sem consentimento.
+
+**Walks não perguntam por entrada (D-Q7).** `grep_search`, `list_dir` e
+`search_files` validam a raiz pelo fluxo normal — ali o prompt é legítimo — mas
+um prompt por arquivo percorrido inviabilizaria a busca. Então, durante o walk,
+entrada cujo destino real cai fora das raízes permitidas é omitida do resultado,
+do mesmo jeito que arquivos sensíveis. O usuário que quiser aquele conteúdo pede
+pelo caminho real, e aí passa pelo consentimento normal. Na prática o teste só
+recai sobre symlinks: `WalkDir` não desce por link, então entrada comum abaixo
+de uma raiz já validada continua dentro dela.
 
 ### D2. Pacote `internal/fstrust` (espelha `nettrust`)
 
