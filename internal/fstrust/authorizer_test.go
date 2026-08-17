@@ -64,11 +64,12 @@ func TestAuthorizer_DenyByResolvedPathBlocksAlias(t *testing.T) {
 
 	auth := NewAuthorizer(m, &spyPrompter{decision: PromptDecision{Approve: true}})
 	// Acesso pelo alias deve ser bloqueado pelo deny do destino real.
-	if err := auth.Authorize(ctx, alias, "read"); err == nil {
+	err = auth.Authorize(ctx, alias, "read")
+	if err == nil {
 		t.Fatal("deny pelo destino real deveria bloquear o acesso via alias")
 	}
 	var denied *DeniedPathError
-	if !errors.As(auth.Authorize(ctx, alias, "read"), &denied) {
+	if !errors.As(err, &denied) {
 		t.Fatal("erro deveria ser DeniedPathError")
 	}
 }

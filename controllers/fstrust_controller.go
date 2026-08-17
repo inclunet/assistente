@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"assistente/internal/apidto"
@@ -97,6 +99,12 @@ func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, op
 	if path == "" {
 		return fmt.Errorf("path vazio")
 	}
+	// O path é digitado à mão: expandir "~" para o home, senão persistiríamos
+	// uma regra literal "~/..." que nunca casa o caminho real.
+	path, err := expandUserHome(path)
+	if err != nil {
+		return err
+	}
 	// Persiste o destino real (symlinks resolvidos + normalizado), igual ao
 	// allow: o MatchDeny casa pelo path resolvido, então gravar o alias cru
 	// permitiria burlar o deny pelo caminho real (e salvaria ".."/separadores
@@ -137,4 +145,21 @@ func (c *FSTrustController) RemovePathAllowlistEntry(ctx context.Context, scope,
 		return fmt.Errorf("effect inválido para remoção: %q (use allow ou deny)", effect)
 	}
 	return c.fsTrustMgr.Remove(c.managementContext(ctx), s, path, k, operation, fstrust.NormalizedEffect(eff))
+}
+
+// expandUserHome troca um "~" inicial pelo diretório home do usuário. filepath.Abs
+// trataria "~" como componente literal relativo, persistindo uma regra que nunca
+// casaria o caminho real digitado (ex.: "~/.env").
+func expandUserHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~\\") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("não foi possível resolver \"~\" para o diretório home: %w", err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
 }

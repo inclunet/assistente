@@ -174,7 +174,7 @@ func (a *Authorizer) deniedResolved(ctx context.Context, requested, resolved, op
 		return nil
 	}
 	decision := a.mgr.MatchDeny(ctx, resolved, operation)
-	if decision.Entry == nil {
+	if !decision.Matched {
 		return nil
 	}
 	logging.Infof(ctx, "fstrust.authorizer",

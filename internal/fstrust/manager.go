@@ -107,9 +107,11 @@ func (m *Manager) Match(ctx context.Context, absPath, operation string) Decision
 }
 
 // MatchDeny procura uma proibição (EffectDeny) para absPath+operation na mesma
-// ordem de escopos. Trust allow nunca anula um deny (AEP-0092 D9).
-func (m *Manager) MatchDeny(ctx context.Context, absPath, operation string) Decision {
-	return m.matchEffect(ctx, absPath, operation, EffectDeny)
+// ordem de escopos. Trust allow nunca anula um deny (AEP-0092 D9). Devolve
+// DenyMatch (com Matched explícito) para não confundir com o allow de Match.
+func (m *Manager) MatchDeny(ctx context.Context, absPath, operation string) DenyMatch {
+	d := m.matchEffect(ctx, absPath, operation, EffectDeny)
+	return DenyMatch{Matched: d.Entry != nil, Scope: d.Scope, Entry: d.Entry}
 }
 
 func (m *Manager) matchEffect(ctx context.Context, absPath, operation string, effect Effect) Decision {

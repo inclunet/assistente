@@ -147,6 +147,15 @@ type Decision struct {
 	Prompted bool // true quando exigiu consentimento novo do usuário
 }
 
+// DenyMatch é o resultado de MatchDeny. Diferente de Decision (allow), não expõe
+// um campo Allowed: uma proibição encontrada é sempre um bloqueio. Matched evita
+// a armadilha de interpretar Allowed=false como "liberado".
+type DenyMatch struct {
+	Matched bool
+	Scope   Scope
+	Entry   *AllowlistEntry
+}
+
 // NormalizePath normaliza um path para comparação/persistência: Abs + Clean, e
 // no Windows converte para minúsculas (mesma semântica de
 // filesystem.normalizeForComparison após Abs).

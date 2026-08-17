@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -96,6 +97,33 @@ func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
 	}
 	if v.Reason != "motivo" {
 		t.Fatalf("reason não normalizado: %q", v.Reason)
+	}
+}
+
+func TestFSTrustAddPathDenyEntryExpandsHome(t *testing.T) {
+	t.Parallel()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skipf("home indisponível: %v", err)
+	}
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+
+	if err := c.AddPathDenyEntry(context.Background(), "~/segredo.env", "file", "read", "global", ""); err != nil {
+		t.Fatalf("AddPathDenyEntry: %v", err)
+	}
+
+	views := c.GetPathAllowlist(context.Background())
+	if len(views) != 1 {
+		t.Fatalf("want 1 entrada, got %d", len(views))
+	}
+	want := fstrust.NormalizePath(filepath.Join(home, "segredo.env"))
+	if fstrust.NormalizePath(views[0].Path) != want {
+		t.Fatalf("~ não expandido: %q (quer %q)", views[0].Path, want)
+	}
+	if strings.Contains(views[0].Path, "~") {
+		t.Fatalf("path ainda contém ~: %q", views[0].Path)
 	}
 }
 
