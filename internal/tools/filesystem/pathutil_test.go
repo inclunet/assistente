@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -99,6 +100,82 @@ func TestValidatePathWithPolicy_SensitiveFiles(t *testing.T) {
 			}
 			if !tt.shouldErr && err != nil {
 				t.Errorf("%s: esperado sucesso, got erro: %v", tt.desc, err)
+			}
+		})
+	}
+}
+
+// TestBlockSensitiveForOperation_Mensagens fixa a mensagem por operação: cair
+// no default genérico esconde do usuário o que exatamente foi negado.
+func TestBlockSensitiveForOperation_Mensagens(t *testing.T) {
+	dir := t.TempDir()
+	casos := map[string]string{
+		"delete":    "não é permitido excluir arquivos sensíveis",
+		"mkdir":     "não é permitido criar diretórios sensíveis",
+		"copy_from": "não é permitido copiar arquivos sensíveis",
+		"copy_to":   "não é permitido copiar arquivos sensíveis",
+		"move_from": "não é permitido mover/renomear arquivos sensíveis",
+		"move_to":   "não é permitido mover/renomear arquivos sensíveis",
+	}
+	for operacao, esperado := range casos {
+		t.Run(operacao, func(t *testing.T) {
+			err := blockSensitiveForOperation(filepath.Join(dir, ".env"), operacao)
+			if err == nil {
+				t.Fatalf("%s de arquivo sensível deveria ser bloqueado", operacao)
+			}
+			if got := err.Error(); got != esperado {
+				t.Fatalf("mensagem de %s inesperada: %q", operacao, got)
+			}
+		})
+	}
+}
+
+// TestFileOps_MensagensConsistentesComPolicy garante que a operação direta e a
+// validação prévia falam a mesma língua. Divergir aqui faz o usuário receber
+// uma frase que não descreve o que ele pediu, e bagunça a telemetria.
+func TestFileOps_MensagensConsistentesComPolicy(t *testing.T) {
+	dir := t.TempDir()
+	alvo := filepath.Join(dir, ".env")
+	if err := os.WriteFile(alvo, []byte("x"), 0o600); err != nil {
+		t.Fatalf("escrever .env: %v", err)
+	}
+
+	casos := []struct {
+		nome     string
+		operacao string
+		executar func() error
+	}{
+		{
+			nome:     "remover",
+			operacao: "delete",
+			executar: func() error { return RemoveFileWithPolicy(alvo, ToolPolicy()) },
+		},
+		{
+			nome:     "copiar",
+			operacao: "copy_from",
+			executar: func() error {
+				_, err := CopyFileWithPolicy(alvo, filepath.Join(dir, "copia.txt"), false, ToolPolicy())
+				return err
+			},
+		},
+		{
+			nome:     "mover",
+			operacao: "move_from",
+			executar: func() error {
+				return MoveFileWithPolicy(alvo, filepath.Join(dir, "movido.txt"), false, ToolPolicy())
+			},
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			err := caso.executar()
+			if err == nil {
+				t.Fatalf("%s arquivo sensível deveria ser bloqueado", caso.nome)
+			}
+			esperado := blockSensitiveForOperation(alvo, caso.operacao).Error()
+			if got := err.Error(); got != esperado {
+				t.Fatalf("mensagem divergente: got %q, want %q", got, esperado)
 			}
 		})
 	}
@@ -241,79 +318,65 @@ func contains(s, substr string) bool {
 	return false
 }
 
-// TestValidatePathWithPolicy_OpenEditorPaths testa que arquivos abertos em abas de editor
-// podem ser lidos/editados mesmo fora do workDir.
-func TestValidatePathWithPolicy_OpenEditorPaths(t *testing.T) {
+// TestValidatePathWithPolicy_OpenEditorPaths_NoLongerBypass (AEP-0092): abrir no
+// editor NÃO libera path fora do sandbox sem PathAuthorizer.
+func TestValidatePathWithPolicy_OpenEditorPaths_NoLongerBypass(t *testing.T) {
 	workDir := t.TempDir()
-	outsideDir := t.TempDir() // diretório fora do workDir
-
-	// Cria arquivo fora do workDir
+	outsideDir := t.TempDir()
 	outsideFile := filepath.Join(outsideDir, "doc.txt")
 	_ = os.WriteFile(outsideFile, []byte("conteúdo"), 0644)
 
-	// Confirma que sem open editor paths, o arquivo é bloqueado
-	ctx := context.Background()
+	ctx := tools.WithOpenEditorPaths(context.Background(), []string{outsideFile})
 	if err := validatePathWithPolicy(ctx, outsideFile, workDir, ToolPolicy(), "read"); err == nil {
-		t.Fatal("arquivo fora do workDir deveria ser bloqueado sem open editor paths")
-	}
-
-	// Injeta o arquivo como open editor path
-	ctxWithEditors := tools.WithOpenEditorPaths(ctx, []string{outsideFile})
-
-	tests := []struct {
-		name      string
-		path      string
-		op        string
-		shouldErr bool
-	}{
-		{"read_open_editor", outsideFile, "read", false},
-		{"write_open_editor", outsideFile, "write", false},
-		{"edit_open_editor", outsideFile, "edit", false},
-		{"move_from_open_editor_blocked", outsideFile, "move_from", true},
-		{"move_to_open_editor_blocked", outsideFile, "move_to", true},
-		{"delete_open_editor_blocked", outsideFile, "delete", true},
-		{"copy_from_open_editor_blocked", outsideFile, "copy_from", true},
-		{"copy_to_open_editor_blocked", outsideFile, "copy_to", true},
-		{"mkdir_open_editor_blocked", outsideDir, "mkdir", true},
-		{"list_open_editor_blocked", outsideDir, "list", true},
-		{"search_open_editor_blocked", outsideDir, "search", true},
-		{"grep_open_editor_dir_blocked", outsideDir, "grep", true},
-		{"grep_open_editor_file", outsideFile, "grep", false},
-		{"other_file_still_blocked", filepath.Join(outsideDir, "other.txt"), "read", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validatePathWithPolicy(ctxWithEditors, tt.path, workDir, ToolPolicy(), tt.op)
-			if tt.shouldErr && err == nil {
-				t.Errorf("esperado erro para %s com op=%s", tt.path, tt.op)
-			}
-			if !tt.shouldErr && err != nil {
-				t.Errorf("esperado sucesso para %s com op=%s, got: %v", tt.path, tt.op, err)
-			}
-		})
+		t.Fatal("arquivo fora do workDir não deve ser liberado só por estar aberto no editor")
 	}
 }
 
-// TestValidatePathWithPolicy_OpenEditorSensitiveStillBlocked testa que a exceção de open editor
-// NÃO permite acessar arquivos sensíveis via ToolPolicy.
-func TestValidatePathWithPolicy_OpenEditorSensitiveStillBlocked(t *testing.T) {
+type stubPathAuthorizer struct {
+	allow bool
+	err   error
+}
+
+func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation string) error {
+	if s.err != nil {
+		return s.err
+	}
+	if s.allow {
+		return nil
+	}
+	return errOutsideAllowedDirs
+}
+
+func TestValidatePathWithPolicy_PathAuthorizerAllowsOutside(t *testing.T) {
 	workDir := t.TempDir()
 	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "doc.txt")
+	_ = os.WriteFile(outsideFile, []byte("ok"), 0644)
 
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	pathAuthorizer = stubPathAuthorizer{allow: true}
+
+	if err := validatePathWithPolicy(context.Background(), outsideFile, workDir, ToolPolicy(), "read"); err != nil {
+		t.Fatalf("authorizer allow deveria liberar: %v", err)
+	}
+}
+
+func TestValidatePathWithPolicy_PathAuthorizerSensitiveStillBlocked(t *testing.T) {
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
 	envFile := filepath.Join(outsideDir, ".env")
 	_ = os.WriteFile(envFile, []byte("SECRET=value"), 0600)
 
-	ctx := tools.WithOpenEditorPaths(context.Background(), []string{envFile})
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	pathAuthorizer = stubPathAuthorizer{allow: true}
 
-	// Mesmo sendo open editor file, ToolPolicy bloqueia arquivos sensíveis
-	if err := validatePathWithPolicy(ctx, envFile, workDir, ToolPolicy(), "read"); err == nil {
-		t.Error("arquivo sensível deveria ser bloqueado mesmo como open editor path com ToolPolicy")
+	if err := validatePathWithPolicy(context.Background(), envFile, workDir, ToolPolicy(), "read"); err == nil {
+		t.Fatal("arquivo sensível deve continuar bloqueado mesmo com PathAuthorizer")
 	}
-
-	// EditorPolicy permite
-	if err := validatePathWithPolicy(ctx, envFile, workDir, EditorPolicy(), "read"); err != nil {
-		t.Errorf("EditorPolicy deveria permitir open editor file .env: %v", err)
+	if err := validatePathWithPolicy(context.Background(), envFile, workDir, EditorPolicy(), "read"); err != nil {
+		t.Fatalf("EditorPolicy deveria permitir após authorizer: %v", err)
 	}
 }
 
@@ -334,50 +397,223 @@ func TestValidatePathWithPolicy_OpenEditorInsideWorkDirUnchanged(t *testing.T) {
 }
 
 // TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed testa que erros de workDir
-// inválido NÃO são bypassados pela exceção de open editor (sentinel error).
+// inválido NÃO são bypassados.
 func TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed(t *testing.T) {
 	someFile := filepath.Join(t.TempDir(), "file.txt")
 	_ = os.WriteFile(someFile, []byte("data"), 0644)
 
 	ctx := tools.WithOpenEditorPaths(context.Background(), []string{someFile})
 
-	// workDir vazio → erro de input, não "fora dos diretórios" → bypass não se aplica
 	if err := validatePathWithPolicy(ctx, someFile, "", ToolPolicy(), "read"); err == nil {
 		t.Error("workDir inválido deveria retornar erro mesmo com open editor paths")
 	}
 }
 
-// TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked testa que um symlink apontando
-// para arquivo sensível é bloqueado mesmo se o nome do link não é sensível.
-func TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked(t *testing.T) {
+// TestValidatePathWithPolicy_SymlinkToSensitiveBlockedInsideWorkDir garante que
+// um symlink com nome inócuo apontando para arquivo sensível é bloqueado por
+// ToolPolicy mesmo estando DENTRO do workDir (onde o path validation passaria)
+// — fechando o bypass do sensitive check que olhava só o basename (AEP-0092 D-Q5).
+func TestValidatePathWithPolicy_SymlinkToSensitiveBlockedInsideWorkDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks podem requerer privilégios elevados no Windows")
 	}
 
-	dir := t.TempDir()
+	workDir := t.TempDir()
 
-	// Cria arquivo sensível real
-	envFile := filepath.Join(dir, ".env")
+	envFile := filepath.Join(workDir, ".env")
 	_ = os.WriteFile(envFile, []byte("SECRET=value"), 0600)
 
-	// Cria symlink com nome não-sensível apontando para .env
-	linkFile := filepath.Join(dir, "innocent.txt")
+	linkFile := filepath.Join(workDir, "innocent.txt")
 	if err := os.Symlink(envFile, linkFile); err != nil {
 		t.Fatalf("falha ao criar symlink: %v", err)
 	}
 
-	ctx := tools.WithOpenEditorPaths(context.Background(), []string{linkFile})
+	ctx := context.Background()
 
-	// O symlink aponta para .env → isOpenEditorAllowed deve rejeitar
-	if isOpenEditorAllowed(ctx, linkFile, "read") {
-		t.Error("symlink para arquivo sensível deveria ser bloqueado")
+	// O link mora dentro do workDir (path validation passa), mas resolve para
+	// um arquivo sensível: ToolPolicy deve bloquear em qualquer operação.
+	for _, op := range []string{"read", "write", "edit", "move_from"} {
+		if err := validatePathWithPolicy(ctx, linkFile, workDir, ToolPolicy(), op); err == nil {
+			t.Errorf("symlink %q → arquivo sensível deveria ser bloqueado (op=%s)", linkFile, op)
+		}
 	}
 
-	// Arquivo não-sensível sem symlink deve funcionar
-	normalFile := filepath.Join(dir, "normal.txt")
+	// Arquivo normal dentro do workDir continua permitido (regressão).
+	normalFile := filepath.Join(workDir, "normal.txt")
 	_ = os.WriteFile(normalFile, []byte("ok"), 0644)
-	ctx2 := tools.WithOpenEditorPaths(context.Background(), []string{normalFile})
-	if !isOpenEditorAllowed(ctx2, normalFile, "read") {
-		t.Error("arquivo normal deveria ser permitido como open editor")
+	if err := validatePathWithPolicy(ctx, normalFile, workDir, ToolPolicy(), "read"); err != nil {
+		t.Errorf("arquivo normal dentro do workDir deveria ser permitido: %v", err)
+	}
+}
+
+// TestValidatePathWithPolicy_DanglingSymlinkFailsClosed garante fail-closed: um
+// symlink existente cujo alvo não resolve (EvalSymlinks falha) é tratado como
+// sensível e bloqueado por ToolPolicy — sem reabrir bypass por falha de resolução.
+func TestValidatePathWithPolicy_DanglingSymlinkFailsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	workDir := t.TempDir()
+
+	// Alvo inexistente → symlink pendurado (dangling): EvalSymlinks falha, mas
+	// Lstat confirma que é symlink → deve falhar fechado.
+	target := filepath.Join(workDir, "does-not-exist")
+	linkFile := filepath.Join(workDir, "innocent.txt")
+	if err := os.Symlink(target, linkFile); err != nil {
+		t.Fatalf("falha ao criar symlink: %v", err)
+	}
+
+	if err := validatePathWithPolicy(context.Background(), linkFile, workDir, ToolPolicy(), "read"); err == nil {
+		t.Error("symlink pendurado deveria falhar fechado (bloqueado) sob ToolPolicy")
+	}
+}
+
+// TestValidatePath_SymlinkEscapeBlocked garante que um symlink DENTRO do workDir
+// apontando para fora (workDir/link -> outsideDir) não burla o sandbox: o path
+// resolvido cai fora das raízes permitidas e, sem PathAuthorizer, é negado
+// (errOutsideAllowedDirs) em vez de ser lido direto pelo os.ReadFile (AEP-0092).
+func TestValidatePath_SymlinkEscapeBlocked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("x"), 0644)
+
+	link := filepath.Join(workDir, "link")
+	if err := os.Symlink(outsideDir, link); err != nil {
+		t.Fatalf("falha ao criar symlink: %v", err)
+	}
+
+	// Arquivo existente através do link → destino real fora do sandbox.
+	viaLink := filepath.Join(link, "secret.txt")
+	if err := validatePath(viaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+		t.Errorf("leitura via symlink para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
+	}
+
+	// Arquivo novo (inexistente) através do link → ancestral resolvido fora.
+	novoViaLink := filepath.Join(link, "novo.txt")
+	if err := validatePath(novoViaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+		t.Errorf("escrita via symlink para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
+	}
+
+	// O próprio último componente é um symlink pendurado para um alvo externo
+	// ainda inexistente. Lstat+Readlink precisa determinar esse alvo mesmo que
+	// EvalSymlinks não consiga resolvê-lo.
+	danglingTarget := filepath.Join(outsideDir, "ainda-inexistente.txt")
+	danglingLink := filepath.Join(workDir, "dangling.txt")
+	if err := os.Symlink(danglingTarget, danglingLink); err != nil {
+		t.Fatalf("falha ao criar symlink pendurado: %v", err)
+	}
+	if err := validatePath(danglingLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+		t.Errorf("symlink final pendurado para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
+	}
+
+	// Regressão: arquivo real dentro do workDir continua permitido.
+	inside := filepath.Join(workDir, "inside.txt")
+	_ = os.WriteFile(inside, []byte("ok"), 0644)
+	if err := validatePath(inside, workDir); err != nil {
+		t.Errorf("arquivo real dentro do workDir deveria ser permitido: %v", err)
+	}
+}
+
+func TestValidatePath_SandboxRootFunc(t *testing.T) {
+	bootDir := t.TempDir()
+	active := t.TempDir()
+	fileInActive := filepath.Join(active, "x.txt")
+	_ = os.WriteFile(fileInActive, []byte("x"), 0644)
+
+	prev := sandboxRootFunc
+	t.Cleanup(func() { sandboxRootFunc = prev })
+	sandboxRootFunc = func() string { return active }
+
+	if err := validatePath(fileInActive, bootDir); err != nil {
+		t.Fatalf("path no workspace ativo deveria passar: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "y.txt")
+	_ = os.WriteFile(outside, []byte("y"), 0644)
+	if err := validatePath(outside, bootDir); err == nil {
+		t.Fatal("path fora do workspace ativo deveria falhar")
+	}
+}
+
+func TestResolveFilePath_UsesActiveSandboxRoot(t *testing.T) {
+	bootDir := t.TempDir()
+	active := t.TempDir()
+
+	prev := sandboxRootFunc
+	t.Cleanup(func() { sandboxRootFunc = prev })
+	sandboxRootFunc = func() string { return active }
+
+	resolved, err := resolveFilePath(filepath.Join("docs", "note.md"), bootDir)
+	if err != nil {
+		t.Fatalf("resolveFilePath relativo: %v", err)
+	}
+	want := filepath.Join(active, "docs", "note.md")
+	if normalizeForComparison(resolved) != normalizeForComparison(want) {
+		t.Fatalf("path relativo deveria usar workspace ativo: got %q, want %q", resolved, want)
+	}
+
+	absolute := filepath.Join(bootDir, "absolute.txt")
+	resolvedAbsolute, err := resolveFilePath(absolute, bootDir)
+	if err != nil {
+		t.Fatalf("resolveFilePath absoluto: %v", err)
+	}
+	if normalizeForComparison(resolvedAbsolute) != normalizeForComparison(absolute) {
+		t.Fatalf("path absoluto não deveria ser rebased: got %q, want %q", resolvedAbsolute, absolute)
+	}
+
+	// Patterns relativos de skill precisam acompanhar a mesma raiz dinâmica.
+	allowed := filepath.Join(active, "docs", "child.txt")
+	if !filesystemPatternMatches(allowed, bootDir, filepath.Join("docs", "**")) {
+		t.Fatalf("pattern relativo deveria casar path no workspace ativo: %q", allowed)
+	}
+	oldWorkspacePath := filepath.Join(bootDir, "docs", "child.txt")
+	if filesystemPatternMatches(oldWorkspacePath, bootDir, filepath.Join("docs", "**")) {
+		t.Fatalf("pattern relativo não deveria continuar casando o diretório de boot: %q", oldWorkspacePath)
+	}
+}
+
+// TestFilesystemPatternMatches_RaizSymlinkada garante que um pattern de skill
+// ancorado numa raiz que é symlink continua casando o path já resolvido — o
+// caso real é macOS (/var -> /private/var), que viraria falso-negativo e
+// bloqueio indevido se só um dos lados fosse resolvido.
+func TestFilesystemPatternMatches_RaizSymlinkada(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	realDir := t.TempDir()
+	docs := filepath.Join(realDir, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	child := filepath.Join(docs, "child.txt")
+	if err := os.WriteFile(child, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("escrever child: %v", err)
+	}
+
+	linkRoot := filepath.Join(t.TempDir(), "raiz-link")
+	if err := os.Symlink(realDir, linkRoot); err != nil {
+		t.Fatalf("criar symlink de raiz: %v", err)
+	}
+
+	workDir := realDir
+	patterns := []string{
+		filepath.Join(linkRoot, "**"),
+		filepath.Join(linkRoot, "docs", "**"),
+		filepath.Join(linkRoot, "docs", "*.txt"),
+	}
+	for _, pattern := range patterns {
+		if !matchesAnyFilesystemPattern(child, workDir, []string{pattern}) {
+			t.Errorf("pattern %q com raiz symlinkada deveria casar %q", pattern, child)
+		}
+	}
+
+	fora := filepath.Join(t.TempDir(), "outro.txt")
+	if matchesAnyFilesystemPattern(fora, workDir, []string{filepath.Join(linkRoot, "**")}) {
+		t.Errorf("pattern não deveria casar path fora da raiz: %q", fora)
 	}
 }

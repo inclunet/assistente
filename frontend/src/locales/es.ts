@@ -4099,6 +4099,25 @@ const es = {
             global: 'Global (todos los workspaces y perfiles)',
           },
         },
+        fstrust: {
+          title: 'Autorizar acceso a una ruta fuera del workspace',
+          description: 'El asistente pidió la operación "{{operation}}" en una ruta fuera del workspace activo y de ~/.assistente. Autoriza solo la ruta exacta de este intento, o elige explícitamente liberar la carpeta padre.',
+          cancel: 'Denegar',
+          scope: {
+            once: 'Solo este intento',
+            session: 'Durante esta conversación',
+            workspace: 'En este workspace (proyecto)',
+            profile: 'En este perfil',
+            global: 'Global (todos los workspaces y perfiles)',
+            dir: {
+              once: 'Carpeta padre — solo este intento',
+              session: 'Carpeta padre — durante esta conversación',
+              workspace: 'Carpeta padre — en este workspace (proyecto)',
+              profile: 'Carpeta padre — en este perfil',
+              global: 'Carpeta padre — global (todos los workspaces y perfiles)',
+            },
+          },
+        },
         agentPermission: {
           title: 'El agente pide permiso',
           submit: 'Confirmar',

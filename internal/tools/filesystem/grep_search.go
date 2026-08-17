@@ -201,6 +201,13 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			return filepath.SkipDir
 		}
 
+		// Link apontando para fora do sandbox: não vazar conteúdo externo.
+		// Vem antes do skill para a omissão ser silenciosa (AEP-0092 D-Q7) e
+		// para não avaliar allowlist de caminho que já será descartado.
+		if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
+			return nil
+		}
+
 		// Enforcement por skill: não vazar nomes/conteúdo fora do escopo
 		if err := validateSkillFilesystemAllowlist(ctx, path, t.workDir, "grep"); err != nil {
 			if d.IsDir() {
@@ -214,7 +221,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}
 
 		// Toolcalling: não vazar conteúdo de arquivos sensíveis
-		if ToolPolicy().BlockSensitive && isSensitiveFile(path) {
+		if ToolPolicy().BlockSensitive && isSensitiveEntry(path, d.Type()) {
 			return nil
 		}
 

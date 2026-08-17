@@ -127,11 +127,17 @@ func (t *ListDirectory) listFlat(ctx context.Context, fullPath, displayPath stri
 
 	for _, entry := range entries {
 		entryPath := filepath.Join(fullPath, entry.Name())
+		// Omissão por sandbox é silenciosa (AEP-0092 D-Q7), então vem antes do
+		// skill: senão a entrada entraria na conta de skippedBySkill e o
+		// cabeçalho atribuiria ao skill uma omissão que é do sandbox.
+		if walkEntryEscapesSandbox(entryPath, entry.Type(), t.workDir) {
+			continue
+		}
 		if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
 			skippedBySkill++
 			continue
 		}
-		if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+		if ToolPolicy().BlockSensitive && isSensitiveEntry(entryPath, entry.Type()) {
 			skippedSensitive++
 			continue
 		}
@@ -210,6 +216,9 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 			}
 
 			entryPath := filepath.Join(dir, entry.Name())
+			if walkEntryEscapesSandbox(entryPath, entry.Type(), t.workDir) {
+				continue
+			}
 			if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
 				if entry.IsDir() {
 					// Não desce em diretórios fora do escopo do skill.
@@ -234,7 +243,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 					return err
 				}
 			} else {
-				if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+				if ToolPolicy().BlockSensitive && isSensitiveEntry(entryPath, entry.Type()) {
 					skippedSensitive++
 					continue
 				}

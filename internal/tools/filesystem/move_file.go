@@ -81,8 +81,8 @@ func (t *MoveFileTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	}
 
 	// Validate safety
-	// Move usa operações específicas para que isOpenEditorAllowed bloqueie corretamente
-	// (move_from/move_to não estão na allowlist de open editors).
+	// Move usa operações específicas (move_from/move_to) para que a autorização
+	// e o bloqueio de sensíveis sejam avaliados por ponta do movimento (AEP-0092).
 	if err := validatePathWithPolicy(ctx, fullFrom, t.workDir, ToolPolicy(), "move_from"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}

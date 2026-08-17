@@ -1,6 +1,8 @@
 package filesystem
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -48,4 +50,69 @@ func isSensitiveFile(path string) bool {
 	}
 
 	return sensitiveExts[ext]
+}
+
+// isSensitiveFileResolved reporta se o path é sensível OU se, ao resolver
+// symlinks, o alvo real é sensível. Fecha o bypass de um link com nome inócuo
+// (ex.: innocent.txt) apontando para um arquivo sensível (.env, id_rsa).
+//
+// Falha fechado: se EvalSymlinks falha mas o path É um symlink existente, não
+// conseguimos garantir que o alvo não é sensível, então tratamos como sensível
+// (bloqueia). Path inexistente (ex.: write criando arquivo novo) ou não-symlink
+// que não resolve → considera só o basename literal, sem relaxar a política.
+func isSensitiveFileResolved(path string) bool {
+	if isSensitiveFile(path) {
+		return true
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	return isSensitiveEntry(path, info.Mode())
+}
+
+// isSensitiveEntry decide a sensibilidade quando o modo da entrada já é
+// conhecido (walkers com fs.DirEntry), evitando um syscall extra por arquivo
+// percorrido. Apenas o último componente sendo symlink muda o basename real:
+// um ancestral symlinkado preserva o nome do arquivo e, portanto, o veredito.
+func isSensitiveEntry(path string, mode os.FileMode) bool {
+	if isSensitiveFile(path) {
+		return true
+	}
+	if mode&os.ModeSymlink == 0 {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return true
+	}
+	return isSensitiveFile(resolved)
+}
+
+// blockSensitiveForOperation devolve erro quando a operação sobre um arquivo
+// sensível não é permitida (só relevante quando policy.BlockSensitive). É
+// avaliada ANTES do PathAuthorizer: sensível é hard-deny e não deve gerar
+// consentimento (AEP-0092 D-Q5).
+func blockSensitiveForOperation(fullPath, operation string) error {
+	if !isSensitiveFileResolved(fullPath) {
+		return nil
+	}
+	switch operation {
+	case "read":
+		return fmt.Errorf("não é permitido ler arquivos sensíveis")
+	case "write":
+		return fmt.Errorf("não é permitido escrever em arquivos sensíveis")
+	case "edit":
+		return fmt.Errorf("não é permitido editar arquivos sensíveis")
+	case "copy_from", "copy_to":
+		return fmt.Errorf("não é permitido copiar arquivos sensíveis")
+	case "move_from", "move_to":
+		return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
+	case "delete":
+		return fmt.Errorf("não é permitido excluir arquivos sensíveis")
+	case "mkdir":
+		return fmt.Errorf("não é permitido criar diretórios sensíveis")
+	default:
+		return fmt.Errorf("operação não permitida em arquivos sensíveis")
+	}
 }

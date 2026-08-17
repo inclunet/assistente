@@ -128,6 +128,22 @@ const networkKeys = [
   'scope.global',
 ].map((sufixo) => `app.questionnaire.network.${sufixo}`);
 
+const fstrustKeys = [
+  'title',
+  'description',
+  'cancel',
+  'scope.once',
+  'scope.session',
+  'scope.workspace',
+  'scope.profile',
+  'scope.global',
+  'scope.dir.once',
+  'scope.dir.session',
+  'scope.dir.workspace',
+  'scope.dir.profile',
+  'scope.dir.global',
+].map((sufixo) => `app.questionnaire.fstrust.${sufixo}`);
+
 const welcomeKeys = [
   'submitContinue',
   'submitNext',
@@ -201,6 +217,7 @@ const requiredPlaceholders: Record<string, string[]> = {
   'app.questionnaire.network.description': ['{{category}}'],
   'app.questionnaire.network.skillHostMatch': ['{{pattern}}'],
   'app.questionnaire.shell.workDir': ['{{workDir}}'],
+  'app.questionnaire.fstrust.description': ['{{operation}}'],
 };
 
 /**
@@ -230,6 +247,7 @@ describe('chaves dos diálogos que o backend monta', () => {
     ...httpKeys,
     ...deleteMessageKeys,
     ...networkKeys,
+    ...fstrustKeys,
     ...welcomeKeys,
   ];
 

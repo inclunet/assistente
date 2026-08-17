@@ -105,10 +105,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0089](0089-terminais-como-recursos-efemeros.md) | Terminais como recursos efêmeros | 📝 Draft |
 | [0090](0090-ordem-botoes-dialogos.md) | Ordem de botões em diálogos (confirmação antes de cancelar) | ✅ Done |
 | [0091](0091-dialogos-de-decisao-unificados.md) | Diálogos de decisão unificados (estilo Windows + NVDA) | ✅ Done |
+| [0092](0092-filesystem-path-trust-allowlist.md) | Allowlist escopável de paths fora do sandbox (filesystem trust) | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0091 → próximo
-> 0092), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0092 → próximo
+> 0093), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

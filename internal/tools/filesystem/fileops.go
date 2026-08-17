@@ -23,7 +23,7 @@ func CopyFileWithPolicy(srcPath string, dstPath string, overwrite bool, policy P
 	}
 
 	if policy.BlockSensitive {
-		if isSensitiveFile(src) || isSensitiveFile(dst) {
+		if isSensitiveFileResolved(src) || isSensitiveFileResolved(dst) {
 			return 0, fmt.Errorf("não é permitido copiar arquivos sensíveis")
 		}
 	}
@@ -83,8 +83,8 @@ func RemoveFileWithPolicy(path string, policy Policy) error {
 	if p == "" {
 		return fmt.Errorf("path vazio")
 	}
-	if policy.BlockSensitive && isSensitiveFile(p) {
-		return fmt.Errorf("não é permitido remover arquivos sensíveis")
+	if policy.BlockSensitive && isSensitiveFileResolved(p) {
+		return fmt.Errorf("não é permitido excluir arquivos sensíveis")
 	}
 	info, err := os.Stat(p)
 	if err != nil {
@@ -110,7 +110,7 @@ func EnsureDirWithPolicy(path string, perm fs.FileMode, policy Policy) error {
 	if p == "" {
 		return fmt.Errorf("path vazio")
 	}
-	if policy.BlockSensitive && isSensitiveFile(p) {
+	if policy.BlockSensitive && isSensitiveFileResolved(p) {
 		return fmt.Errorf("não é permitido criar diretórios sensíveis")
 	}
 	if err := os.MkdirAll(p, perm); err != nil {
