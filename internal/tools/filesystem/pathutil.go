@@ -278,23 +278,22 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 			return err
 		}
 	}
-	// Denylist do fstrust aplica também DENTRO do sandbox (AEP-0092 D9):
-	// allow trust nunca anula deny; order = deny → raízes → allow → prompt.
-	if pathAuthorizer != nil {
-		if err := pathAuthorizer.Denied(ctx, fullPath, operation); err != nil {
-			return err
-		}
-	}
 	if err := validatePath(fullPath, workDir); err != nil {
 		if !errors.Is(err, errOutsideAllowedDirs) {
 			return err
 		}
-		// AEP-0092: fora do sandbox → allowlist / DecisionDialog (não open-editor bypass).
+		// AEP-0092: fora do sandbox → Authorize (que aplica deny antes do prompt).
+		// Não chamar Denied aqui: Authorize já o faz e evitamos resolveSymlinks duplicado.
 		if pathAuthorizer == nil {
 			return err
 		}
 		if authErr := pathAuthorizer.Authorize(ctx, fullPath, operation); authErr != nil {
 			return authErr
+		}
+	} else if pathAuthorizer != nil {
+		// Dentro do sandbox: denylist ainda aplica (AEP-0092 D9); trust nunca anula deny.
+		if denyErr := pathAuthorizer.Denied(ctx, fullPath, operation); denyErr != nil {
+			return denyErr
 		}
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {

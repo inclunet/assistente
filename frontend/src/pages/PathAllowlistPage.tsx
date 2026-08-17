@@ -357,7 +357,7 @@ export default function PathAllowlistPage() {
         <p className="path-allowlist-page__description">{t('pathAllowlist.description')}</p>
         <p className="path-allowlist-page__note">{t('pathAllowlist.sessionNote')}</p>
 
-        <form className="path-allowlist-page__form" onSubmit={(event) => void submitDeny(event)}>
+        <form className="path-allowlist-page__form" noValidate onSubmit={(event) => void submitDeny(event)}>
           <h2 className="path-allowlist-page__form-title">{t('pathAllowlist.form.title')}</h2>
           <div className="path-allowlist-page__form-grid">
             <Input
