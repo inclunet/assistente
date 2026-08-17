@@ -161,5 +161,8 @@ func expandUserHome(path string) (string, error) {
 	if path == "~" {
 		return home, nil
 	}
-	return filepath.Join(home, path[2:]), nil
+	// Remove separadores à esquerda do sufixo: "~//x" deixaria path[2:] começando
+	// com separador e poderia alterar a semântica do Join em algumas plataformas.
+	suffix := strings.TrimLeft(path[2:], "/\\")
+	return filepath.Join(home, suffix), nil
 }

@@ -244,6 +244,11 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 
 // Remove apaga a primeira entrada que casar path+kind+operation+effect no escopo.
 func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kind, operation string, effect Effect) error {
+	// Valida antes de normalizar (consistente com Add): sem isso, um effect
+	// inválido viraria um ErrEntryNotFound silencioso, difícil de depurar.
+	if !ValidEffect(effect) {
+		return fmt.Errorf("effect inválido: %q", effect)
+	}
 	path = NormalizePath(path)
 	effect = NormalizedEffect(effect)
 
