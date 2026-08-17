@@ -240,6 +240,32 @@ func validatePath(fullPath, workDir string) error {
 	return errOutsideAllowedDirs
 }
 
+// walkEntryEscapesSandbox reporta se uma entrada encontrada durante um walk
+// aponta para fora das raízes permitidas. Só symlink precisa do teste: WalkDir
+// não desce por links, então toda entrada comum abaixo de uma raiz já validada
+// continua dentro dela — e restringir o teste ao link evita resolver o path de
+// cada arquivo percorrido.
+//
+// Walkers pulam a entrada em silêncio em vez de acionar o PathAuthorizer: um
+// prompt por arquivo percorrido inviabilizaria a busca. Ler o alvo continua
+// possível pelo caminho real, aí sim com consentimento (AEP-0092).
+func walkEntryEscapesSandbox(path string, mode os.FileMode, workDir string) bool {
+	if mode&os.ModeSymlink == 0 {
+		return false
+	}
+	return validatePath(path, workDir) != nil
+}
+
+// pathEscapesSandbox é a variante para quando não há fs.DirEntry em mãos
+// (ex.: resultados de filepath.Glob).
+func pathEscapesSandbox(path string, workDir string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	return walkEntryEscapesSandbox(path, info.Mode(), workDir)
+}
+
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
 	// Sensível é hard-deny e precede o PathAuthorizer: não faz sentido pedir
 	// consentimento para algo que será negado (AEP-0092 D-Q5). A checagem

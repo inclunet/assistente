@@ -108,6 +108,104 @@ func TestWalkers_SymlinkParaSensivelNaoVaza(t *testing.T) {
 	}
 }
 
+// TestWalkers_SymlinkParaForaDoSandboxNaoVaza garante que um link dentro do
+// workspace apontando para fora do sandbox não entrega nome nem conteúdo
+// externo. Walkers não pedem autorização por entrada percorrida, então a
+// entrada é pulada em silêncio (AEP-0092: acesso fora da raiz exige consentimento).
+func TestWalkers_SymlinkParaForaDoSandboxNaoVaza(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	fora := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fora, "externo.txt"), []byte("MARCADOR_BUSCA"), 0o644); err != nil {
+		t.Fatalf("escrever externo.txt: %v", err)
+	}
+
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "dentro.txt"), []byte("MARCADOR_BUSCA"), 0o644); err != nil {
+		t.Fatalf("escrever dentro.txt: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(fora, "externo.txt"), filepath.Join(workDir, "atalho.txt")); err != nil {
+		t.Fatalf("criar symlink de arquivo: %v", err)
+	}
+	if err := os.Symlink(fora, filepath.Join(workDir, "atalho-dir")); err != nil {
+		t.Fatalf("criar symlink de diretório: %v", err)
+	}
+
+	ctx := context.Background()
+
+	casos := []struct {
+		nome string
+		exec func() (string, bool)
+	}{
+		{
+			nome: "grep_search",
+			exec: func() (string, bool) {
+				args, _ := json.Marshal(map[string]any{"pattern": "MARCADOR_BUSCA"})
+				res, err := NewGrepSearch(workDir).Execute(ctx, args)
+				if err != nil {
+					t.Fatalf("grep_search: %v", err)
+				}
+				return res.Content, res.IsError
+			},
+		},
+		{
+			nome: "search_files",
+			exec: func() (string, bool) {
+				args, _ := json.Marshal(map[string]any{"pattern": "**/*.txt", "max_results": 50})
+				res, err := NewSearchFiles(workDir).Execute(ctx, args)
+				if err != nil {
+					t.Fatalf("search_files: %v", err)
+				}
+				return res.Content, res.IsError
+			},
+		},
+		{
+			nome: "list_dir",
+			exec: func() (string, bool) {
+				args, _ := json.Marshal(map[string]any{"path": "."})
+				res, err := NewListDirectory(workDir).Execute(ctx, args)
+				if err != nil {
+					t.Fatalf("list_dir: %v", err)
+				}
+				return res.Content, res.IsError
+			},
+		},
+		{
+			nome: "list_dir_recursivo",
+			exec: func() (string, bool) {
+				args, _ := json.Marshal(map[string]any{"path": ".", "recursive": true, "max_depth": 3})
+				res, err := NewListDirectory(workDir).Execute(ctx, args)
+				if err != nil {
+					t.Fatalf("list_dir recursivo: %v", err)
+				}
+				return res.Content, res.IsError
+			},
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			content, isErr := caso.exec()
+			if isErr {
+				t.Fatalf("execução retornou erro: %s", content)
+			}
+			if strings.Contains(content, "atalho") {
+				t.Errorf("link para fora do sandbox vazou no resultado:\n%s", content)
+			}
+			if strings.Contains(content, "externo.txt") {
+				t.Errorf("arquivo fora do sandbox vazou no resultado:\n%s", content)
+			}
+			// O arquivo legítimo dentro do sandbox continua visível: o filtro
+			// não pode virar um "esconde tudo".
+			if !strings.Contains(content, "dentro.txt") {
+				t.Errorf("arquivo legítimo do sandbox sumiu do resultado:\n%s", content)
+			}
+		})
+	}
+}
+
 // TestFileOps_SymlinkParaSensivelBloqueado garante que copiar, remover e
 // renomear também olham o destino real do link.
 func TestFileOps_SymlinkParaSensivelBloqueado(t *testing.T) {

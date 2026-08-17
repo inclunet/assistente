@@ -138,6 +138,11 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 				return nil
 			}
 
+			// Link apontando para fora do sandbox: não vazar nomes externos
+			if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
+				return nil
+			}
+
 			if d.IsDir() {
 				return nil
 			}
@@ -194,6 +199,11 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			if len(matches) >= maxResults {
 				truncated = true
 				break
+			}
+
+			// Link apontando para fora do sandbox: não vazar nomes externos
+			if pathEscapesSandbox(match, t.workDir) {
+				continue
 			}
 
 			// Toolcalling: não vazar nomes de arquivos sensíveis

@@ -209,6 +209,11 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			return nil
 		}
 
+		// Link apontando para fora do sandbox: não vazar conteúdo externo
+		if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
+			return nil
+		}
+
 		if d.IsDir() {
 			return nil
 		}
