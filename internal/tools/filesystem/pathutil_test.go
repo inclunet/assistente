@@ -369,6 +369,29 @@ func TestValidatePathWithPolicy_SymlinkToSensitiveBlockedInsideWorkDir(t *testin
 	}
 }
 
+// TestValidatePathWithPolicy_DanglingSymlinkFailsClosed garante fail-closed: um
+// symlink existente cujo alvo não resolve (EvalSymlinks falha) é tratado como
+// sensível e bloqueado por ToolPolicy — sem reabrir bypass por falha de resolução.
+func TestValidatePathWithPolicy_DanglingSymlinkFailsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	workDir := t.TempDir()
+
+	// Alvo inexistente → symlink pendurado (dangling): EvalSymlinks falha, mas
+	// Lstat confirma que é symlink → deve falhar fechado.
+	target := filepath.Join(workDir, "does-not-exist")
+	linkFile := filepath.Join(workDir, "innocent.txt")
+	if err := os.Symlink(target, linkFile); err != nil {
+		t.Fatalf("falha ao criar symlink: %v", err)
+	}
+
+	if err := validatePathWithPolicy(context.Background(), linkFile, workDir, ToolPolicy(), "read"); err == nil {
+		t.Error("symlink pendurado deveria falhar fechado (bloqueado) sob ToolPolicy")
+	}
+}
+
 func TestValidatePath_SandboxRootFunc(t *testing.T) {
 	bootDir := t.TempDir()
 	active := t.TempDir()

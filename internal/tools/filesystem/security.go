@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -53,15 +54,21 @@ func isSensitiveFile(path string) bool {
 
 // isSensitiveFileResolved reporta se o path é sensível OU se, ao resolver
 // symlinks, o alvo real é sensível. Fecha o bypass de um link com nome inócuo
-// (ex.: innocent.txt) apontando para um arquivo sensível (.env, id_rsa). Se o
-// path não existe ou não pode ser resolvido, considera só o basename literal —
-// não relaxa a política por falha de resolução.
+// (ex.: innocent.txt) apontando para um arquivo sensível (.env, id_rsa).
+//
+// Falha fechado: se EvalSymlinks falha mas o path É um symlink existente, não
+// conseguimos garantir que o alvo não é sensível, então tratamos como sensível
+// (bloqueia). Path inexistente (ex.: write criando arquivo novo) ou não-symlink
+// que não resolve → considera só o basename literal, sem relaxar a política.
 func isSensitiveFileResolved(path string) bool {
 	if isSensitiveFile(path) {
 		return true
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
+		if info, lerr := os.Lstat(path); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
 		return false
 	}
 	return isSensitiveFile(resolved)
