@@ -47,8 +47,12 @@ func (e *DeniedPathError) Error() string {
 
 func newDeniedPathError(path, operation, reason string) *DeniedPathError {
 	suggestions := make([]string, 0, 2)
-	// Sem prompter não há diálogo: sugerir autorizar no diálogo seria mentira.
-	if reason != "sem prompter de consentimento" {
+	// Só sugerir o diálogo quando ele realmente pode liberar o acesso. Sem
+	// prompter não há diálogo; em bloqueio por denylist o deny tem precedência
+	// absoluta (nenhum diálogo autoriza) — sugerir seria enganoso.
+	dialogWouldHelp := reason != "sem prompter de consentimento" &&
+		!strings.Contains(reason, "denylist")
+	if dialogWouldHelp {
 		suggestions = append(suggestions, "autorizar esta tentativa no diálogo de consentimento")
 	}
 	suggestions = append(suggestions,

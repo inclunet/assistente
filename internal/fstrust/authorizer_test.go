@@ -72,6 +72,12 @@ func TestAuthorizer_DenyByResolvedPathBlocksAlias(t *testing.T) {
 	if !errors.As(err, &denied) {
 		t.Fatal("erro deveria ser DeniedPathError")
 	}
+	if strings.Contains(err.Error(), "diálogo de consentimento") {
+		t.Fatalf("deny por denylist não deveria sugerir o diálogo: %v", err)
+	}
+	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
+		t.Fatalf("deny deveria linkar a tela de gestão: %v", err)
+	}
 }
 
 func TestAuthorizer_MatchSkipsPrompt(t *testing.T) {
