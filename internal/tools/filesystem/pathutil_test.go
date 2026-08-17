@@ -332,34 +332,40 @@ func TestValidatePathWithPolicy_OpenEditorInvalidWorkDirNotBypassed(t *testing.T
 	}
 }
 
-// TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked testa que um symlink apontando
-// para arquivo sensível é bloqueado mesmo se o nome do link não é sensível.
-func TestIsOpenEditorAllowed_SymlinkToSensitiveBlocked(t *testing.T) {
+// TestValidatePathWithPolicy_SymlinkToSensitiveBlockedInsideWorkDir garante que
+// um symlink com nome inócuo apontando para arquivo sensível é bloqueado por
+// ToolPolicy mesmo estando DENTRO do workDir (onde o path validation passaria)
+// — fechando o bypass do sensitive check que olhava só o basename (AEP-0092 D-Q5).
+func TestValidatePathWithPolicy_SymlinkToSensitiveBlockedInsideWorkDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks podem requerer privilégios elevados no Windows")
 	}
 
-	dir := t.TempDir()
+	workDir := t.TempDir()
 
-	envFile := filepath.Join(dir, ".env")
+	envFile := filepath.Join(workDir, ".env")
 	_ = os.WriteFile(envFile, []byte("SECRET=value"), 0600)
 
-	linkFile := filepath.Join(dir, "innocent.txt")
+	linkFile := filepath.Join(workDir, "innocent.txt")
 	if err := os.Symlink(envFile, linkFile); err != nil {
 		t.Fatalf("falha ao criar symlink: %v", err)
 	}
 
-	ctx := tools.WithOpenEditorPaths(context.Background(), []string{linkFile})
+	ctx := context.Background()
 
-	if isOpenEditorAllowed(ctx, linkFile, "read") {
-		t.Error("symlink para arquivo sensível deveria ser bloqueado")
+	// O link mora dentro do workDir (path validation passa), mas resolve para
+	// um arquivo sensível: ToolPolicy deve bloquear em qualquer operação.
+	for _, op := range []string{"read", "write", "edit", "move_from"} {
+		if err := validatePathWithPolicy(ctx, linkFile, workDir, ToolPolicy(), op); err == nil {
+			t.Errorf("symlink %q → arquivo sensível deveria ser bloqueado (op=%s)", linkFile, op)
+		}
 	}
 
-	normalFile := filepath.Join(dir, "normal.txt")
+	// Arquivo normal dentro do workDir continua permitido (regressão).
+	normalFile := filepath.Join(workDir, "normal.txt")
 	_ = os.WriteFile(normalFile, []byte("ok"), 0644)
-	ctx2 := tools.WithOpenEditorPaths(context.Background(), []string{normalFile})
-	if !isOpenEditorAllowed(ctx2, normalFile, "read") {
-		t.Error("arquivo normal deveria ser permitido como open editor")
+	if err := validatePathWithPolicy(ctx, normalFile, workDir, ToolPolicy(), "read"); err != nil {
+		t.Errorf("arquivo normal dentro do workDir deveria ser permitido: %v", err)
 	}
 }
 

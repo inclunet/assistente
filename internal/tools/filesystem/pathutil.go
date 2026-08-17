@@ -160,6 +160,15 @@ func validatePath(fullPath, workDir string) error {
 }
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
+	// Sensível é hard-deny e precede o PathAuthorizer: não faz sentido pedir
+	// consentimento para algo que será negado (AEP-0092 D-Q5). A checagem
+	// resolve symlinks para fechar bypass de link com nome inócuo apontando
+	// para arquivo sensível — inclusive quando o link mora dentro do workDir.
+	if policy.BlockSensitive {
+		if err := blockSensitiveForOperation(fullPath, operation); err != nil {
+			return err
+		}
+	}
 	if err := validatePath(fullPath, workDir); err != nil {
 		if !errors.Is(err, errOutsideAllowedDirs) {
 			return err
@@ -175,51 +184,7 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {
 		return err
 	}
-	if policy.BlockSensitive && isSensitiveFile(fullPath) {
-		switch operation {
-		case "read", "copy_from":
-			return fmt.Errorf("não é permitido ler arquivos sensíveis")
-		case "write", "copy_to":
-			return fmt.Errorf("não é permitido escrever em arquivos sensíveis")
-		case "edit":
-			return fmt.Errorf("não é permitido editar arquivos sensíveis")
-		case "move_from", "move_to":
-			return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
-		default:
-			return fmt.Errorf("operação não permitida em arquivos sensíveis")
-		}
-	}
 	return nil
-}
-
-// isOpenEditorAllowed verifica se o arquivo está aberto em uma aba de editor e se a operação é permitida.
-// Mantido para UX (ex.: confirmação de diff). NÃO é mais bypass de sandbox (AEP-0092).
-func isOpenEditorAllowed(ctx context.Context, fullPath, operation string) bool {
-	switch operation {
-	case "read", "write", "edit", "grep":
-		if !tools.IsOpenEditorFile(ctx, fullPath) {
-			return false
-		}
-		// Rejeita diretórios: exceção de open editors é apenas para arquivos exatos.
-		info, err := os.Stat(fullPath)
-		if err != nil || info.IsDir() {
-			return false
-		}
-		// Protege contra bypass de sensitive files via symlink:
-		// se o path original não é sensível mas o target resolvido é, rejeita.
-		if !isSensitiveFile(fullPath) {
-			resolved, err := filepath.EvalSymlinks(fullPath)
-			if err != nil {
-				return false
-			}
-			if isSensitiveFile(resolved) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
 }
 
 func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, operation string) error {
