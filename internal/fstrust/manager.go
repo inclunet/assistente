@@ -105,25 +105,30 @@ func (m *Manager) Match(ctx context.Context, absPath, operation string) Decision
 	convID, profileSlug := m.identity(ctx)
 
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+	var sessionEntries []AllowlistEntry
 	if convID != "" {
-		if e := firstMatch(m.session[convID], absPath, operation); e != nil {
-			return Decision{Allowed: true, Scope: ScopeSession, Entry: e}
-		}
+		sessionEntries = append(sessionEntries, m.session[convID]...)
+	}
+	profilePath := m.profilePath(profileSlug)
+	workspacePath := m.workspacePath()
+	globalPath := m.globalPath()
+	m.mu.RUnlock()
+
+	if e := firstMatch(sessionEntries, absPath, operation); e != nil {
+		return Decision{Allowed: true, Scope: ScopeSession, Entry: e}
 	}
 
-	if profileSlug != "" {
-		if e := firstMatch(m.loadFileOrEmpty(ctx, m.profilePath(profileSlug)), absPath, operation); e != nil {
+	if profilePath != "" {
+		if e := firstMatch(m.loadFileOrEmpty(ctx, profilePath), absPath, operation); e != nil {
 			return Decision{Allowed: true, Scope: ScopeProfile, Entry: e}
 		}
 	}
 
-	if e := firstMatch(m.loadFileOrEmpty(ctx, m.workspacePath()), absPath, operation); e != nil {
+	if e := firstMatch(m.loadFileOrEmpty(ctx, workspacePath), absPath, operation); e != nil {
 		return Decision{Allowed: true, Scope: ScopeWorkspace, Entry: e}
 	}
 
-	if e := firstMatch(m.loadFileOrEmpty(ctx, m.globalPath()), absPath, operation); e != nil {
+	if e := firstMatch(m.loadFileOrEmpty(ctx, globalPath), absPath, operation); e != nil {
 		return Decision{Allowed: true, Scope: ScopeGlobal, Entry: e}
 	}
 
@@ -183,16 +188,19 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 	convID, profileSlug := m.identity(ctx)
 
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	if convID != "" {
 		out = append(out, m.session[convID]...)
 	}
-	if profileSlug != "" {
-		out = append(out, m.loadFileOrEmpty(ctx, m.profilePath(profileSlug))...)
+	profilePath := m.profilePath(profileSlug)
+	workspacePath := m.workspacePath()
+	globalPath := m.globalPath()
+	m.mu.RUnlock()
+
+	if profilePath != "" {
+		out = append(out, m.loadFileOrEmpty(ctx, profilePath)...)
 	}
-	out = append(out, m.loadFileOrEmpty(ctx, m.workspacePath())...)
-	out = append(out, m.loadFileOrEmpty(ctx, m.globalPath())...)
+	out = append(out, m.loadFileOrEmpty(ctx, workspacePath)...)
+	out = append(out, m.loadFileOrEmpty(ctx, globalPath)...)
 	return out
 }
 

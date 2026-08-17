@@ -450,3 +450,40 @@ func TestValidatePath_SandboxRootFunc(t *testing.T) {
 		t.Fatal("path fora do workspace ativo deveria falhar")
 	}
 }
+
+func TestResolveFilePath_UsesActiveSandboxRoot(t *testing.T) {
+	bootDir := t.TempDir()
+	active := t.TempDir()
+
+	prev := sandboxRootFunc
+	t.Cleanup(func() { sandboxRootFunc = prev })
+	sandboxRootFunc = func() string { return active }
+
+	resolved, err := resolveFilePath(filepath.Join("docs", "note.md"), bootDir)
+	if err != nil {
+		t.Fatalf("resolveFilePath relativo: %v", err)
+	}
+	want := filepath.Join(active, "docs", "note.md")
+	if normalizeForComparison(resolved) != normalizeForComparison(want) {
+		t.Fatalf("path relativo deveria usar workspace ativo: got %q, want %q", resolved, want)
+	}
+
+	absolute := filepath.Join(bootDir, "absolute.txt")
+	resolvedAbsolute, err := resolveFilePath(absolute, bootDir)
+	if err != nil {
+		t.Fatalf("resolveFilePath absoluto: %v", err)
+	}
+	if normalizeForComparison(resolvedAbsolute) != normalizeForComparison(absolute) {
+		t.Fatalf("path absoluto não deveria ser rebased: got %q, want %q", resolvedAbsolute, absolute)
+	}
+
+	// Patterns relativos de skill precisam acompanhar a mesma raiz dinâmica.
+	allowed := filepath.Join(active, "docs", "child.txt")
+	if !filesystemPatternMatches(allowed, bootDir, filepath.Join("docs", "**")) {
+		t.Fatalf("pattern relativo deveria casar path no workspace ativo: %q", allowed)
+	}
+	oldWorkspacePath := filepath.Join(bootDir, "docs", "child.txt")
+	if filesystemPatternMatches(oldWorkspacePath, bootDir, filepath.Join("docs", "**")) {
+		t.Fatalf("pattern relativo não deveria continuar casando o diretório de boot: %q", oldWorkspacePath)
+	}
+}

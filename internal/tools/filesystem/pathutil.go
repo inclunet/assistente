@@ -69,7 +69,8 @@ func expandTilde(path string) string {
 // Ordem de resolução:
 //  1. Expande ~ para home directory
 //  2. Se absoluto, retorna limpo
-//  3. Se relativo, resolve em relação ao workDir
+//  3. Se relativo, resolve em relação ao workspace ativo; sem workspace ativo,
+//     cai no workDir estático da tool.
 func resolveFilePath(path, workDir string) (string, error) {
 	// Primeiro expande tilde
 	expanded := expandTilde(path)
@@ -79,8 +80,13 @@ func resolveFilePath(path, workDir string) (string, error) {
 		return filepath.Clean(expanded), nil
 	}
 
-	// Relativo: resolve em relação ao workDir
-	return filepath.Abs(filepath.Join(workDir, expanded))
+	// Relativo: acompanha a mesma raiz dinâmica usada pelo sandbox. Isso evita
+	// resolver no cwd do boot depois que o usuário troca o workspace ativo.
+	root, err := effectiveSandboxRoot(workDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(filepath.Join(root, expanded))
 }
 
 // validatePath verifica se um caminho é seguro para acesso.
@@ -288,7 +294,8 @@ func matchesAnyFilesystemPattern(absPath string, workDir string, patterns []stri
 }
 
 func filesystemPatternMatches(absPath string, workDir string, pattern string) bool {
-	// Resolve o padrão como um path (expande ~ e caminhos relativos ao workDir)
+	// Resolve o padrão como um path (expande ~ e caminhos relativos à mesma
+	// raiz dinâmica do sandbox/workspace ativo).
 	resolved, err := resolveFilePath(pattern, workDir)
 	if err != nil {
 		return false
