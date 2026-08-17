@@ -55,7 +55,7 @@ func newDeniedPathError(path, operation, reason string, dialogAvailable bool) *D
 		suggestions = append(suggestions, "autorizar esta tentativa no diálogo de consentimento")
 	}
 	suggestions = append(suggestions,
-		"revisar ou revogar autorizações em [allowlist de paths]("+PathAllowlistDeepLink+")",
+		"revisar as regras (autorizações e proibições) em [gestão de paths]("+PathAllowlistDeepLink+")",
 	)
 	return &DeniedPathError{
 		Path:        path,

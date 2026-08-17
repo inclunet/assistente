@@ -220,8 +220,8 @@ func TestAuthorizer_DenyLinksManagementUI(t *testing.T) {
 	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
 		t.Fatalf("erro deveria linkar a tela de gestão: %v", err)
 	}
-	if !strings.Contains(err.Error(), "allowlist de paths") {
-		t.Fatalf("erro deveria mencionar a allowlist de paths: %v", err)
+	if !strings.Contains(err.Error(), "gestão de paths") {
+		t.Fatalf("erro deveria mencionar a tela de gestão de paths: %v", err)
 	}
 }
 
