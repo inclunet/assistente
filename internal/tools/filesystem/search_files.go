@@ -129,17 +129,20 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 				return filepath.SkipDir
 			}
 
+			// Link apontando para fora do sandbox: não vazar nomes externos.
+			// Vem antes do skill para a entrada não ser contada em
+			// skippedBySkill e anunciada no cabeçalho — omissão por sandbox é
+			// silenciosa (AEP-0092 D-Q7).
+			if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
+				return nil
+			}
+
 			// Enforcement por skill: não vazar nomes fora do escopo
 			if err := validateSkillFilesystemAllowlist(ctx, path, t.workDir, "search"); err != nil {
 				skippedBySkill++
 				if d.IsDir() {
 					return filepath.SkipDir
 				}
-				return nil
-			}
-
-			// Link apontando para fora do sandbox: não vazar nomes externos
-			if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
 				return nil
 			}
 

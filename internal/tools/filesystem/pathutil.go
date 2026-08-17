@@ -346,14 +346,14 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 	return nil
 }
 
+// matchesAnyFilesystemPattern espera `absPath` já resolvido para o destino real
+// — quem chama é validateSkillFilesystemAllowlist, que resolve uma vez e
+// consulta deny e allow. Resolver de novo aqui dobraria syscalls no walk e
+// ainda abriria janela para os dois lados discordarem se o disco mudasse entre
+// as duas resoluções.
 func matchesAnyFilesystemPattern(absPath string, workDir string, patterns []string) bool {
 	if len(patterns) == 0 {
 		return false
-	}
-	// Compara sempre destino real contra destino real. Resolvido uma vez por
-	// chamada, e não por pattern, para não multiplicar syscalls em walks.
-	if resolved, err := resolveForComparison(absPath); err == nil {
-		absPath = resolved
 	}
 	for _, p := range patterns {
 		pat := strings.TrimSpace(p)

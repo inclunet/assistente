@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"assistente/internal/tools"
 )
 
 // prepararSymlinkSensivel cria um workDir com um .env e um symlink de nome
@@ -201,6 +203,84 @@ func TestWalkers_SymlinkParaForaDoSandboxNaoVaza(t *testing.T) {
 			// não pode virar um "esconde tudo".
 			if !strings.Contains(content, "dentro.txt") {
 				t.Errorf("arquivo legítimo do sandbox sumiu do resultado:\n%s", content)
+			}
+		})
+	}
+}
+
+// TestWalkers_EscapeNaoEContadoComoSkill garante a ordem dos filtros: com um
+// FilesystemScope ativo, um link que escapa do sandbox tem de sumir em silêncio
+// (AEP-0092 D-Q7), não entrar na conta do skill e ser anunciado no cabeçalho
+// como omissão por permissão — atribuir a omissão à causa errada engana quem lê.
+func TestWalkers_EscapeNaoEContadoComoSkill(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	fora := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fora, "externo.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("escrever externo.txt: %v", err)
+	}
+
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "dentro.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("escrever dentro.txt: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(fora, "externo.txt"), filepath.Join(workDir, "atalho.txt")); err != nil {
+		t.Fatalf("criar symlink: %v", err)
+	}
+
+	// O skill libera tudo dentro do workspace: pelo nome literal o link casaria,
+	// então qualquer omissão atribuída ao skill denunciaria a ordem errada.
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug: "test-skill",
+		Filesystem: &tools.FilesystemScope{
+			Read: []string{filepath.Join(workDir, "**")},
+		},
+	})
+
+	casos := []struct {
+		nome string
+		exec func() (string, bool)
+	}{
+		{
+			nome: "list_dir",
+			exec: func() (string, bool) {
+				args, _ := json.Marshal(map[string]any{"path": "."})
+				res, err := NewListDirectory(workDir).Execute(ctx, args)
+				if err != nil {
+					t.Fatalf("list_dir: %v", err)
+				}
+				return res.Content, res.IsError
+			},
+		},
+		{
+			nome: "search_files",
+			exec: func() (string, bool) {
+				args, _ := json.Marshal(map[string]any{"pattern": "**/*.txt", "max_results": 50})
+				res, err := NewSearchFiles(workDir).Execute(ctx, args)
+				if err != nil {
+					t.Fatalf("search_files: %v", err)
+				}
+				return res.Content, res.IsError
+			},
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			content, isErr := caso.exec()
+			if isErr {
+				t.Fatalf("execução retornou erro: %s", content)
+			}
+			if strings.Contains(content, "atalho") {
+				t.Errorf("link para fora do sandbox vazou:\n%s", content)
+			}
+			if strings.Contains(content, "skill") {
+				t.Errorf("omissão do sandbox foi atribuída ao skill:\n%s", content)
+			}
+			if !strings.Contains(content, "dentro.txt") {
+				t.Errorf("arquivo legítimo sumiu do resultado:\n%s", content)
 			}
 		})
 	}
