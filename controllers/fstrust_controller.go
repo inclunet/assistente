@@ -97,8 +97,16 @@ func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, op
 	if path == "" {
 		return fmt.Errorf("path vazio")
 	}
+	// Persiste o destino real (symlinks resolvidos + normalizado), igual ao
+	// allow: o MatchDeny casa pelo path resolvido, então gravar o alias cru
+	// permitiria burlar o deny pelo caminho real (e salvaria ".."/separadores
+	// inconsistentes).
+	resolved, err := fstrust.ResolvePath(path)
+	if err != nil {
+		return fmt.Errorf("não foi possível resolver o path %q para a denylist: %w", path, err)
+	}
 	return c.fsTrustMgr.Add(c.managementContext(ctx), fstrust.AllowlistEntry{
-		Path:      path,
+		Path:      resolved,
 		Kind:      k,
 		Operation: operation,
 		Effect:    fstrust.EffectDeny,

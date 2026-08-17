@@ -23,6 +23,56 @@ func (s *spyPrompter) PromptPathAuthorization(_ context.Context, req PromptReque
 	return s.decision, s.err
 }
 
+func TestResolvePath_CleansDotDot(t *testing.T) {
+	dir := t.TempDir()
+	got, err := ResolvePath(filepath.Join(dir, "sub", "..", "alvo.txt"))
+	if err != nil {
+		t.Fatalf("ResolvePath: %v", err)
+	}
+	want := NormalizePath(filepath.Join(dir, "alvo.txt"))
+	if got != want {
+		t.Fatalf("ResolvePath = %q, quer %q", got, want)
+	}
+	if _, err := ResolvePath("   "); err == nil {
+		t.Fatal("path vazio deveria falhar")
+	}
+}
+
+// Deny persistido pelo destino real bloqueia o acesso feito via alias/symlink:
+// o Manager casa pelo path resolvido, então gravar o alias cru burlaria a regra.
+func TestAuthorizer_DenyByResolvedPathBlocksAlias(t *testing.T) {
+	dir := t.TempDir()
+	realFile := filepath.Join(dir, "segredo.txt")
+	if err := os.WriteFile(realFile, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	alias := filepath.Join(dir, "atalho.txt")
+	if err := os.Symlink(realFile, alias); err != nil {
+		t.Skipf("symlink indisponível neste ambiente: %v", err)
+	}
+
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	// Deny gravado no destino real (como o controller passa a fazer).
+	resolved, err := ResolvePath(realFile)
+	if err != nil {
+		t.Fatalf("ResolvePath: %v", err)
+	}
+	if err := m.Add(ctx, AllowlistEntry{Path: resolved, Kind: KindFile, Operation: "read", Effect: EffectDeny, Scope: ScopeGlobal}); err != nil {
+		t.Fatalf("Add deny: %v", err)
+	}
+
+	auth := NewAuthorizer(m, &spyPrompter{decision: PromptDecision{Approve: true}})
+	// Acesso pelo alias deve ser bloqueado pelo deny do destino real.
+	if err := auth.Authorize(ctx, alias, "read"); err == nil {
+		t.Fatal("deny pelo destino real deveria bloquear o acesso via alias")
+	}
+	var denied *DeniedPathError
+	if !errors.As(auth.Authorize(ctx, alias, "read"), &denied) {
+		t.Fatal("erro deveria ser DeniedPathError")
+	}
+}
+
 func TestAuthorizer_MatchSkipsPrompt(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManagerWithDirs(dir, dir)

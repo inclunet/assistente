@@ -183,6 +183,18 @@ func (a *Authorizer) deniedResolved(ctx context.Context, requested, resolved, op
 	return newDeniedPathError(requested, operation, fmt.Sprintf("bloqueado pela denylist (escopo %s)", decision.Scope))
 }
 
+// ResolvePath devolve o destino real (symlinks resolvidos) e normalizado de um
+// path. É o mesmo pré-processamento que o Authorize faz antes de casar allow/deny,
+// e serve para persistir entradas (ex.: deny criado pela UI) no mesmo formato que
+// o match usa em tempo de acesso — sem isso, um alias/symlink não casaria a regra.
+func ResolvePath(absPath string) (string, error) {
+	requested := NormalizePath(absPath)
+	if requested == "" {
+		return "", fmt.Errorf("path vazio não pode ser resolvido")
+	}
+	return resolveSymlinks(requested)
+}
+
 // resolveSymlinks resolve cada componente com Lstat/Readlink, inclusive quando
 // o alvo do link ainda não existe. Isso mantém persistência e match no mesmo
 // destino real antes e depois da criação do arquivo.

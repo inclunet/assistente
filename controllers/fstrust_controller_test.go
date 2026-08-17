@@ -74,9 +74,12 @@ func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
 	dir := t.TempDir()
 	mgr := fstrust.NewManagerWithDirs(dir, dir)
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
-	path := filepath.Join(dir, "bloqueado.txt")
+	want := filepath.Join(dir, "bloqueado.txt")
+	// Path com espaços nas bordas e um segmento ".." que precisa ser colapsado
+	// para casar o que o MatchDeny usa em tempo de acesso.
+	raw := "  " + filepath.Join(dir, "sub", "..", "bloqueado.txt") + "  "
 
-	if err := c.AddPathDenyEntry(context.Background(), "  "+path+"  ", "file", "  read  ", "global", "  motivo  "); err != nil {
+	if err := c.AddPathDenyEntry(context.Background(), raw, "file", "  read  ", "global", "  motivo  "); err != nil {
 		t.Fatalf("AddPathDenyEntry: %v", err)
 	}
 
@@ -85,8 +88,8 @@ func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
 		t.Fatalf("want 1 entrada, got %d", len(views))
 	}
 	v := views[0]
-	if v.Path != strings.TrimSpace(v.Path) || fstrust.NormalizePath(v.Path) != fstrust.NormalizePath(path) {
-		t.Fatalf("path não normalizado: %q", v.Path)
+	if v.Path != strings.TrimSpace(v.Path) || fstrust.NormalizePath(v.Path) != fstrust.NormalizePath(want) {
+		t.Fatalf("path não resolvido/normalizado: %q (quer %q)", v.Path, want)
 	}
 	if v.Operation != "read" {
 		t.Fatalf("operation não normalizada: %q", v.Operation)
