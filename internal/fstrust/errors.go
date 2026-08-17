@@ -44,13 +44,18 @@ func (e *DeniedPathError) Error() string {
 }
 
 func newDeniedPathError(path, operation, reason string) *DeniedPathError {
+	suggestions := make([]string, 0, 2)
+	// Sem prompter não há diálogo: sugerir autorizar no diálogo seria mentira.
+	if reason != "sem prompter de consentimento" {
+		suggestions = append(suggestions, "autorizar esta tentativa no diálogo de consentimento")
+	}
+	suggestions = append(suggestions,
+		"revisar ou revogar autorizações em [allowlist de paths]("+PathAllowlistDeepLink+")",
+	)
 	return &DeniedPathError{
-		Path:      path,
-		Operation: operation,
-		Reason:    reason,
-		Suggestions: []string{
-			"autorizar esta tentativa no diálogo de consentimento",
-			"revisar ou revogar autorizações em [allowlist de paths](" + PathAllowlistDeepLink + ")",
-		},
+		Path:        path,
+		Operation:   operation,
+		Reason:      reason,
+		Suggestions: suggestions,
 	}
 }
