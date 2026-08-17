@@ -84,7 +84,7 @@ Entrada:
 
 ```text
 AllowlistEntry{
-  Path       string   // absoluto normalizado; ou prefixo com /** se Kind=dir
+  Path       string   // absoluto normalizado; raiz do diretório se Kind=dir
   Kind       "file" | "dir"
   Operation  string   // operação exata: read, write, edit, grep, list, ...
   Scope      Scope

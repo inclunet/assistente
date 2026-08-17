@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -129,5 +130,53 @@ func TestAuthorizer_NoPrompter(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "sem authorizer") {
 		t.Fatalf("mensagem inesperada: %v", err)
+	}
+}
+
+func TestAuthorizer_NewFileThroughSymlinkKeepsPersistentMatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	home := t.TempDir()
+	linkParent := t.TempDir()
+	realParent := t.TempDir()
+	link := filepath.Join(linkParent, "external")
+	if err := os.Symlink(realParent, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	requested := filepath.Join(link, "new.txt")
+	resolved := filepath.Join(realParent, "new.txt")
+
+	m := NewManagerWithDirs(home, home)
+	prompt := &spyPrompter{
+		decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Kind: KindFile},
+	}
+	auth := NewAuthorizer(m, prompt)
+	ctx := context.Background()
+
+	// Primeira tentativa: o arquivo ainda não existe. A autorização deve ser
+	// persistida pelo ancestral resolvido (realParent/new.txt), não pelo link.
+	if err := auth.Authorize(ctx, requested, "write"); err != nil {
+		t.Fatalf("primeira autorização: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("esperado 1 prompt, got %d", prompt.called)
+	}
+	if NormalizePath(prompt.lastReq.ResolvedPath) != NormalizePath(resolved) {
+		t.Fatalf("resolved path inesperado: got %q, want %q", prompt.lastReq.ResolvedPath, resolved)
+	}
+
+	if err := os.WriteFile(resolved, []byte("criado"), 0o644); err != nil {
+		t.Fatalf("criar arquivo após autorização: %v", err)
+	}
+
+	// Segunda tentativa: agora EvalSymlinks resolve o path inteiro. A entrada
+	// persistida deve casar e impedir um novo prompt.
+	if err := auth.Authorize(ctx, requested, "write"); err != nil {
+		t.Fatalf("match após criação: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("autorização persistida deveria evitar novo prompt, got %d prompts", prompt.called)
 	}
 }

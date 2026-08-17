@@ -91,6 +91,8 @@ func blockSensitiveForOperation(fullPath, operation string) error {
 		return fmt.Errorf("não é permitido editar arquivos sensíveis")
 	case "move_from", "move_to":
 		return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
+	case "delete":
+		return fmt.Errorf("não é permitido excluir arquivos sensíveis")
 	default:
 		return fmt.Errorf("operação não permitida em arquivos sensíveis")
 	}

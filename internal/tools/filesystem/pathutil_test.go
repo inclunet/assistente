@@ -105,6 +105,16 @@ func TestValidatePathWithPolicy_SensitiveFiles(t *testing.T) {
 	}
 }
 
+func TestBlockSensitiveForOperation_DeleteMessage(t *testing.T) {
+	err := blockSensitiveForOperation(filepath.Join(t.TempDir(), ".env"), "delete")
+	if err == nil {
+		t.Fatal("delete de arquivo sensível deveria ser bloqueado")
+	}
+	if got := err.Error(); got != "não é permitido excluir arquivos sensíveis" {
+		t.Fatalf("mensagem de delete inesperada: %q", got)
+	}
+}
+
 // TestValidatePath_HomeDirectory testa acesso ao diretório home
 func TestValidatePath_HomeDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {

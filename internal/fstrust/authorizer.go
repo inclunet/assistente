@@ -135,13 +135,34 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	return nil
 }
 
-// resolveSymlinks tenta EvalSymlinks; se falhar, devolve o path original.
+// resolveSymlinks resolve symlinks do path inteiro. Se o path ainda não existe
+// (ex.: write_file criando arquivo novo), resolve o ancestral existente mais
+// próximo e reanexa o restante. Assim a autorização é persistida sempre pelo
+// destino real e continua casando depois que o arquivo passa a existir.
 func resolveSymlinks(absPath string) string {
 	resolved, err := filepath.EvalSymlinks(absPath)
-	if err != nil || resolved == "" {
-		return absPath
+	if err == nil && resolved != "" {
+		return NormalizePath(resolved)
 	}
-	return NormalizePath(resolved)
+
+	dir := absPath
+	var tail []string
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return NormalizePath(absPath)
+		}
+		if resolvedParent, parentErr := filepath.EvalSymlinks(parent); parentErr == nil && resolvedParent != "" {
+			tail = append(tail, filepath.Base(dir))
+			result := resolvedParent
+			for i := len(tail) - 1; i >= 0; i-- {
+				result = filepath.Join(result, tail[i])
+			}
+			return NormalizePath(result)
+		}
+		tail = append(tail, filepath.Base(dir))
+		dir = parent
+	}
 }
 
 // dirGrantRoot devolve o diretório a autorizar: o próprio path se já for
