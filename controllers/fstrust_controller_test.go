@@ -80,7 +80,7 @@ func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
 	// para casar o que o MatchDeny usa em tempo de acesso.
 	raw := "  " + filepath.Join(dir, "sub", "..", "bloqueado.txt") + "  "
 
-	if err := c.AddPathDenyEntry(context.Background(), raw, "file", "  read  ", "global", "  motivo  "); err != nil {
+	if err := c.AddPathDenyEntry(context.Background(), raw, "file", "  ReAd  ", "global", "  motivo  "); err != nil {
 		t.Fatalf("AddPathDenyEntry: %v", err)
 	}
 

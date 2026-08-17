@@ -91,7 +91,9 @@ func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, op
 	// Normaliza antes de persistir: gravar com espaços nas bordas geraria
 	// entradas que não casam como o usuário espera e ficam difíceis de remover.
 	path = strings.TrimSpace(path)
-	operation = strings.TrimSpace(operation)
+	// Operação casa por igualdade e o código sempre usa minúsculas (read, write,
+	// copy_from, ...). Sem normalizar, "Read"/"WRITE" persistiria e nunca casaria.
+	operation = strings.ToLower(strings.TrimSpace(operation))
 	reason = strings.TrimSpace(reason)
 	if operation == "" {
 		return fmt.Errorf("operation vazia")
