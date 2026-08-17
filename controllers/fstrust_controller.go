@@ -147,8 +147,11 @@ func (c *FSTrustController) RemovePathAllowlistEntry(ctx context.Context, scope,
 	if !fstrust.ValidKind(k) {
 		return fmt.Errorf("kind inválido para remoção: %q (use file ou dir)", kind)
 	}
-	eff := fstrust.Effect(effect)
-	if !fstrust.ValidEffect(eff) {
+	// Esta API de gestão exige effect explícito. ValidEffect aceita ""
+	// (normalizado para allow), então rejeitamos vazio aqui para não tornar a
+	// remoção ambígua e contradizer a mensagem ("use allow ou deny").
+	eff := fstrust.Effect(strings.TrimSpace(effect))
+	if eff == "" || !fstrust.ValidEffect(eff) {
 		return fmt.Errorf("effect inválido para remoção: %q (use allow ou deny)", effect)
 	}
 	return c.fsTrustMgr.Remove(c.managementContext(ctx), s, path, k, operation, fstrust.NormalizedEffect(eff))

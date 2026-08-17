@@ -45,14 +45,13 @@ func (e *DeniedPathError) Error() string {
 	return b.String()
 }
 
-func newDeniedPathError(path, operation, reason string) *DeniedPathError {
+// newDeniedPathError monta o erro acionável. dialogAvailable controla, de forma
+// explícita (não por inspeção do texto de reason), se cabe sugerir autorizar no
+// diálogo de consentimento — falso quando não há prompter ou quando é denylist
+// (deny tem precedência absoluta e nenhum diálogo autoriza).
+func newDeniedPathError(path, operation, reason string, dialogAvailable bool) *DeniedPathError {
 	suggestions := make([]string, 0, 2)
-	// Só sugerir o diálogo quando ele realmente pode liberar o acesso. Sem
-	// prompter não há diálogo; em bloqueio por denylist o deny tem precedência
-	// absoluta (nenhum diálogo autoriza) — sugerir seria enganoso.
-	dialogWouldHelp := reason != "sem prompter de consentimento" &&
-		!strings.Contains(reason, "denylist")
-	if dialogWouldHelp {
+	if dialogAvailable {
 		suggestions = append(suggestions, "autorizar esta tentativa no diálogo de consentimento")
 	}
 	suggestions = append(suggestions,

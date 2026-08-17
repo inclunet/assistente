@@ -341,8 +341,8 @@ type stubPathAuthorizer struct {
 }
 
 func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation string) error {
-	if err := s.Denied(ctx, absPath, operation); err != nil {
-		return err
+	if s.denyErr != nil {
+		return s.denyErr
 	}
 	if s.err != nil {
 		return s.err
@@ -353,7 +353,7 @@ func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation st
 	return errOutsideAllowedDirs
 }
 
-func (s stubPathAuthorizer) Denied(ctx context.Context, absPath, operation string) error {
+func (s stubPathAuthorizer) DeniedResolved(ctx context.Context, resolvedPath, operation string) error {
 	return s.denyErr
 }
 
@@ -414,10 +414,12 @@ type countingPathAuthorizer struct {
 
 func (c *countingPathAuthorizer) Authorize(ctx context.Context, absPath, operation string) error {
 	c.authorizeCalls++
-	return c.Denied(ctx, absPath, operation)
+	// Fora do sandbox, o Authorize aplica a precedência de deny internamente.
+	c.deniedCalls++
+	return c.denyErr
 }
 
-func (c *countingPathAuthorizer) Denied(ctx context.Context, absPath, operation string) error {
+func (c *countingPathAuthorizer) DeniedResolved(ctx context.Context, resolvedPath, operation string) error {
 	c.deniedCalls++
 	return c.denyErr
 }
