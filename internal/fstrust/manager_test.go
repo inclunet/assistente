@@ -2,7 +2,9 @@ package fstrust
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"assistente/internal/tools/invocationctx"
@@ -166,5 +168,45 @@ func TestManager_Remove(t *testing.T) {
 	}
 	if err := m.Remove(ctx, ScopeGlobal, file, KindFile, "read"); err != ErrEntryNotFound {
 		t.Fatalf("esperado ErrEntryNotFound, got %v", err)
+	}
+}
+
+func TestManager_PersistentReadsAndWritesAreSynchronized(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	const entries = 20
+	errs := make(chan error, entries)
+	var wg sync.WaitGroup
+
+	for i := 0; i < entries; i++ {
+		i := i
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			errs <- m.Add(ctx, AllowlistEntry{
+				Path:      filepath.Join(dir, "files", fmt.Sprintf("%d.txt", i)),
+				Kind:      KindFile,
+				Operation: "read",
+				Scope:     ScopeGlobal,
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			_ = m.List(ctx)
+			_ = m.Match(ctx, filepath.Join(dir, "files", fmt.Sprintf("%d.txt", i)), "read")
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Add concorrente: %v", err)
+		}
+	}
+	if got := len(m.List(ctx)); got != entries {
+		t.Fatalf("listagem final perdeu entradas: got %d, want %d", got, entries)
 	}
 }

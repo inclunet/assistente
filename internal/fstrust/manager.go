@@ -39,7 +39,8 @@ type storeFile struct {
 // (chaveada por ConversationID); workspace/perfil/global são arquivos JSON sob
 // .assistente/path-allowlist/.
 type Manager struct {
-	mu      sync.RWMutex
+	mu      sync.RWMutex                // sessão e funções/configuração em memória
+	fileMu  sync.RWMutex                // transações dos arquivos persistidos
 	session map[string][]AllowlistEntry // conversationID -> entradas de sessão
 
 	homeDir           func() string
@@ -118,6 +119,9 @@ func (m *Manager) Match(ctx context.Context, absPath, operation string) Decision
 		return Decision{Allowed: true, Scope: ScopeSession, Entry: e}
 	}
 
+	m.fileMu.RLock()
+	defer m.fileMu.RUnlock()
+
 	if profilePath != "" {
 		if e := firstMatch(m.loadFileOrEmpty(ctx, profilePath), absPath, operation); e != nil {
 			return Decision{Allowed: true, Scope: ScopeProfile, Entry: e}
@@ -156,9 +160,6 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 
 	convID, profileSlug := m.identity(ctx)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	switch entry.Scope {
 	case ScopeOnce:
 		return nil
@@ -166,17 +167,34 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 		if convID == "" {
 			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
 		}
+		m.mu.Lock()
 		m.session[convID] = upsert(m.session[convID], entry)
+		m.mu.Unlock()
 		return nil
 	case ScopeWorkspace:
-		return m.addToFile(m.workspacePath(), entry)
+		m.mu.RLock()
+		path := m.workspacePath()
+		m.mu.RUnlock()
+		m.fileMu.Lock()
+		defer m.fileMu.Unlock()
+		return m.addToFile(path, entry)
 	case ScopeProfile:
 		if profileSlug == "" {
 			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
 		}
-		return m.addToFile(m.profilePath(profileSlug), entry)
+		m.mu.RLock()
+		path := m.profilePath(profileSlug)
+		m.mu.RUnlock()
+		m.fileMu.Lock()
+		defer m.fileMu.Unlock()
+		return m.addToFile(path, entry)
 	case ScopeGlobal:
-		return m.addToFile(m.globalPath(), entry)
+		m.mu.RLock()
+		path := m.globalPath()
+		m.mu.RUnlock()
+		m.fileMu.Lock()
+		defer m.fileMu.Unlock()
+		return m.addToFile(path, entry)
 	default:
 		return fmt.Errorf("escopo não suportado: %q", entry.Scope)
 	}
@@ -196,6 +214,9 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 	globalPath := m.globalPath()
 	m.mu.RUnlock()
 
+	m.fileMu.RLock()
+	defer m.fileMu.RUnlock()
+
 	if profilePath != "" {
 		out = append(out, m.loadFileOrEmpty(ctx, profilePath)...)
 	}
@@ -210,14 +231,13 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kin
 
 	convID, profileSlug := m.identity(ctx)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	switch scope {
 	case ScopeSession:
 		if convID == "" {
 			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
 		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		entries, removed := removeMatch(m.session[convID], path, kind, operation)
 		if !removed {
 			return ErrEntryNotFound
@@ -225,14 +245,29 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kin
 		m.session[convID] = entries
 		return nil
 	case ScopeWorkspace:
-		return m.removeFromFile(m.workspacePath(), path, kind, operation)
+		m.mu.RLock()
+		storePath := m.workspacePath()
+		m.mu.RUnlock()
+		m.fileMu.Lock()
+		defer m.fileMu.Unlock()
+		return m.removeFromFile(storePath, path, kind, operation)
 	case ScopeProfile:
 		if profileSlug == "" {
 			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
 		}
-		return m.removeFromFile(m.profilePath(profileSlug), path, kind, operation)
+		m.mu.RLock()
+		storePath := m.profilePath(profileSlug)
+		m.mu.RUnlock()
+		m.fileMu.Lock()
+		defer m.fileMu.Unlock()
+		return m.removeFromFile(storePath, path, kind, operation)
 	case ScopeGlobal:
-		return m.removeFromFile(m.globalPath(), path, kind, operation)
+		m.mu.RLock()
+		storePath := m.globalPath()
+		m.mu.RUnlock()
+		m.fileMu.Lock()
+		defer m.fileMu.Unlock()
+		return m.removeFromFile(storePath, path, kind, operation)
 	default:
 		return fmt.Errorf("escopo não removível: %q", scope)
 	}
