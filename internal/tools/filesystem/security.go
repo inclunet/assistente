@@ -98,12 +98,14 @@ func blockSensitiveForOperation(fullPath, operation string) error {
 		return nil
 	}
 	switch operation {
-	case "read", "copy_from":
+	case "read":
 		return fmt.Errorf("não é permitido ler arquivos sensíveis")
-	case "write", "copy_to":
+	case "write":
 		return fmt.Errorf("não é permitido escrever em arquivos sensíveis")
 	case "edit":
 		return fmt.Errorf("não é permitido editar arquivos sensíveis")
+	case "copy_from", "copy_to":
+		return fmt.Errorf("não é permitido copiar arquivos sensíveis")
 	case "move_from", "move_to":
 		return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
 	case "delete":

@@ -110,8 +110,12 @@ func TestValidatePathWithPolicy_SensitiveFiles(t *testing.T) {
 func TestBlockSensitiveForOperation_Mensagens(t *testing.T) {
 	dir := t.TempDir()
 	casos := map[string]string{
-		"delete": "não é permitido excluir arquivos sensíveis",
-		"mkdir":  "não é permitido criar diretórios sensíveis",
+		"delete":    "não é permitido excluir arquivos sensíveis",
+		"mkdir":     "não é permitido criar diretórios sensíveis",
+		"copy_from": "não é permitido copiar arquivos sensíveis",
+		"copy_to":   "não é permitido copiar arquivos sensíveis",
+		"move_from": "não é permitido mover/renomear arquivos sensíveis",
+		"move_to":   "não é permitido mover/renomear arquivos sensíveis",
 	}
 	for operacao, esperado := range casos {
 		t.Run(operacao, func(t *testing.T) {
@@ -126,22 +130,54 @@ func TestBlockSensitiveForOperation_Mensagens(t *testing.T) {
 	}
 }
 
-// TestFileOps_MensagemDeExclusaoConsistente garante que os dois caminhos de
-// remoção falam a mesma língua: divergir aqui bagunça UX e telemetria.
-func TestFileOps_MensagemDeExclusaoConsistente(t *testing.T) {
+// TestFileOps_MensagensConsistentesComPolicy garante que a operação direta e a
+// validação prévia falam a mesma língua. Divergir aqui faz o usuário receber
+// uma frase que não descreve o que ele pediu, e bagunça a telemetria.
+func TestFileOps_MensagensConsistentesComPolicy(t *testing.T) {
 	dir := t.TempDir()
 	alvo := filepath.Join(dir, ".env")
 	if err := os.WriteFile(alvo, []byte("x"), 0o600); err != nil {
 		t.Fatalf("escrever .env: %v", err)
 	}
 
-	err := RemoveFileWithPolicy(alvo, ToolPolicy())
-	if err == nil {
-		t.Fatal("remover arquivo sensível deveria ser bloqueado")
+	casos := []struct {
+		nome     string
+		operacao string
+		executar func() error
+	}{
+		{
+			nome:     "remover",
+			operacao: "delete",
+			executar: func() error { return RemoveFileWithPolicy(alvo, ToolPolicy()) },
+		},
+		{
+			nome:     "copiar",
+			operacao: "copy_from",
+			executar: func() error {
+				_, err := CopyFileWithPolicy(alvo, filepath.Join(dir, "copia.txt"), false, ToolPolicy())
+				return err
+			},
+		},
+		{
+			nome:     "mover",
+			operacao: "move_from",
+			executar: func() error {
+				return MoveFileWithPolicy(alvo, filepath.Join(dir, "movido.txt"), false, ToolPolicy())
+			},
+		},
 	}
-	esperado := blockSensitiveForOperation(alvo, "delete").Error()
-	if got := err.Error(); got != esperado {
-		t.Fatalf("mensagem divergente: got %q, want %q", got, esperado)
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			err := caso.executar()
+			if err == nil {
+				t.Fatalf("%s arquivo sensível deveria ser bloqueado", caso.nome)
+			}
+			esperado := blockSensitiveForOperation(alvo, caso.operacao).Error()
+			if got := err.Error(); got != esperado {
+				t.Fatalf("mensagem divergente: got %q, want %q", got, esperado)
+			}
+		})
 	}
 }
 
