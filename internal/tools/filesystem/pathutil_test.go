@@ -105,13 +105,43 @@ func TestValidatePathWithPolicy_SensitiveFiles(t *testing.T) {
 	}
 }
 
-func TestBlockSensitiveForOperation_DeleteMessage(t *testing.T) {
-	err := blockSensitiveForOperation(filepath.Join(t.TempDir(), ".env"), "delete")
-	if err == nil {
-		t.Fatal("delete de arquivo sensível deveria ser bloqueado")
+// TestBlockSensitiveForOperation_Mensagens fixa a mensagem por operação: cair
+// no default genérico esconde do usuário o que exatamente foi negado.
+func TestBlockSensitiveForOperation_Mensagens(t *testing.T) {
+	dir := t.TempDir()
+	casos := map[string]string{
+		"delete": "não é permitido excluir arquivos sensíveis",
+		"mkdir":  "não é permitido criar diretórios sensíveis",
 	}
-	if got := err.Error(); got != "não é permitido excluir arquivos sensíveis" {
-		t.Fatalf("mensagem de delete inesperada: %q", got)
+	for operacao, esperado := range casos {
+		t.Run(operacao, func(t *testing.T) {
+			err := blockSensitiveForOperation(filepath.Join(dir, ".env"), operacao)
+			if err == nil {
+				t.Fatalf("%s de arquivo sensível deveria ser bloqueado", operacao)
+			}
+			if got := err.Error(); got != esperado {
+				t.Fatalf("mensagem de %s inesperada: %q", operacao, got)
+			}
+		})
+	}
+}
+
+// TestFileOps_MensagemDeExclusaoConsistente garante que os dois caminhos de
+// remoção falam a mesma língua: divergir aqui bagunça UX e telemetria.
+func TestFileOps_MensagemDeExclusaoConsistente(t *testing.T) {
+	dir := t.TempDir()
+	alvo := filepath.Join(dir, ".env")
+	if err := os.WriteFile(alvo, []byte("x"), 0o600); err != nil {
+		t.Fatalf("escrever .env: %v", err)
+	}
+
+	err := RemoveFileWithPolicy(alvo, ToolPolicy())
+	if err == nil {
+		t.Fatal("remover arquivo sensível deveria ser bloqueado")
+	}
+	esperado := blockSensitiveForOperation(alvo, "delete").Error()
+	if got := err.Error(); got != esperado {
+		t.Fatalf("mensagem divergente: got %q, want %q", got, esperado)
 	}
 }
 

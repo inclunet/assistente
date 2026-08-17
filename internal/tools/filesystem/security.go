@@ -108,6 +108,8 @@ func blockSensitiveForOperation(fullPath, operation string) error {
 		return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
 	case "delete":
 		return fmt.Errorf("não é permitido excluir arquivos sensíveis")
+	case "mkdir":
+		return fmt.Errorf("não é permitido criar diretórios sensíveis")
 	default:
 		return fmt.Errorf("operação não permitida em arquivos sensíveis")
 	}

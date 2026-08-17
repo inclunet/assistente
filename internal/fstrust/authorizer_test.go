@@ -128,7 +128,7 @@ func TestAuthorizer_NoPrompter(t *testing.T) {
 	if err == nil {
 		t.Fatal("sem prompter deveria falhar")
 	}
-	if !strings.Contains(err.Error(), "sem authorizer") {
+	if !strings.Contains(err.Error(), "sem prompter de consentimento") {
 		t.Fatalf("mensagem inesperada: %v", err)
 	}
 }

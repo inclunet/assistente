@@ -71,7 +71,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 
 	// 2) Consentimento explícito
 	if a.prompt == nil {
-		return fmt.Errorf("caminho fora do sandbox e sem authorizer: %s (%s)", requested, operation)
+		return fmt.Errorf("caminho fora do sandbox e sem prompter de consentimento: %s (%s)", requested, operation)
 	}
 
 	skillSlug := skillSlugFrom(ctx)

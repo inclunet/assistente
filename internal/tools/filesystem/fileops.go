@@ -84,7 +84,7 @@ func RemoveFileWithPolicy(path string, policy Policy) error {
 		return fmt.Errorf("path vazio")
 	}
 	if policy.BlockSensitive && isSensitiveFileResolved(p) {
-		return fmt.Errorf("não é permitido remover arquivos sensíveis")
+		return fmt.Errorf("não é permitido excluir arquivos sensíveis")
 	}
 	info, err := os.Stat(p)
 	if err != nil {
