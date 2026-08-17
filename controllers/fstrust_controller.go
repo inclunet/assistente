@@ -105,6 +105,11 @@ func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, op
 	if err != nil {
 		return err
 	}
+	// Exige path absoluto: um relativo seria resolvido contra o cwd do processo,
+	// criando um deny em lugar inesperado (e difícil de remover).
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("path deve ser absoluto (ou começar com ~): %q", path)
+	}
 	// Persiste o destino real (symlinks resolvidos + normalizado), igual ao
 	// allow: o MatchDeny casa pelo path resolvido, então gravar o alias cru
 	// permitiria burlar o deny pelo caminho real (e salvaria ".."/separadores

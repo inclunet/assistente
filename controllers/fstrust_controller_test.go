@@ -127,6 +127,20 @@ func TestFSTrustAddPathDenyEntryExpandsHome(t *testing.T) {
 	}
 }
 
+func TestFSTrustAddPathDenyEntryRejectsRelative(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+
+	if err := c.AddPathDenyEntry(context.Background(), "relativo/segredo.env", "file", "read", "global", ""); err == nil {
+		t.Fatal("path relativo deveria ser rejeitado")
+	}
+	if len(c.GetPathAllowlist(context.Background())) != 0 {
+		t.Fatal("nada deveria ter sido persistido para path relativo")
+	}
+}
+
 func TestFSTrustGetPathAllowlistMapsEntry(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

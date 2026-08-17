@@ -23,7 +23,9 @@ type DeniedPathError struct {
 
 func (e *DeniedPathError) Error() string {
 	var b strings.Builder
-	b.WriteString("acesso a path fora do sandbox bloqueado")
+	// Mensagem genérica: o mesmo erro cobre bloqueio fora do sandbox (consentimento
+	// negado / sem prompter) e denylist dentro do sandbox. O detalhe vai em Motivo.
+	b.WriteString("acesso a path bloqueado")
 	if e.Path != "" {
 		fmt.Fprintf(&b, "\n- Path: %s", e.Path)
 	}
