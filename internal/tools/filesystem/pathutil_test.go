@@ -433,6 +433,18 @@ func TestValidatePath_SymlinkEscapeBlocked(t *testing.T) {
 		t.Errorf("escrita via symlink para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
 	}
 
+	// O próprio último componente é um symlink pendurado para um alvo externo
+	// ainda inexistente. Lstat+Readlink precisa determinar esse alvo mesmo que
+	// EvalSymlinks não consiga resolvê-lo.
+	danglingTarget := filepath.Join(outsideDir, "ainda-inexistente.txt")
+	danglingLink := filepath.Join(workDir, "dangling.txt")
+	if err := os.Symlink(danglingTarget, danglingLink); err != nil {
+		t.Fatalf("falha ao criar symlink pendurado: %v", err)
+	}
+	if err := validatePath(danglingLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+		t.Errorf("symlink final pendurado para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
+	}
+
 	// Regressão: arquivo real dentro do workDir continua permitido.
 	inside := filepath.Join(workDir, "inside.txt")
 	_ = os.WriteFile(inside, []byte("ok"), 0644)

@@ -180,3 +180,42 @@ func TestAuthorizer_NewFileThroughSymlinkKeepsPersistentMatch(t *testing.T) {
 		t.Fatalf("autorização persistida deveria evitar novo prompt, got %d prompts", prompt.called)
 	}
 }
+
+func TestAuthorizer_DanglingFinalSymlinkPersistsRealTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	home := t.TempDir()
+	linkParent := t.TempDir()
+	realParent := t.TempDir()
+	target := filepath.Join(realParent, "ainda-inexistente.txt")
+	link := filepath.Join(linkParent, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink pendurado: %v", err)
+	}
+
+	m := NewManagerWithDirs(home, home)
+	prompt := &spyPrompter{
+		decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Kind: KindFile},
+	}
+	auth := NewAuthorizer(m, prompt)
+	ctx := context.Background()
+
+	if err := auth.Authorize(ctx, link, "write"); err != nil {
+		t.Fatalf("autorizar symlink pendurado: %v", err)
+	}
+	if NormalizePath(prompt.lastReq.ResolvedPath) != NormalizePath(target) {
+		t.Fatalf("alvo real inesperado: got %q, want %q", prompt.lastReq.ResolvedPath, target)
+	}
+
+	if err := os.WriteFile(target, []byte("criado"), 0o644); err != nil {
+		t.Fatalf("criar alvo: %v", err)
+	}
+	if err := auth.Authorize(ctx, link, "write"); err != nil {
+		t.Fatalf("match após criação do alvo: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("entrada do alvo real deveria evitar novo prompt, got %d prompts", prompt.called)
+	}
+}

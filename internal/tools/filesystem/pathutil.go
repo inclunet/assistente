@@ -138,37 +138,68 @@ func effectiveSandboxRoot(workDir string) (string, error) {
 	return abs, nil
 }
 
-// resolveForComparison resolve symlinks do path para comparação de sandbox.
-// Quando o path não existe (ex.: criação de arquivo novo), resolve o ancestral
-// existente mais próximo e reanexa o restante — assim um symlink em qualquer
-// componente do prefixo é considerado. Nunca falha: em erro, devolve o Clean.
+// resolveForComparison resolve symlinks do path para comparação de sandbox,
+// inclusive links cujo alvo ainda não existe. Percorre cada componente com
+// Lstat/Readlink; ao encontrar um link, substitui pelo alvo e reinicia a
+// resolução com os componentes restantes.
 //
 // Necessário para fechar o escape do sandbox via link dentro da raiz apontando
 // para fora (ex.: workDir/link -> /etc): a comparação passa a olhar o destino
 // REAL, não o nome literal do link (AEP-0092).
-func resolveForComparison(absPath string) string {
-	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
-		return resolved
+func resolveForComparison(absPath string) (string, error) {
+	path, err := filepath.Abs(filepath.Clean(absPath))
+	if err != nil {
+		return "", err
 	}
-	dir := absPath
-	var tail []string
-	for {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Chegou na raiz do volume sem ancestral resolvível.
-			return filepath.Clean(absPath)
+
+	const maxSymlinks = 64
+	for followed := 0; followed < maxSymlinks; followed++ {
+		volume := filepath.VolumeName(path)
+		root := volume + string(filepath.Separator)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return "", err
 		}
-		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
-			tail = append(tail, filepath.Base(dir))
-			result := resolved
-			for i := len(tail) - 1; i >= 0; i-- {
-				result = filepath.Join(result, tail[i])
+		if rel == "." {
+			return root, nil
+		}
+
+		parts := strings.Split(rel, string(filepath.Separator))
+		current := root
+		restarted := false
+		for i, part := range parts {
+			if part == "" || part == "." {
+				continue
 			}
-			return result
+			candidate := filepath.Join(current, part)
+			info, statErr := os.Lstat(candidate)
+			if statErr != nil {
+				if errors.Is(statErr, os.ErrNotExist) {
+					return filepath.Join(current, filepath.Join(parts[i:]...)), nil
+				}
+				return "", fmt.Errorf("não foi possível inspecionar %s: %w", candidate, statErr)
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				current = candidate
+				continue
+			}
+
+			target, readErr := os.Readlink(candidate)
+			if readErr != nil {
+				return "", fmt.Errorf("não foi possível resolver symlink %s: %w", candidate, readErr)
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(current, target)
+			}
+			path = filepath.Clean(filepath.Join(append([]string{target}, parts[i+1:]...)...))
+			restarted = true
+			break
 		}
-		tail = append(tail, filepath.Base(dir))
-		dir = parent
+		if !restarted {
+			return current, nil
+		}
 	}
+	return "", fmt.Errorf("muitos níveis de symlink em %s", absPath)
 }
 
 func validatePath(fullPath, workDir string) error {
@@ -193,9 +224,16 @@ func validatePath(fullPath, workDir string) error {
 	// Compara o destino REAL (symlinks resolvidos) contra raízes também
 	// resolvidas — resolver só um lado quebraria em plataformas onde a raiz é
 	// symlink (ex.: macOS /var -> /private/var).
-	resolvedPath := resolveForComparison(absPath)
+	resolvedPath, err := resolveForComparison(absPath)
+	if err != nil {
+		return fmt.Errorf("não foi possível validar o destino real: %w", err)
+	}
 	for _, root := range allowedRoots {
-		if isWithinRoot(resolvedPath, resolveForComparison(root)) {
+		resolvedRoot, resolveErr := resolveForComparison(root)
+		if resolveErr != nil {
+			return fmt.Errorf("não foi possível validar a raiz permitida: %w", resolveErr)
+		}
+		if isWithinRoot(resolvedPath, resolvedRoot) {
 			return nil
 		}
 	}
@@ -243,7 +281,10 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 	// A política do skill precisa avaliar o mesmo destino REAL usado pelo
 	// sandbox. Sem isso, um symlink permitido dentro do workspace poderia
 	// apontar para fora e ainda casar a allowlist pelo nome literal do link.
-	absPath = resolveForComparison(absPath)
+	absPath, err = resolveForComparison(absPath)
+	if err != nil {
+		return fmt.Errorf("não foi possível validar o destino real para o skill: %w", err)
+	}
 
 	// Deny tem precedência.
 	if matchesAnyFilesystemPattern(absPath, workDir, ec.Filesystem.Deny) {

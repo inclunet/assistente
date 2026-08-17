@@ -2,9 +2,11 @@ package fstrust
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"assistente/internal/logging"
 	"assistente/internal/tools"
@@ -52,7 +54,10 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		return fmt.Errorf("path vazio não pode ser autorizado")
 	}
 
-	resolved := resolveSymlinks(requested)
+	resolved, err := resolveSymlinks(requested)
+	if err != nil {
+		return fmt.Errorf("não foi possível resolver o destino real de %s: %w", requested, err)
+	}
 
 	// 1) Allowlist existente (sempre no path resolvido).
 	if a.mgr != nil {
@@ -135,34 +140,63 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	return nil
 }
 
-// resolveSymlinks resolve symlinks do path inteiro. Se o path ainda não existe
-// (ex.: write_file criando arquivo novo), resolve o ancestral existente mais
-// próximo e reanexa o restante. Assim a autorização é persistida sempre pelo
-// destino real e continua casando depois que o arquivo passa a existir.
-func resolveSymlinks(absPath string) string {
-	resolved, err := filepath.EvalSymlinks(absPath)
-	if err == nil && resolved != "" {
-		return NormalizePath(resolved)
+// resolveSymlinks resolve cada componente com Lstat/Readlink, inclusive quando
+// o alvo do link ainda não existe. Isso mantém persistência e match no mesmo
+// destino real antes e depois da criação do arquivo.
+func resolveSymlinks(absPath string) (string, error) {
+	path, err := filepath.Abs(filepath.Clean(absPath))
+	if err != nil {
+		return "", err
 	}
 
-	dir := absPath
-	var tail []string
-	for {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return NormalizePath(absPath)
+	const maxSymlinks = 64
+	for followed := 0; followed < maxSymlinks; followed++ {
+		volume := filepath.VolumeName(path)
+		root := volume + string(filepath.Separator)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return "", err
 		}
-		if resolvedParent, parentErr := filepath.EvalSymlinks(parent); parentErr == nil && resolvedParent != "" {
-			tail = append(tail, filepath.Base(dir))
-			result := resolvedParent
-			for i := len(tail) - 1; i >= 0; i-- {
-				result = filepath.Join(result, tail[i])
+		if rel == "." {
+			return NormalizePath(root), nil
+		}
+
+		parts := strings.Split(rel, string(filepath.Separator))
+		current := root
+		restarted := false
+		for i, part := range parts {
+			if part == "" || part == "." {
+				continue
 			}
-			return NormalizePath(result)
+			candidate := filepath.Join(current, part)
+			info, statErr := os.Lstat(candidate)
+			if statErr != nil {
+				if errors.Is(statErr, os.ErrNotExist) {
+					return NormalizePath(filepath.Join(current, filepath.Join(parts[i:]...))), nil
+				}
+				return "", fmt.Errorf("não foi possível inspecionar %s: %w", candidate, statErr)
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				current = candidate
+				continue
+			}
+
+			target, readErr := os.Readlink(candidate)
+			if readErr != nil {
+				return "", fmt.Errorf("não foi possível resolver symlink %s: %w", candidate, readErr)
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(current, target)
+			}
+			path = filepath.Clean(filepath.Join(append([]string{target}, parts[i+1:]...)...))
+			restarted = true
+			break
 		}
-		tail = append(tail, filepath.Base(dir))
-		dir = parent
+		if !restarted {
+			return NormalizePath(current), nil
+		}
 	}
+	return "", fmt.Errorf("muitos níveis de symlink em %s", absPath)
 }
 
 // dirGrantRoot devolve o diretório a autorizar: o próprio path se já for
