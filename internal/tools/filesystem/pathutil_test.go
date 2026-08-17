@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -389,6 +390,44 @@ func TestValidatePathWithPolicy_DanglingSymlinkFailsClosed(t *testing.T) {
 
 	if err := validatePathWithPolicy(context.Background(), linkFile, workDir, ToolPolicy(), "read"); err == nil {
 		t.Error("symlink pendurado deveria falhar fechado (bloqueado) sob ToolPolicy")
+	}
+}
+
+// TestValidatePath_SymlinkEscapeBlocked garante que um symlink DENTRO do workDir
+// apontando para fora (workDir/link -> outsideDir) não burla o sandbox: o path
+// resolvido cai fora das raízes permitidas e, sem PathAuthorizer, é negado
+// (errOutsideAllowedDirs) em vez de ser lido direto pelo os.ReadFile (AEP-0092).
+func TestValidatePath_SymlinkEscapeBlocked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("x"), 0644)
+
+	link := filepath.Join(workDir, "link")
+	if err := os.Symlink(outsideDir, link); err != nil {
+		t.Fatalf("falha ao criar symlink: %v", err)
+	}
+
+	// Arquivo existente através do link → destino real fora do sandbox.
+	viaLink := filepath.Join(link, "secret.txt")
+	if err := validatePath(viaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+		t.Errorf("leitura via symlink para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
+	}
+
+	// Arquivo novo (inexistente) através do link → ancestral resolvido fora.
+	novoViaLink := filepath.Join(link, "novo.txt")
+	if err := validatePath(novoViaLink, workDir); !errors.Is(err, errOutsideAllowedDirs) {
+		t.Errorf("escrita via symlink para fora deveria cair em errOutsideAllowedDirs, obtido: %v", err)
+	}
+
+	// Regressão: arquivo real dentro do workDir continua permitido.
+	inside := filepath.Join(workDir, "inside.txt")
+	_ = os.WriteFile(inside, []byte("ok"), 0644)
+	if err := validatePath(inside, workDir); err != nil {
+		t.Errorf("arquivo real dentro do workDir deveria ser permitido: %v", err)
 	}
 }
 

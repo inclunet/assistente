@@ -132,6 +132,39 @@ func effectiveSandboxRoot(workDir string) (string, error) {
 	return abs, nil
 }
 
+// resolveForComparison resolve symlinks do path para comparação de sandbox.
+// Quando o path não existe (ex.: criação de arquivo novo), resolve o ancestral
+// existente mais próximo e reanexa o restante — assim um symlink em qualquer
+// componente do prefixo é considerado. Nunca falha: em erro, devolve o Clean.
+//
+// Necessário para fechar o escape do sandbox via link dentro da raiz apontando
+// para fora (ex.: workDir/link -> /etc): a comparação passa a olhar o destino
+// REAL, não o nome literal do link (AEP-0092).
+func resolveForComparison(absPath string) string {
+	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
+		return resolved
+	}
+	dir := absPath
+	var tail []string
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Chegou na raiz do volume sem ancestral resolvível.
+			return filepath.Clean(absPath)
+		}
+		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+			tail = append(tail, filepath.Base(dir))
+			result := resolved
+			for i := len(tail) - 1; i >= 0; i-- {
+				result = filepath.Join(result, tail[i])
+			}
+			return result
+		}
+		tail = append(tail, filepath.Base(dir))
+		dir = parent
+	}
+}
+
 func validatePath(fullPath, workDir string) error {
 	absPath, err := filepath.Abs(filepath.Clean(fullPath))
 	if err != nil {
@@ -151,8 +184,12 @@ func validatePath(fullPath, workDir string) error {
 		}
 	}
 
+	// Compara o destino REAL (symlinks resolvidos) contra raízes também
+	// resolvidas — resolver só um lado quebraria em plataformas onde a raiz é
+	// symlink (ex.: macOS /var -> /private/var).
+	resolvedPath := resolveForComparison(absPath)
 	for _, root := range allowedRoots {
-		if isWithinRoot(absPath, root) {
+		if isWithinRoot(resolvedPath, resolveForComparison(root)) {
 			return nil
 		}
 	}
