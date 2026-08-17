@@ -139,6 +139,9 @@ func TestAuthorizer_NoPrompter(t *testing.T) {
 	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
 		t.Fatalf("erro deveria linkar a tela de gestão: %v", err)
 	}
+	if strings.Contains(err.Error(), "diálogo de consentimento") {
+		t.Fatalf("sem prompter não deveria sugerir diálogo: %v", err)
+	}
 }
 
 func TestAuthorizer_DenyLinksManagementUI(t *testing.T) {
