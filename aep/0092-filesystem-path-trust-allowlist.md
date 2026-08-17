@@ -1,6 +1,6 @@
 # AEP-0092 — Autorização explícita e allowlist escopável para paths fora do sandbox
 
-**Status:** 🚧 In Progress — Fase 1 + 1b ✅; Fase 2 pendente
+**Status:** ✅ Done — Fase 1 + 1b + 2
 
 ## Resumo
 
@@ -43,9 +43,9 @@ deixa de ser bypass de segurança.
 | D-Q6 | Raiz sempre permitida = **workspace ativo** + `~/.assistente` (corrige cwd do boot). |
 | D-Q7 | A **raiz** de um walk (`grep`, `list`, `search`) passa pelo fluxo normal e pode pedir autorização; as **entradas percorridas** que escapam do sandbox são **puladas em silêncio**, nunca viram prompt. |
 
-**Fase 2 (não bloqueia Fase 1):** denylist explícita que pode restringir até
-dentro do workdir — “sempre permitido” deixa de ser absoluto quando houver
-deny. Ver D9.
+**Fase 2 (concluída):** denylist explícita que pode restringir até dentro do
+workdir — “sempre permitido” deixa de ser absoluto quando houver deny. Criação
+de deny é UI-only (D9); allow continua só via consentimento.
 
 ### D1. Hook único em `validatePathWithPolicy`
 
@@ -166,8 +166,9 @@ operação, motivo “fora do sandbox”) com sugestões e deep link
 
 ### D7. UI de gestão (Fase 1b / Fase 2 leve)
 
-Listar e remover entradas persistidas (workspace / profile / global). **Não**
-criar entradas pela tela — nascem só do consentimento (mesmo D7 do AEP-0082).
+Listar e remover entradas persistidas (workspace / profile / global). **Allow
+não** se cria pela tela — nasce só do consentimento (mesmo D7 do AEP-0082).
+**Deny** se cria pelo formulário da página (D9 / Fase 2).
 
 Pode ir no mesmo PR da Fase 1 se couber; senão PR empilhado imediatamente após.
 
@@ -179,20 +180,21 @@ comportamento sem bloquear na extração. Extração para `trustscope` fica como
 follow-up explícito (issue/AEP ou fase 1.5), sem mudar o formato em disco das
 allowlists de rede.
 
-### D9. Denylist dentro do workdir (Fase 2)
+### D9. Denylist dentro do workdir (Fase 2) — fechada
 
 Hoje as raízes são “sempre OK”. Demanda: em situações específicas, **proibir**
 operações mesmo no workdir / `~/.assistente`.
 
 Fase 2:
 
-- entradas `Deny` com a mesma forma (`Path`/`Kind`/`Operation`/`Scope`);
+- entradas `Deny` com a mesma forma (`Path`/`Kind`/`Operation`/`Scope`/`Effect`);
 - ordem: **deny** (qualquer escopo) → raízes / allow trust → prompt;
 - trust **nunca** anula deny;
-- UI lista/remove denies (criação só via consentimento “Negar e lembrar” ou
-  fluxo dedicado — a decidir na Fase 2).
-
-Fora do escopo da Fase 1.
+- **Criação de deny é só pela UI de gestão** (`PathAllowlistPage` →
+  `AddPathDenyEntry`). Não há ação “Negar e lembrar” no DecisionDialog
+  (AEP-0091); o diálogo de consentimento continua só com escopos de *allow*
+  + Negar pontual. A página lista/remove allows e denies; o formulário cria
+  **apenas** deny (allow continua nascendo só do consentimento, D7).
 
 ## Segurança
 
@@ -224,9 +226,9 @@ Fora do escopo da Fase 1.
 
 ### Fase 2 — denylist no workdir
 
-- [ ] Modelo Deny + precedência
-- [ ] UI e limpeza de sessão
-- [ ] Critérios de aceite próprios
+- [x] Modelo Deny + precedência
+- [x] UI e limpeza de sessão
+- [x] Critérios de aceite próprios
 
 ## Riscos
 

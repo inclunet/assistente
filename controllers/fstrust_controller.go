@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"assistente/internal/apidto"
 	"assistente/internal/fstrust"
@@ -61,6 +62,7 @@ func (c *FSTrustController) GetPathAllowlist(ctx context.Context) []apidto.PathA
 			Path:      e.Path,
 			Kind:      string(e.Kind),
 			Operation: e.Operation,
+			Effect:    string(fstrust.NormalizedEffect(e.Effect)),
 			Scope:     string(e.Scope),
 			CreatedBy: e.CreatedBy,
 			CreatedAt: e.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -70,11 +72,42 @@ func (c *FSTrustController) GetPathAllowlist(ctx context.Context) []apidto.PathA
 	return views
 }
 
-// RemovePathAllowlistEntry remove uma entrada persistida por (scope, path, kind, operation).
+// AddPathDenyEntry cria uma proibição persistente (EffectDeny). Allow continua
+// nascendo só do consentimento — a UI de gestão não cria allow (AEP-0092 D9).
+func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, operation, scope, reason string) error {
+	if c.fsTrustMgr == nil {
+		return fmt.Errorf("gerenciador de allowlist de path não inicializado")
+	}
+	s := fstrust.Scope(scope)
+	if !s.IsPersistent() {
+		return fmt.Errorf("escopo inválido para denylist: %q (use workspace, profile ou global)", scope)
+	}
+	k := fstrust.Kind(kind)
+	if !fstrust.ValidKind(k) {
+		return fmt.Errorf("kind inválido: %q (use file ou dir)", kind)
+	}
+	if strings.TrimSpace(operation) == "" {
+		return fmt.Errorf("operation vazia")
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("path vazio")
+	}
+	return c.fsTrustMgr.Add(c.managementContext(ctx), fstrust.AllowlistEntry{
+		Path:      path,
+		Kind:      k,
+		Operation: operation,
+		Effect:    fstrust.EffectDeny,
+		Scope:     s,
+		CreatedBy: "user",
+		Reason:    reason,
+	})
+}
+
+// RemovePathAllowlistEntry remove uma entrada persistida por (scope, path, kind, operation, effect).
 // Aceita apenas escopos PERSISTIDOS (workspace/profile/global): once nunca é
 // persistido e session vive em memória por conversa, sem relação com esta API de
 // gestão — passar esses valores retorna erro de escopo inválido direto.
-func (c *FSTrustController) RemovePathAllowlistEntry(ctx context.Context, scope, path, kind, operation string) error {
+func (c *FSTrustController) RemovePathAllowlistEntry(ctx context.Context, scope, path, kind, operation, effect string) error {
 	if c.fsTrustMgr == nil {
 		return fmt.Errorf("gerenciador de allowlist de path não inicializado")
 	}
@@ -86,5 +119,9 @@ func (c *FSTrustController) RemovePathAllowlistEntry(ctx context.Context, scope,
 	if !fstrust.ValidKind(k) {
 		return fmt.Errorf("kind inválido para remoção: %q (use file ou dir)", kind)
 	}
-	return c.fsTrustMgr.Remove(c.managementContext(ctx), s, path, k, operation)
+	eff := fstrust.Effect(effect)
+	if !fstrust.ValidEffect(eff) {
+		return fmt.Errorf("effect inválido para remoção: %q (use allow ou deny)", effect)
+	}
+	return c.fsTrustMgr.Remove(c.managementContext(ctx), s, path, k, operation, fstrust.NormalizedEffect(eff))
 }

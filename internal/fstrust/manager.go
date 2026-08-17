@@ -99,9 +99,20 @@ func (m *Manager) ClearSession(conversationID string) {
 	m.mu.Unlock()
 }
 
-// Match procura uma autorização para absPath+operation em todos os escopos, na
-// ordem sessão → perfil → workspace → global.
+// Match procura uma autorização (EffectAllow) para absPath+operation em todos
+// os escopos, na ordem sessão → perfil → workspace → global.
+// Entradas Deny são ignoradas aqui — use MatchDeny (precedência).
 func (m *Manager) Match(ctx context.Context, absPath, operation string) Decision {
+	return m.matchEffect(ctx, absPath, operation, EffectAllow)
+}
+
+// MatchDeny procura uma proibição (EffectDeny) para absPath+operation na mesma
+// ordem de escopos. Trust allow nunca anula um deny (AEP-0092 D9).
+func (m *Manager) MatchDeny(ctx context.Context, absPath, operation string) Decision {
+	return m.matchEffect(ctx, absPath, operation, EffectDeny)
+}
+
+func (m *Manager) matchEffect(ctx context.Context, absPath, operation string, effect Effect) Decision {
 	absPath = NormalizePath(absPath)
 	convID, profileSlug := m.identity(ctx)
 
@@ -115,25 +126,25 @@ func (m *Manager) Match(ctx context.Context, absPath, operation string) Decision
 	globalPath := m.globalPath()
 	m.mu.RUnlock()
 
-	if e := firstMatch(sessionEntries, absPath, operation); e != nil {
-		return Decision{Allowed: true, Scope: ScopeSession, Entry: e}
+	if e := firstMatch(sessionEntries, absPath, operation, effect); e != nil {
+		return Decision{Allowed: effect == EffectAllow, Scope: ScopeSession, Entry: e}
 	}
 
 	m.fileMu.RLock()
 	defer m.fileMu.RUnlock()
 
 	if profilePath != "" {
-		if e := firstMatch(m.loadFileOrEmpty(ctx, profilePath), absPath, operation); e != nil {
-			return Decision{Allowed: true, Scope: ScopeProfile, Entry: e}
+		if e := firstMatch(m.loadFileOrEmpty(ctx, profilePath), absPath, operation, effect); e != nil {
+			return Decision{Allowed: effect == EffectAllow, Scope: ScopeProfile, Entry: e}
 		}
 	}
 
-	if e := firstMatch(m.loadFileOrEmpty(ctx, workspacePath), absPath, operation); e != nil {
-		return Decision{Allowed: true, Scope: ScopeWorkspace, Entry: e}
+	if e := firstMatch(m.loadFileOrEmpty(ctx, workspacePath), absPath, operation, effect); e != nil {
+		return Decision{Allowed: effect == EffectAllow, Scope: ScopeWorkspace, Entry: e}
 	}
 
-	if e := firstMatch(m.loadFileOrEmpty(ctx, globalPath), absPath, operation); e != nil {
-		return Decision{Allowed: true, Scope: ScopeGlobal, Entry: e}
+	if e := firstMatch(m.loadFileOrEmpty(ctx, globalPath), absPath, operation, effect); e != nil {
+		return Decision{Allowed: effect == EffectAllow, Scope: ScopeGlobal, Entry: e}
 	}
 
 	return Decision{Allowed: false}
@@ -154,6 +165,10 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 	if !ValidScope(entry.Scope) {
 		return fmt.Errorf("escopo inválido: %q", entry.Scope)
 	}
+	if !ValidEffect(entry.Effect) {
+		return fmt.Errorf("effect inválido: %q", entry.Effect)
+	}
+	entry.Effect = NormalizedEffect(entry.Effect)
 	if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = time.Now().UTC()
 	}
@@ -225,9 +240,10 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 	return out
 }
 
-// Remove apaga a primeira entrada que casar path+kind+operation no escopo.
-func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kind, operation string) error {
+// Remove apaga a primeira entrada que casar path+kind+operation+effect no escopo.
+func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kind, operation string, effect Effect) error {
 	path = NormalizePath(path)
+	effect = NormalizedEffect(effect)
 
 	convID, profileSlug := m.identity(ctx)
 
@@ -238,7 +254,7 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kin
 		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		entries, removed := removeMatch(m.session[convID], path, kind, operation)
+		entries, removed := removeMatch(m.session[convID], path, kind, operation, effect)
 		if !removed {
 			return ErrEntryNotFound
 		}
@@ -250,7 +266,7 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kin
 		m.mu.RUnlock()
 		m.fileMu.Lock()
 		defer m.fileMu.Unlock()
-		return m.removeFromFile(storePath, path, kind, operation)
+		return m.removeFromFile(storePath, path, kind, operation, effect)
 	case ScopeProfile:
 		if profileSlug == "" {
 			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
@@ -260,14 +276,14 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kin
 		m.mu.RUnlock()
 		m.fileMu.Lock()
 		defer m.fileMu.Unlock()
-		return m.removeFromFile(storePath, path, kind, operation)
+		return m.removeFromFile(storePath, path, kind, operation, effect)
 	case ScopeGlobal:
 		m.mu.RLock()
 		storePath := m.globalPath()
 		m.mu.RUnlock()
 		m.fileMu.Lock()
 		defer m.fileMu.Unlock()
-		return m.removeFromFile(storePath, path, kind, operation)
+		return m.removeFromFile(storePath, path, kind, operation, effect)
 	default:
 		return fmt.Errorf("escopo não removível: %q", scope)
 	}
@@ -335,7 +351,7 @@ func (m *Manager) addToFile(path string, entry AllowlistEntry) error {
 	return m.saveFile(path, upsert(existing, entry))
 }
 
-func (m *Manager) removeFromFile(path string, entryPath string, kind Kind, operation string) error {
+func (m *Manager) removeFromFile(path string, entryPath string, kind Kind, operation string, effect Effect) error {
 	if path == "" {
 		return fmt.Errorf("caminho de allowlist indisponível")
 	}
@@ -343,7 +359,7 @@ func (m *Manager) removeFromFile(path string, entryPath string, kind Kind, opera
 	if err != nil {
 		return fmt.Errorf("não foi possível ler a allowlist antes de remover: %w", err)
 	}
-	entries, removed := removeMatch(existing, entryPath, kind, operation)
+	entries, removed := removeMatch(existing, entryPath, kind, operation, effect)
 	if !removed {
 		return ErrEntryNotFound
 	}
@@ -395,8 +411,12 @@ func replaceFile(tmpName, path string) error {
 
 // ---- helpers ----
 
-func firstMatch(entries []AllowlistEntry, absPath, operation string) *AllowlistEntry {
+func firstMatch(entries []AllowlistEntry, absPath, operation string, effect Effect) *AllowlistEntry {
+	want := NormalizedEffect(effect)
 	for i := range entries {
+		if NormalizedEffect(entries[i].Effect) != want {
+			continue
+		}
 		if entries[i].Matches(absPath, operation) {
 			e := entries[i]
 			return &e
@@ -405,13 +425,17 @@ func firstMatch(entries []AllowlistEntry, absPath, operation string) *AllowlistE
 	return nil
 }
 
-// upsert substitui uma entrada com mesmo Path+Kind+Operation (normalizado) ou anexa.
+// upsert substitui uma entrada com mesmo Path+Kind+Operation+Effect ou anexa.
+// Allow e deny do mesmo path podem coexistir: MatchDeny tem precedência e o
+// consentimento (allow) nunca apaga um deny criado pela UI (AEP-0092 D9).
 func upsert(entries []AllowlistEntry, entry AllowlistEntry) []AllowlistEntry {
 	keyPath := NormalizePath(entry.Path)
+	keyEffect := NormalizedEffect(entry.Effect)
 	for i := range entries {
 		if NormalizePath(entries[i].Path) == keyPath &&
 			entries[i].Kind == entry.Kind &&
-			entries[i].Operation == entry.Operation {
+			entries[i].Operation == entry.Operation &&
+			NormalizedEffect(entries[i].Effect) == keyEffect {
 			entries[i] = entry
 			return entries
 		}
@@ -419,12 +443,13 @@ func upsert(entries []AllowlistEntry, entry AllowlistEntry) []AllowlistEntry {
 	return append(entries, entry)
 }
 
-func removeMatch(entries []AllowlistEntry, path string, kind Kind, operation string) ([]AllowlistEntry, bool) {
+func removeMatch(entries []AllowlistEntry, path string, kind Kind, operation string, effect Effect) ([]AllowlistEntry, bool) {
 	keyPath := NormalizePath(path)
+	keyEffect := NormalizedEffect(effect)
 	out := make([]AllowlistEntry, 0, len(entries))
 	removed := false
 	for _, e := range entries {
-		if !removed && NormalizePath(e.Path) == keyPath && e.Kind == kind && e.Operation == operation {
+		if !removed && NormalizePath(e.Path) == keyPath && e.Kind == kind && e.Operation == operation && NormalizedEffect(e.Effect) == keyEffect {
 			removed = true
 			continue
 		}

@@ -18,10 +18,14 @@ import (
 // PathAuthorizer (AEP-0092).
 var errOutsideAllowedDirs = errors.New("caminho fora dos diretórios permitidos")
 
-// PathAuthorizer autoriza paths fora do sandbox (allowlist escopável + DecisionDialog).
+// PathAuthorizer autoriza paths fora do sandbox (allowlist escopável + DecisionDialog)
+// e avalia denylist também dentro das raízes (AEP-0092 Fase 2).
 // Implementado por internal/fstrust.Authorizer; nil = deny seco (testes / bootstrap).
 type PathAuthorizer interface {
 	Authorize(ctx context.Context, absPath, operation string) error
+	// Denied devolve erro quando uma entrada EffectDeny casa o path+operação.
+	// nil = não há deny. Chamado antes da validação de sandbox.
+	Denied(ctx context.Context, absPath, operation string) error
 }
 
 var (
@@ -271,6 +275,13 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 	// para arquivo sensível — inclusive quando o link mora dentro do workDir.
 	if policy.BlockSensitive {
 		if err := blockSensitiveForOperation(fullPath, operation); err != nil {
+			return err
+		}
+	}
+	// Denylist do fstrust aplica também DENTRO do sandbox (AEP-0092 D9):
+	// allow trust nunca anula deny; order = deny → raízes → allow → prompt.
+	if pathAuthorizer != nil {
+		if err := pathAuthorizer.Denied(ctx, fullPath, operation); err != nil {
 			return err
 		}
 	}

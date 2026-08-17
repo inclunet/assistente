@@ -59,6 +59,11 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		return fmt.Errorf("não foi possível resolver o destino real de %s: %w", requested, err)
 	}
 
+	// 0) Denylist tem precedência absoluta (mesmo fora do sandbox).
+	if err := a.Denied(ctx, resolved, operation); err != nil {
+		return err
+	}
+
 	// 1) Allowlist existente (sempre no path resolvido).
 	if a.mgr != nil {
 		if decision := a.mgr.Match(ctx, resolved, operation); decision.Allowed {
@@ -115,6 +120,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 			Path:      entryPath,
 			Kind:      kind,
 			Operation: operation,
+			Effect:    EffectAllow,
 			Scope:     scope,
 			CreatedBy: creatorFor(skillSlug),
 		}
@@ -129,6 +135,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 			Path:      entryPath,
 			Kind:      kind,
 			Operation: operation,
+			Effect:    EffectAllow,
 			Scope:     ScopeOnce,
 			CreatedBy: creatorFor(skillSlug),
 		})
@@ -138,6 +145,32 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		"[FsTrust] autorização concedida: path=%s kind=%s op=%s escopo=%s",
 		entryPath, kind, operation, scope)
 	return nil
+}
+
+// Denied reporta se absPath+operation está em alguma denylist (qualquer escopo).
+// Usado também dentro do sandbox: deny não depende de estar fora das raízes.
+func (a *Authorizer) Denied(ctx context.Context, absPath, operation string) error {
+	if a == nil || a.mgr == nil {
+		return nil
+	}
+	requested := NormalizePath(absPath)
+	if requested == "" {
+		return nil
+	}
+	resolved, err := resolveSymlinks(requested)
+	if err != nil {
+		// Falha fechado: sem destino real confiável, não dá para garantir que
+		// não há deny apontando para o alvo — bloqueia.
+		return newDeniedPathError(requested, operation, "não foi possível resolver o destino real para avaliar denylist")
+	}
+	decision := a.mgr.MatchDeny(ctx, resolved, operation)
+	if decision.Entry == nil {
+		return nil
+	}
+	logging.Infof(ctx, "fstrust.authorizer",
+		"[FsTrust] bloqueado por denylist: path=%s op=%s escopo=%s",
+		resolved, operation, decision.Scope)
+	return newDeniedPathError(requested, operation, fmt.Sprintf("bloqueado pela denylist (escopo %s)", decision.Scope))
 }
 
 // resolveSymlinks resolve cada componente com Lstat/Readlink, inclusive quando

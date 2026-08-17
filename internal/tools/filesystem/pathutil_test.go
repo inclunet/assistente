@@ -3,9 +3,11 @@ package filesystem
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"assistente/internal/tools"
@@ -333,8 +335,9 @@ func TestValidatePathWithPolicy_OpenEditorPaths_NoLongerBypass(t *testing.T) {
 }
 
 type stubPathAuthorizer struct {
-	allow bool
-	err   error
+	allow   bool
+	err     error
+	denyErr error
 }
 
 func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation string) error {
@@ -345,6 +348,32 @@ func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation st
 		return nil
 	}
 	return errOutsideAllowedDirs
+}
+
+func (s stubPathAuthorizer) Denied(ctx context.Context, absPath, operation string) error {
+	return s.denyErr
+}
+
+func TestValidatePathWithPolicy_DenyInsideSandbox(t *testing.T) {
+	workDir := t.TempDir()
+	inside := filepath.Join(workDir, "bloqueado.txt")
+	if err := os.WriteFile(inside, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	pathAuthorizer = stubPathAuthorizer{
+		denyErr: fmt.Errorf("bloqueado pela denylist (escopo global)"),
+	}
+
+	err := validatePathWithPolicy(context.Background(), inside, workDir, ToolPolicy(), "read")
+	if err == nil {
+		t.Fatal("deny dentro do sandbox deveria bloquear")
+	}
+	if !strings.Contains(err.Error(), "denylist") {
+		t.Fatalf("mensagem inesperada: %v", err)
+	}
 }
 
 func TestValidatePathWithPolicy_PathAuthorizerAllowsOutside(t *testing.T) {

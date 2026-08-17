@@ -64,7 +64,37 @@ func ValidKind(k Kind) bool {
 	}
 }
 
-// AllowlistEntry é uma autorização de filesystem para um path + operação.
+// Effect distingue autorização (allow) de proibição persistente (deny).
+// Deny aplica mesmo dentro do workspace / ~/.assistente e nunca é anulado
+// por allow (AEP-0092 D9 / Fase 2).
+type Effect string
+
+const (
+	// EffectAllow libera o path+operação (padrão; JSON vazio legado = allow).
+	EffectAllow Effect = "allow"
+	// EffectDeny bloqueia o path+operação sem prompt.
+	EffectDeny Effect = "deny"
+)
+
+// ValidEffect reporta se e é um efeito conhecido (vazio conta como allow).
+func ValidEffect(e Effect) bool {
+	switch e {
+	case "", EffectAllow, EffectDeny:
+		return true
+	default:
+		return false
+	}
+}
+
+// NormalizedEffect devolve EffectAllow quando e está vazio (legado).
+func NormalizedEffect(e Effect) Effect {
+	if e == "" {
+		return EffectAllow
+	}
+	return e
+}
+
+// AllowlistEntry é uma autorização ou proibição de filesystem para um path + operação.
 type AllowlistEntry struct {
 	// Path é o caminho absoluto normalizado. Para KindDir é a raiz do diretório
 	// (sem sufixo /**); o match usa isWithinRoot.
@@ -73,6 +103,8 @@ type AllowlistEntry struct {
 	Kind Kind `json:"kind"`
 	// Operation é a operação exata (read, write, edit, list, ...).
 	Operation string `json:"operation"`
+	// Effect é "allow" (padrão) ou "deny". Vazio no JSON legado = allow.
+	Effect Effect `json:"effect,omitempty"`
 	// Scope é o alcance desta entrada. Entradas persistidas nunca têm ScopeOnce.
 	Scope Scope `json:"scope"`
 	// CreatedBy identifica a origem da autorização (ex.: "user", ou o skill slug).

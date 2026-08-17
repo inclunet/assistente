@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { GetPathAllowlist, RemovePathAllowlistEntry } from '@wailsjs/go/wailsapi/FSTrust';
+import {
+  AddPathDenyEntry,
+  GetPathAllowlist,
+  RemovePathAllowlistEntry,
+} from '@wailsjs/go/wailsapi/FSTrust';
 
 import { logger } from '../utils/logger';
 import { useUIStore } from '../store/uiStore';
@@ -13,6 +17,9 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { PageLoading } from '../components/ui/PageLoading';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import './PathAllowlistPage.css';
 
 interface PathAllowlistRow {
@@ -20,6 +27,7 @@ interface PathAllowlistRow {
   path: string;
   kind: string;
   operation: string;
+  effect: string;
   scope: string;
   createdBy: string;
   createdAt: string;
@@ -27,8 +35,26 @@ interface PathAllowlistRow {
   [key: string]: unknown;
 }
 
+interface DenyFormState {
+  path: string;
+  kind: string;
+  operation: string;
+  scope: string;
+  reason: string;
+}
+
+const EMPTY_DENY_FORM: DenyFormState = {
+  path: '',
+  kind: 'file',
+  operation: '',
+  scope: 'workspace',
+  reason: '',
+};
+
 const KNOWN_SCOPES = new Set(['session', 'workspace', 'profile', 'global']);
 const KNOWN_KINDS = new Set(['file', 'dir']);
+const KNOWN_EFFECTS = new Set(['allow', 'deny']);
+const PERSISTENT_SCOPES = ['workspace', 'profile', 'global'] as const;
 
 /** Data no idioma de quem lê; o que não for data válida aparece como veio. */
 function formatCreatedAt(value: string, language: string): string {
@@ -51,6 +77,10 @@ export default function PathAllowlistPage() {
   const [rows, setRows] = useState<PathAllowlistRow[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [focused, setFocused] = useState<PathAllowlistRow | null>(null);
+  const [denyForm, setDenyForm] = useState<DenyFormState>(EMPTY_DENY_FORM);
+  const [pathError, setPathError] = useState<string | undefined>();
+  const [operationError, setOperationError] = useState<string | undefined>();
+  const [submitting, setSubmitting] = useState(false);
 
   const scopeName = useCallback(
     (scope: string) =>
@@ -66,21 +96,31 @@ export default function PathAllowlistPage() {
     [t],
   );
 
+  const effectName = useCallback(
+    (effect: string) =>
+      KNOWN_EFFECTS.has(effect)
+        ? t(`pathAllowlist.effect.${effect}`)
+        : t('pathAllowlist.effect.unknown'),
+    [t],
+  );
+
   const mapEntries = useCallback(
     (entries: Array<{
       path: string;
       kind: string;
       operation: string;
+      effect: string;
       scope: string;
       createdBy?: string;
       createdAt: string;
       reason?: string;
     }>) =>
       entries.map((entry) => ({
-        id: `${entry.scope}:${entry.kind}:${entry.operation}:${entry.path}`,
+        id: `${entry.scope}:${entry.effect}:${entry.kind}:${entry.operation}:${entry.path}`,
         path: entry.path,
         kind: entry.kind,
         operation: entry.operation,
+        effect: entry.effect,
         scope: entry.scope,
         createdBy: entry.createdBy ?? '',
         createdAt: entry.createdAt,
@@ -127,7 +167,7 @@ export default function PathAllowlistPage() {
       }
 
       try {
-        await RemovePathAllowlistEntry(row.scope, row.path, row.kind, row.operation);
+        await RemovePathAllowlistEntry(row.scope, row.path, row.kind, row.operation, row.effect);
         // Remoção já valeu no backend: tira a linha localmente antes de
         // sincronizar. Se a sincronização falhar, a grade otimista permanece
         // (não cair em loadFailedBody, que contradiria o toast de sucesso).
@@ -152,6 +192,62 @@ export default function PathAllowlistPage() {
     [addToast, announce, mapEntries, requestConfirm, scopeName, t],
   );
 
+  const submitDeny = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const path = denyForm.path.trim();
+      const operation = denyForm.operation.trim();
+      let hasError = false;
+      if (!path) {
+        setPathError(t('pathAllowlist.form.pathRequired'));
+        hasError = true;
+      } else {
+        setPathError(undefined);
+      }
+      if (!operation) {
+        setOperationError(t('pathAllowlist.form.operationRequired'));
+        hasError = true;
+      } else {
+        setOperationError(undefined);
+      }
+      if (hasError) {
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        await AddPathDenyEntry(
+          path,
+          denyForm.kind,
+          operation,
+          denyForm.scope,
+          denyForm.reason.trim(),
+        );
+        setDenyForm(EMPTY_DENY_FORM);
+        setPathError(undefined);
+        setOperationError(undefined);
+        addToast(t('pathAllowlist.toast.denyAdded'), 'success', undefined, undefined, {
+          suppressAnnounce: true,
+        });
+        announce(t('pathAllowlist.announce.denyAdded', { path }));
+        try {
+          const entries = (await GetPathAllowlist()) ?? [];
+          setLoadFailed(false);
+          setRows(mapEntries(entries));
+        } catch (error) {
+          logger.error('Erro ao sincronizar allowlist de path após deny:', error);
+          addToast(t('pathAllowlist.error.loadFailed'), 'warning');
+        }
+      } catch (error) {
+        logger.error('Erro ao adicionar denylist de path:', error);
+        addToast(t('pathAllowlist.error.addFailed'), 'error');
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [addToast, announce, denyForm, mapEntries, t],
+  );
+
   const rowActions = useCallback(
     (row: PathAllowlistRow) => [
       {
@@ -167,6 +263,12 @@ export default function PathAllowlistPage() {
 
   const columns: DataGridColumn<PathAllowlistRow>[] = [
     { key: 'path', label: t('pathAllowlist.columns.path'), width: '280px', truncate: true },
+    {
+      key: 'effect',
+      label: t('pathAllowlist.columns.effect'),
+      width: '110px',
+      format: (_value, row) => effectName(row.effect),
+    },
     {
       key: 'kind',
       label: t('pathAllowlist.columns.kind'),
@@ -203,6 +305,16 @@ export default function PathAllowlistPage() {
     (row: PathAllowlistRow | null) => setFocused(row),
     [],
   );
+
+  const kindOptions = [
+    { value: 'file', label: t('pathAllowlist.kind.file') },
+    { value: 'dir', label: t('pathAllowlist.kind.dir') },
+  ];
+
+  const scopeOptions = PERSISTENT_SCOPES.map((scope) => ({
+    value: scope,
+    label: t(`pathAllowlist.scope.${scope}`),
+  }));
 
   const toolbarActions = [
     {
@@ -244,6 +356,73 @@ export default function PathAllowlistPage() {
       <div className="path-allowlist-page__content">
         <p className="path-allowlist-page__description">{t('pathAllowlist.description')}</p>
         <p className="path-allowlist-page__note">{t('pathAllowlist.sessionNote')}</p>
+
+        <form className="path-allowlist-page__form" onSubmit={(event) => void submitDeny(event)}>
+          <h2 className="path-allowlist-page__form-title">{t('pathAllowlist.form.title')}</h2>
+          <div className="path-allowlist-page__form-grid">
+            <Input
+              id="path-deny-path"
+              label={t('pathAllowlist.form.path')}
+              value={denyForm.path}
+              onChange={(event) => {
+                setDenyForm((current) => ({ ...current, path: event.target.value }));
+                if (pathError) setPathError(undefined);
+              }}
+              error={pathError}
+              fullWidth
+              required
+            />
+            <Select
+              id="path-deny-kind"
+              label={t('pathAllowlist.form.kind')}
+              value={denyForm.kind}
+              options={kindOptions}
+              onChange={(event) =>
+                setDenyForm((current) => ({ ...current, kind: event.target.value }))
+              }
+              fullWidth
+              required
+            />
+            <Input
+              id="path-deny-operation"
+              label={t('pathAllowlist.form.operation')}
+              value={denyForm.operation}
+              onChange={(event) => {
+                setDenyForm((current) => ({ ...current, operation: event.target.value }));
+                if (operationError) setOperationError(undefined);
+              }}
+              error={operationError}
+              fullWidth
+              required
+            />
+            <Select
+              id="path-deny-scope"
+              label={t('pathAllowlist.form.scope')}
+              value={denyForm.scope}
+              options={scopeOptions}
+              onChange={(event) =>
+                setDenyForm((current) => ({ ...current, scope: event.target.value }))
+              }
+              fullWidth
+              required
+            />
+            <Input
+              id="path-deny-reason"
+              label={t('pathAllowlist.form.reason')}
+              value={denyForm.reason}
+              onChange={(event) =>
+                setDenyForm((current) => ({ ...current, reason: event.target.value }))
+              }
+              fullWidth
+            />
+          </div>
+          <div className="path-allowlist-page__form-actions">
+            <Button type="submit" variant="primary" loading={submitting}>
+              {t('pathAllowlist.form.submit')}
+            </Button>
+          </div>
+        </form>
+
         {loadFailed ? (
           // Cair no texto de lista vazia depois de uma falha diria que nenhum
           // path está autorizado. Os que existirem continuam valendo.
