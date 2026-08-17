@@ -240,6 +240,10 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 	if err != nil {
 		return fmt.Errorf("caminho inválido: %v", err)
 	}
+	// A política do skill precisa avaliar o mesmo destino REAL usado pelo
+	// sandbox. Sem isso, um symlink permitido dentro do workspace poderia
+	// apontar para fora e ainda casar a allowlist pelo nome literal do link.
+	absPath = resolveForComparison(absPath)
 
 	// Deny tem precedência.
 	if matchesAnyFilesystemPattern(absPath, workDir, ec.Filesystem.Deny) {
