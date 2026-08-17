@@ -783,13 +783,17 @@ const es = {
       confirm: {
         title: 'Eliminar autorización de path',
         message: '¿Eliminar la autorización de {{path}} ({{scope}})? El asistente volverá a pedir consentimiento para ese path y operación.',
+        denyTitle: 'Eliminar prohibición de path',
+        denyMessage: '¿Eliminar la prohibición de {{path}} ({{scope}})? El asistente volverá a permitir ese path y operación según las demás reglas.',
       },
       toast: {
         removed: 'Autorización de path eliminada',
+        denyRemoved: 'Prohibición de path eliminada',
         denyAdded: 'Prohibición de path agregada',
       },
       announce: {
         removed: 'Autorización de path eliminada: {{path}} ({{scope}}).',
+        denyRemoved: 'Prohibición de path eliminada: {{path}} ({{scope}}).',
         denyAdded: 'Prohibición de path agregada: {{path}}.',
       },
       error: {

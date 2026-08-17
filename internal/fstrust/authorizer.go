@@ -59,8 +59,9 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		return fmt.Errorf("não foi possível resolver o destino real de %s: %w", requested, err)
 	}
 
-	// 0) Denylist tem precedência absoluta (mesmo fora do sandbox).
-	if err := a.Denied(ctx, resolved, operation); err != nil {
+	// 0) Denylist tem precedência absoluta (mesmo fora do sandbox). Usa o path
+	// já resolvido acima para não repetir resolveSymlinks (I/O por componente).
+	if err := a.deniedResolved(ctx, requested, resolved, operation); err != nil {
 		return err
 	}
 
@@ -162,6 +163,15 @@ func (a *Authorizer) Denied(ctx context.Context, absPath, operation string) erro
 		// Falha fechado: sem destino real confiável, não dá para garantir que
 		// não há deny apontando para o alvo — bloqueia.
 		return newDeniedPathError(requested, operation, "não foi possível resolver o destino real para avaliar denylist")
+	}
+	return a.deniedResolved(ctx, requested, resolved, operation)
+}
+
+// deniedResolved avalia a denylist com o destino real já resolvido, evitando
+// um resolveSymlinks redundante quando o chamador (ex.: Authorize) já resolveu.
+func (a *Authorizer) deniedResolved(ctx context.Context, requested, resolved, operation string) error {
+	if a == nil || a.mgr == nil {
+		return nil
 	}
 	decision := a.mgr.MatchDeny(ctx, resolved, operation)
 	if decision.Entry == nil {

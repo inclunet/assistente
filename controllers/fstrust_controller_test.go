@@ -69,6 +69,33 @@ func TestFSTrustAddPathDenyEntry(t *testing.T) {
 	}
 }
 
+func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+	path := filepath.Join(dir, "bloqueado.txt")
+
+	if err := c.AddPathDenyEntry(context.Background(), "  "+path+"  ", "file", "  read  ", "global", "  motivo  "); err != nil {
+		t.Fatalf("AddPathDenyEntry: %v", err)
+	}
+
+	views := c.GetPathAllowlist(context.Background())
+	if len(views) != 1 {
+		t.Fatalf("want 1 entrada, got %d", len(views))
+	}
+	v := views[0]
+	if v.Path != strings.TrimSpace(v.Path) || fstrust.NormalizePath(v.Path) != fstrust.NormalizePath(path) {
+		t.Fatalf("path não normalizado: %q", v.Path)
+	}
+	if v.Operation != "read" {
+		t.Fatalf("operation não normalizada: %q", v.Operation)
+	}
+	if v.Reason != "motivo" {
+		t.Fatalf("reason não normalizado: %q", v.Reason)
+	}
+}
+
 func TestFSTrustGetPathAllowlistMapsEntry(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

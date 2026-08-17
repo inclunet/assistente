@@ -784,13 +784,17 @@ const en = {
       confirm: {
         title: 'Remove path authorization',
         message: 'Remove the authorization for {{path}} ({{scope}})? The assistant will ask for consent again for that path and operation.',
+        denyTitle: 'Remove path denial',
+        denyMessage: 'Remove the denial for {{path}} ({{scope}})? The assistant will allow that path and operation again according to the other rules.',
       },
       toast: {
         removed: 'Path authorization removed',
+        denyRemoved: 'Path denial removed',
         denyAdded: 'Path denial added',
       },
       announce: {
         removed: 'Path authorization removed: {{path}} ({{scope}}).',
+        denyRemoved: 'Path denial removed: {{path}} ({{scope}}).',
         denyAdded: 'Path denial added: {{path}}.',
       },
       error: {

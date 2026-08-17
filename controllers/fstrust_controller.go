@@ -86,10 +86,15 @@ func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, op
 	if !fstrust.ValidKind(k) {
 		return fmt.Errorf("kind inválido: %q (use file ou dir)", kind)
 	}
-	if strings.TrimSpace(operation) == "" {
+	// Normaliza antes de persistir: gravar com espaços nas bordas geraria
+	// entradas que não casam como o usuário espera e ficam difíceis de remover.
+	path = strings.TrimSpace(path)
+	operation = strings.TrimSpace(operation)
+	reason = strings.TrimSpace(reason)
+	if operation == "" {
 		return fmt.Errorf("operation vazia")
 	}
-	if strings.TrimSpace(path) == "" {
+	if path == "" {
 		return fmt.Errorf("path vazio")
 	}
 	return c.fsTrustMgr.Add(c.managementContext(ctx), fstrust.AllowlistEntry{

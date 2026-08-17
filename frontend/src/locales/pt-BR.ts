@@ -784,13 +784,17 @@ const ptBR = {
       confirm: {
         title: 'Remover autorização de path',
         message: 'Remover a autorização de {{path}} ({{scope}})? O assistente volta a pedir consentimento para esse path e operação.',
+        denyTitle: 'Remover proibição de path',
+        denyMessage: 'Remover a proibição de {{path}} ({{scope}})? O assistente volta a permitir esse path e operação conforme as demais regras.',
       },
       toast: {
         removed: 'Autorização de path removida',
+        denyRemoved: 'Proibição de path removida',
         denyAdded: 'Proibição de path adicionada',
       },
       announce: {
         removed: 'Autorização de path removida: {{path}} ({{scope}}).',
+        denyRemoved: 'Proibição de path removida: {{path}} ({{scope}}).',
         denyAdded: 'Proibição de path adicionada: {{path}}.',
       },
       error: {

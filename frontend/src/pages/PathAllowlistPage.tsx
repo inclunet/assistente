@@ -155,9 +155,14 @@ export default function PathAllowlistPage() {
   const remove = useCallback(
     async (row: PathAllowlistRow) => {
       const scope = scopeName(row.scope);
+      const isDeny = row.effect === 'deny';
       const confirmed = await requestConfirm({
-        title: t('pathAllowlist.confirm.title'),
-        message: t('pathAllowlist.confirm.message', { path: row.path, scope }),
+        title: isDeny
+          ? t('pathAllowlist.confirm.denyTitle')
+          : t('pathAllowlist.confirm.title'),
+        message: isDeny
+          ? t('pathAllowlist.confirm.denyMessage', { path: row.path, scope })
+          : t('pathAllowlist.confirm.message', { path: row.path, scope }),
         confirmText: t('pathAllowlist.actions.remove'),
         cancelText: t('common.cancel'),
         variant: 'danger',
@@ -174,10 +179,18 @@ export default function PathAllowlistPage() {
         setRows((current) => current.filter((item) => item.id !== row.id));
         setFocused((current) => (current?.id === row.id ? null : current));
         setLoadFailed(false);
-        addToast(t('pathAllowlist.toast.removed'), 'success', undefined, undefined, {
-          suppressAnnounce: true,
-        });
-        announce(t('pathAllowlist.announce.removed', { path: row.path, scope }));
+        addToast(
+          isDeny ? t('pathAllowlist.toast.denyRemoved') : t('pathAllowlist.toast.removed'),
+          'success',
+          undefined,
+          undefined,
+          { suppressAnnounce: true },
+        );
+        announce(
+          isDeny
+            ? t('pathAllowlist.announce.denyRemoved', { path: row.path, scope })
+            : t('pathAllowlist.announce.removed', { path: row.path, scope }),
+        );
         try {
           const entries = (await GetPathAllowlist()) ?? [];
           setRows(mapEntries(entries));

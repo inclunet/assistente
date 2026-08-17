@@ -320,4 +320,49 @@ describe('PathAllowlistPage', () => {
       expect(screen.getByText('pathAllowlist.effect.deny')).toBeInTheDocument();
     });
   });
+
+  it('usa textos de proibição ao remover uma entrada deny', async () => {
+    const user = userEvent.setup();
+    const entradaDeny = {
+      path: '/tmp/segredo.env',
+      kind: 'file',
+      operation: 'read',
+      effect: 'deny',
+      scope: 'workspace',
+      createdBy: 'user',
+      createdAt: '2026-08-17T13:00:00Z',
+      reason: 'bloquear .env',
+    };
+    mockGetPathAllowlist.mockResolvedValueOnce([entradaDeny]).mockResolvedValueOnce([]);
+    render(<PathAllowlistPage />);
+    await waitFor(() => expect(screen.getByText('/tmp/segredo.env')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'pathAllowlist.actions.remove' }));
+
+    await waitFor(() => {
+      expect(mockRemovePathAllowlistEntry).toHaveBeenCalledWith(
+        'workspace',
+        '/tmp/segredo.env',
+        'file',
+        'read',
+        'deny',
+      );
+    });
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'pathAllowlist.confirm.denyTitle',
+        message: expect.stringContaining('pathAllowlist.confirm.denyMessage'),
+      }),
+    );
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'pathAllowlist.toast.denyRemoved',
+      'success',
+      undefined,
+      undefined,
+      { suppressAnnounce: true },
+    );
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('pathAllowlist.announce.denyRemoved'),
+    );
+  });
 });
