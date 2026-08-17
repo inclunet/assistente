@@ -256,14 +256,12 @@ func walkEntryEscapesSandbox(path string, mode os.FileMode, workDir string) bool
 	return validatePath(path, workDir) != nil
 }
 
-// pathEscapesSandbox é a variante para quando não há fs.DirEntry em mãos
-// (ex.: resultados de filepath.Glob).
+// pathEscapesSandbox faz o teste completo, sem o atalho do symlink. É o que
+// vale para resultados de filepath.Glob: diferente do WalkDir, o Glob atravessa
+// diretório linkado quando o padrão nomeia o link (`linkdir/*.conf`), então o
+// match pode ser um arquivo comum cujo destino real está fora da raiz.
 func pathEscapesSandbox(path string, workDir string) bool {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return false
-	}
-	return walkEntryEscapesSandbox(path, info.Mode(), workDir)
+	return validatePath(path, workDir) != nil
 }
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {

@@ -206,6 +206,38 @@ func TestWalkers_SymlinkParaForaDoSandboxNaoVaza(t *testing.T) {
 	}
 }
 
+// TestSearchFiles_GlobAtravessaDiretorioLinkado cobre o caso que o atalho do
+// symlink não pega: no modo não-recursivo o filepath.Glob atravessa o diretório
+// linkado quando o padrão nomeia o link, e aí o match e um arquivo comum com
+// destino real fora da raiz.
+func TestSearchFiles_GlobAtravessaDiretorioLinkado(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	fora := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fora, "externo.conf"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("escrever externo.conf: %v", err)
+	}
+
+	workDir := t.TempDir()
+	if err := os.Symlink(fora, filepath.Join(workDir, "linkdir")); err != nil {
+		t.Fatalf("criar symlink de diretório: %v", err)
+	}
+
+	args, _ := json.Marshal(map[string]any{"pattern": "linkdir/*.conf", "max_results": 50})
+	res, err := NewSearchFiles(workDir).Execute(context.Background(), args)
+	if err != nil {
+		t.Fatalf("search_files: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("execução retornou erro: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "externo.conf") {
+		t.Errorf("glob atravessou diretório linkado e vazou arquivo externo:\n%s", res.Content)
+	}
+}
+
 // TestFileOps_SymlinkParaSensivelBloqueado garante que copiar, remover e
 // renomear também olham o destino real do link.
 func TestFileOps_SymlinkParaSensivelBloqueado(t *testing.T) {
