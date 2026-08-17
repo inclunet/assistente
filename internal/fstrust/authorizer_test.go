@@ -2,6 +2,7 @@ package fstrust
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -128,8 +129,39 @@ func TestAuthorizer_NoPrompter(t *testing.T) {
 	if err == nil {
 		t.Fatal("sem prompter deveria falhar")
 	}
-	if !strings.Contains(err.Error(), "sem prompter de consentimento") {
-		t.Fatalf("mensagem inesperada: %v", err)
+	var denied *DeniedPathError
+	if !errors.As(err, &denied) {
+		t.Fatalf("want *DeniedPathError, got %T: %v", err, err)
+	}
+	if denied.Reason != "sem prompter de consentimento" {
+		t.Fatalf("motivo inesperado: %q", denied.Reason)
+	}
+	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
+		t.Fatalf("erro deveria linkar a tela de gestão: %v", err)
+	}
+}
+
+func TestAuthorizer_DenyLinksManagementUI(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	auth := NewAuthorizer(m, &spyPrompter{
+		decision: PromptDecision{Approve: false},
+	})
+	file := filepath.Join(dir, "a.txt")
+
+	err := auth.Authorize(context.Background(), file, "read")
+	if err == nil {
+		t.Fatal("negação deveria falhar")
+	}
+	var denied *DeniedPathError
+	if !errors.As(err, &denied) {
+		t.Fatalf("want *DeniedPathError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
+		t.Fatalf("erro deveria linkar a tela de gestão: %v", err)
+	}
+	if !strings.Contains(err.Error(), "allowlist de paths") {
+		t.Fatalf("erro deveria mencionar a allowlist de paths: %v", err)
 	}
 }
 
