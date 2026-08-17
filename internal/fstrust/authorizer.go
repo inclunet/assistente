@@ -71,7 +71,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 
 	// 2) Consentimento explícito
 	if a.prompt == nil {
-		return fmt.Errorf("caminho fora do sandbox e sem prompter de consentimento: %s (%s)", requested, operation)
+		return newDeniedPathError(requested, operation, "sem prompter de consentimento")
 	}
 
 	skillSlug := skillSlugFrom(ctx)
@@ -93,7 +93,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	if !decision.Approve {
 		logging.Infof(ctx, "fstrust.authorizer",
 			"[FsTrust] autorização negada: path=%s op=%s", requested, operation)
-		return fmt.Errorf("autorização negada para path %s (operação %s)", requested, operation)
+		return newDeniedPathError(requested, operation, "autorização negada pelo usuário")
 	}
 
 	scope := decision.Scope

@@ -36,6 +36,8 @@ func main() {
 	application.SetHotkeysAPI(a, hotkeysAPI)
 	netTrustAPI := wailsapi.NewNetTrust()
 	application.SetNetTrustAPI(a, netTrustAPI)
+	fsTrustAPI := wailsapi.NewFSTrust()
+	application.SetFSTrustAPI(a, fsTrustAPI)
 	credentialsAPI := wailsapi.NewCredentials()
 	application.SetCredentialsAPI(a, credentialsAPI)
 	settingsAPI := wailsapi.NewSettings()
@@ -138,6 +140,7 @@ func main() {
 			profilesAPI,
 			hotkeysAPI,
 			netTrustAPI,
+			fsTrustAPI,
 			credentialsAPI,
 			conversationsAPI,
 			speechAPI,

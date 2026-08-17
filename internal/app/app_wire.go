@@ -129,6 +129,17 @@ func (a *App) wireNetTrust() {
 	}
 }
 
+// wireFSTrust monta o FSTrustController e associa o bind Wails (AEP-0092).
+func (a *App) wireFSTrust() {
+	a.fsTrustCtrl = controllers.NewFSTrustController(controllers.FSTrustControllerConfig{
+		FSTrustMgr: a.fsTrustMgr,
+		ProfileMgr: a.profileManager,
+	})
+	if a.fsTrustAPI != nil {
+		wailsapi.AttachFSTrust(a.fsTrustAPI, wailsSession{app: a}, a.fsTrustCtrl)
+	}
+}
+
 // wireCredentials monta o CredentialsController e associa o bind Wails (AEP-0088).
 func (a *App) wireCredentials() {
 	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{

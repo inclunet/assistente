@@ -1015,6 +1015,30 @@ export namespace apidto {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class PathAllowlistView {
+	    path: string;
+	    kind: string;
+	    operation: string;
+	    scope: string;
+	    createdBy?: string;
+	    createdAt: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PathAllowlistView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.kind = source["kind"];
+	        this.operation = source["operation"];
+	        this.scope = source["scope"];
+	        this.createdBy = source["createdBy"];
+	        this.createdAt = source["createdAt"];
+	        this.reason = source["reason"];
+	    }
+	}
 	export class RuntimeToolCatalogEntry {
 	    id: string;
 	    userId?: string;

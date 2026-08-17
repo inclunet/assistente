@@ -28,6 +28,7 @@ vi.mock('react-i18next', () => ({
         'settingsPage.tabs.credentials': 'Cred Manager',
         'settingsPage.tabs.allowlists': 'Allow Lists',
         'settingsPage.tabs.network-allowlist': 'Allowlist de Rede',
+        'settingsPage.tabs.path-allowlist': 'Allowlist de Paths',
         'settingsPage.tabs.agent-permissions': 'Autorizações do Agente',
         'settingsPage.tabs.appearance': 'Aparência',
         'settingsPage.tabs.data': 'Dados',
@@ -44,6 +45,7 @@ vi.mock('./ContactsPage', () => ({ default: () => <button data-testid="contacts-
 vi.mock('./CredentialsPage', () => ({ default: () => <button data-testid="credentials-default">CredentialsPage</button> }));
 vi.mock('./AllowlistPage', () => ({ default: () => <button data-testid="allowlists-default">AllowlistPage</button> }));
 vi.mock('./NetworkAllowlistPage', () => ({ default: () => <button data-testid="network-allowlist-default">NetworkAllowlistPage</button> }));
+vi.mock('./PathAllowlistPage', () => ({ default: () => <button data-testid="path-allowlist-default">PathAllowlistPage</button> }));
 vi.mock('./AgentPermissionsPage', () => ({ default: () => <button data-testid="agent-permissions-default">AgentPermissionsPage</button> }));
 vi.mock('./AppearancePage', () => ({ default: () => <button data-testid="appearance-default">AppearancePage</button> }));
 vi.mock('./DataManagementPage', () => ({ default: () => <button data-testid="data-default">DataManagementPage</button> }));
@@ -104,18 +106,18 @@ describe('SettingsPage', () => {
     expect(tablist).toHaveAttribute('aria-label', 'Configurações');
   });
 
-  it('renderiza todas as 12 tabs com role="tab"', () => {
+  it('renderiza todas as 13 tabs com role="tab"', () => {
     render(<SettingsPage />);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(12);
+    expect(tabs).toHaveLength(13);
   });
 
-  it('renderiza todos os 12 tabpanels', () => {
+  it('renderiza todos os 13 tabpanels', () => {
     render(<SettingsPage />);
 
     const panels = screen.getAllByRole('tabpanel', { hidden: true });
-    expect(panels).toHaveLength(12);
+    expect(panels).toHaveLength(13);
   });
 
   it('renderiza o conteúdo do ProvidersPage no panel correspondente', async () => {

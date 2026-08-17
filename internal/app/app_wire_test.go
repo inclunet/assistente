@@ -170,6 +170,25 @@ func TestWireNetTrustAttachesBind(t *testing.T) {
 	}
 }
 
+func TestWireFSTrustAttachesBind(t *testing.T) {
+	t.Parallel()
+	a := &App{
+		profileManager: profiles.NewManager(),
+	}
+	api := wailsapi.NewFSTrust()
+	SetFSTrustAPI(a, api)
+
+	a.wireFSTrust()
+
+	if a.fsTrustCtrl == nil {
+		t.Fatal("fsTrustCtrl deve ser criado")
+	}
+	_, err := api.GetPathAllowlist()
+	if !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
+	}
+}
+
 func TestWireCredentialsAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{}

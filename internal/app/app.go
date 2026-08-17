@@ -209,6 +209,7 @@ type App struct {
 	signalCtrl        *controllers.SignalController
 	hotkeyCtrl        *controllers.HotkeysController
 	netTrustCtrl      *controllers.NetTrustController
+	fsTrustCtrl       *controllers.FSTrustController
 
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
 	// wired após NewTokensController.
@@ -241,6 +242,10 @@ type App struct {
 	// netTrustAPI é o bind Wails do domínio nettrust (AEP-0088). Criado em main e
 	// wired após NewNetTrustController.
 	netTrustAPI *wailsapi.NetTrust
+
+	// fsTrustAPI é o bind Wails do domínio fstrust / path allowlist (AEP-0092).
+	// Criado em main e wired após NewFSTrustController.
+	fsTrustAPI *wailsapi.FSTrust
 
 	// credentialsAPI é o bind Wails do domínio credentials (AEP-0088). Criado em
 	// main e wired após NewCredentialsController.
@@ -459,6 +464,15 @@ func SetNetTrustAPI(a *App, api *wailsapi.NetTrust) {
 		return
 	}
 	a.netTrustAPI = api
+}
+
+// SetFSTrustAPI registra o bind Wails de fstrust antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetFSTrustAPI(a *App, api *wailsapi.FSTrust) {
+	if a == nil {
+		return
+	}
+	a.fsTrustAPI = api
 }
 
 // SetCredentialsAPI registra o bind Wails de credentials antes do Run (main.go).
@@ -1142,6 +1156,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireTools()
 	a.wireUpdater()
 	a.wireNetTrust()
+	a.wireFSTrust()
 	a.wireCredentials()
 	a.wireMemory()
 	a.wireWelcome()
