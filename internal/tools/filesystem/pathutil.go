@@ -23,8 +23,10 @@ var errOutsideAllowedDirs = errors.New("caminho fora dos diretórios permitidos"
 // Implementado por internal/fstrust.Authorizer; nil = deny seco (testes / bootstrap).
 type PathAuthorizer interface {
 	Authorize(ctx context.Context, absPath, operation string) error
-	// Denied devolve erro quando uma entrada EffectDeny casa o path+operação.
-	// nil = não há deny. Chamado antes da validação de sandbox.
+	// Denied devolve erro quando uma entrada EffectDeny casa o path+operação;
+	// nil = não há deny. Dentro do sandbox é chamado diretamente (após
+	// validatePath aprovar); fora do sandbox a precedência de deny é aplicada
+	// por Authorize, então validatePathWithPolicy não chama Denied de novo.
 	Denied(ctx context.Context, absPath, operation string) error
 }
 
