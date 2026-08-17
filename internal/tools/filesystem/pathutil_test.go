@@ -509,3 +509,45 @@ func TestResolveFilePath_UsesActiveSandboxRoot(t *testing.T) {
 		t.Fatalf("pattern relativo não deveria continuar casando o diretório de boot: %q", oldWorkspacePath)
 	}
 }
+
+// TestFilesystemPatternMatches_RaizSymlinkada garante que um pattern de skill
+// ancorado numa raiz que é symlink continua casando o path já resolvido — o
+// caso real é macOS (/var -> /private/var), que viraria falso-negativo e
+// bloqueio indevido se só um dos lados fosse resolvido.
+func TestFilesystemPatternMatches_RaizSymlinkada(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	realDir := t.TempDir()
+	docs := filepath.Join(realDir, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	child := filepath.Join(docs, "child.txt")
+	if err := os.WriteFile(child, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("escrever child: %v", err)
+	}
+
+	linkRoot := filepath.Join(t.TempDir(), "raiz-link")
+	if err := os.Symlink(realDir, linkRoot); err != nil {
+		t.Fatalf("criar symlink de raiz: %v", err)
+	}
+
+	workDir := realDir
+	patterns := []string{
+		filepath.Join(linkRoot, "**"),
+		filepath.Join(linkRoot, "docs", "**"),
+		filepath.Join(linkRoot, "docs", "*.txt"),
+	}
+	for _, pattern := range patterns {
+		if !matchesAnyFilesystemPattern(child, workDir, []string{pattern}) {
+			t.Errorf("pattern %q com raiz symlinkada deveria casar %q", pattern, child)
+		}
+	}
+
+	fora := filepath.Join(t.TempDir(), "outro.txt")
+	if matchesAnyFilesystemPattern(fora, workDir, []string{filepath.Join(linkRoot, "**")}) {
+		t.Errorf("pattern não deveria casar path fora da raiz: %q", fora)
+	}
+}

@@ -143,7 +143,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}
 
 			// Toolcalling: não vazar nomes de arquivos sensíveis
-			if ToolPolicy().BlockSensitive && isSensitiveFile(path) {
+			if ToolPolicy().BlockSensitive && isSensitiveEntry(path, d.Type()) {
 				return nil
 			}
 
@@ -197,7 +197,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}
 
 			// Toolcalling: não vazar nomes de arquivos sensíveis
-			if ToolPolicy().BlockSensitive && isSensitiveFile(match) {
+			if ToolPolicy().BlockSensitive && isSensitiveFileResolved(match) {
 				continue
 			}
 			if err := validateSkillFilesystemAllowlist(ctx, match, t.workDir, "search"); err != nil {

@@ -131,7 +131,7 @@ func (t *ListDirectory) listFlat(ctx context.Context, fullPath, displayPath stri
 			skippedBySkill++
 			continue
 		}
-		if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+		if ToolPolicy().BlockSensitive && isSensitiveEntry(entryPath, entry.Type()) {
 			skippedSensitive++
 			continue
 		}
@@ -234,7 +234,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 					return err
 				}
 			} else {
-				if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+				if ToolPolicy().BlockSensitive && isSensitiveEntry(entryPath, entry.Type()) {
 					skippedSensitive++
 					continue
 				}

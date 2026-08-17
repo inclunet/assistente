@@ -64,12 +64,27 @@ func isSensitiveFileResolved(path string) bool {
 	if isSensitiveFile(path) {
 		return true
 	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	return isSensitiveEntry(path, info.Mode())
+}
+
+// isSensitiveEntry decide a sensibilidade quando o modo da entrada já é
+// conhecido (walkers com fs.DirEntry), evitando um syscall extra por arquivo
+// percorrido. Apenas o último componente sendo symlink muda o basename real:
+// um ancestral symlinkado preserva o nome do arquivo e, portanto, o veredito.
+func isSensitiveEntry(path string, mode os.FileMode) bool {
+	if isSensitiveFile(path) {
+		return true
+	}
+	if mode&os.ModeSymlink == 0 {
+		return false
+	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		if info, lerr := os.Lstat(path); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
-			return true
-		}
-		return false
+		return true
 	}
 	return isSensitiveFile(resolved)
 }

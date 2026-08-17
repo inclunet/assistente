@@ -214,7 +214,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}
 
 		// Toolcalling: não vazar conteúdo de arquivos sensíveis
-		if ToolPolicy().BlockSensitive && isSensitiveFile(path) {
+		if ToolPolicy().BlockSensitive && isSensitiveEntry(path, d.Type()) {
 			return nil
 		}
 

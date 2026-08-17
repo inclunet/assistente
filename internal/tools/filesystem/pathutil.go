@@ -326,6 +326,11 @@ func matchesAnyFilesystemPattern(absPath string, workDir string, patterns []stri
 	if len(patterns) == 0 {
 		return false
 	}
+	// Compara sempre destino real contra destino real. Resolvido uma vez por
+	// chamada, e não por pattern, para não multiplicar syscalls em walks.
+	if resolved, err := resolveForComparison(absPath); err == nil {
+		absPath = resolved
+	}
 	for _, p := range patterns {
 		pat := strings.TrimSpace(p)
 		if pat == "" {
@@ -338,6 +343,38 @@ func matchesAnyFilesystemPattern(absPath string, workDir string, patterns []stri
 	return false
 }
 
+// resolveGlobFreePrefix resolve symlinks apenas na parte literal do padrão,
+// parando no primeiro componente com metacaractere de glob. Sem isso, um padrão
+// ancorado numa raiz que é symlink (ex.: macOS /var -> /private/var) nunca casa
+// o path já resolvido, virando falso-negativo e bloqueio indevido.
+func resolveGlobFreePrefix(pattern string) string {
+	volume := filepath.VolumeName(pattern)
+	root := volume + string(filepath.Separator)
+	rel, err := filepath.Rel(root, pattern)
+	if err != nil {
+		return pattern
+	}
+
+	parts := strings.Split(rel, string(filepath.Separator))
+	literal := root
+	for i, part := range parts {
+		if strings.ContainsAny(part, "*?[") {
+			resolved, resolveErr := resolveForComparison(literal)
+			if resolveErr != nil {
+				return pattern
+			}
+			return filepath.Join(resolved, filepath.Join(parts[i:]...))
+		}
+		literal = filepath.Join(literal, part)
+	}
+
+	resolved, resolveErr := resolveForComparison(literal)
+	if resolveErr != nil {
+		return pattern
+	}
+	return resolved
+}
+
 func filesystemPatternMatches(absPath string, workDir string, pattern string) bool {
 	// Resolve o padrão como um path (expande ~ e caminhos relativos à mesma
 	// raiz dinâmica do sandbox/workspace ativo).
@@ -345,7 +382,7 @@ func filesystemPatternMatches(absPath string, workDir string, pattern string) bo
 	if err != nil {
 		return false
 	}
-	resolved = filepath.Clean(resolved)
+	resolved = resolveGlobFreePrefix(filepath.Clean(resolved))
 
 	// Suporte comum: /alguma/coisa/** → qualquer coisa abaixo do diretório
 	sep := string(filepath.Separator)
