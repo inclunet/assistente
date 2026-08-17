@@ -1,6 +1,6 @@
 # AEP-0092 — Autorização explícita e allowlist escopável para paths fora do sandbox
 
-**Status:** 🚧 In Progress
+**Status:** 🚧 In Progress — Fase 1 + 1b ✅; Fase 2 pendente
 
 ## Resumo
 
@@ -160,8 +160,9 @@ Tools deixam de depender só do cwd congelado no `initToolRegistry`.
 
 ### D6. Erro acionável
 
-Negar ou ausência de authorizer → erro estruturado (path, operação, motivo
-“fora do sandbox”, deep link para gestão da allowlist quando a UI existir).
+Negar ou ausência de authorizer → erro estruturado (`DeniedPathError`: path,
+operação, motivo “fora do sandbox”) com sugestões e deep link
+`assistente://navigate/settings/path-allowlist` para a gestão da allowlist.
 
 ### D7. UI de gestão (Fase 1b / Fase 2 leve)
 
@@ -218,8 +219,8 @@ Fora do escopo da Fase 1.
 
 ### Fase 1b — UI listar/remover
 
-- [ ] Página/settings path-allowlist (espelho network-allowlist)
-- [ ] Deep link no erro de negação
+- [x] Página/settings path-allowlist (espelho network-allowlist)
+- [x] Deep link no erro de negação
 
 ### Fase 2 — denylist no workdir
 

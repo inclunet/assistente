@@ -36,7 +36,7 @@ export type DeepLinkAction =
 const VALID_ROUTES = new Set([
   '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
   'settings/channels', 'settings/contacts', 'settings/credentials',
-  'settings/allowlists', 'settings/network-allowlist',
+  'settings/allowlists', 'settings/network-allowlist', 'settings/path-allowlist',
   'settings/appearance', 'settings/restore-defaults',
   'settings/data',
   'profiles', 'history', 'memories', 'tasklists', 'help', 'about', 'update',
@@ -66,6 +66,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   'settings/credentials': 'menu.credentials',
   'settings/allowlists': 'menu.allowlists',
   'settings/network-allowlist': 'settingsPage.tabs.network-allowlist',
+  'settings/path-allowlist': 'settingsPage.tabs.path-allowlist',
   'settings/appearance': 'appearance.pageTitle',
   'settings/restore-defaults': 'menu.restoreDefaults',
   'settings/data': 'settingsPage.tabs.data',

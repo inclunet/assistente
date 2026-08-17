@@ -76,6 +76,7 @@ verdade — rota fora dela faz o parser devolver `null`.
 | `settings/credentials` | Credenciais |
 | `settings/allowlists` | Allowlists de comandos |
 | `settings/network-allowlist` | Allowlist de rede (hosts autorizados apesar do anti-SSRF) |
+| `settings/path-allowlist` | Allowlist de paths (paths fora do sandbox autorizados) |
 | `settings/appearance` | Aparência |
 | `settings/data` | Dados |
 | `settings/restore-defaults` | Restaurar padrões |

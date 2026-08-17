@@ -389,6 +389,7 @@ const en = {
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
         'network-allowlist': 'Network Allowlist',
+        'path-allowlist': 'Path Allowlist',
         'agent-permissions': 'Agent Permissions',
         appearance: 'Appearance',
         data: 'Data',
@@ -724,6 +725,54 @@ const en = {
       error: {
         loadFailed: 'Error loading the network allowlist',
         removeFailed: 'Error removing the network authorization',
+        reloadAfterRemoveFailed:
+          'The authorization was removed, but the list could not be refreshed. Reload to confirm.',
+      },
+    },
+
+    pathAllowlist: {
+      title: 'Path Allowlist',
+      loading: 'Loading path allowlist...',
+      toolbarLabel: 'Path allowlist toolbar',
+      gridLabel: 'Paths allowed outside the sandbox',
+      description: 'Paths outside the active workspace (and ~/.assistente) that you allowed the assistant to access. Each entry covers one path and one operation until you remove it here.',
+      sessionNote: 'This list covers only the current workspace, the active profile, and the global scope. Attempt-only, conversation-only, or other-profile authorizations are not shown here — ephemeral ones expire on their own; other profiles’ entries still apply when that profile is active.',
+      empty: 'No allowed paths. Every access outside the sandbox still asks for consent.',
+      loadFailedBody: 'Could not load the path allowlist. Any authorization that exists is still in effect — reload to try again.',
+      columns: {
+        path: 'Path',
+        kind: 'Kind',
+        operation: 'Operation',
+        scope: 'Scope',
+        createdBy: 'Allowed by',
+        createdAt: 'Allowed on',
+        reason: 'Note',
+      },
+      kind: {
+        file: 'File',
+        dir: 'Folder',
+        unknown: 'A kind this app does not recognize',
+      },
+      scope: {
+        session: 'This conversation',
+        workspace: 'This workspace',
+        profile: 'This profile',
+        global: 'Global',
+        unknown: 'A scope this app does not recognize',
+      },
+      actions: {
+        remove: 'Remove',
+        reload: 'Reload',
+      },
+      confirm: {
+        title: 'Remove path authorization',
+        message: 'Remove the authorization for {{path}} ({{scope}})? The assistant will ask for consent again for that path and operation.',
+      },
+      toast: { removed: 'Path authorization removed' },
+      announce: { removed: 'Path authorization removed: {{path}} ({{scope}}).' },
+      error: {
+        loadFailed: 'Error loading the path allowlist',
+        removeFailed: 'Error removing the path authorization',
         reloadAfterRemoveFailed:
           'The authorization was removed, but the list could not be refreshed. Reload to confirm.',
       },

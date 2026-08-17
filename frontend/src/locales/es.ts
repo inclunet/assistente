@@ -388,6 +388,7 @@ const es = {
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
         'network-allowlist': 'Lista de Permitidos de Red',
+        'path-allowlist': 'Lista de Permitidos de Paths',
         'agent-permissions': 'Permisos del Agente',
         appearance: 'Apariencia',
         data: 'Datos',
@@ -723,6 +724,54 @@ const es = {
       error: {
         loadFailed: 'Error al cargar la lista de permitidos de red',
         removeFailed: 'Error al eliminar la autorización de red',
+        reloadAfterRemoveFailed:
+          'La autorización se eliminó, pero la lista no pudo actualizarse. Recargue para confirmar.',
+      },
+    },
+
+    pathAllowlist: {
+      title: 'Lista de Permitidos de Paths',
+      loading: 'Cargando la lista de permitidos de paths...',
+      toolbarLabel: 'Barra de herramientas de la lista de permitidos de paths',
+      gridLabel: 'Paths autorizados fuera del sandbox',
+      description: 'Paths fuera del workspace activo (y de ~/.assistente) que autorizó al asistente a acceder. Cada entrada vale para un path y una operación hasta que la elimine aquí.',
+      sessionNote: 'Esta lista cubre solo el workspace actual, el perfil activo y el alcance global. Las autorizaciones solo del intento, solo de la conversación o de otros perfiles no aparecen aquí: las efímeras caducan solas; las de otros perfiles siguen valiendo cuando ese perfil esté activo.',
+      empty: 'No hay paths autorizados. Todo acceso fuera del sandbox sigue pidiendo consentimiento.',
+      loadFailedBody: 'No se pudo cargar la lista de permitidos de paths. Las autorizaciones que existan siguen vigentes: recargue para intentarlo de nuevo.',
+      columns: {
+        path: 'Path',
+        kind: 'Tipo',
+        operation: 'Operación',
+        scope: 'Alcance',
+        createdBy: 'Autorizada por',
+        createdAt: 'Autorizada el',
+        reason: 'Observación',
+      },
+      kind: {
+        file: 'Archivo',
+        dir: 'Carpeta',
+        unknown: 'Un tipo que esta app no reconoce',
+      },
+      scope: {
+        session: 'Esta conversación',
+        workspace: 'Este workspace',
+        profile: 'Este perfil',
+        global: 'Global',
+        unknown: 'Un alcance que esta app no reconoce',
+      },
+      actions: {
+        remove: 'Eliminar',
+        reload: 'Recargar',
+      },
+      confirm: {
+        title: 'Eliminar autorización de path',
+        message: '¿Eliminar la autorización de {{path}} ({{scope}})? El asistente volverá a pedir consentimiento para ese path y operación.',
+      },
+      toast: { removed: 'Autorización de path eliminada' },
+      announce: { removed: 'Autorización de path eliminada: {{path}} ({{scope}}).' },
+      error: {
+        loadFailed: 'Error al cargar la lista de permitidos de paths',
+        removeFailed: 'Error al eliminar la autorización de path',
         reloadAfterRemoveFailed:
           'La autorización se eliminó, pero la lista no pudo actualizarse. Recargue para confirmar.',
       },
