@@ -740,12 +740,18 @@ const es = {
       loadFailedBody: 'No se pudo cargar la lista de permitidos de paths. Las autorizaciones que existan siguen vigentes: recargue para intentarlo de nuevo.',
       columns: {
         path: 'Path',
+        effect: 'Efecto',
         kind: 'Tipo',
         operation: 'Operación',
         scope: 'Alcance',
         createdBy: 'Autorizada por',
         createdAt: 'Autorizada el',
         reason: 'Observación',
+      },
+      effect: {
+        allow: 'Permitir',
+        deny: 'Prohibir',
+        unknown: 'Un efecto que esta app no reconoce',
       },
       kind: {
         file: 'Archivo',
@@ -759,6 +765,17 @@ const es = {
         global: 'Global',
         unknown: 'Un alcance que esta app no reconoce',
       },
+      form: {
+        title: 'Agregar prohibición de path',
+        path: 'Path',
+        kind: 'Tipo',
+        operation: 'Operación',
+        scope: 'Alcance',
+        reason: 'Observación (opcional)',
+        submit: 'Agregar prohibición',
+        pathRequired: 'Indique el path a prohibir',
+        operationRequired: 'Indique la operación a prohibir',
+      },
       actions: {
         remove: 'Eliminar',
         reload: 'Recargar',
@@ -766,12 +783,23 @@ const es = {
       confirm: {
         title: 'Eliminar autorización de path',
         message: '¿Eliminar la autorización de {{path}} ({{scope}})? El asistente volverá a pedir consentimiento para ese path y operación.',
+        denyTitle: 'Eliminar prohibición de path',
+        denyMessage: '¿Eliminar la prohibición de {{path}} ({{scope}})? El asistente volverá a permitir ese path y operación según las demás reglas.',
       },
-      toast: { removed: 'Autorización de path eliminada' },
-      announce: { removed: 'Autorización de path eliminada: {{path}} ({{scope}}).' },
+      toast: {
+        removed: 'Autorización de path eliminada',
+        denyRemoved: 'Prohibición de path eliminada',
+        denyAdded: 'Prohibición de path agregada',
+      },
+      announce: {
+        removed: 'Autorización de path eliminada: {{path}} ({{scope}}).',
+        denyRemoved: 'Prohibición de path eliminada: {{path}} ({{scope}}).',
+        denyAdded: 'Prohibición de path agregada: {{path}}.',
+      },
       error: {
         loadFailed: 'Error al cargar la lista de permitidos de paths',
         removeFailed: 'Error al eliminar la autorización de path',
+        addFailed: 'Error al agregar la prohibición de path',
         reloadAfterRemoveFailed:
           'La autorización se eliminó, pero la lista no pudo actualizarse. Recargue para confirmar.',
       },

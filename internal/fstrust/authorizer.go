@@ -59,6 +59,12 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		return fmt.Errorf("não foi possível resolver o destino real de %s: %w", requested, err)
 	}
 
+	// 0) Denylist tem precedência absoluta (mesmo fora do sandbox). Usa o path
+	// já resolvido acima para não repetir resolveSymlinks (I/O por componente).
+	if err := a.deniedResolved(ctx, requested, resolved, operation); err != nil {
+		return err
+	}
+
 	// 1) Allowlist existente (sempre no path resolvido).
 	if a.mgr != nil {
 		if decision := a.mgr.Match(ctx, resolved, operation); decision.Allowed {
@@ -71,7 +77,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 
 	// 2) Consentimento explícito
 	if a.prompt == nil {
-		return newDeniedPathError(requested, operation, "sem prompter de consentimento")
+		return newDeniedPathError(requested, operation, "sem prompter de consentimento", false)
 	}
 
 	skillSlug := skillSlugFrom(ctx)
@@ -93,7 +99,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	if !decision.Approve {
 		logging.Infof(ctx, "fstrust.authorizer",
 			"[FsTrust] autorização negada: path=%s op=%s", requested, operation)
-		return newDeniedPathError(requested, operation, "autorização negada pelo usuário")
+		return newDeniedPathError(requested, operation, "autorização negada pelo usuário", true)
 	}
 
 	scope := decision.Scope
@@ -115,6 +121,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 			Path:      entryPath,
 			Kind:      kind,
 			Operation: operation,
+			Effect:    EffectAllow,
 			Scope:     scope,
 			CreatedBy: creatorFor(skillSlug),
 		}
@@ -129,6 +136,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 			Path:      entryPath,
 			Kind:      kind,
 			Operation: operation,
+			Effect:    EffectAllow,
 			Scope:     ScopeOnce,
 			CreatedBy: creatorFor(skillSlug),
 		})
@@ -138,6 +146,66 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		"[FsTrust] autorização concedida: path=%s kind=%s op=%s escopo=%s",
 		entryPath, kind, operation, scope)
 	return nil
+}
+
+// Denied reporta se absPath+operation está em alguma denylist (qualquer escopo).
+// Usado também dentro do sandbox: deny não depende de estar fora das raízes.
+func (a *Authorizer) Denied(ctx context.Context, absPath, operation string) error {
+	if a == nil || a.mgr == nil {
+		return nil
+	}
+	requested := NormalizePath(absPath)
+	if requested == "" {
+		return nil
+	}
+	resolved, err := resolveSymlinks(requested)
+	if err != nil {
+		// Falha fechado: sem destino real confiável, não dá para garantir que
+		// não há deny apontando para o alvo — bloqueia.
+		return newDeniedPathError(requested, operation, "não foi possível resolver o destino real para avaliar denylist", false)
+	}
+	return a.deniedResolved(ctx, requested, resolved, operation)
+}
+
+// DeniedResolved é Denied para quando o chamador JÁ resolveu os symlinks do path
+// (ex.: o sandbox em validatePath), evitando um resolveSymlinks redundante.
+func (a *Authorizer) DeniedResolved(ctx context.Context, resolvedPath, operation string) error {
+	if a == nil || a.mgr == nil {
+		return nil
+	}
+	resolved := NormalizePath(resolvedPath)
+	if resolved == "" {
+		return nil
+	}
+	return a.deniedResolved(ctx, resolved, resolved, operation)
+}
+
+// deniedResolved avalia a denylist com o destino real já resolvido, evitando
+// um resolveSymlinks redundante quando o chamador (ex.: Authorize) já resolveu.
+func (a *Authorizer) deniedResolved(ctx context.Context, requested, resolved, operation string) error {
+	if a == nil || a.mgr == nil {
+		return nil
+	}
+	decision := a.mgr.MatchDeny(ctx, resolved, operation)
+	if !decision.Matched {
+		return nil
+	}
+	logging.Infof(ctx, "fstrust.authorizer",
+		"[FsTrust] bloqueado por denylist: path=%s op=%s escopo=%s",
+		resolved, operation, decision.Scope)
+	return newDeniedPathError(requested, operation, fmt.Sprintf("bloqueado pela denylist (escopo %s)", decision.Scope), false)
+}
+
+// ResolvePath devolve o destino real (symlinks resolvidos) e normalizado de um
+// path. É o mesmo pré-processamento que o Authorize faz antes de casar allow/deny,
+// e serve para persistir entradas (ex.: deny criado pela UI) no mesmo formato que
+// o match usa em tempo de acesso — sem isso, um alias/symlink não casaria a regra.
+func ResolvePath(absPath string) (string, error) {
+	requested := NormalizePath(absPath)
+	if requested == "" {
+		return "", fmt.Errorf("path vazio não pode ser resolvido")
+	}
+	return resolveSymlinks(requested)
 }
 
 // resolveSymlinks resolve cada componente com Lstat/Readlink, inclusive quando

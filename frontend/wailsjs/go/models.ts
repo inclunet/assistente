@@ -1019,6 +1019,7 @@ export namespace apidto {
 	    path: string;
 	    kind: string;
 	    operation: string;
+	    effect: string;
 	    scope: string;
 	    createdBy?: string;
 	    createdAt: string;
@@ -1033,6 +1034,7 @@ export namespace apidto {
 	        this.path = source["path"];
 	        this.kind = source["kind"];
 	        this.operation = source["operation"];
+	        this.effect = source["effect"];
 	        this.scope = source["scope"];
 	        this.createdBy = source["createdBy"];
 	        this.createdAt = source["createdAt"];

@@ -741,12 +741,18 @@ const en = {
       loadFailedBody: 'Could not load the path allowlist. Any authorization that exists is still in effect — reload to try again.',
       columns: {
         path: 'Path',
+        effect: 'Effect',
         kind: 'Kind',
         operation: 'Operation',
         scope: 'Scope',
         createdBy: 'Allowed by',
         createdAt: 'Allowed on',
         reason: 'Note',
+      },
+      effect: {
+        allow: 'Allow',
+        deny: 'Deny',
+        unknown: 'An effect this app does not recognize',
       },
       kind: {
         file: 'File',
@@ -760,6 +766,17 @@ const en = {
         global: 'Global',
         unknown: 'A scope this app does not recognize',
       },
+      form: {
+        title: 'Add path denial',
+        path: 'Path',
+        kind: 'Kind',
+        operation: 'Operation',
+        scope: 'Scope',
+        reason: 'Note (optional)',
+        submit: 'Add denial',
+        pathRequired: 'Enter the path to deny',
+        operationRequired: 'Enter the operation to deny',
+      },
       actions: {
         remove: 'Remove',
         reload: 'Reload',
@@ -767,12 +784,23 @@ const en = {
       confirm: {
         title: 'Remove path authorization',
         message: 'Remove the authorization for {{path}} ({{scope}})? The assistant will ask for consent again for that path and operation.',
+        denyTitle: 'Remove path denial',
+        denyMessage: 'Remove the denial for {{path}} ({{scope}})? The assistant will allow that path and operation again according to the other rules.',
       },
-      toast: { removed: 'Path authorization removed' },
-      announce: { removed: 'Path authorization removed: {{path}} ({{scope}}).' },
+      toast: {
+        removed: 'Path authorization removed',
+        denyRemoved: 'Path denial removed',
+        denyAdded: 'Path denial added',
+      },
+      announce: {
+        removed: 'Path authorization removed: {{path}} ({{scope}}).',
+        denyRemoved: 'Path denial removed: {{path}} ({{scope}}).',
+        denyAdded: 'Path denial added: {{path}}.',
+      },
       error: {
         loadFailed: 'Error loading the path allowlist',
         removeFailed: 'Error removing the path authorization',
+        addFailed: 'Error adding the path denial',
         reloadAfterRemoveFailed:
           'The authorization was removed, but the list could not be refreshed. Reload to confirm.',
       },

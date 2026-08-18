@@ -160,13 +160,13 @@ func TestManager_Remove(t *testing.T) {
 	file := filepath.Join(dir, "a.txt")
 
 	_ = m.Add(ctx, AllowlistEntry{Path: file, Kind: KindFile, Operation: "read", Scope: ScopeGlobal})
-	if err := m.Remove(ctx, ScopeGlobal, file, KindFile, "read"); err != nil {
+	if err := m.Remove(ctx, ScopeGlobal, file, KindFile, "read", EffectAllow); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 	if d := m.Match(ctx, file, "read"); d.Allowed {
 		t.Fatal("não deveria casar após remove")
 	}
-	if err := m.Remove(ctx, ScopeGlobal, file, KindFile, "read"); err != ErrEntryNotFound {
+	if err := m.Remove(ctx, ScopeGlobal, file, KindFile, "read", EffectAllow); err != ErrEntryNotFound {
 		t.Fatalf("esperado ErrEntryNotFound, got %v", err)
 	}
 }

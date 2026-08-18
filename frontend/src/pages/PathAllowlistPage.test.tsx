@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 
 const mockGetPathAllowlist = vi.fn();
 const mockRemovePathAllowlistEntry = vi.fn();
+const mockAddPathDenyEntry = vi.fn();
 const mockConfirm = vi.fn();
 const mockAnnounce = vi.fn();
 const mockAddToast = vi.fn();
@@ -12,6 +13,7 @@ const mockAddToast = vi.fn();
 vi.mock('@wailsjs/go/wailsapi/FSTrust', () => ({
   GetPathAllowlist: (...args: unknown[]) => mockGetPathAllowlist(...args),
   RemovePathAllowlistEntry: (...args: unknown[]) => mockRemovePathAllowlistEntry(...args),
+  AddPathDenyEntry: (...args: unknown[]) => mockAddPathDenyEntry(...args),
 }));
 
 vi.mock('react-i18next', () => {
@@ -97,6 +99,7 @@ const entradaDeDocs = {
   path: '/tmp/projeto/docs/readme.md',
   kind: 'file',
   operation: 'read',
+  effect: 'allow',
   scope: 'workspace',
   createdBy: 'user',
   createdAt: '2026-08-17T12:00:00Z',
@@ -109,18 +112,21 @@ describe('PathAllowlistPage', () => {
     mockConfirm.mockResolvedValue(true);
     mockGetPathAllowlist.mockResolvedValue([entradaDeDocs]);
     mockRemovePathAllowlistEntry.mockResolvedValue(undefined);
+    mockAddPathDenyEntry.mockResolvedValue(undefined);
   });
 
-  it('mostra o path autorizado com tipo, operação e escopo', async () => {
+  it('mostra o path autorizado com tipo, operação, efeito e escopo', async () => {
     render(<PathAllowlistPage />);
 
     await waitFor(() => {
       expect(screen.getByText('/tmp/projeto/docs/readme.md')).toBeInTheDocument();
     });
-    expect(screen.getByText('pathAllowlist.kind.file')).toBeInTheDocument();
-    expect(screen.getByText('read')).toBeInTheDocument();
-    expect(screen.getByText('pathAllowlist.scope.workspace')).toBeInTheDocument();
-    expect(screen.getByText('user')).toBeInTheDocument();
+    const grid = screen.getByRole('grid');
+    expect(grid).toHaveTextContent('pathAllowlist.kind.file');
+    expect(grid).toHaveTextContent('read');
+    expect(grid).toHaveTextContent('pathAllowlist.effect.allow');
+    expect(grid).toHaveTextContent('pathAllowlist.scope.workspace');
+    expect(grid).toHaveTextContent('user');
   });
 
   it('nomeia o escopo e o tipo que a interface não conhece sem mostrar código cru', async () => {
@@ -148,6 +154,7 @@ describe('PathAllowlistPage', () => {
         '/tmp/projeto/docs/readme.md',
         'file',
         'read',
+        'allow',
       );
     });
     expect(mockConfirm).toHaveBeenCalled();
@@ -246,7 +253,11 @@ describe('PathAllowlistPage', () => {
     render(<PathAllowlistPage />);
     await waitFor(() => expect(screen.getByText('/tmp/projeto/docs/readme.md')).toBeInTheDocument());
 
-    await user.click(screen.getByRole('button', { name: 'focar:workspace:file:read:/tmp/projeto/docs/readme.md' }));
+    await user.click(
+      screen.getByRole('button', {
+        name: 'focar:workspace:allow:file:read:/tmp/projeto/docs/readme.md',
+      }),
+    );
     const naBarra = screen.getByRole('button', { name: 'toolbar:pathAllowlist.actions.remove' });
     expect(naBarra).toBeEnabled();
 
@@ -258,5 +269,100 @@ describe('PathAllowlistPage', () => {
     expect(
       screen.getByRole('button', { name: 'toolbar:pathAllowlist.actions.remove' }),
     ).toBeDisabled();
+  });
+
+  it('envia o formulário de proibição e recarrega a lista', async () => {
+    const user = userEvent.setup();
+    const entradaDeny = {
+      path: '/tmp/segredo.env',
+      kind: 'file',
+      operation: 'read',
+      effect: 'deny',
+      scope: 'workspace',
+      createdBy: 'user',
+      createdAt: '2026-08-17T13:00:00Z',
+      reason: 'bloquear .env',
+    };
+    mockGetPathAllowlist
+      .mockResolvedValueOnce([entradaDeDocs])
+      .mockResolvedValueOnce([entradaDeDocs, entradaDeny]);
+
+    render(<PathAllowlistPage />);
+    await waitFor(() => expect(screen.getByText('/tmp/projeto/docs/readme.md')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('pathAllowlist.form.path *'), '/tmp/segredo.env');
+    await user.selectOptions(screen.getByLabelText('pathAllowlist.form.kind *'), 'file');
+    await user.type(screen.getByLabelText('pathAllowlist.form.operation *'), 'read');
+    await user.selectOptions(screen.getByLabelText('pathAllowlist.form.scope *'), 'workspace');
+    await user.type(screen.getByLabelText('pathAllowlist.form.reason'), 'bloquear .env');
+    await user.click(screen.getByRole('button', { name: 'pathAllowlist.form.submit' }));
+
+    await waitFor(() => {
+      expect(mockAddPathDenyEntry).toHaveBeenCalledWith(
+        '/tmp/segredo.env',
+        'file',
+        'read',
+        'workspace',
+        'bloquear .env',
+      );
+    });
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'pathAllowlist.toast.denyAdded',
+      'success',
+      undefined,
+      undefined,
+      { suppressAnnounce: true },
+    );
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('pathAllowlist.announce.denyAdded'),
+    );
+    await waitFor(() => {
+      expect(screen.getByText('pathAllowlist.effect.deny')).toBeInTheDocument();
+    });
+  });
+
+  it('usa textos de proibição ao remover uma entrada deny', async () => {
+    const user = userEvent.setup();
+    const entradaDeny = {
+      path: '/tmp/segredo.env',
+      kind: 'file',
+      operation: 'read',
+      effect: 'deny',
+      scope: 'workspace',
+      createdBy: 'user',
+      createdAt: '2026-08-17T13:00:00Z',
+      reason: 'bloquear .env',
+    };
+    mockGetPathAllowlist.mockResolvedValueOnce([entradaDeny]).mockResolvedValueOnce([]);
+    render(<PathAllowlistPage />);
+    await waitFor(() => expect(screen.getByText('/tmp/segredo.env')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'pathAllowlist.actions.remove' }));
+
+    await waitFor(() => {
+      expect(mockRemovePathAllowlistEntry).toHaveBeenCalledWith(
+        'workspace',
+        '/tmp/segredo.env',
+        'file',
+        'read',
+        'deny',
+      );
+    });
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'pathAllowlist.confirm.denyTitle',
+        message: expect.stringContaining('pathAllowlist.confirm.denyMessage'),
+      }),
+    );
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'pathAllowlist.toast.denyRemoved',
+      'success',
+      undefined,
+      undefined,
+      { suppressAnnounce: true },
+    );
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('pathAllowlist.announce.denyRemoved'),
+    );
   });
 });

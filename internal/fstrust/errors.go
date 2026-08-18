@@ -23,7 +23,9 @@ type DeniedPathError struct {
 
 func (e *DeniedPathError) Error() string {
 	var b strings.Builder
-	b.WriteString("acesso a path fora do sandbox bloqueado")
+	// Mensagem genérica: o mesmo erro cobre bloqueio fora do sandbox (consentimento
+	// negado / sem prompter) e denylist dentro do sandbox. O detalhe vai em Motivo.
+	b.WriteString("acesso a path bloqueado")
 	if e.Path != "" {
 		fmt.Fprintf(&b, "\n- Path: %s", e.Path)
 	}
@@ -43,14 +45,17 @@ func (e *DeniedPathError) Error() string {
 	return b.String()
 }
 
-func newDeniedPathError(path, operation, reason string) *DeniedPathError {
+// newDeniedPathError monta o erro acionável. dialogAvailable controla, de forma
+// explícita (não por inspeção do texto de reason), se cabe sugerir autorizar no
+// diálogo de consentimento — falso quando não há prompter ou quando é denylist
+// (deny tem precedência absoluta e nenhum diálogo autoriza).
+func newDeniedPathError(path, operation, reason string, dialogAvailable bool) *DeniedPathError {
 	suggestions := make([]string, 0, 2)
-	// Sem prompter não há diálogo: sugerir autorizar no diálogo seria mentira.
-	if reason != "sem prompter de consentimento" {
+	if dialogAvailable {
 		suggestions = append(suggestions, "autorizar esta tentativa no diálogo de consentimento")
 	}
 	suggestions = append(suggestions,
-		"revisar ou revogar autorizações em [allowlist de paths]("+PathAllowlistDeepLink+")",
+		"revisar as regras (autorizações e proibições) em [gestão de paths]("+PathAllowlistDeepLink+")",
 	)
 	return &DeniedPathError{
 		Path:        path,

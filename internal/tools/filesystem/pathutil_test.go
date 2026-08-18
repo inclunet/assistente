@@ -3,9 +3,11 @@ package filesystem
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"assistente/internal/tools"
@@ -333,11 +335,15 @@ func TestValidatePathWithPolicy_OpenEditorPaths_NoLongerBypass(t *testing.T) {
 }
 
 type stubPathAuthorizer struct {
-	allow bool
-	err   error
+	allow   bool
+	err     error
+	denyErr error
 }
 
 func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation string) error {
+	if s.denyErr != nil {
+		return s.denyErr
+	}
 	if s.err != nil {
 		return s.err
 	}
@@ -345,6 +351,77 @@ func (s stubPathAuthorizer) Authorize(ctx context.Context, absPath, operation st
 		return nil
 	}
 	return errOutsideAllowedDirs
+}
+
+func (s stubPathAuthorizer) DeniedResolved(ctx context.Context, resolvedPath, operation string) error {
+	return s.denyErr
+}
+
+func TestValidatePathWithPolicy_DenyInsideSandbox(t *testing.T) {
+	workDir := t.TempDir()
+	inside := filepath.Join(workDir, "bloqueado.txt")
+	if err := os.WriteFile(inside, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	pathAuthorizer = stubPathAuthorizer{
+		denyErr: fmt.Errorf("bloqueado pela denylist (escopo global)"),
+	}
+
+	err := validatePathWithPolicy(context.Background(), inside, workDir, ToolPolicy(), "read")
+	if err == nil {
+		t.Fatal("deny dentro do sandbox deveria bloquear")
+	}
+	if !strings.Contains(err.Error(), "denylist") {
+		t.Fatalf("mensagem inesperada: %v", err)
+	}
+}
+
+func TestValidatePathWithPolicy_DenyOutsideUsesAuthorizeOnce(t *testing.T) {
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "doc.txt")
+	if err := os.WriteFile(outsideFile, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	counter := &countingPathAuthorizer{
+		denyErr: fmt.Errorf("bloqueado pela denylist (escopo global)"),
+	}
+	pathAuthorizer = counter
+
+	err := validatePathWithPolicy(context.Background(), outsideFile, workDir, ToolPolicy(), "read")
+	if err == nil {
+		t.Fatal("deny fora do sandbox deveria bloquear")
+	}
+	if counter.deniedCalls != 1 {
+		t.Fatalf("Denied deveria rodar 1 vez via Authorize, got %d", counter.deniedCalls)
+	}
+	if counter.authorizeCalls != 1 {
+		t.Fatalf("Authorize deveria rodar 1 vez, got %d", counter.authorizeCalls)
+	}
+}
+
+type countingPathAuthorizer struct {
+	denyErr        error
+	deniedCalls    int
+	authorizeCalls int
+}
+
+func (c *countingPathAuthorizer) Authorize(ctx context.Context, absPath, operation string) error {
+	c.authorizeCalls++
+	// Fora do sandbox, o Authorize aplica a precedência de deny internamente.
+	c.deniedCalls++
+	return c.denyErr
+}
+
+func (c *countingPathAuthorizer) DeniedResolved(ctx context.Context, resolvedPath, operation string) error {
+	c.deniedCalls++
+	return c.denyErr
 }
 
 func TestValidatePathWithPolicy_PathAuthorizerAllowsOutside(t *testing.T) {

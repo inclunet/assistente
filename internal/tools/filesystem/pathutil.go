@@ -18,10 +18,17 @@ import (
 // PathAuthorizer (AEP-0092).
 var errOutsideAllowedDirs = errors.New("caminho fora dos diretórios permitidos")
 
-// PathAuthorizer autoriza paths fora do sandbox (allowlist escopável + DecisionDialog).
+// PathAuthorizer autoriza paths fora do sandbox (allowlist escopável + DecisionDialog)
+// e avalia denylist também dentro das raízes (AEP-0092 Fase 2).
 // Implementado por internal/fstrust.Authorizer; nil = deny seco (testes / bootstrap).
 type PathAuthorizer interface {
 	Authorize(ctx context.Context, absPath, operation string) error
+	// DeniedResolved devolve erro quando uma entrada EffectDeny casa o
+	// path+operação; nil = não há deny. Recebe o destino REAL já resolvido pelo
+	// sandbox (validatePath), evitando resolver symlinks de novo. Fora do
+	// sandbox a precedência de deny é aplicada por Authorize, então
+	// validatePathWithPolicy não chama esta função nesse caminho.
+	DeniedResolved(ctx context.Context, resolvedPath, operation string) error
 }
 
 var (
@@ -203,13 +210,22 @@ func resolveForComparison(absPath string) (string, error) {
 }
 
 func validatePath(fullPath, workDir string) error {
+	_, err := validatePathResolved(fullPath, workDir)
+	return err
+}
+
+// validatePathResolved é validatePath que também devolve o destino REAL (symlinks
+// resolvidos), para o chamador reaproveitar sem repetir a resolução (ex.: a
+// checagem de denylist dentro do sandbox). O path resolvido é devolvido mesmo
+// quando o erro é errOutsideAllowedDirs.
+func validatePathResolved(fullPath, workDir string) (string, error) {
 	absPath, err := filepath.Abs(filepath.Clean(fullPath))
 	if err != nil {
-		return fmt.Errorf("caminho inválido: %v", err)
+		return "", fmt.Errorf("caminho inválido: %v", err)
 	}
 	absRoot, err := effectiveSandboxRoot(workDir)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	allowedRoots := []string{absRoot}
@@ -226,18 +242,18 @@ func validatePath(fullPath, workDir string) error {
 	// symlink (ex.: macOS /var -> /private/var).
 	resolvedPath, err := resolveForComparison(absPath)
 	if err != nil {
-		return fmt.Errorf("não foi possível validar o destino real: %w", err)
+		return "", fmt.Errorf("não foi possível validar o destino real: %w", err)
 	}
 	for _, root := range allowedRoots {
 		resolvedRoot, resolveErr := resolveForComparison(root)
 		if resolveErr != nil {
-			return fmt.Errorf("não foi possível validar a raiz permitida: %w", resolveErr)
+			return "", fmt.Errorf("não foi possível validar a raiz permitida: %w", resolveErr)
 		}
 		if isWithinRoot(resolvedPath, resolvedRoot) {
-			return nil
+			return resolvedPath, nil
 		}
 	}
-	return errOutsideAllowedDirs
+	return resolvedPath, errOutsideAllowedDirs
 }
 
 // walkEntryEscapesSandbox reporta se uma entrada encontrada durante um walk
@@ -274,16 +290,24 @@ func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, polic
 			return err
 		}
 	}
-	if err := validatePath(fullPath, workDir); err != nil {
+	resolvedPath, err := validatePathResolved(fullPath, workDir)
+	if err != nil {
 		if !errors.Is(err, errOutsideAllowedDirs) {
 			return err
 		}
-		// AEP-0092: fora do sandbox → allowlist / DecisionDialog (não open-editor bypass).
+		// AEP-0092: fora do sandbox → Authorize (que aplica deny antes do prompt).
+		// Não chamar Denied aqui: Authorize já o faz e evitamos resolveSymlinks duplicado.
 		if pathAuthorizer == nil {
 			return err
 		}
 		if authErr := pathAuthorizer.Authorize(ctx, fullPath, operation); authErr != nil {
 			return authErr
+		}
+	} else if pathAuthorizer != nil {
+		// Dentro do sandbox: denylist ainda aplica (AEP-0092 D9); trust nunca anula
+		// deny. Reaproveita o destino já resolvido por validatePathResolved.
+		if denyErr := pathAuthorizer.DeniedResolved(ctx, resolvedPath, operation); denyErr != nil {
+			return denyErr
 		}
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {

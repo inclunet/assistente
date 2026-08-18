@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func TestFSTrustRemoveRequiresPersistentScope(t *testing.T) {
 	c := NewFSTrustController(FSTrustControllerConfig{
 		FSTrustMgr: fstrust.NewManager(),
 	})
-	err := c.RemovePathAllowlistEntry(context.Background(), "session", "/tmp/a.txt", "file", "read")
+	err := c.RemovePathAllowlistEntry(context.Background(), "session", "/tmp/a.txt", "file", "read", "allow")
 	if err == nil || !strings.Contains(err.Error(), "escopo inválido") {
 		t.Fatalf("want escopo inválido, got %v", err)
 	}
@@ -32,7 +33,7 @@ func TestFSTrustRemoveRequiresPersistentScope(t *testing.T) {
 func TestFSTrustRemoveNilManager(t *testing.T) {
 	t.Parallel()
 	c := NewFSTrustController(FSTrustControllerConfig{})
-	err := c.RemovePathAllowlistEntry(context.Background(), "global", "/tmp/a.txt", "file", "read")
+	err := c.RemovePathAllowlistEntry(context.Background(), "global", "/tmp/a.txt", "file", "read", "allow")
 	if err == nil || !strings.Contains(err.Error(), "não inicializado") {
 		t.Fatalf("want gerenciador não inicializado, got %v", err)
 	}
@@ -43,9 +44,100 @@ func TestFSTrustRemoveInvalidKind(t *testing.T) {
 	c := NewFSTrustController(FSTrustControllerConfig{
 		FSTrustMgr: fstrust.NewManager(),
 	})
-	err := c.RemovePathAllowlistEntry(context.Background(), "global", "/tmp/a.txt", "weird", "read")
+	err := c.RemovePathAllowlistEntry(context.Background(), "global", "/tmp/a.txt", "weird", "read", "allow")
 	if err == nil || !strings.Contains(err.Error(), "kind inválido") {
 		t.Fatalf("want kind inválido, got %v", err)
+	}
+}
+
+func TestFSTrustAddPathDenyEntry(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+	path := filepath.Join(dir, "bloqueado.txt")
+
+	if err := c.AddPathDenyEntry(context.Background(), path, "file", "read", "global", "teste"); err != nil {
+		t.Fatalf("AddPathDenyEntry: %v", err)
+	}
+	if err := c.AddPathDenyEntry(context.Background(), path, "file", "read", "session", ""); err == nil {
+		t.Fatal("session não deveria ser aceito para denylist")
+	}
+
+	views := c.GetPathAllowlist(context.Background())
+	if len(views) != 1 || views[0].Effect != "deny" {
+		t.Fatalf("want 1 deny, got %#v", views)
+	}
+}
+
+func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+	want := filepath.Join(dir, "bloqueado.txt")
+	// Path com espaços nas bordas e um segmento ".." que precisa ser colapsado
+	// para casar o que o MatchDeny usa em tempo de acesso.
+	raw := "  " + filepath.Join(dir, "sub", "..", "bloqueado.txt") + "  "
+
+	if err := c.AddPathDenyEntry(context.Background(), raw, "file", "  ReAd  ", "global", "  motivo  "); err != nil {
+		t.Fatalf("AddPathDenyEntry: %v", err)
+	}
+
+	views := c.GetPathAllowlist(context.Background())
+	if len(views) != 1 {
+		t.Fatalf("want 1 entrada, got %d", len(views))
+	}
+	v := views[0]
+	if v.Path != strings.TrimSpace(v.Path) || fstrust.NormalizePath(v.Path) != fstrust.NormalizePath(want) {
+		t.Fatalf("path não resolvido/normalizado: %q (quer %q)", v.Path, want)
+	}
+	if v.Operation != "read" {
+		t.Fatalf("operation não normalizada: %q", v.Operation)
+	}
+	if v.Reason != "motivo" {
+		t.Fatalf("reason não normalizado: %q", v.Reason)
+	}
+}
+
+func TestFSTrustAddPathDenyEntryExpandsHome(t *testing.T) {
+	t.Parallel()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skipf("home indisponível: %v", err)
+	}
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+
+	if err := c.AddPathDenyEntry(context.Background(), "~/segredo.env", "file", "read", "global", ""); err != nil {
+		t.Fatalf("AddPathDenyEntry: %v", err)
+	}
+
+	views := c.GetPathAllowlist(context.Background())
+	if len(views) != 1 {
+		t.Fatalf("want 1 entrada, got %d", len(views))
+	}
+	want := fstrust.NormalizePath(filepath.Join(home, "segredo.env"))
+	if fstrust.NormalizePath(views[0].Path) != want {
+		t.Fatalf("~ não expandido: %q (quer %q)", views[0].Path, want)
+	}
+	if strings.Contains(views[0].Path, "~") {
+		t.Fatalf("path ainda contém ~: %q", views[0].Path)
+	}
+}
+
+func TestFSTrustAddPathDenyEntryRejectsRelative(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+
+	if err := c.AddPathDenyEntry(context.Background(), "relativo/segredo.env", "file", "read", "global", ""); err == nil {
+		t.Fatal("path relativo deveria ser rejeitado")
+	}
+	if len(c.GetPathAllowlist(context.Background())) != 0 {
+		t.Fatal("nada deveria ter sido persistido para path relativo")
 	}
 }
 
@@ -59,6 +151,7 @@ func TestFSTrustGetPathAllowlistMapsEntry(t *testing.T) {
 		Path:      path,
 		Kind:      fstrust.KindFile,
 		Operation: "read",
+		Effect:    fstrust.EffectAllow,
 		Scope:     fstrust.ScopeGlobal,
 		CreatedBy: "user",
 		CreatedAt: created,
@@ -77,6 +170,7 @@ func TestFSTrustGetPathAllowlistMapsEntry(t *testing.T) {
 	if fstrust.NormalizePath(v.Path) != fstrust.NormalizePath(entry.Path) ||
 		v.Kind != string(entry.Kind) ||
 		v.Operation != entry.Operation ||
+		v.Effect != "allow" ||
 		v.Scope != string(entry.Scope) {
 		t.Fatalf("view incompleta: %#v", v)
 	}

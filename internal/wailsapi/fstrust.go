@@ -52,14 +52,26 @@ func (f *FSTrust) GetPathAllowlist() ([]apidto.PathAllowlistView, error) {
 	})
 }
 
-// RemovePathAllowlistEntry remove uma entrada persistida por (scope, path, kind, operation).
-func (f *FSTrust) RemovePathAllowlistEntry(scope, path, kind, operation string) error {
+// RemovePathAllowlistEntry remove uma entrada persistida por (scope, path, kind, operation, effect).
+func (f *FSTrust) RemovePathAllowlistEntry(scope, path, kind, operation, effect string) error {
 	session, ctrl, err := f.deps()
 	if err != nil {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.RemovePathAllowlistEntry(ctx, scope, path, kind, operation)
+		return struct{}{}, ctrl.RemovePathAllowlistEntry(ctx, scope, path, kind, operation, effect)
+	})
+	return err
+}
+
+// AddPathDenyEntry cria uma proibição persistente (só EffectDeny).
+func (f *FSTrust) AddPathDenyEntry(path, kind, operation, scope, reason string) error {
+	session, ctrl, err := f.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.AddPathDenyEntry(ctx, path, kind, operation, scope, reason)
 	})
 	return err
 }

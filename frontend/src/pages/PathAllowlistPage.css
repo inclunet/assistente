@@ -44,3 +44,31 @@
   text-align: center;
   padding: 2rem 0;
 }
+
+.path-allowlist-page__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.path-allowlist-page__form-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.path-allowlist-page__form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.path-allowlist-page__form-actions {
+  display: flex;
+  justify-content: flex-start;
+}
