@@ -7,11 +7,13 @@ import (
 	"os"
 	"strings"
 
+	"assistente/internal/docextract"
 	"assistente/internal/tools"
 )
 
 // ReadFile lê o conteúdo de um arquivo no disco.
 // Suporta offset e limit para ler arquivos grandes parcialmente.
+// Documentos V1 (AEP-0093) são projetados para Markdown.
 type ReadFile struct {
 	// workDir é o diretório base para caminhos relativos
 	workDir string
@@ -31,7 +33,7 @@ func (t *ReadFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *ReadFile) Description() string {
-	return "Reads a file and returns line-numbered content. Use offset (1-indexed; negative counts from end) and limit (number of lines). Without offset/limit, returns the whole file."
+	return "Reads a file and returns line-numbered content. For documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, CSV, RTF, EPUB) returns a Markdown projection (not the original file). Use offset (1-indexed; negative counts from end) and limit (number of lines of the returned text/projection). Without offset/limit, returns the whole result."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
@@ -44,7 +46,7 @@ func (t *ReadFile) Parameters() json.RawMessage {
 			},
 			"offset": {
 				"type": "integer",
-				"description": "Linha inicial (1-indexed). Se negativo, conta do final do arquivo."
+				"description": "Linha inicial (1-indexed) do texto/projeção. Se negativo, conta do final."
 			},
 			"limit": {
 				"type": "integer",
@@ -102,7 +104,31 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
 	}
 
-	content := string(data)
+	extracted, err := docextract.Extract(data, a.Path)
+	if err != nil {
+		return tools.ToolResult{Content: documentReadError(err), IsError: true}, nil
+	}
+
+	var content string
+	var meta map[string]any
+	if docextract.IsDocument(extracted.Kind) {
+		body := docextract.FormatProjectionHeader(extracted) + extracted.Markdown
+		content = body
+		meta = map[string]any{
+			"projection": true,
+			"format":     string(extracted.Kind),
+			"size_bytes": len(data),
+		}
+		if extracted.Pages > 0 {
+			meta["pages"] = extracted.Pages
+		}
+	} else {
+		content = extracted.Markdown
+		meta = map[string]any{
+			"size_bytes": len(data),
+		}
+	}
+
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 
@@ -146,13 +172,12 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		}
 
 		header := fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n", a.Path, offset+1, end, totalLines)
+		meta["total_lines"] = totalLines
+		meta["offset"] = offset + 1
+		meta["limit"] = end - offset
 		return tools.ToolResult{
-			Content: header + strings.Join(numbered, "\n"),
-			Metadata: map[string]any{
-				"total_lines": totalLines,
-				"offset":      offset + 1,
-				"limit":       end - offset,
-			},
+			Content:  header + strings.Join(numbered, "\n"),
+			Metadata: meta,
 		}, nil
 	}
 
@@ -163,12 +188,10 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	header := fmt.Sprintf("Arquivo: %s (%d linhas, %d bytes)\n", a.Path, totalLines, len(data))
+	meta["total_lines"] = totalLines
 	return tools.ToolResult{
-		Content: header + strings.Join(numbered, "\n"),
-		Metadata: map[string]any{
-			"total_lines": totalLines,
-			"size_bytes":  len(data),
-		},
+		Content:  header + strings.Join(numbered, "\n"),
+		Metadata: meta,
 	}, nil
 }
 

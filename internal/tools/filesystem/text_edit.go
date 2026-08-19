@@ -53,7 +53,7 @@ func (t *TextEdit) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TextEdit) Description() string {
-	return "Replaces the selected text in the active editor file after user confirmation (Apply/Reject). Use 'original' with the exact selected text and 'replacement' with the final content. Only works from an editor tab with an open file; elsewhere use edit_file."
+	return "Replaces the selected text in the active editor text file after user confirmation (Apply/Reject). Refuses document formats (PDF, DOCX, etc.). Use 'original' with the exact selected text and 'replacement' with the final content. Only works from an editor tab with an open file; elsewhere use edit_file."
 }
 
 func (t *TextEdit) Parameters() json.RawMessage {
@@ -153,6 +153,9 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
+	}
+	if msg, ok := rejectDocumentWrite(data, fullPath); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 	content := string(data)
 

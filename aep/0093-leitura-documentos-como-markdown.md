@@ -100,13 +100,13 @@ explícita — nunca como indexação contínua nem default de toda varredura.
 
 ### Fase 1 — núcleo de leitura
 
-- [ ] Pacote/extrator interno compartilhado (detect + extract → MD)
-- [ ] `read_file` usa o extrator para formatos V1
-- [ ] Cabeçalho/aviso de projeção na resposta
-- [ ] `write_file` / `edit_file` / `text_edit` rejeitam documentos
-- [ ] Adaptadores: PDF textual, OOXML, OpenDocument, CSV, RTF e EPUB
-- [ ] Testes por formato, texto inalterado, formato disfarçado e binário rejeitado
-- [ ] Descrição da tool / catálogo atualizados (i18n se houver strings de UI)
+- [x] Pacote/extrator interno compartilhado (detect + extract → MD)
+- [x] `read_file` usa o extrator para formatos V1
+- [x] Cabeçalho/aviso de projeção na resposta
+- [x] `write_file` / `edit_file` / `text_edit` rejeitam documentos
+- [x] Adaptadores: PDF textual, OOXML, OpenDocument, CSV, RTF e EPUB
+- [x] Testes por formato, texto inalterado, formato disfarçado e binário rejeitado
+- [x] Descrição da tool / catálogo atualizados (i18n se houver strings de UI)
 
 ### Fase 2 — busca e cache
 

@@ -52,7 +52,7 @@ func (t *EditFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *EditFile) Description() string {
-	return "Edits an existing file by replacing an exact string (old_string) with another (new_string). old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
+	return "Edits an existing text file by replacing an exact string (old_string) with another (new_string). Refuses document formats (PDF, DOCX, etc.). old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
 }
 
 func (t *EditFile) Parameters() json.RawMessage {
@@ -136,6 +136,9 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
+	}
+	if msg, ok := rejectDocumentWrite(data, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 	content := string(data)
 
