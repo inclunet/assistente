@@ -33,7 +33,7 @@ func (t *ReadFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *ReadFile) Description() string {
-	return "Reads a file and returns line-numbered content. For documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, CSV, RTF, EPUB) returns a Markdown projection (not the original file). Use offset (1-indexed; negative counts from end) and limit (number of lines of the returned text/projection). Without offset/limit, returns the whole result."
+	return "Reads a file and returns line-numbered content. For documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, CSV, RTF, EPUB) returns a Markdown projection (not the original file); document extraction is capped at 32 MiB of input, while plain text/code has no such cap. Use offset (1-indexed; negative counts from end) and limit (number of lines of the returned text/projection). Without offset/limit, returns the whole result."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
