@@ -13,6 +13,15 @@ func Detect(data []byte, filename string) Kind {
 	if k := detectMagic(data); k != "" {
 		return k
 	}
+	// Container ZIP nunca é texto, mesmo com extensão inocente: chamadas que só
+	// veem o prefixo não conseguem ler a estrutura interna, e classificar como
+	// texto abriria caminho para gravar/streamar um documento renomeado.
+	if hasZipMagic(data) {
+		if k := detectByExt(filename); k != "" {
+			return k
+		}
+		return KindUnsupportedBinary
+	}
 	if isLikelyText(data) {
 		ext := strings.ToLower(filepath.Ext(filename))
 		if ext == ".csv" {
@@ -43,7 +52,7 @@ func detectMagic(data []byte) Kind {
 		return KindRTF
 	}
 	// ZIP-based (OOXML / ODF / EPUB)
-	if bytes.HasPrefix(data, []byte("PK\x03\x04")) || bytes.HasPrefix(data, []byte("PK\x05\x06")) {
+	if hasZipMagic(data) {
 		if k := detectZipKind(data); k != "" && k != KindUnsupportedBinary {
 			return k
 		}
@@ -51,6 +60,10 @@ func detectMagic(data []byte) Kind {
 		return ""
 	}
 	return ""
+}
+
+func hasZipMagic(data []byte) bool {
+	return bytes.HasPrefix(data, []byte("PK\x03\x04")) || bytes.HasPrefix(data, []byte("PK\x05\x06"))
 }
 
 func detectByExt(filename string) Kind {

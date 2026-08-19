@@ -27,6 +27,19 @@ func TestDetectZipWithoutDocumentExtensionIsNotText(t *testing.T) {
 			t.Fatalf("%s classificado como texto", name)
 		}
 	}
+
+	// Prefixo de ZIP sem byte de controle: só o magic denuncia o container.
+	textLike := append([]byte("PK\x03\x04"), []byte(strings.Repeat("A", 512))...)
+	for _, name := range []string{"pacote.txt", "pacote"} {
+		if kind := docextract.Detect(textLike, name); kind == docextract.KindText {
+			t.Fatalf("%s classificado como texto", name)
+		}
+	}
+
+	// A extensão continua completando a classificação de documento.
+	if kind := docextract.Detect(zipPrefix, "a.docx"); kind != docextract.KindDOCX {
+		t.Fatalf("kind=%s", kind)
+	}
 }
 
 func TestDetectPDFMagic(t *testing.T) {
