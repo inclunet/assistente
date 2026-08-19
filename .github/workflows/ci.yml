@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
-        timeout-minutes: 8
+        timeout-minutes: 10
         run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
 
       - uses: actions/setup-go@v5
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
-        timeout-minutes: 8
+        timeout-minutes: 10
         run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
 
       - uses: actions/setup-go@v5
@@ -131,7 +131,7 @@ jobs:
     # ordem e formatação mudam entre versões do gerador, e reprovar por isso
     # seria barulho. Defasagem sem quebra vira aviso.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -146,15 +146,16 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Dependências de sistema do Wails
-        timeout-minutes: 12
-        env:
-          APT_PRAZO_SEGUNDOS: 300
+        timeout-minutes: 15
         run: |
           bash .github/scripts/instalar-pacotes-apt.sh build-essential pkg-config libgtk-3-dev xvfb
-          # O nome do pacote do webkit muda com a versão do Ubuntu, então a
-          # primeira tentativa é única: repetir só atrasaria o fallback.
-          APT_TENTATIVAS=1 bash .github/scripts/instalar-pacotes-apt.sh libwebkit2gtk-4.1-dev \
-            || bash .github/scripts/instalar-pacotes-apt.sh libwebkit2gtk-4.0-dev
+          # O nome do pacote do webkit muda com a versão do Ubuntu. Perguntar ao
+          # índice qual existe evita gastar tentativas instalando o que não há.
+          pacote=libwebkit2gtk-4.1-dev
+          if ! apt-cache show "${pacote}" > /dev/null 2>&1; then
+            pacote=libwebkit2gtk-4.0-dev
+          fi
+          bash .github/scripts/instalar-pacotes-apt.sh "${pacote}"
 
       - name: Instalar o Wails CLI
         # A versão vem do go.mod: um CLI mais novo que a biblioteca gera um
@@ -245,6 +246,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # O Playwright chama apt por conta própria e não tem prazo nem retentativa;
+      # quando o espelho do runner não responde, o passo dele fica pendurado até
+      # o timeout do job. Preparar o índice aqui corrige o espelho antes disso.
+      - name: Preparar o apt do runner
+        timeout-minutes: 8
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/instalar-pacotes-apt.sh
+
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
@@ -254,10 +263,12 @@ jobs:
 
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
         run: npx playwright install chromium --with-deps
 
       - name: Install Playwright system deps (cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
+        timeout-minutes: 10
         run: npx playwright install-deps chromium
 
       - name: Run e2e tests
