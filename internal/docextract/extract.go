@@ -30,10 +30,7 @@ func Extract(data []byte, filename string) (*Result, error) {
 		res.Markdown = string(data)
 		return res, nil
 	case KindUnsupportedBinary:
-		return nil, &ErrUnsupported{
-			Kind: kind,
-			Msg:  "formato binário não suportado para leitura convertida — use um formato V1 (PDF textual, OOXML, ODF, CSV, RTF, EPUB) ou arquivo de texto",
-		}
+		return nil, ErrUnsupportedBinary()
 	case KindPDF:
 		return extractPDF(data, filename)
 	case KindDOCX:

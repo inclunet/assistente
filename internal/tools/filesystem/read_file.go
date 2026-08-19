@@ -125,7 +125,7 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		meta = map[string]any{
 			"projection": true,
 			"format":     string(extracted.Kind),
-			"size_bytes": len(data),
+			"size_bytes": int64(len(data)),
 		}
 		if extracted.Pages > 0 {
 			meta["pages"] = extracted.Pages
@@ -133,7 +133,7 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	} else {
 		content = extracted.Markdown
 		meta = map[string]any{
-			"size_bytes": len(data),
+			"size_bytes": int64(len(data)),
 		}
 	}
 

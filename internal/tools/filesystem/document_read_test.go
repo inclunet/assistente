@@ -204,6 +204,21 @@ func TestReadFileRejectsOversizedDocumentWithoutLoading(t *testing.T) {
 	}
 }
 
+func TestReadFileSizeBytesIsInt64(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("conteudo\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"path": "a.txt"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := res.Metadata["size_bytes"].(int64); !ok {
+		t.Fatalf("size_bytes=%T", res.Metadata["size_bytes"])
+	}
+}
+
 // Binário sem leitura convertida é recusado pelo formato, não pelo tamanho.
 func TestReadFileOversizedUnsupportedBinaryReportsFormat(t *testing.T) {
 	dir := t.TempDir()

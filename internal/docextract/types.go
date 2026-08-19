@@ -62,6 +62,15 @@ func (e *ErrNotWritable) Error() string {
 	)
 }
 
+// ErrUnsupportedBinary é a recusa de leitura de binário sem projeção, com a
+// mesma mensagem venha ela da extração ou da classificação por prefixo.
+func ErrUnsupportedBinary() error {
+	return &ErrUnsupported{
+		Kind: KindUnsupportedBinary,
+		Msg:  "formato binário não suportado para leitura convertida — use um formato V1 (PDF textual, OOXML, ODF, CSV, RTF, EPUB) ou arquivo de texto",
+	}
+}
+
 // ErrTooLargeToExtract descreve a recusa por tamanho, com a mesma mensagem
 // tanto para quem já leu o arquivo quanto para quem só olhou o tamanho no disco.
 func ErrTooLargeToExtract(size int64) error {

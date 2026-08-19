@@ -71,7 +71,7 @@ func rejectOversizedDocument(fullPath, displayPath string, size int64) (content 
 		return "", false
 	case docextract.KindUnsupportedBinary:
 		// O tamanho não é o motivo: esse formato não tem leitura convertida.
-		return (&docextract.ErrUnsupported{Kind: kind}).Error(), true
+		return docextract.ErrUnsupportedBinary().Error(), true
 	default:
 		return docextract.ErrTooLargeToExtract(size).Error(), true
 	}

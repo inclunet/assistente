@@ -65,6 +65,10 @@ func TestReadFileStreamsLargeTextSlice(t *testing.T) {
 	if got := res.Metadata["total_lines"]; got != 80_001 {
 		t.Fatalf("total_lines=%v", got)
 	}
+	// size_bytes é int64 em todos os caminhos de read_file.
+	if _, ok := res.Metadata["size_bytes"].(int64); !ok {
+		t.Fatalf("size_bytes=%T", res.Metadata["size_bytes"])
+	}
 	lines := strings.Split(res.Content, "\n")
 	if !strings.Contains(lines[0], "linhas 10-12 de 80001") {
 		t.Fatalf("cabeçalho inesperado: %q", lines[0])
