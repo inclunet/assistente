@@ -56,15 +56,18 @@ func extractEPUB(data []byte, filename string) (*Result, error) {
 	}
 
 	var parts []string
-	for i, id := range spine {
+	skipped := 0
+	for _, id := range spine {
 		href, ok := items[id]
 		if !ok {
+			skipped++
 			continue
 		}
 		full := path.Join(base, href)
 		full = strings.ReplaceAll(full, "\\", "/")
 		f := findZipName(zr, full)
 		if f == nil {
+			skipped++
 			continue
 		}
 		body, err := readZipFile(f, lim)
@@ -76,15 +79,20 @@ func extractEPUB(data []byte, filename string) (*Result, error) {
 		if text == "" {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("## Capítulo %d\n\n%s\n", i+1, text))
+		// Numera pelos capítulos efetivamente extraídos, para a saída não pular números.
+		parts = append(parts, fmt.Sprintf("## Capítulo %d\n\n%s\n", len(parts)+1, text))
 	}
 
-	return &Result{
+	res := &Result{
 		Kind:     KindEPUB,
 		Source:   filename,
 		Pages:    len(parts),
 		Markdown: strings.Join(parts, "\n") + "\n",
-	}, nil
+	}
+	if skipped > 0 {
+		res.Warnings = append(res.Warnings, fmt.Sprintf("%d item(ns) do spine não foram encontrados no EPUB", skipped))
+	}
+	return res, nil
 }
 
 func findRootfile(containerXML []byte) (string, error) {

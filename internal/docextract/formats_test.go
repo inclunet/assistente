@@ -77,6 +77,53 @@ func TestExtractEPUB(t *testing.T) {
 	}
 }
 
+func TestExtractXLSXMissingSheetFails(t *testing.T) {
+	data := writeZip(t, map[string]string{
+		"xl/workbook.xml": `<?xml version="1.0"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Folha1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+		"xl/_rels/workbook.xml.rels": `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+	})
+	if _, err := docextract.Extract(data, "s.xlsx"); err == nil {
+		t.Fatal("aba ausente deveria falhar em vez de projetar parcialmente")
+	}
+}
+
+// Item do spine ausente não pode furar a numeração dos capítulos extraídos.
+func TestExtractEPUBNumbersExtractedChapters(t *testing.T) {
+	data := writeZip(t, map[string]string{
+		"mimetype": "application/epub+zip",
+		"META-INF/container.xml": `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+		"OEBPS/content.opf": `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <manifest>
+    <item id="c1" href="sumido.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c2" href="chap.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
+</package>`,
+		"OEBPS/chap.xhtml": `<html><body><p>Conteudo presente</p></body></html>`,
+	})
+	res, err := docextract.Extract(data, "a.epub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Markdown, "## Capítulo 1") {
+		t.Fatalf("numeração furada: %q", res.Markdown)
+	}
+	if len(res.Warnings) == 0 {
+		t.Fatal("item ausente do spine deveria gerar aviso")
+	}
+}
+
 // Span no meio do parágrafo não pode cortar o texto que vem depois dele.
 func TestExtractODPKeepsTextAfterSpan(t *testing.T) {
 	data := minimalODP(t, `foo <text:span>bar</text:span> baz`)

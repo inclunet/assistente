@@ -148,7 +148,7 @@ func extractXLSX(data []byte, filename string) (*Result, error) {
 		sheetPath = strings.ReplaceAll(sheetPath, "\\", "/")
 		sf := findZipName(zr, sheetPath)
 		if sf == nil {
-			continue
+			return nil, fmt.Errorf("XLSX inconsistente: aba %q aponta para %q, ausente no arquivo", sh.Name, sheetPath)
 		}
 		sb, err := readZipFile(sf, lim)
 		if err != nil {
