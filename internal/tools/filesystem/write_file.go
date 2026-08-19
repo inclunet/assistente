@@ -57,7 +57,7 @@ func (t *WriteFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *WriteFile) Description() string {
-	return "Creates or overwrites a text file with full content (no partial edits). Creates intermediate directories. Refuses document formats (PDF, DOCX, etc.); use read_file for Markdown projections. For small edits, use edit_file."
+	return "Creates or overwrites a text file with full content (no partial edits). Creates intermediate directories. Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB) — read them with read_file, which returns a Markdown projection; CSV and RTF remain writable as text. For small edits, use edit_file."
 }
 
 func (t *WriteFile) Parameters() json.RawMessage {

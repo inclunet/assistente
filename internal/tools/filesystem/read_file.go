@@ -98,6 +98,10 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("'%s' é um diretório, não um arquivo. Use list_directory.", a.Path), IsError: true}, nil
 	}
 
+	if msg, rejected := rejectOversizedDocument(fullPath, a.Path, info.Size()); rejected {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Lê o arquivo
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {

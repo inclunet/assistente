@@ -5,7 +5,13 @@ import (
 	"strings"
 )
 
-const maxExtractBytes = 32 << 20 // 32 MiB de entrada para extração de documento
+// MaxExtractBytes é o teto de entrada para extração de documento. Não vale para
+// texto/código, que continua paginável por linhas.
+const MaxExtractBytes = 32 << 20 // 32 MiB
+
+// DetectPrefixBytes é quanto basta ler do início do arquivo para classificar sem
+// carregar o conteúdo inteiro.
+const DetectPrefixBytes = 8 << 10 // 8 KiB
 
 // Extract detecta o formato e projeta para Markdown. Para KindText devolve
 // o conteúdo bruto (sem cabeçalho de projeção — quem chama decide).
@@ -15,8 +21,8 @@ func Extract(data []byte, filename string) (*Result, error) {
 
 	// O limite vale só para extração; texto/código segue como antes (D8: sem
 	// hard-deny artificial em arquivo grande que o chamador pagina por linhas).
-	if kind != KindText && len(data) > maxExtractBytes {
-		return nil, fmt.Errorf("arquivo muito grande para extração (%d bytes; máximo %d)", len(data), maxExtractBytes)
+	if kind != KindText && len(data) > MaxExtractBytes {
+		return nil, ErrTooLargeToExtract(int64(len(data)))
 	}
 
 	switch kind {

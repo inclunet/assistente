@@ -53,7 +53,7 @@ func (t *TextEdit) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TextEdit) Description() string {
-	return "Replaces the selected text in the active editor text file after user confirmation (Apply/Reject). Refuses document formats (PDF, DOCX, etc.). Use 'original' with the exact selected text and 'replacement' with the final content. Only works from an editor tab with an open file; elsewhere use edit_file."
+	return "Replaces the selected text in the active editor text file after user confirmation (Apply/Reject). Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB); CSV and RTF remain editable as text. Use 'original' with the exact selected text and 'replacement' with the final content. Only works from an editor tab with an open file; elsewhere use edit_file."
 }
 
 func (t *TextEdit) Parameters() json.RawMessage {

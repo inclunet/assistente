@@ -52,7 +52,7 @@ func (t *EditFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *EditFile) Description() string {
-	return "Edits an existing text file by replacing an exact string (old_string) with another (new_string). Refuses document formats (PDF, DOCX, etc.). old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
+	return "Edits an existing text file by replacing an exact string (old_string) with another (new_string). Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB); CSV and RTF remain editable as text. old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
 }
 
 func (t *EditFile) Parameters() json.RawMessage {

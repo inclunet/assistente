@@ -62,6 +62,12 @@ func (e *ErrNotWritable) Error() string {
 	)
 }
 
+// ErrTooLargeToExtract descreve a recusa por tamanho, com a mesma mensagem
+// tanto para quem já leu o arquivo quanto para quem só olhou o tamanho no disco.
+func ErrTooLargeToExtract(size int64) error {
+	return fmt.Errorf("arquivo muito grande para extração (%d bytes; máximo %d)", size, MaxExtractBytes)
+}
+
 // IsDocument retorna true para formatos que a Fase 1 projeta (não texto nativo).
 func IsDocument(k Kind) bool {
 	switch k {

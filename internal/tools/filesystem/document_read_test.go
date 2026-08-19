@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/docextract"
+
 	"codeberg.org/go-pdf/fpdf"
 )
 
@@ -166,6 +168,39 @@ func TestWriteFileRejectsBinaryWithoutProjectionPromise(t *testing.T) {
 	}
 	if strings.Contains(res.Content, "projeção Markdown") {
 		t.Fatalf("binário não tem projeção: %s", res.Content)
+	}
+}
+
+// Documento acima do teto é recusado pelo tamanho no disco, sem carregar o
+// arquivo inteiro; texto do mesmo tamanho continua legível.
+func TestReadFileRejectsOversizedDocumentWithoutLoading(t *testing.T) {
+	dir := t.TempDir()
+	docPath := filepath.Join(dir, "grande.pdf")
+	f, err := os.Create(docPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("%PDF-1.4\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(docextract.MaxExtractBytes + 1); err != nil {
+		_ = f.Close()
+		t.Skipf("não foi possível criar arquivo grande: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"path": "grande.pdf"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("documento acima do teto deveria falhar")
+	}
+	if !strings.Contains(res.Content, "muito grande para extração") {
+		t.Fatalf("got %s", res.Content)
 	}
 }
 
