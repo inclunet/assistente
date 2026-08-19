@@ -22,8 +22,9 @@ func rejectDocumentWrite(data []byte, pathForDetect string) (content string, rej
 // de texto; a extensão completa a classificação quando o magic não basta (é o
 // caso dos containers ZIP, cuja estrutura interna só apareceria lendo o arquivo
 // todo). Um ZIP com extensão que não denuncia o formato cai em
-// KindUnsupportedBinary, que também não é gravável — a recusa se mantém. Se o
-// arquivo existe mas não pode ser lido, falha fechado (AEP-0093).
+// KindUnsupportedBinary, que também não é gravável — a recusa se mantém. Quando
+// o arquivo existe mas não pode ser lido, a escrita é recusada em vez de seguir
+// adiante (fail closed, AEP-0093).
 func rejectExistingDocument(fullPath, displayPath string) (content string, rejected bool) {
 	prefix, err := readFilePrefix(fullPath, docextract.DetectPrefixBytes)
 	if err != nil {
