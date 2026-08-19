@@ -66,10 +66,15 @@ func rejectOversizedDocument(fullPath, displayPath string, size int64) (content 
 	if err != nil {
 		return fmt.Sprintf("não foi possível classificar o arquivo antes de ler: %v", err), true
 	}
-	if docextract.Detect(prefix, displayPath) == docextract.KindText {
+	switch kind := docextract.Detect(prefix, displayPath); kind {
+	case docextract.KindText:
 		return "", false
+	case docextract.KindUnsupportedBinary:
+		// O tamanho não é o motivo: esse formato não tem leitura convertida.
+		return (&docextract.ErrUnsupported{Kind: kind}).Error(), true
+	default:
+		return docextract.ErrTooLargeToExtract(size).Error(), true
 	}
-	return docextract.ErrTooLargeToExtract(size).Error(), true
 }
 
 func documentReadError(err error) string {

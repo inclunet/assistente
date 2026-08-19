@@ -204,6 +204,41 @@ func TestReadFileRejectsOversizedDocumentWithoutLoading(t *testing.T) {
 	}
 }
 
+// Binário sem leitura convertida é recusado pelo formato, não pelo tamanho.
+func TestReadFileOversizedUnsupportedBinaryReportsFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grande.bin")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte{0x00, 0x01, 0x02, 0xff, 0xfe}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(docextract.MaxExtractBytes + 1); err != nil {
+		_ = f.Close()
+		t.Skipf("não foi possível criar arquivo grande: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"path": "grande.bin"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(res.Content, "muito grande") {
+		t.Fatalf("motivo deveria ser o formato, não o tamanho: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "não suportado") {
+		t.Fatalf("got %s", res.Content)
+	}
+}
+
 func TestReadFileUnsupportedBinary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.bin")

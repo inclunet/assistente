@@ -18,6 +18,17 @@ func TestDetectText(t *testing.T) {
 	}
 }
 
+// Guards por prefixo dependem de um ZIP nunca passar por texto, mesmo quando a
+// extensão não denuncia o formato.
+func TestDetectZipWithoutDocumentExtensionIsNotText(t *testing.T) {
+	zipPrefix := append([]byte("PK\x03\x04"), bytes.Repeat([]byte{0x14, 0x00, 0x08, 0x00}, 8)...)
+	for _, name := range []string{"pacote.bin", "pacote.txt", "pacote"} {
+		if kind := docextract.Detect(zipPrefix, name); kind == docextract.KindText {
+			t.Fatalf("%s classificado como texto", name)
+		}
+	}
+}
+
 func TestDetectPDFMagic(t *testing.T) {
 	pdf := buildPDF(t, "Hello PDF")
 	k := docextract.Detect(pdf, "disguised.txt")
