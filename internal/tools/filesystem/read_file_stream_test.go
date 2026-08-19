@@ -99,6 +99,41 @@ func TestReadFileStreamsNegativeOffset(t *testing.T) {
 	}
 }
 
+// Linha absurdamente longa falha em vez de cair na leitura integral.
+func TestReadFileStreamRejectsHugeLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "uma-linha.log")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := strings.Repeat("a", 1<<20)
+	for i := 0; i < (maxStreamLineBytes>>20)+2; i++ {
+		if _, err := f.WriteString(chunk); err != nil {
+			_ = f.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":  "uma-linha.log",
+		"limit": 1,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("linha gigante deveria falhar em vez de carregar tudo")
+	}
+	if !strings.Contains(res.Content, "linha maior que") {
+		t.Fatalf("mensagem inesperada: %s", res.Content)
+	}
+}
+
 // O recorte em streaming precisa bater com o do caminho que carrega tudo.
 func TestStreamingSliceMatchesFullRead(t *testing.T) {
 	dir := t.TempDir()

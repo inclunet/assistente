@@ -16,8 +16,8 @@ import (
 // streaming, sem materializar o conteúdo inteiro (AEP-0093, D8).
 const streamTextMinBytes = 4 << 20
 
-// Linha maior que isto derruba o streaming e devolve o controle ao caminho que
-// carrega o arquivo inteiro — sinal de que o arquivo não é realmente "linhas".
+// Linha maior que isto significa que o arquivo não é realmente "linhas"; servir
+// o recorte exigiria carregar tudo em memória, então a leitura falha.
 const maxStreamLineBytes = 16 << 20
 
 var errStreamLineTooLong = errors.New("linha longa demais para leitura em streaming")
@@ -51,6 +51,23 @@ func scanTextLines(fullPath string, visit func(idx int, line string) bool) error
 	}
 }
 
+// streamFailure decide o que fazer quando o streaming não conclui. Linha longa
+// demais vira erro: cair no caminho que lê tudo reintroduziria justamente o pico
+// de memória que o streaming evita. Outras falhas devolvem o controle ao
+// chamador, que ainda pode reportar o erro de leitura como antes.
+func streamFailure(err error, size int64) (tools.ToolResult, bool) {
+	if errors.Is(err, errStreamLineTooLong) {
+		return tools.ToolResult{
+			Content: fmt.Sprintf(
+				"arquivo de %d bytes tem linha maior que %d bytes; recorte por linhas não é possível sem carregar tudo em memória",
+				size, maxStreamLineBytes,
+			),
+			IsError: true,
+		}, true
+	}
+	return tools.ToolResult{}, false
+}
+
 // readTextSliceStreaming devolve o recorte pedido de um arquivo de texto grande
 // sem carregar tudo em memória. handled=false significa que o chamador deve
 // seguir pelo caminho normal.
@@ -68,7 +85,7 @@ func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg,
 		totalLines++
 		return true
 	}); err != nil {
-		return tools.ToolResult{}, false
+		return streamFailure(err, size)
 	}
 
 	offset := 0
@@ -105,7 +122,7 @@ func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg,
 		}
 		return idx+1 < end
 	}); err != nil {
-		return tools.ToolResult{}, false
+		return streamFailure(err, size)
 	}
 
 	header := fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n", displayPath, offset+1, end, totalLines)
