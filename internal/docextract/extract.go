@@ -116,10 +116,23 @@ func CheckWritable(data []byte, filename string) error {
 }
 
 // CheckWritableString evita copiar o conteúdo inteiro só para classificá-lo: a
-// detecção olha o começo do arquivo, então o prefixo basta.
+// detecção de formato olha o começo do arquivo, então o prefixo basta.
+//
+// A regra do byte NUL, porém, é sobre o conteúdo todo — é ela que separa texto
+// de binário em CheckWritable — e continua valendo aqui: strings.IndexByte
+// percorre a string sem copiá-la, então a verificação completa não custa o pico
+// de memória de converter tudo para []byte.
 func CheckWritableString(content, filename string) error {
-	if len(content) > DetectPrefixBytes {
-		content = content[:DetectPrefixBytes]
+	prefix := content
+	if len(prefix) > DetectPrefixBytes {
+		prefix = prefix[:DetectPrefixBytes]
 	}
-	return CheckWritable([]byte(content), filename)
+	prefixBytes := []byte(prefix)
+	if err := CheckWritable(prefixBytes, filename); err != nil {
+		return err
+	}
+	if strings.IndexByte(content, 0) >= 0 {
+		return &ErrNotWritable{Kind: Detect(prefixBytes, filename), BinaryContent: true}
+	}
+	return nil
 }

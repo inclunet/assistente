@@ -252,6 +252,10 @@ func TestCheckWritableStringMatchesBytes(t *testing.T) {
 	if err := docextract.CheckWritableString(string(buildPDF(t, "x")), "notas.txt"); err == nil {
 		t.Fatal("PDF disfarçado deveria ser recusado também pela verificação por prefixo")
 	}
+	// O NUL depois do prefixo continua sendo conteúdo binário.
+	if err := docextract.CheckWritableString(texto+"\x00fim", "notas.txt"); err == nil {
+		t.Fatal("byte NUL além do prefixo deveria ser recusado")
+	}
 }
 
 func TestCheckWritableDisguisedPDF(t *testing.T) {
