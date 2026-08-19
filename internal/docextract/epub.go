@@ -1,0 +1,184 @@
+package docextract
+
+import (
+	"encoding/xml"
+	"fmt"
+	"path"
+	"regexp"
+	"strings"
+)
+
+var htmlTagRe = regexp.MustCompile(`(?is)<[^>]+>`)
+var htmlEntityRe = regexp.MustCompile(`&(#?\w+);`)
+
+func extractEPUB(data []byte, filename string) (*Result, error) {
+	zr, err := openZip(data)
+	if err != nil {
+		return nil, err
+	}
+	lim := &zipLimits{}
+
+	container := findZipName(zr, "META-INF/container.xml")
+	if container == nil {
+		return nil, fmt.Errorf("EPUB sem META-INF/container.xml")
+	}
+	cbody, err := readZipFile(container, lim)
+	if err != nil {
+		return nil, err
+	}
+	opfPath := findRootfile(cbody)
+	if opfPath == "" {
+		return nil, fmt.Errorf("EPUB sem rootfile no container")
+	}
+	opfPath = strings.ReplaceAll(opfPath, "\\", "/")
+	opfFile := findZipName(zr, opfPath)
+	if opfFile == nil {
+		return nil, fmt.Errorf("EPUB rootfile ausente: %s", opfPath)
+	}
+	opfBody, err := readZipFile(opfFile, lim)
+	if err != nil {
+		return nil, err
+	}
+	base := path.Dir(opfPath)
+	items, spine := parseOPF(opfBody)
+
+	var parts []string
+	for i, id := range spine {
+		href, ok := items[id]
+		if !ok {
+			continue
+		}
+		full := path.Join(base, href)
+		full = strings.ReplaceAll(full, "\\", "/")
+		f := findZipName(zr, full)
+		if f == nil {
+			continue
+		}
+		body, err := readZipFile(f, lim)
+		if err != nil {
+			return nil, err
+		}
+		text := htmlToText(string(body))
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("## Capítulo %d\n\n%s\n", i+1, text))
+	}
+
+	return &Result{
+		Kind:     KindEPUB,
+		Source:   filename,
+		Pages:    len(parts),
+		Markdown: strings.Join(parts, "\n") + "\n",
+	}, nil
+}
+
+func findRootfile(containerXML []byte) string {
+	dec := xml.NewDecoder(strings.NewReader(string(containerXML)))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return ""
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok || local(se.Name) != "rootfile" {
+			continue
+		}
+		for _, a := range se.Attr {
+			if local(a.Name) == "full-path" {
+				return a.Value
+			}
+		}
+	}
+}
+
+func parseOPF(data []byte) (map[string]string, []string) {
+	items := map[string]string{}
+	var spine []string
+	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch local(se.Name) {
+		case "item":
+			var id, href, mt string
+			for _, a := range se.Attr {
+				switch local(a.Name) {
+				case "id":
+					id = a.Value
+				case "href":
+					href = a.Value
+				case "media-type":
+					mt = a.Value
+				}
+			}
+			if id != "" && href != "" && (strings.Contains(mt, "html") || mt == "" || strings.HasSuffix(href, ".xhtml") || strings.HasSuffix(href, ".html")) {
+				items[id] = href
+			}
+		case "itemref":
+			for _, a := range se.Attr {
+				if local(a.Name) == "idref" {
+					spine = append(spine, a.Value)
+				}
+			}
+		}
+	}
+	return items, spine
+}
+
+func htmlToText(s string) string {
+	// Remove scripts/styles
+	s = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`).ReplaceAllString(s, "")
+	s = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`).ReplaceAllString(s, "")
+	s = regexp.MustCompile(`(?is)<br\s*/?>`).ReplaceAllString(s, "\n")
+	s = regexp.MustCompile(`(?is)</p>`).ReplaceAllString(s, "\n\n")
+	s = regexp.MustCompile(`(?is)</div>`).ReplaceAllString(s, "\n")
+	s = regexp.MustCompile(`(?is)</h[1-6]>`).ReplaceAllString(s, "\n\n")
+	s = htmlTagRe.ReplaceAllString(s, "")
+	s = decodeEntities(s)
+	s = xmlSpaceCollapse.ReplaceAllString(s, " ")
+	// restore intentional newlines collapsed poorly — re-normalize paragraphs
+	lines := strings.Split(s, "\n")
+	var out []string
+	for _, ln := range lines {
+		ln = strings.TrimSpace(ln)
+		if ln != "" {
+			out = append(out, ln)
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
+
+func decodeEntities(s string) string {
+	repl := map[string]string{
+		"amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
+	}
+	return htmlEntityRe.ReplaceAllStringFunc(s, func(m string) string {
+		inner := m[1 : len(m)-1]
+		if strings.HasPrefix(inner, "#x") || strings.HasPrefix(inner, "#X") {
+			var v int
+			fmt.Sscanf(inner[2:], "%x", &v)
+			if v > 0 {
+				return string(rune(v))
+			}
+		}
+		if strings.HasPrefix(inner, "#") {
+			var v int
+			fmt.Sscanf(inner[1:], "%d", &v)
+			if v > 0 {
+				return string(rune(v))
+			}
+		}
+		if r, ok := repl[inner]; ok {
+			return r
+		}
+		return m
+	})
+}
