@@ -231,6 +231,13 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	// Realiza a substituição (única ocorrência garantida acima)
 	newContent := strings.Replace(content, a.Original, a.Replacement, 1)
 
+	// O arquivo de origem já foi classificado, mas o resultado da substituição é
+	// conteúdo novo: sem conferi-lo, replacement entraria como porta para gravar
+	// bytes não-texto num arquivo que passou no guard (AEP-0093).
+	if msg, ok := rejectDocumentWriteString(newContent, fullPath); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Escreve o arquivo modificado
 	var cancelWriteMarker func(bool)
 	if t.onWrite != nil {

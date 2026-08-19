@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"assistente/internal/docextract"
+	"assistente/internal/tools"
 
 	"codeberg.org/go-pdf/fpdf"
 )
@@ -197,6 +198,53 @@ func TestWriteFileRejectsBinaryContentUnderTextExtension(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "planilha.csv")); !os.IsNotExist(err) {
 		t.Fatal("o arquivo não deveria ter sido criado")
+	}
+}
+
+// Substituir texto por bytes binários é escrita de binário, mesmo partindo de um
+// arquivo de texto legítimo.
+func TestEditToolsRejectBinaryReplacement(t *testing.T) {
+	dir := t.TempDir()
+	original := "alfa\nbeta\n"
+
+	casos := []struct {
+		nome string
+		exec func(caminho string) (tools.ToolResult, error)
+	}{
+		{"edit_file", func(caminho string) (tools.ToolResult, error) {
+			return NewEditFile(dir, nil).Execute(context.Background(), mustJSON(t, map[string]any{
+				"path":       filepath.Base(caminho),
+				"old_string": "beta",
+				"new_string": "be\x00ta",
+			}))
+		}},
+		{"text_edit", func(caminho string) (tools.ToolResult, error) {
+			return NewTextEdit(dir, &fakeQuestionnaireRequester{}).Execute(editorCtx(caminho), mustJSON(t, map[string]any{
+				"original":    "beta",
+				"replacement": "be\x00ta",
+			}))
+		}},
+	}
+
+	for _, c := range casos {
+		caminho := filepath.Join(dir, c.nome+".txt")
+		if err := os.WriteFile(caminho, []byte(original), 0644); err != nil {
+			t.Fatal(err)
+		}
+		res, err := c.exec(caminho)
+		if err != nil {
+			t.Fatalf("%s: %v", c.nome, err)
+		}
+		if !res.IsError {
+			t.Fatalf("%s deveria recusar conteúdo binário", c.nome)
+		}
+		depois, err := os.ReadFile(caminho)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(depois) != original {
+			t.Fatalf("%s alterou o arquivo mesmo recusando: %q", c.nome, depois)
+		}
 	}
 }
 

@@ -191,6 +191,13 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		replacements = 1
 	}
 
+	// O arquivo de origem já foi classificado, mas o resultado da substituição é
+	// conteúdo novo: sem conferi-lo, new_string entraria como porta para gravar
+	// bytes não-texto num arquivo que passou no guard (AEP-0093).
+	if msg, ok := rejectDocumentWriteString(newContent, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Escreve o arquivo modificado
 	var cancelWriteMarker func(bool)
 	if t.onWrite != nil {
