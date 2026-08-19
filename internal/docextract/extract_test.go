@@ -75,6 +75,26 @@ func TestExtractCSV(t *testing.T) {
 	}
 }
 
+// Campo com pipe ou quebra de linha não pode desmontar a tabela Markdown.
+func TestExtractCSVEscapesCells(t *testing.T) {
+	data := []byte("nome,obs\n\"Ana\",\"a|b\"\n\"Bia\",\"linha1\nlinha2\"\n")
+	res, err := docextract.Extract(data, "t.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Markdown, `a\|b`) {
+		t.Fatalf("pipe não escapado: %q", res.Markdown)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(res.Markdown), "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.Count(line, "|")-strings.Count(line, `\|`) != 3 {
+			t.Fatalf("linha com número inesperado de colunas: %q", line)
+		}
+	}
+}
+
 func TestExtractRTF(t *testing.T) {
 	data := []byte(`{\rtf1\ansi Olamundo\par }`)
 	res, err := docextract.Extract(data, "a.rtf")

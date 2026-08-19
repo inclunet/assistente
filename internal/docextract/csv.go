@@ -30,6 +30,12 @@ func extractCSV(data []byte, filename string) (*Result, error) {
 			Warnings: []string{fmt.Sprintf("parser CSV falhou (%v); conteúdo em bloco de código", err)},
 		}, nil
 	}
+	// Campo CSV pode conter "|" ou quebra de linha, que desmontariam a tabela.
+	for _, row := range records {
+		for i, cell := range row {
+			row[i] = escapeMDCell(cell)
+		}
+	}
 	md := rowsToMarkdown(records)
 	return &Result{
 		Kind:     KindCSV,

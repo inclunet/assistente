@@ -53,8 +53,8 @@ func readFilePrefix(fullPath string, n int) ([]byte, error) {
 }
 
 // rejectOversizedDocument classifica pelo prefixo do arquivo e recusa documentos
-// acima do teto de extração antes de carregar tudo em memória. Texto/código passa,
-// porque a leitura é paginada por linhas.
+// acima do teto de extração antes de carregar tudo em memória. Texto/código não
+// tem teto: segue o comportamento anterior ao AEP-0093.
 func rejectOversizedDocument(fullPath, displayPath string, size int64) (content string, rejected bool) {
 	if size <= docextract.MaxExtractBytes {
 		return "", false
