@@ -164,17 +164,17 @@ func decodeEntities(s string) string {
 		inner := m[1 : len(m)-1]
 		if strings.HasPrefix(inner, "#x") || strings.HasPrefix(inner, "#X") {
 			var v int
-			fmt.Sscanf(inner[2:], "%x", &v)
-			if v > 0 {
+			if _, err := fmt.Sscanf(inner[2:], "%x", &v); err == nil && v > 0 {
 				return string(rune(v))
 			}
+			return m
 		}
 		if strings.HasPrefix(inner, "#") {
 			var v int
-			fmt.Sscanf(inner[1:], "%d", &v)
-			if v > 0 {
+			if _, err := fmt.Sscanf(inner[1:], "%d", &v); err == nil && v > 0 {
 				return string(rune(v))
 			}
+			return m
 		}
 		if r, ok := repl[inner]; ok {
 			return r

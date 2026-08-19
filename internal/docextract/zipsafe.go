@@ -45,7 +45,7 @@ func readZipFile(f *zip.File, lim *zipLimits) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	lim.entries++
 	if lim.entries > zipMaxEntries {
