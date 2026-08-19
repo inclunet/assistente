@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"fmt"
+	"os"
 
 	"assistente/internal/docextract"
 )
@@ -15,11 +16,14 @@ func rejectDocumentWrite(data []byte, pathForDetect string) (content string, rej
 }
 
 // rejectExistingDocument lê o arquivo existente (se houver) e rejeita escrita em documento.
+// Se o arquivo existe mas não pode ser lido, falha fechado (AEP-0093).
 func rejectExistingDocument(fullPath, displayPath string) (content string, rejected bool) {
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
-		// Arquivo novo — quem chama decide sobre o conteúdo a gravar
-		return "", false
+		if os.IsNotExist(err) {
+			return "", false
+		}
+		return fmt.Sprintf("não foi possível classificar o arquivo existente antes de escrever: %v", err), true
 	}
 	if msg, ok := rejectDocumentWrite(data, displayPath); ok {
 		return msg, true

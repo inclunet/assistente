@@ -140,17 +140,15 @@ func parseOPF(data []byte) (map[string]string, []string) {
 }
 
 func htmlToText(s string) string {
-	// Remove scripts/styles
-	s = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`).ReplaceAllString(s, "")
-	s = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`).ReplaceAllString(s, "")
-	s = regexp.MustCompile(`(?is)<br\s*/?>`).ReplaceAllString(s, "\n")
-	s = regexp.MustCompile(`(?is)</p>`).ReplaceAllString(s, "\n\n")
-	s = regexp.MustCompile(`(?is)</div>`).ReplaceAllString(s, "\n")
-	s = regexp.MustCompile(`(?is)</h[1-6]>`).ReplaceAllString(s, "\n\n")
+	s = htmlScriptRe.ReplaceAllString(s, "")
+	s = htmlStyleRe.ReplaceAllString(s, "")
+	s = htmlBrRe.ReplaceAllString(s, "\n")
+	s = htmlPEndRe.ReplaceAllString(s, "\n\n")
+	s = htmlDivEndRe.ReplaceAllString(s, "\n")
+	s = htmlHeadingEndRe.ReplaceAllString(s, "\n\n")
 	s = htmlTagRe.ReplaceAllString(s, "")
 	s = decodeEntities(s)
 	s = xmlSpaceCollapse.ReplaceAllString(s, " ")
-	// restore intentional newlines collapsed poorly — re-normalize paragraphs
 	lines := strings.Split(s, "\n")
 	var out []string
 	for _, ln := range lines {
