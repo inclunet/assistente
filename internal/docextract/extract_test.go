@@ -105,6 +105,19 @@ func TestCheckWritableDisguisedPDF(t *testing.T) {
 	}
 }
 
+func TestCheckWritableBinaryMessageDoesNotPromiseProjection(t *testing.T) {
+	err := docextract.CheckWritable([]byte{0x00, 0x01, 0x02, 0xff, 0xfe}, "blob.bin")
+	if err == nil {
+		t.Fatal("expected not writable")
+	}
+	if strings.Contains(err.Error(), "projeção Markdown") {
+		t.Fatalf("binário não tem projeção: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "binário") {
+		t.Fatalf("mensagem deveria citar binário: %q", err.Error())
+	}
+}
+
 func TestCheckWritableAllowsCSVText(t *testing.T) {
 	err := docextract.CheckWritable([]byte("a,b\n1,2\n"), "t.csv")
 	if err != nil {

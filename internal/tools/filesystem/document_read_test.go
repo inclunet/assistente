@@ -147,6 +147,28 @@ func TestWriteFileAllowsText(t *testing.T) {
 	}
 }
 
+func TestWriteFileRejectsBinaryWithoutProjectionPromise(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blob.bin")
+	if err := os.WriteFile(path, []byte{0x00, 0x01, 0x02, 0xff, 0xfe}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewWriteFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":    "blob.bin",
+		"content": "texto",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(res.Content, "projeção Markdown") {
+		t.Fatalf("binário não tem projeção: %s", res.Content)
+	}
+}
+
 func TestReadFileUnsupportedBinary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.bin")

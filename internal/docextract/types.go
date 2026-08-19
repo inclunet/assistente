@@ -50,8 +50,14 @@ type ErrNotWritable struct {
 }
 
 func (e *ErrNotWritable) Error() string {
+	if IsDocument(e.Kind) {
+		return fmt.Sprintf(
+			"escrita não suportada no formato %s — use read_file para obter a projeção Markdown; write_file/edit_file só aceitam arquivos de texto",
+			e.Kind,
+		)
+	}
 	return fmt.Sprintf(
-		"escrita não suportada no formato %s — use read_file para obter a projeção Markdown; write_file/edit_file só aceitam arquivos de texto",
+		"escrita não suportada: conteúdo binário (%s) sem leitura convertida disponível; write_file/edit_file só aceitam arquivos de texto",
 		e.Kind,
 	)
 }
