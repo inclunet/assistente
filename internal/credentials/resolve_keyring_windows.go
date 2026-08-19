@@ -13,10 +13,10 @@ import (
 func resolveKeyringDirect(target string) (string, error) {
 	cred, err := wincred.GetGenericCredential(target)
 	if err != nil {
-		return "", fmt.Errorf("erro ao buscar credencial do Windows (target=%q): %w", target, err)
+		return "", fmt.Errorf("erro ao buscar keyring://%s: credencial do Windows (target=%q): %w", target, target, err)
 	}
 	if cred == nil {
-		return "", fmt.Errorf("credencial não encontrada no Windows Credential Manager: %s", target)
+		return "", fmt.Errorf("erro ao buscar keyring://%s: credencial não encontrada no Windows Credential Manager", target)
 	}
 	return string(cred.CredentialBlob), nil
 }
