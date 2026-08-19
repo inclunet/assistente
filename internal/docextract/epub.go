@@ -10,6 +10,12 @@ import (
 
 var htmlTagRe = regexp.MustCompile(`(?is)<[^>]+>`)
 var htmlEntityRe = regexp.MustCompile(`&(#?\w+);`)
+var htmlScriptRe = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+var htmlStyleRe = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+var htmlBrRe = regexp.MustCompile(`(?is)<br\s*/?>`)
+var htmlPEndRe = regexp.MustCompile(`(?is)</p>`)
+var htmlDivEndRe = regexp.MustCompile(`(?is)</div>`)
+var htmlHeadingEndRe = regexp.MustCompile(`(?is)</h[1-6]>`)
 
 func extractEPUB(data []byte, filename string) (*Result, error) {
 	zr, err := openZip(data)

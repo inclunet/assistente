@@ -15,7 +15,7 @@ func Detect(data []byte, filename string) Kind {
 	}
 	if isLikelyText(data) {
 		ext := strings.ToLower(filepath.Ext(filename))
-		if ext == ".csv" || looksLikeCSV(data) {
+		if ext == ".csv" {
 			return KindCSV
 		}
 		if ext == ".rtf" || bytes.HasPrefix(bytes.TrimSpace(data), []byte(`{\rtf`)) {
@@ -44,7 +44,11 @@ func detectMagic(data []byte) Kind {
 	}
 	// ZIP-based (OOXML / ODF / EPUB)
 	if bytes.HasPrefix(data, []byte("PK\x03\x04")) || bytes.HasPrefix(data, []byte("PK\x05\x06")) {
-		return detectZipKind(data)
+		if k := detectZipKind(data); k != "" && k != KindUnsupportedBinary {
+			return k
+		}
+		// ZIP inválido ou não reconhecido: deixa Detect cair no fallback por extensão (D4).
+		return ""
 	}
 	return ""
 }
@@ -100,16 +104,3 @@ func isLikelyText(data []byte) bool {
 	return control*100/len(sample) < 5
 }
 
-func looksLikeCSV(data []byte) bool {
-	sample := data
-	if len(sample) > 4096 {
-		sample = sample[:4096]
-	}
-	lines := bytes.Split(sample, []byte("\n"))
-	if len(lines) < 2 {
-		return false
-	}
-	comma := bytes.Count(lines[0], []byte(","))
-	semi := bytes.Count(lines[0], []byte(";"))
-	return comma >= 1 || semi >= 1
-}
