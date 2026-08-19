@@ -55,7 +55,7 @@ func (t *ReadFile) Parameters() json.RawMessage {
 			"document_mode": {
 				"type": "string",
 				"enum": ["auto", "markdown"],
-				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela."
+				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela. O modo ocr é previsto para a Fase 3 do AEP-0093 e ainda não é aceito, por isso está fora do enum."
 			}
 		},
 		"required": ["path"],
@@ -74,6 +74,11 @@ type readFileArgs struct {
 // parseDocumentMode valida o modo pedido. Modo desconhecido é erro em vez de
 // virar auto: silenciar o engano faria o chamador achar que pediu conversão e
 // receber o texto cru sem aviso.
+//
+// "ocr" fica fora do enum do schema porque ainda não funciona — anunciar um
+// valor que sempre falha só convidaria o modelo a escolhê-lo. O caso continua
+// tratado aqui para quem não valida pelo schema receber a razão certa em vez de
+// um "valor inválido" genérico.
 func parseDocumentMode(raw string) (docextract.Mode, error) {
 	switch raw {
 	case "", string(docextract.ModeAuto):
