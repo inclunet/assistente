@@ -19,7 +19,7 @@ func writeLinesFile(t *testing.T, path string, nLines int, pad string) {
 	defer func() { _ = f.Close() }()
 	w := strings.Builder{}
 	for i := 1; i <= nLines; i++ {
-		w.WriteString(fmt.Sprintf("linha %d %s\n", i, pad))
+		fmt.Fprintf(&w, "linha %d %s\n", i, pad)
 		if w.Len() > 1<<20 {
 			if _, err := f.WriteString(w.String()); err != nil {
 				t.Fatal(err)
