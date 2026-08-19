@@ -109,12 +109,26 @@ func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg,
 		return tools.ToolResult{}, false
 	}
 
+	// A classificação viu só o prefixo, mas quem lê o arquivo pequeno inteiro
+	// recusa o conteúdo ao encontrar um byte NUL em qualquer posição. A primeira
+	// passada já percorre tudo para contar linhas, então aplicar a mesma regra
+	// aqui custa pouco e evita que o mesmo arquivo passe por ser grande.
 	totalLines := 0
-	if err := scanTextLines(fullPath, func(int, string) bool {
+	if err := scanTextLines(fullPath, func(_ int, line string) bool {
+		if strings.IndexByte(line, 0) >= 0 {
+			totalLines = -1
+			return false
+		}
 		totalLines++
 		return true
 	}); err != nil {
 		return streamFailure(err, size)
+	}
+	if totalLines < 0 {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("%s tem conteúdo binário (byte NUL) apesar da extensão; não é lido como texto", displayPath),
+			IsError: true,
+		}, true
 	}
 
 	offset := 0

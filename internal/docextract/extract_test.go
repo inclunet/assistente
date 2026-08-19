@@ -3,6 +3,8 @@ package docextract_test
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"strings"
 	"testing"
 
@@ -199,11 +201,56 @@ func TestExtractModeAutoRejectsDisguisedBinary(t *testing.T) {
 	}
 }
 
+// O rodapé do ZIP é conferido antes de abrir o container: um arquivo pequeno que
+// declara centenas de milhares de entradas não deve chegar a alocar essa lista.
+func TestExtractRejectsZipDeclaringTooManyEntries(t *testing.T) {
+	data := minimalDOCX(t, "corpo")
+	eocd := bytes.LastIndex(data, []byte("PK\x05\x06"))
+	if eocd < 0 {
+		t.Fatal("rodapé do ZIP não encontrado")
+	}
+	binary.LittleEndian.PutUint16(data[eocd+8:], 50_000)
+	binary.LittleEndian.PutUint16(data[eocd+10:], 50_000)
+
+	_, err := docextract.Extract(data, "a.docx")
+	if err == nil {
+		t.Fatal("esperava recusa")
+	}
+	if !strings.Contains(err.Error(), "demasiadas entradas") {
+		t.Fatalf("motivo inesperado: %v", err)
+	}
+}
+
 func TestUnsupportedBinary(t *testing.T) {
 	data := []byte{0x00, 0x01, 0x02, 0xff, 0xfe}
 	_, err := docextract.Extract(data, "blob.bin")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// Extensão textual não autoriza gravar bytes binários: o conteúdo é que decide.
+func TestCheckWritableRejectsBinaryUnderTextExtension(t *testing.T) {
+	for _, nome := range []string{"planilha.csv", "nota.rtf"} {
+		err := docextract.CheckWritable([]byte{'a', 0x00, 0xff, 0xfe, 'b'}, nome)
+		if err == nil {
+			t.Fatalf("%s: conteúdo binário deveria ser recusado", nome)
+		}
+		var notWritable *docextract.ErrNotWritable
+		if !errors.As(err, &notWritable) || !notWritable.BinaryContent {
+			t.Fatalf("%s: erro inesperado (%T): %v", nome, err, err)
+		}
+	}
+}
+
+// A verificação por prefixo aceita o mesmo que a verificação sobre tudo.
+func TestCheckWritableStringMatchesBytes(t *testing.T) {
+	texto := strings.Repeat("linha de conteudo\n", 2000)
+	if err := docextract.CheckWritableString(texto, "notas.txt"); err != nil {
+		t.Fatalf("texto longo deveria ser gravável: %v", err)
+	}
+	if err := docextract.CheckWritableString(string(buildPDF(t, "x")), "notas.txt"); err == nil {
+		t.Fatal("PDF disfarçado deveria ser recusado também pela verificação por prefixo")
 	}
 }
 

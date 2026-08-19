@@ -8,6 +8,9 @@ import (
 	"github.com/danieljoos/wincred"
 )
 
+// keyringDirectSupported diz se esta plataforma tem lookup por TargetName.
+const keyringDirectSupported = true
+
 // lookupKeyringTarget busca uma credencial diretamente pelo TargetName no Windows Credential Manager.
 // Usado quando a ref keyring:// contém um TargetName exato (sem separador service/user).
 func lookupKeyringTarget(target string) (secret string, found bool, err error) {

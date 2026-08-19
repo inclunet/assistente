@@ -17,6 +17,15 @@ func rejectDocumentWrite(data []byte, pathForDetect string) (content string, rej
 	return "", false
 }
 
+// rejectDocumentWriteString é a mesma verificação para conteúdo que já está em
+// string, sem copiar tudo para []byte só para classificar.
+func rejectDocumentWriteString(content, pathForDetect string) (msg string, rejected bool) {
+	if err := docextract.CheckWritableString(content, pathForDetect); err != nil {
+		return err.Error(), true
+	}
+	return "", false
+}
+
 // rejectExistingDocument classifica o arquivo existente (se houver) e rejeita
 // escrita em documento. Lê só o prefixo, que cobre os magic bytes e a heurística
 // de texto; a extensão completa a classificação quando o magic não basta (é o

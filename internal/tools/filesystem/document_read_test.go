@@ -178,6 +178,28 @@ func TestReadFileRejectsUnknownDocumentMode(t *testing.T) {
 	}
 }
 
+// Terminar o caminho em .csv não abre exceção para gravar bytes binários.
+func TestWriteFileRejectsBinaryContentUnderTextExtension(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewWriteFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":    "planilha.csv",
+		"content": "a\x00b\xff",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("conteúdo binário deveria ser recusado")
+	}
+	if !strings.Contains(res.Content, "binário") {
+		t.Fatalf("mensagem inesperada: %s", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "planilha.csv")); !os.IsNotExist(err) {
+		t.Fatal("o arquivo não deveria ter sido criado")
+	}
+}
+
 func TestWriteFileRejectsDisguisedPDF(t *testing.T) {
 	dir := t.TempDir()
 	pdf := buildTestPDF(t, "x")

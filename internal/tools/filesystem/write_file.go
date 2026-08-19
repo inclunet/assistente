@@ -137,7 +137,7 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 			return tools.ToolResult{Content: msg, IsError: true}, nil
 		}
 	}
-	if msg, ok := rejectDocumentWrite([]byte(a.Content), a.Path); ok {
+	if msg, ok := rejectDocumentWriteString(a.Content, a.Path); ok {
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 

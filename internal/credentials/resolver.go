@@ -53,8 +53,13 @@ func resolveKeyringRef(ref string) (string, error) {
 		return secret, nil
 	}
 	// Com service/user, o erro do go-keyring é o que descreve a falha real; o
-	// lookup direto é só o plano B (e nem existe fora do Windows).
+	// lookup direto é só o plano B. Onde esse plano B nem existe, mencioná-lo só
+	// acrescentaria ruído ("não suportado nesta plataforma") a quem já usou o
+	// formato certo.
 	if keyringErr != nil {
+		if !keyringDirectSupported {
+			return "", fmt.Errorf("erro ao buscar keyring://%s: %w", path, keyringErr)
+		}
 		return "", fmt.Errorf("erro ao buscar keyring://%s: %w (lookup direto por target também falhou: %v)", path, keyringErr, directErr)
 	}
 	return "", directErr

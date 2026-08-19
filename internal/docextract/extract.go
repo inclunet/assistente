@@ -100,10 +100,26 @@ func FormatProjectionHeader(res *Result) string {
 }
 
 // CheckWritable classifica data+filename e retorna ErrNotWritable se não for texto.
+//
+// A extensão sozinha não autoriza a escrita: `.csv` e `.rtf` só chegam a KindCSV
+// e KindRTF pela extensão, inclusive quando o conteúdo é binário, e aceitar isso
+// deixaria gravar bytes arbitrários num caminho de aparência textual (D3/D10).
 func CheckWritable(data []byte, filename string) error {
 	kind := Detect(data, filename)
 	if !IsWritableText(kind) {
 		return &ErrNotWritable{Kind: kind}
 	}
+	if !isLikelyText(data) {
+		return &ErrNotWritable{Kind: kind, BinaryContent: true}
+	}
 	return nil
+}
+
+// CheckWritableString evita copiar o conteúdo inteiro só para classificá-lo: a
+// detecção olha o começo do arquivo, então o prefixo basta.
+func CheckWritableString(content, filename string) error {
+	if len(content) > DetectPrefixBytes {
+		content = content[:DetectPrefixBytes]
+	}
+	return CheckWritable([]byte(content), filename)
 }

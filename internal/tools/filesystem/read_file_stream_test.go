@@ -110,6 +110,40 @@ func TestReadFileStreamsLargeCSVAsText(t *testing.T) {
 	}
 }
 
+// Byte NUL longe do prefixo denuncia binário disfarçado: o arquivo grande é
+// recusado como o pequeno seria, em vez de passar por não ter sido classificado
+// pelo conteúdo inteiro.
+func TestReadFileStreamRejectsNulByteBeyondPrefix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "disfarcado.csv")
+	writeLinesFile(t, path, 80_000, strings.Repeat("x", 60))
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte{'a', 0x00, 'b', '\n'}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":  "disfarcado.csv",
+		"limit": 2,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("conteúdo binário deveria ser recusado: %q", res.Content)
+	}
+	if !strings.Contains(res.Content, "binário") {
+		t.Fatalf("mensagem inesperada: %s", res.Content)
+	}
+}
+
 // Offset negativo conta do fim também no caminho em streaming.
 func TestReadFileStreamsNegativeOffset(t *testing.T) {
 	dir := t.TempDir()

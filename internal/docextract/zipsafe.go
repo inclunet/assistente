@@ -3,8 +3,10 @@ package docextract
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 )
 
@@ -21,6 +23,13 @@ type zipLimits struct {
 }
 
 func openZip(data []byte) (*zip.Reader, error) {
+	// O diretório central é lido antes de qualquer entrada, e nele um arquivo
+	// pequeno pode declarar centenas de milhares de entradas. Conferir a contagem
+	// no rodapé custa alguns bytes e evita que zip.NewReader materialize essa
+	// lista inteira só para a recusa vir depois (D11).
+	if n, ok := zipDeclaredEntries(data); ok && n > zipMaxEntries {
+		return nil, fmt.Errorf("ZIP com demasiadas entradas (%d)", n)
+	}
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, fmt.Errorf("arquivo ZIP inválido: %w", err)
@@ -29,6 +38,47 @@ func openZip(data []byte) (*zip.Reader, error) {
 		return nil, fmt.Errorf("ZIP com demasiadas entradas (%d)", len(r.File))
 	}
 	return r, nil
+}
+
+// Tamanho máximo do rodapé de um ZIP: o registro de fim de diretório central tem
+// 22 bytes fixos mais um comentário de até 64 KiB.
+const zipFooterScanBytes = 22 + 0xFFFF
+
+// zipDeclaredEntries lê a contagem de entradas declarada no rodapé do ZIP, sem
+// abrir o arquivo. ok=false quando o rodapé não é encontrado ou é ambíguo — aí a
+// conferência fica por conta de zip.NewReader, como antes.
+func zipDeclaredEntries(data []byte) (count int64, ok bool) {
+	eocd := lastIndexFrom(data, []byte("PK\x05\x06"), zipFooterScanBytes)
+	if eocd < 0 || len(data) < eocd+22 {
+		return 0, false
+	}
+	total := int64(binary.LittleEndian.Uint16(data[eocd+10:]))
+	if total != 0xFFFF {
+		return total, true
+	}
+	// 0xFFFF é o marcador de ZIP64: a contagem real está no rodapé estendido.
+	z64 := lastIndexFrom(data, []byte("PK\x06\x06"), zipFooterScanBytes+56)
+	if z64 < 0 || len(data) < z64+40 {
+		return 0, false
+	}
+	total64 := binary.LittleEndian.Uint64(data[z64+32:])
+	if total64 > math.MaxInt64 {
+		return 0, false
+	}
+	return int64(total64), true
+}
+
+// lastIndexFrom procura sig apenas na cauda de data, de tamanho window.
+func lastIndexFrom(data, sig []byte, window int) int {
+	start := 0
+	if len(data) > window {
+		start = len(data) - window
+	}
+	idx := bytes.LastIndex(data[start:], sig)
+	if idx < 0 {
+		return -1
+	}
+	return start + idx
 }
 
 func readZipFile(f *zip.File, lim *zipLimits) ([]byte, error) {

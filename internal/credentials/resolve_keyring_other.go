@@ -4,6 +4,9 @@ package credentials
 
 import "fmt"
 
+// keyringDirectSupported diz se esta plataforma tem lookup por TargetName.
+const keyringDirectSupported = false
+
 // lookupKeyringTarget não é suportado fora do Windows.
 // Em outras plataformas, usar o formato keyring://service/user com go-keyring.
 func lookupKeyringTarget(target string) (secret string, found bool, err error) {
