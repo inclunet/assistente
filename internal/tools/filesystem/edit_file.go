@@ -132,13 +132,14 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("'%s' é um diretório, não um arquivo", a.Path), IsError: true}, nil
 	}
 
+	if msg, ok := rejectExistingDocument(fullPath, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Lê conteúdo atual
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
-	}
-	if msg, ok := rejectDocumentWrite(data, a.Path); ok {
-		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 	content := string(data)
 
