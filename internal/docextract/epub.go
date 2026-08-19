@@ -1,6 +1,7 @@
 package docextract
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"path"
@@ -32,7 +33,10 @@ func extractEPUB(data []byte, filename string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	opfPath := findRootfile(cbody)
+	opfPath, err := findRootfile(cbody)
+	if err != nil {
+		return nil, err
+	}
 	if opfPath == "" {
 		return nil, fmt.Errorf("EPUB sem rootfile no container")
 	}
@@ -46,7 +50,10 @@ func extractEPUB(data []byte, filename string) (*Result, error) {
 		return nil, err
 	}
 	base := path.Dir(opfPath)
-	items, spine := parseOPF(opfBody)
+	items, spine, err := parseOPF(opfBody)
+	if err != nil {
+		return nil, err
+	}
 
 	var parts []string
 	for i, id := range spine {
@@ -80,12 +87,15 @@ func extractEPUB(data []byte, filename string) (*Result, error) {
 	}, nil
 }
 
-func findRootfile(containerXML []byte) string {
-	dec := xml.NewDecoder(strings.NewReader(string(containerXML)))
+func findRootfile(containerXML []byte) (string, error) {
+	dec := xml.NewDecoder(bytes.NewReader(containerXML))
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
-			return ""
+			return "", err
+		}
+		if done {
+			return "", nil
 		}
 		se, ok := tok.(xml.StartElement)
 		if !ok || local(se.Name) != "rootfile" {
@@ -93,19 +103,22 @@ func findRootfile(containerXML []byte) string {
 		}
 		for _, a := range se.Attr {
 			if local(a.Name) == "full-path" {
-				return a.Value
+				return a.Value, nil
 			}
 		}
 	}
 }
 
-func parseOPF(data []byte) (map[string]string, []string) {
+func parseOPF(data []byte) (map[string]string, []string, error) {
 	items := map[string]string{}
 	var spine []string
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return nil, nil, err
+		}
+		if done {
 			break
 		}
 		se, ok := tok.(xml.StartElement)
@@ -136,7 +149,7 @@ func parseOPF(data []byte) (map[string]string, []string) {
 			}
 		}
 	}
-	return items, spine
+	return items, spine, nil
 }
 
 func htmlToText(s string) string {

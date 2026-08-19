@@ -106,6 +106,32 @@ func TestEditFileRejectsPDF(t *testing.T) {
 	}
 }
 
+func TestTextEditRejectsDisguisedPDF(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "ativo.txt")
+	if err := os.WriteFile(filePath, buildTestPDF(t, "conteudo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	quest := &fakeQuestionnaireRequester{}
+	tool := NewTextEdit(dir, quest)
+	res, err := tool.Execute(editorCtx(filePath), mustJSON(t, map[string]any{
+		"original":    "conteudo",
+		"replacement": "novo",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(res.Content, "escrita não suportada") {
+		t.Fatalf("got %s", res.Content)
+	}
+	if quest.called {
+		t.Error("confirmação não deveria ser exibida para documento")
+	}
+}
+
 func TestWriteFileAllowsText(t *testing.T) {
 	dir := t.TempDir()
 	tool := NewWriteFile(dir)

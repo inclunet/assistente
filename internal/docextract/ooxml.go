@@ -1,8 +1,11 @@
 package docextract
 
 import (
+	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"path"
 	"regexp"
 	"sort"
@@ -10,7 +13,22 @@ import (
 	"strings"
 )
 
-var xmlSpaceCollapse = regexp.MustCompile(`\s+`)
+// xmlSpaceCollapse colapsa espaços horizontais sem tocar em `\n`, para não
+// achatar os parágrafos que a conversão de HTML insere.
+var xmlSpaceCollapse = regexp.MustCompile(`[^\S\n]+`)
+
+// nextToken devolve (token, fim, erro). XML truncado/malformado vira erro real
+// em vez de projeção parcial silenciosa.
+func nextToken(dec *xml.Decoder) (xml.Token, bool, error) {
+	tok, err := dec.Token()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, true, nil
+		}
+		return nil, true, fmt.Errorf("XML inválido: %w", err)
+	}
+	return tok, false, nil
+}
 
 func extractDOCX(data []byte, filename string) (*Result, error) {
 	zr, err := openZip(data)
@@ -38,12 +56,15 @@ func extractDOCX(data []byte, filename string) (*Result, error) {
 }
 
 func extractOOXMLDocumentText(xmlData []byte) (string, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(xmlData)))
+	dec := xml.NewDecoder(bytes.NewReader(xmlData))
 	var b strings.Builder
 	inText := false
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return "", err
+		}
+		if done {
 			break
 		}
 		switch t := tok.(type) {
@@ -105,14 +126,16 @@ func extractXLSX(data []byte, filename string) (*Result, error) {
 	}
 
 	// Relacionamentos sheet → path
-	relsPath := "xl/_rels/workbook.xml.rels"
 	rels := map[string]string{}
-	if rf := findZipName(zr, relsPath); rf != nil {
+	if rf := findZipName(zr, "xl/_rels/workbook.xml.rels"); rf != nil {
 		rb, err := readZipFile(rf, lim)
 		if err != nil {
 			return nil, err
 		}
-		rels = parseOOXMLRels(rb)
+		rels, err = parseOOXMLRels(rb)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var parts []string
@@ -152,11 +175,14 @@ type wbSheet struct {
 }
 
 func parseWorkbookSheets(data []byte) ([]wbSheet, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	var sheets []wbSheet
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return nil, err
+		}
+		if done {
 			break
 		}
 		se, ok := tok.(xml.StartElement)
@@ -177,12 +203,15 @@ func parseWorkbookSheets(data []byte) ([]wbSheet, error) {
 	return sheets, nil
 }
 
-func parseOOXMLRels(data []byte) map[string]string {
+func parseOOXMLRels(data []byte) (map[string]string, error) {
 	out := map[string]string{}
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return nil, err
+		}
+		if done {
 			break
 		}
 		se, ok := tok.(xml.StartElement)
@@ -202,17 +231,20 @@ func parseOOXMLRels(data []byte) map[string]string {
 			out[id] = target
 		}
 	}
-	return out
+	return out, nil
 }
 
 func parseSharedStrings(data []byte) ([]string, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	var out []string
 	var cur strings.Builder
 	inSI, inT := false, false
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return nil, err
+		}
+		if done {
 			break
 		}
 		switch t := tok.(type) {
@@ -247,14 +279,17 @@ func parseSheetToMarkdown(data []byte, shared []string) (string, error) {
 	type cell struct {
 		ref, t, v string
 	}
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	var rows [][]cell
 	var curRow []cell
 	var cur cell
 	inV := false
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return "", err
+		}
+		if done {
 			break
 		}
 		switch t := tok.(type) {
@@ -318,7 +353,6 @@ func parseSheetToMarkdown(data []byte, shared []string) (string, error) {
 	}
 
 	var b strings.Builder
-	// header row = first
 	writeMDRow := func(vals []string) {
 		b.WriteString("| ")
 		b.WriteString(strings.Join(vals, " | "))
@@ -326,11 +360,7 @@ func parseSheetToMarkdown(data []byte, shared []string) (string, error) {
 	}
 	header := make([]string, maxCol+1)
 	for c := 0; c <= maxCol; c++ {
-		if v, ok := grid[0][c]; ok {
-			header[c] = v
-		} else {
-			header[c] = ""
-		}
+		header[c] = grid[0][c]
 	}
 	writeMDRow(header)
 	sep := make([]string, maxCol+1)
@@ -374,20 +404,21 @@ func extractPPTX(data []byte, filename string) (*Result, error) {
 		return nil, err
 	}
 	lim := &zipLimits{}
-	var slideFiles []*struct {
+
+	type slideRef struct {
 		name string
 		idx  int
 	}
+	var slideFiles []slideRef
 	for _, f := range zr.File {
 		n := strings.ReplaceAll(f.Name, "\\", "/")
 		if strings.HasPrefix(n, "ppt/slides/slide") && strings.HasSuffix(n, ".xml") && !strings.Contains(n, "_rels") {
 			base := path.Base(n)
-			numStr := strings.TrimSuffix(strings.TrimPrefix(base, "slide"), ".xml")
-			num, _ := strconv.Atoi(numStr)
-			slideFiles = append(slideFiles, &struct {
-				name string
-				idx  int
-			}{n, num})
+			num, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(base, "slide"), ".xml"))
+			if err != nil {
+				continue
+			}
+			slideFiles = append(slideFiles, slideRef{n, num})
 		}
 	}
 	sort.Slice(slideFiles, func(i, j int) bool { return slideFiles[i].idx < slideFiles[j].idx })

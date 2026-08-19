@@ -51,6 +51,17 @@ func TestExtractEPUB(t *testing.T) {
 	}
 }
 
+func TestExtractEPUBKeepsParagraphs(t *testing.T) {
+	data := minimalEPUB(t, "Primeiro paragrafo</p><p>Segundo paragrafo")
+	res, err := docextract.Extract(data, "a.epub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Markdown, "Primeiro paragrafo\n\nSegundo paragrafo") {
+		t.Fatalf("paragrafos achatados: %q", res.Markdown)
+	}
+}
+
 func TestExtractPPTX(t *testing.T) {
 	data := minimalPPTX(t, "Slide Texto")
 	res, err := docextract.Extract(data, "a.pptx")

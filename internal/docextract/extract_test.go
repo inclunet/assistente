@@ -119,6 +119,26 @@ func TestCheckWritableAllowsPlainText(t *testing.T) {
 	}
 }
 
+// Texto grande não pode esbarrar no limite de extração: read_file continua
+// paginando por linhas (AEP-0093 D8).
+func TestExtractLargeTextNotBlocked(t *testing.T) {
+	data := bytes.Repeat([]byte("linha de texto grande\n"), 2_000_000)
+	res, err := docextract.Extract(data, "grande.log")
+	if err != nil {
+		t.Fatalf("texto grande não deveria falhar: %v", err)
+	}
+	if res.Kind != docextract.KindText {
+		t.Fatalf("kind=%s", res.Kind)
+	}
+}
+
+func TestExtractMalformedDOCXFails(t *testing.T) {
+	data := malformedDOCX(t)
+	if _, err := docextract.Extract(data, "quebrado.docx"); err == nil {
+		t.Fatal("XML truncado deveria falhar em vez de projetar parcialmente")
+	}
+}
+
 func buildPDF(t *testing.T, text string) []byte {
 	t.Helper()
 	pdf := fpdf.New("P", "mm", "A4", "")
@@ -127,6 +147,24 @@ func buildPDF(t *testing.T, text string) []byte {
 	pdf.Cell(40, 10, text)
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func malformedDOCX(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("word/document.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Documento truncado no meio de um elemento
+	if _, err := w.Write([]byte(`<?xml version="1.0"?><w:document xmlns:w="x"><w:body><w:p><w:r><w:t>abc`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return buf.Bytes()

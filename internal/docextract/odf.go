@@ -1,6 +1,7 @@
 package docextract
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"strings"
@@ -47,12 +48,15 @@ func extractODFText(data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dec := xml.NewDecoder(strings.NewReader(string(body)))
+	dec := xml.NewDecoder(bytes.NewReader(body))
 	var b strings.Builder
 	inP := false
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return "", err
+		}
+		if done {
 			break
 		}
 		switch t := tok.(type) {
@@ -60,12 +64,10 @@ func extractODFText(data []byte) (string, error) {
 			switch local(t.Name) {
 			case "p", "h":
 				inP = true
-			case "line-break", "tab":
-				if local(t.Name) == "tab" {
-					b.WriteByte('\t')
-				} else {
-					b.WriteByte('\n')
-				}
+			case "line-break":
+				b.WriteByte('\n')
+			case "tab":
+				b.WriteByte('\t')
 			}
 		case xml.EndElement:
 			if local(t.Name) == "p" || local(t.Name) == "h" {
@@ -86,7 +88,7 @@ func extractODFTables(data []byte) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	dec := xml.NewDecoder(strings.NewReader(string(body)))
+	dec := xml.NewDecoder(bytes.NewReader(body))
 	var parts []string
 	var curName string
 	var rows [][]string
@@ -102,16 +104,18 @@ func extractODFTables(data []byte) (string, int, error) {
 		if name == "" {
 			name = fmt.Sprintf("Planilha %d", len(parts)+1)
 		}
-		md := rowsToMarkdown(rows)
-		parts = append(parts, fmt.Sprintf("## Aba: %s\n\n%s", name, md))
+		parts = append(parts, fmt.Sprintf("## Aba: %s\n\n%s", name, rowsToMarkdown(rows)))
 		rows = nil
 		curName = ""
 		inTable = false
 	}
 
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return "", 0, err
+		}
+		if done {
 			break
 		}
 		switch t := tok.(type) {
@@ -199,7 +203,7 @@ func extractODFSlides(data []byte) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	dec := xml.NewDecoder(strings.NewReader(string(body)))
+	dec := xml.NewDecoder(bytes.NewReader(body))
 	var parts []string
 	var cur strings.Builder
 	inPage, inText := false, false
@@ -209,15 +213,17 @@ func extractODFSlides(data []byte) (string, int, error) {
 		if !inPage {
 			return
 		}
-		text := strings.TrimSpace(cur.String())
-		parts = append(parts, fmt.Sprintf("## Slide %d\n\n%s\n", pageNum, text))
+		parts = append(parts, fmt.Sprintf("## Slide %d\n\n%s\n", pageNum, strings.TrimSpace(cur.String())))
 		cur.Reset()
 		inPage = false
 	}
 
 	for {
-		tok, err := dec.Token()
+		tok, done, err := nextToken(dec)
 		if err != nil {
+			return "", 0, err
+		}
+		if done {
 			break
 		}
 		switch t := tok.(type) {

@@ -5,17 +5,19 @@ import (
 	"strings"
 )
 
-const maxExtractBytes = 32 << 20 // 32 MiB de entrada
+const maxExtractBytes = 32 << 20 // 32 MiB de entrada para extração de documento
 
 // Extract detecta o formato e projeta para Markdown. Para KindText devolve
 // o conteúdo bruto (sem cabeçalho de projeção — quem chama decide).
 func Extract(data []byte, filename string) (*Result, error) {
-	if len(data) > maxExtractBytes {
-		return nil, fmt.Errorf("arquivo muito grande para extração (%d bytes; máximo %d)", len(data), maxExtractBytes)
-	}
-
 	kind := Detect(data, filename)
 	res := &Result{Kind: kind, Source: filename}
+
+	// O limite vale só para extração; texto/código segue como antes (D8: sem
+	// hard-deny artificial em arquivo grande que o chamador pagina por linhas).
+	if kind != KindText && len(data) > maxExtractBytes {
+		return nil, fmt.Errorf("arquivo muito grande para extração (%d bytes; máximo %d)", len(data), maxExtractBytes)
+	}
 
 	switch kind {
 	case KindText:
@@ -78,12 +80,6 @@ func FormatProjectionHeader(res *Result) string {
 func CheckWritable(data []byte, filename string) error {
 	kind := Detect(data, filename)
 	if !IsWritableText(kind) {
-		if kind == KindUnsupportedBinary {
-			return &ErrNotWritable{Kind: kind}
-		}
-		if IsDocument(kind) {
-			return &ErrNotWritable{Kind: kind}
-		}
 		return &ErrNotWritable{Kind: kind}
 	}
 	return nil
