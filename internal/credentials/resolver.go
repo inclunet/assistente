@@ -33,6 +33,7 @@ func resolveKeyringRef(ref string) (string, error) {
 	}
 
 	// Formato keyring://service/user → go-keyring (cross-platform)
+	var keyringErr error
 	if idx := strings.LastIndex(path, "/"); idx > 0 && idx < len(path)-1 {
 		service := path[:idx]
 		user := path[idx+1:]
@@ -40,13 +41,23 @@ func resolveKeyringRef(ref string) (string, error) {
 		if err == nil {
 			return secret, nil
 		}
+		keyringErr = err
 	}
 
-	// Formato keyring://TargetName → lookup direto (Windows: wincred)
-	// Usado pelo autocomplete que lista TargetNames exatos do Credential Manager.
-	// Cada implementação já formata o erro com o prefixo "keyring://<path>", então
-	// não há wrapper aqui.
-	return resolveKeyringDirect(path)
+	// Formato keyring://TargetName → lookup direto (Windows: wincred).
+	// A tentativa acontece mesmo com "/" no path porque TargetName do Credential
+	// Manager costuma conter barra (ex.: git:https://github.com).
+	// Cada implementação já formata o erro com o prefixo "keyring://<path>".
+	secret, directErr := resolveKeyringDirect(path)
+	if directErr == nil {
+		return secret, nil
+	}
+	// Com service/user, o erro do go-keyring é o que descreve a falha real; o
+	// lookup direto é só o plano B (e nem existe fora do Windows).
+	if keyringErr != nil {
+		return "", fmt.Errorf("erro ao buscar keyring://%s: %w (lookup direto por target também falhou: %v)", path, keyringErr, directErr)
+	}
+	return "", directErr
 }
 
 func resolveEnvRef(ref string) (string, error) {
