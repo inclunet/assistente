@@ -94,12 +94,18 @@ func streamFailure(err error, size int64) (tools.ToolResult, bool) {
 // readTextSliceStreaming devolve o recorte pedido de um arquivo de texto grande
 // sem carregar tudo em memória. handled=false significa que o chamador deve
 // seguir pelo caminho normal.
-func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg, limitArg *int) (result tools.ToolResult, handled bool) {
+func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg, limitArg *int, mode docextract.Mode) (result tools.ToolResult, handled bool) {
 	if size < streamTextMinBytes || (offsetArg == nil && limitArg == nil) {
 		return tools.ToolResult{}, false
 	}
 	prefix, err := readFilePrefix(fullPath, docextract.DetectPrefixBytes)
-	if err != nil || docextract.Detect(prefix, displayPath) != docextract.KindText {
+	if err != nil {
+		return tools.ToolResult{}, false
+	}
+	// Só serve o recorte em streaming quem sai como texto: quando há projeção, as
+	// linhas são as do Markdown derivado, que só existe depois de extrair tudo.
+	kind := docextract.Detect(prefix, displayPath)
+	if willProject(kind, mode) || !docextract.IsWritableText(kind) {
 		return tools.ToolResult{}, false
 	}
 

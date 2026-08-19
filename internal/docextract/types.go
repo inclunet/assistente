@@ -22,14 +22,28 @@ const (
 	KindUnsupportedBinary Kind = "unsupported_binary"
 )
 
-// Result é a projeção Markdown derivada de um documento.
+// Result é o conteúdo devolvido pelo extrator: a projeção Markdown de um
+// documento ou o próprio texto do arquivo, conforme o modo (D12).
 type Result struct {
-	Kind     Kind
-	Markdown string
-	Pages    int      // páginas/slides/abas quando conhecido; 0 se N/A
-	Warnings []string // avisos de extração parcial / PDF sem texto
-	Source   string   // path original (se conhecido)
+	Kind      Kind
+	Markdown  string
+	Pages     int      // páginas/slides/abas quando conhecido; 0 se N/A
+	Warnings  []string // avisos de extração parcial / PDF sem texto
+	Source    string   // path original (se conhecido)
+	Projected bool     // true quando o conteúdo é derivado, não o do arquivo
 }
+
+// Mode escolhe quando o conteúdo é convertido para Markdown.
+type Mode string
+
+const (
+	// ModeAuto converte só o que o modelo não consegue ler cru: PDF, OOXML,
+	// ODF e EPUB. CSV, RTF, código e demais textos voltam como estão no disco.
+	ModeAuto Mode = "auto"
+	// ModeMarkdown pede a projeção também para os formatos que já são texto,
+	// como a tabela Markdown de um CSV.
+	ModeMarkdown Mode = "markdown"
+)
 
 // ErrUnsupported indica formato não suportado para leitura convertida.
 type ErrUnsupported struct {
@@ -50,7 +64,7 @@ type ErrNotWritable struct {
 }
 
 func (e *ErrNotWritable) Error() string {
-	if IsDocument(e.Kind) {
+	if IsOpaqueDocument(e.Kind) {
 		return fmt.Sprintf(
 			"escrita não suportada no formato %s — use read_file para obter a projeção Markdown; write_file/edit_file/text_edit só aceitam arquivos de texto",
 			e.Kind,
@@ -77,19 +91,27 @@ func ErrTooLargeToExtract(size int64) error {
 	return fmt.Errorf("arquivo muito grande para extração (%d bytes; máximo %d)", size, MaxExtractBytes)
 }
 
-// IsDocument retorna true para formatos que a Fase 1 projeta (não texto nativo).
-func IsDocument(k Kind) bool {
+// IsOpaqueDocument retorna true para os formatos que o modelo não consegue ler
+// no original: o conteúdo é binário (ou um container ZIP de XML), então a
+// projeção Markdown é a única leitura útil e vale por padrão.
+func IsOpaqueDocument(k Kind) bool {
 	switch k {
-	case KindPDF, KindDOCX, KindXLSX, KindPPTX, KindODT, KindODS, KindODP, KindCSV, KindRTF, KindEPUB:
+	case KindPDF, KindDOCX, KindXLSX, KindPPTX, KindODT, KindODS, KindODP, KindEPUB:
 		return true
 	default:
 		return false
 	}
 }
 
+// IsDocument retorna true para todo formato com extrator, incluindo os que já
+// são texto no disco (CSV, RTF) e só viram Markdown sob demanda.
+func IsDocument(k Kind) bool {
+	return IsOpaqueDocument(k) || k == KindCSV || k == KindRTF
+}
+
 // IsWritableText retorna true se o kind pode ser gravado pelas tools de texto.
-// CSV e RTF são projetados na leitura, mas o conteúdo no disco permanece texto
-// editável; binários de documento (PDF/OOXML/ODF/EPUB) não.
+// É o mesmo conjunto que a leitura devolve cru por padrão: o modelo lê e edita
+// exatamente o mesmo conteúdo, sem projeção no meio (D12).
 func IsWritableText(k Kind) bool {
 	switch k {
 	case KindText, KindCSV, KindRTF:

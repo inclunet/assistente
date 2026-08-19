@@ -13,7 +13,27 @@ const MaxExtractBytes = 32 << 20 // 32 MiB
 // carregar o conteúdo inteiro.
 const DetectPrefixBytes = 8 << 10 // 8 KiB
 
-// Extract detecta o formato e projeta para Markdown. Para KindText devolve
+// ExtractMode detecta o formato e decide, pelo modo, se converte para Markdown.
+//
+// Em ModeAuto só o formato opaco é convertido. Arquivo que já é texto no disco
+// (CSV, RTF, código, marcação) volta como está: converter por padrão tiraria do
+// modelo justamente o conteúdo que ele precisa ver para revisar ou editar, e
+// ainda quebraria a simetria com as tools de escrita, que gravam esse mesmo
+// texto. ModeMarkdown pede a projeção também para esses formatos (D12).
+func ExtractMode(data []byte, filename string, mode Mode) (*Result, error) {
+	kind := Detect(data, filename)
+	if mode != ModeMarkdown && IsWritableText(kind) && isLikelyText(data) {
+		return &Result{Kind: kind, Markdown: string(data), Source: filename}, nil
+	}
+	res, err := Extract(data, filename)
+	if err != nil {
+		return nil, err
+	}
+	res.Projected = IsDocument(res.Kind)
+	return res, nil
+}
+
+// Extract projeta para Markdown todo formato com extrator. Para KindText devolve
 // o conteúdo bruto (sem cabeçalho de projeção — quem chama decide).
 func Extract(data []byte, filename string) (*Result, error) {
 	kind := Detect(data, filename)

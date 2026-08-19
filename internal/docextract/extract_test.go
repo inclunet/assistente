@@ -130,6 +130,75 @@ func TestExtractRTF(t *testing.T) {
 	}
 }
 
+// No modo padrão, o que já é texto no disco volta byte a byte: o modelo precisa
+// ver o CSV como ele é para revisar ou editar (D12).
+func TestExtractModeAutoKeepsTextFormatsVerbatim(t *testing.T) {
+	casos := []struct {
+		nome string
+		data []byte
+	}{
+		{"t.csv", []byte("nome,idade\nAna,30\n")},
+		{"a.rtf", []byte(`{\rtf1\ansi Olamundo\par }`)},
+		{"pagina.html", []byte("<h1>Titulo</h1>\n<p>corpo</p>\n")},
+		{"script.py", []byte("def f():\n    return 1\n")},
+	}
+	for _, c := range casos {
+		res, err := docextract.ExtractMode(c.data, c.nome, docextract.ModeAuto)
+		if err != nil {
+			t.Fatalf("%s: %v", c.nome, err)
+		}
+		if res.Projected {
+			t.Fatalf("%s: não deveria ser projetado", c.nome)
+		}
+		if res.Markdown != string(c.data) {
+			t.Fatalf("%s: conteúdo alterado: %q", c.nome, res.Markdown)
+		}
+	}
+}
+
+// A projeção continua disponível, mas só quando pedida.
+func TestExtractModeMarkdownProjectsCSV(t *testing.T) {
+	res, err := docextract.ExtractMode([]byte("nome,idade\nAna,30\n"), "t.csv", docextract.ModeMarkdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Projected {
+		t.Fatal("esperava projeção")
+	}
+	if !strings.Contains(res.Markdown, "| Ana") {
+		t.Fatalf("markdown=%q", res.Markdown)
+	}
+}
+
+// Documento opaco é projetado nos dois modos: não há leitura crua útil dele.
+func TestExtractModeAutoProjectsOpaqueDocument(t *testing.T) {
+	res, err := docextract.ExtractMode(buildPDF(t, "Ola PDF"), "a.pdf", docextract.ModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Projected {
+		t.Fatal("PDF deveria ser projetado no modo auto")
+	}
+}
+
+// Texto puro não tem projeção nem quando o modo markdown é pedido.
+func TestExtractModeMarkdownKeepsPlainText(t *testing.T) {
+	res, err := docextract.ExtractMode([]byte("linha\n"), "a.go", docextract.ModeMarkdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Projected {
+		t.Fatal("texto puro não tem projeção")
+	}
+}
+
+// Binário disfarçado de texto não escapa pelo modo auto.
+func TestExtractModeAutoRejectsDisguisedBinary(t *testing.T) {
+	if _, err := docextract.ExtractMode([]byte{0x00, 0x01, 0x02, 0xff, 0xfe}, "planilha.csv", docextract.ModeAuto); err == nil {
+		t.Fatal("binário com extensão .csv não deveria virar texto")
+	}
+}
+
 func TestUnsupportedBinary(t *testing.T) {
 	data := []byte{0x00, 0x01, 0x02, 0xff, 0xfe}
 	_, err := docextract.Extract(data, "blob.bin")

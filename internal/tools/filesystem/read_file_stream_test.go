@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"assistente/internal/docextract"
 )
 
 // writeLinesFile grava um arquivo de texto com nLines linhas numeradas.
@@ -78,6 +80,33 @@ func TestReadFileStreamsLargeTextSlice(t *testing.T) {
 	}
 	if len(lines) != 4 {
 		t.Fatalf("esperava 3 linhas no recorte, veio %d", len(lines)-1)
+	}
+}
+
+// CSV grande também é texto: o recorte vem em streaming, com as linhas do
+// arquivo, e não com a tabela Markdown (D12).
+func TestReadFileStreamsLargeCSVAsText(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grande.csv")
+	writeLinesFile(t, path, 80_000, strings.Repeat("x", 60))
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":   "grande.csv",
+		"offset": 2,
+		"limit":  1,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("erro: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "projeção Markdown") {
+		t.Fatalf("CSV não deveria vir projetado: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "linha 2 ") {
+		t.Fatalf("linha crua ausente: %q", res.Content)
 	}
 }
 
@@ -154,7 +183,7 @@ func TestStreamingSliceMatchesFullRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	streamed, handled := readTextSliceStreaming(small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4))
+	streamed, handled := readTextSliceStreaming(small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto)
 	if !handled {
 		t.Skip("classificação não considerou o arquivo como texto")
 	}

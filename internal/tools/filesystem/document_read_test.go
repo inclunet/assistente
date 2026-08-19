@@ -64,6 +64,120 @@ func TestReadFilePlainTextUnchanged(t *testing.T) {
 	}
 }
 
+// CSV, HTML e afins são texto: por padrão o modelo recebe o arquivo como ele é,
+// e não uma tabela Markdown derivada (D12).
+func TestReadFileKeepsTextFormatsVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	casos := []struct {
+		arquivo  string
+		conteudo string
+		trecho   string
+	}{
+		{"dados.csv", "nome,idade\nAna,30\n", "nome,idade"},
+		{"pagina.html", "<h1>Titulo</h1>\n<p>corpo</p>\n", "<h1>Titulo</h1>"},
+		{"nota.rtf", `{\rtf1\ansi Olamundo\par }`, `\rtf1`},
+	}
+	tool := NewReadFile(dir)
+	for _, c := range casos {
+		if err := os.WriteFile(filepath.Join(dir, c.arquivo), []byte(c.conteudo), 0644); err != nil {
+			t.Fatal(err)
+		}
+		res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"path": c.arquivo}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.IsError {
+			t.Fatalf("%s: %s", c.arquivo, res.Content)
+		}
+		if strings.Contains(res.Content, "projeção Markdown") {
+			t.Fatalf("%s não deveria vir projetado: %s", c.arquivo, res.Content)
+		}
+		if res.Metadata["projection"] == true {
+			t.Fatalf("%s: metadata=%v", c.arquivo, res.Metadata)
+		}
+		if !strings.Contains(res.Content, c.trecho) {
+			t.Fatalf("%s: conteúdo original ausente: %s", c.arquivo, res.Content)
+		}
+	}
+}
+
+// A tabela Markdown do CSV continua a um parâmetro de distância.
+func TestReadFileProjectsCSVOnDemand(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dados.csv"), []byte("nome,idade\nAna,30\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":          "dados.csv",
+		"document_mode": "markdown",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatal(res.Content)
+	}
+	if !strings.Contains(res.Content, "projeção Markdown") {
+		t.Fatalf("faltou o cabeçalho de projeção: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "| Ana") {
+		t.Fatalf("faltou a tabela: %s", res.Content)
+	}
+	if res.Metadata["projection"] != true {
+		t.Fatalf("metadata=%v", res.Metadata)
+	}
+}
+
+// Documento opaco não depende do modo: sem projeção não há leitura nenhuma.
+func TestReadFileProjectsDOCXInEveryMode(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "doc.docx"), buildMinimalDOCX(t, "Corpo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFile(dir)
+	for _, mode := range []string{"", "auto", "markdown"} {
+		args := map[string]any{"path": "doc.docx"}
+		if mode != "" {
+			args["document_mode"] = mode
+		}
+		res, err := tool.Execute(context.Background(), mustJSON(t, args))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.IsError {
+			t.Fatalf("modo %q: %s", mode, res.Content)
+		}
+		if !strings.Contains(res.Content, "Corpo") {
+			t.Fatalf("modo %q sem corpo extraído: %s", mode, res.Content)
+		}
+	}
+}
+
+// Modo desconhecido falha em vez de virar auto silenciosamente.
+func TestReadFileRejectsUnknownDocumentMode(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFile(dir)
+	for _, mode := range []string{"ocr", "html"} {
+		res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+			"path":          "a.txt",
+			"document_mode": mode,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.IsError {
+			t.Fatalf("modo %q deveria falhar", mode)
+		}
+		if !strings.Contains(res.Content, "document_mode") {
+			t.Fatalf("modo %q: mensagem sem o parâmetro: %s", mode, res.Content)
+		}
+	}
+}
+
 func TestWriteFileRejectsDisguisedPDF(t *testing.T) {
 	dir := t.TempDir()
 	pdf := buildTestPDF(t, "x")
@@ -201,6 +315,39 @@ func TestReadFileRejectsOversizedDocumentWithoutLoading(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "muito grande para extração") {
 		t.Fatalf("got %s", res.Content)
+	}
+}
+
+// O teto de 32 MiB é da extração. CSV lido como texto passa por ele; só quando a
+// projeção é pedida o arquivo precisa caber inteiro na memória (D12).
+func TestOversizedCSVOnlyBlockedWhenProjectionIsRequested(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grande.csv")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("nome,idade\nAna,30\n"); err != nil {
+		t.Fatal(err)
+	}
+	size := int64(docextract.MaxExtractBytes) + 1
+	if err := f.Truncate(size); err != nil {
+		_ = f.Close()
+		t.Skipf("não foi possível criar arquivo grande: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg, rejected := rejectOversizedDocument(path, "grande.csv", size, docextract.ModeAuto); rejected {
+		t.Fatalf("leitura como texto não deveria bater no teto: %s", msg)
+	}
+	msg, rejected := rejectOversizedDocument(path, "grande.csv", size, docextract.ModeMarkdown)
+	if !rejected {
+		t.Fatal("projeção acima do teto deveria falhar")
+	}
+	if !strings.Contains(msg, "muito grande para extração") {
+		t.Fatalf("mensagem inesperada: %s", msg)
 	}
 }
 

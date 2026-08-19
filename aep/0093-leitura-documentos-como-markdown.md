@@ -11,8 +11,10 @@ falham, ou viram lixo binário. `grep_search` pula várias dessas extensões com
 conteúdo desses documentos.
 
 Este AEP unifica a **leitura** numa única tool (`read_file`): ela detecta o
-formato, extrai texto estruturado quando possível e devolve uma **projeção em
-Markdown** (não o arquivo original). A mesma extração leve alimenta
+formato e, quando o original é ilegível para o agente, extrai texto estruturado
+e devolve uma **projeção em Markdown** (não o arquivo original). Arquivo que já
+é texto continua chegando como está — converter só entra onde não há alternativa
+(D12). A mesma extração leve alimenta
 `grep_search`; `search_files` preserva sua responsabilidade atual de localizar
 paths por nome/padrão e continua encontrando documentos normalmente.
 **Escrita** (`write_file`, `edit_file`, `text_edit`) continua restrita a
@@ -40,21 +42,29 @@ explícita — nunca como indexação contínua nem default de toda varredura.
 | D4 | **Detecção:** magic bytes / sniff primeiro; extensão como fallback; UTF-8 texto válido → caminho atual; documento suportado → extrator; senão erro útil (sem dump binário). |
 | D5 | **Responsabilidades de busca permanecem distintas.** `grep_search` pesquisa conteúdo e reutiliza o extrator para documentos; `search_files` continua buscando somente paths por glob, sem abrir nem extrair arquivos. |
 | D6 | **Cache sob demanda e não persistente na V1.** Texto extraído é cacheado em memória, com limite por bytes/entradas e chave por path + identidade do arquivo (mtime/size; hash só quando necessário). Não há índice no boot nem cópia plaintext persistente de documento sensível. |
-| D7 | **OCR e caminhos pesados = excepcionais e explícitos.** `read_file` e `grep_search` recebem `document_mode: "auto" | "ocr"`; o default `auto` nunca executa OCR. O modo `ocr` só roda quando solicitado na chamada. |
+| D7 | **OCR e caminhos pesados = excepcionais e explícitos.** `read_file` e `grep_search` recebem `document_mode: "auto" | "markdown" | "ocr"`; o default `auto` nunca executa OCR. O modo `ocr` só roda quando solicitado na chamada. |
 | D8 | **Custo é da superfície escolhida.** Pasta com centenas de PDFs longos pode ser lenta; o sistema deve permanecer cancelável, com limites de sanidade e mensagens claras — sem transformar isso em hard-deny artificial. |
 | D9 | **Path trust inalterado.** Extração passa pelo mesmo `validatePathWithPolicy` / fstrust (AEP-0092). Converter formato não bypassa allow/deny. |
 | D10 | **Detecção e escrita usam a mesma classificação.** Um documento não vira gravável por ter extensão textual falsa; tools de escrita validam o conteúdo/formato detectado, não só a extensão. |
 | D11 | **Falha fechada para conteúdo ativo/hostil.** Extratores não executam macros, scripts, links, objetos incorporados ou conteúdo externo; containers ZIP têm limites de entradas, tamanho expandido e razão de compressão. |
+| D12 | **Projeção por padrão só no formato opaco.** Converter é para o que o modelo não consegue ler no original (PDF, OOXML, ODF, EPUB). O que já é texto no disco — código, Markdown, HTML, JSON, CSV, RTF — volta byte a byte. Projetar texto por padrão esconderia justamente o conteúdo que o agente precisa ver para revisar ou editar (um HTML vira parágrafos, não HTML) e quebraria a simetria com a escrita, que grava esse mesmo texto. A projeção desses formatos continua disponível em `document_mode: "markdown"`. |
 
 ### Formatos (faseados)
 
-**V1 — leve (default em `read_file` / `grep_search`):**
+**V1 — leve:**
+
+Convertidos por padrão (formato opaco, sem leitura crua útil):
 
 - PDF com texto embutido (sem OCR)
 - OOXML: DOCX, XLSX e PPTX
 - OpenDocument: ODT, ODS e ODP
-- CSV (texto/tabela), RTF e EPUB
-- texto/código (comportamento atual)
+- EPUB
+
+Devolvidos como estão no disco, com projeção só sob demanda (D12):
+
+- CSV (tabela Markdown em `document_mode: "markdown"`)
+- RTF (texto extraído em `document_mode: "markdown"`)
+- texto/código/marcação em geral (comportamento anterior ao AEP)
 
 **Excepcional (mesmas tools, `document_mode: "ocr"`):**
 
@@ -65,12 +75,17 @@ explícita — nunca como indexação contínua nem default de toda varredura.
 ### Contrato de `read_file`
 
 - Entrada: `path`, `offset`/`limit` e `document_mode` opcional (`auto` default;
-  `ocr` explícito).
-- Texto nativo: como hoje (linhas numeradas).
-- Documento: Markdown derivado + cabeçalho curto (origem, formato, páginas /
-  abas se houver, avisos).
-- `offset`/`limit` aplicam-se às linhas da projeção Markdown já extraída; não
-  representam bytes, páginas nem linhas do arquivo binário original.
+  `markdown` explícito; `ocr` na Fase 3).
+- Texto nativo: como hoje (linhas numeradas), inclusive CSV e RTF (D12).
+- Documento opaco: Markdown derivado + cabeçalho curto (origem, formato, páginas
+  / abas se houver, avisos).
+- `document_mode: "markdown"` estende a projeção aos formatos textuais que têm
+  extrator; em texto puro, que não tem projeção, não muda nada.
+- `document_mode` desconhecido é erro, não vira `auto`: cair no default calado
+  faria o chamador achar que pediu conversão e receber texto cru sem aviso.
+- `offset`/`limit` aplicam-se às linhas do conteúdo devolvido — as do arquivo
+  quando é texto, as da projeção quando houve extração. Nunca representam bytes
+  nem páginas do arquivo binário original.
 - PDF sem texto em modo `auto`: resposta útil informando que OCR está disponível
   mediante `document_mode: "ocr"`; não há fallback silencioso para OCR.
 - Documento criptografado/protegido por senha: erro claro; senha não entra neste
@@ -83,10 +98,12 @@ explícita — nunca como indexação contínua nem default de toda varredura.
   leitura falha com mensagem explícita informando tamanho e limite — é o ponto
   em que decodificar o container inteiro em memória deixa de ser seguro, e não
   há como paginar sem extrair antes.
-- O teto **não se aplica a texto/código**: `read_file` classifica primeiro e só
-  então decide. Arquivo de texto grande continua legível com `offset`/`limit`,
-  como antes deste AEP. Acima de 4 MiB, o recorte por linhas é lido em streaming,
-  sem materializar o arquivo inteiro.
+- O teto é **da extração, não da leitura**: `read_file` classifica primeiro e só
+  então decide. Arquivo devolvido como texto — código, e também CSV/RTF em
+  `auto` (D12) — continua legível com `offset`/`limit`, como antes deste AEP.
+  Acima de 4 MiB, o recorte por linhas é lido em streaming, sem materializar o
+  arquivo inteiro. O mesmo CSV em `document_mode: "markdown"` bate no teto,
+  porque a tabela só existe depois de decodificar tudo.
 - Containers ZIP (OOXML/ODF/EPUB) têm limites próprios de entradas, tamanho
   expandido e razão de compressão (D11), aplicados por entrada e no acumulado.
 
@@ -118,6 +135,8 @@ explícita — nunca como indexação contínua nem default de toda varredura.
 - [x] Cabeçalho/aviso de projeção na resposta
 - [x] `write_file` / `edit_file` / `text_edit` rejeitam documentos
 - [x] Adaptadores: PDF textual, OOXML, OpenDocument, CSV, RTF e EPUB
+- [x] `document_mode: "auto" | "markdown"` — projeção por padrão só no formato
+      opaco (D12)
 - [x] Testes por formato, texto inalterado, formato disfarçado e binário rejeitado
 - [x] Descrição da tool / catálogo atualizados (i18n se houver strings de UI)
 
@@ -151,8 +170,10 @@ explícita — nunca como indexação contínua nem default de toda varredura.
 
 ## Critérios de aceitação
 
-- [ ] `read_file` nos formatos V1 devolve Markdown legível com origem explícita
+- [ ] `read_file` nos formatos opacos devolve Markdown legível com origem explícita
 - [ ] `read_file` em `.md`/código permanece equivalente ao comportamento atual
+- [ ] `read_file` em CSV/HTML/RTF devolve o arquivo como está no modo `auto` e a
+      projeção em `document_mode: "markdown"`
 - [ ] Não existe segunda tool pública só para documentos
 - [ ] Escrita em PDF/DOCX/etc. falha com mensagem clara
 - [ ] Arquivo de documento disfarçado com extensão textual continua não gravável

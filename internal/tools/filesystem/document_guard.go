@@ -56,9 +56,10 @@ func readFilePrefix(fullPath string, n int) ([]byte, error) {
 }
 
 // rejectOversizedDocument classifica pelo prefixo do arquivo e recusa documentos
-// acima do teto de extração antes de carregar tudo em memória. Texto/código não
-// tem teto: segue o comportamento anterior ao AEP-0093.
-func rejectOversizedDocument(fullPath, displayPath string, size int64) (content string, rejected bool) {
+// acima do teto de extração antes de carregar tudo em memória. O teto é da
+// extração, não da leitura: arquivo que o modo devolve como texto (código, CSV,
+// RTF em ModeAuto) passa direto, como antes do AEP-0093.
+func rejectOversizedDocument(fullPath, displayPath string, size int64, mode docextract.Mode) (content string, rejected bool) {
 	if size <= docextract.MaxExtractBytes {
 		return "", false
 	}
@@ -66,15 +67,24 @@ func rejectOversizedDocument(fullPath, displayPath string, size int64) (content 
 	if err != nil {
 		return fmt.Sprintf("não foi possível classificar o arquivo antes de ler: %v", err), true
 	}
-	switch kind := docextract.Detect(prefix, displayPath); kind {
-	case docextract.KindText:
-		return "", false
-	case docextract.KindUnsupportedBinary:
+	kind := docextract.Detect(prefix, displayPath)
+	if kind == docextract.KindUnsupportedBinary {
 		// O tamanho não é o motivo: esse formato não tem leitura convertida.
 		return docextract.ErrUnsupportedBinary().Error(), true
-	default:
-		return docextract.ErrTooLargeToExtract(size).Error(), true
 	}
+	if !willProject(kind, mode) {
+		return "", false
+	}
+	return docextract.ErrTooLargeToExtract(size).Error(), true
+}
+
+// willProject diz se o conteúdo desse kind será convertido para Markdown no modo
+// pedido — ou seja, se precisará ser extraído inteiro (D12).
+func willProject(kind docextract.Kind, mode docextract.Mode) bool {
+	if docextract.IsOpaqueDocument(kind) {
+		return true
+	}
+	return mode == docextract.ModeMarkdown && docextract.IsDocument(kind)
 }
 
 func documentReadError(err error) string {

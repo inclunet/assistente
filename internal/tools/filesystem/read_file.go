@@ -33,7 +33,7 @@ func (t *ReadFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *ReadFile) Description() string {
-	return "Reads a file and returns line-numbered content. For documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, CSV, RTF, EPUB) returns a Markdown projection (not the original file); document extraction is capped at 32 MiB of input, while plain text/code has no such cap. Use offset (1-indexed; negative counts from end) and limit (number of lines of the returned text/projection). Without offset/limit, returns the whole result."
+	return "Reads a file and returns line-numbered content. Text files (code, Markdown, HTML, JSON, CSV, RTF, ...) are returned verbatim, exactly as stored on disk. Only opaque documents the model cannot read as-is (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, EPUB) are converted to a Markdown projection (not the original file), with extraction capped at 32 MiB of input; text has no such cap. Set document_mode to \"markdown\" to also convert text formats that have a projection (e.g. a CSV rendered as a Markdown table). Use offset (1-indexed; negative counts from end) and limit (number of lines of the returned content). Without offset/limit, returns the whole result."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
@@ -46,11 +46,16 @@ func (t *ReadFile) Parameters() json.RawMessage {
 			},
 			"offset": {
 				"type": "integer",
-				"description": "Linha inicial (1-indexed) do texto/projeção. Se negativo, conta do final."
+				"description": "Linha inicial (1-indexed) do conteúdo retornado. Se negativo, conta do final."
 			},
 			"limit": {
 				"type": "integer",
 				"description": "Número máximo de linhas a retornar. Sem limit, retorna tudo a partir do offset."
+			},
+			"document_mode": {
+				"type": "string",
+				"enum": ["auto", "markdown"],
+				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela."
 			}
 		},
 		"required": ["path"],
@@ -60,9 +65,26 @@ func (t *ReadFile) Parameters() json.RawMessage {
 
 // readFileArgs são os argumentos parseados de read_file
 type readFileArgs struct {
-	Path   string `json:"path"`
-	Offset *int   `json:"offset,omitempty"`
-	Limit  *int   `json:"limit,omitempty"`
+	Path         string `json:"path"`
+	Offset       *int   `json:"offset,omitempty"`
+	Limit        *int   `json:"limit,omitempty"`
+	DocumentMode string `json:"document_mode,omitempty"`
+}
+
+// parseDocumentMode valida o modo pedido. Modo desconhecido é erro em vez de
+// virar auto: silenciar o engano faria o chamador achar que pediu conversão e
+// receber o texto cru sem aviso.
+func parseDocumentMode(raw string) (docextract.Mode, error) {
+	switch raw {
+	case "", string(docextract.ModeAuto):
+		return docextract.ModeAuto, nil
+	case string(docextract.ModeMarkdown):
+		return docextract.ModeMarkdown, nil
+	case "ocr":
+		return "", fmt.Errorf("document_mode %q ainda não está disponível (previsto para a Fase 3 do AEP-0093)", raw)
+	default:
+		return "", fmt.Errorf("document_mode inválido: %q (use \"auto\" ou \"markdown\")", raw)
+	}
 }
 
 func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
@@ -73,6 +95,11 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 
 	if a.Path == "" {
 		return tools.ToolResult{Content: "Parâmetro 'path' é obrigatório", IsError: true}, nil
+	}
+
+	mode, err := parseDocumentMode(a.DocumentMode)
+	if err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
 	// Resolve caminho
@@ -98,11 +125,11 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("'%s' é um diretório, não um arquivo. Use list_directory.", a.Path), IsError: true}, nil
 	}
 
-	if msg, rejected := rejectOversizedDocument(fullPath, a.Path, info.Size()); rejected {
+	if msg, rejected := rejectOversizedDocument(fullPath, a.Path, info.Size(), mode); rejected {
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
-	if res, handled := readTextSliceStreaming(fullPath, a.Path, info.Size(), a.Offset, a.Limit); handled {
+	if res, handled := readTextSliceStreaming(fullPath, a.Path, info.Size(), a.Offset, a.Limit, mode); handled {
 		return res, nil
 	}
 
@@ -112,16 +139,15 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
 	}
 
-	extracted, err := docextract.Extract(data, a.Path)
+	extracted, err := docextract.ExtractMode(data, a.Path, mode)
 	if err != nil {
 		return tools.ToolResult{Content: documentReadError(err), IsError: true}, nil
 	}
 
 	var content string
 	var meta map[string]any
-	if docextract.IsDocument(extracted.Kind) {
-		body := docextract.FormatProjectionHeader(extracted) + extracted.Markdown
-		content = body
+	if extracted.Projected {
+		content = docextract.FormatProjectionHeader(extracted) + extracted.Markdown
 		meta = map[string]any{
 			"projection": true,
 			"format":     string(extracted.Kind),
