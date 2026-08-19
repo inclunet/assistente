@@ -48,8 +48,8 @@ func resolveKeyringRef(ref string) (string, error) {
 	// A tentativa acontece mesmo com "/" no path porque TargetName do Credential
 	// Manager costuma conter barra (ex.: git:https://github.com).
 	// Cada implementação já formata o erro com o prefixo "keyring://<path>".
-	secret, directErr := resolveKeyringDirect(path)
-	if directErr == nil {
+	secret, found, directErr := lookupKeyringTarget(path)
+	if found {
 		return secret, nil
 	}
 	// Com service/user, o erro do go-keyring é o que descreve a falha real; o
