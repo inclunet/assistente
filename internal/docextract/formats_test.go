@@ -77,6 +77,18 @@ func TestExtractEPUB(t *testing.T) {
 	}
 }
 
+// Span no meio do parágrafo não pode cortar o texto que vem depois dele.
+func TestExtractODPKeepsTextAfterSpan(t *testing.T) {
+	data := minimalODP(t, `foo <text:span>bar</text:span> baz`)
+	res, err := docextract.Extract(data, "a.odp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Markdown, "foo bar baz") {
+		t.Fatalf("texto após o span foi perdido: %q", res.Markdown)
+	}
+}
+
 func TestExtractEPUBKeepsParagraphs(t *testing.T) {
 	data := minimalEPUB(t, "Primeiro paragrafo</p><p>Segundo paragrafo")
 	res, err := docextract.Extract(data, "a.epub")
@@ -153,6 +165,21 @@ func minimalODT(t *testing.T, text string) []byte {
 <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
   <office:body><office:text><text:p>` + text + `</text:p></office:text></office:body>
+</office:document-content>`,
+	})
+}
+
+func minimalODP(t *testing.T, paragraph string) []byte {
+	t.Helper()
+	return writeZip(t, map[string]string{
+		"mimetype": "application/vnd.oasis.opendocument.presentation",
+		"content.xml": `<?xml version="1.0"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body><office:presentation>
+    <draw:page draw:name="p1"><draw:frame><draw:text-box><text:p>` + paragraph + `</text:p></draw:text-box></draw:frame></draw:page>
+  </office:presentation></office:body>
 </office:document-content>`,
 	})
 }

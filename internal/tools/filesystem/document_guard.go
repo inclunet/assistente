@@ -17,20 +17,39 @@ func rejectDocumentWrite(data []byte, pathForDetect string) (content string, rej
 	return "", false
 }
 
-// rejectExistingDocument lê o arquivo existente (se houver) e rejeita escrita em documento.
-// Se o arquivo existe mas não pode ser lido, falha fechado (AEP-0093).
+// rejectExistingDocument classifica o arquivo existente (se houver) e rejeita
+// escrita em documento. Lê só o prefixo: o tipo é decidido pelos primeiros bytes
+// mais a extensão, então não há motivo para carregar um binário inteiro apenas
+// para recusá-lo. Se o arquivo existe mas não pode ser lido, falha fechado
+// (AEP-0093).
 func rejectExistingDocument(fullPath, displayPath string) (content string, rejected bool) {
-	data, err := ReadFileBytes(fullPath)
+	prefix, err := readFilePrefix(fullPath, docextract.DetectPrefixBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", false
 		}
 		return fmt.Sprintf("não foi possível classificar o arquivo existente antes de escrever: %v", err), true
 	}
-	if msg, ok := rejectDocumentWrite(data, displayPath); ok {
+	if msg, ok := rejectDocumentWrite(prefix, displayPath); ok {
 		return msg, true
 	}
 	return "", false
+}
+
+// readFilePrefix devolve até n bytes do início do arquivo.
+func readFilePrefix(fullPath string, n int) ([]byte, error) {
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	buf := make([]byte, n)
+	read, err := io.ReadFull(f, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return buf[:read], nil
 }
 
 // rejectOversizedDocument classifica pelo prefixo do arquivo e recusa documentos
@@ -40,18 +59,11 @@ func rejectOversizedDocument(fullPath, displayPath string, size int64) (content 
 	if size <= docextract.MaxExtractBytes {
 		return "", false
 	}
-	f, err := os.Open(fullPath)
+	prefix, err := readFilePrefix(fullPath, docextract.DetectPrefixBytes)
 	if err != nil {
 		return fmt.Sprintf("não foi possível classificar o arquivo antes de ler: %v", err), true
 	}
-	defer func() { _ = f.Close() }()
-
-	prefix := make([]byte, docextract.DetectPrefixBytes)
-	n, err := io.ReadFull(f, prefix)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return fmt.Sprintf("não foi possível classificar o arquivo antes de ler: %v", err), true
-	}
-	if docextract.Detect(prefix[:n], displayPath) == docextract.KindText {
+	if docextract.Detect(prefix, displayPath) == docextract.KindText {
 		return "", false
 	}
 	return docextract.ErrTooLargeToExtract(size).Error(), true

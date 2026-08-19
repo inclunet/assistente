@@ -206,7 +206,10 @@ func extractODFSlides(data []byte) (string, int, error) {
 	dec := xml.NewDecoder(bytes.NewReader(body))
 	var parts []string
 	var cur strings.Builder
-	inPage, inText := false, false
+	inPage := false
+	// paraDepth > 0 enquanto estamos dentro de <p>/<h>; spans aninhados não
+	// interrompem o parágrafo.
+	paraDepth := 0
 	pageNum := 0
 
 	flush := func() {
@@ -216,6 +219,7 @@ func extractODFSlides(data []byte) (string, int, error) {
 		parts = append(parts, fmt.Sprintf("## Slide %d\n\n%s\n", pageNum, strings.TrimSpace(cur.String())))
 		cur.Reset()
 		inPage = false
+		paraDepth = 0
 	}
 
 	for {
@@ -233,25 +237,34 @@ func extractODFSlides(data []byte) (string, int, error) {
 				flush()
 				pageNum++
 				inPage = true
-			case "p", "h", "span":
+				paraDepth = 0
+			case "p", "h":
 				if inPage {
-					inText = true
+					paraDepth++
+				}
+			case "line-break":
+				if inPage && paraDepth > 0 {
+					cur.WriteByte('\n')
+				}
+			case "tab":
+				if inPage && paraDepth > 0 {
+					cur.WriteByte('\t')
 				}
 			}
 		case xml.EndElement:
 			switch local(t.Name) {
 			case "p", "h":
-				if inPage {
-					cur.WriteString("\n\n")
-					inText = false
+				if inPage && paraDepth > 0 {
+					paraDepth--
+					if paraDepth == 0 {
+						cur.WriteString("\n\n")
+					}
 				}
-			case "span":
-				inText = false
 			case "page":
 				flush()
 			}
 		case xml.CharData:
-			if inPage && inText {
+			if inPage && paraDepth > 0 {
 				cur.Write(t)
 			}
 		}
