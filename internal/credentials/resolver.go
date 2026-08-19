@@ -44,8 +44,8 @@ func resolveKeyringRef(ref string) (string, error) {
 
 	// Formato keyring://TargetName → lookup direto (Windows: wincred)
 	// Usado pelo autocomplete que lista TargetNames exatos do Credential Manager.
-	// Em !windows, resolveKeyringDirect sempre retorna erro (build tag); por isso
-	// não inspecionamos err aqui — o retorno já carrega a falha tipada.
+	// Cada implementação já formata o erro com o prefixo "keyring://<path>", então
+	// não há wrapper aqui.
 	return resolveKeyringDirect(path)
 }
 

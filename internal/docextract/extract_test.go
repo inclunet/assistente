@@ -132,10 +132,12 @@ func TestCheckWritableAllowsPlainText(t *testing.T) {
 	}
 }
 
-// Texto grande não pode esbarrar no limite de extração: read_file continua
-// paginando por linhas (AEP-0093 D8).
+// Texto acima do teto de extração de documento não pode ser bloqueado:
+// read_file continua paginando por linhas (AEP-0093 D8).
 func TestExtractLargeTextNotBlocked(t *testing.T) {
-	data := bytes.Repeat([]byte("linha de texto grande\n"), 2_000_000)
+	const overDocumentCap = (32 << 20) + 1
+	line := []byte("linha de texto grande\n")
+	data := bytes.Repeat(line, overDocumentCap/len(line)+1)
 	res, err := docextract.Extract(data, "grande.log")
 	if err != nil {
 		t.Fatalf("texto grande não deveria falhar: %v", err)
