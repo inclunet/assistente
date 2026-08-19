@@ -23,6 +23,32 @@ func TestExtractXLSX(t *testing.T) {
 	}
 }
 
+func TestExtractXLSXCellSplitAcrossTokens(t *testing.T) {
+	data := writeZip(t, map[string]string{
+		"xl/workbook.xml": `<?xml version="1.0"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Folha1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+		"xl/_rels/workbook.xml.rels": `<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+		// Entidade força o parser a emitir CharData em pedaços
+		"xl/worksheets/sheet1.xml": `<?xml version="1.0"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData><row r="1"><c r="A1" t="inlineStr"><t>Ana &amp; Bia &amp; Caio</t></c></row></sheetData>
+</worksheet>`,
+	})
+	res, err := docextract.Extract(data, "s.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Markdown, "Ana & Bia & Caio") {
+		t.Fatalf("valor da célula fragmentado: %q", res.Markdown)
+	}
+}
+
 func TestExtractODT(t *testing.T) {
 	data := minimalODT(t, "Texto ODT")
 	res, err := docextract.Extract(data, "a.odt")

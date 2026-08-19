@@ -283,6 +283,7 @@ func parseSheetToMarkdown(data []byte, shared []string) (string, error) {
 	var rows [][]cell
 	var curRow []cell
 	var cur cell
+	var curValue strings.Builder
 	inV := false
 	for {
 		tok, done, err := nextToken(dec)
@@ -299,6 +300,7 @@ func parseSheetToMarkdown(data []byte, shared []string) (string, error) {
 				curRow = nil
 			case "c":
 				cur = cell{}
+				curValue.Reset()
 				for _, a := range t.Attr {
 					switch local(a.Name) {
 					case "r":
@@ -315,6 +317,7 @@ func parseSheetToMarkdown(data []byte, shared []string) (string, error) {
 			case "v", "t":
 				inV = false
 			case "c":
+				cur.v = curValue.String()
 				curRow = append(curRow, cur)
 			case "row":
 				if len(curRow) > 0 {
@@ -323,7 +326,7 @@ func parseSheetToMarkdown(data []byte, shared []string) (string, error) {
 			}
 		case xml.CharData:
 			if inV {
-				cur.v += string(t)
+				curValue.Write(t)
 			}
 		}
 	}
