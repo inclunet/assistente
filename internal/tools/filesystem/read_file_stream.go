@@ -20,6 +20,9 @@ const streamTextMinBytes = 4 << 20
 // o recorte exigiria carregar tudo em memória, então a leitura falha.
 const maxStreamLineBytes = 16 << 20
 
+// Tamanho do bloco lido por vez; também limita quanto uma única leitura aloca.
+const streamBufferBytes = 64 << 10
+
 var errStreamLineTooLong = errors.New("linha longa demais para leitura em streaming")
 
 // scanTextLines percorre as linhas do arquivo com a mesma semântica de
@@ -32,21 +35,41 @@ func scanTextLines(fullPath string, visit func(idx int, line string) bool) error
 	}
 	defer func() { _ = f.Close() }()
 
-	r := bufio.NewReaderSize(f, 64<<10)
+	r := bufio.NewReaderSize(f, streamBufferBytes)
 	for idx := 0; ; idx++ {
-		s, err := r.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
+		line, atEOF, err := readStreamLine(r)
+		if err != nil {
 			return err
 		}
-		if len(s) > maxStreamLineBytes {
-			return errStreamLineTooLong
-		}
-		if errors.Is(err, io.EOF) {
-			visit(idx, s)
+		if atEOF {
+			visit(idx, line)
 			return nil
 		}
-		if !visit(idx, strings.TrimSuffix(s, "\n")) {
+		if !visit(idx, line) {
 			return nil
+		}
+	}
+}
+
+// readStreamLine lê uma linha em blocos do tamanho do buffer, abortando assim que
+// o acumulado passa do teto — assim uma "linha" gigante nunca é materializada.
+func readStreamLine(r *bufio.Reader) (line string, atEOF bool, err error) {
+	var b strings.Builder
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if b.Len()+len(chunk) > maxStreamLineBytes {
+			return "", false, errStreamLineTooLong
+		}
+		b.Write(chunk)
+		switch {
+		case err == nil:
+			return strings.TrimSuffix(b.String(), "\n"), false, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			return b.String(), true, nil
+		default:
+			return "", false, err
 		}
 	}
 }
