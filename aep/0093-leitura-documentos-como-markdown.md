@@ -85,7 +85,8 @@ explícita — nunca como indexação contínua nem default de toda varredura.
   há como paginar sem extrair antes.
 - O teto **não se aplica a texto/código**: `read_file` classifica primeiro e só
   então decide. Arquivo de texto grande continua legível com `offset`/`limit`,
-  como antes deste AEP.
+  como antes deste AEP. Acima de 4 MiB, o recorte por linhas é lido em streaming,
+  sem materializar o arquivo inteiro.
 - Containers ZIP (OOXML/ODF/EPUB) têm limites próprios de entradas, tamanho
   expandido e razão de compressão (D11), aplicados por entrada e no acumulado.
 

@@ -102,6 +102,10 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
+	if res, handled := readTextSliceStreaming(fullPath, a.Path, info.Size(), a.Offset, a.Limit); handled {
+		return res, nil
+	}
+
 	// Lê o arquivo
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
