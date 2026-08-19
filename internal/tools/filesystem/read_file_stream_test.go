@@ -1,0 +1,229 @@
+package filesystem
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"assistente/internal/docextract"
+)
+
+// writeLinesFile grava um arquivo de texto com nLines linhas numeradas.
+func writeLinesFile(t *testing.T, path string, nLines int, pad string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	w := strings.Builder{}
+	for i := 1; i <= nLines; i++ {
+		fmt.Fprintf(&w, "linha %d %s\n", i, pad)
+		if w.Len() > 1<<20 {
+			if _, err := f.WriteString(w.String()); err != nil {
+				t.Fatal(err)
+			}
+			w.Reset()
+		}
+	}
+	if _, err := f.WriteString(w.String()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Texto grande com offset/limit é servido em streaming e devolve exatamente o
+// mesmo recorte que o caminho que carrega tudo.
+func TestReadFileStreamsLargeTextSlice(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grande.log")
+	pad := strings.Repeat("x", 60)
+	writeLinesFile(t, path, 80_000, pad)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() < streamTextMinBytes {
+		t.Fatalf("arquivo pequeno demais para exercitar o streaming: %d bytes", info.Size())
+	}
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":   "grande.log",
+		"offset": 10,
+		"limit":  3,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("erro: %s", res.Content)
+	}
+
+	// 80.000 linhas + linha vazia final, como em strings.Split.
+	if got := res.Metadata["total_lines"]; got != 80_001 {
+		t.Fatalf("total_lines=%v", got)
+	}
+	// size_bytes é int64 em todos os caminhos de read_file.
+	if _, ok := res.Metadata["size_bytes"].(int64); !ok {
+		t.Fatalf("size_bytes=%T", res.Metadata["size_bytes"])
+	}
+	lines := strings.Split(res.Content, "\n")
+	if !strings.Contains(lines[0], "linhas 10-12 de 80001") {
+		t.Fatalf("cabeçalho inesperado: %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "    10|linha 10 ") {
+		t.Fatalf("primeira linha do recorte: %q", lines[1])
+	}
+	if len(lines) != 4 {
+		t.Fatalf("esperava 3 linhas no recorte, veio %d", len(lines)-1)
+	}
+}
+
+// CSV grande também é texto: o recorte vem em streaming, com as linhas do
+// arquivo, e não com a tabela Markdown (D12).
+func TestReadFileStreamsLargeCSVAsText(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grande.csv")
+	writeLinesFile(t, path, 80_000, strings.Repeat("x", 60))
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":   "grande.csv",
+		"offset": 2,
+		"limit":  1,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("erro: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "projeção Markdown") {
+		t.Fatalf("CSV não deveria vir projetado: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "linha 2 ") {
+		t.Fatalf("linha crua ausente: %q", res.Content)
+	}
+}
+
+// Byte NUL longe do prefixo denuncia binário disfarçado: o arquivo grande é
+// recusado como o pequeno seria, em vez de passar por não ter sido classificado
+// pelo conteúdo inteiro.
+func TestReadFileStreamRejectsNulByteBeyondPrefix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "disfarcado.csv")
+	writeLinesFile(t, path, 80_000, strings.Repeat("x", 60))
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte{'a', 0x00, 'b', '\n'}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":  "disfarcado.csv",
+		"limit": 2,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("conteúdo binário deveria ser recusado: %q", res.Content)
+	}
+	if !strings.Contains(res.Content, "binário") {
+		t.Fatalf("mensagem inesperada: %s", res.Content)
+	}
+}
+
+// Offset negativo conta do fim também no caminho em streaming.
+func TestReadFileStreamsNegativeOffset(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grande.log")
+	writeLinesFile(t, path, 80_000, strings.Repeat("x", 60))
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":   "grande.log",
+		"offset": -2,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("erro: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "linha 80000 ") {
+		t.Fatalf("última linha ausente: %q", res.Content)
+	}
+}
+
+// Linha absurdamente longa falha em vez de cair na leitura integral.
+func TestReadFileStreamRejectsHugeLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "uma-linha.log")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := strings.Repeat("a", 1<<20)
+	for i := 0; i < (maxStreamLineBytes>>20)+2; i++ {
+		if _, err := f.WriteString(chunk); err != nil {
+			_ = f.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFile(dir)
+	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":  "uma-linha.log",
+		"limit": 1,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("linha gigante deveria falhar em vez de carregar tudo")
+	}
+	if !strings.Contains(res.Content, "linha maior que") {
+		t.Fatalf("mensagem inesperada: %s", res.Content)
+	}
+}
+
+// O recorte em streaming precisa bater com o do caminho que carrega tudo.
+func TestStreamingSliceMatchesFullRead(t *testing.T) {
+	dir := t.TempDir()
+	small := filepath.Join(dir, "pequeno.log")
+	writeLinesFile(t, small, 50, "")
+
+	tool := NewReadFile(dir)
+	full, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path":   "pequeno.log",
+		"offset": 5,
+		"limit":  4,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	streamed, handled := readTextSliceStreaming(small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto)
+	if !handled {
+		t.Skip("classificação não considerou o arquivo como texto")
+	}
+	if streamed.Content != full.Content {
+		t.Fatalf("streaming difere:\n%q\n%q", streamed.Content, full.Content)
+	}
+}
+
+func intPtr(v int) *int { return &v }

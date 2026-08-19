@@ -57,7 +57,7 @@ func (t *WriteFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *WriteFile) Description() string {
-	return "Creates or overwrites a file with full content (no partial edits). Creates intermediate directories. Use for new files or full rewrites; for small edits, use edit_file."
+	return "Creates or overwrites a text file with full content (no partial edits). Creates intermediate directories. Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB) — read them with read_file, which returns a Markdown projection; CSV and RTF remain writable as text. For small edits, use edit_file."
 }
 
 func (t *WriteFile) Parameters() json.RawMessage {
@@ -129,6 +129,16 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 			Content: fmt.Sprintf("'%s' é um diretório, não pode ser sobrescrito como arquivo", a.Path),
 			IsError: true,
 		}, nil
+	}
+
+	// AEP-0093: escrita só em texto — rejeita documento existente ou conteúdo de documento
+	if existed {
+		if msg, ok := rejectExistingDocument(fullPath, a.Path); ok {
+			return tools.ToolResult{Content: msg, IsError: true}, nil
+		}
+	}
+	if msg, ok := rejectDocumentWriteString(a.Content, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
 	// Resolve política de confirmação baseada no contexto de invocação (AEP-0032:

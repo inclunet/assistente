@@ -52,7 +52,7 @@ func (t *EditFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *EditFile) Description() string {
-	return "Edits an existing file by replacing an exact string (old_string) with another (new_string). old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
+	return "Edits an existing text file by replacing an exact string (old_string) with another (new_string). Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB); CSV and RTF remain editable as text. old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
 }
 
 func (t *EditFile) Parameters() json.RawMessage {
@@ -132,6 +132,10 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("'%s' é um diretório, não um arquivo", a.Path), IsError: true}, nil
 	}
 
+	if msg, ok := rejectExistingDocument(fullPath, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Lê conteúdo atual
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
@@ -185,6 +189,13 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	} else {
 		newContent = strings.Replace(content, a.OldString, a.NewString, 1)
 		replacements = 1
+	}
+
+	// O arquivo de origem já foi classificado, mas o resultado da substituição é
+	// conteúdo novo: sem conferi-lo, new_string entraria como porta para gravar
+	// bytes não-texto num arquivo que passou no guard (AEP-0093).
+	if msg, ok := rejectDocumentWriteString(newContent, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
 	// Escreve o arquivo modificado

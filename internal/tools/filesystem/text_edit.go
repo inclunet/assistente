@@ -53,7 +53,7 @@ func (t *TextEdit) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TextEdit) Description() string {
-	return "Replaces the selected text in the active editor file after user confirmation (Apply/Reject). Use 'original' with the exact selected text and 'replacement' with the final content. Only works from an editor tab with an open file; elsewhere use edit_file."
+	return "Replaces the selected text in the active editor text file after user confirmation (Apply/Reject). Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB); CSV and RTF remain editable as text. Use 'original' with the exact selected text and 'replacement' with the final content. Only works from an editor tab with an open file; elsewhere use edit_file."
 }
 
 func (t *TextEdit) Parameters() json.RawMessage {
@@ -149,6 +149,10 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("'%s' é um diretório, não um arquivo", fullPath), IsError: true}, nil
 	}
 
+	if msg, ok := rejectExistingDocument(fullPath, fullPath); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Lê conteúdo atual
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
@@ -226,6 +230,13 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 
 	// Realiza a substituição (única ocorrência garantida acima)
 	newContent := strings.Replace(content, a.Original, a.Replacement, 1)
+
+	// O arquivo de origem já foi classificado, mas o resultado da substituição é
+	// conteúdo novo: sem conferi-lo, replacement entraria como porta para gravar
+	// bytes não-texto num arquivo que passou no guard (AEP-0093).
+	if msg, ok := rejectDocumentWriteString(newContent, fullPath); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
 
 	// Escreve o arquivo modificado
 	var cancelWriteMarker func(bool)

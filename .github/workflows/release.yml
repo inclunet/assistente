@@ -14,7 +14,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
+        timeout-minutes: 10
+        run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
 
       - uses: actions/setup-go@v5
         with:
