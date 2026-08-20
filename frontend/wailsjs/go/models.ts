@@ -900,6 +900,12 @@ export namespace apidto {
 	export class EditorOpenResult {
 	    path: string;
 	    content: string;
+	    projected: boolean;
+	    format?: string;
+	    readOnly: boolean;
+	    pages?: number;
+	    warnings?: string[];
+	    warningCode?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new EditorOpenResult(source);
@@ -909,6 +915,12 @@ export namespace apidto {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.content = source["content"];
+	        this.projected = source["projected"];
+	        this.format = source["format"];
+	        this.readOnly = source["readOnly"];
+	        this.pages = source["pages"];
+	        this.warnings = source["warnings"];
+	        this.warningCode = source["warningCode"];
 	    }
 	}
 	export class EditorState {

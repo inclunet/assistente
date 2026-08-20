@@ -7,6 +7,7 @@ import { useUIStore } from '../store/uiStore';
 import { useTerminalStore } from '../store/terminalStore';
 import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/wailsapi/Editor';
+import { normalizeEditorDocumentResult } from './editorContent';
 import { RunTerminalCommand } from '@wailsjs/go/wailsapi/Terminal';
 import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
@@ -480,11 +481,21 @@ export async function executeDeepLink(
 
     case 'tab:new': {
       if (action.file && action.tabType === 'editor') {
-        const content = String(await EditorReadFile(action.file) || '');
+        const loaded = normalizeEditorDocumentResult(await EditorReadFile(action.file), action.file);
         const fileName = action.file.split(/[/\\]/).pop() || i18n.t('editor.prompts.file');
         const title = action.title || fileName;
         const tabId = await wsStore.addTab('editor', title, { filePath: action.file });
-        useEditorStore.getState().createDocument({ id: tabId, title, markdown: content, filePath: action.file });
+        useEditorStore.getState().createDocument({
+          id: tabId,
+          title,
+          markdown: loaded.content,
+          mode: loaded.readOnly ? 'view' : 'markdown',
+          filePath: action.file,
+          readOnly: loaded.readOnly,
+          projection: loaded.projected
+            ? { format: loaded.format, pages: loaded.pages, warnings: loaded.warnings, warningCode: loaded.warningCode }
+            : null,
+        });
       } else if (action.tabType === 'terminal') {
         const sessionId = await useTerminalStore.getState().createSession(action.title);
         if (!sessionId) {

@@ -1150,9 +1150,38 @@ describe('executeDeepLink', () => {
         id: 'tab-new-editor',
         title: 'test.md',
         markdown: 'file content',
+        mode: 'markdown',
         filePath: '/tmp/test.md',
+        readOnly: false,
+        projection: null,
       });
       expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('abre documento projetado do deep link em visualização somente leitura', async () => {
+      mockWsAddTab.mockResolvedValueOnce('tab-docx');
+      mockEditorReadFile.mockResolvedValueOnce({
+        path: '/tmp/manual.docx',
+        content: '# Manual',
+        projected: true,
+        format: 'docx',
+        readOnly: true,
+        pages: 2,
+        warnings: [],
+      });
+
+      await executeDeepLink(
+        { type: 'tab:new', tabType: 'editor', file: '/tmp/manual.docx' },
+        deps,
+      );
+
+      expect(mockCreateDocument).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'tab-docx',
+        markdown: '# Manual',
+        mode: 'view',
+        readOnly: true,
+        projection: { format: 'docx', pages: 2, warnings: [], warningCode: '' },
+      }));
     });
 
     it('cria nova aba de terminal', async () => {

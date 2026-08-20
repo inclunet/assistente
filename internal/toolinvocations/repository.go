@@ -433,12 +433,16 @@ func resultOutput(result tools.ToolResult) json.RawMessage {
 	if len(result.Metadata) > 0 {
 		payload["metadata"] = result.Metadata
 	}
+	if result.Annotations != nil {
+		payload["annotations"] = result.Annotations
+	}
 	data, err := json.Marshal(payload)
 	if err == nil {
 		return data
 	}
 
-	// Fallback: persiste pelo menos content/is_error mesmo se metadata tiver valores não serializáveis.
+	// Fallback: persiste pelo menos content/is_error e anotações mesmo se
+	// metadata tiver valores não serializáveis.
 	delete(payload, "metadata")
 	data, err2 := json.Marshal(payload)
 	if err2 == nil {

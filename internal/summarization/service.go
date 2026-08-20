@@ -142,7 +142,7 @@ func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvoca
 				continue
 			}
 			byCall[callID] = summarizationInvocationResult{
-				Result:             call.Result,
+				Result:             call.ModelResult,
 				ToolName:           call.Name,
 				Iteration:          call.Iteration,
 				AssistantMessageID: call.AssistantMessageID,

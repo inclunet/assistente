@@ -74,6 +74,44 @@ func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *te
 	}
 }
 
+func TestOutputForPersistence_PreservesResultAnnotations(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content: "# Manual",
+		Annotations: &tools.ResultAnnotations{
+			DocumentProjection: &tools.DocumentProjectionAnnotation{
+				Source:   "manual.docx",
+				Format:   "docx",
+				ReadOnly: true,
+			},
+		},
+	}
+
+	out := svc.outputForPersistence(result)
+	var payload struct {
+		Annotations tools.ResultAnnotations `json:"annotations"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatal(err)
+	}
+	projection := payload.Annotations.DocumentProjection
+	if projection == nil || projection.Source != "manual.docx" || !projection.ReadOnly {
+		t.Fatalf("annotations=%+v", payload.Annotations)
+	}
+}
+
+func TestExtractToolInvocationResultRestoresProjectionAnnotations(t *testing.T) {
+	raw := `{"content":"# Manual","is_error":false,"annotations":{"document_projection":{"source":"manual.docx","format":"docx","read_only":true}}}`
+	result := ExtractToolInvocationResult(raw)
+	if result.Annotations == nil || result.Annotations.DocumentProjection == nil {
+		t.Fatalf("annotations=%+v", result.Annotations)
+	}
+	modelResult := tools.ContentForModel(result)
+	if !strings.Contains(modelResult, `"format":"docx"`) || !strings.HasSuffix(modelResult, "# Manual") {
+		t.Fatalf("model result=%q", modelResult)
+	}
+}
+
 type echoTool struct{}
 
 func (echoTool) Name() string { return "echo" }

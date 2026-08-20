@@ -1,6 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceTab } from '../../store/workspaceStore';
+import type { apidto } from '@wailsjs/go/models';
 
 const editorMocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
@@ -124,8 +125,25 @@ describe('useEditorSurfaceController', () => {
     });
   });
 
+  it('mantém somente leitura quando a leitura do arquivo falha', async () => {
+    const { EditorReadFile } = await import('@wailsjs/go/wailsapi/Editor');
+    vi.mocked(EditorReadFile).mockRejectedValueOnce(new Error('documento inválido'));
+
+    renderHook(() => useEditorSurfaceController(editorTab, true));
+
+    await waitFor(() => {
+      expect(editorMocks.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+        filePath: 'C:/tmp/doc.md',
+        markdown: '',
+        mode: 'view',
+        readOnly: true,
+        loadError: true,
+      }));
+    });
+  });
+
   it('não cria nem ativa documento se a aba deixa de estar ativa durante leitura assíncrona', async () => {
-    let resolveRead: (value: string) => void = () => undefined;
+    let resolveRead: (value: apidto.EditorOpenResult) => void = () => undefined;
     const { EditorReadFile } = await import('@wailsjs/go/wailsapi/Editor');
     vi.mocked(EditorReadFile).mockImplementationOnce(() => new Promise((resolve) => {
       resolveRead = resolve;
@@ -133,7 +151,12 @@ describe('useEditorSurfaceController', () => {
 
     renderHook(() => useEditorSurfaceController(editorTab, true));
     workspaceMocks.activeTabId = 'other-tab';
-    resolveRead('# Depois');
+    resolveRead({
+      path: 'C:/tmp/doc.md',
+      content: '# Depois',
+      projected: false,
+      readOnly: false,
+    } as apidto.EditorOpenResult);
     await Promise.resolve();
 
     await waitFor(() => {

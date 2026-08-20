@@ -83,3 +83,60 @@ describe('editorStore — filePath lifecycle', () => {
     expect(useEditorStore.getState().documents['d2'].filePath).toBeNull();
   });
 });
+
+describe('editorStore — projeção somente leitura', () => {
+  beforeEach(resetStore);
+
+  it('força modo view e impede alternância para editores', () => {
+    useEditorStore.getState().createDocument({
+      id: 'manual',
+      title: 'manual.docx',
+      markdown: '# Manual',
+      mode: 'view',
+      readOnly: true,
+      projection: { format: 'docx', warnings: [] },
+    });
+
+    useEditorStore.getState().setDocMode('manual', 'markdown');
+    useEditorStore.getState().toggleDocMode('manual');
+
+    const document = useEditorStore.getState().documents.manual;
+    expect(document.mode).toBe('view');
+    expect(document.readOnly).toBe(true);
+    expect(document.projection?.format).toBe('docx');
+  });
+
+  it('limpa o erro e restaura edição quando uma releitura textual funciona', () => {
+    useEditorStore.getState().createDocument({
+      id: 'recuperado',
+      title: 'arquivo.md',
+      mode: 'view',
+      readOnly: true,
+      loadError: true,
+    });
+
+    useEditorStore.getState().setDocProjection('recuperado', null);
+
+    const document = useEditorStore.getState().documents.recuperado;
+    expect(document.loadError).toBe(false);
+    expect(document.readOnly).toBe(false);
+    expect(document.mode).toBe('markdown');
+  });
+
+  it('restaura modo editável quando uma projeção passa a ser texto', () => {
+    useEditorStore.getState().createDocument({
+      id: 'convertido',
+      title: 'arquivo.dat',
+      mode: 'view',
+      readOnly: true,
+      projection: { format: 'pdf', warnings: [] },
+    });
+
+    useEditorStore.getState().setDocProjection('convertido', null);
+
+    const document = useEditorStore.getState().documents.convertido;
+    expect(document.projection).toBeNull();
+    expect(document.readOnly).toBe(false);
+    expect(document.mode).toBe('markdown');
+  });
+});

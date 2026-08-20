@@ -40,6 +40,23 @@
   flex-direction: column;
 }
 
+.editor-page__document-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  background: var(--color-info-dim);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.editor-page__document-status strong {
+  color: var(--text-primary);
+}
+
 .editor-page__split,
 .editor-page__single {
   flex: 1;

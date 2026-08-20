@@ -9,7 +9,7 @@ describe('editorFileDialogLabels', () => {
   it('monta rótulos de abrir com as chaves de i18n', () => {
     expect(editorFileDialogLabels(t, 'open')).toEqual({
       title: 'tr:editor.dialog.openTitle',
-      markdownFilter: 'tr:editor.dialog.filterMarkdown',
+      markdownFilter: 'tr:editor.dialog.filterDocuments',
       allFilesFilter: 'tr:editor.dialog.filterAll',
       defaultFilename: 'tr:editor.dialog.defaultFilename',
     });

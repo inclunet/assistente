@@ -69,10 +69,6 @@ func TestExtractPDF(t *testing.T) {
 			t.Fatalf("expected pages, markdown=%q", res.Markdown)
 		}
 	}
-	hdr := docextract.FormatProjectionHeader(res)
-	if !strings.Contains(hdr, "projeção Markdown") || !strings.Contains(hdr, "pdf") {
-		t.Fatalf("header=%q", hdr)
-	}
 }
 
 func TestExtractDOCX(t *testing.T) {

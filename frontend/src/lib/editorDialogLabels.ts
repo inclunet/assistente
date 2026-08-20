@@ -21,7 +21,7 @@ export function editorFileDialogLabels(
 ): EditorFileDialogLabels {
   return {
     title: t(kind === 'open' ? 'editor.dialog.openTitle' : 'editor.dialog.saveTitle'),
-    markdownFilter: t('editor.dialog.filterMarkdown'),
+    markdownFilter: t(kind === 'open' ? 'editor.dialog.filterDocuments' : 'editor.dialog.filterMarkdown'),
     allFilesFilter: t('editor.dialog.filterAll'),
     defaultFilename: t('editor.dialog.defaultFilename'),
   };

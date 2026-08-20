@@ -186,8 +186,9 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 
 	var content string
 	var meta map[string]any
+	var annotations *tools.ResultAnnotations
 	if extracted.Projected {
-		content = docextract.FormatProjectionHeader(extracted) + extracted.Markdown
+		content = extracted.Markdown
 		meta = map[string]any{
 			"projection": true,
 			"format":     string(extracted.Kind),
@@ -199,6 +200,15 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		}
 		if extracted.Pages > 0 {
 			meta["pages"] = extracted.Pages
+		}
+		annotations = &tools.ResultAnnotations{
+			DocumentProjection: &tools.DocumentProjectionAnnotation{
+				Source:   a.Path,
+				Format:   string(extracted.Kind),
+				ReadOnly: true,
+				Pages:    extracted.Pages,
+				Warnings: append([]string(nil), extracted.Warnings...),
+			},
 		}
 	} else {
 		content = extracted.Markdown
@@ -254,8 +264,9 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		meta["offset"] = offset + 1
 		meta["limit"] = end - offset
 		return tools.ToolResult{
-			Content:  header + strings.Join(numbered, "\n"),
-			Metadata: meta,
+			Content:     header + strings.Join(numbered, "\n"),
+			Metadata:    meta,
+			Annotations: annotations,
 		}, nil
 	}
 
@@ -268,8 +279,9 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	header := fmt.Sprintf("Arquivo: %s (%d linhas, %d bytes)\n", a.Path, totalLines, len(data))
 	meta["total_lines"] = totalLines
 	return tools.ToolResult{
-		Content:  header + strings.Join(numbered, "\n"),
-		Metadata: meta,
+		Content:     header + strings.Join(numbered, "\n"),
+		Metadata:    meta,
+		Annotations: annotations,
 	}, nil
 }
 

@@ -2,7 +2,6 @@ package docextract
 
 import (
 	"context"
-	"fmt"
 	"strings"
 )
 
@@ -105,29 +104,6 @@ func ExtractContext(ctx context.Context, data []byte, filename string) (*Result,
 		return nil, err
 	}
 	return extracted, nil
-}
-
-// FormatProjectionHeader monta o cabeçalho curto exigido pelo AEP-0093.
-func FormatProjectionHeader(res *Result) string {
-	var b strings.Builder
-	b.WriteString("<!-- projeção Markdown (não é o arquivo original) -->\n")
-	fmt.Fprintf(&b, "Origem: %s\n", res.Source)
-	fmt.Fprintf(&b, "Formato: %s\n", res.Kind)
-	if res.Pages > 0 {
-		label := "Páginas"
-		switch res.Kind {
-		case KindPPTX, KindODP:
-			label = "Slides"
-		case KindXLSX, KindODS:
-			label = "Abas"
-		}
-		fmt.Fprintf(&b, "%s: %d\n", label, res.Pages)
-	}
-	for _, w := range res.Warnings {
-		fmt.Fprintf(&b, "Aviso: %s\n", w)
-	}
-	b.WriteString("\n")
-	return b.String()
 }
 
 // CheckWritable classifica data+filename e retorna ErrNotWritable se não for texto.

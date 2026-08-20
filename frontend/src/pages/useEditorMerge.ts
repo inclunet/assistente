@@ -24,6 +24,7 @@ import {
   safeDraftIdPart,
 } from '../lib/editorMergeUtils';
 import { editorFileDialogLabels } from '../lib/editorDialogLabels';
+import { normalizeEditorDocumentResult } from '../lib/editorContent';
 import type { MergeSession } from './editorTypes';
 import { createEmptyTabDiskState, type TabDiskState } from './editorReconciler';
 
@@ -288,7 +289,7 @@ export function useEditorMerge() {
 
       if (!diskReadError && opts?.diskContent === undefined) {
         try {
-          diskContent = String((await EditorReadFile(filePath)) || '');
+          diskContent = normalizeEditorDocumentResult(await EditorReadFile(filePath), filePath).content;
         } catch (e) {
           diskReadError = errorMessage(e);
         }
@@ -380,7 +381,7 @@ export function useEditorMerge() {
           const { documents: nowDocs } = useEditorStore.getState();
           const nowTab = nowDocs[tabId] || tab;
           const latestLocal = getCachedMarkdownForTab(nowTab);
-          const diskNow = String((await EditorReadFile(filePath)) || '');
+          const diskNow = normalizeEditorDocumentResult(await EditorReadFile(filePath), filePath).content;
           if (diskNow === latestLocal) {
             setDiskBaselineForTab(tabId, latestLocal);
             setDocDirty(tabId, false);

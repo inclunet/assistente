@@ -1,5 +1,5 @@
 import { type Ref, forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useEditorStore, type EditorDocument } from '../../store/editorStore';
@@ -36,7 +36,9 @@ vi.mock('../ui/CodeEditor', () => ({
 }));
 
 vi.mock('../ui/MarkdownRenderer', () => ({
-  MarkdownRenderer: () => <div data-testid="markdown-renderer" />,
+  MarkdownRenderer: (props: { focusableMermaid?: boolean }) => (
+    <div data-testid="markdown-renderer" data-focusable={props.focusableMermaid ? 'true' : 'false'} />
+  ),
 }));
 
 vi.mock('./RevealRenderer', () => ({
@@ -311,5 +313,33 @@ Veja <https://example.com>`;
     const { getByTestId } = renderContentArea(activeTab);
 
     expect(getByTestId('rich-text-editor')).toHaveAttribute('data-readonly', 'true');
+  });
+});
+
+describe('EditorContentArea document view', () => {
+  beforeEach(() => {
+    announceMock.mockReset();
+  });
+
+  it('renderiza projeção somente para leitura e anuncia o formato', () => {
+    renderContentArea({
+      id: 'docx-view',
+      title: 'manual.docx',
+      markdown: '# Manual',
+      mode: 'view',
+      filePath: 'C:/tmp/manual.docx',
+      readOnly: true,
+      projection: {
+        format: 'docx',
+        pages: 3,
+        warnings: ['Conversão parcial'],
+      },
+    });
+
+    expect(screen.getByText('editor.documentView.readOnlyBanner')).toBeInTheDocument();
+    expect(screen.getByText('editor.documentView.partialExtraction')).toBeInTheDocument();
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute('data-focusable', 'false');
+    expect(screen.queryByText('editor.hints.previewMermaid')).not.toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('editor.documentView.openedAnnouncement');
   });
 });

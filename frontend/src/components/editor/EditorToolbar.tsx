@@ -110,7 +110,7 @@ export function EditorToolbar({
           <ToolbarButton
             label={t('editor.buttons.format')}
             icon={<SlidersOutlined />}
-            disabled={!activeTab || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
+            disabled={!activeTab || activeTab.readOnly || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.formatMenu'), formatMenuItems)}
             aria-haspopup="menu"
           />
@@ -120,7 +120,7 @@ export function EditorToolbar({
             icon={<PlusOutlined />}
             ref={shortcutRefs?.insertMenu}
             shortcut="Alt+I"
-            disabled={!activeTab || isAsking || activeTab.mode === 'view'}
+            disabled={!activeTab || activeTab.readOnly || isAsking || activeTab.mode === 'view'}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.insertMenu'), insertMenuItems)}
             aria-haspopup="menu"
           />
@@ -141,7 +141,7 @@ export function EditorToolbar({
             label={t('editor.buttons.mode')}
             icon={<CompassOutlined />}
             ref={shortcutRefs?.modeMenu}
-            disabled={!activeTab || isAsking}
+            disabled={!activeTab || activeTab.readOnly || isAsking}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.modeMenu'), modeMenuItems)}
             aria-haspopup="menu"
           />

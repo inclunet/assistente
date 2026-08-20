@@ -103,8 +103,8 @@ export function useEditorMenus({
     // filePath, pede destino quando é rascunho sem path, ou resolve o conflito
     // externo quando está locked (ver saveFile). Por isso fica habilitado
     // sempre que houver aba ativa — não só nos casos sem path/locked.
-    const canSave = !!activeTab;
-    const canSaveAs = !!activeTab?.filePath;
+    const canSave = !!activeTab && !activeTab.readOnly;
+    const canSaveAs = !!activeTab?.filePath && !activeTab.readOnly;
     const hasMergeSession = !!activeTab && !!getMergeSession(activeTab.id);
 
     const items = [
@@ -329,7 +329,7 @@ export function useEditorMenus({
           if (!workspaceTab?.id) return;
           await useWorkspaceChatModalStore.getState().requestOpen(workspaceTab.id);
         },
-        disabled: !activeTab || isAsking,
+        disabled: !activeTab || isAsking || activeTab.readOnly,
       },
     ];
   }, [activeTab, isAsking, addToast, t, workspaceTab?.id]);
@@ -358,6 +358,7 @@ export function useEditorMenus({
       }
 
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (activeTab.readOnly) return;
         const key = e.key.toLowerCase();
 
         if (!e.shiftKey) {
@@ -426,6 +427,7 @@ export function useEditorMenus({
   }, [
     activeTab?.id,
     activeTab?.mode,
+    activeTab?.readOnly,
     isPanelActive,
     isAsking,
     isRevealToolbarDocument,
