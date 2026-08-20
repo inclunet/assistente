@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// search_files localiza paths; nem um documento inválido deve fazê-la tentar
+// search_files localiza paths; nenhum documento inválido deve fazê-la tentar
 // abrir/extrair conteúdo (AEP-0093, D5).
 func TestSearchFilesFindsDocumentsWithoutExtracting(t *testing.T) {
 	dir := t.TempDir()

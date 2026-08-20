@@ -357,7 +357,11 @@ func (t *GrepSearch) searchPath(
 	project := willProject(kind, mode) || zipCandidate
 
 	if !project {
-		if kind == docextract.KindUnsupportedBinary || isBinaryExtension(filePath) || info.Size() > grepMaxFileSize {
+		// Conteúdo vence extensão: um arquivo chamado .pdf que na verdade é
+		// texto UTF-8 segue o mesmo caminho do read_file (D4).
+		if kind == docextract.KindUnsupportedBinary ||
+			(isBinaryExtension(filePath) && kind != docextract.KindText) ||
+			info.Size() > grepMaxFileSize {
 			return nil, false
 		}
 		if docextract.IsWritableText(kind) && !docextract.IsLikelyText(prefix) {
@@ -365,10 +369,11 @@ func (t *GrepSearch) searchPath(
 			return nil, true
 		}
 		matches, err := t.searchFile(ctx, filePath, re, maxMatches, contextLines)
-		if err != nil && docextract.IsDocument(kind) {
+		if err != nil {
 			stats.warn(filePath, err.Error())
+			return nil, true
 		}
-		return matches, err == nil
+		return matches, true
 	}
 
 	if info.Size() > docextract.MaxExtractBytes {

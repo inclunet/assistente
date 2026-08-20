@@ -206,7 +206,7 @@ func TestGrepSearch_MissingPattern(t *testing.T) {
 
 func TestGrepSearch_SkipsBinaryFiles(t *testing.T) {
 	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "image.png"), []byte("fake png with searchterm"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "image.png"), []byte{0x89, 'P', 'N', 'G', 0x00, 0xff}, 0644)
 	_ = os.WriteFile(filepath.Join(dir, "code.go"), []byte("searchterm in code"), 0644)
 
 	tool := NewGrepSearch(dir)
@@ -221,6 +221,24 @@ func TestGrepSearch_SkipsBinaryFiles(t *testing.T) {
 	}
 	if containsString(result.Content, "image.png") {
 		t.Error("não deve buscar em image.png (binário)")
+	}
+}
+
+func TestGrepSearchContentOverridesBinaryExtension(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "nao-e-pdf.pdf"), []byte("agulha em texto puro\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || !strings.Contains(result.Content, "agulha em texto puro") {
+		t.Fatalf("extensão binária escondeu conteúdo textual: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "projeção Markdown") {
+		t.Fatalf("texto foi tratado como documento: %s", result.Content)
 	}
 }
 
@@ -439,6 +457,25 @@ func TestGrepSearchRejectsBinaryCSVInsteadOfSearchingRawBytes(t *testing.T) {
 	}
 	if strings.Contains(result.Content, "      1: prefixo") {
 		t.Fatalf("grep devolveu match parcial de arquivo binário: %s", result.Content)
+	}
+}
+
+func TestGrepSearchCountsAndWarnsInvalidTextAfterPrefix(t *testing.T) {
+	dir := t.TempDir()
+	content := append(bytes.Repeat([]byte("a"), docextract.DetectPrefixBytes+10), 0x00)
+	if err := os.WriteFile(filepath.Join(dir, "quebrado.txt"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"aaa"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Content, "conteúdo não é texto UTF-8 válido") {
+		t.Fatalf("erro depois do prefixo foi ocultado: %s", result.Content)
+	}
+	if result.Metadata["files_scanned"] != 1 {
+		t.Fatalf("arquivo tentado não contou no limite: %v", result.Metadata)
 	}
 }
 
