@@ -352,7 +352,8 @@ func (t *GrepSearch) searchPath(
 ) ([]grepMatch, bool) {
 	prefix, err := readFilePrefix(filePath, docextract.DetectPrefixBytes)
 	if err != nil {
-		return nil, false
+		stats.warn(filePath, fmt.Sprintf("não foi possível ler o prefixo: %v", err))
+		return nil, true
 	}
 	kind := docextract.Detect(prefix, filePath)
 	// Prefixo ZIP sozinho não basta: abrir todo .zip/.jar/.apk encontrado numa

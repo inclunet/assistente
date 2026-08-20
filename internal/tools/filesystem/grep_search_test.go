@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -480,6 +481,39 @@ func TestGrepSearchCountsAndWarnsInvalidTextAfterPrefix(t *testing.T) {
 	}
 	if result.Metadata["files_scanned"] != 1 {
 		t.Fatalf("arquivo tentado não contou no limite: %v", result.Metadata)
+	}
+}
+
+func TestGrepSearchWarnsWhenPrefixCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sumiu.txt")
+	if err := os.WriteFile(path, []byte("conteúdo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	stats := &grepStats{}
+	matches, searched := NewGrepSearch(dir).searchPath(
+		context.Background(),
+		path,
+		info,
+		regexp.MustCompile("conteúdo"),
+		10,
+		0,
+		docextract.ModeAuto,
+		stats,
+	)
+	if !searched || len(matches) != 0 {
+		t.Fatalf("falha de prefixo deve contar como tentativa sem matches: searched=%v matches=%v", searched, matches)
+	}
+	if len(stats.warnings) != 1 || !strings.Contains(stats.warnings[0].Reason, "não foi possível ler o prefixo") {
+		t.Fatalf("aviso ausente: %+v", stats.warnings)
 	}
 }
 
