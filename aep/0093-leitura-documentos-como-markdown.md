@@ -1,6 +1,6 @@
 # AEP-0093 — Leitura unificada de documentos como Markdown
 
-**Status:** 📝 Draft
+**Status:** ✅ Done (Fases 1–2). OCR ficou de propósito para o futuro ([issue #565](https://github.com/inclunet/assistente/issues/565)).
 
 ## Resumo
 
@@ -18,8 +18,10 @@ e devolve uma **projeção em Markdown** (não o arquivo original). Arquivo que 
 `grep_search`; `search_files` preserva sua responsabilidade atual de localizar
 paths por nome/padrão e continua encontrando documentos normalmente.
 **Escrita** (`write_file`, `edit_file`, `text_edit`) continua restrita a
-arquivos de texto. OCR e formatos/caminhos pesados existem, mas só sob demanda
-explícita — nunca como indexação contínua nem default de toda varredura.
+arquivos de texto. OCR de PDF sem camada textual e de imagens **não entra
+neste recorte**: ficou adiado de propósito (issue #565), porque reconhecer
+texto em arquivo de imagem não é o mesmo custo da extração leve e uma busca
+em pasta não pode disparar OCR em massa.
 
 ## Motivação
 
@@ -42,8 +44,8 @@ explícita — nunca como indexação contínua nem default de toda varredura.
 | D4 | **Detecção:** magic bytes / sniff primeiro; extensão como fallback; UTF-8 texto válido → caminho atual; documento suportado → extrator; senão erro útil (sem dump binário). |
 | D5 | **Responsabilidades de busca permanecem distintas.** `grep_search` pesquisa conteúdo e reutiliza o extrator para documentos; `search_files` continua buscando somente paths por glob, sem abrir nem extrair arquivos. |
 | D6 | **Cache sob demanda e não persistente na V1.** Texto extraído é cacheado em memória num LRU compartilhado por `read_file` e `grep_search`, limitado a 64 entradas / 64 MiB de projeção. A chave combina path absoluto, modo e identidade do arquivo (mtime/size; digest fica reservado para fontes em que essa identidade não seja confiável). Identidade nova invalida a projeção anterior, cargas concorrentes iguais são coalescidas e resultados maiores que o teto do cache são servidos sem retenção. Não há índice no boot nem cópia plaintext persistente de documento sensível. |
-| D7 | **OCR e caminhos pesados = excepcionais e explícitos.** `read_file` e `grep_search` recebem `document_mode: "auto" | "markdown" | "ocr"`; o default `auto` nunca executa OCR. O modo `ocr` só roda quando solicitado na chamada. |
-| D8 | **Custo é da superfície escolhida.** Pasta com centenas de PDFs longos pode ser lenta; o sistema deve permanecer cancelável, com limites de sanidade e mensagens claras — sem transformar isso em hard-deny artificial. |
+| D7 | **OCR está fora do recorte atual.** `document_mode` aceito é só `"auto" \| "markdown"`. O valor `"ocr"` é erro explícito (não cai em `auto`) e **não** aparece no schema das tools, para o modelo não achar que o modo existe. Quando (e se) OCR voltar, o contrato está na issue #565: nunca no default, nunca em walk de pasta. |
+| D8 | **Custo é da superfície escolhida.** Pasta com centenas de PDFs longos pode ser lenta; o sistema deve permanecer cancelável, com limites de sanidade e mensagens claras — sem transformar isso em hard-deny artificial. Extração leve (texto embutido) é o que D8 cobre hoje; OCR em massa **não** é “custo aceitável da superfície” — por isso D7 adia. |
 | D9 | **Path trust inalterado.** Extração passa pelo mesmo `validatePathWithPolicy` / fstrust (AEP-0092). Converter formato não bypassa allow/deny. |
 | D10 | **Detecção e escrita usam a mesma classificação.** Um documento não vira gravável por ter extensão textual falsa; tools de escrita validam o conteúdo/formato detectado, não só a extensão. |
 | D11 | **Falha fechada para conteúdo ativo/hostil.** Extratores não executam macros, scripts, links, objetos incorporados ou conteúdo externo; containers ZIP têm limites de entradas, tamanho expandido e razão de compressão. |
@@ -66,16 +68,16 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 - RTF (texto extraído em `document_mode: "markdown"`)
 - texto/código/marcação em geral (comportamento anterior ao AEP)
 
-**Excepcional (mesmas tools, `document_mode: "ocr"`):**
+**Adiado (issue #565 — não implementar agora):**
 
 - OCR em PDF sem camada textual e em imagens comuns
-- OCR pode ser aplicado por página/imagem e retorna avisos de confiança/omissão
-- outros binários continuam fora (áudio/vídeo/executáveis)
+- Avisos de confiança/omissão por página/imagem
+- outros binários continuam fora (áudio/vídeo/executáveis), com ou sem OCR
 
 ### Contrato de `read_file`
 
 - Entrada: `path`, `offset`/`limit` e `document_mode` opcional (`auto` default;
-  `markdown` explícito; `ocr` na Fase 3).
+  `markdown` explícito). `"ocr"` é rejeitado até a issue #565.
 - Texto nativo: como hoje (linhas numeradas), inclusive CSV e RTF (D12).
 - Documento opaco: Markdown derivado + cabeçalho curto (origem, formato, páginas
   / abas se houver, avisos).
@@ -86,8 +88,8 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 - `offset`/`limit` aplicam-se às linhas do conteúdo devolvido — as do arquivo
   quando é texto, as da projeção quando houve extração. Nunca representam bytes
   nem páginas do arquivo binário original.
-- PDF sem texto em modo `auto`: resposta útil informando que OCR está disponível
-  mediante `document_mode: "ocr"`; não há fallback silencioso para OCR.
+- PDF sem texto em modo `auto`: aviso de que não há camada extraível e de que
+  OCR **não está disponível** neste recorte; não há fallback silencioso.
 - Documento criptografado/protegido por senha: erro claro; senha não entra neste
   AEP.
 - Binário não suportado: erro descritivo.
@@ -135,9 +137,10 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 - O cache informa a origem de cada projeção (`loaded`, `cached`, `coalesced`),
   para que a chamada que pega carona em uma extração concorrente não seja
   contada como extração nova nem como acerto de cache.
-- `document_mode: "auto"` nunca faz OCR; `document_mode: "ocr"` é opt-in e pode
-  tornar a busca deliberadamente cara.
-- Cancelamento do contexto interrompe extração/OCR e o walk.
+- `document_mode: "auto"` nunca faz OCR. `document_mode: "ocr"` é erro, não
+  varredura cara. Busca em pasta **não** pode reconhecer imagem/PDF scan só
+  para achar um termo (issue #565).
+- Cancelamento do contexto interrompe extração e o walk.
 
 ## Fases
 
@@ -162,11 +165,21 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 - [x] Limites de sanidade (tamanho/páginas) e skip com aviso
 - [x] Testes de busca em documento e de não-OCR no default
 
-### Fase 3 — OCR explícito
+### OCR — adiado de propósito (não é a próxima fase)
 
-- [ ] `document_mode: "ocr"` em `read_file` e `grep_search`
-- [ ] OCR de PDF/imagens com cancelamento, limites e avisos de confiança
-- [ ] Sem indexação contínua; sem OCR em todo walk
+Não há Fase 3 em andamento. OCR ficou **fora do agora** porque é opcional
+frente ao recorte já entregue (PDF com texto, OOXML/ODF/EPUB) e porque o
+risco de `grep_search` reconhecer uma pasta inteira é inaceitável.
+
+Radar e contrato futuro: [issue #565](https://github.com/inclunet/assistente/issues/565).
+Quando for retomado, as restrições abaixo são pré-requisito, não detalhe de
+implementação:
+
+- `read_file` com modo explícito, um arquivo, páginas limitadas, cancelável
+- `grep_search` não faz OCR em walk de diretório
+- motor local (no Windows, `Windows.Media.Ocr` é o candidato; Tesseract só
+  se já estiver no PATH). Sem nuvem/LLM de visão como default
+- sem índice persistente e sem OCR no boot
 
 ## Riscos
 
@@ -183,20 +196,22 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 
 ## Critérios de aceitação
 
-- [ ] `read_file` nos formatos opacos devolve Markdown legível com origem explícita
-- [ ] `read_file` em `.md`/código permanece equivalente ao comportamento atual
-- [ ] `read_file` em CSV/HTML/RTF devolve o arquivo como está no modo `auto` e a
+- [x] `read_file` nos formatos opacos devolve Markdown legível com origem explícita
+- [x] `read_file` em `.md`/código permanece equivalente ao comportamento atual
+- [x] `read_file` em CSV/HTML/RTF devolve o arquivo como está no modo `auto` e a
       projeção em `document_mode: "markdown"`
-- [ ] Não existe segunda tool pública só para documentos
-- [ ] Escrita em PDF/DOCX/etc. falha com mensagem clara
-- [ ] Arquivo de documento disfarçado com extensão textual continua não gravável
-- [ ] `grep_search` encontra termos em documentos V1 com cache sob demanda
-- [ ] `search_files` continua encontrando arquivos por path, sem extrair conteúdo
-- [ ] OCR não roda no caminho default de busca/leitura
-- [ ] OCR só roda com `document_mode: "ocr"` e é cancelável
-- [ ] Extração respeita fstrust / sandbox (AEP-0092)
-- [ ] Operação longa permanece cancelável; falhas parciais não derrubam a busca
+- [x] Não existe segunda tool pública só para documentos
+- [x] Escrita em PDF/DOCX/etc. falha com mensagem clara
+- [x] Arquivo de documento disfarçado com extensão textual continua não gravável
+- [x] `grep_search` encontra termos em documentos V1 com cache sob demanda
+- [x] `search_files` continua encontrando arquivos por path, sem extrair conteúdo
+- [x] OCR não roda no caminho default de busca/leitura
+- [x] Extração respeita fstrust / sandbox (AEP-0092)
+- [x] Operação longa permanece cancelável; falhas parciais não derrubam a busca
       inteira sem motivo
+
+Critério de OCR ativo (`document_mode: "ocr"` cancelável) **não** faz parte
+deste recorte; ficou na issue #565.
 
 ## Relação com outros AEPs
 
@@ -209,6 +224,9 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 - Editor visual de PDF/DOCX
 - Indexação full-text persistente do workspace no boot
 - Cache plaintext persistente de documentos
-- OCR como default de `read_file` / `grep_search`
+- OCR neste recorte (PDF scan, imagens, `document_mode: "ocr"`) — adiado de
+  propósito; ver issue #565
+- OCR como default de `read_file` / `grep_search` (também quando #565 for
+  retomada)
 - Senhas para documentos criptografados
 - Criar allow/deny de path (já coberto pelo AEP-0092 / issue #561)

@@ -106,7 +106,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0090](0090-ordem-botoes-dialogos.md) | Ordem de botões em diálogos (confirmação antes de cancelar) | ✅ Done |
 | [0091](0091-dialogos-de-decisao-unificados.md) | Diálogos de decisão unificados (estilo Windows + NVDA) | ✅ Done |
 | [0092](0092-filesystem-path-trust-allowlist.md) | Allowlist escopável de paths fora do sandbox (filesystem trust) | ✅ Done |
-| [0093](0093-leitura-documentos-como-markdown.md) | Leitura unificada de documentos como Markdown (`read_file` / busca) | 📝 Draft |
+| [0093](0093-leitura-documentos-como-markdown.md) | Leitura unificada de documentos como Markdown (`read_file` / busca) | ✅ Done |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
 > numerados sequencialmente a partir do **maior número existente** (0093 → próximo

@@ -11,7 +11,7 @@ import (
 const MaxExtractBytes = 32 << 20 // 32 MiB
 
 // MaxExtractPages evita que um PDF pequeno, mas com milhares de páginas,
-// monopolize uma busca. O limite é da projeção leve; OCR terá contrato próprio.
+// monopolize uma busca. O limite é da projeção leve; OCR está fora deste recorte (issue #565).
 const MaxExtractPages = 1000
 
 // DetectPrefixBytes é quanto basta ler do início do arquivo para classificar sem

@@ -46,7 +46,7 @@ func (t *GrepSearch) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *GrepSearch) Description() string {
-	return "Searches file contents by pattern (Go regex or literal). Text is searched as stored; opaque documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, EPUB) are searched through an in-memory Markdown projection. Set document_mode=\"markdown\" to also project textual formats such as CSV/RTF. Extraction failures skip only that document and are reported as warnings. OCR is not available in this phase. Returns matching lines with line numbers and context."
+	return "Searches file contents by pattern (Go regex or literal). Text is searched as stored; opaque documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, EPUB) are searched through an in-memory Markdown projection. Set document_mode=\"markdown\" to also project textual formats such as CSV/RTF. Extraction failures skip only that document and are reported as warnings. OCR is not available (AEP-0093, issue #565). Returns matching lines with line numbers and context."
 }
 
 func (t *GrepSearch) Parameters() json.RawMessage {
