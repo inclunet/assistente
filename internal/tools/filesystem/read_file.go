@@ -63,7 +63,7 @@ func (t *ReadFile) Parameters() json.RawMessage {
 			"document_mode": {
 				"type": "string",
 				"enum": ["auto", "markdown"],
-				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela. OCR não está disponível (AEP-0093, issue #565) e por isso o valor ocr fica fora do enum."
+				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela. OCR não está disponível (AEP-0093, issue #565) e por isso o valor \"ocr\" fica fora do enum."
 			}
 		},
 		"required": ["path"],
