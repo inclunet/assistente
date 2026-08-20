@@ -3,10 +3,12 @@ package docextract_test
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"codeberg.org/go-pdf/fpdf"
 
@@ -98,6 +100,30 @@ func TestExtractCSV(t *testing.T) {
 	}
 	if !strings.Contains(res.Markdown, "Ana") || !strings.Contains(res.Markdown, "|") {
 		t.Fatalf("markdown=%q", res.Markdown)
+	}
+}
+
+func TestDetectGenericZipDoesNotBecomeCSVOrRTFByExtension(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	entry, err := zw.Create("conteudo.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("texto dentro do ZIP")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"arquivo.csv", "arquivo.rtf"} {
+		if kind := docextract.Detect(buf.Bytes(), name); kind != docextract.KindUnsupportedBinary {
+			t.Fatalf("%s: kind=%s, quer unsupported_binary", name, kind)
+		}
+		if _, err := docextract.ExtractMode(buf.Bytes(), name, docextract.ModeAuto); err == nil {
+			t.Fatalf("%s: ZIP genérico não deveria ser lido como texto", name)
+		}
 	}
 }
 
@@ -318,12 +344,59 @@ func TestExtractMalformedDOCXFails(t *testing.T) {
 	}
 }
 
+func TestExtractPDFRejectsTooManyPages(t *testing.T) {
+	data := buildPDFPages(t, docextract.MaxExtractPages+1)
+	_, err := docextract.Extract(data, "longo.pdf")
+	if err == nil || !strings.Contains(err.Error(), "páginas demais") {
+		t.Fatalf("err=%v, quer limite de páginas", err)
+	}
+}
+
+func TestExtractPDFChecksContextBetweenPages(t *testing.T) {
+	data := buildPDFPages(t, 10)
+	ctx := &cancelAfterChecksContext{remaining: 4}
+	_, err := docextract.ExtractModeContext(ctx, data, "cancelavel.pdf", docextract.ModeAuto)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v, quer context.Canceled", err)
+	}
+}
+
+type cancelAfterChecksContext struct {
+	remaining int
+}
+
+func (c *cancelAfterChecksContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *cancelAfterChecksContext) Done() <-chan struct{}       { return nil }
+func (c *cancelAfterChecksContext) Value(any) any               { return nil }
+func (c *cancelAfterChecksContext) Err() error {
+	c.remaining--
+	if c.remaining <= 0 {
+		return context.Canceled
+	}
+	return nil
+}
+
 func buildPDF(t *testing.T, text string) []byte {
 	t.Helper()
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.AddPage()
 	pdf.SetFont("Arial", "", 12)
 	pdf.Cell(40, 10, text)
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func buildPDFPages(t *testing.T, pages int) []byte {
+	t.Helper()
+	pdf := fpdf.New("P", "mm", "A4", "")
+	for range pages {
+		pdf.AddPage()
+		pdf.SetFont("Arial", "", 12)
+		pdf.Cell(40, 10, "texto")
+	}
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
 		t.Fatal(err)

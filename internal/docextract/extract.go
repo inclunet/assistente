@@ -1,6 +1,7 @@
 package docextract
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -8,6 +9,10 @@ import (
 // MaxExtractBytes é o teto de entrada para extração de documento. Não vale para
 // texto/código, que continua paginável por linhas.
 const MaxExtractBytes = 32 << 20 // 32 MiB
+
+// MaxExtractPages evita que um PDF pequeno, mas com milhares de páginas,
+// monopolize uma busca. O limite é da projeção leve; OCR terá contrato próprio.
+const MaxExtractPages = 1000
 
 // DetectPrefixBytes é quanto basta ler do início do arquivo para classificar sem
 // carregar o conteúdo inteiro.
@@ -21,11 +26,19 @@ const DetectPrefixBytes = 8 << 10 // 8 KiB
 // ainda quebraria a simetria com as tools de escrita, que gravam esse mesmo
 // texto. ModeMarkdown pede a projeção também para esses formatos (D12).
 func ExtractMode(data []byte, filename string, mode Mode) (*Result, error) {
+	return ExtractModeContext(context.Background(), data, filename, mode)
+}
+
+// ExtractModeContext é a variante cancelável usada pelas tools.
+func ExtractModeContext(ctx context.Context, data []byte, filename string, mode Mode) (*Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	kind := Detect(data, filename)
 	if mode != ModeMarkdown && IsWritableText(kind) && isLikelyText(data) {
 		return &Result{Kind: kind, Markdown: string(data), Source: filename}, nil
 	}
-	res, err := Extract(data, filename)
+	res, err := ExtractContext(ctx, data, filename)
 	if err != nil {
 		return nil, err
 	}
@@ -36,6 +49,15 @@ func ExtractMode(data []byte, filename string, mode Mode) (*Result, error) {
 // Extract projeta para Markdown todo formato com extrator. Para KindText devolve
 // o conteúdo bruto (sem cabeçalho de projeção — quem chama decide).
 func Extract(data []byte, filename string) (*Result, error) {
+	return ExtractContext(context.Background(), data, filename)
+}
+
+// ExtractContext projeta para Markdown e verifica cancelamento antes, durante
+// as páginas de PDF e ao terminar os demais extratores limitados por tamanho.
+func ExtractContext(ctx context.Context, data []byte, filename string) (*Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	kind := Detect(data, filename)
 	res := &Result{Kind: kind, Source: filename}
 
@@ -45,6 +67,8 @@ func Extract(data []byte, filename string) (*Result, error) {
 		return nil, ErrTooLargeToExtract(int64(len(data)))
 	}
 
+	var extracted *Result
+	var err error
 	switch kind {
 	case KindText:
 		res.Markdown = string(data)
@@ -52,28 +76,35 @@ func Extract(data []byte, filename string) (*Result, error) {
 	case KindUnsupportedBinary:
 		return nil, ErrUnsupportedBinary()
 	case KindPDF:
-		return extractPDF(data, filename)
+		extracted, err = extractPDF(ctx, data, filename)
 	case KindDOCX:
-		return extractDOCX(data, filename)
+		extracted, err = extractDOCX(data, filename)
 	case KindXLSX:
-		return extractXLSX(data, filename)
+		extracted, err = extractXLSX(data, filename)
 	case KindPPTX:
-		return extractPPTX(data, filename)
+		extracted, err = extractPPTX(data, filename)
 	case KindODT:
-		return extractODT(data, filename)
+		extracted, err = extractODT(data, filename)
 	case KindODS:
-		return extractODS(data, filename)
+		extracted, err = extractODS(data, filename)
 	case KindODP:
-		return extractODP(data, filename)
+		extracted, err = extractODP(data, filename)
 	case KindCSV:
-		return extractCSV(data, filename)
+		extracted, err = extractCSV(data, filename)
 	case KindRTF:
-		return extractRTF(data, filename)
+		extracted, err = extractRTF(data, filename)
 	case KindEPUB:
-		return extractEPUB(data, filename)
+		extracted, err = extractEPUB(data, filename)
 	default:
 		return nil, &ErrUnsupported{Kind: kind}
 	}
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return extracted, nil
 }
 
 // FormatProjectionHeader monta o cabeçalho curto exigido pelo AEP-0093.
