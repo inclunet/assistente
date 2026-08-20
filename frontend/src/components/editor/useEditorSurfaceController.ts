@@ -103,6 +103,7 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
       }
 
       if (!isWorkspaceTabActive(tabId)) return;
+      if (useEditorStore.getState().documents[tabId]) return;
       const title = filePath ? basenameFromPath(filePath) : i18next.t('editor.fallback.newDoc');
       useEditorStore.getState().createDocument({
         id: tabId,

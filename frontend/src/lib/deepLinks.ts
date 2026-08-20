@@ -481,7 +481,17 @@ export async function executeDeepLink(
 
     case 'tab:new': {
       if (action.file && action.tabType === 'editor') {
-        const loaded = normalizeEditorDocumentResult(await EditorReadFile(action.file), action.file);
+        let loaded: ReturnType<typeof normalizeEditorDocumentResult>;
+        try {
+          loaded = normalizeEditorDocumentResult(await EditorReadFile(action.file), action.file);
+        } catch {
+          const message = t('editor.toast.openFailed');
+          useUIStore.getState().addToast(message, 'error', undefined, undefined, {
+            suppressAnnounce: true,
+          });
+          announce(message);
+          break;
+        }
         const fileName = action.file.split(/[/\\]/).pop() || i18n.t('editor.prompts.file');
         const title = action.title || fileName;
         const tabId = await wsStore.addTab('editor', title, { filePath: action.file });

@@ -1158,6 +1158,26 @@ describe('executeDeepLink', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
+    it('avisa de forma localizada quando o arquivo do editor não abre', async () => {
+      mockEditorReadFile.mockRejectedValueOnce(new Error('falha técnica do backend'));
+
+      await executeDeepLink(
+        { type: 'tab:new', tabType: 'editor', file: '/tmp/invalido.pdf' },
+        deps,
+      );
+
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockCreateDocument).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'editor.toast.openFailed',
+        'error',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+      expect(mockAnnounce).toHaveBeenCalledWith('editor.toast.openFailed');
+    });
+
     it('abre documento projetado do deep link em visualização somente leitura', async () => {
       mockWsAddTab.mockResolvedValueOnce('tab-docx');
       mockEditorReadFile.mockResolvedValueOnce({

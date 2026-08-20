@@ -10,7 +10,7 @@ import {
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
-import { EditorDeleteDraft, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/wailsapi/Editor';
+import { EditorDeleteDraft, EditorGetDraftPath, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/wailsapi/Editor';
 import { apidto } from '@wailsjs/go/models';
 import type { UseEditorMergeResult } from './useEditorMerge';
 
@@ -121,11 +121,25 @@ export function useEditorDocument({
           let projection: EditorDocument['projection'] = null;
           let readOnly = false;
           let loadError = false;
+          let isDraftPath = false;
+          if (filePath && draftId) {
+            try {
+              const expectedDraftPath = String(await EditorGetDraftPath(draftId) ?? '');
+              isDraftPath =
+                !!expectedDraftPath &&
+                normalizePathKey(expectedDraftPath) === normalizePathKey(filePath);
+            } catch {
+              isDraftPath = false;
+            }
+          }
           try {
             if (filePath) {
               if (hasMergeSess) {
                 const conflictDraftId = String(mergeSessRaw?.conflictDraftId || '').trim();
                 const resDraft = await EditorReadDraft(conflictDraftId);
+                markdown = getMaybeContent(resDraft);
+              } else if (isDraftPath) {
+                const resDraft = await EditorReadDraft(draftId);
                 markdown = getMaybeContent(resDraft);
               } else {
                 const res = await EditorReadFile(filePath);
@@ -139,7 +153,7 @@ export function useEditorDocument({
             }
           } catch {
             markdown = '';
-            loadError = !!filePath;
+            loadError = !!filePath && !isDraftPath;
             readOnly = loadError;
           }
 

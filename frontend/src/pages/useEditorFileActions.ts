@@ -6,7 +6,7 @@ import { useEditorStore, DEFAULT_MD, type EditorDocument, type EditorMode } from
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
-import { getErrorMessage, getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
+import { getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { editorFileDialogLabels } from '../lib/editorDialogLabels';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -152,7 +152,7 @@ export function useEditorFileActions({
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[useEditorFileActions] openFile error:', e);
-      addToast(getErrorMessage(e) || t('editor.toast.openFailed'), 'error');
+      addToast(t('editor.toast.openFailed'), 'error');
     }
   };
 
@@ -280,7 +280,7 @@ export function useEditorFileActions({
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[useEditorFileActions] saveFile error:', e);
-      addToast(getErrorMessage(e) || t('editor.toast.saveFailed'), 'error');
+      addToast(t('editor.toast.saveFailed'), 'error');
     }
   };
 
@@ -303,7 +303,7 @@ export function useEditorFileActions({
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[useEditorFileActions] saveAs error:', e);
-      addToast(getErrorMessage(e) || t('editor.toast.saveAsFailed'), 'error');
+      addToast(t('editor.toast.saveAsFailed'), 'error');
     }
   };
 
