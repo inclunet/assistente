@@ -83,6 +83,31 @@ func NewProjectionCache(config CacheConfig) *ProjectionCache {
 	}
 }
 
+// LoadOrigin diz de onde veio a projeção devolvida. Quem mede custo precisa
+// distinguir a chamada que pagou a extração da que pegou carona em outra em
+// andamento: as duas são "miss" no cache, mas só a primeira extraiu.
+type LoadOrigin int
+
+const (
+	// OriginLoaded: esta chamada executou a extração.
+	OriginLoaded LoadOrigin = iota
+	// OriginCached: veio de uma entrada já presente no cache.
+	OriginCached
+	// OriginCoalesced: pegou carona em uma extração já em andamento.
+	OriginCoalesced
+)
+
+func (o LoadOrigin) String() string {
+	switch o {
+	case OriginCached:
+		return "cached"
+	case OriginCoalesced:
+		return "coalesced"
+	default:
+		return "loaded"
+	}
+}
+
 // GetOrLoad devolve a projeção da identidade atual ou chama load uma vez. Cargas
 // concorrentes do mesmo arquivo/identidade são coalescidas. A carga tem contexto
 // próprio e só é cancelada quando todos os interessados desistem: o contexto do
@@ -92,10 +117,10 @@ func (c *ProjectionCache) GetOrLoad(
 	path string,
 	identity FileIdentity,
 	load func(context.Context) (*Result, error),
-) (*Result, bool, error) {
+) (*Result, LoadOrigin, error) {
 	if c == nil {
 		result, err := load(ctx)
-		return result, false, err
+		return result, OriginLoaded, err
 	}
 	key := cacheKey{path: path, identity: identity}
 
@@ -104,12 +129,12 @@ func (c *ProjectionCache) GetOrLoad(
 		c.lru.MoveToFront(elem)
 		result := cloneResult(elem.Value.(*cacheEntry).result)
 		c.mu.Unlock()
-		return result, true, nil
+		return result, OriginCached, nil
 	}
 	if flight, ok := c.flights[key]; ok {
 		flight.waiters++
 		c.mu.Unlock()
-		return c.waitForFlight(ctx, key, flight)
+		return c.waitForFlight(ctx, key, flight, OriginCoalesced)
 	}
 	loadCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	flight := &cacheFlight{done: make(chan struct{}), cancel: cancel, waiters: 1}
@@ -117,7 +142,7 @@ func (c *ProjectionCache) GetOrLoad(
 	c.mu.Unlock()
 
 	go c.runFlight(key, flight, loadCtx, load)
-	return c.waitForFlight(ctx, key, flight)
+	return c.waitForFlight(ctx, key, flight, OriginLoaded)
 }
 
 func (c *ProjectionCache) runFlight(
@@ -150,10 +175,11 @@ func (c *ProjectionCache) waitForFlight(
 	ctx context.Context,
 	key cacheKey,
 	flight *cacheFlight,
-) (*Result, bool, error) {
+	origin LoadOrigin,
+) (*Result, LoadOrigin, error) {
 	select {
 	case <-flight.done:
-		return cloneResult(flight.result), false, flight.err
+		return cloneResult(flight.result), origin, flight.err
 	case <-ctx.Done():
 		c.mu.Lock()
 		if current, ok := c.flights[key]; ok && current == flight && !flight.completed {
@@ -166,7 +192,7 @@ func (c *ProjectionCache) waitForFlight(
 			}
 		}
 		c.mu.Unlock()
-		return nil, false, ctx.Err()
+		return nil, origin, ctx.Err()
 	}
 }
 

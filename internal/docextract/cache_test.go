@@ -18,16 +18,16 @@ func TestProjectionCacheHitsAndReturnsCopies(t *testing.T) {
 		return &Result{Kind: KindPDF, Markdown: "conteúdo", Warnings: []string{"aviso"}}, nil
 	}
 
-	first, hit, err := cache.GetOrLoad(context.Background(), "a.pdf", identity, load)
-	if err != nil || hit {
-		t.Fatalf("primeira carga: hit=%v err=%v", hit, err)
+	first, origin, err := cache.GetOrLoad(context.Background(), "a.pdf", identity, load)
+	if err != nil || origin != OriginLoaded {
+		t.Fatalf("primeira carga: origin=%v err=%v", origin, err)
 	}
 	first.Markdown = "alterado fora"
 	first.Warnings[0] = "alterado fora"
 
-	second, hit, err := cache.GetOrLoad(context.Background(), "a.pdf", identity, load)
-	if err != nil || !hit {
-		t.Fatalf("segunda carga: hit=%v err=%v", hit, err)
+	second, origin, err := cache.GetOrLoad(context.Background(), "a.pdf", identity, load)
+	if err != nil || origin != OriginCached {
+		t.Fatalf("segunda carga: origin=%v err=%v", origin, err)
 	}
 	if second.Markdown != "conteúdo" || second.Warnings[0] != "aviso" {
 		t.Fatalf("cache expôs estado mutável: %+v", second)
@@ -49,12 +49,15 @@ func TestProjectionCacheInvalidatesChangedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, hit, err := cache.GetOrLoad(context.Background(), "a.pdf", FileIdentityFromStat(11, 21), load)
+	second, origin, err := cache.GetOrLoad(context.Background(), "a.pdf", FileIdentityFromStat(11, 21), load)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hit || first.Markdown == second.Markdown || loads.Load() != 2 {
-		t.Fatalf("identidade nova reutilizou cache: first=%q second=%q hit=%v loads=%d", first.Markdown, second.Markdown, hit, loads.Load())
+	if origin != OriginLoaded || first.Markdown == second.Markdown || loads.Load() != 2 {
+		t.Fatalf(
+			"identidade nova reutilizou cache: first=%q second=%q origin=%v loads=%d",
+			first.Markdown, second.Markdown, origin, loads.Load(),
+		)
 	}
 }
 
@@ -80,8 +83,8 @@ func TestProjectionCacheEvictsByEntriesAndBytes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, hit, err := cache.GetOrLoad(context.Background(), "a", FileIdentity{}, load("a", "aaa")); err != nil || hit {
-		t.Fatalf("entrada mais antiga deveria ter sido removida: hit=%v err=%v", hit, err)
+	if _, origin, err := cache.GetOrLoad(context.Background(), "a", FileIdentity{}, load("a", "aaa")); err != nil || origin != OriginLoaded {
+		t.Fatalf("entrada mais antiga deveria ter sido removida: origin=%v err=%v", origin, err)
 	}
 	if loads["a"] != 2 {
 		t.Fatalf("loads[a]=%d, quer 2", loads["a"])
@@ -104,15 +107,21 @@ func TestProjectionCacheCoalescesConcurrentLoads(t *testing.T) {
 	const readers = 8
 	var wg sync.WaitGroup
 	errs := make(chan error, readers)
+	var loaded, reused atomic.Int32
 	for range readers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result, _, err := cache.GetOrLoad(context.Background(), "a.pdf", FileIdentity{}, load)
-			if err != nil {
+			result, origin, err := cache.GetOrLoad(context.Background(), "a.pdf", FileIdentity{}, load)
+			switch {
+			case err != nil:
 				errs <- err
-			} else if result.Markdown != "ok" {
+			case result.Markdown != "ok":
 				errs <- errors.New("resultado inesperado")
+			case origin == OriginLoaded:
+				loaded.Add(1)
+			default:
+				reused.Add(1)
 			}
 		}()
 	}
@@ -125,6 +134,11 @@ func TestProjectionCacheCoalescesConcurrentLoads(t *testing.T) {
 	}
 	if loads.Load() != 1 {
 		t.Fatalf("loads=%d, quer 1", loads.Load())
+	}
+	// Só quem disparou a extração pode se declarar OriginLoaded; os demais
+	// pegaram carona (ou acharam a entrada pronta) e não custaram extração.
+	if loaded.Load() != 1 || reused.Load() != readers-1 {
+		t.Fatalf("loaded=%d reused=%d, quer 1 e %d", loaded.Load(), reused.Load(), readers-1)
 	}
 }
 

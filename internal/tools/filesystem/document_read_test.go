@@ -57,7 +57,7 @@ func TestReadFileCachesProjectionButKeepsRequestedSource(t *testing.T) {
 	if err != nil || first.IsError {
 		t.Fatalf("primeira leitura: err=%v result=%s", err, first.Content)
 	}
-	if first.Metadata["cache_hit"] != false {
+	if first.Metadata["cache_hit"] != false || first.Metadata["cache_origin"] != "loaded" {
 		t.Fatalf("primeira leitura deveria extrair: %v", first.Metadata)
 	}
 
@@ -65,7 +65,7 @@ func TestReadFileCachesProjectionButKeepsRequestedSource(t *testing.T) {
 	if err != nil || second.IsError {
 		t.Fatalf("segunda leitura: err=%v result=%s", err, second.Content)
 	}
-	if second.Metadata["cache_hit"] != true {
+	if second.Metadata["cache_hit"] != true || second.Metadata["cache_origin"] != "cached" {
 		t.Fatalf("segunda leitura deveria vir do cache: %v", second.Metadata)
 	}
 	if !strings.Contains(second.Content, "Origem: ./doc.docx") {

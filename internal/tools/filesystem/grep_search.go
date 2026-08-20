@@ -114,6 +114,9 @@ type grepStats struct {
 	filesConsidered    int
 	documentsProjected int
 	documentsExtracted int
+	// documentsCoalesced conta projeções que pegaram carona em uma extração já
+	// em andamento: não foram cache pronto nem custaram uma nova extração.
+	documentsCoalesced int
 	cacheHits          int
 	warnings           []grepWarning
 	warningsOmitted    int
@@ -390,7 +393,7 @@ func (t *GrepSearch) searchPath(
 	}
 	identity := docextract.FileIdentityFromStat(info.Size(), info.ModTime().UnixNano())
 	cacheKey := filePath + "\x00" + string(mode)
-	result, hit, err := t.cache.GetOrLoad(ctx, cacheKey, identity, func(ctx context.Context) (*docextract.Result, error) {
+	result, origin, err := t.cache.GetOrLoad(ctx, cacheKey, identity, func(ctx context.Context) (*docextract.Result, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -422,9 +425,12 @@ func (t *GrepSearch) searchPath(
 		return nil, true
 	}
 	stats.documentsProjected++
-	if hit {
+	switch origin {
+	case docextract.OriginCached:
 		stats.cacheHits++
-	} else {
+	case docextract.OriginCoalesced:
+		stats.documentsCoalesced++
+	default:
 		stats.documentsExtracted++
 	}
 	for _, warning := range result.Warnings {
@@ -621,6 +627,7 @@ func (t *GrepSearch) appendSearchStats(result *tools.ToolResult, stats *grepStat
 	}
 	result.Metadata["documents_projected"] = stats.documentsProjected
 	result.Metadata["documents_extracted"] = stats.documentsExtracted
+	result.Metadata["documents_coalesced"] = stats.documentsCoalesced
 	result.Metadata["document_cache_hits"] = stats.cacheHits
 	result.Metadata["document_warnings"] = len(stats.warnings) + stats.warningsOmitted
 	result.Metadata["files_considered"] = stats.filesConsidered

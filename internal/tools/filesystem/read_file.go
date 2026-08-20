@@ -154,11 +154,11 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 
 	kind := docextract.Detect(data, a.Path)
 	var extracted *docextract.Result
-	cacheHit := false
+	origin := docextract.OriginLoaded
 	if willProject(kind, mode) {
 		identity := docextract.FileIdentityFromStat(info.Size(), info.ModTime().UnixNano())
 		cacheKey := fullPath + "\x00" + string(mode)
-		extracted, cacheHit, err = t.cache.GetOrLoad(ctx, cacheKey, identity, func(ctx context.Context) (*docextract.Result, error) {
+		extracted, origin, err = t.cache.GetOrLoad(ctx, cacheKey, identity, func(ctx context.Context) (*docextract.Result, error) {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
@@ -192,7 +192,10 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			"projection": true,
 			"format":     string(extracted.Kind),
 			"size_bytes": int64(len(data)),
-			"cache_hit":  cacheHit,
+			// cache_hit é só a entrada já pronta; cache_origin distingue quem
+			// extraiu de quem pegou carona em uma extração concorrente.
+			"cache_hit":    origin == docextract.OriginCached,
+			"cache_origin": origin.String(),
 		}
 		if extracted.Pages > 0 {
 			meta["pages"] = extracted.Pages

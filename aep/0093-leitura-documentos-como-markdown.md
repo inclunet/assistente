@@ -132,6 +132,9 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
   do cache, quantos arquivos foram considerados/escaneados e quantos avisos
   ocorreram. O teto de 10.000 conta todo arquivo considerado
   após filtros de path/permissão, mesmo quando o conteúdo é omitido.
+- O cache informa a origem de cada projeção (`loaded`, `cached`, `coalesced`),
+  para que a chamada que pega carona em uma extração concorrente não seja
+  contada como extração nova nem como acerto de cache.
 - `document_mode: "auto"` nunca faz OCR; `document_mode: "ocr"` é opt-in e pode
   tornar a busca deliberadamente cara.
 - Cancelamento do contexto interrompe extração/OCR e o walk.
