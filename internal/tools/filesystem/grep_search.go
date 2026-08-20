@@ -101,6 +101,8 @@ type grepMatch struct {
 	LineNumber int
 	LineText   string
 	Projection docextract.Kind
+	// IsMatch separa a linha que casa com o padrão das linhas de contexto.
+	IsMatch bool
 }
 
 type grepWarning struct {
@@ -496,6 +498,7 @@ func searchLines(
 						LineNumber: i + 1,
 						LineText:   fmt.Sprintf("  %6d- %s", i+1, lines[i]),
 						Projection: projection,
+						IsMatch:    re.MatchString(lines[i]),
 					})
 					includedLines[i] = true
 				}
@@ -508,6 +511,7 @@ func searchLines(
 					LineNumber: lineIdx + 1,
 					LineText:   fmt.Sprintf("  %6d: %s", lineIdx+1, line),
 					Projection: projection,
+					IsMatch:    true,
 				})
 				includedLines[lineIdx] = true
 			}
@@ -524,6 +528,7 @@ func searchLines(
 						LineNumber: i + 1,
 						LineText:   fmt.Sprintf("  %6d- %s", i+1, lines[i]),
 						Projection: projection,
+						IsMatch:    re.MatchString(lines[i]),
 					})
 					includedLines[i] = true
 				}
@@ -559,17 +564,21 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 		groups[idx].lines = append(groups[idx].lines, m.LineText)
 	}
 
-	// Conta apenas linhas de match (não contexto)
+	// Conta apenas linhas que casam com o padrão, não as de contexto.
 	matchCount := 0
 	for _, m := range matches {
-		if strings.Contains(m.LineText, ":") && !strings.HasSuffix(strings.TrimSpace(strings.SplitN(m.LineText, ":", 1)[0]), "-") {
+		if m.IsMatch {
 			matchCount++
 		}
 	}
 
 	var sb strings.Builder
 	_, _ = fmt.Fprintf(&sb, "Busca: '%s' em '%s'\n", pattern, basePath)
-	_, _ = fmt.Fprintf(&sb, "%d arquivo(s) com correspondências (%d arquivos escaneados)\n", len(groups), filesScanned)
+	_, _ = fmt.Fprintf(
+		&sb,
+		"%d correspondência(s) em %d arquivo(s) com correspondências (%d arquivos escaneados)\n",
+		matchCount, len(groups), filesScanned,
+	)
 	if truncated {
 		_, _ = fmt.Fprintf(&sb, "(TRUNCADO: limite de %d resultados atingido)\n", maxResults)
 	}
@@ -590,6 +599,7 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 	return tools.ToolResult{
 		Content: sb.String(),
 		Metadata: map[string]any{
+			"matches":       matchCount,
 			"files_matched": len(groups),
 			"files_scanned": filesScanned,
 			"truncated":     truncated,

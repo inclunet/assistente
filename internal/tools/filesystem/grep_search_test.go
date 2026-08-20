@@ -37,6 +37,33 @@ func TestGrepSearch_Parameters(t *testing.T) {
 	}
 }
 
+// A contagem exposta em metadata precisa refletir linhas que casam com o padrão,
+// não as linhas de contexto que as acompanham.
+func TestGrepSearchCountsOnlyMatchingLines(t *testing.T) {
+	dir := t.TempDir()
+	content := "alfa\nbeta\nalvo\ngama\ndelta\nalvo\nzeta\n"
+	if err := os.WriteFile(filepath.Join(dir, "notas.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{
+		"pattern": "alvo",
+		"context_lines": 1
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if result.Metadata["matches"] != 2 {
+		t.Errorf("matches=%v, quer 2 (contexto não conta)", result.Metadata["matches"])
+	}
+	if !strings.Contains(result.Content, "2 correspondência(s)") {
+		t.Errorf("cabeçalho sem a contagem de correspondências: %s", result.Content)
+	}
+}
+
 func TestGrepSearch_LiteralSearch(t *testing.T) {
 	dir := t.TempDir()
 

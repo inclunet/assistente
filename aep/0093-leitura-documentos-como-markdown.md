@@ -127,9 +127,10 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
   não aborta a busca inteira sem necessidade.
 - No máximo 20 avisos são detalhados na resposta; o restante é contabilizado,
   para uma árvore hostil não consumir toda a saída apenas com falhas.
-- A resposta e os metadados informam quantos documentos foram projetados,
-  quantos vieram do cache, quantos arquivos foram considerados/escaneados e
-  quantos avisos ocorreram. O teto de 10.000 conta todo arquivo considerado
+- A resposta e os metadados informam quantas linhas casaram com o padrão
+  (sem contar contexto), quantos documentos foram projetados, quantos vieram
+  do cache, quantos arquivos foram considerados/escaneados e quantos avisos
+  ocorreram. O teto de 10.000 conta todo arquivo considerado
   após filtros de path/permissão, mesmo quando o conteúdo é omitido.
 - `document_mode: "auto"` nunca faz OCR; `document_mode: "ocr"` é opt-in e pode
   tornar a busca deliberadamente cara.
