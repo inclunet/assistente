@@ -43,6 +43,35 @@ func TestReadFileProjectsDOCX(t *testing.T) {
 	}
 }
 
+func TestReadFileCachesProjectionButKeepsRequestedSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.docx")
+	if err := os.WriteFile(path, buildMinimalDOCX(t, "Texto em cache"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cache := docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	tool := NewReadFile(dir, cache)
+
+	first, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"path": "doc.docx"}))
+	if err != nil || first.IsError {
+		t.Fatalf("primeira leitura: err=%v result=%s", err, first.Content)
+	}
+	if first.Metadata["cache_hit"] != false {
+		t.Fatalf("primeira leitura deveria extrair: %v", first.Metadata)
+	}
+
+	second, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"path": "./doc.docx"}))
+	if err != nil || second.IsError {
+		t.Fatalf("segunda leitura: err=%v result=%s", err, second.Content)
+	}
+	if second.Metadata["cache_hit"] != true {
+		t.Fatalf("segunda leitura deveria vir do cache: %v", second.Metadata)
+	}
+	if !strings.Contains(second.Content, "Origem: ./doc.docx") {
+		t.Fatalf("cache vazou o path da primeira chamada: %s", second.Content)
+	}
+}
+
 func TestReadFilePlainTextUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.md")

@@ -17,12 +17,17 @@ import (
 type ReadFile struct {
 	// workDir é o diretório base para caminhos relativos
 	workDir string
+	cache   *docextract.ProjectionCache
 }
 
 // NewReadFile cria uma nova instância de ReadFile.
 // workDir define o diretório base para resolução de caminhos relativos.
-func NewReadFile(workDir string) *ReadFile {
-	return &ReadFile{workDir: workDir}
+func NewReadFile(workDir string, caches ...*docextract.ProjectionCache) *ReadFile {
+	var cache *docextract.ProjectionCache
+	if len(caches) > 0 {
+		cache = caches[0]
+	}
+	return &ReadFile{workDir: workDir, cache: cache}
 }
 
 func (t *ReadFile) Name() string { return "read_file" }
@@ -144,10 +149,37 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
 	}
 
-	extracted, err := docextract.ExtractMode(data, a.Path, mode)
+	kind := docextract.Detect(data, a.Path)
+	var extracted *docextract.Result
+	cacheHit := false
+	if willProject(kind, mode) {
+		identity := docextract.FileIdentityFromStat(info.Size(), info.ModTime().UnixNano())
+		cacheKey := fullPath + "\x00" + string(mode)
+		extracted, cacheHit, err = t.cache.GetOrLoad(ctx, cacheKey, identity, func(ctx context.Context) (*docextract.Result, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			result, err := docextract.ExtractModeContext(ctx, data, a.Path, mode)
+			if err != nil {
+				return nil, err
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return result, nil
+		})
+	} else {
+		extracted, err = docextract.ExtractMode(data, a.Path, mode)
+	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return tools.ToolResult{Content: "Leitura cancelada pelo usuário", IsError: true}, nil
+		}
 		return tools.ToolResult{Content: documentReadError(err), IsError: true}, nil
 	}
+	// Source pertence à chamada, não à projeção cacheada: o mesmo arquivo pode
+	// ser aberto por paths relativos diferentes.
+	extracted.Source = a.Path
 
 	var content string
 	var meta map[string]any
@@ -157,6 +189,7 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			"projection": true,
 			"format":     string(extracted.Kind),
 			"size_bytes": int64(len(data)),
+			"cache_hit":  cacheHit,
 		}
 		if extracted.Pages > 0 {
 			meta["pages"] = extracted.Pages
