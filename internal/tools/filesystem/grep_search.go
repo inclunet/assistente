@@ -216,7 +216,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		if len(matches) == 0 {
 			result := tools.ToolResult{
 				Content:  fmt.Sprintf("Nenhuma correspondência para '%s' em '%s'", a.Pattern, basePath),
-				Metadata: map[string]any{"results": 0, "files_scanned": boolInt(searched)},
+				Metadata: emptySearchMetadata(boolInt(searched)),
 			}
 			t.appendSearchStats(&result, stats)
 			return result, nil
@@ -333,7 +333,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}
 		result := tools.ToolResult{
 			Content:  msg,
-			Metadata: map[string]any{"results": 0, "files_scanned": filesScanned},
+			Metadata: emptySearchMetadata(filesScanned),
 		}
 		t.appendSearchStats(&result, stats)
 		return result, nil
@@ -484,6 +484,28 @@ func searchLines(
 	// Track quais linhas já foram incluídas para evitar duplicatas no contexto
 	includedLines := make(map[int]bool)
 
+	// Uma linha vizinha pode casar com o padrão. Ela entra pelo bloco de contexto
+	// do match anterior, mas continua sendo match: recebe o marcador ':' como no
+	// grep/rg, e não o '-' de contexto.
+	add := func(idx int) {
+		if includedLines[idx] {
+			return
+		}
+		isMatch := re.MatchString(lines[idx])
+		marker := "-"
+		if isMatch {
+			marker = ":"
+		}
+		matches = append(matches, grepMatch{
+			File:       filePath,
+			LineNumber: idx + 1,
+			LineText:   fmt.Sprintf("  %6d%s %s", idx+1, marker, lines[idx]),
+			Projection: projection,
+			IsMatch:    isMatch,
+		})
+		includedLines[idx] = true
+	}
+
 	for lineIdx, line := range lines {
 		select {
 		case <-ctx.Done():
@@ -498,29 +520,11 @@ func searchLines(
 				startCtx = 0
 			}
 			for i := startCtx; i < lineIdx; i++ {
-				if !includedLines[i] {
-					matches = append(matches, grepMatch{
-						File:       filePath,
-						LineNumber: i + 1,
-						LineText:   fmt.Sprintf("  %6d- %s", i+1, lines[i]),
-						Projection: projection,
-						IsMatch:    re.MatchString(lines[i]),
-					})
-					includedLines[i] = true
-				}
+				add(i)
 			}
 
 			// Adiciona a linha do match
-			if !includedLines[lineIdx] {
-				matches = append(matches, grepMatch{
-					File:       filePath,
-					LineNumber: lineIdx + 1,
-					LineText:   fmt.Sprintf("  %6d: %s", lineIdx+1, line),
-					Projection: projection,
-					IsMatch:    true,
-				})
-				includedLines[lineIdx] = true
-			}
+			add(lineIdx)
 
 			// Adiciona linhas de contexto depois
 			endCtx := lineIdx + contextLines + 1
@@ -528,16 +532,7 @@ func searchLines(
 				endCtx = len(lines)
 			}
 			for i := lineIdx + 1; i < endCtx; i++ {
-				if !includedLines[i] {
-					matches = append(matches, grepMatch{
-						File:       filePath,
-						LineNumber: i + 1,
-						LineText:   fmt.Sprintf("  %6d- %s", i+1, lines[i]),
-						Projection: projection,
-						IsMatch:    re.MatchString(lines[i]),
-					})
-					includedLines[i] = true
-				}
+				add(i)
 			}
 
 			if len(matches) >= maxMatches {
@@ -605,11 +600,24 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 	return tools.ToolResult{
 		Content: sb.String(),
 		Metadata: map[string]any{
+			"results":       len(matches),
 			"matches":       matchCount,
 			"files_matched": len(groups),
 			"files_scanned": filesScanned,
 			"truncated":     truncated,
 		},
+	}
+}
+
+// emptySearchMetadata mantém o mesmo conjunto de chaves da busca com resultado,
+// para quem consome os metadados não precisar tratar ausência de campo.
+func emptySearchMetadata(filesScanned int) map[string]any {
+	return map[string]any{
+		"results":       0,
+		"matches":       0,
+		"files_matched": 0,
+		"files_scanned": filesScanned,
+		"truncated":     false,
 	}
 }
 

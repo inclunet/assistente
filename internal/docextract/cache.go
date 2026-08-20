@@ -197,14 +197,16 @@ func (c *ProjectionCache) waitForFlight(
 }
 
 func (c *ProjectionCache) putLocked(key cacheKey, result *Result) {
+	// Uma identidade nova invalida imediatamente a projeção anterior do path.
+	// A invalidação vem antes do corte por tamanho: se a projeção nova não cabe,
+	// a antiga ainda assim está obsoleta e não pode continuar em memória.
+	if oldKey, ok := c.byPath[key.path]; ok && oldKey != key {
+		c.removeLocked(oldKey)
+	}
+
 	bytes := resultBytes(result)
 	if bytes > c.maxBytes {
 		return
-	}
-
-	// Uma identidade nova invalida imediatamente a projeção anterior do path.
-	if oldKey, ok := c.byPath[key.path]; ok && oldKey != key {
-		c.removeLocked(oldKey)
 	}
 	if elem, ok := c.entries[key]; ok {
 		entry := elem.Value.(*cacheEntry)

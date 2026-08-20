@@ -61,6 +61,37 @@ func TestProjectionCacheInvalidatesChangedIdentity(t *testing.T) {
 	}
 }
 
+// Projeção grande demais para caber não pode deixar a projeção obsoleta do mesmo
+// path viva no cache (D6: identidade nova invalida a anterior).
+func TestProjectionCacheDropsStaleEntryWhenNewOneIsTooLarge(t *testing.T) {
+	cache := NewProjectionCache(CacheConfig{MaxEntries: 4, MaxBytes: 8})
+	small := func(context.Context) (*Result, error) {
+		return &Result{Kind: KindPDF, Markdown: "antigo"}, nil
+	}
+	big := func(context.Context) (*Result, error) {
+		return &Result{Kind: KindPDF, Markdown: "projeção nova bem maior que o limite"}, nil
+	}
+
+	if _, _, err := cache.GetOrLoad(context.Background(), "a.pdf", FileIdentityFromStat(10, 20), small); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cache.GetOrLoad(context.Background(), "a.pdf", FileIdentityFromStat(11, 21), big); err != nil {
+		t.Fatal(err)
+	}
+
+	var loads atomic.Int32
+	stale := func(context.Context) (*Result, error) {
+		loads.Add(1)
+		return &Result{Kind: KindPDF, Markdown: "antigo"}, nil
+	}
+	if _, origin, err := cache.GetOrLoad(context.Background(), "a.pdf", FileIdentityFromStat(10, 20), stale); err != nil || origin != OriginLoaded {
+		t.Fatalf("projeção obsoleta continuou em cache: origin=%v err=%v", origin, err)
+	}
+	if loads.Load() != 1 {
+		t.Fatalf("loads=%d, quer 1", loads.Load())
+	}
+}
+
 func TestProjectionCacheEvictsByEntriesAndBytes(t *testing.T) {
 	cache := NewProjectionCache(CacheConfig{MaxEntries: 2, MaxBytes: 7})
 	loads := map[string]int{}

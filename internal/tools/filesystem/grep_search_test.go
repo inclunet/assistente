@@ -64,6 +64,59 @@ func TestGrepSearchCountsOnlyMatchingLines(t *testing.T) {
 	}
 }
 
+// Uma linha vizinha que também casa entra pelo bloco de contexto, mas continua
+// sendo match: precisa do marcador ':' e não pode sumir da contagem.
+func TestGrepSearchMarksNeighbouringMatchAsMatch(t *testing.T) {
+	dir := t.TempDir()
+	content := "alfa\nalvo\nalvo\nbeta\n"
+	if err := os.WriteFile(filepath.Join(dir, "notas.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{
+		"pattern": "alvo",
+		"context_lines": 1
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metadata["matches"] != 2 {
+		t.Errorf("matches=%v, quer 2", result.Metadata["matches"])
+	}
+	if !strings.Contains(result.Content, "3: alvo") {
+		t.Errorf("linha 3 deveria vir marcada como match: %s", result.Content)
+	}
+}
+
+// Busca sem resultado precisa devolver o mesmo conjunto de chaves da busca com
+// resultado, para o consumidor não ter que tratar campo ausente.
+func TestGrepSearchEmptyResultKeepsMetadataContract(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notas.txt"), []byte("alfa\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewGrepSearch(dir)
+
+	chaves := []string{"results", "matches", "files_matched", "files_scanned", "truncated"}
+	for _, args := range []string{
+		`{"pattern": "inexistente"}`,
+		`{"pattern": "inexistente", "path": "notas.txt"}`,
+	} {
+		result, err := tool.Execute(context.Background(), json.RawMessage(args))
+		if err != nil {
+			t.Fatalf("%s: %v", args, err)
+		}
+		for _, chave := range chaves {
+			if _, ok := result.Metadata[chave]; !ok {
+				t.Errorf("%s: metadata sem %q: %v", args, chave, result.Metadata)
+			}
+		}
+		if result.Metadata["matches"] != 0 || result.Metadata["truncated"] != false {
+			t.Errorf("%s: metadata inesperada: %v", args, result.Metadata)
+		}
+	}
+}
+
 func TestGrepSearch_LiteralSearch(t *testing.T) {
 	dir := t.TempDir()
 
