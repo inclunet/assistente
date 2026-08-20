@@ -117,6 +117,30 @@ func TestGrepSearchEmptyResultKeepsMetadataContract(t *testing.T) {
 	}
 }
 
+// Parar no teto de arquivos sem encontrar nada continua sendo truncamento: o
+// consumidor precisa distinguir "não existe" de "não terminei de procurar".
+func TestGrepSearchEmptyResultReportsTruncationByFileLimit(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("alfa\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tool := NewGrepSearch(dir)
+	tool.maxFilesConsidered = 2
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"pattern": "inexistente"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metadata["truncated"] != true {
+		t.Errorf("truncated=%v, quer true: %v", result.Metadata["truncated"], result.Metadata)
+	}
+	if !strings.Contains(result.Content, "TRUNCADO") {
+		t.Errorf("resposta não avisa do truncamento: %s", result.Content)
+	}
+}
+
 func TestGrepSearch_LiteralSearch(t *testing.T) {
 	dir := t.TempDir()
 

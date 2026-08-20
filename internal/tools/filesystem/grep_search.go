@@ -21,6 +21,9 @@ import (
 type GrepSearch struct {
 	workDir string
 	cache   *docextract.ProjectionCache
+	// maxFilesConsidered existe para o teto ser exercitável em teste sem criar
+	// dezenas de milhares de arquivos.
+	maxFilesConsidered int
 }
 
 // NewGrepSearch cria uma nova instância de GrepSearch.
@@ -32,7 +35,7 @@ func NewGrepSearch(workDir string, caches ...*docextract.ProjectionCache) *GrepS
 	if cache == nil {
 		cache = docextract.NewProjectionCache(docextract.DefaultCacheConfig())
 	}
-	return &GrepSearch{workDir: workDir, cache: cache}
+	return &GrepSearch{workDir: workDir, cache: cache, maxFilesConsidered: grepMaxFilesScanned}
 }
 
 func (t *GrepSearch) Name() string { return "grep_search" }
@@ -299,7 +302,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}
 		// O teto limita o custo do walk, não apenas leituras bem-sucedidas:
 		// binários e arquivos grandes também contam depois dos filtros.
-		if stats.filesConsidered >= grepMaxFilesScanned {
+		if stats.filesConsidered >= t.maxFilesConsidered {
 			truncated = true
 			return filepath.SkipAll
 		}
@@ -331,9 +334,16 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		if includePattern != "" {
 			msg += fmt.Sprintf(" (filtro: %s)", includePattern)
 		}
+		// Sem matches a busca ainda pode ter parado no teto de arquivos: quem lê
+		// precisa saber que a varredura foi interrompida antes do fim da árvore.
+		if truncated {
+			msg += fmt.Sprintf("\n(TRUNCADO: limite de %d arquivos considerados atingido)", t.maxFilesConsidered)
+		}
+		metadata := emptySearchMetadata(filesScanned)
+		metadata["truncated"] = truncated
 		result := tools.ToolResult{
 			Content:  msg,
-			Metadata: emptySearchMetadata(filesScanned),
+			Metadata: metadata,
 		}
 		t.appendSearchStats(&result, stats)
 		return result, nil
