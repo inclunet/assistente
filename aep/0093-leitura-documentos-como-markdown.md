@@ -41,7 +41,7 @@ explícita — nunca como indexação contínua nem default de toda varredura.
 | D3 | **Escrita só texto.** `write_file` / `edit_file` / `text_edit` recusam formatos de documento/binários com erro claro. |
 | D4 | **Detecção:** magic bytes / sniff primeiro; extensão como fallback; UTF-8 texto válido → caminho atual; documento suportado → extrator; senão erro útil (sem dump binário). |
 | D5 | **Responsabilidades de busca permanecem distintas.** `grep_search` pesquisa conteúdo e reutiliza o extrator para documentos; `search_files` continua buscando somente paths por glob, sem abrir nem extrair arquivos. |
-| D6 | **Cache sob demanda e não persistente na V1.** Texto extraído é cacheado em memória, com limite por bytes/entradas e chave por path + identidade do arquivo (mtime/size; hash só quando necessário). Não há índice no boot nem cópia plaintext persistente de documento sensível. |
+| D6 | **Cache sob demanda e não persistente na V1.** Texto extraído é cacheado em memória num LRU compartilhado por `read_file` e `grep_search`, limitado a 64 entradas / 64 MiB de projeção. A chave combina path absoluto, modo e identidade do arquivo (mtime/size; digest fica reservado para fontes em que essa identidade não seja confiável). Identidade nova invalida a projeção anterior, cargas concorrentes iguais são coalescidas e resultados maiores que o teto do cache são servidos sem retenção. Não há índice no boot nem cópia plaintext persistente de documento sensível. |
 | D7 | **OCR e caminhos pesados = excepcionais e explícitos.** `read_file` e `grep_search` recebem `document_mode: "auto" | "markdown" | "ocr"`; o default `auto` nunca executa OCR. O modo `ocr` só roda quando solicitado na chamada. |
 | D8 | **Custo é da superfície escolhida.** Pasta com centenas de PDFs longos pode ser lenta; o sistema deve permanecer cancelável, com limites de sanidade e mensagens claras — sem transformar isso em hard-deny artificial. |
 | D9 | **Path trust inalterado.** Extração passa pelo mesmo `validatePathWithPolicy` / fstrust (AEP-0092). Converter formato não bypassa allow/deny. |
@@ -106,6 +106,9 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
   porque a tabela só existe depois de decodificar tudo.
 - Containers ZIP (OOXML/ODF/EPUB) têm limites próprios de entradas, tamanho
   expandido e razão de compressão (D11), aplicados por entrada e no acumulado.
+- PDF textual tem teto de **1.000 páginas** por projeção. O número é conferido
+  antes de percorrer as páginas; acima dele, `read_file` falha e `grep_search`
+  omite apenas o documento com aviso.
 
 ### Contrato de escrita
 
@@ -122,6 +125,16 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
   marcadores de página/slide/aba quando o extrator os fornecer.
 - Extração falha ou estoura limite → pula o arquivo com aviso agregável;
   não aborta a busca inteira sem necessidade.
+- No máximo 20 avisos são detalhados na resposta; o restante é contabilizado,
+  para uma árvore hostil não consumir toda a saída apenas com falhas.
+- A resposta e os metadados informam quantas linhas casaram com o padrão
+  (sem contar contexto), quantos documentos foram projetados, quantos vieram
+  do cache, quantos arquivos foram considerados/escaneados e quantos avisos
+  ocorreram. O teto de 10.000 conta todo arquivo considerado
+  após filtros de path/permissão, mesmo quando o conteúdo é omitido.
+- O cache informa a origem de cada projeção (`loaded`, `cached`, `coalesced`),
+  para que a chamada que pega carona em uma extração concorrente não seja
+  contada como extração nova nem como acerto de cache.
 - `document_mode: "auto"` nunca faz OCR; `document_mode: "ocr"` é opt-in e pode
   tornar a busca deliberadamente cara.
 - Cancelamento do contexto interrompe extração/OCR e o walk.
@@ -142,12 +155,12 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 
 ### Fase 2 — busca e cache
 
-- [ ] Cache em memória, limitado e invalidado por identidade do arquivo
-- [ ] `grep_search` usa o mesmo extrator + cache
-- [ ] `search_files` recebe testes de regressão para confirmar que permanece
+- [x] Cache em memória, limitado e invalidado por identidade do arquivo
+- [x] `grep_search` usa o mesmo extrator + cache
+- [x] `search_files` recebe testes de regressão para confirmar que permanece
       busca por path e encontra extensões de documento sem extração
-- [ ] Limites de sanidade (tamanho/páginas) e skip com aviso
-- [ ] Testes de busca em documento e de não-OCR no default
+- [x] Limites de sanidade (tamanho/páginas) e skip com aviso
+- [x] Testes de busca em documento e de não-OCR no default
 
 ### Fase 3 — OCR explícito
 

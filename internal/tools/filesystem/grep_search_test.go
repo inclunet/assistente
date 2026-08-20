@@ -1,11 +1,18 @@
 package filesystem
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
+	"time"
+
+	"assistente/internal/docextract"
 )
 
 func TestGrepSearch_Name(t *testing.T) {
@@ -27,6 +34,110 @@ func TestGrepSearch_Parameters(t *testing.T) {
 	props := schema["properties"].(map[string]interface{})
 	if _, ok := props["pattern"]; !ok {
 		t.Error("schema deve ter propriedade 'pattern'")
+	}
+}
+
+// A contagem exposta em metadata precisa refletir linhas que casam com o padrão,
+// não as linhas de contexto que as acompanham.
+func TestGrepSearchCountsOnlyMatchingLines(t *testing.T) {
+	dir := t.TempDir()
+	content := "alfa\nbeta\nalvo\ngama\ndelta\nalvo\nzeta\n"
+	if err := os.WriteFile(filepath.Join(dir, "notas.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{
+		"pattern": "alvo",
+		"context_lines": 1
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if result.Metadata["matches"] != 2 {
+		t.Errorf("matches=%v, quer 2 (contexto não conta)", result.Metadata["matches"])
+	}
+	if !strings.Contains(result.Content, "2 correspondência(s)") {
+		t.Errorf("cabeçalho sem a contagem de correspondências: %s", result.Content)
+	}
+}
+
+// Uma linha vizinha que também casa entra pelo bloco de contexto, mas continua
+// sendo match: precisa do marcador ':' e não pode sumir da contagem.
+func TestGrepSearchMarksNeighbouringMatchAsMatch(t *testing.T) {
+	dir := t.TempDir()
+	content := "alfa\nalvo\nalvo\nbeta\n"
+	if err := os.WriteFile(filepath.Join(dir, "notas.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{
+		"pattern": "alvo",
+		"context_lines": 1
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metadata["matches"] != 2 {
+		t.Errorf("matches=%v, quer 2", result.Metadata["matches"])
+	}
+	if !strings.Contains(result.Content, "3: alvo") {
+		t.Errorf("linha 3 deveria vir marcada como match: %s", result.Content)
+	}
+}
+
+// Busca sem resultado precisa devolver o mesmo conjunto de chaves da busca com
+// resultado, para o consumidor não ter que tratar campo ausente.
+func TestGrepSearchEmptyResultKeepsMetadataContract(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notas.txt"), []byte("alfa\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewGrepSearch(dir)
+
+	chaves := []string{"results", "matches", "files_matched", "files_scanned", "truncated"}
+	for _, args := range []string{
+		`{"pattern": "inexistente"}`,
+		`{"pattern": "inexistente", "path": "notas.txt"}`,
+	} {
+		result, err := tool.Execute(context.Background(), json.RawMessage(args))
+		if err != nil {
+			t.Fatalf("%s: %v", args, err)
+		}
+		for _, chave := range chaves {
+			if _, ok := result.Metadata[chave]; !ok {
+				t.Errorf("%s: metadata sem %q: %v", args, chave, result.Metadata)
+			}
+		}
+		if result.Metadata["matches"] != 0 || result.Metadata["truncated"] != false {
+			t.Errorf("%s: metadata inesperada: %v", args, result.Metadata)
+		}
+	}
+}
+
+// Parar no teto de arquivos sem encontrar nada continua sendo truncamento: o
+// consumidor precisa distinguir "não existe" de "não terminei de procurar".
+func TestGrepSearchEmptyResultReportsTruncationByFileLimit(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("alfa\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tool := NewGrepSearch(dir)
+	tool.maxFilesConsidered = 2
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"pattern": "inexistente"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metadata["truncated"] != true {
+		t.Errorf("truncated=%v, quer true: %v", result.Metadata["truncated"], result.Metadata)
+	}
+	if !strings.Contains(result.Content, "TRUNCADO") {
+		t.Errorf("resposta não avisa do truncamento: %s", result.Content)
 	}
 }
 
@@ -200,7 +311,7 @@ func TestGrepSearch_MissingPattern(t *testing.T) {
 
 func TestGrepSearch_SkipsBinaryFiles(t *testing.T) {
 	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "image.png"), []byte("fake png with searchterm"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, "image.png"), []byte{0x89, 'P', 'N', 'G', 0x00, 0xff}, 0644)
 	_ = os.WriteFile(filepath.Join(dir, "code.go"), []byte("searchterm in code"), 0644)
 
 	tool := NewGrepSearch(dir)
@@ -215,6 +326,369 @@ func TestGrepSearch_SkipsBinaryFiles(t *testing.T) {
 	}
 	if containsString(result.Content, "image.png") {
 		t.Error("não deve buscar em image.png (binário)")
+	}
+	if result.Metadata["files_considered"] != 2 || result.Metadata["files_scanned"] != 1 {
+		t.Fatalf("limite do walk deve contar também o binário omitido: %v", result.Metadata)
+	}
+}
+
+func TestGrepSearchContentOverridesBinaryExtension(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "nao-e-pdf.pdf"), []byte("agulha em texto puro\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || !strings.Contains(result.Content, "agulha em texto puro") {
+		t.Fatalf("extensão binária escondeu conteúdo textual: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "projeção Markdown") {
+		t.Fatalf("texto foi tratado como documento: %s", result.Content)
+	}
+}
+
+func TestGrepSearch_SearchesOpaqueDocumentProjection(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "manual.docx"), buildMinimalDOCX(t, "agulha documental"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// nil explícito também deve selecionar o cache padrão do construtor.
+	result, err := NewGrepSearch(dir, nil).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha documental"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatal(result.Content)
+	}
+	if !strings.Contains(result.Content, "manual.docx (projeção Markdown: docx)") {
+		t.Fatalf("resultado não identifica a projeção: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "agulha documental") {
+		t.Fatalf("conteúdo extraído ausente: %s", result.Content)
+	}
+	if result.Metadata["documents_extracted"] != 1 {
+		t.Fatalf("metadata=%v", result.Metadata)
+	}
+}
+
+func TestGrepSearch_TextFormatsStayRawUnlessMarkdownRequested(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dados.csv"), []byte("nome,idade\nAna,30\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewGrepSearch(dir)
+
+	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"pattern":"nome,idade"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.IsError || !strings.Contains(raw.Content, "nome,idade") {
+		t.Fatalf("CSV bruto não foi pesquisado: %s", raw.Content)
+	}
+	if strings.Contains(raw.Content, "projeção Markdown") {
+		t.Fatalf("modo auto projetou CSV: %s", raw.Content)
+	}
+
+	projected, err := tool.Execute(context.Background(), json.RawMessage(`{"pattern":"| Ana","document_mode":"markdown"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projected.IsError || !strings.Contains(projected.Content, "projeção Markdown: csv") {
+		t.Fatalf("projeção pedida não foi pesquisada: %s", projected.Content)
+	}
+}
+
+func TestGrepSearchSharesProjectionCacheWithReadFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manual.docx")
+	if err := os.WriteFile(path, buildMinimalDOCX(t, "cache compartilhado"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cache := docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+
+	read, err := NewReadFile(dir, cache).Execute(context.Background(), json.RawMessage(`{"path":"manual.docx"}`))
+	if err != nil || read.IsError {
+		t.Fatalf("read_file: err=%v result=%s", err, read.Content)
+	}
+	if read.Metadata["cache_hit"] != false {
+		t.Fatalf("primeira extração deveria ser miss: %v", read.Metadata)
+	}
+
+	grep, err := NewGrepSearch(dir, cache).Execute(context.Background(), json.RawMessage(`{"pattern":"cache compartilhado"}`))
+	if err != nil || grep.IsError {
+		t.Fatalf("grep_search: err=%v result=%s", err, grep.Content)
+	}
+	if grep.Metadata["document_cache_hits"] != 1 {
+		t.Fatalf("grep não reutilizou a projeção: %v", grep.Metadata)
+	}
+}
+
+func TestGrepSearchSkipsOversizedDocumentWithWarning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grande.pdf")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("%PDF-1.4\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(docextract.MaxExtractBytes + 1); err != nil {
+		_ = file.Close()
+		t.Skipf("não foi possível criar arquivo esparso: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha","path":"grande.pdf"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("falha de um documento não deve abortar a busca: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Avisos de documentos") || !strings.Contains(result.Content, "muito grande para extração") {
+		t.Fatalf("aviso ausente: %s", result.Content)
+	}
+	if result.Metadata["document_warnings"] != 1 {
+		t.Fatalf("metadata=%v", result.Metadata)
+	}
+}
+
+func TestGrepSearchInvalidDocumentBecomesWarning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "quebrado.docx"), []byte("PK\x03\x04conteúdo truncado"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("um documento inválido derrubou a busca: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "quebrado.docx") || !strings.Contains(result.Content, "Avisos de documentos") {
+		t.Fatalf("aviso agregável ausente: %s", result.Content)
+	}
+}
+
+func TestGrepSearchDoesNotOpenGenericZIPs(t *testing.T) {
+	dir := t.TempDir()
+	var data bytes.Buffer
+	zw := zip.NewWriter(&data)
+	entry, err := zw.Create("conteudo.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("agulha dentro do ZIP")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "arquivo.zip"), data.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result.Content, "arquivo.zip") || result.Metadata["document_warnings"] != 0 {
+		t.Fatalf("ZIP genérico deveria ser omitido silenciosamente: %s metadata=%v", result.Content, result.Metadata)
+	}
+}
+
+func TestGrepSearchFindsDocumentDisguisedAsCSV(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dados.csv"), buildMinimalDOCX(t, "documento disfarçado"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"documento disfarçado"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || !strings.Contains(result.Content, "projeção Markdown: docx") {
+		t.Fatalf("documento disfarçado não foi projetado: %s", result.Content)
+	}
+}
+
+func TestGrepSearchDoesNotTreatGenericZIPAsRTF(t *testing.T) {
+	dir := t.TempDir()
+	var data bytes.Buffer
+	zw := zip.NewWriter(&data)
+	entry, err := zw.Create("conteudo.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("agulha que não deve aparecer")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "disfarcado.rtf"), data.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result.Content, "agulha que não deve aparecer") || !strings.Contains(result.Content, "binário não suportado") {
+		t.Fatalf("ZIP genérico foi tratado como RTF: %s", result.Content)
+	}
+}
+
+func TestGrepSearchRejectsBinaryCSVInsteadOfSearchingRawBytes(t *testing.T) {
+	dir := t.TempDir()
+	content := append([]byte("prefixo válido\n"), []byte{'a', 0x00, 0xff, 'b'}...)
+	if err := os.WriteFile(filepath.Join(dir, "dados.csv"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"prefixo"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("arquivo inválido deve ser omitido com aviso: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "conteúdo não é texto UTF-8 válido") {
+		t.Fatalf("CSV binário não foi recusado: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "      1: prefixo") {
+		t.Fatalf("grep devolveu match parcial de arquivo binário: %s", result.Content)
+	}
+}
+
+func TestGrepSearchCountsAndWarnsInvalidTextAfterPrefix(t *testing.T) {
+	dir := t.TempDir()
+	content := append(bytes.Repeat([]byte("a"), docextract.DetectPrefixBytes+10), 0x00)
+	if err := os.WriteFile(filepath.Join(dir, "quebrado.txt"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"aaa"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Content, "conteúdo não é texto UTF-8 válido") {
+		t.Fatalf("erro depois do prefixo foi ocultado: %s", result.Content)
+	}
+	if result.Metadata["files_scanned"] != 1 {
+		t.Fatalf("arquivo tentado não contou no limite: %v", result.Metadata)
+	}
+}
+
+func TestGrepSearchWarnsWhenPrefixCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sumiu.txt")
+	if err := os.WriteFile(path, []byte("conteúdo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	stats := &grepStats{}
+	matches, searched := NewGrepSearch(dir).searchPath(
+		context.Background(),
+		path,
+		info,
+		regexp.MustCompile("conteúdo"),
+		10,
+		0,
+		docextract.ModeAuto,
+		stats,
+	)
+	if !searched || len(matches) != 0 {
+		t.Fatalf("falha de prefixo deve contar como tentativa sem matches: searched=%v matches=%v", searched, matches)
+	}
+	if len(stats.warnings) != 1 || !strings.Contains(stats.warnings[0].Reason, "não foi possível ler o prefixo") {
+		t.Fatalf("aviso ausente: %+v", stats.warnings)
+	}
+}
+
+func TestGrepSearchCacheInvalidatesWhenFileChanges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manual.docx")
+	cache := docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	tool := NewGrepSearch(dir, cache)
+	if err := os.WriteFile(path, buildMinimalDOCX(t, "versão antiga"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := tool.Execute(context.Background(), json.RawMessage(`{"pattern":"versão antiga"}`))
+	if err != nil || first.IsError || !strings.Contains(first.Content, "versão antiga") {
+		t.Fatalf("primeira busca: err=%v result=%s", err, first.Content)
+	}
+
+	if err := os.WriteFile(path, buildMinimalDOCX(t, "versão nova com outro tamanho"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+	second, err := tool.Execute(context.Background(), json.RawMessage(`{"pattern":"versão nova"}`))
+	if err != nil || second.IsError || !strings.Contains(second.Content, "versão nova") {
+		t.Fatalf("busca após mudança: err=%v result=%s", err, second.Content)
+	}
+	if second.Metadata["document_cache_hits"] != 0 {
+		t.Fatalf("identidade antiga foi reutilizada: %v", second.Metadata)
+	}
+}
+
+func TestGrepSearchDoesNotAdvertiseOrRunOCR(t *testing.T) {
+	tool := NewGrepSearch(t.TempDir())
+	var schema struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range schema.Properties["document_mode"].Enum {
+		if value == "ocr" {
+			t.Fatal("OCR não deve aparecer no schema antes da Fase 3")
+		}
+	}
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"pattern":"x","document_mode":"ocr"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "Fase 3") {
+		t.Fatalf("OCR deveria falhar explicitamente: %+v", result)
+	}
+}
+
+func TestGrepSearchCancellationStopsDocumentSearch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "manual.docx"), buildMinimalDOCX(t, "conteúdo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := NewGrepSearch(dir).Execute(ctx, json.RawMessage(`{"pattern":"conteúdo","path":"manual.docx"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "cancelada") {
+		t.Fatalf("cancelamento não propagado: %+v", result)
 	}
 }
 

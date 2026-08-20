@@ -2,13 +2,14 @@ package docextract
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/ledongthuc/pdf"
 )
 
-func extractPDF(data []byte, filename string) (*Result, error) {
+func extractPDF(ctx context.Context, data []byte, filename string) (*Result, error) {
 	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		msg := err.Error()
@@ -19,9 +20,15 @@ func extractPDF(data []byte, filename string) (*Result, error) {
 	}
 
 	n := r.NumPage()
+	if n > MaxExtractPages {
+		return nil, ErrTooManyPages(n)
+	}
 	var pages []string
 	emptyPages := 0
 	for i := 1; i <= n; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		p := r.Page(i)
 		if p.V.IsNull() {
 			emptyPages++

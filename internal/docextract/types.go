@@ -99,6 +99,11 @@ func ErrTooLargeToExtract(size int64) error {
 	return fmt.Errorf("arquivo muito grande para extração (%d bytes; máximo %d)", size, MaxExtractBytes)
 }
 
+// ErrTooManyPages descreve a recusa de um PDF que excede o teto de projeção.
+func ErrTooManyPages(pages int) error {
+	return fmt.Errorf("PDF com páginas demais para extração (%d; máximo %d)", pages, MaxExtractPages)
+}
+
 // IsOpaqueDocument retorna true para os formatos que o modelo não consegue ler
 // no original: o conteúdo é binário (ou um container ZIP de XML), então a
 // projeção Markdown é a única leitura útil e vale por padrão.

@@ -17,7 +17,7 @@ func Detect(data []byte, filename string) Kind {
 	// veem o prefixo não conseguem ler a estrutura interna, e classificar como
 	// texto abriria caminho para gravar/streamar um documento renomeado.
 	if hasZipMagic(data) {
-		if k := detectByExt(filename); k != "" {
+		if k := detectByExt(filename); isZipDocument(k) {
 			return k
 		}
 		return KindUnsupportedBinary
@@ -36,6 +36,15 @@ func Detect(data []byte, filename string) Kind {
 		return k
 	}
 	return KindUnsupportedBinary
+}
+
+func isZipDocument(kind Kind) bool {
+	switch kind {
+	case KindDOCX, KindXLSX, KindPPTX, KindODT, KindODS, KindODP, KindEPUB:
+		return true
+	default:
+		return false
+	}
 }
 
 func detectMagic(data []byte) Kind {
@@ -64,6 +73,13 @@ func detectMagic(data []byte) Kind {
 
 func hasZipMagic(data []byte) bool {
 	return bytes.HasPrefix(data, []byte("PK\x03\x04")) || bytes.HasPrefix(data, []byte("PK\x05\x06"))
+}
+
+// HasZipMagic informa se o prefixo declara um container ZIP. É útil para
+// chamadores que leem só o começo do arquivo: eles podem decidir carregar o
+// container completo para distinguir OOXML/ODF/EPUB de um ZIP comum.
+func HasZipMagic(data []byte) bool {
+	return hasZipMagic(data)
 }
 
 func detectByExt(filename string) Kind {
@@ -117,3 +133,9 @@ func isLikelyText(data []byte) bool {
 	return control*100/len(sample) < 5
 }
 
+// IsLikelyText expõe a mesma heurística usada pela classificação para
+// consumidores que leem apenas um prefixo e precisam confirmar que um formato
+// textual por extensão (CSV/RTF) não contém bytes binários.
+func IsLikelyText(data []byte) bool {
+	return isLikelyText(data)
+}

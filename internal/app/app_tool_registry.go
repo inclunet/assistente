@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/database"
+	"assistente/internal/docextract"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
 	"assistente/internal/nettrust"
@@ -148,10 +149,11 @@ func (a *App) initToolRegistry() {
 	}
 
 	// Registra ferramentas de filesystem
-	a.toolRegistry.MustRegister(filesystem.NewReadFile(workDir))
+	documentCache := docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	a.toolRegistry.MustRegister(filesystem.NewReadFile(workDir, documentCache))
 	a.toolRegistry.MustRegister(filesystem.NewListDirectory(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewSearchFiles(workDir))
-	a.toolRegistry.MustRegister(filesystem.NewGrepSearch(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewGrepSearch(workDir, documentCache))
 	a.toolRegistry.MustRegister(filesystem.NewWriteFile(workDir, filesystem.WithWriteFileQuestionnaire(a.questionnaireMgr), filesystem.WithWriteFileWriteObserver(a.markEditorAssistedWrite)))
 	a.toolRegistry.MustRegister(filesystem.NewEditFile(workDir, a.questionnaireMgr, filesystem.WithEditFileWriteObserver(a.markEditorAssistedWrite)))
 	// text_edit é opt-in: só entra no payload de perfis que a habilitam

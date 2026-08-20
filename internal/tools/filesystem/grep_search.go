@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
+	"assistente/internal/docextract"
 	"assistente/internal/tools"
 )
 
@@ -17,11 +20,22 @@ import (
 // Similar ao ripgrep/grep, retorna linhas correspondentes com contexto.
 type GrepSearch struct {
 	workDir string
+	cache   *docextract.ProjectionCache
+	// maxFilesConsidered existe para o teto ser exercitável em teste sem criar
+	// dezenas de milhares de arquivos.
+	maxFilesConsidered int
 }
 
 // NewGrepSearch cria uma nova instância de GrepSearch.
-func NewGrepSearch(workDir string) *GrepSearch {
-	return &GrepSearch{workDir: workDir}
+func NewGrepSearch(workDir string, caches ...*docextract.ProjectionCache) *GrepSearch {
+	var cache *docextract.ProjectionCache
+	if len(caches) > 0 {
+		cache = caches[0]
+	}
+	if cache == nil {
+		cache = docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	}
+	return &GrepSearch{workDir: workDir, cache: cache, maxFilesConsidered: grepMaxFilesScanned}
 }
 
 func (t *GrepSearch) Name() string { return "grep_search" }
@@ -32,7 +46,7 @@ func (t *GrepSearch) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *GrepSearch) Description() string {
-	return "Searches file contents by pattern (Go regex or literal). Returns matching lines with line numbers and context. Use include to filter files and case_sensitive=false for case-insensitive search."
+	return "Searches file contents by pattern (Go regex or literal). Text is searched as stored; opaque documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, EPUB) are searched through an in-memory Markdown projection. Set document_mode=\"markdown\" to also project textual formats such as CSV/RTF. Extraction failures skip only that document and are reported as warnings. OCR is not available in this phase. Returns matching lines with line numbers and context."
 }
 
 func (t *GrepSearch) Parameters() json.RawMessage {
@@ -62,6 +76,11 @@ func (t *GrepSearch) Parameters() json.RawMessage {
 			"context_lines": {
 				"type": "integer",
 				"description": "Linhas de contexto antes e depois de cada match. Padrão: 2."
+			},
+			"document_mode": {
+				"type": "string",
+				"enum": ["auto", "markdown"],
+				"description": "auto (padrão): texto é pesquisado como está e só documentos opacos viram Markdown. markdown: também projeta formatos textuais com extrator, como CSV/RTF."
 			}
 		},
 		"required": ["pattern"],
@@ -76,6 +95,7 @@ type grepSearchArgs struct {
 	CaseSensitive *bool  `json:"case_sensitive,omitempty"`
 	MaxResults    *int   `json:"max_results,omitempty"`
 	ContextLines  *int   `json:"context_lines,omitempty"`
+	DocumentMode  string `json:"document_mode,omitempty"`
 }
 
 // grepMatch representa um match individual
@@ -83,7 +103,29 @@ type grepMatch struct {
 	File       string
 	LineNumber int
 	LineText   string
+	Projection docextract.Kind
+	// IsMatch separa a linha que casa com o padrão das linhas de contexto.
+	IsMatch bool
 }
+
+type grepWarning struct {
+	File   string
+	Reason string
+}
+
+type grepStats struct {
+	filesConsidered    int
+	documentsProjected int
+	documentsExtracted int
+	// documentsCoalesced conta projeções que pegaram carona em uma extração já
+	// em andamento: não foram cache pronto nem custaram uma nova extração.
+	documentsCoalesced int
+	cacheHits          int
+	warnings           []grepWarning
+	warningsOmitted    int
+}
+
+var errGrepBinaryContent = errors.New("conteúdo não é texto UTF-8 válido")
 
 // Limites de segurança
 const (
@@ -91,6 +133,7 @@ const (
 	grepDefaultContextLines = 2
 	grepMaxFileSize         = 5 * 1024 * 1024 // 5MB — pula arquivos maiores
 	grepMaxFilesScanned     = 10000           // Limite de arquivos escaneados
+	grepMaxWarnings         = 20
 )
 
 func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
@@ -101,6 +144,10 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 
 	if a.Pattern == "" {
 		return tools.ToolResult{Content: "Parâmetro 'pattern' é obrigatório", IsError: true}, nil
+	}
+	mode, err := parseDocumentMode(a.DocumentMode)
+	if err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
 	// Padrões de busca
@@ -164,20 +211,29 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 
 	// Se for um arquivo, busca direto nele
 	if !info.IsDir() {
-		matches, _ := t.searchFile(ctx, fullBase, re, maxResults, contextLines)
-		if len(matches) == 0 {
-			return tools.ToolResult{
-				Content:  fmt.Sprintf("Nenhuma correspondência para '%s' em '%s'", a.Pattern, basePath),
-				Metadata: map[string]any{"results": 0},
-			}, nil
+		stats := &grepStats{filesConsidered: 1}
+		matches, searched := t.searchPath(ctx, fullBase, info, re, maxResults, contextLines, mode, stats)
+		if ctx.Err() != nil {
+			return tools.ToolResult{Content: "Busca cancelada pelo usuário", IsError: true}, nil
 		}
-		return t.formatResults(a.Pattern, basePath, matches, 1, false, maxResults), nil
+		if len(matches) == 0 {
+			result := tools.ToolResult{
+				Content:  fmt.Sprintf("Nenhuma correspondência para '%s' em '%s'", a.Pattern, basePath),
+				Metadata: emptySearchMetadata(boolInt(searched)),
+			}
+			t.appendSearchStats(&result, stats)
+			return result, nil
+		}
+		result := t.formatResults(a.Pattern, basePath, matches, boolInt(searched), false, maxResults)
+		t.appendSearchStats(&result, stats)
+		return result, nil
 	}
 
 	// Busca recursiva em diretório
 	var allMatches []grepMatch
 	filesScanned := 0
 	truncated := false
+	stats := &grepStats{}
 
 	// Compila glob de inclusão se fornecido
 	var includePattern string
@@ -233,24 +289,9 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			}
 		}
 
-		// Pula arquivos binários/grandes
-		if isBinaryExtension(d.Name()) {
-			return nil
-		}
-
 		fileInfo, err := d.Info()
 		if err != nil {
 			return nil
-		}
-		if fileInfo.Size() > grepMaxFileSize {
-			return nil
-		}
-
-		// Limite de arquivos escaneados
-		filesScanned++
-		if filesScanned > grepMaxFilesScanned {
-			truncated = true
-			return filepath.SkipAll
 		}
 
 		// Busca neste arquivo
@@ -259,8 +300,18 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			truncated = true
 			return filepath.SkipAll
 		}
+		// O teto limita o custo do walk, não apenas leituras bem-sucedidas:
+		// binários e arquivos grandes também contam depois dos filtros.
+		if stats.filesConsidered >= t.maxFilesConsidered {
+			truncated = true
+			return filepath.SkipAll
+		}
+		stats.filesConsidered++
 
-		fileMatches, _ := t.searchFile(ctx, path, re, remaining, contextLines)
+		fileMatches, searched := t.searchPath(ctx, path, fileInfo, re, remaining, contextLines, mode, stats)
+		if searched {
+			filesScanned++
+		}
 
 		// Converte para caminho relativo
 		for i := range fileMatches {
@@ -283,13 +334,120 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		if includePattern != "" {
 			msg += fmt.Sprintf(" (filtro: %s)", includePattern)
 		}
-		return tools.ToolResult{
+		// Sem matches a busca ainda pode ter parado no teto de arquivos: quem lê
+		// precisa saber que a varredura foi interrompida antes do fim da árvore.
+		if truncated {
+			msg += fmt.Sprintf("\n(TRUNCADO: limite de %d arquivos considerados atingido)", t.maxFilesConsidered)
+		}
+		metadata := emptySearchMetadata(filesScanned)
+		metadata["truncated"] = truncated
+		result := tools.ToolResult{
 			Content:  msg,
-			Metadata: map[string]any{"results": 0, "files_scanned": filesScanned},
-		}, nil
+			Metadata: metadata,
+		}
+		t.appendSearchStats(&result, stats)
+		return result, nil
 	}
 
-	return t.formatResults(a.Pattern, basePath, allMatches, filesScanned, truncated, maxResults), nil
+	result := t.formatResults(a.Pattern, basePath, allMatches, filesScanned, truncated, maxResults)
+	t.appendSearchStats(&result, stats)
+	return result, nil
+}
+
+// searchPath escolhe entre o texto original e a projeção Markdown. O bool indica
+// se o arquivo efetivamente contou como escaneado.
+func (t *GrepSearch) searchPath(
+	ctx context.Context,
+	filePath string,
+	info os.FileInfo,
+	re *regexp.Regexp,
+	maxMatches, contextLines int,
+	mode docextract.Mode,
+	stats *grepStats,
+) ([]grepMatch, bool) {
+	prefix, err := readFilePrefix(filePath, docextract.DetectPrefixBytes)
+	if err != nil {
+		stats.warn(filePath, fmt.Sprintf("não foi possível ler o prefixo: %v", err))
+		return nil, true
+	}
+	kind := docextract.Detect(prefix, filePath)
+	// Prefixo ZIP sozinho não basta: abrir todo .zip/.jar/.apk encontrado numa
+	// árvore seria uma regressão de custo. Só inspecionamos o container completo
+	// quando o nome finge ser texto, cenário de disfarce coberto por D10.
+	zipCandidate := docextract.HasZipMagic(prefix) && isTextualDisguisePath(filePath)
+	project := willProject(kind, mode) || zipCandidate
+
+	if !project {
+		// Conteúdo vence extensão: um arquivo chamado .pdf que na verdade é
+		// texto UTF-8 segue o mesmo caminho do read_file (D4).
+		if kind == docextract.KindUnsupportedBinary ||
+			(isBinaryExtension(filePath) && kind != docextract.KindText) ||
+			info.Size() > grepMaxFileSize {
+			return nil, false
+		}
+		if docextract.IsWritableText(kind) && !docextract.IsLikelyText(prefix) {
+			stats.warn(filePath, errGrepBinaryContent.Error())
+			return nil, true
+		}
+		matches, err := t.searchFile(ctx, filePath, re, maxMatches, contextLines)
+		if err != nil {
+			stats.warn(filePath, err.Error())
+			return nil, true
+		}
+		return matches, true
+	}
+
+	if info.Size() > docextract.MaxExtractBytes {
+		stats.warn(filePath, docextract.ErrTooLargeToExtract(info.Size()).Error())
+		return nil, true
+	}
+	identity := docextract.FileIdentityFromStat(info.Size(), info.ModTime().UnixNano())
+	cacheKey := filePath + "\x00" + string(mode)
+	result, origin, err := t.cache.GetOrLoad(ctx, cacheKey, identity, func(ctx context.Context) (*docextract.Result, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		data, err := ReadFileBytes(filePath)
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		result, err := docextract.ExtractModeContext(ctx, data, filePath, mode)
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
+	if err != nil {
+		if ctx.Err() == nil {
+			stats.warn(filePath, documentReadError(err))
+		}
+		return nil, true
+	}
+	if !result.Projected {
+		// ZIP com magic mas sem formato documental reconhecido.
+		stats.warn(filePath, docextract.ErrUnsupportedBinary().Error())
+		return nil, true
+	}
+	stats.documentsProjected++
+	switch origin {
+	case docextract.OriginCached:
+		stats.cacheHits++
+	case docextract.OriginCoalesced:
+		stats.documentsCoalesced++
+	default:
+		stats.documentsExtracted++
+	}
+	for _, warning := range result.Warnings {
+		stats.warn(filePath, warning)
+	}
+	lines := strings.Split(result.Markdown, "\n")
+	return searchLines(ctx, filePath, lines, re, maxMatches, contextLines, result.Kind), true
 }
 
 // searchFile busca por matches em um único arquivo, incluindo linhas de contexto.
@@ -308,21 +466,60 @@ func (t *GrepSearch) searchFile(ctx context.Context, filePath string, re *regexp
 	scanner.Buffer(buf, 1024*1024)
 
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		line := scanner.Text()
+		if strings.IndexByte(line, 0) >= 0 || !utf8.ValidString(line) {
+			return nil, errGrepBinaryContent
+		}
+		lines = append(lines, line)
 	}
 
 	if scanner.Err() != nil {
 		return nil, scanner.Err()
 	}
+	return searchLines(ctx, filePath, lines, re, maxMatches, contextLines, ""), nil
+}
 
+func searchLines(
+	ctx context.Context,
+	filePath string,
+	lines []string,
+	re *regexp.Regexp,
+	maxMatches, contextLines int,
+	projection docextract.Kind,
+) []grepMatch {
 	var matches []grepMatch
 	// Track quais linhas já foram incluídas para evitar duplicatas no contexto
 	includedLines := make(map[int]bool)
 
+	// Uma linha vizinha pode casar com o padrão. Ela entra pelo bloco de contexto
+	// do match anterior, mas continua sendo match: recebe o marcador ':' como no
+	// grep/rg, e não o '-' de contexto.
+	add := func(idx int) {
+		if includedLines[idx] {
+			return
+		}
+		isMatch := re.MatchString(lines[idx])
+		marker := "-"
+		if isMatch {
+			marker = ":"
+		}
+		matches = append(matches, grepMatch{
+			File:       filePath,
+			LineNumber: idx + 1,
+			LineText:   fmt.Sprintf("  %6d%s %s", idx+1, marker, lines[idx]),
+			Projection: projection,
+			IsMatch:    isMatch,
+		})
+		includedLines[idx] = true
+	}
+
 	for lineIdx, line := range lines {
 		select {
 		case <-ctx.Done():
-			return matches, ctx.Err()
+			return matches
 		default:
 		}
 
@@ -333,25 +530,11 @@ func (t *GrepSearch) searchFile(ctx context.Context, filePath string, re *regexp
 				startCtx = 0
 			}
 			for i := startCtx; i < lineIdx; i++ {
-				if !includedLines[i] {
-					matches = append(matches, grepMatch{
-						File:       filePath,
-						LineNumber: i + 1,
-						LineText:   fmt.Sprintf("  %6d- %s", i+1, lines[i]),
-					})
-					includedLines[i] = true
-				}
+				add(i)
 			}
 
 			// Adiciona a linha do match
-			if !includedLines[lineIdx] {
-				matches = append(matches, grepMatch{
-					File:       filePath,
-					LineNumber: lineIdx + 1,
-					LineText:   fmt.Sprintf("  %6d: %s", lineIdx+1, line),
-				})
-				includedLines[lineIdx] = true
-			}
+			add(lineIdx)
 
 			// Adiciona linhas de contexto depois
 			endCtx := lineIdx + contextLines + 1
@@ -359,14 +542,7 @@ func (t *GrepSearch) searchFile(ctx context.Context, filePath string, re *regexp
 				endCtx = len(lines)
 			}
 			for i := lineIdx + 1; i < endCtx; i++ {
-				if !includedLines[i] {
-					matches = append(matches, grepMatch{
-						File:       filePath,
-						LineNumber: i + 1,
-						LineText:   fmt.Sprintf("  %6d- %s", i+1, lines[i]),
-					})
-					includedLines[i] = true
-				}
+				add(i)
 			}
 
 			if len(matches) >= maxMatches {
@@ -375,15 +551,16 @@ func (t *GrepSearch) searchFile(ctx context.Context, filePath string, re *regexp
 		}
 	}
 
-	return matches, nil
+	return matches
 }
 
 // formatResults formata os resultados de busca para exibição.
 func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch, filesScanned int, truncated bool, maxResults int) tools.ToolResult {
 	// Agrupa matches por arquivo
 	type fileGroup struct {
-		file  string
-		lines []string
+		file       string
+		lines      []string
+		projection docextract.Kind
 	}
 	var groups []fileGroup
 	groupMap := make(map[string]int)
@@ -393,29 +570,37 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 		if !exists {
 			idx = len(groups)
 			groupMap[m.File] = idx
-			groups = append(groups, fileGroup{file: m.File})
+			groups = append(groups, fileGroup{file: m.File, projection: m.Projection})
 		}
 		groups[idx].lines = append(groups[idx].lines, m.LineText)
 	}
 
-	// Conta apenas linhas de match (não contexto)
+	// Conta apenas linhas que casam com o padrão, não as de contexto.
 	matchCount := 0
 	for _, m := range matches {
-		if strings.Contains(m.LineText, ":") && !strings.HasSuffix(strings.TrimSpace(strings.SplitN(m.LineText, ":", 1)[0]), "-") {
+		if m.IsMatch {
 			matchCount++
 		}
 	}
 
 	var sb strings.Builder
 	_, _ = fmt.Fprintf(&sb, "Busca: '%s' em '%s'\n", pattern, basePath)
-	_, _ = fmt.Fprintf(&sb, "%d arquivo(s) com correspondências (%d arquivos escaneados)\n", len(groups), filesScanned)
+	_, _ = fmt.Fprintf(
+		&sb,
+		"%d correspondência(s) em %d arquivo(s) com correspondências (%d arquivos escaneados)\n",
+		matchCount, len(groups), filesScanned,
+	)
 	if truncated {
 		_, _ = fmt.Fprintf(&sb, "(TRUNCADO: limite de %d resultados atingido)\n", maxResults)
 	}
 	sb.WriteString("\n")
 
 	for _, g := range groups {
-		sb.WriteString(g.file + "\n")
+		sb.WriteString(g.file)
+		if g.projection != "" {
+			_, _ = fmt.Fprintf(&sb, " (projeção Markdown: %s)", g.projection)
+		}
+		sb.WriteString("\n")
 		for _, line := range g.lines {
 			sb.WriteString(line + "\n")
 		}
@@ -425,11 +610,69 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 	return tools.ToolResult{
 		Content: sb.String(),
 		Metadata: map[string]any{
+			"results":       len(matches),
+			"matches":       matchCount,
 			"files_matched": len(groups),
 			"files_scanned": filesScanned,
 			"truncated":     truncated,
 		},
 	}
+}
+
+// emptySearchMetadata mantém o mesmo conjunto de chaves da busca com resultado,
+// para quem consome os metadados não precisar tratar ausência de campo.
+func emptySearchMetadata(filesScanned int) map[string]any {
+	return map[string]any{
+		"results":       0,
+		"matches":       0,
+		"files_matched": 0,
+		"files_scanned": filesScanned,
+		"truncated":     false,
+	}
+}
+
+func (s *grepStats) warn(file, reason string) {
+	if len(s.warnings) >= grepMaxWarnings {
+		s.warningsOmitted++
+		return
+	}
+	s.warnings = append(s.warnings, grepWarning{File: file, Reason: reason})
+}
+
+func (t *GrepSearch) appendSearchStats(result *tools.ToolResult, stats *grepStats) {
+	if result.Metadata == nil {
+		result.Metadata = make(map[string]any)
+	}
+	result.Metadata["documents_projected"] = stats.documentsProjected
+	result.Metadata["documents_extracted"] = stats.documentsExtracted
+	result.Metadata["documents_coalesced"] = stats.documentsCoalesced
+	result.Metadata["document_cache_hits"] = stats.cacheHits
+	result.Metadata["document_warnings"] = len(stats.warnings) + stats.warningsOmitted
+	result.Metadata["files_considered"] = stats.filesConsidered
+	if len(stats.warnings) == 0 && stats.warningsOmitted == 0 {
+		return
+	}
+
+	var warnings strings.Builder
+	warnings.WriteString("\nAvisos de documentos:\n")
+	for _, warning := range stats.warnings {
+		display := warning.File
+		if rel, err := filepath.Rel(t.workDir, warning.File); err == nil {
+			display = filepath.ToSlash(rel)
+		}
+		_, _ = fmt.Fprintf(&warnings, "- %s: %s\n", display, warning.Reason)
+	}
+	if stats.warningsOmitted > 0 {
+		_, _ = fmt.Fprintf(&warnings, "- ... e mais %d aviso(s) omitido(s)\n", stats.warningsOmitted)
+	}
+	result.Content += warnings.String()
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (t *GrepSearch) resolvePath(path string) (string, error) {
@@ -476,4 +719,16 @@ func isBinaryExtension(filename string) bool {
 		".wasm": true, ".pyc": true, ".class": true,
 	}
 	return binary[ext]
+}
+
+func isTextualDisguisePath(filename string) bool {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".txt", ".md", ".csv", ".rtf", ".html", ".htm", ".xml", ".json",
+		".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".log", ".sql",
+		".go", ".py", ".js", ".jsx", ".ts", ".tsx", ".css", ".scss",
+		".sh", ".ps1", ".java", ".c", ".h", ".cpp", ".rs", ".rb", ".php":
+		return true
+	default:
+		return false
+	}
 }
