@@ -27,6 +27,9 @@ func NewReadFile(workDir string, caches ...*docextract.ProjectionCache) *ReadFil
 	if len(caches) > 0 {
 		cache = caches[0]
 	}
+	if cache == nil {
+		cache = docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	}
 	return &ReadFile{workDir: workDir, cache: cache}
 }
 

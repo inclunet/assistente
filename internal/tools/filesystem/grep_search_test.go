@@ -222,6 +222,9 @@ func TestGrepSearch_SkipsBinaryFiles(t *testing.T) {
 	if containsString(result.Content, "image.png") {
 		t.Error("não deve buscar em image.png (binário)")
 	}
+	if result.Metadata["files_considered"] != 2 || result.Metadata["files_scanned"] != 1 {
+		t.Fatalf("limite do walk deve contar também o binário omitido: %v", result.Metadata)
+	}
 }
 
 func TestGrepSearchContentOverridesBinaryExtension(t *testing.T) {
@@ -248,7 +251,8 @@ func TestGrepSearch_SearchesOpaqueDocumentProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := NewGrepSearch(dir).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha documental"}`))
+	// nil explícito também deve selecionar o cache padrão do construtor.
+	result, err := NewGrepSearch(dir, nil).Execute(context.Background(), json.RawMessage(`{"pattern":"agulha documental"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

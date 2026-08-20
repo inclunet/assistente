@@ -24,7 +24,8 @@ func TestReadFileProjectsDOCX(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewReadFile(dir)
+	// nil explícito também deve selecionar o cache padrão do construtor.
+	tool := NewReadFile(dir, nil)
 	res, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{"path": "doc.docx"}))
 	if err != nil {
 		t.Fatal(err)

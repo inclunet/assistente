@@ -29,6 +29,9 @@ func NewGrepSearch(workDir string, caches ...*docextract.ProjectionCache) *GrepS
 	if len(caches) > 0 {
 		cache = caches[0]
 	}
+	if cache == nil {
+		cache = docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	}
 	return &GrepSearch{workDir: workDir, cache: cache}
 }
 
@@ -106,6 +109,7 @@ type grepWarning struct {
 }
 
 type grepStats struct {
+	filesConsidered    int
 	documentsProjected int
 	documentsExtracted int
 	cacheHits          int
@@ -199,7 +203,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 
 	// Se for um arquivo, busca direto nele
 	if !info.IsDir() {
-		stats := &grepStats{}
+		stats := &grepStats{filesConsidered: 1}
 		matches, searched := t.searchPath(ctx, fullBase, info, re, maxResults, contextLines, mode, stats)
 		if ctx.Err() != nil {
 			return tools.ToolResult{Content: "Busca cancelada pelo usuário", IsError: true}, nil
@@ -282,18 +286,19 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			return nil
 		}
 
-		// Limite de arquivos escaneados
-		if filesScanned >= grepMaxFilesScanned {
-			truncated = true
-			return filepath.SkipAll
-		}
-
 		// Busca neste arquivo
 		remaining := maxResults - len(allMatches)
 		if remaining <= 0 {
 			truncated = true
 			return filepath.SkipAll
 		}
+		// O teto limita o custo do walk, não apenas leituras bem-sucedidas:
+		// binários e arquivos grandes também contam depois dos filtros.
+		if stats.filesConsidered >= grepMaxFilesScanned {
+			truncated = true
+			return filepath.SkipAll
+		}
+		stats.filesConsidered++
 
 		fileMatches, searched := t.searchPath(ctx, path, fileInfo, re, remaining, contextLines, mode, stats)
 		if searched {
@@ -607,6 +612,7 @@ func (t *GrepSearch) appendSearchStats(result *tools.ToolResult, stats *grepStat
 	result.Metadata["documents_extracted"] = stats.documentsExtracted
 	result.Metadata["document_cache_hits"] = stats.cacheHits
 	result.Metadata["document_warnings"] = len(stats.warnings) + stats.warningsOmitted
+	result.Metadata["files_considered"] = stats.filesConsidered
 	if len(stats.warnings) == 0 && stats.warningsOmitted == 0 {
 		return
 	}
