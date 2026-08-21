@@ -110,6 +110,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const effectiveIsStreaming = liveIsStreaming !== null ? liveIsStreaming : isStreaming;
   const effectiveReasoning = liveReasoning !== null ? liveReasoning : reasoning;
   const effectiveToolCallsRaw = liveToolCallsRaw !== null ? liveToolCallsRaw : toolCalls;
+  const renderedTabNavigation = isReading ? 'enabled' : 'disabled';
   const isToolOnlyTurnPlaceholder = message.source === TOOL_ONLY_TURN_PLACEHOLDER_SOURCE;
   const placeholderContent = isToolOnlyTurnPlaceholder && !effectiveContent
     ? t('chat.toolOnlyTurnPlaceholder')
@@ -331,6 +332,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
+    // No modo de leitura, links, botões e demais controles internos devem
+    // receber Enter/Espaço/Setas sem que os atalhos da mensagem os interceptem.
+    // A propagação para aqui; o comportamento padrão do controle permanece.
+    if (isReading) {
+      e.stopPropagation();
+      return;
+    }
+
     // Teclas quando NÃO está editando
     // Spacebar - reproduz TTS da mensagem (assistente ou usuário)
     if (e.key === ' ' && !effectiveIsStreaming) {
@@ -491,7 +500,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               className={`chat-message__play-btn${isPlayingAudio ? ' chat-message__play-btn--playing' : ''}`}
               onClick={(e) => { e.stopPropagation(); onSpeak(message); }}
               aria-label={isPlayingAudio ? t('chat.stopAudio') : t('chat.playAudio')}
-              tabIndex={-1}
+              tabIndex={isReading ? 0 : -1}
             >
               {isPlayingAudio ? <PauseCircleOutlined aria-hidden="true" /> : <SoundOutlined aria-hidden="true" />}
             </button>
@@ -501,6 +510,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               childCount={threadChildCount}
               isExpanded={isThreadExpanded}
               isLoading={isThreadLoading}
+              tabNavigationEnabled={isReading}
               onToggle={onThreadToggle}
             />
           )}
@@ -512,6 +522,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             reasoning={streamingReasoning || effectiveReasoning || ''} 
             isStreaming={isThinking}
             isExpanded={isThinking || isReasoningExpanded}
+            tabNavigationEnabled={isReading}
             onToggle={onToggleReasoning}
           />
         )}
@@ -545,6 +556,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 {canRenderHeavyContent ? (
                   <MarkdownRenderer
                     content={conclusionContent}
+                    tabNavigation={renderedTabNavigation}
                     interactiveButtons={!!onSendToEditor}
                     focusableMermaid={!!onSendToEditor}
                     enableSendToEditorButtons={!!onSendToEditor}
@@ -569,6 +581,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     <div className="chat-message__text chat-message__text--segment">
                       <MarkdownRenderer
                         content={seg.content}
+                        tabNavigation={renderedTabNavigation}
                         interactiveButtons={!!onSendToEditor}
                         focusableMermaid={!!onSendToEditor}
                         enableSendToEditorButtons={!!onSendToEditor}
@@ -580,6 +593,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                   {seg.type === 'tool_calls' && seg.toolCalls && (
                     <ToolCallsSection
                       toolCallsJson={JSON.stringify(seg.toolCalls)}
+                      tabNavigationEnabled={isReading}
                     />
                   )}
                 </React.Fragment>
@@ -593,13 +607,17 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             {/* Current iteration keeps busy state without local aria-live updates. */}
             <div aria-busy={effectiveIsStreaming}>
               {effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
-                <ToolCallsSection activeToolCalls={effectiveToolCalls} />
+                <ToolCallsSection
+                  activeToolCalls={effectiveToolCalls}
+                  tabNavigationEnabled={isReading}
+                />
               )}
 
               {effectiveIsStreaming && displayContent && !persistedTurnSegments && (
                 <div className="chat-message__text">
                   <MarkdownRenderer
                     content={displayContent}
+                    tabNavigation={renderedTabNavigation}
                     interactiveButtons={!!onSendToEditor}
                     focusableMermaid={!!onSendToEditor}
                     enableSendToEditorButtons={!!onSendToEditor}
@@ -622,6 +640,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               <ToolCallsSection
                 toolCallsJson={effectiveToolCallsRaw || undefined}
                 activeToolCalls={effectiveIsStreaming ? effectiveToolCalls : undefined}
+                tabNavigationEnabled={isReading}
               />
             )}
 
@@ -662,6 +681,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     canRenderHeavyContent ? (
                     <MarkdownRenderer
                       content={displayContent}
+                      tabNavigation={renderedTabNavigation}
                       interactiveButtons={!!onSendToEditor}
                       focusableMermaid={!!onSendToEditor}
                       enableSendToEditorButtons={!!onSendToEditor}

@@ -17,6 +17,17 @@ describe('ToolCallsSection', () => {
     expect(screen.getByText('Search')).toBeInTheDocument();
   });
 
+  it('torna os controles focáveis somente durante a leitura', () => {
+    const props = {
+      activeToolCalls: [{ name: 'Search', callId: '1', status: 'running' as const }],
+    };
+    const { rerender } = render(<ToolCallsSection {...props} />);
+    expect(screen.getByRole('button')).toHaveAttribute('tabindex', '-1');
+
+    rerender(<ToolCallsSection {...props} tabNavigationEnabled />);
+    expect(screen.getByRole('button')).toHaveAttribute('tabindex', '0');
+  });
+
   it('renderiza tool calls historicos e alterna resultado', () => {
     const longResult = 'a'.repeat(350);
     const toolCallsJson = JSON.stringify([

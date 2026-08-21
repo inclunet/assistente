@@ -1,6 +1,6 @@
-import { useRef } from 'react';
+import { StrictMode, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { useVirtualModal } from './useVirtualModal';
 
 vi.mock('./useAnnouncer', () => ({
@@ -82,6 +82,23 @@ function MissingCustomContentHarness({ isActive, onClose = () => {} }: HarnessPr
         Conteúdo de fallback
       </div>
     </div>
+  );
+}
+
+function InteractiveHarness({ isActive, onClose = () => {} }: HarnessProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useVirtualModal({ elementRef: ref, isActive, onClose, ...labels });
+  return (
+    <>
+      <div ref={ref} data-testid="message-node">
+        <div className="chat-message__content" data-testid="content">
+          <a href="https://example.com" tabIndex={isActive ? 0 : -1}>Link</a>
+          <button type="button" tabIndex={isActive ? 0 : -1}>Ação</button>
+          <button type="button" tabIndex={-1}>Fora da ordem</button>
+        </div>
+      </div>
+      <button type="button" data-testid="outside">Fora da mensagem</button>
+    </>
   );
 }
 
@@ -180,5 +197,82 @@ describe('useVirtualModal', () => {
     expect(dialog).not.toHaveAttribute('role');
     expect(dialog).not.toHaveAttribute('aria-modal');
     expect(dialog).not.toHaveAttribute('tabindex');
+  });
+
+  it('percorre controles internos e contém Tab apenas nas bordas', () => {
+    render(<InteractiveHarness isActive={true} />);
+
+    const content = screen.getByTestId('content');
+    const link = screen.getByRole('link', { name: 'Link' });
+    const action = screen.getByRole('button', { name: 'Ação' });
+
+    expect(content).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    // No meio da ordem, o hook deixa o navegador avançar normalmente.
+    expect(content).toHaveFocus();
+
+    action.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(content).toHaveFocus();
+
+    content.focus();
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(action).toHaveFocus();
+    expect(link).toHaveAttribute('tabindex', '0');
+  });
+
+  it('ignora controles com tabindex -1 ao calcular a contenção', () => {
+    render(<InteractiveHarness isActive={true} />);
+
+    const hiddenFromTab = screen.getByRole('button', { name: 'Fora da ordem' });
+    const action = screen.getByRole('button', { name: 'Ação' });
+    action.focus();
+
+    fireEvent.keyDown(window, { key: 'Tab' });
+
+    expect(screen.getByTestId('content')).toHaveFocus();
+    expect(hiddenFromTab).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('fecha com Escape e restaura o foco anterior', () => {
+    const onClose = vi.fn();
+    const { rerender } = render(<InteractiveHarness isActive={false} onClose={onClose} />);
+    const message = screen.getByTestId('message-node');
+    message.tabIndex = -1;
+    message.focus();
+
+    rerender(<InteractiveHarness isActive={true} onClose={onClose} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+
+    rerender(<InteractiveHarness isActive={false} onClose={onClose} />);
+    expect(message).toHaveFocus();
+  });
+
+  it('restaura ARIA e foco corretamente sob StrictMode', () => {
+    const { rerender } = render(
+      <StrictMode>
+        <InteractiveHarness isActive={false} />
+      </StrictMode>,
+    );
+    const message = screen.getByTestId('message-node');
+    message.tabIndex = -1;
+    message.focus();
+
+    rerender(
+      <StrictMode>
+        <InteractiveHarness isActive={true} />
+      </StrictMode>,
+    );
+    expect(message).toHaveAttribute('role', 'dialog');
+
+    rerender(
+      <StrictMode>
+        <InteractiveHarness isActive={false} />
+      </StrictMode>,
+    );
+    expect(message).not.toHaveAttribute('role');
+    expect(message).not.toHaveAttribute('aria-modal');
+    expect(message).toHaveFocus();
   });
 });

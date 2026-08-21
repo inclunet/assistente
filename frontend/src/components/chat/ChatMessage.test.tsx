@@ -8,6 +8,7 @@ const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 const buildAriaLabelMock = vi.hoisted(() => vi.fn((_args: unknown) => 'aria-label'));
 const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
+const markdownRendererSpy = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -59,7 +60,10 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('../ui/MarkdownRenderer', () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
+  MarkdownRenderer: (props: { content: string; tabNavigation?: string }) => {
+    markdownRendererSpy(props);
+    return <div>{props.content}</div>;
+  },
 }));
 
 vi.mock('./ThreadIndicator', () => ({
@@ -82,6 +86,7 @@ describe('ChatMessage', () => {
     vi.unstubAllGlobals();
     buildAriaLabelMock.mockClear();
     announceRequestMock.mockClear();
+    markdownRendererSpy.mockClear();
     if (originalIntersectionObserver) {
       vi.stubGlobal('IntersectionObserver', originalIntersectionObserver);
     }
@@ -112,6 +117,31 @@ describe('ChatMessage', () => {
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
       timePrefix: 'chat.sent',
     }));
+  });
+
+  it('habilita a navegação interna do renderer somente no modo de leitura', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'reading-navigation',
+      conversationId,
+      role: 'assistant',
+      content: '[Link](https://example.com)',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+    });
+
+    const onSpeak = vi.fn();
+    const { rerender } = render(<ChatMessage message={message} onSpeak={onSpeak} />);
+    expect(markdownRendererSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      tabNavigation: 'disabled',
+    }));
+
+    rerender(<ChatMessage message={message} onSpeak={onSpeak} isReading />);
+    expect(markdownRendererSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      tabNavigation: 'enabled',
+    }));
+    expect(screen.getByRole('button', { name: 'chat.playAudio' })).toHaveAttribute('tabindex', '0');
   });
 
   it('renderiza modo de edicao', () => {

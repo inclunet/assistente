@@ -6,9 +6,13 @@ import { chat } from '../../../wailsjs/go/models';
 const chatMessageSpy = vi.fn();
 
 vi.mock('./ChatMessage', () => ({
-  ChatMessage: (props: { hasThreadIndicator?: boolean }) => {
+  ChatMessage: (props: { hasThreadIndicator?: boolean; isReading?: boolean }) => {
     chatMessageSpy(props);
-    return <div data-testid="chat-message" />;
+    return (
+      <div data-testid="chat-message">
+        <button type="button" data-testid="inner-control">Controle interno</button>
+      </div>
+    );
   },
 }));
 
@@ -124,5 +128,40 @@ describe('MessageNode', () => {
     fireEvent.keyDown(screen.getByRole('listitem'), { key: 'Delete' });
 
     expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('deixa controles internos processarem Enter durante a leitura isolada', () => {
+    const onOuterKeyDown = vi.fn();
+    render(
+      <div onKeyDown={onOuterKeyDown}>
+        <MessageNode
+          node={chat.MessageNode.createFrom({
+            message: new chat.EnrichedMessage({
+              id: 'reading-message',
+              conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+              role: 'assistant',
+              content: 'Mensagem com controle',
+              createdAt: new Date().toISOString(),
+              timestamp: Date.now(),
+              isStreaming: false,
+              internal: false,
+            }),
+            childCount: 0,
+            level: 0,
+            children: [],
+          })}
+        />
+      </div>,
+    );
+
+    const item = screen.getByRole('listitem');
+    expect(fireEvent.keyDown(item, { key: 'Enter' })).toBe(false);
+    expect(chatMessageSpy).toHaveBeenLastCalledWith(expect.objectContaining({ isReading: true }));
+    onOuterKeyDown.mockClear();
+
+    // O Enter do botão não pode ser preventDefault pelo atalho ancestral.
+    expect(fireEvent.keyDown(screen.getByTestId('inner-control'), { key: 'Enter' })).toBe(true);
+    fireEvent.keyDown(screen.getByTestId('inner-control'), { key: 'ArrowDown' });
+    expect(onOuterKeyDown).not.toHaveBeenCalled();
   });
 });

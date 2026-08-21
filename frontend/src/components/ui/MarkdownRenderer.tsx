@@ -23,11 +23,15 @@ type MermaidApi = MermaidModule['default'];
 type MonacoModule = typeof import('monaco-editor');
 type MonacoEditor = MonacoEditorNamespace.IStandaloneCodeEditor;
 
+export type RenderedContentTabNavigation = 'disabled' | 'enabled';
+
 interface MarkdownRendererProps {
   content: string;
   className?: string;
   interactiveButtons?: boolean;
   focusableMermaid?: boolean;
+  /** Habilita a ordem natural de Tab somente em regiões de leitura explícitas. */
+  tabNavigation?: RenderedContentTabNavigation;
   enableSendToEditorButtons?: boolean;
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
@@ -86,14 +90,14 @@ DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
   if (node.tagName === 'A') {
     const href = node.getAttribute('href') || '';
     if (isDeepLink(href)) {
-      node.setAttribute('tabindex', '0');
       node.removeAttribute('target');
       node.removeAttribute('rel');
     } else {
-      node.setAttribute('tabindex', '-1');
       node.setAttribute('target', '_blank');
       node.setAttribute('rel', 'noopener noreferrer');
     }
+    // A instância decide depois da sanitização se está numa região de leitura.
+    node.setAttribute('tabindex', '-1');
   }
 });
 
@@ -102,6 +106,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   className = '',
   interactiveButtons = false,
   focusableMermaid: _focusableMermaid = false,
+  tabNavigation = 'disabled',
   enableSendToEditorButtons = false,
   editorTargets = [],
   onSendToEditor,
@@ -120,6 +125,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const monacoApiRef = useRef<MonacoModule | null>(null);
   const mermaidRenderRunRef = useRef(0);
   const navigate = useNavigate();
+  const tabStopsEnabled = tabNavigation === 'enabled';
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
   const sendToEditorActionLabel = t('editor.sendToEditor.action');
@@ -551,17 +557,27 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
         validImages.push({ src, alt });
 
         img.classList.add('markdown-image--interactive');
-        img.setAttribute('role', 'button');
-        img.setAttribute('tabindex', '0');
         const altText = alt?.trim();
-        img.setAttribute(
-          'aria-label',
-          altText
-            ? `${altText} — ${t('ui.imageViewer.openHint')}`
-            : t('ui.imageViewer.openHint'),
-        );
-
-        const parentLink = img.closest('a[href]');
+        const imageAriaLabel = altText
+          ? `${altText} — ${t('ui.imageViewer.openHint')}`
+          : t('ui.imageViewer.openHint');
+        const parentLink = img.closest<HTMLAnchorElement>('a[href]');
+        if (parentLink && root.contains(parentLink)) {
+          // Uma imagem com viewer dentro de link representa uma única ação de
+          // teclado. O wrapper recebe a semântica de botão; a imagem deixa de
+          // ser um segundo controle interativo aninhado.
+          parentLink.setAttribute('role', 'button');
+          parentLink.setAttribute('aria-label', imageAriaLabel);
+          parentLink.setAttribute('tabindex', tabStopsEnabled ? '0' : '-1');
+          parentLink.classList.add('markdown-image-link--interactive');
+          img.removeAttribute('role');
+          img.removeAttribute('tabindex');
+          img.removeAttribute('aria-label');
+        } else {
+          img.setAttribute('role', 'button');
+          img.setAttribute('tabindex', tabStopsEnabled ? '0' : '-1');
+          img.setAttribute('aria-label', imageAriaLabel);
+        }
 
         const open = () => {
           setImageViewer({ open: true, images: validImages, index: viewerIndex });
@@ -593,16 +609,34 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           }
         };
 
+        const onParentLinkKeyDown = (e: KeyboardEvent) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          e.stopPropagation();
+          open();
+        };
+
         img.addEventListener('click', onClick);
         img.addEventListener('keydown', onKeyDown);
+        parentLink?.addEventListener('keydown', onParentLinkKeyDown);
         cleanups.push(() => {
           img.removeEventListener('click', onClick);
           img.removeEventListener('keydown', onKeyDown);
+          parentLink?.removeEventListener('keydown', onParentLinkKeyDown);
         });
       });
     },
-    [t],
+    [t, tabStopsEnabled],
   );
+
+  const configureLinkTabStops = useCallback(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
+      anchor.tabIndex = tabStopsEnabled ? 0 : -1;
+    });
+  }, [tabStopsEnabled]);
 
   const renderMermaidDiagrams = useCallback(
     async (cleanups: Array<() => void>) => {
@@ -952,6 +986,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     }
 
     addContextMenus(cleanups);
+    configureLinkTabStops();
     setupImages(cleanups);
     void renderMermaidDiagrams(cleanups);
 
@@ -976,7 +1011,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       });
       editorsRef.current.clear();
     };
-  }, [addContextMenus, closeMenu, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams, setupImages]);
+  }, [addContextMenus, closeMenu, configureLinkTabStops, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams, setupImages]);
 
   return (
     <>

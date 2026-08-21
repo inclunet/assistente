@@ -107,10 +107,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0091](0091-dialogos-de-decisao-unificados.md) | Diálogos de decisão unificados (estilo Windows + NVDA) | ✅ Done |
 | [0092](0092-filesystem-path-trust-allowlist.md) | Allowlist escopável de paths fora do sandbox (filesystem trust) | ✅ Done |
 | [0093](0093-leitura-documentos-como-markdown.md) | Leitura unificada de documentos como Markdown (`read_file` / busca) | ✅ Done |
+| [0094](0094-navegacao-em-conteudo-renderizado.md) | Navegação em conteúdo renderizado | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0093 → próximo
-> 0094), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0094 → próximo
+> 0095), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

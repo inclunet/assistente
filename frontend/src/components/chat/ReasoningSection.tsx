@@ -9,6 +9,7 @@ export interface ReasoningSectionProps {
   isStreaming?: boolean;
   isExpanded?: boolean; // Controlado externamente
   onToggle?: () => void; // Callback para toggle
+  tabNavigationEnabled?: boolean;
 }
 
 export const ReasoningSection = React.memo<ReasoningSectionProps>(function ReasoningSection({
@@ -16,6 +17,7 @@ export const ReasoningSection = React.memo<ReasoningSectionProps>(function Reaso
   isStreaming = false,
   isExpanded = false,
   onToggle,
+  tabNavigationEnabled = false,
 }) {
   const { t } = useTranslation();
   if (!reasoning && !isStreaming) return null;
@@ -51,7 +53,7 @@ export const ReasoningSection = React.memo<ReasoningSectionProps>(function Reaso
         aria-expanded={isExpanded}
         aria-controls="reasoning-content"
         type="button"
-        tabIndex={-1}
+        tabIndex={tabNavigationEnabled ? 0 : -1}
       >
         <span className="reasoning-section__icon" aria-hidden="true">
           <BulbOutlined />
@@ -78,7 +80,10 @@ export const ReasoningSection = React.memo<ReasoningSectionProps>(function Reaso
           aria-label={t('chat.reasoningContent')}
         >
           {reasoning ? (
-            <MarkdownRenderer content={reasoning} />
+            <MarkdownRenderer
+              content={reasoning}
+              tabNavigation={tabNavigationEnabled ? 'enabled' : 'disabled'}
+            />
           ) : (
             <span className="reasoning-section__cursor">▋</span>
           )}

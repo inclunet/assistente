@@ -41,13 +41,36 @@ describe('MarkdownRenderer', () => {
     expect(link).toHaveAttribute('tabindex', '-1');
   });
 
-  it('torna imagens interativas e focáveis via teclado', () => {
+  it('habilita links na ordem de Tab somente quando a região está em leitura', () => {
+    const { rerender } = render(
+      <MarkdownRenderer content="[Link](http://example.com)" tabNavigation="disabled" />,
+    );
+    expect(screen.getByRole('link', { name: 'Link' })).toHaveAttribute('tabindex', '-1');
+
+    rerender(
+      <MarkdownRenderer content="[Link](http://example.com)" tabNavigation="enabled" />,
+    );
+    expect(screen.getByRole('link', { name: 'Link' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('torna imagens interativas sem criar tab stop fora da região de leitura', () => {
     render(<MarkdownRenderer content={'![Gato](http://example.com/cat.png)'} />);
 
     const img = screen.getByAltText('Gato');
     expect(img).toHaveAttribute('role', 'button');
-    expect(img).toHaveAttribute('tabindex', '0');
+    expect(img).toHaveAttribute('tabindex', '-1');
     expect(img).toHaveClass('markdown-image--interactive');
+  });
+
+  it('habilita imagens interativas na ordem de Tab durante a leitura', () => {
+    render(
+      <MarkdownRenderer
+        content={'![Gato](http://example.com/cat.png)'}
+        tabNavigation="enabled"
+      />,
+    );
+
+    expect(screen.getByAltText('Gato')).toHaveAttribute('tabindex', '0');
   });
 
   it('abre o visualizador de imagem ao clicar', () => {
@@ -104,6 +127,27 @@ describe('MarkdownRenderer', () => {
     );
 
     fireEvent.click(screen.getByAltText('Gato'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('usa uma única parada de Tab para imagem interativa dentro de link', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
+        tabNavigation="enabled"
+      />,
+    );
+
+    const link = container.querySelector('a[href]');
+    const image = screen.getByAltText('Gato');
+    expect(link).not.toBeNull();
+    expect(link).toHaveAttribute('role', 'button');
+    expect(link).toHaveAttribute('tabindex', '0');
+    expect(image).not.toHaveAttribute('role');
+    expect(image).not.toHaveAttribute('tabindex');
+    expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+
+    fireEvent.keyDown(link!, { key: 'Enter' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 

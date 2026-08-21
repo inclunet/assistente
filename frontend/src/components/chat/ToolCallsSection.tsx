@@ -34,6 +34,8 @@ interface ToolCallsSectionProps {
   toolCallsJson?: string;
   /** Tool calls ativos durante streaming (do store) */
   activeToolCalls?: ToolCallStatus[];
+  /** Controles internos só entram na ordem de Tab no modo de leitura. */
+  tabNavigationEnabled?: boolean;
 }
 
 const ORIGIN_LABEL_KEYS: Record<ToolOrigin, string> = {
@@ -97,6 +99,7 @@ function countTopLevelArrayItems(raw: string): number {
 export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolCallsSection({
   toolCallsJson,
   activeToolCalls,
+  tabNavigationEnabled = false,
 }) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -166,7 +169,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
         onKeyDown={handleKeyDown}
         aria-expanded={isExpanded}
         type="button"
-        tabIndex={-1}
+        tabIndex={tabNavigationEnabled ? 0 : -1}
       >
         <span className="tool-calls-section__icon" aria-hidden="true">
           {isRunning ? <SettingOutlined spin /> : <ToolOutlined />}
@@ -265,7 +268,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                             className="tool-calls-section__result-toggle"
                             onClick={() => toggleResultExpanded(tc.id)}
                             type="button"
-                            tabIndex={-1}
+                            tabIndex={tabNavigationEnabled ? 0 : -1}
                           >
                             {isResultExpanded ? t('chat.showLess') : `${t('chat.showAll')} (${formatSize(tc.result!.length)})`}
                           </button>
