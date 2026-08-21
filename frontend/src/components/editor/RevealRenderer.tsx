@@ -18,6 +18,12 @@ import {
 } from '../../lib/markdownFence';
 import { isSafeLinkHref } from '../../lib/safeLink';
 import { executeDeepLink, isDeepLink, parseDeepLink } from '../../lib/deepLinks';
+import {
+  createMermaidErrorContent,
+  loadMermaid,
+  renderAccessibleMermaid,
+  type AccessibleMermaidResult,
+} from '../../lib/accessibleMermaid';
 import 'reveal.js/reveal.css';
 import './RevealRenderer.css';
 
@@ -29,7 +35,6 @@ type RevealApi = {
 };
 
 type RevealCtor = new (root: HTMLElement, options?: Record<string, unknown>) => RevealApi;
-type MermaidApi = typeof import('mermaid')['default'];
 
 interface RevealRendererProps {
   markdown: string;
@@ -276,11 +281,10 @@ export function RevealRenderer({
   fullscreenRequestNonce = 0,
   tabNavigation = 'disabled',
 }: RevealRendererProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
   const tabNavigationRef = useRef(tabNavigation);
-  const mermaidApiRef = useRef<MermaidApi | null>(null);
   const lastFullscreenRequestNonceRef = useRef(fullscreenRequestNonce);
   const deck = useMemo(() => parseRevealMarkdown(markdown, 'reveal'), [markdown]);
   const slides = deck.slides;
@@ -424,21 +428,12 @@ export function RevealRenderer({
   useEffect(() => {
     let disposed = false;
     const renderedWrappers: HTMLElement[] = [];
+    const mermaidCleanups: Array<() => void> = [];
 
     async function renderMermaid() {
       if (!rootRef.current) return;
       const mermaidBlocks = Array.from(rootRef.current.querySelectorAll('code.language-mermaid')) as HTMLElement[];
       if (mermaidBlocks.length === 0) return;
-
-      if (!mermaidApiRef.current) {
-        const mod = await import('mermaid');
-        const api = (mod.default ?? mod) as MermaidApi;
-        api.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
-        mermaidApiRef.current = api;
-      }
-
-      const mermaid = mermaidApiRef.current;
-      if (!mermaid || disposed) return;
 
       for (let index = 0; index < mermaidBlocks.length; index += 1) {
         const codeBlock = mermaidBlocks[index];
@@ -448,20 +443,44 @@ export function RevealRenderer({
         const mermaidCode = (codeBlock.textContent || '').trimEnd();
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-diagram';
-        wrapper.setAttribute('role', 'group');
-        wrapper.setAttribute('aria-label', t('editor.presentation.mermaidDiagramLabel'));
         wrapper.dataset.mermaidIndex = String(index);
         wrapper.dataset.mermaidCode = mermaidCode;
-        wrapper.tabIndex = -1;
+        let accessibleResult: AccessibleMermaidResult | null = null;
 
         try {
-          const { svg } = await mermaid.render(`reveal-mermaid-${Date.now()}-${index}`, mermaidCode);
+          const mermaid = await loadMermaid();
+          accessibleResult = await renderAccessibleMermaid({
+            chart: mermaidCode,
+            container: wrapper,
+            mermaid,
+            locale: i18n.resolvedLanguage ?? i18n.language,
+            navigationEnabled: tabNavigation === 'enabled',
+            ariaLabel: t('editor.presentation.mermaidDiagramLabel'),
+          });
+          if (disposed) {
+            accessibleResult.cleanup();
+            return;
+          }
+          mermaidCleanups.push(accessibleResult.cleanup);
+        } catch (error) {
           if (disposed) return;
-          wrapper.innerHTML = svg;
-        } catch {
-          if (disposed) return;
-          wrapper.classList.add('mermaid-diagram--error');
-          wrapper.textContent = t('editor.presentation.mermaidRenderError');
+          const rawError = error instanceof Error
+            ? error.message
+            : t('editor.presentation.mermaidUnknownError');
+          const errorText = rawError.length <= 8000
+            ? rawError
+            : `${rawError.slice(0, 8000)}\n${t('editor.presentation.mermaidTruncatedError', {
+              count: rawError.length,
+            })}`;
+          createMermaidErrorContent({
+            container: wrapper,
+            ariaLabel: t('editor.presentation.mermaidErrorLabel'),
+            title: t('editor.presentation.mermaidRenderError'),
+            message: t('editor.presentation.mermaidRenderErrorMessage'),
+            detailsLabel: t('editor.presentation.mermaidErrorDetails'),
+            errorText,
+            detailsTabbable: tabNavigation === 'enabled',
+          });
         }
 
         pre.parentNode?.insertBefore(wrapper, pre);
@@ -481,6 +500,7 @@ export function RevealRenderer({
 
     return () => {
       disposed = true;
+      mermaidCleanups.forEach((cleanup) => cleanup());
       renderedWrappers.forEach((wrapper) => {
         const pre = wrapper.nextElementSibling as HTMLPreElement | null;
         if (pre?.dataset.mermaidRendered) {
@@ -490,7 +510,7 @@ export function RevealRenderer({
         wrapper.remove();
       });
     };
-  }, [slides, t, tabNavigation]);
+  }, [i18n.language, i18n.resolvedLanguage, slides, t, tabNavigation]);
 
   return (
     <div

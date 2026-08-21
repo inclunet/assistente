@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, waitFor } from '@testing-library/dom';
-import { loadMermaid, renderAccessibleMermaid } from './accessibleMermaid';
+import {
+  createMermaidErrorContent,
+  loadMermaid,
+  renderAccessibleMermaid,
+} from './accessibleMermaid';
 
 const mocks = vi.hoisted(() => ({
   announce: vi.fn(),
@@ -192,6 +196,29 @@ describe('renderAccessibleMermaid', () => {
 
     result.cleanup();
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('createMermaidErrorContent', () => {
+  it('substitui qualquer SVG parcial por detalhes recolhidos e locais', () => {
+    const container = document.createElement('div');
+    container.innerHTML = '<svg><text>Syntax error in text</text></svg>';
+
+    const result = createMermaidErrorContent({
+      container,
+      ariaLabel: 'Diagrama Mermaid com erro',
+      title: 'Erro ao renderizar Mermaid',
+      message: 'O restante do conteúdo continua disponível.',
+      detailsLabel: 'Mostrar detalhes técnicos',
+      errorText: 'Syntax error in text\nmermaid version 11.14.0',
+      detailsTabbable: false,
+    });
+
+    expect(container.querySelector('svg')).toBeNull();
+    expect(container).toHaveAttribute('role', 'group');
+    expect(result.details).not.toHaveAttribute('open');
+    expect(result.details.querySelector('summary')).toHaveAttribute('tabindex', '-1');
+    expect(result.errorPre).toHaveTextContent('mermaid version 11.14.0');
   });
 });
 

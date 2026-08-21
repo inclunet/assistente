@@ -99,10 +99,10 @@ próprias, como menus de contexto no Markdown e `sync()` do deck no Reveal.
 
 ### Fase 2 — Reveal
 
-- [ ] remover o pipeline Mermaid duplicado do `RevealRenderer`;
-- [ ] reutilizar o adaptador compartilhado;
-- [ ] preservar edição, índices e sincronização dos slides;
-- [ ] cobrir falha isolada e navegação no deck.
+- [x] remover o pipeline Mermaid duplicado do `RevealRenderer`;
+- [x] reutilizar o adaptador compartilhado;
+- [x] preservar edição, índices e sincronização dos slides;
+- [x] cobrir falha isolada e navegação no deck.
 
 ### Fase 3 — Remoção do conector temporário
 

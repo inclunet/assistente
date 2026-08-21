@@ -30,10 +30,14 @@ vi.mock('mermaid', () => ({
   default: mermaidMocks,
 }));
 
-vi.mock('../../lib/accessibleMermaid', () => ({
-  loadMermaid: accessibleMermaidMocks.loadMermaid,
-  renderAccessibleMermaid: accessibleMermaidMocks.renderAccessibleMermaid,
-}));
+vi.mock('../../lib/accessibleMermaid', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/accessibleMermaid')>();
+  return {
+    ...actual,
+    loadMermaid: accessibleMermaidMocks.loadMermaid,
+    renderAccessibleMermaid: accessibleMermaidMocks.renderAccessibleMermaid,
+  };
+});
 
 describe('MarkdownRenderer', () => {
   beforeEach(() => {
