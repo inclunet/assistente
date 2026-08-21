@@ -199,11 +199,6 @@
   overflow-x: auto;
 }
 
-.markdown-content .mermaid-diagram:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .markdown-content .mermaid-diagram svg {
   max-width: 100%;
   height: auto;

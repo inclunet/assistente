@@ -1,3 +1,8 @@
+.mermaid-diagram:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .mermaid-diagram .mermaid-a11y-highlight-halo {
   stroke: var(--bg-base);
   stroke-width: 8px;
