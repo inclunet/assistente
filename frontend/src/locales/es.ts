@@ -1192,6 +1192,10 @@ const es = {
         loadFailedTitle: 'No se pudo abrir este archivo',
         loadFailedDescription: 'La pestaña permanece en modo de solo lectura para proteger el archivo original. Ciérrala e intenta abrir el documento de nuevo.',
         loadFailedAnnouncement: 'No se pudo abrir el archivo. La pestaña es de solo lectura.',
+        readingRegionLabel: 'Contenido renderizado. Presiona Enter para activar la lectura y usa Tab para navegar por sus controles.',
+        readingDocumentLabel: 'Contenido renderizado en modo de lectura.',
+        readingOpened: 'Modo de lectura del editor activado. Usa Tab para navegar por los controles; F6 sigue disponible para cambiar de región.',
+        readingFocused: 'El foco volvió al contenido renderizado.',
       },
       errors: {
         diskReadFailed: 'No fue posible leer el contenido del disco para compararlo con esta pestaña.',

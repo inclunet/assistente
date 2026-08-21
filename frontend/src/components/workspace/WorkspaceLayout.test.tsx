@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { WorkspaceLayout } from './WorkspaceLayout';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 
 type MockWorkspaceState = {
   workspace: {
@@ -132,10 +133,15 @@ vi.mock('./WorkspaceToolbar', () => ({
 
 vi.mock('./WorkspaceContent', () => ({
   WorkspaceContent: () => (
-    <main>
-      <button type="button" data-testid="default-focus">
-        Area default
-      </button>
+    <main className="ws-content__panel" data-active="true">
+      <div className="ws-content-area">
+        <button type="button" data-editor-rendered-document="true">
+          Documento renderizado
+        </button>
+        <button type="button" data-testid="default-focus">
+          Area default
+        </button>
+      </div>
     </main>
   ),
 }));
@@ -176,6 +182,7 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     storeMock.setActiveTab.mockClear();
     shortcutMock.useWorkspaceKeyboardShortcuts.mockClear();
     vi.mocked(restoreDefaultFocus).mockClear();
+    vi.mocked(useLandmarkNavigation).mockClear();
     requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
       callback(0);
       return 1;
@@ -222,5 +229,19 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
 
     expect(restoreDefaultFocus).toHaveBeenCalled();
     expect(screen.getByTestId('default-focus')).toHaveFocus();
+  });
+
+  it('usa o documento renderizado como foco padrão da área de conteúdo', () => {
+    renderWorkspaceLayout();
+    const calls = vi.mocked(useLandmarkNavigation).mock.calls;
+    const options = calls[calls.length - 1]?.[0] as {
+      landmarks: Landmark[];
+      defaultLandmarkId?: string;
+    };
+    const contentArea = options.landmarks.find((landmark) => landmark.id === 'contentArea');
+
+    expect(options.defaultLandmarkId).toBe('contentArea');
+    expect(contentArea?.focus()).toBe(true);
+    expect(screen.getByRole('button', { name: 'Documento renderizado' })).toHaveFocus();
   });
 });

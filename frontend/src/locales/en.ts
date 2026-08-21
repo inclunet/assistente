@@ -1193,6 +1193,10 @@ const en = {
         loadFailedTitle: 'This file could not be opened',
         loadFailedDescription: 'The tab remains read-only to protect the original file. Close it and try opening the document again.',
         loadFailedAnnouncement: 'The file could not be opened. The tab is read-only.',
+        readingRegionLabel: 'Rendered content. Press Enter to enable reading and use Tab to navigate its controls.',
+        readingDocumentLabel: 'Rendered content in reading mode.',
+        readingOpened: 'Editor reading mode enabled. Use Tab to navigate controls; F6 remains available to change regions.',
+        readingFocused: 'Focus returned to the rendered content.',
       },
       errors: {
         diskReadFailed: 'Could not read the content from disk to compare with this tab.',

@@ -251,7 +251,13 @@ export function WorkspaceLayout() {
           const textarea = area.querySelector('.chat-input textarea') as HTMLElement | null;
           if (textarea) { textarea.focus(); return true; }
 
-          // Editor: foca na superfície de edição
+          // Editor renderizado: a unidade de leitura é sempre a área default.
+          const renderedDocument = area.querySelector(
+            '[data-editor-rendered-document="true"]',
+          ) as HTMLElement | null;
+          if (renderedDocument) { renderedDocument.focus(); return true; }
+
+          // Editor editável: foca na superfície de edição.
           const monaco = area.querySelector('.monaco-editor textarea') as HTMLElement | null;
           if (monaco) { monaco.focus(); return true; }
           const rich = area.querySelector('.rich-text-editor__content [contenteditable]') as HTMLElement | null;

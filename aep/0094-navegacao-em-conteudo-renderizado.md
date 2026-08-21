@@ -1,6 +1,6 @@
 # AEP-0094: Navegação em conteúdo renderizado
 
-- **Status**: In Progress
+- **Status**: Done
 - **Data**: 2026-08-21
 
 ## Resumo
@@ -102,12 +102,12 @@ padrão.
 
 ### Fase 2 — Preview isolado no editor
 
-- [ ] introduzir leitura escopada no preview;
-- [ ] focar o documento ao ativar;
-- [ ] registrar o preview como área padrão em `mode=view`;
-- [ ] manter Tab livre nas bordas e F6/Shift+F6 funcionais;
-- [ ] fazer Esc retornar ao documento;
-- [ ] cobrir Markdown editável e documento projetado somente leitura.
+- [x] introduzir leitura escopada no preview;
+- [x] focar o documento ao ativar;
+- [x] registrar o preview como área padrão em `mode=view`;
+- [x] manter Tab livre nas bordas e F6/Shift+F6 funcionais;
+- [x] fazer Esc retornar ao documento;
+- [x] cobrir Markdown editável e documento projetado somente leitura.
 
 ## Riscos
 
