@@ -181,7 +181,12 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
           tabIndex={0}
           aria-label={t('editor.mermaid.previewLabel')}
         >
-          <MarkdownRenderer content={previewMarkdown} interactiveButtons={false} focusableMermaid={false} />
+          <MarkdownRenderer
+            content={previewMarkdown}
+            interactiveButtons={false}
+            focusableMermaid={false}
+            tabNavigation="disabled"
+          />
         </div>
 
         <pre className="rich-mermaid-block__code" aria-label={t('editor.mermaid.codeLabel')}>
