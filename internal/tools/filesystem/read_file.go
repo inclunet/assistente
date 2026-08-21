@@ -94,7 +94,7 @@ func parseDocumentMode(raw string) (docextract.Mode, error) {
 	case string(docextract.ModeMarkdown):
 		return docextract.ModeMarkdown, nil
 	case "ocr":
-		return "", fmt.Errorf("document_mode %q não está disponível (OCR adiado, AEP-0093 issue #565)", raw)
+		return "", fmt.Errorf("document_mode %q não está disponível (OCR adiado, AEP-0093, issue #565)", raw)
 	default:
 		return "", fmt.Errorf("document_mode inválido: %q (use \"auto\" ou \"markdown\")", raw)
 	}
