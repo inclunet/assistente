@@ -35,6 +35,21 @@ export interface AccessibleMermaidResult {
   cleanup(): void;
 }
 
+export interface MermaidErrorContentOptions {
+  container: HTMLElement;
+  ariaLabel: string;
+  title: string;
+  message: string;
+  detailsLabel: string;
+  errorText: string;
+  detailsTabbable: boolean;
+}
+
+export interface MermaidErrorContent {
+  details: HTMLDetailsElement;
+  errorPre: HTMLPreElement;
+}
+
 let mermaidPromise: Promise<MermaidApi> | null = null;
 let instructionsSequence = 0;
 
@@ -138,6 +153,50 @@ export async function renderAccessibleMermaid(
       container.replaceChildren();
     },
   };
+}
+
+export function createMermaidErrorContent(
+  options: MermaidErrorContentOptions,
+): MermaidErrorContent {
+  const {
+    container,
+    ariaLabel,
+    title,
+    message,
+    detailsLabel,
+    errorText,
+    detailsTabbable,
+  } = options;
+
+  container.replaceChildren();
+  container.classList.add('mermaid-diagram--error');
+  container.setAttribute('role', 'group');
+  container.setAttribute('aria-label', ariaLabel);
+  container.tabIndex = -1;
+
+  const titleElement = document.createElement('div');
+  titleElement.className = 'mermaid-diagram__error-title';
+  titleElement.textContent = title;
+
+  const messageElement = document.createElement('div');
+  messageElement.className = 'mermaid-diagram__error-message';
+  messageElement.textContent = message;
+
+  const details = document.createElement('details');
+  details.className = 'mermaid-diagram__error-details';
+
+  const summary = document.createElement('summary');
+  summary.textContent = detailsLabel;
+  summary.tabIndex = detailsTabbable ? 0 : -1;
+
+  const errorPre = document.createElement('pre');
+  errorPre.className = 'mermaid-diagram__error-pre';
+  errorPre.textContent = errorText;
+
+  details.append(summary, errorPre);
+  container.append(titleElement, messageElement, details);
+
+  return { details, errorPre };
 }
 
 function createThemeHighlightRenderer(): HighlightRenderer {

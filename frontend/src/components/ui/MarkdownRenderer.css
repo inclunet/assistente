@@ -209,37 +209,6 @@
   height: auto;
 }
 
-.markdown-content .mermaid-diagram--error {
-  border: 1px solid var(--color-danger);
-  background-color: var(--color-danger-dim);
-  color: var(--text-primary);
-}
-
-.markdown-content .mermaid-diagram__error-title {
-  font-weight: 700;
-  margin-bottom: var(--spacing-xs);
-}
-
-.markdown-content .mermaid-diagram__error-message {
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--spacing-sm);
-  opacity: 0.95;
-}
-
-.markdown-content .mermaid-diagram__error-details summary {
-  cursor: pointer;
-}
-
-.markdown-content .mermaid-diagram__error-pre {
-  margin-top: var(--spacing-sm);
-  padding: var(--spacing-sm);
-  border-radius: var(--border-radius);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* ─── Deep Links (assistente://) ──────────────────────────────────── */
 
 .markdown-content a.deep-link {
