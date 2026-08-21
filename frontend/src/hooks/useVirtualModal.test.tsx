@@ -207,8 +207,9 @@ describe('useVirtualModal', () => {
     const action = screen.getByRole('button', { name: 'Ação' });
 
     expect(content).toHaveFocus();
-    fireEvent.keyDown(window, { key: 'Tab' });
-    // No meio da ordem, o hook deixa o navegador avançar normalmente.
+    // O evento não é cancelado no meio da ordem. JSDOM não executa a
+    // navegação nativa de Tab, então o foco permanece no elemento atual.
+    expect(fireEvent.keyDown(window, { key: 'Tab' })).toBe(true);
     expect(content).toHaveFocus();
 
     action.focus();
