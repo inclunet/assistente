@@ -69,6 +69,18 @@ Cada bloco é renderizado e tratado independentemente. Se um bloco falhar:
 A linha redundante de versão do Mermaid não aparece no resumo principal, mas o
 erro integral pode permanecer nos detalhes e na ação de copiar para diagnóstico.
 
+O Mermaid, por padrão, desenha o próprio cartaz de erro ("Syntax error in text"
+mais a versão) antes de lançar a exceção. Como o adaptador da biblioteca chama
+`mermaid.render` sem informar o host, esse cartaz nasce num nó temporário do
+`body` que o Mermaid só remove quando o render termina bem — ou seja, ele
+sobrevive à falha, aparece na tela fora do bloco e é lido pelo leitor de telas.
+Por isso o Assistente liga `suppressErrorRendering` na inicialização, que é uma
+chave protegida e só vale via `initialize`, e ainda remove os nós de erro que
+escaparem para o `body`. A limpeza é restrita aos nós que contêm o desenho de
+erro, para não derrubar um render simultâneo em andamento. O pedido para o
+adaptador passar o host está em
+[issue mermaid-a11y#4](https://github.com/inclunet/mermaid-a11y/issues/4).
+
 ### 5. Um adaptador compartilhado
 
 Markdown e Reveal usam o mesmo adaptador de renderização, navegação, anúncio,
@@ -121,6 +133,7 @@ próprias, como menus de contexto no Markdown e `sync()` do deck no Reveal.
 - Um bloco inválido não impede a leitura do restante do documento nem o
   processamento de outros diagramas.
 - O erro exibido é localizado, conciso e possui detalhes recolhíveis.
+- Nenhum desenho de erro do Mermaid escapa do bloco para o `body`.
 - Menus e fluxos de copiar, editar, enviar e renderizar novamente permanecem.
 - Markdown e Reveal compartilham o mesmo contrato de renderização e cleanup.
 - Testes de acessibilidade, TypeScript, lint e Vitest permanecem verdes.
