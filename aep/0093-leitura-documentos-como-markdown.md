@@ -50,6 +50,9 @@ em pasta não pode disparar OCR em massa.
 | D10 | **Detecção e escrita usam a mesma classificação.** Um documento não vira gravável por ter extensão textual falsa; tools de escrita validam o conteúdo/formato detectado, não só a extensão. |
 | D11 | **Falha fechada para conteúdo ativo/hostil.** Extratores não executam macros, scripts, links, objetos incorporados ou conteúdo externo; containers ZIP têm limites de entradas, tamanho expandido e razão de compressão. |
 | D12 | **Projeção por padrão só no formato opaco.** Converter é para o que o modelo não consegue ler no original (PDF, OOXML, ODF, EPUB). O que já é texto no disco — código, Markdown, HTML, JSON, CSV, RTF — volta byte a byte. Projetar texto por padrão esconderia justamente o conteúdo que o agente precisa ver para revisar ou editar (um HTML vira parágrafos, não HTML) e quebraria a simetria com a escrita, que grava esse mesmo texto. A projeção desses formatos continua disponível em `document_mode: "markdown"`. |
+| D13 | **Proveniência não faz parte do conteúdo.** O corpo da projeção é Markdown puro. Origem, formato, páginas, avisos e `read_only` viajam em anotações estruturadas da tool e são renderizados pela UI fora do texto. A fronteira com o LLM envia conteúdo + anotações num envelope estruturado; não prependa cabeçalho humano ao documento. |
+| D13a | **O envelope do LLM leva as anotações em JSON de uma linha antes do corpo, e o corpo literal depois.** Serializar o documento inteiro dentro de um JSON escaparia cada quebra de linha do Markdown, inflando tokens e desfigurando a estrutura que o modelo precisa ler. Anotações primeiro também sobrevivem ao pre-check de janela, que corta pela cauda. Quando o orçamento é menor que o próprio cabeçalho, o envelope partido é descartado inteiro: meia proveniência mente, ausência não. |
+| D14 | **Editor documental é visualização, não conversão editável.** Ao abrir formato opaco suportado, o editor reutiliza `docextract`, força modo renderizado e marca a aba como somente leitura. Monaco, TipTap, troca de modo, salvar, merge e alteração pelo assistente ficam indisponíveis; o backend também recusa escrita no original. |
 
 ### Formatos (faseados)
 
@@ -79,8 +82,8 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 - Entrada: `path`, `offset`/`limit` e `document_mode` opcional (`auto` default;
   `markdown` explícito). `"ocr"` é rejeitado até a issue #565.
 - Texto nativo: como hoje (linhas numeradas), inclusive CSV e RTF (D12).
-- Documento opaco: Markdown derivado + cabeçalho curto (origem, formato, páginas
-  / abas se houver, avisos).
+- Documento opaco: Markdown derivado no corpo; origem, formato, páginas/abas e
+  avisos ficam em `ToolResult.Annotations`, separados do conteúdo (D13).
 - `document_mode: "markdown"` estende a projeção aos formatos textuais que têm
   extrator; em texto puro, que não tem projeção, não muda nada.
 - `document_mode` desconhecido é erro, não vira `auto`: cair no default calado
@@ -165,9 +168,22 @@ Devolvidos como estão no disco, com projeção só sob demanda (D12):
 - [x] Limites de sanidade (tamanho/páginas) e skip com aviso
 - [x] Testes de busca em documento e de não-OCR no default
 
-### OCR — adiado de propósito (não é a próxima fase)
+### Fase 3 — visualização documental no editor
 
-Não há Fase 3 em andamento. OCR ficou **fora do agora** porque é opcional
+- [x] `ToolResult` separa conteúdo projetado de anotações de proveniência
+- [x] fronteira com o LLM preserva as anotações em envelope estruturado
+- [x] persistência, hidratação e sumarização preservam o envelope para o modelo
+- [x] editor abre formatos opacos suportados com o mesmo extrator
+- [x] projeção é renderizada em aba somente leitura, com sinalização acessível
+- [x] edição, troca de modo, salvar e escrita backend permanecem bloqueados
+- [x] abertura por diálogo, deep link, restauração e reload externo preservam
+      o contrato documental
+- [x] falha de extração mantém a aba protegida e avisos críticos têm mensagem
+      localizada (incluindo PDF sem camada de texto)
+
+### OCR — adiado de propósito (fora das fases entregues)
+
+Não há fase de OCR em andamento. OCR ficou **fora do agora** porque é opcional
 frente ao recorte já entregue (PDF com texto, OOXML/ODF/EPUB) e porque o
 risco de `grep_search` reconhecer uma pasta inteira é inaceitável.
 
@@ -205,6 +221,8 @@ implementação:
 - [x] Arquivo de documento disfarçado com extensão textual continua não gravável
 - [x] `grep_search` encontra termos em documentos V1 com cache sob demanda
 - [x] `search_files` continua encontrando arquivos por path, sem extrair conteúdo
+- [x] proveniência da projeção não contamina o Markdown do documento
+- [x] editor renderiza documento suportado para leitura sem permitir edição
 - [x] OCR não roda no caminho default de busca/leitura
 - [x] Extração respeita fstrust / sandbox (AEP-0092)
 - [x] Operação longa permanece cancelável; falhas parciais não derrubam a busca

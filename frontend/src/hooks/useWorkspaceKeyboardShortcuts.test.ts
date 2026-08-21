@@ -9,6 +9,7 @@ const requestOpen = vi.fn(() => Promise.resolve());
 const modalOpen = vi.fn(() => false);
 const setActiveTab = vi.fn();
 const createWorkspaceTab = vi.fn((_type: unknown, _title: unknown) => Promise.resolve('tab-new'));
+const editorDocuments: Record<string, { readOnly?: boolean }> = {};
 const errorMocks = vi.hoisted(() => ({
   addToast: vi.fn(),
   logError: vi.fn(),
@@ -21,12 +22,16 @@ vi.mock('zustand/shallow', () => ({
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: (selector: (s: unknown) => unknown) =>
     selector({
-      workspace: { tabs: [{ id: 't1' }, { id: 't2' }], activeTabId: 't1' },
+      workspace: { tabs: [{ id: 't1', type: 'editor' }, { id: 't2', type: 'chat' }], activeTabId: 't1' },
       addTab,
       removeTab,
       setActiveTab,
       createWorkspace: vi.fn(),
     }),
+}));
+
+vi.mock('../store/editorStore', () => ({
+  useEditorStore: { getState: () => ({ documents: editorDocuments }) },
 }));
 
 vi.mock('../store/workspaceChatModalStore', () => ({
@@ -119,6 +124,7 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     removeTab.mockClear();
     setActiveTab.mockClear();
     requestOpen.mockClear();
+    delete editorDocuments.t1;
     vi.mocked(restoreDefaultFocus).mockClear();
     modalOpen.mockReturnValue(false);
   });
@@ -134,6 +140,16 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
 
   it('Ctrl+Shift+I previne o default (DevTools) mas NÃO abre o chat modal com modal aberto', () => {
     modalOpen.mockReturnValue(true);
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    const event = dispatchKey({ ctrlKey: true, shiftKey: true, key: 'I', code: 'KeyI' });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(requestOpen).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+Shift+I não abre chat para documento somente leitura', () => {
+    editorDocuments.t1 = { readOnly: true };
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     const event = dispatchKey({ ctrlKey: true, shiftKey: true, key: 'I', code: 'KeyI' });

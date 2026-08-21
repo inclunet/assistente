@@ -18,8 +18,14 @@ type EditorState struct {
 
 // EditorOpenResult é o retorno do diálogo nativo de abrir arquivo.
 type EditorOpenResult struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path        string   `json:"path"`
+	Content     string   `json:"content"`
+	Projected   bool     `json:"projected"`
+	Format      string   `json:"format,omitempty"`
+	ReadOnly    bool     `json:"readOnly"`
+	Pages       int      `json:"pages,omitempty"`
+	Warnings    []string `json:"warnings,omitempty"`
+	WarningCode string   `json:"warningCode,omitempty"`
 }
 
 // FileDialogLabels carrega os rótulos já traduzidos pelo frontend para os

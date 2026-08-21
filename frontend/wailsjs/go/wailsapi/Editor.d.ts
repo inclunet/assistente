@@ -14,7 +14,7 @@ export function EditorOpenFile(arg1:apidto.FileDialogLabels):Promise<apidto.Edit
 
 export function EditorReadDraft(arg1:string):Promise<string>;
 
-export function EditorReadFile(arg1:string):Promise<string>;
+export function EditorReadFile(arg1:string):Promise<apidto.EditorOpenResult>;
 
 export function EditorRenameFile(arg1:string,arg2:string):Promise<string>;
 

@@ -6,7 +6,7 @@ import { useEditorStore, DEFAULT_MD, type EditorDocument, type EditorMode } from
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
-import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
+import { getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { editorFileDialogLabels } from '../lib/editorDialogLabels';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -51,6 +51,7 @@ export function useEditorFileActions({
   const setDocFilePath = useEditorStore((s) => s.setDocFilePath);
   const setDocDraftId = useEditorStore((s) => s.setDocDraftId);
   const setDocDirty = useEditorStore((s) => s.setDocDirty);
+  const setDocProjection = useEditorStore((s) => s.setDocProjection);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
   const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
   const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
@@ -71,11 +72,12 @@ export function useEditorFileActions({
   const openFile = async () => {
     try {
       const res = await EditorOpenFile(editorFileDialogLabels(t, 'open'));
-      const path = String(res?.path || '').trim();
+      const opened = normalizeEditorDocumentResult(res);
+      const path = opened.path.trim();
       if (!path) return;
 
       const key = normalizePathKey(path);
-      const content = String(res?.content || '');
+      const content = opened.content;
 
       // Se o arquivo já está aberto em outra aba, apenas ativa essa aba.
       const existingDoc = Object.values(documents).find(
@@ -93,8 +95,12 @@ export function useEditorFileActions({
         }
       }
 
-      const preferredMode: EditorMode =
-        fileModeByPathRef.current[key] || (existingDoc?.mode === 'rich' ? 'rich' : 'markdown');
+      const preferredMode: EditorMode = opened.readOnly
+        ? 'view'
+        : fileModeByPathRef.current[key] || (existingDoc?.mode === 'rich' ? 'rich' : 'markdown');
+      const projection = opened.projected
+        ? { format: opened.format, pages: opened.pages, warnings: opened.warnings, warningCode: opened.warningCode }
+        : null;
       const title = basenameFromPath(path);
 
       // Se a aba atual está "virgem" (sem arquivo, conteúdo padrão), reutiliza-a.
@@ -105,12 +111,21 @@ export function useEditorFileActions({
         id = activeTab.id;
         renameDocument(id, title);
         setDocMarkdown(id, content);
+        setDocProjection(id, projection);
         useEditorStore.getState().setDocMode(id, preferredMode);
         // filePath+title são sincronizados pelo controller do painel de editor.
       } else {
         const tabId = await addWorkspaceTab('editor', title, { filePath: path });
         id = tabId;
-        createDocument({ id: tabId, title, markdown: content, mode: preferredMode, filePath: path });
+        createDocument({
+          id: tabId,
+          title,
+          markdown: content,
+          mode: preferredMode,
+          filePath: path,
+          readOnly: opened.readOnly,
+          projection,
+        });
       }
 
       setDocFilePath(id, path);
@@ -128,14 +143,16 @@ export function useEditorFileActions({
       };
       void refreshDiskInfoForTab(diskTab);
 
-      fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
+      if (!opened.readOnly) {
+        fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
+      }
 
       EditorDeleteDraft(id).catch(() => null);
       addToast(t('editor.toast.fileOpened'), 'success');
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[useEditorFileActions] openFile error:', e);
-      addToast(getErrorMessage(e) || t('editor.toast.openFailed'), 'error');
+      addToast(t('editor.toast.openFailed'), 'error');
     }
   };
 
@@ -195,6 +212,10 @@ export function useEditorFileActions({
 
   const saveFile = async () => {
     if (!activeTab) return;
+    if (activeTab.readOnly) {
+      addToast(t('editor.toast.documentReadOnly'), 'info');
+      return;
+    }
     try {
       if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
       const content = getCachedMarkdownForTab(activeTab);
@@ -259,12 +280,16 @@ export function useEditorFileActions({
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[useEditorFileActions] saveFile error:', e);
-      addToast(getErrorMessage(e) || t('editor.toast.saveFailed'), 'error');
+      addToast(t('editor.toast.saveFailed'), 'error');
     }
   };
 
   const saveFileAsCopy = async () => {
     if (!activeTab?.filePath) return;
+    if (activeTab.readOnly) {
+      addToast(t('editor.toast.documentReadOnly'), 'info');
+      return;
+    }
     try {
       if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
       const suggested = basenameFromPath(activeTab.filePath);
@@ -278,7 +303,7 @@ export function useEditorFileActions({
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[useEditorFileActions] saveAs error:', e);
-      addToast(getErrorMessage(e) || t('editor.toast.saveAsFailed'), 'error');
+      addToast(t('editor.toast.saveAsFailed'), 'error');
     }
   };
 

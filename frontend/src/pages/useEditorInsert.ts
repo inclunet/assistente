@@ -86,6 +86,10 @@ export function useEditorInsert({
     }
 
     if (!targetTab) return false;
+    if (targetTab.readOnly) {
+      addToast(t('editor.toast.documentReadOnly'), 'info');
+      return true;
+    }
 
     const normalized = normalizeEditorInsertContent({
       content: rawContent,

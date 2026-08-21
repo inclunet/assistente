@@ -24,6 +24,7 @@ import {
   safeDraftIdPart,
 } from '../lib/editorMergeUtils';
 import { editorFileDialogLabels } from '../lib/editorDialogLabels';
+import { normalizeEditorDocumentResult } from '../lib/editorContent';
 import type { MergeSession } from './editorTypes';
 import { createEmptyTabDiskState, type TabDiskState } from './editorReconciler';
 
@@ -288,9 +289,11 @@ export function useEditorMerge() {
 
       if (!diskReadError && opts?.diskContent === undefined) {
         try {
-          diskContent = String((await EditorReadFile(filePath)) || '');
+          diskContent = normalizeEditorDocumentResult(await EditorReadFile(filePath), filePath).content;
         } catch (e) {
-          diskReadError = errorMessage(e);
+          // A mensagem do backend não é localizada: serve de log, nunca de texto de UI.
+          logger.warn('[EditorPage] falha ao ler do disco na reconciliação:', e);
+          diskReadError = 'disk_read_failed';
         }
       }
 
@@ -306,7 +309,7 @@ export function useEditorMerge() {
       }
 
       const diskPreviewText = diskReadError
-        ? `${t('editor.errors.diskReadFailed')}\n${diskReadError}`
+        ? t('editor.errors.diskReadFailed')
         : composePreviewText(diskContent, t);
 
       const diffText = diskReadError ? '' : buildUnifiedDiff(diskContent, localContent);
@@ -380,7 +383,7 @@ export function useEditorMerge() {
           const { documents: nowDocs } = useEditorStore.getState();
           const nowTab = nowDocs[tabId] || tab;
           const latestLocal = getCachedMarkdownForTab(nowTab);
-          const diskNow = String((await EditorReadFile(filePath)) || '');
+          const diskNow = normalizeEditorDocumentResult(await EditorReadFile(filePath), filePath).content;
           if (diskNow === latestLocal) {
             setDiskBaselineForTab(tabId, latestLocal);
             setDocDirty(tabId, false);

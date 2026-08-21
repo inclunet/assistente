@@ -271,9 +271,12 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.
 	toolContents := make([]string, len(execResults))
 	for i, res := range execResults {
-		toolContents[i] = res.Result.Content
+		toolContents[i] = tools.ContentForModel(res.Result)
 	}
-	preCheck := PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents)
+	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents)
+	for i, res := range execResults {
+		toolContents[i] = tools.SanitizeTruncatedEnvelope(res.Result, toolContents[i])
+	}
 
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
 	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica
@@ -302,11 +305,9 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// Fallback: se tool_invocations não estiver configurado, persiste como
 	// mensagens role=tool para manter o histórico completo.
 	for i, execResult := range execResults {
-		// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
-		content := execResult.Result.Content
-		if preCheck.Truncated {
-			content = toolContents[i]
-		}
+		// O histórico do LLM recebe o envelope já medido pelo pre-check: truncado
+		// quando a janela apertou, íntegro quando coube.
+		content := toolContents[i]
 		// PersistedByCallID indica que a linha técnica foi escrita. A associação
 		// call↔result agora vem de tool_invocations.tool_call_id, então a falha de
 		// salvar a mensagem intermediária não exige fallback role=tool.

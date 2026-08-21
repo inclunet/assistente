@@ -33,14 +33,19 @@ func TestReadFileProjectsDOCX(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("error: %s", res.Content)
 	}
-	if !strings.Contains(res.Content, "projeção Markdown") {
-		t.Fatalf("missing projection header: %s", res.Content)
+	if strings.Contains(res.Content, "projeção Markdown") || strings.Contains(res.Content, "Origem:") {
+		t.Fatalf("proveniência vazou para o conteúdo: %s", res.Content)
 	}
 	if !strings.Contains(res.Content, "Texto no documento") {
 		t.Fatalf("missing body: %s", res.Content)
 	}
 	if res.Metadata["projection"] != true {
 		t.Fatalf("metadata=%v", res.Metadata)
+	}
+	if res.Annotations == nil || res.Annotations.DocumentProjection == nil ||
+		res.Annotations.DocumentProjection.Format != "docx" ||
+		!res.Annotations.DocumentProjection.ReadOnly {
+		t.Fatalf("annotations=%+v", res.Annotations)
 	}
 }
 
@@ -68,8 +73,9 @@ func TestReadFileCachesProjectionButKeepsRequestedSource(t *testing.T) {
 	if second.Metadata["cache_hit"] != true || second.Metadata["cache_origin"] != "cached" {
 		t.Fatalf("segunda leitura deveria vir do cache: %v", second.Metadata)
 	}
-	if !strings.Contains(second.Content, "Origem: ./doc.docx") {
-		t.Fatalf("cache vazou o path da primeira chamada: %s", second.Content)
+	if second.Annotations == nil || second.Annotations.DocumentProjection == nil ||
+		second.Annotations.DocumentProjection.Source != "./doc.docx" {
+		t.Fatalf("cache vazou o path da primeira chamada: %+v", second.Annotations)
 	}
 }
 
@@ -149,14 +155,18 @@ func TestReadFileProjectsCSVOnDemand(t *testing.T) {
 	if res.IsError {
 		t.Fatal(res.Content)
 	}
-	if !strings.Contains(res.Content, "projeção Markdown") {
-		t.Fatalf("faltou o cabeçalho de projeção: %s", res.Content)
+	if strings.Contains(res.Content, "projeção Markdown") {
+		t.Fatalf("cabeçalho contaminou o conteúdo: %s", res.Content)
 	}
 	if !strings.Contains(res.Content, "| Ana") {
 		t.Fatalf("faltou a tabela: %s", res.Content)
 	}
 	if res.Metadata["projection"] != true {
 		t.Fatalf("metadata=%v", res.Metadata)
+	}
+	if res.Annotations == nil || res.Annotations.DocumentProjection == nil ||
+		res.Annotations.DocumentProjection.Format != "csv" {
+		t.Fatalf("annotations=%+v", res.Annotations)
 	}
 }
 

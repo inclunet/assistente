@@ -180,6 +180,24 @@ export function EditorContentArea({
   }, [activeTab?.id]);
 
   useEffect(() => {
+    if (activeTab?.loadError) {
+      announce(t('editor.documentView.loadFailedAnnouncement'));
+      return;
+    }
+    if (!activeTab?.readOnly || !activeTab.projection) return;
+    announce(t('editor.documentView.openedAnnouncement', {
+      format: activeTab.projection.format.toUpperCase(),
+    }));
+  }, [
+    activeTab?.id,
+    activeTab?.loadError,
+    activeTab?.projection?.format,
+    activeTab?.readOnly,
+    announce,
+    t,
+  ]);
+
+  useEffect(() => {
     onRevealSlideIndexChange?.(activeRevealSlide?.index ?? 0);
   }, [activeRevealSlide?.index, onRevealSlideIndexChange]);
 
@@ -311,6 +329,32 @@ export function EditorContentArea({
 
   return (
     <div className="editor-page__content ws-content-area">
+      {activeTab?.loadError ? (
+        <div className="editor-page__document-status">
+          <strong>{t('editor.documentView.loadFailedTitle')}</strong>
+          <span>{t('editor.documentView.loadFailedDescription')}</span>
+        </div>
+      ) : activeTab?.readOnly && activeTab.projection ? (
+        <div className="editor-page__document-status">
+          <strong>
+            {t('editor.documentView.readOnlyBanner', {
+              format: activeTab.projection.format.toUpperCase(),
+            })}
+          </strong>
+          {activeTab.projection.pages ? (
+            <span>
+              {t('editor.documentView.pages', { count: activeTab.projection.pages })}
+            </span>
+          ) : null}
+          {activeTab.projection.warnings.length > 0 ? (
+            <span>
+              {activeTab.projection.warningCode === 'no_extractable_text'
+                ? t('editor.documentView.noExtractableText')
+                : t('editor.documentView.partialExtraction')}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {!activeTab ? (
         <div className="editor-page__empty">{t('editor.empty.noTabs')}</div>
       ) : activeTab.mode === 'markdown' ? (
@@ -339,6 +383,7 @@ export function EditorContentArea({
             role="region"
             aria-label={t('editor.aria.preview')}
             onDoubleClick={(e) => {
+              if (activeTab.readOnly) return;
               const target = e.target as HTMLElement | null;
               const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
               if (!wrapper) return;
@@ -348,6 +393,7 @@ export function EditorContentArea({
               onOpenMermaid(index);
             }}
             onKeyDown={(e) => {
+              if (activeTab.readOnly) return;
               const target = e.target as HTMLElement | null;
               const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
               if (!wrapper) return;
@@ -385,11 +431,13 @@ export function EditorContentArea({
                 />
               ) : (
                 <>
-                  <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
+                  {!activeTab.readOnly ? (
+                    <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
+                  ) : null}
                   <MarkdownRenderer
                     content={debouncedMarkdownForPreview}
                     interactiveButtons={false}
-                    focusableMermaid={true}
+                    focusableMermaid={!activeTab.readOnly}
                   />
                 </>
               )}

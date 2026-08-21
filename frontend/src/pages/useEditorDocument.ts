@@ -9,8 +9,8 @@ import {
 } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
-import { getMaybeContent } from '../lib/editorContent';
-import { EditorDeleteDraft, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/wailsapi/Editor';
+import { getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
+import { EditorDeleteDraft, EditorGetDraftPath, EditorLoadState, EditorReadDraft, EditorReadFile, EditorSaveState } from '@wailsjs/go/wailsapi/Editor';
 import { apidto } from '@wailsjs/go/models';
 import type { UseEditorMergeResult } from './useEditorMerge';
 
@@ -118,33 +118,62 @@ export function useEditorDocument({
             !!mergeSessRaw && typeof mergeSessRaw === 'object' && !!String(mergeSessRaw?.conflictDraftId || '').trim();
 
           let markdown = '';
+          let projection: EditorDocument['projection'] = null;
+          let readOnly = false;
+          let loadError = false;
+          let isDraftPath = false;
+          if (filePath && draftId) {
+            try {
+              const expectedDraftPath = String(await EditorGetDraftPath(draftId) ?? '');
+              isDraftPath =
+                !!expectedDraftPath &&
+                normalizePathKey(expectedDraftPath) === normalizePathKey(filePath);
+            } catch {
+              isDraftPath = false;
+            }
+          }
           try {
             if (filePath) {
               if (hasMergeSess) {
                 const conflictDraftId = String(mergeSessRaw?.conflictDraftId || '').trim();
                 const resDraft = await EditorReadDraft(conflictDraftId);
                 markdown = getMaybeContent(resDraft);
+              } else if (isDraftPath) {
+                const resDraft = await EditorReadDraft(draftId);
+                markdown = getMaybeContent(resDraft);
               } else {
                 const res = await EditorReadFile(filePath);
-                markdown = getMaybeContent(res);
+                const loaded = normalizeEditorDocumentResult(res, filePath);
+                markdown = loaded.content;
+                readOnly = loaded.readOnly;
+                projection = loaded.projected
+                  ? { format: loaded.format, pages: loaded.pages, warnings: loaded.warnings, warningCode: loaded.warningCode }
+                  : null;
               }
             }
           } catch {
             markdown = '';
+            loadError = !!filePath && !isDraftPath;
+            readOnly = loadError;
           }
 
           const pathKey = filePath ? normalizePathKey(filePath) : '';
-          const mode: EditorMode = pathKey ? fileModeByPathRef.current[pathKey] || 'markdown' : 'markdown';
+          const mode: EditorMode = readOnly
+            ? 'view'
+            : pathKey ? fileModeByPathRef.current[pathKey] || 'markdown' : 'markdown';
           const title = filePath ? basenameFromPath(filePath) : tab.title || 'Novo documento';
 
           loadedTabs.push({
             id: tabId,
             title,
-            markdown: markdown || DEFAULT_MD,
+            markdown: readOnly ? markdown : markdown || DEFAULT_MD,
             mode,
             filePath: filePath || null,
             draftId: filePath ? null : draftId || null,
             isDirty: !!hasMergeSess,
+            readOnly,
+            projection,
+            loadError,
           });
         }
 
@@ -160,7 +189,7 @@ export function useEditorDocument({
         // Baseline do disco para arquivos reais (best-effort).
         try {
           for (const tab of loadedTabs) {
-            if (tab.filePath) {
+            if (tab.filePath && !tab.readOnly) {
               setDiskBaselineForTab(tab.id, String(tab.markdown ?? ''));
               void refreshDiskInfoForTab(tab);
             }

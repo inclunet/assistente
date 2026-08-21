@@ -438,7 +438,7 @@ func toolInvocationDisplayResultsByTurn(displays map[string][]toolinvocations.Ch
 				byCall = map[string]string{}
 				results[turnID] = byCall
 			}
-			byCall[callID] = call.Result
+			byCall[callID] = call.ModelResult
 		}
 	}
 	return results

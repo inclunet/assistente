@@ -214,6 +214,12 @@ export function useEditorInlineChat({
         focusEditorSoon();
         return;
       }
+      if (tab.readOnly) {
+        addToast(t('editor.toast.documentReadOnly'), 'info');
+        setIsAsking(false);
+        focusEditorSoon();
+        return;
+      }
 
       if (selection.mode === 'markdown') {
         const s = selection;

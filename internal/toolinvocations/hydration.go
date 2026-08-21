@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/tools"
 )
 
 type ChatToolInvocationDisplay struct {
@@ -16,6 +17,7 @@ type ChatToolInvocationDisplay struct {
 	Name               string
 	Arguments          string
 	Result             string
+	ModelResult        string `json:"-"`
 	Origin             string
 	ServerLabel        string
 	Iteration          int
@@ -62,7 +64,7 @@ func LoadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 			if _, ok := byCall[callID]; ok {
 				continue
 			}
-			byCall[callID] = call.Result
+			byCall[callID] = call.ModelResult
 		}
 	}
 	return results, nil
@@ -195,12 +197,14 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 		durationMs = row.DurationMs
 	}
 
+	result := ExtractToolInvocationResult(row.Output)
 	return ChatToolInvocationDisplay{
 		ID:                 strings.TrimSpace(row.ToolCallID),
 		Type:               tipo,
 		Name:               name,
 		Arguments:          meta.Display.Arguments,
-		Result:             ExtractToolInvocationContent(row.Output),
+		Result:             result.Content,
+		ModelResult:        tools.ContentForModel(result),
 		Origin:             origin,
 		ServerLabel:        meta.Display.ServerLabel,
 		Iteration:          meta.Display.Iteration,
@@ -210,15 +214,17 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 }
 
 func ExtractToolInvocationContent(raw string) string {
+	return ExtractToolInvocationResult(raw).Content
+}
+
+func ExtractToolInvocationResult(raw string) tools.ToolResult {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return ""
+		return tools.ToolResult{}
 	}
-	var payload struct {
-		Content string `json:"content"`
-	}
+	var payload tools.ToolResult
 	if json.Unmarshal([]byte(raw), &payload) == nil {
-		return payload.Content
+		return payload
 	}
-	return raw
+	return tools.ToolResult{Content: raw}
 }

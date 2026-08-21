@@ -177,6 +177,7 @@ const editorStoreState = {
   setDocFilePath: vi.fn(),
   setDocDraftId: vi.fn(),
   setDocDirty: vi.fn(),
+  setDocProjection: vi.fn(),
   toggleAutoSave: vi.fn(),
   setEditorProfileSlug: vi.fn(),
   hydrate: vi.fn(),
@@ -468,6 +469,7 @@ describe('EditorPage', () => {
       if (tab?.mode === 'markdown') editorPageMocks.markdownModelValue = markdown;
     });
     editorStoreState.setDocDirty.mockReset();
+    editorStoreState.setDocProjection.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorReadFile).mockReset();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown\nOmega' as never);

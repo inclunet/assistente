@@ -3,7 +3,9 @@ package wailsapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
+	"assistente/internal/docextract"
 	"assistente/internal/tools/filesystem"
 )
 
@@ -34,11 +37,45 @@ type Editor struct {
 	mu      sync.RWMutex
 	session Session
 	hooks   EditorHooks
+	cache   *docextract.ProjectionCache
 }
 
 // NewEditor cria o bind vazio; AttachEditor preenche deps no startup.
 func NewEditor() *Editor {
-	return &Editor{}
+	return &Editor{cache: docextract.NewProjectionCache(docextract.DefaultCacheConfig())}
+}
+
+func (api *Editor) projectionCache() *docextract.ProjectionCache {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if api.cache == nil {
+		api.cache = docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	}
+	return api.cache
+}
+
+func readEditorFilePrefix(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, docextract.DetectPrefixBytes)
+	n, err := io.ReadFull(f, buf)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
+func editorWarningCode(result *docextract.Result) string {
+	if result == nil || len(result.Warnings) == 0 {
+		return ""
+	}
+	if result.Kind == docextract.KindPDF && strings.TrimSpace(result.Markdown) == "" {
+		return "no_extractable_text"
+	}
+	return "partial_extraction"
 }
 
 // AttachEditor associa Session e hooks após o startup.
@@ -266,11 +303,76 @@ func orDefault(v, fallback string) string {
 	return strings.TrimSpace(v)
 }
 
-func dialogFilters(labels apidto.FileDialogLabels) []ports.FileFilter {
+func dialogFilters(labels apidto.FileDialogLabels, includeDocuments bool) []ports.FileFilter {
+	if includeDocuments {
+		return []ports.FileFilter{
+			{DisplayName: orDefault(labels.MarkdownFilter, "Documentos e texto"), Pattern: "*.md;*.markdown;*.txt;*.pdf;*.docx;*.xlsx;*.pptx;*.odt;*.ods;*.odp;*.epub"},
+			{DisplayName: orDefault(labels.AllFilesFilter, "Todos os arquivos"), Pattern: "*.*"},
+		}
+	}
 	return []ports.FileFilter{
 		{DisplayName: orDefault(labels.MarkdownFilter, "Markdown"), Pattern: "*.md;*.markdown;*.txt"},
 		{DisplayName: orDefault(labels.AllFilesFilter, "Todos os arquivos"), Pattern: "*.*"},
 	}
+}
+
+func (api *Editor) readDocument(ctx context.Context, path string) (*apidto.EditorOpenResult, error) {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return nil, fmt.Errorf("path vazio")
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao acessar arquivo: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("o path aponta para um diretório")
+	}
+	// O prefixo basta para classificar. Ler o arquivo inteiro aqui desperdiçaria
+	// I/O justamente no caso que o cache existe para evitar: reabrir um documento
+	// grande já projetado.
+	prefix, err := readEditorFilePrefix(p)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao ler arquivo: %w", err)
+	}
+	kind := docextract.Detect(prefix, p)
+	if !docextract.IsOpaqueDocument(kind) {
+		if !docextract.IsWritableText(kind) {
+			return nil, docextract.ErrUnsupportedBinary()
+		}
+		data, err := filesystem.ReadFileBytes(p)
+		if err != nil {
+			return nil, fmt.Errorf("falha ao ler arquivo: %w", err)
+		}
+		// A confirmação é sobre o conteúdo todo: um NUL no meio do arquivo
+		// desmente o prefixo textual.
+		if !docextract.IsLikelyText(data) {
+			return nil, docextract.ErrUnsupportedBinary()
+		}
+		return &apidto.EditorOpenResult{Path: p, Content: string(data)}, nil
+	}
+
+	identity := docextract.FileIdentityFromStat(info.Size(), info.ModTime().UnixNano())
+	result, _, err := api.projectionCache().GetOrLoad(ctx, p+"\x00editor-view", identity, func(loadCtx context.Context) (*docextract.Result, error) {
+		data, err := filesystem.ReadFileBytes(p)
+		if err != nil {
+			return nil, fmt.Errorf("falha ao ler arquivo: %w", err)
+		}
+		return docextract.ExtractModeContext(loadCtx, data, p, docextract.ModeAuto)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &apidto.EditorOpenResult{
+		Path:        p,
+		Content:     result.Markdown,
+		Projected:   true,
+		Format:      string(result.Kind),
+		ReadOnly:    true,
+		Pages:       result.Pages,
+		Warnings:    append([]string(nil), result.Warnings...),
+		WarningCode: editorWarningCode(result),
+	}, nil
 }
 
 // EditorOpenFile abre o diálogo nativo e retorna conteúdo + path.
@@ -291,7 +393,7 @@ func (api *Editor) EditorOpenFile(labels apidto.FileDialogLabels) (*apidto.Edito
 
 		path, err := dialog.OpenFileDialog(ports.OpenFileOptions{
 			Title:   orDefault(labels.Title, "Abrir arquivo"),
-			Filters: dialogFilters(labels),
+			Filters: dialogFilters(labels, true),
 		})
 		if err != nil {
 			return nil, err
@@ -299,32 +401,18 @@ func (api *Editor) EditorOpenFile(labels apidto.FileDialogLabels) (*apidto.Edito
 		if strings.TrimSpace(path) == "" {
 			return &apidto.EditorOpenResult{Path: "", Content: ""}, nil
 		}
-
-		data, err := filesystem.ReadFileBytes(path)
-		if err != nil {
-			return nil, fmt.Errorf("falha ao ler arquivo: %w", err)
-		}
-
-		return &apidto.EditorOpenResult{Path: path, Content: string(data)}, nil
+		return api.readDocument(ctx, path)
 	})
 }
 
 // EditorReadFile lê um arquivo por path (usado na restauração da sessão).
-func (api *Editor) EditorReadFile(path string) (string, error) {
+func (api *Editor) EditorReadFile(path string) (*apidto.EditorOpenResult, error) {
 	session, _, err := api.deps()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return WithUser(session, func(ctx context.Context) (string, error) {
-		p := strings.TrimSpace(path)
-		if p == "" {
-			return "", fmt.Errorf("path vazio")
-		}
-		data, err := filesystem.ReadFileBytes(p)
-		if err != nil {
-			return "", fmt.Errorf("falha ao ler arquivo: %w", err)
-		}
-		return string(data), nil
+	return WithUser(session, func(ctx context.Context) (*apidto.EditorOpenResult, error) {
+		return api.readDocument(ctx, path)
 	})
 }
 
@@ -368,6 +456,16 @@ func (api *Editor) EditorWriteFile(path string, content string) error {
 		p := strings.TrimSpace(path)
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
+		}
+		if existing, readErr := readEditorFilePrefix(p); readErr == nil {
+			if err := docextract.CheckWritable(existing, p); err != nil {
+				return struct{}{}, err
+			}
+		} else if !os.IsNotExist(readErr) {
+			return struct{}{}, fmt.Errorf("não foi possível classificar o arquivo antes de salvar: %w", readErr)
+		}
+		if err := docextract.CheckWritableString(content, p); err != nil {
+			return struct{}{}, err
 		}
 		perm := os.FileMode(0644)
 		if info, statErr := os.Stat(p); statErr == nil {
@@ -422,7 +520,7 @@ func (api *Editor) EditorSaveFileDialog(suggestedFilename string, labels apidto.
 		path, err := dialog.SaveFileDialog(ports.SaveFileOptions{
 			Title:           orDefault(labels.Title, "Salvar arquivo"),
 			DefaultFilename: def,
-			Filters:         dialogFilters(labels),
+			Filters:         dialogFilters(labels, false),
 		})
 		if err != nil {
 			return "", err

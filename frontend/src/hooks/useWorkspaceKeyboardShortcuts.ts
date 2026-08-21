@@ -18,6 +18,7 @@ import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
 import { useShallow } from 'zustand/shallow';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import { useEditorStore } from '../store/editorStore';
 import { useShortcutsHelpStore } from '../store/shortcutsHelpStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
@@ -100,6 +101,13 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
         event.preventDefault();
         if (isModalOpen()) return;
         if (!activeTabId) return;
+        const activeWorkspaceTab = tabs.find((tab) => tab.id === activeTabId);
+        if (
+          activeWorkspaceTab?.type === 'editor' &&
+          useEditorStore.getState().documents[activeTabId]?.readOnly
+        ) {
+          return;
+        }
         void useWorkspaceChatModalStore.getState().requestOpen(activeTabId);
         return;
       }

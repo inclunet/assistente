@@ -7,6 +7,13 @@ export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
 export type EditorInsertTarget = 'document' | 'new_document';
 
+export interface EditorDocumentProjection {
+  format: string;
+  pages?: number;
+  warnings: string[];
+  warningCode?: string;
+}
+
 interface EditorInsertRequestBase {
   format: EditorInsertFormat;
   content: string;
@@ -35,13 +42,16 @@ export interface EditorDocument {
   filePath?: string | null;
   draftId?: string | null;
   isDirty?: boolean;
+  readOnly?: boolean;
+  projection?: EditorDocumentProjection | null;
+  loadError?: boolean;
 }
 
 
 interface EditorState {
   documents: Record<string, EditorDocument>;
 
-  createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId'>>) => string;
+  createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId' | 'readOnly' | 'projection' | 'loadError'>>) => string;
   removeDocument: (docId: string) => void;
   renameDocument: (docId: string, title: string) => void;
   setDocMarkdown: (docId: string, markdown: string) => void;
@@ -51,6 +61,7 @@ interface EditorState {
   setDocFilePath: (docId: string, filePath: string | null) => void;
   setDocDraftId: (docId: string, draftId: string | null) => void;
   setDocDirty: (docId: string, isDirty: boolean) => void;
+  setDocProjection: (docId: string, projection: EditorDocumentProjection | null) => void;
 
   getDocument: (docId: string) => EditorDocument | undefined;
 
@@ -94,6 +105,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       filePath: initial?.filePath || null,
       draftId: initial?.draftId !== undefined ? initial.draftId : (hasFilePath ? null : id),
       isDirty: false,
+      readOnly: initial?.readOnly ?? false,
+      projection: initial?.projection ?? null,
+      loadError: initial?.loadError ?? false,
     };
 
     set((state) => ({
@@ -160,14 +174,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setDocMode: (docId, mode) => {
-    const next: EditorMode = mode === 'rich' || mode === 'view' ? mode : 'markdown';
-    set((state) => ({ documents: updateDoc(state.documents, docId, { mode: next }) }));
+    set((state) => {
+      const doc = state.documents[docId];
+      if (!doc) return state;
+      const next: EditorMode = doc.readOnly ? 'view' : mode === 'rich' || mode === 'view' ? mode : 'markdown';
+      return { documents: updateDoc(state.documents, docId, { mode: next }) };
+    });
   },
 
   toggleDocMode: (docId) => {
     set((state) => {
       const doc = state.documents[docId];
       if (!doc) return state;
+      if (doc.readOnly) return state;
       const nextMode: EditorMode = doc.mode === 'view' ? 'markdown' : doc.mode === 'markdown' ? 'rich' : 'markdown';
       return { documents: updateDoc(state.documents, docId, { mode: nextMode }) };
     });
@@ -183,6 +202,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setDocDirty: (docId, isDirty) => {
     set((state) => ({ documents: updateDoc(state.documents, docId, { isDirty }) }));
+  },
+
+  setDocProjection: (docId, projection) => {
+    set((state) => {
+      const doc = state.documents[docId];
+      if (!doc) return state;
+      const wasProtected =
+        !!doc.loadError || (doc.projection !== null && doc.projection !== undefined);
+      return {
+        documents: updateDoc(state.documents, docId, {
+          projection,
+          readOnly: projection !== null,
+          mode: projection !== null ? 'view' : wasProtected ? 'markdown' : doc.mode,
+          loadError: false,
+        }),
+      };
+    });
   },
 
   getDocument: (docId) => get().documents[docId],

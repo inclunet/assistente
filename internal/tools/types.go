@@ -38,12 +38,33 @@ type ToolResult struct {
 	// Exemplos: bytes lidos, tempo de execução, número de resultados.
 	Metadata map[string]any `json:"metadata,omitempty"`
 
+	// Annotations descreve proveniência/semântica do resultado sem misturá-las
+	// ao conteúdo. Diferente de Metadata, estas anotações são enviadas ao LLM
+	// num envelope próprio e podem ser exibidas pela UI fora do corpo textual.
+	Annotations *ResultAnnotations `json:"annotations,omitempty"`
+
 	// Structured sinaliza que Content é uma saída canônica/estruturada (ex.: JSON)
 	// que NÃO pode ser truncada — truncar a corromperia e quebraria consumidores
 	// que fazem json.Unmarshal (LLM e jobs). Quando true e o resultado excede o
 	// limite do executor, este falha de forma explícita em vez de cortar o conteúdo.
 	// Centraliza no executor a política antes duplicada em cada tool canônica.
 	Structured bool `json:"structured,omitempty"`
+}
+
+// ResultAnnotations carrega informações que alteram a interpretação do
+// conteúdo, mas não fazem parte dele.
+type ResultAnnotations struct {
+	DocumentProjection *DocumentProjectionAnnotation `json:"document_projection,omitempty"`
+}
+
+// DocumentProjectionAnnotation identifica conteúdo derivado de um documento
+// opaco. O corpo continua sendo Markdown puro; origem/formato/avisos ficam aqui.
+type DocumentProjectionAnnotation struct {
+	Source   string   `json:"source"`
+	Format   string   `json:"format"`
+	ReadOnly bool     `json:"read_only"`
+	Pages    int      `json:"pages,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ToolCall representa uma chamada de ferramenta solicitada pelo LLM.

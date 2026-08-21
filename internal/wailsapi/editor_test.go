@@ -1,6 +1,7 @@
 package wailsapi
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"os"
@@ -12,7 +13,35 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
+	"assistente/internal/docextract"
 )
+
+func writeEditorTestDOCX(t *testing.T, path, text string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for name, content := range map[string]string{
+		"[Content_Types].xml": `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>`,
+		"word/document.xml":   `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>` + text + `</w:t></w:r></w:p></w:body></w:document>`,
+	} {
+		entry, createErr := zw.Create(name)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if _, writeErr := entry.Write([]byte(content)); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestEditorNotWired(t *testing.T) {
 	t.Parallel()
@@ -331,6 +360,93 @@ func TestEditorWriteFilePreservesExistingMode(t *testing.T) {
 	}
 }
 
+func TestEditorReadFileProjectsDocumentForReadOnlyView(t *testing.T) {
+	api := setupEditorAPITest(t)
+	path := filepath.Join(t.TempDir(), "manual.docx")
+	writeEditorTestDOCX(t, path, "Texto para leitura")
+
+	result, err := api.EditorReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Projected || !result.ReadOnly || result.Format != "docx" {
+		t.Fatalf("resultado documental inesperado: %+v", result)
+	}
+	if !strings.Contains(result.Content, "Texto para leitura") {
+		t.Fatalf("projeção não contém texto: %q", result.Content)
+	}
+	if strings.Contains(result.Content, "projeção Markdown") || strings.Contains(result.Content, "Origem:") {
+		t.Fatalf("metadados vazaram para o conteúdo: %q", result.Content)
+	}
+}
+
+// Reabrir um documento grande não pode custar a leitura inteira de novo: o
+// corpo do arquivo é corrompido preservando magic, tamanho e mtime, então uma
+// reextração falharia e só o cache devolve a projeção original.
+func TestEditorReadFileReusesProjectionWithoutRereadingDocument(t *testing.T) {
+	api := setupEditorAPITest(t)
+	path := filepath.Join(t.TempDir(), "manual.docx")
+	writeEditorTestDOCX(t, path, "Texto para leitura")
+
+	first, err := api.EditorReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted := append([]byte(nil), original...)
+	for i := 4; i < len(corrupted); i++ {
+		corrupted[i] = 0
+	}
+	if err := os.WriteFile(path, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := api.EditorReadFile(path)
+	if err != nil {
+		t.Fatalf("releitura falhou em vez de usar o cache: %v", err)
+	}
+	if second.Content != first.Content {
+		t.Fatalf("conteúdo divergiu do cache: %q", second.Content)
+	}
+}
+
+func TestEditorWarningCodeDistinguishesPDFWithoutText(t *testing.T) {
+	if got := editorWarningCode(&docextract.Result{
+		Kind:     docextract.KindPDF,
+		Warnings: []string{"sem texto"},
+	}); got != "no_extractable_text" {
+		t.Fatalf("code=%q", got)
+	}
+	if got := editorWarningCode(&docextract.Result{
+		Kind:     docextract.KindEPUB,
+		Markdown: "# Parcial",
+		Warnings: []string{"item omitido"},
+	}); got != "partial_extraction" {
+		t.Fatalf("code=%q", got)
+	}
+}
+
+func TestEditorWriteFileRejectsDocument(t *testing.T) {
+	api := setupEditorAPITest(t)
+	path := filepath.Join(t.TempDir(), "manual.docx")
+	writeEditorTestDOCX(t, path, "Original")
+
+	if err := api.EditorWriteFile(path, "# substituição"); err == nil {
+		t.Fatal("EditorWriteFile deveria rejeitar documento opaco")
+	}
+}
+
 // fakeDialog captura as opções passadas ao SystemDialogPort nos testes.
 type fakeDialog struct {
 	lastOpen ports.OpenFileOptions
@@ -387,6 +503,10 @@ func TestEditorOpenFilePassesFrontendLabels(t *testing.T) {
 	if fake.lastOpen.Filters[0].DisplayName != "Markdown files" {
 		t.Fatalf("markdown filter = %q", fake.lastOpen.Filters[0].DisplayName)
 	}
+	if !strings.Contains(fake.lastOpen.Filters[0].Pattern, "*.docx") ||
+		!strings.Contains(fake.lastOpen.Filters[0].Pattern, "*.pdf") {
+		t.Fatalf("filtro de abertura não inclui documentos: %q", fake.lastOpen.Filters[0].Pattern)
+	}
 	if fake.lastOpen.Filters[1].DisplayName != "All files" {
 		t.Fatalf("all filter = %q", fake.lastOpen.Filters[1].DisplayName)
 	}
@@ -405,7 +525,7 @@ func TestEditorOpenFileAppliesFallbackWhenLabelsEmpty(t *testing.T) {
 	if len(fake.lastOpen.Filters) != 2 {
 		t.Fatalf("filters = %d, quer 2", len(fake.lastOpen.Filters))
 	}
-	if fake.lastOpen.Filters[0].DisplayName != "Markdown" {
+	if fake.lastOpen.Filters[0].DisplayName != "Documentos e texto" {
 		t.Fatalf("markdown filter = %q", fake.lastOpen.Filters[0].DisplayName)
 	}
 	if fake.lastOpen.Filters[1].DisplayName != "Todos os arquivos" {
@@ -437,6 +557,9 @@ func TestEditorSaveFileDialogPassesFrontendLabels(t *testing.T) {
 	}
 	if fake.lastSave.Filters[0].DisplayName != "Markdown files" {
 		t.Fatalf("markdown filter = %q", fake.lastSave.Filters[0].DisplayName)
+	}
+	if strings.Contains(fake.lastSave.Filters[0].Pattern, "*.docx") {
+		t.Fatalf("filtro de salvamento não deve oferecer documentos: %q", fake.lastSave.Filters[0].Pattern)
 	}
 	if fake.lastSave.Filters[1].DisplayName != "All files" {
 		t.Fatalf("all filter = %q", fake.lastSave.Filters[1].DisplayName)

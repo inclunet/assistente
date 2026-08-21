@@ -6,6 +6,7 @@ import { useEditorStore, type EditorDocument } from '../store/editorStore';
 import { useUIStore } from '../store/uiStore';
 import { normalizePathKey } from '../utils/path';
 import { diskInfoEquals, hashStringFNV1a32, normalizeDiskInfo } from '../lib/editorMergeUtils';
+import { normalizeEditorDocumentResult, type EditorDocumentReadResult } from '../lib/editorContent';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   EditorGetFileInfo,
@@ -19,19 +20,26 @@ import type { EditorFileChangedEvent } from './editorTypes';
 import type { UseEditorMergeResult } from './useEditorMerge';
 import { decideExternalChange, type ReconcileTrigger } from './editorReconciler';
 
-/** Resultado de uma leitura de conteúdo do disco (best-effort). */
+/**
+ * Resultado de uma leitura de conteúdo do disco (best-effort). `error` é só um
+ * sinalizador: a mensagem do backend não é localizada e não pode chegar à UI.
+ */
 interface DiskReadResult {
   content: string;
   error: string;
   hash?: number;
+  document?: EditorDocumentReadResult;
 }
+
+const DISK_READ_FAILED = 'disk_read_failed';
 
 async function readDiskContent(filePath: string): Promise<DiskReadResult> {
   try {
-    const content = String((await EditorReadFile(filePath)) || '');
-    return { content, error: '', hash: hashStringFNV1a32(content) };
+    const document = normalizeEditorDocumentResult(await EditorReadFile(filePath), filePath);
+    return { content: document.content, error: '', hash: hashStringFNV1a32(document.content), document };
   } catch (e) {
-    return { content: '', error: String((e as Error)?.message || e || '').trim() };
+    logger.warn('[EditorPage] falha ao ler do disco:', e);
+    return { content: '', error: DISK_READ_FAILED };
   }
 }
 
@@ -72,6 +80,7 @@ export function useEditorPersistence({
   const addToast = useUIStore((s) => s.addToast);
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const setDocDirty = useEditorStore((s) => s.setDocDirty);
+  const setDocProjection = useEditorStore((s) => s.setDocProjection);
 
   const {
     getMergeSession,
@@ -97,6 +106,7 @@ export function useEditorPersistence({
     const { documents: currentDocs } = useEditorStore.getState();
     const tab = currentDocs[tabId] || null;
     if (!tab) return;
+    if (tab.readOnly) return;
 
     if (tab.mode === 'rich' && currentDocumentId === tabId) {
       flushActiveRichMarkdownNow();
@@ -344,6 +354,19 @@ export function useEditorPersistence({
         const visibleHashBeforeReload = hashStringFNV1a32(String(tab.markdown ?? ''));
         try {
           setDocMarkdown(tab.id, diskContent);
+          if (diskRead?.document) {
+            setDocProjection(
+              tab.id,
+              diskRead.document.projected
+                ? {
+                    format: diskRead.document.format,
+                    pages: diskRead.document.pages,
+                    warnings: diskRead.document.warnings,
+                    warningCode: diskRead.document.warningCode,
+                  }
+                : null,
+            );
+          }
           updateLatestMarkdownForTab(tab.id, diskContent);
           setDiskBaselineForTab(tab.id, diskContent);
           setDocDirty(tab.id, false);
@@ -421,7 +444,11 @@ export function useEditorPersistence({
       if (!currentDisk) return;
 
       if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
-        await reconcileExternalChangeForTab(tab, { trigger: 'focus_recheck', notifyAutoReload: true });
+        await reconcileExternalChangeForTab(tab, {
+          trigger: 'focus_recheck',
+          allowAutoReload: !!tab.readOnly,
+          notifyAutoReload: true,
+        });
       }
     };
 
