@@ -116,9 +116,13 @@ export function useRenderedContentNavigation({
     };
 
     if (activeProfile === 'modal') {
+      const accessibleLabel = dialogLabelRef.current?.trim();
+      if (!accessibleLabel) {
+        throw new Error('dialogLabel must be a non-empty string for modal rendered content');
+      }
       element.setAttribute('role', 'dialog');
       element.setAttribute('aria-modal', 'true');
-      if (dialogLabelRef.current) element.setAttribute('aria-label', dialogLabelRef.current);
+      element.setAttribute('aria-label', accessibleLabel);
       element.setAttribute('tabindex', '-1');
       applyInert(element);
     }
@@ -170,7 +174,13 @@ export function useRenderedContentNavigation({
       if (!element) return;
 
       if (event.key === 'Escape') {
-        if (shouldHandleEscapeRef.current && !shouldHandleEscapeRef.current()) return;
+        const explicitEscapePolicy = shouldHandleEscapeRef.current;
+        if (explicitEscapePolicy) {
+          if (!explicitEscapePolicy()) return;
+        } else if (
+          profileRef.current === 'scoped'
+          && !element.contains(document.activeElement)
+        ) return;
         event.preventDefault();
         event.stopPropagation();
         onEscapeRef.current();

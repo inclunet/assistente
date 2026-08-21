@@ -86,14 +86,14 @@ function MissingCustomContentHarness({ isActive, onClose = () => {} }: HarnessPr
   );
 }
 
-function ScopedHarness({ isActive }: HarnessProps) {
+function ScopedHarness({ isActive, onClose = () => {} }: HarnessProps) {
   const ref = useRef<HTMLDivElement>(null);
   useRenderedContentNavigation({
     elementRef: ref,
     isActive,
     profile: 'scoped',
     contentSelector: '[data-testid="scoped-content"]',
-    onEscape: () => {},
+    onEscape: onClose,
   });
   return (
     <>
@@ -256,6 +256,19 @@ describe('useVirtualModal', () => {
     rerender(<ScopedHarness isActive={false} />);
 
     expect(destination).toHaveFocus();
+  });
+
+  it('não captura Escape fora da região scoped sem política explícita', () => {
+    const onEscape = vi.fn();
+    const { rerender } = render(<ScopedHarness isActive={false} onClose={onEscape} />);
+    screen.getByTestId('scoped-opener').focus();
+    rerender(<ScopedHarness isActive={true} onClose={onEscape} />);
+
+    screen.getByTestId('scoped-destination').focus();
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+
+    expect(onEscape).not.toHaveBeenCalled();
+    expect(screen.getByTestId('scoped-destination')).toHaveFocus();
   });
 
   it('ignora controles com tabindex -1 ao calcular a contenção', () => {
