@@ -240,9 +240,25 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByText(/rest of the content remains available/)).toBeInTheDocument();
     const details = screen.getByText('Show technical details').closest('details');
     expect(details).not.toHaveAttribute('open');
+    expect(screen.getByText('Show technical details')).toHaveAttribute('tabindex', '-1');
     const error = within(details as HTMLElement).getByText(/Syntax error in text/);
     expect(error).toHaveTextContent('mermaid version 11.14.0');
     expect(error.textContent).not.toMatch(/\bat\s+/);
+  });
+
+  it('habilita os detalhes do erro na ordem de Tab somente durante a leitura', async () => {
+    accessibleMermaidMocks.renderAccessibleMermaid.mockRejectedValue(
+      new Error('Syntax error in text'),
+    );
+
+    render(
+      <MarkdownRenderer
+        content={'```mermaid\ntexto inválido\n```'}
+        tabNavigation="enabled"
+      />,
+    );
+
+    expect(await screen.findByText('Show technical details')).toHaveAttribute('tabindex', '0');
   });
 
   it('isola um Mermaid inválido e continua renderizando o conteúdo e os demais diagramas', async () => {

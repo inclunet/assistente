@@ -815,6 +815,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
 
           const summaryEl = document.createElement('summary');
           summaryEl.textContent = mermaidErrorDetails;
+          summaryEl.tabIndex = tabStopsEnabled ? 0 : -1;
 
           const preEl = document.createElement('pre');
           preEl.className = 'mermaid-diagram__error-pre';
