@@ -55,15 +55,20 @@ let instructionsSequence = 0;
 
 export function loadMermaid(): Promise<MermaidApi> {
   if (!mermaidPromise) {
-    mermaidPromise = import('mermaid').then((module) => {
-      const api = module.default;
-      api.initialize({
-        startOnLoad: false,
-        theme: 'dark',
-        securityLevel: 'strict',
+    mermaidPromise = import('mermaid')
+      .then((module) => {
+        const api = module.default;
+        api.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          securityLevel: 'strict',
+        });
+        return api;
+      })
+      .catch((error) => {
+        mermaidPromise = null;
+        throw error;
       });
-      return api;
-    });
   }
   return mermaidPromise;
 }

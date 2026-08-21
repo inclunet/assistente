@@ -1,11 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, waitFor } from '@testing-library/dom';
-import { createMermaidErrorContent, renderAccessibleMermaid } from './accessibleMermaid';
+import {
+  createMermaidErrorContent,
+  loadMermaid,
+  renderAccessibleMermaid,
+} from './accessibleMermaid';
 
 const mocks = vi.hoisted(() => ({
   announce: vi.fn(),
+  initialize: vi.fn(),
   playBumpSound: vi.fn(),
   renderAccessibleDiagram: vi.fn(),
+}));
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: mocks.initialize,
+    render: vi.fn(),
+  },
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({
@@ -61,6 +73,7 @@ function createRenderedGraph(nodes = graph.nodes) {
 describe('renderAccessibleMermaid', () => {
   beforeEach(() => {
     mocks.announce.mockReset();
+    mocks.initialize.mockReset();
     mocks.playBumpSound.mockReset();
     mocks.renderAccessibleDiagram.mockImplementation(async ({ host }: { host: HTMLElement }) => {
       const rendered = createRenderedGraph();
@@ -159,5 +172,21 @@ describe('createMermaidErrorContent', () => {
     expect(result.details).not.toHaveAttribute('open');
     expect(result.details.querySelector('summary')).toHaveAttribute('tabindex', '-1');
     expect(result.errorPre).toHaveTextContent('mermaid version 11.14.0');
+  });
+});
+
+describe('loadMermaid', () => {
+  it('limpa a Promise rejeitada para permitir uma nova tentativa', async () => {
+    mocks.initialize
+      .mockImplementationOnce(() => {
+        throw new Error('falha transitória');
+      })
+      .mockImplementationOnce(() => undefined);
+
+    await expect(loadMermaid()).rejects.toThrow('falha transitória');
+    await expect(loadMermaid()).resolves.toMatchObject({
+      initialize: mocks.initialize,
+    });
+    expect(mocks.initialize).toHaveBeenCalledTimes(2);
   });
 });
