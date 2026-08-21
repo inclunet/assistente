@@ -1194,7 +1194,7 @@ const es = {
         loadFailedAnnouncement: 'No se pudo abrir el archivo. La pestaña es de solo lectura.',
       },
       errors: {
-        diskReadFailed: 'Error al leer del disco:',
+        diskReadFailed: 'No fue posible leer el contenido del disco para compararlo con esta pestaña.',
       },
       preview: {
         truncatedSuffix: '\n\n… (truncado; total: {{total}} caracteres)',

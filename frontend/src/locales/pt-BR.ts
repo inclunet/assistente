@@ -1195,7 +1195,7 @@ const ptBR = {
         loadFailedAnnouncement: 'Não foi possível abrir o arquivo. A aba está somente leitura.',
       },
       errors: {
-        diskReadFailed: 'Erro ao ler do disco:',
+        diskReadFailed: 'Não foi possível ler o conteúdo do disco para comparar com esta aba.',
       },
       preview: {
         truncatedSuffix: '\n\n… (truncado; total: {{total}} chars)',

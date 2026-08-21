@@ -291,7 +291,9 @@ export function useEditorMerge() {
         try {
           diskContent = normalizeEditorDocumentResult(await EditorReadFile(filePath), filePath).content;
         } catch (e) {
-          diskReadError = errorMessage(e);
+          // A mensagem do backend não é localizada: serve de log, nunca de texto de UI.
+          logger.warn('[EditorPage] falha ao ler do disco na reconciliação:', e);
+          diskReadError = 'disk_read_failed';
         }
       }
 
@@ -307,7 +309,7 @@ export function useEditorMerge() {
       }
 
       const diskPreviewText = diskReadError
-        ? `${t('editor.errors.diskReadFailed')}\n${diskReadError}`
+        ? t('editor.errors.diskReadFailed')
         : composePreviewText(diskContent, t);
 
       const diffText = diskReadError ? '' : buildUnifiedDiff(diskContent, localContent);

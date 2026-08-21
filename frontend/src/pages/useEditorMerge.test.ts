@@ -257,6 +257,24 @@ describe('useEditorMerge', () => {
       expect(addToast).toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
     });
 
+    it('não mostra a mensagem crua do backend quando a leitura do disco falha', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockRejectedValue(new Error('falha ao acessar arquivo'));
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md');
+      });
+
+      const questions = requestQuestionnaire.mock.calls[0][0].questions as Array<{
+        id: string;
+        content?: string;
+      }>;
+      const disk = questions.find((q) => q.id === 'disk');
+      expect(disk?.content).toBe('editor.errors.diskReadFailed');
+      expect(disk?.content).not.toContain('falha ao acessar arquivo');
+    });
+
     it('usa título/descrição de mudança externa por padrão', async () => {
       requestQuestionnaire.mockResolvedValue({ cancelled: true });
       vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);

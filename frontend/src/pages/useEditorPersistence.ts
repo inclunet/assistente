@@ -20,7 +20,10 @@ import type { EditorFileChangedEvent } from './editorTypes';
 import type { UseEditorMergeResult } from './useEditorMerge';
 import { decideExternalChange, type ReconcileTrigger } from './editorReconciler';
 
-/** Resultado de uma leitura de conteúdo do disco (best-effort). */
+/**
+ * Resultado de uma leitura de conteúdo do disco (best-effort). `error` é só um
+ * sinalizador: a mensagem do backend não é localizada e não pode chegar à UI.
+ */
 interface DiskReadResult {
   content: string;
   error: string;
@@ -28,12 +31,15 @@ interface DiskReadResult {
   document?: EditorDocumentReadResult;
 }
 
+const DISK_READ_FAILED = 'disk_read_failed';
+
 async function readDiskContent(filePath: string): Promise<DiskReadResult> {
   try {
     const document = normalizeEditorDocumentResult(await EditorReadFile(filePath), filePath);
     return { content: document.content, error: '', hash: hashStringFNV1a32(document.content), document };
   } catch (e) {
-    return { content: '', error: String((e as Error)?.message || e || '').trim() };
+    logger.warn('[EditorPage] falha ao ler do disco:', e);
+    return { content: '', error: DISK_READ_FAILED };
   }
 }
 

@@ -1195,7 +1195,7 @@ const en = {
         loadFailedAnnouncement: 'The file could not be opened. The tab is read-only.',
       },
       errors: {
-        diskReadFailed: 'Error reading from disk:',
+        diskReadFailed: 'Could not read the content from disk to compare with this tab.',
       },
       preview: {
         truncatedSuffix: '\n\n… (truncated; total: {{total}} chars)',
