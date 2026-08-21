@@ -10,9 +10,9 @@ navegação por teclado e leitor de telas quando o tipo puder ser representado
 como grafo. Uma falha de sintaxe ou de renderização permanece confinada à
 região do diagrama e nunca remove nem bloqueia o restante do conteúdo.
 
-A integração usa `@inclunet/mermaid-a11y` pelas APIs headless. A shell React da
-biblioteca não será usada enquanto criar uma live region por instância, pois o
-Assistente mantém um único announcer global conforme a AEP-0058.
+A integração usa `@inclunet/mermaid-a11y` pelas APIs headless para preservar os
+menus e fluxos de edição próprios do Assistente. Desde a versão 0.2.0, os
+anúncios são enviados diretamente ao announcer global conforme a AEP-0058.
 
 ## Motivação
 
@@ -20,11 +20,11 @@ O renderer atual produz SVG visual, mas não expõe nós e conexões como um wid
 navegável. Além disso, erros do Mermaid incluem detalhes técnicos repetitivos,
 como a versão da biblioteca, diretamente no fluxo de leitura.
 
-`@inclunet/mermaid-a11y` já fornece extração do grafo, travessia e foco lógico,
-mas a versão 0.1.0 exige um elemento para receber anúncios. A API precisa ser
-adaptada sem criar regiões concorrentes até que a biblioteca aceite um
-callback ou uma live region fornecida pelo host, solicitado na
-[issue mermaid-a11y#1](https://github.com/inclunet/mermaid-a11y/issues/1).
+`@inclunet/mermaid-a11y` já fornece extração do grafo, travessia e foco lógico.
+A versão 0.1.0 exigia um elemento para receber anúncios, o que levou ao conector
+temporário do Assistente. A versão 0.2.0 resolveu a
+[issue mermaid-a11y#1](https://github.com/inclunet/mermaid-a11y/issues/1) com
+um callback `onAnnounce` fornecido pelo host.
 
 ## Decisões
 
@@ -32,16 +32,15 @@ callback ou uma live region fornecida pelo host, solicitado na
 
 O Assistente usa `renderAccessibleDiagram` e `createNavigator`, passando a
 instância Mermaid configurada com `securityLevel: strict`. O componente React
-da biblioteca não é montado, evitando sua live region interna e preservando os
-menus, metadados e fluxos de edição já existentes.
+da biblioteca não é montado porque as superfícies já possuem menus, metadados e
+fluxos de edição próprios.
 
-### 2. Conector temporário para o announcer global
+### 2. Canal oficial para o announcer global
 
-Enquanto a issue upstream não estiver disponível em uma release, cada
-navigator recebe um elemento neutro, sem papel ARIA e fora da árvore de
-acessibilidade. Um observador encaminha alterações desse elemento ao broker
-global. Esse conector é infraestrutura temporária e deve ser removido quando a
-biblioteca oferecer `onAnnounce` ou destino externo equivalente.
+Cada navigator recebe o callback `onAnnounce` da versão 0.2.0, conectado
+diretamente ao broker global. Não existe elemento intermediário, observer ou
+live region por diagrama. O broker continua responsável pela repetição de
+mensagens idênticas e pela arbitragem entre superfícies.
 
 O som de limite usa o serviço de feedback sonoro do Assistente. O destaque
 visual usa somente tokens de tema do aplicativo.
@@ -52,9 +51,9 @@ O diagrama só recebe `tabindex="0"` e navegação interna quando o consumidor
 habilita `tabNavigation`. Fora dos modos de leitura definidos pela AEP-0094, o
 diagrama continua visual e não cria uma sequência paralela de Tab.
 
-Tipos que renderizam SVG, mas não produzem nós extraíveis, permanecem visíveis
-e não recebem o navigator. A ausência de suporte navegável não é erro de
-renderização.
+O adaptador respeita o campo `navigable` devolvido pela biblioteca. Tipos que
+renderizam SVG, mas não permitem extração navegável, permanecem visíveis e não
+recebem o navigator. A ausência de suporte navegável não é erro de renderização.
 
 ### 4. Falha isolada por diagrama
 
@@ -106,17 +105,17 @@ próprias, como menus de contexto no Markdown e `sync()` do deck no Reveal.
 
 ### Fase 3 — Remoção do conector temporário
 
-- [ ] acompanhar a issue upstream;
-- [ ] atualizar para a release que aceite announcer externo;
-- [ ] substituir o elemento neutro pelo contrato oficial;
-- [ ] manter a auditoria de live regions verde.
+- [x] acompanhar a issue upstream;
+- [x] atualizar para a release que aceite announcer externo;
+- [x] substituir o elemento neutro pelo contrato oficial;
+- [x] manter a auditoria de live regions verde.
 
 ## Riscos
 
 - APIs internas do Mermaid podem variar dentro da faixa suportada pela
   biblioteca; a versão efetiva deve ser coberta por testes.
 - Um navigator montado fora do modo de leitura criaria tab stops indesejados.
-- Cleanup incompleto pode deixar observers, handlers ou overlays após rerender.
+- Cleanup incompleto pode deixar handlers ou overlays após rerender.
 - Erros durante streaming podem gerar ruído; falhas não solicitadas não devem
   interromper a leitura global.
 - O highlight padrão da biblioteca usa cores próprias; o Assistente deve
