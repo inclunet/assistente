@@ -1,6 +1,7 @@
 import { StrictMode, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
+import { useRenderedContentNavigation } from './useRenderedContentNavigation';
 import { useVirtualModal } from './useVirtualModal';
 
 vi.mock('./useAnnouncer', () => ({
@@ -82,6 +83,26 @@ function MissingCustomContentHarness({ isActive, onClose = () => {} }: HarnessPr
         Conteúdo de fallback
       </div>
     </div>
+  );
+}
+
+function ScopedHarness({ isActive }: HarnessProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useRenderedContentNavigation({
+    elementRef: ref,
+    isActive,
+    profile: 'scoped',
+    contentSelector: '[data-testid="scoped-content"]',
+    onEscape: () => {},
+  });
+  return (
+    <>
+      <button type="button" data-testid="scoped-opener">Abrir</button>
+      <div ref={ref}>
+        <div data-testid="scoped-content">Conteúdo</div>
+      </div>
+      <button type="button" data-testid="scoped-destination">Destino</button>
+    </>
   );
 }
 
@@ -220,6 +241,21 @@ describe('useVirtualModal', () => {
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
     expect(action).toHaveFocus();
     expect(link).toHaveAttribute('tabindex', '0');
+  });
+
+  it('não sobrescreve o foco escolhido pelo consumidor ao desativar perfil scoped', () => {
+    const { rerender } = render(<ScopedHarness isActive={false} />);
+    const opener = screen.getByTestId('scoped-opener');
+    const destination = screen.getByTestId('scoped-destination');
+
+    opener.focus();
+    rerender(<ScopedHarness isActive={true} />);
+    expect(screen.getByTestId('scoped-content')).toHaveFocus();
+
+    destination.focus();
+    rerender(<ScopedHarness isActive={false} />);
+
+    expect(destination).toHaveFocus();
   });
 
   it('ignora controles com tabindex -1 ao calcular a contenção', () => {

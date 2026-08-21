@@ -141,7 +141,7 @@ export function useRenderedContentNavigation({
       }
       previousContentAttrs.current = null;
       previousElementAttrs.current = null;
-      previousActiveElement.current?.focus();
+      if (activeProfile === 'modal') previousActiveElement.current?.focus();
     };
   }, [elementRef, isActive]);
 
