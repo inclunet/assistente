@@ -328,13 +328,25 @@ func (api *Editor) readDocument(ctx context.Context, path string) (*apidto.Edito
 	if info.IsDir() {
 		return nil, fmt.Errorf("o path aponta para um diretório")
 	}
-	data, err := filesystem.ReadFileBytes(p)
+	// O prefixo basta para classificar. Ler o arquivo inteiro aqui desperdiçaria
+	// I/O justamente no caso que o cache existe para evitar: reabrir um documento
+	// grande já projetado.
+	prefix, err := readEditorFilePrefix(p)
 	if err != nil {
 		return nil, fmt.Errorf("falha ao ler arquivo: %w", err)
 	}
-	kind := docextract.Detect(data, p)
+	kind := docextract.Detect(prefix, p)
 	if !docextract.IsOpaqueDocument(kind) {
-		if !docextract.IsWritableText(kind) || !docextract.IsLikelyText(data) {
+		if !docextract.IsWritableText(kind) {
+			return nil, docextract.ErrUnsupportedBinary()
+		}
+		data, err := filesystem.ReadFileBytes(p)
+		if err != nil {
+			return nil, fmt.Errorf("falha ao ler arquivo: %w", err)
+		}
+		// A confirmação é sobre o conteúdo todo: um NUL no meio do arquivo
+		// desmente o prefixo textual.
+		if !docextract.IsLikelyText(data) {
 			return nil, docextract.ErrUnsupportedBinary()
 		}
 		return &apidto.EditorOpenResult{Path: p, Content: string(data)}, nil
@@ -342,6 +354,10 @@ func (api *Editor) readDocument(ctx context.Context, path string) (*apidto.Edito
 
 	identity := docextract.FileIdentityFromStat(info.Size(), info.ModTime().UnixNano())
 	result, _, err := api.projectionCache().GetOrLoad(ctx, p+"\x00editor-view", identity, func(loadCtx context.Context) (*docextract.Result, error) {
+		data, err := filesystem.ReadFileBytes(p)
+		if err != nil {
+			return nil, fmt.Errorf("falha ao ler arquivo: %w", err)
+		}
 		return docextract.ExtractModeContext(loadCtx, data, p, docextract.ModeAuto)
 	})
 	if err != nil {

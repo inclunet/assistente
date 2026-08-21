@@ -380,6 +380,47 @@ func TestEditorReadFileProjectsDocumentForReadOnlyView(t *testing.T) {
 	}
 }
 
+// Reabrir um documento grande não pode custar a leitura inteira de novo: o
+// corpo do arquivo é corrompido preservando magic, tamanho e mtime, então uma
+// reextração falharia e só o cache devolve a projeção original.
+func TestEditorReadFileReusesProjectionWithoutRereadingDocument(t *testing.T) {
+	api := setupEditorAPITest(t)
+	path := filepath.Join(t.TempDir(), "manual.docx")
+	writeEditorTestDOCX(t, path, "Texto para leitura")
+
+	first, err := api.EditorReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted := append([]byte(nil), original...)
+	for i := 4; i < len(corrupted); i++ {
+		corrupted[i] = 0
+	}
+	if err := os.WriteFile(path, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := api.EditorReadFile(path)
+	if err != nil {
+		t.Fatalf("releitura falhou em vez de usar o cache: %v", err)
+	}
+	if second.Content != first.Content {
+		t.Fatalf("conteúdo divergiu do cache: %q", second.Content)
+	}
+}
+
 func TestEditorWarningCodeDistinguishesPDFWithoutText(t *testing.T) {
 	if got := editorWarningCode(&docextract.Result{
 		Kind:     docextract.KindPDF,
