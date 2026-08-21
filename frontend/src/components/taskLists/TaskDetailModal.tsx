@@ -380,7 +380,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
                     </div>
                   </div>
                   <div className="task-detail__note-content">
-                    <MarkdownRenderer content={note.content} />
+                    <MarkdownRenderer content={note.content} tabNavigation="enabled" />
                   </div>
                 </>
               )}
