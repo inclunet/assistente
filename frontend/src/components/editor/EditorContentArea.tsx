@@ -186,7 +186,9 @@ export function EditorContentArea({
     openAnnouncement: t('editor.documentView.readingOpened'),
     closeAnnouncement: t('editor.documentView.readingFocused'),
     shouldHandleEscape: () => (
-      !isModalOpen() && document.activeElement !== renderedDocumentRef.current
+      !isModalOpen()
+      && document.querySelector('[role="menu"]') === null
+      && document.activeElement !== renderedDocumentRef.current
     ),
     manageDocumentSemantics: false,
   });

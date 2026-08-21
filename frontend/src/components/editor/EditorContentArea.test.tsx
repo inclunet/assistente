@@ -418,6 +418,13 @@ describe('EditorContentArea document view', () => {
     expect(outside).toHaveFocus();
 
     isModalOpenMock.mockReturnValue(false);
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    document.body.append(menu);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(outside).toHaveFocus();
+    menu.remove();
+
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(renderedDocument).toHaveFocus();
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.readingFocused');
