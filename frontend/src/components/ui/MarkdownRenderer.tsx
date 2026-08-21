@@ -619,10 +619,12 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
 
         img.addEventListener('click', onClick);
         img.addEventListener('keydown', onKeyDown);
+        parentLink?.addEventListener('click', onClick);
         parentLink?.addEventListener('keydown', onParentLinkKeyDown);
         cleanups.push(() => {
           img.removeEventListener('click', onClick);
           img.removeEventListener('keydown', onKeyDown);
+          parentLink?.removeEventListener('click', onClick);
           parentLink?.removeEventListener('keydown', onParentLinkKeyDown);
         });
       });

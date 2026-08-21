@@ -151,6 +151,22 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
+  it('abre imagem envolvida por link quando leitor de tela sintetiza click no wrapper', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
+        tabNavigation="enabled"
+      />,
+    );
+
+    const link = container.querySelector<HTMLAnchorElement>('a[href]');
+    expect(link).not.toBeNull();
+
+    fireEvent.click(link!);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('ignora imagens sem src e não as torna interativas', () => {
     render(<MarkdownRenderer content={'![vazia]() ![Gato](http://example.com/cat.png)'} />);
 
