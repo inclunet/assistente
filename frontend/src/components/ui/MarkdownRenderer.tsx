@@ -11,6 +11,7 @@ import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
 import {
+  createMermaidErrorContent,
   loadMermaid,
   renderAccessibleMermaid,
   type AccessibleMermaidResult,
@@ -795,36 +796,18 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           const errorText = truncate(getErrorText(err));
 
           const diagramWrapper = document.createElement('div');
-          diagramWrapper.className = 'mermaid-diagram mermaid-diagram--error';
-          diagramWrapper.setAttribute('role', 'group');
-          diagramWrapper.setAttribute('aria-label', mermaidErrorLabel);
+          diagramWrapper.className = 'mermaid-diagram';
           diagramWrapper.dataset.mermaidIndex = String(i);
           diagramWrapper.dataset.mermaidCode = mermaidCode;
-          diagramWrapper.tabIndex = -1;
-
-          const titleEl = document.createElement('div');
-          titleEl.className = 'mermaid-diagram__error-title';
-          titleEl.textContent = mermaidRenderError;
-
-          const msgEl = document.createElement('div');
-          msgEl.className = 'mermaid-diagram__error-message';
-          msgEl.textContent = mermaidRenderErrorMessage;
-
-          const detailsEl = document.createElement('details');
-          detailsEl.className = 'mermaid-diagram__error-details';
-
-          const summaryEl = document.createElement('summary');
-          summaryEl.textContent = mermaidErrorDetails;
-          summaryEl.tabIndex = tabStopsEnabled ? 0 : -1;
-
-          const preEl = document.createElement('pre');
-          preEl.className = 'mermaid-diagram__error-pre';
-          preEl.textContent = errorText;
-
-          detailsEl.append(summaryEl, preEl);
-          diagramWrapper.appendChild(titleEl);
-          diagramWrapper.appendChild(msgEl);
-          diagramWrapper.appendChild(detailsEl);
+          const { details: detailsEl } = createMermaidErrorContent({
+            container: diagramWrapper,
+            ariaLabel: mermaidErrorLabel,
+            title: mermaidRenderError,
+            message: mermaidRenderErrorMessage,
+            detailsLabel: mermaidErrorDetails,
+            errorText,
+            detailsTabbable: tabStopsEnabled,
+          });
 
           const editorKey = interactiveButtons ? `mermaid-${i}` : null;
           const monacoContainer = interactiveButtons

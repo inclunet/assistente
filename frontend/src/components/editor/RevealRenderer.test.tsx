@@ -15,6 +15,7 @@ vi.mock('react-i18next', () => ({
         : values?.index
           ? `${key}: ${values.index}`
           : key,
+    i18n: { language: 'pt-BR', resolvedLanguage: 'pt-BR' },
   }),
 }));
 
@@ -27,6 +28,12 @@ const revealMocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   initialize: vi.fn(),
   sync: vi.fn(),
+}));
+
+const accessibleMermaidMocks = vi.hoisted(() => ({
+  cleanup: vi.fn(),
+  loadMermaid: vi.fn(),
+  renderAccessibleMermaid: vi.fn(),
 }));
 
 vi.mock('reveal.js', () => ({
@@ -45,12 +52,45 @@ vi.mock('mermaid', () => ({
   },
 }));
 
+vi.mock('../../lib/accessibleMermaid', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/accessibleMermaid')>();
+  return {
+    ...actual,
+    loadMermaid: accessibleMermaidMocks.loadMermaid,
+    renderAccessibleMermaid: accessibleMermaidMocks.renderAccessibleMermaid,
+  };
+});
+
 describe('RevealRenderer', () => {
   beforeEach(() => {
     revealMocks.configure.mockReset();
     revealMocks.destroy.mockReset();
     revealMocks.initialize.mockReset();
     revealMocks.sync.mockReset();
+    accessibleMermaidMocks.cleanup.mockReset();
+    accessibleMermaidMocks.loadMermaid.mockReset();
+    accessibleMermaidMocks.loadMermaid.mockResolvedValue({ render: vi.fn() });
+    accessibleMermaidMocks.renderAccessibleMermaid.mockReset();
+    accessibleMermaidMocks.renderAccessibleMermaid.mockImplementation(
+      async ({ container, navigationEnabled, ariaLabel }: {
+        container: HTMLElement;
+        navigationEnabled: boolean;
+        ariaLabel: string;
+      }) => {
+        container.setAttribute('role', 'group');
+        container.setAttribute('aria-label', ariaLabel);
+        container.tabIndex = navigationEnabled ? 0 : -1;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('role', 'img');
+        container.appendChild(svg);
+        return {
+          svg,
+          diagramType: 'flowchart-v2',
+          navigable: navigationEnabled,
+          cleanup: accessibleMermaidMocks.cleanup,
+        };
+      },
+    );
   });
 
   it('habilita links na ordem de Tab somente durante a leitura escopada', () => {
@@ -268,11 +308,69 @@ flowchart TD
     const diagram = container.querySelector('.mermaid-diagram');
     expect(diagram).toHaveAttribute('data-mermaid-index', '0');
     expect(diagram).toHaveAttribute('data-mermaid-code', 'flowchart TD\n  A --> B');
+    expect(diagram).toHaveAttribute('tabindex', '-1');
+    expect(accessibleMermaidMocks.renderAccessibleMermaid)
+      .toHaveBeenLastCalledWith(expect.objectContaining({ navigationEnabled: false }));
 
     rerender(<RevealRenderer markdown={markdown} tabNavigation="enabled" />);
 
     await waitFor(() => {
-      expect(container.querySelector('.mermaid-diagram')).not.toBeNull();
+      expect(container.querySelector('.mermaid-diagram')).toHaveAttribute('tabindex', '0');
     });
+    expect(accessibleMermaidMocks.cleanup).toHaveBeenCalled();
+    expect(accessibleMermaidMocks.renderAccessibleMermaid)
+      .toHaveBeenLastCalledWith(expect.objectContaining({ navigationEnabled: true }));
+  });
+
+  it('isola um Mermaid inválido sem impedir os demais slides e diagramas', async () => {
+    accessibleMermaidMocks.renderAccessibleMermaid
+      .mockRejectedValueOnce(new Error('Syntax error in text\nmermaid version 11.14.0'))
+      .mockImplementationOnce(async ({ container, ariaLabel }: {
+        container: HTMLElement;
+        ariaLabel: string;
+      }) => {
+        container.setAttribute('role', 'group');
+        container.setAttribute('aria-label', ariaLabel);
+        container.tabIndex = 0;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        container.appendChild(svg);
+        return {
+          svg,
+          diagramType: 'flowchart-v2',
+          navigable: true,
+          cleanup: accessibleMermaidMocks.cleanup,
+        };
+      });
+
+    const { container } = render(
+      <RevealRenderer
+        tabNavigation="enabled"
+        markdown={`# Antes
+
+\`\`\`mermaid
+inválido
+\`\`\`
+
+---
+
+# Depois
+
+\`\`\`mermaid
+flowchart LR
+A --> B
+\`\`\``}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(accessibleMermaidMocks.renderAccessibleMermaid).toHaveBeenCalledTimes(2);
+    });
+    expect(container).toHaveTextContent('Antes');
+    expect(container).toHaveTextContent('Depois');
+    expect(container.querySelectorAll('.mermaid-diagram')).toHaveLength(2);
+    expect(container.querySelector('.mermaid-diagram--error')).not.toBeNull();
+    expect(container.querySelector('.mermaid-diagram--error details')).not.toHaveAttribute('open');
+    expect(container.querySelector('.mermaid-diagram--error summary')).toHaveAttribute('tabindex', '0');
+    expect(container.querySelectorAll('.mermaid-diagram svg')).toHaveLength(1);
   });
 });

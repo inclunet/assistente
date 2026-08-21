@@ -1,3 +1,8 @@
+.mermaid-diagram:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .mermaid-diagram .mermaid-a11y-highlight-halo {
   stroke: var(--bg-base);
   stroke-width: 8px;
@@ -10,4 +15,35 @@
   stroke-width: 4px;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.mermaid-diagram.mermaid-diagram--error {
+  border: 1px solid var(--color-danger);
+  background-color: var(--color-danger-dim);
+  color: var(--text-primary);
+}
+
+.mermaid-diagram .mermaid-diagram__error-title {
+  font-weight: 700;
+  margin-bottom: var(--spacing-xs);
+}
+
+.mermaid-diagram .mermaid-diagram__error-message {
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-sm);
+  opacity: 0.95;
+}
+
+.mermaid-diagram .mermaid-diagram__error-details summary {
+  cursor: pointer;
+}
+
+.mermaid-diagram .mermaid-diagram__error-pre {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--border-radius);
+  background: var(--bg-elevated);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
