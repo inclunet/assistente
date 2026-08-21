@@ -502,6 +502,10 @@ describe('EditorContentArea document view', () => {
     };
     rerender(contentAreaElement(replacementTab, { isPanelActive: true }));
     expect(renderedDocument).toHaveAttribute('role', 'group');
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'disabled',
+    );
 
     renderedDocument?.focus();
     fireEvent.keyDown(renderedDocument!, { key: 'Enter' });

@@ -137,7 +137,7 @@ export function EditorContentArea({
   const pendingRevealSlideFocusRef = useRef(false);
   const renderedPaneRef = useRef<HTMLDivElement>(null);
   const renderedDocumentRef = useRef<HTMLDivElement>(null);
-  const [isRenderedReading, setIsRenderedReading] = useState(false);
+  const [readingDocumentKey, setReadingDocumentKey] = useState<string | null>(null);
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
@@ -168,8 +168,13 @@ export function EditorContentArea({
       })
     : '';
 
+  const renderedDocumentKey = activeTab
+    ? [activeTab.id, activeTab.draftId ?? '', activeTab.filePath ?? '', activeTab.mode].join('\u0000')
+    : null;
   const renderedReadingActive = (
-    isPanelActive && activeTab?.mode === 'view' && isRenderedReading
+    isPanelActive
+    && activeTab?.mode === 'view'
+    && readingDocumentKey === renderedDocumentKey
   );
 
   useRenderedContentNavigation({
@@ -205,7 +210,7 @@ export function EditorContentArea({
   }, [activeTab?.id]);
 
   useEffect(() => {
-    setIsRenderedReading(false);
+    setReadingDocumentKey(null);
   }, [
     activeTab?.draftId,
     activeTab?.filePath,
@@ -478,7 +483,7 @@ export function EditorContentArea({
                   ) {
                     event.preventDefault();
                     event.stopPropagation();
-                    setIsRenderedReading(true);
+                    setReadingDocumentKey(renderedDocumentKey);
                   }
                 }}
               >
