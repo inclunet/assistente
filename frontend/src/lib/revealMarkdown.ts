@@ -9,7 +9,7 @@ export type RevealDetectionKind = 'markdown' | 'reveal';
 export type RevealDetection = {
   kind: RevealDetectionKind;
   confidence: 'none' | 'probable' | 'strong' | 'manual';
-  reason?: 'manual' | 'slideAttribute' | 'multipleSeparators';
+  reason?: 'manual' | 'slideAttribute';
 };
 
 export type RevealSlideLevel = 'horizontal' | 'vertical';
@@ -53,10 +53,6 @@ function isVerticalSeparator(line: string): boolean {
 
 function isSlideSeparator(line: string): boolean {
   return isHorizontalSeparator(line) || isVerticalSeparator(line);
-}
-
-function hasMeaningfulContent(value: string): boolean {
-  return value.trim().length > 0;
 }
 
 function trimBoundaryNewlines(value: string): string {
@@ -188,15 +184,6 @@ export function detectRevealMarkdown(markdown: string, manualMode?: 'markdown' |
   const text = String(markdown || '');
   if (hasSlideAttributeOutsideFences(text)) {
     return { kind: 'reveal', confidence: 'strong', reason: 'slideAttribute' };
-  }
-
-  const analysisText = stripYamlFrontmatter(text);
-  const parts = splitRevealSlides(analysisText);
-  const nonEmptySlides = parts.filter((slide) => hasMeaningfulContent(slide.markdown));
-  const separatorCount = Math.max(0, parts.length - 1);
-
-  if (separatorCount >= 2 && nonEmptySlides.length >= 3) {
-    return { kind: 'reveal', confidence: 'strong', reason: 'multipleSeparators' };
   }
 
   return { kind: 'markdown', confidence: 'none' };

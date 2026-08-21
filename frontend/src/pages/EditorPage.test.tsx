@@ -903,7 +903,7 @@ describe('EditorPage', () => {
       'tab-1': {
         id: 'tab-1',
         title: 'Deck',
-        markdown: '# Slide 1\n\n---\n\n## Slide 2\nselected rich text\n\n---\n\n## Slide 3\noutro slide',
+        markdown: '<!-- .slide: class="title-slide" -->\n\n# Slide 1\n\n---\n\n## Slide 2\nselected rich text\n\n---\n\n## Slide 3\noutro slide',
         mode: 'rich',
         filePath: 'deck.md',
       },
@@ -959,7 +959,7 @@ describe('EditorPage', () => {
   });
 
   it('mantém o slide Reveal Markdown capturado no prepare ao enviar', async () => {
-    const initialDeck = '# Slide 1\n\n---\n\n## Slide 2\nselected markdown text\n\n---\n\n## Slide 3\noutro slide';
+    const initialDeck = '<!-- .slide: class="title-slide" -->\n\n# Slide 1\n\n---\n\n## Slide 2\nselected markdown text\n\n---\n\n## Slide 3\noutro slide';
     const selectedText = 'selected markdown text';
     const selectionStart = initialDeck.indexOf(selectedText);
     editorPageMocks.markdownModelValue = initialDeck;

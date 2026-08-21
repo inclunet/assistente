@@ -26,21 +26,26 @@ Conteúdo`;
     });
   });
 
-  it('detecta decks com múltiplos separadores e conteúdo', () => {
-    const markdown = `# Slide 1
+  it('não confunde um artigo com múltiplas réguas horizontais com slides', () => {
+    const markdown = `# Relatório
+
+Introdução extensa do documento.
 
 ---
 
-## Slide 2
+## Metodologia
+
+Descrição dos procedimentos e resultados.
 
 ---
 
-## Slide 3`;
+## Conclusão
+
+Considerações finais.`;
 
     expect(detectRevealMarkdown(markdown)).toEqual({
-      kind: 'reveal',
-      confidence: 'strong',
-      reason: 'multipleSeparators',
+      kind: 'markdown',
+      confidence: 'none',
     });
   });
 
@@ -261,7 +266,10 @@ linha com dois espaços${hardBreak}
 describe('parseRevealMarkdown', () => {
   it('só retorna slides quando detecta Reveal', () => {
     expect(parseRevealMarkdown('# Documento').slides).toHaveLength(0);
-    expect(parseRevealMarkdown('# A\n\n---\n\n# B\n\n---\n\n# C').slides).toHaveLength(3);
+    expect(parseRevealMarkdown('# A\n\n---\n\n# B\n\n---\n\n# C').slides).toHaveLength(0);
+    expect(
+      parseRevealMarkdown('<!-- .slide: class="title-slide" -->\n\n# A\n\n---\n\n# B\n\n---\n\n# C').slides,
+    ).toHaveLength(3);
   });
 
   it('deriva título do deck e rótulos dos slides do Markdown compatível com Reveal', () => {
@@ -290,7 +298,9 @@ Obrigada`;
   });
 
   it('usa o primeiro H1 como título do deck quando não há frontmatter title', () => {
-    const deck = parseRevealMarkdown('# Título principal\n\n---\n\n## Segundo\n\n---\n\n## Terceiro');
+    const deck = parseRevealMarkdown(
+      '<!-- .slide: class="title-slide" -->\n\n# Título principal\n\n---\n\n## Segundo\n\n---\n\n## Terceiro',
+    );
 
     expect(deck.title).toBe('Título principal');
   });

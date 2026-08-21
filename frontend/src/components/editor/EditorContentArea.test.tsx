@@ -457,7 +457,7 @@ describe('EditorContentArea document view', () => {
     const { container } = renderContentArea({
       id: 'reveal-reading',
       title: 'slides.md',
-      markdown: '# Slide 1\n\n---\n\n# Slide 2\n\n---\n\n# Slide 3',
+      markdown: '<!-- .slide: class="title-slide" -->\n\n# Slide 1\n\n---\n\n# Slide 2\n\n---\n\n# Slide 3',
       mode: 'view',
     });
     const renderedDocument = container.querySelector<HTMLElement>(
