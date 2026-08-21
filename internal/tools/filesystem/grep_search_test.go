@@ -662,7 +662,7 @@ func TestGrepSearchDoesNotAdvertiseOrRunOCR(t *testing.T) {
 	}
 	for _, value := range schema.Properties["document_mode"].Enum {
 		if value == "ocr" {
-			t.Fatal("OCR não deve aparecer no schema antes da Fase 3")
+			t.Fatal("OCR não deve aparecer no schema (AEP-0093, issue #565)")
 		}
 	}
 
@@ -670,7 +670,7 @@ func TestGrepSearchDoesNotAdvertiseOrRunOCR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsError || !strings.Contains(result.Content, "Fase 3") {
+	if !result.IsError || !strings.Contains(result.Content, "não está disponível") {
 		t.Fatalf("OCR deveria falhar explicitamente: %+v", result)
 	}
 }

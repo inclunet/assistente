@@ -63,7 +63,7 @@ func (t *ReadFile) Parameters() json.RawMessage {
 			"document_mode": {
 				"type": "string",
 				"enum": ["auto", "markdown"],
-				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela. O modo ocr é previsto para a Fase 3 do AEP-0093 e ainda não é aceito, por isso está fora do enum."
+				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela. OCR não está disponível (AEP-0093, issue #565) e por isso o valor \"ocr\" fica fora do enum."
 			}
 		},
 		"required": ["path"],
@@ -83,10 +83,10 @@ type readFileArgs struct {
 // virar auto: silenciar o engano faria o chamador achar que pediu conversão e
 // receber o texto cru sem aviso.
 //
-// "ocr" fica fora do enum do schema porque ainda não funciona — anunciar um
-// valor que sempre falha só convidaria o modelo a escolhê-lo. O caso continua
-// tratado aqui para quem não valida pelo schema receber a razão certa em vez de
-// um "valor inválido" genérico.
+// "ocr" fica fora do enum do schema: o modo não existe neste recorte
+// (AEP-0093, issue #565). Anunciar um valor que sempre falha só convidaria o
+// modelo a escolhê-lo. O caso continua tratado aqui para quem não valida pelo
+// schema receber a razão certa em vez de um "valor inválido" genérico.
 func parseDocumentMode(raw string) (docextract.Mode, error) {
 	switch raw {
 	case "", string(docextract.ModeAuto):
@@ -94,7 +94,7 @@ func parseDocumentMode(raw string) (docextract.Mode, error) {
 	case string(docextract.ModeMarkdown):
 		return docextract.ModeMarkdown, nil
 	case "ocr":
-		return "", fmt.Errorf("document_mode %q ainda não está disponível (previsto para a Fase 3 do AEP-0093)", raw)
+		return "", fmt.Errorf("document_mode %q não está disponível (OCR adiado, AEP-0093, issue #565)", raw)
 	default:
 		return "", fmt.Errorf("document_mode inválido: %q (use \"auto\" ou \"markdown\")", raw)
 	}

@@ -58,7 +58,7 @@ func extractPDF(ctx context.Context, data []byte, filename string) (*Result, err
 	if len(pages) == 0 {
 		res.Markdown = ""
 		res.Warnings = append(res.Warnings,
-			"PDF sem camada de texto extraível. OCR ainda não está disponível (previsto para a Fase 3 do AEP-0093).",
+			"PDF sem camada de texto extraível. OCR não está disponível (AEP-0093, issue #565).",
 		)
 		return res, nil
 	}
@@ -66,7 +66,7 @@ func extractPDF(ctx context.Context, data []byte, filename string) (*Result, err
 	res.Markdown = strings.Join(pages, "\n")
 	if emptyPages > 0 {
 		res.Warnings = append(res.Warnings,
-			fmt.Sprintf("%d página(s) sem texto extraível; OCR ainda não está disponível (previsto para a Fase 3 do AEP-0093).", emptyPages),
+			fmt.Sprintf("%d página(s) sem texto extraível; OCR não está disponível (AEP-0093, issue #565).", emptyPages),
 		)
 	}
 	return res, nil
