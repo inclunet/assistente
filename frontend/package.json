@@ -27,7 +27,7 @@
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
     "@floating-ui/dom": "^1.7.6",
-    "@inclunet/mermaid-a11y": "^0.1.0",
+    "@inclunet/mermaid-a11y": "^0.2.0",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-virtual": "^3.13.26",
     "@tiptap/extension-image": "^3.27.1",

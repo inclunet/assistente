@@ -54,7 +54,7 @@ const graph = {
   ],
 };
 
-function createRenderedGraph(nodes = graph.nodes) {
+function createRenderedGraph(nodes = graph.nodes, navigable = true) {
   const host = document.createElement('div');
   host.innerHTML = `
     <svg>
@@ -67,6 +67,7 @@ function createRenderedGraph(nodes = graph.nodes) {
     svg: host.querySelector('svg') as unknown as SVGSVGElement,
     graph: { ...graph, nodes },
     diagramType: 'flowchart-v2',
+    navigable,
   };
 }
 
@@ -103,18 +104,22 @@ describe('renderAccessibleMermaid', () => {
     expect(container).toHaveAttribute('tabindex', '0');
     expect(container.querySelector('[aria-live]')).toBeNull();
     expect(container.querySelector('[role="status"], [role="alert"]')).toBeNull();
+    expect(container.querySelector('span[hidden][aria-hidden="true"]')).toBeNull();
+    expect(mocks.announce).not.toHaveBeenCalled();
 
     container.focus();
     fireEvent.keyDown(container, { key: 'd' });
+    fireEvent.keyDown(container, { key: 'd' });
 
     await waitFor(() => {
-      expect(mocks.announce).toHaveBeenCalledWith(expect.stringContaining('Início'));
+      expect(mocks.announce).toHaveBeenCalledTimes(2);
+      expect(mocks.announce).toHaveBeenLastCalledWith(expect.stringContaining('Início'));
     });
   });
 
-  it('mantém o SVG sem tab stop quando o tipo não produz nós', async () => {
+  it('respeita o fallback não navegável informado pela biblioteca', async () => {
     mocks.renderAccessibleDiagram.mockImplementationOnce(async ({ host }: { host: HTMLElement }) => {
-      const rendered = createRenderedGraph([]);
+      const rendered = createRenderedGraph(graph.nodes, false);
       host.replaceChildren(rendered.svg);
       return rendered;
     });

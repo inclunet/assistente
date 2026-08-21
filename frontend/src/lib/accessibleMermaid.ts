@@ -109,7 +109,7 @@ export async function renderAccessibleMermaid(
   container.setAttribute('aria-label', rendered.graph.title || ariaLabel);
   container.dataset.mermaidDiagramType = rendered.diagramType;
 
-  const navigable = navigationEnabled && rendered.graph.nodes.length > 0;
+  const navigable = navigationEnabled && rendered.navigable;
   if (!navigable) {
     container.tabIndex = -1;
     return {
@@ -126,31 +126,17 @@ export async function renderAccessibleMermaid(
   instructions.className = 'sr-only';
   instructions.textContent = getMessages(locale).keyboardInstructions;
 
-  // Ponte temporária para mermaid-a11y#1. O nó não é uma live region e não
-  // participa da árvore acessível; toda fala continua arbitrada pelo AEP-0058.
-  const announcementSink = document.createElement('span');
-  announcementSink.hidden = true;
-  announcementSink.setAttribute('aria-hidden', 'true');
-
-  container.append(instructions, announcementSink);
-
-  const observer = new MutationObserver(() => {
-    const message = announcementSink.textContent?.trim();
-    if (message && container.contains(document.activeElement)) {
-      announce(message);
-    }
-  });
-  observer.observe(announcementSink, {
-    childList: true,
-    characterData: true,
-    subtree: true,
-  });
+  container.append(instructions);
 
   const navigator: DiagramNavigator = createNavigator({
     graph: rendered.graph,
     svg: rendered.svg,
     container,
-    liveRegion: announcementSink,
+    onAnnounce: (message) => {
+      if (container.contains(document.activeElement)) {
+        announce(message);
+      }
+    },
     instructionsId: instructions.id,
     locale,
     onBoundary: playBumpSound,
@@ -162,7 +148,6 @@ export async function renderAccessibleMermaid(
     ...rendered,
     navigable: true,
     cleanup() {
-      observer.disconnect();
       navigator.detach();
       container.replaceChildren();
     },
