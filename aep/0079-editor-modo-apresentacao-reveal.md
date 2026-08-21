@@ -21,9 +21,13 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 2. O `tabType` enviado ao chat continua sendo `editor`. O contexto de apresentação viaja em `surfaceContextJson`, por exemplo: modo `reveal`, quantidade de slides, índice do slide atual e Markdown do slide atual quando aplicável.
 
 3. Markdown comum mantém o comportamento atual. A detecção automática deve ser conservadora:
-   - `<!-- .slide: ... -->` é sinal forte.
-   - múltiplos separadores `---`/`----` em linha isolada, com conteúdo entre slides, são sinais fortes.
-   - um único `---`, `Note:`, frontmatter YAML, régua horizontal, imagens, headings ou listas não bastam para ativar apresentação.
+   - `<!-- .slide: ... -->` fora de bloco fenced é o sinal explícito de apresentação.
+   - separadores `---`/`----` dividem slides somente depois que o documento já
+     foi reconhecido como apresentação ou quando o modo Reveal foi solicitado
+     explicitamente pelo consumidor.
+   - separadores, ainda que múltiplos e acompanhados de headings, `Note:`,
+     frontmatter YAML, imagens ou listas não bastam para ativar apresentação,
+     pois todos também são Markdown comum válido.
 
 4. Deve haver caminho para override manual em evolução futura: “tratar como apresentação” e “tratar como Markdown comum”. Essa preferência pertence ao estado da aba/editor, não ao conteúdo do arquivo.
 
@@ -43,7 +47,9 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 
 ## Fases
 
-1. Criar detector/parser conservador de Markdown Reveal-compatible com testes contra falsos positivos de Markdown comum.
+1. Criar detector/parser conservador de Markdown Reveal-compatible com testes
+   contra falsos positivos de Markdown comum. A detecção automática exige
+   diretiva `.slide`; decks sem diretiva dependem do override explícito.
 
 2. Integrar Reveal.js ao modo renderizado do Editor, mantendo fallback para `MarkdownRenderer`.
 
@@ -71,7 +77,8 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 
 - Arquivos Markdown comuns continuam abrindo, editando e renderizando como antes.
 
-- Um documento com comentários Reveal ou múltiplos separadores de slides é detectado como apresentação.
+- Um documento com diretiva `.slide` é detectado como apresentação; múltiplas
+  réguas horizontais sem diretiva permanecem Markdown comum.
 
 - No modo código, o documento completo permanece visível e editável.
 
