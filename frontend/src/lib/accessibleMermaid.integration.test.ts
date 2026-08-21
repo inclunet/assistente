@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadMermaid, renderAccessibleMermaid } from './accessibleMermaid';
 
+function layoutPrototypes(): object[] {
+  const scope = globalThis as unknown as Record<string, { prototype?: object } | undefined>;
+  return ['SVGElement', 'SVGGraphicsElement', 'SVGTextContentElement']
+    .map((name) => scope[name]?.prototype)
+    .filter((prototype): prototype is object => Boolean(prototype));
+}
+
 describe('integração com a versão instalada do Mermaid', () => {
   beforeEach(() => {
     Object.defineProperty(SVGElement.prototype, 'getBBox', {
@@ -49,12 +56,27 @@ describe('integração com a versão instalada do Mermaid', () => {
 });
 
 describe('falha de layout com a versão instalada do Mermaid', () => {
+  // O diagrama passa no parser e quebra na medição, que é justamente o caminho
+  // em que o Mermaid monta o cartaz de erro. A quebra é forçada aqui para o
+  // teste não depender de o ambiente deixar de implementar getBBox.
+  beforeEach(() => {
+    layoutPrototypes().forEach((prototype) => {
+      Object.defineProperty(prototype, 'getBBox', {
+        configurable: true,
+        value: () => {
+          throw new Error('medição indisponível');
+        },
+      });
+    });
+  });
+
   afterEach(() => {
+    layoutPrototypes().forEach((prototype) => {
+      delete (prototype as { getBBox?: unknown }).getBBox;
+    });
     document.body.replaceChildren();
   });
 
-  // Sem o polyfill de getBBox o diagrama passa no parser e quebra no desenho,
-  // que é justamente o caminho em que o Mermaid monta o cartaz de erro.
   it('não deixa o cartaz de erro solto no documento', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

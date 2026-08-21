@@ -173,13 +173,20 @@ export async function renderAccessibleMermaid(
 // o Mermaid monta o diagrama num nó temporário do `body` e só o remove quando o
 // render termina bem. Ver mermaid-a11y#4.
 function removeLeakedMermaidNodes(): void {
-  document.body
-    ?.querySelectorAll<HTMLElement>(':scope > div[id^="dmermaidA11y"]')
-    .forEach((node) => {
-      if (node.querySelector('.error-icon, .error-text')) {
+  const body = document.body;
+  if (!body) return;
+
+  // Limpeza best-effort: roda dentro de um catch e não pode mascarar o erro
+  // original do Mermaid.
+  try {
+    body.querySelectorAll<HTMLElement>('div[id^="dmermaidA11y"]').forEach((node) => {
+      if (node.parentElement === body && node.querySelector('.error-icon, .error-text')) {
         node.remove();
       }
     });
+  } catch {
+    // Sem limpeza; o cartaz some no próximo render bem-sucedido.
+  }
 }
 
 export function createMermaidErrorContent(
