@@ -25,6 +25,7 @@ type RevealApi = {
   initialize: () => Promise<void> | void;
   destroy: () => void;
   sync: () => void;
+  configure: (options: Record<string, unknown>) => void;
 };
 
 type RevealCtor = new (root: HTMLElement, options?: Record<string, unknown>) => RevealApi;
@@ -278,6 +279,7 @@ export function RevealRenderer({
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
+  const tabNavigationRef = useRef(tabNavigation);
   const mermaidApiRef = useRef<MermaidApi | null>(null);
   const lastFullscreenRequestNonceRef = useRef(fullscreenRequestNonce);
   const deck = useMemo(() => parseRevealMarkdown(markdown, 'reveal'), [markdown]);
@@ -286,6 +288,7 @@ export function RevealRenderer({
     () => deck.title || String(documentTitle || '').trim() || undefined,
     [deck.title, documentTitle]
   );
+  tabNavigationRef.current = tabNavigation;
   const getSlideLabel = useCallback(
     (slide: RevealSlide) => slide.label || t('editor.presentation.slideOption', { index: slide.index + 1 }),
     [t]
@@ -343,7 +346,7 @@ export function RevealRenderer({
         controls: true,
         progress: true,
         slideNumber: true,
-        keyboard: true,
+        keyboard: tabNavigationRef.current !== 'enabled',
         center: true,
       });
       await api.initialize();
@@ -353,6 +356,7 @@ export function RevealRenderer({
       }
       revealApiRef.current = api;
       try {
+        api.configure({ keyboard: tabNavigationRef.current !== 'enabled' });
         api.sync();
       } catch {
         // Best-effort: o efeito de slides também tenta sincronizar depois.
@@ -387,6 +391,7 @@ export function RevealRenderer({
 
   useEffect(() => {
     try {
+      revealApiRef.current?.configure({ keyboard: tabNavigation !== 'enabled' });
       revealApiRef.current?.sync();
     } catch {
       // Best-effort: o renderer continua mostrando o HTML mesmo se o sync falhar.

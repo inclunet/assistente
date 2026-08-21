@@ -1,5 +1,5 @@
 import { render, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RevealRenderer } from './RevealRenderer';
 
@@ -22,11 +22,19 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
+const revealMocks = vi.hoisted(() => ({
+  configure: vi.fn(),
+  destroy: vi.fn(),
+  initialize: vi.fn(),
+  sync: vi.fn(),
+}));
+
 vi.mock('reveal.js', () => ({
   default: class RevealMock {
-    initialize = vi.fn();
-    destroy = vi.fn();
-    sync = vi.fn();
+    initialize = revealMocks.initialize;
+    destroy = revealMocks.destroy;
+    sync = revealMocks.sync;
+    configure = revealMocks.configure;
   },
 }));
 
@@ -38,6 +46,13 @@ vi.mock('mermaid', () => ({
 }));
 
 describe('RevealRenderer', () => {
+  beforeEach(() => {
+    revealMocks.configure.mockReset();
+    revealMocks.destroy.mockReset();
+    revealMocks.initialize.mockReset();
+    revealMocks.sync.mockReset();
+  });
+
   it('habilita links na ordem de Tab somente durante a leitura escopada', () => {
     const markdown = '[Documentação](https://example.com)';
     const { container, rerender } = render(
@@ -47,6 +62,22 @@ describe('RevealRenderer', () => {
 
     rerender(<RevealRenderer markdown={markdown} tabNavigation="enabled" />);
     expect(container.querySelector('a[href]')).toHaveAttribute('tabindex', '0');
+  });
+
+  it('desativa o teclado do Reveal durante a leitura escopada', async () => {
+    const { rerender } = render(
+      <RevealRenderer markdown="# Slide" tabNavigation="enabled" />,
+    );
+
+    await waitFor(() => {
+      expect(revealMocks.configure).toHaveBeenCalledWith({ keyboard: false });
+    });
+
+    rerender(<RevealRenderer markdown="# Slide" tabNavigation="disabled" />);
+
+    await waitFor(() => {
+      expect(revealMocks.configure).toHaveBeenLastCalledWith({ keyboard: true });
+    });
   });
 
   it('expõe título do deck e rótulos acessíveis por slide', () => {
