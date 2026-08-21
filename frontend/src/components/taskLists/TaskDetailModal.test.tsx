@@ -58,7 +58,13 @@ vi.mock('./useCustomActions', () => ({
 }));
 
 vi.mock('../ui/MarkdownRenderer', () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
+  MarkdownRenderer: ({
+    content,
+    tabNavigation,
+  }: {
+    content: string;
+    tabNavigation?: string;
+  }) => <div data-testid="task-markdown" data-tab-navigation={tabNavigation}>{content}</div>,
 }));
 
 /* ── Dados ─────────────────────────────────────────────────── */
@@ -92,6 +98,14 @@ describe('TaskDetailModal', () => {
   });
 
   it('usa readingMode (role="document") para permitir leitura linear no leitor de tela', async () => {
+    mockLoadTaskNotes.mockResolvedValue([{
+      id: 'note-1',
+      taskId: task.id,
+      type: 1,
+      content: 'Nota com [link](https://example.com)',
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    }]);
     render(
       <MemoryRouter>
         <TaskDetailModal isOpen onClose={vi.fn()} task={task} statuses={statuses} />
@@ -103,6 +117,11 @@ describe('TaskDetailModal', () => {
     const body = await screen.findByRole('document');
     expect(body).toHaveClass('modal-body');
     expect(screen.queryByRole('application')).toBeNull();
+    const markdownRegions = await screen.findAllByTestId('task-markdown');
+    expect(markdownRegions).toHaveLength(2);
+    markdownRegions.forEach((region) => {
+      expect(region).toHaveAttribute('data-tab-navigation', 'enabled');
+    });
   });
 
   it('vincula conversa pelo HistoryPicker e chama setTaskConversation com o ID', async () => {

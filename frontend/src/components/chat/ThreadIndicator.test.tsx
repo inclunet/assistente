@@ -20,4 +20,21 @@ describe('ThreadIndicator', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(onToggle).toHaveBeenCalled();
   });
+
+  it('entra na ordem de Tab apenas durante a leitura', () => {
+    const { rerender } = render(
+      <ThreadIndicator childCount={2} isExpanded={false} onToggle={() => {}} />,
+    );
+    expect(screen.getByRole('button')).toHaveAttribute('tabindex', '-1');
+
+    rerender(
+      <ThreadIndicator
+        childCount={2}
+        isExpanded={false}
+        tabNavigationEnabled
+        onToggle={() => {}}
+      />,
+    );
+    expect(screen.getByRole('button')).toHaveAttribute('tabindex', '0');
+  });
 });

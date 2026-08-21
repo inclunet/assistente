@@ -299,7 +299,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
         <p className="task-detail__section-title">{t('tasklist.description')}</p>
         {task.description ? (
           <div className="task-detail__description">
-            <MarkdownRenderer content={task.description} />
+            <MarkdownRenderer content={task.description} tabNavigation="enabled" />
           </div>
         ) : (
           <p className="task-detail__description task-detail__description--empty">
@@ -380,7 +380,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
                     </div>
                   </div>
                   <div className="task-detail__note-content">
-                    <MarkdownRenderer content={note.content} />
+                    <MarkdownRenderer content={note.content} tabNavigation="enabled" />
                   </div>
                 </>
               )}

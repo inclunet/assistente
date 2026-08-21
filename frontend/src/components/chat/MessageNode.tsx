@@ -297,6 +297,14 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
 
+    // Durante a leitura isolada, a árvore deixa de funcionar como item da
+    // lista: links, botões e o role=document precisam receber suas teclas
+    // nativamente. Escape continua sob responsabilidade do useVirtualModal.
+    if (isReading) {
+      e.stopPropagation();
+      return;
+    }
+
     // Espaço: reproduz TTS da mensagem
     if (key === ' ' && !node.message.isStreaming) {
       e.preventDefault();

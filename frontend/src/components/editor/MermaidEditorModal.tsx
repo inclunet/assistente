@@ -173,7 +173,12 @@ export function MermaidEditorModal({
           <div className="mermaid-editor-modal__pane" role="region" aria-label={t('editor.mermaid.preview')}>
             <div className="mermaid-editor-modal__pane-title">{t('editor.mermaid.preview')}</div>
             <div className="mermaid-editor-modal__preview">
-              <MarkdownRenderer content={previewMarkdown} interactiveButtons={false} focusableMermaid={false} />
+              <MarkdownRenderer
+                content={previewMarkdown}
+                interactiveButtons={false}
+                focusableMermaid={false}
+                tabNavigation="disabled"
+              />
             </div>
           </div>
         </div>

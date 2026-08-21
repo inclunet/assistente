@@ -1,0 +1,139 @@
+# AEP-0094: Navegação em conteúdo renderizado
+
+- **Status**: In Progress
+- **Data**: 2026-08-21
+
+## Resumo
+
+Mensagens e documentos renderizados devem oferecer uma região de leitura
+previsível para teclado e leitor de telas. Fora dessa região, a navegação
+compacta da superfície continua igual; dentro dela, o conteúdo se comporta
+como um documento HTML: setas percorrem a estrutura pelo leitor de telas e
+Tab/Shift+Tab visitam controles interativos reais.
+
+Existem dois perfis de isolamento:
+
+- **modal**, usado por uma mensagem individual: o restante da tela fica
+  indisponível, Tab permanece dentro da mensagem e Esc encerra a leitura;
+- **escopado**, usado pelo preview do editor: o documento recebe foco e
+  semântica de leitura, mas Tab e F6 podem sair para as demais regiões da tela.
+
+## Motivação
+
+A lista de mensagens é eficiente porque cada mensagem funciona como uma única
+unidade de navegação. Pressionar Enter já abre uma mensagem como diálogo
+virtual, mas links e vários botões internos continuam fora da ordem de Tab.
+Isso torna o modo isolado opaco: a pessoa entra para ler, porém não consegue
+operar livremente os elementos que encontrou.
+
+O preview renderizado do editor tem o problema complementar. O Markdown está
+visível, mas não existe uma entrada explícita em modo documento nem uma área
+de foco padrão que permita localizar e ler o conteúdo com previsibilidade.
+
+## Decisões
+
+### D1 — Tab só expande a mensagem quando ela está isolada
+
+Fora do modo de leitura, links, imagens interativas e controles internos da
+mensagem não criam uma sequência paralela de tab stops. A mensagem permanece
+uma unidade da lista. No modo isolado, os mesmos elementos entram na ordem
+natural do DOM.
+
+Texto, títulos, listas, tabelas e blocos de código não recebem `tabindex=0`.
+Como em HTML comum, conteúdo estático é navegado pelas setas/browse mode;
+Tab é reservado a links, botões e controles de formulário confiáveis.
+
+### D2 — O renderer recebe política explícita de navegação
+
+`MarkdownRenderer` não infere isolamento pelo local onde foi montado. O
+consumidor informa se os controles renderizados devem ser alcançáveis por Tab.
+O padrão é não criar tab stops, preservando a navegação compacta.
+
+### D3 — Mensagem usa isolamento modal
+
+Enter em uma mensagem não interna:
+
+1. expõe a mensagem como `role="dialog"` e `aria-modal="true"`;
+2. aplica `role="document"` ao container que engloba o turno completo;
+3. foca o documento;
+4. torna o restante da tela `inert`;
+5. contém Tab/Shift+Tab na mensagem;
+6. deixa eventos dos controles internos seguirem seu comportamento nativo;
+7. Esc fecha o isolamento e restaura o foco à mensagem.
+
+### D4 — Editor usa isolamento escopado
+
+No modo renderizado, Enter ativa leitura sobre o preview. O documento recebe
+foco e `role="document"`, sem `aria-modal`, `inert` ou focus trap. Assim:
+
+- setas operam no documento enquanto o leitor de telas está em browse mode;
+- Tab sai depois do último controle e Shift+Tab sai antes do primeiro;
+- F6/Shift+F6 continuam ciclando pelas landmarks do workspace;
+- Esc devolve foco ao documento renderizado;
+- a região renderizada é a área de foco padrão do editor enquanto `mode=view`.
+
+O contrato vale tanto para Markdown comum quanto para projeções somente
+leitura de PDF, DOCX e demais formatos documentais suportados.
+
+### D5 — HTML arbitrário continua proibido
+
+Conteúdo de modelo e documentos é não confiável. O renderer não habilita HTML
+cru, formulários arbitrários, scripts ou controles capazes de enviar dados.
+Somente elementos gerados pelo Markdown seguro e componentes confiáveis do
+Assistente podem se tornar interativos.
+
+### D6 — Foco e anúncios continuam globais e previsíveis
+
+Não são criadas live regions locais. Entrada e saída usam o announcer global.
+O isolamento de mensagem restaura o elemento que abriu a leitura; o editor
+integra sua região renderizada ao contrato existente de landmarks e foco
+padrão.
+
+## Fases
+
+### Fase 1 — Contrato comum e mensagens
+
+- [x] tornar a política de Tab explícita no `MarkdownRenderer`;
+- [x] aplicar a política a links e imagens interativas;
+- [x] propagar o estado de leitura aos controles de mensagem;
+- [x] impedir handlers da lista/mensagem de capturar teclas de controles
+      internos durante o isolamento;
+- [x] cobrir entrada, ordem de Tab, contenção, Escape e regressão fora do modo.
+
+### Fase 2 — Preview isolado no editor
+
+- [ ] introduzir leitura escopada no preview;
+- [ ] focar o documento ao ativar;
+- [ ] registrar o preview como área padrão em `mode=view`;
+- [ ] manter Tab livre nas bordas e F6/Shift+F6 funcionais;
+- [ ] fazer Esc retornar ao documento;
+- [ ] cobrir Markdown editável e documento projetado somente leitura.
+
+## Riscos
+
+- Um handler ancestral pode capturar Enter, Espaço ou setas antes do controle
+  interno e impedir sua operação nativa.
+- `inert` e focus trap não podem ser reutilizados no editor, pois bloqueariam
+  justamente Tab e F6 exigidos pelo perfil escopado.
+- Tornar todo nó estático focável criaria dezenas de paradas artificiais e
+  prejudicaria a leitura; a política deve seguir a semântica HTML nativa.
+- Conteúdo dinâmico (Mermaid, imagens e cadeias de tools) pode mudar a lista de
+  focáveis durante a leitura; a contenção deve consultar o DOM atual.
+- Permitir HTML cru em nome de interatividade introduziria phishing, coleta de
+  dados e execução indevida; essa ampliação permanece fora de escopo.
+
+## Critérios de aceitação
+
+- Fora do isolamento, a navegação atual da lista de mensagens não ganha tab
+  stops internos.
+- Dentro da mensagem isolada, links, botões e imagens interativas são
+  alcançáveis e operáveis por Tab/Shift+Tab.
+- Enter e Espaço em controles internos não são capturados como atalhos da
+  mensagem.
+- Tab permanece contido somente no perfil modal da mensagem.
+- Esc fecha a leitura da mensagem e restaura o foco.
+- No preview do editor, Enter foca um `role="document"` sem tornar a tela
+  modal.
+- No editor, Tab pode sair pelas bordas e F6/Shift+F6 seguem funcionando.
+- Esc e o foco padrão do editor retornam à região renderizada em `mode=view`.
+- Nenhuma fase habilita HTML ou formulários arbitrários vindos do conteúdo.

@@ -7,6 +7,7 @@ export interface ThreadIndicatorProps {
   childCount: number;
   isExpanded: boolean;
   isLoading?: boolean;
+  tabNavigationEnabled?: boolean;
   onToggle: () => void;
 }
 
@@ -15,6 +16,7 @@ export const ThreadIndicator: React.FC<ThreadIndicatorProps> = React.memo(({
   childCount,
   isExpanded,
   isLoading = false,
+  tabNavigationEnabled = false,
   onToggle,
 }) => {
   const { t } = useTranslation();
@@ -37,7 +39,7 @@ export const ThreadIndicator: React.FC<ThreadIndicatorProps> = React.memo(({
         : `${t('chat.expandThread')}, ${t('chat.interactionCount', { count: childCount })}`
       }
       disabled={isLoading}
-      tabIndex={-1}
+      tabIndex={tabNavigationEnabled ? 0 : -1}
     >
       {isLoading ? (
         <span className="thread-indicator__spinner" aria-hidden="true"><LoadingOutlined /></span>
@@ -55,6 +57,7 @@ export const ThreadIndicator: React.FC<ThreadIndicatorProps> = React.memo(({
     prevProps.childCount === nextProps.childCount &&
     prevProps.isExpanded === nextProps.isExpanded &&
     prevProps.isLoading === nextProps.isLoading &&
+    prevProps.tabNavigationEnabled === nextProps.tabNavigationEnabled &&
     prevProps.onToggle === nextProps.onToggle
   );
 });

@@ -41,13 +41,36 @@ describe('MarkdownRenderer', () => {
     expect(link).toHaveAttribute('tabindex', '-1');
   });
 
-  it('torna imagens interativas e focáveis via teclado', () => {
+  it('habilita links na ordem de Tab somente quando a região está em leitura', () => {
+    const { rerender } = render(
+      <MarkdownRenderer content="[Link](http://example.com)" tabNavigation="disabled" />,
+    );
+    expect(screen.getByRole('link', { name: 'Link' })).toHaveAttribute('tabindex', '-1');
+
+    rerender(
+      <MarkdownRenderer content="[Link](http://example.com)" tabNavigation="enabled" />,
+    );
+    expect(screen.getByRole('link', { name: 'Link' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('torna imagens interativas sem criar tab stop fora da região de leitura', () => {
     render(<MarkdownRenderer content={'![Gato](http://example.com/cat.png)'} />);
 
     const img = screen.getByAltText('Gato');
     expect(img).toHaveAttribute('role', 'button');
-    expect(img).toHaveAttribute('tabindex', '0');
+    expect(img).toHaveAttribute('tabindex', '-1');
     expect(img).toHaveClass('markdown-image--interactive');
+  });
+
+  it('habilita imagens interativas na ordem de Tab durante a leitura', () => {
+    render(
+      <MarkdownRenderer
+        content={'![Gato](http://example.com/cat.png)'}
+        tabNavigation="enabled"
+      />,
+    );
+
+    expect(screen.getByAltText('Gato')).toHaveAttribute('tabindex', '0');
   });
 
   it('abre o visualizador de imagem ao clicar', () => {
@@ -68,43 +91,33 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('não abre o visualizador em clique modificado dentro de um link', () => {
-    render(
+  it('preserva link nativo como única parada de Tab quando ele envolve imagem', () => {
+    const { container } = render(
       <MarkdownRenderer
         content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
+        tabNavigation="enabled"
       />,
     );
 
-    const img = screen.getByAltText('Gato');
-    expect(img.closest('a[href]')).not.toBeNull();
+    const link = container.querySelector('a[href]');
+    const image = screen.getByAltText('Gato');
+    expect(link).not.toBeNull();
+    expect(link).not.toHaveAttribute('role');
+    expect(link).toHaveAttribute('tabindex', '0');
+    expect(link).toHaveAccessibleName('Gato');
+    expect(image).not.toHaveAttribute('role');
+    expect(image).not.toHaveAttribute('tabindex');
+    expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
 
-    fireEvent.click(img, { ctrlKey: true });
+    let clickWasPreventedByRenderer = true;
+    link!.addEventListener('click', (event) => {
+      clickWasPreventedByRenderer = event.defaultPrevented;
+      event.preventDefault();
+    }, { once: true });
+    fireEvent.click(image);
+    expect(clickWasPreventedByRenderer).toBe(false);
+    expect(fireEvent.keyDown(link!, { key: 'Enter' })).toBe(true);
     expect(screen.queryByRole('dialog')).toBeNull();
-
-    fireEvent.click(img, { metaKey: true });
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('não abre o visualizador em middle-click dentro de um link', () => {
-    render(
-      <MarkdownRenderer
-        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
-      />,
-    );
-
-    fireEvent.click(screen.getByAltText('Gato'), { button: 1 });
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('abre o visualizador em clique simples mesmo dentro de um link', () => {
-    render(
-      <MarkdownRenderer
-        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
-      />,
-    );
-
-    fireEvent.click(screen.getByAltText('Gato'));
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('ignora imagens sem src e não as torna interativas', () => {
@@ -131,7 +144,7 @@ describe('MarkdownRenderer', () => {
   it('a navegação do viewer percorre apenas imagens válidas', () => {
     render(
       <MarkdownRenderer
-        content={'![vazia]() ![Gato](http://example.com/cat.png) ![Cachorro](http://example.com/dog.png)'}
+        content={'![vazia]() [![Pássaro](http://example.com/bird.png)](http://example.com/page) ![Gato](http://example.com/cat.png) ![Cachorro](http://example.com/dog.png)'}
       />,
     );
 
@@ -139,11 +152,12 @@ describe('MarkdownRenderer', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();
 
-    // Só há 2 imagens válidas: voltar a partir da primeira leva à última (Cachorro),
-    // nunca à imagem de src vazio.
+    // Só há 2 imagens independentes: voltar a partir da primeira leva à última
+    // (Cachorro), nunca à imagem vazia nem à imagem que representa um link.
     fireEvent.keyDown(document, { key: 'ArrowLeft' });
     expect(within(dialog).getByAltText('Cachorro')).toBeInTheDocument();
     expect(within(dialog).queryByAltText('vazia')).toBeNull();
+    expect(within(dialog).queryByAltText('Pássaro')).toBeNull();
 
     fireEvent.keyDown(document, { key: 'ArrowRight' });
     expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();

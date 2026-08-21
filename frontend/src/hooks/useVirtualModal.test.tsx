@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { StrictMode, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
+import { useRenderedContentNavigation } from './useRenderedContentNavigation';
 import { useVirtualModal } from './useVirtualModal';
 
 vi.mock('./useAnnouncer', () => ({
@@ -82,6 +83,43 @@ function MissingCustomContentHarness({ isActive, onClose = () => {} }: HarnessPr
         Conteúdo de fallback
       </div>
     </div>
+  );
+}
+
+function ScopedHarness({ isActive, onClose = () => {} }: HarnessProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useRenderedContentNavigation({
+    elementRef: ref,
+    isActive,
+    profile: 'scoped',
+    contentSelector: '[data-testid="scoped-content"]',
+    onEscape: onClose,
+  });
+  return (
+    <>
+      <button type="button" data-testid="scoped-opener">Abrir</button>
+      <div ref={ref}>
+        <div data-testid="scoped-content">Conteúdo</div>
+      </div>
+      <button type="button" data-testid="scoped-destination">Destino</button>
+    </>
+  );
+}
+
+function InteractiveHarness({ isActive, onClose = () => {} }: HarnessProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useVirtualModal({ elementRef: ref, isActive, onClose, ...labels });
+  return (
+    <>
+      <div ref={ref} data-testid="message-node">
+        <div className="chat-message__content" data-testid="content">
+          <a href="https://example.com" tabIndex={isActive ? 0 : -1}>Link</a>
+          <button type="button" tabIndex={isActive ? 0 : -1}>Ação</button>
+          <button type="button" tabIndex={-1}>Fora da ordem</button>
+        </div>
+      </div>
+      <button type="button" data-testid="outside">Fora da mensagem</button>
+    </>
   );
 }
 
@@ -180,5 +218,111 @@ describe('useVirtualModal', () => {
     expect(dialog).not.toHaveAttribute('role');
     expect(dialog).not.toHaveAttribute('aria-modal');
     expect(dialog).not.toHaveAttribute('tabindex');
+  });
+
+  it('percorre controles internos e contém Tab apenas nas bordas', () => {
+    render(<InteractiveHarness isActive={true} />);
+
+    const content = screen.getByTestId('content');
+    const link = screen.getByRole('link', { name: 'Link' });
+    const action = screen.getByRole('button', { name: 'Ação' });
+
+    expect(content).toHaveFocus();
+    // O evento não é cancelado no meio da ordem. JSDOM não executa a
+    // navegação nativa de Tab, então o foco permanece no elemento atual.
+    expect(fireEvent.keyDown(window, { key: 'Tab' })).toBe(true);
+    expect(content).toHaveFocus();
+
+    action.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(content).toHaveFocus();
+
+    content.focus();
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(action).toHaveFocus();
+    expect(link).toHaveAttribute('tabindex', '0');
+  });
+
+  it('não sobrescreve o foco escolhido pelo consumidor ao desativar perfil scoped', () => {
+    const { rerender } = render(<ScopedHarness isActive={false} />);
+    const opener = screen.getByTestId('scoped-opener');
+    const destination = screen.getByTestId('scoped-destination');
+
+    opener.focus();
+    rerender(<ScopedHarness isActive={true} />);
+    expect(screen.getByTestId('scoped-content')).toHaveFocus();
+
+    destination.focus();
+    rerender(<ScopedHarness isActive={false} />);
+
+    expect(destination).toHaveFocus();
+  });
+
+  it('não captura Escape fora da região scoped sem política explícita', () => {
+    const onEscape = vi.fn();
+    const { rerender } = render(<ScopedHarness isActive={false} onClose={onEscape} />);
+    screen.getByTestId('scoped-opener').focus();
+    rerender(<ScopedHarness isActive={true} onClose={onEscape} />);
+
+    screen.getByTestId('scoped-destination').focus();
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+
+    expect(onEscape).not.toHaveBeenCalled();
+    expect(screen.getByTestId('scoped-destination')).toHaveFocus();
+  });
+
+  it('ignora controles com tabindex -1 ao calcular a contenção', () => {
+    render(<InteractiveHarness isActive={true} />);
+
+    const hiddenFromTab = screen.getByRole('button', { name: 'Fora da ordem' });
+    const action = screen.getByRole('button', { name: 'Ação' });
+    action.focus();
+
+    fireEvent.keyDown(window, { key: 'Tab' });
+
+    expect(screen.getByTestId('content')).toHaveFocus();
+    expect(hiddenFromTab).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('fecha com Escape e restaura o foco anterior', () => {
+    const onClose = vi.fn();
+    const { rerender } = render(<InteractiveHarness isActive={false} onClose={onClose} />);
+    const message = screen.getByTestId('message-node');
+    message.tabIndex = -1;
+    message.focus();
+
+    rerender(<InteractiveHarness isActive={true} onClose={onClose} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+
+    rerender(<InteractiveHarness isActive={false} onClose={onClose} />);
+    expect(message).toHaveFocus();
+  });
+
+  it('restaura ARIA e foco corretamente sob StrictMode', () => {
+    const { rerender } = render(
+      <StrictMode>
+        <InteractiveHarness isActive={false} />
+      </StrictMode>,
+    );
+    const message = screen.getByTestId('message-node');
+    message.tabIndex = -1;
+    message.focus();
+
+    rerender(
+      <StrictMode>
+        <InteractiveHarness isActive={true} />
+      </StrictMode>,
+    );
+    expect(message).toHaveAttribute('role', 'dialog');
+
+    rerender(
+      <StrictMode>
+        <InteractiveHarness isActive={false} />
+      </StrictMode>,
+    );
+    expect(message).not.toHaveAttribute('role');
+    expect(message).not.toHaveAttribute('aria-modal');
+    expect(message).toHaveFocus();
   });
 });
