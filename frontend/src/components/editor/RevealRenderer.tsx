@@ -490,7 +490,7 @@ export function RevealRenderer({
         wrapper.remove();
       });
     };
-  }, [slides, t]);
+  }, [slides, t, tabNavigation]);
 
   return (
     <div

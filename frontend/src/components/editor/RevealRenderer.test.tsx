@@ -248,14 +248,16 @@ Note:
   });
 
   it('renderiza Mermaid dentro do preview Reveal preservando o alvo editável', async () => {
-    const { container } = render(
-      <RevealRenderer
-        markdown={`# Slide
+    const markdown = `# Slide
 
 \`\`\`mermaid
 flowchart TD
   A --> B
-\`\`\``}
+\`\`\``;
+    const { container, rerender } = render(
+      <RevealRenderer
+        markdown={markdown}
+        tabNavigation="disabled"
       />
     );
 
@@ -266,5 +268,11 @@ flowchart TD
     const diagram = container.querySelector('.mermaid-diagram');
     expect(diagram).toHaveAttribute('data-mermaid-index', '0');
     expect(diagram).toHaveAttribute('data-mermaid-code', 'flowchart TD\n  A --> B');
+
+    rerender(<RevealRenderer markdown={markdown} tabNavigation="enabled" />);
+
+    await waitFor(() => {
+      expect(container.querySelector('.mermaid-diagram')).not.toBeNull();
+    });
   });
 });
