@@ -504,7 +504,6 @@ export function EditorContentArea({
                     <MarkdownRenderer
                       content={debouncedMarkdownForPreview}
                       interactiveButtons={false}
-                      focusableMermaid={!activeTab.readOnly}
                       tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
                     />
                   </>

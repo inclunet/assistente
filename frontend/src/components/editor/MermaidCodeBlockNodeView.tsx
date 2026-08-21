@@ -184,7 +184,6 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
           <MarkdownRenderer
             content={previewMarkdown}
             interactiveButtons={false}
-            focusableMermaid={false}
             tabNavigation="disabled"
           />
         </div>

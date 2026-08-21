@@ -10,6 +10,11 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
+import {
+  loadMermaid,
+  renderAccessibleMermaid,
+  type AccessibleMermaidResult,
+} from '../../lib/accessibleMermaid';
 import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
 import {
   buildEditorDestinationSubmenu,
@@ -18,8 +23,6 @@ import {
 } from '../../lib/editorSendMenu';
 import './MarkdownRenderer.css';
 
-type MermaidModule = typeof import('mermaid');
-type MermaidApi = MermaidModule['default'];
 type MonacoModule = typeof import('monaco-editor');
 type MonacoEditor = MonacoEditorNamespace.IStandaloneCodeEditor;
 
@@ -29,7 +32,6 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   interactiveButtons?: boolean;
-  focusableMermaid?: boolean;
   /** Habilita a ordem natural de Tab somente em regiões de leitura explícitas. */
   tabNavigation?: RenderedContentTabNavigation;
   enableSendToEditorButtons?: boolean;
@@ -105,23 +107,19 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   content,
   className = '',
   interactiveButtons = false,
-  focusableMermaid: _focusableMermaid = false,
   tabNavigation = 'disabled',
   enableSendToEditorButtons = false,
   editorTargets = [],
   onSendToEditor,
 }: MarkdownRendererProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [imageViewer, setImageViewer] = useState<{
     open: boolean;
     images: ImageViewerImage[];
     index: number;
   }>({ open: false, images: [], index: 0 });
-  const mermaidInitializedRef = useRef(false);
   const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
-  const mermaidApiRef = useRef<MermaidApi | null>(null);
-  const mermaidLoadingRef = useRef<Promise<MermaidApi> | null>(null);
   const monacoApiRef = useRef<MonacoModule | null>(null);
   const mermaidRenderRunRef = useRef(0);
   const navigate = useNavigate();
@@ -137,6 +135,22 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const htmlTableTitle = t('editor.sendToEditor.title.htmlTable');
   const linkTitle = t('editor.sendToEditor.title.link');
   const mermaidTitle = t('editor.sendToEditor.title.mermaid');
+  const mermaidDiagramLabel = t('editor.presentation.mermaidDiagramLabel');
+  const mermaidErrorLabel = t('editor.presentation.mermaidErrorLabel');
+  const mermaidRenderError = t('editor.presentation.mermaidRenderError');
+  const mermaidRenderErrorMessage = t('editor.presentation.mermaidRenderErrorMessage');
+  const mermaidErrorDetails = t('editor.presentation.mermaidErrorDetails');
+  const mermaidUnknownError = t('editor.presentation.mermaidUnknownError');
+  const mermaidTruncatedError = t('editor.presentation.mermaidTruncatedError');
+  const mermaidCopyCode = t('editor.presentation.mermaidCopyCode');
+  const mermaidCopyError = t('editor.presentation.mermaidCopyError');
+  const mermaidRerender = t('editor.presentation.mermaidRerender');
+  const mermaidViewDiagram = t('editor.presentation.mermaidViewDiagram');
+  const mermaidViewCode = t('editor.presentation.mermaidViewCode');
+  const mermaidHideEditor = t('editor.presentation.mermaidHideEditor');
+  const mermaidOpenEditor = t('editor.presentation.mermaidOpenEditor');
+  const mermaidActionsLabel = t('editor.presentation.mermaidActionsLabel');
+  const mermaidErrorActionsLabel = t('editor.presentation.mermaidErrorActionsLabel');
   const codeTitle = useCallback((language: string) => t('editor.sendToEditor.title.code', { language }), [t]);
 
   const {
@@ -227,25 +241,6 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     },
     [loadMonaco]
   );
-
-  const initMermaid = useCallback(async (): Promise<MermaidApi> => {
-    if (mermaidInitializedRef.current && mermaidApiRef.current) return mermaidApiRef.current;
-    if (mermaidLoadingRef.current) return mermaidLoadingRef.current;
-
-    mermaidLoadingRef.current = import('mermaid')
-      .then((mod) => {
-        const api = (mod.default ?? mod) as MermaidApi;
-        api.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
-        mermaidApiRef.current = api;
-        mermaidInitializedRef.current = true;
-        return api;
-      })
-      .finally(() => {
-        mermaidLoadingRef.current = null;
-      });
-
-    return mermaidLoadingRef.current;
-  }, []);
 
   const addContextMenus = useCallback(
     (cleanups: Array<() => void>) => {
@@ -655,12 +650,9 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       });
       if (pendingBlocks.length === 0) return;
 
-      const mermaid = await initMermaid();
-      if (!mermaid) return;
-
       const getErrorText = (err: unknown) => {
-        if (!err) return 'Erro desconhecido';
-        if (err instanceof Error) return String(err.message || 'Erro');
+        if (!err) return mermaidUnknownError;
+        if (err instanceof Error) return String(err.message || mermaidUnknownError);
         if (typeof err === 'object' && err) {
           const maybeMessage = (err as { message?: unknown; str?: unknown }).message ?? (err as { str?: unknown }).str;
           if (maybeMessage) return String(maybeMessage);
@@ -675,32 +667,49 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       const truncate = (text: string, maxChars = 8000) => {
         const s = String(text || '');
         if (s.length <= maxChars) return s;
-        return s.slice(0, maxChars) + `\n… (truncado; ${s.length} chars)`;
+        return s.slice(0, maxChars) + `\n${t('editor.presentation.mermaidTruncatedError', {
+          count: s.length,
+          defaultValue: mermaidTruncatedError,
+        })}`;
       };
 
       for (const { codeBlock, pre, index: i } of pendingBlocks) {
         const mermaidCode = codeBlock.textContent || '';
 
         try {
-          const id = `mermaid-${Date.now()}-${i}`;
-          const { svg } = await mermaid.render(id, mermaidCode);
-          if (pre.dataset.mermaidRenderRun !== runId || !pre.isConnected || !pre.parentNode) return;
-
           const diagramWrapper = document.createElement('div');
           diagramWrapper.className = 'mermaid-diagram';
-          diagramWrapper.setAttribute('role', 'group');
-          diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid');
           diagramWrapper.dataset.mermaidIndex = String(i);
           diagramWrapper.dataset.mermaidCode = mermaidCode;
-          diagramWrapper.innerHTML = svg;
-          diagramWrapper.tabIndex = -1;
+          const mermaid = await loadMermaid();
+          const accessibleResult: AccessibleMermaidResult = await renderAccessibleMermaid({
+            chart: mermaidCode,
+            container: diagramWrapper,
+            mermaid,
+            locale: i18n.resolvedLanguage ?? i18n.language,
+            navigationEnabled: tabStopsEnabled,
+            ariaLabel: mermaidDiagramLabel,
+          });
+          if (pre.dataset.mermaidRenderRun !== runId || !pre.isConnected || !pre.parentNode) {
+            accessibleResult.cleanup();
+            return;
+          }
+          cleanups.push(accessibleResult.cleanup);
 
           pre.parentNode!.insertBefore(diagramWrapper, pre);
           pre.style.display = 'none';
           pre.dataset.mermaidRendered = 'true';
-          pre.removeAttribute('data-mermaid-render-run');
+          pre.dataset.mermaidRenderRun = runId;
+          cleanups.push(() => {
+            diagramWrapper.remove();
+            if (pre.dataset.mermaidRenderRun === runId) {
+              pre.style.display = '';
+              pre.removeAttribute('data-mermaid-rendered');
+              pre.removeAttribute('data-mermaid-render-run');
+            }
+          });
 
-          const svgElement = diagramWrapper.querySelector('svg') as SVGElement | null;
+          const svgElement = accessibleResult.svg;
           const editorKey = interactiveButtons ? `mermaid-${i}` : null;
           const monacoContainer = interactiveButtons
             ? (() => {
@@ -721,7 +730,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             const items: MenuItem[] = [
               {
                 id: `mermaid-${i}-copy`,
-                label: 'Copiar código',
+                label: mermaidCopyCode,
                 action: () => void copyToClipboard(mermaidCode),
               },
             ];
@@ -753,7 +762,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               items.push({ separator: true, id: `mermaid-${i}-sep-1` });
               items.push({
                 id: `mermaid-${i}-toggle`,
-                label: isEditorMode ? 'Ver diagrama' : 'Ver código',
+                label: isEditorMode ? mermaidViewDiagram : mermaidViewCode,
                 action: () => {
                   isEditorMode = !isEditorMode;
                   if (isEditorMode) {
@@ -775,7 +784,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               });
             }
 
-            openMenu(e.clientX, e.clientY, 'Ações: Mermaid', items);
+            openMenu(e.clientX, e.clientY, mermaidActionsLabel, items);
           };
 
           diagramWrapper.addEventListener('contextmenu', onContextMenu);
@@ -788,26 +797,33 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           const diagramWrapper = document.createElement('div');
           diagramWrapper.className = 'mermaid-diagram mermaid-diagram--error';
           diagramWrapper.setAttribute('role', 'group');
-          diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid (erro)');
+          diagramWrapper.setAttribute('aria-label', mermaidErrorLabel);
           diagramWrapper.dataset.mermaidIndex = String(i);
           diagramWrapper.dataset.mermaidCode = mermaidCode;
           diagramWrapper.tabIndex = -1;
 
           const titleEl = document.createElement('div');
           titleEl.className = 'mermaid-diagram__error-title';
-          titleEl.textContent = 'Erro ao renderizar Mermaid';
+          titleEl.textContent = mermaidRenderError;
 
           const msgEl = document.createElement('div');
           msgEl.className = 'mermaid-diagram__error-message';
-          msgEl.textContent = 'O preview não pôde ser gerado. Você ainda pode copiar/enviar o código.';
+          msgEl.textContent = mermaidRenderErrorMessage;
+
+          const detailsEl = document.createElement('details');
+          detailsEl.className = 'mermaid-diagram__error-details';
+
+          const summaryEl = document.createElement('summary');
+          summaryEl.textContent = mermaidErrorDetails;
 
           const preEl = document.createElement('pre');
           preEl.className = 'mermaid-diagram__error-pre';
           preEl.textContent = errorText;
 
+          detailsEl.append(summaryEl, preEl);
           diagramWrapper.appendChild(titleEl);
           diagramWrapper.appendChild(msgEl);
-          diagramWrapper.appendChild(preEl);
+          diagramWrapper.appendChild(detailsEl);
 
           const editorKey = interactiveButtons ? `mermaid-${i}` : null;
           const monacoContainer = interactiveButtons
@@ -828,20 +844,21 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             const items: MenuItem[] = [
               {
                 id: `mermaid-${i}-err-copy-code`,
-                label: 'Copiar código',
+                label: mermaidCopyCode,
                 action: () => void copyToClipboard(mermaidCode),
               },
               {
                 id: `mermaid-${i}-err-copy-error`,
-                label: 'Copiar erro',
+                label: mermaidCopyError,
                 action: () => void copyToClipboard(errorText),
               },
               {
                 id: `mermaid-${i}-err-rerender`,
-                label: 'Re-renderizar',
+                label: mermaidRerender,
                 action: () => {
                   pre.style.display = '';
                   pre.removeAttribute('data-mermaid-rendered');
+                  pre.removeAttribute('data-mermaid-render-run');
                   diagramWrapper.remove();
                   void renderMermaidDiagrams(cleanups);
                 },
@@ -876,11 +893,11 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               items.push({ separator: true, id: `mermaid-${i}-err-sep-2` });
               items.push({
                 id: `mermaid-${i}-err-toggle`,
-                label: isEditorMode ? 'Ocultar editor' : 'Abrir no editor',
+                label: isEditorMode ? mermaidHideEditor : mermaidOpenEditor,
                 action: () => {
                   isEditorMode = !isEditorMode;
                   if (isEditorMode) {
-                    preEl.style.display = 'none';
+                    detailsEl.style.display = 'none';
                     monacoContainer.style.display = 'block';
                     void ensureMonacoEditor(
                       editorKey,
@@ -891,14 +908,14 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                       setTimeout(() => editor.focus(), 30);
                     });
                   } else {
-                    preEl.style.display = '';
+                    detailsEl.style.display = '';
                     monacoContainer.style.display = 'none';
                   }
                 },
               });
             }
 
-            openMenu(e.clientX, e.clientY, 'Ações: Mermaid (erro)', items);
+            openMenu(e.clientX, e.clientY, mermaidErrorActionsLabel, items);
           };
 
           diagramWrapper.addEventListener('contextmenu', onContextMenu);
@@ -907,7 +924,15 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           pre.parentNode!.insertBefore(diagramWrapper, pre);
           pre.style.display = 'none';
           pre.dataset.mermaidRendered = 'true';
-          pre.removeAttribute('data-mermaid-render-run');
+          pre.dataset.mermaidRenderRun = runId;
+          cleanups.push(() => {
+            diagramWrapper.remove();
+            if (pre.dataset.mermaidRenderRun === runId) {
+              pre.style.display = '';
+              pre.removeAttribute('data-mermaid-rendered');
+              pre.removeAttribute('data-mermaid-render-run');
+            }
+          });
         }
       }
     },
@@ -918,14 +943,33 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       ensureMonacoEditor,
       fallbackDocumentTitle,
       fencedCode,
-      initMermaid,
+      i18n.language,
+      i18n.resolvedLanguage,
       interactiveButtons,
       markdownFormatLabel,
+      mermaidActionsLabel,
+      mermaidCopyCode,
+      mermaidCopyError,
+      mermaidDiagramLabel,
+      mermaidErrorActionsLabel,
+      mermaidErrorDetails,
+      mermaidErrorLabel,
+      mermaidHideEditor,
+      mermaidOpenEditor,
+      mermaidRenderError,
+      mermaidRenderErrorMessage,
+      mermaidRerender,
       mermaidTitle,
+      mermaidTruncatedError,
+      mermaidUnknownError,
+      mermaidViewCode,
+      mermaidViewDiagram,
       newDocumentLabel,
       onSendToEditor,
       openMenu,
       sendToEditorActionLabel,
+      t,
+      tabStopsEnabled,
     ]
   );
 

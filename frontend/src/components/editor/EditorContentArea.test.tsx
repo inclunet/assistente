@@ -38,10 +38,9 @@ vi.mock('../ui/CodeEditor', () => ({
 }));
 
 vi.mock('../ui/MarkdownRenderer', () => ({
-  MarkdownRenderer: (props: { focusableMermaid?: boolean; tabNavigation?: string }) => (
+  MarkdownRenderer: (props: { tabNavigation?: string }) => (
     <div
       data-testid="markdown-renderer"
-      data-focusable={props.focusableMermaid ? 'true' : 'false'}
       data-tab-navigation={props.tabNavigation}
     >
       <a href="https://example.com" tabIndex={props.tabNavigation === 'enabled' ? 0 : -1}>
@@ -364,7 +363,6 @@ describe('EditorContentArea document view', () => {
 
     expect(screen.getByText('editor.documentView.readOnlyBanner')).toBeInTheDocument();
     expect(screen.getByText('editor.documentView.partialExtraction')).toBeInTheDocument();
-    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute('data-focusable', 'false');
     expect(screen.queryByText('editor.hints.previewMermaid')).not.toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.openedAnnouncement');
   });

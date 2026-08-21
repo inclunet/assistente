@@ -8,6 +8,11 @@ const mermaidMocks = vi.hoisted(() => ({
   render: vi.fn(),
 }));
 
+const accessibleMermaidMocks = vi.hoisted(() => ({
+  loadMermaid: vi.fn(),
+  renderAccessibleMermaid: vi.fn(),
+}));
+
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
@@ -25,11 +30,39 @@ vi.mock('mermaid', () => ({
   default: mermaidMocks,
 }));
 
+vi.mock('../../lib/accessibleMermaid', () => ({
+  loadMermaid: accessibleMermaidMocks.loadMermaid,
+  renderAccessibleMermaid: accessibleMermaidMocks.renderAccessibleMermaid,
+}));
+
 describe('MarkdownRenderer', () => {
   beforeEach(() => {
     mermaidMocks.initialize.mockClear();
     mermaidMocks.render.mockReset();
     mermaidMocks.render.mockResolvedValue({ svg: '<svg aria-label="Diagrama"></svg>' });
+    accessibleMermaidMocks.loadMermaid.mockReset();
+    accessibleMermaidMocks.loadMermaid.mockResolvedValue(mermaidMocks);
+    accessibleMermaidMocks.renderAccessibleMermaid.mockReset();
+    accessibleMermaidMocks.renderAccessibleMermaid.mockImplementation(
+      async ({ container, navigationEnabled, ariaLabel }: {
+        container: HTMLElement;
+        navigationEnabled: boolean;
+        ariaLabel: string;
+      }) => {
+        container.setAttribute('role', 'group');
+        container.setAttribute('aria-label', ariaLabel);
+        container.tabIndex = navigationEnabled ? 0 : -1;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        container.appendChild(svg);
+        return {
+          svg,
+          graph: { nodes: [], edges: [], direction: 'LR', diagramType: 'flowchart-v2' },
+          diagramType: 'flowchart-v2',
+          navigable: navigationEnabled,
+          cleanup: vi.fn(),
+        };
+      },
+    );
   });
 
   it('renderiza markdown e ajusta links para nova aba', () => {
@@ -171,18 +204,81 @@ describe('MarkdownRenderer', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getAllByRole('group', { name: 'Diagrama Mermaid' })).toHaveLength(1);
+      expect(screen.getAllByRole('group', { name: 'Mermaid diagram' })).toHaveLength(1);
     });
   });
 
+  it('habilita a navegação do diagrama somente durante a leitura', async () => {
+    const content = '```mermaid\nflowchart LR\nA-->B\n```';
+    const { rerender } = render(
+      <MarkdownRenderer content={content} tabNavigation="disabled" />,
+    );
+
+    expect(await screen.findByRole('group', { name: 'Mermaid diagram' }))
+      .toHaveAttribute('tabindex', '-1');
+    expect(accessibleMermaidMocks.renderAccessibleMermaid)
+      .toHaveBeenLastCalledWith(expect.objectContaining({ navigationEnabled: false }));
+
+    rerender(<MarkdownRenderer content={content} tabNavigation="enabled" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('group', { name: 'Mermaid diagram' }))
+        .toHaveAttribute('tabindex', '0');
+    });
+    expect(accessibleMermaidMocks.renderAccessibleMermaid)
+      .toHaveBeenLastCalledWith(expect.objectContaining({ navigationEnabled: true }));
+  });
+
   it('mostra erro Mermaid compacto sem despejar stack no preview', async () => {
-    mermaidMocks.render.mockRejectedValue(new Error('Syntax error in text\nmermaid version 11.14.0'));
+    accessibleMermaidMocks.renderAccessibleMermaid.mockRejectedValue(
+      new Error('Syntax error in text\nmermaid version 11.14.0'),
+    );
 
     render(<MarkdownRenderer content={'```mermaid\ntexto inválido\n```'} />);
 
-    expect(await screen.findByText('Erro ao renderizar Mermaid')).toBeInTheDocument();
-    const error = screen.getByText(/Syntax error in text/);
+    expect(await screen.findByText('Error rendering Mermaid')).toBeInTheDocument();
+    expect(screen.getByText(/rest of the content remains available/)).toBeInTheDocument();
+    const details = screen.getByText('Show technical details').closest('details');
+    expect(details).not.toHaveAttribute('open');
+    const error = within(details as HTMLElement).getByText(/Syntax error in text/);
     expect(error).toHaveTextContent('mermaid version 11.14.0');
     expect(error.textContent).not.toMatch(/\bat\s+/);
+  });
+
+  it('isola um Mermaid inválido e continua renderizando o conteúdo e os demais diagramas', async () => {
+    accessibleMermaidMocks.renderAccessibleMermaid
+      .mockRejectedValueOnce(new Error('Syntax error in text\nmermaid version 11.14.0'))
+      .mockImplementationOnce(async ({ container, ariaLabel }: {
+        container: HTMLElement;
+        ariaLabel: string;
+      }) => {
+        container.setAttribute('role', 'group');
+        container.setAttribute('aria-label', ariaLabel);
+        container.tabIndex = -1;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        container.appendChild(svg);
+        return {
+          svg,
+          graph: { nodes: [], edges: [], direction: 'LR', diagramType: 'flowchart-v2' },
+          diagramType: 'flowchart-v2',
+          navigable: false,
+          cleanup: vi.fn(),
+        };
+      });
+
+    render(
+      <MarkdownRenderer
+        content={'Antes\n\n```mermaid\ninválido\n```\n\nEntre\n\n```mermaid\nflowchart LR\nA-->B\n```\n\nDepois'}
+      />,
+    );
+
+    expect(await screen.findByText('Error rendering Mermaid')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(accessibleMermaidMocks.renderAccessibleMermaid).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText('Antes')).toBeInTheDocument();
+    expect(screen.getByText('Entre')).toBeInTheDocument();
+    expect(screen.getByText('Depois')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Mermaid diagram' })).toBeInTheDocument();
   });
 });
