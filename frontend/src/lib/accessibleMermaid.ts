@@ -47,6 +47,9 @@ export function loadMermaid(): Promise<MermaidApi> {
           startOnLoad: false,
           theme: 'dark',
           securityLevel: 'strict',
+          // Chave protegida: só vale via initialize. Sem ela o Mermaid desenha
+          // o próprio cartaz de erro antes de lançar, e ele escapa do bloco.
+          suppressErrorRendering: true,
         });
         return api;
       })
@@ -74,12 +77,18 @@ export async function renderAccessibleMermaid(
     },
   } = options;
 
-  const rendered = await renderAccessibleDiagram({
-    chart,
-    config,
-    mermaid,
-    host: container,
-  });
+  let rendered: Awaited<ReturnType<typeof renderAccessibleDiagram>>;
+  try {
+    rendered = await renderAccessibleDiagram({
+      chart,
+      config,
+      mermaid,
+      host: container,
+    });
+  } catch (error) {
+    removeLeakedMermaidNodes();
+    throw error;
+  }
 
   container.setAttribute('role', 'group');
   container.setAttribute('aria-label', rendered.graph.title || ariaLabel);
@@ -143,6 +152,19 @@ export async function renderAccessibleMermaid(
       container.replaceChildren();
     },
   };
+}
+
+// O adaptador do mermaid-a11y chama `mermaid.render` sem informar o host, então
+// o Mermaid monta o diagrama num nó temporário do `body` e só o remove quando o
+// render termina bem. Ver mermaid-a11y#4.
+function removeLeakedMermaidNodes(): void {
+  document.body
+    ?.querySelectorAll<HTMLElement>(':scope > div[id^="dmermaidA11y"]')
+    .forEach((node) => {
+      if (node.querySelector('.error-icon, .error-text')) {
+        node.remove();
+      }
+    });
 }
 
 function createThemeHighlightRenderer(): HighlightRenderer {

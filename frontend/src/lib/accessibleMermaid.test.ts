@@ -129,6 +129,53 @@ describe('renderAccessibleMermaid', () => {
     expect(container.querySelector('svg')).not.toBeNull();
   });
 
+  it('remove o cartaz de erro que o Mermaid deixa solto no body', async () => {
+    mocks.renderAccessibleDiagram.mockImplementationOnce(async () => {
+      const leaked = document.createElement('div');
+      leaked.id = 'dmermaidA11y42';
+      leaked.innerHTML = '<svg><text class="error-text">Syntax error in text</text></svg>';
+      document.body.appendChild(leaked);
+      throw new Error('Parse error on line 2');
+    });
+    const container = document.createElement('div');
+
+    await expect(
+      renderAccessibleMermaid({
+        chart: 'flowchart LR\nA--',
+        container,
+        mermaid: { render: vi.fn() },
+        navigationEnabled: true,
+        ariaLabel: 'Diagrama Mermaid',
+      }),
+    ).rejects.toThrow('Parse error on line 2');
+
+    expect(document.body.textContent).not.toContain('Syntax error in text');
+    expect(document.getElementById('dmermaidA11y42')).toBeNull();
+  });
+
+  it('preserva o nó temporário de um render simultâneo bem-sucedido', async () => {
+    mocks.renderAccessibleDiagram.mockImplementationOnce(async () => {
+      const pending = document.createElement('div');
+      pending.id = 'dmermaidA11y43';
+      pending.innerHTML = '<svg><g id="node-a"></g></svg>';
+      document.body.appendChild(pending);
+      throw new Error('falha isolada');
+    });
+    const container = document.createElement('div');
+
+    await expect(
+      renderAccessibleMermaid({
+        chart: 'flowchart LR\nA--',
+        container,
+        mermaid: { render: vi.fn() },
+        navigationEnabled: true,
+        ariaLabel: 'Diagrama Mermaid',
+      }),
+    ).rejects.toThrow('falha isolada');
+
+    expect(document.getElementById('dmermaidA11y43')).not.toBeNull();
+  });
+
   it('não anexa o navigator fora do modo de leitura e limpa o SVG', async () => {
     const container = document.createElement('div');
 
@@ -149,6 +196,20 @@ describe('renderAccessibleMermaid', () => {
 });
 
 describe('loadMermaid', () => {
+  it('desliga o desenho de erro do próprio Mermaid', async () => {
+    // Instância isolada: o módulo memoriza a Promise do Mermaid entre chamadas.
+    vi.resetModules();
+    mocks.initialize.mockReset();
+    mocks.initialize.mockImplementation(() => undefined);
+    const isolated = await import('./accessibleMermaid');
+
+    await isolated.loadMermaid();
+
+    expect(mocks.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ suppressErrorRendering: true }),
+    );
+  });
+
   it('limpa a Promise rejeitada para permitir uma nova tentativa', async () => {
     mocks.initialize
       .mockImplementationOnce(() => {

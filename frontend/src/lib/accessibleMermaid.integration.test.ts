@@ -47,3 +47,31 @@ describe('integração com a versão instalada do Mermaid', () => {
     result.cleanup();
   });
 });
+
+describe('falha de layout com a versão instalada do Mermaid', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  // Sem o polyfill de getBBox o diagrama passa no parser e quebra no desenho,
+  // que é justamente o caminho em que o Mermaid monta o cartaz de erro.
+  it('não deixa o cartaz de erro solto no documento', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const mermaid = await loadMermaid();
+
+    await expect(
+      renderAccessibleMermaid({
+        chart: 'flowchart LR\nA[Início] --> B[Fim]',
+        container,
+        mermaid,
+        locale: 'pt-BR',
+        navigationEnabled: true,
+        ariaLabel: 'Diagrama Mermaid',
+      }),
+    ).rejects.toThrow();
+
+    expect(document.body.textContent).not.toContain('Syntax error in text');
+    expect(document.body.querySelector('[id^="dmermaidA11y"]')).toBeNull();
+  });
+});
