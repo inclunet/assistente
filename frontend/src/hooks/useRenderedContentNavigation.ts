@@ -3,22 +3,33 @@ import { announce } from './useAnnouncer';
 
 export type RenderedContentNavigationProfile = 'modal' | 'scoped';
 
-export interface UseRenderedContentNavigationOptions {
+interface RenderedContentNavigationBaseOptions {
   /** Container que delimita a superfície renderizada. */
   elementRef: React.RefObject<HTMLElement | null>;
   /** Ativa a semântica de documento e move o foco para o conteúdo. */
   isActive: boolean;
-  /** Modal contém interação; scoped permite Tab/F6 saírem normalmente. */
-  profile: RenderedContentNavigationProfile;
   /** Seletor preferencial do elemento que recebe role=document. */
   contentSelector?: string;
   /** Executado por Escape. No perfil modal normalmente desativa a leitura. */
   onEscape: () => void;
   openAnnouncement?: string;
   closeAnnouncement?: string;
-  /** Obrigatório semanticamente no perfil modal. */
-  dialogLabel?: string;
 }
+
+export type UseRenderedContentNavigationOptions =
+  RenderedContentNavigationBaseOptions
+  & (
+    | {
+      /** Modal contém interação, exige nome acessível e prende Tab/inert. */
+      profile: 'modal';
+      dialogLabel: string;
+    }
+    | {
+      /** Scoped permite que Tab e F6 saiam normalmente. */
+      profile: 'scoped';
+      dialogLabel?: never;
+    }
+  );
 
 interface PreviousElementAttrs {
   role: string | null;
