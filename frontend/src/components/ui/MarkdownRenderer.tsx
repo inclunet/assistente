@@ -546,56 +546,55 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       // Constrói a lista apenas com imagens válidas (com src não vazio) e
       // mapeia o índice do elemento no DOM para o índice na lista filtrada,
       // garantindo que a navegação prev/next nunca caia numa imagem quebrada.
-      const validImages: ImageViewerImage[] = [];
+      const viewerEntries = imageElements
+        .filter((img) => {
+          const src = img.getAttribute('src') || '';
+          const parentLink = img.closest<HTMLAnchorElement>('a[href]');
+          return !!src && (!parentLink || !root.contains(parentLink));
+        })
+        .map((img) => ({
+          element: img,
+          image: {
+            src: img.getAttribute('src')!,
+            alt: img.getAttribute('alt') || undefined,
+          },
+        }));
+      const viewerImages = viewerEntries.map(({ image }) => image);
 
       imageElements.forEach((img) => {
         const src = img.getAttribute('src') || '';
         if (!src) return;
 
         const alt = img.getAttribute('alt') || undefined;
-        const viewerIndex = validImages.length;
-        validImages.push({ src, alt });
+        const parentLink = img.closest<HTMLAnchorElement>('a[href]');
+        if (parentLink && root.contains(parentLink)) {
+          // Imagem envolvida por link preserva a ação e a semântica nativas do
+          // link. O wrapper é a única parada de Tab; a imagem não abre viewer.
+          parentLink.removeAttribute('role');
+          parentLink.removeAttribute('aria-label');
+          parentLink.classList.remove('markdown-image-link--interactive');
+          img.classList.remove('markdown-image--interactive');
+          img.removeAttribute('role');
+          img.removeAttribute('tabindex');
+          img.removeAttribute('aria-label');
+          return;
+        }
 
+        const viewerIndex = viewerEntries.findIndex(({ element }) => element === img);
         img.classList.add('markdown-image--interactive');
         const altText = alt?.trim();
         const imageAriaLabel = altText
           ? `${altText} — ${t('ui.imageViewer.openHint')}`
           : t('ui.imageViewer.openHint');
-        const parentLink = img.closest<HTMLAnchorElement>('a[href]');
-        if (parentLink && root.contains(parentLink)) {
-          // Uma imagem com viewer dentro de link representa uma única ação de
-          // teclado. O wrapper recebe a semântica de botão; a imagem deixa de
-          // ser um segundo controle interativo aninhado.
-          parentLink.setAttribute('role', 'button');
-          parentLink.setAttribute('aria-label', imageAriaLabel);
-          parentLink.setAttribute('tabindex', tabStopsEnabled ? '0' : '-1');
-          parentLink.classList.add('markdown-image-link--interactive');
-          img.removeAttribute('role');
-          img.removeAttribute('tabindex');
-          img.removeAttribute('aria-label');
-        } else {
-          img.setAttribute('role', 'button');
-          img.setAttribute('tabindex', tabStopsEnabled ? '0' : '-1');
-          img.setAttribute('aria-label', imageAriaLabel);
-        }
+        img.setAttribute('role', 'button');
+        img.setAttribute('tabindex', tabStopsEnabled ? '0' : '-1');
+        img.setAttribute('aria-label', imageAriaLabel);
 
         const open = () => {
-          setImageViewer({ open: true, images: validImages, index: viewerIndex });
+          setImageViewer({ open: true, images: viewerImages, index: viewerIndex });
         };
 
         const onClick = (e: MouseEvent) => {
-          // Quando a imagem está dentro de um link, cliques modificados
-          // (Ctrl/Cmd/Shift/Alt) ou que não sejam do botão esquerdo
-          // (ex.: middle-click) devem seguir a navegação padrão do
-          // navegador (abrir em nova aba/janela) em vez de abrir o viewer.
-          if (parentLink) {
-            const isModifiedClick = e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
-            const isNonPrimaryButton = typeof e.button === 'number' && e.button !== 0;
-            if (isModifiedClick || isNonPrimaryButton) {
-              return;
-            }
-          }
-
           e.preventDefault();
           e.stopPropagation();
           open();
@@ -609,23 +608,11 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           }
         };
 
-        const onParentLinkKeyDown = (e: KeyboardEvent) => {
-          if (e.key !== 'Enter' && e.key !== ' ') return;
-          if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-          e.preventDefault();
-          e.stopPropagation();
-          open();
-        };
-
         img.addEventListener('click', onClick);
         img.addEventListener('keydown', onKeyDown);
-        parentLink?.addEventListener('click', onClick);
-        parentLink?.addEventListener('keydown', onParentLinkKeyDown);
         cleanups.push(() => {
           img.removeEventListener('click', onClick);
           img.removeEventListener('keydown', onKeyDown);
-          parentLink?.removeEventListener('click', onClick);
-          parentLink?.removeEventListener('keydown', onParentLinkKeyDown);
         });
       });
     },

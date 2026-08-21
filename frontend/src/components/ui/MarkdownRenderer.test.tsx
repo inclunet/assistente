@@ -91,46 +91,7 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('não abre o visualizador em clique modificado dentro de um link', () => {
-    render(
-      <MarkdownRenderer
-        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
-      />,
-    );
-
-    const img = screen.getByAltText('Gato');
-    expect(img.closest('a[href]')).not.toBeNull();
-
-    fireEvent.click(img, { ctrlKey: true });
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    fireEvent.click(img, { metaKey: true });
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('não abre o visualizador em middle-click dentro de um link', () => {
-    render(
-      <MarkdownRenderer
-        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
-      />,
-    );
-
-    fireEvent.click(screen.getByAltText('Gato'), { button: 1 });
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('abre o visualizador em clique simples mesmo dentro de um link', () => {
-    render(
-      <MarkdownRenderer
-        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
-      />,
-    );
-
-    fireEvent.click(screen.getByAltText('Gato'));
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-  });
-
-  it('usa uma única parada de Tab para imagem interativa dentro de link', () => {
+  it('preserva link nativo como única parada de Tab quando ele envolve imagem', () => {
     const { container } = render(
       <MarkdownRenderer
         content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
@@ -141,30 +102,22 @@ describe('MarkdownRenderer', () => {
     const link = container.querySelector('a[href]');
     const image = screen.getByAltText('Gato');
     expect(link).not.toBeNull();
-    expect(link).toHaveAttribute('role', 'button');
+    expect(link).not.toHaveAttribute('role');
     expect(link).toHaveAttribute('tabindex', '0');
+    expect(link).toHaveAccessibleName('Gato');
     expect(image).not.toHaveAttribute('role');
     expect(image).not.toHaveAttribute('tabindex');
     expect(container.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
 
-    fireEvent.keyDown(link!, { key: 'Enter' });
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-  });
-
-  it('abre imagem envolvida por link quando leitor de tela sintetiza click no wrapper', () => {
-    const { container } = render(
-      <MarkdownRenderer
-        content={'[![Gato](http://example.com/cat.png)](http://example.com/page)'}
-        tabNavigation="enabled"
-      />,
-    );
-
-    const link = container.querySelector<HTMLAnchorElement>('a[href]');
-    expect(link).not.toBeNull();
-
-    fireEvent.click(link!);
-
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    let clickWasPreventedByRenderer = true;
+    link!.addEventListener('click', (event) => {
+      clickWasPreventedByRenderer = event.defaultPrevented;
+      event.preventDefault();
+    }, { once: true });
+    fireEvent.click(image);
+    expect(clickWasPreventedByRenderer).toBe(false);
+    expect(fireEvent.keyDown(link!, { key: 'Enter' })).toBe(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('ignora imagens sem src e não as torna interativas', () => {
@@ -191,7 +144,7 @@ describe('MarkdownRenderer', () => {
   it('a navegação do viewer percorre apenas imagens válidas', () => {
     render(
       <MarkdownRenderer
-        content={'![vazia]() ![Gato](http://example.com/cat.png) ![Cachorro](http://example.com/dog.png)'}
+        content={'![vazia]() [![Pássaro](http://example.com/bird.png)](http://example.com/page) ![Gato](http://example.com/cat.png) ![Cachorro](http://example.com/dog.png)'}
       />,
     );
 
@@ -199,11 +152,12 @@ describe('MarkdownRenderer', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();
 
-    // Só há 2 imagens válidas: voltar a partir da primeira leva à última (Cachorro),
-    // nunca à imagem de src vazio.
+    // Só há 2 imagens independentes: voltar a partir da primeira leva à última
+    // (Cachorro), nunca à imagem vazia nem à imagem que representa um link.
     fireEvent.keyDown(document, { key: 'ArrowLeft' });
     expect(within(dialog).getByAltText('Cachorro')).toBeInTheDocument();
     expect(within(dialog).queryByAltText('vazia')).toBeNull();
+    expect(within(dialog).queryByAltText('Pássaro')).toBeNull();
 
     fireEvent.keyDown(document, { key: 'ArrowRight' });
     expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();
