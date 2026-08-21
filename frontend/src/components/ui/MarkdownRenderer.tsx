@@ -560,6 +560,9 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           },
         }));
       const viewerImages = viewerEntries.map(({ image }) => image);
+      const viewerIndexByElement = new Map(
+        viewerEntries.map(({ element }, index) => [element, index]),
+      );
 
       imageElements.forEach((img) => {
         const src = img.getAttribute('src') || '';
@@ -580,7 +583,8 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           return;
         }
 
-        const viewerIndex = viewerEntries.findIndex(({ element }) => element === img);
+        const viewerIndex = viewerIndexByElement.get(img);
+        if (viewerIndex === undefined) return;
         img.classList.add('markdown-image--interactive');
         const altText = alt?.trim();
         const imageAriaLabel = altText
