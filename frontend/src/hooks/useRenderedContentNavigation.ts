@@ -14,6 +14,12 @@ interface RenderedContentNavigationBaseOptions {
   onEscape: () => void;
   openAnnouncement?: string;
   closeAnnouncement?: string;
+  /** Impede que Escape concorra com um modal interno no topo da tela. */
+  shouldHandleEscape?: () => boolean;
+  /** Padrão: true no perfil modal e false no perfil scoped. */
+  restoreFocusOnDeactivate?: boolean;
+  /** Padrão true; false quando o consumidor controla role/tabIndex via React. */
+  manageDocumentSemantics?: boolean;
 }
 
 export type UseRenderedContentNavigationOptions =
@@ -69,6 +75,9 @@ export function useRenderedContentNavigation({
   openAnnouncement,
   closeAnnouncement,
   dialogLabel,
+  shouldHandleEscape,
+  restoreFocusOnDeactivate,
+  manageDocumentSemantics = true,
 }: UseRenderedContentNavigationOptions) {
   const previousActiveElement = useRef<HTMLElement | null>(null);
   const previousElementAttrs = useRef<PreviousElementAttrs | null>(null);
@@ -79,6 +88,9 @@ export function useRenderedContentNavigation({
   const openAnnouncementRef = useRef(openAnnouncement);
   const closeAnnouncementRef = useRef(closeAnnouncement);
   const dialogLabelRef = useRef(dialogLabel);
+  const shouldHandleEscapeRef = useRef(shouldHandleEscape);
+  const restoreFocusRef = useRef(restoreFocusOnDeactivate ?? profile === 'modal');
+  const manageDocumentSemanticsRef = useRef(manageDocumentSemantics);
 
   profileRef.current = profile;
   contentSelectorRef.current = contentSelector;
@@ -86,6 +98,9 @@ export function useRenderedContentNavigation({
   openAnnouncementRef.current = openAnnouncement;
   closeAnnouncementRef.current = closeAnnouncement;
   dialogLabelRef.current = dialogLabel;
+  shouldHandleEscapeRef.current = shouldHandleEscape;
+  restoreFocusRef.current = restoreFocusOnDeactivate ?? profile === 'modal';
+  manageDocumentSemanticsRef.current = manageDocumentSemantics;
 
   useEffect(() => {
     const element = elementRef.current;
@@ -116,13 +131,15 @@ export function useRenderedContentNavigation({
       ?? element.querySelector<HTMLElement>('.chat-message__text');
 
     if (contentElement && contentElement !== element) {
-      previousContentAttrs.current = {
-        element: contentElement,
-        role: contentElement.getAttribute('role'),
-        tabIndex: contentElement.getAttribute('tabindex'),
-      };
-      contentElement.setAttribute('role', 'document');
-      contentElement.setAttribute('tabindex', '0');
+      if (manageDocumentSemanticsRef.current) {
+        previousContentAttrs.current = {
+          element: contentElement,
+          role: contentElement.getAttribute('role'),
+          tabIndex: contentElement.getAttribute('tabindex'),
+        };
+        contentElement.setAttribute('role', 'document');
+        contentElement.setAttribute('tabindex', '0');
+      }
       contentElement.focus();
     } else {
       element.focus();
@@ -141,7 +158,7 @@ export function useRenderedContentNavigation({
       }
       previousContentAttrs.current = null;
       previousElementAttrs.current = null;
-      previousActiveElement.current?.focus();
+      if (restoreFocusRef.current) previousActiveElement.current?.focus();
     };
   }, [elementRef, isActive]);
 
@@ -153,6 +170,7 @@ export function useRenderedContentNavigation({
       if (!element) return;
 
       if (event.key === 'Escape') {
+        if (shouldHandleEscapeRef.current && !shouldHandleEscapeRef.current()) return;
         event.preventDefault();
         event.stopPropagation();
         onEscapeRef.current();

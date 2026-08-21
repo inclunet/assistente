@@ -19,6 +19,8 @@ import {
   type MarkdownFenceMarker,
 } from '../../lib/markdownFence';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useRenderedContentNavigation } from '../../hooks/useRenderedContentNavigation';
+import { isModalOpen } from '../ui/Modal';
 import { clearRichEditorHistory } from './richEditorHistory';
 
 const RAW_HTML_RE = /<\/?[a-z][a-z0-9-]*(?:\s|>|\/>)/i;
@@ -84,6 +86,7 @@ interface RichMermaidRequestContext {
 
 export interface EditorContentAreaProps {
   activeTab: EditorDocument | null;
+  isPanelActive?: boolean;
   isAsking: boolean;
   debouncedMarkdownForPreview: string;
   onMarkdownChange: (value: string) => void;
@@ -108,6 +111,7 @@ export interface EditorContentAreaProps {
  */
 export function EditorContentArea({
   activeTab,
+  isPanelActive = true,
   isAsking,
   debouncedMarkdownForPreview,
   onMarkdownChange,
@@ -131,6 +135,9 @@ export function EditorContentArea({
   const previousRevealSlideAnnouncementRef = useRef<string | null>(null);
   const richEditorInstanceRef = useRef<TipTapEditor | null>(null);
   const pendingRevealSlideFocusRef = useRef(false);
+  const renderedPaneRef = useRef<HTMLDivElement>(null);
+  const renderedDocumentRef = useRef<HTMLDivElement>(null);
+  const [isRenderedReading, setIsRenderedReading] = useState(false);
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
@@ -161,6 +168,24 @@ export function EditorContentArea({
       })
     : '';
 
+  const renderedReadingActive = (
+    isPanelActive && activeTab?.mode === 'view' && isRenderedReading
+  );
+
+  useRenderedContentNavigation({
+    elementRef: renderedPaneRef,
+    isActive: renderedReadingActive,
+    profile: 'scoped',
+    contentSelector: '[data-editor-rendered-document="true"]',
+    onEscape: () => renderedDocumentRef.current?.focus(),
+    openAnnouncement: t('editor.documentView.readingOpened'),
+    closeAnnouncement: t('editor.documentView.readingFocused'),
+    shouldHandleEscape: () => (
+      !isModalOpen() && document.activeElement !== renderedDocumentRef.current
+    ),
+    manageDocumentSemantics: false,
+  });
+
   const getLatestMarkdown = () => {
     if (!activeTab) return '';
     return useEditorStore.getState().getDocument(activeTab.id)?.markdown ?? activeTab.markdown;
@@ -178,6 +203,16 @@ export function EditorContentArea({
     lastRevealAppendNonceRef.current = revealAppendNonce;
     lastRevealSlideNavigationNonceRef.current = revealSlideNavigationRequest?.nonce ?? 0;
   }, [activeTab?.id]);
+
+  useEffect(() => {
+    setIsRenderedReading(false);
+  }, [
+    activeTab?.draftId,
+    activeTab?.filePath,
+    activeTab?.id,
+    activeTab?.mode,
+    isPanelActive,
+  ]);
 
   useEffect(() => {
     if (activeTab?.loadError) {
@@ -379,6 +414,7 @@ export function EditorContentArea({
       ) : activeTab.mode === 'view' ? (
         <div className="editor-page__single">
           <div
+            ref={renderedPaneRef}
             className="editor-page__pane"
             role="region"
             aria-label={t('editor.aria.preview')}
@@ -423,24 +459,50 @@ export function EditorContentArea({
           >
             <div className="editor-page__pane-title">{t('editor.panes.preview')}</div>
             <div className="editor-page__preview">
-              {isRevealPreviewDocument ? (
-                <RevealRenderer
-                  markdown={debouncedMarkdownForPreview}
-                  documentTitle={activeTab.title}
-                  fullscreenRequestNonce={revealFullscreenRequestNonce}
-                />
-              ) : (
-                <>
-                  {!activeTab.readOnly ? (
-                    <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
-                  ) : null}
-                  <MarkdownRenderer
-                    content={debouncedMarkdownForPreview}
-                    interactiveButtons={false}
-                    focusableMermaid={!activeTab.readOnly}
+              <div
+                ref={renderedDocumentRef}
+                data-editor-rendered-document="true"
+                data-reading-active={renderedReadingActive ? 'true' : 'false'}
+                role={renderedReadingActive ? 'document' : 'group'}
+                aria-label={t(
+                  renderedReadingActive
+                    ? 'editor.documentView.readingDocumentLabel'
+                    : 'editor.documentView.readingRegionLabel',
+                )}
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (
+                    !renderedReadingActive
+                    && event.target === event.currentTarget
+                    && event.key === 'Enter'
+                  ) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsRenderedReading(true);
+                  }
+                }}
+              >
+                {isRevealPreviewDocument ? (
+                  <RevealRenderer
+                    markdown={debouncedMarkdownForPreview}
+                    documentTitle={activeTab.title}
+                    fullscreenRequestNonce={revealFullscreenRequestNonce}
+                    tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
                   />
-                </>
-              )}
+                ) : (
+                  <>
+                    {!activeTab.readOnly ? (
+                      <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
+                    ) : null}
+                    <MarkdownRenderer
+                      content={debouncedMarkdownForPreview}
+                      interactiveButtons={false}
+                      focusableMermaid={!activeTab.readOnly}
+                      tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
+                    />
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

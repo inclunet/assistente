@@ -337,6 +337,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
       <EditorContentArea
         activeTab={activeTab}
+        isPanelActive={isPanelActive}
         isAsking={isAsking}
         debouncedMarkdownForPreview={debouncedMarkdownForPreview}
         onMarkdownChange={(v) => {

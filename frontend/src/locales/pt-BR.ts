@@ -1193,6 +1193,10 @@ const ptBR = {
         loadFailedTitle: 'Não foi possível abrir este arquivo',
         loadFailedDescription: 'A aba permanece somente leitura para proteger o arquivo original. Feche-a e tente abrir o documento novamente.',
         loadFailedAnnouncement: 'Não foi possível abrir o arquivo. A aba está somente leitura.',
+        readingRegionLabel: 'Conteúdo renderizado. Pressione Enter para ativar a leitura e navegar pelos controles com Tab.',
+        readingDocumentLabel: 'Conteúdo renderizado em modo de leitura.',
+        readingOpened: 'Modo de leitura do editor ativado. Use Tab para navegar pelos controles; F6 continua disponível para mudar de região.',
+        readingFocused: 'Foco devolvido ao conteúdo renderizado.',
       },
       errors: {
         diskReadFailed: 'Não foi possível ler o conteúdo do disco para comparar com esta aba.',

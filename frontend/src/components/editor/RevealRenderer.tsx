@@ -34,6 +34,7 @@ interface RevealRendererProps {
   markdown: string;
   documentTitle?: string;
   fullscreenRequestNonce?: number;
+  tabNavigation?: 'disabled' | 'enabled';
 }
 
 const md = new MarkdownIt({
@@ -125,20 +126,20 @@ function renderMarkdownHtml(markdown: string): string {
   return DOMPurify.sanitize(md.render(markdown || ''), purifyConfig);
 }
 
-function enhanceLinkSecurity(html: string): string {
+function enhanceLinkSecurity(html: string, tabNavigation: 'disabled' | 'enabled'): string {
   if (typeof document === 'undefined') return html;
   const template = document.createElement('template');
   template.innerHTML = html;
   template.content.querySelectorAll('a').forEach((link) => {
     const href = link.getAttribute('href') || '';
     if (isDeepLink(href)) {
-      link.setAttribute('tabindex', '0');
+      link.setAttribute('tabindex', tabNavigation === 'enabled' ? '0' : '-1');
       link.removeAttribute('target');
       link.removeAttribute('rel');
       return;
     }
 
-    link.setAttribute('tabindex', '-1');
+    link.setAttribute('tabindex', tabNavigation === 'enabled' ? '0' : '-1');
     link.setAttribute('target', '_blank');
     link.setAttribute('rel', 'noopener noreferrer');
   });
@@ -171,12 +172,21 @@ function revealDataProps(data: Record<string, string>) {
   );
 }
 
-function renderSlide(slide: RevealSlide, getSlideLabel: (slide: RevealSlide) => string) {
+function renderSlide(
+  slide: RevealSlide,
+  getSlideLabel: (slide: RevealSlide) => string,
+  tabNavigation: 'disabled' | 'enabled',
+) {
   const attrs = extractRevealSlideAttributes(slide.markdown);
   const markdownWithoutDirectives = stripRevealDirectives(slide.markdown);
   const { body, notes } = splitSpeakerNotes(markdownWithoutDirectives);
-  const html = enhanceLinkSecurity(enhanceImageAccessibility(renderMarkdownHtml(body)));
-  const notesHtml = notes ? enhanceLinkSecurity(renderMarkdownHtml(notes)) : '';
+  const html = enhanceLinkSecurity(
+    enhanceImageAccessibility(renderMarkdownHtml(body)),
+    tabNavigation,
+  );
+  const notesHtml = notes
+    ? enhanceLinkSecurity(renderMarkdownHtml(notes), tabNavigation)
+    : '';
   const label = getSlideLabel(slide);
 
   return (
@@ -194,7 +204,11 @@ function renderSlide(slide: RevealSlide, getSlideLabel: (slide: RevealSlide) => 
   );
 }
 
-function renderSlides(slides: RevealSlide[], getSlideLabel: (slide: RevealSlide) => string) {
+function renderSlides(
+  slides: RevealSlide[],
+  getSlideLabel: (slide: RevealSlide) => string,
+  tabNavigation: 'disabled' | 'enabled',
+) {
   const rendered = [];
   for (let index = 0; index < slides.length; index += 1) {
     const slide = slides[index];
@@ -207,7 +221,9 @@ function renderSlides(slides: RevealSlide[], getSlideLabel: (slide: RevealSlide)
       }
       rendered.push(
         <section key={`orphan-vertical-stack-${slide.index}`}>
-          {verticalSlides.map((verticalSlide) => renderSlide(verticalSlide, getSlideLabel))}
+          {verticalSlides.map((verticalSlide) => (
+            renderSlide(verticalSlide, getSlideLabel, tabNavigation)
+          ))}
         </section>
       );
       index = nextIndex - 1;
@@ -225,14 +241,14 @@ function renderSlides(slides: RevealSlide[], getSlideLabel: (slide: RevealSlide)
       const stackSlides = slide.markdown.trim() ? [slide, ...verticalSlides] : verticalSlides;
       rendered.push(
         <section key={`vertical-stack-${slide.index}`}>
-          {stackSlides.map((stackSlide) => renderSlide(stackSlide, getSlideLabel))}
+          {stackSlides.map((stackSlide) => renderSlide(stackSlide, getSlideLabel, tabNavigation))}
         </section>
       );
       index = nextIndex - 1;
       continue;
     }
 
-    rendered.push(renderSlide(slide, getSlideLabel));
+    rendered.push(renderSlide(slide, getSlideLabel, tabNavigation));
   }
 
   return rendered;
@@ -253,7 +269,12 @@ const navigateWithinApp: NavigateFunction = (to) => {
   window.dispatchEvent(new PopStateEvent('popstate'));
 };
 
-export function RevealRenderer({ markdown, documentTitle, fullscreenRequestNonce = 0 }: RevealRendererProps) {
+export function RevealRenderer({
+  markdown,
+  documentTitle,
+  fullscreenRequestNonce = 0,
+  tabNavigation = 'disabled',
+}: RevealRendererProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
@@ -370,7 +391,7 @@ export function RevealRenderer({ markdown, documentTitle, fullscreenRequestNonce
     } catch {
       // Best-effort: o renderer continua mostrando o HTML mesmo se o sync falhar.
     }
-  }, [slides]);
+  }, [slides, tabNavigation]);
 
   useEffect(() => {
     if (fullscreenRequestNonce === lastFullscreenRequestNonceRef.current) return;
@@ -481,7 +502,7 @@ export function RevealRenderer({ markdown, documentTitle, fullscreenRequestNonce
       </div>
       <div ref={rootRef} className="reveal">
         <div className="slides">
-          {renderSlides(slides, getSlideLabel)}
+          {renderSlides(slides, getSlideLabel, tabNavigation)}
         </div>
       </div>
     </div>

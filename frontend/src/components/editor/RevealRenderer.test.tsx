@@ -38,6 +38,17 @@ vi.mock('mermaid', () => ({
 }));
 
 describe('RevealRenderer', () => {
+  it('habilita links na ordem de Tab somente durante a leitura escopada', () => {
+    const markdown = '[Documentação](https://example.com)';
+    const { container, rerender } = render(
+      <RevealRenderer markdown={markdown} tabNavigation="disabled" />,
+    );
+    expect(container.querySelector('a[href]')).toHaveAttribute('tabindex', '-1');
+
+    rerender(<RevealRenderer markdown={markdown} tabNavigation="enabled" />);
+    expect(container.querySelector('a[href]')).toHaveAttribute('tabindex', '0');
+  });
+
   it('expõe título do deck e rótulos acessíveis por slide', () => {
     const { container } = render(
       <RevealRenderer
@@ -190,7 +201,10 @@ Note:
 
   it('mantém metadados acessíveis de deep links no preview Reveal', () => {
     const { container } = render(
-      <RevealRenderer markdown={'# Slide\n\n[Abrir](assistente://navigate/history)'} />
+      <RevealRenderer
+        markdown={'# Slide\n\n[Abrir](assistente://navigate/history)'}
+        tabNavigation="enabled"
+      />
     );
 
     const link = container.querySelector('a');
