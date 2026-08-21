@@ -58,7 +58,13 @@ vi.mock('./useCustomActions', () => ({
 }));
 
 vi.mock('../ui/MarkdownRenderer', () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
+  MarkdownRenderer: ({
+    content,
+    tabNavigation,
+  }: {
+    content: string;
+    tabNavigation?: string;
+  }) => <div data-testid="task-markdown" data-tab-navigation={tabNavigation}>{content}</div>,
 }));
 
 /* ── Dados ─────────────────────────────────────────────────── */
@@ -103,6 +109,10 @@ describe('TaskDetailModal', () => {
     const body = await screen.findByRole('document');
     expect(body).toHaveClass('modal-body');
     expect(screen.queryByRole('application')).toBeNull();
+    expect(screen.getByTestId('task-markdown')).toHaveAttribute(
+      'data-tab-navigation',
+      'enabled',
+    );
   });
 
   it('vincula conversa pelo HistoryPicker e chama setTaskConversation com o ID', async () => {
