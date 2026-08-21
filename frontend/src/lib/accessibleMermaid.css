@@ -1,0 +1,13 @@
+.mermaid-diagram .mermaid-a11y-highlight-halo {
+  stroke: var(--bg-base);
+  stroke-width: 8px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mermaid-diagram .mermaid-a11y-highlight-line {
+  stroke: var(--color-focus);
+  stroke-width: 4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

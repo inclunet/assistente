@@ -108,10 +108,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0092](0092-filesystem-path-trust-allowlist.md) | Allowlist escopável de paths fora do sandbox (filesystem trust) | ✅ Done |
 | [0093](0093-leitura-documentos-como-markdown.md) | Leitura unificada de documentos como Markdown (`read_file` / busca) | ✅ Done |
 | [0094](0094-navegacao-em-conteudo-renderizado.md) | Navegação em conteúdo renderizado | ✅ Done |
+| [0095](0095-mermaid-acessivel-e-resiliente.md) | Mermaid acessível e resiliente | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0094 → próximo
-> 0095), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0095 → próximo
+> 0096), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

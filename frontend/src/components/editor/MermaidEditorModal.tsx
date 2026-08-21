@@ -176,7 +176,6 @@ export function MermaidEditorModal({
               <MarkdownRenderer
                 content={previewMarkdown}
                 interactiveButtons={false}
-                focusableMermaid={false}
                 tabNavigation="disabled"
               />
             </div>

@@ -217,18 +217,22 @@
 
 .markdown-content .mermaid-diagram__error-title {
   font-weight: 700;
-  margin-bottom: 6px;
+  margin-bottom: var(--spacing-xs);
 }
 
 .markdown-content .mermaid-diagram__error-message {
-  font-size: 13px;
-  margin-bottom: 8px;
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-sm);
   opacity: 0.95;
 }
 
+.markdown-content .mermaid-diagram__error-details summary {
+  cursor: pointer;
+}
+
 .markdown-content .mermaid-diagram__error-pre {
-  margin-top: 8px;
-  padding: 10px;
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm);
   border-radius: var(--border-radius);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
