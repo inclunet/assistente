@@ -115,10 +115,11 @@ type RateLimiter struct {
 }
 
 type rateLimiterEntry struct {
-	limiter  *rate.Limiter
-	rpm      int
-	burst    int
-	nearFrac float64
+	limiter    *rate.Limiter
+	rpm        int
+	burst      int
+	nearFrac   float64
+	generation uint64
 }
 
 // NewRateLimiter cria um RateLimiter a partir da configuração. Retorna nil
@@ -180,19 +181,20 @@ func normalizeRateLimitConfig(cfg RateLimitConfig) RateLimitConfig {
 	return cfg
 }
 
-func (l *RateLimiter) limiterFor(key string, cfg RateLimitConfig, now time.Time) *rateLimiterEntry {
+func (l *RateLimiter) limiterFor(key string, cfg RateLimitConfig, now time.Time) (*rateLimiterEntry, uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	entry, ok := l.limiters[key]
 	if !ok {
 		entry = &rateLimiterEntry{
-			limiter:  rate.NewLimiter(rate.Limit(float64(cfg.RequestsPerMinute)/60.0), cfg.Burst),
-			rpm:      cfg.RequestsPerMinute,
-			burst:    cfg.Burst,
-			nearFrac: cfg.NearLimitThreshold,
+			limiter:    rate.NewLimiter(rate.Limit(float64(cfg.RequestsPerMinute)/60.0), cfg.Burst),
+			rpm:        cfg.RequestsPerMinute,
+			burst:      cfg.Burst,
+			nearFrac:   cfg.NearLimitThreshold,
+			generation: 1,
 		}
 		l.limiters[key] = entry
-		return entry
+		return entry, entry.generation
 	}
 	changed := false
 	if entry.rpm != cfg.RequestsPerMinute {
@@ -210,9 +212,10 @@ func (l *RateLimiter) limiterFor(key string, cfg RateLimitConfig, now time.Time)
 		changed = true
 	}
 	if changed {
+		entry.generation++
 		delete(l.nearAlerted, key)
 	}
-	return entry
+	return entry, entry.generation
 }
 
 // Allow consome 1 token do bucket de `key`. Retorna nil quando permitido, ou
@@ -258,7 +261,7 @@ func (l *RateLimiter) allowAtWithConfig(key string, now time.Time, cfg RateLimit
 	if key == "" {
 		key = globalRateLimitKey
 	}
-	entry := l.limiterFor(key, cfg, now)
+	entry, generation := l.limiterFor(key, cfg, now)
 	lim := entry.limiter
 
 	r := lim.ReserveN(now, 1)
@@ -276,7 +279,7 @@ func (l *RateLimiter) allowAtWithConfig(key string, now time.Time, cfg RateLimit
 	}
 
 	// Permitido (token consumido). Avalia o alerta de proximidade.
-	l.maybeNearLimit(key, entry, cfg, now)
+	l.maybeNearLimit(key, entry, generation, cfg, now)
 	return nil
 }
 
@@ -285,14 +288,14 @@ func (l *RateLimiter) allowAtWithConfig(key string, now time.Time, cfg RateLimit
 // continua abaixo do limiar, não realerta; quando volta acima, o estado é
 // resetado para permitir um novo alerta no próximo cruzamento. Mantém o
 // disparo do callback fora do lock para evitar reentrância/deadlock.
-func (l *RateLimiter) maybeNearLimit(key string, entry *rateLimiterEntry, cfg RateLimitConfig, now time.Time) {
+func (l *RateLimiter) maybeNearLimit(key string, entry *rateLimiterEntry, generation uint64, cfg RateLimitConfig, now time.Time) {
 	// O rate.Limiter é thread-safe e cfg é o snapshot desta chamada.
 	remaining := entry.limiter.TokensAt(now)
 	below := remaining <= float64(cfg.Burst)*cfg.NearLimitThreshold
 
 	// Sob o lock: copia o handler e lê/atualiza o estado edge-triggered por chave.
 	l.mu.Lock()
-	if current := l.limiters[key]; current != entry {
+	if current := l.limiters[key]; current != entry || entry.generation != generation {
 		l.mu.Unlock()
 		return
 	}

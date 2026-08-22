@@ -232,6 +232,46 @@ func TestRateLimiter_NearLimitAlert_ResetsAboveThreshold(t *testing.T) {
 	}
 }
 
+func TestRateLimiter_NearLimitIgnoresStalePolicyGeneration(t *testing.T) {
+	l := newTestLimiter(60, 10)
+	now := time.Now()
+	oldCfg := RateLimitConfig{
+		Enabled:            true,
+		RequestsPerMinute:  60,
+		Burst:              10,
+		NearLimitThreshold: 0.5,
+	}
+	entry, oldGeneration := l.limiterFor("user-1", oldCfg, now)
+	if !entry.limiter.AllowN(now, 6) {
+		t.Fatal("setup deveria consumir seis tokens")
+	}
+
+	newCfg := RateLimitConfig{
+		Enabled:            true,
+		RequestsPerMinute:  60,
+		Burst:              20,
+		NearLimitThreshold: 0.1,
+	}
+	_, newGeneration := l.limiterFor("user-1", newCfg, now)
+	if newGeneration == oldGeneration {
+		t.Fatal("reconfiguração deveria avançar a geração")
+	}
+
+	var alerts int
+	l.SetNearLimitHandler(func(string, float64) { alerts++ })
+	// Sob a política antiga, os quatro tokens restantes estariam abaixo de 50%
+	// e marcariam a chave como alertada. A geração obsoleta deve abortar antes
+	// de reintroduzir esse estado depois do reset da política nova.
+	l.maybeNearLimit("user-1", entry, oldGeneration, oldCfg, now)
+
+	l.mu.Lock()
+	alerted := l.nearAlerted["user-1"]
+	l.mu.Unlock()
+	if alerted || alerts != 0 {
+		t.Fatalf("avaliação obsoleta alterou o alerta: alerted=%v callbacks=%d", alerted, alerts)
+	}
+}
+
 // TestRateLimiter_ConcurrentSetHandlerAndAllow exercita SetNearLimitHandler
 // concorrentemente com Allow/maybeNearLimit para que o `-race` detector
 // flagre regressões de data race no campo onNearLimit.

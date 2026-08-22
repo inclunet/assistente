@@ -392,8 +392,10 @@ func newRateLimitPolicyResolver(manager *profiles.Manager) llm.RateLimitPolicyRe
 			}
 		}
 		if profile == nil && manager != nil {
-			profile, _ = manager.GetActive()
-			slug = manager.GetActiveSlug()
+			if active, err := manager.GetActiveAndSlug(); err == nil && active != nil {
+				profile = active.Profile
+				slug = active.Slug
+			}
 		}
 		if profile == nil {
 			return llm.ResolvedRateLimitPolicy{
