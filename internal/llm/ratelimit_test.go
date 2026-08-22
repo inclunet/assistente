@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -282,86 +281,34 @@ func TestNewRateLimiter_DisabledReturnsNil(t *testing.T) {
 	}
 }
 
-// unsetRateLimitEnv remove as env vars de rate limit e restaura o valor
-// anterior ao fim do teste. Necessário porque t.Setenv não consegue
-// representar "ausente" (sempre define a variável).
-func unsetRateLimitEnv(t *testing.T) {
-	t.Helper()
-	for _, k := range []string{envRateLimitEnabled, envRateLimitRPM, envRateLimitBurst} {
-		prev, had := os.LookupEnv(k)
-		if err := os.Unsetenv(k); err != nil {
-			t.Fatalf("não foi possível limpar %s: %v", k, err)
-		}
-		if had {
-			t.Cleanup(func() { _ = os.Setenv(k, prev) })
-		} else {
-			t.Cleanup(func() { _ = os.Unsetenv(k) })
+func TestRateLimiter_AllowWithConfigCanDisableProfile(t *testing.T) {
+	l := newTestLimiter(60, 1)
+	disabled := RateLimitConfig{Enabled: false}
+	for i := 0; i < 3; i++ {
+		if err := l.AllowWithConfig("user-1::profile::sem-limite", disabled); err != nil {
+			t.Fatalf("perfil desabilitado deveria passar: %v", err)
 		}
 	}
 }
 
-// TestRateLimitConfigFromEnv_Defaults exercita a função real
-// RateLimitConfigFromEnv() com as env vars AUSENTES e valida que ela retorna
-// os defaults — pegando regressões na leitura/validação de env.
-func TestRateLimitConfigFromEnv_Defaults(t *testing.T) {
-	unsetRateLimitEnv(t)
+func TestRateLimiter_AllowWithConfigReconfiguresWithoutRefillingBucket(t *testing.T) {
+	l := newTestLimiter(60, 1)
+	key := "user-1::profile::pesquisa"
+	now := time.Now()
+	one := RateLimitConfig{Enabled: true, RequestsPerMinute: 60, Burst: 1}
+	if err := l.allowAtWithConfig(key, now, one); err != nil {
+		t.Fatalf("primeira chamada: %v", err)
+	}
+	if err := l.allowAtWithConfig(key, now, one); err == nil {
+		t.Fatal("segunda chamada deveria ser bloqueada com burst 1")
+	}
 
-	cfg := RateLimitConfigFromEnv()
-	if !cfg.Enabled {
-		t.Error("default deveria estar habilitado")
+	two := RateLimitConfig{Enabled: true, RequestsPerMinute: 120, Burst: 2}
+	if err := l.allowAtWithConfig(key, now, two); err == nil {
+		t.Fatal("aumentar o limite não deve devolver tokens já consumidos")
 	}
-	if cfg.RequestsPerMinute != DefaultRateLimitRPM {
-		t.Errorf("rpm default = %d, want %d", cfg.RequestsPerMinute, DefaultRateLimitRPM)
-	}
-	if cfg.Burst != DefaultRateLimitBurst {
-		t.Errorf("burst default = %d, want %d", cfg.Burst, DefaultRateLimitBurst)
-	}
-	if cfg.NearLimitThreshold != DefaultNearLimitThreshold {
-		t.Errorf("near-limit threshold default = %v, want %v", cfg.NearLimitThreshold, DefaultNearLimitThreshold)
-	}
-}
-
-func TestRateLimitConfigFromEnv_Overrides(t *testing.T) {
-	t.Setenv(envRateLimitEnabled, "true")
-	t.Setenv(envRateLimitRPM, "120")
-	t.Setenv(envRateLimitBurst, "50")
-
-	cfg := RateLimitConfigFromEnv()
-	if !cfg.Enabled {
-		t.Error("enabled deveria ser true")
-	}
-	if cfg.RequestsPerMinute != 120 {
-		t.Errorf("rpm = %d, want 120", cfg.RequestsPerMinute)
-	}
-	if cfg.Burst != 50 {
-		t.Errorf("burst = %d, want 50", cfg.Burst)
-	}
-}
-
-func TestRateLimitConfigFromEnv_InvalidKeepsDefault(t *testing.T) {
-	unsetRateLimitEnv(t)
-	t.Setenv(envRateLimitRPM, "not-a-number")
-	t.Setenv(envRateLimitBurst, "-5")
-	t.Setenv(envRateLimitEnabled, "maybe")
-
-	cfg := RateLimitConfigFromEnv()
-	if cfg.RequestsPerMinute != DefaultRateLimitRPM {
-		t.Errorf("rpm inválido deveria manter default %d, got %d", DefaultRateLimitRPM, cfg.RequestsPerMinute)
-	}
-	if cfg.Burst != DefaultRateLimitBurst {
-		t.Errorf("burst inválido deveria manter default %d, got %d", DefaultRateLimitBurst, cfg.Burst)
-	}
-	// enabled inválido deve manter o default (habilitado).
-	if !cfg.Enabled {
-		t.Errorf("enabled inválido deveria manter default true, got %v", cfg.Enabled)
-	}
-}
-
-func TestRateLimitConfigFromEnv_Disable(t *testing.T) {
-	t.Setenv(envRateLimitEnabled, "false")
-	cfg := RateLimitConfigFromEnv()
-	if cfg.Enabled {
-		t.Error("ASSISTENTE_LLM_RATE_LIMIT_ENABLED=false deveria desabilitar")
+	if err := l.allowAtWithConfig(key, now.Add(500*time.Millisecond), two); err != nil {
+		t.Fatalf("a nova taxa deve reabastecer o bucket sem recriá-lo: %v", err)
 	}
 }
 
@@ -423,7 +370,7 @@ func (h *recordingHandler) OnChunk(string)                                {}
 func (h *recordingHandler) OnThinking(string)                             {}
 func (h *recordingHandler) OnThinkingDone(string)                         {}
 func (h *recordingHandler) OnToolCalls([]ToolCall, string, Usage, string) {}
-func (h *recordingHandler) OnError(err string)                           { h.lastError = err }
+func (h *recordingHandler) OnError(err string)                            { h.lastError = err }
 func (h *recordingHandler) OnDone(string, Usage, string)                  { h.doneCount++ }
 func (h *recordingHandler) OnMCPToolEvent(MCPToolEvent)                   {}
 
@@ -457,6 +404,91 @@ func TestRateLimitedProvider_StreamChatBlockedSignalsHandler(t *testing.T) {
 	}
 	if h2.lastError == "" {
 		t.Fatal("segunda chamada deveria sinalizar OnError com mensagem de rate limit")
+	}
+}
+
+func TestRateLimitedProvider_ProfilesUseIndependentBuckets(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 1)
+	p := NewRateLimitedProvider(inner, limiter, func(context.Context) string { return "user-1" })
+
+	for _, slug := range []string{"conversa", "pesquisa"} {
+		h := &recordingHandler{}
+		p.StreamChat(context.Background(), nil, ChatParams{ProfileSlug: slug}, h)
+		if h.lastError != "" {
+			t.Fatalf("primeira chamada do perfil %q não deveria ser bloqueada: %s", slug, h.lastError)
+		}
+	}
+	if inner.streamCalls != 2 {
+		t.Fatalf("cada perfil deveria ter bucket próprio, chamadas delegadas=%d", inner.streamCalls)
+	}
+}
+
+func TestRateLimitedProvider_ProfileCanDisableLimit(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 1)
+	p := NewRateLimitedProvider(inner, limiter, func(context.Context) string { return "user-1" })
+	disabled := false
+	params := ChatParams{ProfileSlug: "longo", RateLimitEnabled: &disabled}
+
+	for i := 0; i < 3; i++ {
+		p.StreamChat(context.Background(), nil, params, &recordingHandler{})
+	}
+	if inner.streamCalls != 3 {
+		t.Fatalf("perfil sem limite deveria delegar todas as chamadas, got %d", inner.streamCalls)
+	}
+}
+
+func TestRateLimitedProvider_ResolverWinsOverStaleTurnSnapshot(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 30)
+	current := RateLimitConfig{Enabled: true, RequestsPerMinute: 60, Burst: 1}
+	resolver := func(_ context.Context, slug string) ResolvedRateLimitPolicy {
+		return ResolvedRateLimitPolicy{Config: current, ProfileSlug: slug}
+	}
+	p := NewRateLimitedProviderWithResolver(
+		inner,
+		limiter,
+		func(context.Context) string { return "user-1" },
+		resolver,
+	)
+	enabled := true
+	stale := ChatParams{
+		ProfileSlug:      "pesquisa",
+		RateLimitEnabled: &enabled,
+		RateLimitRPM:     600,
+		RateLimitBurst:   30,
+	}
+
+	p.StreamChat(context.Background(), nil, stale, &recordingHandler{})
+	blocked := &recordingHandler{}
+	p.StreamChat(context.Background(), nil, stale, blocked)
+	if blocked.lastError == "" || inner.streamCalls != 1 {
+		t.Fatal("snapshot antigo não deve alargar a política atual resolvida do perfil")
+	}
+}
+
+func TestRateLimitedProvider_UsesEffectiveSlugFromResolver(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 1)
+	resolver := func(context.Context, string) ResolvedRateLimitPolicy {
+		return ResolvedRateLimitPolicy{
+			Config:      RateLimitConfig{Enabled: true, RequestsPerMinute: 60, Burst: 1},
+			ProfileSlug: "ativo",
+		}
+	}
+	p := NewRateLimitedProviderWithResolver(
+		inner,
+		limiter,
+		func(context.Context) string { return "user-1" },
+		resolver,
+	)
+
+	p.StreamChat(context.Background(), nil, ChatParams{ProfileSlug: "removido"}, &recordingHandler{})
+	blocked := &recordingHandler{}
+	p.StreamChat(context.Background(), nil, ChatParams{ProfileSlug: "ativo"}, blocked)
+	if blocked.lastError == "" {
+		t.Fatal("slug removido e perfil ativo devem compartilhar o bucket efetivo")
 	}
 }
 
@@ -499,6 +531,44 @@ func TestRateLimitedProvider_SimpleChatLimited(t *testing.T) {
 	}
 	if inner.simpleCalls != 1 {
 		t.Fatalf("SimpleChat barrada não deveria delegar, simpleCalls=%d", inner.simpleCalls)
+	}
+}
+
+func TestRateLimitedProvider_SimpleChatUsesProfileFromContext(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 1)
+	p := NewRateLimitedProvider(inner, limiter, func(context.Context) string { return "user-1" })
+	ctx := WithRateLimitProfile(context.Background(), RateLimitConfig{Enabled: false}, "longo")
+
+	for i := 0; i < 3; i++ {
+		if _, err := p.SimpleChat(ctx, "m", "sys", "hi"); err != nil {
+			t.Fatalf("sumarização do perfil sem limite deveria passar: %v", err)
+		}
+	}
+}
+
+func TestRateLimitedProvider_SimpleChatResolverOverridesStaleContext(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 30)
+	resolver := func(context.Context, string) ResolvedRateLimitPolicy {
+		return ResolvedRateLimitPolicy{
+			Config:      RateLimitConfig{Enabled: true, RequestsPerMinute: 60, Burst: 1},
+			ProfileSlug: "ativo",
+		}
+	}
+	p := NewRateLimitedProviderWithResolver(
+		inner,
+		limiter,
+		func(context.Context) string { return "user-1" },
+		resolver,
+	)
+	staleCtx := WithRateLimitProfile(context.Background(), RateLimitConfig{Enabled: false}, "ativo")
+
+	if _, err := p.SimpleChat(staleCtx, "m", "sys", "hi"); err != nil {
+		t.Fatalf("primeira chamada: %v", err)
+	}
+	if _, err := p.SimpleChat(staleCtx, "m", "sys", "hi"); err == nil {
+		t.Fatal("política atual deve prevalecer sobre o snapshot antigo da sumarização")
 	}
 }
 

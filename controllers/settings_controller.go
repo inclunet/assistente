@@ -109,6 +109,10 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 	if err != nil {
 		return "", err
 	}
+	params.ProfileSlug = c.profileMgr.GetActiveSlug()
+	params.RateLimitEnabled = activeProfile.Chat.RateLimitEnabled
+	params.RateLimitRPM = activeProfile.GetLLMRateLimitRPM()
+	params.RateLimitBurst = activeProfile.GetLLMRateLimitBurst()
 	return cp.SendChat(ctx, messages, params)
 }
 

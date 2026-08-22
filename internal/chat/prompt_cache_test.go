@@ -326,6 +326,45 @@ func TestPrepareContextAppliesLLMDebugDumpConfigFromProfile(t *testing.T) {
 	}
 }
 
+func TestPrepareContextAppliesLLMRateLimitFromProfile(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	disabled := false
+	profile := profiles.DefaultProfile()
+	profile.Name = "Tarefas longas"
+	profile.Chat.RateLimitEnabled = &disabled
+	profile.Chat.RateLimitRPM = 240
+	profile.Chat.RateLimitBurst = 120
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	if err := profileMgr.SetActive(slug); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "oi",
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp.Params.ProfileSlug != slug {
+		t.Fatalf("ProfileSlug = %q, want %q", resp.Params.ProfileSlug, slug)
+	}
+	if resp.Params.RateLimitEnabled == nil || *resp.Params.RateLimitEnabled {
+		t.Fatal("RateLimitEnabled deveria refletir false explícito")
+	}
+	if resp.Params.RateLimitRPM != 240 || resp.Params.RateLimitBurst != 120 {
+		t.Fatalf("política aplicada = %d/%d, want 240/120", resp.Params.RateLimitRPM, resp.Params.RateLimitBurst)
+	}
+}
+
 func TestHandlePromptCacheHintUnsupportedPersistsProviderHintsFalse(t *testing.T) {
 	mgr := setupProfileTestEnv(t)
 	profile := profiles.DefaultProfile()

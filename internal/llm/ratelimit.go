@@ -1,12 +1,8 @@
 package llm
 
 import (
-	"assistente/internal/logging"
-	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,16 +15,17 @@ import (
 // Motivação: sem controle de taxa, loops de agentes, retries em cascata ou
 // uso abusivo podem disparar centenas de chamadas ao provedor em segundos,
 // gerando custos inesperados e estourando cotas. Este limitador aplica um
-// token bucket por usuário (chave = userID resolvido do contexto) usando
+// token bucket por usuário e perfil usando
 // golang.org/x/time/rate, conforme proposto no issue.
 //
-// O escopo é por usuário (AEP-0052 já carimba o userID no contexto). Quando
+// O escopo é por usuário e perfil (AEP-0052 já carimba o userID no contexto).
+// Quando
 // o contexto não tem userID (fluxos internos sem escopo), o limitador usa uma
 // chave global única, de modo que nenhuma chamada escape do controle.
 
 const (
 	// DefaultRateLimitRPM é o teto sustentado de requisições por minuto por
-	// usuário. 60 rpm (1/s sustentado) é generoso para conversas normais e
+	// usuário e perfil. 60 rpm (1/s sustentado) é generoso para conversas normais e
 	// para a maioria dos loops agênticos, mas barra rajadas patológicas.
 	DefaultRateLimitRPM = 60
 
@@ -44,11 +41,6 @@ const (
 	// globalRateLimitKey é a chave usada quando o contexto não carrega um
 	// userID. Garante que chamadas sem escopo ainda sejam contabilizadas.
 	globalRateLimitKey = "__global__"
-
-	// Variáveis de ambiente para configuração em runtime.
-	envRateLimitEnabled = "ASSISTENTE_LLM_RATE_LIMIT_ENABLED"
-	envRateLimitRPM     = "ASSISTENTE_LLM_RATE_LIMIT_RPM"
-	envRateLimitBurst   = "ASSISTENTE_LLM_RATE_LIMIT_BURST"
 )
 
 // RateLimitConfig descreve os parâmetros configuráveis do limitador.
@@ -73,36 +65,6 @@ func DefaultRateLimitConfig() RateLimitConfig {
 		Burst:              DefaultRateLimitBurst,
 		NearLimitThreshold: DefaultNearLimitThreshold,
 	}
-}
-
-// RateLimitConfigFromEnv parte dos defaults e sobrescreve com variáveis de
-// ambiente quando presentes. Valores inválidos são ignorados (mantém default)
-// com log de aviso, para nunca desabilitar o controle por erro de digitação.
-func RateLimitConfigFromEnv() RateLimitConfig {
-	cfg := DefaultRateLimitConfig()
-
-	if raw, ok := os.LookupEnv(envRateLimitEnabled); ok {
-		if v, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
-			cfg.Enabled = v
-		} else {
-			logging.Infof(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo enabled=%v", envRateLimitEnabled, raw, cfg.Enabled)
-		}
-	}
-	if raw, ok := os.LookupEnv(envRateLimitRPM); ok {
-		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && v > 0 {
-			cfg.RequestsPerMinute = v
-		} else {
-			logging.Infof(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo rpm=%d", envRateLimitRPM, raw, cfg.RequestsPerMinute)
-		}
-	}
-	if raw, ok := os.LookupEnv(envRateLimitBurst); ok {
-		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && v > 0 {
-			cfg.Burst = v
-		} else {
-			logging.Warnf(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo burst=%d", envRateLimitBurst, raw, cfg.Burst)
-		}
-	}
-	return cfg
 }
 
 // RateLimitError sinaliza que a chamada foi barrada pelo limitador. Carrega o
@@ -133,14 +95,12 @@ func IsRateLimitError(err error) bool {
 	return errors.As(err, &rl)
 }
 
-// RateLimiter aplica throttling por chave (userID) com um token bucket por
+// RateLimiter aplica throttling por chave (userID + perfil) com um token bucket por
 // chave. Usa golang.org/x/time/rate internamente. Seguro para uso concorrente.
 type RateLimiter struct {
 	mu       sync.Mutex
-	limiters map[string]*rate.Limiter
-	limit    rate.Limit
-	burst    int
-	nearFrac float64
+	limiters map[string]*rateLimiterEntry
+	defaults RateLimitConfig
 
 	// nearAlerted guarda, por chave, se o alerta de proximidade já foi
 	// disparado enquanto a chave permanece abaixo do limiar. Usado para tornar
@@ -152,6 +112,13 @@ type RateLimiter struct {
 	// escrito por SetNearLimitHandler e lido (copiado para uma var local) em
 	// maybeNearLimit sob o lock, sendo invocado fora do lock.
 	onNearLimit func(key string, remaining float64)
+}
+
+type rateLimiterEntry struct {
+	limiter  *rate.Limiter
+	rpm      int
+	burst    int
+	nearFrac float64
 }
 
 // NewRateLimiter cria um RateLimiter a partir da configuração. Retorna nil
@@ -174,11 +141,14 @@ func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
 		nearFrac = DefaultNearLimitThreshold
 	}
 	return &RateLimiter{
-		limiters:    make(map[string]*rate.Limiter),
+		limiters:    make(map[string]*rateLimiterEntry),
 		nearAlerted: make(map[string]bool),
-		limit:       rate.Limit(float64(rpm) / 60.0),
-		burst:       burst,
-		nearFrac:    nearFrac,
+		defaults: RateLimitConfig{
+			Enabled:            true,
+			RequestsPerMinute:  rpm,
+			Burst:              burst,
+			NearLimitThreshold: nearFrac,
+		},
 	}
 }
 
@@ -197,15 +167,52 @@ func (l *RateLimiter) SetNearLimitHandler(fn func(key string, remaining float64)
 	l.mu.Unlock()
 }
 
-func (l *RateLimiter) limiterFor(key string) *rate.Limiter {
+func normalizeRateLimitConfig(cfg RateLimitConfig) RateLimitConfig {
+	if cfg.RequestsPerMinute <= 0 {
+		cfg.RequestsPerMinute = DefaultRateLimitRPM
+	}
+	if cfg.Burst <= 0 {
+		cfg.Burst = DefaultRateLimitBurst
+	}
+	if cfg.NearLimitThreshold <= 0 || cfg.NearLimitThreshold >= 1 {
+		cfg.NearLimitThreshold = DefaultNearLimitThreshold
+	}
+	return cfg
+}
+
+func (l *RateLimiter) limiterFor(key string, cfg RateLimitConfig, now time.Time) *rateLimiterEntry {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	lim, ok := l.limiters[key]
+	entry, ok := l.limiters[key]
 	if !ok {
-		lim = rate.NewLimiter(l.limit, l.burst)
-		l.limiters[key] = lim
+		entry = &rateLimiterEntry{
+			limiter:  rate.NewLimiter(rate.Limit(float64(cfg.RequestsPerMinute)/60.0), cfg.Burst),
+			rpm:      cfg.RequestsPerMinute,
+			burst:    cfg.Burst,
+			nearFrac: cfg.NearLimitThreshold,
+		}
+		l.limiters[key] = entry
+		return entry
 	}
-	return lim
+	changed := false
+	if entry.rpm != cfg.RequestsPerMinute {
+		entry.limiter.SetLimitAt(now, rate.Limit(float64(cfg.RequestsPerMinute)/60.0))
+		entry.rpm = cfg.RequestsPerMinute
+		changed = true
+	}
+	if entry.burst != cfg.Burst {
+		entry.limiter.SetBurstAt(now, cfg.Burst)
+		entry.burst = cfg.Burst
+		changed = true
+	}
+	if entry.nearFrac != cfg.NearLimitThreshold {
+		entry.nearFrac = cfg.NearLimitThreshold
+		changed = true
+	}
+	if changed {
+		delete(l.nearAlerted, key)
+	}
+	return entry
 }
 
 // Allow consome 1 token do bucket de `key`. Retorna nil quando permitido, ou
@@ -215,7 +222,16 @@ func (l *RateLimiter) Allow(key string) error {
 	if l == nil {
 		return nil
 	}
-	return l.allowAt(key, time.Now())
+	return l.allowAtWithConfig(key, time.Now(), l.defaults)
+}
+
+// AllowWithConfig aplica a política informada ao bucket da chave. Alterações
+// atualizam taxa e rajada in-place, preservando os tokens já consumidos.
+func (l *RateLimiter) AllowWithConfig(key string, cfg RateLimitConfig) error {
+	if l == nil || !cfg.Enabled {
+		return nil
+	}
+	return l.allowAtWithConfig(key, time.Now(), normalizeRateLimitConfig(cfg))
 }
 
 // allowAt é a variante com tempo explícito, usada internamente por Allow e
@@ -230,11 +246,20 @@ func (l *RateLimiter) allowAt(key string, now time.Time) error {
 	if l == nil {
 		return nil
 	}
+	return l.allowAtWithConfig(key, now, l.defaults)
+}
+
+func (l *RateLimiter) allowAtWithConfig(key string, now time.Time, cfg RateLimitConfig) error {
+	if l == nil || !cfg.Enabled {
+		return nil
+	}
+	cfg = normalizeRateLimitConfig(cfg)
 	key = strings.TrimSpace(key)
 	if key == "" {
 		key = globalRateLimitKey
 	}
-	lim := l.limiterFor(key)
+	entry := l.limiterFor(key, cfg, now)
+	lim := entry.limiter
 
 	r := lim.ReserveN(now, 1)
 	if !r.OK() {
@@ -251,7 +276,7 @@ func (l *RateLimiter) allowAt(key string, now time.Time) error {
 	}
 
 	// Permitido (token consumido). Avalia o alerta de proximidade.
-	l.maybeNearLimit(key, lim, now)
+	l.maybeNearLimit(key, entry, cfg, now)
 	return nil
 }
 
@@ -260,14 +285,17 @@ func (l *RateLimiter) allowAt(key string, now time.Time) error {
 // continua abaixo do limiar, não realerta; quando volta acima, o estado é
 // resetado para permitir um novo alerta no próximo cruzamento. Mantém o
 // disparo do callback fora do lock para evitar reentrância/deadlock.
-func (l *RateLimiter) maybeNearLimit(key string, lim *rate.Limiter, now time.Time) {
-	// remaining/below dependem apenas de campos imutáveis (burst, nearFrac) e do
-	// próprio rate.Limiter (thread-safe), então podem ser calculados sem o lock.
-	remaining := lim.TokensAt(now)
-	below := remaining <= float64(l.burst)*l.nearFrac
+func (l *RateLimiter) maybeNearLimit(key string, entry *rateLimiterEntry, cfg RateLimitConfig, now time.Time) {
+	// O rate.Limiter é thread-safe e cfg é o snapshot desta chamada.
+	remaining := entry.limiter.TokensAt(now)
+	below := remaining <= float64(cfg.Burst)*cfg.NearLimitThreshold
 
 	// Sob o lock: copia o handler e lê/atualiza o estado edge-triggered por chave.
 	l.mu.Lock()
+	if current := l.limiters[key]; current != entry {
+		l.mu.Unlock()
+		return
+	}
 	handler := l.onNearLimit
 	alreadyAlerted := l.nearAlerted[key]
 	crossed := below && !alreadyAlerted
