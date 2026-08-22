@@ -34,6 +34,14 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 
 	names := p.registry.Names()
 	if len(cfg.ToolPolicy) > 0 || strings.TrimSpace(cfg.ToolPolicyDefault) != "" {
+		// Sozinho, o default não vale para perfil que ainda descreve as tools
+		// pela allowlist legada: ele diria "on_demand" para nomes que a
+		// allowlist bloqueia, abrindo capability que ninguém escolheu. Enquanto
+		// a allowlist não virar tool_policy explícita, ela continua soberana.
+		if len(cfg.ToolPolicy) == 0 && cfg.EnabledTools != nil {
+			p.applyLegacyAllowlist(&policy, names, cfg)
+			return policy
+		}
 		defaultState := normalizeToolPolicyDefault(cfg.ToolPolicyDefault)
 		for _, name := range names {
 			state := defaultState
@@ -79,6 +87,11 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 		return policy
 	}
 
+	p.applyLegacyAllowlist(&policy, names, cfg)
+	return policy
+}
+
+func (p *ToolSelectionPolicy) applyLegacyAllowlist(policy *EffectiveToolPolicy, names []string, cfg ProfileToolConfig) {
 	for _, name := range names {
 		policy.states[name] = ToolPolicyDisabled
 	}
@@ -91,7 +104,6 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 		policy.states[name] = ToolPolicyPreloaded
 	}
 	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime, nil)
-	return policy
 }
 
 func (p EffectiveToolPolicy) State(name string) ToolPolicyState {

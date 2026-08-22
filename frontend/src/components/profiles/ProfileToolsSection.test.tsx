@@ -298,6 +298,52 @@ describe('ProfileToolsSection', () => {
     expect(onChange).toHaveBeenCalledWith('tool_policy_default', 'on_demand');
   });
 
+  it('mantém a allowlist legada soberana sobre o tool_policy_default', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('write_file', 'Write file'),
+        ]}
+        enabledTools={['read_file']}
+        toolPolicyDefault="on_demand"
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByLabelText('read_file: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('write_file: Desabilitada')).toBeInTheDocument();
+  });
+
+  it('migra a allowlist legada ao trocar o tool_policy_default', () => {
+    const onChange = vi.fn();
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('write_file', 'Write file'),
+        ]}
+        enabledTools={['read_file']}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('tool-policy-default-select'), {
+      target: { value: 'on_demand' },
+    });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      { read_file: 'preloaded', write_file: 'disabled' },
+      { toolPolicyDefault: 'on_demand' },
+    );
+    expect(onChange).not.toHaveBeenCalledWith('tool_policy_default', 'on_demand');
+  });
+
   it('mantém opt-in não listada disabled com default on_demand', () => {
     const onChange = vi.fn();
     render(

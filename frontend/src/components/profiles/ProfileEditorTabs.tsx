@@ -324,9 +324,12 @@ export function ProfileEditorTabs({
               responseTimeout={editingProfile.chat?.response_timeout ?? 180}
               nativeMcp={editingProfile.chat?.native_mcp ?? null}
               onChange={(field, value) => updateField(`chat.${field}`, value)}
-              onPolicyChange={(policy) => updateFields({
+              onPolicyChange={(policy, extras) => updateFields({
                 'chat.tool_policy': policy,
                 'chat.enabled_tools': null,
+                ...(extras?.toolPolicyDefault !== undefined
+                  ? { 'chat.tool_policy_default': extras.toolPolicyDefault }
+                  : {}),
               })}
             />
           </TabPanel>

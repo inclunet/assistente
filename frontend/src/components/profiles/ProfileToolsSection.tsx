@@ -36,7 +36,10 @@ export interface ProfileToolsSectionProps {
     field: 'enabled_tools' | 'tool_policy' | 'tool_policy_default' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout' | 'native_mcp',
     value: string[] | string | boolean | number | null | Record<string, string>
   ) => void;
-  onPolicyChange?: (policy: Record<string, string>) => void;
+  onPolicyChange?: (
+    policy: Record<string, string>,
+    extras?: { toolPolicyDefault?: string },
+  ) => void;
   disabled?: boolean;
 }
 
@@ -127,7 +130,10 @@ export function ProfileToolsSection({
   const effectiveToolPolicy = useMemo(() => {
     const policy: Record<string, ToolPolicyState> = {};
     const normalizedDefault = toolPolicyDefault?.trim() ?? '';
-    if ((toolPolicy && Object.keys(toolPolicy).length > 0) || normalizedDefault !== '') {
+    const hasExplicitPolicy = toolPolicy != null && Object.keys(toolPolicy).length > 0;
+    // Espelha o backend: enquanto o perfil descreve as tools pela allowlist
+    // legada, o default sozinho não rege nada (AEP-0096).
+    if (hasExplicitPolicy || (normalizedDefault !== '' && enabledTools == null)) {
       const defaultState = normalizedDefault === TOOL_POLICY_ON_DEMAND
         ? TOOL_POLICY_ON_DEMAND
         : TOOL_POLICY_DISABLED;
@@ -195,6 +201,18 @@ export function ProfileToolsSection({
     }
     onChange('tool_policy', nextPolicy);
   }, [onChange, onPolicyChange]);
+
+  // Trocar o padrão num perfil legado precisa materializar a allowlist como
+  // tool_policy no mesmo salvamento. Sem isso o backend mantém a allowlist e a
+  // escolha não teria efeito nenhum.
+  const handleToolPolicyDefaultChange = useCallback((value: string) => {
+    const hasExplicitPolicy = toolPolicy != null && Object.keys(toolPolicy).length > 0;
+    if (enabledTools != null && !hasExplicitPolicy && onPolicyChange) {
+      onPolicyChange({ ...effectiveToolPolicy }, { toolPolicyDefault: value });
+      return;
+    }
+    onChange('tool_policy_default', value);
+  }, [effectiveToolPolicy, enabledTools, onChange, onPolicyChange, toolPolicy]);
 
   const isExplicitlyDisabled = useCallback(
     (name: string) => isToolExplicitlyDisabled(toolPolicy, name),
@@ -386,7 +404,7 @@ export function ProfileToolsSection({
               id="pf-tool-policy-default"
               className="profiles-field__select"
               value={toolPolicyDefault?.trim() ?? ''}
-              onChange={(e) => onChange('tool_policy_default', e.target.value)}
+              onChange={(e) => handleToolPolicyDefaultChange(e.target.value)}
               disabled={disabled}
               data-testid="tool-policy-default-select"
             >

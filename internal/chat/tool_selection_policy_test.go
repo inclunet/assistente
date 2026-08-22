@@ -193,6 +193,64 @@ func TestToolSelectionPolicy_DefaultDisabledSemMapaFalhaFechado(t *testing.T) {
 	}
 }
 
+func TestToolSelectionPolicy_DefaultNaoAbreAllowlistLegada(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		EnabledTools:      []string{"read_file"},
+		ToolPolicyDefault: string(ToolPolicyOnDemand),
+	})
+
+	if effective.State("read_file") != ToolPolicyPreloaded {
+		t.Fatalf("allowlist legada deveria manter read_file preloaded, got %s", effective.State("read_file"))
+	}
+	if effective.State("write_file") != ToolPolicyDisabled {
+		t.Fatalf("default sozinho não pode liberar write_file, got %s", effective.State("write_file"))
+	}
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{"read_file"})
+}
+
+func TestToolSelectionPolicy_DefaultNaoAbreSelecaoVaziaLegada(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		EnabledTools:      []string{},
+		ToolPolicyDefault: string(ToolPolicyOnDemand),
+	})
+
+	if got := effective.PreloadedNames(); len(got) != 0 {
+		t.Fatalf("seleção vazia legada não deveria pré-carregar nada, got %#v", got)
+	}
+	if effective.State("read_file") != ToolPolicyDisabled {
+		t.Fatalf("seleção vazia legada deveria manter read_file disabled, got %s", effective.State("read_file"))
+	}
+	if effective.State(tools.ToolCatalogName) != ToolPolicyDisabled {
+		t.Fatalf("seleção vazia legada deveria manter o catálogo disabled, got %s", effective.State(tools.ToolCatalogName))
+	}
+}
+
+func TestToolSelectionPolicy_ToolPolicyExplicitaVenceAllowlistMesmoComDefault(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		EnabledTools:      []string{"read_file"},
+		ToolPolicyDefault: string(ToolPolicyOnDemand),
+		ToolPolicy: map[string]string{
+			"grep_search": string(ToolPolicyPreloaded),
+		},
+	})
+
+	if effective.State("grep_search") != ToolPolicyPreloaded {
+		t.Fatalf("tool_policy explícita deveria valer, got %s", effective.State("grep_search"))
+	}
+	if effective.State("read_file") != ToolPolicyOnDemand {
+		t.Fatalf("com tool_policy presente o default deveria reger read_file, got %s", effective.State("read_file"))
+	}
+	if effective.State("text_edit") != ToolPolicyDisabled {
+		t.Fatalf("opt-in deveria continuar disabled, got %s", effective.State("text_edit"))
+	}
+}
+
 func TestToolSelectionPolicy_ToolPolicyPreloadsCatalogWhenOnDemandExists(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)
