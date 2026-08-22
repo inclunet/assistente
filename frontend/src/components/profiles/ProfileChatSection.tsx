@@ -75,19 +75,17 @@ export interface ProfileChatSectionProps {
   agentProvider?: boolean;
 }
 
-const RATE_LIMIT_MIN = 1;
+const RATE_LIMIT_MIN = 0;
 const RATE_LIMIT_MAX = 10000;
-const DEFAULT_RATE_LIMIT_RPM = 60;
-const DEFAULT_RATE_LIMIT_BURST = 30;
 
 /**
  * O campo numérico aceita digitação fora de min/max, então o valor é ajustado
  * aqui antes de entrar no estado — assim o perfil nunca guarda algo que o
  * backend recusaria na validação.
  */
-function clampRateLimit(raw: string, fallback: number): number {
+function clampRateLimit(raw: string): number {
   const parsed = parseInt(raw, 10);
-  if (Number.isNaN(parsed)) return fallback;
+  if (Number.isNaN(parsed)) return RATE_LIMIT_MIN;
   return Math.min(RATE_LIMIT_MAX, Math.max(RATE_LIMIT_MIN, parsed));
 }
 
@@ -130,9 +128,8 @@ export function ProfileChatSection({
   const minContextMessagesValue = minContextMessages ?? 0;
   const responseTimeoutValue = responseTimeout ?? 180;
   const rateLimitEnabledValue = rateLimitEnabled ?? true;
-  const rateLimitRpmValue = rateLimitRpm && rateLimitRpm > 0 ? rateLimitRpm : DEFAULT_RATE_LIMIT_RPM;
-  const rateLimitBurstValue =
-    rateLimitBurst && rateLimitBurst > 0 ? rateLimitBurst : DEFAULT_RATE_LIMIT_BURST;
+  const rateLimitRpmValue = rateLimitRpm ?? 0;
+  const rateLimitBurstValue = rateLimitBurst ?? 0;
   const reasoningValue = reasoningEffort || 'off';
   const promptCacheEnabledValue = promptCache?.enabled ?? false;
   const promptCacheProviderHintsValue = promptCache?.provider_hints ?? false;
@@ -610,10 +607,10 @@ export function ProfileChatSection({
             />
             {t('profiles.chatSection.rateLimitEnabled')}
           </label>
-          <span className="profiles-field__hint">
-            {t('profiles.chatSection.rateLimitEnabledHint')}
-          </span>
         </div>
+        <span className="profiles-field__hint">
+          {t('profiles.chatSection.rateLimitEnabledHint')}
+        </span>
 
         <div className="profiles-field">
           <label htmlFor="chat-rate-limit-rpm" className="profiles-field__label">
@@ -626,9 +623,7 @@ export function ProfileChatSection({
             min={RATE_LIMIT_MIN}
             max={RATE_LIMIT_MAX}
             value={rateLimitRpmValue}
-            onChange={(e) =>
-              onChange('rate_limit_rpm', clampRateLimit(e.target.value, DEFAULT_RATE_LIMIT_RPM))
-            }
+            onChange={(e) => onChange('rate_limit_rpm', clampRateLimit(e.target.value))}
             disabled={disabled || !rateLimitEnabledValue}
           />
           <span className="profiles-field__hint">
@@ -647,9 +642,7 @@ export function ProfileChatSection({
             min={RATE_LIMIT_MIN}
             max={RATE_LIMIT_MAX}
             value={rateLimitBurstValue}
-            onChange={(e) =>
-              onChange('rate_limit_burst', clampRateLimit(e.target.value, DEFAULT_RATE_LIMIT_BURST))
-            }
+            onChange={(e) => onChange('rate_limit_burst', clampRateLimit(e.target.value))}
             disabled={disabled || !rateLimitEnabledValue}
           />
           <span className="profiles-field__hint">

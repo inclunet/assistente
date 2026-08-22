@@ -452,7 +452,7 @@ describe('ProfileChatSection', () => {
     fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
       target: { value: '-5' },
     });
-    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 1);
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 0);
 
     fireEvent.change(screen.getByLabelText('Rajada máxima'), {
       target: { value: '99999' },
@@ -460,14 +460,21 @@ describe('ProfileChatSection', () => {
     expect(onChange).toHaveBeenLastCalledWith('rate_limit_burst', 10000);
   });
 
-  it('volta ao padrão quando o campo de rate limit fica vazio', () => {
+  it('preserva o sentinela de padrão quando o campo de rate limit fica vazio', () => {
     const onChange = vi.fn();
     render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
 
     fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
       target: { value: '' },
     });
-    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 60);
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 0);
+  });
+
+  it('exibe o sentinela zero sem convertê-lo no default efetivo', () => {
+    render(<ProfileChatSection {...defaultProps} rateLimitRpm={0} rateLimitBurst={0} />);
+
+    expect(screen.getByLabelText('Requisições por minuto')).toHaveValue(0);
+    expect(screen.getByLabelText('Rajada máxima')).toHaveValue(0);
   });
 
   it('desabilita os valores do rate limit quando a proteção está desligada', () => {
