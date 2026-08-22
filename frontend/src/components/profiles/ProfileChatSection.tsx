@@ -27,6 +27,9 @@ export interface ProfileChatSectionProps {
   minContextMessages: number;
   topP: number;
   responseTimeout: number;
+  rateLimitEnabled?: boolean;
+  rateLimitRpm?: number;
+  rateLimitBurst?: number;
   reasoningEffort: string;
   promptCache?: PromptCacheValue;
   debug?: DebugValue;
@@ -45,6 +48,9 @@ export interface ProfileChatSectionProps {
       | 'min_context_messages'
       | 'top_p'
       | 'response_timeout'
+      | 'rate_limit_enabled'
+      | 'rate_limit_rpm'
+      | 'rate_limit_burst'
       | 'reasoning_effort'
       | 'prompt_cache.enabled'
       | 'prompt_cache.provider_hints'
@@ -84,6 +90,9 @@ export function ProfileChatSection({
   minContextMessages,
   topP,
   responseTimeout,
+  rateLimitEnabled,
+  rateLimitRpm,
+  rateLimitBurst,
   reasoningEffort,
   promptCache,
   debug,
@@ -104,6 +113,9 @@ export function ProfileChatSection({
   const maxContextMessagesValue = maxContextMessages ?? 0;
   const minContextMessagesValue = minContextMessages ?? 0;
   const responseTimeoutValue = responseTimeout ?? 180;
+  const rateLimitEnabledValue = rateLimitEnabled ?? true;
+  const rateLimitRpmValue = rateLimitRpm && rateLimitRpm > 0 ? rateLimitRpm : 60;
+  const rateLimitBurstValue = rateLimitBurst && rateLimitBurst > 0 ? rateLimitBurst : 30;
   const reasoningValue = reasoningEffort || 'off';
   const promptCacheEnabledValue = promptCache?.enabled ?? false;
   const promptCacheProviderHintsValue = promptCache?.provider_hints ?? false;
@@ -563,6 +575,67 @@ export function ProfileChatSection({
       </fieldset>
         </>
       )}
+
+      {/* ── Limite local de chamadas ── */}
+      <fieldset className="profiles-field-group">
+        <legend className="profiles-field-group__title">
+          {t('profiles.chatSection.groupRateLimit')}
+        </legend>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-rate-limit-enabled">
+            <input
+              id="chat-rate-limit-enabled"
+              type="checkbox"
+              checked={rateLimitEnabledValue}
+              onChange={(e) => onChange('rate_limit_enabled', e.target.checked)}
+              disabled={disabled}
+            />
+            {t('profiles.chatSection.rateLimitEnabled')}
+          </label>
+          <span className="profiles-field__hint">
+            {t('profiles.chatSection.rateLimitEnabledHint')}
+          </span>
+        </div>
+
+        <div className="profiles-field">
+          <label htmlFor="chat-rate-limit-rpm" className="profiles-field__label">
+            {t('profiles.chatSection.rateLimitRpm')}
+          </label>
+          <input
+            id="chat-rate-limit-rpm"
+            type="number"
+            className="profiles-field__input"
+            min={1}
+            max={10000}
+            value={rateLimitRpmValue}
+            onChange={(e) => onChange('rate_limit_rpm', parseInt(e.target.value, 10) || 60)}
+            disabled={disabled || !rateLimitEnabledValue}
+          />
+          <span className="profiles-field__hint">
+            {t('profiles.chatSection.rateLimitRpmHint')}
+          </span>
+        </div>
+
+        <div className="profiles-field">
+          <label htmlFor="chat-rate-limit-burst" className="profiles-field__label">
+            {t('profiles.chatSection.rateLimitBurst')}
+          </label>
+          <input
+            id="chat-rate-limit-burst"
+            type="number"
+            className="profiles-field__input"
+            min={1}
+            max={10000}
+            value={rateLimitBurstValue}
+            onChange={(e) => onChange('rate_limit_burst', parseInt(e.target.value, 10) || 30)}
+            disabled={disabled || !rateLimitEnabledValue}
+          />
+          <span className="profiles-field__hint">
+            {t('profiles.chatSection.rateLimitBurstHint')}
+          </span>
+        </div>
+      </fieldset>
     </div>
   );
 }
