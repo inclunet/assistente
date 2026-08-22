@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"assistente/internal/credentials"
@@ -110,6 +111,21 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 // MCP nativo; a decisão de USAR nativo é por perfil (ResolveNativeMCPEnabled).
 func (p *OpenAIProvider) NativeMCPCapable() bool {
 	return p.useResponses
+}
+
+func (p *OpenAIProvider) requiresReasoningContentReplay() bool {
+	if p == nil || p.provider == nil {
+		return false
+	}
+	if p.provider.Type == ProviderDeepSeek {
+		return true
+	}
+	baseURL, err := url.Parse(strings.TrimSpace(p.provider.BaseURL))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(baseURL.Hostname())
+	return host == "deepseek.com" || strings.HasSuffix(host, ".deepseek.com")
 }
 
 func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {

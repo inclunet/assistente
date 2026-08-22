@@ -14,8 +14,8 @@ func TestEstimateTokens(t *testing.T) {
 		expected int
 	}{
 		{"", 0},
-		{"abcd", 1},    // 4 chars = 1 token
-		{"abcde", 2},   // 5 chars = 2 tokens (ceil)
+		{"abcd", 1},     // 4 chars = 1 token
+		{"abcde", 2},    // 5 chars = 2 tokens (ceil)
 		{"12345678", 2}, // 8 chars = 2 tokens
 	}
 	for _, tt := range tests {
@@ -28,13 +28,17 @@ func TestEstimateTokens(t *testing.T) {
 
 func TestEstimateMessageTokens(t *testing.T) {
 	msgs := []llm.Message{
-		{Role: "user", Content: "Hello world!"},  // 12 chars = 3 tokens + 4 overhead = 7
-		{Role: "assistant", Content: "Hi there"}, // 8 chars = 2 tokens + 4 overhead = 6
+		{Role: "user", Content: "Hello world!"}, // 12 chars = 3 tokens + 4 overhead = 7
+		{
+			Role:             "assistant",
+			Content:          "Hi there",
+			ReasoningContent: "12345678", // 8 chars = 2 tokens
+		}, // 2 content + 2 reasoning + 4 overhead = 8
 	}
 	got := estimateMessageTokens(msgs)
-	// 3 + 4 + 2 + 4 = 13
-	if got != 13 {
-		t.Errorf("estimateMessageTokens = %d, want 13", got)
+	// 3 + 4 + 2 + 2 + 4 = 15
+	if got != 15 {
+		t.Errorf("estimateMessageTokens = %d, want 15", got)
 	}
 }
 

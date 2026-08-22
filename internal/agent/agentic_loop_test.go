@@ -113,6 +113,26 @@ func TestBuildAgenticInvocationContext(t *testing.T) {
 	}
 }
 
+func TestAssistantMessageForToolIterationPreservesReasoningContent(t *testing.T) {
+	result := AgenticResult{
+		FullResponse: "vou consultar",
+		Reasoning:    "preciso usar a ferramenta",
+		ToolCalls: []llm.ToolCall{{
+			ID:       "call-1",
+			Type:     "function",
+			Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`},
+		}},
+	}
+
+	msg := assistantMessageForToolIteration(result)
+	if msg.ReasoningContent != result.Reasoning {
+		t.Fatalf("reasoning_content = %q, want %q", msg.ReasoningContent, result.Reasoning)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != "call-1" {
+		t.Fatalf("tool calls não preservadas: %#v", msg.ToolCalls)
+	}
+}
+
 // --- Seams (métodos do runner) ---
 
 func TestAgenticLoopRunner_TurnStillValid(t *testing.T) {

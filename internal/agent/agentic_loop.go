@@ -231,6 +231,15 @@ func (r *agenticLoopRunner) finishFinalResult(ctx context.Context, result Agenti
 	}, r.surfaceOrigin)
 }
 
+func assistantMessageForToolIteration(result AgenticResult) llm.Message {
+	return llm.Message{
+		Role:             "assistant",
+		Content:          result.FullResponse,
+		ReasoningContent: result.Reasoning,
+		ToolCalls:        result.ToolCalls,
+	}
+}
+
 // executeToolIteration trata o caminho finish_reason="tool_calls": persiste MCP
 // nativo, executa as bridge tools (com retry), emite eventos, persiste resultados
 // e emite o segment_done da iteração. Retorna o contexto atualizado (pode ser
@@ -242,11 +251,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 
 	// 5b. Adiciona mensagem do assistant ao histórico para próxima iteração
 	// (Persistência no DB movida para após execução — AEP-0039 Fase 5)
-	r.messages = append(r.messages, llm.Message{
-		Role:      "assistant",
-		Content:   result.FullResponse,
-		ToolCalls: result.ToolCalls,
-	})
+	r.messages = append(r.messages, assistantMessageForToolIteration(result))
 
 	// 5d. Executa ferramentas em paralelo
 	toolCalls := convertToolCalls(result.ToolCalls)

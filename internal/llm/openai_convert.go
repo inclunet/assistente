@@ -14,6 +14,10 @@ import (
 
 // convertMessages converte nossas mensagens internas para o formato SDK.
 func convertMessages(msgs []Message) []openai.ChatCompletionMessageParamUnion {
+	return convertMessagesWithReasoningContent(msgs, false)
+}
+
+func convertMessagesWithReasoningContent(msgs []Message, includeReasoningContent bool) []openai.ChatCompletionMessageParamUnion {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(msgs))
 
 	for _, msg := range msgs {
@@ -32,6 +36,15 @@ func convertMessages(msgs []Message) []openai.ChatCompletionMessageParamUnion {
 
 		case "assistant":
 			m := openai.AssistantMessage(content)
+			if includeReasoningContent && msg.ReasoningContent != "" {
+				// reasoning_content é uma extensão dos providers compatíveis
+				// (DeepSeek/Qwen), ausente do tipo gerado pelo SDK OpenAI. No
+				// thinking mode com tools, omiti-la no replay invalida a
+				// próxima chamada.
+				m.OfAssistant.SetExtraFields(map[string]any{
+					"reasoning_content": msg.ReasoningContent,
+				})
+			}
 			if len(msg.ToolCalls) > 0 {
 				toolCalls := make([]openai.ChatCompletionMessageToolCallParam, 0, len(msg.ToolCalls))
 				for _, tc := range msg.ToolCalls {

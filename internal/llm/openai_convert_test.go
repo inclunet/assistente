@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/openai/openai-go"
@@ -69,6 +70,50 @@ func TestConvertMessages_AssistantWithToolCalls(t *testing.T) {
 	}
 	if assistant.ToolCalls[0].Function.Name != "get_weather" {
 		t.Errorf("ToolCall Function.Name = %q, want %q", assistant.ToolCalls[0].Function.Name, "get_weather")
+	}
+}
+
+func TestConvertMessages_AssistantPreservesReasoningContentWhenEnabled(t *testing.T) {
+	result := convertMessagesWithReasoningContent([]Message{{
+		Role:             "assistant",
+		Content:          "",
+		ReasoningContent: "vou consultar os dados",
+		ToolCalls: []ToolCall{{
+			ID:       "call_abc",
+			Type:     "function",
+			Function: FunctionCall{Name: "lookup", Arguments: `{}`},
+		}},
+	}}, true)
+
+	raw, err := json.Marshal(result[0])
+	if err != nil {
+		t.Fatalf("json.Marshal assistant: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal assistant: %v", err)
+	}
+	if got["reasoning_content"] != "vou consultar os dados" {
+		t.Fatalf("reasoning_content = %#v, want preserved", got["reasoning_content"])
+	}
+}
+
+func TestConvertMessages_AssistantOmitsReasoningContentByDefault(t *testing.T) {
+	result := convertMessages([]Message{{
+		Role:             "assistant",
+		Content:          "resposta",
+		ReasoningContent: "não enviar a providers sem esse contrato",
+	}})
+	raw, err := json.Marshal(result[0])
+	if err != nil {
+		t.Fatalf("json.Marshal assistant: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal assistant: %v", err)
+	}
+	if _, ok := got["reasoning_content"]; ok {
+		t.Fatalf("reasoning_content não deveria ser enviado por padrão: %s", raw)
 	}
 }
 

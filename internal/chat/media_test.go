@@ -103,6 +103,26 @@ func TestMediaHistoryLoader_PlainText(t *testing.T) {
 	}
 }
 
+func TestMediaHistoryLoader_PreservesAssistantReasoningForProviderReplay(t *testing.T) {
+	repo := &stubRepo{messages: []database.ChatMessage{
+		{Role: "user", Content: "consulte os dados"},
+		// Resposta intermediária típica do DeepSeek: tool call sem texto. O
+		// AEP-0078 não persiste mais ToolCalls na mensagem, mas o reasoning
+		// ainda precisa sobreviver ao reload do turno seguinte.
+		{Role: "assistant", Content: "", Reasoning: "preciso usar lookup"},
+	}}
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(msgs))
+	}
+	if msgs[1].ReasoningContent != "preciso usar lookup" {
+		t.Fatalf("reasoning_content = %q, want persisted reasoning", msgs[1].ReasoningContent)
+	}
+}
+
 func TestMediaHistoryLoader_Image(t *testing.T) {
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "image/png", "data": "abc123", "name": "foto.png"},

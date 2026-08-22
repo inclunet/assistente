@@ -3,6 +3,7 @@ package llm
 import (
 	"assistente/internal/logging"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 	}
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
-		Messages: convertMessages(messages),
+		Messages: convertMessagesWithReasoningContent(messages, p.requiresReasoningContentReplay()),
 	}
 	if params.Temperature > 0 {
 		sdkParams.Temperature = param.NewOpt(params.Temperature)
@@ -57,7 +58,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 	}
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
-		Messages: convertMessages(messages),
+		Messages: convertMessagesWithReasoningContent(messages, p.requiresReasoningContentReplay()),
 		StreamOptions: openai.ChatCompletionStreamOptionsParam{
 			IncludeUsage: param.NewOpt(true),
 		},
@@ -159,6 +160,12 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		delta := chunk.Choices[0].Delta
 
+		if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
+			fullReasoning.WriteString(reasoning)
+			emittedAnything = true
+			handler.OnThinking(reasoning)
+		}
+
 		if delta.Content != "" {
 			content := delta.Content
 
@@ -231,6 +238,20 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	handler.OnDone(fullResponse.String(), usage, model)
 	return true
+}
+
+// chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.
+// O SDK OpenAI não a tipa, mas providers compatíveis como DeepSeek e Qwen a
+// emitem no delta. Preservar exatamente esses fragmentos é parte do protocolo
+// do thinking mode quando a requisição carrega tools.
+func chatCompletionReasoningContent(delta openai.ChatCompletionChunkChoiceDelta) string {
+	var raw struct {
+		ReasoningContent string `json:"reasoning_content"`
+	}
+	if err := json.Unmarshal([]byte(delta.RawJSON()), &raw); err != nil {
+		return ""
+	}
+	return raw.ReasoningContent
 }
 
 func accumulateChatCompletionStreamUsageExtras(promptTokensDetails *openai.CompletionUsagePromptTokensDetails, chunk openai.ChatCompletionChunk, usageRawJSON *string) {
