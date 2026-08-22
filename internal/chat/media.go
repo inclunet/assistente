@@ -85,7 +85,7 @@ func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([
 		if m.Role == "tool" {
 			continue
 		}
-		if m.Role == "assistant" && m.ToolCalls != "" && strings.TrimSpace(m.Content) == "" {
+		if m.Role == "assistant" && m.ToolCalls != "" && strings.TrimSpace(m.Content) == "" && strings.TrimSpace(m.Reasoning) == "" {
 			continue
 		}
 

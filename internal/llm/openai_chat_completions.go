@@ -20,7 +20,7 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 	}
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
-		Messages: convertMessagesWithReasoningContent(messages, p.requiresReasoningContentReplay()),
+		Messages: convertMessages(messages),
 	}
 	if params.Temperature > 0 {
 		sdkParams.Temperature = param.NewOpt(params.Temperature)
@@ -58,7 +58,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 	}
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
-		Messages: convertMessagesWithReasoningContent(messages, p.requiresReasoningContentReplay()),
+		Messages: convertMessagesWithReasoningContent(messages, p.requiresReasoningContentReplay() && len(tools) > 0),
 		StreamOptions: openai.ChatCompletionStreamOptionsParam{
 			IncludeUsage: param.NewOpt(true),
 		},
@@ -134,6 +134,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var isThinking bool
 	var thinkingBuffer strings.Builder
 	var emittedAnything bool
+	captureReasoningContent := p.requiresReasoningContentReplay()
 
 	// Coletar tool calls finalizadas durante streaming
 	var finishedToolCalls []ToolCall
@@ -160,10 +161,12 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		delta := chunk.Choices[0].Delta
 
-		if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
-			fullReasoning.WriteString(reasoning)
-			emittedAnything = true
-			handler.OnThinking(reasoning)
+		if captureReasoningContent {
+			if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
+				fullReasoning.WriteString(reasoning)
+				emittedAnything = true
+				handler.OnThinking(reasoning)
+			}
 		}
 
 		if delta.Content != "" {
