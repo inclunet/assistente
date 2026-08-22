@@ -34,8 +34,8 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-function tool(name: string, description: string, sourceType = 'local', sourceLabel = 'Local', displayName?: string) {
-  return { name, display_name: displayName ?? name, description, source_type: sourceType, source_label: sourceLabel };
+function tool(name: string, description: string, sourceType = 'local', sourceLabel = 'Local', displayName?: string, optIn = false) {
+  return { name, display_name: displayName ?? name, description, source_type: sourceType, source_label: sourceLabel, opt_in: optIn };
 }
 
 const mockTools = [
@@ -279,6 +279,55 @@ describe('ProfileToolsSection', () => {
 
     expect(screen.getByLabelText('tool_catalog: Desabilitada')).toBeInTheDocument();
     expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+  });
+
+  it('mantém opt-in não listada disabled com default on_demand', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('job', 'Job', 'local', 'Local', undefined, true),
+        ]}
+        toolPolicyDefault="on_demand"
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByLabelText('read_file: Sob demanda')).toBeInTheDocument();
+    expect(screen.getByLabelText('job: Desabilitada')).toBeInTheDocument();
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      read_file: 'preloaded',
+      job: 'disabled',
+    });
+  });
+
+  it('normaliza espaços e vazio em tool_policy_default como o backend', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <ProfileToolsSection
+        availableTools={[tool('read_file', 'Read file')]}
+        toolPolicyDefault=" on_demand "
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByLabelText('read_file: Sob demanda')).toBeInTheDocument();
+
+    rerender(
+      <ProfileToolsSection
+        availableTools={[tool('read_file', 'Read file')]}
+        toolPolicyDefault="   "
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByLabelText('read_file: Sob demanda')).toBeInTheDocument();
   });
 
   it('chama onChange ao promover ferramenta sob demanda via Space', () => {

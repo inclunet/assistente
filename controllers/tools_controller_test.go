@@ -30,14 +30,23 @@ func TestGetAvailableToolsIncludesDiscoverableOptIn(t *testing.T) {
 	ctrl := NewToolsController(ToolsControllerConfig{ToolRegistry: registry})
 
 	available := ctrl.GetAvailableTools()
-	got := map[string]bool{}
+	got := map[string]ToolInfo{}
 	for _, tool := range available {
-		got[tool.Name] = true
+		got[tool.Name] = tool
 	}
-	if !got["read_file"] || !got["job"] {
+	if _, ok := got["read_file"]; !ok {
+		t.Fatalf("available tools missing read_file: %#v", available)
+	}
+	if _, ok := got["job"]; !ok {
 		t.Fatalf("available tools missing discoverable entries: %#v", available)
 	}
-	if got["text_edit"] {
+	if _, ok := got["text_edit"]; ok {
 		t.Fatalf("hidden opt-in tool should not be listed: %#v", available)
+	}
+	if got["read_file"].OptIn {
+		t.Fatal("regular tool should not be marked opt-in")
+	}
+	if !got["job"].OptIn {
+		t.Fatal("discoverable opt-in should be marked for policy editors")
 	}
 }

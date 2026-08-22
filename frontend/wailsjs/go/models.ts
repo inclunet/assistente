@@ -1442,6 +1442,7 @@ export namespace apidto {
 	    description: string;
 	    source_type: string;
 	    source_label: string;
+	    opt_in: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ToolInfo(source);
@@ -1454,6 +1455,7 @@ export namespace apidto {
 	        this.description = source["description"];
 	        this.source_type = source["source_type"];
 	        this.source_label = source["source_label"];
+	        this.opt_in = source["opt_in"];
 	    }
 	}
 	

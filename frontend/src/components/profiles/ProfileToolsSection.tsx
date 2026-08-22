@@ -46,6 +46,7 @@ interface ToolRow {
   description: string;
   sourceType: string;
   sourceLabel: string;
+  optIn: boolean;
 }
 
 export function ProfileToolsSection({
@@ -92,6 +93,7 @@ export function ProfileToolsSection({
       description: tool.description || '',
       sourceType: tool.source_type || 'local',
       sourceLabel: tool.source_label || 'Local',
+      optIn: tool.opt_in || false,
     })),
     [availableTools],
   );
@@ -122,11 +124,14 @@ export function ProfileToolsSection({
 
   const effectiveToolPolicy = useMemo(() => {
     const policy: Record<string, ToolPolicyState> = {};
-    if ((toolPolicy && Object.keys(toolPolicy).length > 0) || toolPolicyDefault != null) {
-      const defaultState = toolPolicyDefault === TOOL_POLICY_ON_DEMAND
+    const normalizedDefault = toolPolicyDefault?.trim() ?? '';
+    if ((toolPolicy && Object.keys(toolPolicy).length > 0) || normalizedDefault !== '') {
+      const defaultState = normalizedDefault === TOOL_POLICY_ON_DEMAND
         ? TOOL_POLICY_ON_DEMAND
         : TOOL_POLICY_DISABLED;
-      for (const name of allNames) policy[name] = defaultState;
+      for (const item of toolRows) {
+        policy[item.name] = item.optIn ? TOOL_POLICY_DISABLED : defaultState;
+      }
       for (const [name, state] of Object.entries(toolPolicy ?? {})) {
         if (!allNames.includes(name)) continue;
         policy[name] = normalizeToolPolicyState(state);
@@ -151,7 +156,7 @@ export function ProfileToolsSection({
       policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
     }
     return policy;
-  }, [allNames, enabledTools, toolPolicy, toolPolicyDefault]);
+  }, [allNames, enabledTools, toolPolicy, toolPolicyDefault, toolRows]);
   const effectiveToolPolicyRef = useRef(effectiveToolPolicy);
   effectiveToolPolicyRef.current = effectiveToolPolicy;
 
