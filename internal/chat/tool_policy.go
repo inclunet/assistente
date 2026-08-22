@@ -33,9 +33,14 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 	}
 
 	names := p.registry.Names()
-	if len(cfg.ToolPolicy) > 0 {
+	if len(cfg.ToolPolicy) > 0 || strings.TrimSpace(cfg.ToolPolicyDefault) != "" {
+		defaultState := normalizeToolPolicyDefault(cfg.ToolPolicyDefault)
 		for _, name := range names {
-			policy.states[name] = ToolPolicyDisabled
+			state := defaultState
+			if p.registry.IsOptIn(name) {
+				state = ToolPolicyDisabled
+			}
+			policy.states[name] = state
 		}
 		for name, state := range cfg.ToolPolicy {
 			name = strings.TrimSpace(name)
@@ -237,6 +242,13 @@ func normalizeToolPolicyState(state string) ToolPolicyState {
 	default:
 		return ToolPolicyDisabled
 	}
+}
+
+func normalizeToolPolicyDefault(state string) ToolPolicyState {
+	if ToolPolicyState(strings.TrimSpace(state)) == ToolPolicyOnDemand {
+		return ToolPolicyOnDemand
+	}
+	return ToolPolicyDisabled
 }
 
 func sortToolPolicyNames(names []string) {

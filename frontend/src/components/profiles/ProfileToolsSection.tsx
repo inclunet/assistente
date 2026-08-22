@@ -23,6 +23,7 @@ export interface ProfileToolsSectionProps {
   availableTools: apidto.ToolInfo[];
   enabledTools?: string[] | null;
   toolPolicy?: Record<string, string> | null;
+  toolPolicyDefault?: string | null;
   toolsDisabled?: boolean;
   commandAllowlist?: string;
   availableAllowlists: allowlist.AllowlistInfo[];
@@ -51,6 +52,7 @@ export function ProfileToolsSection({
   availableTools,
   enabledTools = null,
   toolPolicy = null,
+  toolPolicyDefault = null,
   toolsDisabled = false,
   commandAllowlist = '',
   availableAllowlists = [],
@@ -120,15 +122,18 @@ export function ProfileToolsSection({
 
   const effectiveToolPolicy = useMemo(() => {
     const policy: Record<string, ToolPolicyState> = {};
-    if (toolPolicy && Object.keys(toolPolicy).length > 0) {
-      for (const name of allNames) policy[name] = TOOL_POLICY_DISABLED;
-      for (const [name, state] of Object.entries(toolPolicy)) {
+    if ((toolPolicy && Object.keys(toolPolicy).length > 0) || toolPolicyDefault != null) {
+      const defaultState = toolPolicyDefault === TOOL_POLICY_ON_DEMAND
+        ? TOOL_POLICY_ON_DEMAND
+        : TOOL_POLICY_DISABLED;
+      for (const name of allNames) policy[name] = defaultState;
+      for (const [name, state] of Object.entries(toolPolicy ?? {})) {
         if (!allNames.includes(name)) continue;
         policy[name] = normalizeToolPolicyState(state);
       }
       if (
         allNames.includes('tool_catalog')
-        && !Object.prototype.hasOwnProperty.call(toolPolicy, 'tool_catalog')
+        && !Object.prototype.hasOwnProperty.call(toolPolicy ?? {}, 'tool_catalog')
         && Object.values(policy).some((state) => state === TOOL_POLICY_ON_DEMAND)
       ) {
         policy.tool_catalog = TOOL_POLICY_PRELOADED;
@@ -146,7 +151,7 @@ export function ProfileToolsSection({
       policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
     }
     return policy;
-  }, [allNames, enabledTools, toolPolicy]);
+  }, [allNames, enabledTools, toolPolicy, toolPolicyDefault]);
   const effectiveToolPolicyRef = useRef(effectiveToolPolicy);
   effectiveToolPolicyRef.current = effectiveToolPolicy;
 

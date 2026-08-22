@@ -45,7 +45,10 @@ func NewToolSelectionPolicy(registry *tools.Registry) *ToolSelectionPolicy {
 type ProfileToolConfig struct {
 	EnabledTools []string
 	ToolPolicy   map[string]string
-	DisableTools bool
+	// ToolPolicyDefault define o estado das tools ausentes de ToolPolicy.
+	// Vazio preserva a compatibilidade: políticas explícitas falham fechadas.
+	ToolPolicyDefault string
+	DisableTools      bool
 	// NativeMCP é o override tri-state de MCP nativo do perfil ativo (AEP-0021):
 	// nil=auto otimista, true=forçar nativo (se capaz), false=forçar adapter.
 	NativeMCP *bool

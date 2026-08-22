@@ -242,6 +242,45 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('write_file: Desabilitada')).toBeInTheDocument();
   });
 
+  it('aplica tool_policy_default às ferramentas não listadas', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('read_file', 'Read file'),
+          tool('write_file', 'Write file'),
+        ]}
+        toolPolicy={{ read_file: 'preloaded' }}
+        toolPolicyDefault="on_demand"
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByLabelText('tool_catalog: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('write_file: Sob demanda')).toBeInTheDocument();
+  });
+
+  it('aplica default disabled sem exigir tool_policy explícita', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('read_file', 'Read file'),
+        ]}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByLabelText('tool_catalog: Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+  });
+
   it('chama onChange ao promover ferramenta sob demanda via Space', () => {
     const onChange = vi.fn();
     render(

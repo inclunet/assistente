@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.0.0",
+  "_builtin_version": "4.1.0",
   "name": "Programação",
   "description": "Otimizado para programação e código.",
   "icon": "code-slash-outline",
@@ -13,7 +13,16 @@
     "min_context_messages": 20,
     "top_p": 0,
     "response_timeout": 180,
-    "enabled_tools": null,
+    "tool_policy_default": "on_demand",
+    "tool_policy": {
+      "read_file": "preloaded",
+      "search_files": "preloaded",
+      "grep_search": "preloaded",
+      "edit_file": "preloaded",
+      "write_file": "preloaded",
+      "run_command": "preloaded",
+      "text_edit": "disabled"
+    },
     "enabled_skills": [
       "coding",
       "prometheus"

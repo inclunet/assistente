@@ -301,6 +301,7 @@ export function ProfileEditorTabs({
               availableTools={availableTools}
               enabledTools={editingProfile.chat?.enabled_tools ?? null}
               toolPolicy={editingProfile.chat?.tool_policy ?? null}
+              toolPolicyDefault={editingProfile.chat?.tool_policy_default ?? null}
               toolsDisabled={editingProfile.chat?.disable_tools ?? false}
               commandAllowlist={editingProfile.chat?.command_allowlist || ''}
               availableAllowlists={availableAllowlists}

@@ -223,17 +223,18 @@ func TestEditorTextoProfileEnablesSlidesRevealMarkdownOnDemand(t *testing.T) {
 	var profile struct {
 		BuiltinVersion string `json:"_builtin_version"`
 		Chat           struct {
-			LLMProvider   string            `json:"llm_provider"`
-			Model         string            `json:"model"`
-			EnabledTools  []string          `json:"enabled_tools"`
-			EnabledSkills []string          `json:"enabled_skills"`
-			ToolPolicy    map[string]string `json:"tool_policy"`
+			LLMProvider       string            `json:"llm_provider"`
+			Model             string            `json:"model"`
+			EnabledTools      []string          `json:"enabled_tools"`
+			EnabledSkills     []string          `json:"enabled_skills"`
+			ToolPolicy        map[string]string `json:"tool_policy"`
+			ToolPolicyDefault string            `json:"tool_policy_default"`
 		} `json:"chat"`
 	}
 	if err := json.Unmarshal(data, &profile); err != nil {
 		t.Fatalf("parse editor-texto profile: %v", err)
 	}
-	if profile.BuiltinVersion != "4.2.0" {
+	if profile.BuiltinVersion != "4.3.0" {
 		t.Fatalf("unexpected builtin version: %q", profile.BuiltinVersion)
 	}
 	if profile.Chat.LLMProvider != profiles.DefaultProviderSentinel {
@@ -248,6 +249,9 @@ func TestEditorTextoProfileEnablesSlidesRevealMarkdownOnDemand(t *testing.T) {
 	}
 	if _, hasLegacyEnabledTools := chatRaw["enabled_tools"]; hasLegacyEnabledTools {
 		t.Fatalf("editor-texto should use tool_policy instead of legacy enabled_tools")
+	}
+	if profile.Chat.ToolPolicyDefault != "disabled" {
+		t.Fatalf("editor-texto should fail closed, got default %q", profile.Chat.ToolPolicyDefault)
 	}
 	wantPolicy := map[string]string{
 		"text_edit": "preloaded",

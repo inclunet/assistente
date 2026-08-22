@@ -69,6 +69,7 @@ type ChatConfig struct {
 	ReasoningEffort    string            `json:"reasoning_effort,omitempty"`     // off, low, medium, high (vazio = off)
 	EnabledTools       []string          `json:"enabled_tools"`                  // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
 	ToolPolicy         map[string]string `json:"tool_policy,omitempty"`          // Política tri-state por tool: disabled, on_demand, preloaded
+	ToolPolicyDefault  string            `json:"tool_policy_default,omitempty"`  // Estado de tools não listadas: disabled (default) ou on_demand
 	// EnabledSkills é tri-state:
 	//   - nil: perfil legado, usa fallback por auto_load;
 	//   - []: seleção explícita vazia, todas as skills ficam disabled;
@@ -402,6 +403,11 @@ func (p *Profile) Validate() error {
 	}
 	if p.Chat.TopP < 0 || p.Chat.TopP > 1 {
 		return fmt.Errorf("chat.top_p must be between 0 and 1")
+	}
+	switch strings.TrimSpace(p.Chat.ToolPolicyDefault) {
+	case "", "disabled", "on_demand":
+	default:
+		return fmt.Errorf("chat.tool_policy_default must be disabled or on_demand")
 	}
 	if p.Chat.StreamingRecoveryMaxAttempts != nil {
 		if *p.Chat.StreamingRecoveryMaxAttempts < 1 {
