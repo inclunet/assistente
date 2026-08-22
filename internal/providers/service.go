@@ -38,6 +38,9 @@ type ServiceConfig struct {
 	// RateLimitKeyFunc extrai a chave de limite (tipicamente o userID) do
 	// contexto. Opcional: nil cai na chave global do limitador.
 	RateLimitKeyFunc func(context.Context) string
+	// RateLimitPolicyResolver carrega a política atual e normaliza o slug do
+	// perfil antes de cada chamada. Opcional: sem ele, usa ChatParams/defaults.
+	RateLimitPolicyResolver llm.RateLimitPolicyResolver
 	// ACPManager é o serviço dono dos processos e das sessões dos agentes de
 	// código (AEP-0084 D3). Opcional: sem ele um provedor ACP recusa o turno
 	// explicando que o serviço não está de pé, em vez de subir um agente por
@@ -53,6 +56,7 @@ type Service struct {
 	store            ProviderStore
 	rateLimiter      *llm.RateLimiter
 	rateLimitKeyFunc func(context.Context) string
+	rateLimitPolicy  llm.RateLimitPolicyResolver
 	acpMgr           *acp.Manager
 }
 
@@ -69,6 +73,7 @@ func NewService(cfg ServiceConfig) *Service {
 		store:            cfg.Store,
 		rateLimiter:      cfg.RateLimiter,
 		rateLimitKeyFunc: cfg.RateLimitKeyFunc,
+		rateLimitPolicy:  cfg.RateLimitPolicyResolver,
 		acpMgr:           cfg.ACPManager,
 	}
 }
@@ -862,7 +867,12 @@ func (s *Service) GetChatProvider(ctx context.Context, providerID string) (llm.C
 	cm, _ := s.credMgr.(*credentials.Manager)
 	// Aplica rate limiting por usuário de forma central (Issue #27). Quando
 	// rateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
-	return llm.NewRateLimitedProvider(llm.NewChatProvider(provider, cm, s.acpMgr), s.rateLimiter, s.rateLimitKeyFunc), nil
+	return llm.NewRateLimitedProviderWithResolver(
+		llm.NewChatProvider(provider, cm, s.acpMgr),
+		s.rateLimiter,
+		s.rateLimitKeyFunc,
+		s.rateLimitPolicy,
+	), nil
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.

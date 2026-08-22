@@ -1,13 +1,14 @@
 # AEP-0065 — Rate limiting nas chamadas ao provedor LLM
 
-Status: Proposto
+Status: Implementado
 Data: 2026-06-01
+Atualizado: 2026-08-21
 Autor: Cursor Agent (Inclunet)
 
 ## Resumo
 
 Define um mecanismo central de **rate limiting** para as chamadas de geração ao
-provedor LLM, escopado **por usuário**, usando um token bucket
+provedor LLM, escopado **por usuário e perfil**, usando um token bucket
 (`golang.org/x/time/rate`). O objetivo é evitar custos inesperados e estouro de
 cota causados por uso excessivo, loops de agentes ou erros em cascata, sem
 travar a UI e sem espalhar lógica de throttling pelo código.
@@ -29,18 +30,18 @@ Cada chamada consome cota/custo no provedor. Sem um teto, o gasto é ilimitado.
 
 ## Decisões
 
-### 1) Escopo: por usuário
+### 1) Escopo: por usuário e perfil
 
-O limite é aplicado **por usuário**, usando o `userID` já carimbado no contexto
+O limite é aplicado **por usuário e perfil**, usando o `userID` já carimbado no contexto
 (AEP-0052, multi-user). Quando o contexto não tem `userID` (fluxos internos sem
 escopo), uma **chave global** é usada para que nenhuma chamada escape do
-controle. Escolhemos por-usuário (em vez de global ou por-provider) por ser o
-escopo mais coerente com o modelo de contas e o que o issue pede ("limites
-configuráveis por usuário").
+controle. O slug do perfil completa a chave para que perfis com políticas
+distintas não drenem nem reconfigurem o bucket um do outro. Quando não há slug,
+usa-se o escopo do perfil ativo.
 
 ### 2) Estratégia: token bucket via `golang.org/x/time/rate`
 
-Um `*rate.Limiter` por chave (usuário), guardado em um mapa protegido por mutex.
+Um `*rate.Limiter` por chave (usuário + perfil), guardado em um mapa protegido por mutex.
 Conforme proposto no issue, usamos `golang.org/x/time/rate` (pinado em v0.8.0
 para não forçar bump da diretiva `go`/toolchain).
 
@@ -65,7 +66,7 @@ A **sumarização de conversas** (`internal/summarization`) constrói o provider
 diretamente via `llm.NewChatProvider(...)` (não passa pelo `GetChatProvider`),
 mas também é um vetor de custo. Por isso ela recebe o **mesmo** `*llm.RateLimiter`
 e a mesma `RateLimitKeyFunc` por injeção e embrulha o provider com
-`llm.NewRateLimitedProvider`, compartilhando o bucket por usuário com o chat.
+`llm.NewRateLimitedProvider`, compartilhando o bucket por usuário e perfil com o chat.
 Como a sumarização é background/best-effort, um eventual bloqueio apenas adia o
 resumo (o erro já é tratado), sem impacto na UI.
 
@@ -75,12 +76,16 @@ resumo (o erro já é tratado), sem impacto na UI.
 - `Burst` (default **30**): rajada instantânea. Deliberadamente
   `>= MaxAgenticIterations` (default 25) para **não interromper um loop agêntico
   legítimo** que dispare várias iterações em sequência rápida.
-- Override por variáveis de ambiente:
-  - `ASSISTENTE_LLM_RATE_LIMIT_ENABLED` (bool)
-  - `ASSISTENTE_LLM_RATE_LIMIT_RPM` (int > 0)
-  - `ASSISTENTE_LLM_RATE_LIMIT_BURST` (int > 0)
-- Valores inválidos são ignorados (mantêm o default) com log de aviso — nunca
-  desabilitam o controle por erro de digitação.
+- Configuração persistida em `Profile.Chat`, editável na guia **Modelos**:
+  - `rate_limit_enabled` (bool; ausente em perfil legado equivale a `true`);
+  - `rate_limit_rpm` (int; zero/ausente usa 60);
+  - `rate_limit_burst` (int; zero/ausente usa 30).
+- As antigas variáveis `ASSISTENTE_LLM_RATE_LIMIT_*` foram removidas. Em um
+  aplicativo desktop, o perfil é a fonte única e acessível dessa configuração.
+- Uma alteração de política atualiza taxa e rajada do bucket in-place e vale
+  para novas chamadas imediatamente, sem devolver tokens já consumidos. A
+  política é relida pelo slug antes de cada geração, para que um turno antigo
+  não restaure no bucket a configuração que estava vigente quando começou.
 
 ### 5) Tratamento ao atingir o limite
 
@@ -96,7 +101,7 @@ resumo (o erro já é tratado), sem impacto na UI.
 
 O `RateLimiter` aceita um callback opcional (`SetNearLimitHandler`) disparado
 quando, após permitir uma chamada, os tokens restantes caem abaixo de um limiar
-(default 20% da rajada). O alerta é **edge-triggered por chave (usuário)**:
+(default 20% da rajada). O alerta é **edge-triggered por chave (usuário + perfil)**:
 dispara apenas na transição acima→abaixo do limiar e é rearmado quando a chave
 volta acima, evitando spam de log/telemetria sob uso sustentado. O estado por
 chave é guardado em um mapa protegido pelo mesmo mutex do limitador; o callback
@@ -111,23 +116,24 @@ alerta para a UI (evento dedicado) fica como follow-up.
 
 ## Fases
 
-1. **Núcleo** (`internal/llm/ratelimit.go`): `RateLimitConfig`, `RateLimiter`,
-   `RateLimitError`, configuração por env. ✅
+1. **Núcleo** (`internal/llm/ratelimit.go`): `RateLimitConfig`, `RateLimiter`
+   reconfigurável e `RateLimitError`. ✅
 2. **Decorator** (`internal/llm/ratelimit_provider.go`): `rateLimitedProvider`
    implementando `ChatProvider`. ✅
 3. **Wiring** (`providers.Service` + `app.go`): injeção do limitador e da função
    de chave (userID do contexto). ✅
-4. **Testes** (`internal/llm/ratelimit_test.go`): dentro do limite, acima do
-   limite, reset após intervalo, isolamento por usuário, env, decorator. ✅
-5. **Follow-up**: evento/UX dedicado para o alerta de proximidade e, se desejado,
-   tornar os limites configuráveis por perfil (hoje são globais por env/defaults).
+4. **Perfil e UI**: persistência, compatibilidade com perfis legados e controles
+   acessíveis na guia Modelos. ✅
+5. **Testes**: dentro do limite, acima do limite, reset após intervalo,
+   isolamento, reconfiguração dinâmica, persistência e UI. ✅
+6. **Follow-up**: evento/UX dedicado para o alerta de proximidade.
 
 ## Riscos
 
 - **Burst pequeno demais** interromperia loops agênticos legítimos. Mitigado com
   `Burst` default >= `MaxAgenticIterations` e documentação da relação.
-- **Crescimento do mapa de buckets**: um bucket por usuário. Em uso local
-  (desktop), o número de usuários é finito; GC/expiração de buckets ociosos fica
+- **Crescimento do mapa de buckets**: um bucket por usuário e perfil. Em uso
+  local (desktop), esse conjunto é finito; GC/expiração de buckets ociosos fica
   como follow-up se necessário (mesma postura do `httpapi`).
 - **Mensagem de erro em pt-BR no backend**: segue o padrão atual de erros do
   backend exibidos diretamente. i18n completa por código de erro no frontend é
@@ -135,8 +141,9 @@ alerta para a UI (evento dedicado) fica como follow-up.
 
 ## Critérios de aceitação
 
-- [x] Rate limiter por usuário usando `golang.org/x/time/rate`.
-- [x] Limites configuráveis (env) com defaults sensatos.
+- [x] Rate limiter por usuário e perfil usando `golang.org/x/time/rate`.
+- [x] Limites configuráveis no perfil, com defaults sensatos e compatibilidade legada.
+- [x] Nenhuma configuração por variável de ambiente.
 - [x] Aplicação central no caminho de chamada LLM (sem espalhar lógica).
 - [x] Erro claro com backoff (`RetryAfter`) sem travar a UI.
 - [x] Alerta quando o uso se aproxima do limite (log; UI = follow-up).

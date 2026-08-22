@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"assistente/internal/llm"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -9,6 +10,12 @@ import (
 // DefaultProviderSentinel é o valor sentinela usado em profiles para indicar
 // "usar o provedor default do sistema". Resolvido em runtime por resolveProfileDefaults.
 const DefaultProviderSentinel = "$default"
+
+const (
+	DefaultLLMRateLimitRPM   = llm.DefaultRateLimitRPM
+	DefaultLLMRateLimitBurst = llm.DefaultRateLimitBurst
+	MaxLLMRateLimitValue     = 10000
+)
 
 // Profile representa um perfil de conversa unificado.
 // Combina configurações de chat (LLM), voz (TTS) e input (STT/triggers)
@@ -109,6 +116,14 @@ type ChatConfig struct {
 	// >0 = limite customizado (ex: 100 para code generation, 500 para análise profunda)
 	// Pode ser combinado com ResponseTimeout para dupla proteção
 	MaxAgenticIterations int `json:"max_agentic_iterations,omitempty"`
+
+	// RateLimitEnabled controla o limitador local de chamadas LLM deste perfil.
+	// nil preserva compatibilidade com perfis legados e equivale a true.
+	RateLimitEnabled *bool `json:"rate_limit_enabled,omitempty"`
+	// RateLimitRPM é a taxa sustentada por minuto. 0 usa o padrão.
+	RateLimitRPM int `json:"rate_limit_rpm,omitempty"`
+	// RateLimitBurst é a rajada instantânea. 0 usa o padrão.
+	RateLimitBurst int `json:"rate_limit_burst,omitempty"`
 
 	// StreamingRecoveryEnabled controla a auto-recuperação de streaming interrompido.
 	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
@@ -318,6 +333,9 @@ func DefaultProfile() *Profile {
 			TopP:                          1.0,
 			ResponseTimeout:               180,
 			ReasoningEffort:               "",
+			RateLimitEnabled:              boolPtr(true),
+			RateLimitRPM:                  DefaultLLMRateLimitRPM,
+			RateLimitBurst:                DefaultLLMRateLimitBurst,
 			StreamingRecoveryEnabled:      boolPtr(true),
 			StreamingRecoveryMaxAttempts:  intPtr(3),
 			StreamingRecoveryShowContinue: boolPtr(true),
@@ -404,6 +422,12 @@ func (p *Profile) Validate() error {
 	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")
+	}
+	if p.Chat.RateLimitRPM < 0 || p.Chat.RateLimitRPM > MaxLLMRateLimitValue {
+		return fmt.Errorf("chat.rate_limit_rpm must be between 0 (default) and %d", MaxLLMRateLimitValue)
+	}
+	if p.Chat.RateLimitBurst < 0 || p.Chat.RateLimitBurst > MaxLLMRateLimitValue {
+		return fmt.Errorf("chat.rate_limit_burst must be between 0 (default) and %d", MaxLLMRateLimitValue)
 	}
 	validReasoningEfforts := []string{"", "off", "none", "low", "medium", "high", "max", "ollama"}
 	if !containsStr(validReasoningEfforts, p.Chat.ReasoningEffort) {
@@ -539,6 +563,24 @@ func (p *Profile) GetMinContextMessages() int {
 		return p.Chat.MinContextMessages
 	}
 	return 10
+}
+
+func (p *Profile) IsLLMRateLimitEnabled() bool {
+	return p.Chat.RateLimitEnabled == nil || *p.Chat.RateLimitEnabled
+}
+
+func (p *Profile) GetLLMRateLimitRPM() int {
+	if p.Chat.RateLimitRPM > 0 {
+		return p.Chat.RateLimitRPM
+	}
+	return DefaultLLMRateLimitRPM
+}
+
+func (p *Profile) GetLLMRateLimitBurst() int {
+	if p.Chat.RateLimitBurst > 0 {
+		return p.Chat.RateLimitBurst
+	}
+	return DefaultLLMRateLimitBurst
 }
 
 func containsStr(slice []string, item string) bool {

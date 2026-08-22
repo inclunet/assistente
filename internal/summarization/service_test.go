@@ -431,12 +431,15 @@ func TestResolveConversationProfile(t *testing.T) {
 	})
 
 	t.Run("recai no perfil ativo global quando o slug não resolve", func(t *testing.T) {
-		got := svc.resolveConversationProfile("inexistente")
+		got, effectiveSlug := svc.resolveConversationProfileWithSlug("inexistente")
 		if got == nil {
 			t.Fatal("expected profile, got nil")
 		}
 		if got.Chat.Model != "gpt-4o-mini" {
 			t.Fatalf("fallback errado para slug inexistente: model=%q (esperado gpt-4o-mini)", got.Chat.Model)
+		}
+		if effectiveSlug != activeSlug {
+			t.Fatalf("slug efetivo = %q, want %q", effectiveSlug, activeSlug)
 		}
 	})
 }

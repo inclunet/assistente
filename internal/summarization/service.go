@@ -457,6 +457,8 @@ type ServiceConfig struct {
 	RateLimiter *llm.RateLimiter
 	// RateLimitKeyFunc extrai a chave de limite (userID) do contexto. Opcional.
 	RateLimitKeyFunc func(context.Context) string
+	// RateLimitPolicyResolver relê a política atual do perfil antes da geração.
+	RateLimitPolicyResolver llm.RateLimitPolicyResolver
 }
 
 // Service encapsula a lógica de sumarização de conversas, sem depender de Wails.
@@ -482,7 +484,7 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 		return
 	}
 
-	profile := s.resolveConversationProfile(profileSlug)
+	profile, effectiveProfileSlug := s.resolveConversationProfileWithSlug(profileSlug)
 	if profile == nil {
 		return
 	}
@@ -496,6 +498,12 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 			return
 		}
 	}
+	ctx = llm.WithRateLimitProfile(ctx, llm.RateLimitConfig{
+		Enabled:            profile.IsLLMRateLimitEnabled(),
+		RequestsPerMinute:  profile.GetLLMRateLimitRPM(),
+		Burst:              profile.GetLLMRateLimitBurst(),
+		NearLimitThreshold: llm.DefaultNearLimitThreshold,
+	}, effectiveProfileSlug)
 	if profile.Chat.ContextWindow <= 0 {
 		return
 	}
@@ -552,24 +560,29 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 // slug está vazio ou a leitura falha. Isso garante que o resumo use o mesmo
 // provider/modelo do perfil em que a conversa efetivamente roda (Issue #203).
 func (s *Service) resolveConversationProfile(profileSlug string) *profiles.Profile {
+	profile, _ := s.resolveConversationProfileWithSlug(profileSlug)
+	return profile
+}
+
+func (s *Service) resolveConversationProfileWithSlug(profileSlug string) (*profiles.Profile, string) {
 	if s.cfg.ProfileManager == nil {
-		return nil
+		return nil, ""
 	}
 
 	slug := strings.TrimSpace(profileSlug)
 	if slug != "" {
 		profile, err := s.cfg.ProfileManager.Get(slug)
 		if err == nil && profile != nil {
-			return profile
+			return profile, slug
 		}
 		logging.Infof(context.Background(), "summarization.service", "[Summary] Não foi possível obter perfil da conversa %q (%v) — usando perfil ativo global", slug, err)
 	}
 
-	profile, err := s.cfg.ProfileManager.GetActive()
-	if err != nil || profile == nil {
-		return nil
+	active, err := s.cfg.ProfileManager.GetActiveAndSlug()
+	if err != nil || active == nil {
+		return nil, ""
 	}
-	return profile
+	return active.Profile, active.Slug
 }
 
 // isAgentDrivenProfile informa se o provider do perfil é um agente externo
@@ -723,13 +736,14 @@ func (s *Service) executeSummarization(
 	// Aplica o mesmo rate limiting por usuário das chamadas de chat — a
 	// sumarização também consome cota/custo do provedor (Issue #27 / AEP-0065).
 	// Quando RateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
-	cp := llm.NewRateLimitedProvider(
+	cp := llm.NewRateLimitedProviderWithResolver(
 		// Sem agente de código: a guarda acima recusa o resumo antes de chegar
 		// aqui, e um provedor ACP construído nesta linha só teria como cobrar
 		// um turno de agente por um parágrafo (AEP-0084 D14).
 		llm.NewChatProvider(provider, s.cfg.CredMgr, nil),
 		s.cfg.RateLimiter,
 		s.cfg.RateLimitKeyFunc,
+		s.cfg.RateLimitPolicyResolver,
 	)
 	summary, err := cp.SimpleChat(ctx, model, SummaryPrompt, userPrompt)
 	if err != nil {

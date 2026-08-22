@@ -95,7 +95,11 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 	if c.profileMgr == nil {
 		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	activeProfile, _ := c.profileMgr.GetActive()
+	active, _ := c.profileMgr.GetActiveAndSlug()
+	if active == nil {
+		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
+	}
+	activeProfile := active.Profile
 	if c.providerSvc != nil {
 		activeProfile = c.providerSvc.ResolveProfileDefaults(ctx, activeProfile)
 	}
@@ -109,6 +113,10 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 	if err != nil {
 		return "", err
 	}
+	params.ProfileSlug = active.Slug
+	params.RateLimitEnabled = activeProfile.Chat.RateLimitEnabled
+	params.RateLimitRPM = activeProfile.GetLLMRateLimitRPM()
+	params.RateLimitBurst = activeProfile.GetLLMRateLimitBurst()
 	return cp.SendChat(ctx, messages, params)
 }
 
