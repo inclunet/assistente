@@ -12,6 +12,7 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.groupGeneration': 'Parâmetros de Geração',
         'profiles.chatSection.groupContext': 'Contexto e Limites',
         'profiles.chatSection.groupRecovery': 'Recuperação de Streaming',
+        'profiles.chatSection.groupRateLimit': 'Limite Local de Chamadas',
         'profiles.chatSection.groupPromptCache': 'Prompt Cache',
         'profiles.chatSection.groupDebug': 'Debug LLM',
         'profiles.chatSection.provider': 'Provedor LLM',
@@ -57,6 +58,12 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.streamingRecoveryMaxAttemptsHint': 'Número máximo de tentativas automáticas antes de exigir uma ação manual.',
         'profiles.chatSection.streamingRecoveryShowContinue': 'Mostrar ação “Continuar resposta” quando falhar',
         'profiles.chatSection.streamingRecoveryShowContinueHint': 'Exibe a opção manual de continuação quando houver conteúdo parcial e o modelo suportar.',
+        'profiles.chatSection.rateLimitEnabled': 'Limitar chamadas ao provedor neste perfil',
+        'profiles.chatSection.rateLimitEnabledHint': 'Protege contra rajadas inesperadas.',
+        'profiles.chatSection.rateLimitRpm': 'Requisições por minuto',
+        'profiles.chatSection.rateLimitRpmHint': 'Taxa sustentada máxima.',
+        'profiles.chatSection.rateLimitBurst': 'Rajada máxima',
+        'profiles.chatSection.rateLimitBurstHint': 'Chamadas consecutivas permitidas.',
       };
       return translations[key] ?? key;
     },
@@ -97,6 +104,9 @@ describe('ProfileChatSection', () => {
     minContextMessages: 0,
     topP: 1.0,
     responseTimeout: 180,
+    rateLimitEnabled: true,
+    rateLimitRpm: 60,
+    rateLimitBurst: 30,
     reasoningEffort: '',
     promptCache: {
       enabled: false,
@@ -420,9 +430,63 @@ describe('ProfileChatSection', () => {
     expect(modelPickerButton).toBeDisabled();
   });
 
-  // Num perfil com agente o turno lê só o modelo: amostragem, cache, contexto e
-  // recuperação não chegam a existir (AEP-0084, Fase 8). Mostrá-los pedindo
-  // atenção de quem navega por teclado seria pedir atenção para nada.
+  it('edita a política local de rate limit', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    expect(screen.getByLabelText('Requisições por minuto')).toHaveValue(60);
+    expect(screen.getByLabelText('Rajada máxima')).toHaveValue(30);
+
+    await user.click(screen.getByLabelText('Limitar chamadas ao provedor neste perfil'));
+    expect(onChange).toHaveBeenCalledWith('rate_limit_enabled', false);
+  });
+
+  // O campo numérico aceita digitação fora de min/max, então o clamp precisa
+  // acontecer antes de o valor entrar no perfil — senão a recusa só apareceria
+  // na validação do backend, ao salvar.
+  it('mantém o rate limit digitado dentro da faixa aceita pelo backend', () => {
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
+      target: { value: '-5' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 0);
+
+    fireEvent.change(screen.getByLabelText('Rajada máxima'), {
+      target: { value: '99999' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_burst', 10000);
+  });
+
+  it('preserva o sentinela de padrão quando o campo de rate limit fica vazio', () => {
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
+      target: { value: '' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 0);
+  });
+
+  it('exibe o sentinela zero sem convertê-lo no default efetivo', () => {
+    render(<ProfileChatSection {...defaultProps} rateLimitRpm={0} rateLimitBurst={0} />);
+
+    expect(screen.getByLabelText('Requisições por minuto')).toHaveValue(0);
+    expect(screen.getByLabelText('Rajada máxima')).toHaveValue(0);
+  });
+
+  it('desabilita os valores do rate limit quando a proteção está desligada', () => {
+    render(<ProfileChatSection {...defaultProps} rateLimitEnabled={false} />);
+
+    expect(screen.getByLabelText('Requisições por minuto')).toBeDisabled();
+    expect(screen.getByLabelText('Rajada máxima')).toBeDisabled();
+  });
+
+  // Num perfil com agente o turno lê só o modelo entre os parâmetros do
+  // provider. O rate limit permanece visível porque protege a chamada externa
+  // independentemente de o provider ser HTTP ou ACP.
   describe('com provedor de agente', () => {
     const comAgente = { ...defaultProps, llmProvider: 'cursor', agentProvider: true };
 
@@ -447,6 +511,7 @@ describe('ProfileChatSection', () => {
       expect(
         screen.queryByLabelText('Tentar recuperar respostas interrompidas automaticamente'),
       ).toBeNull();
+      expect(screen.getByLabelText('Limitar chamadas ao provedor neste perfil')).toBeInTheDocument();
     });
 
     it('diz por que a guia é curta', () => {

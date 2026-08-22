@@ -211,14 +211,22 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		activeProfile, err = i.profileMgr.Get(resolvedProfileSlug)
 		if err != nil {
 			logging.Warnf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
-			activeProfile, err = i.profileMgr.GetActive()
-			if err == nil && activeProfile != nil {
-				resolvedProfileSlug = i.profileMgr.GetActiveSlug()
+			var active *profiles.ActiveProfile
+			active, err = i.profileMgr.GetActiveAndSlug()
+			if err == nil && active != nil {
+				activeProfile = active.Profile
+				resolvedProfileSlug = active.Slug
 				req.Params.ProfileSlug = resolvedProfileSlug
 			}
 		}
 	} else {
-		activeProfile, err = i.profileMgr.GetActive()
+		var active *profiles.ActiveProfile
+		active, err = i.profileMgr.GetActiveAndSlug()
+		if err == nil && active != nil {
+			activeProfile = active.Profile
+			resolvedProfileSlug = active.Slug
+			req.Params.ProfileSlug = resolvedProfileSlug
+		}
 	}
 	if err != nil {
 		logging.Errorf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil: %v", err)
@@ -232,6 +240,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 7. Apply profile-level chat defaults onto Params
 	params := req.Params
 	if activeProfile != nil {
+		params.ProfileSlug = strings.TrimSpace(resolvedProfileSlug)
 		logging.Infof(ctx, "chat.interactor", "[PrepareContext] Usando perfil: %s", activeProfile.Name)
 		if params.Model == "" && activeProfile.Chat.Model != "" {
 			params.Model = activeProfile.Chat.Model
@@ -255,6 +264,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if activeProfile.Chat.ResponseTimeout > 0 {
 			params.ResponseTimeout = activeProfile.Chat.ResponseTimeout
 		}
+		params.RateLimitEnabled = activeProfile.Chat.RateLimitEnabled
+		params.RateLimitRPM = activeProfile.GetLLMRateLimitRPM()
+		params.RateLimitBurst = activeProfile.GetLLMRateLimitBurst()
 		if activeProfile.Chat.ContextWindow > 0 {
 			params.ContextWindow = activeProfile.Chat.ContextWindow
 		}

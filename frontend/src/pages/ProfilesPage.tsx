@@ -136,6 +136,9 @@ export default function ProfilesPage() {
             max_tokens: 4096,
             top_p: 1.0,
             response_timeout: 180,
+            rate_limit_enabled: true,
+            rate_limit_rpm: 60,
+            rate_limit_burst: 30,
             reasoning_effort: '',
             prompt_cache: {
               enabled: false,

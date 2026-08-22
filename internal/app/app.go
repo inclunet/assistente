@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -378,6 +379,39 @@ func NewApp() *App {
 	return &App{
 		profileManager: profiles.NewManager(),
 		llmRegistry:    llm.NewProviderRegistry(),
+	}
+}
+
+func newRateLimitPolicyResolver(manager *profiles.Manager) llm.RateLimitPolicyResolver {
+	return func(_ context.Context, requestedSlug string) llm.ResolvedRateLimitPolicy {
+		slug := strings.TrimSpace(requestedSlug)
+		var profile *profiles.Profile
+		if manager != nil && slug != "" {
+			if resolved, err := manager.Get(slug); err == nil {
+				profile = resolved
+			}
+		}
+		if profile == nil && manager != nil {
+			if active, err := manager.GetActiveAndSlug(); err == nil && active != nil {
+				profile = active.Profile
+				slug = active.Slug
+			}
+		}
+		if profile == nil {
+			return llm.ResolvedRateLimitPolicy{
+				Config:      llm.DefaultRateLimitConfig(),
+				ProfileSlug: slug,
+			}
+		}
+		return llm.ResolvedRateLimitPolicy{
+			Config: llm.RateLimitConfig{
+				Enabled:            profile.IsLLMRateLimitEnabled(),
+				RequestsPerMinute:  profile.GetLLMRateLimitRPM(),
+				Burst:              profile.GetLLMRateLimitBurst(),
+				NearLimitThreshold: llm.DefaultNearLimitThreshold,
+			},
+			ProfileSlug: slug,
+		}
 	}
 }
 
@@ -864,22 +898,22 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initAuthServices()
 
 	// Inicializa o rate limiter das chamadas LLM (Issue #27 / AEP-0065).
-	// Escopo por usuário (userID do contexto); defaults sensatos com override
-	// por variáveis de ambiente. nil quando desabilitado.
-	llmRateLimiter := llm.NewRateLimiter(llm.RateLimitConfigFromEnv())
+	// A política vem do perfil; o userID do contexto e o slug formam o escopo.
+	llmRateLimiter := llm.NewRateLimiter(llm.DefaultRateLimitConfig())
 	if llmRateLimiter != nil {
 		llmRateLimiter.SetNearLimitHandler(func(key string, remaining float64) {
-			logging.Infof(ctx, "app.app", "[llm/ratelimit] usuário %s próximo do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
+			logging.Infof(ctx, "app.app", "[llm/ratelimit] chave %s próxima do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
 		})
 	}
-	// Chave do rate limit = userID do contexto (AEP-0052). Compartilhada entre
-	// o provider service (chat) e a sumarização para usarem o mesmo bucket.
+	// A base da chave é o userID (AEP-0052); o decorator acrescenta o slug do
+	// perfil. Chat e sumarização compartilham o mesmo bucket resultante.
 	llmRateLimitKeyFunc := func(ctx context.Context) string {
 		if userID, ok := database.UserIDFromContext(ctx); ok {
 			return userID
 		}
 		return ""
 	}
+	llmRateLimitPolicyResolver := newRateLimitPolicyResolver(a.profileManager)
 
 	// Inicializa o serviço dos agentes ACP (processos e sessões). Nada sobe
 	// aqui; ele precisa existir antes do provider service porque é dele que um
@@ -888,12 +922,13 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
-		Registry:         a.llmRegistry,
-		CredMgr:          a.credMgr,
-		Store:            providers.NewDBStore(),
-		RateLimiter:      llmRateLimiter,
-		RateLimitKeyFunc: llmRateLimitKeyFunc,
-		ACPManager:       a.acpMgr,
+		Registry:                a.llmRegistry,
+		CredMgr:                 a.credMgr,
+		Store:                   providers.NewDBStore(),
+		RateLimiter:             llmRateLimiter,
+		RateLimitKeyFunc:        llmRateLimitKeyFunc,
+		RateLimitPolicyResolver: llmRateLimitPolicyResolver,
+		ACPManager:              a.acpMgr,
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
@@ -929,8 +964,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ProfileResolver: func(ctx context.Context, p *profiles.Profile) *profiles.Profile {
 			return a.providerSvc.ResolveProfileDefaults(ctx, p)
 		},
-		RateLimiter:      llmRateLimiter,
-		RateLimitKeyFunc: llmRateLimitKeyFunc,
+		RateLimiter:             llmRateLimiter,
+		RateLimitKeyFunc:        llmRateLimitKeyFunc,
+		RateLimitPolicyResolver: llmRateLimitPolicyResolver,
 	})
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()

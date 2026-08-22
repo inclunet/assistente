@@ -4882,6 +4882,9 @@ export namespace profiles {
 	    tool_schema_budget_bytes?: number;
 	    preferred_tool_packages?: string[];
 	    max_agentic_iterations?: number;
+	    rate_limit_enabled?: boolean;
+	    rate_limit_rpm?: number;
+	    rate_limit_burst?: number;
 	    streaming_recovery_enabled?: boolean;
 	    streaming_recovery_max_attempts?: number;
 	    streaming_recovery_show_continue?: boolean;
@@ -4916,6 +4919,9 @@ export namespace profiles {
 	        this.tool_schema_budget_bytes = source["tool_schema_budget_bytes"];
 	        this.preferred_tool_packages = source["preferred_tool_packages"];
 	        this.max_agentic_iterations = source["max_agentic_iterations"];
+	        this.rate_limit_enabled = source["rate_limit_enabled"];
+	        this.rate_limit_rpm = source["rate_limit_rpm"];
+	        this.rate_limit_burst = source["rate_limit_burst"];
 	        this.streaming_recovery_enabled = source["streaming_recovery_enabled"];
 	        this.streaming_recovery_max_attempts = source["streaming_recovery_max_attempts"];
 	        this.streaming_recovery_show_continue = source["streaming_recovery_show_continue"];

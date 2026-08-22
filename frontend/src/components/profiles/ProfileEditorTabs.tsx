@@ -250,6 +250,9 @@ export function ProfileEditorTabs({
             minContextMessages={editingProfile.chat?.min_context_messages ?? 0}
             topP={editingProfile.chat?.top_p ?? 1.0}
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
+            rateLimitEnabled={editingProfile.chat?.rate_limit_enabled ?? true}
+            rateLimitRpm={editingProfile.chat?.rate_limit_rpm ?? 60}
+            rateLimitBurst={editingProfile.chat?.rate_limit_burst ?? 30}
             reasoningEffort={editingProfile.chat?.reasoning_effort || ''}
             promptCache={editingProfile.chat?.prompt_cache}
             debug={editingProfile.chat?.debug}
