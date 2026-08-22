@@ -170,17 +170,48 @@ describe('ProfileEditorTabs', () => {
 
   it('informa load_skill como runtime quando há skills sob demanda', async () => {
     const user = userEvent.setup();
-    renderTabs({
-      chat: {
-        ...defaultProfile.chat,
-        enabled_skills: ['coding', 'extra'],
-      },
-    });
+    render(
+      <ProfileEditorTabs
+        {...propsCom({
+          chat: {
+            ...defaultProfile.chat,
+            enabled_skills: ['coding', 'extra'],
+          },
+        })}
+        availableSkills={[
+          { slug: 'coding', name: 'Coding' },
+          { slug: 'extra', name: 'Extra' },
+        ] as never}
+      />,
+    );
 
     const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
     await user.click(tab!);
 
     expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', 'load_skill');
+  });
+
+  it('não informa load_skill quando as skills sob demanda bloqueiam invocação pelo modelo', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProfileEditorTabs
+        {...propsCom({
+          chat: {
+            ...defaultProfile.chat,
+            enabled_skills: ['coding', 'manual'],
+          },
+        })}
+        availableSkills={[
+          { slug: 'coding', name: 'Coding' },
+          { slug: 'manual', name: 'Manual', disableModelInvocation: true },
+        ] as never}
+      />,
+    );
+
+    const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
+    await user.click(tab!);
+
+    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', '');
   });
 
   it('troca para aba Context Providers ao clicar', async () => {

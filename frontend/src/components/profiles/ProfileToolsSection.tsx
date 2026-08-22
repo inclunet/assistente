@@ -33,7 +33,7 @@ export interface ProfileToolsSectionProps {
   /** Override tri-state de MCP nativo: true=força nativo, false=força adapter, null/undefined=auto. */
   nativeMcp?: boolean | null;
   onChange: (
-    field: 'enabled_tools' | 'tool_policy' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout' | 'native_mcp',
+    field: 'enabled_tools' | 'tool_policy' | 'tool_policy_default' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout' | 'native_mcp',
     value: string[] | string | boolean | number | null | Record<string, string>
   ) => void;
   onPolicyChange?: (policy: Record<string, string>) => void;
@@ -169,6 +169,11 @@ export function ProfileToolsSection({
     const enabledSet = new Set(enabledTools);
     for (const name of allNames) {
       policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+    }
+    if (enabledTools.length > 0) {
+      for (const name of runtimeTools) {
+        if (allNames.includes(name)) policy[name] = TOOL_POLICY_PRELOADED;
+      }
     }
     return policy;
   }, [allNames, enabledTools, runtimeTools, toolPolicy, toolPolicyDefault, toolRows]);
@@ -373,6 +378,27 @@ export function ProfileToolsSection({
       noResultsMessage={t('profiles.toolsNoResults', 'Nenhuma ferramenta corresponde ao filtro.')}
       emptyMessage={t('profiles.noToolsAvailable', 'Nenhuma ferramenta encontrada.')}
     >
+      <div className="profiles-field">
+            <label htmlFor="pf-tool-policy-default" className="profiles-field__label">
+              {t('profiles.toolPolicyDefaultLabel', 'Estado padrão de novas ferramentas')}
+            </label>
+            <select
+              id="pf-tool-policy-default"
+              className="profiles-field__select"
+              value={toolPolicyDefault?.trim() ?? ''}
+              onChange={(e) => onChange('tool_policy_default', e.target.value)}
+              disabled={disabled}
+              data-testid="tool-policy-default-select"
+            >
+              <option value="">{t('profiles.toolPolicyDefaultLegacy', 'Compatibilidade com perfil legado')}</option>
+              <option value={TOOL_POLICY_DISABLED}>{t('profiles.toolPolicyDefaultDisabled', 'Desabilitadas')}</option>
+              <option value={TOOL_POLICY_ON_DEMAND}>{t('profiles.toolPolicyDefaultOnDemand', 'Sob demanda')}</option>
+            </select>
+            <span className="profiles-field__hint">
+              {t('profiles.toolPolicyDefaultHint', 'Define o estado de ferramentas futuras e integrações não listadas explicitamente. Ferramentas opt-in continuam bloqueadas.')}
+            </span>
+      </div>
+
       <div className="profiles-field">
             <RangeSlider
               id="agentic-max-iterations"

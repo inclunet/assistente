@@ -41,7 +41,15 @@ export interface ProfileEditorTabsProps {
   availableTools: apidto.ToolInfo[];
   availableSkills: Array<
     | skills.SkillInfo
-    | { slug: string; name: string; description?: string; version?: string; source?: string }
+    | {
+      slug: string;
+      name: string;
+      description?: string;
+      version?: string;
+      source?: string;
+      autoLoad?: boolean;
+      disableModelInvocation?: boolean;
+    }
   >;
   availableContextProviders: contextprovider.ProviderMetadata[];
   availableAllowlists: allowlist.AllowlistInfo[];
@@ -68,10 +76,12 @@ export function ProfileEditorTabs({
   const visibleTabs = agentProvider
     ? EDITOR_TABS.filter((id) => !AGENT_HIDDEN_TABS.includes(id))
     : EDITOR_TABS;
-  const enabledSkills = editingProfile.chat?.enabled_skills;
-  const hasOnDemandSkills = !(editingProfile.chat?.disable_skills ?? false)
-    && !(editingProfile.chat?.disable_on_demand_skills ?? false)
-    && (enabledSkills == null || enabledSkills.length > 1);
+  const hasOnDemandSkills = hasModelOnDemandSkill(
+    availableSkills,
+    editingProfile.chat?.enabled_skills,
+    editingProfile.chat?.disable_skills ?? false,
+    editingProfile.chat?.disable_on_demand_skills ?? false,
+  );
 
   const handleTabChange = useCallback((v: string) => {
     pendingShortcutFocusRef.current = null;
@@ -334,4 +344,36 @@ export function ProfileEditorTabs({
       </Tabs>
     </div>
   );
+}
+
+function hasModelOnDemandSkill(
+  availableSkills: ProfileEditorTabsProps['availableSkills'],
+  enabledSkills: string[] | null | undefined,
+  disableSkills: boolean,
+  disableOnDemand: boolean,
+): boolean {
+  if (disableSkills || disableOnDemand) return false;
+
+  if (enabledSkills == null) {
+    let baseSelected = false;
+    for (const skill of availableSkills) {
+      const modelInvocable = !skill.disableModelInvocation;
+      if (skill.autoLoad && modelInvocable && !baseSelected) {
+        baseSelected = true;
+        continue;
+      }
+      if (modelInvocable) return true;
+    }
+    return false;
+  }
+
+  const byIdentifier = new Map<string, ProfileEditorTabsProps['availableSkills'][number]>();
+  for (const skill of availableSkills) {
+    byIdentifier.set(skill.slug, skill);
+    byIdentifier.set(skill.name, skill);
+  }
+  const ordered = enabledSkills
+    .map(identifier => byIdentifier.get(identifier))
+    .filter((skill): skill is ProfileEditorTabsProps['availableSkills'][number] => skill != null);
+  return ordered.slice(1).some(skill => !skill.disableModelInvocation);
 }

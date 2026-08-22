@@ -281,6 +281,23 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
   });
 
+  it('permite alterar tool_policy_default', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[tool('read_file', 'Read file')]}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('tool-policy-default-select'), {
+      target: { value: 'on_demand' },
+    });
+    expect(onChange).toHaveBeenCalledWith('tool_policy_default', 'on_demand');
+  });
+
   it('mantém opt-in não listada disabled com default on_demand', () => {
     const onChange = vi.fn();
     render(
@@ -345,6 +362,25 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('load_skill: Pré-carregada')).toBeInTheDocument();
     expect(screen.getByLabelText('job: Desabilitada')).toBeInTheDocument();
     expect(screen.getByLabelText('edit_file: Pré-carregada')).toBeInTheDocument();
+  });
+
+  it('anexa runtime tool à allowlist legada explícita', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('load_skill', 'Load skill', 'local', 'Local', undefined, true),
+          tool('read_file', 'Read file'),
+        ]}
+        enabledTools={['read_file']}
+        runtimeTools={['load_skill']}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByLabelText('load_skill: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Pré-carregada')).toBeInTheDocument();
   });
 
   it('promove tool_catalog explicitamente on_demand como o backend', () => {
