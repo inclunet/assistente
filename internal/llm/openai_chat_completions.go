@@ -244,9 +244,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 }
 
 // chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.
-// O SDK OpenAI não a tipa, mas providers compatíveis como DeepSeek e Qwen a
-// emitem no delta. Preservar exatamente esses fragmentos é parte do protocolo
-// do thinking mode quando a requisição carrega tools.
+// O SDK OpenAI não a tipa. A captura só é ligada para o DeepSeek
+// (requiresReasoningContentReplay), e preservar exatamente esses fragmentos é
+// parte do protocolo do thinking mode quando a requisição carrega tools.
 func chatCompletionReasoningContent(delta openai.ChatCompletionChunkChoiceDelta) string {
 	var raw struct {
 		ReasoningContent string `json:"reasoning_content"`

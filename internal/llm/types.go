@@ -14,7 +14,7 @@ type Message struct {
 	Role             string      `json:"role"`
 	Content          interface{} `json:"content,omitempty"`           // Pode ser string ou []ContentPart
 	Thinking         string      `json:"thinking,omitempty"`          // Ollama thinking/reasoning
-	ReasoningContent string      `json:"reasoning_content,omitempty"` // DeepSeek/Qwen: deve voltar no histórico com tools
+	ReasoningContent string      `json:"reasoning_content,omitempty"` // extensão OpenAI-compatible; hoje só o DeepSeek captura e devolve no histórico com tools
 	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`        // Tool calls solicitadas pelo assistant
 	ToolCallID       string      `json:"tool_call_id,omitempty"`      // Para role="tool": vincula ao call
 	// MessageID e TurnContextTarget são metadados internos da request LLM.

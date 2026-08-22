@@ -37,10 +37,10 @@ func convertMessagesWithReasoningContent(msgs []Message, includeReasoningContent
 		case "assistant":
 			m := openai.AssistantMessage(content)
 			if includeReasoningContent && msg.ReasoningContent != "" {
-				// reasoning_content é uma extensão dos providers compatíveis
-				// (DeepSeek/Qwen), ausente do tipo gerado pelo SDK OpenAI. No
-				// thinking mode com tools, omiti-la no replay invalida a
-				// próxima chamada.
+				// reasoning_content é uma extensão OpenAI-compatible, ausente
+				// do tipo gerado pelo SDK. Quem liga o replay hoje é só o
+				// DeepSeek (requiresReasoningContentReplay): no thinking mode
+				// com tools, omiti-la invalida a próxima chamada.
 				m.OfAssistant.SetExtraFields(map[string]any{
 					"reasoning_content": msg.ReasoningContent,
 				})
