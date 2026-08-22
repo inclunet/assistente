@@ -578,11 +578,11 @@ func (s *Service) resolveConversationProfileWithSlug(profileSlug string) (*profi
 		logging.Infof(context.Background(), "summarization.service", "[Summary] Não foi possível obter perfil da conversa %q (%v) — usando perfil ativo global", slug, err)
 	}
 
-	profile, err := s.cfg.ProfileManager.GetActive()
-	if err != nil || profile == nil {
+	active, err := s.cfg.ProfileManager.GetActiveAndSlug()
+	if err != nil || active == nil {
 		return nil, ""
 	}
-	return profile, s.cfg.ProfileManager.GetActiveSlug()
+	return active.Profile, active.Slug
 }
 
 // isAgentDrivenProfile informa se o provider do perfil é um agente externo

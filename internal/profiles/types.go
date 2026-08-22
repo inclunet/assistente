@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"assistente/internal/llm"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,8 +12,8 @@ import (
 const DefaultProviderSentinel = "$default"
 
 const (
-	DefaultLLMRateLimitRPM   = 60
-	DefaultLLMRateLimitBurst = 30
+	DefaultLLMRateLimitRPM   = llm.DefaultRateLimitRPM
+	DefaultLLMRateLimitBurst = llm.DefaultRateLimitBurst
 	MaxLLMRateLimitValue     = 10000
 )
 
