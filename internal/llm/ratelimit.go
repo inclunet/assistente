@@ -231,7 +231,7 @@ func (l *RateLimiter) AllowWithConfig(key string, cfg RateLimitConfig) error {
 	if l == nil || !cfg.Enabled {
 		return nil
 	}
-	return l.allowAtWithConfig(key, time.Now(), normalizeRateLimitConfig(cfg))
+	return l.allowAtWithConfig(key, time.Now(), cfg)
 }
 
 // allowAt é a variante com tempo explícito, usada internamente por Allow e

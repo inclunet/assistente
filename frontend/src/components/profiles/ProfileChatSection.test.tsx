@@ -442,6 +442,34 @@ describe('ProfileChatSection', () => {
     expect(onChange).toHaveBeenCalledWith('rate_limit_enabled', false);
   });
 
+  // O campo numérico aceita digitação fora de min/max, então o clamp precisa
+  // acontecer antes de o valor entrar no perfil — senão a recusa só apareceria
+  // na validação do backend, ao salvar.
+  it('mantém o rate limit digitado dentro da faixa aceita pelo backend', () => {
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
+      target: { value: '-5' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 1);
+
+    fireEvent.change(screen.getByLabelText('Rajada máxima'), {
+      target: { value: '99999' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_burst', 10000);
+  });
+
+  it('volta ao padrão quando o campo de rate limit fica vazio', () => {
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
+      target: { value: '' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 60);
+  });
+
   it('desabilita os valores do rate limit quando a proteção está desligada', () => {
     render(<ProfileChatSection {...defaultProps} rateLimitEnabled={false} />);
 

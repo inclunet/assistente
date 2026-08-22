@@ -75,6 +75,22 @@ export interface ProfileChatSectionProps {
   agentProvider?: boolean;
 }
 
+const RATE_LIMIT_MIN = 1;
+const RATE_LIMIT_MAX = 10000;
+const DEFAULT_RATE_LIMIT_RPM = 60;
+const DEFAULT_RATE_LIMIT_BURST = 30;
+
+/**
+ * O campo numérico aceita digitação fora de min/max, então o valor é ajustado
+ * aqui antes de entrar no estado — assim o perfil nunca guarda algo que o
+ * backend recusaria na validação.
+ */
+function clampRateLimit(raw: string, fallback: number): number {
+  const parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(RATE_LIMIT_MAX, Math.max(RATE_LIMIT_MIN, parsed));
+}
+
 /**
  * Seção de configuração de chat (LLM) de um perfil.
  * Permite escolher provedor, modelo, parâmetros de geração e limites de contexto.
@@ -114,8 +130,9 @@ export function ProfileChatSection({
   const minContextMessagesValue = minContextMessages ?? 0;
   const responseTimeoutValue = responseTimeout ?? 180;
   const rateLimitEnabledValue = rateLimitEnabled ?? true;
-  const rateLimitRpmValue = rateLimitRpm && rateLimitRpm > 0 ? rateLimitRpm : 60;
-  const rateLimitBurstValue = rateLimitBurst && rateLimitBurst > 0 ? rateLimitBurst : 30;
+  const rateLimitRpmValue = rateLimitRpm && rateLimitRpm > 0 ? rateLimitRpm : DEFAULT_RATE_LIMIT_RPM;
+  const rateLimitBurstValue =
+    rateLimitBurst && rateLimitBurst > 0 ? rateLimitBurst : DEFAULT_RATE_LIMIT_BURST;
   const reasoningValue = reasoningEffort || 'off';
   const promptCacheEnabledValue = promptCache?.enabled ?? false;
   const promptCacheProviderHintsValue = promptCache?.provider_hints ?? false;
@@ -606,10 +623,12 @@ export function ProfileChatSection({
             id="chat-rate-limit-rpm"
             type="number"
             className="profiles-field__input"
-            min={1}
-            max={10000}
+            min={RATE_LIMIT_MIN}
+            max={RATE_LIMIT_MAX}
             value={rateLimitRpmValue}
-            onChange={(e) => onChange('rate_limit_rpm', parseInt(e.target.value, 10) || 60)}
+            onChange={(e) =>
+              onChange('rate_limit_rpm', clampRateLimit(e.target.value, DEFAULT_RATE_LIMIT_RPM))
+            }
             disabled={disabled || !rateLimitEnabledValue}
           />
           <span className="profiles-field__hint">
@@ -625,10 +644,12 @@ export function ProfileChatSection({
             id="chat-rate-limit-burst"
             type="number"
             className="profiles-field__input"
-            min={1}
-            max={10000}
+            min={RATE_LIMIT_MIN}
+            max={RATE_LIMIT_MAX}
             value={rateLimitBurstValue}
-            onChange={(e) => onChange('rate_limit_burst', parseInt(e.target.value, 10) || 30)}
+            onChange={(e) =>
+              onChange('rate_limit_burst', clampRateLimit(e.target.value, DEFAULT_RATE_LIMIT_BURST))
+            }
             disabled={disabled || !rateLimitEnabledValue}
           />
           <span className="profiles-field__hint">

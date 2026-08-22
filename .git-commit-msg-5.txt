@@ -1,0 +1,7 @@
+atende a revisão do limite de chamadas
+
+Ajusta no próprio campo o valor de chamadas por minuto e de rajada
+digitado fora da faixa, para o perfil não guardar algo que o backend
+recusaria só no salvamento. Remove a normalização repetida da política e
+corrige a mensagem de proximidade do limite, que dizia "usuário" quando
+a chave já é usuário mais perfil.

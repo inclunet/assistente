@@ -900,7 +900,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	llmRateLimiter := llm.NewRateLimiter(llm.DefaultRateLimitConfig())
 	if llmRateLimiter != nil {
 		llmRateLimiter.SetNearLimitHandler(func(key string, remaining float64) {
-			logging.Infof(ctx, "app.app", "[llm/ratelimit] usuário %s próximo do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
+			logging.Infof(ctx, "app.app", "[llm/ratelimit] chave %s próxima do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
 		})
 	}
 	// A base da chave é o userID (AEP-0052); o decorator acrescenta o slug do
