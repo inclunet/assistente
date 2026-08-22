@@ -127,30 +127,43 @@ export function ProfileToolsSection({
   const filteredNames = useMemo(() => new Set(filteredRows.map((r) => r.name)), [filteredRows]);
   const isFiltered = filter !== 'all' || search.trim() !== '';
 
+  // O backend apara os nomes antes de aplicar a política. Normalizar aqui uma
+  // vez só evita que uma chave com espaços seja aceita lá e ignorada aqui.
+  const normalizedToolPolicy = useMemo(() => {
+    const normalized: Record<string, string> = {};
+    for (const [name, state] of Object.entries(toolPolicy ?? {})) {
+      const key = name.trim();
+      if (key === '') continue;
+      normalized[key] = state;
+    }
+    return normalized;
+  }, [toolPolicy]);
+
+  const hasExplicitToolPolicy = Object.keys(normalizedToolPolicy).length > 0;
+
   const effectiveToolPolicy = useMemo(() => {
     const policy: Record<string, ToolPolicyState> = {};
     const normalizedDefault = toolPolicyDefault?.trim() ?? '';
-    const hasExplicitPolicy = toolPolicy != null && Object.keys(toolPolicy).length > 0;
     // Espelha o backend: enquanto o perfil descreve as tools pela allowlist
     // legada, o default sozinho não rege nada (AEP-0096).
-    if (hasExplicitPolicy || (normalizedDefault !== '' && enabledTools == null)) {
+    if (hasExplicitToolPolicy || (normalizedDefault !== '' && enabledTools == null)) {
       const defaultState = normalizedDefault === TOOL_POLICY_ON_DEMAND
         ? TOOL_POLICY_ON_DEMAND
         : TOOL_POLICY_DISABLED;
       for (const item of toolRows) {
         policy[item.name] = item.optIn ? TOOL_POLICY_DISABLED : defaultState;
       }
-      for (const [name, state] of Object.entries(toolPolicy ?? {})) {
+      for (const [name, state] of Object.entries(normalizedToolPolicy)) {
         if (!allNames.includes(name)) continue;
         policy[name] = normalizeToolPolicyState(state);
       }
       for (const name of runtimeTools) {
-        if (!allNames.includes(name) || isToolExplicitlyDisabled(toolPolicy, name)) continue;
+        if (!allNames.includes(name) || isToolExplicitlyDisabled(normalizedToolPolicy, name)) continue;
         policy[name] = TOOL_POLICY_PRELOADED;
       }
       if (
         allNames.includes('tool_catalog')
-        && !isToolExplicitlyDisabled(toolPolicy, 'tool_catalog')
+        && !isToolExplicitlyDisabled(normalizedToolPolicy, 'tool_catalog')
         && (
           policy.tool_catalog === TOOL_POLICY_ON_DEMAND
           || Object.values(policy).some((state) => state === TOOL_POLICY_ON_DEMAND)
@@ -172,7 +185,7 @@ export function ProfileToolsSection({
       }
       return policy;
     }
-    const enabledSet = new Set(enabledTools);
+    const enabledSet = new Set(enabledTools.map((name) => name.trim()));
     for (const name of allNames) {
       policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
     }
@@ -182,7 +195,7 @@ export function ProfileToolsSection({
       }
     }
     return policy;
-  }, [allNames, enabledTools, runtimeTools, toolPolicy, toolPolicyDefault, toolRows]);
+  }, [allNames, enabledTools, hasExplicitToolPolicy, normalizedToolPolicy, runtimeTools, toolPolicyDefault, toolRows]);
   const effectiveToolPolicyRef = useRef(effectiveToolPolicy);
   effectiveToolPolicyRef.current = effectiveToolPolicy;
 
@@ -199,12 +212,20 @@ export function ProfileToolsSection({
   // essa configuração a cada toggle.
   const policyEntriesOutsideGrid = useMemo(() => {
     const preserved: Record<string, string> = {};
-    for (const [name, state] of Object.entries(toolPolicy ?? {})) {
+    for (const [name, state] of Object.entries(normalizedToolPolicy)) {
       if (allNames.includes(name)) continue;
       preserved[name] = state;
     }
+    if (hasExplicitToolPolicy) return preserved;
+    // Salvar a política zera a allowlist legada no perfil. Sem carregar junto os
+    // nomes que o grid não mostra, eles sumiriam no primeiro toggle.
+    for (const name of enabledTools ?? []) {
+      const key = name.trim();
+      if (key === '' || allNames.includes(key)) continue;
+      preserved[key] = TOOL_POLICY_PRELOADED;
+    }
     return preserved;
-  }, [allNames, toolPolicy]);
+  }, [allNames, enabledTools, hasExplicitToolPolicy, normalizedToolPolicy]);
 
   const commitToolPolicy = useCallback((nextPolicy: Record<string, ToolPolicyState>) => {
     effectiveToolPolicyRef.current = nextPolicy;
@@ -220,24 +241,26 @@ export function ProfileToolsSection({
   // tool_policy no mesmo salvamento. Sem isso o backend mantém a allowlist e a
   // escolha não teria efeito nenhum.
   const handleToolPolicyDefaultChange = useCallback((value: string) => {
-    const hasExplicitPolicy = toolPolicy != null && Object.keys(toolPolicy).length > 0;
-    if (enabledTools != null && !hasExplicitPolicy && onPolicyChange) {
-      const migrated: Record<string, string> = { ...effectiveToolPolicy };
-      // A allowlist legada pode citar tools que o grid não mostra; migrar só o
-      // visível apagaria esses nomes junto com o enabled_tools.
-      for (const name of enabledTools) {
-        if (Object.prototype.hasOwnProperty.call(migrated, name)) continue;
-        migrated[name] = TOOL_POLICY_PRELOADED;
-      }
-      onPolicyChange(migrated, { toolPolicyDefault: value });
+    if (enabledTools != null && !hasExplicitToolPolicy && onPolicyChange) {
+      onPolicyChange(
+        { ...policyEntriesOutsideGrid, ...effectiveToolPolicy },
+        { toolPolicyDefault: value },
+      );
       return;
     }
     onChange('tool_policy_default', value);
-  }, [effectiveToolPolicy, enabledTools, onChange, onPolicyChange, toolPolicy]);
+  }, [
+    effectiveToolPolicy,
+    enabledTools,
+    hasExplicitToolPolicy,
+    onChange,
+    onPolicyChange,
+    policyEntriesOutsideGrid,
+  ]);
 
   const isExplicitlyDisabled = useCallback(
-    (name: string) => isToolExplicitlyDisabled(toolPolicy, name),
-    [toolPolicy],
+    (name: string) => isToolExplicitlyDisabled(normalizedToolPolicy, name),
+    [normalizedToolPolicy],
   );
 
   const shouldPreserveControlPlane = useCallback((name: string) => (

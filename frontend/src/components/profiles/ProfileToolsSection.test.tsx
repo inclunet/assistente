@@ -366,6 +366,63 @@ describe('ProfileToolsSection', () => {
     );
   });
 
+  it('preserva a allowlist legada fora do grid ao alternar uma tool', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[tool('read_file', 'Read file')]}
+        enabledTools={['read_file', 'text_edit']}
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      expect.objectContaining({ text_edit: 'preloaded' }),
+    );
+  });
+
+  it('normaliza chaves de tool_policy com espaços como o backend', () => {
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('write_file', 'Write file'),
+        ]}
+        toolPolicy={{ ' read_file ': 'disabled' }}
+        toolPolicyDefault="on_demand"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('write_file: Sob demanda')).toBeInTheDocument();
+  });
+
+  it('respeita bloqueio explícito com espaços contra runtime tools', () => {
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('load_skill', 'Load skill', 'local', 'Local', undefined, true),
+          tool('read_file', 'Read file'),
+        ]}
+        toolPolicy={{ ' load_skill ': 'disabled' }}
+        toolPolicyDefault="on_demand"
+        runtimeTools={['load_skill']}
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('load_skill: Desabilitada')).toBeInTheDocument();
+  });
+
   it('preserva tool_policy de tools que o grid não mostra ao alternar outra', () => {
     const onPolicyChange = vi.fn();
     render(
