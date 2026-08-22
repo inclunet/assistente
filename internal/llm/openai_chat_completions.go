@@ -244,9 +244,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 }
 
 // chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.
-// O SDK OpenAI não a tipa. A captura só é ligada para o DeepSeek
-// (requiresReasoningContentReplay), e preservar exatamente esses fragmentos é
-// parte do protocolo do thinking mode quando a requisição carrega tools.
+// O SDK OpenAI não a tipa. Capturar e reenviar são coisas separadas: a captura
+// vale para todo turno do DeepSeek, porque alimenta o thinking na UI; o replay
+// no histórico só é exigido quando a requisição carrega tools, e é lá que
+// preservar os fragmentos exatos vira parte do protocolo.
 func chatCompletionReasoningContent(delta openai.ChatCompletionChunkChoiceDelta) string {
 	var raw struct {
 		ReasoningContent string `json:"reasoning_content"`
