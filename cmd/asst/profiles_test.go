@@ -224,6 +224,33 @@ func TestProfilesShow_ExibeToolPolicyEToolPolicyDefault(t *testing.T) {
 	}
 }
 
+func TestProfilesShow_ExibeAllowlistLegadaMesmoComToolPolicyDefault(t *testing.T) {
+	mock := &mockProfilesBackend{
+		profile: &profiles.Profile{
+			Name: "Legado",
+			Chat: profiles.ChatConfig{
+				ToolPolicyDefault: "on_demand",
+				EnabledTools:      []string{"read_file", "text_edit"},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := runProfilesShow(mock, &out, "legado"); err != nil {
+		t.Fatalf("runProfilesShow: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "Tools default: on_demand") {
+		t.Errorf("esperava o default na saída, got: %s", output)
+	}
+	for _, expected := range []string{"read_file", "text_edit"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("allowlist legada deveria aparecer (%q), got: %s", expected, output)
+		}
+	}
+}
+
 func TestProfilesShow_MinimalProfile(t *testing.T) {
 	mock := &mockProfilesBackend{
 		profile: &profiles.Profile{

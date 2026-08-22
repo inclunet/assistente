@@ -344,6 +344,50 @@ describe('ProfileToolsSection', () => {
     expect(onChange).not.toHaveBeenCalledWith('tool_policy_default', 'on_demand');
   });
 
+  it('preserva na migração as tools da allowlist legada fora do grid', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[tool('read_file', 'Read file')]}
+        enabledTools={['read_file', 'text_edit']}
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('tool-policy-default-select'), {
+      target: { value: 'disabled' },
+    });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      { read_file: 'preloaded', text_edit: 'preloaded' },
+      { toolPolicyDefault: 'disabled' },
+    );
+  });
+
+  it('preserva tool_policy de tools que o grid não mostra ao alternar outra', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[tool('edit_file', 'Edit file')]}
+        toolPolicy={{ text_edit: 'preloaded', edit_file: 'preloaded' }}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      expect.objectContaining({ text_edit: 'preloaded' }),
+    );
+  });
+
   it('mantém opt-in não listada disabled com default on_demand', () => {
     const onChange = vi.fn();
     render(

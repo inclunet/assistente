@@ -193,14 +193,28 @@ export function ProfileToolsSection({
     [allNames, effectiveToolPolicy],
   );
 
+  // O grid só enxerga as tools discoverable, mas o perfil pode configurar tools
+  // que não aparecem aqui (text_edit, por exemplo, é opt-in não discoverable e
+  // vem preloaded no Editor de Texto). Salvar só o que a tela mostra apagaria
+  // essa configuração a cada toggle.
+  const policyEntriesOutsideGrid = useMemo(() => {
+    const preserved: Record<string, string> = {};
+    for (const [name, state] of Object.entries(toolPolicy ?? {})) {
+      if (allNames.includes(name)) continue;
+      preserved[name] = state;
+    }
+    return preserved;
+  }, [allNames, toolPolicy]);
+
   const commitToolPolicy = useCallback((nextPolicy: Record<string, ToolPolicyState>) => {
     effectiveToolPolicyRef.current = nextPolicy;
+    const merged = { ...policyEntriesOutsideGrid, ...nextPolicy };
     if (onPolicyChange) {
-      onPolicyChange(nextPolicy);
+      onPolicyChange(merged);
       return;
     }
-    onChange('tool_policy', nextPolicy);
-  }, [onChange, onPolicyChange]);
+    onChange('tool_policy', merged);
+  }, [onChange, onPolicyChange, policyEntriesOutsideGrid]);
 
   // Trocar o padrão num perfil legado precisa materializar a allowlist como
   // tool_policy no mesmo salvamento. Sem isso o backend mantém a allowlist e a
@@ -208,7 +222,14 @@ export function ProfileToolsSection({
   const handleToolPolicyDefaultChange = useCallback((value: string) => {
     const hasExplicitPolicy = toolPolicy != null && Object.keys(toolPolicy).length > 0;
     if (enabledTools != null && !hasExplicitPolicy && onPolicyChange) {
-      onPolicyChange({ ...effectiveToolPolicy }, { toolPolicyDefault: value });
+      const migrated: Record<string, string> = { ...effectiveToolPolicy };
+      // A allowlist legada pode citar tools que o grid não mostra; migrar só o
+      // visível apagaria esses nomes junto com o enabled_tools.
+      for (const name of enabledTools) {
+        if (Object.prototype.hasOwnProperty.call(migrated, name)) continue;
+        migrated[name] = TOOL_POLICY_PRELOADED;
+      }
+      onPolicyChange(migrated, { toolPolicyDefault: value });
       return;
     }
     onChange('tool_policy_default', value);
