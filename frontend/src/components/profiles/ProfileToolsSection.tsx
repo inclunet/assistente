@@ -24,6 +24,7 @@ export interface ProfileToolsSectionProps {
   enabledTools?: string[] | null;
   toolPolicy?: Record<string, string> | null;
   toolPolicyDefault?: string | null;
+  runtimeTools?: string[];
   toolsDisabled?: boolean;
   commandAllowlist?: string;
   availableAllowlists: allowlist.AllowlistInfo[];
@@ -54,6 +55,7 @@ export function ProfileToolsSection({
   enabledTools = null,
   toolPolicy = null,
   toolPolicyDefault = null,
+  runtimeTools = [],
   toolsDisabled = false,
   commandAllowlist = '',
   availableAllowlists = [],
@@ -136,18 +138,31 @@ export function ProfileToolsSection({
         if (!allNames.includes(name)) continue;
         policy[name] = normalizeToolPolicyState(state);
       }
+      for (const name of runtimeTools) {
+        if (!allNames.includes(name) || isToolExplicitlyDisabled(toolPolicy, name)) continue;
+        policy[name] = TOOL_POLICY_PRELOADED;
+      }
       if (
         allNames.includes('tool_catalog')
-        && !Object.prototype.hasOwnProperty.call(toolPolicy ?? {}, 'tool_catalog')
-        && Object.values(policy).some((state) => state === TOOL_POLICY_ON_DEMAND)
+        && !isToolExplicitlyDisabled(toolPolicy, 'tool_catalog')
+        && (
+          policy.tool_catalog === TOOL_POLICY_ON_DEMAND
+          || Object.values(policy).some((state) => state === TOOL_POLICY_ON_DEMAND)
+        )
       ) {
         policy.tool_catalog = TOOL_POLICY_PRELOADED;
       }
       return policy;
     }
     if (enabledTools == null) {
-      for (const name of allNames) {
-        policy[name] = CONTROL_PLANE_TOOLS.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_ON_DEMAND;
+      for (const item of toolRows) {
+        policy[item.name] = item.optIn ? TOOL_POLICY_DISABLED : TOOL_POLICY_ON_DEMAND;
+      }
+      if (allNames.includes('tool_catalog')) {
+        policy.tool_catalog = TOOL_POLICY_PRELOADED;
+      }
+      for (const name of runtimeTools) {
+        if (allNames.includes(name)) policy[name] = TOOL_POLICY_PRELOADED;
       }
       return policy;
     }
@@ -156,7 +171,7 @@ export function ProfileToolsSection({
       policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
     }
     return policy;
-  }, [allNames, enabledTools, toolPolicy, toolPolicyDefault, toolRows]);
+  }, [allNames, enabledTools, runtimeTools, toolPolicy, toolPolicyDefault, toolRows]);
   const effectiveToolPolicyRef = useRef(effectiveToolPolicy);
   effectiveToolPolicyRef.current = effectiveToolPolicy;
 
@@ -176,11 +191,16 @@ export function ProfileToolsSection({
     onChange('tool_policy', nextPolicy);
   }, [onChange, onPolicyChange]);
 
-  const isExplicitlyDisabled = useCallback((name: string) => (
-    toolPolicy != null
-    && Object.prototype.hasOwnProperty.call(toolPolicy, name)
-    && toolPolicy[name] === TOOL_POLICY_DISABLED
-  ), [toolPolicy]);
+  const isExplicitlyDisabled = useCallback(
+    (name: string) => isToolExplicitlyDisabled(toolPolicy, name),
+    [toolPolicy],
+  );
+
+  const shouldPreserveControlPlane = useCallback((name: string) => (
+    CONTROL_PLANE_TOOLS.has(name)
+    && effectiveToolPolicy[name] === TOOL_POLICY_PRELOADED
+    && !isExplicitlyDisabled(name)
+  ), [effectiveToolPolicy, isExplicitlyDisabled]);
 
   const setToolsState = useCallback((names: Iterable<string>, state: ToolPolicyState) => {
     const next = { ...effectiveToolPolicy };
@@ -202,7 +222,7 @@ export function ProfileToolsSection({
     if (newSelectedIds.size === 0) {
       const next = { ...effectiveToolPolicy };
       for (const name of scopeNames) {
-        next[name] = CONTROL_PLANE_TOOLS.has(name) && !isExplicitlyDisabled(name)
+        next[name] = shouldPreserveControlPlane(name)
           ? TOOL_POLICY_PRELOADED
           : TOOL_POLICY_DISABLED;
       }
@@ -216,7 +236,7 @@ export function ProfileToolsSection({
         : TOOL_POLICY_DISABLED;
     }
     commitToolPolicy(next);
-  }, [allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, isExplicitlyDisabled, isFiltered, selectedIds.size, setToolsState]);
+  }, [allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, isExplicitlyDisabled, isFiltered, selectedIds.size, setToolsState, shouldPreserveControlPlane]);
 
   const handleSelectFiltered = useCallback(() => {
     if (!isFiltered) {
@@ -230,7 +250,7 @@ export function ProfileToolsSection({
     if (!isFiltered) {
       const next = { ...effectiveToolPolicy };
       for (const name of allNames) {
-        next[name] = CONTROL_PLANE_TOOLS.has(name) && !isExplicitlyDisabled(name)
+        next[name] = shouldPreserveControlPlane(name)
           ? TOOL_POLICY_PRELOADED
           : TOOL_POLICY_DISABLED;
       }
@@ -238,7 +258,7 @@ export function ProfileToolsSection({
       return;
     }
     setToolsState(filteredNames, TOOL_POLICY_DISABLED);
-  }, [isFiltered, allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, isExplicitlyDisabled, setToolsState]);
+  }, [isFiltered, allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, setToolsState, shouldPreserveControlPlane]);
 
   const filteredToolNames = [...filteredNames];
   const allFilteredPreloaded = filteredToolNames.every(
@@ -453,8 +473,15 @@ export function ProfileToolsSection({
 }
 
 function normalizeToolPolicyState(state: string): ToolPolicyState {
-  if (state === TOOL_POLICY_ON_DEMAND || state === TOOL_POLICY_PRELOADED) return state;
+  const normalized = state.trim();
+  if (normalized === TOOL_POLICY_ON_DEMAND || normalized === TOOL_POLICY_PRELOADED) return normalized;
   return TOOL_POLICY_DISABLED;
+}
+
+function isToolExplicitlyDisabled(toolPolicy: Record<string, string> | null, name: string): boolean {
+  return toolPolicy != null
+    && Object.prototype.hasOwnProperty.call(toolPolicy, name)
+    && normalizeToolPolicyState(toolPolicy[name]) === TOOL_POLICY_DISABLED;
 }
 
 function nextToolPolicyState(state: ToolPolicyState): ToolPolicyState {

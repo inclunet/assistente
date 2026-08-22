@@ -16,18 +16,18 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockProfilesBackend struct {
-	profiles       []profiles.ProfileInfo
-	profilesErr    error
-	activeSlug     string
-	profile        *profiles.Profile
-	profileErr     error
-	activateErr    error
-	createSlug     string
-	createErr      error
-	updateErr      error
-	duplicateSlug  string
-	duplicateErr   error
-	deleteErr      error
+	profiles      []profiles.ProfileInfo
+	profilesErr   error
+	activeSlug    string
+	profile       *profiles.Profile
+	profileErr    error
+	activateErr   error
+	createSlug    string
+	createErr     error
+	updateErr     error
+	duplicateSlug string
+	duplicateErr  error
+	deleteErr     error
 
 	// Capture calls
 	activatedSlug  string
@@ -185,6 +185,42 @@ func TestProfilesShow_Success(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output, got: %s", expected, output)
 		}
+	}
+}
+
+func TestProfilesShow_ExibeToolPolicyEToolPolicyDefault(t *testing.T) {
+	mock := &mockProfilesBackend{
+		profile: &profiles.Profile{
+			Name: "Programação",
+			Chat: profiles.ChatConfig{
+				Temperature:       0,
+				ToolPolicyDefault: "on_demand",
+				ToolPolicy: map[string]string{
+					"write_file": "preloaded",
+					"read_file":  "preloaded",
+				},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := runProfilesShow(mock, &out, "programacao"); err != nil {
+		t.Fatalf("runProfilesShow: %v", err)
+	}
+
+	output := out.String()
+	for _, expected := range []string{
+		"Tools default: on_demand",
+		"Tool read_file:",
+		"preloaded",
+		"Tool write_file:",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output, got: %s", expected, output)
+		}
+	}
+	if strings.Index(output, "read_file") > strings.Index(output, "write_file") {
+		t.Errorf("tool policy should be sorted, got: %s", output)
 	}
 }
 

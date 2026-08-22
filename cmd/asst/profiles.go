@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"assistente/internal/profiles"
@@ -86,7 +88,19 @@ func runProfilesShow(svc profilesBackend, out io.Writer, slug string) error {
 	if profile.Chat.MaxTokens > 0 {
 		_, _ = fmt.Fprintf(out, "Max Tokens:  %d\n", profile.Chat.MaxTokens)
 	}
-	if len(profile.Chat.EnabledTools) > 0 {
+	if len(profile.Chat.ToolPolicy) > 0 || strings.TrimSpace(profile.Chat.ToolPolicyDefault) != "" {
+		if defaultState := strings.TrimSpace(profile.Chat.ToolPolicyDefault); defaultState != "" {
+			_, _ = fmt.Fprintf(out, "Tools default: %s\n", defaultState)
+		}
+		names := make([]string, 0, len(profile.Chat.ToolPolicy))
+		for name := range profile.Chat.ToolPolicy {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			_, _ = fmt.Fprintf(out, "Tool %-14s %s\n", name+":", profile.Chat.ToolPolicy[name])
+		}
+	} else if len(profile.Chat.EnabledTools) > 0 {
 		_, _ = fmt.Fprintf(out, "Tools:       %v\n", profile.Chat.EnabledTools)
 	}
 

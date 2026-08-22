@@ -68,6 +68,10 @@ export function ProfileEditorTabs({
   const visibleTabs = agentProvider
     ? EDITOR_TABS.filter((id) => !AGENT_HIDDEN_TABS.includes(id))
     : EDITOR_TABS;
+  const enabledSkills = editingProfile.chat?.enabled_skills;
+  const hasOnDemandSkills = !(editingProfile.chat?.disable_skills ?? false)
+    && !(editingProfile.chat?.disable_on_demand_skills ?? false)
+    && (enabledSkills == null || enabledSkills.length > 1);
 
   const handleTabChange = useCallback((v: string) => {
     pendingShortcutFocusRef.current = null;
@@ -302,6 +306,7 @@ export function ProfileEditorTabs({
               enabledTools={editingProfile.chat?.enabled_tools ?? null}
               toolPolicy={editingProfile.chat?.tool_policy ?? null}
               toolPolicyDefault={editingProfile.chat?.tool_policy_default ?? null}
+              runtimeTools={hasOnDemandSkills ? ['load_skill'] : []}
               toolsDisabled={editingProfile.chat?.disable_tools ?? false}
               commandAllowlist={editingProfile.chat?.command_allowlist || ''}
               availableAllowlists={availableAllowlists}

@@ -62,7 +62,9 @@ vi.mock('./ProfileContextProvidersSection', () => ({
 }));
 
 vi.mock('./ProfileToolsSection', () => ({
-  ProfileToolsSection: () => <button data-testid="tools-section">Tools</button>,
+  ProfileToolsSection: ({ runtimeTools }: { runtimeTools?: string[] }) => (
+    <button data-testid="tools-section" data-runtime-tools={runtimeTools?.join(',') ?? ''}>Tools</button>
+  ),
 }));
 
 vi.mock('./ProfileAudioTab', () => ({
@@ -164,6 +166,21 @@ describe('ProfileEditorTabs', () => {
     await user.click(tab!);
 
     expect(screen.getByTestId('tools-section')).toBeInTheDocument();
+  });
+
+  it('informa load_skill como runtime quando há skills sob demanda', async () => {
+    const user = userEvent.setup();
+    renderTabs({
+      chat: {
+        ...defaultProfile.chat,
+        enabled_skills: ['coding', 'extra'],
+      },
+    });
+
+    const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
+    await user.click(tab!);
+
+    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', 'load_skill');
   });
 
   it('troca para aba Context Providers ao clicar', async () => {
