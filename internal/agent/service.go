@@ -32,6 +32,7 @@ type AgenticResult struct {
 	Model           string
 	Error           string
 	IsDone          bool
+	Finish          llm.FinishInfo
 
 	// ReadInSegments diz que a resposta já foi lida em voz alta em blocos ao
 	// longo do turno (AEP-0084 D13). A leitura final passa a ser só
@@ -332,6 +333,9 @@ func (s *Service) SaveAndFinish(
 		HadToolCalls:       hadTools,
 		Reason:             "completed",
 		SurfaceOrigin:      surfaceOrigin,
+	}
+	if result.Finish.Reason == llm.FinishReasonMaxTokens {
+		doneEvent.Reason = "output_limit"
 	}
 	if loopStats != nil {
 		doneEvent.IterationCount = loopStats.IterationCount

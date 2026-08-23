@@ -424,6 +424,64 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-1');
   });
 
+  it('anuncia limite de saída, preserva parcial e habilita continuação sem som de erro', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      content: 'resposta parcial',
+      done: false,
+      turnId: 'user-1',
+      messageId: 'assistant-limit',
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      reason: 'output_limit',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-limit',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('resposta parcial');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-limit');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.outputLimitReached',
+      eventType: 'system',
+      announcePriority: 'assertive',
+    }));
+    expect(mockPlayChatErrorSoundIfActive).not.toHaveBeenCalled();
+  });
+
+  it('mostra limite de saída sem prefixo de erro quando não houve texto', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      reason: 'output_limit',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-limit-empty',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('chat.outputLimitReached');
+    expect(messages[1].message.content).not.toContain('Erro:');
+  });
+
   it('em erro no chat:stream usa messageId persistido para interrupção', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const surfaceOrigin = {

@@ -575,8 +575,29 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
 	}
+	finish := normalizeAnthropicFinishReason(stopReason)
+	if finish.Reason == FinishReasonMaxTokens && len(activeToolCalls) > 0 {
+		indexes := make([]int64, 0, len(activeToolCalls))
+		for index := range activeToolCalls {
+			indexes = append(indexes, index)
+		}
+		sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
+		for _, index := range indexes {
+			call := activeToolCalls[index]
+			finishedToolCalls = append(finishedToolCalls, ToolCall{
+				ID:   call.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      call.Name,
+					Arguments: call.ArgsJSON.String(),
+				},
+			})
+		}
+	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	ReportFinishReason(handler, finish)
 
-	if stopReason == "tool_use" && len(finishedToolCalls) > 0 {
+	if len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
 		return mcpStreamAttemptResult{done: true}
 	}
@@ -737,8 +758,29 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
 	}
+	finish := normalizeAnthropicFinishReason(stopReason)
+	if finish.Reason == FinishReasonMaxTokens && len(activeToolCalls) > 0 {
+		indexes := make([]int64, 0, len(activeToolCalls))
+		for index := range activeToolCalls {
+			indexes = append(indexes, index)
+		}
+		sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
+		for _, index := range indexes {
+			call := activeToolCalls[index]
+			finishedToolCalls = append(finishedToolCalls, ToolCall{
+				ID:   call.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      call.Name,
+					Arguments: call.ArgsJSON.String(),
+				},
+			})
+		}
+	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	ReportFinishReason(handler, finish)
 
-	if stopReason == "tool_use" && len(finishedToolCalls) > 0 {
+	if len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
 		return true
 	}
