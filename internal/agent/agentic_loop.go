@@ -51,9 +51,10 @@ type agenticLoopRunner struct {
 	activeResolve  func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition
 
 	// Acumuladores de estatísticas do loop (AEP-0039 Fase 2).
-	totalToolCallCount int
-	toolsUsedSet       map[string]struct{}
-	lastUsage          llm.Usage
+	totalToolCallCount    int
+	toolsUsedSet          map[string]struct{}
+	lastUsage             llm.Usage
+	outputLimitRepairUsed bool
 }
 
 // run orquestra o loop de iterações preservando a ordem/semântica original:
@@ -89,7 +90,17 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 			return
 		}
 
-		// 3. finish_reason="stop" → resposta final
+		// 3. Limite de saída: tool calls locais são descartadas antes de qualquer
+		// efeito e podem receber uma única reformulação em chamadas menores.
+		if result.Finish.Reason == llm.FinishReasonMaxTokens {
+			if r.recoverOutputLimitedToolCalls(result, iteration) {
+				continue
+			}
+			r.finishOutputLimit(ctx, result, iteration)
+			return
+		}
+
+		// 4. finish_reason="stop" → resposta final
 		if result.IsDone {
 			r.finishFinalResult(ctx, result, iteration)
 			return
@@ -100,7 +111,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 			r.svc.onSpeechRequest(r.conversationID, "", "assistant", result.FullResponse, "segment", r.params.ProfileSlug, false)
 		}
 
-		// 4. finish_reason="tool_calls" → executar ferramentas
+		// 5. finish_reason="tool_calls" → executar ferramentas
 		nextCtx, stopTools := r.executeToolIteration(ctx, result, iteration)
 		if stopTools {
 			return
@@ -110,6 +121,39 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 
 	// Atingiu limite de iterações
 	r.finishLimitReached(ctx)
+}
+
+func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(result AgenticResult, iteration int) bool {
+	if len(result.ToolCalls) == 0 || len(result.NativeMCPEvents) > 0 ||
+		r.outputLimitRepairUsed || iteration+1 >= r.maxIterations {
+		return false
+	}
+
+	names := make(map[string]struct{}, len(result.ToolCalls))
+	for _, call := range result.ToolCalls {
+		if name := strings.TrimSpace(call.Function.Name); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	toolNames := sortedToolNames(names)
+	r.outputLimitRepairUsed = true
+	r.messages = append(r.messages, llm.Message{
+		Role: "user",
+		Content: "A geração anterior atingiu o limite de saída enquanto construía chamadas locais de ferramenta. " +
+			"Nenhuma chamada foi executada. Refaça a operação em chamadas menores, com JSON completo em cada chamada. " +
+			"Não repita um payload grande em uma única chamada. Ferramentas interrompidas: " + strings.Join(toolNames, ", "),
+	})
+	logging.Infof(context.Background(), "agent.agentic-loop",
+		"[Agent] tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
+		iteration, strings.Join(toolNames, ","))
+	return true
+}
+
+func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
+	logging.Infof(ctx, "agent.agentic-loop",
+		"[Agent] geração encerrada por limite de saída (iteração=%d, raw_reason=%q, tool_calls=%d)",
+		iteration, result.Finish.RawReason, len(result.ToolCalls))
+	r.finishFinalResult(ctx, result, iteration)
 }
 
 // streamIteration executa o streaming do LLM para uma iteração, com auto-retry
@@ -196,8 +240,8 @@ func (r *agenticLoopRunner) persistPartialFrom(ctx context.Context, handler Iter
 	r.svc.persistAssistantPartialBestEffort(ctx, r.assistantMessageID, partialContent, partialReasoning)
 }
 
-// finishFinalResult trata o caminho finish_reason="stop": contabiliza eventuais
-// MCP calls nativas, emite chat:segment_done final e delega a SaveAndFinish.
+// finishFinalResult trata um desfecho terminal: contabiliza eventuais MCP calls
+// nativas, emite chat:segment_done final e delega a SaveAndFinish.
 func (r *agenticLoopRunner) finishFinalResult(ctx context.Context, result AgenticResult, iteration int) {
 	// MCP nativo pode aparecer em uma resposta final (finish_reason="stop").
 	// A persistência ocorre em SaveAndFinish; aqui só atualizamos stats.

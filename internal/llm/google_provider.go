@@ -218,6 +218,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 	var emittedAnything bool
 	var lastUsage Usage
 	var functionCalls []ToolCall
+	var finish FinishInfo
 
 	for resp, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
 		if err != nil {
@@ -246,6 +247,9 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 		}
 
 		candidate := resp.Candidates[0]
+		if normalized := normalizeGoogleFinishReason(string(candidate.FinishReason)); normalized.Reason != "" {
+			finish = normalized
+		}
 		if candidate.Content == nil {
 			continue
 		}
@@ -285,6 +289,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
 	}
+	ReportFinishReason(handler, finish)
 
 	if len(functionCalls) > 0 {
 		handler.OnToolCalls(functionCalls, fullResponse.String(), lastUsage, model)

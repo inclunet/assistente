@@ -92,6 +92,7 @@ const ptBR = {
       cancelGenerationLabel: 'Cancelar geração (Esc)',
       continueResponse: 'Continuar resposta',
       continueResponseLabel: 'Continuar resposta',
+      outputLimitReached: 'A resposta atingiu o limite de saída. Use “Continuar resposta” ou peça para dividir a tarefa em partes menores.',
       listen: 'Ouvir',
       progressLabel: 'Progresso do assistente',
       codeBlockSpeechLabel: 'bloco de código',

@@ -91,6 +91,7 @@ const es = {
       cancelGenerationLabel: 'Cancelar generación (Esc)',
       continueResponse: 'Continuar respuesta',
       continueResponseLabel: 'Continuar respuesta',
+      outputLimitReached: 'La respuesta alcanzó el límite de salida. Usa “Continuar respuesta” o pide dividir la tarea en partes más pequeñas.',
       listen: 'Escuchar',
       progressLabel: 'Progreso del asistente',
       codeBlockSpeechLabel: 'bloque de código',

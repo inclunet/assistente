@@ -266,6 +266,7 @@ type espiao struct {
 	respostaFim   string
 	modeloFim     string
 	chamouOnDone  int
+	finish        FinishInfo
 }
 
 func (e *espiao) OnChunk(content string) {
@@ -291,6 +292,9 @@ func (e *espiao) OnError(err string) {
 func (e *espiao) MarkErrorNotRetryable() {
 	e.naoRetentavel = true
 	e.ordem = append(e.ordem, "nao_retentavel")
+}
+func (e *espiao) OnFinishReason(info FinishInfo) {
+	e.finish = info
 }
 func (e *espiao) OnDone(fullResponse string, _ Usage, model string) {
 	e.pronto = true
@@ -873,6 +877,25 @@ func TestTurnoSemTextoNenhumSempreDizOQueAconteceu(t *testing.T) {
 				t.Errorf("resposta final = %q, quer conter %q", handler.respostaFim, caso.trata)
 			}
 		})
+	}
+}
+
+func TestACPPropagaLimiteDeTokensAntesDoDone(t *testing.T) {
+	provider := providerDeAgente(t, &agenteFalso{
+		stop:    acp.StopMaxTokens,
+		updates: []acp.Update{{Kind: acp.UpdateText, Text: "resposta parcial"}},
+	})
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "vai"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.finish.Reason != FinishReasonMaxTokens || handler.finish.RawReason != "max_tokens" {
+		t.Fatalf("finish=%#v", handler.finish)
+	}
+	if handler.chamouOnDone != 1 {
+		t.Fatalf("OnDone=%d, want 1", handler.chamouOnDone)
 	}
 }
 

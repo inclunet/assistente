@@ -42,6 +42,9 @@ func (h *testIterationHandler) OnThinking(string)               {}
 func (h *testIterationHandler) OnThinkingDone(string)           {}
 func (h *testIterationHandler) OnMCPToolEvent(llm.MCPToolEvent) {}
 func (h *testIterationHandler) OnError(err string)              { h.res.Error = err }
+func (h *testIterationHandler) OnFinishReason(info llm.FinishInfo) {
+	h.res.Finish = info
+}
 func (h *testIterationHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
 	h.res.FullResponse = fullResponse
 	h.res.ToolCalls = calls

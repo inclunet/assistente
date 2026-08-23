@@ -119,6 +119,7 @@ interface ChatDoneEvent {
   assistantMessageId?: string;
   turnId?: string;
   hadToolCalls?: boolean;
+  reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error' | string;
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -688,6 +689,27 @@ export function startChatEventController({
         updateEmptyAssistantWithError(errorMessage);
       } else {
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
+      }
+      const interruptedId = backendAssistantId || currentAssistantNodeId;
+      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
+      finalizeStreaming(backendAssistantId, currentTurnId);
+      cleanup();
+      return;
+    }
+
+    if (event.reason === 'output_limit') {
+      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
+      flushStreamingUpdate();
+      const message = i18next.t('chat.outputLimitReached');
+      announceWithOrigin({
+        message,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+        eventType: 'system',
+        announcePriority: 'assertive',
+      });
+      if (hasAssistantNode && !getCurrentAssistantContent().trim()) {
+        updateStreamingMessage(message);
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });

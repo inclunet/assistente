@@ -136,6 +136,39 @@ type NonRetryableErrorSink interface {
 	MarkErrorNotRetryable()
 }
 
+// FinishReason é o motivo de término normalizado entre transports (AEP-0098).
+// Vazio preserva compatibilidade com providers que não informam um motivo.
+type FinishReason string
+
+const (
+	FinishReasonStop          FinishReason = "stop"
+	FinishReasonToolCalls     FinishReason = "tool_calls"
+	FinishReasonMaxTokens     FinishReason = "max_tokens"
+	FinishReasonContentFilter FinishReason = "content_filter"
+	FinishReasonCancelled     FinishReason = "cancelled"
+	FinishReasonOther         FinishReason = "other"
+)
+
+// FinishInfo preserva o motivo normalizado usado pelo harness e o valor bruto
+// para diagnóstico do adapter. Decisões de runtime nunca dependem de RawReason.
+type FinishInfo struct {
+	Reason    FinishReason
+	RawReason string
+}
+
+// FinishReasonSink recebe o motivo antes de OnDone/OnToolCalls. É opcional para
+// manter compatibilidade com handlers externos que implementam StreamHandler.
+type FinishReasonSink interface {
+	OnFinishReason(info FinishInfo)
+}
+
+// ReportFinishReason entrega o desfecho quando o handler conhece a capability.
+func ReportFinishReason(handler StreamHandler, info FinishInfo) {
+	if sink, ok := handler.(FinishReasonSink); ok {
+		sink.OnFinishReason(info)
+	}
+}
+
 // StreamHandler é a interface para lidar com eventos de streaming de LLM.
 type StreamHandler interface {
 	OnChunk(content string)
