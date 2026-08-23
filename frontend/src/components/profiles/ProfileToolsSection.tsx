@@ -187,7 +187,11 @@ export function ProfileToolsSection({
   }, [allNames, enabledTools, hasExplicitToolPolicy, normalizedToolPolicy]);
 
   // Uma tool sob demanda que o grid não mostra também precisa do catálogo, e o
-  // backend a enxerga ao decidir a promoção.
+  // backend a enxerga ao decidir a promoção. Aqui não dá para separar a opt-in
+  // oculta de um nome que saiu do registry (MCP fora do ar, tool removida), e a
+  // escolha é assumir que existe: promover o catálogo não concede capability
+  // nenhuma, enquanto ignorá-la gravaria tool_catalog desabilitado e mataria a
+  // descoberta de uma tool legitimamente configurada.
   const hasOnDemandOutsideGrid = useMemo(
     () => Object.values(policyEntriesOutsideGrid)
       .some((state) => normalizeToolPolicyState(state) === TOOL_POLICY_ON_DEMAND),
