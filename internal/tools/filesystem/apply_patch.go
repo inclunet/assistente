@@ -336,10 +336,20 @@ func normalizePatchText(data []byte) (string, patchTextFormat, error) {
 }
 
 func dominantNewline(data []byte) string {
-	crlf := bytes.Count(data, []byte("\r\n"))
-	withoutCRLF := bytes.ReplaceAll(data, []byte("\r\n"), nil)
-	lf := bytes.Count(withoutCRLF, []byte("\n"))
-	cr := bytes.Count(withoutCRLF, []byte("\r"))
+	var crlf, lf, cr int
+	for index := 0; index < len(data); index++ {
+		switch data[index] {
+		case '\r':
+			if index+1 < len(data) && data[index+1] == '\n' {
+				crlf++
+				index++
+			} else {
+				cr++
+			}
+		case '\n':
+			lf++
+		}
+	}
 	switch {
 	case crlf >= lf && crlf >= cr && crlf > 0:
 		return "\r\n"
