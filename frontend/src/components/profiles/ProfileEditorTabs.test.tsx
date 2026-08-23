@@ -214,7 +214,7 @@ describe('ProfileEditorTabs', () => {
     expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', '');
   });
 
-  it('informa load_skill quando a base auto_load não é invocável pelo modelo', async () => {
+  it('não elege base uma auto_load que o modelo não pode invocar', async () => {
     const user = userEvent.setup();
     render(
       <ProfileEditorTabs
@@ -234,9 +234,9 @@ describe('ProfileEditorTabs', () => {
     const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
     await user.click(tab!);
 
-    // A primeira auto_load vira base mesmo sem invocação pelo modelo, então a
-    // segunda cai em on_demand e o backend anuncia load_skill.
-    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', 'load_skill');
+    // IsAutoLoad() é falso quando a invocação pelo modelo está desligada, então
+    // a segunda skill vira base e não sobra nada sob demanda.
+    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', '');
   });
 
   it('troca para aba Context Providers ao clicar', async () => {
