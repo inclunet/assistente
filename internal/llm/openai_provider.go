@@ -112,6 +112,28 @@ func (p *OpenAIProvider) NativeMCPCapable() bool {
 	return p.useResponses
 }
 
+// ReplaysReasoningContent informa se o histórico enviado a este provider carrega
+// reasoning_content. Só quem replica ocupa janela de contexto com esse campo, e
+// o pre-check precisa saber disso para não encolher o budget à toa.
+func (p *OpenAIProvider) ReplaysReasoningContent() bool {
+	return p.reasoningContentMode() == ReasoningContentReplayWithTools
+}
+
+// ReplaysReasoningContent consulta a capacidade em quem quer que seja passado.
+// Decorators embrulham o provider sem herdar métodos, então quem pergunta usa
+// esta função e cada embrulho a repassa para o inner.
+func ReplaysReasoningContent(provider any) bool {
+	replayer, ok := provider.(interface{ ReplaysReasoningContent() bool })
+	return ok && replayer.ReplaysReasoningContent()
+}
+
+func (p *OpenAIProvider) reasoningContentMode() ReasoningContentMode {
+	if p == nil || p.provider == nil {
+		return ReasoningContentDisabled
+	}
+	return p.provider.EffectiveReasoningContentMode()
+}
+
 func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
 	// Gate físico (não a política): armazena os servers sempre que o transporte for
 	// capaz de emitir type:"mcp". A decisão de POLÍTICA (override do perfil; default

@@ -65,6 +65,11 @@ type ProviderConfig struct {
 
 `api_format` e independente de `ProviderType` (que continua como label de marca):
 
+Extensões opcionais dentro de um formato também são capabilities explícitas,
+nunca inferências por endpoint. O contrato de `reasoning_content_mode` e a
+proibição de detecção por URL, marca ou modelo estão no
+[AEP-0097](0097-capabilities-de-protocolo-por-provedor.md).
+
 | Cenario | ProviderType | api_format | SDK | MCP Nativo |
 |---------|-------------|------------|-----|------------|
 | OpenAI direto | openai | openai_responses | openai-go (Responses API) | Sim |

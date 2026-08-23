@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/openai/openai-go"
@@ -69,6 +70,109 @@ func TestConvertMessages_AssistantWithToolCalls(t *testing.T) {
 	}
 	if assistant.ToolCalls[0].Function.Name != "get_weather" {
 		t.Errorf("ToolCall Function.Name = %q, want %q", assistant.ToolCalls[0].Function.Name, "get_weather")
+	}
+}
+
+func TestConvertMessages_AssistantPreservesReasoningContentWhenEnabled(t *testing.T) {
+	result := convertMessagesWithReasoningContent([]Message{{
+		Role:             "assistant",
+		Content:          "",
+		ReasoningContent: "vou consultar os dados",
+		ToolCalls: []ToolCall{{
+			ID:       "call_abc",
+			Type:     "function",
+			Function: FunctionCall{Name: "lookup", Arguments: `{}`},
+		}},
+	}}, true)
+
+	raw, err := json.Marshal(result[0])
+	if err != nil {
+		t.Fatalf("json.Marshal assistant: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal assistant: %v", err)
+	}
+	if got["reasoning_content"] != "vou consultar os dados" {
+		t.Fatalf("reasoning_content = %#v, want preserved", got["reasoning_content"])
+	}
+}
+
+func TestConvertMessages_AssistantOmitsReasoningContentByDefault(t *testing.T) {
+	result := convertMessages([]Message{{
+		Role:             "assistant",
+		Content:          "resposta",
+		ReasoningContent: "não enviar a providers sem esse contrato",
+	}})
+	raw, err := json.Marshal(result[0])
+	if err != nil {
+		t.Fatalf("json.Marshal assistant: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal assistant: %v", err)
+	}
+	if _, ok := got["reasoning_content"]; ok {
+		t.Fatalf("reasoning_content não deveria ser enviado por padrão: %s", raw)
+	}
+}
+
+func TestConvertMessages_DescartaAssistantSoDeReasoningSemReplay(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "oi"},
+		{Role: "assistant", Content: "", ReasoningContent: "só existe pelo replay do DeepSeek"},
+		{Role: "user", Content: "continua"},
+	}
+
+	result := convertMessages(msgs)
+	if len(result) != 2 {
+		t.Fatalf("convertMessages devolveu %d mensagens, want 2", len(result))
+	}
+	for i, m := range result {
+		if m.OfAssistant != nil {
+			t.Fatalf("assistant vazia não deveria ser enviada (índice %d)", i)
+		}
+	}
+}
+
+func TestConvertMessages_DescartaAssistantSoDeEspacosSemReplay(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "oi"},
+		{Role: "assistant", Content: "\n  ", ReasoningContent: "só existe pelo replay do DeepSeek"},
+	}
+
+	result := convertMessages(msgs)
+	if len(result) != 1 {
+		t.Fatalf("convertMessages devolveu %d mensagens, want 1", len(result))
+	}
+	if result[0].OfAssistant != nil {
+		t.Fatal("assistant só de espaços não deveria ser enviada")
+	}
+}
+
+func TestConvertMessages_MantemAssistantSoDeReasoningComReplay(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "oi"},
+		{Role: "assistant", Content: "", ReasoningContent: "preciso consultar"},
+	}
+
+	result := convertMessagesWithReasoningContent(msgs, true)
+	if len(result) != 2 {
+		t.Fatalf("convertMessages devolveu %d mensagens, want 2", len(result))
+	}
+	if result[1].OfAssistant == nil {
+		t.Fatal("assistant com reasoning deveria sobreviver quando há replay")
+	}
+	raw, err := json.Marshal(result[1])
+	if err != nil {
+		t.Fatalf("json.Marshal assistant: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal assistant: %v", err)
+	}
+	if got["reasoning_content"] != "preciso consultar" {
+		t.Fatalf("reasoning_content = %#v, want preservado", got["reasoning_content"])
 	}
 }
 

@@ -14,6 +14,10 @@ import (
 
 // convertMessages converte nossas mensagens internas para o formato SDK.
 func convertMessages(msgs []Message) []openai.ChatCompletionMessageParamUnion {
+	return convertMessagesWithReasoningContent(msgs, false)
+}
+
+func convertMessagesWithReasoningContent(msgs []Message, includeReasoningContent bool) []openai.ChatCompletionMessageParamUnion {
 	result := make([]openai.ChatCompletionMessageParamUnion, 0, len(msgs))
 
 	for _, msg := range msgs {
@@ -31,7 +35,23 @@ func convertMessages(msgs []Message) []openai.ChatCompletionMessageParamUnion {
 			}
 
 		case "assistant":
+			// O histórico preserva a assistant sem conteúdo nem tool_calls
+			// quando ela carrega reasoning e a capability exige esse replay.
+			// Para quem não recebe o campo ela viraria uma assistant vazia, que
+			// parte dos providers OpenAI-compatible recusa com 400.
+			replayingReasoning := includeReasoningContent && msg.ReasoningContent != ""
+			if strings.TrimSpace(content) == "" && len(msg.ToolCalls) == 0 && !replayingReasoning {
+				continue
+			}
 			m := openai.AssistantMessage(content)
+			if replayingReasoning {
+				// reasoning_content é uma extensão OpenAI-compatible, ausente
+				// do tipo gerado pelo SDK. No modo replay_with_tools,
+				// omiti-la invalida a continuação da chamada de ferramenta.
+				m.OfAssistant.SetExtraFields(map[string]any{
+					"reasoning_content": msg.ReasoningContent,
+				})
+			}
 			if len(msg.ToolCalls) > 0 {
 				toolCalls := make([]openai.ChatCompletionMessageToolCallParam, 0, len(msg.ToolCalls))
 				for _, tc := range msg.ToolCalls {

@@ -11,6 +11,10 @@ vi.mock('react-i18next', () => ({
         'providerForm.name': 'Nome',
         'providerForm.namePlaceholder': 'Nome do provedor',
         'providerForm.providerType': 'Tipo',
+        'providerForm.reasoningContentMode': 'Compatibilidade com reasoning_content',
+        'providerForm.reasoningContentModeHelp': 'Configuração explícita do protocolo',
+        'providerForm.reasoningContentDisabled': 'Desabilitada',
+        'providerForm.reasoningContentReplayWithTools': 'Reenviar durante tools',
         'providerForm.baseUrl': 'Base URL',
         'providerForm.defaultUrl': 'URL padrão',
         'providerForm.error.nameRequired': 'Nome é obrigatório',
@@ -414,7 +418,9 @@ describe("ProviderForm - Salvar", () => {
     await user.click(createButton);
 
     await waitFor(() => {
-      expect(App.CreateLLMProvider).toHaveBeenCalled();
+      expect(App.CreateLLMProvider).toHaveBeenCalledWith(expect.objectContaining({
+        reasoning_content_mode: "disabled",
+      }));
       expect(mockOnSave).toHaveBeenCalled();
     });
   });
@@ -516,6 +522,22 @@ describe("api_format semantics", () => {
     const selectId = apiFormatLabel.closest("label")?.getAttribute("for");
     const select = document.getElementById(selectId!) as HTMLSelectElement;
     expect(select.value).toBe("openai");
+  });
+
+  it("capability de reasoning_content vem do preset e pode ser alterada", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderForm onCancel={() => {}} onSave={() => {}} />
+    );
+
+    const typeSelect = screen.getByLabelText(/tipo/i);
+    await user.selectOptions(typeSelect, "deepseek");
+
+    const mode = screen.getByLabelText(/compatibilidade com reasoning_content/i);
+    expect(mode).toHaveValue("replay_with_tools");
+
+    await user.selectOptions(mode, "disabled");
+    expect(mode).toHaveValue("disabled");
   });
 });
 

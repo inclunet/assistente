@@ -29,6 +29,7 @@ export interface ProviderFormData {
   api_key: string;
   default_model?: string;
   api_format?: string;
+  reasoning_content_mode?: string;
   /** Comando e argumentos do agente de código, quando o formato é acp. */
   acp_command?: string;
   acp_args?: string[];
@@ -78,6 +79,11 @@ export const API_FORMAT_OPTIONS = [
   { value: 'google',           label: 'Google — Gemini API' },
 ];
 
+const reasoningContentModeOptions = (t: TFunction) => [
+  { value: 'disabled', label: t('providerForm.reasoningContentDisabled') },
+  { value: 'replay_with_tools', label: t('providerForm.reasoningContentReplayWithTools') },
+];
+
 /**
  * Diz se estes dados descrevem um agente de código local. Vem do formato porque
  * é ele que o backend usa para decidir, e um provedor já salvo carrega o dele
@@ -97,6 +103,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     base_url: '',
     api_key: '',
     api_format: PROVIDER_CONFIG.openai.apiFormat || '',
+    reasoning_content_mode: PROVIDER_CONFIG.openai.reasoningContentMode || 'disabled',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showApiKeyField, setShowApiKeyField] = useState(false);
@@ -261,6 +268,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         api_key: '',
         default_model: provider.default_model || '',
         api_format: provider.api_format ?? provConfig.apiFormat ?? '',
+        reasoning_content_mode: provider.reasoning_content_mode
+          ?? provConfig.reasoningContentMode
+          ?? 'disabled',
         acp_command: provider.acp_command || '',
         acp_args: provider.acp_args || [],
         acp_agent_id: provider.acp_agent_id || '',
@@ -282,6 +292,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         base_url: config.defaultUrl,
         api_key: '',
         api_format: config.apiFormat || '',
+        reasoning_content_mode: config.reasoningContentMode || 'disabled',
         acp_command: '',
         acp_args: [],
         acp_agent_id: '',
@@ -337,6 +348,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       ...prev,
       type: provider.type,
       api_format: provider.api_format ?? savedConfig.apiFormat ?? '',
+      reasoning_content_mode: provider.reasoning_content_mode
+        ?? savedConfig.reasoningContentMode
+        ?? 'disabled',
       base_url: provider.base_url,
       default_model: provider.default_model || '',
       api_key: apiKeyChangedInThisSession ? prev.api_key : '',
@@ -384,6 +398,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       ...prev,
       type: nextType,
       api_format: config.apiFormat || '',
+      reasoning_content_mode: config.reasoningContentMode || 'disabled',
       base_url: config.defaultUrl,
       default_model: '',
       // O que não pertence ao novo tipo não fica pendurado: agente não tem
@@ -624,6 +639,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             api_key: formData.api_key || undefined,
             default_model: formData.default_model || undefined,
             api_format: formData.api_format || undefined,
+            reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
           }),
           15000,
           'UpdateLLMProvider'
@@ -640,6 +656,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             api_key: formData.api_key || undefined,
             default_model: formData.default_model || suggestedDefault || undefined,
             api_format: formData.api_format || undefined,
+            reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
           }),
           15000,
           'CreateLLMProvider'
@@ -724,6 +741,21 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           options={API_FORMAT_OPTIONS}
           value={formData.api_format || ''}
           onChange={(e) => setFormData(prev => ({ ...prev, api_format: e.target.value }))}
+          fullWidth
+        />
+      </FormField>
+
+      <FormField
+        label={t('providerForm.reasoningContentMode')}
+        description={t('providerForm.reasoningContentModeHelp')}
+      >
+        <Select
+          options={reasoningContentModeOptions(t)}
+          value={formData.reasoning_content_mode || 'disabled'}
+          onChange={(e) => setFormData(prev => ({
+            ...prev,
+            reasoning_content_mode: e.target.value,
+          }))}
           fullWidth
         />
       </FormField>

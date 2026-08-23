@@ -181,13 +181,14 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 
 // CreateRequest contém os dados para criar um provedor.
 type CreateRequest struct {
-	ID           string
-	Name         string
-	Type         string
-	APIFormat    string
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
+	ID                   string
+	Name                 string
+	Type                 string
+	APIFormat            string
+	BaseURL              string
+	APIKey               string
+	DefaultModel         string
+	ReasoningContentMode string
 	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
 	// o agente de código é endereçado, no lugar de BaseURL e APIKey.
 	ACPCommand string
@@ -261,6 +262,7 @@ func normalizeProviderACP(p *llm.ProviderConfig) {
 	p.BaseURL = ""
 	p.CredentialPattern = ""
 	p.AuthMode = llm.AuthModeNone
+	p.ReasoningContentMode = llm.ReasoningContentDisabled
 
 	// Quem manda no tipo é o formato: se o provedor sobe um agente, ele é do
 	// tipo único, seja qual for o nome com que chegou aqui. O D11 vale para
@@ -363,20 +365,21 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
-		ID:                req.ID,
-		Name:              req.Name,
-		Type:              llm.ProviderType(req.Type),
-		APIFormat:         apiFormat,
-		BaseURL:           baseURL,
-		DefaultModel:      req.DefaultModel,
-		IsDefault:         isFirst,
-		Timeout:           180,
-		CredentialPattern: hostname,
-		ACPCommand:        req.ACPCommand,
-		ACPArgs:           append([]string(nil), req.ACPArgs...),
-		ACPEnv:            copyStringMap(req.ACPEnv),
-		ACPCredentialEnv:  copyStringMap(req.ACPCredentialEnv),
-		ACPAgentID:        strings.TrimSpace(req.ACPAgentID),
+		ID:                   req.ID,
+		Name:                 req.Name,
+		Type:                 llm.ProviderType(req.Type),
+		APIFormat:            apiFormat,
+		BaseURL:              baseURL,
+		DefaultModel:         req.DefaultModel,
+		ReasoningContentMode: llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
+		IsDefault:            isFirst,
+		Timeout:              180,
+		CredentialPattern:    hostname,
+		ACPCommand:           req.ACPCommand,
+		ACPArgs:              append([]string(nil), req.ACPArgs...),
+		ACPEnv:               copyStringMap(req.ACPEnv),
+		ACPCredentialEnv:     copyStringMap(req.ACPCredentialEnv),
+		ACPAgentID:           strings.TrimSpace(req.ACPAgentID),
 	}
 	normalizeProviderRuntimeDefaults(provider)
 
@@ -406,12 +409,13 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 // UpdateRequest contém os campos opcionais para atualizar um provedor.
 type UpdateRequest struct {
-	Name         string
-	Type         string
-	APIFormat    string
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
+	Name                 string
+	Type                 string
+	APIFormat            string
+	BaseURL              string
+	APIKey               string
+	DefaultModel         string
+	ReasoningContentMode string
 	// ACPCommand segue a convenção dos demais: vazio é "não mexer".
 	ACPCommand string
 	// ACPArgs e ACPEnv são ponteiros porque, aqui, lista vazia é uma escolha
@@ -446,22 +450,23 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 
 	updated := &llm.ProviderConfig{
-		ID:                existing.ID,
-		Name:              existing.Name,
-		Type:              existing.Type,
-		APIFormat:         existing.APIFormat,
-		BaseURL:           existing.BaseURL,
-		Model:             existing.Model,
-		DefaultModel:      existing.DefaultModel,
-		IsDefault:         existing.IsDefault,
-		Timeout:           existing.Timeout,
-		CredentialPattern: existing.CredentialPattern,
-		AuthMode:          existing.AuthMode,
-		ACPCommand:        existing.ACPCommand,
-		ACPArgs:           append([]string(nil), existing.ACPArgs...),
-		ACPEnv:            copyStringMap(existing.ACPEnv),
-		ACPCredentialEnv:  copyStringMap(existing.ACPCredentialEnv),
-		ACPAgentID:        existing.ACPAgentID,
+		ID:                   existing.ID,
+		Name:                 existing.Name,
+		Type:                 existing.Type,
+		APIFormat:            existing.APIFormat,
+		BaseURL:              existing.BaseURL,
+		Model:                existing.Model,
+		DefaultModel:         existing.DefaultModel,
+		IsDefault:            existing.IsDefault,
+		Timeout:              existing.Timeout,
+		CredentialPattern:    existing.CredentialPattern,
+		AuthMode:             existing.AuthMode,
+		ReasoningContentMode: existing.ReasoningContentMode,
+		ACPCommand:           existing.ACPCommand,
+		ACPArgs:              append([]string(nil), existing.ACPArgs...),
+		ACPEnv:               copyStringMap(existing.ACPEnv),
+		ACPCredentialEnv:     copyStringMap(existing.ACPCredentialEnv),
+		ACPAgentID:           existing.ACPAgentID,
 	}
 
 	if req.Name != "" {
@@ -476,6 +481,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
+	}
+	if mode := strings.TrimSpace(req.ReasoningContentMode); mode != "" {
+		updated.ReasoningContentMode = llm.ReasoningContentMode(mode)
 	}
 	if baseURL := strings.TrimSpace(req.BaseURL); baseURL != "" {
 		hostname, err := ExtractHostname(baseURL)

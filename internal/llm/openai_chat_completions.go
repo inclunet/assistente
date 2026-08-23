@@ -3,6 +3,7 @@ package llm
 import (
 	"assistente/internal/logging"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -57,7 +58,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 	}
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
-		Messages: convertMessages(messages),
+		Messages: convertMessagesWithReasoningContent(messages, p.ReplaysReasoningContent() && len(tools) > 0),
 		StreamOptions: openai.ChatCompletionStreamOptionsParam{
 			IncludeUsage: param.NewOpt(true),
 		},
@@ -132,7 +133,8 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var fullReasoning strings.Builder
 	var isThinking bool
 	var thinkingBuffer strings.Builder
-	var emittedAnything bool
+	var emittedVisibleContent bool
+	captureReasoningContent := p.ReplaysReasoningContent()
 
 	// Coletar tool calls finalizadas durante streaming
 	var finishedToolCalls []ToolCall
@@ -159,6 +161,16 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		delta := chunk.Choices[0].Delta
 
+		if captureReasoningContent {
+			if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
+				fullReasoning.WriteString(reasoning)
+				// Thinking não bloqueia retry: o caminho por tags segue o mesmo
+				// contrato. Só conteúdo visível entregue por OnChunk torna uma
+				// nova tentativa insegura por poder duplicar a resposta.
+				handler.OnThinking(reasoning)
+			}
+		}
+
 		if delta.Content != "" {
 			content := delta.Content
 
@@ -166,7 +178,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 			if content != "" {
 				fullResponse.WriteString(content)
-				emittedAnything = true
+				emittedVisibleContent = true
 				handler.OnChunk(content)
 			}
 		}
@@ -176,7 +188,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
 
-		if !emittedAnything {
+		if !emittedVisibleContent {
 			// tool_choice downgrade
 			if origParams.ToolChoice.OfAuto.Valid() && origParams.ToolChoice.OfAuto.Value == "required" {
 				if strings.Contains(strings.ToLower(errStr), "tool_choice") || strings.Contains(strings.ToLower(errStr), "tool choice") {
@@ -231,6 +243,21 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	handler.OnDone(fullResponse.String(), usage, model)
 	return true
+}
+
+// chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.
+// O SDK OpenAI não a tipa. Capturar e reenviar são coisas separadas: a captura
+// só ocorre quando reasoning_content_mode habilita a extensão e alimenta o
+// thinking na UI; o replay no histórico do turno só ocorre quando a requisição
+// carrega tools, onde preservar os fragmentos exatos vira parte do protocolo.
+func chatCompletionReasoningContent(delta openai.ChatCompletionChunkChoiceDelta) string {
+	var raw struct {
+		ReasoningContent string `json:"reasoning_content"`
+	}
+	if err := json.Unmarshal([]byte(delta.RawJSON()), &raw); err != nil {
+		return ""
+	}
+	return raw.ReasoningContent
 }
 
 func accumulateChatCompletionStreamUsageExtras(promptTokensDetails *openai.CompletionUsagePromptTokensDetails, chunk openai.ChatCompletionChunk, usageRawJSON *string) {

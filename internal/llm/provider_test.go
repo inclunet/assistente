@@ -53,6 +53,16 @@ func TestProviderConfigValidate_Valid(t *testing.T) {
 				Timeout: 300, // 5 min
 			},
 		},
+		{
+			"with_reasoning_content_capability",
+			&ProviderConfig{
+				ID:                   "reasoning-proxy",
+				Name:                 "Reasoning Proxy",
+				Type:                 ProviderCustom,
+				BaseURL:              "https://proxy.example/v1",
+				ReasoningContentMode: ReasoningContentReplayWithTools,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -103,6 +113,16 @@ func TestProviderConfigValidate_Invalid(t *testing.T) {
 				BaseURL: "   ",
 			},
 			"provider base_url vazio",
+		},
+		{
+			"invalid_reasoning_content_mode",
+			&ProviderConfig{
+				ID:                   "test-provider",
+				Name:                 "Test",
+				BaseURL:              "https://api.test.com",
+				ReasoningContentMode: "detectar_por_url",
+			},
+			"reasoning_content_mode inválido",
 		},
 		{
 			"all_empty",

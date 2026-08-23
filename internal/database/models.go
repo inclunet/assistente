@@ -78,6 +78,9 @@ type LLMProvider struct {
 	Timeout           int
 	CredentialPattern string
 	AuthMode          string
+	// ReasoningContentMode é capability explícita do wire protocol
+	// (disabled/replay_with_tools), nunca inferida do endpoint.
+	ReasoningContentMode string
 	// ACPCommand, ACPArgs e ACPEnv guardam como subir o agente de código
 	// quando o formato é acp. Mesmo formato de armazenamento do servidor MCP
 	// stdio, que tem o mesmo problema: JSON em texto, porque SQLite não tem

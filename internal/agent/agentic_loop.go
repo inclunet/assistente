@@ -231,6 +231,15 @@ func (r *agenticLoopRunner) finishFinalResult(ctx context.Context, result Agenti
 	}, r.surfaceOrigin)
 }
 
+func assistantMessageForToolIteration(result AgenticResult) llm.Message {
+	return llm.Message{
+		Role:             "assistant",
+		Content:          result.FullResponse,
+		ReasoningContent: result.Reasoning,
+		ToolCalls:        result.ToolCalls,
+	}
+}
+
 // executeToolIteration trata o caminho finish_reason="tool_calls": persiste MCP
 // nativo, executa as bridge tools (com retry), emite eventos, persiste resultados
 // e emite o segment_done da iteração. Retorna o contexto atualizado (pode ser
@@ -242,11 +251,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 
 	// 5b. Adiciona mensagem do assistant ao histórico para próxima iteração
 	// (Persistência no DB movida para após execução — AEP-0039 Fase 5)
-	r.messages = append(r.messages, llm.Message{
-		Role:      "assistant",
-		Content:   result.FullResponse,
-		ToolCalls: result.ToolCalls,
-	})
+	r.messages = append(r.messages, assistantMessageForToolIteration(result))
 
 	// 5d. Executa ferramentas em paralelo
 	toolCalls := convertToolCalls(result.ToolCalls)
@@ -273,7 +278,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	for i, res := range execResults {
 		toolContents[i] = tools.ContentForModel(res.Result)
 	}
-	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents)
+	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents, r.replaysReasoningContent())
 	for i, res := range execResults {
 		toolContents[i] = tools.SanitizeTruncatedEnvelope(res.Result, toolContents[i])
 	}
@@ -647,6 +652,12 @@ func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int
 // perfil (params) quando positivo, caindo no config do executor caso contrário.
 // O executor só é consultado quando params não define o valor (lazy), preservando
 // o comportamento de chamadores que rodam sem executor configurado.
+// replaysReasoningContent diz se o histórico deste turno leva reasoning_content
+// no wire. Quem não replica não gasta janela com ele.
+func (r *agenticLoopRunner) replaysReasoningContent() bool {
+	return llm.ReplaysReasoningContent(r.activeStreamer)
+}
+
 func resolveAgenticMaxIterations(params llm.ChatParams, executor *tools.Executor) int {
 	if params.MaxAgenticIterations > 0 {
 		return params.MaxAgenticIterations

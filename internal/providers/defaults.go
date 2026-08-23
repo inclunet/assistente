@@ -126,14 +126,15 @@ func BuiltinTemplate(providerType string) (*llm.ProviderConfig, error) {
 		}, nil
 	case "deepseek":
 		return &llm.ProviderConfig{
-			ID:                "deepseek-default",
-			Name:              "DeepSeek",
-			Type:              llm.ProviderDeepSeek,
-			BaseURL:           "https://api.deepseek.com/v1",
-			Model:             "deepseek-chat",
-			DefaultModel:      "deepseek-chat",
-			Timeout:           180,
-			CredentialPattern: "api.deepseek.com",
+			ID:                   "deepseek-default",
+			Name:                 "DeepSeek",
+			Type:                 llm.ProviderDeepSeek,
+			BaseURL:              "https://api.deepseek.com/v1",
+			Model:                "deepseek-chat",
+			DefaultModel:         "deepseek-chat",
+			Timeout:              180,
+			CredentialPattern:    "api.deepseek.com",
+			ReasoningContentMode: llm.ReasoningContentReplayWithTools,
 		}, nil
 	case "grok":
 		return &llm.ProviderConfig{

@@ -70,6 +70,19 @@ const (
 	AuthModeNone     AuthMode = "none"
 )
 
+// ReasoningContentMode descreve uma extensão opcional do protocolo
+// OpenAI-compatible. É capability persistida, não heurística por marca ou URL
+// (AEP-0097).
+type ReasoningContentMode string
+
+const (
+	// ReasoningContentDisabled não captura nem reenvia reasoning_content.
+	ReasoningContentDisabled ReasoningContentMode = "disabled"
+	// ReasoningContentReplayWithTools captura a extensão do stream e a reenvia
+	// apenas na continuação do mesmo turno quando a request contém tools.
+	ReasoningContentReplayWithTools ReasoningContentMode = "replay_with_tools"
+)
+
 // APIFormat determina qual SDK/protocolo usar para comunicação com o provedor.
 // Independente de ProviderType (que é apenas um label de marca).
 //
@@ -139,6 +152,9 @@ type ProviderConfig struct {
 	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
 	// Vazio = inferido a partir de CredentialPattern (sem pattern → none, com pattern → required).
 	AuthMode AuthMode `json:"auth_mode,omitempty"`
+	// ReasoningContentMode controla a extensão reasoning_content sem inferência
+	// por Type, URL ou modelo. Vazio equivale a disabled (AEP-0097).
+	ReasoningContentMode ReasoningContentMode `json:"reasoning_content_mode,omitempty"`
 
 	// ACPCommand, ACPArgs e ACPEnv dizem como subir o agente quando o formato
 	// é acp. Guardamos comando e argumentos em vez de um caminho mágico
@@ -209,6 +225,14 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 		return AuthModeNone
 	}
 	return AuthModeRequired
+}
+
+// EffectiveReasoningContentMode aplica o default seguro para providers antigos.
+func (p *ProviderConfig) EffectiveReasoningContentMode() ReasoningContentMode {
+	if p != nil && p.ReasoningContentMode == ReasoningContentReplayWithTools {
+		return ReasoningContentReplayWithTools
+	}
+	return ReasoningContentDisabled
 }
 
 // AssistantPrefillCapability descreve, de forma explícita, até onde um
@@ -338,12 +362,18 @@ func (p *ProviderConfig) Validate() error {
 	p.BaseURL = strings.TrimSpace(p.BaseURL)
 	p.CredentialPattern = strings.TrimSpace(p.CredentialPattern)
 	p.ACPCommand = strings.TrimSpace(p.ACPCommand)
+	p.ReasoningContentMode = ReasoningContentMode(strings.TrimSpace(string(p.ReasoningContentMode)))
 
 	if p.ID == "" {
 		return fmt.Errorf("provider id vazio")
 	}
 	if p.Name == "" {
 		return fmt.Errorf("provider name vazio")
+	}
+	switch p.ReasoningContentMode {
+	case "", ReasoningContentDisabled, ReasoningContentReplayWithTools:
+	default:
+		return fmt.Errorf("provider %s tem reasoning_content_mode inválido: %q", p.ID, p.ReasoningContentMode)
 	}
 	if p.IsACP() {
 		// O que endereça um agente é o comando, e é ele que passa a ser

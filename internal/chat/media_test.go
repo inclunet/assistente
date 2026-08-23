@@ -103,6 +103,63 @@ func TestMediaHistoryLoader_PlainText(t *testing.T) {
 	}
 }
 
+func TestMediaHistoryLoader_NaoConverteReasoningPersistidoEmExtensaoDeProtocolo(t *testing.T) {
+	repo := &stubRepo{messages: []database.ChatMessage{
+		{Role: "user", Content: "consulte os dados"},
+		{Role: "assistant", Content: "resposta", Reasoning: "thinking genérico", Model: "qualquer-modelo"},
+	}}
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(msgs))
+	}
+	if msgs[1].ReasoningContent != "" {
+		t.Fatalf("reasoning_content = %q; histórico persistido não conhece a capability do protocolo", msgs[1].ReasoningContent)
+	}
+}
+
+func TestMediaHistoryLoader_NaoConverteReasoningDeToolCallLegada(t *testing.T) {
+	repo := &stubRepo{messages: []database.ChatMessage{
+		{Role: "user", Content: "consulte os dados"},
+		{
+			Role:      "assistant",
+			Content:   "resposta",
+			Reasoning: "preciso usar lookup",
+			ToolCalls: `{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"},"result":"ok"}`,
+		},
+	}}
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(msgs))
+	}
+	if msgs[1].ReasoningContent != "" {
+		t.Fatalf("reasoning_content legado = %q; replay só existe no agentic loop corrente", msgs[1].ReasoningContent)
+	}
+}
+
+func TestMediaHistoryLoader_DescartaToolCallLegadaSoComReasoning(t *testing.T) {
+	repo := &stubRepo{messages: []database.ChatMessage{
+		{Role: "user", Content: "consulte os dados"},
+		{
+			Role:      "assistant",
+			Reasoning: "preciso usar lookup",
+			ToolCalls: `{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"},"result":"ok"}`,
+		},
+	}}
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("len(messages) = %d, want 1; assistant vazia não pode chegar ao provider", len(msgs))
+	}
+}
+
 func TestMediaHistoryLoader_Image(t *testing.T) {
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "image/png", "data": "abc123", "name": "foto.png"},
