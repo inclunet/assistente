@@ -208,6 +208,15 @@ func normalizeToolPolicyMap(configured map[string]string) map[string]string {
 		if name == "" {
 			continue
 		}
+		// Duas chaves cruas podem virar o mesmo nome ("read_file" e
+		// " read_file "). A ordem de iteração do map em Go não é estável, então
+		// sem desempate o estado aplicado sairia no sorteio. Vence o mais
+		// restritivo, que é a escolha segura e reproduzível.
+		if existing, ok := normalized[name]; ok {
+			if toolPolicyStateRank(normalizeToolPolicyState(state)) >= toolPolicyStateRank(normalizeToolPolicyState(existing)) {
+				continue
+			}
+		}
 		normalized[name] = state
 	}
 	if len(normalized) == 0 {
@@ -272,6 +281,18 @@ func normalizeToolPolicyState(state string) ToolPolicyState {
 		return ToolPolicyPreloaded
 	default:
 		return ToolPolicyDisabled
+	}
+}
+
+// toolPolicyStateRank ordena do mais restritivo ao mais permissivo.
+func toolPolicyStateRank(state ToolPolicyState) int {
+	switch state {
+	case ToolPolicyDisabled:
+		return 0
+	case ToolPolicyOnDemand:
+		return 1
+	default:
+		return 2
 	}
 }
 

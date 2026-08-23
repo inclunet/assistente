@@ -321,6 +321,24 @@ func TestToolSelectionPolicy_ToolPolicyRespeitaChaveComEspacos(t *testing.T) {
 	}
 }
 
+func TestToolSelectionPolicy_ChavesColididasVenceMaisRestritiva(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	// As duas chaves apontam para read_file depois do TrimSpace. Sem desempate o
+	// vencedor sairia da ordem de iteração do map.
+	for i := 0; i < 20; i++ {
+		effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+			ToolPolicy: map[string]string{
+				"read_file":   string(ToolPolicyPreloaded),
+				" read_file ": string(ToolPolicyDisabled),
+			},
+		})
+		if effective.State("read_file") != ToolPolicyDisabled {
+			t.Fatalf("colisão deveria manter o mais restritivo, got %s", effective.State("read_file"))
+		}
+	}
+}
+
 func TestToolSelectionPolicy_MapaSoDeChavesVaziasNaoViraPolitica(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)
