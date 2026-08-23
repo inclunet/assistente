@@ -16,18 +16,18 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockProfilesBackend struct {
-	profiles       []profiles.ProfileInfo
-	profilesErr    error
-	activeSlug     string
-	profile        *profiles.Profile
-	profileErr     error
-	activateErr    error
-	createSlug     string
-	createErr      error
-	updateErr      error
-	duplicateSlug  string
-	duplicateErr   error
-	deleteErr      error
+	profiles      []profiles.ProfileInfo
+	profilesErr   error
+	activeSlug    string
+	profile       *profiles.Profile
+	profileErr    error
+	activateErr   error
+	createSlug    string
+	createErr     error
+	updateErr     error
+	duplicateSlug string
+	duplicateErr  error
+	deleteErr     error
 
 	// Capture calls
 	activatedSlug  string
@@ -184,6 +184,69 @@ func TestProfilesShow_Success(t *testing.T) {
 	for _, expected := range []string{"Coder", "programação", "💻", "openai-default", "gpt-4o", "0.3", "4096", "http_request"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output, got: %s", expected, output)
+		}
+	}
+}
+
+func TestProfilesShow_ExibeToolPolicyEToolPolicyDefault(t *testing.T) {
+	mock := &mockProfilesBackend{
+		profile: &profiles.Profile{
+			Name: "Programação",
+			Chat: profiles.ChatConfig{
+				Temperature:       0,
+				ToolPolicyDefault: "on_demand",
+				ToolPolicy: map[string]string{
+					"write_file": "preloaded",
+					"read_file":  "preloaded",
+				},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := runProfilesShow(mock, &out, "programacao"); err != nil {
+		t.Fatalf("runProfilesShow: %v", err)
+	}
+
+	output := out.String()
+	for _, expected := range []string{
+		"Tools default: on_demand",
+		"Tool read_file:",
+		"preloaded",
+		"Tool write_file:",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output, got: %s", expected, output)
+		}
+	}
+	if strings.Index(output, "read_file") > strings.Index(output, "write_file") {
+		t.Errorf("tool policy should be sorted, got: %s", output)
+	}
+}
+
+func TestProfilesShow_ExibeAllowlistLegadaMesmoComToolPolicyDefault(t *testing.T) {
+	mock := &mockProfilesBackend{
+		profile: &profiles.Profile{
+			Name: "Legado",
+			Chat: profiles.ChatConfig{
+				ToolPolicyDefault: "on_demand",
+				EnabledTools:      []string{"read_file", "text_edit"},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := runProfilesShow(mock, &out, "legado"); err != nil {
+		t.Fatalf("runProfilesShow: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "Tools default: on_demand") {
+		t.Errorf("esperava o default na saída, got: %s", output)
+	}
+	for _, expected := range []string{"read_file", "text_edit"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("allowlist legada deveria aparecer (%q), got: %s", expected, output)
 		}
 	}
 }

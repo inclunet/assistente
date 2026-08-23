@@ -48,10 +48,11 @@ func TestConjuntoFinalDoTurnoDeAgenteChegaVazioAoRoteamento(t *testing.T) {
 	perfil := &profiles.Profile{Chat: profiles.ChatConfig{LLMProvider: "cursor"}}
 	cfgDoTurno := func(p *profiles.Profile) chat.ProfileToolConfig {
 		return chat.ProfileToolConfig{
-			EnabledTools: p.Chat.EnabledTools,
-			ToolPolicy:   p.Chat.ToolPolicy,
-			DisableTools: p.Chat.DisableTools,
-			RuntimeTools: []string{"regular_tool"},
+			EnabledTools:      p.Chat.EnabledTools,
+			ToolPolicy:        p.Chat.ToolPolicy,
+			ToolPolicyDefault: p.Chat.ToolPolicyDefault,
+			DisableTools:      p.Chat.DisableTools,
+			RuntimeTools:      []string{"regular_tool"},
 		}
 	}
 

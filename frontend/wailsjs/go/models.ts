@@ -1442,6 +1442,7 @@ export namespace apidto {
 	    description: string;
 	    source_type: string;
 	    source_label: string;
+	    opt_in: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ToolInfo(source);
@@ -1454,6 +1455,7 @@ export namespace apidto {
 	        this.description = source["description"];
 	        this.source_type = source["source_type"];
 	        this.source_label = source["source_label"];
+	        this.opt_in = source["opt_in"];
 	    }
 	}
 	
@@ -4873,6 +4875,7 @@ export namespace profiles {
 	    reasoning_effort?: string;
 	    enabled_tools: string[];
 	    tool_policy?: Record<string, string>;
+	    tool_policy_default?: string;
 	    enabled_skills: string[];
 	    disable_tools?: boolean;
 	    disable_skills?: boolean;
@@ -4910,6 +4913,7 @@ export namespace profiles {
 	        this.reasoning_effort = source["reasoning_effort"];
 	        this.enabled_tools = source["enabled_tools"];
 	        this.tool_policy = source["tool_policy"];
+	        this.tool_policy_default = source["tool_policy_default"];
 	        this.enabled_skills = source["enabled_skills"];
 	        this.disable_tools = source["disable_tools"];
 	        this.disable_skills = source["disable_skills"];

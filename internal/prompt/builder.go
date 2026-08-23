@@ -391,10 +391,11 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 	}
 	if activeProfile != nil {
 		initialEnabledTools := chat.NewToolSelectionPolicy(b.Tools).InitialEnabledToolNames(chat.ProfileToolConfig{
-			EnabledTools: activeProfile.Chat.EnabledTools,
-			ToolPolicy:   activeProfile.Chat.ToolPolicy,
-			DisableTools: activeProfile.Chat.DisableTools,
-			RuntimeTools: runtimeTools,
+			EnabledTools:      activeProfile.Chat.EnabledTools,
+			ToolPolicy:        activeProfile.Chat.ToolPolicy,
+			ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
+			DisableTools:      activeProfile.Chat.DisableTools,
+			RuntimeTools:      runtimeTools,
 		})
 		if initialEnabledTools != nil {
 			defs = b.Tools.FilterByNames(initialEnabledTools)

@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.1.0",
+  "_builtin_version": "4.2.0",
   "name": "Padrão",
   "description": "Configuração padrão.",
   "icon": "chatbox",
@@ -13,7 +13,16 @@
     "min_context_messages": 20,
     "top_p": 1,
     "response_timeout": 180,
-    "enabled_tools": null,
+    "tool_policy_default": "on_demand",
+    "tool_policy": {
+      "read_file": "preloaded",
+      "search_files": "preloaded",
+      "grep_search": "preloaded",
+      "web_search": "preloaded",
+      "web_fetch": "preloaded",
+      "collect_responses": "preloaded",
+      "text_edit": "disabled"
+    },
     "enabled_skills": [
       "coding",
       "job-manager",

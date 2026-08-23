@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.2.0",
+  "_builtin_version": "4.3.0",
   "name": "Editor de Texto",
   "description": "Perfil para edição dentro do editor de texto e do arquivo aberto.",
   "icon": "create-outline",
@@ -11,6 +11,7 @@
     "top_p": 1.0,
     "response_timeout": 180,
     "enable_thinking": false,
+    "tool_policy_default": "disabled",
     "tool_policy": {
       "text_edit": "preloaded",
       "edit_file": "preloaded"
