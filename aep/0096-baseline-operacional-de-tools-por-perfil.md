@@ -121,6 +121,7 @@ execução e interação além da seleção de tools.
    - aplicar os baselines definidos nas decisões D2–D4;
    - atualizar versões builtin e testes de seleção/UI.
 2. **Patch canônico**
+   - implementado pela [AEP-0099](0099-patch-canonico-multi-hunk.md);
    - projetar e implementar edição multi-hunk com erros localizados;
    - manter compatibilidade com `edit_file` e `write_file`.
 3. **Progresso unificado**
@@ -163,4 +164,4 @@ execução e interação além da seleção de tools.
 - [x] Profiles builtin deixam de depender de `enabled_tools: null`.
 - [x] UI representa corretamente o estado efetivo de tools não listadas.
 - [x] Testes backend e frontend cobrem os quatro profiles e a nova semântica.
-- [x] Fases 2–5 permanecem rastreadas sem ampliar o primeiro PR.
+- [x] Fases 2–5 permanecem rastreadas em AEPs/entregas próprias.

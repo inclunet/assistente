@@ -281,39 +281,48 @@ func pathEscapesSandbox(path string, workDir string) bool {
 }
 
 func validatePathWithPolicy(ctx context.Context, fullPath, workDir string, policy Policy, operation string) error {
+	_, err := validatePathWithPolicyResolved(ctx, fullPath, workDir, policy, operation)
+	return err
+}
+
+// validatePathWithPolicyResolved aplica a mesma política e também devolve o
+// destino real que foi autorizado. Tools que mantêm um ciclo read-modify-write
+// podem fazer I/O nesse path fixado para não seguir um symlink trocado depois
+// da validação.
+func validatePathWithPolicyResolved(ctx context.Context, fullPath, workDir string, policy Policy, operation string) (string, error) {
 	// Sensível é hard-deny e precede o PathAuthorizer: não faz sentido pedir
 	// consentimento para algo que será negado (AEP-0092 D-Q5). A checagem
 	// resolve symlinks para fechar bypass de link com nome inócuo apontando
 	// para arquivo sensível — inclusive quando o link mora dentro do workDir.
 	if policy.BlockSensitive {
 		if err := blockSensitiveForOperation(fullPath, operation); err != nil {
-			return err
+			return "", err
 		}
 	}
 	resolvedPath, err := validatePathResolved(fullPath, workDir)
 	if err != nil {
 		if !errors.Is(err, errOutsideAllowedDirs) {
-			return err
+			return "", err
 		}
 		// AEP-0092: fora do sandbox → Authorize (que aplica deny antes do prompt).
 		// Não chamar Denied aqui: Authorize já o faz e evitamos resolveSymlinks duplicado.
 		if pathAuthorizer == nil {
-			return err
+			return "", err
 		}
 		if authErr := pathAuthorizer.Authorize(ctx, fullPath, operation); authErr != nil {
-			return authErr
+			return "", authErr
 		}
 	} else if pathAuthorizer != nil {
 		// Dentro do sandbox: denylist ainda aplica (AEP-0092 D9); trust nunca anula
 		// deny. Reaproveita o destino já resolvido por validatePathResolved.
 		if denyErr := pathAuthorizer.DeniedResolved(ctx, resolvedPath, operation); denyErr != nil {
-			return denyErr
+			return "", denyErr
 		}
 	}
 	if err := validateSkillFilesystemAllowlist(ctx, fullPath, workDir, operation); err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	return resolvedPath, nil
 }
 
 func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, operation string) error {

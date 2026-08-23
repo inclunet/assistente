@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -172,6 +173,35 @@ func TestBuiltinSlidesRevealMarkdownSkillParses(t *testing.T) {
 	for _, forbidden := range []string{"currentSlideIndex", "currentSlideMarkdown"} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("skill content should not mention legacy surface_context key %q", forbidden)
+		}
+	}
+}
+
+func TestBuiltinCodingSkillPrefersAtomicMultiHunkPatch(t *testing.T) {
+	data, err := fs.ReadFile(builtinSkillsFS, "builtin/skills/coding/SKILL.md")
+	if err != nil {
+		t.Fatalf("read coding skill: %v", err)
+	}
+
+	meta, content, err := skills.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse coding skill: %v", err)
+	}
+	if meta.Name != "coding" || meta.Version != "1.3.0" {
+		t.Fatalf("coding skill inesperada: name=%q version=%q", meta.Name, meta.Version)
+	}
+	allowed := meta.GetToolsAllowed()
+	if !slices.Contains(allowed, "apply_patch") {
+		t.Fatalf("apply_patch ausente da allowlist: %#v", allowed)
+	}
+	for _, required := range []string{
+		"`apply_patch`",
+		"atomic",
+		"multiple surgical edits",
+		"`read_file` before `apply_patch`",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("coding skill deve mencionar %q", required)
 		}
 	}
 }

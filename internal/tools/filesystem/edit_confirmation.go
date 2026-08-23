@@ -176,7 +176,7 @@ func rejectedEditResult(answers map[string]any) tools.ToolResult {
 
 // confirmEditWithDiff exibe uma decisão Antes/Depois (Aplicar/Rejeitar) e aguarda
 // a confirmação do usuário (AEP-0091 kind=decision). Compartilhado por edit_file,
-// write_file e text_edit.
+// apply_patch, write_file e text_edit.
 // Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
 // Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
 // O conteúdo dos blocos é o texto do arquivo: vai cru, sem chave de tradução,
