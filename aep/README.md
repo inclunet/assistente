@@ -35,7 +35,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0017](0017-http-request-security.md) | HTTP Request Security | ✅ Done |
 | [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | 🚧 In Progress |
 | [0019](0019-http-client-centralization.md) | Centralização do Cliente HTTP | 🚧 In Progress |
-| [0020](0020-mcp-implementation.md) | MCP Complete Implementation | 🚧 In Progress |
+| [0020](0020-mcp-implementation.md) | Implementação do Model Context Protocol (MCP) — núcleo e extensões | 🚧 In Progress |
 | [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (v2) | 🚧 In Progress |
 | [0022](0022-welcome-wizard.md) | Welcome Wizard | ✅ Done |
 | [0023](0023-deep-links.md) | Deep Links (assistente://) | ✅ Done |
@@ -174,7 +174,7 @@ Documentos secundários que **pertencem** ao mesmo tema do AEP principal:
   - `0012-llm-provider-phase8-validation.md`
 - **0016 — HTTP Request Tool** (principal: `0016-http-request-tool.md`)
   - `0016-http-request-examples.md`
-- **0020 — MCP Complete Implementation** (principal: `0020-mcp-implementation.md`)
+- **0020 — Implementação do Model Context Protocol (MCP) — núcleo e extensões** (principal: `0020-mcp-implementation.md`)
   - `0020-mcp-improvements-summary.md` (histórico/superseded)
 - **0024 — Arquitetura de Voz (TTS/STT)** (principal: `0024-speech-architecture.md`)
   - `0024-speech-system-status.md`
