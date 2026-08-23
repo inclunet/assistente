@@ -214,6 +214,31 @@ describe('ProfileEditorTabs', () => {
     expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', '');
   });
 
+  it('informa load_skill quando a base auto_load não é invocável pelo modelo', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProfileEditorTabs
+        {...propsCom({
+          chat: {
+            ...defaultProfile.chat,
+            enabled_skills: null,
+          },
+        })}
+        availableSkills={[
+          { slug: 'base', name: 'Base', autoLoad: true, disableModelInvocation: true },
+          { slug: 'extra', name: 'Extra', autoLoad: true },
+        ] as never}
+      />,
+    );
+
+    const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
+    await user.click(tab!);
+
+    // A primeira auto_load vira base mesmo sem invocação pelo modelo, então a
+    // segunda cai em on_demand e o backend anuncia load_skill.
+    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', 'load_skill');
+  });
+
   it('troca para aba Context Providers ao clicar', async () => {
     const user = userEvent.setup();
     renderTabs();

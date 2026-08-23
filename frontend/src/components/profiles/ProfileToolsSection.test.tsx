@@ -433,6 +433,32 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
   });
 
+  it('promove o catálogo quando o usuário tira o bloqueio explícito', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('read_file', 'Read file'),
+        ]}
+        toolPolicy={{ tool_catalog: 'disabled', read_file: 'on_demand' }}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    // Primeira linha é o catálogo: disabled → on_demand tira o bloqueio.
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      expect.objectContaining({ tool_catalog: 'preloaded', read_file: 'on_demand' }),
+    );
+  });
+
   it('promove o catálogo ao migrar a allowlist legada para default on_demand', () => {
     const onPolicyChange = vi.fn();
     render(

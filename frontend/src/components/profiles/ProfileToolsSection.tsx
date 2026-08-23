@@ -27,6 +27,10 @@ function withCatalogForOnDemandTools(
   policy: Record<string, ToolPolicyState>,
   options: { explicitlyDisabled: boolean; hasOnDemandOutsideGrid: boolean },
 ): Record<string, ToolPolicyState> {
+  // Sem tool_catalog na lista o backend degradaria as sob demanda para
+  // preloaded, mas isso só acontece em registry sem catálogo — estado que não
+  // existe com o editor acessível, e espelhá-lo aqui congelaria a degradação
+  // dentro do perfil.
   if (!(TOOL_CATALOG_NAME in policy)) return policy;
   if (policy[TOOL_CATALOG_NAME] === TOOL_POLICY_PRELOADED) return policy;
   if (options.explicitlyDisabled) return policy;
@@ -221,8 +225,8 @@ export function ProfileToolsSection({
       for (const item of toolRows) {
         policy[item.name] = item.optIn ? TOOL_POLICY_DISABLED : TOOL_POLICY_ON_DEMAND;
       }
-      if (allNames.includes('tool_catalog')) {
-        policy.tool_catalog = TOOL_POLICY_PRELOADED;
+      if (allNames.includes(TOOL_CATALOG_NAME)) {
+        policy[TOOL_CATALOG_NAME] = TOOL_POLICY_PRELOADED;
       }
       for (const name of runtimeTools) {
         if (allNames.includes(name)) policy[name] = TOOL_POLICY_PRELOADED;
@@ -261,12 +265,14 @@ export function ProfileToolsSection({
   );
 
   const commitToolPolicy = useCallback((nextPolicy: Record<string, ToolPolicyState>) => {
-    // Herdar o disabled do default não é escolha de ninguém. Materializar esse
-    // estado ao lado de uma tool sob demanda a deixaria inalcançável, porque o
-    // backend trata bloqueio explícito do catálogo como definitivo.
-    const catalogChosen = catalogExplicitlyDisabled
-      || (nextPolicy[TOOL_CATALOG_NAME] === TOOL_POLICY_DISABLED
-        && effectiveToolPolicyRef.current[TOOL_CATALOG_NAME] !== TOOL_POLICY_DISABLED);
+    // Herdar o disabled do default não é escolha de ninguém, e materializar
+    // esse estado ao lado de uma tool sob demanda a deixaria inalcançável,
+    // porque o backend trata bloqueio explícito do catálogo como definitivo. Só
+    // vale como escolha o bloqueio que já estava no perfil ou o que o usuário
+    // acabou de fazer — e enquanto ele seguir desabilitado nesta gravação.
+    const catalogChosen = nextPolicy[TOOL_CATALOG_NAME] === TOOL_POLICY_DISABLED
+      && (catalogExplicitlyDisabled
+        || effectiveToolPolicyRef.current[TOOL_CATALOG_NAME] !== TOOL_POLICY_DISABLED);
     const resolved = withCatalogForOnDemandTools(nextPolicy, {
       explicitlyDisabled: catalogChosen,
       hasOnDemandOutsideGrid,

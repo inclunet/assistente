@@ -358,14 +358,15 @@ function hasModelOnDemandSkill(
   if (disableSkills || disableOnDemand) return false;
 
   if (enabledSkills == null) {
+    // resolveLegacyAutoLoadPolicy elege a primeira autoLoad como base sem olhar
+    // disableModelInvocation; só as seguintes caem em on_demand.
     let baseSelected = false;
     for (const skill of availableSkills) {
-      const modelInvocable = !skill.disableModelInvocation;
-      if (skill.autoLoad && modelInvocable && !baseSelected) {
+      if (skill.autoLoad && !baseSelected) {
         baseSelected = true;
         continue;
       }
-      if (modelInvocable) return true;
+      if (!skill.disableModelInvocation) return true;
     }
     return false;
   }
