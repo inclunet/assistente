@@ -1,6 +1,6 @@
 # AEP-0074 — Prompt Cache, Custo de LLM e Layout da Request
 
-Status: Done
+Status: In Progress — implementação e testes sintéticos entregues; validação de cache hit/read com provider real permanece aberta
 Criado em: 2026-06-16
 Atualizado em: 2026-06-22
 Implementada em: 2026-06-22
@@ -345,6 +345,11 @@ Escopo:
   e `frontend/src/components/chat/TokenStatsModal.test.tsx`.
 - Cache control explícito Anthropic: commit `e622bbd5`.
 
+Não foi encontrado no repositório nem no histórico acessível um registro
+reproduzível de chamada real/manual em provider mostrando cache read/hit. Os
+testes comprovam parsing, persistência, propagação, hints, cache control e UX,
+mas não substituem esse critério operacional.
+
 ## Riscos
 
 - Provider/gateway pode reportar métricas incompletas ou inconsistentes.
@@ -355,12 +360,12 @@ Escopo:
 
 ## Critérios de aceitação
 
-- AEP reflete que skills são estáticas e sem templates.
-- Métricas de cache são capturadas quando o provider reporta.
-- Métricas são persistidas e aparecem nas estatísticas.
-- System prompt é montado com conteúdo estável antes de conteúdo dinâmico.
-- Controles de contexto existentes continuam funcionando: `ContextWindow`, `MaxContextMessages`, `MinContextMessages`, resumo e `summary_up_to_message_id`.
-- Provider hints e cache control dependem da configuração de cache do perfil.
-- Ativação, budgets e settings de Context Providers são configurados pela AEP-0075.
-- Nenhuma chave de cache contém conteúdo sensível.
-- Pelo menos um provider compatível mostra cache read/hit em uso real ou manual.
+- [x] AEP reflete que skills são estáticas e sem templates.
+- [x] Métricas de cache são capturadas quando o provider reporta.
+- [x] Métricas são persistidas e aparecem nas estatísticas.
+- [x] System prompt é montado com conteúdo estável antes de conteúdo dinâmico.
+- [x] Controles de contexto existentes continuam funcionando: `ContextWindow`, `MaxContextMessages`, `MinContextMessages`, resumo e `summary_up_to_message_id`.
+- [x] Provider hints e cache control dependem da configuração de cache do perfil.
+- [x] Ativação, budgets e settings de Context Providers são configurados pela AEP-0075.
+- [x] Chaves de cache são derivadas sem conteúdo de mensagens ou secrets, conforme testes de `internal/chat/prompt_cache_test.go`.
+- [ ] Pelo menos um provider compatível mostra cache read/hit em uso real ou manual, com evidência reproduzível registrada.

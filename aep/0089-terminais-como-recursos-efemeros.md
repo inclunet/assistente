@@ -118,9 +118,38 @@ como registro somente leitura, claramente marcado como encerrado.
 A persistência durável de transcripts é opcional e pode ser entregue em fase
 posterior. Ela não altera o ciclo de vida de PTYs.
 
+## Estado implementado e pendências
+
+Entregue:
+
+- [x] Tool `terminal_session` com ações `list`, `create`, `interrupt` e `close`
+  em `internal/tools/shell/terminal_session.go`; testes em
+  `terminal_session_test.go` cobrem listagem, criação, deep link, diretório
+  inválido, interrupção e fechamento.
+- [x] `run_command` aceita `terminal_id`, usa exatamente a sessão viva indicada,
+  rejeita ID morto e cria uma sessão nova quando o campo é omitido; regressões
+  ficam em `internal/tools/shell/shell_test.go`.
+- [x] API Wails autenticada oferece listar, criar, fechar, executar, enviar
+  input, interromper e consultar histórico/estatísticas em
+  `internal/wailsapi/terminal.go`, com falha fechada coberta por
+  `terminal_test.go`.
+- [x] Deep links abrem exatamente uma sessão viva e não substituem IDs mortos,
+  coberto por `frontend/src/lib/deepLinks.test.ts`.
+
+Pendente ou parcial:
+
+- [ ] Provar por teste que fechar/desconectar a última aba nunca encerra o PTY.
+- [ ] Completar acompanhamento de uma execução já em andamento ao conectar nova
+  aba, incluindo estado e output sem perda.
+- [ ] Fechar isolamento de eventos/stores para múltiplas sessões simultâneas.
+- [ ] Concluir feedback acessível, i18n e validação manual NVDA para todas as
+  ações e estados.
+- [ ] Persistência durável de transcripts continua opcional e fora do escopo
+  necessário para concluir as Fases 1–4.
+
 ## Fases
 
-### Fase 1 — Domínio e ciclo de vida
+### Fase 1 — Domínio e ciclo de vida 🚧
 
 - separar estados de sessão, comando e visualização;
 - detectar saída do shell e emitir eventos autoritativos;
@@ -128,28 +157,28 @@ posterior. Ela não altera o ciclo de vida de PTYs.
 - distinguir interrupção, encerramento e desconexão;
 - cobrir concorrência e encerramento com testes Go.
 
-### Fase 2 — Tools e deep links
+### Fase 2 — Tools e deep links ✅
 
 - adicionar tools de listagem, criação, interrupção e encerramento;
 - aceitar `terminal_id` em `run_command`;
 - retornar metadados e deep link em toda execução;
 - validar deep links contra sessões vivas.
 
-### Fase 3 — Aba conectável
+### Fase 3 — Aba conectável 🚧
 
 - adicionar seletor de terminal à toolbar;
 - permitir troca sem encerrar a sessão anterior;
 - remover recuperação e encerramento implícitos;
 - representar sessão encerrada sem fabricar substituta.
 
-### Fase 4 — Timeline e acessibilidade
+### Fase 4 — Timeline e acessibilidade 🚧
 
 - identificar comandos por IDs autoritativos;
 - acompanhar streaming ao abrir uma aba durante execução;
 - anunciar criação, início, conclusão, erro, interrupção e encerramento;
 - validar teclado, foco, NVDA, axe-core e múltiplas superfícies.
 
-### Fase 5 — Evoluções opcionais
+### Fase 5 — Evoluções opcionais ⏳
 
 - persistência durável e gestão de transcripts encerrados;
 - renderer de terminal completo para programas full-screen e entrada tecla a
@@ -167,15 +196,17 @@ posterior. Ela não altera o ciclo de vida de PTYs.
 
 ## Critérios de aceitação
 
-- uma conversa pode criar e usar mais de um terminal;
-- o chat pode listar e escolher explicitamente uma sessão;
-- nenhuma tool reutiliza terminal manual sem receber seu `terminalId`;
-- uma aba pode trocar de sessão sem matar a anterior;
-- fechar a última aba de uma sessão não encerra o PTY;
-- interrupção e encerramento são ações distintas;
-- abrir o deep link de uma sessão viva mostra exatamente aquela sessão;
-- deep link morto informa indisponibilidade e não cria substituta;
-- abrir uma aba durante comando em execução mostra estado e output atuais;
-- eventos e stores isolam duas sessões simultâneas;
-- shutdown não promete reconexão a processos mortos;
-- todas as ações têm feedback acessível e strings nos três idiomas.
+- [x] Uma conversa pode criar e usar mais de um terminal pelas tools explícitas.
+- [x] O chat pode listar e escolher explicitamente uma sessão.
+- [x] Nenhuma tool reutiliza terminal manual sem receber seu `terminalId`;
+  `run_command` sem ID cria sessão nova.
+- [x] Uma aba pode conectar-se a outra sessão sem fabricar um novo ID.
+- [ ] Fechar a última aba de uma sessão não encerra o PTY, com regressão focada.
+- [x] Interrupção e encerramento são ações distintas.
+- [x] Abrir o deep link de uma sessão viva mostra exatamente aquela sessão.
+- [x] Deep link morto informa indisponibilidade e não cria substituta.
+- [ ] Abrir uma aba durante comando em execução mostra estado e output atuais.
+- [ ] Eventos e stores isolam duas sessões simultâneas.
+- [x] Shutdown não promete reconexão a processos mortos.
+- [ ] Todas as ações têm feedback acessível, strings nos três idiomas e
+  validação correspondente.

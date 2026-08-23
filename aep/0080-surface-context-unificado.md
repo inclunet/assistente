@@ -229,44 +229,67 @@ Compatibilidade não permitida:
 - inferir `surfaceId` a partir de aba ativa quando a origem real do envio foi outra;
 - permitir tool mutável operar sobre alvo ambíguo sem validação.
 
+## Estado implementado e pendências
+
+Entregue:
+
+- [x] Normalização do envelope e adaptação de payloads legados em
+  `internal/workspace/context_provider.go`.
+- [x] Renderização allowlisted de `<surface_context>`, escaping, limites por
+  campo/bloco e avisos de truncamento no mesmo provider.
+- [x] Fallback seguro: payload incompleto recebe identidade legada e aviso de que
+  não é alvo confiável para mutação; blocos malformados ou sem atributos
+  obrigatórios são omitidos.
+- [x] Testes de renderização, allowlist, legado, orçamento, truncamento,
+  seleção mínima e fallback em `internal/workspace/context_provider_test.go`.
+
+Pendente:
+
+- [ ] Provider completo de tasklists com card/coluna/seleção e target mutável.
+- [ ] Provider completo de terminal com input, seleção, output recente e limites
+  próprios de dados sensíveis.
+- [ ] Validação efetiva de `snapshotVersion`/staleness nas tools.
+- [ ] Migração das mutações de editor, tasklist e terminal para targets
+  estruturados, com erro recuperável e transparência acessível.
+
 ## Fases
 
-### Fase 1 — AEP e contrato
+### Fase 1 — AEP e contrato ✅
 
 - Revisar e aceitar esta AEP.
 - Definir tipos conceituais de `SurfaceContext`, `SurfaceSelection`, `SurfaceFocus` e `SurfaceContent`.
 - Mapear payloads legados de `surfaceContextJson` para o envelope novo.
 - Não alterar comportamento funcional neste PR de AEP.
 
-### Fase 2 — Renderer backend genérico
+### Fase 2 — Renderer backend genérico ✅
 
 - Criar normalização backend para `SurfaceContext`.
 - Renderizar `<surface_context>` por allowlist, escaping e truncamento.
 - Adicionar testes de renderização, truncamento e payload malformado.
 - Classificar o bloco como contexto dinâmico do turno.
 
-### Fase 3 — Editor
+### Fase 3 — Editor 🚧
 
 - Implementar provider do editor.
 - Cobrir seleção, cursor, arquivo, Markdown e modo Reveal.
 - Validar staleness antes de ações de edição/aplicação de patch.
 - Garantir transparência do alvo em UI e anúncios quando relevante.
 
-### Fase 4 — Tasklists
+### Fase 4 — Tasklists ⏳
 
 - Implementar provider de tasklists.
 - Cobrir lista, card, status/coluna, seleção e modos list/kanban.
 - Exigir target explícito para tools mutáveis de cards/status/notas.
 - Validar versionamento de lista/workflow antes de mutações.
 
-### Fase 5 — Terminal
+### Fase 5 — Terminal ⏳
 
 - Implementar provider do terminal.
 - Cobrir input, seleção de output, output recente, cwd e shell.
 - Aplicar limites conservadores e indicação de truncamento.
 - Distinguir seleção explícita de janela recente.
 
-### Fase 6 — Tools com alvo explícito
+### Fase 6 — Tools com alvo explícito ⏳
 
 - Atualizar tools afetadas para receber target estruturado.
 - Padronizar erro recuperável para snapshot stale.
@@ -284,9 +307,9 @@ Compatibilidade não permitida:
 
 ## Critérios de aceitação
 
-- [ ] Existe contrato documentado de `SurfaceContext` com campos comuns e semântica de staleness.
-- [ ] O backend normaliza `surfaceContextJson` para `SurfaceContext` ou marca payload legado como incompleto.
-- [ ] O prompt renderiza `<surface_context>` com allowlist, escaping, truncamento e indicação de campos omitidos/truncados.
+- [x] Existe contrato documentado de `SurfaceContext` com campos comuns e semântica de staleness.
+- [x] O backend normaliza `surfaceContextJson` para `SurfaceContext` ou marca payload legado como incompleto.
+- [x] O prompt renderiza `<surface_context>` com allowlist, escaping, truncamento e indicação de campos omitidos/truncados.
 - [ ] Editor envia seleção, foco/cursor, arquivo, modo Markdown e modo Reveal sem criar fluxo paralelo de mensagens.
 - [ ] Tasklists enviam lista, card, status/coluna, seleção e modo de visualização com alvo explícito para mutações.
 - [ ] Terminal envia cwd, shell, input, seleção de output e output recente com limites conservadores.

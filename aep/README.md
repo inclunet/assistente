@@ -87,7 +87,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0071](0071-structured-tool-output-size-policy.md) | Política canônica de tamanho para saídas estruturadas | ✅ Done |
 | [0072](0072-skill-catalog-and-loading.md) | Skill Catalog & Loading (descoberta, gating, carregamento sob demanda) | ✅ Done |
 | [0073](0073-tasklist-conversation-linking.md) | Vínculo de Tasks e Tasklists a Conversas | ✅ Done |
-| [0074-A](0074-prompt-cache-e-contexto-dinamico.md) | Prompt Cache, Custo de LLM e Layout da Request ⚠️ | ✅ Done |
+| [0074-A](0074-prompt-cache-e-contexto-dinamico.md) | Prompt Cache, Custo de LLM e Layout da Request ⚠️ | 🚧 In Progress |
 | [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ | ✅ Done |
 | [0075](0075-context-providers.md) | Context Providers | ✅ Done |
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |

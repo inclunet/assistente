@@ -2,9 +2,11 @@
 
 ## Status: Done — Fases 1–8 implementadas
 
-## Motivação
+## Motivação (baseline histórico)
 
-O sistema de TTS (Text-to-Speech) atual é **frontend-driven**: o chatStore decide localmente quando falar, chama `ttsService.speakAsRole()` e resolve voz/provider no frontend. Isso traz problemas:
+Antes desta AEP, o sistema de TTS era **frontend-driven**: o chatStore decidia
+localmente quando falar, chamava `ttsService.speakAsRole()` e resolvia
+voz/provider no frontend. Isso trazia os problemas abaixo:
 
 1. **Decisão fragmentada** — 5 chamadas a `triggerAutoRead()` espalhadas no chatStore, cada uma com condições ligeiramente diferentes.
 2. **Sem suporte a canais** — Telegram, Signal e futuros canais não passam pelo frontend. Não há como gerar áudio para respostas enviadas por canais externos.
@@ -24,16 +26,16 @@ Os gaps abaixo descreviam o baseline anterior à implementação: ausência de
 listener, callback não conectado, broker sem wiring e decisão local duplicada.
 Esses caminhos foram substituídos pelos componentes e testes da tabela acima.
 
-## Fluxo de eventos (atual vs. proposto)
+## Fluxo de eventos
 
-### Atual (frontend-driven)
+### Histórico, antes da implementação (frontend-driven)
 ```
 chat:done → frontend chatStore handler
          → ttsService.isAutoReadEnabled()?
          → triggerAutoRead() → ttsService.speakAsRole()
 ```
 
-### Proposto (backend-driven)
+### Vigente (backend-driven)
 ```
 chat:done → (backend continua)
          → dispatchSpeechEvent(req)
@@ -54,7 +56,7 @@ chat:done → (backend continua)
 5. chat:tool_end         ← tool call concluída
 6. chat:segment_done     ← segmento agentic completo
 7. chat:stream (done)    ← streaming finalizado
-8. chat:speak            ← TTS proativo (NOVO — disparado ANTES de chat:done)
+8. chat:speak            ← TTS proativo disparado antes de chat:done
 9. chat:done             ← resposta salva no banco
 10. chat:token_stats     ← estatísticas de tokens
 11. chat:context_warning ← aviso de limite

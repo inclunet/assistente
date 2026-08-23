@@ -395,13 +395,21 @@ ProfileAudioTab
 
 ---
 
-## Verificacao
+## Verificacao e evidencias
 
-1. `go test ./...` ÔÇö Todos passam
-2. `npm run lint` ÔÇö Sem erros
-3. `npm run test` ÔÇö Todos passam
-4. `npm run build` ÔÇö Compila
-5. Teste manual: editar perfil -> habilitar voz por role -> chat funciona
-6. Teste manual: trocar perfil -> voz reconfigura
-7. Teste manual: STT -> transcricao -> envio no chat
-8. Teste manual: TTS auto-read por role funciona
+- [x] O modelo hierarquico por role, `InputConfig` e `ChannelsConfig` estao em
+  `internal/profiles/types.go`.
+- [x] A UI edita `voice.assistant`, `voice.user`, `voice.system`, `input` e
+  `channels` em `frontend/src/components/profiles/ProfileAudioTab.tsx`.
+- [x] `ProfileAudioTab.test.tsx` cobre secoes por role, input, canais, referencias
+  entre roles e selecao separada de modelo/voz.
+- [x] `internal/app/app_speech_provider_test.go`,
+  `app_tts_proactive_test.go` e `internal/wailsapi/speech_test.go` cobrem
+  roteamento, APIs de modelos/vozes e chamadas de preview.
+- [x] `internal/providers/resolve_profile_defaults_test.go` e
+  `internal/profiles/provider_validation_test.go` cobrem defaults e validacao
+  do perfil.
+
+As verificacoes manuais originalmente listadas nao possuem registro reproduzivel
+no repositorio e nao sao afirmadas como executadas. Os comportamentos essenciais
+aceitos para `Done` estao cobertos pelas implementacoes e regressões acima.
