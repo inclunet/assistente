@@ -255,6 +255,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			})
 		}
 	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {

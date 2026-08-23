@@ -289,6 +289,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
 	}
+	finish = finishInfoWithToolCalls(finish, len(functionCalls))
 	ReportFinishReason(handler, finish)
 
 	if len(functionCalls) > 0 {

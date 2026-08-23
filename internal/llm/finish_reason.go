@@ -9,6 +9,16 @@ func finishInfo(raw string, reason FinishReason) FinishInfo {
 	}
 }
 
+// finishInfoWithToolCalls alinha o motivo ao callback terminal quando o
+// transporte encerra uma resposta com chamadas completas, mas informa apenas
+// stop (ou omite o motivo). Motivos de segurança/limite nunca são sobrescritos.
+func finishInfoWithToolCalls(info FinishInfo, toolCallCount int) FinishInfo {
+	if toolCallCount > 0 && (info.Reason == "" || info.Reason == FinishReasonStop) {
+		info.Reason = FinishReasonToolCalls
+	}
+	return info
+}
+
 func normalizeOpenAIChatFinishReason(raw string) FinishInfo {
 	switch normalized := strings.ToLower(strings.TrimSpace(raw)); normalized {
 	case "":

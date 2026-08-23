@@ -30,6 +30,27 @@ func TestFinishReasonNormalizers(t *testing.T) {
 	}
 }
 
+func TestFinishInfoWithToolCallsAlinhaCallbackSemOcultarLimite(t *testing.T) {
+	tests := []struct {
+		name string
+		info FinishInfo
+		want FinishReason
+	}{
+		{"stop vira tool calls", FinishInfo{Reason: FinishReasonStop, RawReason: "STOP"}, FinishReasonToolCalls},
+		{"ausente vira tool calls", FinishInfo{}, FinishReasonToolCalls},
+		{"max tokens permanece", FinishInfo{Reason: FinishReasonMaxTokens, RawReason: "MAX_TOKENS"}, FinishReasonMaxTokens},
+		{"filtro permanece", FinishInfo{Reason: FinishReasonContentFilter, RawReason: "SAFETY"}, FinishReasonContentFilter},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := finishInfoWithToolCalls(tt.info, 1)
+			if got.Reason != tt.want || got.RawReason != tt.info.RawReason {
+				t.Fatalf("got=%#v, want reason=%q raw=%q", got, tt.want, tt.info.RawReason)
+			}
+		})
+	}
+}
+
 type finishCapturingHandler struct {
 	FinishInfo
 }

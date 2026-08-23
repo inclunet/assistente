@@ -547,6 +547,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			})
 		}
 	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {

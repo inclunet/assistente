@@ -594,6 +594,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			})
 		}
 	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {
@@ -776,6 +777,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			})
 		}
 	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {
