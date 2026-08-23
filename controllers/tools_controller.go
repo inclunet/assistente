@@ -54,6 +54,7 @@ func (c *ToolsController) GetAvailableTools() []ToolInfo {
 			Description: t.Description(),
 			SourceType:  "local",
 			SourceLabel: "Local",
+			OptIn:       c.toolRegistry.IsOptIn(name),
 		}
 
 		if slug, originalName, ok := mcpmgr.ParseToolName(name); ok {

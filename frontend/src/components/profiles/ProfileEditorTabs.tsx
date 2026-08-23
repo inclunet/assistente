@@ -41,7 +41,15 @@ export interface ProfileEditorTabsProps {
   availableTools: apidto.ToolInfo[];
   availableSkills: Array<
     | skills.SkillInfo
-    | { slug: string; name: string; description?: string; version?: string; source?: string }
+    | {
+      slug: string;
+      name: string;
+      description?: string;
+      version?: string;
+      source?: string;
+      autoLoad?: boolean;
+      disableModelInvocation?: boolean;
+    }
   >;
   availableContextProviders: contextprovider.ProviderMetadata[];
   availableAllowlists: allowlist.AllowlistInfo[];
@@ -68,6 +76,12 @@ export function ProfileEditorTabs({
   const visibleTabs = agentProvider
     ? EDITOR_TABS.filter((id) => !AGENT_HIDDEN_TABS.includes(id))
     : EDITOR_TABS;
+  const hasOnDemandSkills = hasModelOnDemandSkill(
+    availableSkills,
+    editingProfile.chat?.enabled_skills,
+    editingProfile.chat?.disable_skills ?? false,
+    editingProfile.chat?.disable_on_demand_skills ?? false,
+  );
 
   const handleTabChange = useCallback((v: string) => {
     pendingShortcutFocusRef.current = null;
@@ -301,6 +315,8 @@ export function ProfileEditorTabs({
               availableTools={availableTools}
               enabledTools={editingProfile.chat?.enabled_tools ?? null}
               toolPolicy={editingProfile.chat?.tool_policy ?? null}
+              toolPolicyDefault={editingProfile.chat?.tool_policy_default ?? null}
+              runtimeTools={hasOnDemandSkills ? ['load_skill'] : []}
               toolsDisabled={editingProfile.chat?.disable_tools ?? false}
               commandAllowlist={editingProfile.chat?.command_allowlist || ''}
               availableAllowlists={availableAllowlists}
@@ -308,9 +324,12 @@ export function ProfileEditorTabs({
               responseTimeout={editingProfile.chat?.response_timeout ?? 180}
               nativeMcp={editingProfile.chat?.native_mcp ?? null}
               onChange={(field, value) => updateField(`chat.${field}`, value)}
-              onPolicyChange={(policy) => updateFields({
+              onPolicyChange={(policy, extras) => updateFields({
                 'chat.tool_policy': policy,
                 'chat.enabled_tools': null,
+                ...(extras?.toolPolicyDefault !== undefined
+                  ? { 'chat.tool_policy_default': extras.toolPolicyDefault }
+                  : {}),
               })}
             />
           </TabPanel>
@@ -328,4 +347,38 @@ export function ProfileEditorTabs({
       </Tabs>
     </div>
   );
+}
+
+function hasModelOnDemandSkill(
+  availableSkills: ProfileEditorTabsProps['availableSkills'],
+  enabledSkills: string[] | null | undefined,
+  disableSkills: boolean,
+  disableOnDemand: boolean,
+): boolean {
+  if (disableSkills || disableOnDemand) return false;
+
+  if (enabledSkills == null) {
+    // Espelha resolveLegacyAutoLoadPolicy, que elege a base por IsAutoLoad():
+    // auto_load só vale como base quando a invocação pelo modelo está ativa.
+    let baseSelected = false;
+    for (const skill of availableSkills) {
+      const modelInvocable = !skill.disableModelInvocation;
+      if (skill.autoLoad && modelInvocable && !baseSelected) {
+        baseSelected = true;
+        continue;
+      }
+      if (modelInvocable) return true;
+    }
+    return false;
+  }
+
+  const byIdentifier = new Map<string, ProfileEditorTabsProps['availableSkills'][number]>();
+  for (const skill of availableSkills) {
+    byIdentifier.set(skill.slug, skill);
+    byIdentifier.set(skill.name, skill);
+  }
+  const ordered = enabledSkills
+    .map(identifier => byIdentifier.get(identifier))
+    .filter((skill): skill is ProfileEditorTabsProps['availableSkills'][number] => skill != null);
+  return ordered.slice(1).some(skill => !skill.disableModelInvocation);
 }

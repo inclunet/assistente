@@ -33,19 +33,35 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 	}
 
 	names := p.registry.Names()
-	if len(cfg.ToolPolicy) > 0 {
-		for _, name := range names {
-			policy.states[name] = ToolPolicyDisabled
+	// Uma chave com espaços é aceita ao aplicar o mapa, mas some em qualquer
+	// consulta direta. Normalizar antes de decidir mantém uma negação explícita
+	// valendo em toda a resolução.
+	configured := normalizeToolPolicyMap(cfg.ToolPolicy)
+	if len(configured) > 0 || strings.TrimSpace(cfg.ToolPolicyDefault) != "" {
+		// Sozinho, o default não vale para perfil que ainda descreve as tools
+		// pela allowlist legada: ele diria "on_demand" para nomes que a
+		// allowlist bloqueia, abrindo capability que ninguém escolheu. Enquanto
+		// a allowlist não virar tool_policy explícita, ela continua soberana.
+		if len(configured) == 0 && cfg.EnabledTools != nil {
+			p.applyLegacyAllowlist(&policy, names, cfg)
+			return policy
 		}
-		for name, state := range cfg.ToolPolicy {
-			name = strings.TrimSpace(name)
-			if name == "" || !p.registry.Has(name) {
+		defaultState := normalizeToolPolicyDefault(cfg.ToolPolicyDefault)
+		for _, name := range names {
+			state := defaultState
+			if p.registry.IsOptIn(name) {
+				state = ToolPolicyDisabled
+			}
+			policy.states[name] = state
+		}
+		for name, state := range configured {
+			if !p.registry.Has(name) {
 				continue
 			}
 			policy.states[name] = normalizeToolPolicyState(state)
 		}
-		policy.ensureCatalogForOnDemandTools(cfg.ToolPolicy)
-		policy.applyRuntimeTools(cfg.RuntimeTools, true, explicitDisabledToolPolicyNames(cfg.ToolPolicy))
+		policy.ensureCatalogForOnDemandTools(configured)
+		policy.applyRuntimeTools(cfg.RuntimeTools, true, explicitDisabledToolPolicyNames(configured))
 		return policy
 	}
 
@@ -74,6 +90,11 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 		return policy
 	}
 
+	p.applyLegacyAllowlist(&policy, names, cfg)
+	return policy
+}
+
+func (p *ToolSelectionPolicy) applyLegacyAllowlist(policy *EffectiveToolPolicy, names []string, cfg ProfileToolConfig) {
 	for _, name := range names {
 		policy.states[name] = ToolPolicyDisabled
 	}
@@ -86,7 +107,6 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 		policy.states[name] = ToolPolicyPreloaded
 	}
 	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime, nil)
-	return policy
 }
 
 func (p EffectiveToolPolicy) State(name string) ToolPolicyState {
@@ -176,16 +196,41 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 	}
 }
 
+// normalizeToolPolicyMap apara os nomes e descarta os vazios, para que o mapa
+// consultado durante a resolução tenha as mesmas chaves que a aplicação usa.
+func normalizeToolPolicyMap(configured map[string]string) map[string]string {
+	if len(configured) == 0 {
+		return nil
+	}
+	normalized := make(map[string]string, len(configured))
+	for name, state := range configured {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		// Duas chaves cruas podem virar o mesmo nome ("read_file" e
+		// " read_file "). A ordem de iteração do map em Go não é estável, então
+		// sem desempate o estado aplicado sairia no sorteio. Vence o mais
+		// restritivo, que é a escolha segura e reproduzível.
+		if existing, ok := normalized[name]; ok {
+			if toolPolicyStateRank(normalizeToolPolicyState(state)) >= toolPolicyStateRank(normalizeToolPolicyState(existing)) {
+				continue
+			}
+		}
+		normalized[name] = state
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
 func explicitDisabledToolPolicyNames(configured map[string]string) map[string]struct{} {
 	if len(configured) == 0 {
 		return nil
 	}
 	disabled := make(map[string]struct{})
 	for name, state := range configured {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
 		if normalizeToolPolicyState(state) == ToolPolicyDisabled {
 			disabled[name] = struct{}{}
 		}
@@ -208,6 +253,19 @@ func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[strin
 	if p.State(tools.ToolCatalogName) == ToolPolicyOnDemand {
 		p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
 		return
+	}
+	// Uma entrada configurada pode estar temporariamente fora do registry (por
+	// exemplo, uma tool MCP indisponível). Manter o catálogo carregado não
+	// concede essa capability ausente e permite que ela volte a ser descoberta
+	// quando reaparecer. Também mantém a resolução alinhada com o editor, que
+	// preserva políticas de tools fora do grid.
+	for name, state := range configured {
+		if name != tools.ToolCatalogName && normalizeToolPolicyState(state) == ToolPolicyOnDemand {
+			if _, ok := p.states[tools.ToolCatalogName]; ok {
+				p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
+				return
+			}
+		}
 	}
 	if _, ok := p.states[tools.ToolCatalogName]; !ok {
 		for name, state := range p.states {
@@ -237,6 +295,25 @@ func normalizeToolPolicyState(state string) ToolPolicyState {
 	default:
 		return ToolPolicyDisabled
 	}
+}
+
+// toolPolicyStateRank ordena do mais restritivo ao mais permissivo.
+func toolPolicyStateRank(state ToolPolicyState) int {
+	switch state {
+	case ToolPolicyDisabled:
+		return 0
+	case ToolPolicyOnDemand:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func normalizeToolPolicyDefault(state string) ToolPolicyState {
+	if ToolPolicyState(strings.TrimSpace(state)) == ToolPolicyOnDemand {
+		return ToolPolicyOnDemand
+	}
+	return ToolPolicyDisabled
 }
 
 func sortToolPolicyNames(names []string) {

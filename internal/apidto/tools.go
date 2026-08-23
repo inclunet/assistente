@@ -12,6 +12,7 @@ type ToolInfo struct {
 	Description string `json:"description"`
 	SourceType  string `json:"source_type"`
 	SourceLabel string `json:"source_label"`
+	OptIn       bool   `json:"opt_in"`
 }
 
 // RuntimeToolCatalogFilter filtra o catálogo persistido de tools na borda Wails.

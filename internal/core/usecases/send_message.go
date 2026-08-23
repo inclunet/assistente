@@ -313,11 +313,13 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
 	var profileEnabledTools []string
 	var profileToolPolicy map[string]string
+	var profileToolPolicyDefault string
 	var toolSchemaBudgetBytes int
 	var preferredToolPackages []string
 	if activeProfile != nil {
 		profileEnabledTools = activeProfile.Chat.EnabledTools
 		profileToolPolicy = activeProfile.Chat.ToolPolicy
+		profileToolPolicyDefault = activeProfile.Chat.ToolPolicyDefault
 		toolSchemaBudgetBytes = activeProfile.Chat.ToolSchemaBudgetBytes
 		preferredToolPackages = activeProfile.Chat.PreferredToolPackages
 	}
@@ -333,6 +335,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	toolCfg := chat.ProfileToolConfig{
 		EnabledTools:      profileEnabledTools,
 		ToolPolicy:        profileToolPolicy,
+		ToolPolicyDefault: profileToolPolicyDefault,
 		DisableTools:      disableTools,
 		RuntimeTools:      runtimeTools,
 		SchemaBytesBudget: toolSchemaBudgetBytes,

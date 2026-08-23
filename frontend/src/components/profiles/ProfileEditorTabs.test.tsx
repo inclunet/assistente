@@ -62,7 +62,9 @@ vi.mock('./ProfileContextProvidersSection', () => ({
 }));
 
 vi.mock('./ProfileToolsSection', () => ({
-  ProfileToolsSection: () => <button data-testid="tools-section">Tools</button>,
+  ProfileToolsSection: ({ runtimeTools }: { runtimeTools?: string[] }) => (
+    <button data-testid="tools-section" data-runtime-tools={runtimeTools?.join(',') ?? ''}>Tools</button>
+  ),
 }));
 
 vi.mock('./ProfileAudioTab', () => ({
@@ -164,6 +166,77 @@ describe('ProfileEditorTabs', () => {
     await user.click(tab!);
 
     expect(screen.getByTestId('tools-section')).toBeInTheDocument();
+  });
+
+  it('informa load_skill como runtime quando há skills sob demanda', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProfileEditorTabs
+        {...propsCom({
+          chat: {
+            ...defaultProfile.chat,
+            enabled_skills: ['coding', 'extra'],
+          },
+        })}
+        availableSkills={[
+          { slug: 'coding', name: 'Coding' },
+          { slug: 'extra', name: 'Extra' },
+        ] as never}
+      />,
+    );
+
+    const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
+    await user.click(tab!);
+
+    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', 'load_skill');
+  });
+
+  it('não informa load_skill quando as skills sob demanda bloqueiam invocação pelo modelo', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProfileEditorTabs
+        {...propsCom({
+          chat: {
+            ...defaultProfile.chat,
+            enabled_skills: ['coding', 'manual'],
+          },
+        })}
+        availableSkills={[
+          { slug: 'coding', name: 'Coding' },
+          { slug: 'manual', name: 'Manual', disableModelInvocation: true },
+        ] as never}
+      />,
+    );
+
+    const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
+    await user.click(tab!);
+
+    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', '');
+  });
+
+  it('não elege base uma auto_load que o modelo não pode invocar', async () => {
+    const user = userEvent.setup();
+    render(
+      <ProfileEditorTabs
+        {...propsCom({
+          chat: {
+            ...defaultProfile.chat,
+            enabled_skills: null,
+          },
+        })}
+        availableSkills={[
+          { slug: 'base', name: 'Base', autoLoad: true, disableModelInvocation: true },
+          { slug: 'extra', name: 'Extra', autoLoad: true },
+        ] as never}
+      />,
+    );
+
+    const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'tools');
+    await user.click(tab!);
+
+    // IsAutoLoad() é falso quando a invocação pelo modelo está desligada, então
+    // a segunda skill vira base e não sobra nada sob demanda.
+    expect(screen.getByTestId('tools-section')).toHaveAttribute('data-runtime-tools', '');
   });
 
   it('troca para aba Context Providers ao clicar', async () => {

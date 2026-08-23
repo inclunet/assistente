@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.1.0",
+  "_builtin_version": "4.2.0",
   "name": "Canais de comunicação",
   "description": "Perfil enxuto e seguro para mensagens em canais externos (Signal/Telegram/etc.).",
   "icon": "chatbox-ellipses",
@@ -14,7 +14,7 @@
     "top_p": 1,
     "response_timeout": 180,
     "enable_thinking": false,
-    "enabled_tools": [],
+    "tool_policy_default": "disabled",
     "enabled_skills": []
   },
   "voice": {
