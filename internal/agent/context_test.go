@@ -35,16 +35,32 @@ func TestEstimateMessageTokens(t *testing.T) {
 			ReasoningContent: "12345678", // 8 chars = 2 tokens
 		}, // 2 content + 2 reasoning + 4 overhead = 8
 	}
-	got := estimateMessageTokens(msgs)
+	got := estimateMessageTokens(msgs, true)
 	// 3 + 4 + 2 + 2 + 4 = 15
 	if got != 15 {
 		t.Errorf("estimateMessageTokens = %d, want 15", got)
 	}
 }
 
+func TestEstimateMessageTokens_IgnoraReasoningSemReplay(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: "Hello world!"}, // 3 + 4 overhead
+		{
+			Role:             "assistant",
+			Content:          "Hi there",
+			ReasoningContent: "12345678", // não vai no wire sem replay
+		}, // 2 + 4 overhead
+	}
+	got := estimateMessageTokens(msgs, false)
+	// 3 + 4 + 2 + 4 = 13
+	if got != 13 {
+		t.Errorf("estimateMessageTokens sem replay = %d, want 13", got)
+	}
+}
+
 func TestPreCheckContextWindow_NoLimit(t *testing.T) {
 	results := []string{"some content", "more content"}
-	check := PreCheckContextWindow(0, 4096, nil, results)
+	check := PreCheckContextWindow(0, 4096, nil, results, false)
 	if check.Truncated {
 		t.Error("should not truncate when contextLimit=0")
 	}
@@ -56,7 +72,7 @@ func TestPreCheckContextWindow_FitsInBudget(t *testing.T) {
 	}
 	// Small results that fit easily
 	results := []string{"result 1", "result 2"}
-	check := PreCheckContextWindow(100000, 4096, msgs, results)
+	check := PreCheckContextWindow(100000, 4096, msgs, results, false)
 	if check.Truncated {
 		t.Error("should not truncate when results fit in budget")
 	}
@@ -76,7 +92,7 @@ func TestPreCheckContextWindow_TruncatesWhenOverBudget(t *testing.T) {
 	result2 := strings.Repeat("b", 2000)
 	results := []string{result1, result2}
 
-	check := PreCheckContextWindow(1000, 500, msgs, results)
+	check := PreCheckContextWindow(1000, 500, msgs, results, false)
 	if !check.Truncated {
 		t.Fatal("should truncate when results exceed budget")
 	}
@@ -104,7 +120,7 @@ func TestPreCheckContextWindow_UTF8Safe(t *testing.T) {
 	multibyteContent := strings.Repeat("日本語テスト", 200) // lots of multibyte content
 	results := []string{multibyteContent}
 
-	check := PreCheckContextWindow(500, 200, msgs, results)
+	check := PreCheckContextWindow(500, 200, msgs, results, false)
 	if !check.Truncated {
 		t.Fatal("should truncate")
 	}
@@ -124,7 +140,7 @@ func TestPreCheckContextWindow_MinResultSize(t *testing.T) {
 	result := strings.Repeat("a", 1000)
 	results := []string{result}
 
-	check := PreCheckContextWindow(1000, 50, msgs, results)
+	check := PreCheckContextWindow(1000, 50, msgs, results, false)
 	if !check.Truncated {
 		t.Error("expected Truncated=true when budget is zero/negative")
 	}
@@ -151,7 +167,7 @@ func TestPreCheckContextWindow_AvailableLessThanResults(t *testing.T) {
 		results[i] = strings.Repeat("a", 100)
 	}
 
-	check := PreCheckContextWindow(115, 5, msgs, results)
+	check := PreCheckContextWindow(115, 5, msgs, results, false)
 
 	totalBytes := 0
 	for _, r := range results {
@@ -208,7 +224,7 @@ func TestPreCheckContextWindow_ToolOverheadReducesBudget(t *testing.T) {
 	// existingTokens=5, toolOverhead=10*4=40
 	// available=180-5-50-40=85 tokens
 	// resultTokens = 10 * 5 = 50 → fits in 85
-	check := PreCheckContextWindow(200, 50, msgs, results)
+	check := PreCheckContextWindow(200, 50, msgs, results, false)
 	if check.Truncated {
 		t.Error("should not truncate: results fit with overhead accounted")
 	}
@@ -222,7 +238,7 @@ func TestPreCheckContextWindow_ToolOverheadReducesBudget(t *testing.T) {
 	for i := range results2 {
 		results2[i] = strings.Repeat("x", 20)
 	}
-	check2 := PreCheckContextWindow(110, 10, msgs, results2)
+	check2 := PreCheckContextWindow(110, 10, msgs, results2, false)
 	if !check2.Truncated {
 		t.Error("should truncate when tool overhead reduces budget below result tokens")
 	}

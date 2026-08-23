@@ -27,6 +27,40 @@ func newSeamRunner(svc *Service, conversationID, turnID string) *agenticLoopRunn
 
 // --- Helpers puros ---
 
+type plainStreamer struct{}
+
+func (plainStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.ChatParams, _ llm.StreamHandler, _ ...llm.ToolDefinition) {
+}
+
+type replayingStreamer struct {
+	plainStreamer
+	replays bool
+}
+
+func (s replayingStreamer) ReplaysReasoningContent() bool { return s.replays }
+
+func TestReplaysReasoningContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		streamer llm.Streamer
+		want     bool
+	}{
+		{"provider sem o contrato", plainStreamer{}, false},
+		{"provider que não replica", replayingStreamer{replays: false}, false},
+		{"provider que replica", replayingStreamer{replays: true}, true},
+		{"sem streamer ativo", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &agenticLoopRunner{activeStreamer: tt.streamer}
+			if got := r.replaysReasoningContent(); got != tt.want {
+				t.Fatalf("replaysReasoningContent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeRecoveryMaxAttempts(t *testing.T) {
 	cases := []struct{ in, want int }{
 		{0, 3}, {-5, 3}, {1, 1}, {2, 2}, {10, 10},

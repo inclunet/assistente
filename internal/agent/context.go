@@ -39,7 +39,11 @@ func estimateTokens(text string) int {
 }
 
 // estimateMessageTokens estima o total de tokens de uma slice de llm.Message.
-func estimateMessageTokens(messages []llm.Message) int {
+//
+// countReasoning acompanha a serialização: reasoning_content só vai no wire para
+// quem exige o replay, então contá-lo fora disso encolheria o budget de tools
+// por causa de texto que nunca é enviado.
+func estimateMessageTokens(messages []llm.Message, countReasoning bool) int {
 	total := 0
 	for _, m := range messages {
 		switch c := m.Content.(type) {
@@ -73,7 +77,9 @@ func estimateMessageTokens(messages []llm.Message) int {
 		}
 		// DeepSeek exige reasoning_content no replay quando há tools; ele ocupa
 		// a mesma janela de contexto e precisa entrar no pre-check.
-		total += estimateTokens(m.ReasoningContent)
+		if countReasoning {
+			total += estimateTokens(m.ReasoningContent)
+		}
 		// overhead per message (~4 tokens for role/formatting)
 		total += 4
 	}
@@ -99,14 +105,15 @@ type ContextPreCheckResult struct {
 // maxResponseTokens: tokens reservados para a resposta do LLM.
 // existingMessages: mensagens já no histórico (incluindo system prompt).
 // toolResults: conteúdos dos resultados das tools (serão truncados in-place se necessário).
+// replaysReasoning: se o provider reenvia reasoning_content no histórico.
 //
 // Retorna informações sobre o pre-check. Se contextLimit <= 0, retorna sem truncar.
-func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages []llm.Message, toolResults []string) ContextPreCheckResult {
+func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages []llm.Message, toolResults []string, replaysReasoning bool) ContextPreCheckResult {
 	if contextLimit <= 0 {
 		return ContextPreCheckResult{}
 	}
 
-	existingTokens := estimateMessageTokens(existingMessages)
+	existingTokens := estimateMessageTokens(existingMessages, replaysReasoning)
 	if maxResponseTokens <= 0 {
 		maxResponseTokens = 4096 // fallback conservador
 	}

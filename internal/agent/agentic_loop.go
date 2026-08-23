@@ -278,7 +278,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	for i, res := range execResults {
 		toolContents[i] = tools.ContentForModel(res.Result)
 	}
-	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents)
+	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents, r.replaysReasoningContent())
 	for i, res := range execResults {
 		toolContents[i] = tools.SanitizeTruncatedEnvelope(res.Result, toolContents[i])
 	}
@@ -652,6 +652,19 @@ func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int
 // perfil (params) quando positivo, caindo no config do executor caso contrário.
 // O executor só é consultado quando params não define o valor (lazy), preservando
 // o comportamento de chamadores que rodam sem executor configurado.
+// reasoningContentReplayer é implementado pelos providers que reenviam
+// reasoning_content no histórico.
+type reasoningContentReplayer interface {
+	ReplaysReasoningContent() bool
+}
+
+// replaysReasoningContent diz se o histórico deste turno leva reasoning_content
+// no wire. Quem não replica não gasta janela com ele.
+func (r *agenticLoopRunner) replaysReasoningContent() bool {
+	replayer, ok := r.activeStreamer.(reasoningContentReplayer)
+	return ok && replayer.ReplaysReasoningContent()
+}
+
 func resolveAgenticMaxIterations(params llm.ChatParams, executor *tools.Executor) int {
 	if params.MaxAgenticIterations > 0 {
 		return params.MaxAgenticIterations

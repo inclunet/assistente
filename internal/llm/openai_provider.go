@@ -113,6 +113,13 @@ func (p *OpenAIProvider) NativeMCPCapable() bool {
 	return p.useResponses
 }
 
+// ReplaysReasoningContent informa se o histórico enviado a este provider carrega
+// reasoning_content. Só quem replica ocupa janela de contexto com esse campo, e
+// o pre-check precisa saber disso para não encolher o budget à toa.
+func (p *OpenAIProvider) ReplaysReasoningContent() bool {
+	return p.requiresReasoningContentReplay()
+}
+
 func (p *OpenAIProvider) requiresReasoningContentReplay() bool {
 	if p == nil || p.provider == nil {
 		return false
