@@ -39,6 +39,17 @@ type replayingStreamer struct {
 
 func (s replayingStreamer) ReplaysReasoningContent() bool { return s.replays }
 
+// decoratedStreamer imita um embrulho como o rateLimitedProvider: ele não herda
+// os métodos do inner, precisa repassar cada capacidade explicitamente.
+type decoratedStreamer struct {
+	plainStreamer
+	inner llm.Streamer
+}
+
+func (s decoratedStreamer) ReplaysReasoningContent() bool {
+	return llm.ReplaysReasoningContent(s.inner)
+}
+
 func TestReplaysReasoningContent(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -49,6 +60,8 @@ func TestReplaysReasoningContent(t *testing.T) {
 		{"provider que não replica", replayingStreamer{replays: false}, false},
 		{"provider que replica", replayingStreamer{replays: true}, true},
 		{"sem streamer ativo", nil, false},
+		{"decorator repassa quem replica", decoratedStreamer{inner: replayingStreamer{replays: true}}, true},
+		{"decorator repassa quem não replica", decoratedStreamer{inner: plainStreamer{}}, false},
 	}
 
 	for _, tt := range tests {

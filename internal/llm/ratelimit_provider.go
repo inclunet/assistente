@@ -194,6 +194,13 @@ func (p *rateLimitedProvider) NativeMCPCapable() bool {
 	return p.inner.NativeMCPCapable()
 }
 
+// ReplaysReasoningContent atravessa o decorator pelo mesmo motivo que
+// RefreshModels: sem o repasse, o embrulho esconderia a capacidade de quem
+// replica, e o pre-check de contexto subestimaria o histórico do DeepSeek.
+func (p *rateLimitedProvider) ReplaysReasoningContent() bool {
+	return ReplaysReasoningContent(p.inner)
+}
+
 // WithMCPServers preserva o decorator: o provider configurado com MCP servers
 // continua sujeito ao mesmo limite e chave.
 func (p *rateLimitedProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {

@@ -120,6 +120,14 @@ func (p *OpenAIProvider) ReplaysReasoningContent() bool {
 	return p.requiresReasoningContentReplay()
 }
 
+// ReplaysReasoningContent consulta a capacidade em quem quer que seja passado.
+// Decorators embrulham o provider sem herdar métodos, então quem pergunta usa
+// esta função e cada embrulho a repassa para o inner.
+func ReplaysReasoningContent(provider any) bool {
+	replayer, ok := provider.(interface{ ReplaysReasoningContent() bool })
+	return ok && replayer.ReplaysReasoningContent()
+}
+
 func (p *OpenAIProvider) requiresReasoningContentReplay() bool {
 	if p == nil || p.provider == nil {
 		return false
