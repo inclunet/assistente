@@ -158,6 +158,11 @@ export function ProfileToolsSection({
     for (const [name, state] of Object.entries(toolPolicy ?? {})) {
       const key = name.trim();
       if (key === '') continue;
+      const existing = normalized[key];
+      if (existing != null
+        && toolPolicyStateRank(normalizeToolPolicyState(state))
+          >= toolPolicyStateRank(normalizeToolPolicyState(existing))
+      ) continue;
       normalized[key] = state;
     }
     return normalized;
@@ -669,6 +674,12 @@ function normalizeToolPolicyState(state: string): ToolPolicyState {
   const normalized = state.trim();
   if (normalized === TOOL_POLICY_ON_DEMAND || normalized === TOOL_POLICY_PRELOADED) return normalized;
   return TOOL_POLICY_DISABLED;
+}
+
+function toolPolicyStateRank(state: ToolPolicyState): number {
+  if (state === TOOL_POLICY_DISABLED) return 0;
+  if (state === TOOL_POLICY_ON_DEMAND) return 1;
+  return 2;
 }
 
 function isToolExplicitlyDisabled(toolPolicy: Record<string, string> | null, name: string): boolean {

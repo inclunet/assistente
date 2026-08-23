@@ -548,6 +548,23 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('write_file: Sob demanda')).toBeInTheDocument();
   });
 
+  it('resolve colisões de chaves normalizadas pelo estado mais restritivo', () => {
+    render(
+      <ProfileToolsSection
+        availableTools={[tool('read_file', 'Read file')]}
+        toolPolicy={{
+          read_file: 'preloaded',
+          ' read_file ': 'disabled',
+        }}
+        toolPolicyDefault="on_demand"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+  });
+
   it('respeita bloqueio explícito com espaços contra runtime tools', () => {
     render(
       <ProfileToolsSection

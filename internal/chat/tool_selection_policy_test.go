@@ -269,6 +269,26 @@ func TestToolSelectionPolicy_ToolPolicyPreloadsCatalogWhenOnDemandExists(t *test
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.ToolCatalogName})
 }
 
+func TestToolSelectionPolicy_ToolForaDoRegistryMantemCatalogoCarregado(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicyDefault: string(ToolPolicyDisabled),
+		ToolPolicy: map[string]string{
+			"mcp_temporariamente_indisponivel": string(ToolPolicyOnDemand),
+		},
+	})
+
+	if effective.State(tools.ToolCatalogName) != ToolPolicyPreloaded {
+		t.Fatalf("tool_catalog deveria continuar preloaded para a tool voltar a ser descoberta, got %s",
+			effective.State(tools.ToolCatalogName))
+	}
+	if effective.State("mcp_temporariamente_indisponivel") != ToolPolicyDisabled {
+		t.Fatalf("tool ausente não pode ganhar capability, got %s",
+			effective.State("mcp_temporariamente_indisponivel"))
+	}
+}
+
 func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandCatalog(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)

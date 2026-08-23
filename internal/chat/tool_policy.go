@@ -254,6 +254,19 @@ func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[strin
 		p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
 		return
 	}
+	// Uma entrada configurada pode estar temporariamente fora do registry (por
+	// exemplo, uma tool MCP indisponível). Manter o catálogo carregado não
+	// concede essa capability ausente e permite que ela volte a ser descoberta
+	// quando reaparecer. Também mantém a resolução alinhada com o editor, que
+	// preserva políticas de tools fora do grid.
+	for name, state := range configured {
+		if name != tools.ToolCatalogName && normalizeToolPolicyState(state) == ToolPolicyOnDemand {
+			if _, ok := p.states[tools.ToolCatalogName]; ok {
+				p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
+				return
+			}
+		}
+	}
 	if _, ok := p.states[tools.ToolCatalogName]; !ok {
 		for name, state := range p.states {
 			if state == ToolPolicyOnDemand {
