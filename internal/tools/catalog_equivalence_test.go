@@ -17,11 +17,10 @@ import (
 	"assistente/internal/tools/web"
 )
 
-// goldenBuiltinCatalogMetadata reproduz, byte a byte, o antigo mapa central de
-// metadados de builtins que vivia em internal/tools/catalog.go antes da Fase 1
-// do AEP-0077 (#122). Serve como contrato de equivalência: depois de mover os
-// metadados para a definição de cada tool, o ToolCatalogEntry gerado precisa
-// continuar idêntico (mesmos category/class/package/risk) ao histórico.
+// goldenBuiltinCatalogMetadata nasceu do antigo mapa central de metadados que
+// vivia em internal/tools/catalog.go antes da Fase 1 do AEP-0077 (#122) e é
+// estendido quando uma builtin nova nasce. Serve como contrato executável para
+// category/class/package/risk de todas as tools registráveis.
 var goldenBuiltinCatalogMetadata = map[string]tools.CatalogMetadata{
 	"read_file":            {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
 	"list_directory":       {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
@@ -29,6 +28,7 @@ var goldenBuiltinCatalogMetadata = map[string]tools.CatalogMetadata{
 	"grep_search":          {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
 	"write_file":           {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
 	"edit_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
+	"apply_patch":          {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
 	"move_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
 	"copy_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
 	"delete_file":          {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "destructive"},
@@ -50,9 +50,9 @@ var goldenBuiltinCatalogMetadata = map[string]tools.CatalogMetadata{
 	"subagent":             {Category: "agents", Class: "agent_delegation", Package: "agents", Risk: "write"},
 }
 
-// builtinsUnderTest instancia todas as builtins que tinham metadados no antigo
-// mapa central. Os construtores recebem dependências nil/mínimas — o teste só
-// consulta Name/Description/Parameters/CatalogMetadata, nunca Execute.
+// builtinsUnderTest instancia todas as builtins com metadados de catálogo. Os
+// construtores recebem dependências nil/mínimas — o teste só consulta
+// Name/Description/Parameters/CatalogMetadata, nunca Execute.
 func builtinsUnderTest() []tools.Tool {
 	return []tools.Tool{
 		filesystem.NewReadFile("."),
@@ -61,6 +61,7 @@ func builtinsUnderTest() []tools.Tool {
 		filesystem.NewGrepSearch("."),
 		filesystem.NewWriteFile("."),
 		filesystem.NewEditFile(".", nil),
+		filesystem.NewApplyPatch(".", nil),
 		filesystem.NewMoveFile("."),
 		filesystem.NewCopyFile("."),
 		filesystem.NewDeleteFile("."),
