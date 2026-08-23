@@ -156,6 +156,7 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(filesystem.NewGrepSearch(workDir, documentCache))
 	a.toolRegistry.MustRegister(filesystem.NewWriteFile(workDir, filesystem.WithWriteFileQuestionnaire(a.questionnaireMgr), filesystem.WithWriteFileWriteObserver(a.markEditorAssistedWrite)))
 	a.toolRegistry.MustRegister(filesystem.NewEditFile(workDir, a.questionnaireMgr, filesystem.WithEditFileWriteObserver(a.markEditorAssistedWrite)))
+	a.toolRegistry.MustRegister(filesystem.NewApplyPatch(workDir, a.questionnaireMgr, filesystem.WithApplyPatchWriteObserver(a.markEditorAssistedWrite)))
 	// text_edit é opt-in: só entra no payload de perfis que a habilitam
 	// explicitamente (ex.: editor-texto). Específica da superfície do editor.
 	a.toolRegistry.MustRegisterOptIn(filesystem.NewTextEdit(workDir, a.questionnaireMgr, filesystem.WithTextEditWriteObserver(a.markEditorAssistedWrite)))

@@ -68,18 +68,18 @@ type ErrNotWritable struct {
 func (e *ErrNotWritable) Error() string {
 	if e.BinaryContent {
 		return fmt.Sprintf(
-			"escrita não suportada: o conteúdo é binário apesar da extensão de %s; write_file/edit_file/text_edit só aceitam texto",
+			"escrita não suportada: o conteúdo é binário apesar da extensão de %s; write_file/edit_file/apply_patch/text_edit só aceitam texto",
 			e.Kind,
 		)
 	}
 	if IsOpaqueDocument(e.Kind) {
 		return fmt.Sprintf(
-			"escrita não suportada no formato %s — use read_file para obter a projeção Markdown; write_file/edit_file/text_edit só aceitam arquivos de texto",
+			"escrita não suportada no formato %s — use read_file para obter a projeção Markdown; write_file/edit_file/apply_patch/text_edit só aceitam arquivos de texto",
 			e.Kind,
 		)
 	}
 	return fmt.Sprintf(
-		"escrita não suportada: conteúdo binário (%s) sem leitura convertida disponível; write_file/edit_file/text_edit só aceitam arquivos de texto",
+		"escrita não suportada: conteúdo binário (%s) sem leitura convertida disponível; write_file/edit_file/apply_patch/text_edit só aceitam arquivos de texto",
 		e.Kind,
 	)
 }

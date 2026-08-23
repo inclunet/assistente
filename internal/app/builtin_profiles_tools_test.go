@@ -21,6 +21,7 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 				"read_file":    "preloaded",
 				"search_files": "preloaded",
 				"grep_search":  "preloaded",
+				"apply_patch":  "preloaded",
 				"edit_file":    "preloaded",
 				"write_file":   "preloaded",
 				"run_command":  "preloaded",
