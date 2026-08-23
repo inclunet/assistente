@@ -133,7 +133,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var fullReasoning strings.Builder
 	var isThinking bool
 	var thinkingBuffer strings.Builder
-	var emittedAnything bool
+	var emittedVisibleContent bool
 	captureReasoningContent := p.ReplaysReasoningContent()
 
 	// Coletar tool calls finalizadas durante streaming
@@ -164,7 +164,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		if captureReasoningContent {
 			if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
 				fullReasoning.WriteString(reasoning)
-				emittedAnything = true
+				// Thinking não bloqueia retry: o caminho por tags segue o mesmo
+				// contrato. Só conteúdo visível entregue por OnChunk torna uma
+				// nova tentativa insegura por poder duplicar a resposta.
 				handler.OnThinking(reasoning)
 			}
 		}
@@ -176,7 +178,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 			if content != "" {
 				fullResponse.WriteString(content)
-				emittedAnything = true
+				emittedVisibleContent = true
 				handler.OnChunk(content)
 			}
 		}
@@ -186,7 +188,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
 
-		if !emittedAnything {
+		if !emittedVisibleContent {
 			// tool_choice downgrade
 			if origParams.ToolChoice.OfAuto.Valid() && origParams.ToolChoice.OfAuto.Value == "required" {
 				if strings.Contains(strings.ToLower(errStr), "tool_choice") || strings.Contains(strings.ToLower(errStr), "tool choice") {
