@@ -169,3 +169,20 @@ func TestEmitterAdapter_SegmentDone_Verbose(t *testing.T) {
 		t.Errorf("stderr esperado %q, obteve %q", want, got)
 	}
 }
+
+func TestEmitterAdapter_DoneOutputLimitSempreAvisa(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+
+	e.Emit("chat:done", ports.DoneEvent{
+		ConversationID: "1",
+		Reason:         "output_limit",
+	})
+
+	if out.Len() > 0 {
+		t.Errorf("stdout deveria estar vazio, obteve %q", out.String())
+	}
+	if got, want := errOut.String(), "[done] output_limit\n"; got != want {
+		t.Errorf("stderr esperado %q, obteve %q", want, got)
+	}
+}

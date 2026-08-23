@@ -235,6 +235,28 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 
 	model := acc.Model
+	finish := FinishInfo{}
+	if len(acc.Choices) > 0 {
+		finish = normalizeOpenAIChatFinishReason(string(acc.Choices[0].FinishReason))
+	}
+	if finish.Reason == FinishReasonMaxTokens && len(acc.Choices) > 0 && len(acc.Choices[0].Message.ToolCalls) > 0 {
+		// JustFinishedToolCall só entrega blocos fechados. Em "length", o
+		// acumulador ainda preserva a chamada parcial; ela precisa chegar ao loop
+		// para ser bloqueada e reformulada, nunca executada como JSON completo.
+		finishedToolCalls = make([]ToolCall, 0, len(acc.Choices[0].Message.ToolCalls))
+		for _, call := range acc.Choices[0].Message.ToolCalls {
+			finishedToolCalls = append(finishedToolCalls, ToolCall{
+				ID:   call.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      call.Function.Name,
+					Arguments: call.Function.Arguments,
+				},
+			})
+		}
+	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), usage, model)

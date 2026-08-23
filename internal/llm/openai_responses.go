@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -252,6 +253,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	var lastUsage Usage
 	var lastUsageRaw any
 	var lastModel string
+	var finish FinishInfo
 	var isThinking bool
 	var thinkingBuffer strings.Builder
 
@@ -433,6 +435,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.completed":
 			ev := event.AsResponseCompleted()
+			finish = normalizeOpenAIResponsesFinishReason("completed")
 			if ev.Response.Usage.TotalTokens > 0 {
 				lastUsageRaw = rawJSONDump(ev.Response.Usage.RawJSON())
 				lastUsage = UsageFromOpenAIResponses(
@@ -448,6 +451,25 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			}
 			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
 				eventCount, fullResponse.Len(), len(finishedToolCalls), lastModel)
+
+		case "response.incomplete":
+			ev := event.AsResponseIncomplete()
+			finish = normalizeOpenAIResponsesFinishReason(ev.Response.IncompleteDetails.Reason)
+			if ev.Response.Usage.TotalTokens > 0 {
+				lastUsageRaw = rawJSONDump(ev.Response.Usage.RawJSON())
+				lastUsage = UsageFromOpenAIResponses(
+					int(ev.Response.Usage.InputTokens),
+					int(ev.Response.Usage.OutputTokens),
+					int(ev.Response.Usage.TotalTokens),
+					int(ev.Response.Usage.InputTokensDetails.CachedTokens),
+					ev.Response.Usage.RawJSON(),
+				)
+			}
+			if string(ev.Response.Model) != "" {
+				lastModel = string(ev.Response.Model)
+			}
+			logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Stream incompleto: reason=%s, events=%d, toolCalls=%d",
+				ev.Response.IncompleteDetails.Reason, eventCount, len(finishedToolCalls))
 
 		case "response.failed":
 			ev := event.AsResponseFailed()
@@ -507,6 +529,26 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
 	}
+	if finish.Reason == FinishReasonMaxTokens && len(activeFuncCalls) > 0 {
+		itemIDs := make([]string, 0, len(activeFuncCalls))
+		for itemID := range activeFuncCalls {
+			itemIDs = append(itemIDs, itemID)
+		}
+		sort.Strings(itemIDs)
+		for _, itemID := range itemIDs {
+			call := activeFuncCalls[itemID]
+			finishedToolCalls = append(finishedToolCalls, ToolCall{
+				ID:   call.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      call.Name,
+					Arguments: call.Args.String(),
+				},
+			})
+		}
+	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {
 		dumpLLMResponse(dumpHandle, chatParams, map[string]any{

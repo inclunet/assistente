@@ -131,6 +131,7 @@ execução e interação além da seleção de tools.
    - solicitar confirmação para trocar de perfil quando houver incompatibilidade;
    - nunca elevar tools ou privilégios silenciosamente.
 5. **Continuação por limite de saída**
+   - implementada pela [AEP-0098](0098-limite-de-saida-e-tool-calls-truncadas.md);
    - propagar o stop reason dos providers;
    - distinguir JSON malformado original de tool call truncada;
    - continuar ou orientar fatiamento sem retry cego.

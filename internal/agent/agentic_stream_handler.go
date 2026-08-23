@@ -20,6 +20,7 @@ type AgenticStreamHandler struct {
 
 	// Resultado da iteração (preenchido por OnDone/OnToolCalls/OnError)
 	result AgenticResult
+	finish llm.FinishInfo
 
 	// MCP tool events acumulados durante o streaming (para persistência)
 	nativeMCPEvents []llm.MCPToolEvent
@@ -48,12 +49,19 @@ func (h *AgenticStreamHandler) Result() AgenticResult {
 	return h.result
 }
 
+func (h *AgenticStreamHandler) OnFinishReason(info llm.FinishInfo) {
+	h.mu.Lock()
+	h.finish = info
+	h.mu.Unlock()
+}
+
 func (h *AgenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
 	h.mu.Lock()
 	h.cancelPendingChunkTimer()
 	content := h.accumulatedContent
 	reasoning := h.accumulatedReasoning
 	mcpEvents := h.nativeMCPEvents
+	finish := h.finish
 	h.nativeMCPEvents = nil
 	h.mu.Unlock()
 
@@ -70,6 +78,7 @@ func (h *AgenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse st
 		Usage:           usage,
 		Model:           model,
 		IsDone:          false,
+		Finish:          finish,
 	}
 }
 
@@ -167,6 +176,7 @@ func (h *AgenticStreamHandler) OnDone(fullResponse string, usage llm.Usage, mode
 	content := h.accumulatedContent
 	reasoning := h.accumulatedReasoning
 	mcpEvents := h.nativeMCPEvents
+	finish := h.finish
 	h.nativeMCPEvents = nil
 	h.mu.Unlock()
 
@@ -182,5 +192,6 @@ func (h *AgenticStreamHandler) OnDone(fullResponse string, usage llm.Usage, mode
 		Usage:           usage,
 		Model:           model,
 		IsDone:          true,
+		Finish:          finish,
 	}
 }

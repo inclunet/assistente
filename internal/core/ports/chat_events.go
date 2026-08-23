@@ -50,7 +50,7 @@ type DoneEvent struct {
 	AssistantMessageID string `json:"assistantMessageId,omitempty"`
 	HadToolCalls       bool   `json:"hadToolCalls,omitempty"`
 	// AEP-0039 Fase 2: enriched done event
-	Reason           string             `json:"reason,omitempty"` // "completed" | "limit_reached" | "error"
+	Reason           string             `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error"
 	IterationCount   int                `json:"iterationCount,omitempty"`
 	ToolCallCount    int                `json:"toolCallCount,omitempty"`
 	ToolsUsed        []string           `json:"toolsUsed,omitempty"`

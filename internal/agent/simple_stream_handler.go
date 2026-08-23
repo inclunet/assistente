@@ -22,6 +22,7 @@ type SimpleStreamHandler struct {
 	profileSlug           string // Profile slug for TTS resolution
 	lastError             string
 	suppressTerminalError bool
+	finish                llm.FinishInfo
 	// activity acompanha um turno conduzido por agente externo (AEP-0084):
 	// ferramentas que o agente rodou e os segmentos já fechados.
 	activity agentActivity
@@ -91,6 +92,10 @@ func (h *SimpleStreamHandler) LastError() string {
 	return h.lastError
 }
 
+func (h *SimpleStreamHandler) OnFinishReason(info llm.FinishInfo) {
+	h.finish = info
+}
+
 // SuppressTerminalError evita emitir chat:stream terminal com Error.
 // Usado pela auto-recuperação para não finalizar o streaming no frontend
 // antes de esgotar as tentativas.
@@ -133,6 +138,7 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 		Usage:        usage,
 		Model:        model,
 		IsDone:       true,
+		Finish:       h.finish,
 		// A mensagem salva é o turno inteiro; a leitura final é só o que ainda
 		// não foi falado nos segmentos.
 		ReadInSegments:  readInSegments,

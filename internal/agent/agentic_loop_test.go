@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"assistente/internal/core/ports"
@@ -476,6 +477,94 @@ func (s *multiIterToolStreamer) StreamChat(_ context.Context, _ []llm.Message, _
 	}
 	handler.OnDone("final", llm.Usage{}, "m")
 	s.calls++
+}
+
+type outputLimitToolStreamer struct {
+	calls        int
+	repeatLimit  bool
+	lastMessages []llm.Message
+}
+
+func (s *outputLimitToolStreamer) StreamChat(_ context.Context, messages []llm.Message, _ llm.ChatParams, handler llm.StreamHandler, _ ...llm.ToolDefinition) {
+	s.lastMessages = append([]llm.Message(nil), messages...)
+	if s.calls == 0 || s.repeatLimit {
+		llm.ReportFinishReason(handler, llm.FinishInfo{
+			Reason:    llm.FinishReasonMaxTokens,
+			RawReason: "length",
+		})
+		handler.OnToolCalls([]llm.ToolCall{{
+			ID:   fmt.Sprintf("truncated-%d", s.calls),
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      "write_file",
+				Arguments: `{"path":"livro.md","content":"texto interrompido`,
+			},
+		}}, "", llm.Usage{}, "m")
+		s.calls++
+		return
+	}
+	llm.ReportFinishReason(handler, llm.FinishInfo{Reason: llm.FinishReasonStop, RawReason: "stop"})
+	handler.OnDone("final", llm.Usage{}, "m")
+	s.calls++
+}
+
+func newOutputLimitRunner(streamer llm.Streamer, em *captureEmitter) *agenticLoopRunner {
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	r := newSeamRunner(svc, "c1", "t1")
+	r.assistantMessageID = "a1"
+	r.messages = []llm.Message{{Role: "user", Content: "traduza o livro"}}
+	r.activeStreamer = streamer
+	r.newHandler = func(string, int) IterationHandler { return &testIterationHandler{} }
+	r.maxIterations = 3
+	return r
+}
+
+func TestRunAgenticLoop_MaxTokensBloqueiaToolEReformulaUmaVez(t *testing.T) {
+	em := &captureEmitter{}
+	streamer := &outputLimitToolStreamer{}
+	r := newOutputLimitRunner(streamer, em)
+
+	r.run(context.Background())
+
+	if streamer.calls != 2 {
+		t.Fatalf("chamadas ao modelo=%d, want 2", streamer.calls)
+	}
+	if got := len(em.find("chat:tool_start")); got != 0 {
+		t.Fatalf("tool truncada foi executada: tool_start=%d", got)
+	}
+	if len(streamer.lastMessages) < 2 {
+		t.Fatalf("mensagem de reformulação ausente: %#v", streamer.lastMessages)
+	}
+	control := streamer.lastMessages[len(streamer.lastMessages)-1]
+	if control.Role != "user" || !strings.Contains(fmt.Sprint(control.Content), "chamadas menores") {
+		t.Fatalf("controle de fatiamento inesperado: %#v", control)
+	}
+	done := em.find("chat:done")
+	if len(done) != 1 || done[0].data.(ports.DoneEvent).Reason != "completed" {
+		t.Fatalf("desfecho inesperado: %#v", done)
+	}
+}
+
+func TestRunAgenticLoop_SegundoMaxTokensEncerraComoOutputLimit(t *testing.T) {
+	em := &captureEmitter{}
+	streamer := &outputLimitToolStreamer{repeatLimit: true}
+	r := newOutputLimitRunner(streamer, em)
+
+	r.run(context.Background())
+
+	if streamer.calls != 2 {
+		t.Fatalf("chamadas ao modelo=%d, want 2", streamer.calls)
+	}
+	if got := len(em.find("chat:tool_start")); got != 0 {
+		t.Fatalf("tool truncada foi executada: tool_start=%d", got)
+	}
+	done := em.find("chat:done")
+	if len(done) != 1 {
+		t.Fatalf("chat:done=%d, want 1", len(done))
+	}
+	if reason := done[0].data.(ports.DoneEvent).Reason; reason != "output_limit" {
+		t.Fatalf("reason=%q, want output_limit", reason)
+	}
 }
 
 func TestRunAgenticLoop_MultipleToolIterations_EmitsEventsInOrder(t *testing.T) {

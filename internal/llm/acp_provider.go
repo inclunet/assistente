@@ -167,6 +167,7 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	if stop != acp.StopEndTurn {
 		logging.Infof(ctx, acpProviderComponent, "[ACP] turno encerrado por %q", string(stop))
 	}
+	ReportFinishReason(handler, normalizeACPFinishReason(string(stop)))
 	// Sem contagem de tokens: o agente cobra na conta dele e não reporta uso. O
 	// modelo relatado é o da sessão, e não o que o perfil pediu: o agente troca
 	// sozinho, e dizer o pedido faria a mensagem ficar salva com a autoria
