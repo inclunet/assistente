@@ -236,18 +236,17 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
    - Tratamento de erros consistente
    - Reutilização de código (HTTP client, validações)
 
-### Próximos Passos
+### Implementação entregue
 
-1. ✅ Revisar e aprovar proposta
-2. ⏳ Implementar `http_request.go`
-3. ⏳ Implementar `http_request_test.go`
-4. ⏳ Registrar em `app.go`
-5. ⏳ Testar integração end-to-end
-6. ⏳ Atualizar documentação de skills
-7. ⏳ Comunicar nova funcionalidade
+1. ✅ Tool implementada em `internal/tools/web/http_request.go`.
+2. ✅ Cobertura unitária em `internal/tools/web/http_request_test.go`.
+3. ✅ Registro no catálogo compartilhado de tools.
+4. ✅ Integração com cliente HTTP centralizado, credenciais e guardrails
+   anti-SSRF.
+5. ✅ Execução passa pelo pipeline comum de tools e seus testes de catálogo.
 
 ---
 
-**Status:** Proposta em análise  
+**Estado histórico:** proposta aprovada e implementada.
 **Prioridade:** Alta (impacto operacional significativo)  
 **Estimativa:** 2-3 horas de implementação + testes

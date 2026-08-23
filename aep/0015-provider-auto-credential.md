@@ -449,34 +449,21 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 
 ---
 
-## Roadmap
+## Implementação entregue
 
-### Phase 5.1 (Backend)
-- [ ] Implementar `extractDomainPattern()` helper
-- [ ] Adicionar campo `api_key` em `CreateProviderRequest`
-- [ ] Modificar `CreateLLMProvider()` para salvar credencial
-- [ ] Adicionar `UpdateProviderCredential()` método
-- [ ] Implementar endpoint `POST /api/providers`
-- [ ] Testes unitários + integração
+O desenho original foi absorvido pelo serviço de providers, sem criar o endpoint
+HTTP paralelo sugerido no plano:
 
-### Phase 5.2 (Frontend)
-- [ ] Adicionar campo "API Key" em `ProviderForm`
-- [ ] Implementar extração visual de pattern
-- [ ] Toggle show/hide password
-- [ ] Validação de formato de key
-- [ ] Feedback de sucesso/erro
-- [ ] Testes de componente
+- [x] `internal/providers/service.go` recebe `APIKey` na criação/atualização,
+      deriva o pattern do `BaseURL` e registra a credencial no manager.
+- [x] `CreateLLMProviderRequest` transporta `api_key` sem persistir a chave no
+      registro público do provider.
+- [x] `frontend/src/components/settings/ProviderForm.tsx` oferece o campo de
+      credencial no fluxo de criação/edição.
+- [x] `internal/app/app_provider_crud_test.go` cobre criação com API key,
+      atualização e ausência de credencial.
+- [x] `internal/app/app_phase8_integration_test.go` cobre migração, resolução de
+      pattern e injeção automática da credencial.
 
-### Phase 5.3 (Validação)
-- [ ] Teste end-to-end: criar provider → usar em profile → fazer chat
-- [ ] Verificar credencial injetada corretamente
-- [ ] Validar segurança (não expor key em logs/JSON)
-
----
-
-## Status: 📋 **PLANEJADO**
-
-**Inclusão no Plano:** Phase 5 (Frontend UI for Provider Manager)  
-**Prioridade:** Alta (melhora significativamente UX)  
-**Complexidade:** Baixa (infraestrutura já existe)  
-**Estimativa:** 4-6 horas de desenvolvimento + testes
+O endpoint REST `POST /api/providers` proposto originalmente não foi necessário:
+desktop e frontend usam o binding/controlador compartilhado de providers.

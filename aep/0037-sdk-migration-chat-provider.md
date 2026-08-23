@@ -1,6 +1,6 @@
 # SDK Migration + ChatProvider Interface
 
-## Status: Done — implementado (v2)
+## Status: In Progress — providers e integração entregues; cleanup da Fase 6 permanece parcial
 
 ---
 
@@ -277,11 +277,13 @@ Este caminho nao envolve o cliente LLM nem o `ChatProvider`. MCP tools continuam
 - ✅ Frontend: dropdown `api_format` em ProviderForm com labels claros por formato
 - ✅ OpenAI real usa `openai_responses` como default; providers compatible usam `openai`
 
-### Fase 6: Cleanup ✅
+### Fase 6: Cleanup 🚧
 
 - ✅ Removidos: `mcp_mode`, `mcp_native_tested`, `ShouldUseMCPNative()`, `TestMCPNativeSupport()`, `ModelSupportsNativeMCP()`, `GetNativeServerInfo()`, `mcp_testing.go`
-- Pendente: Remover `client.go`, `sync_client.go`, tipos manuais de `types.go` (cliente legado mantido como fallback temporario para ListModels)
-- Pendente: Remover `internal/tools/http` se nao usado por outros modulos
+- ✅ `client.go` e `sync_client.go` já foram removidos.
+- Pendente: revisar tipos manuais remanescentes de `types.go`.
+- `internal/tools/http` permanece porque outros módulos ainda o utilizam; não
+  pode ser removido como parte deste cleanup.
 
 ---
 

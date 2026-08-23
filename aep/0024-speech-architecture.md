@@ -1,6 +1,6 @@
 # Arquitetura de Voz (TTS/STT)
 
-**Status:** Done
+**Status:** In Progress — núcleo de voz implementado; validação manual com NVDA e fases futuras permanecem abertas
 
 ## Visão Geral
 

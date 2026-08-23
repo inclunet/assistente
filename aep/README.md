@@ -17,7 +17,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 |-----|--------|--------|
 | [0001](0001-jobs-event-driven-automation.md) | Jobs — Event-Driven Automation | 🚧 In Progress |
 | [0002](0002-tool-calling.md) | Tool Calling System | ✅ Done |
-| [0003](0003-chat-tabs.md) | Sistema de Abas de Chat | ✅ Done |
+| [0003](0003-chat-tabs.md) | Sistema de Abas de Chat | 🗄️ Superseded |
 | [0004](0004-chat-refactor.md) | Refatoração do Chat (Svelte) | 🗄️ Superseded |
 | [0005](0005-chat-refactor-v2.md) | Refatoração do Chat v2 | 🗄️ Superseded |
 | [0006](0006-chat-architecture-fix.md) | Fix Arquitetura de Chat | 🗄️ Superseded |
@@ -27,7 +27,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0010](0010-streaming-architecture.md) | Arquitetura de Streaming | 🗄️ Superseded |
 | [0011](0011-thread-hierarchy.md) | Thread Hierarchy v2 | ✅ Done |
 | [0012](0012-llm-provider-manager.md) | Multi-Provider LLM Architecture | ✅ Done |
-| [0013](0013-llm-refactor.md) | LLM Client Refactor | ✅ Done |
+| [0013](0013-llm-refactor.md) | LLM Client Refactor | 🗄️ Superseded |
 | [0014](0014-credential-persistence.md) | Persistência de Credenciais | ✅ Done |
 | [0015](0015-provider-auto-credential.md) | Auto-extração de Credenciais | ✅ Done |
 | [0016](0016-http-request-tool.md) | HTTP Request Tool | ✅ Done |
@@ -38,20 +38,20 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (v2) | 🚧 In Progress |
 | [0022](0022-welcome-wizard.md) | Welcome Wizard | ✅ Done |
 | [0023](0023-deep-links.md) | Deep Links (assistente://) | ✅ Done |
-| [0024](0024-speech-architecture.md) | Arquitetura de Voz (TTS/STT) | ✅ Done |
+| [0024](0024-speech-architecture.md) | Arquitetura de Voz (TTS/STT) | 🚧 In Progress |
 | [0025](0025-interaction-profiles.md) | Perfis de Interação por Voz | ✅ Done |
 | [0026](0026-credential-fixes.md) | Correções no Sistema de Credenciais | ✅ Done |
-| [0027](0027-profiles-refactor.md) | Refatoração ProfilesPage | ✅ Done |
-| [0028](0028-componentization.md) | Componentização Frontend | ✅ Done |
+| [0027](0027-profiles-refactor.md) | Refatoração ProfilesPage | 🚧 In Progress |
+| [0028](0028-componentization.md) | Componentização Frontend | 🚧 In Progress |
 | [0029](0029-auto-update.md) | Sistema de Auto-Update | ✅ Done |
 | [0030](0030-email-system.md) | Sistema de Email | 📋 Open |
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 🚧 In Progress |
-| [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | ✅ Done |
+| [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | 🚧 In Progress |
 | [0034](0034-unified-workspace.md) | Unified Workspace | ✅ Done |
 | [0035](0035-split-view.md) | Split View | 📝 Draft |
 | [0036](0036-plan-tasklistmanager.md) | Task List Manager Feature | ✅ Done |
-| [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | ✅ Done |
+| [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 | [0038](0038-voice-model-refactor.md) | Refatoração do Modelo de Voz (por Role) | ✅ Done |
 | [0039](0039-tool-calling-revamp.md) | Tool Calling — Revamp & Enhancements | 🚧 In Progress |
 | [0040](0040-backend-driven-messaging.md) | Backend-Driven Messaging | ✔️ Accepted |
@@ -79,7 +79,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0064](0064-streaming-recovery-explicito.md) | Recuperação Explícita de Streaming e Cancelamento | ✅ Done |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | ✅ Done |
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | ✅ Done |
-| [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | ✅ Done |
+| [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | 🚧 In Progress |
 | [0068](0068-subagentes-segundo-plano.md) | Sub-agentes em segundo plano (tool de sub-conversas) | ✅ Done |
 | [0069](0069-feed-read-tool.md) | Tool feed_read (RSS/Atom/JSON Feed/Podcast → JSON canônico) | ✅ Done |
 | [0070](0070-web-search-tool.md) | Tool web_search (busca web → JSON canônico paginável) | ✅ Done |
@@ -100,7 +100,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | ✅ Done |
 | [0085](0085-i18n-de-dialogos-do-questionnaire.md) | i18n dos diálogos que o backend manda para a tela (questionnaire) | ✅ Done |
 | [0086](0086-registro-acp-descoberta-e-instalacao-de-agentes.md) | Descoberta e instalação de agentes pelo registro ACP | ✅ Done |
-| [0087](0087-tela-de-erro-acessivel-e-diagnosticavel.md) | Tela de erro acessível e diagnosticável | ✅ Done |
+| [0087](0087-tela-de-erro-acessivel-e-diagnosticavel.md) | Tela de erro acessível e diagnosticável | 🚧 In Progress |
 | [0088](0088-strangler-fig-borda-wails-app.md) | Concluir migração Strangler Fig da borda Wails (`App`) | ✅ Done |
 | [0089](0089-terminais-como-recursos-efemeros.md) | Terminais como recursos efêmeros | 🚧 In Progress |
 | [0090](0090-ordem-botoes-dialogos.md) | Ordem de botões em diálogos (confirmação antes de cancelar) | ✅ Done |

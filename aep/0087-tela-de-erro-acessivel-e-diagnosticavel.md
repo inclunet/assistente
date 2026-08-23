@@ -1,6 +1,6 @@
 # AEP-0087 — Tela de erro acessível e diagnosticável
 
-**Status:** ✅ Done — tela acessível entregue; registro no backend permanece evolução futura
+**Status:** 🚧 In Progress — implementação e testes automatizados entregues; validações NVDA e build de produção permanecem abertas
 
 ## Resumo
 
@@ -111,11 +111,11 @@ transforma "o app deu erro" em relato acionável.
 
 ## Critérios de aceitação
 
-- [x] Com um erro forçado na renderização, o NVDA lê título, descrição e
+- [ ] Validação manual: com um erro forçado na renderização, o NVDA lê título, descrição e
       mensagem sem que o usuário precise sair do modo de foco.
 - [x] O `#root` volta a ter `role="application"` e `aria-label` quando a tela de
       erro desmonta.
-- [x] O `componentStack` exibido nomeia o componente que quebrou em build de
+- [ ] Validação em build de produção: o `componentStack` exibido nomeia o componente que quebrou em build de
       produção.
 - [x] Título, descrição, botões e avisos existem em `pt-BR`, `en` e `es`.
 - [x] Testes cobrem: remoção/restauração do `role`, foco inicial, cópia dos

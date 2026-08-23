@@ -1,6 +1,6 @@
 # Implementação de Guias (Tabs) de Chat
 
-**Status:** Done
+**Status:** Superseded — plano Svelte substituído pelo Unified Workspace e pelas superfícies das AEPs 0034, 0056 e 0057
 
 ## Resumo
 

@@ -225,10 +225,11 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 
 ## Plano de Transição e Compatibilidade (Issue #127)
 
-Esta seção fecha formalmente o critério de aceite "há migração/compatibilidade para dados
-existentes OU um plano explícito de transição" do issue #127. O núcleo do AEP-0063 já está
-implementado; o que falta é documentar explicitamente o que migrou, o que permanece em
-armazenamento legado, por que permanece, e como/quando deprecá-lo.
+Esta seção registra como o critério de aceite "há migração/compatibilidade para dados
+existentes OU um plano explícito de transição" do issue #127 foi atendido. O núcleo do
+AEP-0063 está implementado. A transição posterior do L3 foi concluída pela AEP-0078:
+novas mensagens não gravam `tool_calls` no caminho feliz, enquanto dados históricos
+continuam legíveis como fallback.
 
 ### O que já migrou para `tool_invocations`
 
@@ -289,14 +290,15 @@ domínio distinta da trilha técnica de `tool_invocations`.
 
 #### L3 — `tool_calls` JSON em mensagens assistant
 
-- **Onde**: mensagens assistant (`AddAssistantToolMessage`, campo `tool_calls`).
-- **O que guarda**: a intenção de chamada (nome, argumentos, enriquecimento MCP: origin,
-  server_label, iteration), não o output bruto.
-- **Por que permanece**: é o que a UI e o export/import usam para **hidratar** e associar o
-  resultado técnico (`tool_invocations`) à mensagem correta. É a "referência leve" prevista em
-  D2 (`tool_invocation_id`/`tool_call_id`), não um armazenamento de resultado.
-- **Status**: mantido por design enquanto a hidratação depender da ordem
-  tool-call→tool-result no histórico de mensagens.
+- **Onde permanece**: dados históricos em `chat_messages.tool_calls` e caminhos de
+  compatibilidade de leitura.
+- **Estado atual**: o agentic loop não grava L3 no caminho feliz
+  (`internal/agent/agentic_loop.go`); timeline, exportação e sumarização hidratam
+  chamadas por `tool_invocations`.
+- **Compatibilidade**: mensagens antigas continuam legíveis e exportáveis. O fallback
+  não autoriza novos consumidores nem novas escritas de L3.
+- **Status**: deprecação funcional concluída pela AEP-0078; coluna legada preservada
+  para leitura.
 
 ### Plano e critérios para deprecar cada legado
 
@@ -304,7 +306,7 @@ domínio distinta da trilha técnica de `tool_invocations`.
 |---|---|---|
 | L1 `role=tool` | Reduzir gradualmente o acionamento. | Quando a hidratação por `tool_invocations` + assistant `tool_calls` cobrir 100% dos caminhos de leitura (UI, export, sumarização) **e** métricas mostrarem 0 acionamentos do fallback em produção por um período de observação. Só então remover `AddToolResultMessage` do caminho de chat. |
 | L2 `job_run_events` | **Não deprecar.** | Permanece como timeline operacional. Só seria reavaliado se a UI de jobs passar a derivar a timeline inteiramente de `tool_invocations` + `job_runs`, o que não é objetivo do issue #127. |
-| L3 `tool_calls` JSON em mensagens | Manter como referência leve. | Só deprecável se a UI/export passarem a montar a associação call↔result diretamente por `tool_invocations.tool_call_id`/`parent_invocation_id` sem depender da ordem de mensagens. Requer AEP próprio. |
+| L3 `tool_calls` JSON em mensagens | Não gravar em mensagens novas; manter leitura legada. | Concluído pela AEP-0078; remoção física da coluna exigiria migração separada. |
 
 ### Compatibilidade com dados existentes
 

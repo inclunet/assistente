@@ -1,6 +1,6 @@
 # Plano de Refatoração: ProfilesPage
 
-**Status:** Done
+**Status:** In Progress — componentes principais existem, mas sprints, gates e validação final do plano não estão encerrados
 
 **Objetivo**: Migrar ProfilesPage para usar `useEditableList` + extrair componentes reutilizáveis testados
 

@@ -1,6 +1,6 @@
 # LLM Provider Manager Architecture
 
-**Status:** Done
+**Status:** Done — provider manager e fluxo de credenciais cobertos por `internal/app/app_phase8_integration_test.go`
 **Date:** March 6, 2026  
 **Goal:** Replace global LLM configuration with per-profile provider management + credential-based authentication
 
@@ -644,6 +644,12 @@ dele para LLM/modelo/voz/perfil ativo.
   - ✅ No breaking changes detected
 
 #### 8.5 Documentation 🚧
+
+Os itens abaixo são follow-ups documentais e não fazem parte do escopo funcional
+aceito como concluído. A implementação e os cenários críticos estão cobertos em
+`internal/app/app_phase8_integration_test.go`, `internal/app/app_provider_crud_test.go`
+e `internal/profiles/provider_validation_test.go`.
+
 - [ ] Update `docs/PROFILES.md` with provider field
 - [ ] Update `docs/CREDENTIAL_SYSTEM.md` with flow diagram
 - [ ] Create `docs/PROVIDER_MANAGER.md` user guide

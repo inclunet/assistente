@@ -1,6 +1,6 @@
 # AEP-0067 — Eventos de domínio de Tasklists e Custom Actions
 
-Status: Done — eventos, proveniência, custom actions, UI e testes entregues
+Status: In Progress — núcleo entregue; cobertura do picker e do fluxo frontend completo ainda não foi comprovada
 Data: 2026-06-02
 Autor: Inclunet + Cursor Agent
 
@@ -375,9 +375,12 @@ alto risco. Mitigações combinadas: proveniência + circuit breaker + `trigger.
 - [x] Proveniência (`_source`/`_source_job_id`/`_chain_id`) no payload; job que muta card não re-dispara a si mesmo com `when {{ eq .event._source "user" }}`.
 - [x] `custom_actions` persistido (coluna JSON), editável via UI; itens nativos preservados.
 - [x] `TriggerCustomAction` renderiza `payload_template`/`link` e publica o evento; `link` abre deeplink interno ou URL externa.
-- [x] Eventos de domínio + eventos das custom actions aparecem no picker do `JobBuilder`.
+- [ ] Eventos de domínio + eventos das custom actions aparecem no picker do
+      `JobBuilder` com teste focado de regressão.
 - [x] Skill `job-manager` documenta os novos eventos e recipes.
-- [x] Testes Go (`internal/tasklist`, `internal/jobs`, `internal/database`) e frontend (`TaskListView`, `KanbanBoard`, `TaskDetailModal`) cobrem publish, refresh, custom actions e anti-loop.
+- [ ] Testes Go cobrem publish, refresh, custom actions e anti-loop; falta
+      comprovar por teste frontend o binding/picker e o fluxo completo de custom
+      actions no `JobBuilder`.
 
 ## Fora de escopo
 

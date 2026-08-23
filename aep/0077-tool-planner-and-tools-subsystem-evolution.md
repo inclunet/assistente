@@ -1,8 +1,9 @@
 # AEP-0077 — ToolPlanner e Evolução do Subsistema de Tools
 
+**Status:** Done
+
 | Campo | Valor |
 |-------|-------|
-| Status | ✅ Done |
 | Issues | [#122](https://github.com/inclunet/assistente/issues/122), [#120](https://github.com/inclunet/assistente/issues/120), [#119](https://github.com/inclunet/assistente/issues/119), [#121](https://github.com/inclunet/assistente/issues/121); rede de segurança: [#245](https://github.com/inclunet/assistente/issues/245) |
 | Relacionados | AEP-0039 (Tool Calling Revamp), AEP-0063 (Tool Invocations & Executor Comum), AEP-0021 (MCP Native Mode), AEP-0040 (Backend-Driven Messaging), AEP-0071 (Structured Tool Output Size), AEP-0072 (Skill Loading Runtime), AEP-0075 (Context Providers), AEP-0081 (Tools por Perfil) |
 

@@ -1,6 +1,6 @@
 # MCP OAuth Auto-Discovery
 
-**Status:** Done
+**Status:** In Progress — discovery e testes existem; contrato de campos readonly/manual override permanece incompleto
 
 ## Objetivo
 
@@ -26,7 +26,19 @@ Exemplos reais que validei:
 - Protected Resource: 404 (não implementado)
 - Auth Server: `https://mcp.atlassian.com/.well-known/oauth-authorization-server` → retorna auth_url, token_url, registration_endpoint
 
-## O que implementar
+## Estado atual
+
+- [x] Discovery backend em `internal/mcp/discovery.go`, com testes em
+      `internal/mcp/oauth_test.go`.
+- [x] Binding e disparo no `McpPage`, com estados de loading/found/not_found.
+- [x] Feedback acessível e testes do painel em
+      `McpConnectionSection.test.tsx`.
+- [ ] `McpConnectionSection` recebe `discoveredFields`, mas atualmente o renomeia
+      para `_discoveredFields` e não o usa para tornar campos readonly.
+- [ ] O override manual previsto ainda não fecha o contrato por campo descrito
+      nesta AEP.
+
+## Plano original
 
 ### 1. Backend — Novo endpoint Go `DiscoverMCPServerAuth`
 
