@@ -5,8 +5,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-08-23):** este índice contém **97 documentos principais
-> para 96 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-08-23):** este índice contém **98 documentos principais
+> para 97 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -33,9 +33,9 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0015](0015-provider-auto-credential.md) | Auto-extração de Credenciais | ✅ Done |
 | [0016](0016-http-request-tool.md) | HTTP Request Tool | ✅ Done |
 | [0017](0017-http-request-security.md) | HTTP Request Security | ✅ Done |
-| [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | ✅ Done |
+| [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | 🚧 In Progress |
 | [0019](0019-http-client-centralization.md) | Centralização do Cliente HTTP | 🚧 In Progress |
-| [0020](0020-mcp-implementation.md) | MCP Complete Implementation | ✅ Done |
+| [0020](0020-mcp-implementation.md) | MCP Complete Implementation | 🚧 In Progress |
 | [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (v2) | 🚧 In Progress |
 | [0022](0022-welcome-wizard.md) | Welcome Wizard | ✅ Done |
 | [0023](0023-deep-links.md) | Deep Links (assistente://) | ✅ Done |
@@ -63,7 +63,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | ✅ Done |
 | [0046](0046-uuid-migration.md) | Migração de IDs Sequenciais para UUIDv7 | ✅ Done |
 | [0047](0047-import-export.md) | Importação e Exportação de Conteúdo | ✅ Done |
-| [0048](0048-jobs-database-migration.md) | Migração de Jobs para Banco de Dados | 🚧 In Progress |
+| [0048](0048-jobs-database-migration.md) | Migração de Jobs para Banco de Dados | ✅ Done |
 | [0049](0049-mcp-database-migration.md) | Migração de MCP Servers para Banco de Dados | ✅ Done |
 | [0050](0050-profiles-database-migration.md) | Migração de Profiles para Banco de Dados (adiada) | 📝 Draft |
 | [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
@@ -217,5 +217,5 @@ A renumeração de um deles exige alterar **referências em código fora de `aep
 que está fora do escopo da issue #263 (apenas governança/docs). A colisão fica
 **registrada aqui** e deve ser resolvida em uma issue/PR dedicada que também atualize
 as referências no código. Até lá, o índice usa os rótulos 0074-A e 0074-B e conta
-ambos como documentos principais: por isso há 97 documentos para 96 números
+ambos como documentos principais: por isso há 98 documentos para 97 números
 ocupados.

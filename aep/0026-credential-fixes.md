@@ -106,3 +106,20 @@ const handleTokenKeyDown = (e: React.KeyboardEvent) => {
 **Não esquecer:**
 - O `onBlur` existente com `setTimeout(150ms)` deve continuar funcionando (permite clique na sugestão)
 - Quando o editor fecha (`handleCloseEditor`), resetar `activeIndex` também
+
+## Resultado implementado
+
+- [x] `KeyringEntry` tem definição única em
+  `internal/credentials/keyring.go`; os arquivos específicos de plataforma não
+  redeclaram o tipo.
+- [x] O token usa `role="combobox"`, `aria-expanded`, `aria-controls`,
+  `aria-activedescendant` e `aria-autocomplete`.
+- [x] Sugestões usam listbox/options com IDs e estado selecionado.
+- [x] Setas, Enter, Escape, clique e anúncio da quantidade de sugestões estão
+  implementados.
+- [x] Regressões focadas existem em
+  `frontend/src/pages/CredentialsPage.test.tsx`, incluindo seleção por
+  ArrowDown+Enter, fechamento por Escape, mouse e announcer global.
+
+Essas evidências cobrem os dois problemas aceitos por esta AEP; não representam
+validação manual adicional com leitor de telas.

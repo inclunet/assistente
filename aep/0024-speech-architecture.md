@@ -682,9 +682,11 @@ Os componentes `ModelPicker` e `VoicePicker` suportam duas variantes:
 
 1. ✅ **Fase 1** - Implementar PTT básico com WebSpeech
 2. ✅ **Fase 2** - Adicionar suporte SAPI5 para Windows
-3. **Fase 3** - Integrar APIs de nuvem como opção premium
-4. **Fase 4** - Wake word com Porcupine
-5. **Fase 5** - Modo multimodal com GPT-4o Realtime
+3. ✅ **Fase 3** - APIs de nuvem integradas (Whisper/OpenAI TTS)
+4. ✅ **Fase 4** - Hotkey global entregue como alternativa aceita a wake word
+5. 🔮 **Fases futuras** - Wake word/Porcupine e modo multimodal realtime
+   permanecem propostas separáveis; não desfazem as Fases 3/4 já entregues.
+6. [ ] Concluir a validação manual com NVDA registrada nos critérios desta AEP.
 
 ---
 

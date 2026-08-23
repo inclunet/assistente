@@ -19,6 +19,15 @@
 
 ### ⏳ Pendentes de Refatoração
 
+- `internal/messaging/telegram/adapter.go` ainda usa `http.Get`.
+- Providers e conexão ainda criam clientes próprios em `internal/providers/`.
+- OAuth/discovery MCP mantém clientes próprios em `internal/mcp/`.
+- `internal/llm/google_provider.go` e `internal/auth/external_jwks.go` ainda
+  possuem clientes `net/http` diretos.
+
+Esses caminhos podem exigir transporte ou ciclo de vida próprio, mas precisam
+ser migrados ou explicitamente delimitados antes de concluir esta AEP.
+
 ---
 
 ## 🎯 Fases de Implementação
@@ -144,11 +153,11 @@
 ### Fase 6: Testes e Utilitários (Prioridade Baixa)
 
 #### 6.1. **`mcp_testing.go`** - Testes MCP
-- **Status**: Pendente
-- **Localização**: `internal/profiles/mcp_testing.go`
-- **Clientes Locais**: Cria `http.Client` inline (linhas 56, 119)
+- **Status**: Superado pelo estado atual; o arquivo não existe mais
+- **Localização histórica**: `internal/profiles/mcp_testing.go`
 - **Mudanças Necessárias**:
-  - [ ] Simples - apenas criar clientes de teste centralizados
+  - [x] Remover o utilitário legado.
+  - [ ] Auditar e tratar os consumidores diretos listados em “Situação Atual”.
 - **Complexidade**: ⭐ (baixa)
 - **Nota**: **Último** - não é crítico
 
@@ -162,10 +171,10 @@ Fase 1: ✅ CONCLUÍDA
 ├── web_fetch.go
 └── signal.go
 
-Fase 2: ⏳ WEB TOOLS (2-3 horas)
+Fase 2: ✅ WEB TOOLS
 └── web_search.go
 
-Fase 3: ⏳ FALA (2-3 horas)
+Fase 3: ✅ FALA
 ├── openai_tts.go
 └── openai_whisper.go
 
@@ -178,8 +187,11 @@ Fase 5: ✅ INFRAESTRUTURA
 ├── http_pool.go
 └── sync_client.go
 
-Fase 6: ⏳ TESTES (1 hora)
-└── mcp_testing.go
+Fase 6: 🚧 AUDITORIA FINAL
+├── Telegram
+├── providers/connection
+├── MCP OAuth/discovery
+└── Google provider/external JWKS
 ```
 
 ---
@@ -229,15 +241,11 @@ resp, err := c.client.Do(ctx, req)  // ctx geralmente já existe na função
 ## ⚠️ Considerações Especiais
 
 ### `web_search.go` - Interface SearchProvider
-- A interface `SearchProvider` aceita `*http.Client` como parâmetro
-- Precisa ser atualizada para aceitar `*httpclient.Client`
-- Impacta implementações: `duckDuckGoProvider`, `mockSearchProvider` (testes)
+- Migração concluída: provider e mocks usam o cliente central conforme a Fase 2.
 
 ### `openai_tts.go` e `openai_whisper.go`
-- Gerenciam credenciais OpenAI
-- Atual: Credenciais passadas no header manualmente
-- Futuro: Usar resolver automático do `httpclient.Client`
-- ⚠️ Testar autenticação cuidadosamente
+- Migração concluída conforme a Fase 3, com credenciais resolvidas pelo cliente
+  central e testes dos serviços de fala.
 
 ### `signal/adapter.go` e `signal/register.go`
 - Comunicação com Signal servers é crítica
@@ -255,31 +263,25 @@ resp, err := c.client.Do(ctx, req)  // ctx geralmente já existe na função
 
 ---
 
-## 📊 Métricas de Sucesso
+## 📊 Métricas para conclusão
 
-- ✅ Todos os testes passando
-- ✅ Nenhum `http.Client` criado diretamente (exceto em testes)
-- ✅ Todos os HTTP tools usando `httpclient.Client`
-- ✅ Autenticação funcionando em todos os serviços
-- ✅ Retry policy aplicada globalmente
-- ✅ Zero duplicação de lógica HTTP
+- [ ] Suíte completa validada após a migração residual.
+- [ ] Nenhum `http.Client` criado diretamente (exceto em testes).
+- [x] HTTP tools principais usam `httpclient.Client`.
+- [ ] Autenticação centralizada em todos os serviços aplicáveis.
+- [ ] Retry policy compartilhada em todos os consumidores aplicáveis.
+- [ ] Zero duplicação de lógica HTTP.
 
 ---
 
 ## 🚀 Próximos Passos
 
-1. **Fase 2**: Refatorar `web_search.go`
-   - Ler e entender interface SearchProvider
-   - Atualizar provider.Search() signature
-   - Testar buscas após mudança
-
-2. **Fase 3**: Refatorar OpenAI TTS/Whisper
-   - Testar autenticação OpenAI
-   - Validar requisições multipart (Whisper)
-
-3. **Fases 4-5**: Continuar sequencialmente
-
-4. **Fase 6**: Apenas após todas outras concluídas
+1. Concluir a auditoria dos clientes diretos listados em “Situação Atual”.
+2. Migrar primeiro o `http.Get` de Telegram, que contorna timeout, retry,
+   credenciais e políticas do wrapper.
+3. Para clientes que precisem de transporte especializado, documentar a exceção
+   e reutilizar as políticas compartilhadas cabíveis.
+4. Rodar os testes focados e a suíte completa após a centralização residual.
 
 ---
 

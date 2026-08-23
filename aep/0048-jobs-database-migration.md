@@ -1,6 +1,6 @@
 # AEP-0048 — Migração de Jobs para Banco de Dados
 
-**Status:** In Progress
+**Status:** Done — runtime DB-only, importação legada, tools nativas e observabilidade do adendo entregues
 
 ## Dependências
 
@@ -32,9 +32,9 @@ Esta AEP também substitui o gerenciamento via `write_file`/`edit_file` por tool
 
 6. **Preparação para AEP-0047**: O sistema de import/export (AEP-0047) precisa de acesso uniforme aos dados. Com jobs no banco, o export pode usar o mesmo pattern de Repository que os demais recursos.
 
-## Estado atual
+## Estado anterior à migração
 
-O sistema de jobs é 100% baseado em filesystem:
+Antes desta AEP, o sistema de jobs era 100% baseado em filesystem:
 
 | Recurso | Formato | Local |
 |---|---|---|
@@ -47,6 +47,18 @@ O sistema de jobs é 100% baseado em filesystem:
 - LLM não tem tools dedicadas para jobs — usa tools de filesystem
 - 13 arquivos Go em `internal/jobs/`, 7 com testes
 - Manager recebe `BaseDir` (path do diretório) como config principal
+
+## Estado implementado
+
+- Models e `DBRepository` vivem em `internal/database/models_jobs.go` e
+  `internal/jobs/repository.go`.
+- `Manager` exige `Repository`; `BaseDir` só identifica a fonte da importação
+  legada. Não há watcher nem logger filesystem no runtime.
+- CRUD, scheduler, executor, retenção e observabilidade usam SQLite.
+- A importação YAML idempotente fica em `internal/jobs/migration.go`.
+- As tools compostas `job`/`job_pipeline` ficam em `internal/tools/job/`.
+- Repository, migração, manager, executor e tools têm testes focados nos
+  respectivos arquivos `*_test.go`.
 
 ## Decisões
 
@@ -395,47 +407,47 @@ Consequências:
 
 ## Fases
 
-### Fase 1 — Models GORM + AutoMigrate
+### Fase 1 — Models GORM + AutoMigrate ✅
 
 1. Criar `internal/database/models_jobs.go` com models GORM para `tags`, `tag_assignments`, `job_pipelines`, `jobs`, `job_triggers`, `job_runs`, `job_events` e `job_run_events`.
 2. Funções de conversão entre models e domínio (`Tag`, `Pipeline`, `Job`, `Trigger`, `RunLog`, `EventEntry`, `RunEvent`).
 3. Adicionar todos os models ao `AutoMigrate` em `internal/database/database.go`.
 
-### Fase 2 — Repository layer
+### Fase 2 — Repository layer ✅
 
 4. Criar `internal/jobs/repository.go` com interface `Repository` (D10)
 5. Implementar `DBRepository` que recebe `*gorm.DB`
 6. Testes: CRUD de tags, associações, pipelines, jobs, triggers, runs, events e run events, limpeza por idade
 
-### Fase 3 — Migrar Manager para usar Repository
+### Fase 3 — Migrar Manager para usar Repository ✅
 
 7. Alterar `ManagerConfig`: adicionar campo `Repository` (`BaseDir` fica apenas como fonte da importação legada inicial)
 8. Reescrever `Start()`: carregar jobs do DB, remover inicialização do Watcher
 9. Reescrever `SaveJob()`, `DeleteJob()`, `ToggleJob()`: usar Repository
 10. Reescrever `GetJobRuns()`, `GetJobEvents()`, `ReplayRun()`: usar Repository
 
-### Fase 4 — Migrar Executor para usar Repository
+### Fase 4 — Migrar Executor para usar Repository ✅
 
 11. `Execute()` chama `Repository.LogRun()` e `Repository.LogEvent()` em vez do file logger
 
-### Fase 5 — Retenção automática
+### Fase 5 — Retenção automática ✅
 
 12. Goroutine no Manager: a cada 24h, `Repository.CleanOldRuns(30 dias)`, `Repository.CleanOldEvents(30 dias)` e `Repository.CleanOldRunEvents(30 dias)`
 13. Executar limpeza também no `Start()` (ao iniciar o app)
 
-### Fase 6 — Tools nativas
+### Fase 6 — Tools nativas ✅
 
 14. Criar tools nativas compostas em `internal/tools/` para pipelines, jobs, runs e catálogo: `job_pipeline`, `job`, `job_run`, `job_catalog`.
 15. Registrar como opt-in em `initToolRegistry()`
 
-### Fase 7 — Importação legada filesystem → banco
+### Fase 7 — Importação legada filesystem → banco ✅
 
 16. Criar `internal/jobs/migration.go` com lógica de importação legada idempotente (D9), integrada ao serviço compartilhado de importações.
 17. Resolver slugs → UUIDs ao importar definições, tags, pipelines e triggers; não importar runs/events legados
 18. Registrar contadores/erros da importação para UI/logs e não depender de renomear diretórios como fonte de verdade.
 19. Chamar importação pós-login, antes de iniciar scheduler/subscriptions do usuário.
 
-### Fase 8 — Remoção de código filesystem
+### Fase 8 — Remoção de código filesystem ✅
 
 20. Remover `internal/jobs/watcher.go` (file watcher)
 21. Remover `internal/jobs/logger.go` (file-based logging)
@@ -443,7 +455,7 @@ Consequências:
 23. Simplificar `parser.go` — manter validação, remover I/O de disco
 24. Remover geração/materialização de catálogo em disco; o catálogo passa a ser derivado em runtime do registry/catálogo persistente
 
-### Fase 9 — Testes
+### Fase 9 — Testes ✅
 
 25. Testes Repository: CRUD tags, associações, pipelines, jobs, triggers, runs, events, run events, limpeza por idade, roundtrip JSON
 26. Testes Manager: Start, Save, Delete, Toggle com DB
@@ -499,24 +511,27 @@ Consequências:
 
 ## Critérios de aceitação
 
-1. **CRUD completo**: criar, listar, buscar, atualizar, deletar e toggle de pipelines e jobs funciona via banco
-2. **Run logs no banco**: execução de job persiste `RunLog` na tabela `job_runs` com todos os campos
-3. **Event logs no banco**: eventos são persistidos em `job_events`/`job_run_events` em vez de JSONL
-4. **Retenção**: runs e events mais velhos que 30 dias são removidos automaticamente
-5. **Migração filesystem**: definições de jobs YAML existentes são importadas para o banco após login, sem duplicação em reexecuções
-6. **Sem fallback filesystem**: runtime de jobs lê e escreve somente no banco após esta AEP
-7. **Tools nativas**: tools opt-in disponíveis para o LLM gerenciar pipelines e jobs
-8. **Frontend alinhado**: bindings Wails e stores/componentes ajustados aos DTOs novos sem redesenhar a UX
-9. **Roundtrip JSON**: configs complexas (triggers, error_policy, etc.) sobrevivem save→load sem perda
-10. **Testes**: repository, manager, migração e LLM tools cobertos por testes Go
-11. **File watcher removido**: `internal/jobs/watcher.go` e `internal/jobs/logger.go` eliminados
-12. **Catálogo derivado em runtime**: `catalog.yaml` deixa de ser gerado; UI e jobs consultam o registry/catálogo persistente em tempo real
-13. **Logs legados descartados**: runs JSON e eventos JSONL antigos não são importados
+- [x] **CRUD completo** de pipelines e jobs funciona via banco.
+- [x] **Run logs** são persistidos em `job_runs`.
+- [x] **Event logs** usam `job_events`/`job_run_events`, não JSONL.
+- [x] **Retenção** usa a política configurável vigente da AEP-0074.
+- [x] **Migração filesystem** importa YAML sem duplicar em reexecuções.
+- [x] **Sem fallback filesystem** no runtime de jobs.
+- [x] **Tools nativas** opt-in gerenciam pipelines e jobs.
+- [x] **Frontend alinhado** aos DTOs e bindings do backend.
+- [x] **Roundtrip JSON** de configurações complexas é coberto no repository.
+- [x] **Testes** cobrem repository, manager, migração, executor e tools.
+- [x] **File watcher e logger filesystem** foram removidos.
+- [x] **Catálogo derivado em runtime** substituiu `catalog.yaml`.
+- [x] **Logs legados descartados** conforme contrato da importação.
 
 ## Adendo (2026-05-21) — Observabilidade de runs e eventos via tool `job`
 
-Status: Proposto
+Status do adendo: Done — observabilidade e filtros implementados
 Autor: Leonardo Gleison (Inclunet)
+
+As decisões abaixo preservam a forma do plano aprovado; a Fase 10, os critérios
+marcados e os testes citados registram o estado entregue.
 
 ### Contexto
 
@@ -524,7 +539,7 @@ Após a implementação inicial, identificou-se que o objetivo **M2** da Motiva�
 
 Este adendo cataloga os gaps identificados e atualiza o desenho original do D8 e da Fase 6.
 
-### Gaps identificados
+### Gaps identificados no baseline anterior ao adendo
 
 **G1 — Timeline `RunEvents` não é exposta no JSON.**
 O struct `RunLog` declara `RunEvents []RunEvent` e `DomainEvents []EventEntry` com tag `json:"-"`, e `DBRepository.GetRuns` faz `Find(&rows)` sem `Preload` da relação `Events`. A tabela `job_run_events` é populada pelo executor, mas nunca chega ao chat. O `Manager` também não tem método público que invoque `Repository.GetRunEvents`.
@@ -550,7 +565,7 @@ A Fase 6 original (item 14) referenciava `job_run` como tool independente; passa
 
 Nova ação na tool `job`: combinada com `job_id` + `run_id`, retorna o `RunLog` com `RunEvents` (timeline operacional ordenada por `sequence`, com `type`, `message`, `data`, `timestamp`) e `DomainEvents` (eventos de domínio correlacionados via `JobRunID`).
 
-Mudanças necessárias:
+Mudanças entregues:
 
 1. Manter `RunLog.RunEvents` e `RunLog.DomainEvents` como `json:"-"` (listagens leves) e introduzir DTO `RunDetail` (`RunLog` + `RunEvents` + `DomainEvents`) usado só pelo `get_run`.
 2. Adicionar `Repository.GetRunDetail(ctx, jobID, runID)` que combina `GetRun` + `GetRunEvents` + `ListEvents(filter{RunID})` em uma única chamada. `EventFilter` ganha campo `RunID string` para filtrar `job_events` por `job_run_id`.
@@ -590,26 +605,29 @@ Filtros usam o índice composto `idx_job_runs_user_job_started_at` para `started
 
 ### Fases adicionais
 
-#### Fase 10 — Correções de observabilidade
+#### Fase 10 — Correções de observabilidade ✅
 
-30. Adicionar struct `RunFilter` e DTO `RunDetail` em `types.go`; estender `EventFilter` com `RunID`.
-31. Adicionar `Repository.ListRuns`, `Repository.GetRunDetail`; estender `Repository.ListEvents` para usar `filter.RunID`.
-32. Adicionar `Manager.ListJobRunsContext`, `Manager.GetJobRunDetailContext`, `Manager.ListJobEventsContext`; métodos legados (`GetJobRuns`, `GetJobRun`, `GetJobEventsContext`, `GetJobEventsPageContext`) preservados para não quebrar callers Wails.
-33. Estender interface `Manager` da tool em `internal/tools/job/manager.go` com os 3 métodos novos.
-34. Estender tool `job` em `internal/tools/job/job.go`:
+- [x] Adicionar struct `RunFilter` e DTO `RunDetail` em `types.go`; estender `EventFilter` com `RunID`.
+- [x] Adicionar `Repository.ListRuns`, `Repository.GetRunDetail`; estender `Repository.ListEvents` para usar `filter.RunID`.
+- [x] Adicionar `Manager.ListJobRunsContext`, `Manager.GetJobRunDetailContext`, `Manager.ListJobEventsContext`; métodos legados preservados.
+- [x] Estender interface `Manager` da tool em `internal/tools/job/manager.go`.
+- [x] Estender tool `job` em `internal/tools/job/job.go`:
     - Novos campos em `jobArgs`: `RunID`, `ListEvents`, `Status []string`, `StartedAfter`, `StartedBefore`, `IncludeDryRun`, `Date`, `StartAt`, `EndAt`, `EventType`, `EventName`, `Offset`.
     - Atualizar `boolCount` e a validação de exclusividade para incluir `list_events` e `run_id`.
     - Validar que filtros de runs só aparecem com `list_runs: true`; filtros de events só com `list_events: true`.
     - Roteamento: `run_id` presente → `getRunDetail`; `list_events` → `listEvents`; demais ramos mantidos.
-35. Atualizar `Parameters()` JSON schema da tool com os novos campos e descrições.
-36. Testes Go cobrindo: roundtrip de `RunEvents`/`DomainEvents` em `get_run`, filtros de `list_runs` (status, intervalos, `include_dry_run`), paginação/filtros de `list_events`, validação de exclusividade entre `get_run`/`list_events`/`list_runs`/`run`/`dry_run`/`delete`, e validação "filtro requer list".
+- [x] Atualizar `Parameters()` JSON schema da tool com os novos campos e descrições.
+- [x] Adicionar testes Go para hidratação, filtros, paginação, exclusividade e
+  validação “filtro requer list”.
 
 ### Critérios de aceitação adicionais
 
-14. Tool `job` com `job_id` + `run_id` retorna `RunDetail` (RunLog flat + `run_events` ordenado por `sequence` + `domain_events` correlacionados).
-15. Tool `job` com `list_events: true` retorna `EventEntry`s filtráveis por `date`/intervalo/`event_type`/`event_name`/`job_id`, com paginação por `limit`+`offset`.
-16. Tool `job` com `list_runs: true` aceita `status`, `started_after`, `started_before`, `include_dry_run` e devolve resultado filtrado pelo banco (sem filtragem em memória).
-17. Dry-runs ficam excluídos do `list_runs` por default; só aparecem com `include_dry_run: true`.
-18. Tool `job_run` independente **não** é criada — a previsão original do D8 é substituída por este adendo (D14).
-19. `list_runs` continua sem hidratar `RunEvents` (listagem leve); apenas `get_run` (via `RunDetail`) traz a timeline completa.
-20. Testes Go cobrem hidratação de eventos, todos os filtros de runs, paginação de eventos e validação de exclusividade entre as novas flags.
+- [x] Tool `job` com `job_id` + `run_id` retorna `RunDetail` com timelines correlacionadas.
+- [x] `list_events` oferece filtros e paginação.
+- [x] `list_runs` filtra status, intervalo e inclusão de dry-runs no banco.
+- [x] Dry-runs são excluídos por padrão.
+- [x] Não existe tool `job_run` independente.
+- [x] `list_runs` permanece leve; somente `get_run` hidrata timelines.
+- [x] `internal/jobs/repository_test.go` e
+  `internal/tools/job/job_test.go` cobrem hidratação, filtros, paginação e
+  exclusividade das flags.

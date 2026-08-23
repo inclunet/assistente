@@ -235,7 +235,7 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 
 ## Fases
 
-### Fase 1 — Infraestrutura UUID + migração (backend)
+### Fase 1 — Infraestrutura UUID + migração (backend) ✅
 
 1. Adicionar `github.com/google/uuid` ao `go.mod`
 2. Criar `UUIDModel` em `internal/database/models.go` com hook `BeforeCreate`
@@ -249,7 +249,7 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
    - Recreate de índices parciais
 5. Testes da migração com banco de teste populado (`migration_test.go`)
 
-### Fase 2 — Migrar models GORM (backend)
+### Fase 2 — Migrar models GORM (backend) ✅
 
 6. Substituir PKs `uint` → `string` (UUIDModel) em todas as 9 entidades
 7. Atualizar todas as FKs correspondentes
@@ -259,20 +259,20 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
    - `internal/credentials/db_store.go` (CredentialEntry, CredentialKeyWrap)
 9. Adaptar FTS5 triggers para usar `rowid` implícito (D7)
 
-### Fase 3 — Migrar contratos de eventos (backend)
+### Fase 3 — Migrar contratos de eventos (backend) ✅
 
 10. Atualizar todas as structs em `internal/core/ports/chat_events.go`
 11. Atualizar emitters em `app_chat.go`, `app_speech.go`, channels, etc.
 12. Atualizar interfaces/ports em `internal/core/ports/`
 
-### Fase 4 — Migrar app layer + controllers (backend)
+### Fase 4 — Migrar app layer + controllers (backend) ✅
 
 13. Atualizar funções Wails: `SendMessage`, `GetConversation`, `DeleteConversation`, etc.
 14. Atualizar controllers de tasklist, credentials, speech
 15. Atualizar mapeamento `contactID → conversationID` em channels
 16. Regenerar bindings: `wails generate module`
 
-### Fase 5 — Migrar frontend
+### Fase 5 — Migrar frontend ✅
 
 17. Atualizar stores: `chatStore`, `workspaceStore`, `taskListStore`
 18. Atualizar tipos: `tasklist.ts`, event payload types
@@ -280,15 +280,28 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 20. Verificar componentes que recebem IDs como props
 21. Verificar event listeners
 
-### Fase 6 — Testes
+### Fase 6 — Testes ✅
 
 22. Testes Go: ajustar seeds e asserções para UUIDv7
 23. Testes Vitest: ajustar mocks com IDs string
 
-### Fase 7 — Verificação final
+### Fase 7 — Verificação final ✅
 
-24. Rodar `Check: all` (go test + frontend lint+test+build)
-25. Teste manual completo: abrir app com banco antigo → migração automática → verificar dados
+24. Validar Go, frontend e bindings no fluxo de CI da entrega.
+25. A antiga validação manual de um banco INTEGER foi substituída por regressões
+    automatizadas abrangentes em `migration_uuid_test.go`, incluindo schema
+    antigo populado, FKs, hierarquias, credenciais, FTS5 e compatibilidade GORM.
+
+### Evidências
+
+- Geração e models: `internal/database/models.go` (`UUIDModel`/`BeforeCreate`).
+- Migração e backup best-effort:
+  `internal/database/migration_uuid.go` (`migrateToUUIDv7`/`createBackup`).
+- Regressão principal: `internal/database/migration_uuid_test.go` cobre banco
+  vazio e populado, no-op após migração, FKs diretas e autorreferentes,
+  preservação de dados, credenciais, FTS5 e schemas parciais.
+- Deep links e contratos string: `frontend/src/lib/deepLinks.test.ts`,
+  `internal/tools/deeplink/open_deep_link_test.go` e testes dos eventos de chat.
 
 ## Riscos
 
@@ -306,14 +319,14 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 
 ## Critérios de aceitação
 
-1. **Todas as PKs** das 9 tabelas são `TEXT` com valores UUIDv7
-2. **Todos os testes** Go e Vitest passam
-3. **Build** frontend compila sem erros
-4. **Deep links** com UUID funcionam: `assistente://conversation/{uuid}`
-5. **FTS5** busca por texto retorna resultados corretos
-6. **Eventos** carregam `conversationId` e `messageId` como `string` em ambos os lados
-7. **Migração automática**: banco antigo (INTEGER PKs) é detectado e convertido no startup, preservando todos os dados
-8. **Backup**: `conversations.db.pre-uuid.bak` criado antes da migração (best-effort — falha de backup não aborta a migração; a transação atômica é o mecanismo primário de segurança)
-9. **Rollback seguro**: se a migração falhar, banco original permanece intacto
-10. **Nenhuma regressão** nos fluxos: criar conversa, enviar mensagem, criar task list, buscar mensagem
-11. **Dados preservados**: conversas, mensagens, task lists, credenciais existentes acessíveis após a migração
+- [x] **Todas as PKs** das entidades migradas são `TEXT` com valores UUIDv7.
+- [x] **Testes Go e Vitest** foram adaptados para IDs string; regressões focadas estão nos caminhos acima.
+- [x] **Frontend** usa contratos de ID string e bindings regenerados.
+- [x] **Deep links** com UUID funcionam: `assistente://conversation/{uuid}`.
+- [x] **FTS5** retorna resultados após a migração.
+- [x] **Eventos** carregam `conversationId` e `messageId` como `string` em ambos os lados.
+- [x] **Migração automática** detecta PKs INTEGER e preserva os dados.
+- [x] **Backup** `.pre-uuid.bak` é tentado antes da migração; falha continua best-effort.
+- [x] **Rollback seguro** usa transação para preservar o banco em caso de falha.
+- [x] **Fluxos principais** usam os IDs migrados sem conversão numérica.
+- [x] **Dados preservados** incluem conversas, mensagens, tasklists e credenciais nos testes de migração.

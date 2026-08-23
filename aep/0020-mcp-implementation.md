@@ -1,8 +1,13 @@
-# Implementação Completa do Model Context Protocol (MCP)
+# Implementação do Model Context Protocol (MCP) — núcleo e extensões
 
-## Status: Done — implementação funcional; extensões dependentes do SDK permanecem documentadas
+## Status: In Progress — núcleo funcional entregue; capacidades avançadas aguardam suporte e wiring do SDK
 
-Este documento descreve a implementação completa de MCP no assistente, incluindo features que estão **preparadas** mas aguardando suporte do SDK Go oficial.
+Este documento reúne o núcleo funcional de MCP e extensões avançadas. Tools,
+resources, prompts, health checks e modo nativo estão entregues. Roots
+dinâmicos, logging do protocolo, progress, subscriptions, sampling recebido do
+servidor e capabilities reais permanecem apenas parcialmente preparados e não
+integram uma sessão MCP completa enquanto o SDK/wiring correspondente estiver
+ausente.
 
 ---
 
@@ -146,7 +151,7 @@ Quando o SDK Go oficial (`github.com/modelcontextprotocol/go-sdk`) adicionar sup
 2. **Type-safe** - Todos os tipos definidos corretamente
 3. **Testada** - Build compila sem erros
 4. **Documentada** - TODOs indicam exatamente o que fazer
-5. **Completa** - Todas as features principais do MCP cobertas
+5. **Núcleo completo** - Tools, resources, prompts, health checks e modo nativo cobertos
 6. **Compatível** - Funciona com SDK v1.3.0 atual
 
 ---
@@ -179,6 +184,9 @@ func (a *App) UnsubscribeFromMCPResource(slug, uri string) error
 
 ## 🚀 Conclusão
 
-A implementação está **100% preparada** para suportar toda a especificação MCP. Quando o SDK Go oficial adicionar suporte às features avançadas, será questão de minutos ativar tudo, não de horas reescrevendo código.
+A implementação funcional cobre o núcleo usado pelo Assistente. As capacidades
+marcadas como “Preparado” não contam como entregues: tipos e handlers existem,
+mas ainda exigem suporte do SDK, wiring de sessão e testes de integração antes
+de esta AEP poder ser concluída.
 
 **Esta é a abordagem ideal para um assistente generalista!** ✨

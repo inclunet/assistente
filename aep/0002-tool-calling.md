@@ -15,7 +15,25 @@ Implementar um sistema de tool calling que permite ao assistente executar ferram
 
 ---
 
-## Modelo de Dados
+## Contrato persistente vigente
+
+O modelo abaixo registra o desenho histórico L3 da primeira implementação. Desde
+as AEPs 0063 e 0078:
+
+- `tool_invocations` é a trilha canônica de chamadas e resultados, associada por
+  `tool_call_id` e origem/turno;
+- snapshots de exibição, input, output, status e metadata ficam na invocação;
+- `chat_messages.tool_calls` permanece somente como fallback de leitura para
+  conversas antigas;
+- mensagens novas não gravam L3 no caminho feliz; `role=tool` só é usado como
+  fallback quando a persistência técnica da invocação falha.
+
+Evidências: `internal/agent/agentic_loop.go`,
+`internal/agent/service_tool_calls_persistence_test.go`,
+`internal/toolinvocations/repository.go`, `internal/chat/timeline.go` e
+`internal/chat/timeline_test.go`.
+
+## Modelo de Dados histórico (L3)
 
 ### Campos novos no ChatMessage
 
@@ -225,7 +243,11 @@ type ToolResult struct {
 }
 ```
 
-### Agentic Loop (pseudocódigo)
+### Agentic Loop (pseudocódigo histórico)
+
+> Este pseudocódigo documenta a implementação inicial. No contrato vigente, os
+> passos 4–5 persistem e atualizam `tool_invocations`; não escrevem
+> `chat_messages.tool_calls` no caminho feliz.
 
 ```go
 func (a *App) agenticLoop(ctx, messages, tools, turnID, handler) {
@@ -242,8 +264,8 @@ func (a *App) agenticLoop(ctx, messages, tools, turnID, handler) {
             break
         }
 
-        // 4. Salvar mensagem assistant com tool_calls
-        salvar(assistant, content, turnID, toolCalls)
+        // 4. Persistir snapshot canônico em tool_invocations
+        persistirInvocacoes(turnID, toolCalls)
 
         // 5. Executar tools em paralelo
         for each toolCall {
@@ -331,9 +353,10 @@ Cards de ferramentas colapsados por padrão, expandíveis pelo usuário.
 - `read_file`, `list_directory`, `search_files`
 - **Depende de:** Fase 1
 
-### Fase 3 — Modelo de dados
-- 3 campos novos no ChatMessage (TurnID, ToolCalls, ToolCallID)
-- Funções helper no database package
+### Fase 3 — Modelo de dados (histórico)
+- O desenho original adicionou TurnID, ToolCalls e ToolCallID ao ChatMessage.
+- AEP-0078 posteriormente restringiu ToolCalls/ToolCallID à leitura compatível;
+  novas chamadas são persistidas em `tool_invocations`.
 - **Sem dependências** (paralelo com Fase 1)
 
 ### Fase 4 — LLM client: suporte a tools no protocolo
