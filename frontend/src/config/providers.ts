@@ -61,6 +61,7 @@ export interface ProviderPreset {
   helpText?: string;
   defaultModel?: string;
   apiFormat?: string;
+  reasoningContentMode?: string;
   tts: TTSCapabilities;
 }
 
@@ -172,6 +173,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://platform.deepseek.com',
     defaultModel: 'deepseek-chat',
     apiFormat: 'openai',
+    reasoningContentMode: 'replay_with_tools',
     tts: NO_TTS,
   },
   xai: {

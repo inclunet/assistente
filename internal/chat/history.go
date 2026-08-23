@@ -181,10 +181,10 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 		}
 		if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" && strings.TrimSpace(m.ToolCalls) == "" {
 			// Evita manter placeholders de tool calling sem conteúdo após limpeza,
-			// que seriam enviados ao LLM como mensagens vazias.
-			// Reasoning, porém, não é vazio para o protocolo: o DeepSeek exige
-			// reasoning_content no replay de requests que carregam tools.
-			if strings.TrimSpace(m.Reasoning) == "" && strings.TrimSpace(m.Media) == "" && strings.TrimSpace(m.Audio) == "" {
+			// que seriam enviados ao LLM como mensagens vazias. Reasoning
+			// persistido serve à UI/exportação; a extensão de protocolo só vive
+			// no agentic loop corrente (AEP-0097).
+			if strings.TrimSpace(m.Media) == "" && strings.TrimSpace(m.Audio) == "" {
 				continue
 			}
 		}

@@ -196,7 +196,7 @@ func (p *rateLimitedProvider) NativeMCPCapable() bool {
 
 // ReplaysReasoningContent atravessa o decorator pelo mesmo motivo que
 // RefreshModels: sem o repasse, o embrulho esconderia a capacidade de quem
-// replica, e o pre-check de contexto subestimaria o histórico do DeepSeek.
+// replica, e o pre-check de contexto subestimaria o histórico desse protocolo.
 func (p *rateLimitedProvider) ReplaysReasoningContent() bool {
 	return ReplaysReasoningContent(p.inner)
 }

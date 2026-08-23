@@ -61,25 +61,6 @@ func ExtractAudio(mediaJSON string) (audioBase64, mimeType string) {
 // Retorna o texto transcrito ou string vazia em caso de falha (nunca erro fatal).
 type TranscribeFunc func(ctx context.Context, audioBase64, filename string) (string, error)
 
-// reasoningForReplay decide qual reasoning persistido pode voltar como
-// reasoning_content.
-//
-// O campo no banco é genérico: guarda o thinking de DeepSeek, Claude, o1 e o que
-// mais o provider emitir, e a conversa não fica presa a um provider. Reenviar o
-// raciocínio de outro modelo como se fosse do DeepSeek entrega a cadeia dele a
-// quem não a produziu e ainda infla o contexto. Sem modelo registrado não dá
-// para afirmar a origem, e aí vale o comportamento antigo.
-func reasoningForReplay(m Message) string {
-	if m.Model == "" || isDeepSeekModel(m.Model) {
-		return m.Reasoning
-	}
-	return ""
-}
-
-func isDeepSeekModel(model string) bool {
-	return strings.Contains(strings.ToLower(model), "deepseek")
-}
-
 // MediaHistoryLoader carrega o histórico de conversa convertendo mídias para o formato LLM.
 type MediaHistoryLoader struct {
 	Repo       MessageRepository
@@ -109,10 +90,9 @@ func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([
 		}
 
 		msg := llm.Message{
-			MessageID:        m.ID,
-			Role:             m.Role,
-			ReasoningContent: reasoningForReplay(m),
-			ToolCallID:       m.ToolCallID,
+			MessageID:  m.ID,
+			Role:       m.Role,
+			ToolCallID: m.ToolCallID,
 		}
 
 		if m.Media != "" {

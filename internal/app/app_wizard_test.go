@@ -329,6 +329,10 @@ func TestCreateWizardProvider_DeepSeek(t *testing.T) {
 	if provider.CredentialPattern != "api.deepseek.com" {
 		t.Errorf("CredentialPattern: got %s, want api.deepseek.com", provider.CredentialPattern)
 	}
+	if provider.ReasoningContentMode != llm.ReasoningContentReplayWithTools {
+		t.Errorf("ReasoningContentMode: got %s, want %s",
+			provider.ReasoningContentMode, llm.ReasoningContentReplayWithTools)
+	}
 
 	auth, err := app.credMgr.GetByPattern("api.deepseek.com")
 	if err != nil {

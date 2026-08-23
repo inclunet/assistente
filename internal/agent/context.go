@@ -75,8 +75,8 @@ func estimateMessageTokens(messages []llm.Message, countReasoning bool) int {
 			total += estimateTokens(tc.Function.Arguments)
 			total += estimateTokens(tc.Function.Name)
 		}
-		// DeepSeek exige reasoning_content no replay quando há tools; ele ocupa
-		// a mesma janela de contexto e precisa entrar no pre-check.
+		// Providers com replay_with_tools enviam reasoning_content; ele ocupa a
+		// mesma janela de contexto e precisa entrar no pre-check.
 		if countReasoning {
 			total += estimateTokens(m.ReasoningContent)
 		}

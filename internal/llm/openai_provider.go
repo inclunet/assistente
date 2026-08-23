@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 
 	"assistente/internal/credentials"
@@ -117,7 +116,7 @@ func (p *OpenAIProvider) NativeMCPCapable() bool {
 // reasoning_content. Só quem replica ocupa janela de contexto com esse campo, e
 // o pre-check precisa saber disso para não encolher o budget à toa.
 func (p *OpenAIProvider) ReplaysReasoningContent() bool {
-	return p.requiresReasoningContentReplay()
+	return p.reasoningContentMode() == ReasoningContentReplayWithTools
 }
 
 // ReplaysReasoningContent consulta a capacidade em quem quer que seja passado.
@@ -128,19 +127,11 @@ func ReplaysReasoningContent(provider any) bool {
 	return ok && replayer.ReplaysReasoningContent()
 }
 
-func (p *OpenAIProvider) requiresReasoningContentReplay() bool {
+func (p *OpenAIProvider) reasoningContentMode() ReasoningContentMode {
 	if p == nil || p.provider == nil {
-		return false
+		return ReasoningContentDisabled
 	}
-	if p.provider.Type == ProviderDeepSeek {
-		return true
-	}
-	baseURL, err := url.Parse(strings.TrimSpace(p.provider.BaseURL))
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(baseURL.Hostname())
-	return host == "deepseek.com" || strings.HasSuffix(host, ".deepseek.com")
+	return p.provider.EffectiveReasoningContentMode()
 }
 
 func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {

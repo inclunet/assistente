@@ -2,13 +2,14 @@ package apidto
 
 // CreateLLMProviderRequest é o payload Wails para criar um provedor LLM.
 type CreateLLMProviderRequest struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	BaseURL      string `json:"base_url"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	BaseURL              string `json:"base_url"`
+	APIKey               string `json:"api_key,omitempty"`
+	DefaultModel         string `json:"default_model,omitempty"`
+	APIFormat            string `json:"api_format,omitempty"`
+	ReasoningContentMode string `json:"reasoning_content_mode,omitempty"`
 	// ACPCommand e ACPArgs endereçam o agente de código quando APIFormat é
 	// acp: é o que substitui BaseURL e APIKey, que ali não existem
 	// (AEP-0084 D12).
@@ -40,12 +41,13 @@ type TestLLMProviderRequest struct {
 
 // UpdateLLMProviderRequest é o payload Wails para atualizar um provedor LLM.
 type UpdateLLMProviderRequest struct {
-	Name         string `json:"name,omitempty"`
-	Type         string `json:"type,omitempty"`
-	BaseURL      string `json:"base_url,omitempty"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
+	Name                 string `json:"name,omitempty"`
+	Type                 string `json:"type,omitempty"`
+	BaseURL              string `json:"base_url,omitempty"`
+	APIKey               string `json:"api_key,omitempty"`
+	DefaultModel         string `json:"default_model,omitempty"`
+	APIFormat            string `json:"api_format,omitempty"`
+	ReasoningContentMode string `json:"reasoning_content_mode,omitempty"`
 	// ACPCommand segue a convenção dos demais campos daqui: vazio é "não
 	// mexer".
 	ACPCommand string `json:"acp_command,omitempty"`

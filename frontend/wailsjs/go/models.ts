@@ -767,6 +767,7 @@ export namespace apidto {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    reasoning_content_mode?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
 	    acp_agent_id?: string;
@@ -785,6 +786,7 @@ export namespace apidto {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
 	        this.acp_agent_id = source["acp_agent_id"];
@@ -1466,6 +1468,7 @@ export namespace apidto {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    reasoning_content_mode?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
 	    acp_agent_id?: string;
@@ -1483,6 +1486,7 @@ export namespace apidto {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
 	        this.acp_agent_id = source["acp_agent_id"];
@@ -3688,6 +3692,7 @@ export namespace llm {
 	    role: string;
 	    content?: any;
 	    thinking?: string;
+	    reasoning_content?: string;
 	    tool_calls?: ToolCall[];
 	    tool_call_id?: string;
 	
@@ -3700,6 +3705,7 @@ export namespace llm {
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.thinking = source["thinking"];
+	        this.reasoning_content = source["reasoning_content"];
 	        this.tool_calls = this.convertValues(source["tool_calls"], ToolCall);
 	        this.tool_call_id = source["tool_call_id"];
 	    }
@@ -3846,6 +3852,7 @@ export namespace llm {
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
 	    auth_mode?: string;
+	    reasoning_content_mode?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
 	    acp_env?: Record<string, string>;
@@ -3870,6 +3877,7 @@ export namespace llm {
 	        this.headers = source["headers"];
 	        this.credential_pattern = source["credential_pattern"];
 	        this.auth_mode = source["auth_mode"];
+	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
 	        this.acp_env = source["acp_env"];

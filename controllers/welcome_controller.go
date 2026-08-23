@@ -20,11 +20,12 @@ import (
 
 // WizardProviderInfo mapeia a escolha do wizard para configuração do provedor.
 type WizardProviderInfo struct {
-	ID           string
-	Name         string
-	Type         llm.ProviderType
-	APIFormat    llm.APIFormat
-	DefaultModel string
+	ID                   string
+	Name                 string
+	Type                 llm.ProviderType
+	APIFormat            llm.APIFormat
+	DefaultModel         string
+	ReasoningContentMode llm.ReasoningContentMode
 }
 
 // WizardLabelToProviderType mapeia o rótulo exibido no wizard para o type ID
@@ -82,7 +83,10 @@ func GetWizardProviderInfo(providerChoice string) WizardProviderInfo {
 	case "Perplexity":
 		return WizardProviderInfo{ID: "perplexity-default", Name: "Perplexity", Type: llm.ProviderPerplexity, DefaultModel: "sonar"}
 	case "DeepSeek":
-		return WizardProviderInfo{ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek, DefaultModel: "deepseek-chat"}
+		return WizardProviderInfo{
+			ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek,
+			DefaultModel: "deepseek-chat", ReasoningContentMode: llm.ReasoningContentReplayWithTools,
+		}
 	case "xAI (Grok)":
 		return WizardProviderInfo{ID: "xai-grok", Name: "xAI (Grok)", Type: llm.ProviderGrok, DefaultModel: "grok-3-mini"}
 	case "Azure OpenAI":
@@ -441,16 +445,17 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 	}
 
 	provider := &llm.ProviderConfig{
-		ID:                info.ID,
-		Name:              info.Name,
-		Type:              info.Type,
-		APIFormat:         info.APIFormat,
-		BaseURL:           baseURL,
-		Model:             model,
-		DefaultModel:      defaultModel,
-		IsDefault:         true,
-		Timeout:           timeout,
-		CredentialPattern: hostname,
+		ID:                   info.ID,
+		Name:                 info.Name,
+		Type:                 info.Type,
+		APIFormat:            info.APIFormat,
+		BaseURL:              baseURL,
+		Model:                model,
+		DefaultModel:         defaultModel,
+		IsDefault:            true,
+		Timeout:              timeout,
+		CredentialPattern:    hostname,
+		ReasoningContentMode: info.ReasoningContentMode,
 	}
 
 	if err := c.llmRegistry.Register(provider); err != nil {

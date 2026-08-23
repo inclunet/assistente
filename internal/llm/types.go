@@ -14,7 +14,7 @@ type Message struct {
 	Role             string      `json:"role"`
 	Content          interface{} `json:"content,omitempty"`           // Pode ser string ou []ContentPart
 	Thinking         string      `json:"thinking,omitempty"`          // Ollama thinking/reasoning
-	ReasoningContent string      `json:"reasoning_content,omitempty"` // extensão OpenAI-compatible; hoje só o DeepSeek preenche, e o replay dele só é exigido quando há tools
+	ReasoningContent string      `json:"reasoning_content,omitempty"` // extensão OpenAI-compatible controlada por reasoning_content_mode
 	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`        // Tool calls solicitadas pelo assistant
 	ToolCallID       string      `json:"tool_call_id,omitempty"`      // Para role="tool": vincula ao call
 	// MessageID e TurnContextTarget são metadados internos da request LLM.
@@ -172,7 +172,7 @@ type ChatChoice struct {
 type Delta struct {
 	Role             string          `json:"role,omitempty"`
 	Content          string          `json:"content,omitempty"`
-	ReasoningContent string          `json:"reasoning_content,omitempty"` // DeepSeek, Qwen reasoning
+	ReasoningContent string          `json:"reasoning_content,omitempty"` // extensão opcional de reasoning do protocolo
 	Thinking         string          `json:"thinking,omitempty"`          // Ollama thinking/reasoning
 	ToolCalls        []ToolCallDelta `json:"tool_calls,omitempty"`        // Tool calls incrementais
 }

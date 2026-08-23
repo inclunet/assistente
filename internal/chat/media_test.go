@@ -103,13 +103,10 @@ func TestMediaHistoryLoader_PlainText(t *testing.T) {
 	}
 }
 
-func TestMediaHistoryLoader_PreservesAssistantReasoningForProviderReplay(t *testing.T) {
+func TestMediaHistoryLoader_NaoConverteReasoningPersistidoEmExtensaoDeProtocolo(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "consulte os dados"},
-		// Resposta intermediária típica do DeepSeek: tool call sem texto. O
-		// AEP-0078 não persiste mais ToolCalls na mensagem, mas o reasoning
-		// ainda precisa sobreviver ao reload do turno seguinte.
-		{Role: "assistant", Content: "", Reasoning: "preciso usar lookup"},
+		{Role: "assistant", Content: "resposta", Reasoning: "thinking genérico", Model: "qualquer-modelo"},
 	}}
 	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
@@ -118,16 +115,17 @@ func TestMediaHistoryLoader_PreservesAssistantReasoningForProviderReplay(t *test
 	if len(msgs) != 2 {
 		t.Fatalf("len(messages) = %d, want 2", len(msgs))
 	}
-	if msgs[1].ReasoningContent != "preciso usar lookup" {
-		t.Fatalf("reasoning_content = %q, want persisted reasoning", msgs[1].ReasoningContent)
+	if msgs[1].ReasoningContent != "" {
+		t.Fatalf("reasoning_content = %q; histórico persistido não conhece a capability do protocolo", msgs[1].ReasoningContent)
 	}
 }
 
-func TestMediaHistoryLoader_PreservesReasoningFromLegacyToolCallMessage(t *testing.T) {
+func TestMediaHistoryLoader_NaoConverteReasoningDeToolCallLegada(t *testing.T) {
 	repo := &stubRepo{messages: []database.ChatMessage{
 		{Role: "user", Content: "consulte os dados"},
 		{
 			Role:      "assistant",
+			Content:   "resposta",
 			Reasoning: "preciso usar lookup",
 			ToolCalls: `{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"},"result":"ok"}`,
 		},
@@ -139,29 +137,8 @@ func TestMediaHistoryLoader_PreservesReasoningFromLegacyToolCallMessage(t *testi
 	if len(msgs) != 2 {
 		t.Fatalf("len(messages) = %d, want 2", len(msgs))
 	}
-	if msgs[1].ReasoningContent != "preciso usar lookup" {
-		t.Fatalf("reasoning_content legado = %q, want persisted reasoning", msgs[1].ReasoningContent)
-	}
-}
-
-func TestMediaHistoryLoader_NaoReenviaReasoningDeOutroModelo(t *testing.T) {
-	repo := &stubRepo{messages: []database.ChatMessage{
-		{Role: "user", Content: "consulte os dados"},
-		{Role: "assistant", Content: "resposta", Reasoning: "pensamento do Claude", Model: "claude-sonnet-4"},
-		{Role: "assistant", Content: "outra", Reasoning: "pensamento do DeepSeek", Model: "deepseek-reasoner"},
-	}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(msgs) != 3 {
-		t.Fatalf("len(messages) = %d, want 3", len(msgs))
-	}
 	if msgs[1].ReasoningContent != "" {
-		t.Fatalf("reasoning de outro modelo = %q, não deveria voltar como reasoning_content", msgs[1].ReasoningContent)
-	}
-	if msgs[2].ReasoningContent != "pensamento do DeepSeek" {
-		t.Fatalf("reasoning_content = %q, want o do próprio DeepSeek", msgs[2].ReasoningContent)
+		t.Fatalf("reasoning_content legado = %q; replay só existe no agentic loop corrente", msgs[1].ReasoningContent)
 	}
 }
 

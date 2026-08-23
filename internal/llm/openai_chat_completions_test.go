@@ -66,33 +66,39 @@ func TestOpenAICompatProvider_UsesChatCompletions(t *testing.T) {
 	}
 }
 
-func TestOpenAIProvider_ReasoningContentReplayOnlyForDeepSeek(t *testing.T) {
+func TestOpenAIProvider_ReasoningContentReplayDependeSoDaCapability(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  ProviderConfig
 		want bool
 	}{
 		{
-			name: "tipo deepseek",
-			cfg:  ProviderConfig{Type: ProviderDeepSeek, BaseURL: "https://proxy.example/v1"},
+			name: "capability habilitada em endpoint customizado",
+			cfg: ProviderConfig{
+				Type: ProviderCustom, BaseURL: "https://proxy.example/v1",
+				ReasoningContentMode: ReasoningContentReplayWithTools,
+			},
 			want: true,
 		},
 		{
-			name: "endpoint deepseek em provider customizado",
-			cfg:  ProviderConfig{Type: ProviderCustom, BaseURL: "https://api.deepseek.com/v1"},
-			want: true,
+			name: "marca e endpoint não habilitam implicitamente",
+			cfg:  ProviderConfig{Type: ProviderDeepSeek, BaseURL: "https://api.deepseek.com/v1"},
+			want: false,
 		},
 		{
-			name: "outro openai compatible",
-			cfg:  ProviderConfig{Type: ProviderCustom, BaseURL: "https://example.com/v1"},
+			name: "capability desabilitada",
+			cfg: ProviderConfig{
+				Type: ProviderCustom, BaseURL: "https://api.deepseek.com/v1",
+				ReasoningContentMode: ReasoningContentDisabled,
+			},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := &OpenAIProvider{provider: &tt.cfg}
-			if got := provider.requiresReasoningContentReplay(); got != tt.want {
-				t.Fatalf("requiresReasoningContentReplay() = %v, want %v", got, tt.want)
+			if got := provider.ReplaysReasoningContent(); got != tt.want {
+				t.Fatalf("ReplaysReasoningContent() = %v, want %v", got, tt.want)
 			}
 		})
 	}

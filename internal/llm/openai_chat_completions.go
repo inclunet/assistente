@@ -58,7 +58,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 	}
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
-		Messages: convertMessagesWithReasoningContent(messages, p.requiresReasoningContentReplay() && len(tools) > 0),
+		Messages: convertMessagesWithReasoningContent(messages, p.ReplaysReasoningContent() && len(tools) > 0),
 		StreamOptions: openai.ChatCompletionStreamOptionsParam{
 			IncludeUsage: param.NewOpt(true),
 		},
@@ -134,7 +134,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var isThinking bool
 	var thinkingBuffer strings.Builder
 	var emittedAnything bool
-	captureReasoningContent := p.requiresReasoningContentReplay()
+	captureReasoningContent := p.ReplaysReasoningContent()
 
 	// Coletar tool calls finalizadas durante streaming
 	var finishedToolCalls []ToolCall
@@ -245,9 +245,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 // chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.
 // O SDK OpenAI não a tipa. Capturar e reenviar são coisas separadas: a captura
-// vale para todo turno do DeepSeek, porque alimenta o thinking na UI; o replay
-// no histórico só é exigido quando a requisição carrega tools, e é lá que
-// preservar os fragmentos exatos vira parte do protocolo.
+// só ocorre quando reasoning_content_mode habilita a extensão e alimenta o
+// thinking na UI; o replay no histórico do turno só ocorre quando a requisição
+// carrega tools, onde preservar os fragmentos exatos vira parte do protocolo.
 func chatCompletionReasoningContent(delta openai.ChatCompletionChunkChoiceDelta) string {
 	var raw struct {
 		ReasoningContent string `json:"reasoning_content"`
