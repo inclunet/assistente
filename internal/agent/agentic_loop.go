@@ -93,7 +93,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		// 3. Limite de saída: tool calls locais são descartadas antes de qualquer
 		// efeito e podem receber uma única reformulação em chamadas menores.
 		if result.Finish.Reason == llm.FinishReasonMaxTokens {
-			if r.recoverOutputLimitedToolCalls(result, iteration) {
+			if r.recoverOutputLimitedToolCalls(ctx, result, iteration) {
 				continue
 			}
 			r.finishOutputLimit(ctx, result, iteration)
@@ -123,7 +123,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 	r.finishLimitReached(ctx)
 }
 
-func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(result AgenticResult, iteration int) bool {
+func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(ctx context.Context, result AgenticResult, iteration int) bool {
 	if len(result.ToolCalls) == 0 || len(result.NativeMCPEvents) > 0 ||
 		r.outputLimitRepairUsed || iteration+1 >= r.maxIterations {
 		return false
@@ -143,7 +143,7 @@ func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(result AgenticResult, 
 			"Nenhuma chamada foi executada. Refaça a operação em chamadas menores, com JSON completo em cada chamada. " +
 			"Não repita um payload grande em uma única chamada. Ferramentas interrompidas: " + strings.Join(toolNames, ", "),
 	})
-	logging.Infof(context.Background(), "agent.agentic-loop",
+	logging.Infof(ctx, "agent.agentic-loop",
 		"[Agent] tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
 		iteration, strings.Join(toolNames, ","))
 	return true
