@@ -5,9 +5,10 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-06-27):** este índice cobre **todos os documentos `.md` de
-> `aep/`** (≈90 arquivos). Cada número de AEP tem **um documento principal**; séries
-> multi-arquivo têm o principal listado na tabela e os demais em
+> **Inventário (2026-08-23):** este índice contém **97 documentos principais
+> para 96 números ocupados**. A diferença é a colisão histórica 0074, representada
+> temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
+> têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
 > [Convenção de numeração e anexos](#convenção-de-numeração-e-anexos).
 
@@ -145,7 +146,8 @@ Para evitar ambiguidades como as resolvidas pela issue #263:
 1. **Um número, um tema.** Cada número de AEP corresponde a **um único tema**. Dois
    documentos que se autodenominam "AEP-NNNN" para temas diferentes é uma colisão
    e deve ser resolvido (renumerar o intruso ou rebaixá-lo a apêndice do tema dono
-   do número).
+   do número). A única exceção conhecida é a colisão 0074, ainda pendente e
+   explicitamente contabilizada como dois documentos principais sob um número.
 2. **Documento principal vs. apêndices.** Uma série multi-arquivo tem **um documento
    principal** (`NNNN-tema.md`, listado no índice) e **apêndices** nomeados
    `NNNN-tema-<subtópico>.md` (executive-summary, metrics, fases, quick-start,
@@ -213,4 +215,6 @@ Existem **dois temas distintos** sob o número 0074:
 A renumeração de um deles exige alterar **referências em código fora de `aep/`**, o
 que está fora do escopo da issue #263 (apenas governança/docs). A colisão fica
 **registrada aqui** e deve ser resolvida em uma issue/PR dedicada que também atualize
-as referências no código.
+as referências no código. Até lá, o índice usa os rótulos 0074-A e 0074-B e conta
+ambos como documentos principais: por isso há 97 documentos para 96 números
+ocupados.
