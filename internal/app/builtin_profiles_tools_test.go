@@ -112,3 +112,32 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 		})
 	}
 }
+
+// Quando nenhum arquivo de perfil pôde ser lido, o Manager cai no
+// DefaultProfile() em vez do padrao.json. Se os dois divergirem, justamente a
+// instalação degradada perde o baseline da AEP-0096.
+func TestDefaultProfileEspelhaOBaselineDoPadraoBuiltin(t *testing.T) {
+	data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/padrao.json")
+	if err != nil {
+		t.Fatalf("ler profile builtin: %v", err)
+	}
+	var builtin profiles.Profile
+	if err := json.Unmarshal(data, &builtin); err != nil {
+		t.Fatalf("decodificar profile: %v", err)
+	}
+
+	fallback := profiles.DefaultProfile()
+	if fallback.Chat.ToolPolicyDefault != builtin.Chat.ToolPolicyDefault {
+		t.Fatalf("tool_policy_default do fallback = %q, esperado %q",
+			fallback.Chat.ToolPolicyDefault, builtin.Chat.ToolPolicyDefault)
+	}
+	if len(fallback.Chat.ToolPolicy) != len(builtin.Chat.ToolPolicy) {
+		t.Fatalf("tool_policy do fallback = %#v, esperado %#v",
+			fallback.Chat.ToolPolicy, builtin.Chat.ToolPolicy)
+	}
+	for name, state := range builtin.Chat.ToolPolicy {
+		if got := fallback.Chat.ToolPolicy[name]; got != state {
+			t.Fatalf("tool_policy[%q] do fallback = %q, esperado %q", name, got, state)
+		}
+	}
+}

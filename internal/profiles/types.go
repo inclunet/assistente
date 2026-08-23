@@ -312,6 +312,26 @@ const (
 	TriggerTypeVAD          = "vad"
 )
 
+// DefaultToolPolicyDefault e DefaultToolPolicy descrevem o baseline operacional
+// do perfil Padrão (AEP-0096). O builtin embarcado repete esses valores em
+// padrao.json, e um teste em internal/app garante que os dois não divirjam. O
+// fallback aqui existe para a instalação degradada, em que nenhum arquivo de
+// perfil pôde ser lido: mesmo ali o primeiro turno precisa nascer com leitura,
+// busca, web e questionário.
+const DefaultToolPolicyDefault = "on_demand"
+
+func DefaultToolPolicy() map[string]string {
+	return map[string]string{
+		"read_file":         "preloaded",
+		"search_files":      "preloaded",
+		"grep_search":       "preloaded",
+		"web_search":        "preloaded",
+		"web_fetch":         "preloaded",
+		"collect_responses": "preloaded",
+		"text_edit":         "disabled",
+	}
+}
+
 // DefaultProfile retorna um perfil com valores padrão.
 // Usa $default para provedor e modelo — resolvido em runtime pelo sistema de default provider.
 func DefaultProfile() *Profile {
@@ -334,6 +354,8 @@ func DefaultProfile() *Profile {
 			TopP:                          1.0,
 			ResponseTimeout:               180,
 			ReasoningEffort:               "",
+			ToolPolicyDefault:             DefaultToolPolicyDefault,
+			ToolPolicy:                    DefaultToolPolicy(),
 			RateLimitEnabled:              boolPtr(true),
 			RateLimitRPM:                  DefaultLLMRateLimitRPM,
 			RateLimitBurst:                DefaultLLMRateLimitBurst,
