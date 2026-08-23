@@ -1,6 +1,6 @@
 # Refatoracao do Modelo de Voz ÔÇö Separacao por Role
 
-## Status: Proposto
+## Status: Done — modelo por role implementado em `internal/profiles/types.go` e `ProfileAudioTab`
 
 ---
 

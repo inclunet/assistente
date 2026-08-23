@@ -1,6 +1,6 @@
 # AEP-0056: Workspace com Abas Autocontidas
 
-## Status: Draft
+## Status: Done — contrato consolidado nos PRs #110–#113
 
 ## Resumo
 

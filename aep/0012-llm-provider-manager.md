@@ -1,6 +1,6 @@
 # LLM Provider Manager Architecture
 
-**Status:** Planning  
+**Status:** Done
 **Date:** March 6, 2026  
 **Goal:** Replace global LLM configuration with per-profile provider management + credential-based authentication
 

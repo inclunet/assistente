@@ -1,6 +1,6 @@
 # AEP-0057: Sessões de Superfície e Timeline de Chat
 
-## Status: Draft
+## Status: Done — identidade e isolamento consolidados nos PRs #110–#113
 
 ## Relação com a AEP-0056
 

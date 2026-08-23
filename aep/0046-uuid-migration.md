@@ -1,5 +1,7 @@
 # AEP-0046 — Migração de IDs Sequenciais para UUIDv7
 
+**Status:** Done
+
 ## Resumo
 
 Todas as tabelas do SQLite que usam `uint` auto-increment como chave primária serão migradas para `string` com UUIDv7 (RFC 9562). Os dados existentes serão preservados através de uma migração automática no startup do app — ao detectar o schema antigo (colunas `id` INTEGER), o banco é convertido in-place dentro de uma transação atômica. Todas as entidades mudam em um único esforço (big bang). Recursos armazenados em disco (profiles, skills, allowlists, etc.) ficam fora do escopo — receberão UUIDv7 quando forem migrados para o banco em AEPs futuros.

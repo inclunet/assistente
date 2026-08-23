@@ -1,6 +1,6 @@
 # AEP-0072 — Skill Loading Runtime
 
-**Status**: Concluída
+**Status**: Done
 **Criado em**: 2026-06-08
 **Revisado em**: 2026-06-19
 **Implementada em**: 2026-06-18

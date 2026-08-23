@@ -1,5 +1,7 @@
 # AEP-0074 — Compactação e Retenção do Banco de Dados
 
+**Status:** Done
+
 ## Dependências
 
 - **AEP-0048** (Migração de Jobs para Banco de Dados): definiu a retenção por idade (30 dias) de `job_runs`, `job_events` e `job_run_events` via goroutine no Manager. Esta AEP **substitui** essa janela por uma retenção curta, configurável em horas (padrão 24h), por dados de jobs serem efêmeros.

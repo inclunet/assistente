@@ -1,6 +1,6 @@
 # Plano de Centralização do Cliente HTTP
 
-**Status**: Em Progresso  
+**Status**: In Progress
 **Objetivo**: Unificar todas as instâncias de `http.Client` sob o cliente HTTP centralizado (`internal/tools/http/client.go`)  
 **Benefícios**: Eliminação de duplicação, auth centralizada, retry automático, manutenção simplificada
 

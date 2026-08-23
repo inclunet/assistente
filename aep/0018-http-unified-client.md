@@ -1,5 +1,7 @@
 # Plano: Cliente HTTP Unificado com Interceptor de Autenticação
 
+**Status:** Done
+
 ## Problema Atual
 
 A autenticação via credenciais (API tokens, Bearer tokens, etc.) está **duplicada** em múltiplos adapters:

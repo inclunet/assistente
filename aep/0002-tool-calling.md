@@ -1,5 +1,7 @@
 # Plano de Implementação — Tool Calling
 
+**Status:** Done
+
 ## Visão Geral
 
 Implementar um sistema de tool calling que permite ao assistente executar ferramentas (ler arquivos, buscar dados, acessar web) em loop, similar ao Cursor, Claude Code, Codex e Copilot.

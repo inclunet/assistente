@@ -1,6 +1,6 @@
 # AEP-0089: Terminais como Recursos Efêmeros
 
-## Status: Draft
+## Status: In Progress
 
 ## Resumo
 

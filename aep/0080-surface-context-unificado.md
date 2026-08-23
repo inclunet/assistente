@@ -1,6 +1,6 @@
 # AEP-0080: SurfaceContext Unificado
 
-## Status: Draft
+## Status: In Progress
 
 Criado em: 2026-06-27
 Relacionado: AEP-0034, AEP-0040, AEP-0042, AEP-0057, AEP-0058, AEP-0074-A, AEP-0074-B, AEP-0075, AEP-0079

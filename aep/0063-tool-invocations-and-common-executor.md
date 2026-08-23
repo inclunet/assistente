@@ -1,5 +1,7 @@
 # AEP-0063 — Tool Invocations e Executor Comum
 
+**Status:** Done
+
 ## Dependências
 
 - **AEP-0039** (Tool Calling Revamp): base conceitual para tool calling, eventos e execução estruturada.

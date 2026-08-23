@@ -1,6 +1,6 @@
 # Tool Calling — Revamp & Enhancements
 
-## Status: Proposto
+## Status: In Progress — implementação parcial comprovada pelas AEPs 0063, 0077 e 0078
 
 ---
 

@@ -1,6 +1,6 @@
 # AEP-0059: Performance de Conversas Longas
 
-## Status: Draft
+## Status: In Progress — janela incremental e timeline canônica entregues; virtualização e conteúdo pesado seguem pendentes
 
 ## Relação com a AEP-0056
 

@@ -1,5 +1,7 @@
 # AEP-0079: Modo Apresentação Reveal.js no Editor
 
+## Status: Done — renderer, edição por slide, contexto acessível e testes entregues
+
 ## Resumo
 
 Adicionar suporte a apresentações Reveal.js como uma evolução do Editor existente, sem criar uma nova superfície de Workspace.

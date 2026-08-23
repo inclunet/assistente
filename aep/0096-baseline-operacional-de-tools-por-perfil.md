@@ -1,6 +1,6 @@
 # AEP-0096 — Baseline operacional de tools por perfil
 
-**Status:** 🚧 In Progress
+**Status:** ✅ Done — baseline inicial entregue; Fases 2–5 são evoluções separadas
 
 ## Resumo
 

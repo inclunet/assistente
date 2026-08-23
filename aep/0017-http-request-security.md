@@ -1,5 +1,7 @@
 # HTTP Request - Guardrails de Segurança
 
+**Status:** Done
+
 ## Problema
 
 Ao dar ao modelo LLM acesso a uma ferramenta HTTP completa, surgem dois riscos principais:

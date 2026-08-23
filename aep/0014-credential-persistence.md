@@ -1,5 +1,7 @@
 # Persistência de Credenciais
 
+**Status:** Done
+
 Este documento descreve o sistema de persistência segura de credenciais implementado no assistente.
 
 ## Visão Geral

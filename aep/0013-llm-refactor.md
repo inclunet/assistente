@@ -1,5 +1,7 @@
 # Plano de Refatoração: LLM Client Centralizado
 
+**Status:** Done
+
 **Data:** 6 de março de 2026  
 **Objetivo:** Migrar o pacote `internal/llm` para o padrão de cliente HTTP centralizado, eliminando gambiarras e estabelecendo arquitetura limpa e bem testada.
 

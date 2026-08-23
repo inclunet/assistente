@@ -1,5 +1,7 @@
 # Arquitetura de Perfis de Interação por Voz (v2)
 
+**Status:** Done
+
 ## Visão Geral
 
 O sistema de Perfis de Interação permite configurar diferentes modos de interação por voz com o assistente. A arquitetura foi redesenhada para ser mais flexível, separando **perfis** (configurações comuns) de **triggers** (formas de ativação).

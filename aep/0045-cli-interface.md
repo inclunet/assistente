@@ -1,8 +1,9 @@
 # 0045 — Interface CLI como alternativa ao Wails
 
+Status: Done
+
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-18
-Status: concluído
 
 ## Resumo executivo
 

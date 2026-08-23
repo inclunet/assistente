@@ -1,6 +1,6 @@
 # AEP-0095: Mermaid acessível e resiliente
 
-- **Status**: In Progress
+- **Status**: Done
 - **Data**: 2026-08-21
 
 ## Resumo

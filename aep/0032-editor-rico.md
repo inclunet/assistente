@@ -1,5 +1,7 @@
 # Plano — Editor Rico + Edição Inline com Chat
 
+**Status:** In Progress — MVP funcional; persistência SQLite e gestão de arquivos permanecem pendentes
+
 ## Objetivo
 Adicionar uma nova área no app (uma **Editor Page** com **abas**, como Chat e Terminal) que permita:
 
@@ -11,7 +13,7 @@ Adicionar uma nova área no app (uma **Editor Page** com **abas**, como Chat e T
 
 Este documento é um plano “maduro para implementação”: decisões técnicas propostas, fluxos de UX, contrato de patch e backlog inicial.
 
-## Status (código atual)
+## Estado da implementação
 
 Implementado no repositório (não-exaustivo):
 - [x] `EditorPage` com abas, atalhos e modo duplo (Rico ⇄ Markdown).

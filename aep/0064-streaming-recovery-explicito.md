@@ -1,6 +1,6 @@
 # AEP-0064 — Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração
 
-Status: Proposto
+Status: Done — cancelamento, recuperação automática e continuação explícita implementados
 Data: 2026-05-21
 Autor: Leonardo Gleison (Inclunet) + GitHub Copilot
 

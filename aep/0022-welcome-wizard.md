@@ -1,5 +1,7 @@
 # Welcome Wizard - Assistente de Configuração Inicial
 
+**Status:** Done
+
 ## Visão Geral
 
 Sistema de wizard de boas-vindas que guia usuários novos através da configuração inicial do assistente, melhorando significativamente a experiência de primeiro uso.

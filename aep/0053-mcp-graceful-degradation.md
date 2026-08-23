@@ -1,8 +1,9 @@
 # 0053 — Degradação graciosa de MCP nativo no chat
 
+Status: Draft
+
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-23
-Status: rascunho
 
 ## Resumo executivo
 

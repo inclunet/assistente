@@ -1,9 +1,10 @@
 # Refatoração Completa da Arquitetura de Chat
 
+**Status:** Superseded — plano Svelte substituído pela arquitetura React e pelos contratos das AEPs 0037/0040
+
 **Data:** 15 de Janeiro de 2026  
 **Motivo:** Sistema de múltiplas guias não funciona - reactive statements do Svelte nunca executam  
 **Estimativa:** 4-6 horas  
-**Status:** EM DESENVOLVIMENTO
 
 ## Problema Identificado
 

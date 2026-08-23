@@ -1,6 +1,6 @@
 # Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens
 
-## Status: Aceito (contrato vigente)
+## Status: Accepted — contrato vigente
 
 > Tratado como contrato arquitetural em vigor pelo `CLAUDE.md` e pelas instruções
 > de agentes (`.github/copilot-instructions.md`). As invariantes desta AEP

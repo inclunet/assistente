@@ -1,6 +1,6 @@
 # AEP-0069 — Tool `feed_read` (RSS/Atom/JSON Feed/Podcast → JSON canônico)
 
-Status: Draft
+Status: Done — implementação em `internal/tools/feed/feed_read.go` e testes de catálogo/guardrails
 Data: 2026-06-04
 Autor: Inclunet + Cursor Agent
 

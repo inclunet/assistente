@@ -1,6 +1,6 @@
 # AEP-0070 — Tool `web_search` (busca web → JSON canônico paginável)
 
-Status: Draft
+Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 

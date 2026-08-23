@@ -1,5 +1,7 @@
 # Implementação de Guias (Tabs) de Chat
 
+**Status:** Done
+
 ## Resumo
 
 Este documento descreve o plano de implementação de um sistema de múltiplas guias para o chat, permitindo ao usuário ter várias conversas abertas simultaneamente, similar a um navegador de abas.

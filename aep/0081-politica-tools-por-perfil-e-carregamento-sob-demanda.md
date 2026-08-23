@@ -1,6 +1,6 @@
 # AEP-0081 — Política de Tools por Perfil e Carregamento sob Demanda
 
-Status: Draft
+Status: Done — política tri-state, carregamento por sessão, control-plane e UI entregues
 Criado em: 2026-07-01
 Relacionado: AEP-0021, AEP-0049, AEP-0050, AEP-0063, AEP-0071, AEP-0072, AEP-0075, AEP-0077, AEP-0080
 

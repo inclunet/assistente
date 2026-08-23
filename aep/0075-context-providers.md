@@ -1,6 +1,6 @@
 # AEP-0075 — Context Providers
 
-Status: Concluída
+Status: Done
 Criado em: 2026-06-16
 Implementada em: 2026-06-19
 Implementada por: PR #297

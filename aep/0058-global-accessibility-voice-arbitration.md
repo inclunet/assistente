@@ -1,6 +1,6 @@
 # AEP-0058: Arbitragem Global de Acessibilidade e Voz
 
-## Status: Draft
+## Status: Done — arbitragem global implementada e consolidada nos PRs #111/#112
 
 ## Relação com a AEP-0056
 

@@ -1,5 +1,7 @@
 # MCP OAuth Auto-Discovery
 
+**Status:** Done
+
 ## Objetivo
 
 Implementar auto-discovery de configuração OAuth para servidores MCP remotos (transport `streamable` ou `sse`). Quando o usuário preenche a URL do servidor e sai do campo, o sistema consulta automaticamente os endpoints well-known do servidor para preencher os campos de autenticação.

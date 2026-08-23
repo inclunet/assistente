@@ -1,6 +1,6 @@
 # AEP-0050 — Migração de Profiles para Banco de Dados
 
-**Status**: Proposta — implementação ADIADA (2026-06-08)
+**Status**: Draft — implementação adiada (2026-06-08)
 **Criado em**: 2026-04-21
 **Atualizado em**: 2026-07-02
 **Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0051 (Skills DB Migration)

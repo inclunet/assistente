@@ -181,6 +181,18 @@ O diretório `aep/` é o repositório único de decisões arquiteturais do proje
 - **Ao criar novo AEP**, numere sequencialmente a partir do último existente (consulte `aep/` para o maior número).
 - **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
 - **Para descobrir AEPs relevantes**, liste `aep/` e leia os títulos — os nomes dos arquivos descrevem o tema.
+- **Todo PR que implementar ou abandonar trabalho previsto em um AEP DEVE
+  atualizar o AEP no mesmo PR**: marcar fases e critérios de aceitação com
+  evidências verificáveis, ajustar o status no topo e repetir o mesmo status no
+  índice `aep/README.md`.
+- Implementação parcial permanece `In Progress` e registra explicitamente o que
+  foi concluído e o que falta. Quando todo o escopo aceito estiver entregue,
+  usar `Done`; quando a decisão for contrato vigente sem exigir implementação
+  integral, usar `Accepted`; trabalho abandonado ou substituído deve virar
+  `Deprecated` ou `Superseded`, nunca permanecer indefinidamente como `Draft`.
+- A atualização documental do AEP faz parte da definição de pronto: não encerre
+  o PR nem reporte a implementação como concluída enquanto documento principal
+  e índice divergirem do código.
 
 ## Enforcement Automatizado (CI)
 

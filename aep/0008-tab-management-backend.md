@@ -1,5 +1,7 @@
 # Refatoração: Gerenciamento de Abas no Backend
 
+**Status:** Done
+
 ## 🎯 Objetivo
 
 **Mover toda a lógica de gerenciamento de abas de chat do frontend (localStorage + ChatTabsContainer) para o backend (banco de dados + API)**

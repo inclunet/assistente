@@ -1,5 +1,7 @@
 # Arquitetura de Threads v2
 
+**Status:** Done
+
 ## Estrutura Implementada
 
 ```

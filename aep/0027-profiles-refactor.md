@@ -1,5 +1,7 @@
 # Plano de Refatoração: ProfilesPage
 
+**Status:** Done
+
 **Objetivo**: Migrar ProfilesPage para usar `useEditableList` + extrair componentes reutilizáveis testados
 
 **Princípios**:

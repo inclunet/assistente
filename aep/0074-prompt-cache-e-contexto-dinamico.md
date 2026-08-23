@@ -1,6 +1,6 @@
 # AEP-0074 — Prompt Cache, Custo de LLM e Layout da Request
 
-Status: Concluída
+Status: Done
 Criado em: 2026-06-16
 Atualizado em: 2026-06-22
 Implementada em: 2026-06-22

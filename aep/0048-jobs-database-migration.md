@@ -1,5 +1,7 @@
 # AEP-0048 — Migração de Jobs para Banco de Dados
 
+**Status:** In Progress
+
 ## Dependências
 
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Deve ser implementada primeiro. Fornece o `UUIDModel` com hook `BeforeCreate` que gera UUIDv7 automaticamente. Todas as PKs das tabelas desta AEP usam esse modelo.

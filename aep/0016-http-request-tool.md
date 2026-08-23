@@ -1,5 +1,7 @@
 # HTTP Request Tool - Proposta de Implementação
 
+**Status:** Done
+
 ## Contexto
 
 A ferramenta atual `web_fetch` possui limitações significativas:

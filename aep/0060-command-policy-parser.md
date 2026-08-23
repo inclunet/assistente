@@ -1,6 +1,6 @@
 # AEP-0060: Parser e Política de Comandos
 
-## Status: Draft
+## Status: Done — parser, evaluator, integração e testes em `internal/commandpolicy`
 
 ## Resumo
 

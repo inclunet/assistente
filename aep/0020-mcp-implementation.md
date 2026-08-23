@@ -1,6 +1,6 @@
 # Implementação Completa do Model Context Protocol (MCP)
 
-## ✅ Status: Implementação Preparada para o Futuro
+## Status: Done — implementação funcional; extensões dependentes do SDK permanecem documentadas
 
 Este documento descreve a implementação completa de MCP no assistente, incluindo features que estão **preparadas** mas aguardando suporte do SDK Go oficial.
 

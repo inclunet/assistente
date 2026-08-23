@@ -1,6 +1,6 @@
 # MCP Modo Nativo
 
-## Status: Revisado (v7)
+## Status: In Progress — revisão v7
 
 > **Historico:** A versao original desta AEP descrevia um conceito aspiracional de modo nativo com `mcp_mode` (adapter/native/auto) no perfil. A infraestrutura foi parcialmente criada (`GetNativeServerInfo`, `TestMCPNativeSupport`, `ShouldUseMCPNative`) mas **nunca foi consumida no chat loop**. O sistema sempre operou em modo adapter.
 >

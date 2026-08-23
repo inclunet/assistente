@@ -1,5 +1,7 @@
 # Arquitetura de Voz (TTS/STT)
 
+**Status:** Done
+
 ## Visão Geral
 
 O sistema de voz permite interação por áudio com o assistente, suportando múltiplos provedores de TTS (Text-to-Speech) e STT (Speech-to-Text), incluindo APIs de nuvem, Web Speech API do navegador, SAPI5 do Windows e modelos multimodais.

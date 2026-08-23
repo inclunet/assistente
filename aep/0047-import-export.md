@@ -1,5 +1,7 @@
 # AEP-0047 — Importação e Exportação de Conteúdo
 
+**Status:** Done
+
 ## Dependências
 
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Esta AEP agora assume que a migração para UUIDv7 já aconteceu e passa a usar esses IDs estáveis como contrato portável. O formato legado sem IDs deixa de ser suportado.

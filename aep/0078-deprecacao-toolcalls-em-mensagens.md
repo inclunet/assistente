@@ -1,6 +1,6 @@
 # AEP-0078 — Deprecação de `tool_calls` em Mensagens
 
-Status: Draft
+Status: Done — escrita L3 removida do caminho feliz; leitores usam `tool_invocations` com fallback legado
 
 ## Resumo
 

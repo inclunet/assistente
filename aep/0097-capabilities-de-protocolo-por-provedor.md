@@ -1,6 +1,6 @@
 # AEP-0097 — Capabilities de protocolo configuráveis por provedor
 
-Status: Implementado
+Status: Done
 
 ## Resumo
 

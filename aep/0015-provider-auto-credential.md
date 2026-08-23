@@ -1,5 +1,7 @@
 # Feature: Auto-extração de Credenciais ao Adicionar Provedores
 
+**Status:** Done
+
 ## Objetivo
 Simplificar a adição de provedores LLM extraindo automaticamente o domínio do `base_url` e salvando a API key diretamente no `credentials.Manager`, eliminando a necessidade do usuário configurar manualmente o credential pattern.
 

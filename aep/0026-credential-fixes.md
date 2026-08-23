@@ -1,5 +1,7 @@
 # Correções no sistema de credenciais
 
+**Status:** Done
+
 Há dois problemas para corrigir:
 
 ## 1. Struct `KeyringEntry` duplicada entre build tags

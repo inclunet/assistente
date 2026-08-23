@@ -1,6 +1,6 @@
 # SDK Migration + ChatProvider Interface
 
-## Status: Implementado (v2)
+## Status: Done — implementado (v2)
 
 ---
 
