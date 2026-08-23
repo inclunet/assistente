@@ -872,9 +872,11 @@ describe('ProfileToolsSection', () => {
     const grid = screen.getByRole('grid');
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'Escape' });
+    // load_skill fica de fora do mapa de propósito: o backend a promove
+    // enquanto o runtime a informar, e gravá-la aqui a manteria exposta depois
+    // que as skills sob demanda saíssem.
     expect(onChange).toHaveBeenCalledWith('tool_policy', {
       tool_catalog: 'preloaded',
-      load_skill: 'preloaded',
       read_file: 'disabled',
     });
   });
@@ -897,9 +899,61 @@ describe('ProfileToolsSection', () => {
     fireEvent.click(screen.getByTestId('tools-deselect-all'));
     expect(onChange).toHaveBeenCalledWith('tool_policy', {
       tool_catalog: 'preloaded',
-      load_skill: 'preloaded',
       read_file: 'disabled',
     });
+  });
+
+  it('não congela no perfil a promoção de load_skill vinda do runtime', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('load_skill', 'Load skill', 'local', 'Local', undefined, true),
+          tool('read_file', 'Read file'),
+        ]}
+        toolPolicy={{ read_file: 'preloaded' }}
+        toolPolicyDefault="on_demand"
+        runtimeTools={['load_skill']}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />,
+    );
+
+    // A tool aparece pré-carregada porque o runtime a informou...
+    expect(screen.getByLabelText('load_skill: Pré-carregada')).toBeInTheDocument();
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    // ...mas alternar outra tool não a grava como escolha do perfil.
+    const [, policy] = onChange.mock.calls[0];
+    expect(policy).not.toHaveProperty('load_skill');
+  });
+
+  it('grava load_skill quando o usuário muda o estado dela', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('load_skill', 'Load skill', 'local', 'Local', undefined, true),
+          tool('read_file', 'Read file'),
+        ]}
+        toolPolicy={{ read_file: 'preloaded' }}
+        toolPolicyDefault="on_demand"
+        runtimeTools={['load_skill']}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />,
+    );
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    const [, policy] = onChange.mock.calls[0];
+    expect(policy.load_skill).toBe('disabled');
   });
 
   it('não promove tools sob demanda ao pressionar Ctrl+A quando todas já estão selecionadas', () => {

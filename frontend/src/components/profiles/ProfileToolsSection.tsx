@@ -196,6 +196,25 @@ export function ProfileToolsSection({
 
   const catalogExplicitlyDisabled = isToolExplicitlyDisabled(normalizedToolPolicy, TOOL_CATALOG_NAME);
 
+  // O runtime informa load_skill enquanto o perfil tem skill sob demanda, e o
+  // backend a promove sozinho a cada turno. Gravar essa promoção no mapa a
+  // congelaria: desligadas as skills, a entrada explícita continuaria expondo
+  // uma tool cujas chamadas já não têm o que carregar. Só sai do mapa a
+  // promoção que ninguém pediu — o que o perfil declarava e o que o usuário
+  // acabou de escolher permanecem.
+  const dropRuntimeOnlyPromotions = useCallback((policy: Record<string, ToolPolicyState>) => {
+    const declared = new Set(enabledTools?.map((name) => name.trim()) ?? []);
+    let next = policy;
+    for (const raw of runtimeTools) {
+      const name = raw.trim();
+      if (name === '' || name in normalizedToolPolicy || declared.has(name)) continue;
+      if (next[name] !== TOOL_POLICY_PRELOADED) continue;
+      if (next === policy) next = { ...policy };
+      delete next[name];
+    }
+    return next;
+  }, [enabledTools, normalizedToolPolicy, runtimeTools]);
+
   // Nem allowlist, nem mapa, nem default: o perfil ainda é o legado aberto que o
   // backend resolve como catalog-first.
   const isLegacyCatalogFirst = enabledTools == null
@@ -284,7 +303,7 @@ export function ProfileToolsSection({
       hasOnDemandOutsideGrid,
     });
     effectiveToolPolicyRef.current = resolved;
-    const merged = { ...policyEntriesOutsideGrid, ...resolved };
+    const merged = { ...policyEntriesOutsideGrid, ...dropRuntimeOnlyPromotions(resolved) };
     if (onPolicyChange) {
       // Perfil legado aberto (sem allowlist, sem mapa e sem default) é
       // catalog-first: toda tool futura nasce sob demanda. Gravar só o mapa
@@ -301,6 +320,7 @@ export function ProfileToolsSection({
     onChange('tool_policy', merged);
   }, [
     catalogExplicitlyDisabled,
+    dropRuntimeOnlyPromotions,
     hasOnDemandOutsideGrid,
     isLegacyCatalogFirst,
     onChange,
@@ -321,7 +341,7 @@ export function ProfileToolsSection({
           || value.trim() === TOOL_POLICY_ON_DEMAND,
       });
       onPolicyChange(
-        { ...policyEntriesOutsideGrid, ...migrated },
+        { ...policyEntriesOutsideGrid, ...dropRuntimeOnlyPromotions(migrated) },
         { toolPolicyDefault: value },
       );
       return;
@@ -329,6 +349,7 @@ export function ProfileToolsSection({
     onChange('tool_policy_default', value);
   }, [
     catalogExplicitlyDisabled,
+    dropRuntimeOnlyPromotions,
     effectiveToolPolicy,
     enabledTools,
     hasExplicitToolPolicy,
