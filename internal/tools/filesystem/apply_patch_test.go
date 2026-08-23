@@ -31,6 +31,31 @@ func decodePatchResponse(t *testing.T, content string) applyPatchResponse {
 	return response
 }
 
+func waitForMutationLockRefs(t *testing.T, path string, want int) {
+	t.Helper()
+	if resolved, err := resolveForComparison(path); err == nil {
+		path = resolved
+	}
+	key := normalizeForComparison(path)
+	deadline := time.Now().Add(time.Second)
+	for {
+		fileMutationLocks.Lock()
+		entry := fileMutationLocks.entries[key]
+		refs := 0
+		if entry != nil {
+			refs = entry.refs
+		}
+		fileMutationLocks.Unlock()
+		if refs >= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("lock de %q não alcançou %d referências; atual=%d", path, want, refs)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestApplyPatchContract(t *testing.T) {
 	tool := NewApplyPatch(t.TempDir(), nil)
 	if tool.Name() != "apply_patch" {
@@ -325,10 +350,11 @@ func TestApplyPatchSerializaMutacoesDoMesmoArquivo(t *testing.T) {
 	<-firstAtWrite
 	go run(second, secondArgs, secondDone)
 
+	waitForMutationLockRefs(t, path, 2)
 	select {
 	case result := <-secondDone:
 		t.Fatalf("segunda mutação atravessou o lock: %#v", result)
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 	close(releaseFirst)
 	firstResult := <-firstDone
@@ -415,12 +441,13 @@ func TestFileMutationLockUnificaAliasEPathResolvido(t *testing.T) {
 	go func() {
 		acquiredAlias <- lockFileMutation(link)
 	}()
+	waitForMutationLockRefs(t, target, 2)
 	select {
 	case unlockAlias := <-acquiredAlias:
 		unlockAlias()
 		unlockTarget()
 		t.Fatal("alias adquiriu lock enquanto o destino estava bloqueado")
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 	unlockTarget()
 	select {
@@ -447,12 +474,13 @@ func TestFileMutationLockUnificaHardlinksPelaIdentidade(t *testing.T) {
 	go func() {
 		acquiredHardlink <- lockFileMutation(hardlink)
 	}()
+	waitForMutationLockRefs(t, target, 2)
 	select {
 	case unlockHardlink := <-acquiredHardlink:
 		unlockHardlink()
 		unlockTarget()
 		t.Fatal("hardlink adquiriu lock enquanto o mesmo arquivo estava bloqueado")
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 	unlockTarget()
 	select {
