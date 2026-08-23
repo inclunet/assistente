@@ -433,6 +433,31 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
   });
 
+  it('preserva a abertura do perfil legado catalog-first ao materializar a política', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('tool_catalog', 'Tool catalog'),
+        ]}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      expect.any(Object),
+      { toolPolicyDefault: 'on_demand' },
+    );
+  });
+
   it('promove o catálogo quando o usuário tira o bloqueio explícito', () => {
     const onPolicyChange = vi.fn();
     render(

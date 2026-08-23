@@ -196,6 +196,12 @@ export function ProfileToolsSection({
 
   const catalogExplicitlyDisabled = isToolExplicitlyDisabled(normalizedToolPolicy, TOOL_CATALOG_NAME);
 
+  // Nem allowlist, nem mapa, nem default: o perfil ainda é o legado aberto que o
+  // backend resolve como catalog-first.
+  const isLegacyCatalogFirst = enabledTools == null
+    && !hasExplicitToolPolicy
+    && (toolPolicyDefault?.trim() ?? '') === '';
+
   const effectiveToolPolicy = useMemo(() => {
     const policy: Record<string, ToolPolicyState> = {};
     const normalizedDefault = toolPolicyDefault?.trim() ?? '';
@@ -280,6 +286,15 @@ export function ProfileToolsSection({
     effectiveToolPolicyRef.current = resolved;
     const merged = { ...policyEntriesOutsideGrid, ...resolved };
     if (onPolicyChange) {
+      // Perfil legado aberto (sem allowlist, sem mapa e sem default) é
+      // catalog-first: toda tool futura nasce sob demanda. Gravar só o mapa
+      // zeraria o enabled_tools e o backend passaria a reger as não listadas
+      // pelo default vazio, virando fail-closed sem ninguém pedir (D3 da
+      // AEP-0096).
+      if (isLegacyCatalogFirst) {
+        onPolicyChange(merged, { toolPolicyDefault: TOOL_POLICY_ON_DEMAND });
+        return;
+      }
       onPolicyChange(merged);
       return;
     }
@@ -287,6 +302,7 @@ export function ProfileToolsSection({
   }, [
     catalogExplicitlyDisabled,
     hasOnDemandOutsideGrid,
+    isLegacyCatalogFirst,
     onChange,
     onPolicyChange,
     policyEntriesOutsideGrid,
