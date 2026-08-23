@@ -303,6 +303,40 @@ func TestToolSelectionPolicy_ToolPolicyDoesNotElevateDisabledCatalog(t *testing.
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{})
 }
 
+func TestToolSelectionPolicy_ToolPolicyRespeitaChaveComEspacos(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			" " + tools.ToolCatalogName + " ": string(ToolPolicyDisabled),
+			"read_file":                       string(ToolPolicyOnDemand),
+		},
+	})
+
+	if effective.State(tools.ToolCatalogName) != ToolPolicyDisabled {
+		t.Fatalf("bloqueio explícito com espaços deveria valer, got %s", effective.State(tools.ToolCatalogName))
+	}
+	if effective.State("read_file") != ToolPolicyOnDemand {
+		t.Fatalf("read_file deveria permanecer on_demand, got %s", effective.State("read_file"))
+	}
+}
+
+func TestToolSelectionPolicy_MapaSoDeChavesVaziasNaoViraPolitica(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy:   map[string]string{"   ": string(ToolPolicyOnDemand)},
+		EnabledTools: []string{"read_file"},
+	})
+
+	if effective.State("read_file") != ToolPolicyPreloaded {
+		t.Fatalf("allowlist legada deveria seguir soberana, got %s", effective.State("read_file"))
+	}
+	if effective.State("write_file") != ToolPolicyDisabled {
+		t.Fatalf("write_file fora da allowlist deveria ficar disabled, got %s", effective.State("write_file"))
+	}
+}
+
 func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandWhenCatalogUnavailable(t *testing.T) {
 	r := charRegistryNoCatalog(t)
 	policy := NewToolSelectionPolicy(r)

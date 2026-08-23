@@ -366,6 +366,98 @@ describe('ProfileToolsSection', () => {
     );
   });
 
+  it('promove o catálogo ao tornar uma tool sob demanda em perfil fail-closed', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('tool_catalog', 'Tool catalog'),
+        ]}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      expect.objectContaining({ read_file: 'on_demand', tool_catalog: 'preloaded' }),
+    );
+  });
+
+  it('mantém o catálogo bloqueado de propósito ao tornar uma tool sob demanda', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('tool_catalog', 'Tool catalog'),
+        ]}
+        toolPolicy={{ tool_catalog: 'disabled' }}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      expect.objectContaining({ read_file: 'on_demand', tool_catalog: 'disabled' }),
+    );
+  });
+
+  it('promove o catálogo por tool sob demanda que o grid não mostra', () => {
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('tool_catalog', 'Tool catalog'),
+        ]}
+        toolPolicy={{ text_edit: 'on_demand' }}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('tool_catalog: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+  });
+
+  it('promove o catálogo ao migrar a allowlist legada para default on_demand', () => {
+    const onPolicyChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('read_file', 'Read file'),
+          tool('tool_catalog', 'Tool catalog'),
+        ]}
+        enabledTools={['read_file']}
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+        onPolicyChange={onPolicyChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('tool-policy-default-select'), {
+      target: { value: 'on_demand' },
+    });
+
+    expect(onPolicyChange).toHaveBeenCalledWith(
+      expect.objectContaining({ read_file: 'preloaded', tool_catalog: 'preloaded' }),
+      { toolPolicyDefault: 'on_demand' },
+    );
+  });
+
   it('preserva a allowlist legada fora do grid ao alternar uma tool', () => {
     const onPolicyChange = vi.fn();
     render(

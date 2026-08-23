@@ -17,7 +17,27 @@ type ToolPolicyState = 'disabled' | 'on_demand' | 'preloaded';
 const TOOL_POLICY_DISABLED: ToolPolicyState = 'disabled';
 const TOOL_POLICY_ON_DEMAND: ToolPolicyState = 'on_demand';
 const TOOL_POLICY_PRELOADED: ToolPolicyState = 'preloaded';
-const CONTROL_PLANE_TOOLS = new Set(['tool_catalog', 'load_skill']);
+const TOOL_CATALOG_NAME = 'tool_catalog';
+const CONTROL_PLANE_TOOLS = new Set([TOOL_CATALOG_NAME, 'load_skill']);
+
+// Espelha ensureCatalogForOnDemandTools do backend: sem o catálogo carregado
+// nenhuma tool sob demanda pode ser descoberta, então ele sobe para preloaded a
+// menos que o perfil o bloqueie de propósito.
+function withCatalogForOnDemandTools(
+  policy: Record<string, ToolPolicyState>,
+  options: { explicitlyDisabled: boolean; hasOnDemandOutsideGrid: boolean },
+): Record<string, ToolPolicyState> {
+  if (!(TOOL_CATALOG_NAME in policy)) return policy;
+  if (policy[TOOL_CATALOG_NAME] === TOOL_POLICY_PRELOADED) return policy;
+  if (options.explicitlyDisabled) return policy;
+  const needsCatalog = policy[TOOL_CATALOG_NAME] === TOOL_POLICY_ON_DEMAND
+    || options.hasOnDemandOutsideGrid
+    || Object.entries(policy).some(([name, state]) => (
+      name !== TOOL_CATALOG_NAME && state === TOOL_POLICY_ON_DEMAND
+    ));
+  if (!needsCatalog) return policy;
+  return { ...policy, [TOOL_CATALOG_NAME]: TOOL_POLICY_PRELOADED };
+}
 
 export interface ProfileToolsSectionProps {
   availableTools: apidto.ToolInfo[];
@@ -141,6 +161,37 @@ export function ProfileToolsSection({
 
   const hasExplicitToolPolicy = Object.keys(normalizedToolPolicy).length > 0;
 
+  // O grid só enxerga as tools discoverable, mas o perfil pode configurar tools
+  // que não aparecem aqui (text_edit, por exemplo, é opt-in não discoverable e
+  // vem preloaded no Editor de Texto). Salvar só o que a tela mostra apagaria
+  // essa configuração a cada toggle.
+  const policyEntriesOutsideGrid = useMemo(() => {
+    const preserved: Record<string, string> = {};
+    for (const [name, state] of Object.entries(normalizedToolPolicy)) {
+      if (allNames.includes(name)) continue;
+      preserved[name] = state;
+    }
+    if (hasExplicitToolPolicy) return preserved;
+    // Salvar a política zera a allowlist legada no perfil. Sem carregar junto os
+    // nomes que o grid não mostra, eles sumiriam no primeiro toggle.
+    for (const name of enabledTools ?? []) {
+      const key = name.trim();
+      if (key === '' || allNames.includes(key)) continue;
+      preserved[key] = TOOL_POLICY_PRELOADED;
+    }
+    return preserved;
+  }, [allNames, enabledTools, hasExplicitToolPolicy, normalizedToolPolicy]);
+
+  // Uma tool sob demanda que o grid não mostra também precisa do catálogo, e o
+  // backend a enxerga ao decidir a promoção.
+  const hasOnDemandOutsideGrid = useMemo(
+    () => Object.values(policyEntriesOutsideGrid)
+      .some((state) => normalizeToolPolicyState(state) === TOOL_POLICY_ON_DEMAND),
+    [policyEntriesOutsideGrid],
+  );
+
+  const catalogExplicitlyDisabled = isToolExplicitlyDisabled(normalizedToolPolicy, TOOL_CATALOG_NAME);
+
   const effectiveToolPolicy = useMemo(() => {
     const policy: Record<string, ToolPolicyState> = {};
     const normalizedDefault = toolPolicyDefault?.trim() ?? '';
@@ -161,17 +212,10 @@ export function ProfileToolsSection({
         if (!allNames.includes(name) || isToolExplicitlyDisabled(normalizedToolPolicy, name)) continue;
         policy[name] = TOOL_POLICY_PRELOADED;
       }
-      if (
-        allNames.includes('tool_catalog')
-        && !isToolExplicitlyDisabled(normalizedToolPolicy, 'tool_catalog')
-        && (
-          policy.tool_catalog === TOOL_POLICY_ON_DEMAND
-          || Object.values(policy).some((state) => state === TOOL_POLICY_ON_DEMAND)
-        )
-      ) {
-        policy.tool_catalog = TOOL_POLICY_PRELOADED;
-      }
-      return policy;
+      return withCatalogForOnDemandTools(policy, {
+        explicitlyDisabled: catalogExplicitlyDisabled,
+        hasOnDemandOutsideGrid,
+      });
     }
     if (enabledTools == null) {
       for (const item of toolRows) {
@@ -195,7 +239,17 @@ export function ProfileToolsSection({
       }
     }
     return policy;
-  }, [allNames, enabledTools, hasExplicitToolPolicy, normalizedToolPolicy, runtimeTools, toolPolicyDefault, toolRows]);
+  }, [
+    allNames,
+    catalogExplicitlyDisabled,
+    enabledTools,
+    hasExplicitToolPolicy,
+    hasOnDemandOutsideGrid,
+    normalizedToolPolicy,
+    runtimeTools,
+    toolPolicyDefault,
+    toolRows,
+  ]);
   const effectiveToolPolicyRef = useRef(effectiveToolPolicy);
   effectiveToolPolicyRef.current = effectiveToolPolicy;
 
@@ -206,53 +260,57 @@ export function ProfileToolsSection({
     [allNames, effectiveToolPolicy],
   );
 
-  // O grid só enxerga as tools discoverable, mas o perfil pode configurar tools
-  // que não aparecem aqui (text_edit, por exemplo, é opt-in não discoverable e
-  // vem preloaded no Editor de Texto). Salvar só o que a tela mostra apagaria
-  // essa configuração a cada toggle.
-  const policyEntriesOutsideGrid = useMemo(() => {
-    const preserved: Record<string, string> = {};
-    for (const [name, state] of Object.entries(normalizedToolPolicy)) {
-      if (allNames.includes(name)) continue;
-      preserved[name] = state;
-    }
-    if (hasExplicitToolPolicy) return preserved;
-    // Salvar a política zera a allowlist legada no perfil. Sem carregar junto os
-    // nomes que o grid não mostra, eles sumiriam no primeiro toggle.
-    for (const name of enabledTools ?? []) {
-      const key = name.trim();
-      if (key === '' || allNames.includes(key)) continue;
-      preserved[key] = TOOL_POLICY_PRELOADED;
-    }
-    return preserved;
-  }, [allNames, enabledTools, hasExplicitToolPolicy, normalizedToolPolicy]);
-
   const commitToolPolicy = useCallback((nextPolicy: Record<string, ToolPolicyState>) => {
-    effectiveToolPolicyRef.current = nextPolicy;
-    const merged = { ...policyEntriesOutsideGrid, ...nextPolicy };
+    // Herdar o disabled do default não é escolha de ninguém. Materializar esse
+    // estado ao lado de uma tool sob demanda a deixaria inalcançável, porque o
+    // backend trata bloqueio explícito do catálogo como definitivo.
+    const catalogChosen = catalogExplicitlyDisabled
+      || (nextPolicy[TOOL_CATALOG_NAME] === TOOL_POLICY_DISABLED
+        && effectiveToolPolicyRef.current[TOOL_CATALOG_NAME] !== TOOL_POLICY_DISABLED);
+    const resolved = withCatalogForOnDemandTools(nextPolicy, {
+      explicitlyDisabled: catalogChosen,
+      hasOnDemandOutsideGrid,
+    });
+    effectiveToolPolicyRef.current = resolved;
+    const merged = { ...policyEntriesOutsideGrid, ...resolved };
     if (onPolicyChange) {
       onPolicyChange(merged);
       return;
     }
     onChange('tool_policy', merged);
-  }, [onChange, onPolicyChange, policyEntriesOutsideGrid]);
+  }, [
+    catalogExplicitlyDisabled,
+    hasOnDemandOutsideGrid,
+    onChange,
+    onPolicyChange,
+    policyEntriesOutsideGrid,
+  ]);
 
   // Trocar o padrão num perfil legado precisa materializar a allowlist como
   // tool_policy no mesmo salvamento. Sem isso o backend mantém a allowlist e a
   // escolha não teria efeito nenhum.
   const handleToolPolicyDefaultChange = useCallback((value: string) => {
     if (enabledTools != null && !hasExplicitToolPolicy && onPolicyChange) {
+      const migrated = withCatalogForOnDemandTools(effectiveToolPolicy, {
+        explicitlyDisabled: catalogExplicitlyDisabled,
+        // O novo default rege as tools que a allowlist não citava; com
+        // on_demand elas passam a depender do catálogo para serem carregadas.
+        hasOnDemandOutsideGrid: hasOnDemandOutsideGrid
+          || value.trim() === TOOL_POLICY_ON_DEMAND,
+      });
       onPolicyChange(
-        { ...policyEntriesOutsideGrid, ...effectiveToolPolicy },
+        { ...policyEntriesOutsideGrid, ...migrated },
         { toolPolicyDefault: value },
       );
       return;
     }
     onChange('tool_policy_default', value);
   }, [
+    catalogExplicitlyDisabled,
     effectiveToolPolicy,
     enabledTools,
     hasExplicitToolPolicy,
+    hasOnDemandOutsideGrid,
     onChange,
     onPolicyChange,
     policyEntriesOutsideGrid,

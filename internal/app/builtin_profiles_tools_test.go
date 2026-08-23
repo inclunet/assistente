@@ -87,6 +87,28 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 					t.Fatalf("tool_policy[%q] = %q, esperado %q", name, state, expectedState)
 				}
 			}
+
+			// A instalação regrava o profile com MarshalIndent, e enabled_tools
+			// não tem omitempty: o arquivo em disco ganha "enabled_tools": null.
+			// Isso precisa continuar sendo nil na volta, senão o perfil viraria
+			// allowlist legada e a tool_policy perderia a soberania.
+			written, err := json.MarshalIndent(profile, "", "  ")
+			if err != nil {
+				t.Fatalf("serializar profile instalado: %v", err)
+			}
+			var reloaded profiles.Profile
+			if err := json.Unmarshal(written, &reloaded); err != nil {
+				t.Fatalf("decodificar profile instalado: %v", err)
+			}
+			if reloaded.Chat.EnabledTools != nil {
+				t.Fatalf("enabled_tools = %#v após instalar, esperado nil", reloaded.Chat.EnabledTools)
+			}
+			if reloaded.Chat.ToolPolicyDefault != tc.defaultState {
+				t.Fatalf("tool_policy_default = %q após instalar, esperado %q", reloaded.Chat.ToolPolicyDefault, tc.defaultState)
+			}
+			if len(reloaded.Chat.ToolPolicy) != len(tc.expectedPolicy) {
+				t.Fatalf("tool_policy = %#v após instalar, esperado %#v", reloaded.Chat.ToolPolicy, tc.expectedPolicy)
+			}
 		})
 	}
 }

@@ -33,12 +33,16 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 	}
 
 	names := p.registry.Names()
-	if len(cfg.ToolPolicy) > 0 || strings.TrimSpace(cfg.ToolPolicyDefault) != "" {
+	// Uma chave com espaços é aceita ao aplicar o mapa, mas some em qualquer
+	// consulta direta. Normalizar antes de decidir mantém uma negação explícita
+	// valendo em toda a resolução.
+	configured := normalizeToolPolicyMap(cfg.ToolPolicy)
+	if len(configured) > 0 || strings.TrimSpace(cfg.ToolPolicyDefault) != "" {
 		// Sozinho, o default não vale para perfil que ainda descreve as tools
 		// pela allowlist legada: ele diria "on_demand" para nomes que a
 		// allowlist bloqueia, abrindo capability que ninguém escolheu. Enquanto
 		// a allowlist não virar tool_policy explícita, ela continua soberana.
-		if len(cfg.ToolPolicy) == 0 && cfg.EnabledTools != nil {
+		if len(configured) == 0 && cfg.EnabledTools != nil {
 			p.applyLegacyAllowlist(&policy, names, cfg)
 			return policy
 		}
@@ -50,15 +54,14 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			}
 			policy.states[name] = state
 		}
-		for name, state := range cfg.ToolPolicy {
-			name = strings.TrimSpace(name)
-			if name == "" || !p.registry.Has(name) {
+		for name, state := range configured {
+			if !p.registry.Has(name) {
 				continue
 			}
 			policy.states[name] = normalizeToolPolicyState(state)
 		}
-		policy.ensureCatalogForOnDemandTools(cfg.ToolPolicy)
-		policy.applyRuntimeTools(cfg.RuntimeTools, true, explicitDisabledToolPolicyNames(cfg.ToolPolicy))
+		policy.ensureCatalogForOnDemandTools(configured)
+		policy.applyRuntimeTools(cfg.RuntimeTools, true, explicitDisabledToolPolicyNames(configured))
 		return policy
 	}
 
@@ -193,16 +196,32 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 	}
 }
 
+// normalizeToolPolicyMap apara os nomes e descarta os vazios, para que o mapa
+// consultado durante a resolução tenha as mesmas chaves que a aplicação usa.
+func normalizeToolPolicyMap(configured map[string]string) map[string]string {
+	if len(configured) == 0 {
+		return nil
+	}
+	normalized := make(map[string]string, len(configured))
+	for name, state := range configured {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		normalized[name] = state
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
 func explicitDisabledToolPolicyNames(configured map[string]string) map[string]struct{} {
 	if len(configured) == 0 {
 		return nil
 	}
 	disabled := make(map[string]struct{})
 	for name, state := range configured {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
 		if normalizeToolPolicyState(state) == ToolPolicyDisabled {
 			disabled[name] = struct{}{}
 		}
