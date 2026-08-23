@@ -40,7 +40,7 @@ func convertMessagesWithReasoningContent(msgs []Message, includeReasoningContent
 			// Para quem não recebe o campo ela viraria uma assistant vazia, que
 			// parte dos providers OpenAI-compatible recusa com 400.
 			replayingReasoning := includeReasoningContent && msg.ReasoningContent != ""
-			if content == "" && len(msg.ToolCalls) == 0 && !replayingReasoning {
+			if strings.TrimSpace(content) == "" && len(msg.ToolCalls) == 0 && !replayingReasoning {
 				continue
 			}
 			m := openai.AssistantMessage(content)

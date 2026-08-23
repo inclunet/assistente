@@ -135,6 +135,21 @@ func TestConvertMessages_DescartaAssistantSoDeReasoningSemReplay(t *testing.T) {
 	}
 }
 
+func TestConvertMessages_DescartaAssistantSoDeEspacosSemReplay(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "oi"},
+		{Role: "assistant", Content: "\n  ", ReasoningContent: "só existe pelo replay do DeepSeek"},
+	}
+
+	result := convertMessages(msgs)
+	if len(result) != 1 {
+		t.Fatalf("convertMessages devolveu %d mensagens, want 1", len(result))
+	}
+	if result[0].OfAssistant != nil {
+		t.Fatal("assistant só de espaços não deveria ser enviada")
+	}
+}
+
 func TestConvertMessages_MantemAssistantSoDeReasoningComReplay(t *testing.T) {
 	msgs := []Message{
 		{Role: "user", Content: "oi"},
