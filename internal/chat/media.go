@@ -85,7 +85,10 @@ func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([
 		if m.Role == "tool" {
 			continue
 		}
-		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" && strings.TrimSpace(m.Content) == "" && strings.TrimSpace(m.Reasoning) == "" {
+		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" && strings.TrimSpace(m.Content) == "" {
+			// Tool calling de turnos anteriores não é reenviado. Reasoning
+			// persistido também não vira extensão de protocolo (AEP-0097), então
+			// mantê-lo aqui produziria uma assistant vazia no payload.
 			continue
 		}
 

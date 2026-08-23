@@ -142,6 +142,24 @@ func TestMediaHistoryLoader_NaoConverteReasoningDeToolCallLegada(t *testing.T) {
 	}
 }
 
+func TestMediaHistoryLoader_DescartaToolCallLegadaSoComReasoning(t *testing.T) {
+	repo := &stubRepo{messages: []database.ChatMessage{
+		{Role: "user", Content: "consulte os dados"},
+		{
+			Role:      "assistant",
+			Reasoning: "preciso usar lookup",
+			ToolCalls: `{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"},"result":"ok"}`,
+		},
+	}}
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("len(messages) = %d, want 1; assistant vazia não pode chegar ao provider", len(msgs))
+	}
+}
+
 func TestMediaHistoryLoader_Image(t *testing.T) {
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "image/png", "data": "abc123", "name": "foto.png"},
