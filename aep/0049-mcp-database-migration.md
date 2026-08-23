@@ -33,7 +33,7 @@ A AEP-0063 passa a consumir `tool_catalog` como fonte canônica para registrar e
 
 8. **Escopo por usuário**: MCP servers são recursos do usuário logado. Tools MCP herdam esse escopo via servidor e nunca devem aparecer para outro usuário.
 
-## Estado atual
+## Estado anterior à migração
 
 Cada servidor MCP é **um arquivo JSON** com nome = slug:
 
@@ -55,7 +55,7 @@ Cada servidor MCP é **um arquivo JSON** com nome = slug:
 - Tools builtin ficam apenas registradas em memória no `tools.Registry`
 - 18 funções Wails expostas para gestão de MCP
 
-### Struct `ServerConfig` (persistida em JSON hoje)
+### Struct `ServerConfig` (persistida em JSON antes da migração)
 
 | Campo | Tipo | Descrição |
 |---|---|---|
@@ -79,6 +79,17 @@ Cada servidor MCP é **um arquivo JSON** com nome = slug:
 | `prefer_bridge` | bool | Forçar adapter em vez de nativo |
 | `enabled` | bool | Se o servidor está ativo |
 | `auto_connect` | bool | Conectar automaticamente ao iniciar |
+
+## Estado implementado
+
+- SQLite é a fonte de verdade por meio de `internal/mcp/repository.go`; arquivos
+  JSON são apenas entrada de importação legada.
+- O catálogo persistido usa `internal/toolcatalog`, enquanto o registry em memória
+  permanece a projeção executável.
+- Importação, CRUD user-scoped e catálogo são cobertos por
+  `internal/mcp/repository_test.go`, `internal/mcp/manager_test.go`,
+  `internal/tests/integration/firstrun_mcp_test.go` e testes de
+  `internal/toolcatalog`.
 
 ## Decisões
 

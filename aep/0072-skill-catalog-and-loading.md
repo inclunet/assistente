@@ -214,46 +214,58 @@ Status: concluída. `memory`, `workspace` e `tasklist` já são Context Provider
 
 Consequência para esta AEP: nenhuma fase posterior deve recolocar memória, workspace, tasklists, budgets de providers ou settings de providers no runtime de skills. O escopo restante é exclusivamente a política e a experiência de carregamento de skills como módulos de workflow/instrução.
 
-### Fase 1 — Política ordenada por perfil
+### Fase 1 — Política ordenada por perfil ✅
 
-- Reinterpretar `enabled_skills` como lista ordenada de skills habilitadas.
-- Garantir que a primeira skill marcada seja `base`.
-- Garantir que as demais skills marcadas sejam `on_demand`.
-- Garantir que skills não marcadas sejam `disabled`.
-- Manter a ordenação como regra de prioridade do catálogo.
+- [x] Reinterpretar `enabled_skills` como lista ordenada de skills habilitadas.
+- [x] Garantir que a primeira skill marcada seja `base`.
+- [x] Garantir que as demais skills marcadas sejam `on_demand`.
+- [x] Garantir que skills não marcadas sejam `disabled`.
+- [x] Manter a ordenação como regra de prioridade do catálogo.
 
-### Fase 2 — Catálogo leve
+### Fase 2 — Catálogo leve ✅
 
-- Construir catálogo só com skills `on_demand`.
-- Preservar a ordenação do perfil como ordem de prioridade.
-- Planejar e aplicar orçamento sem inverter prioridade; detalhes do algoritmo podem ser definidos durante a implementação.
+- [x] Construir catálogo só com skills `on_demand`.
+- [x] Preservar a ordenação do perfil como ordem de prioridade.
+- [x] Aplicar orçamento sem inverter prioridade.
 
-### Fase 3 — Slash explícito e observável
+### Fase 3 — Slash explícito e observável ✅
 
-- Reimplementar `/skill` como ativação de turno.
-- Emitir evento/segmento de carregamento.
-- Mostrar erro quando desabilitada.
+- [x] Reimplementar `/skill` como ativação de turno.
+- [x] Emitir evento/segmento de carregamento.
+- [x] Mostrar erro quando desabilitada.
 
-### Fase 4 — Carregamento sob demanda
+### Fase 4 — Carregamento sob demanda ✅
 
-- Permitir ativação explícita de skill do catálogo e carregamento pelo runtime.
-- Registrar skill carregada como tool/context event.
-- Garantir que `tool_catalog` e autoativação de skills pelo modelo sejam desativadas quando tool calling estiver indisponível.
+- [x] Permitir ativação explícita de skill do catálogo e carregamento pelo runtime.
+- [x] Registrar skill carregada como tool/context event.
+- [x] Garantir que `tool_catalog` e autoativação de skills pelo modelo sejam desativadas quando tool calling estiver indisponível.
 
-### Fase 5 — Remover templates de skills e migrar built-ins
+### Fase 5 — Remover templates de skills e migrar built-ins ✅
 
-- Migrar built-in skills para o novo formato sem Go templates.
-- Bloquear uso do template engine no caminho novo de skills.
-- Migrar `auto_load` para `base`.
-- Remover dependência do template engine no caminho novo.
+- [x] Migrar built-in skills para o novo formato sem execução de Go templates pelo runtime de skills.
+- [x] Bloquear uso do template engine no caminho novo de skills.
+- [x] Migrar `auto_load` para `base`.
+- [x] Remover dependência do template engine no caminho novo.
 
-## Plano de implementação aprovado
+### Evidências da implementação
 
-> **Nota de planejamento (2026-06-17).** O próximo PR implementa a versão revisada desta AEP como mudança completa de runtime, partindo de `main` após o merge da AEP-0075. O escopo confirmado é manter o schema `enabled_skills`, mas mudar sua semântica para uma lista ordenada de skills habilitadas: primeira = `base`, demais = `on_demand`, não marcadas = `disabled`.
+- Política e invocação: `internal/skills/policy.go`,
+  `internal/skills/policy_test.go` e `internal/skills/invocation_test.go`.
+- Runtime e catálogo sob demanda: commits `5a26eb14` e `4c9516a6`, com regressões
+  em `internal/skills/skills_test.go`.
+- Integração do prompt e remoção de templates: testes de `internal/prompt` e
+  built-ins atuais sem execução de Go templates.
 
-### Escopo do PR
+## Registro do plano implementado
 
-O PR deve implementar, em conjunto:
+> **Nota histórica (2026-06-17).** O plano abaixo foi implementado pelos commits
+> `5a26eb14` (runtime da AEP-0072) e `4c9516a6` (carregamento sob demanda pelo
+> modelo), preservando `enabled_skills`: primeira = `base`, demais =
+> `on_demand`, não marcadas = `disabled`.
+
+### Escopo entregue
+
+A entrega implementou, em conjunto:
 
 1. política ordenada baseada em `enabled_skills`;
 2. compatibilidade com perfis existentes sem migração estrutural de schema;

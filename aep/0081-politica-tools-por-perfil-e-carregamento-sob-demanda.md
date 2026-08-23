@@ -1,6 +1,6 @@
 # AEP-0081 — Política de Tools por Perfil e Carregamento sob Demanda
 
-Status: Done — política tri-state, carregamento por sessão, control-plane e UI entregues
+Status: In Progress — política tri-state, catálogo, control-plane e UI entregues; TTL, `schema_hash` e invalidações da store permanecem abertos
 Criado em: 2026-07-01
 Relacionado: AEP-0021, AEP-0049, AEP-0050, AEP-0063, AEP-0071, AEP-0072, AEP-0075, AEP-0077, AEP-0080
 
@@ -198,9 +198,11 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 
 ### Fase 4 — Persistência por conversa/sessão
 
-- Criar store in-memory de loaded tools por conversa/sessão.
-- Aplicar TTL, restart reset, invalidação por `schema_hash`, availability, perfil e budget.
-- Registrar eventos/telemetria de load/unload para auditoria de turno.
+- [x] Criar store in-memory de loaded tools por conversa/sessão
+  (`internal/tools/loaded_tool_store.go`).
+- [ ] Aplicar TTL e invalidação por `schema_hash`; restart reset e troca de perfil já
+  ocorrem, mas availability/budget ainda não satisfazem todo o contrato.
+- [ ] Registrar eventos/telemetria de load/unload para auditoria de turno.
 
 ### Fase 5 — UI do Profile Manager
 

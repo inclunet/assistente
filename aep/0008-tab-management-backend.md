@@ -1,6 +1,6 @@
 # Refatoração: Gerenciamento de Abas no Backend
 
-**Status:** Done
+**Status:** Superseded — plano Svelte/backend-tabs substituído pelo Unified Workspace e pelas AEPs 0034, 0056 e 0057
 
 ## 🎯 Objetivo
 
@@ -1066,4 +1066,5 @@ Esta refatoração resolve o problema raiz de reatividade eliminando estado comp
 
 ---
 
-**Próximo Passo**: Aprovar arquitetura e começar Sprint 1 (Backend Foundation)
+**Estado histórico:** a Sprint 1 deste plano não deve ser iniciada; o modelo foi
+substituído pelos contratos de workspace e superfícies das AEPs 0034, 0056 e 0057.

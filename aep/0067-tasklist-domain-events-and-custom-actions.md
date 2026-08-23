@@ -378,9 +378,13 @@ alto risco. Mitigações combinadas: proveniência + circuit breaker + `trigger.
 - [ ] Eventos de domínio + eventos das custom actions aparecem no picker do
       `JobBuilder` com teste focado de regressão.
 - [x] Skill `job-manager` documenta os novos eventos e recipes.
-- [ ] Testes Go cobrem publish, refresh, custom actions e anti-loop; falta
-      comprovar por teste frontend o binding/picker e o fluxo completo de custom
-      actions no `JobBuilder`.
+- [x] Testes Go cobrem publish, refresh, custom actions e anti-loop em
+      `internal/tasklist/domain_events_test.go`,
+      `internal/wailsapi/tasklist_actions_test.go`,
+      `internal/tools/tasklist/tasklist_test.go` e
+      `internal/jobs/domain_events_test.go`.
+- [ ] Testes frontend ainda precisam comprovar o binding/picker e o fluxo
+      completo de custom actions no `JobBuilder`.
 
 ## Fora de escopo
 

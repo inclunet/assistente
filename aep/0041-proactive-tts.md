@@ -11,28 +11,18 @@ O sistema de TTS (Text-to-Speech) atual é **frontend-driven**: o chatStore deci
 3. **Duplicação de resolução de voz** — O frontend resolve perfil → voz → provider localmente, enquanto o backend já tem toda a infraestrutura de resolução via `buildChatSpeakEvent`.
 4. **Inconsistência com AEP-0040** — A AEP-0040 (backend-driven messaging) estabeleceu que o backend é a fonte de verdade para eventos de chat. O TTS deveria seguir o mesmo padrão.
 
-## Infraestrutura existente
+## Estado implementado
 
-~80% da implementação já existe, mas as peças não estão conectadas:
-
-| Componente | Estado | Localização |
-|---|---|---|
-| `DispatchSpeech` (Wails binding) | ✅ Implementado + testado | `app_speech_events.go` L108 |
-| `buildChatSpeakEvent` (resolve perfil → voz → strategy) | ✅ Implementado + testado | `app_speech_events.go` L162 |
-| Emissão de `chat:speak` | ✅ Implementado | `app_speech_events.go` L142 |
-| `handleChatSpeak` (executor de strategies no frontend) | ✅ Implementado + testado | `frontend/src/services/chatSpeak/index.ts` L77 |
-| `dispatchChatSpeech` (chamada RPC para backend) | ✅ Implementado | `frontend/src/services/chatSpeak/index.ts` L69 |
-| `TTSBroker` (coordenador de áudio para canais) | ✅ Implementado + testado | `internal/messaging/tts_broker.go` |
-| `triggerAutoRead` (TTS frontend-driven, legado) | ✅ Em uso | `frontend/src/store/chatStore.ts` L29 |
-
-### O que NÃO está conectado (gaps)
-
-| Gap | Detalhe |
+| Componente | Evidência |
 |---|---|
-| Nenhum listener `chat:speak` no frontend | Backend emite o evento, mas ninguém ouve |
-| Backend não chama `dispatchSpeechEvent` no OnDone | `app_stream_handler.go` não dispara TTS após streaming |
-| `TTSBroker` não instanciado | `NewTTSBroker()` existe mas não é chamado em produção |
-| Frontend decide TTS localmente | `triggerAutoRead` em 5 pontos do chatStore |
+| Dispatch e construção de `chat:speak` | `internal/app/app_speech_events.go` e `app_speech_events_language_test.go` |
+| Callback de conclusão do agentic loop | `internal/agent/service.go`, `agentic_loop.go`, `service_speech_test.go` e `agentic_loop_test.go` |
+| Listener e arbitragem no frontend | `frontend/src/services/chatEventController.ts` e `chatEventController.test.ts` |
+| Broker para canais externos | `internal/messaging/tts_broker.go` e `tts_broker_test.go` |
+
+Os gaps abaixo descreviam o baseline anterior à implementação: ausência de
+listener, callback não conectado, broker sem wiring e decisão local duplicada.
+Esses caminhos foram substituídos pelos componentes e testes da tabela acima.
 
 ## Fluxo de eventos (atual vs. proposto)
 

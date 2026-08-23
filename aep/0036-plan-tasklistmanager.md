@@ -1,6 +1,6 @@
 # Plano: Task List Manager Feature
 
-**Status:** Done
+**Status:** In Progress — implementação funcional entregue; verificações manuais de teclado, temas e restauração de abas permanecem abertas
 
 > **Nota de status (alinhamento 2026-06)** — Documento parcialmente **histórico**.
 > A feature foi implementada, mas o **modelo de dados** abaixo divergiu do código

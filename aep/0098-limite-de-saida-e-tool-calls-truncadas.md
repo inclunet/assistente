@@ -1,6 +1,6 @@
 # AEP-0098 — Limite de saída e tool calls truncadas
 
-**Status:** ✅ Implementado
+**Status:** Done — implementado
 
 ## Resumo
 

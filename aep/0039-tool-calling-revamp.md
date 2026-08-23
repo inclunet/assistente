@@ -360,15 +360,17 @@ Base sobre a qual esta AEP constroi. Estabeleceu:
 
 **Conflito: nenhum.** Esta AEP estende os structs existentes com campos opcionais. Nenhuma remocao ou renomeacao de campos da 0040.
 
-### AEP-0021 (MCP Native Mode) — IMPLEMENTADA (v3)
+### AEP-0021 (MCP Native Mode) — IN PROGRESS (v3)
 
 Introduziu `native: bool` nos eventos de tool. Esta AEP deprecia `native` em favor de `origin: string` (fase 1).
 
 **Risco real: baixo.** O campo `native` e setado pelo backend para MCP nativo (`true`) mas nunca para bridge/built-in (default `false`). O frontend declara o campo no tipo TypeScript mas **nunca o consome** em nenhuma logica. A migracao pode ser feita com deprecacao suave (emitir ambos por 1 release) ou direta (substituir, ja que nenhum consumidor depende do campo).
 
-### AEP-0037 (SDK Migration) — IMPLEMENTADA (v2)
+### AEP-0037 (SDK Migration) — IN PROGRESS (v2)
 
-Concluida. Sem risco de merge — os arquivos `service.go` e `runAgenticLoop()` ja estao na versao final pos-migracao, que esta AEP modifica.
+O provider contract e o agentic loop usados por esta AEP já foram migrados.
+A AEP-0037 continua `In Progress` por cleanup residual da Fase 6, sem bloquear
+o escopo parcial desta proposta.
 
 ### AEP-0045 (CLI Interface) — IMPLEMENTADA
 
@@ -386,7 +388,7 @@ Nenhum conflito identificado. AEPs 0033 (MCP OAuth), 0034 (workspace), 0035 (spl
 
 | Fase | Risco | Impacto | Dependencias |
 |------|-------|---------|-------------|
-| 1 — Eventos unificados | Baixo | Medio | AEP-0040 e 0037 implementadas (ja OK) |
+| 1 — Eventos unificados | Baixo | Medio | AEP-0040 vigente; integração necessária da 0037 já entregue, com cleanup residual |
 | 2 — chat:done/segment enriquecido | Baixo | Alto | AEP-0040 implementada (ja OK) |
 | 3 — Resiliencia do executor | Medio | Alto | Nenhuma |
 | 4 — Pre-check context window | Medio | Alto | Nenhuma |

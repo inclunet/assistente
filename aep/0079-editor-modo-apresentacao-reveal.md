@@ -49,19 +49,30 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 
 ## Fases
 
-1. Criar detector/parser conservador de Markdown Reveal-compatible com testes
+- [x] Criar detector/parser conservador de Markdown Reveal-compatible com testes
    contra falsos positivos de Markdown comum. A detecção automática exige
    diretiva `.slide`; decks sem diretiva dependem do override explícito.
 
-2. Integrar Reveal.js ao modo renderizado do Editor, mantendo fallback para `MarkdownRenderer`.
+- [x] Integrar Reveal.js ao modo renderizado do Editor, mantendo fallback para `MarkdownRenderer`.
 
-3. Evoluir o modo rico para editar um slide por vez quando o documento for apresentação, com navegação por dropdown e ações mínimas para criar slide.
+- [x] Evoluir o modo rico para editar um slide por vez quando o documento for apresentação, com navegação por dropdown e ações mínimas para criar slide.
 
-4. Enviar contexto de apresentação ao chat do Editor sem alterar o fluxo de mensagens.
+- [x] Enviar contexto de apresentação ao chat do Editor sem alterar o fluxo de mensagens.
 
-5. Adicionar templates acessíveis de layout Reveal-native e melhorias de imagens/alt text.
+- [x] Adicionar templates acessíveis de layout Reveal-native e melhorias de imagens/alt text.
 
-6. Avaliar exportação estática de pacote Reveal (`index.html`, `deck.md`, `assets/`) após estabilizar a edição/renderização.
+6. Exportação estática de pacote Reveal (`index.html`, `deck.md`, `assets/`)
+   permanece evolução opcional fora do escopo aceito desta entrega.
+
+### Evidências
+
+- Parser e regressões: `frontend/src/lib/revealMarkdown.ts` e
+  `revealMarkdown.test.ts`.
+- Renderização e acessibilidade: `RevealRenderer.tsx` e
+  `RevealRenderer.test.tsx`.
+- Edição por slide, toolbar e contexto do chat:
+  `EditorContentArea.test.tsx`, `EditorToolbar.test.tsx`,
+  `EditorPage.test.tsx` e `editorInlineChatContext.test.ts`.
 
 ## Riscos
 
@@ -77,20 +88,20 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 
 ## Critérios de aceitação
 
-- Arquivos Markdown comuns continuam abrindo, editando e renderizando como antes.
+- [x] Arquivos Markdown comuns continuam abrindo, editando e renderizando como antes.
 
-- Um documento com diretiva `.slide` é detectado como apresentação; múltiplas
+- [x] Um documento com diretiva `.slide` é detectado como apresentação; múltiplas
   réguas horizontais sem diretiva permanecem Markdown comum.
 
-- No modo código, o documento completo permanece visível e editável.
+- [x] No modo código, o documento completo permanece visível e editável.
 
-- No modo rico, apresentações exibem um slide por vez com navegação acessível.
+- [x] No modo rico, apresentações exibem um slide por vez com navegação acessível.
 
-- No modo renderizado, apresentações são exibidas com Reveal.js.
+- [x] No modo renderizado, apresentações são exibidas com Reveal.js.
 
-- A apresentação e cada slide expõem nomes acessíveis derivados do conteúdo quando possível, e a navegação de slides usa esses rótulos.
+- [x] A apresentação e cada slide expõem nomes acessíveis derivados do conteúdo quando possível, e a navegação de slides usa esses rótulos.
 
-- O chat do Editor envia contexto de apresentação sem criar fluxo paralelo de mensagens.
+- [x] O chat do Editor envia contexto de apresentação sem criar fluxo paralelo de mensagens.
 
-- Testes cobrem detecção, falsos positivos, divisão/substituição de slides e renderização básica.
+- [x] Testes cobrem detecção, falsos positivos, divisão/substituição de slides e renderização básica.
 

@@ -36,7 +36,7 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 
 4. **Contenção (issue #292)**: `VACUUM` completo adquire lock exclusivo e pode levar segundos em bancos grandes, agravando `SQLITE_BUSY`. A estratégia precisa ser oportunista (momento ocioso), throttled e proteger leituras interativas.
 
-## Estado atual
+## Estado implementado
 
 | Mecanismo | Onde | Comportamento |
 |---|---|---|
@@ -44,8 +44,12 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 | Tool calls de chat | ciclo de vida da conversa + `CleanOrphanChat` (login e loop) | Sem expiração por tempo por padrão; cap de idade opcional |
 | Dry-runs operacionais | `CleanOldDryRuns` no `runRetention` | Idade curta de jobs |
 | Guardas de volume na escrita | budget 10 MiB por resultado; truncamento de input/output | Limita tamanho por linha, não o total |
-| Pragmas | `internal/database/database.go` (`Init`) | `journal_mode=WAL`, `synchronous=NORMAL` |
-| `VACUUM` / `auto_vacuum` | — | **Inexistente** |
+| Pragmas | `internal/database/database.go` (`Init`) | `journal_mode=WAL`, `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`, `busy_timeout` |
+| `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados |
+
+Testes de compactação, conversão de bancos legados e retenção ficam em
+`internal/database/maintenance_test.go`, `sqlite_policy_test.go`,
+`internal/toolinvocations/repository_test.go` e testes de retenção de jobs.
 
 ## Decisões
 

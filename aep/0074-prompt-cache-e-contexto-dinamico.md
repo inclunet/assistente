@@ -26,9 +26,10 @@ Ordem arquitetural atual:
 2. AEP-0072 revisada definiu skills como módulos estáticos de instrução/workflow, com modos `base`, `on_demand` e `disabled`.
 3. Esta AEP otimiza cache sobre essa base: skills estáticas no prefixo, contexto dinâmico no sufixo, e controles ativos partindo do perfil.
 
-## Estado atual do código
+## Baseline anterior à implementação
 
-Esta AEP parte do estado atual do runtime, não de uma arquitetura hipotética.
+Esta seção registra o baseline usado no planejamento. As Fases/PRs abaixo já
+foram implementadas e as evidências atuais são registradas após o plano.
 
 Já existe:
 
@@ -231,9 +232,12 @@ Regras:
 - modelo/rota sem suporte deve ignorar/falhar de forma auditável, sem alterar a resposta;
 - chaves de cache não podem conter conteúdo de mensagens, email, nomes de usuário, tickets ou secrets.
 
-## Fases / PRs
+## Fases / PRs entregues
 
-### PR 1 — Atualizar esta AEP
+As descrições abaixo registram o escopo implementado; os verbos no infinitivo
+foram preservados do plano para rastreabilidade.
+
+### PR 1 — Atualizar esta AEP ✅
 
 Atualizar a AEP-0074 para refletir o estado atual após AEP-0072 e AEP-0075.
 
@@ -243,7 +247,7 @@ Entrega:
 - documentar controles existentes de contexto e resumo;
 - definir o plano enxuto abaixo.
 
-### PR 2 — Métricas de cache, persistência e stats
+### PR 2 — Métricas de cache, persistência e stats ✅
 
 Estender `llm.Usage`, providers, persistência e estatísticas para capturar métricas de cache quando reportadas.
 
@@ -261,7 +265,7 @@ Escopo:
 
 Não muda layout de prompt.
 
-### PR 3 — Layout cache-friendly e determinismo da request
+### PR 3 — Layout cache-friendly e determinismo da request ✅
 
 Reorganizar o system prompt e garantir ordenação estável do que já entra na request.
 
@@ -281,7 +285,7 @@ Escopo:
 
 Não muda a estratégia de histórico.
 
-### PR 4 — Configuração de cache no perfil
+### PR 4 — Configuração de cache no perfil ✅
 
 Adicionar configuração de cache no perfil.
 
@@ -296,7 +300,7 @@ Escopo:
 
 O layout cache-friendly continua sempre ativo.
 
-### PR 5 — Cache hints controlados pelo perfil
+### PR 5 — Cache hints controlados pelo perfil ✅
 
 Enviar hints apenas quando perfil e capability do modelo/rota permitirem.
 
@@ -307,7 +311,7 @@ Escopo:
 - chave segura derivada de provider, perfil e conversa, sem dados sensíveis;
 - fallback silencioso quando não suportado.
 
-### PR 6 — Cache control explícito
+### PR 6 — Cache control explícito ✅
 
 Implementar cache control para providers que exigem marcação explícita.
 
@@ -318,7 +322,7 @@ Escopo:
 - só quando `prompt_cache.enabled=true` e `explicit_cache_control=true`;
 - nunca aplicar genericamente em gateways sem capability resolvida para o modelo/rota.
 
-### PR 7 — Custo e UX básicos
+### PR 7 — Custo e UX básicos ✅
 
 Expor os resultados de cache para o usuário.
 
@@ -329,6 +333,17 @@ Escopo:
 - custo estimado quando possível;
 - fallback claro quando provider não reporta cache;
 - avisos simples quando cache está habilitado no perfil mas provider não suporta ou não reporta.
+
+### Evidências da entrega
+
+- Métricas e persistência: `internal/llm/usage.go`,
+  `internal/llm/usage_test.go` e `internal/database/cache_token_stats_test.go`.
+- Layout determinístico: `internal/prompt` e seus testes de builder.
+- Política e hints: `internal/chat/prompt_cache.go`,
+  `internal/chat/prompt_cache_test.go` e providers em `internal/llm`.
+- Perfil e UX: `frontend/src/components/profiles/ProfileChatSection.test.tsx`
+  e `frontend/src/components/chat/TokenStatsModal.test.tsx`.
+- Cache control explícito Anthropic: commit `e622bbd5`.
 
 ## Riscos
 

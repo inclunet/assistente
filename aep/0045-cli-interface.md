@@ -186,9 +186,10 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 ### Fase 4 — Build e distribuição ✅
 
 19. ✅ Task `Go: build cli` no `.vscode/tasks.json`
-20. Documentação no README (a ser adicionada conforme necessidade)
+20. Documentação detalhada no README permanece follow-up opcional; `asst --help`
+    e a ajuda dos subcomandos são a referência operacional da CLI.
 
-### Fase 5 — Setup e gerenciamento de providers
+### Fase 5 — Setup e gerenciamento de providers ✅
 
 Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem precisar do desktop.
 
@@ -200,7 +201,7 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 26. `assistente providers default <id>` — Define provider padrão
 27. `assistente providers remove <id>` — Remove provider
 
-### Fase 6 — Credenciais e perfis CRUD
+### Fase 6 — Credenciais e perfis CRUD ✅
 
 28. `assistente credentials list` — Lista credenciais (sem mostrar secrets)
 29. `assistente credentials set <pattern>` — Cria/atualiza credencial (lê secret do stdin ou flag `--value`)
@@ -210,7 +211,7 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 33. `assistente profiles duplicate <slug>` — Duplica perfil
 34. `assistente profiles delete <slug>` — Remove perfil
 
-### Fase 7 — MCP, histórico e tools
+### Fase 7 — MCP, histórico e tools ✅
 
 35. `assistente mcp list` — Lista servidores MCP e status
 36. `assistente mcp add <slug>` — Adiciona servidor (flags: `--command`, `--args`, `--env`)
@@ -221,6 +222,13 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 41. `assistente history show <id>` — Exibe mensagens da conversa
 42. `assistente history delete <id>` — Remove conversa
 43. `assistente tools list` — Lista ferramentas disponíveis (built-in + MCP)
+
+### Evidências das Fases 5–7
+
+Os comandos estão implementados em `cmd/asst/setup.go`, `providers.go`,
+`credentials.go`, `profiles.go`, `mcp.go`, `history.go` e `tools.go`, com testes
+focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
+`cmd/asst/main.go`.
 
 ### Non-goals para CLI
 

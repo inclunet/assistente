@@ -22,11 +22,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0005](0005-chat-refactor-v2.md) | Refatoração do Chat v2 | 🗄️ Superseded |
 | [0006](0006-chat-architecture-fix.md) | Fix Arquitetura de Chat | 🗄️ Superseded |
 | [0007](0007-chat-tabs-isolation.md) | Isolamento de Abas e Conversas | 🗄️ Superseded |
-| [0008](0008-tab-management-backend.md) | Gerenciamento de Abas no Backend | ✅ Done |
+| [0008](0008-tab-management-backend.md) | Gerenciamento de Abas no Backend | 🗄️ Superseded |
 | [0009](0009-chat-component-refactoring.md) | Componentização do Chat | 🗄️ Superseded |
 | [0010](0010-streaming-architecture.md) | Arquitetura de Streaming | 🗄️ Superseded |
 | [0011](0011-thread-hierarchy.md) | Thread Hierarchy v2 | ✅ Done |
-| [0012](0012-llm-provider-manager.md) | Multi-Provider LLM Architecture | ✅ Done |
+| [0012](0012-llm-provider-manager.md) | Multi-Provider LLM Architecture | 🚧 In Progress |
 | [0013](0013-llm-refactor.md) | LLM Client Refactor | 🗄️ Superseded |
 | [0014](0014-credential-persistence.md) | Persistência de Credenciais | ✅ Done |
 | [0015](0015-provider-auto-credential.md) | Auto-extração de Credenciais | ✅ Done |
@@ -50,7 +50,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | 🚧 In Progress |
 | [0034](0034-unified-workspace.md) | Unified Workspace | ✅ Done |
 | [0035](0035-split-view.md) | Split View | 📝 Draft |
-| [0036](0036-plan-tasklistmanager.md) | Task List Manager Feature | ✅ Done |
+| [0036](0036-plan-tasklistmanager.md) | Task List Manager Feature | 🚧 In Progress |
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 | [0038](0038-voice-model-refactor.md) | Refatoração do Modelo de Voz (por Role) | ✅ Done |
 | [0039](0039-tool-calling-revamp.md) | Tool Calling — Revamp & Enhancements | 🚧 In Progress |
@@ -94,7 +94,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0078](0078-deprecacao-toolcalls-em-mensagens.md) | Deprecação de `tool_calls` em Mensagens | ✅ Done |
 | [0079](0079-editor-modo-apresentacao-reveal.md) | Modo Apresentação Reveal.js no Editor | ✅ Done |
 | [0080](0080-surface-context-unificado.md) | SurfaceContext Unificado | 🚧 In Progress |
-| [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | ✅ Done |
+| [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | 🚧 In Progress |
 | [0082](0082-network-trust-allowlist.md) | Network Trust Allowlist | ✅ Done |
 | [0083](0083-channels-database-migration.md) | Migração de Canais e Contatos para Banco de Dados | ✅ Done |
 | [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | ✅ Done |

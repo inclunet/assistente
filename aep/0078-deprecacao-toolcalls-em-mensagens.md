@@ -17,7 +17,9 @@ Isso mantém duas fontes parciais de verdade:
 - `chat_messages.tool_calls`: intenção de chamada, nome legível, argumentos e metadados de exibição;
 - `tool_invocations`: status, input/output técnico, duração, erro, `tool_catalog_id`, `tool_call_id` e origem.
 
-Enquanto o L3 permanecer necessário para leitura, não é seguro parar de gravá-lo em mensagens novas.
+No baseline anterior à implementação, o L3 ainda era necessário para leitura e
+por isso não era seguro parar de gravá-lo. A migração preservou essa leitura
+somente como fallback para dados históricos.
 
 ## Decisões
 
@@ -58,11 +60,12 @@ Os leitores passam a usar `tool_invocations` como fonte primária e `chat_messag
 - sumarização em `internal/summarization/service.go`;
 - frontend que renderiza `toolCalls` quando receber payload legado.
 
-### D4 — Escrita de L3 só para compatibilidade durante a transição
+### D4 — Escrita de L3 removida após a transição
 
-Enquanto todos os leitores não forem migrados, o agentic loop continua gravando `chat_messages.tool_calls`.
-
-Depois da migração de leitura e dos testes de compatibilidade, mensagens novas podem parar de gravar `tool_calls`. A remoção física da coluna não faz parte desta AEP.
+Os leitores foram migrados e cobertos por testes de compatibilidade. O agentic
+loop não grava `chat_messages.tool_calls` no caminho feliz; mensagens novas usam
+o snapshot em `tool_invocations`. O campo permanece apenas para leitura de dados
+históricos, e sua remoção física não faz parte desta AEP.
 
 ### D5 — Dados antigos continuam legíveis
 

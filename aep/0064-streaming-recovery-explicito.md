@@ -89,13 +89,21 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 
 ## Fases
 
-1. **Docs**: escrever este AEP e aplicar adendos mínimos em AEPs antigas com exemplos/contratos desatualizados.
-2. **Cancelamento**: expor `CancelStreamingForConversation` ao frontend (binding Wails) e implementar botão/menu/atalho `Esc` (este último escopado ao campo de edição — ver Decisão 4 / Issue #202).
-3. **Profile settings**: persistir as opções de recuperação no perfil e aplicar defaults no envio.
-4. **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
-5. **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
-6. **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
-7. **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação e ausência de prefill acidental.
+- [x] **Docs**: escrever este AEP e aplicar adendos mínimos em AEPs antigas com exemplos/contratos desatualizados.
+- [x] **Cancelamento**: expor `CancelStreamingForConversation` ao frontend (binding Wails) e implementar botão/menu/atalho `Esc` (este último escopado ao campo de edição — ver Decisão 4 / Issue #202).
+- [x] **Profile settings**: persistir as opções de recuperação no perfil e aplicar defaults no envio.
+- [x] **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
+- [x] **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
+- [x] **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
+- [x] **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação e ausência de prefill acidental.
+
+### Evidências
+
+- Recuperação e continuação: `internal/agent/streaming_recovery_test.go` e
+  `internal/agent/continuation_test.go`.
+- Cancelamento e UX: `frontend/src/components/chat/ChatInput.test.tsx`,
+  `ChatSessionView.test.tsx` e `frontend/src/lib/messageMenuItems.test.ts`.
+- Configuração de perfil: `frontend/src/components/profiles/ProfileChatSection.test.tsx`.
 
 ## Riscos
 
