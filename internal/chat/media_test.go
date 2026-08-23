@@ -144,6 +144,27 @@ func TestMediaHistoryLoader_PreservesReasoningFromLegacyToolCallMessage(t *testi
 	}
 }
 
+func TestMediaHistoryLoader_NaoReenviaReasoningDeOutroModelo(t *testing.T) {
+	repo := &stubRepo{messages: []database.ChatMessage{
+		{Role: "user", Content: "consulte os dados"},
+		{Role: "assistant", Content: "resposta", Reasoning: "pensamento do Claude", Model: "claude-sonnet-4"},
+		{Role: "assistant", Content: "outra", Reasoning: "pensamento do DeepSeek", Model: "deepseek-reasoner"},
+	}}
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("len(messages) = %d, want 3", len(msgs))
+	}
+	if msgs[1].ReasoningContent != "" {
+		t.Fatalf("reasoning de outro modelo = %q, não deveria voltar como reasoning_content", msgs[1].ReasoningContent)
+	}
+	if msgs[2].ReasoningContent != "pensamento do DeepSeek" {
+		t.Fatalf("reasoning_content = %q, want o do próprio DeepSeek", msgs[2].ReasoningContent)
+	}
+}
+
 func TestMediaHistoryLoader_Image(t *testing.T) {
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "image/png", "data": "abc123", "name": "foto.png"},
