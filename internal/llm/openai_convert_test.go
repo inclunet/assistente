@@ -117,6 +117,50 @@ func TestConvertMessages_AssistantOmitsReasoningContentByDefault(t *testing.T) {
 	}
 }
 
+func TestConvertMessages_DescartaAssistantSoDeReasoningSemReplay(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "oi"},
+		{Role: "assistant", Content: "", ReasoningContent: "só existe pelo replay do DeepSeek"},
+		{Role: "user", Content: "continua"},
+	}
+
+	result := convertMessages(msgs)
+	if len(result) != 2 {
+		t.Fatalf("convertMessages devolveu %d mensagens, want 2", len(result))
+	}
+	for i, m := range result {
+		if m.OfAssistant != nil {
+			t.Fatalf("assistant vazia não deveria ser enviada (índice %d)", i)
+		}
+	}
+}
+
+func TestConvertMessages_MantemAssistantSoDeReasoningComReplay(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "oi"},
+		{Role: "assistant", Content: "", ReasoningContent: "preciso consultar"},
+	}
+
+	result := convertMessagesWithReasoningContent(msgs, true)
+	if len(result) != 2 {
+		t.Fatalf("convertMessages devolveu %d mensagens, want 2", len(result))
+	}
+	if result[1].OfAssistant == nil {
+		t.Fatal("assistant com reasoning deveria sobreviver quando há replay")
+	}
+	raw, err := json.Marshal(result[1])
+	if err != nil {
+		t.Fatalf("json.Marshal assistant: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal assistant: %v", err)
+	}
+	if got["reasoning_content"] != "preciso consultar" {
+		t.Fatalf("reasoning_content = %#v, want preservado", got["reasoning_content"])
+	}
+}
+
 func TestRemoveTrailingAssistantPrefill_RemovesOnlyTrailingAssistants(t *testing.T) {
 	msgs := []Message{
 		{Role: "system", Content: "You are a helper"},

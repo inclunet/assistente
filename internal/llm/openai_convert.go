@@ -35,8 +35,16 @@ func convertMessagesWithReasoningContent(msgs []Message, includeReasoningContent
 			}
 
 		case "assistant":
+			// O histórico preserva a assistant sem conteúdo nem tool_calls
+			// quando ela carrega reasoning, porque o DeepSeek exige esse replay.
+			// Para quem não recebe o campo ela viraria uma assistant vazia, que
+			// parte dos providers OpenAI-compatible recusa com 400.
+			replayingReasoning := includeReasoningContent && msg.ReasoningContent != ""
+			if content == "" && len(msg.ToolCalls) == 0 && !replayingReasoning {
+				continue
+			}
 			m := openai.AssistantMessage(content)
-			if includeReasoningContent && msg.ReasoningContent != "" {
+			if replayingReasoning {
 				// reasoning_content é uma extensão OpenAI-compatible, ausente
 				// do tipo gerado pelo SDK. Quem liga o replay hoje é só o
 				// DeepSeek (requiresReasoningContentReplay): no thinking mode
