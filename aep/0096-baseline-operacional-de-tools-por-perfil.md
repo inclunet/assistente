@@ -125,6 +125,7 @@ execução e interação além da seleção de tools.
    - projetar e implementar edição multi-hunk com erros localizados;
    - manter compatibilidade com `edit_file` e `write_file`.
 3. **Progresso unificado**
+   - implementado pela [AEP-0100](0100-progresso-unificado-por-conversa.md);
    - expor uma única capability de plano/progresso ao modelo;
    - reutilizar o storage e os eventos do Task List Manager.
 4. **Adequação pedido↔perfil**

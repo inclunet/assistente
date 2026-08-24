@@ -63,6 +63,10 @@ func (s *Service) GetTaskList(ctx context.Context, id string) (*database.TaskLis
 	return s.store.GetTaskList(ctx, id)
 }
 
+func (s *Service) FindTaskListBySlug(ctx context.Context, slug string) (*database.TaskList, error) {
+	return s.store.FindTaskListBySlug(ctx, slug)
+}
+
 func (s *Service) GetAllTaskLists(ctx context.Context) ([]database.TaskList, error) {
 	return s.store.GetAllTaskLists(ctx)
 }

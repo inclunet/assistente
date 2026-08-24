@@ -1,7 +1,7 @@
 ---
 name: tasklist-manager
-version: 2.0.0
-description: Instructions for managing task lists, tasks, notes, workflows and conversation links through the task_list, task and task_note tools
+version: 2.1.0
+description: Instructions for tracking conversational plans and managing task lists, tasks, notes, workflows and conversation links
 displayName: Task List Manager
 author: Assistente
 type: agent
@@ -27,6 +27,7 @@ Task lists are persisted in the application database and managed through tools. 
 
 ## Tools
 
+- `update_plan`: create or replace the assistant's execution plan for the current conversation with one compact snapshot.
 - `task_list`: create, read, update, delete and configure task lists, workflows and custom actions.
 - `task`: create, read, update, delete, duplicate, move and link individual tasks.
 - `task_note`: create and update task notes.
@@ -34,6 +35,8 @@ Task lists are persisted in the application database and managed through tools. 
 
 ## Core Rules
 
+- Use `update_plan` for the assistant's own multi-step execution progress in the current conversation. Send the complete snapshot, keep stable item IDs, and keep at most one item `in_progress`.
+- Do not use `update_plan` as a replacement for user-managed boards, workflows, assignments, notes, or external synchronization; use the full task-list tools below for those operations.
 - Read the current state with `task_list`, `task`, or `get_conversation_info` before changing existing records.
 - Do not invent task IDs, list IDs, status IDs or workflow IDs.
 - When the user asks about progress or status, use linked task data from context if present; otherwise read the latest state with tools.
