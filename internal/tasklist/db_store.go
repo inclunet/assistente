@@ -28,6 +28,13 @@ func (s *DBStore) GetTaskList(ctx context.Context, id string) (*database.TaskLis
 	return database.GetTaskListWithContext(ctx, id)
 }
 
+func (s *DBStore) FindTaskListBySlug(ctx context.Context, slug string) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.FindTaskListBySlugWithContext(ctx, slug)
+}
+
 func (s *DBStore) GetAllTaskLists(ctx context.Context) ([]database.TaskList, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err

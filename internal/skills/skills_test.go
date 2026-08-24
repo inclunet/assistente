@@ -24,8 +24,8 @@ func TestParseTaskListSkill(t *testing.T) {
 	if meta.Name != "tasklist-manager" {
 		t.Errorf("Name esperado 'tasklist-manager', got %q", meta.Name)
 	}
-	if meta.Version != "2.0.0" {
-		t.Errorf("Version esperado '2.0.0', got %q", meta.Version)
+	if meta.Version != "2.1.0" {
+		t.Errorf("Version esperado '2.1.0', got %q", meta.Version)
 	}
 	if meta.Description == "" {
 		t.Error("Description não deve ser vazio")
