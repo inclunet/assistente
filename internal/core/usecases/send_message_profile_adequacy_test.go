@@ -3,9 +3,11 @@ package usecases
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"assistente/internal/chat"
+	"assistente/internal/configdir"
 	"assistente/internal/llm"
 	"assistente/internal/profileadequacy"
 	"assistente/internal/profiles"
@@ -112,6 +114,10 @@ func TestEnsureAdequateProfileSwitchesTabAndPreparesSuggestedProfile(t *testing.
 		switchedTab, switchedProfile = tabID, profileSlug
 		return nil
 	})
+	uc.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
+		Repo:       adequacyMessageRepo{},
+		ProfileMgr: isolatedProfileManager(t),
+	})
 	request := adequacyRequest()
 	request.UserContent = ""
 
@@ -125,6 +131,38 @@ func TestEnsureAdequateProfileSwitchesTabAndPreparesSuggestedProfile(t *testing.
 	if got == nil || got.Params.ProfileSlug != "programacao" || got.ActiveProfile == nil {
 		t.Fatalf("contexto não foi refeito com profile sugerido: %#v", got)
 	}
+}
+
+func isolatedProfileManager(t *testing.T) *profiles.Manager {
+	t.Helper()
+	tempDir := t.TempDir()
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+	configdir.ResetForTests()
+	t.Cleanup(func() {
+		_ = os.Chdir(oldCwd)
+		configdir.ResetForTests()
+	})
+
+	manager := profiles.NewManager()
+	profile := profiles.DefaultProfile()
+	profile.Name = "Programação"
+	profile.Active = false
+	slug, err := manager.Create(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slug != "programacao" {
+		t.Fatalf("slug do profile de teste = %q", slug)
+	}
+	return manager
 }
 
 func TestEnsureAdequateProfileSkipsConversationWithMessages(t *testing.T) {
