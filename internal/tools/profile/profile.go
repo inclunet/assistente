@@ -25,6 +25,7 @@ type Access interface {
 
 // Switcher persiste o override somente se a aba ainda pertencer à conversa.
 type Switcher interface {
+	ValidateTabConversation(tabID, conversationID string) error
 	SwitchTabProfile(tabID, conversationID, profileSlug string) error
 	ResetConversationTools(conversationID string)
 }
@@ -97,7 +98,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (tools.ToolResu
 		decoder := json.NewDecoder(strings.NewReader(string(raw)))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&input); err != nil {
-			return errorResult(fmt.Sprintf("argumentos inválidos: %v", err)), nil
+			return errorResult("invalid_arguments", fmt.Sprintf("argumentos inválidos: %v", err)), nil
 		}
 	}
 	action := strings.TrimSpace(input.Action)
@@ -110,11 +111,11 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (tools.ToolResu
 	switch action {
 	case ActionList:
 		if t == nil || t.access == nil {
-			return errorResult("catálogo de profiles indisponível"), nil
+			return errorResult("catalog_unavailable", "catálogo de profiles indisponível"), nil
 		}
 		profiles, err := t.access.List(ctx, currentSlug)
 		if err != nil {
-			return errorResult(fmt.Sprintf("erro ao listar profiles: %v", err)), nil
+			return errorResult("list_failed", fmt.Sprintf("erro ao listar profiles: %v", err)), nil
 		}
 		return jsonResult(response{
 			Action:      ActionList,
@@ -126,7 +127,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) (tools.ToolResu
 		return t.executeSwitch(ctx, inv, currentSlug, input)
 
 	default:
-		return errorResult("action inválida: use 'list' ou 'switch'"), nil
+		return errorResult("invalid_action", "action inválida: use 'list' ou 'switch'"), nil
 	}
 }
 
@@ -134,13 +135,13 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 	targetSlug := strings.TrimSpace(input.Slug)
 	reason := strings.TrimSpace(input.Reason)
 	if targetSlug == "" {
-		return errorResult("'slug' é obrigatório para switch"), nil
+		return errorResult("target_required", "'slug' é obrigatório para switch"), nil
 	}
 	if reason == "" {
-		return errorResult("'reason' é obrigatório para switch"), nil
+		return errorResult("reason_required", "'reason' é obrigatório para switch"), nil
 	}
 	if len([]rune(reason)) > maxReasonLen {
-		return errorResult(fmt.Sprintf("'reason' excede %d caracteres", maxReasonLen)), nil
+		return errorResult("reason_too_long", fmt.Sprintf("'reason' excede %d caracteres", maxReasonLen)), nil
 	}
 	if targetSlug == currentSlug {
 		authorized := true
@@ -153,10 +154,13 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		})
 	}
 	if strings.TrimSpace(inv.Source) != "wails" || strings.TrimSpace(inv.SurfaceTabID) == "" || strings.TrimSpace(inv.ConversationID) == "" {
-		return errorResult("troca de profile requer uma conversa aberta em aba do aplicativo"), nil
+		return errorResult("desktop_tab_required", "troca de profile requer uma conversa aberta em aba do aplicativo"), nil
 	}
 	if t == nil || t.access == nil || t.switcher == nil {
-		return errorResult("troca de profile indisponível"), nil
+		return errorResult("switch_unavailable", "troca de profile indisponível"), nil
+	}
+	if err := t.switcher.ValidateTabConversation(inv.SurfaceTabID, inv.ConversationID); err != nil {
+		return errorResult("invalid_tab_conversation", fmt.Sprintf("aba de origem inválida para troca de profile: %v", err)), nil
 	}
 	allowed, err := t.access.Authorize(ctx, profileaccess.AuthorizationRequest{
 		Source:           inv.Source,
@@ -167,7 +171,7 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		PersistentSwitch: true,
 	})
 	if err != nil {
-		return errorResult(fmt.Sprintf("não foi possível autorizar a troca de profile: %v", err)), nil
+		return errorResult("authorization_failed", fmt.Sprintf("não foi possível autorizar a troca de profile: %v", err)), nil
 	}
 	if !allowed {
 		authorized := false
@@ -180,7 +184,7 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		})
 	}
 	if err := t.switcher.SwitchTabProfile(inv.SurfaceTabID, inv.ConversationID, targetSlug); err != nil {
-		return errorResult(fmt.Sprintf("erro ao trocar profile: %v", err)), nil
+		return errorResult("persistence_failed", fmt.Sprintf("erro ao trocar profile: %v", err)), nil
 	}
 	t.switcher.ResetConversationTools(inv.ConversationID)
 	authorized := true
@@ -194,14 +198,26 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 	})
 }
 
-func errorResult(message string) tools.ToolResult {
-	return tools.ToolResult{Content: message, IsError: true}
+func errorResult(code, message string) tools.ToolResult {
+	payload, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
+	return tools.ToolResult{
+		Content: string(payload),
+		IsError: true,
+		Metadata: map[string]any{
+			"error_code": code,
+		},
+	}
 }
 
 func jsonResult(value response) (tools.ToolResult, error) {
 	payload, err := json.Marshal(value)
 	if err != nil {
-		return errorResult(fmt.Sprintf("erro ao serializar resposta de profile: %v", err)), nil
+		return errorResult("serialization_failed", fmt.Sprintf("erro ao serializar resposta de profile: %v", err)), nil
 	}
 	return tools.ToolResult{
 		Content: string(payload),

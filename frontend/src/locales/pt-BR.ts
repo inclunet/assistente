@@ -4214,7 +4214,8 @@ const ptBR = {
         },
         subagentProfile: {
           title: 'Executar a tarefa com outro profile?',
-          description: 'O subagente usará {{targetProfile}} em vez de {{currentProfile}} somente nesta execução.',
+          descriptionInline: 'O subagente usará {{targetProfile}} em vez de {{currentProfile}} somente nesta execução, e o turno aguardará o resultado.',
+          descriptionBackground: 'O subagente usará {{targetProfile}} em vez de {{currentProfile}} somente nesta execução em segundo plano; o resultado chegará depois nesta conversa.',
           allow: 'Executar com {{targetProfile}}',
           deny: 'Não executar',
         },

@@ -4213,7 +4213,8 @@ const es = {
         },
         subagentProfile: {
           title: '¿Ejecutar la tarea con otro perfil?',
-          description: 'El subagente usará {{targetProfile}} en lugar de {{currentProfile}} solo en esta ejecución.',
+          descriptionInline: 'El subagente usará {{targetProfile}} en lugar de {{currentProfile}} solo en esta ejecución, y el turno esperará el resultado.',
+          descriptionBackground: 'El subagente usará {{targetProfile}} en lugar de {{currentProfile}} solo en esta ejecución en segundo plano; el resultado llegará después a esta conversación.',
           allow: 'Ejecutar con {{targetProfile}}',
           deny: 'No ejecutar',
         },

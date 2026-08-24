@@ -96,6 +96,9 @@ func TestAuthorizeCrossProfileUsesDecisionDialog(t *testing.T) {
 	if asker.calls != 1 || asker.payload.Kind != questionnaire.KindDecision {
 		t.Fatalf("payload de decisão não emitido: %#v", asker.payload)
 	}
+	if asker.payload.Description.Key != "app.questionnaire.subagentProfile.descriptionBackground" {
+		t.Fatalf("modo background não foi descrito: %#v", asker.payload.Description)
+	}
 	if asker.payload.Body != "Analise os dados" || len(asker.payload.Actions) != 2 ||
 		asker.payload.Actions[0].ID != ActionAllow || asker.payload.Actions[1].ID != ActionDeny {
 		t.Fatalf("payload inesperado: %#v", asker.payload)

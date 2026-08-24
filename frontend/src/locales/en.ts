@@ -4213,7 +4213,8 @@ const en = {
         },
         subagentProfile: {
           title: 'Run the task with another profile?',
-          description: 'The sub-agent will use {{targetProfile}} instead of {{currentProfile}} for this run only.',
+          descriptionInline: 'The sub-agent will use {{targetProfile}} instead of {{currentProfile}} for this run only, and this turn will wait for the result.',
+          descriptionBackground: 'The sub-agent will use {{targetProfile}} instead of {{currentProfile}} for this background run only; the result will arrive later in this conversation.',
           allow: 'Run with {{targetProfile}}',
           deny: 'Do not run',
         },

@@ -33,6 +33,11 @@ type fakeSwitcher struct {
 	profileSlug    string
 	resetID        string
 	err            error
+	validateErr    error
+}
+
+func (f *fakeSwitcher) ValidateTabConversation(_, _ string) error {
+	return f.validateErr
 }
 
 func (f *fakeSwitcher) SwitchTabProfile(tabID, conversationID, profileSlug string) error {
@@ -124,5 +129,19 @@ func TestSwitchRejectsNonDesktopSource(t *testing.T) {
 	))
 	if err != nil || !result.IsError || access.authCalls != 0 || switcher.profileSlug != "" {
 		t.Fatalf("origem remota não deveria trocar: %#v err=%v", result, err)
+	}
+}
+
+func TestSwitchValidatesTabBeforeAuthorization(t *testing.T) {
+	access := &fakeAccess{allowed: true}
+	switcher := &fakeSwitcher{validateErr: context.Canceled}
+	result, err := New(access, switcher).Execute(profileToolContext("wails"), json.RawMessage(
+		`{"action":"switch","slug":"custom","reason":"motivo"}`,
+	))
+	if err != nil || !result.IsError || access.authCalls != 0 {
+		t.Fatalf("vínculo inválido não deveria abrir decisão: %#v access=%#v err=%v", result, access, err)
+	}
+	if result.Metadata["error_code"] != "invalid_tab_conversation" {
+		t.Fatalf("código estruturado inesperado: %#v", result)
 	}
 }

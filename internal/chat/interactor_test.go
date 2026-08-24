@@ -464,6 +464,36 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	}
 }
 
+func TestPrepareContext_SubagentMissingProfileFailsClosed(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	active := profiles.DefaultProfile()
+	active.Name = "Ativo"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+
+	prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conversation-1",
+		Source:         "subagent",
+		Params: ChatParams{
+			ProfileSlug: "profile-removido",
+		},
+	})
+	if err == nil || prepared != nil {
+		t.Fatalf("subagente não deve cair no global: prepared=%#v err=%v", prepared, err)
+	}
+}
+
 func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *testing.T) {
 	spy := &spyEmitter{}
 	profileMgr := setupProfileTestEnv(t)

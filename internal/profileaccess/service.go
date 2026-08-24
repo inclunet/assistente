@@ -194,11 +194,20 @@ func authorizationPayload(req AuthorizationRequest, currentName, targetName stri
 		}
 	}
 
-	mode := "inline"
+	descriptionKey := "app.questionnaire.subagentProfile.descriptionInline"
+	descriptionFallback := fmt.Sprintf(
+		"O subagente usará %s em vez de %s somente nesta execução, e o turno aguardará o resultado.",
+		targetName,
+		currentName,
+	)
 	if req.Background {
-		mode = "background"
+		descriptionKey = "app.questionnaire.subagentProfile.descriptionBackground"
+		descriptionFallback = fmt.Sprintf(
+			"O subagente usará %s em vez de %s somente nesta execução em segundo plano; o resultado chegará depois nesta conversa.",
+			targetName,
+			currentName,
+		)
 	}
-	params["executionMode"] = mode
 	return questionnaire.RequestPayload{
 		Kind: questionnaire.KindDecision,
 		Title: questionnaire.Keyed(
@@ -206,9 +215,9 @@ func authorizationPayload(req AuthorizationRequest, currentName, targetName stri
 			"Executar a tarefa com outro profile?",
 		),
 		Description: questionnaire.KeyedWith(
-			"app.questionnaire.subagentProfile.description",
+			descriptionKey,
 			params,
-			fmt.Sprintf("O subagente usará %s em vez de %s somente nesta execução.", targetName, currentName),
+			descriptionFallback,
 		),
 		Body: strings.TrimSpace(req.TaskTitle),
 		Actions: []questionnaire.DecisionAction{

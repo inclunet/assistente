@@ -43,6 +43,13 @@ type workspaceTabProfileUpdatedEvent struct {
 	ProfileSlug string               `json:"profileSlug"`
 }
 
+func (s appProfileSwitcher) ValidateTabConversation(tabID, conversationID string) error {
+	if s.app == nil || s.app.workspaceMgr == nil {
+		return fmt.Errorf("workspace indisponível")
+	}
+	return s.app.workspaceMgr.ValidateTabConversation(tabID, conversationID)
+}
+
 func (s appProfileSwitcher) SwitchTabProfile(tabID, conversationID, profileSlug string) error {
 	if s.app == nil || s.app.workspaceMgr == nil {
 		return fmt.Errorf("workspace indisponível")
