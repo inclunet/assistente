@@ -17,7 +17,10 @@ Este é um **refactor**. Todas as fases são commits em um **único PR**. A orde
 
 ## Motivação
 
-O fluxo atual de envio e recebimento de mensagens sofre de problemas estruturais:
+## Baseline histórico anterior à implementação
+
+O fluxo abaixo descreve o estado encontrado antes desta AEP, não o runtime
+vigente:
 
 ### 1. IDs temporários e otimismo sem garantia
 O frontend gera IDs com `Date.now()-random` e insere mensagens na UI *antes* de qualquer confirmação do backend. Se a chamada Wails falhar, o usuário vê uma mensagem de user e um placeholder de assistant que **nunca existiram no banco**. O mapeamento `tempId → backendId` acontece em dois momentos distintos (`chat:messages_ready` para user, `chat:stream done=true` para assistant), cada um com lógica própria de substituição — são ~60 linhas de código frágil espalhadas em closures aninhadas.
@@ -37,7 +40,20 @@ O sistema usa 13+ eventos `chat:*` com payloads diferentes, sem schema validado:
 | `chat:tool_end` | `{callId, name, status, summary}` | Sem conversationId |
 | `chat:segment_done` | `{hasMore, content}` | Sem conversationId |
 
-Nenhum evento carrega `conversationId` de forma consistente. O frontend depende de closure capture para saber a qual conversa o evento pertence — funciona por acaso, não por design.
+Naquele baseline, nenhum evento carregava `conversationId` de forma
+consistente e o frontend dependia de closure capture.
+
+### Contrato vigente
+
+| Família de evento | Identidade vigente |
+|---|---|
+| `chat:messages_ready`, `chat:stream`, `chat:done` | `conversationId` e IDs persistidos como `string` |
+| `chat:tool_start`, `chat:tool_end`, `chat:segment_done` | `conversationId` obrigatório |
+| `chat:error` | `conversationId` obrigatório pelo contrato; há lacuna conhecida para erro anterior à resolução da conversa |
+
+Os payloads tipados vivem em `internal/core/ports/chat_events.go`; controllers
+frontend filtram por conversa em
+`frontend/src/services/chatEventController.ts`.
 
 ### 4. Lógica de negócio no frontend
 `sendMessageWithParams` (chatStore.ts) tem ~200 linhas que fazem:
@@ -194,8 +210,21 @@ Cada listener verifica `event.conversationId === activeConversationId` antes de 
 - [ ] Integration test: fluxo completo emite eventos com schema correto
 
 ### Critério de aceitação
-- Zero eventos emitidos sem `conversationId`
-- Frontend pode estar em conversa A e ignorar eventos de conversa B sem lógica de closure
+- [ ] Zero eventos emitidos sem `conversationId` válido — lacuna de conformidade
+  descrita abaixo.
+- [x] Frontend em conversa A ignora eventos identificados da conversa B sem
+  lógica de closure.
+
+### Lacuna conhecida de conformidade
+
+`internal/chat/interactor.go`, em `PrepareContext`, emite `chat:error` com
+`ConversationID: ""` quando o request não possui conversa. Em paralelo,
+`frontend/src/services/chatEventController.ts` aceita `chat:error` com
+`conversationId === ""` como broadcast. Esse comportamento viola o contrato
+vigente de identificação obrigatória e pode anunciar o erro em superfícies não
+relacionadas. A correção de implementação permanece pendente: o erro deve ser
+associado a uma origem/superfície identificável sem relaxar o requisito de
+`conversationId` para eventos de chat.
 
 ---
 

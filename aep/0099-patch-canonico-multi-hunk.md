@@ -108,17 +108,20 @@ capability silenciosamente.
 
 ## Fases
 
-1. **Contrato e engine**
+1. **Contrato e engine — entregue**
    - registrar `apply_patch` e seus metadados;
    - validar e aplicar hunks sobre um único snapshot;
    - devolver erros estruturados por hunk.
-2. **Integração**
+2. **Integração — entregue**
    - reutilizar segurança, confirmação e observador de escrita;
    - preservar UTF-8/BOM e estilo de quebra de linha;
    - incluir a tool no baseline de `Programação`.
-3. **Compatibilidade futura**
+3. **Compatibilidade futura — adiada e fora do escopo entregue**
    - observar adoção antes de considerar deprecação de `edit_file`;
    - avaliar patch multi-arquivo somente com protocolo transacional próprio.
+
+As duas possibilidades acima não fazem parte dos critérios da primeira versão
+e não reabrem o status `Done`.
 
 ## Riscos
 
@@ -145,4 +148,16 @@ capability silenciosamente.
 - [x] `edit_file` e `write_file` permanecem sem regressão.
 - [x] `Programação` pré-carrega `apply_patch`.
 - [x] Testes Go cobrem contrato, atomicidade e integração.
+
+Evidências:
+
+- engine, atomicidade, erros, newlines, BOM, stale file, segurança e
+  confirmação: `internal/tools/filesystem/apply_patch.go` e
+  `internal/tools/filesystem/apply_patch_test.go`;
+- metadados equivalentes no catálogo:
+  `internal/tools/catalog_equivalence_test.go`;
+- preload no profile `Programação`:
+  `internal/app/builtin_profiles_tools_test.go`;
+- integração com skills builtin:
+  `internal/app/builtin_skills_test.go`.
 

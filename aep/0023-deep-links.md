@@ -103,7 +103,7 @@ Deep links usam a sintaxe padrão de links Markdown. O texto entre colchetes é 
 
 [Analise o ticket XPTO](assistente://conversation/new?message=analise%20o%20ticket%20XPTO)
 
-[Continuar análise](assistente://conversation/10/send?message=continue%20a%20análise)
+[Continuar análise](assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc/send?message=continue%20a%20análise)
 
 [Ver histórico](assistente://navigate/history)
 
@@ -272,7 +272,8 @@ Mensagem Markdown
 
 ## Segurança
 
-- **Validação rigorosa**: IDs devem ser inteiros positivos; rotas são validadas contra lista fixa
+- **Validação rigorosa**: IDs persistidos do backend são strings UUIDv7 válidas;
+  rotas são validadas contra lista fixa
 - **DOMPurify**: apenas o protocolo `assistente://` é adicionado; outros protocolos custom continuam bloqueados
 - **Sem `target="_blank"`**: deep links não abrem janelas externas
 - **Mensagens sanitizadas**: o conteúdo do parâmetro `message` já passa pela sanitização do DOMPurify antes de ser renderizado
@@ -281,7 +282,10 @@ Mensagem Markdown
 
 ## Acessibilidade
 
-- **`role="link"`** e **`aria-label`** descritivo (ex: "Abrir conversa #42") em cada deep link
+- **`role="link"`** e **`aria-label`** descritivo em cada deep link. No contrato
+  atual, `getDeepLinkLabel()` inclui o UUID da conversa no rótulo (por exemplo,
+  "Abrir conversa #018f..."); o `#` é apenas parte da tradução e o valor
+  anunciado é o ID backend, não uma numeração ordinal
 - **`tabindex="0"`**: deep links são navegáveis por Tab (diferente de links normais que usam `tabindex="-1"`)
 - **Teclado**: Enter e Espaço ativam o deep link
 - **`focus-visible`**: anel de foco visível para navegação por teclado

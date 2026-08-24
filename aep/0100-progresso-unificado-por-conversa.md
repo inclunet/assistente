@@ -1,6 +1,6 @@
 # AEP-0100 — Progresso unificado por conversa
 
-**Status:** ✅ Implementado
+**Status:** Done
 
 ## Resumo
 
