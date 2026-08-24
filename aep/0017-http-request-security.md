@@ -1,6 +1,6 @@
 # HTTP Request - Guardrails de Segurança
 
-**Status:** In Progress — guardrails implementados; matriz de confirmação PUT/PATCH permanece sem regressão
+**Status:** In Progress — guardrails implementados; cobertura de aprovação para DELETE/PUT/PATCH pendente
 
 > **Contrato vigente:** `HTTPRequest` recebe `credentials.Manager` em
 > `NewHTTPRequest(credMgr)` e delega autenticação ao cliente central de
@@ -28,8 +28,8 @@ Ao dar ao modelo LLM acesso a uma ferramenta HTTP completa, surgem dois riscos p
 
 #### Implementação
 ```go
-// No app.go, ao registrar http_request:
-httpReqTool := web.NewHTTPRequest()
+// Ao registrar http_request, o manager vigente é obrigatório:
+httpReqTool := web.NewHTTPRequest(credMgr)
 httpReqTool.SetConfirmFunc(func(ctx context.Context, method, url, body string) (bool, error) {
     // Mostra dialog de confirmação ao usuário
     resp, err := questionnaireMgr.RequestQuestionnaire(ctx, ...)
@@ -80,7 +80,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 #### Como funciona
 1. **Armazenar credenciais** antes de registrar a tool:
    ```go
-   httpReqTool := web.NewHTTPRequest()
+   httpReqTool := web.NewHTTPRequest(credMgr)
    httpReqTool.SetCredential("github_token", os.Getenv("GITHUB_TOKEN"))
    httpReqTool.SetCredential("stripe_key", loadFromVault("stripe_secret"))
    ```
@@ -200,7 +200,7 @@ anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
 
 **`app.go`**:
 ```go
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 httpReqTool.SetConfirmFunc(confirmCallback)
 
 // Carrega credenciais de variáveis de ambiente
@@ -234,7 +234,7 @@ a.toolRegistry.MustRegister(httpReqTool)
 ```go
 // Carrega config
 cfg := loadConfig()
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 
 for key, value := range cfg.HTTPCredentials {
     httpReqTool.SetCredential(key, value)
@@ -244,7 +244,7 @@ for key, value := range cfg.HTTPCredentials {
 ### Carregar de vault/secret manager (produção)
 
 ```go
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 
 // Exemplo com AWS Secrets Manager
 githubToken, _ := awsSecretsManager.GetSecret("prod/github_token")

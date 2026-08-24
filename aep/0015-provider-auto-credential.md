@@ -30,9 +30,17 @@ A implementação é direta e usa infraestrutura já existente:
 
 ---
 
-## Fluxo de Implementação
+## Fluxo REST proposto originalmente (histórico, não implementado)
 
-### Backend: `POST /api/providers`
+> Toda esta seção registra a proposta inicial de uma API REST. Os endpoints
+> `/api/providers` não existem no runtime atual. `CreateLLMProvider` e os DTOs
+> têm contrapartes reais, mas não são handlers HTTP: o binding Wails em
+> `internal/wailsapi/llm_providers.go` delega a
+> `controllers/LLMController.CreateLLMProvider`, que chama
+> `internal/providers/service.go`; o frontend usa os bindings gerados. Os
+> snippets abaixo preservam apenas a forma proposta originalmente para REST.
+
+### Backend proposto: `POST /api/providers`
 
 ```go
 // app.go
@@ -300,7 +308,12 @@ function ProviderForm({ onSubmit }: Props) {
 
 ---
 
-## Endpoint API Completo
+## Endpoint REST completo (proposta histórica, não implementada)
+
+> Os exemplos de request/response de `POST`, `PUT` e `DELETE` abaixo são
+> exclusivamente o desenho REST original. Não documentam endpoints disponíveis.
+> O contrato vigente é Wails + `providers.Service`, conforme a seção
+> **Implementação entregue**.
 
 ### `POST /api/providers`
 
@@ -363,9 +376,9 @@ Permite atualizar API key:
 
 ---
 
-### `DELETE /api/providers/{id}`
+### `DELETE /api/providers/{id}` (proposta REST histórica)
 
-**Estado atual:**
+**Estado equivalente no contrato Wails atual:**
 
 - [x] `internal/providers/service.go:Service.Delete` remove o provider do
   registry; a API Wails persiste a remoção pelo hook `PersistDelete` de
@@ -380,7 +393,11 @@ remoção segura, inclusive quando um mesmo pattern for compartilhado.
 
 ---
 
-## Testes
+## Testes propostos originalmente (histórico)
+
+Os snippets desta seção pertencem ao desenho REST não implementado e não são
+evidência executável do runtime atual. As regressões reais estão listadas em
+**Implementação entregue**.
 
 ### Unit Tests
 ```go

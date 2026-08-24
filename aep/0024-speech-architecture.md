@@ -319,26 +319,25 @@ internal/speech/
 └── realtime_gemini.go        # Gemini 2.0 Live API
 ```
 
-### Frontend (Svelte)
+### Frontend vigente (React/TypeScript)
 
 ```
 frontend/src/
 ├── components/
-│   ├── Chat.svelte           # Atualizado com PTT
-│   ├── VoiceButton.svelte    # Componente de voz
-│   ├── VoiceSettings.svelte  # Configurações de voz
-│   └── AudioVisualizer.svelte # Visualização de áudio
-└── lib/
-    ├── speech/
-    │   ├── index.js          # Exporta tudo
-    │   ├── stt-webspeech.js  # WebSpeech STT
-    │   ├── stt-whisper.js    # Whisper via backend
-    │   ├── tts-webspeech.js  # WebSpeech TTS
-    │   ├── tts-backend.js    # TTS via backend (SAPI5, etc)
-    │   ├── audio-recorder.js # MediaRecorder wrapper
-    │   └── audio-player.js   # Reprodução de áudio
-    └── wakeword/
-        └── porcupine.js      # Picovoice Porcupine (futuro)
+│   ├── chat/
+│   │   ├── ChatInput.tsx       # Integra o botão de voz ao composer
+│   │   └── VoiceButton.tsx     # PTT/toggle/VAD/wakeword por perfil
+│   ├── pickers/VoicePicker.tsx
+│   └── profiles/ProfileAudioTab.tsx
+├── hooks/
+│   ├── useInteractionProfile.ts
+│   ├── useSTT.ts
+│   ├── useTTS.ts
+│   └── useWakewordDetection.ts
+└── services/
+    ├── stt/                     # WebSpeech e Whisper
+    ├── tts/                     # WebSpeech e providers backend
+    └── voiceAccessibility/      # Arbitragem global STT/TTS
 ```
 
 ---
@@ -350,26 +349,28 @@ frontend/src/
 **Objetivo:** Implementar Push-to-Talk básico usando APIs do navegador.
 
 **Tarefas:**
-- [x] Criar componente `VoiceButton.svelte`
+- [x] Criar componente React `components/chat/VoiceButton.tsx`
 - [x] Integrar `SpeechRecognition` API para STT
 - [x] Integrar `SpeechSynthesis` API para TTS
-- [x] Modificar `Chat.svelte` para alternar botão envio/microfone
+- [x] Integrar `VoiceButton` ao composer em `components/chat/ChatInput.tsx`
 - [x] Adicionar feedback visual (gravando, processando)
 - [x] Adicionar feedback sonoro (beeps de início/fim)
 - [x] Implementar atalho `Alt+M` para microfone
 - [ ] Testes de acessibilidade com NVDA
 
-**Arquivos criados:**
+**Arquivos vigentes:**
 ```
-frontend/src/lib/speech/
-├── index.js              # Exporta módulos
-├── stt-webspeech.js      # SpeechRecognition wrapper
-├── tts-webspeech.js      # SpeechSynthesis wrapper
-└── audio-recorder.js     # MediaRecorder wrapper (para Fase 3)
+frontend/src/components/chat/
+├── VoiceButton.tsx       # Componente PTT e demais modos do perfil
+└── ChatInput.tsx         # Composer com integração de voz
 
-frontend/src/components/
-├── VoiceButton.svelte    # Componente PTT
-└── Chat.svelte           # Atualizado com integração de voz
+frontend/src/
+├── hooks/useInteractionProfile.ts
+├── hooks/useSTT.ts
+├── hooks/useTTS.ts
+├── services/stt/
+├── services/tts/
+└── services/voiceAccessibility/
 ```
 
 **Recursos de UI:**
@@ -457,8 +458,9 @@ internal/speech/
 - [x] Implementar `hotkey_windows.go` usando RegisterHotKey API
 - [x] Criar stub `hotkey_other.go` para Linux/Mac
 - [x] Integrar com Wails runtime (eventos + WindowShow)
-- [x] Frontend escuta evento `global:hotkey:voice`
-- [x] VoiceButton expõe `startRecording()` para ativação externa
+- [x] `useInteractionProfile.ts` arbitra o evento
+  `interaction:hotkey:triggered` por listener singleton
+- [x] `VoiceButton.tsx` integra o hook de perfil para ativação por hotkey
 - [x] API para configurar/desativar hotkey
 
 **Arquivos criados:**
@@ -624,7 +626,7 @@ EnableVoiceHotkey() error
 
 | Componente | Descrição | Uso |
 |------------|-----------|-----|
-| `ComboboxPicker` | Picker acessível com filtro e teclado | Base para pickers |
+| `BasePicker` | Picker acessível baseado em `Combobox`, com filtro e teclado | Base para pickers |
 | `Toolbar` | Toolbar com roving tabindex | Navegação por setas |
 | `Modal` | Modal acessível com trap de foco | Dialogs |
 
@@ -632,49 +634,27 @@ EnableVoiceHotkey() error
 
 | Componente | Extends | Descrição |
 |------------|---------|-----------|
-| `ModelPicker` | `ComboboxPicker` | Seletor de modelos LLM com auto-load |
-| `VoicePicker` | `ComboboxPicker` | Seletor de vozes TTS com opção "Desativada" |
+| `ModelPicker` | `BasePicker` | Seletor de modelos LLM com auto-load |
+| `VoicePicker` | `BasePicker` | Seletor de vozes TTS com opção "Desativada" |
 | `VoiceButton` | - | Botão PTT com estados visuais |
 
 ### Lógica de Leitura (TTS vs Leitor de Telas)
 
-O `VoicePicker` inclui uma opção **"Desativada (usar leitor de telas)"** que evita duplicação:
-
-| Voz Selecionada | Comportamento |
-|-----------------|---------------|
-| 🔇 Desativada | Envia para `aria-live` → Leitor de telas lê |
-| Qualquer voz | Usa TTS → **NÃO** envia para `aria-live` |
-
-**Implementação técnica:**
-- `VOICE_DISABLED` é exportado via `<script context="module">` para ser importável
-- A região `aria-live` só é renderizada quando TTS está desativado
-- Mensagens em streaming têm `aria-hidden="true"` quando TTS está ativo
-- O container tem `aria-busy="true"` durante loading quando TTS está ativo
-
-Isso é importante para acessibilidade:
-- Usuários de leitores de tela não ouvem duplicado (TTS + leitor)
-- Usuários sem leitor podem usar vozes de síntese
-- O padrão é "Desativada" para priorizar acessibilidade
+O desenho Svelte original previa alternar regiões `aria-live` locais conforme a
+voz selecionada. Esse baseline foi superseded pela arbitragem global da
+AEP-0058: anúncios usam `useAnnouncer`, TTS passa pelo broker global em
+`services/voiceAccessibility/ttsBroker.ts` e STT passa por
+`services/voiceAccessibility/sttGate.ts`. `VoicePicker.tsx` apenas seleciona a
+voz; não cria nem controla uma live region própria.
 
 ### Variants
 
-Os componentes `ModelPicker` e `VoicePicker` suportam duas variantes:
+Os componentes React `ModelPicker.tsx` e `VoicePicker.tsx` reutilizam
+`BasePicker` e expõem variantes adequadas a toolbar/formulário. A sintaxe
+Svelte anteriormente registrada nesta seção não faz parte do runtime atual.
 
 - **`toolbar`** (padrão): Compacto, sem label externa, para toolbars
 - **`form`**: Com label, help text, estados de loading/error
-
-```svelte
-<!-- Toolbar (compacto) -->
-<ModelPicker bind:value={model} label={model || 'Modelo'} />
-
-<!-- Form (com label e help) -->
-<ModelPicker 
-  bind:value={model} 
-  variant="form"
-  label="Modelo de Chat"
-  helpText="Selecione o modelo LLM"
-/>
-```
 
 ---
 
@@ -697,27 +677,17 @@ Os componentes `ModelPicker` e `VoicePicker` suportam duas variantes:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                       Frontend                               │
-│  VoicePicker.svelte                                          │
-│  - loadWebSpeechVoices() → speechSynthesis API              │
-│  - loadSAPI5Voices() → GetSAPI5Voices() (Wails)             │
-│  - Combina ambas as listas                                  │
-│  - Identifica source: 'webspeech' | 'sapi5'                 │
+│  frontend/src/components/pickers/VoicePicker.tsx             │
+│  - ttsService.getVoicesForProvider(providerId, modelId)      │
+│  - webspeech → provider WebSpeech.getVoices()                │
+│  - demais → binding Wails GetTTSVoices(providerId, modelId)  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                       Backend (Go)                           │
-│  internal/speech/                                            │
-│  ├── sapi5_windows.go      (Windows - go-ole COM nativo)    │
-│  └── sapi5_other.go        (Linux/Mac - stubs vazios)       │
-│                                                              │
-│  App Methods:                                                │
-│  - GetSAPI5Voices() → lista vozes instaladas                │
-│  - SpeakSAPI5(text, voiceName) → sintetiza texto            │
-│  - StopSAPI5() → para síntese                               │
-│  - SetSAPI5Volume(0-100) → define volume                    │
-│  - SetSAPI5Rate(-10 a 10) → define velocidade               │
-│  - IsSAPI5Speaking() → verifica se está falando             │
+│  binding Speech.GetTTSVoices(providerId, modelId)            │
+│  resolve vozes SAPI5 ou do provider/modelo configurado       │
 └─────────────────────────────────────────────────────────────┘
 ```
 

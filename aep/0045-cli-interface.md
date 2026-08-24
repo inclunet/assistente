@@ -50,17 +50,19 @@ Casos de uso: automação via scripts, uso em servidores headless, acessibilidad
 
 ### Reestruturação: `internal/app/` + `cmd/`
 
-Em Go, `package main` não pode ser importado por outro package. Para ter dois entrypoints (`cmd/desktop/` e `cmd/asst/`), a lógica do App precisa ser movida para um package importável.
+Em Go, `package main` não pode ser importado por outro package. Para manter os
+dois entrypoints (desktop em `main.go` na raiz e CLI em `cmd/asst/`), a lógica
+do App precisa ficar em um package importável.
 
 **Estrutura resultante:**
 
 ```
 main.go                    ← wails.Run() + embed frontend (permanece na raiz por //go:embed)
 cmd/
-  cli/main.go              ← cobra + adapters CLI (zero Wails)
-  cli/chat.go              ← subcomando chat (streaming + REPL + pipe)
-  cli/profiles.go          ← subcomando profiles (list, show, activate)
-  cli/config.go            ← subcomando config (show, providers, model)
+  asst/main.go             ← cobra + adapters CLI (zero Wails)
+  asst/chat.go             ← subcomando chat (streaming + REPL + pipe)
+  asst/profiles.go         ← subcomando profiles (list, show, activate)
+  asst/config.go           ← subcomando config (show, providers, model)
 internal/
   app/                     ← App struct + StartupWithAdapters() + toda orquestração
     app.go                 ← App struct, NewApp(), StartupWithAdapters(), Shutdown()

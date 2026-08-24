@@ -131,7 +131,8 @@ O perfil de conversa possui o override tri-state `native_mcp`:
 - `native_mcp` — `null`/ausente = automático, `true` = forçar nativo,
   `false` = forçar adapter
 - `disable_tools` — desabilita todo tool calling (incluindo MCP)
-- `enabled_tools` — compatibilidade da allowlist legada:
+- `enabled_tools` — compatibilidade da allowlist legada quando `tool_policy`
+  está ausente/vazia e `tool_policy_default` está ausente/vazio:
   - ausente/`null`: perfil legado aberto; quando `tool_catalog` está disponível,
     começa apenas com o catálogo e permite carga sob demanda; nesse estado,
     tools MCP não entram no caminho nativo inicialmente e, quando carregadas,
@@ -141,6 +142,56 @@ O perfil de conversa possui o override tri-state `native_mcp`:
     tools de runtime;
   - lista: allowlist explícita; os nomes permitidos entram como preload e os
     demais ficam bloqueados por esse contrato legado.
+
+### `tool_policy` e precedência da política efetiva
+
+`internal/chat.ToolSelectionPolicy.ResolveEffectiveToolPolicy()` é a fonte de
+verdade da seleção:
+
+1. `disable_tools: true` vence todas as demais opções.
+2. Um mapa `tool_policy` não vazio ativa a política nova da AEP-0081 e tem
+   precedência sobre `enabled_tools`.
+3. `tool_policy_default` define o estado das tools ausentes do mapa e aceita
+   `disabled` ou `on_demand`; com `enabled_tools: null`, ele sozinho já ativa a
+   política nova. Vazio falha fechado como `disabled`.
+4. Se houver somente `tool_policy_default`, mas `enabled_tools` for uma lista
+   legada não nula, a allowlist legada continua soberana para não ampliar
+   capabilities implicitamente.
+5. Sem mapa/default novos, aplicam-se as três formas legadas de
+   `enabled_tools` descritas acima.
+
+Estados por tool:
+
+- `preloaded`: entra no conjunto inicial do turno. Para uma tool MCP de servidor
+  HTTP elegível, é o único estado que pode satisfazer o gate final de MCP
+  nativo.
+- `on_demand`: aparece no catálogo e pode ser carregada durante o turno, mas
+  continua adapter/bridge nesse turno. Se `tool_catalog` não estiver disponível,
+  a resolução promove estados `on_demand` para preload como fallback, pois não
+  haveria mecanismo de carga posterior.
+- `disabled`: não entra inicialmente, não aparece como carregável e não pode ser
+  promovida pelo runtime.
+
+Tools opt-in permanecem `disabled` pelo default e precisam de entrada explícita.
+Quando existe alguma tool `on_demand`, a resolução mantém `tool_catalog`
+preloaded, salvo negação explícita. Exemplos:
+
+```json
+{
+  "chat": {
+    "enabled_tools": null,
+    "tool_policy_default": "on_demand",
+    "tool_policy": {
+      "mcp_jira__create_issue": "preloaded",
+      "mcp_jira__delete_issue": "disabled"
+    }
+  }
+}
+```
+
+Nesse exemplo, `enabled_tools: null` não força o comportamento legado: o mapa
+explícito prevalece, a tool de criação pode participar do caminho MCP nativo e
+a de exclusão permanece bloqueada.
 
 ---
 

@@ -27,11 +27,14 @@ ou endpoint rejeitar MCP nativo no modo automático, o Assistente refaz o mesmo
 turno com bridge tools e persiste `nil` → `false` no perfil. URLs `http://` com
 host remoto continuam excluídas por segurança.
 
-Com `enabled_tools: null` e `tool_catalog` disponível, o início do turno
-pré-carrega apenas o catálogo; portanto tools MCP permanecem `on_demand` e o
-servidor não entra no caminho nativo inicialmente. Quando uma tool MCP é
-carregada sob demanda, ela permanece bridge/function no turno, em vez de ser
-convertida retroativamente para passthrough nativo.
+Em **perfil legado sem `tool_policy` e sem `tool_policy_default`**,
+`enabled_tools: null` com `tool_catalog` disponível pré-carrega inicialmente
+apenas o catálogo; portanto tools MCP permanecem `on_demand` e o servidor não
+entra no caminho nativo no início do turno. Quando uma tool MCP é carregada sob
+demanda, ela permanece bridge/function nesse turno. Um `tool_policy` explícito
+ou `tool_policy_default` não vazio pode ativar a política nova mesmo com
+`enabled_tools: null`; entradas efetivamente `preloaded` podem então satisfazer
+o gate nativo.
 
 ## 📁 Localização
 
