@@ -43,7 +43,11 @@ vi.mock('../lib/waitForWailsBridge', () => ({
   waitForWailsBridge: vi.fn(),
 }));
 
-import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
+import {
+  useWorkspaceStore,
+  registerTabRenameHandler,
+  type WorkspaceTabUpdatedEvent,
+} from './workspaceStore';
 import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/wailsapi/Workspace';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 import { workspace } from '../../wailsjs/go/models';
@@ -156,11 +160,7 @@ describe('workspace backend events', () => {
     const registration = mockedEventsOn.mock.calls.find(([event]) => event === 'workspace:tab_updated');
     expect(registration).toBeDefined();
 
-    const handler = registration?.[1] as (payload: {
-      workspace: workspace.Workspace;
-      tabId: string;
-      profileSlug: string;
-    }) => void;
+    const handler = registration?.[1] as (payload: WorkspaceTabUpdatedEvent) => void;
     handler({
       workspace: {
         id: 'ws-1',
@@ -177,7 +177,7 @@ describe('workspace backend events', () => {
             profile_override: { slug: 'programacao' },
           }],
         },
-      } as unknown as workspace.Workspace,
+      },
       tabId: 'tab-1',
       profileSlug: 'programacao',
     });

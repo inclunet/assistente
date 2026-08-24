@@ -57,25 +57,45 @@ export interface WorkspaceData {
   activeTabId: string | null;
 }
 
-interface WorkspaceTabUpdatedEvent {
-  workspace: workspace.Workspace;
+interface BackendWorkspaceTabPayload {
+  id: string;
+  type: string;
+  conversation_id?: string;
+  title?: string;
+  position: number;
+  profile_override?: unknown;
+  state?: unknown;
+}
+
+interface BackendWorkspacePayload {
+  id: string;
+  name: string;
+  profile?: string;
+  tabs?: {
+    items?: BackendWorkspaceTabPayload[];
+    active?: string;
+  };
+}
+
+export interface WorkspaceTabUpdatedEvent {
+  workspace: BackendWorkspacePayload;
   tabId: string;
   profileSlug: string;
 }
 
-function backendTabToFrontend(bt: workspace.Tab): WorkspaceTab {
+function backendTabToFrontend(bt: BackendWorkspaceTabPayload): WorkspaceTab {
   return {
     id: bt.id,
     type: bt.type as TabType,
     conversationId: bt.conversation_id || undefined,
     title: bt.title || (bt.type === 'chat' ? i18next.t('chat.newConversation') : ''),
     position: bt.position,
-    profileOverride: bt.profile_override,
-    state: bt.state,
+    profileOverride: bt.profile_override as Record<string, unknown> | undefined,
+    state: bt.state as Record<string, unknown> | undefined,
   };
 }
 
-function backendWorkspaceToFrontend(bws: workspace.Workspace): WorkspaceData {
+function backendWorkspaceToFrontend(bws: BackendWorkspacePayload): WorkspaceData {
   const tabs = (bws.tabs?.items || []).map(backendTabToFrontend);
   return {
     id: bws.id,
