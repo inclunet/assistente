@@ -253,7 +253,25 @@ Fase 2:
 - [x] `list`/`delete`/`mkdir`/… fora do sandbox usam o mesmo Authorizer.
 - [x] Trocar workspace ativo atualiza a raiz permitida sem reiniciar o app.
 - [x] Testes unitários cobrem Manager/Authorizer e o hook de pathutil.
-- [ ] CI verde; review Copilot zerada.
+
+### Evidências e gate histórico de entrega
+
+- Núcleo e escopos: `internal/fstrust/manager_test.go`,
+  `authorizer_test.go` e `deny_test.go`.
+- Integração do sandbox, symlinks, walkers e sensíveis:
+  `internal/tools/filesystem/pathutil_test.go`, `sensitive_walk_test.go` e
+  `skill_allowlist_test.go`.
+- UI e acessibilidade: `frontend/src/pages/PathAllowlistPage.test.tsx` e
+  `PathAllowlistPage.a11y.test.tsx`.
+- O histórico integrado à `main` contém a entrega do núcleo
+  (`2288b1d6`), a correção dos apontamentos suprimidos da review
+  (`9470f8f9`) e a Fase 2 (`b0ca6e1f`).
+
+“CI verde; review Copilot zerada” era um gate operacional do PR de entrega, não
+um critério funcional permanente da AEP. Esta auditoria não atribui número de PR
+nem reconstitui estado efêmero de checks sem evidência estável; o status
+`Done` se apoia no código integrado, nas fases marcadas e nas regressões
+reproduzíveis acima.
 
 ## Referências
 

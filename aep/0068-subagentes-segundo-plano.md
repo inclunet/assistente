@@ -51,12 +51,18 @@ quanto os jobs o acionam pelo mesmo caminho.
   documenta e alinha ao contrato de eventos/mensagens.
 - **AEP-0052 (Contas de Usuário)**: toda sub-conversa pertence ao mesmo `userID`;
   `resume` valida owner.
-- **AEP-0025/0062 (Profiles)**: o `profile` do sub-agente define modelo,
-  comportamento e as **tools habilitadas** via `Profile.Chat.EnabledTools` (lista;
-  `nil` = seleção dinâmica/catálogo). O gate global de tool calling é o booleano
-  `Profile.Chat.DisableTools` (`true` = sub-agente **sem nenhuma** tool, não é
-  denylist). Assim, se a tool `subagent` estiver fora de `EnabledTools` (ou
-  `DisableTools=true`), o sub-agente **não** pode criar novos sub-agentes.
+- **AEP-0025/0062 (Profiles) + AEP-0081 (política efetiva de tools)**: o
+  `profile` do sub-agente define modelo, comportamento e disponibilidade de
+  tools por `ToolSelectionPolicy.ResolveEffectiveToolPolicy`. A precedência é:
+  `DisableTools=true` desliga tudo; `ToolPolicy` não vazio governa a política
+  nova; `ToolPolicyDefault` sozinho também a ativa quando `EnabledTools=nil`,
+  mas uma lista legada não nula permanece soberana se não houver mapa explícito.
+  Na ausência de mapa/default vale `EnabledTools`. Para a tool `subagent`,
+  `preloaded` significa disponível desde
+  o início, `on_demand` significa descobrível e invocável somente após carga
+  pelo catálogo, e `disabled` impede a invocação. Portanto a recursão só ocorre
+  quando a política efetiva do profile filho torna `subagent` disponível; não
+  basta consultar `EnabledTools`.
 - **AEP-0001/0048/0063 (Jobs e Tool Invocations)**: jobs chamam a tool `subagent`;
   a persistência separa run de negócio de `tool_invocations`; proveniência via
   `eventctx` e circuit-breaker são reaproveitados como backstop anti-runaway.
@@ -87,11 +93,10 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `model` (string, opcional): modelo de execução do sub-agente (`llm.ChatParams.Model`),
   **sobrescreve** o modelo derivado do `profile` para aquele run. Não é persistido na
   entidade `Conversation` (que só tem `Title`) — é parâmetro de execução do envio.
-- `tools` (string[], opcional): **restringe** (subconjunto) sobre as tools já
-  habilitadas pelo profile — o profile é o gate primário. Semântica de vazio (alinhada
-  à base, que distingue `nil` de `[]`): **omitido/`nil`** = herda as tools do profile;
-  **`[]` (lista vazia)** = nenhuma tool (sub-agente sem tool calling). Itens fora do
-  habilitado pelo profile são ignorados (nunca expandem privilégio).
+- `tools` (registro histórico da proposta): o runtime vigente de
+  `internal/tools/subagent/subagent.go` não expõe esse parâmetro no schema. A
+  disponibilidade de tools do run vem da política efetiva do `profile`; não há
+  override por chamada que amplie ou restrinja esse conjunto.
 - `run_id` (string UUIDv7, opcional — AEP-0046): identifica um **run específico**
   (turno) de uma sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo
   agem sobre o **run mais recente** da `conversation_id` informada.
@@ -192,8 +197,10 @@ propagada:
 ### Profundidade e segurança
 
 - **Profundidade governada pelo profile**: o sub-agente cria novos sub-agentes
-  apenas se o profile dele habilitar a tool `subagent`. Sem `max_depth` próprio nem
-  proibição hardcoded. Qualquer profile é permitido (responsabilidade do usuário).
+  apenas se a política efetiva do profile dele deixar a tool `subagent`
+  `preloaded`, ou `on_demand` e posteriormente carregada. Estado `disabled` e
+  `DisableTools=true` bloqueiam. Sem `max_depth` próprio nem proibição hardcoded.
+  Qualquer profile é permitido (responsabilidade do usuário).
 - **Backstop anti-runaway** (não é limite de profundidade): proveniência `eventctx`
   + circuit-breaker (`chain_id`/histórico) compartilhados com jobs, limite de
   concorrência por usuário/pai e timeout por run.
