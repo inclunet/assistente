@@ -204,4 +204,8 @@ Os campos de auth OAuth2 verificam se estão em `discoveredFields` para decidir 
 - **Acessibilidade**: campos readOnly devem ser anunciados corretamente por screen readers. Usar `aria-readonly="true"` e incluir hint descritivo (ex: "preenchido automaticamente via discovery").
 - **Não bloquear o save**: se o discovery falhar, o formulário funciona normalmente — é apenas uma conveniência.
 - **client_id**: NÃO temos como descobrir o client_id automaticamente via well-known (ele vem do registro do app). O campo client_id permanece editável sempre. No caso do Atlassian, existe um `registration_endpoint` — mas implementar Dynamic Client Registration (RFC 7591) é escopo futuro, não agora. Deixar o campo em branco com hint se `registrationUrl` estiver presente.
-- **Não precisa de testes por agora**: foco na implementação funcional.
+- **Nota histórica obsoleta:** o plano inicial dizia que testes poderiam ser
+  adiados. O estado vigente exige e já possui regressões de discovery em
+  `internal/mcp/oauth_test.go` e de UI em
+  `McpConnectionSection.test.tsx`; novas alterações continuam obrigadas a
+  atualizar a cobertura.

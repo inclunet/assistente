@@ -1,6 +1,6 @@
 # HTTP Request Tool - Proposta de Implementação
 
-**Status:** Done
+**Status:** Done — escopo funcional entregue pelo contrato centralizado vigente
 
 ## Contexto
 
@@ -12,16 +12,45 @@ A ferramenta atual `web_fetch` possui limitações significativas:
 - ❌ Não suporta autenticação (Basic Auth, Bearer tokens)
 - ❌ Força uso de `curl` via terminal (ineficiente)
 
-## Proposta: Nova Tool `http_request`
+## Contrato vigente
+
+`internal/tools/web/http_request.go` expõe somente:
+
+- `url`;
+- `method`;
+- `headers`;
+- `body` e `body_type`;
+- `max_response_size`;
+- `extract_mode`.
+
+Não existem argumentos `auth_basic`, `auth_bearer` ou `timeout_seconds` no
+schema nem em `httpRequestArgs`. Credenciais são resolvidas pela URL no cliente
+central de `internal/tools/http`, que recebe o `credentials.Manager` no
+construtor da tool. Timeout e retry também pertencem à configuração desse
+cliente, não ao payload controlado pelo modelo.
+
+A resolução automática evita exigir argumentos dedicados de autenticação e
+reduz exposição acidental. Ela não torna o payload incapaz de carregar
+segredos: headers arbitrários, inclusive `Authorization`, são preservados, e a
+própria URL pode conter informação sensível. O contrato centralizado foi
+consolidado pelas AEPs 0018 e 0019.
+
+## Design original da tool (histórico)
+
+Os parâmetros e exemplos desta seção registram a proposta inicial. Em
+particular, `auth_basic`, `auth_bearer` e `timeout_seconds` foram superseded
+pelo contrato centralizado acima e **não devem ser enviados à tool vigente**.
+
+### Proposta original
 
 ### Objetivo
 Criar ferramenta completa para requisições HTTP que suporte:
 - ✅ Todos os métodos HTTP (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)
 - ✅ Headers customizados (Authorization, Content-Type, etc.)
 - ✅ Body/payload (JSON, form-data, text/plain, raw)
-- ✅ Autenticação (Basic Auth, Bearer token)
+- ✅ Autenticação resolvida automaticamente pelo cliente central
 - ✅ Validações de segurança mantidas (bloqueio de hosts privados)
-- ✅ Timeouts configuráveis
+- ✅ Timeout governado pelo cliente HTTP central
 - ✅ Suporte a diferentes encodings de resposta
 
 ### Especificação de Parâmetros
@@ -242,11 +271,27 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
 2. ✅ Cobertura unitária em `internal/tools/web/http_request_test.go`.
 3. ✅ Registro no catálogo compartilhado de tools.
 4. ✅ Integração com cliente HTTP centralizado, credenciais e guardrails
-   anti-SSRF.
+   anti-SSRF; autenticação é resolvida por URL, sem argumentos de segredo.
 5. ✅ Execução passa pelo pipeline comum de tools e seus testes de catálogo.
+
+### Critérios verificados
+
+- [x] O código aceita os métodos declarados, aplica `body_type` e implementa os
+  modos de extração em `internal/tools/web/http_request.go`.
+- [x] `internal/tools/web/http_request_test.go` cobre GET, POST JSON, DELETE,
+  confirmação de DELETE, headers customizados e extração JSON.
+- [ ] A matriz unitária ainda não cobre PUT/PATCH/HEAD/OPTIONS, todos os
+  `body_type` (`form`, `text`, `raw`) nem todos os `extract_mode`.
+- [x] O schema publicado coincide com `httpRequestArgs` e não oferece
+  `auth_basic`, `auth_bearer` ou `timeout_seconds`.
+- [x] Credenciais e timeout são delegados ao cliente central de
+  `internal/tools/http`.
+- [x] Guardrails anti-SSRF e confirmação de operações mutáveis permanecem no
+  pipeline compartilhado.
 
 ---
 
-**Estado histórico:** proposta aprovada e implementada.
+**Estado:** escopo funcional implementado pelo contrato vigente; desenho
+original de autenticação/timeout superseded pelas AEPs 0018/0019.
 **Prioridade:** Alta (impacto operacional significativo)  
 **Estimativa:** 2-3 horas de implementação + testes

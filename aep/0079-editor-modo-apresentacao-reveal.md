@@ -61,8 +61,8 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 
 - [x] Adicionar templates acessíveis de layout Reveal-native e melhorias de imagens/alt text.
 
-6. Exportação estática de pacote Reveal (`index.html`, `deck.md`, `assets/`)
-   permanece evolução opcional fora do escopo aceito desta entrega.
+- [ ] **Evolução opcional fora do escopo aceito:** exportação estática de
+  pacote Reveal (`index.html`, `deck.md`, `assets/`).
 
 ### Evidências
 

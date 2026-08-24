@@ -9,13 +9,16 @@ Este arquivo contém exemplos práticos de configuração de servidores MCP para
 
 ## Transporte e MCP Nativo
 
-A forma como o Assistente consome um servidor MCP depende de dois fatores: o **transporte** do servidor e a **capacidade do provider LLM**.
+A forma como o Assistente consome um servidor MCP depende de três dimensões: o
+**transporte** do servidor, a **capacidade física do provider LLM** e a
+**política tri-state do perfil**. Para transportes HTTP, a URL ainda precisa
+passar pela regra de elegibilidade de segurança.
 
 | Transporte | Caminho | Quando |
 |------------|---------|--------|
 | `stdio` | Sempre **adapter/bridge local** | Servidor roda como processo local; não pode ser acessado remotamente |
-| `sse` / `streamable` | **MCP nativo** | Provider é fisicamente capaz (`openai_responses` ou `anthropic`), política do perfil permite e URL é elegível |
-| `sse` / `streamable` | **Adapter/bridge local** | Provider incapaz, perfil força adapter, fallback automático ou URL inelegível |
+| `sse` / `streamable` | **MCP nativo** | Provider capaz, `native_mcp` permite, URL elegível, `prefer_bridge=false` e ao menos uma tool do servidor está `preloaded` pela política efetiva |
+| `sse` / `streamable` | **Adapter/bridge local** | Qualquer gate nativo falha, a tool está apenas `on_demand`, ou ocorre fallback automático |
 
 A capacidade física vem de `NativeMCPCapable()`. A política vem de
 `Profile.Chat.NativeMCP *bool`: `nil` tenta nativo automaticamente quando
@@ -23,6 +26,12 @@ possível, `true` força a tentativa nativa e `false` força adapter. Se o model
 ou endpoint rejeitar MCP nativo no modo automático, o Assistente refaz o mesmo
 turno com bridge tools e persiste `nil` → `false` no perfil. URLs `http://` com
 host remoto continuam excluídas por segurança.
+
+Com `enabled_tools: null` e `tool_catalog` disponível, o início do turno
+pré-carrega apenas o catálogo; portanto tools MCP permanecem `on_demand` e o
+servidor não entra no caminho nativo inicialmente. Quando uma tool MCP é
+carregada sob demanda, ela permanece bridge/function no turno, em vez de ser
+convertida retroativamente para passthrough nativo.
 
 ## 📁 Localização
 

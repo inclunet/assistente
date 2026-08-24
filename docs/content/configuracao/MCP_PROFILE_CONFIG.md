@@ -19,17 +19,19 @@ override tri-state do perfil.
 
 | Caminho | Quando | Como |
 |---------|--------|------|
-| **Adapter (bridge)** | Provider não suporta MCP nativo, ou servidor é STDIO local | Assistente descobre tools via MCP, registra como function calling normal, executa localmente |
-| **Nativo (server-side)** | Provider suporta MCP nativo E servidor HTTP com URL elegível | Provider LLM se conecta diretamente ao MCP server, resolve tool calls server-side |
+| **Adapter (bridge)** | Algum gate nativo falha ou a tool foi carregada sob demanda | Assistente registra a tool como function calling e executa localmente |
+| **Nativo (server-side)** | Todos os gates abaixo passam para uma tool MCP preloaded | Provider LLM conecta diretamente ao servidor e executa server-side |
 
 ### Decisão em runtime
 
-A decisão usa duas dimensões:
+A decisão aplica todos estes gates:
 
 ```
 provider.NativeMCPCapable() == true
   E Profile.Chat.NativeMCP != false
-  E servidor tem transporte HTTP elegível
+  E servidor está conectado, tem transporte HTTP e URL elegível
+  E servidor.prefer_bridge == false
+  E ao menos uma tool MCP do servidor está preloaded pela política efetiva
   → tenta MCP nativo (server-side)
 
 Caso contrário
@@ -48,6 +50,10 @@ Se o modo automático encontrar modelo ou endpoint incompatível com
 disponíveis. Depois, a transição `nil` → `false` é persistida no perfil para
 evitar repetir a falha. Overrides explícitos nunca são sobrescritos
 automaticamente.
+
+`native_mcp: true` não ultrapassa os demais gates: não torna STDIO nativo, não
+ignora `prefer_bridge` e não promove uma tool `on_demand` para `preloaded`.
+Tools MCP carregadas sob demanda permanecem bridge/function no turno.
 
 ---
 
@@ -71,6 +77,9 @@ Apenas servidores que atendem **todos** estes critérios vão pelo caminho nativ
 1. Conectados e com tools disponíveis
 2. Transporte HTTP (SSE ou Streamable HTTP)
 3. URL elegível: `https://` sempre, `http://` apenas para localhost/loopback (127.0.0.1, ::1)
+4. `prefer_bridge` desativado
+5. Ao menos uma tool do servidor está `preloaded` pela política efetiva do
+   perfil
 
 URLs `http://` com host remoto são excluídas — o provider LLM faz a conexão server-side e auth tokens seriam transmitidos sem encriptação.
 
@@ -115,7 +124,16 @@ O perfil de conversa possui o override tri-state `native_mcp`:
 - `native_mcp` — `null`/ausente = automático, `true` = forçar nativo,
   `false` = forçar adapter
 - `disable_tools` — desabilita todo tool calling (incluindo MCP)
-- `enabled_tools` — filtra quais tools estão disponíveis (null = todas)
+- `enabled_tools` — compatibilidade da allowlist legada:
+  - ausente/`null`: perfil legado aberto; quando `tool_catalog` está disponível,
+    começa apenas com o catálogo e permite carga sob demanda; nesse estado,
+    tools MCP não entram no caminho nativo inicialmente e, quando carregadas,
+    permanecem bridge; sem catálogo, preserva o fallback legado de preload das
+    tools não opt-in;
+  - `[]`: seleção explícita vazia, desliga as tools iniciais e não adiciona
+    tools de runtime;
+  - lista: allowlist explícita; os nomes permitidos entram como preload e os
+    demais ficam bloqueados por esse contrato legado.
 
 ---
 

@@ -1,6 +1,13 @@
 # HTTP Request - Guardrails de Segurança
 
-**Status:** Done
+**Status:** In Progress — guardrails implementados; matriz de confirmação PUT/PATCH permanece sem regressão
+
+> **Contrato vigente:** `HTTPRequest` recebe `credentials.Manager` em
+> `NewHTTPRequest(credMgr)` e delega autenticação ao cliente central de
+> `internal/tools/http`, que resolve credenciais pela URL. Não existem
+> `SetCredential`, `credential_key`, `auth_bearer` ou `auth_basic` no contrato
+> da tool. O desenho por chave descrito abaixo é histórico e foi superseded
+> pelas AEPs 0018 e 0019.
 
 ## Problema
 
@@ -50,7 +57,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 
 ---
 
-### 2. Gestão Segura de Credenciais
+### 2. Gestão segura de credenciais — design histórico superseded
 
 #### Problema
 ❌ **Modelo vê o token**:
@@ -61,7 +68,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 }
 ```
 
-#### Solução
+#### Solução originalmente proposta
 ✅ **Usar chaves de credenciais**:
 ```json
 {
@@ -187,7 +194,7 @@ anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
 
 ---
 
-## Configuração no Sistema
+## Configuração por chave — exemplos históricos, não usar
 
 ### Carregar credenciais de variáveis de ambiente
 
@@ -272,7 +279,7 @@ httpReqTool.SetCredential("stripe_key", stripeKey.Data["value"].(string))
 
 ---
 
-## Exemplos Práticos
+## Exemplos práticos do design histórico
 
 ### Exemplo 1: GitHub API (seguro)
 
@@ -373,3 +380,21 @@ httpReqTool.SetCredential("slack_webhook", "https://hooks.slack.com/...")
 - [ ] Histórico de operações aprovadas/negadas
 - [ ] Templates de aprovação (auto-aprovar DELETE de recursos de teste)
 - [ ] Dry-run mode (simular sem executar)
+
+## Critérios e evidências do escopo entregue
+
+- [x] `internal/tools/web/http_request.go` encaminha `DELETE`, `PUT` e `PATCH`
+  ao callback de confirmação.
+- [x] `internal/tools/web/http_request_test.go` cobre DELETE sem callback e
+  DELETE negado/cancelado pelo callback.
+- [ ] Cobrir aprovação de DELETE e adicionar regressões de aprovação/negação
+  equivalentes para PUT e PATCH.
+- [x] O modelo não recebe token, senha ou chave de credencial no schema da
+  tool.
+- [x] O `credentials.Manager` é injetado no cliente HTTP central, que resolve
+  autenticação por URL.
+- [x] Proteções anti-SSRF pré/pós-DNS e em redirects vivem em
+  `internal/tools/http` e possuem regressões próprias.
+- [x] Ausência dos métodos históricos `SetCredential` e dos argumentos
+  `credential_key`/`auth_*` está reconciliada como substituição arquitetural,
+  não como funcionalidade pendente.

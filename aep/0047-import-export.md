@@ -5,14 +5,21 @@
 ## Dependências
 
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Esta AEP agora assume que a migração para UUIDv7 já aconteceu e passa a usar esses IDs estáveis como contrato portável. O formato legado sem IDs deixa de ser suportado.
-- **AEP-0052** (Sistema de Contas de Usuário): etapa posterior que adiciona `user_id` aos recursos DB-only atuais. A partir dela, export/import deve operar no escopo do usuário autenticado e não mais no namespace global da instância.
-- **AEP-0048**, **AEP-0050** e **AEP-0051**: recursos que hoje ainda vivem fora do banco ou dependem de migrações estruturais complementares ficam para etapas posteriores, já nascendo com `user_id` após a AEP-0052.
+- **AEP-0052** (Sistema de Contas de Usuário): o escopo por usuário relevante
+  para esta AEP já está vigente. `internal/portability/service.go` exige ou
+  propaga o usuário do contexto e aplica `ScopeByUser`/`user_id`; a AEP-0052
+  ampla permanece `In Progress` por outros recortes.
+- **AEP-0048** já migrou jobs para o banco. **AEP-0050** e **AEP-0051**
+  continuam como evoluções para profiles e skills; ampliar o formato portátil
+  para esses recursos é follow-up, não pré-requisito de user scope.
 
 ## Resumo
 
 Sistema de importação e exportação em formato JSON portável com **IDs UUID estáveis**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação desta etapa continua restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens, providers, servidores MCP, tasklists e no bloco portátil de credenciais. O export passa a carregar os IDs persistidos como contrato canônico, permitindo importação idempotente, deduplicação determinística e sobrescrita direta por `id` quando aplicável. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica de conversas. Servidores MCP também podem ser exportados no formato `mcpServers` compatível com Cursor/Claude. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
 
-Recursos que ainda dependem de migração para o banco ou de ajustes estruturais adicionais permanecem fora do escopo imediato e serão tratados após as migrações propostas nas AEP-0052, AEP-0048, AEP-0050 e AEP-0051.
+Recursos fora do recorte aceito permanecem follow-ups. Profiles e skills ainda
+dependem das AEPs 0050/0051; jobs já estão no banco, mas sua inclusão no formato
+portátil não foi incorporada retroativamente ao escopo desta entrega.
 
 ## Motivação
 
@@ -42,7 +49,11 @@ Escopo implementado nesta fase:
 - bloco portátil de credenciais criptografadas
 - exportação derivada em HTML/PDF para conversas
 
-Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052. Servidores MCP entram no escopo quando migrados para banco pela AEP-0049.
+Ficam explicitamente fora do escopo desta PR os recursos não enumerados acima,
+inclusive profiles/skills enquanto aguardam as AEPs 0050/0051 e jobs, cuja
+migração da AEP-0048 ocorreu depois da definição deste recorte. Servidores MCP
+entraram no escopo após a migração da AEP-0049. O `user_id` já é requisito
+operacional do pacote de portabilidade.
 
 O pacote `internal/portability` também é responsável por orquestrar importações legadas de arquivos quando um recurso passa a ser persistido no banco. Cada recurso fornece apenas source/parser/importer específicos; o loop de descoberta, leitura read-only, idempotência e relatório de resultado permanece compartilhado para ser reaproveitado por recursos futuros, como skills. O gatilho dessas importações fica em uma fase global pós-login no app, antes dos managers carregarem seus runtimes do banco.
 
@@ -392,7 +403,10 @@ type ResourceImporter interface {
 
 Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas registrar um novo handler.
 
-Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052 sejam concluídas, esta extensibilidade permanece como direção de evolução, não como requisito de implementação imediata desta PR.
+A extensibilidade para novos tipos permanece direção de evolução, não requisito
+retroativo desta PR. A base UUID, jobs DB-only e user scope já existem; as
+lacunas estruturais relevantes continuam concentradas em profiles/skills
+(AEPs 0050/0051) e na decisão explícita de ampliar o formato.
 
 ### D14 — Avisos e erros da importação viajam como código, não como texto
 

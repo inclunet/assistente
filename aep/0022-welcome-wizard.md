@@ -44,8 +44,9 @@ Solicita chave de autenticação:
 Lista modelos disponíveis e permite escolha:
 - Consulta API do servidor para listar modelos reais
 - Se falhar, permite entrada manual com sugestões
-- Atualiza automaticamente TODOS os perfis com o modelo escolhido
-- Define como modelo padrão na configuração global
+- Marca o provider e o modelo escolhidos como defaults globais
+- Não reescreve todos os perfis: cópias que usam o sentinela `$default` passam
+  a resolver o novo default em runtime; seleções explícitas permanecem intactas
 
 ### 3. Integração com Sistema de Questionários
 
@@ -105,7 +106,7 @@ Após completar o wizard, o sistema automaticamente:
    ├── Executa RunWelcomeWizard()
    ├── Usuário completa 4 etapas
    ├── Salva configuração
-   ├── Atualiza perfis
+   ├── Marca provider/modelo como default
    ├── Reinicializa LLM client
    └── Verifica atualizações disponíveis
    ↓
@@ -154,8 +155,9 @@ Após completar o wizard, o sistema automaticamente:
 
 ## Cobertura verificada
 
-- [x] Providers, formatos de API, URL customizada, persistência SQLite e
-  provider default: `internal/app/app_wizard_test.go`.
+- [x] Providers, formatos de API, URL customizada, persistência SQLite,
+  provider/modelo default e resolução runtime de cópias com `$default`:
+  `internal/app/app_wizard_test.go`.
 - [x] URLs inválidas, autenticação, indisponibilidade, erros HTTP e listagem de
   modelos: `internal/app/app_wizard_test.go`.
 - [x] Binding não conectado, avaliação pré/pós-login e delegação ao runtime:
