@@ -52,32 +52,44 @@ func CreateTaskListWithContext(ctx context.Context, title, description string, t
 		return nil, errors.New("limite de tasklists atingido")
 	}
 
+	normalizedSlug := NormalizeTaskListSlug(slug)
+	if err := ValidateTaskListSlugFormat(normalizedSlug); err != nil {
+		return nil, err
+	}
 	taskList := &TaskList{
 		Title:             title,
 		Description:       description,
 		PreferredViewMode: "list",
+		Slug:              normalizedSlug,
 	}
 	if userID, ok := UserIDFromContext(ctx); ok {
 		taskList.UserID = userID
 	}
 
-	if err := db.WithContext(ctx).Create(taskList).Error; err != nil {
-		return nil, err
-	}
-
-	// Cria workflow
-	workflow, err := createWorkflowForTaskListWithContext(ctx, taskList.ID, templateWorkflow)
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if normalizedSlug != "" {
+			var taken int64
+			if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").
+				Where("slug = ?", normalizedSlug).
+				Count(&taken).Error; err != nil {
+				return err
+			}
+			if taken > 0 {
+				return fmt.Errorf("slug %q já está em uso por outra lista", normalizedSlug)
+			}
+		}
+		if err := tx.Create(taskList).Error; err != nil {
+			return err
+		}
+		workflow, err := createWorkflowForTaskListWithDB(ctx, tx, taskList.ID, templateWorkflow)
+		if err != nil {
+			return err
+		}
+		taskList.Workflow = workflow
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	taskList.Workflow = workflow
-
-	if s := NormalizeTaskListSlug(slug); s != "" {
-		if err := SetTaskListSlugWithContext(ctx, taskList.ID, s); err != nil {
-			return nil, err
-		}
-		taskList.Slug = s
 	}
 
 	return taskList, nil
@@ -214,7 +226,7 @@ func DeleteTaskListWithContext(ctx context.Context, id string) error {
 
 // ==================== Workflow Operations ====================
 
-func createWorkflowForTaskListWithContext(ctx context.Context, taskListID string, template *TaskListWorkflow) (*TaskListWorkflow, error) {
+func createWorkflowForTaskListWithDB(ctx context.Context, query *gorm.DB, taskListID string, template *TaskListWorkflow) (*TaskListWorkflow, error) {
 	var workflow *TaskListWorkflow
 
 	if template != nil {
@@ -249,7 +261,7 @@ func createWorkflowForTaskListWithContext(ctx context.Context, taskListID string
 		}
 	}
 
-	if err := db.WithContext(ctx).Create(workflow).Error; err != nil {
+	if err := query.WithContext(ctx).Create(workflow).Error; err != nil {
 		return nil, err
 	}
 
@@ -823,23 +835,32 @@ func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int
 		return err
 	}
 
-	// Atualiza status e data de conclusão se for o status final
-	updates := map[string]interface{}{"status_id": newStatusID}
-
-	// Se o novo status é o último (ordem máxima), marca como concluído
-	workflow, _ := GetWorkflowWithContext(ctx, task.TaskListID)
+	// Atualiza status e mantém completed_at coerente com o status final.
+	updates := map[string]interface{}{
+		"status_id":    newStatusID,
+		"completed_at": nil,
+	}
+	workflow, err := GetWorkflowWithContext(ctx, task.TaskListID)
+	if err != nil {
+		return err
+	}
 	var statuses []TaskListWorkflowStatus
-	_ = json.Unmarshal([]byte(workflow.Statuses), &statuses)
-
+	if err := json.Unmarshal([]byte(workflow.Statuses), &statuses); err != nil {
+		return err
+	}
+	maxOrder := -1
+	newStatusOrder := -1
 	for _, s := range statuses {
-		if s.ID == newStatusID {
-			// Se a label contém "Concluído" ou similar, marca CompletedAt
-			if s.Label == "Concluído" {
-				now := time.Now()
-				updates["completed_at"] = now
-			}
-			break
+		if s.Order > maxOrder {
+			maxOrder = s.Order
 		}
+		if s.ID == newStatusID {
+			newStatusOrder = s.Order
+		}
+	}
+	if newStatusOrder >= 0 && newStatusOrder == maxOrder {
+		now := time.Now()
+		updates["completed_at"] = now
 	}
 
 	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
