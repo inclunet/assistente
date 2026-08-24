@@ -83,6 +83,7 @@ func (a *Advisor) Recommend(ctx context.Context, req Request) (*Recommendation, 
 	if content == "" || currentSlug == "" || strings.TrimSpace(req.CurrentProfile.Chat.LLMProvider) == "" {
 		return nil, nil
 	}
+	req.CurrentSlug = currentSlug
 	if a.providers.UsesAgentTurn(ctx, req.CurrentProfile) {
 		return nil, nil
 	}

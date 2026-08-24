@@ -68,10 +68,12 @@ Sua única saída aceita é JSON com:
   pedido no primeiro turno;
 - `confidence`: número entre 0 e 1.
 
-Nomes desconhecidos, respostas inválidas, baixa confiança, timeout e provider
-sem papel auxiliar resultam em “sem recomendação”. O pedido segue no profile
-atual. A resposta do classificador nunca executa tools, altera policies nem
-escolhe diretamente um profile.
+Nomes desconhecidos, respostas inválidas, baixa confiança e timeout resultam
+diretamente em “sem recomendação”. Provider sem papel auxiliar retorna um
+sentinela interno que o gate trata da mesma forma, registrando apenas diagnóstico
+de debug. Em ambos os casos, o pedido segue no profile atual. A resposta do
+classificador nunca executa tools, altera policies nem escolhe diretamente um
+profile.
 
 O transporte é a interface genérica `llm.ChatProvider.SimpleChat`. Não há
 detecção por URL, endpoint, nome de provider ou família de modelo. Providers
