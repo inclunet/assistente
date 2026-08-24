@@ -8,11 +8,13 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"assistente/internal/eventctx"
 	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
 	"assistente/internal/subagent"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -235,7 +237,10 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		parentProfile := strings.TrimSpace(inv.ProfileSlug)
 		if strings.TrimSpace(a.Profile) != "" && profile != parentProfile {
 			if t.authorizer == nil {
-				return errResult("delegação para outro profile requer autorização, mas o autorizador não está configurado"), nil
+				return authorizationErrResult(
+					"authorization_unavailable",
+					"delegação para outro profile requer autorização, mas o autorizador não está configurado",
+				), nil
 			}
 			taskTitle := strings.TrimSpace(a.Title)
 			if taskTitle == "" {
@@ -250,7 +255,10 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 				Background:     a.Background,
 			})
 			if authErr != nil {
-				return errResult(fmt.Sprintf("não foi possível autorizar a delegação cross-profile: %v", authErr)), nil
+				return authorizationErrResult(
+					authorizationErrorCode(authErr),
+					fmt.Sprintf("não foi possível autorizar a delegação cross-profile: %v", authErr),
+				), nil
 			}
 			if !allowed {
 				return jsonResult(map[string]any{
@@ -301,6 +309,37 @@ func truncateForDecision(value string, maxRunes int) string {
 		return string(runes)
 	}
 	return string(runes[:maxRunes]) + "…"
+}
+
+func authorizationErrorCode(err error) string {
+	switch {
+	case errors.Is(err, profileaccess.ErrTargetNotFound):
+		return "profile_not_found"
+	case errors.Is(err, profileaccess.ErrTargetUnavailable):
+		return "profile_unavailable"
+	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+		return "authorization_no_interlocutor"
+	case errors.Is(err, questionnaire.ErrAskerUnavailable):
+		return "authorization_surface_unavailable"
+	default:
+		return "authorization_failed"
+	}
+}
+
+func authorizationErrResult(code, message string) tools.ToolResult {
+	payload, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
+	return tools.ToolResult{
+		Content: string(payload),
+		IsError: true,
+		Metadata: map[string]any{
+			"error_code": code,
+		},
+	}
 }
 
 func errResult(msg string) tools.ToolResult {

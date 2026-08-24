@@ -201,21 +201,24 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	var err error
 	var activeProfile *profiles.Profile
 	resolvedProfileSlug := req.Params.ProfileSlug
+	profileResolvedFromWorkspace := false
 	if resolvedProfileSlug == "" && req.Source == "wails" {
 		resolvedProfileSlug = i.resolveWorkspaceProfileSlug(req.ConversationID, req.Params)
 		req.Params.ProfileSlug = resolvedProfileSlug
+		profileResolvedFromWorkspace = resolvedProfileSlug != ""
 	}
 	if i.profileMgr == nil {
 		logging.Errorf(ctx, "chat.interactor", "[PrepareContext] profileManager não inicializado — continuando sem perfil")
 	} else if resolvedProfileSlug != "" {
 		activeProfile, err = i.profileMgr.Get(resolvedProfileSlug)
 		if err != nil {
-			// Subagentes recebem um profile já escolhido (e, quando diferente
-			// do pai, autorizado). Fazer fallback para o global executaria com
-			// configuração diferente da decisão caso o profile fosse removido
-			// entre o diálogo e o início do run (AEP-0101).
-			if req.Source == "subagent" {
-				return nil, fmt.Errorf("profile do subagente indisponível %q: %w", resolvedProfileSlug, err)
+			// Subagentes e overrides do workspace recebem um profile já
+			// escolhido (e, quando necessário, autorizado). Fazer fallback
+			// para o global executaria com configuração diferente da decisão
+			// caso o profile fosse removido entre o diálogo e o turno
+			// (AEP-0101).
+			if req.Source == "subagent" || profileResolvedFromWorkspace {
+				return nil, fmt.Errorf("profile solicitado indisponível %q: %w", resolvedProfileSlug, err)
 			}
 			logging.Warnf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
 			var active *profiles.ActiveProfile

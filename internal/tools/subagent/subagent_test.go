@@ -538,6 +538,26 @@ func TestToolCrossProfileDeniedDoesNotCreateRun(t *testing.T) {
 	}
 }
 
+func TestToolCrossProfileAuthorizationErrorIsStructured(t *testing.T) {
+	runner := &fakeRunner{}
+	authorizer := &fakeProfileAuthorizer{err: profileaccess.ErrTargetNotFound}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+		ProfileSlug:    "parent-profile",
+		Source:         "wails",
+	})
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"removido"}`))
+	if err != nil || !result.IsError || runner.lastParams.Prompt != "" {
+		t.Fatalf("falha de autorização inesperada: %#v err=%v", result, err)
+	}
+	if result.Metadata["error_code"] != "profile_not_found" {
+		t.Fatalf("código estruturado inesperado: %#v", result.Metadata)
+	}
+}
+
 func TestToolSameExplicitProfileDoesNotAsk(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
 	authorizer := &fakeProfileAuthorizer{allowed: false}

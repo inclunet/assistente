@@ -21,6 +21,7 @@ const (
 type Access interface {
 	List(context.Context, string) ([]profileaccess.ProfileSummary, error)
 	Authorize(context.Context, profileaccess.AuthorizationRequest) (bool, error)
+	ValidateTarget(context.Context, string) error
 }
 
 // Switcher persiste o override somente se a aba ainda pertencer à conversa.
@@ -182,6 +183,9 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 			TargetSlug:  targetSlug,
 			Authorized:  &authorized,
 		})
+	}
+	if err := t.access.ValidateTarget(ctx, targetSlug); err != nil {
+		return errorResult("target_unavailable", fmt.Sprintf("profile alvo indisponível após autorização: %v", err)), nil
 	}
 	if err := t.switcher.SwitchTabProfile(inv.SurfaceTabID, inv.ConversationID, targetSlug); err != nil {
 		return errorResult("persistence_failed", fmt.Sprintf("erro ao trocar profile: %v", err)), nil

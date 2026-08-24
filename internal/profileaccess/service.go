@@ -17,6 +17,11 @@ const (
 	ActionDeny  = "deny"
 )
 
+var (
+	ErrTargetNotFound    = errors.New("profile alvo não encontrado")
+	ErrTargetUnavailable = errors.New("provider do profile alvo indisponível")
+)
+
 // ProfileStore é a leitura mínima do catálogo persistido de profiles.
 type ProfileStore interface {
 	List() ([]profiles.ProfileInfo, error)
@@ -90,6 +95,24 @@ func (s *Service) List(ctx context.Context, currentSlug string) ([]ProfileSummar
 	return result, nil
 }
 
+func (s *Service) ValidateTarget(ctx context.Context, targetSlug string) error {
+	if s == nil || s.profiles == nil {
+		return errors.New("serviço de profiles indisponível")
+	}
+	targetSlug = strings.TrimSpace(targetSlug)
+	if targetSlug == "" {
+		return errors.New("profile alvo é obrigatório")
+	}
+	target, err := s.profiles.Get(targetSlug)
+	if err != nil || target == nil {
+		return fmt.Errorf("%w: %s", ErrTargetNotFound, targetSlug)
+	}
+	if s.availability != nil && !s.availability(ctx, target) {
+		return fmt.Errorf("%w: %s", ErrTargetUnavailable, targetSlug)
+	}
+	return nil
+}
+
 type AuthorizationRequest struct {
 	Source           string
 	ConversationID   string
@@ -117,10 +140,10 @@ func (s *Service) Authorize(ctx context.Context, req AuthorizationRequest) (bool
 
 	target, err := s.profiles.Get(targetSlug)
 	if err != nil || target == nil {
-		return false, fmt.Errorf("profile alvo não encontrado: %s", targetSlug)
+		return false, fmt.Errorf("%w: %s", ErrTargetNotFound, targetSlug)
 	}
 	if s.availability != nil && !s.availability(ctx, target) {
-		return false, fmt.Errorf("provider do profile alvo está indisponível: %s", targetSlug)
+		return false, fmt.Errorf("%w: %s", ErrTargetUnavailable, targetSlug)
 	}
 	currentName := currentSlug
 	if current, getErr := s.profiles.Get(currentSlug); getErr == nil && current != nil && strings.TrimSpace(current.Name) != "" {
@@ -151,10 +174,10 @@ func (s *Service) Authorize(ctx context.Context, req AuthorizationRequest) (bool
 	// removido. Revalida imediatamente antes de liberar o caller.
 	target, err = s.profiles.Get(targetSlug)
 	if err != nil || target == nil {
-		return false, fmt.Errorf("profile alvo deixou de existir: %s", targetSlug)
+		return false, fmt.Errorf("%w após autorização: %s", ErrTargetNotFound, targetSlug)
 	}
 	if s.availability != nil && !s.availability(ctx, target) {
-		return false, fmt.Errorf("provider do profile alvo ficou indisponível: %s", targetSlug)
+		return false, fmt.Errorf("%w após autorização: %s", ErrTargetUnavailable, targetSlug)
 	}
 	return true, nil
 }

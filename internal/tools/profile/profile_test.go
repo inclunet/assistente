@@ -10,11 +10,12 @@ import (
 )
 
 type fakeAccess struct {
-	profiles  []profileaccess.ProfileSummary
-	allowed   bool
-	authErr   error
-	authCalls int
-	lastAuth  profileaccess.AuthorizationRequest
+	profiles    []profileaccess.ProfileSummary
+	allowed     bool
+	authErr     error
+	authCalls   int
+	lastAuth    profileaccess.AuthorizationRequest
+	validateErr error
 }
 
 func (f *fakeAccess) List(context.Context, string) ([]profileaccess.ProfileSummary, error) {
@@ -25,6 +26,10 @@ func (f *fakeAccess) Authorize(_ context.Context, request profileaccess.Authoriz
 	f.authCalls++
 	f.lastAuth = request
 	return f.allowed, f.authErr
+}
+
+func (f *fakeAccess) ValidateTarget(context.Context, string) error {
+	return f.validateErr
 }
 
 type fakeSwitcher struct {
@@ -143,5 +148,19 @@ func TestSwitchValidatesTabBeforeAuthorization(t *testing.T) {
 	}
 	if result.Metadata["error_code"] != "invalid_tab_conversation" {
 		t.Fatalf("código estruturado inesperado: %#v", result)
+	}
+}
+
+func TestSwitchRevalidatesTargetAfterAuthorization(t *testing.T) {
+	access := &fakeAccess{allowed: true, validateErr: context.Canceled}
+	switcher := &fakeSwitcher{}
+	result, err := New(access, switcher).Execute(profileToolContext("wails"), json.RawMessage(
+		`{"action":"switch","slug":"custom","reason":"motivo"}`,
+	))
+	if err != nil || !result.IsError || switcher.profileSlug != "" {
+		t.Fatalf("alvo removido não deveria ser persistido: %#v switcher=%#v err=%v", result, switcher, err)
+	}
+	if result.Metadata["error_code"] != "target_unavailable" {
+		t.Fatalf("código inesperado: %#v", result.Metadata)
 	}
 }

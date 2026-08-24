@@ -566,6 +566,46 @@ func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *tes
 	}
 }
 
+func TestPrepareContext_WorkspaceOverrideMissingFailsClosed(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	active := profiles.DefaultProfile()
+	active.Name = "Ativo"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID: "ws-1",
+			Tabs: workspace.TabsState{
+				Active: "tab-chat",
+				Items: []workspace.Tab{{
+					ID:              "tab-chat",
+					Type:            workspace.TabTypeChat,
+					ConversationID:  "conv-1",
+					ProfileOverride: map[string]any{"slug": "profile-removido"},
+				}},
+			},
+		}},
+	})
+
+	prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		Params:         ChatParams{SurfaceTabID: "tab-chat"},
+	})
+	if err == nil || prepared != nil {
+		t.Fatalf("override inválido não deve cair no global: prepared=%#v err=%v", prepared, err)
+	}
+}
+
 func TestPrepareMessagesEmitsSkillLoadedForOnDemandSkill(t *testing.T) {
 	em := &spyEmitter{}
 	promptBuilder := &capturingPromptBuilder{}
