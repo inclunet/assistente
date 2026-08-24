@@ -240,6 +240,9 @@ type ChatParams struct {
 	// sessão da conversa, e é por aqui que ele encontra qual é (AEP-0084 D4).
 	// Metadado interno do backend, como os demais campos sem serialização.
 	ConversationID string `json:"-"`
+	// Source identifica o transporte que originou o turno ("wails", canal,
+	// "subagent", "internal"). É propagado às tools para decisões de superfície.
+	Source string `json:"-"`
 	// MaxContextMessages limita mensagens carregadas no histórico deste turno.
 	// 0 = usar o valor do perfil (GetMaxContextMessages). Usado por canais via
 	// ChannelConfig.max_history.

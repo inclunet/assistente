@@ -4205,6 +4205,18 @@ const es = {
           submit: 'Eliminar',
           cancel: 'Cancelar',
         },
+        profileSwitch: {
+          title: '¿Cambiar el perfil de esta conversación?',
+          description: 'El perfil cambiará de {{currentProfile}} a {{targetProfile}} a partir del próximo turno.',
+          allow: 'Cambiar a {{targetProfile}}',
+          deny: 'Mantener {{currentProfile}}',
+        },
+        subagentProfile: {
+          title: '¿Ejecutar la tarea con otro perfil?',
+          description: 'El subagente usará {{targetProfile}} en lugar de {{currentProfile}} solo en esta ejecución.',
+          allow: 'Ejecutar con {{targetProfile}}',
+          deny: 'No ejecutar',
+        },
         network: {
           title: 'Autorizar acceso a un host bloqueado (anti-SSRF)',
           description: 'El asistente intentó acceder a un host que resuelve a una dirección interna/privada ({{category}}). Autoriza solo si confías en este destino.',

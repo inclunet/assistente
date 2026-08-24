@@ -316,6 +316,37 @@ func TestUpdateTab_MergesState(t *testing.T) {
 	}
 }
 
+func TestUpdateTabProfileForConversationValidatesRelationship(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:             "tab-profile",
+		Type:           TabTypeChat,
+		Title:          "chat",
+		ConversationID: conversationID,
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", "outra-conversa", "custom"); err == nil {
+		t.Fatal("vínculo divergente deveria impedir a troca")
+	}
+	tab := m.active.FindTab("tab-profile")
+	if tab.ProfileOverride != nil {
+		t.Fatalf("troca inválida mutou override: %#v", tab.ProfileOverride)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, "custom"); err != nil {
+		t.Fatalf("troca válida: %v", err)
+	}
+	if tab.ProfileOverride["slug"] != "custom" {
+		t.Fatalf("override inesperado: %#v", tab.ProfileOverride)
+	}
+}
+
 func TestUpdateTab_NilRemovesStateKey(t *testing.T) {
 	m := NewManager(t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {

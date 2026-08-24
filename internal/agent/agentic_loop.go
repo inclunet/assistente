@@ -733,6 +733,8 @@ func buildAgenticInvocationContext(ctx context.Context, params llm.ChatParams, c
 		ConversationID: conversationID,
 		TurnID:         turnID,
 		ProfileSlug:    params.ProfileSlug,
+		Source:         params.Source,
+		SurfaceTabID:   params.SurfaceTabID,
 	})
 }
 
