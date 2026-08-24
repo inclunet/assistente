@@ -1,6 +1,6 @@
 # AEP-0101 — Profiles descobríveis e delegação autorizada
 
-**Status:** 🚧 Em implementação
+**Status:** ✅ Concluído
 
 ## Resumo
 
@@ -199,20 +199,20 @@ usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
 
 ## Critérios de aceitação
 
-- [ ] Não existe classificador LLM de adequação nem gate exclusivo do primeiro
+- [x] Não existe classificador LLM de adequação nem gate exclusivo do primeiro
       turno.
-- [ ] `profile list` retorna profiles builtin e customizados por descrição, sem
+- [x] `profile list` retorna profiles builtin e customizados por descrição, sem
       dados sensíveis.
-- [ ] Nenhuma lógica de seleção contém slugs, endpoints ou providers hardcoded.
-- [ ] `Padrão` e `Programação` recebem `profile` e `subagent` no payload inicial.
-- [ ] `subagent` herdado/same-profile preserva o fluxo atual sem diálogo.
-- [ ] Toda delegação cross-profile interativa exige autorização por invocação.
-- [ ] Recusa de delegação não cria conversa nem run.
-- [ ] Origem sem interlocutor falha fechada para delegação cross-profile.
-- [ ] Toda troca persistente real exige autorização e afeta somente a aba de
+- [x] Nenhuma lógica de seleção contém slugs, endpoints ou providers hardcoded.
+- [x] `Padrão` e `Programação` recebem `profile` e `subagent` no payload inicial.
+- [x] `subagent` herdado/same-profile preserva o fluxo atual sem diálogo.
+- [x] Toda delegação cross-profile interativa exige autorização por invocação.
+- [x] Recusa de delegação não cria conversa nem run.
+- [x] Origem sem interlocutor falha fechada para delegação cross-profile.
+- [x] Toda troca persistente real exige autorização e afeta somente a aba de
       origem.
-- [ ] O retorno de switch declara que o efeito começa no próximo turno.
-- [ ] Troca aprovada invalida tools carregadas e sincroniza o frontend.
-- [ ] Strings visíveis existem em pt-BR, inglês e espanhol.
-- [ ] Testes cobrem catálogo, profiles customizados, autorização, recusa,
+- [x] O retorno de switch declara que o efeito começa no próximo turno.
+- [x] Troca aprovada invalida tools carregadas e sincroniza o frontend.
+- [x] Strings visíveis existem em pt-BR, inglês e espanhol.
+- [x] Testes cobrem catálogo, profiles customizados, autorização, recusa,
       concorrência, vínculo aba↔conversa e regressões same-profile.
