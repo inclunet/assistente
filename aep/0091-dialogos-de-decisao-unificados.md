@@ -172,7 +172,9 @@ Filas lógicas **permanecem separadas**:
 **Mitigação atual:** todos usam `Modal` → `modalRegistry` (`OPEN_MODAL_STACK`).
 ESC, focus trap e `Ctrl+Shift+R` respeitam só o modal **topmost**.
 `App.tsx` também impede abrir questionário UI-local enquanto há questionário
-do backend ativo.
+do backend ativo. Dentro da fila do backend, `questionnaire.Manager` serializa
+as solicitações: a próxima só é emitida depois de a decisão visível responder,
+cancelar ou expirar, evitando que eventos concorrentes se sobrescrevam.
 
 **Gap residual (aceitável):** `requestConfirm` não consulta se já há decisão
 backend aberta; empilhamento teórico é raro. Unificar numa fila bloqueante

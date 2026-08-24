@@ -4184,6 +4184,12 @@ const en = {
         closedTimeout: 'Time to answer ran out; the dialog closed without an answer.',
         // Dialogs built by the backend (AEP-0085). The payload carries the
         // ready-made pt-BR text as fallback; these keys are its translation.
+        profileAdequacy: {
+          title: 'Switch profiles for this request?',
+          description: 'The {{currentProfile}} profile seems less suitable for this request. Use {{suggestedProfile}} in this tab?',
+          switch: 'Switch to {{suggestedProfile}}',
+          keep: 'Continue with {{currentProfile}}',
+        },
         shell: {
           title: 'Confirm command execution',
           description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',

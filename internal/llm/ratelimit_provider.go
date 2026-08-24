@@ -10,6 +10,7 @@ type rateLimitContextKey struct{}
 type rateLimitCallConfig struct {
 	config      RateLimitConfig
 	profileSlug string
+	bucketScope string
 }
 
 // ResolvedRateLimitPolicy contém a política atual e o slug efetivamente
@@ -25,9 +26,18 @@ type RateLimitPolicyResolver func(context.Context, string) ResolvedRateLimitPoli
 // WithRateLimitProfile associa a política e o perfil a chamadas auxiliares
 // que não recebem ChatParams, como a sumarização automática.
 func WithRateLimitProfile(ctx context.Context, cfg RateLimitConfig, profileSlug string) context.Context {
+	return WithRateLimitProfileScope(ctx, cfg, profileSlug, "")
+}
+
+// WithRateLimitProfileScope associa uma chamada auxiliar ao perfil que fornece
+// sua policy, mas mantém um bucket independente para não consumir a rajada do
+// turno principal. O resolver recebe apenas profileSlug; bucketScope só compõe
+// a chave depois que o profile efetivo é resolvido.
+func WithRateLimitProfileScope(ctx context.Context, cfg RateLimitConfig, profileSlug, bucketScope string) context.Context {
 	return context.WithValue(ctx, rateLimitContextKey{}, rateLimitCallConfig{
 		config:      normalizeRateLimitConfig(cfg),
 		profileSlug: strings.TrimSpace(profileSlug),
+		bucketScope: strings.TrimSpace(bucketScope),
 	})
 }
 
@@ -83,7 +93,7 @@ func NewRateLimitedProviderWithResolver(
 	}
 }
 
-func (p *rateLimitedProvider) key(ctx context.Context, profileSlug string) string {
+func (p *rateLimitedProvider) key(ctx context.Context, profileSlug string, bucketScope ...string) string {
 	key := strings.TrimSpace(p.keyFn(ctx))
 	if key == "" {
 		key = globalRateLimitKey
@@ -92,7 +102,13 @@ func (p *rateLimitedProvider) key(ctx context.Context, profileSlug string) strin
 	if profileSlug == "" {
 		profileSlug = "__active__"
 	}
-	return key + "::profile::" + profileSlug
+	result := key + "::profile::" + profileSlug
+	if len(bucketScope) > 0 {
+		if scope := strings.TrimSpace(bucketScope[0]); scope != "" {
+			result += "::scope::" + scope
+		}
+	}
+	return result
 }
 
 func rateLimitConfigForParams(params ChatParams, defaults RateLimitConfig) RateLimitConfig {
@@ -159,9 +175,10 @@ func (p *rateLimitedProvider) SimpleChat(ctx context.Context, model, systemPromp
 		call = rateLimitCallConfig{
 			config:      normalizeRateLimitConfig(resolved.Config),
 			profileSlug: strings.TrimSpace(resolved.ProfileSlug),
+			bucketScope: call.bucketScope,
 		}
 	}
-	if err := p.limiter.AllowWithConfig(p.key(ctx, call.profileSlug), call.config); err != nil {
+	if err := p.limiter.AllowWithConfig(p.key(ctx, call.profileSlug, call.bucketScope), call.config); err != nil {
 		return "", err
 	}
 	return p.inner.SimpleChat(ctx, model, systemPrompt, userMessage)

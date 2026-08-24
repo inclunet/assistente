@@ -532,6 +532,47 @@ func TestRateLimitedProvider_UsesEffectiveSlugFromResolver(t *testing.T) {
 	}
 }
 
+func TestRateLimitedProvider_AuxiliaryScopeSurvivesProfileResolution(t *testing.T) {
+	inner := &fakeChatProvider{}
+	limiter := newTestLimiter(60, 1)
+	var resolvedSlug string
+	resolver := func(_ context.Context, slug string) ResolvedRateLimitPolicy {
+		resolvedSlug = slug
+		return ResolvedRateLimitPolicy{
+			Config:      RateLimitConfig{Enabled: true, RequestsPerMinute: 60, Burst: 1},
+			ProfileSlug: "ativo",
+		}
+	}
+	p := NewRateLimitedProviderWithResolver(
+		inner,
+		limiter,
+		func(context.Context) string { return "user-1" },
+		resolver,
+	)
+	auxCtx := WithRateLimitProfileScope(
+		context.Background(),
+		RateLimitConfig{Enabled: true, RequestsPerMinute: 60, Burst: 1},
+		"removido",
+		"profile-adequacy",
+	)
+
+	if _, err := p.SimpleChat(auxCtx, "m", "sys", "pedido"); err != nil {
+		t.Fatalf("chamada auxiliar: %v", err)
+	}
+	if resolvedSlug != "removido" {
+		t.Fatalf("resolver recebeu slug com scope embutido: %q", resolvedSlug)
+	}
+	p.StreamChat(context.Background(), nil, ChatParams{ProfileSlug: "ativo"}, &recordingHandler{})
+	if inner.simpleCalls != 1 || inner.streamCalls != 1 {
+		t.Fatalf("buckets deveriam ser independentes: simple=%d stream=%d", inner.simpleCalls, inner.streamCalls)
+	}
+	blocked := &recordingHandler{}
+	p.StreamChat(context.Background(), nil, ChatParams{ProfileSlug: "ativo"}, blocked)
+	if blocked.lastError == "" {
+		t.Fatal("segunda chamada principal deveria consumir o mesmo bucket principal")
+	}
+}
+
 func TestRateLimitedProvider_SendChatBlockedReturnsError(t *testing.T) {
 	inner := &fakeChatProvider{}
 	limiter := newTestLimiter(60, 1)

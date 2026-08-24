@@ -901,6 +901,34 @@ func GetMessagesWithContext(ctx context.Context, conversationID string, parentID
 	return NewMessageRepository(db).GetMessagesWithContext(ctx, conversationID, parentID)
 }
 
+// HasConversationMessagesWithContext verifica a existência de qualquer mensagem
+// raiz sem carregar o histórico completo.
+func HasConversationMessagesWithContext(ctx context.Context, conversationID string) (bool, error) {
+	return NewMessageRepository(db).HasConversationMessagesWithContext(ctx, conversationID)
+}
+
+func (r *MessageRepository) HasConversationMessagesWithContext(ctx context.Context, conversationID string) (bool, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return false, err
+	}
+	if conversationID == "" {
+		return false, fmt.Errorf("conversationID é obrigatório para verificar mensagens")
+	}
+	var message ChatMessage
+	err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).
+		Select("chat_messages.id").
+		Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
+		Limit(1).
+		Take(&message).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (r *MessageRepository) GetMessagesWithContext(ctx context.Context, conversationID string, parentID *string) ([]ChatMessage, error) {
 	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {

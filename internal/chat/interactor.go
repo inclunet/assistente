@@ -150,6 +150,26 @@ type PrepareContextResponse struct {
 	UserContent   string
 }
 
+// IsConversationEmpty verifica se o próximo envio ainda é o primeiro turno.
+// Usa apenas mensagens raiz: qualquer mensagem já persistida torna o preflight
+// de adequação de profile tardio para esta conversa.
+func (i *Interactor) IsConversationEmpty(ctx context.Context, conversationID string) (bool, error) {
+	if i == nil || i.repo == nil {
+		return false, errors.New("message repository not initialized")
+	}
+	if presence, ok := i.repo.(interface {
+		HasConversationMessages(context.Context, string) (bool, error)
+	}); ok {
+		hasMessages, err := presence.HasConversationMessages(ctx, conversationID)
+		return !hasMessages, err
+	}
+	messages, err := i.repo.GetMessages(ctx, conversationID, nil)
+	if err != nil {
+		return false, err
+	}
+	return len(messages) == 0, nil
+}
+
 // PrepareContext validates limits, checks credentials, applies auto-rename, resolves
 // the profile and applies all profile-level chat defaults onto Params.
 // This replaces lines 38-160 of the legacy sendMessageInternal in app_chat.go.

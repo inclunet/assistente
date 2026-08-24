@@ -54,6 +54,13 @@ func (s *DBMessageStore) GetMessages(ctx context.Context, conversationID string,
 	return database.GetMessagesWithContext(ctx, conversationID, parentID)
 }
 
+func (s *DBMessageStore) HasConversationMessages(ctx context.Context, conversationID string) (bool, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return false, err
+	}
+	return database.HasConversationMessagesWithContext(ctx, conversationID)
+}
+
 func (s *DBMessageStore) GetMessagesByTurnID(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]database.ChatMessage, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err

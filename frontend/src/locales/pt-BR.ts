@@ -4185,6 +4185,12 @@ const ptBR = {
         closedTimeout: 'O prazo para responder acabou; o diálogo foi fechado sem resposta.',
         // Diálogos que o backend monta (AEP-0085). O texto pronto vem no
         // payload como fallback; estas chaves são a versão traduzida dele.
+        profileAdequacy: {
+          title: 'Trocar perfil para este pedido?',
+          description: 'O perfil {{currentProfile}} parece menos adequado para este pedido. Deseja usar {{suggestedProfile}} nesta aba?',
+          switch: 'Trocar para {{suggestedProfile}}',
+          keep: 'Continuar com {{currentProfile}}',
+        },
         shell: {
           title: 'Confirmar execução de comando',
           description: 'O assistente quer executar:\n\n{{command}}\n\nem: {{workDir}}',

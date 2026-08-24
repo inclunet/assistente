@@ -260,6 +260,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       set({ workspace: backendWorkspaceToFrontend(bws) });
     }));
 
+    unsubs.push(EventsOn('workspace:tab_updated', (bws: workspace.Workspace) => {
+      set({ workspace: backendWorkspaceToFrontend(bws) });
+      announce(i18next.t('workspace.profileChanged'));
+    }));
+
     unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
       if (get().workspace?.activeTabId === tabId) return;
       set(state => ({

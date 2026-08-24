@@ -104,6 +104,43 @@ func TestRequestQuestionnaire_CancelledWithAnswers(t *testing.T) {
 	}
 }
 
+func TestRequestQuestionnaire_SerializesDialogs(t *testing.T) {
+	events := make(chan string, 2)
+	mgr := NewManager(func(event string, data any) {
+		if event == EventQuestionnaire {
+			events <- data.(map[string]any)["id"].(string)
+		}
+	})
+	results := make(chan error, 2)
+	request := func(title string) {
+		_, err := mgr.RequestQuestionnaire(t.Context(), RequestPayload{Title: Plain(title)})
+		results <- err
+	}
+
+	go request("primeiro")
+	firstID := <-events
+	go request("segundo")
+	select {
+	case secondID := <-events:
+		t.Fatalf("segundo diálogo abriu antes da resposta do primeiro: %s", secondID)
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	if err := mgr.Respond(firstID, map[string]any{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-results; err != nil {
+		t.Fatal(err)
+	}
+	secondID := <-events
+	if err := mgr.Respond(secondID, map[string]any{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-results; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRequestQuestionnaire_EventOmitsRejectReasonWhenAbsent(t *testing.T) {
 	var mgr *Manager
 	mgr = NewManager(func(_ string, data any) {

@@ -4184,6 +4184,12 @@ const es = {
         closedTimeout: 'Se acabó el plazo para responder; el diálogo se cerró sin respuesta.',
         // Diálogos que arma el backend (AEP-0085). El payload trae el texto ya
         // listo en pt-BR como fallback; estas claves son su traducción.
+        profileAdequacy: {
+          title: '¿Cambiar de perfil para esta solicitud?',
+          description: 'El perfil {{currentProfile}} parece menos adecuado para esta solicitud. ¿Usar {{suggestedProfile}} en esta pestaña?',
+          switch: 'Cambiar a {{suggestedProfile}}',
+          keep: 'Continuar con {{currentProfile}}',
+        },
         shell: {
           title: 'Confirmar ejecución de comando',
           description: 'El asistente quiere ejecutar:\n\n{{command}}\n\nen: {{workDir}}',

@@ -48,12 +48,14 @@ import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorksp
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 import { workspace } from '../../wailsjs/go/models';
 import i18next from 'i18next';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 
 const mockedGetActiveWorkspace = vi.mocked(GetActiveWorkspace);
 const mockedListWorkspaces = vi.mocked(ListWorkspaces);
 const mockedSetActiveWorkspaceTab = vi.mocked(SetActiveWorkspaceTab);
 const mockedUpdateWorkspaceTab = vi.mocked(UpdateWorkspaceTab);
 const mockedWaitForWailsBridge = vi.mocked(waitForWailsBridge);
+const mockedEventsOn = vi.mocked(EventsOn);
 
 function setStoreState(
   tabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; title: string; position: number }>,
@@ -139,6 +141,44 @@ describe('handleContentRenamed', () => {
       expect(tabs?.[1]?.title).toBe('Chat Renomeado');
       expect(tabs?.[2]?.title).toBe('Editor');
     });
+  });
+});
+
+describe('workspace backend events', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedEventsOn.mockClear();
+    mockedAnnounce.mockClear();
+  });
+
+  it('reconcilia profile override aplicado pelo backend', () => {
+    const cleanup = useWorkspaceStore.getState().setupEventListeners();
+    const registration = mockedEventsOn.mock.calls.find(([event]) => event === 'workspace:tab_updated');
+    expect(registration).toBeDefined();
+
+    const handler = registration?.[1] as (payload: workspace.Workspace) => void;
+    handler({
+      id: 'ws-1',
+      name: 'Workspace',
+      profile: 'padrao',
+      tabs: {
+        active: 'tab-1',
+        items: [{
+          id: 'tab-1',
+          type: 'chat',
+          conversation_id: 'conversation-1',
+          title: 'Chat',
+          position: 0,
+          profile_override: { slug: 'programacao' },
+        }],
+      },
+    } as unknown as workspace.Workspace);
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+    });
+    expect(mockedAnnounce).toHaveBeenCalledWith(i18next.t('workspace.profileChanged'));
+    cleanup();
   });
 });
 

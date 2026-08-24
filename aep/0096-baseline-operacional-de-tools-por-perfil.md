@@ -129,6 +129,7 @@ execução e interação além da seleção de tools.
    - expor uma única capability de plano/progresso ao modelo;
    - reutilizar o storage e os eventos do Task List Manager.
 4. **Adequação pedido↔perfil**
+   - implementada pela [AEP-0101](0101-adequacao-entre-pedido-e-perfil.md);
    - classificar requisitos operacionais antes do primeiro turno;
    - solicitar confirmação para trocar de perfil quando houver incompatibilidade;
    - nunca elevar tools ou privilégios silenciosamente.

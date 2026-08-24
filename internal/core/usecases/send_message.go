@@ -8,13 +8,17 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/profileadequacy"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
+	"assistente/internal/questionnaire"
 	"assistente/internal/speech"
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 )
 
 // profileWithToolsDisabled devolve o perfil do turno com o interruptor de tools
@@ -67,6 +71,17 @@ type SendMessageConfig struct {
 	// OpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor.
 	// Filesystem tools podem ler/editar esses arquivos mesmo fora do workDir.
 	OpenEditorPaths func() []string
+	// ProfileAdvisor classifica requisitos operacionais do primeiro turno e
+	// recomenda um profile instalado sem alterar policy ou carregar tools.
+	ProfileAdvisor interface {
+		Recommend(ctx context.Context, req profileadequacy.Request) (*profileadequacy.Recommendation, error)
+	}
+	// QuestionnaireRouter apresenta a confirmação na superfície de origem.
+	QuestionnaireRouter interface {
+		Ask(ctx context.Context, surface questionnaire.Surface, payload questionnaire.RequestPayload) (questionnaire.Response, error)
+	}
+	// SwitchTabProfile persiste o override da aba após confirmação explícita.
+	SwitchTabProfile func(tabID, conversationID, profileSlug string) error
 }
 
 // SendMessageUseCase orquestra o pipeline completo de envio de mensagem ao LLM.
@@ -83,6 +98,22 @@ type SendMessageUseCase struct {
 	emitter         ports.Emitter
 	onSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	openEditorPaths func() []string
+	profileAdvisor  interface {
+		Recommend(ctx context.Context, req profileadequacy.Request) (*profileadequacy.Recommendation, error)
+	}
+	questionnaireRouter interface {
+		Ask(ctx context.Context, surface questionnaire.Surface, payload questionnaire.RequestPayload) (questionnaire.Response, error)
+	}
+	switchTabProfile  func(tabID, conversationID, profileSlug string) error
+	conversationLocks struct {
+		sync.Mutex
+		entries map[string]*sendMessageLockEntry
+	}
+}
+
+type sendMessageLockEntry struct {
+	token chan struct{}
+	refs  int
 }
 
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
@@ -91,19 +122,24 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 	if loadedToolStore == nil {
 		loadedToolStore = tools.NewLoadedToolStore()
 	}
-	return &SendMessageUseCase{
-		chatInteractor:  cfg.ChatInteractor,
-		toolRegistry:    cfg.ToolRegistry,
-		loadedToolStore: loadedToolStore,
-		providerSvc:     cfg.ProviderSvc,
-		mcpMgr:          cfg.MCPMgr,
-		agentSvc:        cfg.AgentSvc,
-		streamMgr:       cfg.StreamMgr,
-		speechSvc:       cfg.SpeechSvc,
-		emitter:         cfg.Emitter,
-		onSpeechRequest: cfg.OnSpeechRequest,
-		openEditorPaths: cfg.OpenEditorPaths,
+	useCase := &SendMessageUseCase{
+		chatInteractor:      cfg.ChatInteractor,
+		toolRegistry:        cfg.ToolRegistry,
+		loadedToolStore:     loadedToolStore,
+		providerSvc:         cfg.ProviderSvc,
+		mcpMgr:              cfg.MCPMgr,
+		agentSvc:            cfg.AgentSvc,
+		streamMgr:           cfg.StreamMgr,
+		speechSvc:           cfg.SpeechSvc,
+		emitter:             cfg.Emitter,
+		onSpeechRequest:     cfg.OnSpeechRequest,
+		openEditorPaths:     cfg.OpenEditorPaths,
+		profileAdvisor:      cfg.ProfileAdvisor,
+		questionnaireRouter: cfg.QuestionnaireRouter,
+		switchTabProfile:    cfg.SwitchTabProfile,
 	}
+	useCase.conversationLocks.entries = make(map[string]*sendMessageLockEntry)
+	return useCase
 }
 
 // SendMessageRequest encapsula os parâmetros de entrada do Use Case.
@@ -136,6 +172,13 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
 	}
+	if req.ConversationID != "" {
+		unlock, err := uc.lockConversation(ctx, req.ConversationID)
+		if err != nil {
+			return "", err
+		}
+		defer unlock()
+	}
 	if req.Params.AllowAssistantPrefill && req.RetryMessageID == "" {
 		errMsg := "continuação explícita requer RetryMessage (mensagem para retry)"
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
@@ -165,6 +208,27 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		Params:         req.Params,
 		Source:         req.Source,
 	})
+	if err != nil {
+		return "", err
+	}
+	if req.RetryMessageID == "" && pctx.UserContent == "" && req.UserMedia != "" {
+		sttProvider := ""
+		if pctx.ActiveProfile != nil {
+			sttProvider = pctx.ActiveProfile.Input.STTProvider
+		}
+		resolved := uc.chatInteractor.ResolveUserContent(ctx, chat.ResolveUserContentRequest{
+			Content:     pctx.UserContent,
+			Media:       req.UserMedia,
+			Source:      req.Source,
+			STTProvider: sttProvider,
+			Transcribe:  uc.whisperTranscribeFunc(),
+		})
+		if resolved.Content != "" {
+			req.UserContent = resolved.Content
+			pctx.UserContent = resolved.Content
+		}
+	}
+	pctx, err = uc.ensureAdequateProfile(ctx, req, pctx)
 	if err != nil {
 		return "", err
 	}
@@ -500,6 +564,170 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}()
 	}
 	return req.ConversationID, nil
+}
+
+func (uc *SendMessageUseCase) lockConversation(ctx context.Context, conversationID string) (func(), error) {
+	uc.conversationLocks.Lock()
+	if uc.conversationLocks.entries == nil {
+		uc.conversationLocks.entries = make(map[string]*sendMessageLockEntry)
+	}
+	entry := uc.conversationLocks.entries[conversationID]
+	if entry == nil {
+		entry = &sendMessageLockEntry{token: make(chan struct{}, 1)}
+		entry.token <- struct{}{}
+		uc.conversationLocks.entries[conversationID] = entry
+	}
+	entry.refs++
+	uc.conversationLocks.Unlock()
+
+	select {
+	case <-entry.token:
+	case <-ctx.Done():
+		uc.conversationLocks.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(uc.conversationLocks.entries, conversationID)
+		}
+		uc.conversationLocks.Unlock()
+		return nil, ctx.Err()
+	}
+	return func() {
+		entry.token <- struct{}{}
+		uc.conversationLocks.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(uc.conversationLocks.entries, conversationID)
+		}
+		uc.conversationLocks.Unlock()
+	}, nil
+}
+
+const (
+	profileAdequacySwitchAction   = "switch-profile"
+	profileAdequacyContinueAction = "continue-current"
+)
+
+func (uc *SendMessageUseCase) ensureAdequateProfile(
+	ctx context.Context,
+	req SendMessageRequest,
+	pctx *chat.PrepareContextResponse,
+) (*chat.PrepareContextResponse, error) {
+	if req.RetryMessageID != "" ||
+		req.Source != "wails" ||
+		pctx == nil ||
+		pctx.ActiveProfile == nil ||
+		uc.profileAdvisor == nil ||
+		uc.questionnaireRouter == nil ||
+		uc.switchTabProfile == nil ||
+		pctx.Params.SurfaceTabID == "" {
+		return pctx, nil
+	}
+
+	empty, err := uc.chatInteractor.IsConversationEmpty(ctx, req.ConversationID)
+	if err != nil {
+		logging.Warnf(ctx, "core.usecases.send-message", "[ProfileAdequacy] Não foi possível verificar o primeiro turno: %v", err)
+		return pctx, nil
+	}
+	if !empty {
+		return pctx, nil
+	}
+
+	recommendation, err := uc.profileAdvisor.Recommend(ctx, profileadequacy.Request{
+		UserContent:    pctx.UserContent,
+		SurfaceType:    pctx.Params.SurfaceType,
+		TabType:        pctx.Params.TabType,
+		ActiveFilePath: pctx.Params.ActiveFilePath,
+		CurrentSlug:    pctx.Params.ProfileSlug,
+		CurrentProfile: pctx.ActiveProfile,
+		Model:          pctx.Params.Model,
+	})
+	if err != nil {
+		if errors.Is(err, profileadequacy.ErrAuxiliaryClassificationUnavailable) {
+			logging.Debugf(ctx, "core.usecases.send-message", "[ProfileAdequacy] Provider sem papel auxiliar; mantendo profile atual")
+			return pctx, nil
+		}
+		logging.Warnf(ctx, "core.usecases.send-message", "[ProfileAdequacy] Classificação ignorada: %v", err)
+		return pctx, nil
+	}
+	if recommendation == nil {
+		return pctx, nil
+	}
+
+	textParams := map[string]any{
+		"currentProfile":   recommendation.CurrentName,
+		"suggestedProfile": recommendation.SuggestedName,
+	}
+	response, err := uc.questionnaireRouter.Ask(
+		ctx,
+		questionnaire.DesktopSurface(req.ConversationID),
+		questionnaire.RequestPayload{
+			Kind: questionnaire.KindDecision,
+			Title: questionnaire.Keyed(
+				"app.questionnaire.profileAdequacy.title",
+				"Trocar perfil para este pedido?",
+			),
+			Description: questionnaire.KeyedWith(
+				"app.questionnaire.profileAdequacy.description",
+				textParams,
+				fmt.Sprintf(
+					"O perfil %s parece menos adequado para este pedido. Deseja usar %s nesta aba?",
+					recommendation.CurrentName,
+					recommendation.SuggestedName,
+				),
+			),
+			AllowCancel: true,
+			Actions: []questionnaire.DecisionAction{
+				{
+					ID: profileAdequacySwitchAction,
+					Label: questionnaire.KeyedWith(
+						"app.questionnaire.profileAdequacy.switch",
+						map[string]any{"suggestedProfile": recommendation.SuggestedName},
+						"Trocar para "+recommendation.SuggestedName,
+					),
+					Variant: "primary",
+					Primary: true,
+				},
+				{
+					ID: profileAdequacyContinueAction,
+					Label: questionnaire.KeyedWith(
+						"app.questionnaire.profileAdequacy.keep",
+						map[string]any{"currentProfile": recommendation.CurrentName},
+						"Continuar com "+recommendation.CurrentName,
+					),
+					Variant: "secondary",
+				},
+			},
+		},
+	)
+	if err != nil {
+		logging.Warnf(ctx, "core.usecases.send-message", "[ProfileAdequacy] Decisão indisponível; mantendo profile atual: %v", err)
+		return pctx, nil
+	}
+	actionID, ok := questionnaire.DecisionActionID(response)
+	if !ok {
+		return nil, errors.New("envio cancelado antes da troca de perfil")
+	}
+	if actionID == profileAdequacyContinueAction {
+		return pctx, nil
+	}
+	if actionID != profileAdequacySwitchAction {
+		return nil, fmt.Errorf("ação de adequação de perfil inválida: %q", actionID)
+	}
+
+	if err := uc.switchTabProfile(pctx.Params.SurfaceTabID, req.ConversationID, recommendation.SuggestedSlug); err != nil {
+		return nil, fmt.Errorf("persistir troca de perfil confirmada: %w", err)
+	}
+	if uc.loadedToolStore != nil {
+		uc.loadedToolStore.ResetConversation(req.ConversationID)
+	}
+	req.Params.ProfileSlug = recommendation.SuggestedSlug
+	return uc.chatInteractor.PrepareContext(ctx, chat.PrepareContextRequest{
+		ConversationID: req.ConversationID,
+		UserContent:    req.UserContent,
+		UserMedia:      req.UserMedia,
+		Params:         req.Params,
+		Source:         req.Source,
+	})
 }
 
 // whisperTranscribeFunc cria o callback de transcrição STT para o pipeline.

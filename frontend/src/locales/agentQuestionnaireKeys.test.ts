@@ -110,6 +110,10 @@ const deleteMessageKeys = ['title', 'description', 'submit', 'cancel'].map(
   (sufixo) => `app.questionnaire.deleteMessage.${sufixo}`,
 );
 
+const profileAdequacyKeys = ['title', 'description', 'switch', 'keep'].map(
+  (sufixo) => `app.questionnaire.profileAdequacy.${sufixo}`,
+);
+
 /** Consentimento de acesso a host bloqueado pelo anti-SSRF (AEP-0082). */
 const networkKeys = [
   'title',
@@ -218,6 +222,9 @@ const requiredPlaceholders: Record<string, string[]> = {
   'app.questionnaire.network.skillHostMatch': ['{{pattern}}'],
   'app.questionnaire.shell.workDir': ['{{workDir}}'],
   'app.questionnaire.fstrust.description': ['{{operation}}'],
+  'app.questionnaire.profileAdequacy.description': ['{{currentProfile}}', '{{suggestedProfile}}'],
+  'app.questionnaire.profileAdequacy.switch': ['{{suggestedProfile}}'],
+  'app.questionnaire.profileAdequacy.keep': ['{{currentProfile}}'],
 };
 
 /**
@@ -246,6 +253,7 @@ describe('chaves dos diálogos que o backend monta', () => {
     ...shellKeys,
     ...httpKeys,
     ...deleteMessageKeys,
+    ...profileAdequacyKeys,
     ...networkKeys,
     ...fstrustKeys,
     ...welcomeKeys,

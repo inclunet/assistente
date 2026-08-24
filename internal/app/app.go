@@ -33,6 +33,7 @@ import (
 	"assistente/internal/memory"
 	"assistente/internal/messaging"
 	"assistente/internal/nettrust"
+	"assistente/internal/profileadequacy"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
@@ -1102,19 +1103,37 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireDatabase()
 
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
-		Emitter:          a.emitter,
-		ChatInteractor:   a.chatInteractor,
-		ToolRegistry:     a.toolRegistry,
-		ProviderSvc:      a.providerSvc,
-		MCPMgr:           a.mcpMgr,
-		AgentSvc:         a.agentSvc,
-		StreamMgr:        a.streamMgr,
-		SpeechSvc:        a.speechSvc,
-		ConvRepo:         a.convSvc,
-		MsgGateway:       a.msgGateway,
-		ResponseNotifier: a.responseNotifier,
-		OnSpeechRequest:  speechDispatcher,
-		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
+		Emitter:             a.emitter,
+		ChatInteractor:      a.chatInteractor,
+		ToolRegistry:        a.toolRegistry,
+		ProviderSvc:         a.providerSvc,
+		MCPMgr:              a.mcpMgr,
+		AgentSvc:            a.agentSvc,
+		StreamMgr:           a.streamMgr,
+		SpeechSvc:           a.speechSvc,
+		ConvRepo:            a.convSvc,
+		MsgGateway:          a.msgGateway,
+		ResponseNotifier:    a.responseNotifier,
+		OnSpeechRequest:     speechDispatcher,
+		OpenEditorPaths:     a.workspaceMgr.OpenEditorFilePaths,
+		ProfileAdvisor:      profileadequacy.NewAdvisor(a.profileManager, a.providerSvc, a.toolRegistry),
+		QuestionnaireRouter: a.questionnaireRouter(),
+		SwitchTabProfile: func(tabID, conversationID, profileSlug string) error {
+			activeWorkspace := a.workspaceMgr.Active()
+			if activeWorkspace == nil {
+				return fmt.Errorf("workspace ativo não encontrado para trocar o perfil da aba")
+			}
+			if !workspaceTabMatchesConversation(activeWorkspace, tabID, conversationID) {
+				return fmt.Errorf("aba %q não corresponde à conversa %q", tabID, conversationID)
+			}
+			if err := a.workspaceMgr.UpdateTab(tabID, map[string]any{
+				"profile_override": map[string]any{"slug": profileSlug},
+			}); err != nil {
+				return err
+			}
+			a.emitter.Emit("workspace:tab_updated", a.workspaceMgr.Active())
+			return nil
+		},
 	})
 	a.wireChat()
 	// Conecta adapters de canal só agora — SendMessageFromChannel precisa de chatCtrl.
@@ -1225,6 +1244,16 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	}()
 
 	return nil
+}
+
+func workspaceTabMatchesConversation(activeWorkspace *workspace.Workspace, tabID, conversationID string) bool {
+	if activeWorkspace == nil {
+		return false
+	}
+	tab := activeWorkspace.FindTab(strings.TrimSpace(tabID))
+	return tab != nil &&
+		strings.TrimSpace(tab.ConversationID) != "" &&
+		strings.TrimSpace(tab.ConversationID) == strings.TrimSpace(conversationID)
 }
 
 // ShowWindow torna a janela visível (delegado ao WindowPort).

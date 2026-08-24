@@ -10,7 +10,9 @@ import (
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
+	"assistente/internal/profileadequacy"
 	"assistente/internal/providers"
+	"assistente/internal/questionnaire"
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/tools"
@@ -21,19 +23,22 @@ import (
 
 // ChatControllerConfig agrupa todas as dependências do ChatController.
 type ChatControllerConfig struct {
-	Emitter          ports.Emitter
-	ChatInteractor   *chat.Interactor
-	ToolRegistry     *tools.Registry
-	ProviderSvc      *providers.Service
-	MCPMgr           *mcpmgr.Manager
-	AgentSvc         *agent.Service
-	StreamMgr        *chat.StreamingManager
-	SpeechSvc        *speech.Service
-	ConvRepo         chat.ConversationRepository
-	MsgGateway       *messaging.Gateway
-	ResponseNotifier *messaging.ResponseNotifier
-	OnSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
-	OpenEditorPaths  func() []string
+	Emitter             ports.Emitter
+	ChatInteractor      *chat.Interactor
+	ToolRegistry        *tools.Registry
+	ProviderSvc         *providers.Service
+	MCPMgr              *mcpmgr.Manager
+	AgentSvc            *agent.Service
+	StreamMgr           *chat.StreamingManager
+	SpeechSvc           *speech.Service
+	ConvRepo            chat.ConversationRepository
+	MsgGateway          *messaging.Gateway
+	ResponseNotifier    *messaging.ResponseNotifier
+	OnSpeechRequest     func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	OpenEditorPaths     func() []string
+	ProfileAdvisor      *profileadequacy.Advisor
+	QuestionnaireRouter *questionnaire.Router
+	SwitchTabProfile    func(tabID, conversationID, profileSlug string) error
 }
 
 // ChatController é o adapter primário (Inbound) para o pipeline de envio de mensagens.
@@ -59,17 +64,20 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 		responseNotifier: cfg.ResponseNotifier,
 		loadedToolStore:  loadedToolStore,
 		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
-			ChatInteractor:  cfg.ChatInteractor,
-			ToolRegistry:    cfg.ToolRegistry,
-			LoadedToolStore: loadedToolStore,
-			ProviderSvc:     cfg.ProviderSvc,
-			MCPMgr:          cfg.MCPMgr,
-			AgentSvc:        cfg.AgentSvc,
-			StreamMgr:       cfg.StreamMgr,
-			SpeechSvc:       cfg.SpeechSvc,
-			Emitter:         cfg.Emitter,
-			OnSpeechRequest: cfg.OnSpeechRequest,
-			OpenEditorPaths: cfg.OpenEditorPaths,
+			ChatInteractor:      cfg.ChatInteractor,
+			ToolRegistry:        cfg.ToolRegistry,
+			LoadedToolStore:     loadedToolStore,
+			ProviderSvc:         cfg.ProviderSvc,
+			MCPMgr:              cfg.MCPMgr,
+			AgentSvc:            cfg.AgentSvc,
+			StreamMgr:           cfg.StreamMgr,
+			SpeechSvc:           cfg.SpeechSvc,
+			Emitter:             cfg.Emitter,
+			OnSpeechRequest:     cfg.OnSpeechRequest,
+			OpenEditorPaths:     cfg.OpenEditorPaths,
+			ProfileAdvisor:      cfg.ProfileAdvisor,
+			QuestionnaireRouter: cfg.QuestionnaireRouter,
+			SwitchTabProfile:    cfg.SwitchTabProfile,
 		}),
 	}
 }
