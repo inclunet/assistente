@@ -187,21 +187,52 @@ func TestBuiltinCodingSkillPrefersAtomicMultiHunkPatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse coding skill: %v", err)
 	}
-	if meta.Name != "coding" || meta.Version != "1.3.0" {
+	if meta.Name != "coding" || meta.Version != "1.4.0" {
 		t.Fatalf("coding skill inesperada: name=%q version=%q", meta.Name, meta.Version)
 	}
 	allowed := meta.GetToolsAllowed()
 	if !slices.Contains(allowed, "apply_patch") {
 		t.Fatalf("apply_patch ausente da allowlist: %#v", allowed)
 	}
+	if !slices.Contains(allowed, "update_plan") {
+		t.Fatalf("update_plan ausente da allowlist: %#v", allowed)
+	}
 	for _, required := range []string{
 		"`apply_patch`",
 		"atomic",
 		"multiple surgical edits",
 		"`read_file` before `apply_patch`",
+		"`update_plan`",
+		"complete ordered plan",
+		"at most one plan item `in_progress`",
+		"trivial one-step request",
 	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("coding skill deve mencionar %q", required)
+		}
+	}
+}
+
+func TestBuiltinTaskListSkillUsesUnifiedPlanCapability(t *testing.T) {
+	data, err := fs.ReadFile(builtinSkillsFS, "builtin/skills/tasklist-manager/SKILL.md")
+	if err != nil {
+		t.Fatalf("read tasklist-manager skill: %v", err)
+	}
+	meta, content, err := skills.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse tasklist-manager skill: %v", err)
+	}
+	if meta.Name != "tasklist-manager" || meta.Version != "2.1.0" {
+		t.Fatalf("tasklist-manager skill inesperada: name=%q version=%q", meta.Name, meta.Version)
+	}
+	for _, required := range []string{
+		"`update_plan`",
+		"assistant's own multi-step execution progress",
+		"complete snapshot",
+		"not use `update_plan` as a replacement for user-managed boards",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("tasklist-manager skill deve mencionar %q", required)
 		}
 	}
 }

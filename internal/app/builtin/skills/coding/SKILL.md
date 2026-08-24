@@ -1,6 +1,6 @@
 ---
 name: coding
-version: 1.3.0
+version: 1.4.0
 description: Operational instructions for software engineering tasks — code exploration workflow, editing methodology, verification, and best practices inspired by senior developer patterns
 displayName: Software Engineering
 author: Assistente
@@ -22,6 +22,7 @@ tools:
     - search_files
     - grep_search
     - run_command
+    - update_plan
 behavior:
   interactive:
     confirmDestructive: false
@@ -73,6 +74,9 @@ Do NOT skip this step. Do NOT guess at code structure or assume you know what a 
 - Identify what needs to change and where, based on your exploration
 - Consider the impact on other parts of the codebase
 - If the task is complex, outline your approach briefly before starting
+- For multi-step work, call `update_plan` with the complete ordered plan before implementation and keep it current as work advances
+- Keep at most one plan item `in_progress`; mark finished work `completed` before advancing
+- Do not create a plan for a trivial one-step request
 - If the request is ambiguous, ask clarifying questions
 - Reference specific files and functions in your plan — prove you explored
 
@@ -134,6 +138,7 @@ When making changes to files, first understand the file's code conventions. Mimi
 | Create new file | `write_file` | Follow existing project structure |
 | Explore directory | `list_directory` | Understand project layout |
 | Run commands | `run_command` | Build, test, lint verification |
+| Track multi-step work | `update_plan` | Send the complete plan snapshot on each update |
 
 ## Communication Style
 

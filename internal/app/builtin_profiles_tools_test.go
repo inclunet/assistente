@@ -25,6 +25,7 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 				"edit_file":    "preloaded",
 				"write_file":   "preloaded",
 				"run_command":  "preloaded",
+				"update_plan":  "preloaded",
 				"text_edit":    "disabled",
 			},
 		},

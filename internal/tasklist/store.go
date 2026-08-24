@@ -12,6 +12,7 @@ type TaskListRepository interface {
 	// ── Task List ──────────────────────────────────────────────────────────────
 	CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error)
 	GetTaskList(ctx context.Context, id string) (*database.TaskList, error)
+	FindTaskListBySlug(ctx context.Context, slug string) (*database.TaskList, error)
 	GetAllTaskLists(ctx context.Context) ([]database.TaskList, error)
 	UpdateTaskList(ctx context.Context, id string, title, description string) error
 	UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error

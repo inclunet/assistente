@@ -39,6 +39,12 @@ func (m *serviceTaskListManager) CreateTaskList(ctx context.Context, title, desc
 func (m *serviceTaskListManager) GetTaskList(ctx context.Context, id string) (*database.TaskList, error) {
 	return m.svc.GetTaskList(ctx, id)
 }
+func (m *serviceTaskListManager) GetTaskListWithHierarchy(ctx context.Context, id string) (*database.TaskList, error) {
+	return m.svc.GetTaskListWithHierarchy(ctx, id)
+}
+func (m *serviceTaskListManager) FindTaskListBySlug(ctx context.Context, slug string) (*database.TaskList, error) {
+	return m.svc.FindTaskListBySlug(ctx, slug)
+}
 func (m *serviceTaskListManager) GetAllTaskLists(ctx context.Context) ([]database.TaskList, error) {
 	return m.svc.GetAllTaskLists(ctx)
 }
@@ -101,6 +107,12 @@ func (m *serviceTaskListManager) SetTaskConversation(ctx context.Context, id str
 }
 func (m *serviceTaskListManager) UpdateTaskStatus(ctx context.Context, id string, newStatusID int) error {
 	return m.svc.UpdateTaskStatus(ctx, id, newStatusID)
+}
+func (m *serviceTaskListManager) PromoteTask(ctx context.Context, id string) error {
+	return m.svc.PromoteTask(ctx, id)
+}
+func (m *serviceTaskListManager) ReorderTasks(ctx context.Context, taskListID string, statusID int, orderedIDs []string) error {
+	return m.svc.ReorderTasks(ctx, taskListID, statusID, orderedIDs)
 }
 func (m *serviceTaskListManager) MoveTaskToList(ctx context.Context, taskID string, targetTaskListID string) (*database.Task, error) {
 	return m.svc.MoveTaskToList(ctx, taskID, targetTaskListID)
@@ -274,6 +286,7 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramentas de gerenciamento de task lists
 	tlMgr := &serviceTaskListManager{svc: a.taskSvc}
+	a.toolRegistry.MustRegister(tasklisttool.NewUpdatePlan(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskList(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))

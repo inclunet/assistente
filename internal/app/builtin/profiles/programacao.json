@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.2.0",
+  "_builtin_version": "4.3.0",
   "name": "Programação",
   "description": "Otimizado para programação e código.",
   "icon": "code-slash-outline",
@@ -22,6 +22,7 @@
       "edit_file": "preloaded",
       "write_file": "preloaded",
       "run_command": "preloaded",
+      "update_plan": "preloaded",
       "text_edit": "disabled"
     },
     "enabled_skills": [
