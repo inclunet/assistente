@@ -230,6 +230,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	pctx, err = uc.ensureAdequateProfile(ctx, req, pctx)
 	if err != nil {
+		if errors.Is(err, errProfileAdequacyCancelled) {
+			return uc.completeProfileAdequacyCancellation(req, pctx), nil
+		}
 		return "", err
 	}
 	activeProfile := pctx.ActiveProfile
@@ -607,6 +610,29 @@ const (
 	profileAdequacyContinueAction = "continue-current"
 )
 
+var errProfileAdequacyCancelled = errors.New("profile adequacy decision cancelled")
+
+func (uc *SendMessageUseCase) completeProfileAdequacyCancellation(
+	req SendMessageRequest,
+	pctx *chat.PrepareContextResponse,
+) string {
+	if uc.emitter == nil || pctx == nil {
+		return req.ConversationID
+	}
+	uc.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID: req.ConversationID,
+		Reason:         "cancelled",
+		SurfaceOrigin: ports.NewChatSurfaceOrigin(
+			req.ConversationID,
+			pctx.Params.SurfaceSessionKey,
+			pctx.Params.SurfaceID,
+			pctx.Params.SurfaceType,
+			pctx.Params.SurfaceTabID,
+		),
+	})
+	return req.ConversationID
+}
+
 func (uc *SendMessageUseCase) ensureAdequateProfile(
 	ctx context.Context,
 	req SendMessageRequest,
@@ -705,7 +731,7 @@ func (uc *SendMessageUseCase) ensureAdequateProfile(
 	}
 	actionID, ok := questionnaire.DecisionActionID(response)
 	if !ok {
-		return nil, errors.New("envio cancelado antes da troca de perfil")
+		return nil, errProfileAdequacyCancelled
 	}
 	if actionID == profileAdequacyContinueAction {
 		return pctx, nil

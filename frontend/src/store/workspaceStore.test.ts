@@ -156,28 +156,38 @@ describe('workspace backend events', () => {
     const registration = mockedEventsOn.mock.calls.find(([event]) => event === 'workspace:tab_updated');
     expect(registration).toBeDefined();
 
-    const handler = registration?.[1] as (payload: workspace.Workspace) => void;
+    const handler = registration?.[1] as (payload: {
+      workspace: workspace.Workspace;
+      tabId: string;
+      profileSlug: string;
+    }) => void;
     handler({
-      id: 'ws-1',
-      name: 'Workspace',
-      profile: 'padrao',
-      tabs: {
-        active: 'tab-1',
-        items: [{
-          id: 'tab-1',
-          type: 'chat',
-          conversation_id: 'conversation-1',
-          title: 'Chat',
-          position: 0,
-          profile_override: { slug: 'programacao' },
-        }],
-      },
-    } as unknown as workspace.Workspace);
+      workspace: {
+        id: 'ws-1',
+        name: 'Workspace',
+        profile: 'padrao',
+        tabs: {
+          active: 'tab-1',
+          items: [{
+            id: 'tab-1',
+            type: 'chat',
+            conversation_id: 'conversation-1',
+            title: 'Chat',
+            position: 0,
+            profile_override: { slug: 'programacao' },
+          }],
+        },
+      } as unknown as workspace.Workspace,
+      tabId: 'tab-1',
+      profileSlug: 'programacao',
+    });
 
     expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
       slug: 'programacao',
     });
-    expect(mockedAnnounce).toHaveBeenCalledWith(i18next.t('workspace.profileChanged'));
+    expect(mockedAnnounce).toHaveBeenCalledWith(
+      `${i18next.t('workspace.profileChanged')}: programacao`,
+    );
     cleanup();
   });
 });

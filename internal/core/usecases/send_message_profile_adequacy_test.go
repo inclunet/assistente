@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/configdir"
+	"assistente/internal/core/ports"
 	"assistente/internal/llm"
 	"assistente/internal/profileadequacy"
 	"assistente/internal/profiles"
@@ -40,6 +41,16 @@ type fixedQuestionnaireRouter struct {
 	err      error
 	calls    int
 	payload  questionnaire.RequestPayload
+}
+
+type adequacyEmitter struct {
+	event string
+	data  any
+}
+
+func (e *adequacyEmitter) Emit(event string, data any) {
+	e.event = event
+	e.data = data
 }
 
 func (r *fixedQuestionnaireRouter) Ask(
@@ -93,11 +104,25 @@ func TestEnsureAdequateProfileCancelStopsBeforeSwitch(t *testing.T) {
 	})
 
 	got, err := uc.ensureAdequateProfile(t.Context(), adequacyRequest(), adequacyPreparedContext())
-	if err == nil || got != nil {
+	if !errors.Is(err, errProfileAdequacyCancelled) || got != nil {
 		t.Fatalf("cancelamento deveria interromper: got=%#v err=%v", got, err)
 	}
 	if switchCalls != 0 {
 		t.Fatalf("cancelamento não pode trocar profile: %d", switchCalls)
+	}
+}
+
+func TestProfileAdequacyCancellationCompletesWithoutSendFailure(t *testing.T) {
+	emitter := &adequacyEmitter{}
+	uc := NewSendMessageUseCase(SendMessageConfig{Emitter: emitter})
+	conversationID := uc.completeProfileAdequacyCancellation(adequacyRequest(), adequacyPreparedContext())
+
+	if conversationID != "conversation-1" || emitter.event != "chat:done" {
+		t.Fatalf("cancelamento = conversa %q evento %q", conversationID, emitter.event)
+	}
+	done, ok := emitter.data.(ports.DoneEvent)
+	if !ok || done.Reason != "cancelled" || done.ErrorMessage != "" {
+		t.Fatalf("evento terminal de cancelamento inesperado: %#v", emitter.data)
 	}
 }
 

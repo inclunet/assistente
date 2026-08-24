@@ -1131,7 +1131,11 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			}); err != nil {
 				return err
 			}
-			a.emitter.Emit("workspace:tab_updated", a.workspaceMgr.Active())
+			a.emitter.Emit("workspace:tab_updated", map[string]any{
+				"workspace":   a.workspaceMgr.Active(),
+				"tabId":       tabID,
+				"profileSlug": profileSlug,
+			})
 			return nil
 		},
 	})

@@ -119,7 +119,8 @@ Confirmar:
 
 Continuar preserva integralmente o profile e o conjunto de tools atual. Não chama
 `tool_catalog`, não altera `tool_policy` e não carrega tools sob demanda.
-Cancelar encerra o envio antes da persistência da mensagem.
+Cancelar encerra o envio antes da persistência da mensagem e conclui o controller
+com `chat:done`/`reason=cancelled`, sem criar uma falha de envio para retry.
 O `questionnaire.Manager` serializa decisões backend para que conversas
 concorrentes não sobrescrevam o único diálogo visível.
 

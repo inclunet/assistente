@@ -57,6 +57,12 @@ export interface WorkspaceData {
   activeTabId: string | null;
 }
 
+interface WorkspaceTabUpdatedEvent {
+  workspace: workspace.Workspace;
+  tabId: string;
+  profileSlug: string;
+}
+
 function backendTabToFrontend(bt: workspace.Tab): WorkspaceTab {
   return {
     id: bt.id,
@@ -260,9 +266,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       set({ workspace: backendWorkspaceToFrontend(bws) });
     }));
 
-    unsubs.push(EventsOn('workspace:tab_updated', (bws: workspace.Workspace) => {
-      set({ workspace: backendWorkspaceToFrontend(bws) });
-      announce(i18next.t('workspace.profileChanged'));
+    unsubs.push(EventsOn('workspace:tab_updated', (event: WorkspaceTabUpdatedEvent) => {
+      const nextWorkspace = backendWorkspaceToFrontend(event.workspace);
+      set({ workspace: nextWorkspace });
+      const effectiveSlug = event.profileSlug.trim();
+      announce(effectiveSlug
+        ? `${i18next.t('workspace.profileChanged')}: ${effectiveSlug}`
+        : i18next.t('workspace.profileChanged'));
     }));
 
     unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
