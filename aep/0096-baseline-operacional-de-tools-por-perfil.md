@@ -1,6 +1,6 @@
 # AEP-0096 — Baseline operacional de tools por perfil
 
-**Status:** ✅ Done — baseline inicial entregue; Fases 2–5 são evoluções separadas
+**Status:** In Progress — baseline e Fases 2/3/5 entregues; Fase 4 permanece pendente
 
 ## Resumo
 
@@ -116,23 +116,23 @@ execução e interação além da seleção de tools.
 
 ## Fases
 
-1. **Política e profiles builtin**
+1. **Política e profiles builtin — entregue**
    - adicionar `tool_policy_default` ao backend e à edição de profiles;
    - aplicar os baselines definidos nas decisões D2–D4;
    - atualizar versões builtin e testes de seleção/UI.
-2. **Patch canônico**
+2. **Patch canônico — entregue pela AEP-0099**
    - implementado pela [AEP-0099](0099-patch-canonico-multi-hunk.md);
    - projetar e implementar edição multi-hunk com erros localizados;
    - manter compatibilidade com `edit_file` e `write_file`.
-3. **Progresso unificado**
+3. **Progresso unificado — entregue pela AEP-0100**
    - implementado pela [AEP-0100](0100-progresso-unificado-por-conversa.md);
    - expor uma única capability de plano/progresso ao modelo;
    - reutilizar o storage e os eventos do Task List Manager.
-4. **Adequação pedido↔perfil**
+4. **Adequação pedido↔perfil — pendente**
    - classificar requisitos operacionais antes do primeiro turno;
    - solicitar confirmação para trocar de perfil quando houver incompatibilidade;
    - nunca elevar tools ou privilégios silenciosamente.
-5. **Continuação por limite de saída**
+5. **Continuação por limite de saída — entregue pela AEP-0098**
    - implementada pela [AEP-0098](0098-limite-de-saida-e-tool-calls-truncadas.md);
    - propagar o stop reason dos providers;
    - distinguir JSON malformado original de tool call truncada;
@@ -165,4 +165,6 @@ execução e interação além da seleção de tools.
 - [x] Profiles builtin deixam de depender de `enabled_tools: null`.
 - [x] UI representa corretamente o estado efetivo de tools não listadas.
 - [x] Testes backend e frontend cobrem os quatro profiles e a nova semântica.
-- [x] Fases 2–5 permanecem rastreadas em AEPs/entregas próprias.
+- [x] Fases 2, 3 e 5 foram entregues pelas AEPs 0099, 0100 e 0098.
+- [ ] Fase 4 (adequação pedido↔perfil com confirmação) permanece pendente e
+  fora do baseline inicial concluído por esta AEP.

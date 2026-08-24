@@ -1,6 +1,12 @@
 # Arquitetura de Perfis de Interação por Voz (v2)
 
-**Status:** Done
+**Status:** Superseded
+
+> **Nota histórica:** os tipos `InteractionProfile` e `InteractionTrigger`
+> descritos abaixo não existem no contrato vigente. A arquitetura foi
+> substituída por `profiles.Profile`, com `InputConfig` e `TriggerConfig`,
+> consolidada pela AEP-0038. O restante deste documento preserva o desenho
+> anterior apenas para rastreabilidade.
 
 ## Visão Geral
 

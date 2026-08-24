@@ -175,28 +175,28 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 
 ## Fases
 
-### Fase 1 — AEP e contrato
+### Fase 1 — AEP e contrato ✅
 
 - Aprovar esta AEP e atualizar referências em AEPs relacionadas.
 - Definir nomes finais dos estados (`disabled`, `on_demand`, `preloaded`) e labels localizadas para UI.
 - Definir schema de request/response de `tool_catalog` com `action` opcional.
 - Nenhuma mudança funcional no runtime neste PR documental.
 
-### Fase 2 — Política efetiva no backend
+### Fase 2 — Política efetiva no backend ✅
 
 - Criar resolver de política tri-state a partir de `enabled_tools` legado.
 - Integrar a política ao `ToolSelectionPolicy`/ToolPlanner sem mudar comportamento legado além do necessário.
 - Garantir que `disabled` bloqueia search, load, MCP native allowlist e expansão dinâmica.
 - Cobrir `nil`, `[]`, lista explícita e `disable_tools=true` por testes.
 
-### Fase 3 — `tool_catalog` com ações
+### Fase 3 — `tool_catalog` com ações ✅
 
 - Estender schema da tool com `action`.
 - Implementar `search` como default quando `action` estiver ausente.
 - Implementar `load`, `unload` e `list_loaded` com respostas estruturadas e motivos de rejeição.
 - Manter compatibilidade com callers antigos de listagem.
 
-### Fase 4 — Persistência por conversa/sessão
+### Fase 4 — Persistência por conversa/sessão 🚧
 
 - [x] Criar store in-memory de loaded tools por conversa/sessão
   (`internal/tools/loaded_tool_store.go`).
@@ -204,7 +204,7 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
   ocorrem, mas availability/budget ainda não satisfazem todo o contrato.
 - [ ] Registrar eventos/telemetria de load/unload para auditoria de turno.
 
-### Fase 5 — UI do Profile Manager
+### Fase 5 — UI do Profile Manager ✅
 
 - Manter grid único de tools.
 - Trocar checkbox/binário por controle tri-state acessível.
@@ -212,11 +212,13 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 - Anunciar mudanças de estado via announcer.
 - Adicionar textos i18n nos três idiomas e usar apenas tokens de tema.
 
-### Fase 6 — Governança MCP e risco
+### Fase 6 — Governança MCP e risco 🚧
 
-- Validar servidores MCP com muitas tools sob budget finito.
-- Garantir que tools destrutivas/write/shell continuam bloqueadas por allowlist/confirmação.
-- Testar MCP native/bridge com allowlist derivada do tri-state.
+- [x] MCP native/bridge usa visibilidade derivada do tri-state.
+- [x] `executeLoad` rejeita tools invisíveis ou indisponíveis.
+- [ ] Aplicar budget no momento de `load` e retornar `budget_exceeded`.
+- [ ] Aplicar política de risco no `load` e retornar `risk_blocked`.
+- [ ] Invalidar carga por mudança de schema e retornar `schema_changed`.
 
 ## Riscos
 
@@ -232,14 +234,23 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 
 ## Critérios de aceitação
 
-- Existe uma política tri-state por tool no perfil: `disabled`, `on_demand`, `preloaded`.
-- O Profile Manager usa um único grid/lista de tools, com controle tri-state acessível e alternância por `Space`.
-- `enabled_tools` legado tem migração/compatibilidade documentada e testada.
-- `tool_catalog` aceita `action` opcional e assume `search` quando omitida.
-- `tool_catalog` implementa `search`, `load`, `unload` e `list_loaded` sem criar meta-tools paralelas.
-- `search` não revela tools `disabled` para o perfil.
-- `load` não carrega tools fora da allowlist/estado do perfil e retorna motivos estruturados de rejeição.
-- Tools carregadas sob demanda persistem por conversa/sessão até restart, TTL, `unload`, mudança de `schema_hash`, indisponibilidade, mudança de perfil ou budget.
-- `tool_catalog` é tratado como bootstrap/control-plane conforme a política de tool calling, e `load_skill`/autoativação de skills pelo modelo permanece indisponível conforme AEP-0072.
-- MCP bridge/native, tools destrutivas e budgets de schema respeitam a mesma política central.
-- Nenhum fluxo alternativo de envio de mensagens é criado.
+- [x] Política tri-state usa `disabled`, `on_demand` e `preloaded`.
+- [x] Profile Manager usa grid único e controle tri-state acessível.
+- [x] `enabled_tools` legado tem compatibilidade testada.
+- [x] `tool_catalog` assume `search` quando `action` é omitida.
+- [x] `search`, `load`, `unload` e `list_loaded` usam a mesma meta-tool.
+- [x] `search` não revela tools `disabled`.
+- [x] `load` respeita visibilidade/disponibilidade e retorna rejeições
+  estruturadas para esses casos.
+- [ ] Persistência carregada já funciona por conversa/sessão até restart,
+  `unload` e troca de perfil; TTL, `schema_hash`, indisponibilidade, budget e
+  telemetria de load/unload permanecem pendentes.
+- [x] `tool_catalog` funciona como control-plane e respeita o gating de skills.
+- [ ] MCP bridge/native já compartilha visibilidade; enforcement de budget,
+  risco e mudança de schema no `executeLoad` permanece pendente.
+- [x] Nenhum fluxo alternativo de envio foi criado.
+
+Evidências entregues: `internal/chat/tool_selection_policy_test.go`,
+`internal/tools/catalog_tool_test.go`,
+`internal/core/usecases/send_message_loaded_tools_test.go` e
+`frontend/src/components/profiles/ProfileToolsSection.test.tsx`.

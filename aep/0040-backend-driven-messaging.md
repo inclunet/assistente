@@ -69,7 +69,10 @@ O frontend cria conversa automaticamente se `activeConversationId === 0`. Isso a
 3. **Eventos tipados com conversationId** — todo evento carrega identificação da conversa.
 4. **Frontend é reativo por superfície** — cada superfície interessada escuta eventos do seu `conversationId` e atualiza o próprio estado visual, sem orquestrar o ciclo de vida de mensagens.
 5. **Testável** — cada fase tem critérios de aceitação verificáveis com testes automatizados.
-6. **Conversa é pré-requisito** — mensagens só podem ser enviadas para conversas que já existem. `SendMessage` para `conversationId=0` ou inexistente retorna erro. A criação de conversa é responsabilidade separada.
+6. **Conversa é pré-requisito** — mensagens só podem ser enviadas para conversas
+   que já existem. `SendMessage` com `conversationId=""` retorna erro de ID
+   ausente; um UUID informado mas inexistente retorna erro de conversa não
+   encontrada. A criação de conversa é responsabilidade separada.
 7. **Conversas são independentes** — conversas existem no banco sem vínculo forte com abas, workspace ou qualquer conceito de UI. Abas carregam conversas para exibição, mas conversas sobrevivem sem aba. Canais (Telegram, Signal) criam e mantêm conversas independentemente de haver aba aberta.
 8. **Um único contrato para mensagem nova, com retry explícito** — existe UM método `SendMessage` para novas mensagens no backend. O único endpoint adicional permitido é `RetryMessage`, usado exclusivamente para reenviar uma mensagem de usuário já persistida, sem criar nova mensagem `user`. No frontend, todas as superfícies reutilizam o mesmo cliente/pipeline compartilhado para esses contratos explícitos por `conversationId`, sem duplicar lógica divergente de envio.
 9. **Controllers por conversa/aba são permitidos** — o frontend pode instanciar controllers autocontidos por `conversationId` ou por aba. Esses controllers podem manter estado próprio de UI, streaming, scroll, histórico carregado e tool calls, desde que filtrem eventos pelo `conversationId` e deleguem envio/retry ao contrato compartilhado.
@@ -94,13 +97,13 @@ Padronizar TODOS os eventos de messaging com schema consistente e conversationId
 // ChatEventEnvelope é o wrapper padrão para todos os eventos de chat.
 // Todo evento de messaging DEVE carregar ConversationID.
 type ChatEventEnvelope struct {
-    ConversationID uint   `json:"conversationId"`
+    ConversationID string `json:"conversationId"`
     Type           string `json:"type"` // redundante com nome do evento, mas útil para debug
 }
 
 type MessagesReadyEvent struct {
     ChatEventEnvelope
-    UserMessageID uint   `json:"userMessageId"`
+    UserMessageID string `json:"userMessageId"`
     UserContent   string `json:"userContent"`
 }
 
@@ -109,12 +112,12 @@ type StreamChunkEvent struct {
     Content   string `json:"content"`
     Done      bool   `json:"done"`
     Error     string `json:"error,omitempty"`
-    MessageID uint   `json:"messageId,omitempty"` // presente quando done=true
+    MessageID string `json:"messageId,omitempty"` // presente quando done=true
 }
 
 type StreamDoneEvent struct {
     ChatEventEnvelope
-    AssistantMessageID uint   `json:"assistantMessageId"`
+    AssistantMessageID string `json:"assistantMessageId"`
     HadToolCalls       bool   `json:"hadToolCalls"`
     FinalContent       string `json:"finalContent,omitempty"`
 }
@@ -156,12 +159,12 @@ Cada ponto que faz `runtime.EventsEmit(ctx, "chat:*", ...)` passa a usar as stru
 // frontend/src/types/chatEvents.ts
 
 interface ChatEventEnvelope {
-  conversationId: number;
+  conversationId: string;
   type: string;
 }
 
 interface MessagesReadyEvent extends ChatEventEnvelope {
-  userMessageId: number;
+  userMessageId: string;
   userContent: string;
 }
 
@@ -169,11 +172,11 @@ interface StreamChunkEvent extends ChatEventEnvelope {
   content: string;
   done: boolean;
   error?: string;
-  messageId?: number;
+  messageId?: string;
 }
 
 interface StreamDoneEvent extends ChatEventEnvelope {
-  assistantMessageId: number;
+  assistantMessageId: string;
   hadToolCalls: boolean;
   finalContent?: string;
 }
@@ -236,7 +239,7 @@ O frontend recebe e insere no estado. **O frontend não cria mais o placeholder 
 ```go
 type StreamChunkEvent struct {
     ChatEventEnvelope
-    MessageID uint   `json:"messageId"` // SEMPRE presente
+    MessageID string `json:"messageId"` // SEMPRE presente
     Content   string `json:"content"`
     Done      bool   `json:"done"`
     Error     string `json:"error,omitempty"`
@@ -250,7 +253,7 @@ O frontend faz `updateMessage(event.messageId, event.content)` — sem mapeament
 ```go
 type ChatDoneEvent struct {
     ChatEventEnvelope
-    AssistantMessageID uint `json:"assistantMessageId"`
+    AssistantMessageID string `json:"assistantMessageId"`
     HadToolCalls       bool `json:"hadToolCalls"`
     // Se hadToolCalls, o backend já recarregou e emite a árvore atualizada:
     UpdatedMessages []MessageNode `json:"updatedMessages,omitempty"`
@@ -332,8 +335,8 @@ export function useChatController(conversationId: string) {
 ```
 
 ### Testes
-- [ ] Unit test Go: `SendMessage` com `conversationID=0` retorna erro
-- [ ] Unit test Go: `SendMessage` com conversationID inexistente retorna erro
+- [ ] Unit test Go: `SendMessage` com `conversationID=""` retorna erro de ID ausente
+- [ ] Unit test Go: `SendMessage` com UUID inexistente retorna erro de conversa não encontrada
 - [ ] Unit test Go: `SendMessage` cria registro no banco ANTES de emitir `chat:user_message_created`
 - [ ] Unit test Go: `chat:assistant_message_started` emitido com ID real
 - [ ] Unit test Go: `chat:done` inclui `updatedMessages` quando `hadToolCalls=true`
@@ -520,7 +523,9 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 ### Conversas
 - **Conversas são entidades independentes.** Não têm vínculo forte com abas, workspace ou qualquer conceito de UI. Abas carregam conversas para exibição, mas conversas existem no banco independentemente de haver aba aberta.
 - **Canais criam e mantêm conversas sem abas.** Telegram, Signal e outros canais criam conversas diretamente no backend. A existência de uma aba é irrelevante para o ciclo de vida da conversa.
-- **Mensagens só podem ser enviadas para conversas que existem.** `SendMessage` com `conversationID=0` ou ID inexistente retorna erro. A criação de conversa é responsabilidade separada e explícita.
+- **Mensagens só podem ser enviadas para conversas que existem.** `SendMessage`
+  com `conversationID=""` falha por ausência de ID; UUID inexistente falha como
+  conversa não encontrada. Não há criação implícita.
 
 ### Envio de mensagens
 - **Existe UMA única função `SendMessage` para mensagens novas no backend** (`app_chat.go` → `ChatController` → `SendMessageUseCase`). Toda mensagem nova — vinda do frontend, de canais, de deep links — passa por essa função.

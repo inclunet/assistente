@@ -140,13 +140,13 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 
 ## Fases
 
-### Fase 1 — Medição e limites
+### Fase 1 — Medição e limites 🚧
 
 - Medir tempo de carregamento, transformação e renderização em conversas sintéticas de 100, 500 e 1000 mensagens.
 - Definir limites internos para janela inicial, paginação e ativação de virtualização.
 - Criar fixture/testes de performance funcional para conversa longa.
 
-### Fase 2 — Janela por sessão
+### Fase 2 — Janela por sessão ✅
 
 - Mover estado de janela para a sessão `tabId + conversationId`.
 - Separar cache por conversa da lista renderizada.
@@ -154,15 +154,22 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 - Preservar âncora de scroll ao prepender mensagens.
 - Nesta fase, a janela ainda pode usar mensagens raiz persistidas como unidade de paginação. Se houver consolidação local de turnos, a UI deve preferir uma contagem visual honesta na janela renderizada em vez de expor índices absolutos crus incorretos.
 
-### Fase 2.1 — Timeline items canônicos
+### Fase 2.1 — Timeline items canônicos ✅
 
-Esta é a fase alvo do PR dedicado posterior ao PR #113.
+Registro histórico: esta fase foi entregue após o PR #113. O contrato vigente
+está implementado em `GetConversationMessageWindow` e na montagem canônica de
+timeline; os itens abaixo descrevem o trabalho concluído, não uma proposta
+futura.
 
-- Evoluir `GetConversationMessageWindow` para paginar itens de timeline, não linhas brutas de `chat_messages`.
-- Agrupar turnos por `turnId` no backend e retornar nós/segmentos já coerentes com a lista navegável.
-- Calcular `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` pela quantidade de itens renderizáveis.
-- Garantir que streaming crie um item transitório reconciliável pelo mesmo `turnId`.
-- Remover a dependência de consolidação local para definir posições acessíveis.
+- [x] `GetConversationMessageWindow` pagina itens de timeline.
+- [x] Backend agrupa turnos por `turnId` em nós/segmentos navegáveis.
+- [x] Contagens e limites são calculados sobre itens renderizáveis.
+- [x] Streaming é reconciliável pelo mesmo `turnId`.
+- [x] Posições acessíveis não dependem de consolidação local.
+
+Evidências: `internal/app/db_message_window_test.go`,
+`internal/chat/timeline_test.go` e
+`frontend/src/components/chat/MessageList.test.tsx`.
 
 #### Consolidação no PR #113
 
@@ -197,21 +204,21 @@ Critério prático:
 - Se a renderização da própria janela continuar pesada, o próximo PR deve implementar virtualização acessível antes de expandir features que aumentem conteúdo renderizado.
 - A decisão deve preservar `aria-posinset`/`aria-setsize` canônicos e navegação por teclado independente do DOM completo.
 
-### Fase 3 — Memoização e atualização granular
+### Fase 3 — Memoização e atualização granular 🚧
 
 - Garantir que `MessageNode` renderize novamente apenas quando sua mensagem ou estado visual local mudar.
 - Separar estado de streaming da lista consolidada sempre que possível.
 - Evitar recriar arrays e callbacks globais em cada token.
 - Cobrir regressões com testes de render ou contadores em ambiente de teste.
 
-### Fase 4 — Virtualização acessível
+### Fase 4 — Virtualização acessível ⏳
 
 - Introduzir virtualização em `MessageList` atrás de um limite.
 - Implementar navegação por teclado independente de todos os elementos estarem montados.
 - Garantir foco e leitura virtual para itens materializados sob demanda.
 - Validar com e2e de teclado e acessibilidade.
 
-### Fase 5 — Conteúdo pesado sob demanda
+### Fase 5 — Conteúdo pesado sob demanda ⏳
 
 - Carregar filhos de thread apenas quando expandidos.
 - Manter tool calls e reasoning colapsados sem render caro inicial.
@@ -230,13 +237,20 @@ Critério prático:
 
 ## Critérios de aceitação
 
-- Abrir conversa longa não bloqueia a UI de forma perceptível.
-- Trocar entre abas visitadas não força rerender pesado da conversa inteira.
-- Carregar mensagens antigas preserva posição de leitura.
-- Streaming em conversa longa atualiza apenas a mensagem relevante.
-- Navegação por teclado continua passando nos e2e existentes.
-- Leitores de tela recebem anúncios de carregamento e posição de forma consistente.
-- Duas abas da mesma conversa podem ter janelas visuais diferentes.
-- Testes cobrem conversas com pelo menos 500 mensagens sintéticas.
-- Na fase 2.1, `aria-posinset` e `aria-setsize` refletem a posição e o total de itens navegáveis, não a quantidade de mensagens internas persistidas.
-- Na fase 2.1, turnos com tool calls são anunciados como um único item quando renderizados como um único item.
+- [ ] Abrir conversa longa não bloqueia perceptivelmente — falta benchmark
+  funcional reproduzível.
+- [x] Abas visitadas mantêm janelas independentes sem recarregar a conversa
+  inteira.
+- [x] Carregar mensagens antigas preserva âncora/posição da janela.
+- [ ] Atualização granular de streaming ainda pertence à Fase 3.
+- [ ] Virtualização com navegação por teclado permanece na Fase 4.
+- [x] Leitores de tela recebem posição canônica dos itens materializados.
+- [x] Duas abas da mesma conversa mantêm janelas visuais diferentes.
+- [ ] Não há fixture focada comprovada de 500 mensagens sintéticas.
+- [x] `aria-posinset`/`aria-setsize` usam posição e total de itens de timeline.
+- [x] Turnos com tool calls são um único item acessível.
+
+Evidências entregues: `internal/app/db_message_window_test.go`,
+`internal/chat/timeline_test.go`,
+`frontend/src/components/chat/MessageList.test.tsx`,
+`ChatSessionContext.test.tsx` e `ChatSessionView.test.tsx`.

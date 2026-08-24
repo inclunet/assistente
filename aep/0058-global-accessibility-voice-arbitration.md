@@ -150,34 +150,34 @@ O arbitrador não deve inferir perfil a partir de "aba ativa" quando a origem j�
 
 ## Fases
 
-### Fase 1 — Contrato de origem
+### Fase 1 — Contrato de origem ✅
 
 - Definir tipo de origem para recursos globais: `sessionKey`, `tabId`, `conversationId`, `surfaceType`, `profileSlug` e prioridade.
 - Adaptar solicitações de announcer/TTS/STT para carregar essa origem.
 - Cobrir origem por testes unitários.
 
-### Fase 2 — Announcer broker
+### Fase 2 — Announcer broker ✅
 
 - Criar broker central de anúncios.
 - Remover chamadas diretas que ignorem origem quando forem de contexto de aba.
 - Implementar política ativa/inativa.
 - Garantir uma live region global única.
 
-### Fase 3 — TTS broker frontend
+### Fase 3 — TTS broker frontend ✅
 
 - Introduzir lock/fila de TTS no frontend.
 - Integrar `chat:speak` e fala manual ao mesmo broker.
 - Aplicar prioridade entre fala manual, automática da aba ativa e automática de aba inativa.
 - Garantir cancelamento/cleanup ao fechar aba ou trocar perfil.
 
-### Fase 4 — STT gate
+### Fase 4 — STT gate ✅
 
 - Introduzir gate global para captura local.
 - Permitir start de STT apenas se a origem for a aba ativa.
 - Cancelar captura quando a aba perde ativação ou é fechada.
 - Garantir que canais externos não dependam desse gate.
 
-### Fase 5 — Integração com AEP-0057
+### Fase 5 — Integração com AEP-0057 ✅
 
 - Usar `sessionKey` como origem primária quando disponível.
 - Evitar lookup por conversa ativa global.

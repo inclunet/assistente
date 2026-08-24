@@ -99,7 +99,7 @@ verdade — rota fora dela faz o parser devolver `null`.
 Deep links usam a sintaxe padrão de links Markdown. O texto entre colchetes é livre — qualquer rótulo pode ser usado:
 
 ```markdown
-[Abrir conversa](assistente://conversation/42)
+[Abrir conversa](assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc)
 
 [Analise o ticket XPTO](assistente://conversation/new?message=analise%20o%20ticket%20XPTO)
 
@@ -137,7 +137,7 @@ O módulo `frontend/src/lib/deepLinks.ts` exporta funções utilitárias para tr
 Verifica se uma string é um deep link `assistente://`.
 
 ```typescript
-isDeepLink('assistente://conversation/42');  // true
+isDeepLink('assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc'); // true
 isDeepLink('https://google.com');            // false
 ```
 
@@ -146,8 +146,8 @@ isDeepLink('https://google.com');            // false
 Faz parse de uma URI e retorna um objeto tipado, ou `null` se inválido.
 
 ```typescript
-parseDeepLink('assistente://conversation/42');
-// → { type: 'conversation:open', conversationId: 42 }
+parseDeepLink('assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc');
+// → { type: 'conversation:open', conversationId: '018f22e2-7c1a-7b3c-8d4e-123456789abc' }
 
 parseDeepLink('assistente://conversation/new?message=oi&title=Teste');
 // → { type: 'conversation:new', message: 'oi', title: 'Teste' }
@@ -173,8 +173,8 @@ parseDeepLink('https://google.com');
 Constrói uma URI a partir de um objeto de ação. Útil para gerar links programaticamente.
 
 ```typescript
-buildDeepLink({ type: 'conversation:open', conversationId: 42 });
-// → 'assistente://conversation/42'
+buildDeepLink({ type: 'conversation:open', conversationId: '018f22e2-7c1a-7b3c-8d4e-123456789abc' });
+// → 'assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc'
 
 buildDeepLink({ type: 'tab:new', tabType: 'terminal', cmd: 'npm install' });
 // → 'assistente://terminal/new?cmd=npm+install'
@@ -201,9 +201,9 @@ Retorna a classe CSS específica do tipo (ex: `deep-link--conversation`).
 type TabType = 'tasklist' | 'editor' | 'terminal';
 
 type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: number; title?: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string }
   | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: number; message: string }
+  | { type: 'conversation:send'; conversationId: string; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }

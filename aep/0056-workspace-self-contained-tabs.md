@@ -127,27 +127,27 @@ O uso de um singleton global para orquestrar um modal é aceitável como passo i
 
 ## Fases
 
-### Fase 1 — Contrato arquitetural
+### Fase 1 — Contrato arquitetural ✅
 
 - Atualizar AEP-0040 para permitir controllers por aba/conversa, mantendo contrato compartilhado de envio.
 - Atualizar instruções de agentes (`CLAUDE.md`, `.github/copilot-instructions.md`) para refletir a nova regra.
 - Registrar esta AEP como plano guarda-chuva da mudança.
 - Registrar AEPs filhas para os próximos PRs: AEP-0057, AEP-0058 e AEP-0059.
 
-### Fase 2 — Workspace shell e keep-alive
+### Fase 2 — Workspace shell e keep-alive ✅
 
 - Introduzir um host de painéis com lazy mount por aba visitada.
 - Expor contrato `active/inactive` para cada painel.
 - Garantir que painéis inativos fiquem fora de foco, atalhos locais e árvore acessível.
 - Reduzir acoplamentos do workspace com detalhes de DOM dos domínios.
 
-### Fase 3 — Controllers por domínio
+### Fase 3 — Controllers por domínio ✅
 
 - Mover bridges de chat, editor, terminal e tasklist para controllers de domínio.
 - Manter `tab.state` como metadado opaco persistido pelo workspace.
 - Remover sincronizações específicas de domínio do shell do workspace quando houver controller equivalente.
 
-### Fase 4 — Chat autocontido por conversa
+### Fase 4 — Chat autocontido por conversa ✅
 
 Esta fase passa a ser detalhada pela AEP-0057.
 
@@ -156,7 +156,7 @@ Esta fase passa a ser detalhada pela AEP-0057.
 - Permitir envio simultâneo em conversas diferentes.
 - Garantir que retry e nova mensagem continuem delegando ao contrato compartilhado.
 
-### Fase 5 — Arbitragem global de acessibilidade e voz
+### Fase 5 — Arbitragem global de acessibilidade e voz ✅
 
 Esta fase passa a ser detalhada pela AEP-0058.
 
@@ -164,7 +164,7 @@ Esta fase passa a ser detalhada pela AEP-0058.
 - Garantir TTS exclusivo com fila/arbitragem e perfil efetivo da aba origem.
 - Garantir STT local apenas na aba ativa.
 
-### Fase 6 — Otimizações específicas
+### Fase 6 — Otimizações específicas ✅ no escopo desta AEP
 
 Esta fase passa a ser detalhada pela AEP-0059.
 
@@ -174,7 +174,7 @@ Esta fase passa a ser detalhada pela AEP-0059.
 - Persistir eventos/histórico de terminal por sessão.
 - Escopar estado visual de tasklist por lista.
 
-### Fase 7 — Hardening de ownership por superfície
+### Fase 7 — Hardening de ownership por superfície ✅
 
 - Auditar stores globais para separar cache compartilhado de estado visual por superfície.
 - Exigir APIs parametrizadas por ID para ações de domínio.

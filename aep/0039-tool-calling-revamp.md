@@ -380,9 +380,12 @@ O provider contract e o agentic loop usados por esta AEP já foram migrados.
 A AEP-0037 continua `In Progress` por cleanup residual da Fase 6, sem bloquear
 o escopo parcial desta proposta.
 
-### AEP-0045 (CLI Interface) — IMPLEMENTADA
+### AEP-0045 (CLI Interface) — IN PROGRESS
 
-Define a arquitetura do CLI adapter. Esta AEP estende o CLI com exibicao de tool calls e resumo `chat:done`.
+O escopo funcional do CLI adapter, incluindo exibição de tool calls e resumo
+`chat:done`, está entregue e possui testes. A AEP-0045 permanece `In Progress`
+porque a validação manual de `wails dev` continua pendente; essa pendência não
+bloqueia o recorte CLI consumido por esta AEP.
 
 **Conflito: nenhum.** 0045 e a fundacao; 0039 e consumidora.
 

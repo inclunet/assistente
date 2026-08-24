@@ -310,7 +310,7 @@ Ao migrar, cada recurso receberá um `id` UUIDv7 como PK no banco, e o slug atua
 | R1 | FTS5 incompatível com PK string | Média | Alto | Usar `rowid` implícito do SQLite para `content_rowid` (D7). Drop/recreate FTS5 durante migração |
 | R2 | Performance de JOINs com string PK | Baixa | Baixo | UUIDv7 são 36 chars fixos; volume do app (milhares de registros) torna impacto negligível |
 | R3 | Bindings Wails desatualizados | Média | Alto | Regeneração de bindings é passo obrigatório da Fase 4 |
-| R4 | Canais com `conversationID` numérico | Alta | Médio | A migração converte IDs nos JSONs de channels. Tratar gracefully: ID não encontrado = criar nova conversa |
+| R4 | Canais com `conversationID` numérico | Alta | Médio | A migração converte IDs legados; ID ausente/inválido falha fechado e exige correção/migração explícita, sem criar conversa implicitamente (AEP-0040) |
 | R5 | Workspaces YAML com IDs numéricos | Alta | Baixo | Tabs com `conversationId` inexistente ficam sem conversa; UX graceful |
 | R6 | EnrichedMessage.id já é string | Baixa | Baixo | Confirmar que a conversão `int → string` no backend pode ser removida (agora já é string nativo) |
 | R7 | Migração falha no meio | Baixa | Alto | Transação atômica SQLite: qualquer erro reverte tudo. Backup `.bak` criado antes de iniciar |

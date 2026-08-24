@@ -1,6 +1,6 @@
 # AEP-0041: TTS Proativo (Backend-Driven)
 
-## Status: Done — Fases 1–8 implementadas
+## Status: In Progress — fluxo vigente entregue; regressão E2E planejada permanece pendente
 
 ## Motivação (baseline histórico)
 
@@ -67,7 +67,7 @@ chat:stream(done) → OnSpeechRequest síncrono
 
 ## Fases
 
-### Fase 1 — Conectar o fluxo principal (backend → frontend)
+### Fase 1 — Conectar o fluxo principal (backend → frontend) ✅
 
 #### 1.1 — Backend: injetar callback `OnSpeechRequest` no `agent.Service`
 
@@ -119,9 +119,12 @@ if s.onSpeechRequest != nil && result.FullResponse != "" {
 }
 ```
 
-#### 1.4 — Frontend: adicionar listener `chat:speak` no chatStore
+#### 1.4 — Frontend: listener global em `chatEventController`
 
-Dentro de `sendMessage` e `handleExternalIncoming`, junto com os outros listeners:
+O listener vigente é registrado uma vez em
+`frontend/src/services/chatEventController.ts`, filtra/arbitra a origem da
+superfície e delega para `handleChatSpeak`. Não há listener por envio nem
+ownership de TTS no `chatStore`.
 
 ```typescript
 const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
@@ -131,36 +134,28 @@ const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
 });
 ```
 
-Adicionar `unsubSpeak()` ao cleanup de ambos os fluxos.
-
 O tipo `ChatSpeakEvent` já existe em `frontend/src/services/chatSpeak/index.ts`.
 
-#### 1.5 — Frontend: remover `triggerAutoRead` dos handlers de eventos
+#### 1.5 — Frontend: fluxo legado removido
 
-Remover as 5 chamadas a `triggerAutoRead()`:
-- L553 (user message em `sendMessage`)
-- L694 (`chat:done` handler em `sendMessage`)
-- L765 (`chat:segment_done` handler em `sendMessage`)
-- L1184 (`chat:done` handler em `handleExternalIncoming`)
-- L1239 (`chat:segment_done` handler em `handleExternalIncoming`)
+As decisões automáticas locais do antigo `chatStore` foram removidas. Fala
+manual/on-demand usa o serviço próprio (`useTTS`/`SpeakMessage`) e não reutiliza
+um `triggerAutoRead` de evento.
 
-Manter a função `triggerAutoRead` para possível uso futuro on-demand.
-
-**Ordem recomendada:** 1.1 → 1.2 → 1.3 → 1.4 → validar → 1.5 (remover legado só após confirmar que backend-driven funciona).
-
-### Fase 2 — Mensagens do usuário
+### Fase 2 — Mensagens do usuário ✅
 
 #### 2.1 — Backend: disparar para mensagens do usuário
 
-No `Interactor.RecordUserMessage()` (`internal/chat/interactor.go`), após emitir `chat:messages_ready`:
+O caminho vigente está em `internal/core/usecases/send_message.go`: após
+persistir a mensagem do usuário, o use case chama `OnSpeechRequest` com
+`conversationID`, `userMsg.ID`, perfil e origem `user_message`.
 
-Opção: Injetar callback `OnSpeechRequest` no `Interactor` ou emitir o evento de TTS direto no `App` layer (onde `a.dispatchSpeechEvent` está disponível).
+#### 2.2 — Frontend reativo
 
-#### 2.2 — Frontend: remover `triggerAutoRead` da mensagem do usuário
+O frontend apenas recebe `chat:speak` pelo `chatEventController`; não decide
+localmente se a mensagem do usuário deve ser falada.
 
-Já coberto pela Fase 1.5 (remoção da chamada L553).
-
-### Fase 3 — TTSBroker para canais externos
+### Fase 3 — TTSBroker para canais externos ✅
 
 #### 3.1 — TTSBroker integrado ao Gateway
 
@@ -181,7 +176,7 @@ com timeout para evitar bloqueio indefinido se a API TTS estiver lenta.
 `Wait()` agora limpa o slot do mapa ao dar timeout, prevenindo leak de memória.
 Se a goroutine de TTS chamar `Publish` após o timeout, é no-op (slot já removido).
 
-### Fase 4 — Configurabilidade e acessibilidade
+### Fase 4 — Configurabilidade e acessibilidade ✅
 
 #### 4.1 — Verificar resolução de strategy
 
@@ -233,13 +228,13 @@ caminho cairia no perfil ativo e falaria o marcador no idioma errado quando a
 conversa usa outro perfil. Pela mesma razão o gateway de mensageria resolve o
 idioma **por canal**, casando com o perfil que sintetiza o áudio do canal.
 
-### Fase 5 — Limpar código legado
+### Fase 5 — Limpar código legado ✅
 
 #### 5.1 — Remover `appStreamHandler` (dead code)
 
 O `appStreamHandler` em `app_stream_handler.go` é legado — todo o streaming passa pelo `agent.Service` (via `SimpleStreamHandler` ou `AgenticStreamHandler`). Ele não é mais instanciado. Verificar que não há referências ativas e remover.
 
-### Fase 6 — Testes
+### Fase 6 — Testes 🚧
 
 #### 6.1 — Go
 - `SaveAndFinish` chama `OnSpeechRequest` callback com parâmetros corretos
@@ -247,14 +242,14 @@ O `appStreamHandler` em `app_stream_handler.go` é legado — todo o streaming p
 - Verificar que callback nil não causa panic
 
 #### 6.2 — Frontend (Vitest)
-- Listener `chat:speak` no chatStore invoca `handleChatSpeak`
-- `triggerAutoRead` não é mais chamado nos handlers de eventos
+- `chatEventController.test.ts` cobre listener, origem e `handleChatSpeak`
+- handlers não executam decisão local de auto-read
 - Regressão: play button (on-demand) continua funcionando
 
 #### 6.3 — E2E (Playwright)
 - `chat:speak` emitido após stream completion
 
-### Fase 8 — Cleanup do pacote `internal/speech/`
+### Fase 8 — Cleanup do pacote `internal/speech/` ✅
 
 Auditoria e remoção de dead code, código legacy e práticas questionáveis no pacote speech.
 
@@ -295,11 +290,11 @@ Auditoria e remoção de dead code, código legacy e práticas questionáveis no
 | Duplo TTS durante migração | Fase 1.4 (remover legado) só após validar backend-driven |
 | Latência: backend resolve perfil a cada mensagem | Perfil já é resolvido no handler; cache por conversa se necessário |
 | Race: `chat:speak` chega depois do cleanup | `dispatchSpeechEvent` é chamado **antes** de `chat:done`, de forma síncrona |
-| Regressão no play button (on-demand) | Path separado do `chat:speak`; `triggerAutoRead` mantida para on-demand |
+| Regressão no play button (on-demand) | Path separado do `chat:speak`, coberto por `useTTS`/`SpeakMessage` |
 | SAPI5 `isSpeaking` stale data | Fix do isSpeaking (AEP-0024 apêndice Speech/TTS Refactor, Fase 2B) já aplicado |
 | Latência SAPI5 via WAV (Fase 7) | ~50-200ms para escrita WAV + leitura + base64 — imperceptível na prática |
 
-### Fase 7 — Unificação SAPI5 → backend_audio
+### Fase 7 — Unificação SAPI5 → backend_audio ✅
 
 #### Motivação
 
@@ -366,6 +361,25 @@ O frontend não precisa de alterações:
 | Playback control | Limitado (stop, volume, rate) | Completo (pause, resume, seek, volume) |
 | Frontend code | SAPI5Provider + polling | Nenhum código SAPI5 no frontend |
 | Latência | ~10ms (COM direto) | ~50-200ms (WAV + IPC) |
+
+## Critérios de aceitação e evidências
+
+- [x] `OnSpeechRequest` é síncrono e precede `chat:done`:
+  `internal/agent/service_speech_test.go` e `agentic_loop_test.go`.
+- [x] Dispatcher resolve perfil, idioma e emite `chat:speak`:
+  `internal/app/app_speech_events_language_test.go`.
+- [x] Frontend roteia `chat:speak` pelas strategies vigentes:
+  `frontend/src/services/chatEventController.test.ts` e
+  `frontend/src/services/chatSpeak/index.test.ts`.
+- [x] Canais externos usam broker compartilhado:
+  `internal/messaging/tts_broker_test.go`.
+- [x] Configuração, fala manual e playback permanecem cobertos por
+  `frontend/src/hooks/useTTS.test.tsx` e `ChatMessage.test.tsx`.
+- [x] Cleanup e pipeline de speech possuem regressões em
+  `internal/speech/*_test.go` e `internal/app/app_speech_provider_test.go`.
+- [ ] Adicionar regressão Playwright para a sequência completa
+  `chat:stream(done) → chat:speak → chat:done`; não há teste E2E focado
+  encontrado no HEAD.
 
 ## Referências
 

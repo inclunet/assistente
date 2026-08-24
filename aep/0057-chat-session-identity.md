@@ -144,49 +144,49 @@ Esse desenho permite trocar Zustand, registry em memória ou outra implementaç�
 
 ## Fases
 
-### Fase 1 — Reformular fronteira de sessão
+### Fase 1 — Reformular fronteira de sessão ✅
 
 - Criar tipos explícitos para `ConversationTimeline`, `ChatSurfaceSession`, `ConversationTurnQueue`, `ChatSessionKey` e `ChatSurfaceOrigin`.
 - Introduzir helpers para derivar `sessionKey` a partir de `tabId`/`surfaceId` e `conversationId`.
 - Criar `ChatSessionProvider`/`useChatSession()` como fronteira primária da UI.
 - Atualizar testes para duas superfícies apontando para a mesma conversa.
 
-### Fase 2 — Separar timeline de estado visual
+### Fase 2 — Separar timeline de estado visual ✅
 
 - Separar cache/timeline por `conversationId` do estado visual por `sessionKey`.
 - Remover acesso direto da UI a registries globais.
 - Migrar `ChatSessionView`, `ChatToolbar`, `MessageList`, `MessageNode` e `ChatMessage` para `useChatSession()`.
 - Garantir que fechar uma aba remove apenas sua sessão visual.
 
-### Fase 3 — Fila de turnos por conversa
+### Fase 3 — Fila de turnos por conversa ✅
 
 - Introduzir ou adaptar a fila de turnos por `conversationId`.
 - Permitir execução paralela entre conversas diferentes.
 - Serializar envios da mesma conversa.
 - Separar cancelamento explícito de novo envio comum.
 
-### Fase 4 — Contrato de origem e eventos
+### Fase 4 — Contrato de origem e eventos ✅
 
 - Ampliar `SendMessage`/`RetryMessage` para receber origem de superfície sem criar outro método de envio.
 - Propagar origem até os eventos `chat:*`.
 - Adicionar identificador de turno quando necessário para correlacionar fila, streaming e retry.
 - Alinhar canais externos ao mesmo contrato de origem via `source`/`surfaceType`.
 
-### Fase 5 — Loader, paginação e janela
+### Fase 5 — Loader, paginação e janela ✅
 
 - Ajustar carregamento inicial para preencher timeline por `conversationId`.
 - Manter janela, cursor e âncora visual por `sessionKey`.
 - Evitar reload desnecessário quando outra superfície já carregou a mesma timeline.
 - Preparar a base para a AEP-0059.
 
-### Fase 6 — Retry, erro e UI de fila
+### Fase 6 — Retry, erro e UI de fila ✅
 
 - Direcionar erro/retry para a sessão de origem quando houver origem.
 - Refletir mensagens persistidas em todas as superfícies interessadas.
 - Expor estado de turno em fila ou bloqueado por conversa.
 - Validar envio em duas conversas diferentes e envio serializado na mesma conversa.
 
-### Fase 7 — Hardening de superfície de chat
+### Fase 7 — Hardening de superfície de chat ✅
 
 - Garantir que `WorkspaceChatModal`, `ChatPanel`, `ChatSessionProvider` e `VoiceButton` sempre recebam identidade explícita de superfície.
 - Remover usos diretos de `activeTabId` para inferir origem de chat, exceto para visibilidade/foco no shell.

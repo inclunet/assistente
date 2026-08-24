@@ -591,7 +591,8 @@ Evidências: `internal/mcp/repository_test.go`, `manager_test.go`,
 - [x] Arquivos legados permanecem intocados.
 - [x] API Wails/frontend preservam o contrato.
 - [x] Credenciais e tokens OAuth permanecem intactos.
-- [x] Logs antigos são limpos pela retenção.
+- [ ] Logs antigos são limpos pela retenção — implementação existe, mas faltam
+  regressões focadas de `CleanOldLogs` e `StartLogRetention`.
 - [x] Bridge, namespacing e referências de jobs permanecem compatíveis.
 - [x] File watcher foi removido.
 - [x] Servidores/tools MCP são isolados por usuário.
@@ -602,4 +603,5 @@ Evidências: `internal/mcp/repository_test.go`, `manager_test.go`,
 - [x] MCP nativo recebe `AllowedTools`.
 - [x] Dry-run de builtins e MCP usa o pipeline protegido.
 - [x] Regressões cobrem perda de dados e isolamento.
-- [x] Repository, manager, importação, catálogo, seleção e dry-run têm testes Go.
+- [ ] Repository, manager, importação, catálogo, seleção e dry-run têm testes
+  Go; a cobertura de retenção de logs permanece incompleta conforme a Fase 10.

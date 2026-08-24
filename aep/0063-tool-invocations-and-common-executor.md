@@ -51,7 +51,10 @@ O serviço recebe um pedido normalizado:
 - `timeout`
 - metadados opcionais
 
-Ele resolve a tool no catálogo, aplica políticas de execução, chama o adapter nativo ou MCP, persiste status/duração/input/output/erro e retorna um resultado normalizado.
+Ele tenta resolver a tool no catálogo, aplica políticas de execução e chama o
+adapter nativo ou MCP. Quando a resolução produz um registro persistível, grava
+status/duração/input/output/erro; se o catálogo não puder resolver a tool, a
+execução continua em modo best-effort e o chamador usa o fallback documentado.
 
 ### D4 — Origens explícitas
 
@@ -68,12 +71,17 @@ Cada invocação informa de onde veio:
 
 ### D5 — Logs efêmeros e retenção própria
 
-`tool_invocations` não é fonte histórica permanente. O app pode remover invocações antigas por idade, por volume ou por associação a runs removidos.
+`tool_invocations` tem retenção por origem conforme AEP-0074. Invocações de
+chat integram a timeline da conversa e, por padrão, acompanham seu ciclo de
+vida sem expiração temporal. Invocações operacionais de jobs/dry-run são
+efêmeras e acompanham a retenção curta dos jobs.
 
-Retenção inicial:
+Contrato vigente:
 
-- manter invocações de chat por 30 dias;
-- manter invocações de jobs alinhadas à retenção de `job_runs`;
+- manter invocações de chat enquanto a conversa existir
+  (`chat_tool_calls_retention_days=0` por padrão);
+- manter invocações de jobs alinhadas a `job_retention_hours` e aos
+  `job_runs` removidos;
 - permitir limpeza manual futura pela UI/API.
 
 ### D6 — Dry-run é uma invocação real em modo teste
@@ -157,33 +165,33 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 
 ## Fases
 
-### Fase 1 — Schema e repository
+### Fase 1 — Schema e repository ✅
 
 1. Criar model GORM de `tool_invocations`.
 2. Adicionar `AutoMigrate`.
 3. Criar repository com CRUD mínimo, listagem por origem e limpeza por retenção.
 4. Cobrir status, duration, erros e filtros por testes.
 
-### Fase 2 — Executor comum
+### Fase 2 — Executor comum ✅
 
 5. Criar `internal/tools/invocation_service.go`.
 6. Definir interfaces de adapter para native e MCP.
 7. Implementar timeout, status transitions e persistência transacional.
 8. Normalizar erros e resultado.
 
-### Fase 3 — Jobs e dry-run
+### Fase 3 — Jobs e dry-run ✅
 
 9. Migrar execução de jobs para usar `ToolInvocationService`.
 10. Conectar dry-run de jobs ao mesmo executor.
 11. Criar teste manual de tools no `tool_catalog` usando `dry_run = true`, preferencialmente exposto pela tool composta `job_catalog` em vez de multiplicar tools de teste.
 
-### Fase 4 — Chat
+### Fase 4 — Chat ✅
 
 12. Migrar agentic loop local/bridge para registrar invocações.
 13. Parar de persistir resultados brutos de tools em mensagens novas.
 14. Ajustar reconstrução de contexto para usar resumos/referências.
 
-### Fase 5 — MCP e retenção
+### Fase 5 — MCP e retenção ✅
 
 15. Integrar MCP nativo/bridge ao mesmo executor.
 16. Implementar limpeza periódica por idade e por runs removidos.
@@ -214,14 +222,21 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 
 ## Critérios de aceitação
 
-1. Toda chamada nova de tool por chat, job ou dry-run cria uma linha em `tool_invocations`.
-2. `tool_invocations.tool_catalog_id` é obrigatório e não duplica `tool_name`.
-3. Jobs continuam com `job_runs` para estado operacional e usam `tool_invocations` para execução técnica.
-4. Chat não grava novos resultados brutos de tools como mensagens.
-5. Dry-run de jobs e teste manual de tool no catálogo usam o mesmo executor.
-6. Native tools e MCP tools passam pelo mesmo serviço.
-7. Há retenção/limpeza para invocações antigas.
-8. Testes cobrem sucesso, falha, timeout, dry-run e origem `job_run`/`chat`.
+- [x] Toda chamada nova por chat, job ou dry-run que resolve uma entrada
+  persistível de catálogo cria `tool_invocations`; catálogo ausente/não
+  resolvido mantém execução best-effort e fallback sem afirmar persistência.
+- [x] `tool_catalog_id` é canônico e não duplica `tool_name`.
+- [x] Jobs mantêm estado em `job_runs` e execução técnica em invocações.
+- [x] Chat não grava novos resultados brutos como mensagens no caminho feliz.
+- [x] Dry-run e teste de catálogo usam o executor compartilhado.
+- [x] Tools internas, MCP bridge e MCP nativo têm representação consistente.
+- [x] Retenção/limpeza respeita a política por origem da AEP-0074.
+- [x] Testes cobrem sucesso, falha, timeout, dry-run, chat e `job_run`.
+
+Evidências: `internal/toolinvocations/{repository,service}_test.go`,
+`internal/agent/service_tool_calls_persistence_test.go`,
+`internal/jobs/executor_toolinvocations_test.go`,
+`manager_toolinvocations_test.go` e `internal/wailsapi/jobs_dryrun_test.go`.
 
 ## Plano de Transição e Compatibilidade (Issue #127)
 
@@ -235,9 +250,11 @@ continuam legíveis como fallback.
 
 Já usam o executor comum (`internal/toolinvocations.Service`) e persistem em `tool_invocations`:
 
-- **Chat / agentic loop** (`internal/agent/service.go`): cada tool call do loop passa por
-  `Service.Execute`/`ExecuteAll` com `origin_type = chat` e `origin_id = turnID`. O resultado
-  técnico (input redigido, output truncado, status, duração, erro) fica em `tool_invocations`.
+- **Chat / agentic loop** (`internal/agent/service.go`): cada tool call passa por
+  `Service.Execute`/`ExecuteAll` com `origin_type = chat` e
+  `origin_id = turnID`. Quando o catálogo resolve uma entrada persistível, o
+  resultado técnico fica em `tool_invocations`; caso contrário, `Persisted=false`
+  aciona o fallback best-effort descrito em L1.
 - **Jobs** (`internal/jobs/executor.go`): execuções reais de tools chamam `Service.Execute`
   com `origin_type = job_run` e `origin_id = run.RunID` (o ID do `job_run`). Isso é o vínculo
   origem→armazenamento comum: dado um `job_run`, é possível listar suas invocações por
@@ -326,7 +343,7 @@ domínio distinta da trilha técnica de `tool_invocations`.
 | Tool results de chat não exclusivamente como mensagens | Atendido | Hidratação via `tool_invocations`; `role=tool` só como fallback (L1) |
 | MCP e tools internas representadas de forma consistente | Atendido | `Execute`/`Record` unificados; `metadata.external` para MCP nativo |
 | Migração/compatibilidade OU plano explícito de transição | **Atendido por esta seção** | Plano L1/L2/L3 + critérios de deprecação |
-| Testes cobrindo chat, job e dry-run no mesmo executor | Atendido | `service_tool_calls_persistence_test.go`, `executor_toolinvocations_test.go`, `manager_toolinvocations_test.go`, `app_tool_dry_run_test.go` |
+| Testes cobrindo chat, job e dry-run no mesmo executor | Atendido | `service_tool_calls_persistence_test.go`, `executor_toolinvocations_test.go`, `manager_toolinvocations_test.go`, `internal/wailsapi/jobs_dryrun_test.go` |
 
 ## Relação com issues
 

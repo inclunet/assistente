@@ -1,6 +1,6 @@
 # AEP-0097 — Capabilities de protocolo configuráveis por provedor
 
-Status: Done
+Status: In Progress — runtime/CRUD entregues; portabilidade do campo permanece pendente
 
 ## Resumo
 
@@ -73,7 +73,9 @@ protocolo.
 - [x] Nenhuma decisão de `reasoning_content` depende de URL, marca ou modelo.
 - [x] DeepSeek builtin nasce com `replay_with_tools`.
 - [x] Provider custom pode habilitar/desabilitar a capability pela UI.
-- [x] Campo sobrevive ao CRUD, banco, export/import e bindings.
+- [ ] Campo sobrevive ao CRUD, banco, export/import e bindings. CRUD, banco e
+  bindings estão entregues; `ProviderExport`, `exportProvider` e
+  `persistProvider` ainda não transportam `ReasoningContentMode`.
 - [x] Replay ocorre com tools e não ocorre sem tools.
 - [x] Histórico recarregado não transforma reasoning genérico em extensão.
 - [x] Testes Go e frontend ficam verdes.

@@ -105,7 +105,8 @@ O antigo campo `id` dos jobs (slug humano legível como `fetch-jira-tickets`) vi
 
 O slug é o identificador usado em:
 - API Wails (frontend referencia jobs por slug)
-- LLM tools compostas (`job`, `job_run`, etc. usam slug)
+- LLM tools compostas (`job_pipeline`, `job`, `job_catalog`) usam slug; ações
+  de runs/eventos ficam na tool `job` (D14)
 - Eventos inter-job (`on_success`/`on_failure` referenciam por slug)
 - Logs de execução (legibilidade humana)
 
@@ -146,7 +147,7 @@ Tools previstas:
 |---|---|
 | `job_pipeline` | Lista, lê, cria, atualiza, duplica, ativa/desativa ou remove pipelines conforme `pipeline_id`/`pipeline_slug`, `title`, `duplicate`, `delete`, `enabled` e filtros. |
 | `job` | Lista, lê, cria, atualiza, duplica, remove, ativa/desativa, executa ou faz dry-run de jobs conforme `job_id`/`job_slug`, `pipeline_slug`, `delete`, `duplicate`, `enabled`, `run`, `dry_run` e payload de configuração. |
-| `job_run` | Lista runs de um job, lê um run específico e retorna timeline/eventos com modos leves (`summary_only`) ou completos. |
+| `job` (ações de observabilidade) | Lista runs, lê um run específico e retorna timeline/eventos; a previsão antiga de uma tool `job_run` independente foi substituída pela D14. |
 | `job_catalog` | Consulta catálogo de tools disponíveis para jobs e schemas necessários para montar/validar `job.inputs`; também pode acionar teste/dry-run de tool quando a AEP-0063 estiver implementada. |
 
 As tools são registradas como **opt-in** via `RegisterOptIn()` — só aparecem quando o perfil de interação as habilita explicitamente. Isso evita poluir o contexto do LLM em perfis que não usam jobs.
@@ -446,7 +447,9 @@ Consequências:
 
 ### Fase 6 — Tools nativas ✅
 
-14. Criar tools nativas compostas em `internal/tools/` para pipelines, jobs, runs e catálogo: `job_pipeline`, `job`, `job_run`, `job_catalog`.
+14. Criar tools nativas compostas para pipelines, jobs e catálogo:
+    `job_pipeline`, `job` e `job_catalog`. Runs/timeline/eventos são ações da
+    tool `job`; não existe tool `job_run` independente, conforme D14.
 15. Registrar como opt-in em `initToolRegistry()`
 
 ### Fase 7 — Importação legada filesystem → banco ✅

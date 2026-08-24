@@ -155,38 +155,40 @@ tool := web.NewHTTPRequest(credMgr)
 
 ## Modelos de Dados
 
-### CredentialEntry
+### Contrato vigente
 
 ```go
 type CredentialEntry struct {
-    ID            uint      
-    Pattern       string    // "*.github.com", "api.openai.com"
-    AuthType      string    // "bearer", "basic", "header"
-    TokenEnc      []byte    // Encrypted token
-    UsernameEnc   []byte    // Encrypted username (basic auth)
-    PasswordEnc   []byte    // Encrypted password (basic auth)
-    HeaderNameEnc []byte    // Encrypted header name (custom)
-    HeaderValEnc  []byte    // Encrypted header value (custom)
-    CreatedAt     time.Time
-    UpdatedAt     time.Time
+    UUIDModel
+    UserID          string
+    Pattern         string
+    AuthType        string
+    TokenEnc        string
+    Username        string
+    PasswordEnc     string
+    HeadersEnc      string
+    ExpiresAt       int64
+    RefreshTokenEnc string
+    ClientIDEnc     string
+    ClientSecretEnc string
 }
-```
 
-### CredentialKeyWrap
-
-```go
 type CredentialKeyWrap struct {
-    ID               uint
-    Kind             string // "master" ou "recovery"
-    Salt             []byte // Random salt (16 bytes)
-    WrappedDEK       []byte // DEK wrapped (32 bytes data + 12 nonce + 16 tag)
-    Argon2Time       uint32 // 2
-    Argon2Memory     uint32 // 64 MB
-    Argon2Threads    uint8  // 4
-    Argon2KeyLen     uint32 // 32
-    CreatedAt        time.Time
+    UUIDModel
+    Kind         string
+    Salt         string
+    WrappedDEK   string
+    ArgonTime    uint32
+    ArgonMemory  uint32
+    ArgonThreads uint8
+    DekID        string
 }
 ```
+
+Os IDs são UUIDv7 em `UUIDModel`. Campos criptografados e blobs de wrapping
+são serializados como `string` para persistência SQLite; a conversão
+criptográfica para bytes ocorre na camada `internal/credentials`. Evidência:
+`internal/database/models.go` e `internal/credentials/db_store.go`.
 
 ## Recuperação de Acesso
 
