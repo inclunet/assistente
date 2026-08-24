@@ -68,7 +68,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0050](0050-profiles-database-migration.md) | Migração de Profiles para Banco de Dados (adiada) | 📝 Draft |
 | [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 🚧 In Progress |
-| [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 📝 Draft |
+| [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 🚧 In Progress |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | ✅ Done |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | ✅ Done |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | ✅ Done |

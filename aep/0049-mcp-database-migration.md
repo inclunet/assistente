@@ -1,6 +1,6 @@
 # AEP-0049 — Migração de MCP Servers para Banco de Dados
 
-**Status:** In Progress — runtime DB-only entregue; teste automatizado da retenção de logs permanece pendente
+**Status:** In Progress — runtime DB-only entregue; matriz de regressões de repository, importação, catálogo, STDIO e retenção permanece parcial
 
 ## Dependências
 
@@ -437,12 +437,22 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 
 ### Fase 2 — Repository layer 🚧
 
-4. Criar `internal/mcp/repository.go` com interface `MCPRepository` (D8), recebendo `context.Context` para resolver `user_id`
-5. Implementar `DBMCPRepository` que recebe `*gorm.DB`
-6. Criar repository de catálogo de tools ou expandir repository MCP com métodos de catálogo
-7. [x] Testes: CRUD de servers por usuário, logs, catálogo e
-   indisponibilidade/reaparecimento
-   - [ ] Cobrir limpeza por idade e o agendamento da retenção
+4. [x] Criar `internal/mcp/repository.go` com interface `MCPRepository` (D8),
+   recebendo `context.Context` para resolver `user_id`.
+5. [x] Implementar `DBMCPRepository` que recebe `*gorm.DB`.
+6. [x] Criar repository separado de catálogo em
+   `internal/toolcatalog/repository.go`.
+7. [ ] Completar os testes de repository. CRUD de servers, catálogo e
+   indisponibilidade/reaparecimento estão cobertos; permanecem pendentes:
+   - gravação e leitura bem-sucedidas de logs;
+   - roundtrip de `Args`, `Env` e `OAuth2Scopes`;
+   - limpeza por idade e agendamento da retenção.
+
+Evidências: `internal/mcp/repository.go`,
+`internal/mcp/repository_test.go`,
+`internal/toolcatalog/repository.go` e
+`internal/toolcatalog/repository_test.go`. As lacunas do item 7 mantêm a fase
+parcial.
 
 ### Fase 3 — Migrar Manager para usar Repository ✅
 
@@ -509,15 +519,39 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 
 ### Fase 10 — Testes 🚧
 
-38. [x] Testes Repository: CRUD servers por usuário, logs, catálogo e roundtrip
-    JSON de fields complexos
+38. **Parcial — testes de Repository:**
+    - [x] CRUD e isolamento de servers por usuário, validação de ownership de
+      logs e operações básicas de catálogo.
+    - [ ] Cobrir gravação bem-sucedida e leitura de logs.
+    - [ ] Cobrir roundtrip de `Args`, `Env` e `OAuth2Scopes`.
     - [ ] Adicionar cobertura focada de `CleanOldLogs`/`StartLogRetention` para
       cutoff, preservação de logs recentes e execução inicial/periódica
-39. Testes Manager: LoadConfigs, SaveConfig, DeleteConfig, DuplicateConfig com DB e isolamento por usuário
-40. Testes importação: JSON files → DB, resolução de prioridade multi-dir, idempotência e arquivos originais intocados
-41. Testes catálogo: builtin global, MCP vinculada ao servidor, unavailable/reavailable, schema hash
-42. Testes chat: `nil` vs `[]enabled_tools`, seleção via catálogo, MCP STDIO, MCP nativo com `AllowedTools`
-43. Atualizar testes existentes do Manager
+39. [x] Testes Manager: `LoadConfigs`, `SaveConfig`, `DeleteConfig` e
+    `DuplicateConfig` com DB e isolamento por usuário
+    (`internal/mcp/{migration,duplicate,repository}_test.go`).
+40. **Parcial — testes de importação:**
+    - [x] JSON → DB, idempotência e arquivos originais intocados
+      (`internal/portability/service_test.go` e
+      `internal/mcp/manager_test.go`).
+    - [ ] Cobrir a precedência multi-dir `cwd > home > exe`.
+41. **Parcial — testes de catálogo:**
+    - [x] Builtin global, MCP vinculada ao servidor e transições
+      unavailable/reavailable
+      (`internal/toolcatalog/{repository,service}_test.go`).
+    - [x] Cálculo inicial de schema hash
+      (`internal/tools/catalog_test.go` e
+      `internal/tools/catalog_equivalence_test.go`).
+    - [ ] Cobrir atualização de `schema_hash` ao ressincronizar uma tool MCP.
+42. **Parcial — testes de seleção/chat:**
+    - [x] `nil` vs `[]enabled_tools`, seleção por catálogo, bridge e MCP nativo
+      com `AllowedTools`
+      (`internal/chat/{tool_defs,tool_selection_policy}_test.go` e
+      `internal/tests/integration/firstrun_mcp_test.go`).
+    - [ ] Cobrir execução com transporte MCP STDIO real.
+43. [x] Testes existentes do Manager atualizados e dry-run protegido coberto
+    (`internal/mcp/manager_test.go`,
+    `internal/wailsapi/jobs_dryrun_test.go` e
+    `internal/tools/catalog_tool_test.go`).
 
 ## Arquivos afetados
 
@@ -587,7 +621,8 @@ Evidências: `internal/mcp/repository_test.go`, `manager_test.go`,
 - [x] OAuth PKCE, client credentials e autodiscovery permanecem funcionais.
 - [x] Eventos de lifecycle são gravados em `mcp_server_logs`.
 - [x] Importação filesystem pós-login é idempotente.
-- [x] Resolução multi-dir preserva a prioridade definida.
+- [ ] Resolução multi-dir preserva a prioridade definida — falta regressão
+  específica de `cwd > home > exe`.
 - [x] Arquivos legados permanecem intocados.
 - [x] API Wails/frontend preservam o contrato.
 - [x] Credenciais e tokens OAuth permanecem intactos.
@@ -597,11 +632,18 @@ Evidências: `internal/mcp/repository_test.go`, `manager_test.go`,
 - [x] File watcher foi removido.
 - [x] Servidores/tools MCP são isolados por usuário.
 - [x] Builtins globais não possuem `mcp_server_id`.
-- [x] Catálogo sincroniza origem, categoria, risco, schema e disponibilidade.
+- [x] Catálogo sincroniza origem, categoria, risco e disponibilidade.
+- [ ] Ressincronização de tool MCP atualiza `schema_hash` com regressão
+  dedicada.
 - [x] Ausência/reaparecimento transita `unavailable`/`available`.
 - [x] Chat seleciona/ativa tools por catálogo.
 - [x] MCP nativo recebe `AllowedTools`.
+- [ ] O caminho de seleção/chat possui regressão com transporte MCP STDIO real.
 - [x] Dry-run de builtins e MCP usa o pipeline protegido.
 - [x] Regressões cobrem perda de dados e isolamento.
-- [ ] Repository, manager, importação, catálogo, seleção e dry-run têm testes
-  Go; a cobertura de retenção de logs permanece incompleta conforme a Fase 10.
+- [ ] A matriz Go cobre integralmente repository, manager, importação,
+  catálogo, seleção e dry-run — permanecem as lacunas detalhadas na Fase 10.
+- [ ] Repository cobre sucesso/leitura de logs e roundtrip de `Args`, `Env` e
+  `OAuth2Scopes`.
+- [ ] A retenção de logs possui regressões de cutoff, preservação de registros
+  recentes e execução inicial/periódica.
