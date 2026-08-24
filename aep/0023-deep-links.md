@@ -27,10 +27,10 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 
 | URI | Ação |
 |-----|------|
-| `assistente://conversation/{id}` | Abre/foca aba de chat existente |
-| `assistente://conversation/new` | Cria nova conversa |
-| `assistente://conversation/new?message={texto}&title={título}` | Cria nova conversa, envia mensagem e define título da aba |
-| `assistente://conversation/{id}/send?message={texto}` | Envia mensagem em conversa existente |
+| `assistente://conversation/{id}[?profile={slug}]` | Abre/foca aba de chat existente e opcionalmente aplica o perfil à aba |
+| `assistente://conversation/new[?profile={slug}]` | Cria nova conversa e opcionalmente aplica o perfil |
+| `assistente://conversation/new?message={texto}&title={título}[&profile={slug}]` | Cria nova conversa, envia mensagem, define título e opcionalmente aplica o perfil |
+| `assistente://conversation/{id}/send?message={texto}[&profile={slug}]` | Envia mensagem em conversa existente usando opcionalmente o perfil indicado |
 
 ### Abas do Workspace
 
@@ -152,6 +152,9 @@ parseDeepLink('assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc');
 parseDeepLink('assistente://conversation/new?message=oi&title=Teste');
 // → { type: 'conversation:new', message: 'oi', title: 'Teste' }
 
+parseDeepLink('assistente://conversation/new?message=oi&profile=techsupport');
+// → { type: 'conversation:new', message: 'oi', profile: 'techsupport' }
+
 parseDeepLink('assistente://tasklist/5');
 // → { type: 'tab:open', tabType: 'tasklist', contentId: '5' }
 
@@ -201,9 +204,9 @@ Retorna a classe CSS específica do tipo (ex: `deep-link--conversation`).
 type TabType = 'tasklist' | 'editor' | 'terminal';
 
 type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: string; title?: string }
-  | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: string; message: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string; profile?: string }
+  | { type: 'conversation:new'; message?: string; title?: string; profile?: string }
+  | { type: 'conversation:send'; conversationId: string; message: string; profile?: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }
@@ -264,7 +267,7 @@ Mensagem Markdown
 
 | Arquivo | Testes | Cobertura |
 |---------|--------|-----------|
-| `frontend/src/lib/deepLinks.test.ts` | 105 | Parser, builder, roundtrip, isDeepLink, classes CSS, executor (todos os action types), validações de segurança |
+| `frontend/src/lib/deepLinks.test.ts` | Parser, builder e executor | Todos os action types, roundtrip, `profile` nas três variantes de conversa, classes CSS e validações de segurança |
 | `frontend/src/lib/markdownItDeepLink.test.ts` | 12 | Plugin: classes, atributos, ARIA, mix com links normais, URIs inválidos |
 | `internal/tools/deeplink/open_deep_link_test.go` | 5 | Validação de prefixo, URIs válidas/inválidas, JSON malformado |
 

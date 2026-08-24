@@ -124,6 +124,11 @@ próprias, como menus de contexto no Markdown e `sync()` do deck no Reveal.
 - Integração real da biblioteca e regressões auxiliares:
   `accessibleMermaid.integration.test.ts`, `mermaidFence.test.ts` e testes do
   editor Mermaid.
+- Entregas de implementação:
+  [PR #570 — Mermaid acessível](https://github.com/inclunet/assistente/pull/570),
+  [PR #571 — integração Reveal](https://github.com/inclunet/assistente/pull/571),
+  [PR #572 — erro contido](https://github.com/inclunet/assistente/pull/572) e
+  [PR #573 — canal oficial do announcer](https://github.com/inclunet/assistente/pull/573).
 
 ## Riscos
 
@@ -160,7 +165,6 @@ Os gates são reproduzíveis pelo contrato de
 `.github/workflows/ci.yml`: etapas `TypeScript check`, `ESLint`, `Stylelint` e
 `Tests (includes axe-core a11y)`, equivalentes a `npx tsc --noEmit`,
 `npm run lint`, `npm run lint:css` e `npm run test`. A cobertura específica
-permanece nos testes concretos listados em **Evidências**. O estado corrente
-pode ser consultado na página estável de
-[checks do PR #579](https://github.com/inclunet/assistente/pull/579/checks),
-sem vincular esta AEP a IDs efêmeros de run, job ou commit.
+permanece nos testes concretos listados em **Evidências**; os PRs de
+implementação também estão vinculados ali. Checks de um PR documental posterior
+não constituem evidência da implementação desta AEP.

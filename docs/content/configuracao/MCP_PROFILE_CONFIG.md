@@ -70,7 +70,12 @@ Para detalhes sobre `api_format`, veja [Configuração de Providers](PROVIDER_CO
 
 ---
 
-## Servidores Elegíveis para MCP Nativo
+## Candidatos do manager e elegibilidade final
+
+`Manager.GetEligibleNativeMCPServers()` monta candidatos com os critérios 1–4
+abaixo. O nome do método não significa que qualquer tool disponível será
+enviada nativamente: a camada de chat ainda aplica capacidade do provider,
+tri-state do perfil e o critério 5 por turno.
 
 Apenas servidores que atendem **todos** estes critérios vão pelo caminho nativo:
 
@@ -84,6 +89,8 @@ Apenas servidores que atendem **todos** estes critérios vão pelo caminho nativ
 URLs `http://` com host remoto são excluídas — o provider LLM faz a conexão server-side e auth tokens seriam transmitidos sem encriptação.
 
 Servidores STDIO/locais **sempre** usam adapter, independente do provider.
+Um servidor candidato cuja única tool esteja `on_demand` permanece no caminho
+bridge; carregá-la durante o turno não a promove retroativamente a MCP nativo.
 
 ---
 

@@ -71,10 +71,11 @@ Cada invocação informa de onde veio:
 
 ### D5 — Logs efêmeros e retenção própria
 
-`tool_invocations` tem retenção por origem conforme AEP-0074. Invocações de
-chat integram a timeline da conversa e, por padrão, acompanham seu ciclo de
-vida sem expiração temporal. Invocações operacionais de jobs/dry-run são
-efêmeras e acompanham a retenção curta dos jobs.
+`tool_invocations` tem retenção por origem conforme a
+[AEP-0074-B — Compactação e Retenção do Banco de Dados](0074-database-compaction-and-retention.md).
+Invocações de chat integram a timeline da conversa e, por padrão, acompanham
+seu ciclo de vida sem expiração temporal. Invocações operacionais de
+jobs/dry-run são efêmeras e acompanham a retenção curta dos jobs.
 
 Contrato vigente:
 
@@ -230,7 +231,8 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 - [x] Chat não grava novos resultados brutos como mensagens no caminho feliz.
 - [x] Dry-run e teste de catálogo usam o executor compartilhado.
 - [x] Tools internas, MCP bridge e MCP nativo têm representação consistente.
-- [x] Retenção/limpeza respeita a política por origem da AEP-0074.
+- [x] Retenção/limpeza respeita a política por origem da
+  [AEP-0074-B — Compactação e Retenção do Banco de Dados](0074-database-compaction-and-retention.md).
 - [x] Testes cobrem sucesso, falha, timeout, dry-run, chat e `job_run`.
 
 Evidências: `internal/toolinvocations/{repository,service}_test.go`,

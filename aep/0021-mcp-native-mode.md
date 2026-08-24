@@ -106,7 +106,14 @@ Quando o modo resolvido e nativo e a request falha com o erro caracteristico de 
 
 ### Aplicacao na montagem de tools
 
-`internal/chat.ApplyNativeMCP(...)` e `FilterToolNamesForNativeMCP(...)` recebem o override resolvido do perfil. Quando o resultado e nativo, os MCP servers HTTP elegiveis sao anexados ao provider via `WithMCPServers()` e suas bridge tools sao removidas do `tools[]`; quando e adapter, os servers permanecem como function/bridge tools. `WithMCPServers()` gate apenas pela **capacidade fisica** (a politica ja foi decidida na camada de chat). MCP servers STDIO sempre continuam como bridges.
+`internal/chat.ApplyNativeMCP(...)` e a `ToolSelectionPolicy` recebem o override
+resolvido do perfil. A lista bruta do manager ainda não é a decisão final do
+turno: a camada de chat cruza cada servidor candidato com as tools
+**preloaded** pela política efetiva. Somente servidores com ao menos uma tool
+nesse cruzamento são anexados ao provider via `WithMCPServers()`, com
+`AllowedTools` restrito ao subconjunto preloaded, e as bridges correspondentes
+são removidas de `tools[]`. Tools MCP carregadas sob demanda continuam como
+function/bridge; servidores STDIO sempre continuam como bridges.
 
 **Inferencia automatica:** Quando `api_format` nao esta definido, `GetAPIFormat()` infere `openai_responses` se o BaseURL contem `api.openai.com`; qualquer outro URL cai no default conservador `openai` (Chat Completions). **Atencao:** essa heuristica decide apenas qual *API* falar (Responses vs Chat Completions) — NAO tem qualquer relacao com a decisao de MCP nativo, que e puramente capacidade fisica + opt-in de perfil.
 
@@ -173,16 +180,32 @@ O modelo pode usar todas simultaneamente. O agentic loop so executa localmente t
 
 ---
 
-## Servidor Elegivel para MCP Nativo
+## Elegibilidade bruta do manager e decisão final por turno
 
-`GetNativeEligibleServers()` retorna apenas servers que:
+Apesar do nome, `Manager.GetEligibleNativeMCPServers()` produz apenas
+**candidatos de servidor**. No código vigente, essa etapa verifica:
 
-1. Estao conectados
-2. Tem transporte HTTP (SSE ou Streamable HTTP)
-3. Tem URL elegivel (ver regra abaixo)
-4. Tem pelo menos uma tool disponivel
+1. servidor conectado;
+2. transporte HTTP (SSE ou Streamable HTTP), excluindo STDIO;
+3. URL presente e elegível pela regra abaixo;
+4. ao menos uma tool disponível no servidor;
+5. `prefer_bridge=false`.
 
-Servers STDIO sao automaticamente excluidos e continuam via adapter.
+Ela não conhece a capacidade do provider, o tri-state do perfil nem quais
+tools estão preloaded naquele turno. A elegibilidade final é composta na camada
+de chat:
+
+1. `ChatProvider.NativeMCPCapable()` deve ser verdadeiro;
+2. `Profile.Chat.NativeMCP` não pode resolver para adapter (`false`);
+3. o candidato do manager deve ter `prefer_bridge=false`;
+4. ao menos uma tool do servidor deve pertencer ao conjunto preloaded da
+   política efetiva do perfil.
+
+Se o servidor só tiver tools `on_demand`, ele não entra nativo inicialmente.
+Quando essas tools forem carregadas durante o turno, permanecem
+function/bridge; o carregamento não remonta retroativamente o provider como
+MCP nativo. Esse cruzamento é coberto por
+`internal/chat/tool_selection_policy_test.go`.
 
 **Regra de URL para MCP nativo:**
 

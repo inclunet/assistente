@@ -127,7 +127,10 @@ Arquivos de configuração ficam em:
 - Permite deployar servidor MCP em container/cloud
 - Suporte a múltiplos clientes simultaneamente
 - Facilita load balancing
-- **Elegível para MCP nativo** quando o provider suportar (OpenAI Responses API, Anthropic) e URL for `https://`, ou `http://` apenas em localhost/loopback
+- **Candidato a MCP nativo** quando conectado, com tools disponíveis e URL
+  `https://` (ou `http://` apenas em localhost/loopback); o caminho final ainda
+  exige provider capaz, `native_mcp` permitindo, `prefer_bridge=false` e ao
+  menos uma tool preloaded no turno
 
 ---
 
@@ -393,7 +396,9 @@ servers.forEach(srv => {
 ## Resumo
 
 - **Stdio**: Para servidores locais (Node, Python, Go, Rust) — sempre via adapter/bridge
-- **SSE / Streamable HTTP**: Para servidores remotos/locais — elegíveis para MCP nativo com providers que suportam e URL segura (`https://`, ou `http://` apenas em localhost/loopback)
+- **SSE / Streamable HTTP**: Para servidores remotos/locais — candidatos ao
+  caminho nativo com URL segura; a decisão final também aplica capacidade do
+  provider, tri-state do perfil, `prefer_bridge` e preload efetivo por turno
 - **Auth**: Tokens via env vars, nunca hardcoded no JSON
 - **Docker**: Servidores containerizados via stdio
 - **Auto-reconnect**: Health checks + exponential backoff automático

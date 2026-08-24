@@ -1,6 +1,6 @@
 # HTTP Request Tool - Proposta de Implementação
 
-**Status:** Done — escopo funcional entregue pelo contrato centralizado vigente
+**Status:** In Progress — escopo funcional entregue; matriz de validação parcial
 
 ## Contexto
 
@@ -268,7 +268,8 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
 ### Implementação entregue
 
 1. ✅ Tool implementada em `internal/tools/web/http_request.go`.
-2. ✅ Cobertura unitária em `internal/tools/web/http_request_test.go`.
+2. 🚧 Cobertura unitária parcial em
+   `internal/tools/web/http_request_test.go`.
 3. ✅ Registro no catálogo compartilhado de tools.
 4. ✅ Integração com cliente HTTP centralizado, credenciais e guardrails
    anti-SSRF; autenticação é resolvida por URL, sem argumentos de segredo.
@@ -279,9 +280,10 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
 - [x] O código aceita os métodos declarados, aplica `body_type` e implementa os
   modos de extração em `internal/tools/web/http_request.go`.
 - [x] `internal/tools/web/http_request_test.go` cobre GET, POST JSON, DELETE,
-  confirmação de DELETE, headers customizados e extração JSON.
+  DELETE sem callback, DELETE negado/cancelado e extração JSON.
 - [ ] A matriz unitária ainda não cobre PUT/PATCH/HEAD/OPTIONS, todos os
-  `body_type` (`form`, `text`, `raw`) nem todos os `extract_mode`.
+  `body_type` (`form`, `text`, `raw`), todos os `extract_mode`, headers
+  customizados nem o caminho de aprovação de operação mutável.
 - [x] O schema publicado coincide com `httpRequestArgs` e não oferece
   `auth_basic`, `auth_bearer` ou `timeout_seconds`.
 - [x] Credenciais e timeout são delegados ao cliente central de
@@ -291,7 +293,8 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
 
 ---
 
-**Estado:** escopo funcional implementado pelo contrato vigente; desenho
-original de autenticação/timeout superseded pelas AEPs 0018/0019.
+**Estado:** escopo funcional implementado pelo contrato vigente, com validação
+automatizada ainda parcial; desenho original de autenticação/timeout superseded
+pelas AEPs 0018/0019.
 **Prioridade:** Alta (impacto operacional significativo)  
 **Estimativa:** 2-3 horas de implementação + testes
