@@ -9,7 +9,11 @@
 
 ## Resumo
 
-O subsistema de tools funciona, mas sua **política de seleção está distribuída**, o **catálogo (`tool_catalog`) vive acoplado ao MCP**, os **metadados das builtins ficam num mapa central separado da definição da tool**, e o `tool_catalog` é hoje uma **listagem filtrável** — não um **planejador** que decide, com orçamento e ranking, *quais* tools entram no contexto de um turno por perfil/superfície.
+No baseline anterior a esta AEP, a **política de seleção estava distribuída**, o
+**catálogo (`tool_catalog`) vivia acoplado ao MCP**, os **metadados das builtins
+ficavam num mapa central separado da definição da tool**, e o `tool_catalog`
+era apenas uma **listagem filtrável**. As fases entregues removeram esses gaps e
+adicionaram o planejador por orçamento/ranking.
 
 Este AEP consolida quatro evoluções incrementais (#122 → #120 → #119 → #121) em um caminho único, precedido por uma fase de **rede de segurança** (#245: refatorar `RunAgenticLoop` e subir cobertura), de modo que cada mudança na fontanaria de tools seja feita sobre testes confiáveis. O capstone é o **ToolPlanner**: seleção determinística por **budget de schema bytes**, **ranking por perfil/superfície**, **pacotes preferenciais** e **resolução formal de conflitos bridge × native**.
 
@@ -17,7 +21,7 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 
 > **Evolução posterior (AEP-0081).** O ToolPlanner entregue aqui define ranking, budget de schema, pacotes preferenciais e resolução bridge×native. A política tri-state por perfil (`disabled` / `on_demand` / `preloaded`), o `tool_catalog` com `action=load|unload|list_loaded` e a persistência de tools carregadas por conversa/sessão são definidos separadamente na AEP-0081.
 
-## Motivação
+## Motivação (baseline anterior à implementação)
 
 1. **Política de seleção distribuída** (#119): as decisões de "quais tools para este perfil/turno" estão espalhadas entre `internal/chat/tool_defs.go` (`BuildLLMToolDefs`, `ResolveInitialEnabledTools[WithRuntime]`, `BuildLLMToolDefsByNames`, `FilterToolNamesByEnabledTools`, `ResolveNativeMCPEnabled`, `FilterToolNamesForNativeMCP`, `ApplyNativeMCP`), o callback de expansão dinâmica no use case de envio, e os filtros do `tool_catalog`. Sem um ponto único, mudanças divergem e regressões passam despercebidas.
 2. **Catálogo acoplado ao MCP** (#120): a persistência do `tool_catalog` mora em `internal/mcp/repository.go` + `internal/mcp/catalog_sync.go`. Builtins, MCP bridge e MCP native compartilham o catálogo, mas o dono do código é o pacote MCP — acoplamento que dificulta evolução e testes.
@@ -25,21 +29,33 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 4. **`tool_catalog` é listagem, não planner** (#121): hoje (`internal/tools/catalog_tool.go`) ele filtra/lista capabilities; não há orçamento de contexto, ranking por relevância de perfil/superfície, pacotes preferenciais nem resolução determinística de conflito quando a mesma capability existe como bridge e native.
 5. **`RunAgenticLoop` pouco testável** (#245, `prio:critical`): ~550 linhas em `internal/agent/service.go` concentram streaming, loop de tools, MCP nativo/fallback e recovery. Sem seams e cobertura, qualquer mudança na seleção de tools que esse loop consome é arriscada.
 
-## Estado atual (mapa)
+## Arquitetura entregue (mapa vigente)
 
 | Peça | Local | Papel |
 |---|---|---|
 | Registry runtime | `internal/tools/registry.go` | Fonte executável das tools |
-| Catálogo (tipos + metadata builtin) | `internal/tools/catalog.go` | `ToolCatalogEntry` (`category/class/package/risk/schema_bytes`) + mapa central de builtins |
+| Tipos e projeção do catálogo | `internal/tools/catalog.go` | `ToolCatalogEntry`, `CatalogMetadataProvider`, fallback padrão e `CatalogEntryFromTool`; não contém mapa central por nome |
+| Metadata das builtins | Implementações concretas em `internal/tools/**` + fallback de `CatalogEntryFromTool` | Builtins com metadata específica implementam `CatalogMetadata()`; as demais, como `get_conversation_info` e `memory`, recebem defaults sem mapa central por nome |
 | Tool de listagem do catálogo | `internal/tools/catalog_tool.go` | Lista/filtra capabilities (exposta ao modelo) |
 | Persistência do catálogo | `internal/toolcatalog/repository.go`, `internal/toolcatalog/service.go` | Sync/storage do catálogo (pacote dedicado; F2/#120 concluída — MCP consome via `Manager.SetCatalog`) |
 | Política de seleção | `internal/chat/tool_selection_policy.go` (`ToolSelectionPolicy`); `tool_defs.go` são wrappers finos (F3/#119 concluída) | Resolve enabled tools, filtra por perfil, aplica MCP nativo e expansão dinâmica num ponto único |
 | Loop agêntico | `internal/agent/service.go` (`RunAgenticLoop`) | Consome tool defs/política; streaming, loop, MCP nativo, recovery |
 | Storage de resultados | `internal/toolinvocations/*` (AEP-0063) | `tool_invocations` canônico via `tool_catalog_id` |
 
+Evidências da Fase 1: `internal/tools/catalog_test.go` comprova a projeção via
+`CatalogMetadataProvider` e o fallback; `internal/tools/catalog_equivalence_test.go`
+mantém um golden de regressão derivado do antigo mapa para garantir equivalência
+sem torná-lo fonte de produção. `internal/toolcatalog/service_test.go` cobre o
+consumo desses metadados pelo serviço persistido.
+
 ## Decisões
 
-- **D1 — Metadados na definição da tool (#122).** Cada builtin declara seus próprios metadados de catálogo (`category`, `class`, `package`, `risk`, `tags`, `schema`) junto da definição/registro, eliminando o mapa central paralelo. O catálogo passa a ser **completo e autoritativo** por construção. Sem mudança de schema do banco.
+- **D1 — Metadados na definição da tool (#122).** Builtins que precisam de
+  metadata não padrão declaram `category`, `class`, `package`, `risk` e `tags`
+  junto da definição/registro por `CatalogMetadataProvider`; o schema continua
+  derivado de `Tool.Parameters()`. As demais usam o fallback determinístico de
+  `CatalogEntryFromTool`. Isso elimina o mapa central paralelo sem exigir
+  implementação redundante em toda tool. Sem mudança de schema do banco.
 - **D2 — Serviço próprio de catálogo (#120).** Extrair a persistência/sync do `tool_catalog` para um pacote dedicado (ex.: `internal/toolcatalog`), com dono claro, consumido por MCP, builtins e (futuro) planner. **Mesma tabela e migrações**; muda a propriedade do código e os call sites.
 - **D3 — Política de seleção única (#119).** Consolidar a seleção por perfil/superfície atrás de **um** serviço/contrato (ex.: `ToolSelectionPolicy`), reusado por chat, agent e CLI. As funções de `tool_defs.go` e o callback de expansão dinâmica passam a delegar a esse contrato. **Paridade comportamental obrigatória** (caracterizar antes de refatorar).
 - **D4 — ToolPlanner (#121).** Sobre D1–D3, evoluir a listagem para um planejador determinístico com: **budget de schema bytes** (teto de bytes de schema injetados por turno), **ranking** por relevância de perfil/superfície, **pacotes preferenciais**, e **resolução de conflito bridge × native** alinhada à AEP-0021. A saída do planner é a lista final de `ToolDefinition` + telemetria (o que entrou, o que foi cortado e por quê).
@@ -68,7 +84,10 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 ## Critérios de Aceitação
 
 - [x] **F0/#245** (PR #318): `RunAgenticLoop` decomposto em unidades testáveis (`internal/agent/agentic_loop.go`); cobertura do loop agêntico elevada; comportamento idêntico (sem mudança de contrato de eventos AEP-0040).
-- [x] **F1/#122** (PR #317): metadados de catálogo declarados junto de cada builtin (interface `CatalogMetadataProvider`); mapa central removido; catálogo de builtins idêntico ao anterior (teste de equivalência `golden`).
+- [x] **F1/#122** (PR #317): metadata específica declarada junto das builtins
+  migradas (`CatalogMetadataProvider`), fallback padrão para as demais e mapa
+  central removido; o golden protege a equivalência do conjunto migrado, sem
+  alegar cobertura de toda builtin registrada.
 - [x] **F2/#120** (PR #320): `tool_catalog` num pacote próprio fora de `internal/mcp` (`internal/toolcatalog`); mesma tabela/migrações; MCP, builtins e demais call sites consumindo o novo serviço.
 - [x] **F3/#119** (PR #321): um único contrato de política de seleção por perfil/superfície (`internal/chat.ToolSelectionPolicy`); `tool_defs.go` e a expansão dinâmica do use case de envio delegando a ele (callbacks duplicados eliminados); testes de caracterização (snapshots por perfil/cenário) garantindo paridade.
 - [x] **F4/#121** (PR #322): ToolPlanner com budget de schema bytes, ranking por perfil/superfície, pacotes preferenciais e resolução bridge×native; telemetria de seleção (incluído/cortado + motivo); budget configurável. Implementado em `internal/toolcatalog/planner.go` (planner determinístico puro) e plugado em `internal/chat.ToolSelectionPolicy` (`PlanTurnToolDefs`/`ResolveExpandedToolDefs`); budget e pacotes preferenciais configuráveis por perfil (`ChatConfig.ToolSchemaBudgetBytes`/`PreferredToolPackages`); default seguro (budget `0` = ilimitado, sem regressão); o budget é orçado sobre o conjunto final/acumulado de cada caminho (nativo×adapter, expansão dinâmica) e a resolução bridge×native consome a decisão tri-state existente (AEP-0021) sem duplicá-la.

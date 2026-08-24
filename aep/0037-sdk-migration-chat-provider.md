@@ -271,7 +271,7 @@ Este caminho nao envolve o cliente LLM nem o `ChatProvider`. MCP tools continuam
 
 - `llm.go`: usar factory `NewChatProvider`, roteamento MCP hibrido
 - `agent.go`: adaptar agentic loop para `ChatProvider`
-- `mcp/manager.go`: `GetNativeEligibleServers()`
+- `internal/mcp/manager.go`: `Manager.GetEligibleNativeMCPServers()`
 
 ### Fase 5: Config e UI ✅
 
@@ -309,7 +309,7 @@ Este caminho nao envolve o cliente LLM nem o `ChatProvider`. MCP tools continuam
 - `llm.go` — factory de providers, roteamento MCP
 - `agent.go` — agentic loop usando `ChatProvider`
 - `app.go` — wizard, CRUD de providers
-- `internal/mcp/manager.go` — `GetNativeEligibleServers()`
+- `internal/mcp/manager.go` — `Manager.GetEligibleNativeMCPServers()`
 - `internal/profiles/types.go` — removidos campos legados `mcp_mode`, `mcp_native_tested` e metodos associados
 
 ### Removidos (Fase 6)

@@ -39,9 +39,20 @@ ausente.
 
 ### 5. **Native MCP Mode** ✅ FUNCIONAL
 - ✅ MCP nativo real via Responses API (OpenAI) e MCP Connector (Anthropic)
-- ✅ Decisão capability-driven baseada em `api_format` do provider
+- ✅ Capacidade física pelo contrato `ChatProvider.NativeMCPCapable()`; o
+  `api_format` escolhe o adapter/protocolo do provider, mas não decide sozinho o
+  modo MCP
+- ✅ Política por perfil em `Profile.Chat.NativeMCP` (`nil` = automático
+  otimista, `true` = forçar tentativa nativa se capaz, `false` = adapter)
+- ✅ Elegibilidade final por turno cruza candidatos HTTP do
+  `Manager.GetEligibleNativeMCPServers()` com `prefer_bridge=false` e as tools
+  `preloaded` da política efetiva em `ToolSelectionPolicy`
 - ✅ Coexistência: tools internas + MCP nativo + STDIO bridges na mesma request
 - ✅ Deduplicação automática de tools (bridges removidas quando há caminho nativo)
+
+O desenho antigo que inferia a decisão diretamente de `api_format` é histórico.
+O contrato vigente, incluindo fallback no mesmo turno e persistência do ajuste
+automático `nil → false`, está detalhado na AEP-0021 (revisão v7).
 
 ### 6. **Workspace Roots** ✅ PREPARADO
 - ✅ Tipos definidos (`Root`)

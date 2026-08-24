@@ -126,12 +126,36 @@ sincronizações administrados pelas tools amplas.
 
 ## Fases
 
-1. Implementar `update_plan`, reconciliação e resultado estruturado.
-2. Registrar a tool e conectá-la ao `tasklist.Service`.
-3. Pré-carregar no profile `Programação` e atualizar a skill `coding`.
-4. Cobrir contrato, escopo por conversa, persistência, reconciliação e
-   compatibilidade.
-5. Marcar a fase 3 da AEP-0096 como implementada.
+- [x] **Fase 1:** implementar `update_plan`, reconciliação e resultado
+  estruturado — `internal/tools/tasklist/update_plan.go`.
+- [x] **Fase 2:** registrar a tool e conectá-la ao `tasklist.Service` —
+  `internal/app/app_tool_registry.go` (`serviceTaskListManager` +
+  `NewUpdatePlan`).
+- [x] **Fase 3:** pré-carregar no profile `Programação` e atualizar a skill
+  `coding` — `internal/app/builtin/profiles/programacao.json` e
+  `internal/app/builtin/skills/coding/SKILL.md`.
+- [x] **Fase 4:** cobrir contrato, escopo por conversa, persistência,
+  reconciliação e compatibilidade —
+  `internal/tools/tasklist/update_plan_test.go`.
+- [x] **Fase 5:** marcar a fase 3 da AEP-0096 como implementada.
+
+### Evidências verificáveis
+
+- Contrato, validação anterior à mutação, escopo por conversa, criação da lista
+  vinculada, IDs estáveis, remoção, preservação de cards manuais, hierarquia,
+  retry idempotente e workflow incompatível:
+  `internal/tools/tasklist/update_plan.go` e `update_plan_test.go`.
+- O adapter `serviceTaskListManager` em
+  `internal/app/app_tool_registry.go` encaminha o lifecycle para
+  `internal/tasklist/service.go`; os testes da tool usam a interface
+  `PlanManager` para verificar as mutações e sua ordem, sem alegar um teste DB
+  end-to-end inexistente.
+- Registro e metadata também são protegidos por
+  `internal/tools/catalog_equivalence_test.go`.
+- Preload e skills:
+  `internal/app/builtin_profiles_tools_test.go` verifica `update_plan` como
+  `preloaded`; `internal/app/builtin_skills_test.go` verifica a allowlist e as
+  instruções das skills `coding` e `tasklist-manager`.
 
 ## Riscos
 
@@ -158,4 +182,5 @@ sincronizações administrados pelas tools amplas.
 - [x] Mutações passam pelo `tasklist.Service` e preservam os eventos existentes.
 - [x] `Programação` recebe `update_plan` preloaded; tools amplas continuam sob
   demanda.
-- [x] Testes Go e contratos de profile/skill ficam verdes.
+- [x] Regressões Go cobrem o contrato da tool e os contratos de profile/skill
+  nos arquivos listados em **Evidências verificáveis**.
