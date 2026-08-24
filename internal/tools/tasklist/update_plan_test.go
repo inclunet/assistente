@@ -667,6 +667,27 @@ func TestUpdatePlanRejectsReservedSlugFromOtherConversation(t *testing.T) {
 	}
 }
 
+func TestUpdatePlanNormalizesStoredConversationID(t *testing.T) {
+	mgr := newFakePlanManager()
+	list, err := mgr.CreateTaskList(context.Background(), "Plano", "", nil, planSlug("conv-spaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := " conv-spaces "
+	mgr.lists[list.ID].ConversationID = &stored
+
+	response := executePlan(t, NewUpdatePlan(mgr), planContext("conv-spaces"), map[string]any{
+		"title": "Plano",
+		"plan":  []map[string]any{},
+	})
+	if response.PlanID != list.ID {
+		t.Fatalf("deveria reutilizar o plano existente: %q", response.PlanID)
+	}
+	if got := mgr.lists[list.ID].ConversationID; got == nil || *got != "conv-spaces" {
+		t.Fatalf("conversation_id deveria ser normalizado: %#v", got)
+	}
+}
+
 func TestUpdatePlanPreservesDesiredChildWhenParentIsOmitted(t *testing.T) {
 	mgr := newFakePlanManager()
 	tool := NewUpdatePlan(mgr)

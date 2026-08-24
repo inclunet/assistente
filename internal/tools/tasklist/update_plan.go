@@ -271,10 +271,14 @@ func (t *UpdatePlan) ensurePlanTaskList(ctx context.Context, conversationID stri
 		changed = true
 	}
 
-	if plan.ConversationID != nil && strings.TrimSpace(*plan.ConversationID) != "" && *plan.ConversationID != conversationID {
+	storedConversationID := ""
+	if plan.ConversationID != nil {
+		storedConversationID = strings.TrimSpace(*plan.ConversationID)
+	}
+	if storedConversationID != "" && storedConversationID != conversationID {
 		return nil, false, fmt.Errorf("reserved plan slug belongs to another conversation")
 	}
-	if plan.ConversationID == nil || *plan.ConversationID == "" {
+	if plan.ConversationID == nil || *plan.ConversationID != conversationID {
 		if err := t.mgr.SetTaskListConversation(ctx, plan.ID, &conversationID); err != nil {
 			return nil, false, fmt.Errorf("link plan to conversation: %w", err)
 		}
