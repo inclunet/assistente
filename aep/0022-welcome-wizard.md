@@ -1,4 +1,4 @@
-# Welcome Wizard - Assistente de Configuração Inicial
+# AEP-0022 — Welcome Wizard
 
 **Status:** Done
 
@@ -74,23 +74,23 @@ Após completar o wizard, o sistema automaticamente:
 
 ### Backend (Go)
 
-1. **app.go**
-   - `NeedsWelcomeWizard()` - Verifica se precisa do wizard
-   - `RunWelcomeWizard()` - Executa o fluxo completo do wizard
-   - `getWizardProviderInfo()` - Mapeia escolha do wizard para tipo/ID/nome do provedor
-   - `createWizardProvider()` - Cria provedor no registry + credential manager + SQLite
-   - `saveWelcomeConfig()` - Salva configuração legada (config.json)
-   - `updateAllProfilesProviderAndModel()` - Atualiza provedor e modelo em todos os perfis
-   - `checkForUpdatesOnStartup()` - Modificada para verificar LLM configurado
-   - `checkForUpdatesAfterWizard()` - Verifica updates após configuração inicial
+- **`internal/wailsapi/welcome.go`** — binding Wails `Welcome`, avaliação
+  pré/pós-login e delegação de `NeedsWelcomeWizard`/`RunWelcomeWizard`.
+- **`controllers/welcome_controller.go`** — fluxo do wizard, validação de
+  conexão/URL, criação do provider e verificação de update.
+- **`internal/app/app_welcome.go`** — wiring de runtime, compatibilidade da CLI
+  e thin wrappers usados pelos testes. O arquivo citado em revisões antigas
+  como `internal/app/app_wizard.go` não existe no HEAD; o nome vigente é
+  `app_welcome.go`.
+- **`internal/app/app_wire.go`** — construção e conexão do controller/binding.
 
 ### Frontend (TypeScript/React)
 
-1. **App.tsx**
-   - Importa novas funções: `NeedsWelcomeWizard`, `RunWelcomeWizard`
-   - Adiciona verificação no `useEffect` de carregamento
-   - Executa wizard antes de carregar configuração se necessário
-   - Feedback visual via toasts
+- **`frontend/src/App.tsx`** — consumidor enxuto do binding
+  `@wailsjs/go/wailsapi/Welcome`; inicia o wizard quando solicitado pelo
+  backend. A lógica de domínio não reside no componente.
+- **Questionnaire global** — renderiza os passos tipados emitidos pelo
+  controller, com strings traduzíveis.
 
 ## Fluxo de Execução
 
@@ -152,16 +152,18 @@ Após completar o wizard, o sistema automaticamente:
    - Breve tour após configuração
    - Demonstração de funcionalidades principais
 
-## Testes Recomendados
+## Cobertura verificada
 
-- [ ] Primeiro uso com OpenAI
-- [ ] Primeiro uso com Ollama
-- [ ] Primeiro uso com URL personalizada
-- [ ] Cancelamento em diferentes etapas
-- [ ] Erro na listagem de modelos
-- [ ] Entrada manual de modelo
-- [ ] Verificar se perfis foram atualizados
-- [ ] Verificar se auto-update não roda sem config
+- [x] Providers, formatos de API, URL customizada, persistência SQLite e
+  provider default: `internal/app/app_wizard_test.go`.
+- [x] URLs inválidas, autenticação, indisponibilidade, erros HTTP e listagem de
+  modelos: `internal/app/app_wizard_test.go`.
+- [x] Binding não conectado, avaliação pré/pós-login e delegação ao runtime:
+  `internal/wailsapi/welcome_test.go`.
+- [x] Payloads e mensagens traduzíveis do questionário:
+  `controllers/welcome_dialogs_i18n_test.go`.
+- [x] Chaves de questionário disponíveis nos locales:
+  `frontend/src/locales/agentQuestionnaireKeys.test.ts`.
 
 ## Notas de Implementação
 

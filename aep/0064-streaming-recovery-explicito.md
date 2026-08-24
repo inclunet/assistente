@@ -84,8 +84,12 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 ### 7) Backend-driven: sem mensagens “fantasma” persistentes no frontend
 
 - O frontend não deve criar mensagens locais persistentes para simular streaming.
-- Um placeholder visual temporário é aceitável enquanto o primeiro evento ainda não trouxe o `messageId` persistido, desde que seja migrado para esse ID assim que disponível.
-- Para suportar recuperação/continuação, o backend deve ser a fonte da verdade: mensagem do assistant deve existir no banco (placeholder) e ser atualizada conforme conteúdo parcial evolui.
+- O frontend também não cria placeholder visual local antes de receber
+  `messageId`. O placeholder pertence ao backend: é persistido no banco e
+  emitido por evento com ID canônico antes de qualquer renderização.
+- Para suportar recuperação/continuação, o backend é a única fonte da verdade:
+  a mensagem do assistant existe no banco e é atualizada conforme o conteúdo
+  parcial evolui. Isso segue AEP-0040 e o contrato backend-driven do projeto.
 
 ## Fases
 
@@ -114,10 +118,15 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 
 ## Critérios de aceitação
 
-- Requests normais nunca enviam `assistant prefill` acidental.
-- Em interrupção de streaming com texto parcial, o app tenta recuperar automaticamente até 3 vezes.
-- Após falhar (ou após cancelamento), a UI mostra “Continuar resposta” no menu da mensagem sempre que o perfil permitir; a continuação usa `assistant prefill` quando suportado ou fallback por mensagem de usuário quando o provider/modelo não suporta prefill (Issue #124).
-- “Cancelar geração” funciona via botão e menu (sempre) e via `Esc` **apenas quando o foco está no campo de edição**; com o foco em outro elemento, o `Esc` devolve o foco ao campo de edição sem cancelar, preservando o fechamento de menus de contexto e a guarda de modal aberto (Issue #202).
-- Cancelamento não limpa fila inteira; apenas interrompe a geração atual.
-- Perfis expõem as opções com rótulos amigáveis e i18n (pt-BR, en, es).
-- Suite de testes cobre os comportamentos críticos.
+- [x] Requests normais nunca enviam `assistant prefill` acidental.
+- [x] Em interrupção com texto parcial, o app tenta recuperação automática até
+  3 vezes.
+- [x] Após falha/cancelamento, “Continuar resposta” usa prefill quando
+  suportado ou fallback por mensagem de usuário (Issue #124).
+- [x] “Cancelar geração” funciona por botão/menu e por `Esc` somente com foco
+  no campo de edição, preservando menus e modais (Issue #202).
+- [x] Cancelamento interrompe somente a geração atual, sem limpar a fila.
+- [x] Perfis expõem opções com i18n em pt-BR, en e es.
+- [x] O frontend renderiza somente mensagem/placeholder persistido e emitido
+  pelo backend com `messageId` canônico.
+- [x] A suíte cobre recuperação, continuação, cancelamento e configuração.

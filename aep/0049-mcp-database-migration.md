@@ -269,7 +269,11 @@ Issue de acompanhamento: <https://github.com/inclunet/assistente/issues/119>.
 A solução deste PR deixa alguns pontos deliberadamente funcionais, mas que devem evoluir em trabalhos futuros para reduzir acoplamento e melhorar a governança do catálogo:
 
 - **Catálogo como capability geral**: `tool_catalog` hoje é persistido pelo repository MCP por conveniência de entrega, mas o catálogo já indexa builtin tools globais e deve virar repository/service próprio, sem depender de `internal/mcp`. Issue: <https://github.com/inclunet/assistente/issues/120>.
-- **Planner real de tools**: a tool `tool_catalog` entrega descoberta e expansão dinâmica, mas ainda não substitui um planner completo com orçamento por bytes de schema, ranking, pacotes preferenciais, policies e resolução formal de conflitos. Issue: <https://github.com/inclunet/assistente/issues/121>.
+- **Planner de tools — entregue posteriormente**: esta lacuna foi fechada pela
+  AEP-0077/issue #121. `internal/toolcatalog/planner.go` implementa orçamento
+  por bytes de schema, ranking, pacotes preferenciais, deduplicação
+  bridge×nativo e telemetria determinística, com regressões em
+  `internal/toolcatalog/planner_test.go` e `internal/chat/tool_planner_test.go`.
 - **Metadados declarativos nas builtin tools**: os metadados de categoria/classe/pacote/risco das builtin tools estão centralizados em mapa determinístico. No futuro, cada builtin tool deve declarar seus próprios metadados no descriptor/registro da tool. Issue: <https://github.com/inclunet/assistente/issues/122>.
 - **Importações legadas como serviço observável**: o gatilho pós-login atual é suficiente para MCP, mas quando skills e outros recursos entrarem no fluxo, a importação legada deve virar um serviço registrável e observável, com resultados estruturados. Issue: <https://github.com/inclunet/assistente/issues/123>.
 

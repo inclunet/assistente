@@ -93,8 +93,8 @@ type ChatProvider interface {
     StreamChat(ctx context.Context, messages []Message, params StreamParams,
         handler StreamHandler, tools ...ToolDefinition) error
 
-    // SupportsNativeMCP indica se este provider suporta MCP connector nativo.
-    SupportsNativeMCP() bool
+    // NativeMCPCapable indica capacidade física de transportar MCP nativo.
+    NativeMCPCapable() bool
 
     // WithMCPServers retorna uma copia do provider configurada com MCP servers
     // para resolucao nativa server-side.
@@ -121,10 +121,10 @@ func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager) Cha
 
 ### Implementacoes
 
-- **`OpenAIProvider(useResponses=false)`**: usa `openai-go` via Chat Completions API. Para provedores OpenAI-compatible (OpenRouter, Ollama, Groq, etc). `SupportsNativeMCP()` retorna `false`. Construtor: `NewOpenAIProvider()`.
-- **`OpenAIProvider(useResponses=true)`**: usa `openai-go` via Responses API. Para OpenAI real. Suporta MCP nativo (`type: "mcp"`), reasoning summaries, tool_choice. `SupportsNativeMCP()` retorna `true`. Construtor: `NewOpenAIResponsesProvider()`.
-- **`AnthropicProvider`**: usa `anthropic-sdk-go`. Messages API com MCP Connector (`mcp_servers[]` + `mcp_toolset`, beta header `mcp-client-2025-11-20`). `SupportsNativeMCP()` retorna `true`.
-- **`GoogleProvider`**: usa `google.golang.org/genai`. Gemini API. `SupportsNativeMCP()` retorna `false` (nao implementado).
+- **`OpenAIProvider(useResponses=false)`**: usa `openai-go` via Chat Completions API. Para provedores OpenAI-compatible (OpenRouter, Ollama, Groq, etc). `NativeMCPCapable()` retorna `false`. Construtor: `NewOpenAIProvider()`.
+- **`OpenAIProvider(useResponses=true)`**: usa `openai-go` via Responses API. Para OpenAI real e proxies compatíveis. Suporta MCP nativo (`type: "mcp"`), reasoning summaries e tool_choice. `NativeMCPCapable()` retorna `true`. Construtor: `NewOpenAIResponsesProvider()`.
+- **`AnthropicProvider`**: usa `anthropic-sdk-go`. Messages API com MCP Connector (`mcp_servers[]` + `mcp_toolset`, beta header `mcp-client-2025-11-20`). `NativeMCPCapable()` retorna `true`.
+- **`GoogleProvider`**: usa `google.golang.org/genai`. Gemini API. `NativeMCPCapable()` retorna `false`.
 
 ---
 
@@ -187,15 +187,18 @@ Depois:
 
 ```go
 chatProvider := llm.NewChatProvider(provider, credMgr)
+filteredTools := tools
 
-// MCP nativo: capability-driven, sem toggle de perfil
-if chatProvider.SupportsNativeMCP() {
-    httpServers := mcpMgr.GetEligibleNativeMCPServers()
-    chatProvider = chatProvider.WithMCPServers(httpServers)
-    // Remove bridge tools que agora vao por nativo (evita duplicata)
+// MCP nativo: capacidade física + política tri-state do perfil (AEP-0021 v7)
+override := activeProfile.Chat.NativeMCP // nil=auto, true=nativo, false=adapter
+if chat.ResolveNativeMCPEnabled(chatProvider, override) {
+    chatProvider, filteredTools = chat.ApplyNativeMCP(
+        chatProvider, filteredTools, mcpMgr, enabledTools, disableTools, override,
+    )
 }
 
-// Tools: internas + STDIO bridges (MCP HTTP servers nao vao como tools)
+// Se o endpoint rejeitar MCP nativo antes de emitir conteúdo, o mesmo turno é
+// repetido em adapter com as bridge tools; auto (nil) persiste false no perfil.
 chatProvider.StreamChat(ctx, messages, params, handler, filteredTools...)
 ```
 
@@ -273,7 +276,9 @@ Este caminho nao envolve o cliente LLM nem o `ChatProvider`. MCP tools continuam
 ### Fase 5: Config e UI ✅
 
 - ✅ Wizard define `api_format` automatico por provider
-- ✅ Decisao MCP nativo e capability-driven (sem toggle no perfil)
+- ✅ Decisão MCP nativo combina `NativeMCPCapable()` com
+  `Profile.Chat.NativeMCP *bool` (tri-state); o modo auto tenta nativo e degrada
+  no mesmo turno para adapter, persistindo `nil→false` quando incompatível.
 - ✅ Frontend: dropdown `api_format` em ProviderForm com labels claros por formato
 - ✅ OpenAI real usa `openai_responses` como default; providers compatible usam `openai`
 
@@ -317,7 +322,7 @@ Este caminho nao envolve o cliente LLM nem o `ChatProvider`. MCP tools continuam
 
 ## Referencias
 
-- [AEP-0021: MCP Modo Nativo (v2)](0021-mcp-native-mode.md)
+- [AEP-0021: MCP Modo Nativo (revisão v7)](0021-mcp-native-mode.md)
 - [AEP-0013: LLM Client Refactor](0013-llm-refactor.md)
 - [AEP-0020: MCP Implementation](0020-mcp-implementation.md)
 - [OpenAI Go SDK](https://github.com/openai/openai-go)

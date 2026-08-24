@@ -360,11 +360,19 @@ Base sobre a qual esta AEP constroi. Estabeleceu:
 
 **Conflito: nenhum.** Esta AEP estende os structs existentes com campos opcionais. Nenhuma remocao ou renomeacao de campos da 0040.
 
-### AEP-0021 (MCP Native Mode) — IN PROGRESS (v3)
+### AEP-0021 (MCP Native Mode) — IN PROGRESS (revisão v7)
 
-Introduziu `native: bool` nos eventos de tool. Esta AEP deprecia `native` em favor de `origin: string` (fase 1).
+A revisão v7 define a política vigente de MCP nativo: capacidade física do
+provider por `NativeMCPCapable()`, override tri-state por perfil em
+`Profile.Chat.NativeMCP *bool`, auto otimista e fallback no mesmo turno para
+adapter com as bridge tools preservadas. Quando o modo automático encontra um
+endpoint incompatível, o perfil é autoajustado de `nil` para `false`; overrides
+explícitos não são sobrescritos.
 
-**Risco real: baixo.** O campo `native` e setado pelo backend para MCP nativo (`true`) mas nunca para bridge/built-in (default `false`). O frontend declara o campo no tipo TypeScript mas **nunca o consome** em nenhuma logica. A migracao pode ser feita com deprecacao suave (emitir ambos por 1 release) ou direta (substituir, ja que nenhum consumidor depende do campo).
+O registro antigo de `native: bool` pertence às revisões iniciais. Para a
+telemetria tratada nesta AEP, `origin` continua sendo a classificação canônica
+entre builtin, bridge e MCP nativo; a decisão de roteamento permanece
+responsabilidade da AEP-0021 e da política compartilhada de seleção.
 
 ### AEP-0037 (SDK Migration) — IN PROGRESS (v2)
 

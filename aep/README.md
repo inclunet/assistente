@@ -36,7 +36,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | 🚧 In Progress |
 | [0019](0019-http-client-centralization.md) | Centralização do Cliente HTTP | 🚧 In Progress |
 | [0020](0020-mcp-implementation.md) | Implementação do Model Context Protocol (MCP) — núcleo e extensões | 🚧 In Progress |
-| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (v2) | 🚧 In Progress |
+| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (revisão v7) | 🚧 In Progress |
 | [0022](0022-welcome-wizard.md) | Welcome Wizard | ✅ Done |
 | [0023](0023-deep-links.md) | Deep Links (assistente://) | ✅ Done |
 | [0024](0024-speech-architecture.md) | Arquitetura de Voz (TTS/STT) | 🚧 In Progress |
@@ -77,7 +77,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | ✔️ Accepted |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | ✅ Done |
 | [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | ✅ Done |
-| [0064](0064-streaming-recovery-explicito.md) | Recuperação Explícita de Streaming e Cancelamento | ✅ Done |
+| [0064](0064-streaming-recovery-explicito.md) | Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração | ✅ Done |
 | [0065](0065-llm-rate-limiting.md) | Rate Limiting nas Chamadas ao Provedor LLM | ✅ Done |
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | ✅ Done |
 | [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | 🚧 In Progress |
@@ -125,7 +125,9 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 - 📋 **Open** — aprovada, aguardando implementação
 - 🚧 **In Progress** — sendo implementada
 - ✅ **Done** — implementada (inclui "Concluído"/"Implementado")
-- ✔️ **Accepted** — aceita como contrato/decisão vigente, mesmo sem 100% implementada (inclui o rótulo em português "Aceito", ex.: 0040 e 0061)
+- ✔️ **Accepted** — aceita como contrato/decisão vigente, mesmo sem 100%
+  implementada. `Accepted` é o status canônico; `Aceito` é apenas alias
+  histórico de leitura e não deve ser usado no topo de documentos novos.
 - 🗄️ **Superseded** — substituída/obsoleta (mantida como registro histórico)
 - ❌ **Deprecated** — desprezada/cancelada
 

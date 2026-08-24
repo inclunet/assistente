@@ -1,6 +1,6 @@
 # AEP-0099 — Patch canônico multi-hunk
 
-**Status:** ✅ Implementado
+**Status:** Done
 
 ## Resumo
 

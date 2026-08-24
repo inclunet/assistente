@@ -28,7 +28,9 @@ Esta AEP também substitui o gerenciamento via `write_file`/`edit_file` por tool
 
 4. **LLM Tools**: Hoje o LLM gerencia jobs editando arquivos YAML via tools de filesystem (`write_file`, `edit_file`). Isso é frágil — erros de formatação YAML, paths incorretos, falta de validação. Com o banco, tools nativas compostas para jobs e pipelines fazem validação completa antes de persistir, sem multiplicar o catálogo com uma tool por verbo CRUD.
 
-5. **Retenção**: Run logs acumulam indefinidamente no disco sem política de limpeza automática. No banco, uma goroutine periódica remove registros mais velhos que 30 dias.
+5. **Retenção**: Run logs acumulavam indefinidamente no disco. No contrato
+   vigente, uma goroutine periódica aplica `job_retention_hours` (padrão 24h)
+   e o teto `runs_per_job_keep` por job.
 
 6. **Preparação para AEP-0047**: O sistema de import/export (AEP-0047) precisa de acesso uniforme aos dados. Com jobs no banco, o export pode usar o mesmo pattern de Repository que os demais recursos.
 
@@ -77,9 +79,14 @@ Pipelines e triggers passam a ter tabelas próprias:
 
 Jobs continuam apontando para uma pipeline opcional via `pipeline_id`. Um job sem pipeline representa uma automação avulsa.
 
-### D3 — Retenção de 30 dias para runs e eventos
+### D3 — Retenção configurável para runs e eventos
 
-Uma goroutine no Manager executa limpeza a cada 24 horas, removendo registros de `job_runs`, `job_events` e `job_run_events` com `started_at` / `occurred_at` anterior a 30 dias. A limpeza também roda no `Start()` do Manager (ao iniciar o app).
+Uma goroutine no Manager executa limpeza a cada 24 horas, removendo registros
+de `job_runs`, `job_events` e `job_run_events` com `started_at` /
+`occurred_at` anterior à janela `maintenance.job_retention_hours`. O padrão é
+24 horas, definido em `internal/config/config.go`; a política também limita a
+quantidade por job com `runs_per_job_keep` (padrão 200). A limpeza roda ainda
+no `Start()` do Manager.
 
 A interface de persistência expõe limpeza separada para runs, eventos de domínio e timeline operacional (`CleanOldRuns`, `CleanOldEvents`, `CleanOldRunEvents`) para deixar explícito que as três tabelas participam da retenção.
 
@@ -432,7 +439,9 @@ Consequências:
 
 ### Fase 5 — Retenção automática ✅
 
-12. Goroutine no Manager: a cada 24h, `Repository.CleanOldRuns(30 dias)`, `Repository.CleanOldEvents(30 dias)` e `Repository.CleanOldRunEvents(30 dias)`
+12. Goroutine no Manager: a cada 24h, chama `CleanOldRuns`,
+    `CleanOldEvents` e `CleanOldRunEvents` com a janela configurável
+    `job_retention_hours` (padrão 24h), além de aplicar o cap por contagem.
 13. Executar limpeza também no `Start()` (ao iniciar o app)
 
 ### Fase 6 — Tools nativas ✅
@@ -503,7 +512,7 @@ Consequências:
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|---|
 | R1 | Perda de definições na migração filesystem → DB | Baixa | Alto | Importação transacional, idempotente e observável; arquivos legados não são runtime fallback |
-| R2 | Performance de queries com muitos runs | Baixa | Médio | Índices em `job_id` + `started_at` + `status`; retenção 30 dias limita volume (~86k rows máx com 10 jobs a cada 5 min) |
+| R2 | Performance de queries com muitos runs | Baixa | Médio | Índices em `job_id` + `started_at` + `status`; retenção padrão de 24h e `runs_per_job_keep` limitam volume |
 | R3 | Catálogo de tools fica órfão sem watcher | Baixa | Baixo | Catálogo é regenerado no `Start()` e sob demanda; sem mudança funcional |
 | R4 | Tools nativas de jobs poluem contexto | Média | Baixo | Tools são opt-in; perfil escolhe quais habilitar |
 | R5 | Serialização JSON de configs complexas perde tipo | Média | Médio | Testes de roundtrip (save → load → compare) para cada tipo |
