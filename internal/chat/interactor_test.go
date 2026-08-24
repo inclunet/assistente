@@ -464,7 +464,7 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	}
 }
 
-func TestPrepareContext_SubagentMissingProfileFailsClosed(t *testing.T) {
+func TestPrepareContext_ExplicitMissingProfileFailsClosed(t *testing.T) {
 	profileMgr := setupProfileTestEnv(t)
 	active := profiles.DefaultProfile()
 	active.Name = "Ativo"
@@ -482,15 +482,19 @@ func TestPrepareContext_SubagentMissingProfileFailsClosed(t *testing.T) {
 		ProfileMgr: profileMgr,
 	})
 
-	prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
-		ConversationID: "conversation-1",
-		Source:         "subagent",
-		Params: ChatParams{
-			ProfileSlug: "profile-removido",
-		},
-	})
-	if err == nil || prepared != nil {
-		t.Fatalf("subagente não deve cair no global: prepared=%#v err=%v", prepared, err)
+	for _, source := range []string{"subagent", "wails"} {
+		t.Run(source, func(t *testing.T) {
+			prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+				ConversationID: "conversation-1",
+				Source:         source,
+				Params: ChatParams{
+					ProfileSlug: "profile-removido",
+				},
+			})
+			if err == nil || prepared != nil {
+				t.Fatalf("profile explícito não deve cair no global: prepared=%#v err=%v", prepared, err)
+			}
+		})
 	}
 }
 

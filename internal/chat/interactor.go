@@ -200,12 +200,13 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 5. Resolve active profile
 	var err error
 	var activeProfile *profiles.Profile
-	resolvedProfileSlug := req.Params.ProfileSlug
-	profileResolvedFromWorkspace := false
+	resolvedProfileSlug := strings.TrimSpace(req.Params.ProfileSlug)
+	profileIsAuthoritative := resolvedProfileSlug != "" &&
+		(req.Source == "wails" || req.Source == "subagent")
 	if resolvedProfileSlug == "" && req.Source == "wails" {
 		resolvedProfileSlug = i.resolveWorkspaceProfileSlug(req.ConversationID, req.Params)
 		req.Params.ProfileSlug = resolvedProfileSlug
-		profileResolvedFromWorkspace = resolvedProfileSlug != ""
+		profileIsAuthoritative = resolvedProfileSlug != ""
 	}
 	if i.profileMgr == nil {
 		logging.Errorf(ctx, "chat.interactor", "[PrepareContext] profileManager não inicializado — continuando sem perfil")
@@ -217,7 +218,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 			// para o global executaria com configuração diferente da decisão
 			// caso o profile fosse removido entre o diálogo e o turno
 			// (AEP-0101).
-			if req.Source == "subagent" || profileResolvedFromWorkspace {
+			if profileIsAuthoritative {
 				return nil, fmt.Errorf("profile solicitado indisponível %q: %w", resolvedProfileSlug, err)
 			}
 			logging.Warnf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
