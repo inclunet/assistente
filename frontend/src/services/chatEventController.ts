@@ -119,7 +119,7 @@ interface ChatDoneEvent {
   assistantMessageId?: string;
   turnId?: string;
   hadToolCalls?: boolean;
-  reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error';
+  reason?: 'completed' | 'cancelled' | 'limit_reached' | 'output_limit' | 'error';
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }

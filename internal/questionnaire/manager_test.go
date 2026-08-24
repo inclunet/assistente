@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -107,46 +106,45 @@ func TestRequestQuestionnaire_CancelledWithAnswers(t *testing.T) {
 
 func TestRequestQuestionnaire_SerializesDialogs(t *testing.T) {
 	events := make(chan string, 2)
-	earlySecond := make(chan string, 1)
-	var eventCount atomic.Int32
-	var respondingToFirst atomic.Bool
 	mgr := NewManager(func(event string, data any) {
 		if event == EventQuestionnaire {
-			id := data.(map[string]any)["id"].(string)
-			if eventCount.Add(1) == 2 && !respondingToFirst.Load() {
-				earlySecond <- id
-			}
-			events <- id
+			events <- data.(map[string]any)["id"].(string)
 		}
 	})
 	results := make(chan error, 2)
-	request := func(title string) {
-		_, err := mgr.RequestQuestionnaire(t.Context(), RequestPayload{Title: Plain(title)})
+	request := func(ctx context.Context, title string) {
+		_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{Title: Plain(title)})
 		results <- err
 	}
 
-	go request("primeiro")
+	go request(t.Context(), "primeiro")
 	firstID := receiveQuestionnaireEvent(t, events, "primeiro diálogo")
-	go request("segundo")
-	select {
-	case secondID := <-earlySecond:
-		t.Fatalf("segundo diálogo abriu antes da resposta do primeiro: %s", secondID)
-	case <-time.After(30 * time.Millisecond):
-	}
 
-	respondingToFirst.Store(true)
+	probeCtx, cancelProbe := context.WithCancel(t.Context())
+	probeStarted := make(chan struct{})
+	go func() {
+		close(probeStarted)
+		request(probeCtx, "sonda bloqueada")
+	}()
+	<-probeStarted
+	cancelProbe()
+	if err := receiveQuestionnaireResult(t, results, "cancelamento da sonda"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("sonda concorrente não permaneceu na fila: %v", err)
+	}
+	select {
+	case unexpectedID := <-events:
+		t.Fatalf("diálogo concorrente abriu enquanto o primeiro estava ativo: %s", unexpectedID)
+	default:
+	}
 	if err := mgr.Respond(firstID, map[string]any{}, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := receiveQuestionnaireResult(t, results, "primeira resposta"); err != nil {
 		t.Fatal(err)
 	}
+
+	go request(t.Context(), "segundo")
 	secondID := receiveQuestionnaireEvent(t, events, "segundo diálogo")
-	select {
-	case earlyID := <-earlySecond:
-		t.Fatalf("segundo diálogo abriu antes de iniciar a resposta do primeiro: %s", earlyID)
-	default:
-	}
 	if err := mgr.Respond(secondID, map[string]any{}, false); err != nil {
 		t.Fatal(err)
 	}

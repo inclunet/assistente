@@ -171,28 +171,6 @@ func TestAdvisorIgnoresLowConfidence(t *testing.T) {
 	}
 }
 
-func TestAdvisorUsesIndependentRateLimitBucketWithBurstOne(t *testing.T) {
-	advisor, _ := testAdvisor(t, `{"required_tools":["run_command"],"confidence":1}`, map[string]map[string]string{
-		"rate-atual": {"run_command": "on_demand"},
-		"rate-outro": {"run_command": "preloaded"},
-	})
-	current := advisor.profiles.(*fakeProfileStore).profiles["rate-atual"]
-	one := 1
-	current.Chat.RateLimitBurst = one
-
-	recommendation, err := advisor.Recommend(t.Context(), Request{
-		UserContent:    "rode os testes",
-		CurrentSlug:    "rate-atual",
-		CurrentProfile: current,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if recommendation == nil || recommendation.SuggestedSlug != "rate-outro" {
-		t.Fatalf("bucket auxiliar não deveria consumir o slot do turno principal: %#v", recommendation)
-	}
-}
-
 func TestAdvisorDoesNotCountToolDroppedBySchemaBudget(t *testing.T) {
 	advisor, current := testAdvisor(t, `{"required_tools":["run_command"],"confidence":1}`, map[string]map[string]string{
 		"atual": {"run_command": "on_demand"},

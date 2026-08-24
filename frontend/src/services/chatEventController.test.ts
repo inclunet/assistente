@@ -337,6 +337,21 @@ describe('chatEventController', () => {
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
   });
 
+  it('trata cancelamento antes da persistência como conclusão sem falha', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', initialUserContent: 'pergunta', adapter });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      reason: 'cancelled',
+    });
+
+    const session = sessions['conversation-1'];
+    expect(session.isLoading).toBe(false);
+    expect(session.sendFailureMessage).toBeFalsy();
+    expect(session.conversation?.threadedMessages).toEqual([]);
+  });
+
   it('em erro no chat:done sem assistantMessageId não cria mensagem assistant local', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const surfaceOrigin = {
