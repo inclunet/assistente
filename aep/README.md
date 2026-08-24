@@ -17,7 +17,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | AEP | Título | Status |
 |-----|--------|--------|
 | [0001](0001-jobs-event-driven-automation.md) | Jobs — Event-Driven Automation | 🚧 In Progress |
-| [0002](0002-tool-calling.md) | Tool Calling System | ✅ Done |
+| [0002](0002-tool-calling.md) | Plano de Implementação — Tool Calling | ✅ Done |
 | [0003](0003-chat-tabs.md) | Sistema de Abas de Chat | 🗄️ Superseded |
 | [0004](0004-chat-refactor.md) | Refatoração do Chat (Svelte) | 🗄️ Superseded |
 | [0005](0005-chat-refactor-v2.md) | Refatoração do Chat v2 | 🗄️ Superseded |
@@ -44,7 +44,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0026](0026-credential-fixes.md) | Correções no Sistema de Credenciais | ✅ Done |
 | [0027](0027-profiles-refactor.md) | Refatoração ProfilesPage | 🚧 In Progress |
 | [0028](0028-componentization.md) | Componentização Frontend | 🚧 In Progress |
-| [0029](0029-auto-update.md) | Sistema de Auto-Update | ✅ Done |
+| [0029](0029-auto-update.md) | Sistema de Auto-Update | 🚧 In Progress |
 | [0030](0030-email-system.md) | Sistema de Email | 📋 Open |
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 🚧 In Progress |
@@ -60,11 +60,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
 | [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 🗄️ Superseded |
 | [0044](0044-profile-settings-revamp.md) | Profile Settings Revamp (Tabbed Panels) | 🚧 In Progress |
-| [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | ✅ Done |
+| [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | 🚧 In Progress |
 | [0046](0046-uuid-migration.md) | Migração de IDs Sequenciais para UUIDv7 | ✅ Done |
-| [0047](0047-import-export.md) | Importação e Exportação de Conteúdo | ✅ Done |
+| [0047](0047-import-export.md) | Importação e Exportação de Conteúdo | 🚧 In Progress |
 | [0048](0048-jobs-database-migration.md) | Migração de Jobs para Banco de Dados | ✅ Done |
-| [0049](0049-mcp-database-migration.md) | Migração de MCP Servers para Banco de Dados | ✅ Done |
+| [0049](0049-mcp-database-migration.md) | Migração de MCP Servers para Banco de Dados | 🚧 In Progress |
 | [0050](0050-profiles-database-migration.md) | Migração de Profiles para Banco de Dados (adiada) | 📝 Draft |
 | [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 🚧 In Progress |
@@ -73,7 +73,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | ✅ Done |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | ✅ Done |
 | [0059](0059-long-conversation-performance.md) | Performance de Conversas Longas | 🚧 In Progress |
-| [0060](0060-command-policy-parser.md) | Parser de Política de Comandos | ✅ Done |
+| [0060](0060-command-policy-parser.md) | Parser e Política de Comandos | ✅ Done |
 | [0061](0061-credential-loss-incident-and-defenses.md) | Incidente de Perda de Credenciais e Defesas | ✔️ Accepted |
 | [0062](0062-profile-application-and-local-provider-auth.md) | Aplicação de Perfil e Auth de Provider Local | ✅ Done |
 | [0063](0063-tool-invocations-and-common-executor.md) | Tool Invocations e Executor Comum | ✅ Done |
@@ -82,10 +82,10 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0066](0066-connection-status-indicator.md) | Indicador de Status de Conexão com a API LLM | ✅ Done |
 | [0067](0067-tasklist-domain-events-and-custom-actions.md) | Eventos de Domínio de Tasklists e Custom Actions | 🚧 In Progress |
 | [0068](0068-subagentes-segundo-plano.md) | Sub-agentes em segundo plano (tool de sub-conversas) | ✅ Done |
-| [0069](0069-feed-read-tool.md) | Tool feed_read (RSS/Atom/JSON Feed/Podcast → JSON canônico) | ✅ Done |
-| [0070](0070-web-search-tool.md) | Tool web_search (busca web → JSON canônico paginável) | ✅ Done |
+| [0069](0069-feed-read-tool.md) | Tool `feed_read` (RSS/Atom/JSON Feed/Podcast → JSON canônico) | ✅ Done |
+| [0070](0070-web-search-tool.md) | Tool `web_search` (busca web → JSON canônico paginável) | ✅ Done |
 | [0071](0071-structured-tool-output-size-policy.md) | Política canônica de tamanho para saídas estruturadas | ✅ Done |
-| [0072](0072-skill-catalog-and-loading.md) | Skill Catalog & Loading (descoberta, gating, carregamento sob demanda) | ✅ Done |
+| [0072](0072-skill-catalog-and-loading.md) | Skill Loading Runtime | ✅ Done |
 | [0073](0073-tasklist-conversation-linking.md) | Vínculo de Tasks e Tasklists a Conversas | ✅ Done |
 | [0074-A](0074-prompt-cache-e-contexto-dinamico.md) | Prompt Cache, Custo de LLM e Layout da Request ⚠️ | 🚧 In Progress |
 | [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ | ✅ Done |

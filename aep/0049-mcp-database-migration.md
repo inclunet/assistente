@@ -1,6 +1,6 @@
 # AEP-0049 — Migração de MCP Servers para Banco de Dados
 
-**Status:** Done
+**Status:** In Progress — runtime DB-only entregue; teste automatizado da retenção de logs permanece pendente
 
 ## Dependências
 
@@ -417,12 +417,12 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 
 ## Fases
 
-### Fase 0 — Atualizar AEP no PR
+### Fase 0 — Atualizar AEP no PR ✅
 
 1. Atualizar esta AEP com user scope, catálogo de tools, disponibilidade, seleção via catálogo, dry run e protocolo de execução.
 2. Commitar e pushar a atualização da AEP antes de iniciar código.
 
-### Fase 1 — Models GORM + AutoMigrate
+### Fase 1 — Models GORM + AutoMigrate ✅
 
 1. Criar `internal/database/models_mcp.go` com models GORM:
    - `MCPServerModel` com `UUIDModel` embeddado + todos os campos da tabela `mcp_servers`, incluindo `UserID`
@@ -431,14 +431,16 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 2. Funções de conversão: `MCPServerModel ↔ mcp.ServerConfig`, `MCPServerLogModel ↔ mcp.MCPServerLog`, `ToolCatalogModel ↔ tools.ToolCatalogEntry`
 3. Adicionar os models ao `AutoMigrate` em `internal/database/database.go`
 
-### Fase 2 — Repository layer
+### Fase 2 — Repository layer 🚧
 
 4. Criar `internal/mcp/repository.go` com interface `MCPRepository` (D8), recebendo `context.Context` para resolver `user_id`
 5. Implementar `DBMCPRepository` que recebe `*gorm.DB`
 6. Criar repository de catálogo de tools ou expandir repository MCP com métodos de catálogo
-7. Testes: CRUD de servers por usuário, logs, catálogo, indisponibilidade/reaparecimento, limpeza por idade
+7. [x] Testes: CRUD de servers por usuário, logs, catálogo e
+   indisponibilidade/reaparecimento
+   - [ ] Cobrir limpeza por idade e o agendamento da retenção
 
-### Fase 3 — Migrar Manager para usar Repository
+### Fase 3 — Migrar Manager para usar Repository ✅
 
 8. Alterar `Manager`: receber `MCPRepository` em vez de depender de filesystem para configs
 9. Reescrever `LoadConfigs()`: carregar do DB via Repository filtrando usuário logado
@@ -448,7 +450,7 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 13. Reescrever `GetConfig()`: buscar via Repository no escopo do usuário
 14. Remover `WatchConfigs()` (file watcher)
 
-### Fase 4 — Logs de conexão
+### Fase 4 — Logs de conexão ✅
 
 15. Adicionar chamadas `Repository.LogEvent()` nos pontos do lifecycle:
     - `Connect()` → log `connected` (com tool count)
@@ -459,7 +461,7 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 16. Expor via API Wails: `GetMCPServerLogs(slug, limit)`
 17. Goroutine de limpeza: 30 dias (reutilizar pattern da AEP-0048)
 
-### Fase 5 — Importação filesystem → banco
+### Fase 5 — Importação filesystem → banco ✅
 
 18. Criar suporte MCP em `internal/portability`:
     - Detectar JSON files nos 3 diretórios por uma fonte read-only fornecida pelo MCP
@@ -469,7 +471,7 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
     - Não renomear, apagar ou editar arquivos originais
 19. Chamar a partir de uma etapa global pós-login em `internal/app`, antes de `mcp.Manager.LoadConfigs()` e dos demais managers que dependam de dados migrados; deve ser seguro executar em todo startup pós-login
 
-### Fase 6 — Catálogo de tools
+### Fase 6 — Catálogo de tools ✅
 
 20. Sincronizar builtin tools do `tools.Registry` para `tool_catalog` como `origin = builtin`
 21. Sincronizar MCP tools descobertas em `refreshServerOfferingsWithContext` para `tool_catalog` com `mcp_server_id`
@@ -477,31 +479,36 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 23. Marcar tools reaparecidas como `available`, atualizando schema hash e timestamps
 24. Expor APIs para listar catálogo, filtrar por categoria/pacote/risco/disponibilidade e testar tool
 
-### Fase 7 — Tool catalog/select_tools no chat
+### Fase 7 — Tool catalog/select_tools no chat ✅
 
 25. Criar tool pequena `tool_catalog`/`select_tools` para descoberta e ativação de pacotes
 26. Implementar `ToolPlanner` com orçamento por quantidade/bytes e modos `all`, `none`, `preset`, `catalog`, `auto`
 27. Alterar o envio de chat para começar com tools mínimas e ativar tools completas na iteração seguinte do agentic loop
 28. Integrar seleção com `ApplyNativeMCP`, preenchendo `AllowedTools` para MCP nativo
 
-### Fase 8 — Dry run/teste de tools
+### Fase 8 — Dry run/teste de tools ✅
 
 29. Implementar teste de builtin tools por nome + argumentos
 30. Implementar teste de MCP tools por servidor + tool
 31. Persistir resultado resumido no `tool_catalog`
 32. Respeitar políticas/confirmations para escrita, shell, HTTP mutável e operações destrutivas
 
-### Fase 9 — Remoção de código filesystem
+### Fase 9 — Runtime DB-only e adapter legado somente leitura ✅
 
 33. Remover file watcher do Manager
-34. Remover `configdir.Resolver` do MCP (manter para outros recursos que ainda usam disco)
+34. Remover `configdir.Resolver` do runtime operacional; preservá-lo apenas no
+    adapter read-only de importação legada (`internal/mcp/migration.go`), ainda
+    referenciado pelo Manager para essa finalidade
 35. Remover funções de leitura/escrita JSON do Manager
 36. Simplificar `ParseServerConfig()` — manter smart defaults, remover I/O
 37. Adicionar campo `Slug`, `ID` e `UserID` ao struct `ServerConfig` (hoje slug vem do nome do arquivo)
 
-### Fase 10 — Testes
+### Fase 10 — Testes 🚧
 
-38. Testes Repository: CRUD servers por usuário, logs, catálogo, limpeza por idade, roundtrip JSON de fields complexos
+38. [x] Testes Repository: CRUD servers por usuário, logs, catálogo e roundtrip
+    JSON de fields complexos
+    - [ ] Adicionar cobertura focada de `CleanOldLogs`/`StartLogRetention` para
+      cutoff, preservação de logs recentes e execução inicial/periódica
 39. Testes Manager: LoadConfigs, SaveConfig, DeleteConfig, DuplicateConfig com DB e isolamento por usuário
 40. Testes importação: JSON files → DB, resolução de prioridade multi-dir, idempotência e arquivos originais intocados
 41. Testes catálogo: builtin global, MCP vinculada ao servidor, unavailable/reavailable, schema hash
@@ -564,24 +571,31 @@ Credenciais (`mcp-client:{slug}`, `mcp-tokens:{slug}`) não são tocadas — per
 
 ## Critérios de aceitação
 
-1. **CRUD completo**: criar, listar, buscar, atualizar, deletar e duplicar servidores MCP funciona via banco
-2. **Conexão preservada**: conectar, desconectar, reconectar funcionam identicamente ao comportamento atual
-3. **OAuth funcional**: fluxo PKCE, client credentials e auto-discovery continuam funcionando
-4. **Logs de conexão**: eventos de lifecycle são registrados em `mcp_server_logs`
-5. **Importação filesystem**: configs JSON existentes são importadas para o banco de forma idempotente em startups pós-login
-6. **Multi-dir resolvido**: configs de diferentes diretórios são mescladas com prioridade correta
-7. **Arquivos legados intocados**: diretório e arquivos JSON originais não são renomeados, apagados ou alterados
-8. **Frontend inalterado**: mesma API Wails, sem mudanças em stores/componentes
-9. **Credenciais intocadas**: `credentials.Manager` não é afetado; tokens OAuth persistem entre migrações
-10. **Retenção de logs**: registros mais velhos que 30 dias são removidos automaticamente
-11. **Tools MCP**: bridge pattern e namespacing inalterados; jobs continuam referenciando tools por nome
-12. **File watcher removido**: código de watch de filesystem eliminado
-13. **User scope**: servidores MCP e tools MCP são isolados por usuário
-14. **Builtin tools globais**: tools builtin aparecem no catálogo como globais, sem `mcp_server_id`
-15. **Catálogo de tools**: builtin e MCP tools são sincronizadas no banco com origem, categoria, risco, schema hash e disponibilidade
-16. **Disponibilidade preservada**: tools indisponíveis são marcadas como `unavailable` e voltam a `available` quando reaparecem
-17. **Seleção por catálogo**: chat inicia com poucas tools e usa `tool_catalog`/`select_tools` para ativar pacotes no mesmo turno do usuário via agentic loop
-18. **MCP nativo allowlist**: seleção alimenta `AllowedTools` para providers com MCP nativo
-19. **Dry run de tools**: builtin e MCP tools podem ser testadas com resultado persistido/resumido
-20. **Testes contra perda de dados**: importação idempotente, arquivos originais intocados, credenciais intocadas e isolamento por usuário cobertos
-21. **Testes**: repository, manager, importação, catálogo, seleção e dry run cobertos por testes Go
+Evidências: `internal/mcp/repository_test.go`, `manager_test.go`,
+`duplicate_test.go`, `internal/tests/integration/firstrun_mcp_test.go`,
+`internal/toolcatalog/{repository,service,planner}_test.go`,
+`internal/chat/tool_selection_policy_test.go`,
+`internal/wailsapi/jobs_dryrun_test.go` e
+`internal/tools/catalog_tool_test.go`.
+
+- [x] CRUD completo e duplicação funcionam via banco.
+- [x] Conectar, desconectar e reconectar preservam comportamento.
+- [x] OAuth PKCE, client credentials e autodiscovery permanecem funcionais.
+- [x] Eventos de lifecycle são gravados em `mcp_server_logs`.
+- [x] Importação filesystem pós-login é idempotente.
+- [x] Resolução multi-dir preserva a prioridade definida.
+- [x] Arquivos legados permanecem intocados.
+- [x] API Wails/frontend preservam o contrato.
+- [x] Credenciais e tokens OAuth permanecem intactos.
+- [x] Logs antigos são limpos pela retenção.
+- [x] Bridge, namespacing e referências de jobs permanecem compatíveis.
+- [x] File watcher foi removido.
+- [x] Servidores/tools MCP são isolados por usuário.
+- [x] Builtins globais não possuem `mcp_server_id`.
+- [x] Catálogo sincroniza origem, categoria, risco, schema e disponibilidade.
+- [x] Ausência/reaparecimento transita `unavailable`/`available`.
+- [x] Chat seleciona/ativa tools por catálogo.
+- [x] MCP nativo recebe `AllowedTools`.
+- [x] Dry-run de builtins e MCP usa o pipeline protegido.
+- [x] Regressões cobrem perda de dados e isolamento.
+- [x] Repository, manager, importação, catálogo, seleção e dry-run têm testes Go.

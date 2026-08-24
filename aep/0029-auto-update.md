@@ -1,6 +1,6 @@
 # Sistema de Auto-Update
 
-Status: Done — atualizado para a implementação real em `internal/updater/updater.go` e `.github/workflows/release.yml`
+Status: In Progress — runtime/workflow entregues; fixture estática legada ainda precisa ser removida
 
 ## Resumo
 
@@ -50,10 +50,16 @@ flowchart TD
 
 ## Critérios de Aceite
 
-- A documentação não deve orientar criação de `update-manifest.json` para auto-update.
-- O quickstart de release deve orientar criação/publicação de GitHub Release, não deploy em GitHub Pages.
-- Fixtures mortas de manifest estático devem ser removidas para evitar falsa fonte de verdade.
-- Mudanças futuras no updater devem manter `internal/updater/updater.go`, `.github/workflows/release.yml` e esta AEP alinhados.
+- [x] A documentação operacional não orienta criar `update-manifest.json`.
+- [x] O quickstart vigente usa GitHub Release, não GitHub Pages; os apêndices
+  0029 antigos estão explicitamente rotulados como históricos.
+- [ ] Remover a fixture morta `docs/static/json/update-manifest-example.json`,
+  que não possui consumidor no repositório.
+- [x] Runtime, workflow e AEP descrevem GitHub Releases como fonte canônica.
+
+Evidências: `internal/updater/updater_test.go` cobre API de releases, versões,
+assets, plataformas e erros; `.github/workflows/release.yml` cobre
+testes/builds/checksums e upload dos assets.
 
 ## Riscos
 

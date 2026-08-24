@@ -134,12 +134,18 @@ Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas dev
 
 ## Critérios de aceitação
 
-- Conversas novas com tools renderizam timeline sem depender de `chat_messages.tool_calls`.
-- Exportação de conversas novas inclui chamadas e resultados a partir de `tool_invocations`.
-- Sumarização inclui resultados relevantes de tools sem exigir `m.ToolCalls`.
-- Conversas antigas com `tool_calls` continuam renderizando e exportando corretamente.
-- Testes cobrem os dois formatos: novo (`tool_invocations`) e legado (`chat_messages.tool_calls`).
-- O agentic loop pode parar de gravar L3 no caminho feliz sem orfanar resultados.
+- [x] Conversas novas renderizam timeline por `tool_invocations`.
+- [x] Exportação nova hidrata chamadas/resultados por invocações.
+- [x] Sumarização não exige `m.ToolCalls`.
+- [x] Conversas antigas mantêm fallback L3 para render/export.
+- [x] Testes cobrem formato novo e legado.
+- [x] Agentic loop não grava L3 no caminho feliz nem orfana resultados.
+
+As evidências individualizadas estão no mapa acima; regressões centrais:
+`internal/agent/service_tool_calls_persistence_test.go`,
+`internal/chat/timeline_test.go`, `internal/portability/service_test.go`,
+`internal/summarization/service_test.go` e
+`internal/toolinvocations/repository_test.go`.
 
 ## Relação com AEPs e Issues
 

@@ -408,18 +408,22 @@ O PR deve cobrir:
 
 ## Critérios de aceitação revisados
 
-- Pré-requisito atendido: `memory`, `workspace` e tasklists dinâmicas são Context Providers no caminho novo, conforme AEP-0075.
-- Perfil ordena skills em `enabled_skills`; a primeira marcada é a skill `base`.
-- Skills `on_demand` aparecem em catálogo leve.
-- `/skill` gera ativação observável no turno.
-- Skill desabilitada não aparece nem carrega.
-- O corpo completo de skill não é injetado silenciosamente no system prompt estável.
-- Go templates não existem no runtime novo de skills.
-- Perfis builtin e novos usam `enabled_skills` ordenado por prioridade.
-- Perfis antigos com `enabled_skills` continuam compatíveis e ganham semântica determinística.
-- O catálogo leve respeita orçamento e informa omissões/encurtamentos.
-- A UI de perfis deixa clara a semântica: primeira marcada = base; demais marcadas = on demand; não marcadas = disabled.
-- Quando tool calling estiver indisponível, `tool_catalog` e autoativação de skills pelo modelo não são expostos; `/skill` explícito do usuário e skill `base` continuam sendo os caminhos suportados.
+- [x] Context providers substituem pseudo-skills dinâmicas, conforme AEP-0075.
+- [x] Perfil ordena `enabled_skills`; a primeira é `base`.
+- [x] Skills `on_demand` aparecem em catálogo leve.
+- [x] `/skill` produz ativação observável no turno.
+- [x] Skill desabilitada não aparece nem carrega.
+- [x] Corpo completo não entra silenciosamente no prompt estável.
+- [x] Go templates não existem no runtime novo.
+- [x] Perfis builtin/novos usam ordem determinística.
+- [x] Perfis antigos permanecem compatíveis.
+- [x] Catálogo respeita budget e sinaliza cortes.
+- [x] UI explica base/on-demand/disabled.
+- [x] Gating sem tool calling preserva `/skill` explícito e skill base.
+
+Regressões: `internal/skills/policy_test.go`, `invocation_test.go`,
+`skills_test.go`, `internal/prompt/builder_test.go`,
+`internal/app/builtin_skills_test.go` e testes da UI de perfil.
 
 ---
 
@@ -545,7 +549,7 @@ Evoluir `runPostLoginLegacyImports` para resultado estruturado/telemetria (#123)
 
 ---
 
-## Critérios de aceitação
+## Critérios de aceitação históricos (versão supersedida)
 
 Os seis critérios da issue #126:
 

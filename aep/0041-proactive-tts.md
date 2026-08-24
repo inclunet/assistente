@@ -37,13 +37,15 @@ chat:done → frontend chatStore handler
 
 ### Vigente (backend-driven)
 ```
-chat:done → (backend continua)
-         → dispatchSpeechEvent(req)
+chat:stream(done) → OnSpeechRequest síncrono
+                  → dispatchSpeechEvent(req)
          → resolve perfil → voz → strategy
          → emitter.Emit("chat:speak", event)
          → frontend listener "chat:speak"
          → handleChatSpeak(event)
          → strategy routing (none/announce/webspeech/backend_audio)
+         → retorno ao backend
+         → chat:done
 ```
 
 ### Sequência temporal de eventos
@@ -75,7 +77,7 @@ O `agent.Service` (que controla tanto streaming simples via `SimpleStreamHandler
 
 ```go
 // ServiceConfig
-OnSpeechRequest func(conversationID uint, msgID uint, role, text, origin, profileSlug string, interrupt bool)
+OnSpeechRequest func(conversationID string, msgID string, role, text, origin, profileSlug string, interrupt bool)
 ```
 
 **Arquivo:** `app.go` — na criação do service:
@@ -83,7 +85,7 @@ OnSpeechRequest func(conversationID uint, msgID uint, role, text, origin, profil
 ```go
 a.agentSvc = agent.NewService(agent.ServiceConfig{
     // ... deps existentes
-    OnSpeechRequest: func(convID uint, msgID uint, role, text, origin, profileSlug string, interrupt bool) {
+    OnSpeechRequest: func(convID string, msgID string, role, text, origin, profileSlug string, interrupt bool) {
         a.dispatchSpeechEvent(ChatSpeakRequest{
             ConversationID: convID,
             MessageID:      msgID,
@@ -113,7 +115,7 @@ if s.onSpeechRequest != nil {
 
 ```go
 if s.onSpeechRequest != nil && result.FullResponse != "" {
-    s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
+    s.onSpeechRequest(conversationID, "", "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
 }
 ```
 

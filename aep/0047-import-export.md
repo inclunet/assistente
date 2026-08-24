@@ -1,6 +1,6 @@
 # AEP-0047 — Importação e Exportação de Conteúdo
 
-**Status:** Done
+**Status:** In Progress — escopo DB-only implementado; cobertura explícita de acessibilidade do fluxo inline permanece pendente
 
 ## Dependências
 
@@ -422,7 +422,7 @@ type LocalizedMessage struct {
 
 ## Fases
 
-### Fase 1 — Backend DB-only
+### Fase 1 — Backend DB-only ✅
 
 1. Criar pacote `internal/portability/` com tipos `ExportFile`, `ExportRequest`, `ImportResult` e `ImportAnalysis`.
 2. Implementar serialização JSON com `version: 2`, `exportedAt`, `appVersion`, `options` e `resources`.
@@ -433,33 +433,36 @@ type LocalizedMessage struct {
 7. Rejeitar seleções de recursos fora do escopo DB-only no export para evitar perda silenciosa de expectativa.
 8. Ignorar seções importadas fora do escopo DB-only com warning claro.
 
-### Fase 2 — Export rico derivado
+### Fase 2 — Export rico derivado ✅
 
 9. Gerar HTML a partir do modelo canônico de conversas.
 10. Gerar PDF a partir do mesmo modelo canônico de conversas.
 11. Manter HTML/PDF como formatos somente de exportação; importação aceita apenas JSON.
 
-### Fase 3 — App layer e CLI
+### Fase 3 — App layer e CLI ✅
 
 12. Expor funções Wails para `ExportData`, `AnalyzeImportData`, `ImportData`, `ImportDataWithResolutions`, `ExportDataToFile` e `ExportConversationsToFile`.
 13. Implementar CLI `asst data export`, `asst data analyze` e `asst data import` para o recorte DB-only.
 14. Garantir mensagens claras para recursos fora do escopo e versões incompatíveis.
 
-### Fase 4 — Frontend DB-only
+### Fase 4 — Frontend DB-only 🚧
 
 15. Expor fluxo de export/import de dados DB-only na UI.
 16. Permitir exportar conversas, providers, tasklists e credenciais sem exigir que todos os tipos estejam presentes.
 17. Exigir senha quando credenciais forem incluídas.
 18. Exibir preview de import com contagens, warnings, recursos fora do escopo e necessidade de senha.
 19. i18n: adicionar chaves nos 3 locales (`pt-BR`, `en`, `es`).
-20. Acessibilidade: modais navegáveis por teclado, foco gerenciado e feedback via announcer/toast.
+20. [ ] Cobrir explicitamente teclado, foco, axe e feedback acessível no fluxo
+    inline de gerenciamento de dados.
 
-### Fase 5 — Testes
+### Fase 5 — Testes 🚧
 
 21. Testes Go: export/import roundtrip para conversas, providers, tasklists e credenciais.
 22. Testes Go: versionamento (`version: 2` aceito; versões incompatíveis rejeitadas) e campos desconhecidos ignorados quando inofensivos.
 23. Testes Go: recursos fora do escopo no import geram warning; recursos fora do escopo no export são rejeitados.
-24. Testes frontend: modais de export/import, seleção DB-only, senha de credenciais, preview e warnings.
+24. [x] Testes frontend funcionais: fluxo inline de export/import, seleção
+    DB-only, senha de credenciais, preview e warnings.
+    - [ ] Adicionar cobertura explícita de acessibilidade e teclado.
 
 ## Riscos
 
@@ -474,21 +477,27 @@ type LocalizedMessage struct {
 
 ## Critérios de aceitação
 
+Evidências principais: `internal/portability/service_test.go`,
+`render_test.go`, `crypto_test.go`, `internal/wailsapi/export_import_test.go`,
+`cmd/asst/data_test.go` e `frontend/src/pages/DataManagementPage.test.tsx`.
+
 Os critérios abaixo são os critérios de aceite desta PR, limitada ao recorte
 DB-only descrito em D0.
 
-1. **Export JSON DB-only** gera `version: 2` válido com conversas/mensagens, providers, tasklists e credenciais criptografadas quando selecionadas.
-2. **IDs preservados**: recursos persistidos exportados mantêm seus UUIDs e referências internas por ID.
-3. **Import roundtrip**: export → import em instância limpa → dados equivalentes, com IDs preservados; credenciais só entram quando exportadas com senha e são recriptografadas na instância destino.
-4. **Import idempotente por ID**: reimportar o mesmo arquivo não duplica conversas, providers, tasklists ou credenciais.
-5. **Recursos fora do escopo no export** são rejeitados com mensagem clara.
-6. **Recursos fora do escopo no import** são ignorados com warning claro, sem bloquear os recursos DB-only válidos do arquivo.
-7. **Credenciais** ficam excluídas por padrão e, quando incluídas, aparecem apenas em bloco criptografado por senha de exportação; `CredentialKeyWrap` nunca é exportado.
-8. **Bloco de credenciais obrigatório**: se `includeCredentials: true`, `resources.credentials` deve existir e ser válido.
-9. **Áudio** é excluído por padrão; `audioMimeType` é preservado. Quando `includeAudio` for usado, o comportamento deve ser explícito na UI/CLI.
-10. **Versionamento**: import aceita `version: 2` e rejeita versões incompatíveis com mensagem clara.
-11. **Importação** aceita apenas o formato JSON canônico; HTML/PDF são apenas formatos derivados de exportação.
-12. **HTML/PDF** são gerados a partir do mesmo modelo canônico de conversas do export JSON.
-13. **i18n**: todas as strings de UI novas existem nos 3 locales.
-14. **Acessibilidade**: modais de export/import são navegáveis por teclado, com foco gerenciado e feedback via announcer/toast.
-15. **Avisos e erros traduzíveis**: a lista de avisos, erros e motivos de conflito sai do backend com código e parâmetros (D14), aparece na tela e no announcer no idioma escolhido e cai no texto de reserva quando o código é desconhecido.
+- [x] **Export JSON DB-only** gera `version: 2` com os recursos suportados.
+- [x] **IDs preservados** mantêm UUIDs e referências internas.
+- [x] **Import roundtrip** restaura dados equivalentes e recriptografa credenciais.
+- [x] **Import idempotente por ID** não duplica recursos.
+- [x] **Recursos fora do escopo no export** são rejeitados claramente.
+- [x] **Recursos fora do escopo no import** geram warning sem bloquear válidos.
+- [x] **Credenciais** são opt-in, criptografadas e não exportam `CredentialKeyWrap`.
+- [x] **Bloco de credenciais obrigatório** é validado.
+- [x] **Áudio** é omitido por padrão e preserva MIME quando incluído.
+- [x] **Versionamento** aceita v2 e rejeita incompatíveis.
+- [x] **Importação** aceita somente JSON canônico.
+- [x] **HTML/PDF** derivam do mesmo modelo; Markdown é derivado adicional.
+- [x] **i18n** possui chaves nos três locales.
+- [ ] **Acessibilidade** do fluxo inline ainda precisa de cobertura explícita de
+  teclado, foco e axe; `DataManagementPage.test.tsx` cobre o comportamento
+  funcional, mas não comprova esses requisitos.
+- [x] **Avisos e erros traduzíveis** usam código/parâmetros e fallback.

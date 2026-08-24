@@ -83,6 +83,28 @@ com as tools já existentes.
 A estrutura `parseFeed` desacoplada já deixa a porta aberta para essas evoluções
 sem reescrever a normalização.
 
+## Fases da v1
+
+- [x] Parser normaliza RSS, Atom, JSON Feed e extensões de podcast.
+- [x] Tool aplica limites, filtros e opções de conteúdo.
+- [x] Fetch reutiliza cliente HTTP/credenciais e guardrails anti-SSRF.
+- [x] Tool está registrada no catálogo com risco `network`.
+- [x] Testes cobrem formatos, podcast, filtros, erros, redirects e hosts privados.
+
+## Critérios de aceitação da v1
+
+- [x] Saída JSON canônica é estável entre os quatro formatos suportados.
+- [x] `max_items`, `include_content`, `strip_html` e `since` funcionam.
+- [x] Podcast preserva enclosure e metadados iTunes normalizados.
+- [x] Somente HTTP/HTTPS público é aceito, inclusive após redirect.
+- [x] Feed autenticado usa a pilha HTTP compartilhada sem expor segredo ao modelo.
+- [x] Resultado é marcado como estruturado e arrays vazios não viram `null`.
+
+Evidências: `internal/tools/feed/feed_read_test.go`,
+`internal/tools/catalog_test.go` e registro em
+`internal/app/app_tool_registry.go`. Persistência, polling e UI permanecem
+explicitamente fora do escopo da v1.
+
 ## Arquivos
 
 - `internal/tools/feed/parse.go` — `parseFeed` + tipos `Canonical*`.

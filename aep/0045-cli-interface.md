@@ -1,6 +1,6 @@
 # 0045 — Interface CLI como alternativa ao Wails
 
-Status: Done
+Status: In Progress — CLI entregue e testada; validação manual de `wails dev` permanece pendente
 
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-18
@@ -252,16 +252,17 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
 
 ## Critérios de aceitação
 
-- `go build .` (desktop) compila e `wails dev` funciona normalmente
-- `go build ./cmd/asst` compila sem deps Wails
-- `asst chat "olá"` retorna resposta streaming no terminal
-- `echo "olá" | asst chat` funciona em modo pipe
-- `asst profiles list` lista perfis corretamente
-- `asst setup` configura provedor LLM do zero em ambiente headless
-- `asst providers add` cria e testa conexão com novo provedor
-- `asst credentials set` persiste credenciais de forma segura
-- `go test ./...` sem regressões
-- `internal/app/` não importa Wails (zero `github.com/wailsapp`)
+- [x] `go build .` compila o desktop.
+- [ ] `wails dev` funciona normalmente — não há execução manual reproduzível
+  registrada nesta auditoria.
+- [x] `go build ./cmd/asst` compila sem dependências Wails.
+- [x] Chat interativo e pipe são cobertos por `cmd/asst/chat_test.go`.
+- [x] Perfis são cobertos por `cmd/asst/profiles_test.go`.
+- [x] Setup headless é coberto por `cmd/asst/setup_test.go`.
+- [x] Providers são cobertos por `cmd/asst/providers_test.go`.
+- [x] Credenciais são cobertas por `cmd/asst/credentials_test.go`.
+- [x] Pacotes CLI possuem regressões automatizadas focadas.
+- [x] `internal/app/` não importa `github.com/wailsapp`.
 
 ## Referências
 

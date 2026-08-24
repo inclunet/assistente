@@ -222,15 +222,20 @@ A AEP-0059 Fase 2.1 corrige a unidade acessível da lista de mensagens. A polít
 
 ## Critérios de aceitação
 
-- Existe apenas uma live region global para anúncios.
-- Aviso automático de estado nunca substitui a leitura do conteúdo do assistente em curso; ele é falado depois.
-- Abas inativas não anunciam progresso comum.
-- Resposta concluída em aba inativa pode ser anunciada com contexto.
-- TTS nunca reproduz duas falas simultâneas.
-- Fala respeita o perfil efetivo da origem.
-- STT local só inicia na aba ativa.
-- STT local é cancelado ao desativar ou fechar a aba.
-- Canais externos continuam independentes da aba ativa.
-- Testes cobrem active/inactive, prioridade de TTS e gate de STT.
-- Eventos de chat com origem de superfície produzem anúncios e origem de voz associados à superfície correta.
-- Origem vinculada a aba fechada não dispara anúncio ou som global.
+Evidências: PRs #111/#112 e testes em
+`frontend/src/services/voiceAccessibility/`,
+`frontend/src/services/chatArbitration.test.ts` e
+`chatEventController.test.ts`.
+
+- [x] Existe uma única live region global na árvore normal.
+- [x] Aviso de estado não substitui leitura protegida.
+- [x] Aba inativa não anuncia progresso comum.
+- [x] Conclusão em aba inativa pode anunciar com contexto.
+- [x] TTS não reproduz falas simultâneas.
+- [x] Fala respeita perfil/origem efetivos.
+- [x] STT local inicia somente na aba ativa.
+- [x] STT cancela ao desativar ou fechar a aba.
+- [x] Canais externos independem da aba ativa.
+- [x] Testes cobrem active/inactive, prioridade TTS e gate STT.
+- [x] Eventos propagam origem correta até anúncio e voz.
+- [x] Origem de aba fechada não emite anúncio ou som.

@@ -343,53 +343,70 @@ Cards de ferramentas colapsados por padrão, expandíveis pelo usuário.
 
 ## Fases de Implementação
 
-### Fase 1 — Tipos base, interfaces e registry
+### Fase 1 — Tipos base, interfaces e registry ✅
 - `internal/tools/types.go`
 - `internal/tools/registry.go`
 - `internal/tools/executor.go`
 - **Sem dependências**
 
-### Fase 2 — Tools de filesystem básicas
+### Fase 2 — Tools de filesystem básicas ✅
 - `read_file`, `list_directory`, `search_files`
 - **Depende de:** Fase 1
 
-### Fase 3 — Modelo de dados (histórico)
+### Fase 3 — Modelo de dados (histórico) ✅
 - O desenho original adicionou TurnID, ToolCalls e ToolCallID ao ChatMessage.
 - AEP-0078 posteriormente restringiu ToolCalls/ToolCallID à leitura compatível;
   novas chamadas são persistidas em `tool_invocations`.
 - **Sem dependências** (paralelo com Fase 1)
 
-### Fase 4 — LLM client: suporte a tools no protocolo
+### Fase 4 — LLM client: suporte a tools no protocolo ✅
 - Campos tools/tool_calls no ChatRequest/ChatResponse
 - Parser SSE de tool_calls (delta acumulado)
 - Novo callback OnToolCalls no StreamHandler
 - **Sem dependências** (paralelo com Fase 1)
 
-### Fase 5 — Agentic loop
+### Fase 5 — Agentic loop ✅
 - Orquestrador com execução paralela, iterações e eventos Wails
 - **Depende de:** Fases 1, 3, 4
 
-### Fase 6 — Tools de filesystem avançadas
+### Fase 6 — Tools de filesystem avançadas ✅
 - `grep_search`, `write_file`, `edit_file`
 - **Depende de:** Fase 1
 
-### Fase 7 — Frontend: renderização e verbalização
+### Fase 7 — Frontend: renderização e verbalização ✅
 - Eventos de tool calling no chatStore
 - Renderização de blocos por TurnID
 - Verbalização intermediária (TTS + aria-live)
 - **Depende de:** Fase 5
 
-### Fase 8 — Tools web
+### Fase 8 — Tools web ✅
 - `web_fetch`, `web_search`
 - **Depende de:** Fase 1
 
-### Fase 9 — Tool shell
+### Fase 9 — Tool shell ✅
 - `run_command` (com confirmação do usuário)
 - **Depende de:** Fases 1, 7
 
-### Fase 10 — Perfis: seleção de tools
+### Fase 10 — Perfis: seleção de tools ✅
 - Checkboxes por perfil para habilitar/desabilitar tools
 - **Depende de:** Fases 5, 7
+
+### Evidências de conclusão
+
+- [x] Registry/executor e tools de filesystem: `internal/tools/tools_test.go`,
+  `executor_test.go` e testes em `internal/tools/filesystem`.
+- [x] Protocolo e agentic loop: `internal/llm/*_test.go`,
+  `internal/agent/agentic_loop_test.go` e
+  `service_tool_calls_persistence_test.go`.
+- [x] Renderização/eventos: testes de `frontend/src/components/chat` e
+  `frontend/src/services/chatEventController.test.ts`.
+- [x] Web: `internal/tools/web/web_fetch_test.go` e `web_search_test.go`.
+- [x] Shell e confirmação: `internal/tools/shell/run_command_test.go`.
+- [x] Política por perfil: `internal/profiles/manager_test.go` e regressões de
+  seleção em `internal/chat/tool_selection_policy_test.go`.
+
+O armazenamento L3 da Fase 3 é evidência histórica, não o contrato persistente
+vigente; a transição para `tool_invocations` é coberta pela AEP-0078.
 
 ### Diagrama de dependências
 

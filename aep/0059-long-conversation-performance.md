@@ -52,7 +52,8 @@ O estado de paginação pertence à sessão visual (`sessionKey`) porque duas ab
 
 Esta fase é uma evolução dedicada e posterior à primeira entrega de janela incremental. A entrega inicial pode paginar mensagens raiz persistidas para reduzir payload, separar janelas por sessão e habilitar navegação incremental. Ela não deve ser tratada como a implementação final da semântica de timeline items.
 
-Na fase 2.1, `GetConversationMessageWindow` deve passar a ser entendido como uma API de janela de timeline, não como uma API de linhas cruas do banco.
+Desde a Fase 2.1, `GetConversationMessageWindow` é uma API de janela de
+timeline, não uma API de linhas cruas do banco.
 
 Cada item de timeline representa exatamente uma entrada navegável na lista:
 
@@ -60,7 +61,10 @@ Cada item de timeline representa exatamente uma entrada navegável na lista:
 - um turno consolidado identificado por `turnId`;
 - no futuro, outro tipo explícito de item, se houver uma decisão arquitetural para isso.
 
-Quando a fase 2.1 for implementada, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` devem ser calculados sobre itens de timeline. Eles não devem contar mensagens internas de tool calling separadamente quando a UI renderiza esse conjunto como um único item.
+Na Fase 2.1 entregue, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e
+`hasAfter` passaram a ser calculados sobre itens de timeline. Mensagens internas
+de tool calling não são contadas separadamente quando a UI renderiza esse
+conjunto como um único item.
 
 O backend será responsável por montar essa unidade canônica. O frontend deve consumir a janela pronta e usar os índices retornados para acessibilidade, sem recalcular posições absolutas a partir de mensagens brutas.
 
@@ -170,9 +174,9 @@ O PR #113 concluiu a primeira entrega de janela incremental por sessão:
 - A UI passou a usar contagem local honesta quando a consolidação visual de turnos ainda era feita no frontend, evitando anunciar posições absolutas cruas incorretas.
 - A expansão de fronteiras de turno foi mantida apenas como mitigação temporária, não como contrato final de timeline item.
 
-#### Contrato do PR de Fase 2.1
+#### Contrato entregue no PR de Fase 2.1
 
-O PR de Fase 2.1 conclui a semântica canônica de itens de timeline:
+O PR de Fase 2.1 concluiu a semântica canônica de itens de timeline:
 
 - A unidade de paginação, contagem e acessibilidade é o item de timeline.
 - Um item normal representa uma mensagem navegável sem consolidação.

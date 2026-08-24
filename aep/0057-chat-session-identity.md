@@ -218,7 +218,7 @@ O PR #111 completa o contrato operacional de sessão de chat:
 - Canais externos entram na `ConversationTurnQueue` por `conversationId` e usam origem externa explícita, em vez de adaptar comportamento pela aba ativa.
 - Eventos `chat:*` carregam `surfaceOrigin` quando a origem é conhecida, permitindo que controllers, voz e anúncios escolham a sessão correta.
 
-#### Consolidação no PR #113 e relação com AEP-0059
+#### Consolidação no PR #113 e evolução da AEP-0059
 
 O PR #113 consolidou o carregamento incremental sem enfraquecer a identidade de superfície:
 
@@ -226,7 +226,10 @@ O PR #113 consolidou o carregamento incremental sem enfraquecer a identidade de 
 - `ChatSurfaceSession` passou a carregar sua própria janela renderizada, cursores e estado de carregamento de janela.
 - Duas superfícies da mesma conversa podem manter pontos diferentes do histórico sem compartilhar scroll, paginação ou contagem local.
 
-O próximo PR da AEP-0059 Fase 2.1 preserva esse contrato. A unidade canônica de timeline será calculada no backend por `conversationId`, mas a janela visível continuará pertencendo à `ChatSurfaceSession`.
+A Fase 2.1 da AEP-0059 foi concluída preservando esse contrato: a unidade
+canônica de timeline é calculada no backend por `conversationId`, enquanto a
+janela visível continua pertencendo à `ChatSurfaceSession`. Virtualização e
+conteúdo pesado seguem como follow-ups da AEP-0059.
 
 ## Riscos
 
@@ -241,17 +244,24 @@ O próximo PR da AEP-0059 Fase 2.1 preserva esse contrato. A unidade canônica d
 
 ## Critérios de aceitação
 
-- Duas abas com conversas diferentes podem enviar e receber respostas simultaneamente.
-- Duas superfícies com a mesma conversa compartilham a timeline canônica de mensagens.
-- Duas superfícies com a mesma conversa não compartilham scroll, foco, input, edição, expansão de threads ou erros locais.
-- Envio comum para conversa ocupada não cancela silenciosamente o turno atual.
-- A mesma conversa processa turnos de forma serializada e ordenada.
-- `SendMessage` continua sendo a única chamada de envio frontend-backend.
-- Eventos de chat não dependem de `activeConversationId` global.
-- Componentes de UI usam `ChatSessionProvider`/`useChatSession()` em vez de acessar registries globais diretamente.
-- Fechar uma aba remove apenas sua sessão visual.
-- Cache/timeline por `conversationId` não força estado visual compartilhado.
-- Testes cobrem isolamento por superfície, timeline compartilhada e fila por conversa.
-- Modal de chat do workspace é vinculado explicitamente a uma superfície antes de preparar contexto ou enviar mensagem.
-- Chat renderizado em modal, painel ou embedded recebe contexto de superfície equivalente ao painel de origem.
-- `activeTabId` não é usado para decidir conversa, sessão visual, origem de envio ou retry.
+Evidências: PRs #110–#113,
+`frontend/src/services/chatTurnQueue.test.ts`,
+`chatSessionRegistry.test.ts`, `chatEventController.test.ts`,
+`frontend/src/components/chat/ChatSessionContext.test.tsx`,
+`ChatSurfaceController.test.tsx`, `ChatSessionView.test.tsx` e
+`frontend/src/components/workspace/WorkspaceChatModal.test.tsx`.
+
+- [x] Conversas diferentes enviam e recebem em paralelo.
+- [x] Mesma conversa compartilha timeline canônica.
+- [x] Mesma conversa não compartilha estado visual local.
+- [x] Envio ocupado não cancela silenciosamente o turno atual.
+- [x] Uma conversa processa turnos serializados e ordenados.
+- [x] `SendMessage` permanece o único envio frontend-backend.
+- [x] Eventos não dependem de conversa ativa global.
+- [x] UI usa provider/controller, não registry diretamente.
+- [x] Fechar aba remove somente sua sessão visual.
+- [x] Cache por conversa não força estado visual compartilhado.
+- [x] Testes cobrem isolamento, timeline e fila.
+- [x] Modal é vinculado à superfície antes de preparar/enviar.
+- [x] Modal, painel e embedded recebem contexto equivalente.
+- [x] `activeTabId` não decide conversa, envio ou retry.
