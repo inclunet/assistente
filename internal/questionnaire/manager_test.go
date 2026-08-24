@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -106,9 +107,16 @@ func TestRequestQuestionnaire_CancelledWithAnswers(t *testing.T) {
 
 func TestRequestQuestionnaire_SerializesDialogs(t *testing.T) {
 	events := make(chan string, 2)
+	earlySecond := make(chan string, 1)
+	var eventCount atomic.Int32
+	var respondingToFirst atomic.Bool
 	mgr := NewManager(func(event string, data any) {
 		if event == EventQuestionnaire {
-			events <- data.(map[string]any)["id"].(string)
+			id := data.(map[string]any)["id"].(string)
+			if eventCount.Add(1) == 2 && !respondingToFirst.Load() {
+				earlySecond <- id
+			}
+			events <- id
 		}
 	})
 	results := make(chan error, 2)
@@ -118,26 +126,54 @@ func TestRequestQuestionnaire_SerializesDialogs(t *testing.T) {
 	}
 
 	go request("primeiro")
-	firstID := <-events
+	firstID := receiveQuestionnaireEvent(t, events, "primeiro diálogo")
 	go request("segundo")
 	select {
-	case secondID := <-events:
+	case secondID := <-earlySecond:
 		t.Fatalf("segundo diálogo abriu antes da resposta do primeiro: %s", secondID)
 	case <-time.After(30 * time.Millisecond):
 	}
 
+	respondingToFirst.Store(true)
 	if err := mgr.Respond(firstID, map[string]any{}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-results; err != nil {
+	if err := receiveQuestionnaireResult(t, results, "primeira resposta"); err != nil {
 		t.Fatal(err)
 	}
-	secondID := <-events
+	secondID := receiveQuestionnaireEvent(t, events, "segundo diálogo")
+	select {
+	case earlyID := <-earlySecond:
+		t.Fatalf("segundo diálogo abriu antes de iniciar a resposta do primeiro: %s", earlyID)
+	default:
+	}
 	if err := mgr.Respond(secondID, map[string]any{}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-results; err != nil {
+	if err := receiveQuestionnaireResult(t, results, "segunda resposta"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func receiveQuestionnaireEvent(t *testing.T, events <-chan string, label string) string {
+	t.Helper()
+	select {
+	case id := <-events:
+		return id
+	case <-time.After(time.Second):
+		t.Fatalf("timeout aguardando %s", label)
+		return ""
+	}
+}
+
+func receiveQuestionnaireResult(t *testing.T, results <-chan error, label string) error {
+	t.Helper()
+	select {
+	case err := <-results:
+		return err
+	case <-time.After(time.Second):
+		t.Fatalf("timeout aguardando %s", label)
+		return nil
 	}
 }
 
