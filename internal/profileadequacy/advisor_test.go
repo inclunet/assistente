@@ -136,18 +136,19 @@ func TestAdvisorKeepsAlreadyAdequateProfile(t *testing.T) {
 	}
 }
 
-func TestAdvisorRejectsUnknownClassifierTool(t *testing.T) {
+func TestAdvisorIgnoresUnknownClassifierTool(t *testing.T) {
 	advisor, current := testAdvisor(t, `{"required_tools":["invented_tool"],"confidence":1}`, map[string]map[string]string{
 		"atual": {"run_command": "on_demand"},
 		"outro": {"run_command": "preloaded"},
 	})
 
-	if _, err := advisor.Recommend(t.Context(), Request{
+	recommendation, err := advisor.Recommend(t.Context(), Request{
 		UserContent:    "faça algo",
 		CurrentSlug:    "atual",
 		CurrentProfile: current,
-	}); err == nil {
-		t.Fatal("esperava rejeição de tool desconhecida")
+	})
+	if err != nil || recommendation != nil {
+		t.Fatalf("tool desconhecida deveria resultar em sem recomendação: recommendation=%#v err=%v", recommendation, err)
 	}
 }
 
@@ -213,7 +214,7 @@ func TestAdvisorDoesNotCountToolDroppedBySchemaBudget(t *testing.T) {
 	}
 }
 
-func TestAdvisorRejectsMalformedOrExtendedClassifierOutput(t *testing.T) {
+func TestAdvisorIgnoresMalformedOrExtendedClassifierOutput(t *testing.T) {
 	for _, response := range []string{
 		"```json\n{\"required_tools\":[],\"confidence\":1}\n```",
 		`{"required_tools":[],"confidence":1,"profile":"programacao"}`,
@@ -223,12 +224,13 @@ func TestAdvisorRejectsMalformedOrExtendedClassifierOutput(t *testing.T) {
 			"atual": {"run_command": "on_demand"},
 			"outro": {"run_command": "preloaded"},
 		})
-		if _, err := advisor.Recommend(t.Context(), Request{
+		recommendation, err := advisor.Recommend(t.Context(), Request{
 			UserContent:    "rode os testes",
 			CurrentSlug:    "atual",
 			CurrentProfile: current,
-		}); err == nil {
-			t.Fatalf("resposta deveria ser rejeitada: %q", response)
+		})
+		if err != nil || recommendation != nil {
+			t.Fatalf("resposta inválida deveria resultar em sem recomendação: %q recommendation=%#v err=%v", response, recommendation, err)
 		}
 	}
 }
@@ -247,6 +249,23 @@ func TestAdvisorReportsUnsupportedAuxiliaryRole(t *testing.T) {
 	})
 	if !errors.Is(err, ErrAuxiliaryClassificationUnavailable) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAdvisorIgnoresClassifierTimeout(t *testing.T) {
+	advisor, current := testAdvisor(t, "", map[string]map[string]string{
+		"atual": {"run_command": "on_demand"},
+		"outro": {"run_command": "preloaded"},
+	})
+	advisor.providers = fakeProviderStore{provider: &fakeProvider{err: context.DeadlineExceeded}}
+
+	recommendation, err := advisor.Recommend(t.Context(), Request{
+		UserContent:    "rode os testes",
+		CurrentSlug:    "atual",
+		CurrentProfile: current,
+	})
+	if err != nil || recommendation != nil {
+		t.Fatalf("timeout deveria resultar em sem recomendação: recommendation=%#v err=%v", recommendation, err)
 	}
 }
 

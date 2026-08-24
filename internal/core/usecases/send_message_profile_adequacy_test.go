@@ -103,8 +103,9 @@ func TestEnsureAdequateProfileCancelStopsBeforeSwitch(t *testing.T) {
 		return nil
 	})
 
-	got, err := uc.ensureAdequateProfile(t.Context(), adequacyRequest(), adequacyPreparedContext())
-	if !errors.Is(err, errProfileAdequacyCancelled) || got != nil {
+	current := adequacyPreparedContext()
+	got, err := uc.ensureAdequateProfile(t.Context(), adequacyRequest(), current)
+	if !errors.Is(err, errProfileAdequacyCancelled) || got != current {
 		t.Fatalf("cancelamento deveria interromper: got=%#v err=%v", got, err)
 	}
 	if switchCalls != 0 {

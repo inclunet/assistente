@@ -731,7 +731,7 @@ func (uc *SendMessageUseCase) ensureAdequateProfile(
 	}
 	actionID, ok := questionnaire.DecisionActionID(response)
 	if !ok {
-		return nil, errProfileAdequacyCancelled
+		return pctx, errProfileAdequacyCancelled
 	}
 	if actionID == profileAdequacyContinueAction {
 		return pctx, nil

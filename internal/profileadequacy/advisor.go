@@ -25,6 +25,8 @@ const (
 // aceita o papel auxiliar usado pelo preflight. O envio deve seguir sem sugestão.
 var ErrAuxiliaryClassificationUnavailable = errors.New("classificação auxiliar indisponível")
 
+var errInvalidClassification = errors.New("resposta inválida do classificador operacional")
+
 type ProfileStore interface {
 	List() ([]profiles.ProfileInfo, error)
 	Get(slug string) (*profiles.Profile, error)
@@ -93,6 +95,9 @@ func (a *Advisor) Recommend(ctx context.Context, req Request) (*Recommendation, 
 	}
 	classification, err := a.classify(ctx, req, available)
 	if err != nil {
+		if errors.Is(err, errInvalidClassification) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	if classification.Confidence < minimumConfidence || len(classification.RequiredTools) == 0 {
@@ -101,7 +106,7 @@ func (a *Advisor) Recommend(ctx context.Context, req Request) (*Recommendation, 
 
 	required, err := validateRequiredTools(classification.RequiredTools, available)
 	if err != nil || len(required) == 0 {
-		return nil, err
+		return nil, nil
 	}
 	return a.matchProfiles(ctx, currentSlug, req.CurrentProfile, required)
 }
@@ -236,6 +241,9 @@ Choose only tools that are indispensable to complete the request in the first re
 		if errors.Is(err, llm.ErrACPAuxiliaryRole) {
 			return classificationResponse{}, ErrAuxiliaryClassificationUnavailable
 		}
+		if classifierErr := classifierCtx.Err(); classifierErr != nil {
+			return classificationResponse{}, classifierErr
+		}
 		return classificationResponse{}, fmt.Errorf("classify operational requirements: %w", err)
 	}
 
@@ -243,14 +251,14 @@ Choose only tools that are indispensable to complete the request in the first re
 	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&response); err != nil {
-		return classificationResponse{}, fmt.Errorf("decode operational requirements: %w", err)
+		return classificationResponse{}, fmt.Errorf("%w: decode operational requirements: %v", errInvalidClassification, err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return classificationResponse{}, errors.New("decode operational requirements: trailing JSON value")
+		return classificationResponse{}, fmt.Errorf("%w: trailing JSON value", errInvalidClassification)
 	}
 	if response.Confidence < 0 || response.Confidence > 1 {
-		return classificationResponse{}, errors.New("operational confidence must be between 0 and 1")
+		return classificationResponse{}, fmt.Errorf("%w: confidence must be between 0 and 1", errInvalidClassification)
 	}
 	return response, nil
 }
