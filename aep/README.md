@@ -30,7 +30,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0012](0012-llm-provider-manager.md) | Multi-Provider LLM Architecture | 🚧 In Progress |
 | [0013](0013-llm-refactor.md) | LLM Client Refactor | 🗄️ Superseded |
 | [0014](0014-credential-persistence.md) | Persistência de Credenciais | ✅ Done |
-| [0015](0015-provider-auto-credential.md) | Auto-extração de Credenciais | ✅ Done |
+| [0015](0015-provider-auto-credential.md) | Auto-extração de Credenciais | 🚧 In Progress |
 | [0016](0016-http-request-tool.md) | HTTP Request Tool | ✅ Done |
 | [0017](0017-http-request-security.md) | HTTP Request Security | ✅ Done |
 | [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | 🚧 In Progress |

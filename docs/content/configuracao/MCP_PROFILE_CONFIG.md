@@ -7,7 +7,9 @@ weight: 4
 
 ## Visão Geral
 
-O Assistente usa MCP (Model Context Protocol) para integrar tools de servidores externos. A decisão de como MCP servers são consumidos é **capability-driven** — determinada pelo runtime com base no provider LLM configurado, não por campos manuais no perfil.
+O Assistente usa MCP (Model Context Protocol) para integrar tools de servidores
+externos. A política vigente combina a capacidade física do provider com o
+override tri-state do perfil.
 
 ---
 
@@ -22,18 +24,30 @@ O Assistente usa MCP (Model Context Protocol) para integrar tools de servidores 
 
 ### Decisão em runtime
 
-A decisão é automática e baseada em capacidade real:
+A decisão usa duas dimensões:
 
 ```
-provider.SupportsNativeMCP() == true
-  E servidor tem transporte HTTP (SSE/Streamable)
-  → MCP nativo (server-side)
+provider.NativeMCPCapable() == true
+  E Profile.Chat.NativeMCP != false
+  E servidor tem transporte HTTP elegível
+  → tenta MCP nativo (server-side)
 
 Caso contrário
   → Adapter/bridge (execução local)
 ```
 
-Não existe campo de perfil que controle isso. A fonte de verdade é o `api_format` do provider LLM.
+`Profile.Chat.NativeMCP` é um `*bool`:
+
+- ausente/`nil`: automático otimista; tenta nativo quando o provider é
+  fisicamente capaz;
+- `true`: força a tentativa nativa, ainda limitada pela capacidade física;
+- `false`: força adapter/bridge.
+
+Se o modo automático encontrar modelo ou endpoint incompatível com
+`type:"mcp"`, o mesmo turno é refeito em adapter, com as bridge tools
+disponíveis. Depois, a transição `nil` → `false` é persistida no perfil para
+evitar repetir a falha. Overrides explícitos nunca são sobrescritos
+automaticamente.
 
 ---
 
@@ -41,10 +55,10 @@ Não existe campo de perfil que controle isso. A fonte de verdade é o `api_form
 
 | Provider | `api_format` | MCP Nativo |
 |----------|-------------|------------|
-| OpenAI (api.openai.com) | `openai_responses` | Sim |
+| OpenAI Responses-compatible | `openai_responses` | Sim |
 | Anthropic (Claude) | `anthropic` | Sim |
 | Google (Gemini) | `google` | Não |
-| OpenAI-compatible (OpenRouter, Ollama, Groq, etc.) | `openai` | Não |
+| OpenAI Chat Completions-compatible | `openai` | Não |
 
 Para detalhes sobre `api_format`, veja [Configuração de Providers](PROVIDER_CONFIGURATION.md).
 
@@ -84,19 +98,22 @@ O modelo usa todas simultaneamente. Tools nativas são resolvidas server-side; t
 
 ## Configuração do Perfil
 
-O perfil de conversa **não** tem campos para controlar MCP nativo. Os campos relevantes são:
+O perfil de conversa possui o override tri-state `native_mcp`:
 
 ```json
 {
   "chat": {
     "llm_provider": "openai-default",
+    "native_mcp": null,
     "disable_tools": false,
     "enabled_tools": null
   }
 }
 ```
 
-- `llm_provider` — determina indiretamente o caminho MCP via `api_format` do provider
+- `llm_provider` — seleciona o provider cuja capacidade física é consultada
+- `native_mcp` — `null`/ausente = automático, `true` = forçar nativo,
+  `false` = forçar adapter
 - `disable_tools` — desabilita todo tool calling (incluindo MCP)
 - `enabled_tools` — filtra quais tools estão disponíveis (null = todas)
 
@@ -104,7 +121,9 @@ O perfil de conversa **não** tem campos para controlar MCP nativo. Os campos re
 
 ## Referências
 
-- [`internal/llm/chat_provider.go`](../../../internal/llm/chat_provider.go) — interface ChatProvider + SupportsNativeMCP()
+- [`internal/llm/chat_provider.go`](../../../internal/llm/chat_provider.go) — interface ChatProvider + `NativeMCPCapable()`
+- [`internal/profiles/types.go`](../../../internal/profiles/types.go) — `Profile.Chat.NativeMCP`
+- [`internal/chat/tool_defs.go`](../../../internal/chat/tool_defs.go) — resolução tri-state e montagem native/adapter
 - [`internal/llm/provider.go`](../../../internal/llm/provider.go) — APIFormat e GetAPIFormat()
 - [`internal/mcp/manager.go`](../../../internal/mcp/manager.go) — GetEligibleNativeMCPServers()
 - [PROVIDER_CONFIGURATION.md](PROVIDER_CONFIGURATION.md) — configuração de api_format

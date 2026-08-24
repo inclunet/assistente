@@ -156,8 +156,11 @@ próprias, como menus de contexto no Markdown e `sync()` do deck no Reveal.
 - [x] ESLint, incluindo `jsx-a11y`, e Stylelint estão verdes.
 - [x] Vitest, incluindo as regressões Mermaid e `axe-core`, está verde.
 
-Os três critérios de qualidade acima são sustentados pelo job `frontend` verde
-do CI atual do PR #579 (run `32687094294`, job `97314052396`). O contrato
-executável do job está em `.github/workflows/ci.yml`: etapas `TypeScript check`,
-`ESLint`, `Stylelint` e `Tests (includes axe-core a11y)`. Esta evidência afirma
-o estado atual do PR, não uma execução manual ou um histórico anterior.
+Os gates são reproduzíveis pelo contrato de
+`.github/workflows/ci.yml`: etapas `TypeScript check`, `ESLint`, `Stylelint` e
+`Tests (includes axe-core a11y)`, equivalentes a `npx tsc --noEmit`,
+`npm run lint`, `npm run lint:css` e `npm run test`. A cobertura específica
+permanece nos testes concretos listados em **Evidências**. O estado corrente
+pode ser consultado na página estável de
+[checks do PR #579](https://github.com/inclunet/assistente/pull/579/checks),
+sem vincular esta AEP a IDs efêmeros de run, job ou commit.

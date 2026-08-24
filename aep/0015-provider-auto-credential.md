@@ -1,6 +1,6 @@
 # Feature: Auto-extração de Credenciais ao Adicionar Provedores
 
-**Status:** Done
+**Status:** In Progress — criação/atualização entregues; cleanup de credencial no DELETE permanece pendente
 
 ## Objetivo
 Simplificar a adição de provedores LLM extraindo automaticamente o domínio do `base_url` e salvando a API key diretamente no `credentials.Manager`, eliminando a necessidade do usuário configurar manualmente o credential pattern.
@@ -365,33 +365,18 @@ Permite atualizar API key:
 
 ### `DELETE /api/providers/{id}`
 
-**Comportamento:**
-- Remove provider do registry
-- **TAMBÉM remove credencial associada** (cleanup automático)
+**Estado atual:**
 
-**Implementation:**
-```go
-func (a *App) DeleteLLMProvider(ctx context.Context, id string) error {
-    provider := a.llmRegistry.Get(id)
-    if provider == nil {
-        return errors.New("provider não encontrado")
-    }
+- [x] `internal/providers/service.go:Service.Delete` remove o provider do
+  registry; a API Wails persiste a remoção pelo hook `PersistDelete` de
+  `internal/wailsapi/llm_providers.go`.
+- [ ] Remove a credencial associada. `CredentialManager` expõe
+  `DeletePattern`, mas `Service.Delete` não consulta nem apaga
+  `CredentialPattern`; portanto a credencial pode permanecer órfã.
 
-    // 1. Remover provider do registry
-    err := a.llmRegistry.Remove(id)
-    if err != nil {
-        return err
-    }
-
-    // 2. Remover credencial associada (se existir)
-    if provider.CredentialPattern != "" {
-        // Nota: credentials.Manager pode não ter método Delete ainda
-        // Implementar se necessário ou deixar credencial órfã (será sobrescrita)
-    }
-
-    return nil
-}
-```
+O cleanup automático fazia parte do escopo aceito desta AEP e não deve ser
+descrito como entregue enquanto o serviço e seus testes não comprovarem a
+remoção segura, inclusive quando um mesmo pattern for compartilhado.
 
 ---
 
@@ -464,6 +449,9 @@ HTTP paralelo sugerido no plano:
       atualização e ausência de credencial.
 - [x] `internal/app/app_phase8_integration_test.go` cobre migração, resolução de
       pattern e injeção automática da credencial.
+- [x] `internal/app/app_provider_crud_test.go` comprova a remoção do provider.
+- [ ] O DELETE remove com segurança a credencial que deixou de ser usada; o
+      teste atual não verifica cleanup do cofre.
 
 O endpoint REST `POST /api/providers` proposto originalmente não foi necessário:
 desktop e frontend usam o binding/controlador compartilhado de providers.

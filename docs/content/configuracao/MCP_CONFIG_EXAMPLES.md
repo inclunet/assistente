@@ -14,10 +14,15 @@ A forma como o Assistente consome um servidor MCP depende de dois fatores: o **t
 | Transporte | Caminho | Quando |
 |------------|---------|--------|
 | `stdio` | Sempre **adapter/bridge local** | Servidor roda como processo local; não pode ser acessado remotamente |
-| `sse` / `streamable` | **MCP nativo** | Provider suporta (`openai_responses` ou `anthropic`) **e** URL é `https://`, ou `http://` apenas em localhost/loopback |
-| `sse` / `streamable` | **Adapter/bridge local** | Provider sem suporte nativo, ou URL `http://` com host remoto |
+| `sse` / `streamable` | **MCP nativo** | Provider é fisicamente capaz (`openai_responses` ou `anthropic`), política do perfil permite e URL é elegível |
+| `sse` / `streamable` | **Adapter/bridge local** | Provider incapaz, perfil força adapter, fallback automático ou URL inelegível |
 
-A decisão é automática — baseada em `SupportsNativeMCP()` do provider e na elegibilidade da URL, não em configuração manual. URLs `http://` com host remoto são excluídas do caminho nativo por segurança (auth tokens seriam transmitidos sem encriptação).
+A capacidade física vem de `NativeMCPCapable()`. A política vem de
+`Profile.Chat.NativeMCP *bool`: `nil` tenta nativo automaticamente quando
+possível, `true` força a tentativa nativa e `false` força adapter. Se o modelo
+ou endpoint rejeitar MCP nativo no modo automático, o Assistente refaz o mesmo
+turno com bridge tools e persiste `nil` → `false` no perfil. URLs `http://` com
+host remoto continuam excluídas por segurança.
 
 ## 📁 Localização
 
