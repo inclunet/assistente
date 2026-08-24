@@ -610,7 +610,7 @@ const (
 	profileAdequacyContinueAction = "continue-current"
 )
 
-var errProfileAdequacyCancelled = errors.New("profile adequacy decision cancelled")
+var errProfileAdequacyCancelled = errors.New("decisão de adequação de perfil cancelada")
 
 func (uc *SendMessageUseCase) completeProfileAdequacyCancellation(
 	req SendMessageRequest,

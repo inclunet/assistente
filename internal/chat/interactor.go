@@ -155,7 +155,7 @@ type PrepareContextResponse struct {
 // de adequação de profile tardio para esta conversa.
 func (i *Interactor) IsConversationEmpty(ctx context.Context, conversationID string) (bool, error) {
 	if i == nil || i.repo == nil {
-		return false, errors.New("message repository not initialized")
+		return false, errors.New("repositório de mensagens não inicializado")
 	}
 	if presence, ok := i.repo.(interface {
 		HasConversationMessages(context.Context, string) (bool, error)
