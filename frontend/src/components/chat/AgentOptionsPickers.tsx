@@ -32,7 +32,9 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
 }) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const { options, changing, change } = useAgentSessionOptions(conversationId);
+  // `!disabled` é o turno terminado: enquanto a conversa responde, a sessão do
+  // agente pode nem existir, e perguntar cedo demais devolve vazio.
+  const { options, changing, change } = useAgentSessionOptions(conversationId, !disabled);
 
   const model = optionByCategory(options, AGENT_OPTION_MODEL);
   const mode = optionByCategory(options, AGENT_OPTION_MODE);
