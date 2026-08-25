@@ -80,10 +80,10 @@ type RejectReasonConfig struct {
 // de edição Antes/Depois) para o host renderizar no body. Resposta em
 // Answers[AnswerActionID].
 type RequestPayload struct {
-	ID           string              `json:"id"`
-	Kind         string              `json:"kind,omitempty"`
-	Title        Text                `json:"title,omitzero"`
-	Description  Text                `json:"description,omitzero"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind,omitempty"`
+	Title       Text   `json:"title,omitzero"`
+	Description Text   `json:"description,omitzero"`
 	// Hint é texto traduzível secundário (ex.: match de host do skill),
 	// anexado à descrição no DecisionDialog sem misturar com Body cru.
 	Hint         Text                `json:"hint,omitzero"`
@@ -111,6 +111,7 @@ type Manager struct {
 	pending   map[string]*RequestPayload
 	mu        sync.Mutex
 	emitEvent func(event string, data any)
+	display   chan struct{}
 }
 
 // NewManager cria um novo gerenciador de questionários.
@@ -119,15 +120,25 @@ func NewManager(emitEvent func(event string, data any)) *Manager {
 		emitEvent = func(string, any) {}
 	}
 
-	return &Manager{
+	manager := &Manager{
 		pending:   make(map[string]*RequestPayload),
 		emitEvent: emitEvent,
+		display:   make(chan struct{}, 1),
 	}
+	manager.display <- struct{}{}
+	return manager
 }
 
 // RequestQuestionnaire solicita respostas do usuário para um questionário.
 // Bloqueia até resposta, cancelamento ou timeout.
 func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPayload) (Response, error) {
+	select {
+	case <-m.display:
+		defer func() { m.display <- struct{}{} }()
+	case <-ctx.Done():
+		return Response{}, fmt.Errorf("solicitação cancelada antes de abrir o diálogo: %w", ctx.Err())
+	}
+
 	req := &RequestPayload{
 		ID:           uuid.New().String()[:8],
 		Kind:         payload.Kind,

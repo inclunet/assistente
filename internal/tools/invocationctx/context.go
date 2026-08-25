@@ -16,6 +16,8 @@ type InvocationContext struct {
 	ConversationID string
 	TurnID         string
 	ProfileSlug    string
+	Source         string
+	SurfaceTabID   string
 }
 
 type ctxKey struct{}

@@ -1,7 +1,7 @@
 {
-  "_builtin_version": "4.3.0",
+  "_builtin_version": "4.4.0",
   "name": "Programação",
-  "description": "Otimizado para programação e código.",
+  "description": "Agente de desenvolvimento de software para explorar repositórios, planejar, editar código, executar comandos e validar mudanças. Use para implementação, correção, refatoração, testes e revisão técnica; pode delegar pesquisa ou trabalho paralelo a outros profiles.",
   "icon": "code-slash-outline",
   "chat": {
     "llm_provider": "$default",
@@ -23,6 +23,8 @@
       "write_file": "preloaded",
       "run_command": "preloaded",
       "update_plan": "preloaded",
+      "profile": "preloaded",
+      "subagent": "preloaded",
       "text_edit": "disabled"
     },
     "enabled_skills": [

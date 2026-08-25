@@ -5,8 +5,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-08-23):** este índice contém **99 documentos principais
-> para 98 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-08-24):** este índice contém **100 documentos principais
+> para 99 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -110,15 +110,16 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0093](0093-leitura-documentos-como-markdown.md) | Leitura unificada de documentos como Markdown (`read_file` / busca) | ✅ Done |
 | [0094](0094-navegacao-em-conteudo-renderizado.md) | Navegação em conteúdo renderizado | ✅ Done |
 | [0095](0095-mermaid-acessivel-e-resiliente.md) | Mermaid acessível e resiliente | ✅ Done |
-| [0096](0096-baseline-operacional-de-tools-por-perfil.md) | Baseline operacional de tools por perfil | 🚧 In Progress |
+| [0096](0096-baseline-operacional-de-tools-por-perfil.md) | Baseline operacional de tools por perfil | ✅ Done |
 | [0097](0097-capabilities-de-protocolo-por-provedor.md) | Capabilities de protocolo configuráveis por provedor | 🚧 In Progress |
 | [0098](0098-limite-de-saida-e-tool-calls-truncadas.md) | Limite de saída e tool calls truncadas | 🚧 In Progress |
 | [0099](0099-patch-canonico-multi-hunk.md) | Patch canônico multi-hunk | ✅ Done |
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
+| [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis e delegação autorizada | ✅ Done |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0100 → próximo
-> 0101), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0101 → próximo
+> 0102), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

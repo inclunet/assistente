@@ -200,16 +200,27 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 5. Resolve active profile
 	var err error
 	var activeProfile *profiles.Profile
-	resolvedProfileSlug := req.Params.ProfileSlug
+	resolvedProfileSlug := strings.TrimSpace(req.Params.ProfileSlug)
+	profileIsAuthoritative := resolvedProfileSlug != "" &&
+		(req.Source == "wails" || req.Source == "subagent")
 	if resolvedProfileSlug == "" && req.Source == "wails" {
 		resolvedProfileSlug = i.resolveWorkspaceProfileSlug(req.ConversationID, req.Params)
 		req.Params.ProfileSlug = resolvedProfileSlug
+		profileIsAuthoritative = resolvedProfileSlug != ""
 	}
 	if i.profileMgr == nil {
 		logging.Errorf(ctx, "chat.interactor", "[PrepareContext] profileManager não inicializado — continuando sem perfil")
 	} else if resolvedProfileSlug != "" {
 		activeProfile, err = i.profileMgr.Get(resolvedProfileSlug)
 		if err != nil {
+			// Subagentes e overrides do workspace recebem um profile já
+			// escolhido (e, quando necessário, autorizado). Fazer fallback
+			// para o global executaria com configuração diferente da decisão
+			// caso o profile fosse removido entre o diálogo e o turno
+			// (AEP-0101).
+			if profileIsAuthoritative {
+				return nil, fmt.Errorf("profile solicitado indisponível %q: %w", resolvedProfileSlug, err)
+			}
 			logging.Warnf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
 			var active *profiles.ActiveProfile
 			active, err = i.profileMgr.GetActiveAndSlug()

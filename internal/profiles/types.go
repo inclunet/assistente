@@ -328,6 +328,8 @@ func DefaultToolPolicy() map[string]string {
 		"web_search":        "preloaded",
 		"web_fetch":         "preloaded",
 		"collect_responses": "preloaded",
+		"profile":           "preloaded",
+		"subagent":          "preloaded",
 		"text_edit":         "disabled",
 	}
 }
@@ -344,7 +346,7 @@ func DefaultProfile() *Profile {
 	}
 	return &Profile{
 		Name:        "Padrão",
-		Description: "Configuração padrão.",
+		Description: "Assistente geral para pesquisa, análise, escrita e tarefas cotidianas. Use quando o trabalho não for predominantemente desenvolvimento de software; pode delegar partes especializadas a outros profiles.",
 		Icon:        "chatbox",
 		Chat: ChatConfig{
 			LLMProvider:                   DefaultProviderSentinel,

@@ -1,7 +1,7 @@
 {
-  "_builtin_version": "4.2.0",
+  "_builtin_version": "4.3.0",
   "name": "Padrão",
-  "description": "Configuração padrão.",
+  "description": "Assistente geral para pesquisa, análise, escrita e tarefas cotidianas. Use quando o trabalho não for predominantemente desenvolvimento de software; pode delegar partes especializadas a outros profiles.",
   "icon": "chatbox",
   "chat": {
     "llm_provider": "$default",
@@ -21,6 +21,8 @@
       "web_search": "preloaded",
       "web_fetch": "preloaded",
       "collect_responses": "preloaded",
+      "profile": "preloaded",
+      "subagent": "preloaded",
       "text_edit": "disabled"
     },
     "enabled_skills": [

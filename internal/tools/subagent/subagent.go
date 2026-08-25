@@ -8,10 +8,13 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"assistente/internal/eventctx"
+	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
 	"assistente/internal/subagent"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -31,12 +34,23 @@ type RunnerProvider func() Runner
 
 // Tool implementa tools.Tool para a builtin `subagent`.
 type Tool struct {
-	provider RunnerProvider
+	provider   RunnerProvider
+	authorizer ProfileAuthorizer
 }
 
-// NewWithProvider cria a tool com um provider lazy do Runner.
-func NewWithProvider(provider RunnerProvider) *Tool {
-	return &Tool{provider: provider}
+type ProfileAuthorizer interface {
+	Authorize(context.Context, profileaccess.AuthorizationRequest) (bool, error)
+}
+
+// NewWithProvider cria a tool com um provider lazy do Runner. O authorizer é
+// opcional apenas para compatibilidade de construção; uma delegação
+// cross-profile falha fechada quando ele não está configurado.
+func NewWithProvider(provider RunnerProvider, authorizer ...ProfileAuthorizer) *Tool {
+	tool := &Tool{provider: provider}
+	if len(authorizer) > 0 {
+		tool.authorizer = authorizer[0]
+	}
+	return tool
 }
 
 func (t *Tool) Name() string { return "subagent" }
@@ -47,7 +61,7 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent. Without 'conversation_id' it creates a new sub-conversation; with 'conversation_id' it resumes an existing one, preserving its full context (like resuming by agent id). Add 'clear':true to reset that sub-conversation's history before sending. With 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' (and 'cancel') and pass either 'conversation_id' (queries its most recent run) OR 'run_id' alone (the run is resolved by its id) to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt' and 'clear'."
+	return "Delegate specialized, parallelizable, or context-isolated work to a sub-agent running in its own persisted sub-conversation. Use the profile tool with action='list' first when a different specialization may help; an explicit profile different from the parent always requires user authorization for that invocation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent. Without 'conversation_id' it creates a new sub-conversation; with 'conversation_id' it resumes an existing one, preserving its full context (like resuming by agent id). Add 'clear':true to reset that sub-conversation's history before sending. With 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' (and 'cancel') and pass either 'conversation_id' (queries its most recent run) OR 'run_id' alone (the run is resolved by its id) to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt' and 'clear'."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -80,7 +94,7 @@ func (t *Tool) Parameters() json.RawMessage {
 			},
 			"profile": {
 				"type": "string",
-				"description": "Slug of the interaction profile for the sub-agent (model, behavior, enabled tools). Defaults to the parent's profile."
+				"description": "Slug of the interaction profile for the sub-agent (model, behavior, enabled tools). Discover valid slugs and descriptions with profile action=list. Defaults to the parent's profile; a different explicit profile requires user authorization for this invocation."
 			},
 			"title": {
 				"type": "string",
@@ -220,6 +234,40 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		if profile == "" {
 			profile = inv.ProfileSlug
 		}
+		parentProfile := strings.TrimSpace(inv.ProfileSlug)
+		if strings.TrimSpace(a.Profile) != "" && profile != parentProfile {
+			if t.authorizer == nil {
+				return authorizationErrResult(
+					"authorization_unavailable",
+					"delegação para outro profile requer autorização, mas o autorizador não está configurado",
+				), nil
+			}
+			taskTitle := strings.TrimSpace(a.Title)
+			if taskTitle == "" {
+				taskTitle = truncateForDecision(prompt, 1000)
+			}
+			allowed, authErr := t.authorizer.Authorize(ctx, profileaccess.AuthorizationRequest{
+				Source:         inv.Source,
+				ConversationID: inv.ConversationID,
+				CurrentSlug:    parentProfile,
+				TargetSlug:     profile,
+				TaskTitle:      taskTitle,
+				Background:     a.Background,
+			})
+			if authErr != nil {
+				return authorizationErrResult(
+					authorizationErrorCode(authErr),
+					fmt.Sprintf("não foi possível autorizar a delegação cross-profile: %v", authErr),
+				), nil
+			}
+			if !allowed {
+				return jsonResult(map[string]any{
+					"status":     "denied",
+					"authorized": false,
+					"profile":    profile,
+				}, false, map[string]any{"status": "denied", "authorized": false, "profile": profile}), nil
+			}
+		}
 		res, err := runner.Run(ctx, subagent.RunParams{
 			ParentConversationID: inv.ConversationID,
 			ParentTurnID:         inv.TurnID,
@@ -252,6 +300,45 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			return errResult(fmt.Sprintf("erro ao consultar status do sub-agente: %v", err)), nil
 		}
 		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}), nil
+	}
+}
+
+func truncateForDecision(value string, maxRunes int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= maxRunes {
+		return string(runes)
+	}
+	return string(runes[:maxRunes]) + "…"
+}
+
+func authorizationErrorCode(err error) string {
+	switch {
+	case errors.Is(err, profileaccess.ErrTargetNotFound):
+		return "profile_not_found"
+	case errors.Is(err, profileaccess.ErrTargetUnavailable):
+		return "profile_unavailable"
+	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+		return "authorization_no_interlocutor"
+	case errors.Is(err, questionnaire.ErrAskerUnavailable):
+		return "authorization_surface_unavailable"
+	default:
+		return "authorization_failed"
+	}
+}
+
+func authorizationErrResult(code, message string) tools.ToolResult {
+	payload, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
+	return tools.ToolResult{
+		Content: string(payload),
+		IsError: true,
+		Metadata: map[string]any{
+			"error_code": code,
+		},
 	}
 }
 

@@ -88,7 +88,9 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `profile` (string, opcional): slug do profile do sub-agente
   (`ChatParams.ProfileSlug`). Default (vazio): chamadas originadas do chat/workspace
   **herdam o profile já resolvido do pai**; só na ausência de pai (job/system) cai no
-  perfil ativo global.
+  perfil ativo global. A [AEP-0101](0101-profiles-descobríveis-e-delegacao-autorizada.md)
+  tornou a execução com profile explícito diferente do pai uma decisão autorizada
+  por invocação; origem sem interlocutor falha fechada.
 - `title` (string, opcional): título da sub-conversa (persistido em `Conversation.Title`).
 - `model` (string, opcional): modelo de execução do sub-agente (`llm.ChatParams.Model`),
   **sobrescreve** o modelo derivado do `profile` para aquele run. Não é persistido na
@@ -200,7 +202,8 @@ propagada:
   apenas se a política efetiva do profile dele deixar a tool `subagent`
   `preloaded`, ou `on_demand` e posteriormente carregada. Estado `disabled` e
   `DisableTools=true` bloqueiam. Sem `max_depth` próprio nem proibição hardcoded.
-  Qualquer profile é permitido (responsabilidade do usuário).
+  Qualquer profile instalado pode ser escolhido, mas a troca explícita em
+  relação ao pai exige autorização conforme a AEP-0101.
 - **Backstop anti-runaway** (não é limite de profundidade): proveniência `eventctx`
   + circuit-breaker (`chain_id`/histórico) compartilhados com jobs, limite de
   concorrência por usuário/pai e timeout por run.

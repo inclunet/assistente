@@ -9,6 +9,7 @@ import (
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
 	"assistente/internal/tools/job"
+	profiletool "assistente/internal/tools/profile"
 	"assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	"assistente/internal/tools/skillloader"
@@ -49,6 +50,7 @@ var goldenBuiltinCatalogMetadata = map[string]tools.CatalogMetadata{
 	"open_deep_link":       {Category: "app", Class: "app_tool", Package: "basic", Risk: "read"},
 	"load_skill":           {Category: "skills", Class: "runtime_control", Package: "skills", Risk: "read"},
 	"subagent":             {Category: "agents", Class: "agent_delegation", Package: "agents", Risk: "write"},
+	"profile":              {Category: "agents", Class: "profile_control", Package: "agents", Risk: "write"},
 }
 
 // builtinsUnderTest instancia todas as builtins com metadados de catálogo. Os
@@ -83,6 +85,7 @@ func builtinsUnderTest() []tools.Tool {
 		deeplink.NewOpenDeepLink(nil),
 		skillloader.New(nil, nil),
 		subagent.NewWithProvider(nil),
+		profiletool.New(nil, nil),
 	}
 }
 

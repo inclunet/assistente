@@ -464,6 +464,40 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	}
 }
 
+func TestPrepareContext_ExplicitMissingProfileFailsClosed(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	active := profiles.DefaultProfile()
+	active.Name = "Ativo"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+
+	for _, source := range []string{"subagent", "wails"} {
+		t.Run(source, func(t *testing.T) {
+			prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+				ConversationID: "conversation-1",
+				Source:         source,
+				Params: ChatParams{
+					ProfileSlug: "profile-removido",
+				},
+			})
+			if err == nil || prepared != nil {
+				t.Fatalf("profile explícito não deve cair no global: prepared=%#v err=%v", prepared, err)
+			}
+		})
+	}
+}
+
 func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *testing.T) {
 	spy := &spyEmitter{}
 	profileMgr := setupProfileTestEnv(t)
@@ -533,6 +567,46 @@ func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *tes
 	}
 	if resp.ActiveProfile.Chat.LLMProvider != "localai-provider" {
 		t.Fatalf("LLMProvider = %q, want localai-provider", resp.ActiveProfile.Chat.LLMProvider)
+	}
+}
+
+func TestPrepareContext_WorkspaceOverrideMissingFailsClosed(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	active := profiles.DefaultProfile()
+	active.Name = "Ativo"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID: "ws-1",
+			Tabs: workspace.TabsState{
+				Active: "tab-chat",
+				Items: []workspace.Tab{{
+					ID:              "tab-chat",
+					Type:            workspace.TabTypeChat,
+					ConversationID:  "conv-1",
+					ProfileOverride: map[string]any{"slug": "profile-removido"},
+				}},
+			},
+		}},
+	})
+
+	prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		Params:         ChatParams{SurfaceTabID: "tab-chat"},
+	})
+	if err == nil || prepared != nil {
+		t.Fatalf("override inválido não deve cair no global: prepared=%#v err=%v", prepared, err)
 	}
 }
 

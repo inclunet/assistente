@@ -4205,6 +4205,19 @@ const en = {
           submit: 'Delete',
           cancel: 'Cancel',
         },
+        profileSwitch: {
+          title: 'Change this conversation profile?',
+          description: 'The profile will change from {{currentProfile}} to {{targetProfile}} starting next turn.',
+          allow: 'Change to {{targetProfile}}',
+          deny: 'Keep {{currentProfile}}',
+        },
+        subagentProfile: {
+          title: 'Run the task with another profile?',
+          descriptionInline: 'The sub-agent will use {{targetProfile}} instead of {{currentProfile}} for this run only, and this turn will wait for the result.',
+          descriptionBackground: 'The sub-agent will use {{targetProfile}} instead of {{currentProfile}} for this background run only; the result will arrive later in this conversation.',
+          allow: 'Run with {{targetProfile}}',
+          deny: 'Do not run',
+        },
         network: {
           title: 'Authorize access to a blocked host (anti-SSRF)',
           description: 'The assistant tried to reach a host that resolves to an internal/private address ({{category}}). Only authorize it if you trust this destination.',

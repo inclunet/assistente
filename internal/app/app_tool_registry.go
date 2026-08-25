@@ -12,6 +12,9 @@ import (
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
 	"assistente/internal/nettrust"
+	"assistente/internal/profileaccess"
+	"assistente/internal/profiles"
+	"assistente/internal/questionnaire"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
 	deeplinktool "assistente/internal/tools/deeplink"
@@ -21,12 +24,74 @@ import (
 	jobtool "assistente/internal/tools/job"
 	mcpservertool "assistente/internal/tools/mcpserver"
 	memorytool "assistente/internal/tools/memory"
+	profiletool "assistente/internal/tools/profile"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	subagenttool "assistente/internal/tools/subagent"
 	tasklisttool "assistente/internal/tools/tasklist"
 	"assistente/internal/tools/web"
+	"assistente/internal/workspace"
 )
+
+type appProfileSwitcher struct {
+	app *App
+}
+
+type workspaceTabProfileUpdatedEvent struct {
+	Workspace   *workspace.Workspace `json:"workspace"`
+	TabID       string               `json:"tabId"`
+	ProfileSlug string               `json:"profileSlug"`
+}
+
+func (s appProfileSwitcher) ValidateTabConversation(tabID, conversationID string) error {
+	if s.app == nil || s.app.workspaceMgr == nil {
+		return fmt.Errorf("workspace indisponível")
+	}
+	return s.app.workspaceMgr.ValidateTabConversation(tabID, conversationID)
+}
+
+func (s appProfileSwitcher) SwitchTabProfile(tabID, conversationID, profileSlug string) error {
+	if s.app == nil || s.app.workspaceMgr == nil {
+		return fmt.Errorf("workspace indisponível")
+	}
+	if err := s.app.workspaceMgr.UpdateTabProfileForConversation(tabID, conversationID, profileSlug); err != nil {
+		return err
+	}
+	if s.app.emitter != nil {
+		s.app.emitter.Emit("workspace:tab_updated", workspaceTabProfileUpdatedEvent{
+			Workspace:   s.app.workspaceMgr.Active(),
+			TabID:       tabID,
+			ProfileSlug: profileSlug,
+		})
+	}
+	return nil
+}
+
+func (s appProfileSwitcher) ResetConversationTools(conversationID string) {
+	if s.app != nil {
+		s.app.resetLoadedToolsForConversation(conversationID)
+	}
+}
+
+func (a *App) profileAccessService() *profileaccess.Service {
+	return profileaccess.NewService(
+		a.profileManager,
+		a.questionnaireRouter(),
+		func(ctx context.Context, source, conversationID string) questionnaire.Surface {
+			if source == "wails" {
+				return questionnaire.DesktopSurface(conversationID)
+			}
+			conv, err := database.GetConversationInfoWithContext(ctx, conversationID)
+			if err != nil || conv == nil {
+				return questionnaire.NoSurface(conversationID)
+			}
+			return questionnaire.ChannelSurface(conversationID, conv.Channel, conv.ContactID)
+		},
+		func(ctx context.Context, profile *profiles.Profile) bool {
+			return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
+		},
+	)
+}
 
 // serviceTaskListManager adapta tasklist.Service para a interface tasklisttool.TaskListManager.
 type serviceTaskListManager struct {
@@ -152,6 +217,7 @@ func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
 	a.toolExecutor = tools.NewExecutor(a.toolRegistry, tools.DefaultExecutorConfig())
+	profileAccess := a.profileAccessService()
 
 	// Determina diretório de trabalho para as tools de filesystem
 	workDir, err := os.Getwd()
@@ -279,6 +345,9 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramenta de questionário (collect_responses)
 	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
+	// Control-plane de profiles (AEP-0101): catálogo e troca persistente
+	// autorizada. A policy de cada profile decide se entra no payload.
+	a.toolRegistry.MustRegister(profiletool.New(profileAccess, appProfileSwitcher{app: a}))
 
 	// Registra ferramenta de busca no histórico de conversas
 	a.toolRegistry.MustRegister(history.NewSearchConversations(a.msgRepo))
@@ -320,7 +389,7 @@ func (a *App) initToolRegistry() {
 		}
 		return a.subagentMgr
 	}
-	a.toolRegistry.MustRegisterDiscoverableOptIn(subagenttool.NewWithProvider(subagentRunner))
+	a.toolRegistry.MustRegisterDiscoverableOptIn(subagenttool.NewWithProvider(subagentRunner, profileAccess))
 
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))

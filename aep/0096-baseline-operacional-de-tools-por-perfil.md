@@ -1,6 +1,6 @@
 # AEP-0096 — Baseline operacional de tools por perfil
 
-**Status:** In Progress — baseline e Fases 2/3/5 entregues; Fase 4 permanece pendente
+**Status:** ✅ Done
 
 ## Resumo
 
@@ -62,11 +62,14 @@ O perfil `Programação` pré-carrega:
 - `grep_search`;
 - `edit_file`;
 - `write_file`;
-- `run_command`.
+- `run_command`;
+- `update_plan`;
+- `profile`;
+- `subagent`.
 
 Tools não listadas usam `on_demand`, exceto opt-ins. Assim, o primeiro turno já
-consegue explorar, editar e validar código, enquanto operações destrutivas,
-automação, web, subagentes e MCP permanecem progressivas.
+consegue explorar, editar, validar e delegar código, enquanto operações
+destrutivas, automação, web e MCP permanecem progressivas.
 
 ### D3 — Baseline do perfil Padrão
 
@@ -77,7 +80,9 @@ O perfil `Padrão` pré-carrega capabilities gerais de baixo risco:
 - `grep_search`;
 - `web_search`;
 - `web_fetch`;
-- `collect_responses`.
+- `collect_responses`;
+- `profile`;
+- `subagent`.
 
 Tools não listadas usam `on_demand`, exceto opt-ins. Edição e shell ficam
 disponíveis mediante carregamento, sem inflar o payload de toda conversa.
@@ -107,7 +112,7 @@ Esta AEP reserva fases próprias para:
 
 - uma tool canônica de patch multi-hunk, sem substituir `edit_file` de imediato;
 - uma capability única de plano/progresso sobre o domínio de task lists;
-- detecção de incompatibilidade entre pedido e perfil, com troca confirmada pelo
+- descoberta de profiles, delegação especializada e troca confirmada pelo
   usuário;
 - tratamento explícito de `finish_reason=max_tokens` no loop.
 
@@ -128,9 +133,11 @@ execução e interação além da seleção de tools.
    - implementado pela [AEP-0100](0100-progresso-unificado-por-conversa.md);
    - expor uma única capability de plano/progresso ao modelo;
    - reutilizar o storage e os eventos do Task List Manager.
-4. **Adequação pedido↔perfil — pendente**
-   - classificar requisitos operacionais antes do primeiro turno;
-   - solicitar confirmação para trocar de perfil quando houver incompatibilidade;
+4. **Adequação pedido↔perfil — entregue pela AEP-0101**
+   - implementada pela [AEP-0101](0101-profiles-descobríveis-e-delegacao-autorizada.md);
+   - expor descrições de profiles ao agente sem classificador auxiliar;
+   - favorecer subagentes para especialização pontual;
+   - confirmar toda delegação cross-profile e troca persistente;
    - nunca elevar tools ou privilégios silenciosamente.
 5. **Continuação por limite de saída — entregue pela AEP-0098**
    - implementada pela [AEP-0098](0098-limite-de-saida-e-tool-calls-truncadas.md);
@@ -166,5 +173,5 @@ execução e interação além da seleção de tools.
 - [x] UI representa corretamente o estado efetivo de tools não listadas.
 - [x] Testes backend e frontend cobrem os quatro profiles e a nova semântica.
 - [x] Fases 2, 3 e 5 foram entregues pelas AEPs 0099, 0100 e 0098.
-- [ ] Fase 4 (adequação pedido↔perfil com confirmação) permanece pendente e
-  fora do baseline inicial concluído por esta AEP.
+- [x] Fase 4 foi entregue pela AEP-0101, com descoberta por descrição,
+  delegação cross-profile autorizada e troca persistente confirmada.

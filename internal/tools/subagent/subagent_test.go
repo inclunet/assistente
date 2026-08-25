@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	"assistente/internal/eventctx"
+	"assistente/internal/profileaccess"
 	"assistente/internal/subagent"
-	"assistente/internal/tools/invocationctx"
 	"assistente/internal/toolinvocations"
+	"assistente/internal/tools/invocationctx"
 )
 
 // parentCtx devolve um ctx de chamada de chat com vínculo pai válido
@@ -31,6 +32,19 @@ type fakeRunner struct {
 	cancelErr    error
 	lastStatusID [2]string // conversationID, runID
 	lastCancelID [2]string
+}
+
+type fakeProfileAuthorizer struct {
+	allowed bool
+	err     error
+	calls   int
+	request profileaccess.AuthorizationRequest
+}
+
+func (f *fakeProfileAuthorizer) Authorize(_ context.Context, request profileaccess.AuthorizationRequest) (bool, error) {
+	f.calls++
+	f.request = request
+	return f.allowed, f.err
 }
 
 func (f *fakeRunner) Run(_ context.Context, p subagent.RunParams) (subagent.RunResult, error) {
@@ -477,11 +491,13 @@ func TestToolResumeBackgroundAllowedForJobOrigin(t *testing.T) {
 
 func TestToolExplicitProfileOverridesInherited(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
-	tool := NewWithProvider(func() Runner { return runner })
+	authorizer := &fakeProfileAuthorizer{allowed: true}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
 	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
 		ConversationID: "parent-conv",
 		TurnID:         "parent-turn",
 		ProfileSlug:    "parent-profile",
+		Source:         "wails",
 	})
 
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"researcher"}`)); err != nil {
@@ -489,5 +505,71 @@ func TestToolExplicitProfileOverridesInherited(t *testing.T) {
 	}
 	if runner.lastParams.ProfileSlug != "researcher" {
 		t.Fatalf("profile explícito esperado researcher, veio %q", runner.lastParams.ProfileSlug)
+	}
+	if authorizer.calls != 1 || authorizer.request.TargetSlug != "researcher" {
+		t.Fatalf("autorização cross-profile não solicitada: %#v", authorizer)
+	}
+}
+
+func TestToolCrossProfileDeniedDoesNotCreateRun(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
+	authorizer := &fakeProfileAuthorizer{allowed: false}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+		ProfileSlug:    "parent-profile",
+		Source:         "wails",
+	})
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"researcher"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("recusa é resultado normal: %#v err=%v", result, err)
+	}
+	if runner.lastParams.Prompt != "" {
+		t.Fatalf("runner não deveria ser chamado: %#v", runner.lastParams)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["status"] != "denied" || payload["authorized"] != false {
+		t.Fatalf("payload de recusa inesperado: %#v", payload)
+	}
+}
+
+func TestToolCrossProfileAuthorizationErrorIsStructured(t *testing.T) {
+	runner := &fakeRunner{}
+	authorizer := &fakeProfileAuthorizer{err: profileaccess.ErrTargetNotFound}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+		ProfileSlug:    "parent-profile",
+		Source:         "wails",
+	})
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"removido"}`))
+	if err != nil || !result.IsError || runner.lastParams.Prompt != "" {
+		t.Fatalf("falha de autorização inesperada: %#v err=%v", result, err)
+	}
+	if result.Metadata["error_code"] != "profile_not_found" {
+		t.Fatalf("código estruturado inesperado: %#v", result.Metadata)
+	}
+}
+
+func TestToolSameExplicitProfileDoesNotAsk(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
+	authorizer := &fakeProfileAuthorizer{allowed: false}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+		ProfileSlug:    "parent-profile",
+	})
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"parent-profile"}`))
+	if err != nil || result.IsError || authorizer.calls != 0 || runner.lastParams.Prompt != "x" {
+		t.Fatalf("same-profile deveria preservar fluxo atual: result=%#v auth=%#v runner=%#v err=%v", result, authorizer, runner, err)
 	}
 }

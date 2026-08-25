@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -313,6 +314,67 @@ func TestUpdateTab_MergesState(t *testing.T) {
 	}
 	if tab.State["filePath"] != "/tmp/file.go" {
 		t.Errorf("filePath not merged: got %v", tab.State["filePath"])
+	}
+}
+
+func TestUpdateTabProfileForConversationValidatesRelationship(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:             "tab-profile",
+		Type:           TabTypeChat,
+		Title:          "chat",
+		ConversationID: conversationID,
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", "outra-conversa", "custom"); err == nil {
+		t.Fatal("vínculo divergente deveria impedir a troca")
+	}
+	tab := m.active.FindTab("tab-profile")
+	if tab.ProfileOverride != nil {
+		t.Fatalf("troca inválida mutou override: %#v", tab.ProfileOverride)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, "custom"); err != nil {
+		t.Fatalf("troca válida: %v", err)
+	}
+	if tab.ProfileOverride["slug"] != "custom" {
+		t.Fatalf("override inesperado: %#v", tab.ProfileOverride)
+	}
+}
+
+func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager(root)
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:              "tab-profile",
+		Type:            TabTypeChat,
+		ConversationID:  conversationID,
+		ProfileOverride: map[string]any{"slug": "anterior"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+	blocker := filepath.Join(root, "arquivo")
+	if err := os.WriteFile(blocker, []byte("não é diretório"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.activePath = filepath.Join(blocker, "workspace.yaml")
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, "novo"); err == nil {
+		t.Fatal("esperava falha de persistência")
+	}
+	tab := m.active.FindTab("tab-profile")
+	if tab.ProfileOverride["slug"] != "anterior" {
+		t.Fatalf("override em memória não foi revertido: %#v", tab.ProfileOverride)
 	}
 }
 
