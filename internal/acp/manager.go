@@ -748,6 +748,13 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		model:          model,
 		mode:           mode,
 	})
+	// As opções iniciais chegam na resposta de session/new ou session/load e
+	// não passam pela notificação do transporte: sem este aviso, o frontend só
+	// as veria se o agente mandasse um config_option_update espontâneo depois —
+	// e vários agentes mandam as escolhas só no corpo da resposta. Anunciá-las
+	// aqui é o que faz os seletores de modelo e modo aparecerem assim que a
+	// sessão sobe, sem depender de um turno seguinte (AEP-0084 D6).
+	c.manager.sessionOptionsChanged(mounted.sessionID, session.ConfigOptions())
 	return nil
 }
 

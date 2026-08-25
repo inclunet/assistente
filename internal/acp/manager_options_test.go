@@ -187,19 +187,25 @@ func TestTrocaFeitaPeloAgenteViraEventoDaConversa(t *testing.T) {
 	})
 
 	got := eventos()
-	if len(got) != 1 {
-		t.Fatalf("esperava 1 evento, obtive %d: %+v", len(got), got)
+	// Dois eventos: o da montagem da sessão — que leva as opções iniciais ao
+	// frontend sem esperar notificação do agente — e o da troca contada.
+	if len(got) != 2 {
+		t.Fatalf("esperava 2 eventos, obtive %d: %+v", len(got), got)
 	}
-	if got[0].ConversationID != "conv-1" || got[0].ProviderID != testSpec().ID {
-		t.Errorf("o evento não achou a conversa dona da sessão: %+v", got[0])
+	if got[0].Announceable() {
+		t.Errorf("a montagem da sessão pediu anúncio: %+v", got[0])
 	}
-	if got[0].Model != "modelo-b" || !got[0].ModelChanged {
-		t.Errorf("o evento não contou a troca de modelo: %+v", got[0])
+	evento := got[1]
+	if evento.ConversationID != "conv-1" || evento.ProviderID != testSpec().ID {
+		t.Errorf("o evento não achou a conversa dona da sessão: %+v", evento)
 	}
-	if got[0].ModeChanged {
-		t.Errorf("o modo não mudou e o evento diz que sim: %+v", got[0])
+	if evento.Model != "modelo-b" || !evento.ModelChanged {
+		t.Errorf("o evento não contou a troca de modelo: %+v", evento)
 	}
-	if !got[0].Announceable() {
+	if evento.ModeChanged {
+		t.Errorf("o modo não mudou e o evento diz que sim: %+v", evento)
+	}
+	if !evento.Announceable() {
 		t.Error("uma troca de modelo feita pelo agente precisa ser anunciada")
 	}
 }
@@ -219,12 +225,13 @@ func TestAvisoQueRepeteOEstadoNaoPedeAnuncio(t *testing.T) {
 	// cada repetição atropelaria a leitura da resposta em curso.
 	avisar(conv.Session().ID(), []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")})
 
+	// O primeiro evento é o da montagem da sessão; o segundo, a repetição.
 	got := eventos()
-	if len(got) != 1 {
-		t.Fatalf("esperava 1 evento, obtive %d", len(got))
+	if len(got) != 2 {
+		t.Fatalf("esperava 2 eventos, obtive %d", len(got))
 	}
-	if got[0].Announceable() {
-		t.Errorf("estado repetido pediu anúncio: %+v", got[0])
+	if got[1].Announceable() {
+		t.Errorf("estado repetido pediu anúncio: %+v", got[1])
 	}
 }
 
@@ -245,14 +252,15 @@ func TestRepeticaoComEspacoNoValorNaoViraTroca(t *testing.T) {
 	avisar(conv.Session().ID(), []ConfigOption{opcaoDeModelo(" modelo-a ", "modelo-a", "modelo-b")})
 
 	got := eventos()
-	if len(got) != 1 {
-		t.Fatalf("esperava 1 evento, obtive %d", len(got))
+	// O primeiro é o da montagem da sessão; o segundo, a repetição com espaço.
+	if len(got) != 2 {
+		t.Fatalf("esperava 2 eventos, obtive %d", len(got))
 	}
-	if got[0].ModelChanged || got[0].Announceable() {
-		t.Errorf("espaço na resposta do agente virou troca de modelo: %+v", got[0])
+	if got[1].ModelChanged || got[1].Announceable() {
+		t.Errorf("espaço na resposta do agente virou troca de modelo: %+v", got[1])
 	}
-	if got[0].Model != "modelo-a" {
-		t.Errorf("o modelo do evento saiu com espaço: %q", got[0].Model)
+	if got[1].Model != "modelo-a" {
+		t.Errorf("o modelo do evento saiu com espaço: %q", got[1].Model)
 	}
 }
 
@@ -348,11 +356,13 @@ func TestConfirmacaoQueChegaNoMeioDaTrocaNaoViraAnuncio(t *testing.T) {
 	}
 
 	got := eventos()
-	if len(got) != 1 {
-		t.Fatalf("esperava 1 evento vindo da notificação, obtive %d: %+v", len(got), got)
+	// O primeiro é o da montagem; o segundo, a confirmação que chegou no meio
+	// da troca.
+	if len(got) != 2 {
+		t.Fatalf("esperava 2 eventos vindo da notificação, obtive %d: %+v", len(got), got)
 	}
-	if got[0].Announceable() {
-		t.Errorf("a confirmação da troca pedida pelo app pediu anúncio: %+v", got[0])
+	if got[1].Announceable() {
+		t.Errorf("a confirmação da troca pedida pelo app pediu anúncio: %+v", got[1])
 	}
 }
 
@@ -380,11 +390,13 @@ func TestTrocaRecusadaNaoDeixaAnotacaoDeModeloQueNaoValeu(t *testing.T) {
 	avisar(sessionID, []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")})
 
 	got := eventos()
-	if len(got) != 1 {
-		t.Fatalf("esperava 1 evento, obtive %d: %+v", len(got), got)
+	// O primeiro é o da montagem da sessão; o segundo, a notificação depois da
+	// recusa.
+	if len(got) != 2 {
+		t.Fatalf("esperava 2 eventos, obtive %d: %+v", len(got), got)
 	}
-	if got[0].Announceable() {
-		t.Errorf("o modelo de sempre virou anúncio de troca depois de uma recusa: %+v", got[0])
+	if got[1].Announceable() {
+		t.Errorf("o modelo de sempre virou anúncio de troca depois de uma recusa: %+v", got[1])
 	}
 }
 
@@ -440,6 +452,41 @@ func TestAvisoDeSessaoQueNaoEDeConversaNaoViraEvento(t *testing.T) {
 	}
 }
 
+// As opções iniciais chegam na resposta de session/new ou session/load e não
+// passam pela notificação do transporte. Sem o anúncio da montagem, o frontend
+// só as veria se o agente mandasse um config_option_update espontâneo depois —
+// e vários agentes mandam as escolhas só no corpo da resposta, o que deixava os
+// seletores de modelo e modo escondidos mesmo com a sessão viva.
+func TestMontagemDaSessaoAnunciaAsOpcoesIniciais(t *testing.T) {
+	client := newFakeManagedClient()
+	client.sessionOptions = []ConfigOption{
+		opcaoDeModelo("modelo-a", "modelo-a", "modelo-b"),
+		opcaoDeModo("agent", "agent", "plan"),
+	}
+	m, eventos, _ := managerComAvisos(t, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	_ = conv
+
+	got := eventos()
+	if len(got) != 1 {
+		t.Fatalf("esperava 1 evento da montagem, obtive %d: %+v", len(got), got)
+	}
+	if got[0].ConversationID != "conv-1" {
+		t.Errorf("o evento não achou a conversa dona da sessão: %+v", got[0])
+	}
+	if got[0].Announceable() {
+		t.Errorf("o estado inicial da sessão pediu anúncio: %+v", got[0])
+	}
+	if modelo, ok := OptionByCategory(got[0].Options, CategoryModel); !ok || modelo.CurrentValue != "modelo-a" {
+		t.Errorf("as opções iniciais não vieram no evento: %+v", got[0].Options)
+	}
+}
+
 func TestAvisoDeConversaEncerradaNaoViraEvento(t *testing.T) {
 	client := newFakeManagedClient()
 	client.sessionOptions = []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")}
@@ -456,10 +503,15 @@ func TestAvisoDeConversaEncerradaNaoViraEvento(t *testing.T) {
 	}
 
 	// Um aviso atrasado do agente sobre uma conversa que a pessoa apagou não
-	// pode virar anúncio sobre uma aba que já não existe.
+	// pode virar anúncio sobre uma aba que já não existe. O único evento é o da
+	// montagem da sessão, que veio antes do encerramento.
 	avisar(sessionID, []ConfigOption{opcaoDeModelo("modelo-b", "modelo-a", "modelo-b")})
 
-	if got := eventos(); len(got) != 0 {
-		t.Errorf("aviso de conversa encerrada virou evento: %+v", got)
+	got := eventos()
+	if len(got) != 1 {
+		t.Fatalf("esperava só o evento da montagem, obtive %d: %+v", len(got), got)
+	}
+	if got[0].Announceable() {
+		t.Errorf("o evento da montagem pediu anúncio: %+v", got[0])
 	}
 }
