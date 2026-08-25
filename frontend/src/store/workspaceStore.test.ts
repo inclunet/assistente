@@ -43,10 +43,15 @@ vi.mock('../lib/waitForWailsBridge', () => ({
   waitForWailsBridge: vi.fn(),
 }));
 
-import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
+import {
+  useWorkspaceStore,
+  registerTabRenameHandler,
+  type WorkspaceTabUpdatedEvent,
+} from './workspaceStore';
 import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/wailsapi/Workspace';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 import { workspace } from '../../wailsjs/go/models';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 
 const mockedGetActiveWorkspace = vi.mocked(GetActiveWorkspace);
@@ -54,6 +59,7 @@ const mockedListWorkspaces = vi.mocked(ListWorkspaces);
 const mockedSetActiveWorkspaceTab = vi.mocked(SetActiveWorkspaceTab);
 const mockedUpdateWorkspaceTab = vi.mocked(UpdateWorkspaceTab);
 const mockedWaitForWailsBridge = vi.mocked(waitForWailsBridge);
+const mockedEventsOn = vi.mocked(EventsOn);
 
 function setStoreState(
   tabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; title: string; position: number }>,
@@ -77,6 +83,50 @@ function setStoreState(
     workspaces: [],
   });
 }
+
+describe('eventos de workspace', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedAnnounce.mockClear();
+    mockedEventsOn.mockClear();
+  });
+
+  it('reconcilia e anuncia o profile alterado pela tool', () => {
+    const cleanup = useWorkspaceStore.getState().setupEventListeners();
+    const registration = mockedEventsOn.mock.calls.find(([event]) => event === 'workspace:tab_updated');
+    expect(registration).toBeDefined();
+
+    const handler = registration?.[1] as (payload: WorkspaceTabUpdatedEvent) => void;
+    handler({
+      workspace: {
+        id: 'ws-1',
+        name: 'Workspace',
+        profile: 'geral',
+        tabs: {
+          active: 'tab-1',
+          items: [{
+            id: 'tab-1',
+            type: 'chat',
+            conversation_id: 'conversation-1',
+            title: 'Chat',
+            position: 0,
+            profile_override: { slug: 'custom' },
+          }],
+        },
+      },
+      tabId: 'tab-1',
+      profileSlug: 'custom',
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'custom',
+    });
+    expect(mockedAnnounce).toHaveBeenCalledWith(
+      `${i18next.t('workspace.profileChanged')}: custom`,
+    );
+    cleanup();
+  });
+});
 
 describe('handleContentRenamed', () => {
   beforeEach(() => {

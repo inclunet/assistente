@@ -15,6 +15,7 @@ import (
 	"assistente/internal/tools"
 	"context"
 	"fmt"
+	"strings"
 )
 
 // profileWithToolsDisabled devolve o perfil do turno com o interruptor de tools
@@ -184,6 +185,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		activeProfile = profileWithToolsDisabled(activeProfile)
 	}
 	params := pctx.Params
+	params.Source = strings.TrimSpace(req.Source)
 	if params.AllowAssistantPrefill {
 		// Gating pelo perfil: se o usuário desabilitou a ação manual, o backend deve falhar fechado.
 		if activeProfile != nil && activeProfile.Chat.StreamingRecoveryShowContinue != nil && !*activeProfile.Chat.StreamingRecoveryShowContinue {

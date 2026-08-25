@@ -326,3 +326,70 @@ func TestRequestQuestionnaire_ZeroTimeoutUsesDefault(t *testing.T) {
 		t.Fatalf("unexpected answer: %+v", resp.Answers)
 	}
 }
+
+func TestRequestQuestionnaireSerializesBackendDialogs(t *testing.T) {
+	events := make(chan string, 3)
+	manager := NewManager(func(event string, data any) {
+		if event == EventQuestionnaire {
+			events <- data.(map[string]any)["id"].(string)
+		}
+	})
+	results := make(chan error, 3)
+	request := func(ctx context.Context, title string) {
+		_, err := manager.RequestQuestionnaire(ctx, RequestPayload{Title: Plain(title)})
+		results <- err
+	}
+
+	go request(t.Context(), "primeiro")
+	var firstID string
+	select {
+	case firstID = <-events:
+	case <-time.After(time.Second):
+		t.Fatal("primeiro diálogo não abriu")
+	}
+
+	queuedCtx, cancelQueued := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancelQueued()
+	go request(queuedCtx, "segundo")
+	select {
+	case unexpectedID := <-events:
+		t.Fatalf("segundo diálogo abriu antes da conclusão do primeiro: %s", unexpectedID)
+	case err := <-results:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("solicitação enfileirada deveria respeitar o contexto: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("solicitação enfileirada não respeitou o deadline")
+	}
+
+	if err := manager.Respond(firstID, map[string]any{}, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-results:
+		if err != nil {
+			t.Fatalf("primeira resposta: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("primeiro diálogo não concluiu")
+	}
+
+	go request(t.Context(), "terceiro")
+	var thirdID string
+	select {
+	case thirdID = <-events:
+	case <-time.After(time.Second):
+		t.Fatal("fila não liberou o próximo diálogo")
+	}
+	if err := manager.Respond(thirdID, map[string]any{}, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-results:
+		if err != nil {
+			t.Fatalf("terceira resposta: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terceiro diálogo não concluiu")
+	}
+}

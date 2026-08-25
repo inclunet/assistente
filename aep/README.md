@@ -114,10 +114,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0098](0098-limite-de-saida-e-tool-calls-truncadas.md) | Limite de saída e tool calls truncadas | ✅ Done |
 | [0099](0099-patch-canonico-multi-hunk.md) | Patch canônico multi-hunk | ✅ Done |
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
+| [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis e delegação autorizada | ✅ Done |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0100 → próximo
-> 0101), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0101 → próximo
+> 0102), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

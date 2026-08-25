@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -509,6 +510,59 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	}
 
 	return m.saveWorkspace(m.active, m.activePath)
+}
+
+// ValidateTabConversation confirma o alvo antes de abrir uma decisão. A
+// atualização revalida sob lock próprio depois da resposta.
+func (m *Manager) ValidateTabConversation(tabID, conversationID string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.active == nil {
+		return fmt.Errorf("no active workspace")
+	}
+	tabID = strings.TrimSpace(tabID)
+	conversationID = strings.TrimSpace(conversationID)
+	tab := m.active.FindTab(tabID)
+	if tab == nil {
+		return fmt.Errorf("tab not found: %s", tabID)
+	}
+	if strings.TrimSpace(tab.ConversationID) != conversationID {
+		return fmt.Errorf("tab %s não pertence à conversa %s", tabID, conversationID)
+	}
+	return nil
+}
+
+// UpdateTabProfileForConversation atualiza o override de profile somente se a
+// aba ainda estiver vinculada à conversa que originou a decisão. Validação e
+// persistência ocorrem sob o mesmo lock para impedir troca na aba errada caso a
+// UI seja alterada enquanto o DecisionDialog está aberto (AEP-0101).
+func (m *Manager) UpdateTabProfileForConversation(tabID, conversationID, profileSlug string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.active == nil {
+		return fmt.Errorf("no active workspace")
+	}
+	tabID = strings.TrimSpace(tabID)
+	conversationID = strings.TrimSpace(conversationID)
+	profileSlug = strings.TrimSpace(profileSlug)
+	tab := m.active.FindTab(tabID)
+	if tab == nil {
+		return fmt.Errorf("tab not found: %s", tabID)
+	}
+	if strings.TrimSpace(tab.ConversationID) != conversationID {
+		return fmt.Errorf("tab %s não pertence à conversa %s", tabID, conversationID)
+	}
+	if profileSlug == "" {
+		return fmt.Errorf("profile slug is required")
+	}
+	previousOverride := tab.ProfileOverride
+	tab.ProfileOverride = map[string]any{"slug": profileSlug}
+	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
+		tab.ProfileOverride = previousOverride
+		return err
+	}
+	return nil
 }
 
 // MoveTabToWorkspace move uma aba do workspace ativo para outro workspace.
