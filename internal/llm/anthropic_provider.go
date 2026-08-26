@@ -18,7 +18,11 @@ import (
 
 // AnthropicProvider implementa ChatProvider usando a SDK anthropic-sdk-go.
 type AnthropicProvider struct {
-	client        *anthropic.Client
+	client *anthropic.Client
+	// streamClient usa http.Client sem Timeout global, com timeouts
+	// granulares de conexÃ£o/cabeÃ§alho (ver PR #585). O teto do stream Ã© o
+	// contexto (cancelamento do usuÃ¡rio + watchdog de ociosidade).
+	streamClient  *anthropic.Client
 	provider      *ProviderConfig
 	mcpServers    []MCPServerConfig // MCP servers HTTP para native connector
 	betaAttemptFn func(context.Context, anthropic.BetaMessageNewParams, StreamHandler, []MCPServerConfig) mcpStreamAttemptResult
@@ -27,26 +31,38 @@ type AnthropicProvider struct {
 // NewAnthropicProvider cria um provider Anthropic com a SDK oficial.
 func NewAnthropicProvider(provider *ProviderConfig, credMgr *credentials.Manager) *AnthropicProvider {
 	httpClient := newHTTPClientForProvider(provider, credMgr)
+	streamHTTPClient := newStreamingHTTPClientForProvider(provider, credMgr)
 
 	opts := []anthropicoption.RequestOption{
 		anthropicoption.WithHTTPClient(httpClient),
+	}
+	streamOpts := []anthropicoption.RequestOption{
+		anthropicoption.WithHTTPClient(streamHTTPClient),
 	}
 	if providerUsesPlaceholderAPIKey(provider) {
 		opts = append(opts, anthropicoption.WithAPIKey("managed-by-credential-transport"))
 	} else {
 		opts = append(opts, anthropicoption.WithAPIKey(""))
 	}
+	if providerUsesPlaceholderAPIKey(provider) {
+		streamOpts = append(streamOpts, anthropicoption.WithAPIKey("managed-by-credential-transport"))
+	} else {
+		streamOpts = append(streamOpts, anthropicoption.WithAPIKey(""))
+	}
 
 	if provider.BaseURL != "" {
 		baseURL := strings.TrimSuffix(provider.BaseURL, "/") + "/"
 		opts = append(opts, anthropicoption.WithBaseURL(baseURL))
+		streamOpts = append(streamOpts, anthropicoption.WithBaseURL(baseURL))
 	}
 
 	client := anthropic.NewClient(opts...)
+	streamClient := anthropic.NewClient(streamOpts...)
 
 	return &AnthropicProvider{
-		client:   &client,
-		provider: provider,
+		client:       &client,
+		streamClient: &streamClient,
+		provider:     provider,
 	}
 }
 
@@ -61,6 +77,7 @@ func (p *AnthropicProvider) WithMCPServers(servers []MCPServerConfig) ChatProvid
 	}
 	return &AnthropicProvider{
 		client:        p.client,
+		streamClient:  p.streamClient,
 		provider:      p.provider,
 		mcpServers:    servers,
 		betaAttemptFn: p.betaAttemptFn,
@@ -70,7 +87,7 @@ func (p *AnthropicProvider) WithMCPServers(servers []MCPServerConfig) ChatProvid
 func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
 	model := resolveModel(p.provider, params.Model)
 	if model == "" {
-		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
+		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrÃ£o configurado")
 	}
 	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
 
@@ -142,7 +159,7 @@ func (p *AnthropicProvider) SimpleChat(ctx context.Context, model, systemPrompt,
 func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
 	model := resolveModel(p.provider, params.Model)
 	if model == "" {
-		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
+		handler.OnError("Nenhum modelo especificado e nenhum modelo padrÃ£o configurado")
 		return
 	}
 	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
@@ -154,7 +171,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 
 	system, anthropicMsgs := convertToAnthropicMessages(messages, params.ExplicitCacheControl)
 
-	// Se há MCP servers configurados, usa Beta Messages API com MCP connector
+	// Se hÃ¡ MCP servers configurados, usa Beta Messages API com MCP connector
 	if len(p.mcpServers) > 0 {
 		p.streamChatWithMCP(ctx, model, maxTokens, system, anthropicMsgs, params, handler, tools...)
 		return
@@ -207,17 +224,19 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		}
 
 		if attempt < maxAttempts {
+			// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
+			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
 		}
 
-		handler.OnError("Máximo de tentativas de streaming excedido")
+		handler.OnError("MÃ¡ximo de tentativas de streaming excedido")
 	}
 }
 
 // streamChatWithMCP usa a Beta Messages API com MCP connector nativo.
-// MCP servers HTTP são passados diretamente ao Anthropic, que faz a comunicação server-side.
+// MCP servers HTTP sÃ£o passados diretamente ao Anthropic, que faz a comunicaÃ§Ã£o server-side.
 // Tools locais (function calling) continuam funcionando normalmente junto com MCP.
 func (p *AnthropicProvider) streamChatWithMCP(
 	ctx context.Context,
@@ -257,13 +276,13 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		}
 		if result.nativeMCPUnsupported {
 			// Modelo/endpoint rejeitou MCP nativo: dispara o auto-ajuste persistido do
-			// perfil (nil→false) e degrada nativo→adapter.
+			// perfil (nilâ†’false) e degrada nativoâ†’adapter.
 			logging.Infof(ctx, "llm.anthropic-provider", "[MCP-DEGRADE] attempt=%d provider=anthropic action=native_to_adapter reason=model_rejects_native_mcp servers=%d", attempt, len(currentServers))
 			if params.OnNativeMCPUnsupported != nil {
 				params.OnNativeMCPUnsupported()
 			}
 			if params.NativeMCPFallback != nil {
-				// O caller (loop agêntico) re-tenta o MESMO turno em modo adapter, com
+				// O caller (loop agÃªntico) re-tenta o MESMO turno em modo adapter, com
 				// as bridge tools presentes. Aborta sem emitir done/erro.
 				params.NativeMCPFallback.Trigger()
 				return
@@ -284,11 +303,13 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		}
 		if result.retry {
 			if attempt < maxAttempts {
+				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
+				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 				sleepWithJitter(ctx, bk)
 				bk = nextBackoff(bk, maxBk)
 				continue
 			}
-			handler.OnError("Máximo de tentativas de streaming excedido")
+			handler.OnError("MÃ¡ximo de tentativas de streaming excedido")
 			return
 		}
 		return
@@ -400,11 +421,16 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 }
 
 // doStreamBeta executa streaming via Beta Messages API (MCP connector).
-// Eventos de MCP (mcp_tool_use, mcp_tool_result) são transparentes — o Anthropic
+// Eventos de MCP (mcp_tool_use, mcp_tool_result) sÃ£o transparentes â€” o Anthropic
 // executa as tool calls MCP server-side. Tool calls locais (tool_use) continuam
-// sendo reportadas via OnToolCalls para execução local.
+// sendo reportadas via OnToolCalls para execuÃ§Ã£o local.
 func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.BetaMessageNewParams, handler StreamHandler, mcpServers []MCPServerConfig) mcpStreamAttemptResult {
-	stream := p.client.Beta.Messages.NewStreaming(ctx, params)
+	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
+	// enviar sem fechar a conexão não pode prender a leitura até o timeout.
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	defer wd.Stop()
+
+	stream := p.streamClient.Beta.Messages.NewStreaming(watchCtx, params)
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
@@ -430,6 +456,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	activeMCPTools := make(map[string]*mcpToolInfo) // keyed by tool use ID
 
 	for stream.Next() {
+		wd.Kick()
 		event := stream.Current()
 
 		switch event.Type {
@@ -559,6 +586,23 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream error: %s", errStr)
+
+		// Cancelamento do usuário (contexto pai): nunca retentar.
+		if ctx.Err() != nil {
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return mcpStreamAttemptResult{done: true}
+		}
+
+		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
+		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		if wd.TimedOut() {
+			if !emittedAnything {
+				return mcpStreamAttemptResult{retry: true}
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return mcpStreamAttemptResult{done: true}
+		}
+
 		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
@@ -569,6 +613,18 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			return mcpStreamAttemptResult{retry: true}
 		}
 		handler.OnError(errStr)
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	// Guarda de corrida: o watchdog pode estourar exatamente quando o
+	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
+	// truncada. Nesse caso não há conclusão válida a entregar.
+	if wd.TimedOut() {
+		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		if !emittedAnything {
+			return mcpStreamAttemptResult{retry: true}
+		}
+		handler.OnError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
 	}
 
@@ -643,7 +699,12 @@ func makeBetaAnthropicToolChoice(choice string) anthropic.BetaToolChoiceUnionPar
 }
 
 func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.MessageNewParams, handler StreamHandler) bool {
-	stream := p.client.Messages.NewStreaming(ctx, params)
+	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
+	// enviar sem fechar a conexão não pode prender a leitura até o timeout.
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	defer wd.Stop()
+
+	stream := p.streamClient.Messages.NewStreaming(watchCtx, params)
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
@@ -651,7 +712,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	var lastUsage Usage
 	var lastModel string
 
-	// Acumula tool calls por index (content_block_start → content_block_delta → content_block_stop)
+	// Acumula tool calls por index (content_block_start â†’ content_block_delta â†’ content_block_stop)
 	type pendingToolCall struct {
 		ID       string
 		Name     string
@@ -662,6 +723,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	var stopReason string
 
 	for stream.Next() {
+		wd.Kick()
 		event := stream.Current()
 
 		switch event.Type {
@@ -747,11 +809,39 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream error: %s", errStr)
 
+		// Cancelamento do usuário (contexto pai): nunca retentar.
+		if ctx.Err() != nil {
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return true
+		}
+
+		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
+		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		if wd.TimedOut() {
+			if !emittedAnything {
+				return false
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return true
+		}
+
 		if !emittedAnything && isRetryableError(errStr) {
 			return false
 		}
 
 		handler.OnError(errStr)
+		return true
+	}
+
+	// Guarda de corrida: o watchdog pode estourar exatamente quando o
+	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
+	// truncada. Nesse caso não há conclusão válida a entregar.
+	if wd.TimedOut() {
+		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		if !emittedAnything {
+			return false
+		}
+		handler.OnError(streamIdleErrorMessage)
 		return true
 	}
 
@@ -790,13 +880,13 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 }
 
 // convertToAnthropicMessages converte mensagens internas para o formato Anthropic.
-// Retorna o system prompt separado (Anthropic não usa role "system" nas mensagens)
+// Retorna o system prompt separado (Anthropic nÃ£o usa role "system" nas mensagens)
 // e a lista de mensagens user/assistant com content blocks.
 func convertToAnthropicMessages(msgs []Message, explicitCacheControl bool) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var system []anthropic.TextBlockParam
 	var result []anthropic.MessageParam
 
-	// Buffer para agrupar tool results consecutivos em uma única mensagem user
+	// Buffer para agrupar tool results consecutivos em uma Ãºnica mensagem user
 	var pendingToolResults []anthropic.ContentBlockParamUnion
 
 	flushToolResults := func() {
@@ -881,7 +971,7 @@ func anthropicSystemBlocks(msg Message, content string, explicitCacheControl boo
 	return []anthropic.TextBlockParam{block, anthropic.TextBlockParam{Text: suffix}}
 }
 
-// convertAnthropicTools converte definições de ferramentas para o formato Anthropic.
+// convertAnthropicTools converte definiÃ§Ãµes de ferramentas para o formato Anthropic.
 func convertAnthropicTools(tools []ToolDefinition, explicitCacheControl bool) []anthropic.ToolUnionParam {
 	result := make([]anthropic.ToolUnionParam, 0, len(tools))
 
