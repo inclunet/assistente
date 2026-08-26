@@ -141,6 +141,41 @@ describe('AgentOptionsPickers', () => {
     await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(3));
   });
 
+  // Respostas fora de ordem: o fetch inicial é lento e volta vazio depois que
+  // o evento do agente já trouxe as opções. Escrever esse vazio apagaria
+  // seletores que já descrevem a sessão de verdade.
+  it('fetch inicial atrasado não apaga opções que já chegaram', async () => {
+    // Toda leitura fica presa até o fim do teste: é a corrida entre respostas
+    // fora de ordem que este teste exercita.
+    const pendentes: Array<(valor: unknown) => void> = [];
+    getOptions.mockImplementation(
+      () => new Promise((resolve) => { pendentes.push(resolve); }),
+    );
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalled());
+
+    // O agente conta as opções enquanto a leitura inicial ainda voltava.
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: opcoesDoAgente().options,
+        model: 'modelo-a',
+        modelChanged: false,
+        modeChanged: false,
+        announce: false,
+      });
+    });
+    await screen.findByText('Modelo A');
+
+    // As leituras valem vazias, e chegam depois das opções do evento.
+    await act(async () => {
+      pendentes.forEach((resolve) => resolve({ conversationId: 'conversa-1', available: false, options: [] }));
+    });
+
+    expect(screen.getByText('Modelo A')).toBeInTheDocument();
+  });
+
   it('troca o modelo no agente e anuncia que vale do próximo turno', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
     setOption.mockResolvedValue(opcoesDoAgente('modelo-b'));

@@ -104,7 +104,13 @@ export function useAgentSessionOptions(
     GetAgentSessionOptions(conversationId)
       .then((state) => {
         if (!current) return;
-        setOptions(state?.options ?? []);
+        const fresh = state?.options ?? [];
+        // A resposta pode chegar fora de ordem: um evento do agente ou o
+        // refetch de fim de turno podem ter trazido opções enquanto esta
+        // leitura, mais lenta, ainda voltava. Escrever o vazio dela agora
+        // apagaria seletores que já descrevem a sessão de verdade.
+        if (fresh.length === 0 && optionsRef.current.length > 0) return;
+        setOptions(fresh);
       })
       .catch((error: unknown) => {
         if (!current) return;
