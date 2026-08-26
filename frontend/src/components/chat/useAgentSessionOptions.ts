@@ -128,9 +128,9 @@ export function useAgentSessionOptions(
   // Rede de segurança: o aviso de opções nasce com a sessão, mas pode chegar
   // antes de alguém escutar (superfície montada no meio do primeiro turno, por
   // exemplo). Terminado o turno com os seletores vazios, pergunta ao backend de
-  // novo — agora a sessão existe e a resposta traz o que o agente oferece. Se
-  // ainda vier vazio é porque esta conversa não tem agente com escolhas: não se
-  // repete a pergunta a cada turno, porque as dependências não mudam.
+  // novo — agora a sessão existe e a resposta traz o que o agente oferece.
+  // Enquanto seguem vazios, repete uma vez a cada fim de turno: é uma consulta
+  // local barata, e o custo some no primeiro conjunto de opções que voltar.
   useEffect(() => {
     if (!conversationId || !sessionSettled) return;
     if (optionsRef.current.length > 0) return;
