@@ -152,6 +152,8 @@ func (p *OpenAIProvider) streamChatResponses(
 		}
 		if result.retry {
 			if attempt < maxAttempts {
+				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
+				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 				sleepWithJitter(ctx, bk)
 				bk = nextBackoff(bk, maxBk)
 				continue
@@ -245,7 +247,13 @@ func (p *OpenAIProvider) buildResponsesParams(
 // doStreamResponses executa streaming via Responses API.
 // Trata eventos de texto, function calls locais e MCP (transparente/server-side).
 func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler, mcpServers []MCPServerConfig, chatParams ChatParams, dumpHandle *DebugDumpHandle) mcpStreamAttemptResult {
-	stream := p.client.Responses.NewStreaming(ctx, params)
+	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
+	// conexão, cancela a leitura e transforma em erro retryable (quando nada
+	// foi emitido). Cada evento recebido reinicia a contagem.
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	defer wd.Stop()
+
+	stream := p.streamClient.Responses.NewStreaming(watchCtx, params)
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
@@ -270,6 +278,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	var eventCount int
 
 	for stream.Next() {
+		wd.Kick()
 		event := stream.Current()
 		eventCount++
 
@@ -501,6 +510,23 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
+
+		// Cancelamento do usuário (contexto pai): nunca retentar.
+		if ctx.Err() != nil {
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return mcpStreamAttemptResult{done: true}
+		}
+
+		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
+		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		if wd.TimedOut() {
+			if !emittedAnything {
+				return mcpStreamAttemptResult{retry: true}
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return mcpStreamAttemptResult{done: true}
+		}
+
 		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}

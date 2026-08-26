@@ -113,6 +113,8 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		}
 
 		if attempt < maxAttempts {
+			// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
+			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
@@ -124,7 +126,13 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 
 // doStream executa uma tentativa de streaming. Retorna true se concluiu (sucesso ou erro terminal).
 func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) bool {
-	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
+	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
+	// conexão, cancela a leitura e transforma em erro retryable (quando nada
+	// visível foi emitido). Cada evento recebido reinicia a contagem.
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	defer wd.Stop()
+
+	stream := p.streamClient.Chat.Completions.NewStreaming(watchCtx, params)
 	acc := openai.ChatCompletionAccumulator{}
 	var promptTokensDetails openai.CompletionUsagePromptTokensDetails
 	var usageRawJSON string
@@ -140,6 +148,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var finishedToolCalls []ToolCall
 
 	for stream.Next() {
+		wd.Kick()
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
 		accumulateChatCompletionStreamUsageExtras(&promptTokensDetails, chunk, &usageRawJSON)
@@ -187,6 +196,22 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
+
+		// Cancelamento do usuário (contexto pai): nunca retentar.
+		if ctx.Err() != nil {
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return true
+		}
+
+		// Watchdog de ociosidade estourou. Sem conteúdo visível, a tentativa
+		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		if wd.TimedOut() {
+			if !emittedVisibleContent {
+				return false
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return true
+		}
 
 		if !emittedVisibleContent {
 			// tool_choice downgrade
