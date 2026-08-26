@@ -543,6 +543,18 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		return mcpStreamAttemptResult{done: true}
 	}
 
+	// Guarda de corrida: o watchdog pode estourar exatamente quando o
+	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
+	// truncada. Nesse caso não há conclusão válida a entregar.
+	if wd.TimedOut() {
+		logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		if !emittedAnything {
+			return mcpStreamAttemptResult{retry: true}
+		}
+		handler.OnError(streamIdleErrorMessage)
+		return mcpStreamAttemptResult{done: true}
+	}
+
 	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Stream loop ended: %d events, response=%d bytes, reasoning=%d bytes, toolCalls=%d",
 		eventCount, fullResponse.Len(), fullReasoning.Len(), len(finishedToolCalls))
 

@@ -39,7 +39,7 @@ type streamWatchdog struct {
 }
 
 // startStreamWatchdog deriva ctx com cancelamento por ociosidade. onTimeout é
-// chamado uma única vez, no momento do estouro (antes do cancelamento), para
+// chamado uma única vez, após o cancelamento do contexto vigiado, para
 // log/telemetria.
 func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func()) (context.Context, *streamWatchdog) {
 	watchCtx, cancel := context.WithCancel(ctx)
@@ -109,7 +109,7 @@ func (w *streamWatchdog) TimedOut() bool {
 const TurnNoticeStreamRetry TurnNoticeKind = "stream_retry"
 
 // notifyTurnNotice entrega o aviso ao handler quando ele souber recebê-lo
-// (TurnNoteSink é opcional por contrato).
+// (TurnNoticeSink é opcional por contrato).
 func notifyTurnNotice(handler StreamHandler, notice TurnNotice) {
 	if sink, ok := handler.(TurnNoticeSink); ok {
 		sink.OnTurnNotice(notice)

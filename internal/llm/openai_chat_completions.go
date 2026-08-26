@@ -240,6 +240,18 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		return true
 	}
 
+	// Guarda de corrida: o watchdog pode estourar exatamente quando o
+	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
+	// truncada. Nesse caso não há conclusão válida a entregar.
+	if wd.TimedOut() {
+		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		if !emittedVisibleContent {
+			return false
+		}
+		handler.OnError(streamIdleErrorMessage)
+		return true
+	}
+
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
 	}
