@@ -156,7 +156,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   // --- OpenAI-compatible commercial ---
   openrouter: {
     label: 'OpenRouter',
-    defaultUrl: 'https://openrouter.ai/api',
+    defaultUrl: 'https://openrouter.ai/api/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
