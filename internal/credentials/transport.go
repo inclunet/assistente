@@ -191,6 +191,27 @@ func NewHTTPClient(credMgr *Manager, credPattern string, timeout time.Duration) 
 	}
 }
 
+// streamingResponseHeaderTimeout limita quanto tempo se espera pelas
+// primeiras linhas de cabeçalho do upstream em requests de streaming SSE.
+// Cobre conexão lenta/servidor pendurado antes da resposta, sem colocar um
+// teto sobre o corpo — que num stream saudável pode durar minutos.
+const streamingResponseHeaderTimeout = 30 * time.Second
+
+// NewStreamingHTTPClientWithAuthMode cria um http.Client para streaming SSE
+// (AEP-0010). Diferente de NewHTTPClientWithAuthMode, NÃO define Timeout
+// global no client: esse timeout cobria a leitura inteira do body e matava
+// streams longos porém ativos no meio. O controle fica por:
+//   - ResponseHeaderTimeout no Transport (conexão/cabeçalho travados);
+//   - contexto da request (cancelamento pelo usuário e idle watchdog do
+//     provider, que detecta servidor que para de enviar sem fechar).
+func NewStreamingHTTPClientWithAuthMode(credMgr *Manager, credPattern string, mode AuthRequirement) *http.Client {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.ResponseHeaderTimeout = streamingResponseHeaderTimeout
+	transport := NewCredentialTransportWithMode(credMgr, credPattern, mode)
+	transport.Base = base
+	return &http.Client{Transport: transport}
+}
+
 // NewHTTPClientWithAuthMode cria um http.Client respeitando o modo de auth.
 func NewHTTPClientWithAuthMode(credMgr *Manager, credPattern string, mode AuthRequirement, timeout time.Duration) *http.Client {
 	return &http.Client{

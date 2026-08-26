@@ -107,12 +107,18 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		default:
 		}
 
-		done := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
-		if done {
+		res := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
+		if res.done {
 			return
 		}
 
 		if attempt < maxAttempts {
+			if res.plainRetry {
+				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
+				// Só para falha transitória real; auto-ajustes de parâmetro
+				// (tool_choice, prompt_cache_key) não são "conexão falhou".
+				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
+			}
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
@@ -122,9 +128,25 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 	}
 }
 
-// doStream executa uma tentativa de streaming. Retorna true se concluiu (sucesso ou erro terminal).
-func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) bool {
-	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
+// chatStreamAttempt classifica o desfecho de uma tentativa de streaming
+// Chat Completions. done=true encerra o turno (sucesso ou erro terminal).
+// plainRetry marca falha transitória de rede/servidor: retenta com backoff
+// e avisa quem assiste. Nem done nem plainRetry = auto-ajuste de parâmetros,
+// que retenta sem aviso de falha.
+type chatStreamAttempt struct {
+	done       bool
+	plainRetry bool
+}
+
+// doStream executa uma tentativa de streaming.
+func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) chatStreamAttempt {
+	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
+	// conexão, cancela a leitura e transforma em erro retryable (quando nada
+	// visível foi emitido). Cada evento recebido reinicia a contagem.
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	defer wd.Stop()
+
+	stream := p.streamClient.Chat.Completions.NewStreaming(watchCtx, params)
 	acc := openai.ChatCompletionAccumulator{}
 	var promptTokensDetails openai.CompletionUsagePromptTokensDetails
 	var usageRawJSON string
@@ -140,6 +162,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var finishedToolCalls []ToolCall
 
 	for stream.Next() {
+		wd.Kick()
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
 		accumulateChatCompletionStreamUsageExtras(&promptTokensDetails, chunk, &usageRawJSON)
@@ -188,12 +211,28 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
 
+		// Cancelamento do usuário (contexto pai): nunca retentar.
+		if ctx.Err() != nil {
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return chatStreamAttempt{done: true}
+		}
+
+		// Watchdog de ociosidade estourou. Sem conteúdo visível, a tentativa
+		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		if wd.TimedOut() {
+			if !emittedVisibleContent {
+				return chatStreamAttempt{plainRetry: true}
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return chatStreamAttempt{done: true}
+		}
+
 		if !emittedVisibleContent {
 			// tool_choice downgrade
 			if origParams.ToolChoice.OfAuto.Valid() && origParams.ToolChoice.OfAuto.Value == "required" {
 				if strings.Contains(strings.ToLower(errStr), "tool_choice") || strings.Contains(strings.ToLower(errStr), "tool choice") {
 					origParams.ToolChoice = makeToolChoice("auto")
-					return false
+					return chatStreamAttempt{}
 				}
 			}
 
@@ -203,16 +242,28 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 					onPromptCacheHintUnsupported()
 				}
 				origParams.PromptCacheKey = param.Opt[string]{}
-				return false
+				return chatStreamAttempt{}
 			}
 
 			if isRetryableError(errStr) {
-				return false
+				return chatStreamAttempt{plainRetry: true}
 			}
 		}
 
 		handler.OnError(errStr)
-		return true
+		return chatStreamAttempt{done: true}
+	}
+
+	// Guarda de corrida: o watchdog pode estourar exatamente quando o
+	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
+	// truncada. Nesse caso não há conclusão válida a entregar.
+	if wd.TimedOut() {
+		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		if !emittedVisibleContent {
+			return chatStreamAttempt{plainRetry: true}
+		}
+		handler.OnError(streamIdleErrorMessage)
+		return chatStreamAttempt{done: true}
 	}
 
 	if fullReasoning.Len() > 0 {
@@ -260,11 +311,11 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	if len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), usage, model)
-		return true
+		return chatStreamAttempt{done: true}
 	}
 
 	handler.OnDone(fullResponse.String(), usage, model)
-	return true
+	return chatStreamAttempt{done: true}
 }
 
 // chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.

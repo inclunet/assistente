@@ -4160,6 +4160,7 @@ const es = {
         agentMemoryLost: 'El agente no pudo retomar la sesión anterior de esta conversación y respondió sin recordar lo que ya se había dicho. El historial en pantalla sigue aquí; retoma lo que haga falta en el próximo mensaje.',
         modeSkipsPermission: 'El agente está en el modo {{mode}}, que prescinde de tu autorización: de ahora en adelante lee, edita y ejecuta en tu máquina sin preguntar nada. Elige otro modo en el selector de la conversación para volver a ser consultado.',
         modeAsksPermission: 'El agente está en el modo {{mode}}, que no prescinde de tu autorización: vuelve a pedir permiso para actuar en tu máquina, en lo que ese modo exija.',
+        streamRetry: 'La conexión con el proveedor falló en el intento {{count}}. Reintentando…',
         action: {
           read: 'leer un archivo',
           edit: 'editar un archivo',

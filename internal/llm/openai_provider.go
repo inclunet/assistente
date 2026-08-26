@@ -49,7 +49,11 @@ import (
 //   - Multimodalidade: imagens em user messages são convertidas como texto.
 //     A Responses API suporta imagens mas com formato diferente (input_image).
 type OpenAIProvider struct {
-	client             *openai.Client
+	client *openai.Client
+	// streamClient usa http.Client sem Timeout global, com timeouts
+	// granulares de conexão/cabeçalho. O teto do stream é o contexto
+	// (cancelamento do usuário + watchdog de ociosidade).
+	streamClient       *openai.Client
 	provider           *ProviderConfig
 	credMgr            *credentials.Manager
 	useResponses       bool              // true = Responses API first; false = Chat Completions only
@@ -72,9 +76,13 @@ func NewOpenAIResponsesProvider(provider *ProviderConfig, credMgr *credentials.M
 
 func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manager, useResponses bool) *OpenAIProvider {
 	httpClient := newHTTPClientForProvider(provider, credMgr)
+	streamHTTPClient := newStreamingHTTPClientForProvider(provider, credMgr)
 
 	opts := []option.RequestOption{
 		option.WithHTTPClient(httpClient),
+	}
+	streamOpts := []option.RequestOption{
+		option.WithHTTPClient(streamHTTPClient),
 	}
 	if providerUsesPlaceholderAPIKey(provider) {
 		opts = append(opts, option.WithAPIKey("managed-by-credential-transport"))
@@ -93,11 +101,20 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 		baseURL += "/"
 	}
 	opts = append(opts, option.WithBaseURL(baseURL))
+	streamOpts = append(streamOpts, option.WithBaseURL(baseURL))
+
+	if providerUsesPlaceholderAPIKey(provider) {
+		streamOpts = append(streamOpts, option.WithAPIKey("managed-by-credential-transport"))
+	} else {
+		streamOpts = append(streamOpts, option.WithAPIKey(""))
+	}
 
 	client := openai.NewClient(opts...)
+	streamClient := openai.NewClient(streamOpts...)
 
 	return &OpenAIProvider{
 		client:       &client,
+		streamClient: &streamClient,
 		provider:     provider,
 		credMgr:      credMgr,
 		useResponses: useResponses,
@@ -143,6 +160,7 @@ func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider 
 	}
 	return &OpenAIProvider{
 		client:             p.client,
+		streamClient:       p.streamClient,
 		provider:           p.provider,
 		credMgr:            p.credMgr,
 		useResponses:       p.useResponses,

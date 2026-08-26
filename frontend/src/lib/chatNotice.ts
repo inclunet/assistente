@@ -20,6 +20,7 @@ export const CHAT_NOTICE_MODEL_NOT_APPLIED = 'model_not_applied';
 export const CHAT_NOTICE_AGENT_MEMORY_LOST = 'agent_memory_lost';
 export const CHAT_NOTICE_MODE_SKIPS_PERMISSION = 'agent_mode_skips_permission';
 export const CHAT_NOTICE_MODE_ASKS_PERMISSION = 'agent_mode_asks_permission';
+export const CHAT_NOTICE_STREAM_RETRY = 'stream_retry';
 
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
@@ -39,6 +40,7 @@ const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_AGENT_MEMORY_LOST]: 'app.chatNotice.agentMemoryLost',
   [CHAT_NOTICE_MODE_SKIPS_PERMISSION]: 'app.chatNotice.modeSkipsPermission',
   [CHAT_NOTICE_MODE_ASKS_PERMISSION]: 'app.chatNotice.modeAsksPermission',
+  [CHAT_NOTICE_STREAM_RETRY]: 'app.chatNotice.streamRetry',
 };
 
 /**
