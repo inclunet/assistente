@@ -13,12 +13,17 @@ import (
 
 type espiaoAvisos struct {
 	noopStreamHandler
-	avisos []TurnNotice
+	avisos   []TurnNotice
+	conteudo string
 }
 
 func (e *espiaoAvisos) OnTurnNotice(n TurnNotice) { e.avisos = append(e.avisos, n) }
 
-// sseChatCompletion devolve um chunk SSE Chat Completions com conteúdo.
+func (e *espiaoAvisos) OnChunk(content string)                        { e.conteudo += content }
+func (e *espiaoAvisos) OnDone(string, Usage, string)                  {}
+func (e *espiaoAvisos) OnToolCalls([]ToolCall, string, Usage, string) {}
+
+// sseChatCompletion devolve um chunk SSE Chat Completions com conteÃºdo.
 const sseChatCompletion = "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n" +
 	"data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 	"data: [DONE]\n\n"
@@ -31,15 +36,15 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 		_, _ = r.Body.Read(body)
 
 		if strings.Contains(string(body), "prompt_cache_key") {
-			// Auto-ajuste: provider rejeita o parâmetro. Não é falha de rede.
+			// Auto-ajuste: provider rejeita o parÃ¢metro. NÃ£o Ã© falha de rede.
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`{"error":{"message":"Unknown parameter: prompt_cache_key"}}`))
 			return
 		}
 		if tentativas.Add(1) == 1 {
-			// Falha transitória de verdade na primeira tentativa limpa.
+			// Falha transitÃ³ria de verdade na primeira tentativa limpa.
 			// x-should-retry=false impede o retry interno da SDK openai-go
-			// (senão ele consome o erro antes do laço do provider).
+			// (senÃ£o ele consome o erro antes do laÃ§o do provider).
 			w.Header().Set("x-should-retry", "false")
 			w.WriteHeader(http.StatusBadGateway)
 			return
@@ -67,7 +72,7 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 		PromptCacheKey:          "cache-key",
 		PromptCacheHintFallback: &PromptCacheHintFallback{},
 	}
-	provider.StreamChat(ctx, []Message{{Role: "user", Content: "olá"}}, params, handler)
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "olÃ¡"}}, params, handler)
 
 	if handler.err != "" {
 		t.Fatalf("turno deveria concluir sem erro; veio %q", handler.err)
