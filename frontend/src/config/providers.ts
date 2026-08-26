@@ -166,7 +166,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
   deepseek: {
     label: 'DeepSeek',
-    defaultUrl: 'https://api.deepseek.com',
+    defaultUrl: 'https://api.deepseek.com/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
@@ -178,7 +178,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
   xai: {
     label: 'xAI (Grok)',
-    defaultUrl: 'https://api.x.ai',
+    defaultUrl: 'https://api.x.ai/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
@@ -189,7 +189,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
   mistral: {
     label: 'Mistral AI',
-    defaultUrl: 'https://api.mistral.ai',
+    defaultUrl: 'https://api.mistral.ai/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
@@ -211,7 +211,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
   together: {
     label: 'Together AI',
-    defaultUrl: 'https://api.together.xyz',
+    defaultUrl: 'https://api.together.xyz/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
@@ -221,7 +221,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
   fireworks: {
     label: 'Fireworks AI',
-    defaultUrl: 'https://api.fireworks.ai/inference',
+    defaultUrl: 'https://api.fireworks.ai/inference/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
