@@ -41,7 +41,7 @@ func BuiltinTemplate(providerType string) (*llm.ProviderConfig, error) {
 			ID:                "anthropic-claude",
 			Name:              "Claude (Anthropic)",
 			Type:              llm.ProviderClaude,
-			BaseURL:           "https://api.anthropic.com/v1",
+			BaseURL:           "https://api.anthropic.com",
 			Model:             "claude-3-7-sonnet-20250219",
 			DefaultModel:      "claude-3-7-sonnet-20250219",
 			Timeout:           180,
