@@ -147,7 +147,12 @@ type ProviderConfig struct {
 	DefaultModel      string            `json:"default_model,omitempty"`
 	IsDefault         bool              `json:"is_default,omitempty"`
 	Timeout           int               `json:"timeout,omitempty"`
-	Headers           map[string]string `json:"headers,omitempty"`
+	// StreamIdleTimeoutSeconds limita quanto tempo um streaming SSE pode ficar
+	// sem entregar evento nenhum antes de a tentativa ser cancelada (watchdog
+	// de ociosidade). Zero = padrão de 60s. Não é teto sobre o stream total:
+	// cada chunk recebido reinicia a contagem.
+	StreamIdleTimeoutSeconds int               `json:"stream_idle_timeout_seconds,omitempty"`
+	Headers                  map[string]string `json:"headers,omitempty"`
 	CredentialPattern string            `json:"credential_pattern,omitempty"`
 	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
 	// Vazio = inferido a partir de CredentialPattern (sem pattern → none, com pattern → required).

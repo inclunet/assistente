@@ -17,6 +17,14 @@ func newHTTPClientForProvider(provider *ProviderConfig, credMgr *credentials.Man
 	return credentials.NewHTTPClientWithAuthMode(credMgr, provider.CredentialPattern, mode, providerTimeout(provider))
 }
 
+// newStreamingHTTPClientForProvider cria o http.Client dedicado a streaming
+// SSE. Sem Timeout global (que cortava streams ativos aos 3 min); ver
+// credentials.NewStreamingHTTPClientWithAuthMode.
+func newStreamingHTTPClientForProvider(provider *ProviderConfig, credMgr *credentials.Manager) *http.Client {
+	mode := credentialAuthRequirement(provider)
+	return credentials.NewStreamingHTTPClientWithAuthMode(credMgr, provider.CredentialPattern, mode)
+}
+
 // credentialAuthRequirement converte llm.AuthMode em credentials.AuthRequirement.
 // Necessário porque o pacote credentials não pode importar llm (ciclo).
 func credentialAuthRequirement(p *ProviderConfig) credentials.AuthRequirement {

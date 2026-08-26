@@ -4161,6 +4161,7 @@ const ptBR = {
         agentMemoryLost: 'O agente não conseguiu retomar a sessão anterior desta conversa e respondeu sem lembrar do que já foi dito. O histórico na tela continua aqui; retome o que for preciso na próxima mensagem.',
         modeSkipsPermission: 'O agente está no modo {{mode}}, que dispensa a sua autorização: daqui em diante ele lê, edita e executa na sua máquina sem perguntar nada. Escolha outro modo no seletor da conversa para voltar a ser consultado.',
         modeAsksPermission: 'O agente está no modo {{mode}}, que não dispensa a sua autorização: ele volta a pedir permissão para agir na sua máquina, no que esse modo exigir.',
+        streamRetry: 'A conexão com o provedor falhou na tentativa {{count}}. Tentando de novo…',
         action: {
           read: 'ler um arquivo',
           edit: 'editar um arquivo',
