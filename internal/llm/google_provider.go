@@ -22,7 +22,7 @@ type GoogleProvider struct {
 }
 
 // NewGoogleProvider cria um provider Google Gemini com a SDK oficial.
-// O client é criado sob demanda em cada chamada de StreamChat porque
+// O client ÃƒÂ© criado sob demanda em cada chamada de StreamChat porque
 // genai.NewClient requer context e pode falhar.
 func NewGoogleProvider(provider *ProviderConfig, credMgr *credentials.Manager) *GoogleProvider {
 	return &GoogleProvider{
@@ -31,15 +31,38 @@ func NewGoogleProvider(provider *ProviderConfig, credMgr *credentials.Manager) *
 	}
 }
 
-// NativeMCPCapable: o SDK Gemini não implementa passthrough de MCP nativo, então
-// não é fisicamente capaz de emitir type:"mcp" — um override de perfil "true"
-// não tem como ser honrado e os MCP servers continuam via modo adapter.
+// NativeMCPCapable: o SDK Gemini nÃƒÂ£o implementa passthrough de MCP nativo, entÃƒÂ£o
+// nÃƒÂ£o ÃƒÂ© fisicamente capaz de emitir type:"mcp" Ã¢â‚¬â€ um override de perfil "true"
+// nÃƒÂ£o tem como ser honrado e os MCP servers continuam via modo adapter.
 func (p *GoogleProvider) NativeMCPCapable() bool {
 	return false
 }
 
 func (p *GoogleProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
 	return p
+}
+
+// newStreamingClient cria o client Gemini para streaming: http.Client sem
+// Timeout global (que cortava streams longos no meio), com timeouts
+// granulares de conexÃ£o/cabeÃ§alho. O teto Ã© o contexto da request.
+func (p *GoogleProvider) newStreamingClient(ctx context.Context) (*genai.Client, error) {
+	apiKey := ""
+	if p.credMgr != nil && p.provider.CredentialPattern != "" {
+		if auth, err := p.credMgr.GetByPatternWithContext(ctx, p.provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			apiKey = auth.Token
+		}
+	}
+
+	cc := &genai.ClientConfig{
+		APIKey:     apiKey,
+		Backend:    genai.BackendGeminiAPI,
+		HTTPClient: newStreamingHTTPClientForProvider(p.provider, p.credMgr),
+	}
+	if u := strings.TrimSpace(p.provider.BaseURL); u != "" {
+		cc.HTTPOptions.BaseURL = strings.TrimSuffix(u, "/")
+	}
+
+	return genai.NewClient(ctx, cc)
 }
 
 func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
@@ -57,6 +80,9 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 			Timeout: providerTimeout(p.provider),
 		},
 	}
+	if u := strings.TrimSpace(p.provider.BaseURL); u != "" {
+		cc.HTTPOptions.BaseURL = strings.TrimSuffix(u, "/")
+	}
 
 	return genai.NewClient(ctx, cc)
 }
@@ -64,7 +90,7 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
 	model := resolveModel(p.provider, params.Model)
 	if model == "" {
-		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
+		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrÃƒÂ£o configurado")
 	}
 
 	client, err := p.newClient(ctx)
@@ -142,11 +168,11 @@ func (p *GoogleProvider) SimpleChat(ctx context.Context, model, systemPrompt, us
 func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
 	model := resolveModel(p.provider, params.Model)
 	if model == "" {
-		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
+		handler.OnError("Nenhum modelo especificado e nenhum modelo padrÃƒÂ£o configurado")
 		return
 	}
 
-	client, err := p.newClient(ctx)
+	client, err := p.newStreamingClient(ctx)
 	if err != nil {
 		handler.OnError("Erro ao criar cliente Google: " + err.Error())
 		return
@@ -203,16 +229,23 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		}
 
 		if attempt < maxAttempts {
+			// Visibilidade: nunca deixar a pessoa no silÃªncio do backoff.
+			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
 		}
 
-		handler.OnError("Máximo de tentativas de streaming excedido")
+		handler.OnError("MÃƒÂ¡ximo de tentativas de streaming excedido")
 	}
 }
 
 func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, model string, contents []*genai.Content, config *genai.GenerateContentConfig, handler StreamHandler) bool {
+	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
+	// enviar sem fechar a conexÃ£o nÃ£o pode prender a leitura atÃ© o timeout.
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	defer wd.Stop()
+
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
 	var emittedAnything bool
@@ -220,10 +253,27 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 	var functionCalls []ToolCall
 	var finish FinishInfo
 
-	for resp, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
+	for resp, err := range client.Models.GenerateContentStream(watchCtx, model, contents, config) {
+		wd.Kick()
 		if err != nil {
 			errStr := err.Error()
 			logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream error: %s", errStr)
+
+			// Cancelamento do usuÃ¡rio (contexto pai): nunca retentar.
+			if ctx.Err() != nil {
+				handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+				return true
+			}
+
+			// Watchdog de ociosidade estourou. Sem conteÃºdo emitido, a tentativa
+			// Ã© descartÃ¡vel; com conteÃºdo jÃ¡ entregue, repetir duplicaria a resposta.
+			if wd.TimedOut() {
+				if !emittedAnything {
+					return false
+				}
+				handler.OnError(streamIdleErrorMessage)
+				return true
+			}
 
 			if !emittedAnything && isRetryableError(errStr) {
 				return false
@@ -341,10 +391,10 @@ func convertToGoogleContents(msgs []Message) (*genai.Content, []*genai.Content) 
 			if err := json.Unmarshal([]byte(content), &resp); err != nil {
 				resp = map[string]any{"result": content}
 			}
-			// Google usa FunctionResponse com o nome da função.
+			// Google usa FunctionResponse com o nome da funÃƒÂ§ÃƒÂ£o.
 			// Precisamos extrair o nome do tool call correspondente.
-			// O ToolCallID contém o ID, mas precisamos do nome.
-			// Convenção: usar ToolCallID como nome se não tivermos melhor info.
+			// O ToolCallID contÃƒÂ©m o ID, mas precisamos do nome.
+			// ConvenÃƒÂ§ÃƒÂ£o: usar ToolCallID como nome se nÃƒÂ£o tivermos melhor info.
 			name := msg.ToolCallID
 			contents = append(contents, genai.NewContentFromFunctionResponse(name, resp, "user"))
 		}
@@ -353,7 +403,7 @@ func convertToGoogleContents(msgs []Message) (*genai.Content, []*genai.Content) 
 	return system, contents
 }
 
-// convertGoogleTools converte definições de ferramentas para o formato Google GenAI.
+// convertGoogleTools converte definiÃƒÂ§ÃƒÂµes de ferramentas para o formato Google GenAI.
 func convertGoogleTools(tools []ToolDefinition) *genai.Tool {
 	decls := make([]*genai.FunctionDeclaration, 0, len(tools))
 
