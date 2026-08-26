@@ -22,7 +22,11 @@ func TestStartStreamWatchdogCancelaAposOciosidade(t *testing.T) {
 	case <-time.After(10 * time.Millisecond):
 	}
 
-	<-fired
+	select {
+	case <-fired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchdog não estourou dentro do esperado")
+	}
 	if watchCtx.Err() == nil {
 		t.Fatal("esperava contexto cancelado após ociosidade")
 	}
