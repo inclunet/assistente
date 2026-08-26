@@ -55,11 +55,19 @@ export interface UseAgentSessionOptionsResult {
  * `conversationId` — sem esse filtro, o modelo trocado numa conversa apareceria
  * na outra.
  *
+ * `sessionSettled` diz quando o turno corrente da conversa terminou. Enquanto
+ * não terminou, a sessão do agente pode ainda nem existir, e perguntar cedo
+ * demais devolve vazio; quando termina com os seletores vazios, pergunta de
+ * novo — a sessão agora é de verdade, e a resposta traz o que ela oferece.
+ *
  * Quem anuncia é o serviço global de anúncio, não uma região viva por aba
  * (`AGENTS.md`): o agente que troca de modelo sozinho precisa ser ouvido uma
  * vez, e não uma vez por superfície aberta.
  */
-export function useAgentSessionOptions(conversationId?: string | null): UseAgentSessionOptionsResult {
+export function useAgentSessionOptions(
+  conversationId?: string | null,
+  sessionSettled?: boolean,
+): UseAgentSessionOptionsResult {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [options, setOptions] = useState<AgentConfigOption[]>([]);
@@ -96,7 +104,13 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
     GetAgentSessionOptions(conversationId)
       .then((state) => {
         if (!current) return;
-        setOptions(state?.options ?? []);
+        const fresh = state?.options ?? [];
+        // A resposta pode chegar fora de ordem: um evento do agente ou o
+        // refetch de fim de turno podem ter trazido opções enquanto esta
+        // leitura, mais lenta, ainda voltava. Escrever o vazio dela agora
+        // apagaria seletores que já descrevem a sessão de verdade.
+        if (fresh.length === 0 && optionsRef.current.length > 0) return;
+        setOptions(fresh);
       })
       .catch((error: unknown) => {
         if (!current) return;
@@ -110,6 +124,30 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
       current = false;
     };
   }, [conversationId]);
+
+  // Rede de segurança: o aviso de opções nasce com a sessão, mas pode chegar
+  // antes de alguém escutar (superfície montada no meio do primeiro turno, por
+  // exemplo). Terminado o turno com os seletores vazios, pergunta ao backend de
+  // novo — agora a sessão existe e a resposta traz o que o agente oferece.
+  // Enquanto seguem vazios, repete uma vez a cada fim de turno: é uma consulta
+  // local barata, e o custo some no primeiro conjunto de opções que voltar.
+  useEffect(() => {
+    if (!conversationId || !sessionSettled) return;
+    if (optionsRef.current.length > 0) return;
+    let current = true;
+    GetAgentSessionOptions(conversationId)
+      .then((state) => {
+        if (!current) return;
+        const fresh = state?.options ?? [];
+        if (fresh.length > 0) setOptions(fresh);
+      })
+      .catch(() => {
+        // Sem barulho: o fetch inicial já tratou o erro do mesmo jeito.
+      });
+    return () => {
+      current = false;
+    };
+  }, [conversationId, sessionSettled]);
 
   useEffect(() => {
     if (!conversationId) return;

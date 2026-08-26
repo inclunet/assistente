@@ -351,11 +351,13 @@ func TestQuandoOAgenteTrocaDeModeloOAppAvisaATela(t *testing.T) {
 
 	agente.avisaSozinho("modelo-b")
 
+	// Dois eventos: o da montagem da sessão — que leva as opções iniciais ao
+	// frontend sem esperar notificação do agente — e o da troca contada.
 	eventos := emissor.find("chat:agent_options")
-	if len(eventos) != 1 {
-		t.Fatalf("eventos de opções = %d, esperado 1", len(eventos))
+	if len(eventos) != 2 {
+		t.Fatalf("eventos de opções = %d, esperado 2", len(eventos))
 	}
-	evento, ok := eventos[0].data.(AgentSessionOptionsEvent)
+	evento, ok := eventos[1].data.(AgentSessionOptionsEvent)
 	if !ok {
 		t.Fatalf("payload inesperado: %T", eventos[0].data)
 	}
@@ -383,10 +385,11 @@ func TestOAgenteRepetindoOMesmoModeloNaoRendeAnuncio(t *testing.T) {
 	agente.avisaSozinho("modelo-a")
 
 	eventos := emissor.find("chat:agent_options")
-	if len(eventos) != 1 {
-		t.Fatalf("eventos de opções = %d, esperado 1", len(eventos))
+	// O primeiro é o da montagem da sessão; o segundo, a repetição.
+	if len(eventos) != 2 {
+		t.Fatalf("eventos de opções = %d, esperado 2", len(eventos))
 	}
-	evento := eventos[0].data.(AgentSessionOptionsEvent)
+	evento := eventos[1].data.(AgentSessionOptionsEvent)
 	if evento.Announce || evento.ModelChanged {
 		t.Fatalf("estado repetido foi tratado como troca: %+v", evento)
 	}
@@ -404,10 +407,11 @@ func TestTrocaContadaSemListaDeValoresAindaChegaATela(t *testing.T) {
 	agente.avisaSemLista("modelo-b")
 
 	eventos := emissor.find("chat:agent_options")
-	if len(eventos) != 1 {
-		t.Fatalf("eventos de opções = %d, esperado 1", len(eventos))
+	// O primeiro é o da montagem da sessão; o segundo, a troca sem lista.
+	if len(eventos) != 2 {
+		t.Fatalf("eventos de opções = %d, esperado 2", len(eventos))
 	}
-	evento := eventos[0].data.(AgentSessionOptionsEvent)
+	evento := eventos[1].data.(AgentSessionOptionsEvent)
 	if evento.Model != "modelo-b" || !evento.ModelChanged || !evento.Announce {
 		t.Fatalf("a troca do agente não chegou marcada para anúncio: %+v", evento)
 	}
@@ -422,8 +426,11 @@ func TestAvisoSemValoresESemTrocaNaoViraEvento(t *testing.T) {
 
 	agente.avisaSemLista("modelo-a")
 
-	if eventos := emissor.find("chat:agent_options"); len(eventos) != 0 {
-		t.Fatalf("aviso sem notícia virou evento: %+v", eventos)
+	// O único evento é o da montagem da sessão; o aviso sem valores e sem
+	// troca nenhuma não vira evento.
+	eventos := emissor.find("chat:agent_options")
+	if len(eventos) != 1 {
+		t.Fatalf("esperava só o evento da montagem, obtive %d: %+v", len(eventos), eventos)
 	}
 }
 

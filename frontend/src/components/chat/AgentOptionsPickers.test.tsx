@@ -105,6 +105,77 @@ describe('AgentOptionsPickers', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  // O fetch inicial roda antes da sessão do agente existir (ela nasce com o
+  // primeiro turno) e devolve vazio. Terminado o turno, perguntar de novo é o
+  // que faz os seletores aparecerem — mesmo que o evento do backend tenha se
+  // perdido antes de alguém escutar.
+  it('pergunta as opções de novo quando o turno termina sem seletor nenhum', async () => {
+    getOptions
+      .mockResolvedValueOnce({ conversationId: 'conversa-1', available: false, options: [] })
+      .mockResolvedValueOnce(opcoesDoAgente());
+
+    const { rerender } = render(<AgentOptionsPickers conversationId="conversa-1" disabled />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(1));
+
+    // O turno terminou: a sessão agora existe e a pergunta repetida traz opções.
+    rerender(<AgentOptionsPickers conversationId="conversa-1" />);
+
+    expect(await screen.findByText('Modelo A')).toBeInTheDocument();
+    expect(getOptions).toHaveBeenCalledTimes(2);
+  });
+
+  // Sem seletor e sem agente com escolhas, cada fim de turno não pode virar uma
+  // pergunta nova ao backend: o vazio da resposta já foi ouvido uma vez.
+  it('não repete a pergunta em turnos seguintes quando a conversa não tem agente', async () => {
+    getOptions.mockResolvedValue({ conversationId: 'conversa-1', available: false, options: [] });
+
+    const { rerender } = render(<AgentOptionsPickers conversationId="conversa-1" disabled />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(1));
+
+    rerender(<AgentOptionsPickers conversationId="conversa-1" />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: /Modelo/ })).not.toBeInTheDocument();
+
+    rerender(<AgentOptionsPickers conversationId="conversa-1" disabled />);
+    rerender(<AgentOptionsPickers conversationId="conversa-1" />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(3));
+  });
+
+  // Respostas fora de ordem: o fetch inicial é lento e volta vazio depois que
+  // o evento do agente já trouxe as opções. Escrever esse vazio apagaria
+  // seletores que já descrevem a sessão de verdade.
+  it('fetch inicial atrasado não apaga opções que já chegaram', async () => {
+    // Toda leitura fica presa até o fim do teste: é a corrida entre respostas
+    // fora de ordem que este teste exercita.
+    const pendentes: Array<(valor: unknown) => void> = [];
+    getOptions.mockImplementation(
+      () => new Promise((resolve) => { pendentes.push(resolve); }),
+    );
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalled());
+
+    // O agente conta as opções enquanto a leitura inicial ainda voltava.
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: opcoesDoAgente().options,
+        model: 'modelo-a',
+        modelChanged: false,
+        modeChanged: false,
+        announce: false,
+      });
+    });
+    await screen.findByText('Modelo A');
+
+    // As leituras valem vazias, e chegam depois das opções do evento.
+    await act(async () => {
+      pendentes.forEach((resolve) => resolve({ conversationId: 'conversa-1', available: false, options: [] }));
+    });
+
+    expect(screen.getByText('Modelo A')).toBeInTheDocument();
+  });
+
   it('troca o modelo no agente e anuncia que vale do próximo turno', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
     setOption.mockResolvedValue(opcoesDoAgente('modelo-b'));
