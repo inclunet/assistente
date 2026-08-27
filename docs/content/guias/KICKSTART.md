@@ -41,6 +41,15 @@ Barras de ferramentas (editor, chat, jobs) usam `role="toolbar"`:
 
 Botões só com ícone têm `aria-label`; ícones decorativos têm `aria-hidden="true"`.
 
+## Navegação entre áreas e abas
+
+O Assistente é um workspace com **abas mistas**: numa mesma janela você pode ter abas de chat, editores de arquivo, listas de tarefas e terminais — cada aba mantém seu próprio estado e histórico. A barra de abas é navegável por `Tab` e anuncia o tipo de cada aba para leitores de tela.
+
+- `F6` / `Shift+F6` — pula entre as grandes áreas (landmarks) da tela: barra lateral, área de conteúdo, barra de abas, status. `Shift+F6` volta.
+- `ESC` — volta para a área padrão (o conteúdo principal da aba ativa) a partir de qualquer toolbar, menu ou modo de leitura isolado. Se um modal estiver aberto, `ESC` fecha o modal primeiro.
+- `Alt+M` — abre/fecha o menu principal do chat (de onde saem nova conversa, configurações e comandos). Não age quando um modal está no topo.
+- `Ctrl + Tab` / `Ctrl + Shift + Tab` — navega entre as abas de chat e de conteúdo (editores, tasklists, terminais) dentro do workspace.
+
 ## Principais atalhos
 
 | Atalho | Ação |
