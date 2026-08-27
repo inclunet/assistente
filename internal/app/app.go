@@ -13,6 +13,7 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
+	"assistente/internal/wakelock"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/apidto"
@@ -94,6 +95,7 @@ type App struct {
 	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
+	wakeLock         wakelock.Manager             // Previne bloqueio/suspensão quando a janela está em foco
 
 	credMgr           *credentials.Manager
 	credStore         credentials.Store
@@ -1232,6 +1234,13 @@ func (a *App) ShowWindow() {
 	a.windowPort.Show()
 }
 
+// SetWakeLock ativa/desativa a prevenção de bloqueio/suspensão da tela
+// enquanto a janela está em foco. É cross-platform: Windows usa
+// SetThreadExecutionState, Linux/macOS são no-op por enquanto.
+func (a *App) SetWakeLock(enabled bool) {
+	a.wakeLock.SetEnabled(enabled)
+}
+
 // shutdownBackgroundTimeout é o teto de espera pelo join das goroutines de
 // background no Shutdown. Defensivo: evita travar o encerramento caso alguma
 // goroutine não respeite o cancelamento do contexto a tempo.
@@ -1254,6 +1263,7 @@ func (a *App) waitBackground(timeout time.Duration) {
 
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	a.wakeLock.Release()
 	// Sinaliza o cancelamento às goroutines de background e aguarda o join
 	// antes de derrubar os managers, evitando loops órfãos no encerramento.
 	if a.cancel != nil {
