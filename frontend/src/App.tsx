@@ -15,6 +15,7 @@ import { QuestionnaireDialog, isDecisionQuestionnaire } from './components/ui/Qu
 import { DecisionQuestionnaireHost } from './components/ui/DecisionQuestionnaireHost';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 import { useConnectionStatusListener } from './hooks/useConnectionStatusListener';
+import { useWakeLock } from './hooks/useWakeLock';
 import { usePartialRuntimeInitListener } from './hooks/usePartialRuntimeInitListener';
 import { useSubAgentRunEvents } from './hooks/useSubAgentRunEvents';
 import { ToastHost } from './components/ui/ToastHost';
@@ -93,6 +94,7 @@ function App() {
     // Status de conexão com a API LLM (Issue #38): assinatura única do evento,
     // anúncios de queda/restauração via announcer global + toast.
     useConnectionStatusListener();
+    useWakeLock();
 
     // Aviso não-bloqueante de runtime parcialmente inicializado pós-login
     // (issue #250): toast + announce com ação "Tentar novamente".

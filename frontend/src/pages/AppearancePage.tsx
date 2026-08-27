@@ -15,6 +15,7 @@ export default function AppearancePage() {
   const { theme: currentTheme, setTheme } = useTheme();
   const updateConfig = useSettingsStore((s) => s.updateConfig);
   const decisionAlertSound = useSettingsStore((s) => s.config.decisionAlertSound);
+  const preventScreenLock = useSettingsStore((s) => s.config.preventScreenLock);
   const { announce } = useAnnouncer();
   const currentLang = i18n.language as LanguageId;
   useContentPageLandmarks({ pageClass: 'appearance-page' });
@@ -49,6 +50,18 @@ export default function AppearancePage() {
         enabled
           ? t('appearance.announce.decisionAlertSoundOn')
           : t('appearance.announce.decisionAlertSoundOff'),
+      );
+    },
+    [updateConfig, announce, t],
+  );
+
+  const handlePreventScreenLockChange = useCallback(
+    (enabled: boolean) => {
+      updateConfig({ preventScreenLock: enabled });
+      announce(
+        enabled
+          ? t('appearance.announce.preventScreenLockOn')
+          : t('appearance.announce.preventScreenLockOff'),
       );
     },
     [updateConfig, announce, t],
@@ -169,6 +182,17 @@ export default function AppearancePage() {
             />
             <p id="appearance-decision-alert-hint" className="appearance-pref__hint">
               {t('appearance.decisionAlertSoundHint')}
+            </p>
+          </div>
+          <div className="appearance-pref">
+            <Checkbox
+              label={t('appearance.preventScreenLock')}
+              checked={preventScreenLock}
+              aria-describedby="appearance-prevent-screen-lock-hint"
+              onChange={(e) => handlePreventScreenLockChange(e.target.checked)}
+            />
+            <p id="appearance-prevent-screen-lock-hint" className="appearance-pref__hint">
+              {t('appearance.preventScreenLockHint')}
             </p>
           </div>
         </section>

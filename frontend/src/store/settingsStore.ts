@@ -9,6 +9,8 @@ export interface AppConfig {
   language: 'pt-BR' | 'en' | 'es';
   /** Som de alerta na abertura de DecisionDialog (AEP-0091). Default: true. */
   decisionAlertSound: boolean;
+  /** Impede bloqueio/suspensão da tela enquanto a janela está em foco. Default: true. */
+  preventScreenLock: boolean;
 }
 
 interface SettingsState {
@@ -29,6 +31,7 @@ const defaultConfig: AppConfig = {
   theme: 'assistente',
   language: 'pt-BR',
   decisionAlertSound: true,
+  preventScreenLock: true,
 };
 
 function sanitizeConfig(persistedConfig: Partial<AppConfig> | null | undefined): AppConfig {
@@ -41,6 +44,9 @@ function sanitizeConfig(persistedConfig: Partial<AppConfig> | null | undefined):
   }
   if (typeof persistedConfig?.decisionAlertSound === 'boolean') {
     config.decisionAlertSound = persistedConfig.decisionAlertSound;
+  }
+  if (typeof persistedConfig?.preventScreenLock === 'boolean') {
+    config.preventScreenLock = persistedConfig.preventScreenLock;
   }
   return config;
 }
@@ -57,7 +63,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'assistente-settings',
-      version: 2,
+      version: 3,
       migrate: (persisted: unknown, version: number) => {
         const persistedState =
           typeof persisted === 'object' && persisted !== null
