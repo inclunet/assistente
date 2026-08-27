@@ -32,6 +32,8 @@ export function SetupMasterPassword(arg1:string):Promise<string>;
 
 export function SetupVault(arg1:string):Promise<string>;
 
+export function SetWakeLock(arg1:boolean):Promise<void>;
+
 export function ShowWindow():Promise<void>;
 
 export function Shutdown():Promise<void>;

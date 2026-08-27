@@ -613,12 +613,17 @@ const es = {
       decisionAlertSound: 'Sonido de alerta en confirmaciones',
       decisionAlertSoundHint:
         'Reproduce un sonido corto al abrir diálogos de decisión (eliminaciones, permisos, etc.).',
+      preventScreenLock: 'Mantener la pantalla encendida al enfocar',
+      preventScreenLockHint:
+        'Evita el bloqueo o suspensión mientras la ventana está enfocada. Desactívalo para que el sistema gestione el reposo.',
       aria: { selectTheme: 'Seleccionar tema', selectLanguage: 'Seleccionar idioma' },
       announce: {
         themeChanged: 'Tema cambiado a {{label}}',
         languageChanged: 'Idioma cambiado a {{label}}',
         decisionAlertSoundOn: 'Sonido de alerta en confirmaciones activado',
         decisionAlertSoundOff: 'Sonido de alerta en confirmaciones desactivado',
+        preventScreenLockOn: 'Mantener la pantalla encendida activado',
+        preventScreenLockOff: 'Mantener la pantalla encendida desactivado',
       },
       themes: {
         assistente: { label: 'Asistente', desc: 'Tema oscuro azul vibrante (predeterminado)' },

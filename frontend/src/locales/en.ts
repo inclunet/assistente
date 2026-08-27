@@ -614,12 +614,17 @@ const en = {
       decisionAlertSound: 'Alert sound on confirmations',
       decisionAlertSoundHint:
         'Plays a short sound when decision dialogs open (deletions, permissions, etc.).',
+      preventScreenLock: 'Keep screen awake when focused',
+      preventScreenLockHint:
+        'Prevents screen lock or sleep while the app window is focused. Turn off to let the system manage idle.',
       aria: { selectTheme: 'Select theme', selectLanguage: 'Select language' },
       announce: {
         themeChanged: 'Theme changed to {{label}}',
         languageChanged: 'Language changed to {{label}}',
         decisionAlertSoundOn: 'Alert sound on confirmations enabled',
         decisionAlertSoundOff: 'Alert sound on confirmations disabled',
+        preventScreenLockOn: 'Keep screen awake enabled',
+        preventScreenLockOff: 'Keep screen awake disabled',
       },
       themes: {
         assistente: { label: 'Assistant', desc: 'Vibrant dark blue theme (default)' },

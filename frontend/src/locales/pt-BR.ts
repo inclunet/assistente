@@ -614,12 +614,17 @@ const ptBR = {
       decisionAlertSound: 'Som de alerta em confirmações',
       decisionAlertSoundHint:
         'Toca um som curto ao abrir diálogos de decisão (exclusões, permissões, etc.).',
+      preventScreenLock: 'Manter a tela ligada quando em foco',
+      preventScreenLockHint:
+        'Impede o bloqueio ou suspensão da tela enquanto a janela do app estiver em foco. Desative se preferir que o sistema gerencie o repouso.',
       aria: { selectTheme: 'Selecionar tema', selectLanguage: 'Selecionar idioma' },
       announce: {
         themeChanged: 'Tema alterado para {{label}}',
         languageChanged: 'Idioma alterado para {{label}}',
         decisionAlertSoundOn: 'Som de alerta em confirmações ativado',
         decisionAlertSoundOff: 'Som de alerta em confirmações desativado',
+        preventScreenLockOn: 'Manter a tela ligada ativado',
+        preventScreenLockOff: 'Manter a tela ligada desativado',
       },
       themes: {
         assistente: { label: 'Assistente', desc: 'Tema escuro azul vibrante (padrão)' },
