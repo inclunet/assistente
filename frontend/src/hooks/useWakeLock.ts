@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 
+import { SetWakeLock } from '@wailsjs/go/app/App';
+
 import { useSettingsStore } from '../store/settingsStore';
 
 // Hook que mantém a tela acordada enquanto a janela está em foco e a
@@ -17,8 +19,7 @@ export function useWakeLock() {
 
       // Backend nativo (cross-platform) — fonte da verdade.
       try {
-        const w = window as unknown as { go?: { app?: { App?: { SetWakeLock?: (b: boolean) => Promise<void> } } } };
-        await w.go?.app?.App?.SetWakeLock?.(shouldLock);
+        await SetWakeLock(shouldLock);
       } catch {
         // Silencioso: binding pode não estar pronto em testes.
       }
@@ -27,9 +28,9 @@ export function useWakeLock() {
       if ('wakeLock' in navigator) {
         try {
           if (shouldLock && !wakeSentinel) {
-            wakeSentinel = await (navigator as unknown as { wakeLock: { request: (t: string) => Promise<WakeLockSentinel> } }).wakeLock.request(
-              'screen',
-            );
+            wakeSentinel = await (
+              navigator as unknown as { wakeLock: { request: (t: string) => Promise<WakeLockSentinel> } }
+            ).wakeLock.request('screen');
             wakeSentinel.addEventListener('release', () => {
               wakeSentinel = null;
             });
@@ -52,10 +53,8 @@ export function useWakeLock() {
       window.removeEventListener('blur', sync);
       document.removeEventListener('visibilitychange', sync);
       if (wakeSentinel) void wakeSentinel.release();
-      // Garante liberação do backend ao desmontar.
       try {
-        const w = window as unknown as { go?: { app?: { App?: { SetWakeLock?: (b: boolean) => Promise<void> } } } };
-        void w.go?.app?.App?.SetWakeLock?.(false);
+        void SetWakeLock(false);
       } catch {
         // Silencioso.
       }
