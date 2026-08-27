@@ -6,7 +6,7 @@ description: "Um ambiente de trabalho com IA, feito para pessoas — independent
 
 ## Uma ferramenta feita para pessoas
 
-O Assistente é um ambiente de trabalho desktop open source com inteligência artificial. Conversa, edição de texto, listas de tarefas e terminal — tudo em um só lugar, integrado com [mais de 15 provedores de IA compatíveis com a API da OpenAI](configuracao/PROVIDER_CONFIGURATION/). Funciona no Windows, macOS e Linux.
+O Assistente é um ambiente de trabalho desktop open source. Ele **não inclui um LLM próprio**: para usar IA você conecta um provedor de terceiros — conversa, edição de texto, listas de tarefas e terminal — tudo em um só lugar, integrado com [mais de 15 provedores de IA compatíveis com a API da OpenAI](configuracao/PROVIDER_CONFIGURATION/). Funciona no Windows, macOS e Linux.
 
 A premissa é simples: ferramentas de IA devem funcionar para pessoas, independente da forma como cada uma interage com o computador — seja por teclado, mouse, voz ou leitor de tela.
 
@@ -92,6 +92,7 @@ Ironicamente, o próprio desenvolvimento depende de ferramentas de IA que têm p
 
 | Seção | Conteúdo |
 |---|---|
+| **[Kickstart](guias/KICKSTART/)** | Primeiros passos: sem LLM próprio, navegação em listas/grids/toolbars e atalhos |
 | **[Downloads](downloads/)** | Windows, macOS e Linux |
 | **[Configuração](configuracao/)** | [Provedores LLM](configuracao/PROVIDER_CONFIGURATION/), [voz](configuracao/SPEECH_CONFIGURATION/), [MCP](configuracao/MCP_CONFIG_EXAMPLES/), [Slack](configuracao/SLACK_CHANNEL_SETUP/) e [skills](configuracao/SKILL_TEMPLATE_CONTEXT/) |
 | **[Recursos](recursos/)** | [Workspaces](recursos/WORKSPACES/), [editor](recursos/EDITOR/), [terminal](recursos/TERMINAL/), [tarefas](recursos/TASK_LISTS/), [deep links](recursos/DEEP_LINKS/) e [hotkeys](recursos/HOTKEYS/) |
