@@ -14,4 +14,6 @@ Guias de configuração de provedores, voz, integrações e ferramentas.
 | [MCP — Exemplos](MCP_CONFIG_EXAMPLES/) | Exemplos de configuração do Model Context Protocol |
 | [MCP — Perfil](MCP_PROFILE_CONFIG/) | Configuração de MCP por perfil de usuário |
 | [Slack](SLACK_CHANNEL_SETUP/) | Setup do canal Slack para integração |
+| [Telegram](TELEGRAM_CHANNEL_SETUP/) | Setup do canal Telegram via @BotFather |
+| [Signal](SIGNAL_CHANNEL_SETUP/) | Setup do canal Signal via signal-cli |
 | [Skills — Templates](SKILL_TEMPLATE_CONTEXT/) | Contexto para criação de templates de skills |
