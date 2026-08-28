@@ -18,6 +18,10 @@ O Assistente nem tem um nome de verdade — era um experimento que se provou út
 Disponível para **Windows**, **macOS** e **Linux** — [ir para downloads](downloads/).
 {{% /notice %}}
 
+{{% notice style="info" title="Primeira vez aqui? 3 passos em 5 minutos" icon="star" %}}
+**1. Instale** → [Downloads](downloads/) · **2. Conecte uma IA** → [Provedores](configuracao/PROVIDER_CONFIGURATION/) (cole uma chave como quem cola uma senha) · **3. Comece a conversar** → [Kickstart](guias/KICKSTART/)
+{{% /notice %}}
+
 ---
 
 ## O que o Assistente oferece
