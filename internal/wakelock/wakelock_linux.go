@@ -17,7 +17,7 @@ func enable() {
 		logging.Warnf(context.Background(), "wakelock", "dbus session bus indisponível: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	obj := conn.Object("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver")
 	call := obj.Call("org.freedesktop.ScreenSaver.Inhibit", 0, "assistente", "janela em foco")
 	if call.Err != nil {
@@ -37,7 +37,7 @@ func disable() {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	obj := conn.Object("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver")
 	_ = obj.Call("org.freedesktop.ScreenSaver.UnInhibit", 0, cookie).Err
 	cookie = 0
