@@ -5,6 +5,8 @@ weight: 3
 
 # Exemplos de Configuração de Servidores MCP
 
+> **Em 2 linhas:** MCP conecta ferramentas externas (arquivos, GitHub, Slack) ao assistente. Você descreve onde está o servidor e o assistente passa a oferecer aquelas ferramentas nas conversas.
+
 Este arquivo contém exemplos práticos de configuração de servidores MCP para o Assistente.
 
 ## Transporte e MCP Nativo
