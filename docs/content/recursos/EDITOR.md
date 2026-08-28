@@ -55,6 +55,20 @@ O editor monitora mudanças em arquivos abertos no disco (via `fsnotify`). Se um
 - Código-fonte (todas as linguagens suportadas pelo Monaco)
 - Diagramas Mermaid
 
+## Recursos avançados
+
+### Apresentação Reveal
+
+Arquivos Markdown com `---` como separador de slides podem ser exibidos como apresentação Reveal.js. Cada seção vira um slide navegável por `PageUp`/`PageDown` e anunciado para leitores de tela.
+
+### Mermaid acessível
+
+Diagramas Mermaid são renderizados com descrição textual alternativa e navegação por teclado. Erros de sintaxe são mostrados fora do bloco para não poluir o conteúdo, com cartaz de erro acessível.
+
+### Leitura de documentos
+
+O editor pode abrir documentos do workspace como visualização somente leitura, com modo `readingMode` (`role="document"`) para leitura extensa por leitores de tela, distinto do modo de formulário.
+
 ## Atalhos
 
 | Atalho | Ação |
