@@ -38,6 +38,16 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 - **Trazer app ao foco**: Atalho para trazer a janela do assistente à frente
 - **Controle de TTS**: Pausar/retomar leitura por voz
 
+## Atalhos de navegação (dentro do app)
+
+| Atalho | Ação |
+|---|---|
+| `F6` / `Shift+F6` | Pular entre áreas (landmarks): sidebar, conteúdo, abas, status |
+| `ESC` | Voltar à área padrão da aba ativa |
+| `Alt + M` | Menu principal do chat |
+| `Ctrl + Tab` / `Ctrl + Shift + Tab` | Próxima/anterior aba (chat, editor, tasklist, terminal) |
+| `Ctrl + Shift + R` | Repetir pergunta em diálogos de decisão |
+
 ## Notas
 
 - Hotkeys globais podem conflitar com atalhos de outros aplicativos
