@@ -36,7 +36,7 @@ Os workspaces são armazenados em:
 
 ## Abas por Workspace
 
-Cada workspace mantém seu próprio conjunto de abas, com estado (ativa + lista) preservado ao alternar:
+Cada workspace mantém seu próprio conjunto de abas **self-contained**: cada aba tem seu estado isolado e é preservado ao alternar workspaces, com suporte a **split view** para ver duas abas lado a lado:
 
 - **Chat** — conversas com o assistente
 - **Editor** — arquivos para edição

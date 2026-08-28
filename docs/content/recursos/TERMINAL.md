@@ -5,7 +5,7 @@ weight: 3
 
 # Terminal Integrado
 
-O Assistente possui um terminal integrado com sessões persistentes, permitindo executar comandos sem sair do aplicativo.
+O Assistente possui um terminal integrado com sessões **efêmeras** (AEP-0089), permitindo executar comandos sem sair do aplicativo.
 
 ## Como Funciona
 
