@@ -5,6 +5,8 @@ weight: 5
 
 # Deep Links
 
+> **Em 2 linhas:** links `assistente://` abrem o app direto em uma conversa, arquivo ou tarefa — útil para automações e skills te levarem ao lugar certo com um clique.
+
 O Assistente suporta deep links via protocolo `assistente://`, permitindo navegação programática entre recursos do aplicativo.
 
 ## URIs Suportadas
