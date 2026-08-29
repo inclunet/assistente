@@ -182,6 +182,14 @@ O diretório `aep/` é o repositório único de decisões arquiteturais do proje
 - **Formato**: Markdown, em português, com seções: Resumo, Motivação, Decisões, Fases, Riscos, Critérios de aceitação.
 - **Para descobrir AEPs relevantes**, liste `aep/` e leia os títulos — os nomes dos arquivos descrevem o tema.
 
+## Documentação — Manter o site atualizado (OBRIGATÓRIO)
+
+`docs/content` é a doc de usuário e deve refletir o produto. `aep/` é decisão técnica, não substitui doc.
+
+- Toda feature visível (nova página em `frontend/src/pages`, novo provedor, tool, canal, skill, job) exige atualizar `docs/content` no **mesmo PR** (ou PR empilhado com base neste) — inclua o guia/atualização e link na home ou no índice da seção.
+- Correção de comportamento visível exige atualizar a página correspondente (ex.: mudou URL base de provedor → `PROVIDER_CONFIGURATION.md`).
+- Se não couber no PR (ex.: doc extensa), abra issue `docs:` linkada no corpo do PR e marque como follow-up.
+
 ## Enforcement Automatizado (CI)
 
 Todo PR roda automaticamente, inclusive o empilhado (aquele cuja base é a
@@ -216,3 +224,4 @@ listado no resumo do run e a resolução é sua — o workflow não tenta adivin
 - [ ] Cores vêm de variáveis CSS (`--bg-*`, `--text-*`, etc.)
 - [ ] Font-sizes usam tokens (`--font-size-sm`, `--font-size-base`, etc.)
 - [ ] Inputs/selects têm `height: 32px`, botões têm `min-height: 36px`
+- [ ] Se tocou `frontend/src/pages` ou `internal/*` com feature visível, atualizou `docs/content` correspondente (ou abriu issue de doc)
