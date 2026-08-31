@@ -40,6 +40,7 @@ type SessionManager interface {
 	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
 	RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
 	Release(sessionID string)
+	Close(sessionID string) error
 }
 
 // sessionLookup é implementada pelo terminal.Manager e permite que o chat
@@ -83,7 +84,7 @@ func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (rc *RunCommand) Description() string {
-	return `Runs a shell command in a persistent PTY session. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new terminal. Existing terminals are never selected silently. working_directory applies only to a new terminal and cannot be combined with terminal_id. Results include a deep link for inspection. Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
+	return `Runs a shell command. By default it runs as a single ephemeral execution without leaving a persistent terminal tab; pass persistent=true to keep a terminal section alive for interactive use. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new execution. working_directory applies only to a new execution and cannot be combined with terminal_id. Results include a deep link for inspection. Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {
@@ -100,7 +101,11 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 			},
 			"terminal_id": {
 				"type": "string",
-				"description": "ID de um terminal vivo escolhido explicitamente. Se omitido, uma nova sessão é criada; nenhuma sessão existente é reutilizada silenciosamente."
+				"description": "ID de um terminal vivo escolhido explicitamente. Se omitido, uma nova execução é criada; nenhuma sessão existente é reutilizada silenciosamente."
+			},
+			"persistent": {
+				"type": "boolean",
+				"description": "Se true, mantém a seção de terminal persistente após o comando (útil para sessões interativas). Padrão: false (execução única, sem lotar terminais)."
 			},
 			"timeout_seconds": {
 				"type": "integer",
@@ -116,6 +121,7 @@ type runCommandArgs struct {
 	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory"`
 	TerminalID       string `json:"terminal_id"`
+	Persistent       bool   `json:"persistent"`
 	TimeoutSeconds   int    `json:"timeout_seconds"`
 }
 
@@ -254,11 +260,15 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Executa o comando
 	entry, err := rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
 
-	// Compatibilidade: a Session já volta a idle ao terminar, mas managers
-	// antigos ainda podem depender de Release para sessões criadas via Acquire.
-	// Uma sessão explícita tem ciclo de vida independente desta execução.
+	// Por padrão a execução é efêmera: fecha a sessão criada para não lotar
+	// terminais. Apenas quando persistent=true ou terminal_id foi fornecido a
+	// sessão permanece viva (útil para sessões interativas).
 	if acquiredSession {
-		rc.sessionMgr.Release(sessionID)
+		if a.Persistent {
+			rc.sessionMgr.Release(sessionID)
+		} else {
+			_ = rc.sessionMgr.Close(sessionID)
+		}
 	}
 
 	if err != nil {

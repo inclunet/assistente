@@ -180,6 +180,7 @@ func TestParameters(t *testing.T) {
 type MockSessionManager struct {
 	acquireCalls    int
 	releaseCalls    int
+	closeCalls      int
 	runCommandCalls int
 	runSessionID    string
 	liveSessions    map[string]bool
@@ -236,6 +237,11 @@ func (m *MockSessionManager) Release(sessionID string) {
 	m.releaseCalls++
 }
 
+func (m *MockSessionManager) Close(sessionID string) error {
+	m.closeCalls++
+	return nil
+}
+
 // TestSuccessfulExecution valida execução bem-sucedida
 func TestSuccessfulExecution(t *testing.T) {
 	mgr := &MockSessionManager{
@@ -267,8 +273,11 @@ func TestSuccessfulExecution(t *testing.T) {
 	if mgr.runCommandCalls != 1 {
 		t.Errorf("esperado 1 RunCommand call, got %d", mgr.runCommandCalls)
 	}
-	if mgr.releaseCalls != 1 {
-		t.Errorf("esperado 1 Release call, got %d", mgr.releaseCalls)
+	if mgr.closeCalls != 1 {
+		t.Errorf("esperado 1 Close call (execução efêmera por padrão), got %d", mgr.closeCalls)
+	}
+	if mgr.releaseCalls != 0 {
+		t.Errorf("não esperado Release em modo efêmero, got %d", mgr.releaseCalls)
 	}
 }
 
@@ -808,9 +817,12 @@ func TestMultipleExecutionsReleaseSession(t *testing.T) {
 		}
 	}
 
-	// Release deve ser chamado 3 vezes (uma por execução)
-	if mgr.releaseCalls != 3 {
-		t.Errorf("esperado 3 Release calls, got %d", mgr.releaseCalls)
+	// Close deve ser chamado 3 vezes (uma por execução efêmera)
+	if mgr.closeCalls != 3 {
+		t.Errorf("esperado 3 Close calls, got %d", mgr.closeCalls)
+	}
+	if mgr.releaseCalls != 0 {
+		t.Errorf("não esperado Release em modo efêmero, got %d", mgr.releaseCalls)
 	}
 	// RunCommand deve ser chamado 3 vezes
 	if mgr.runCommandCalls != 3 {
