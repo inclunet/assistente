@@ -281,6 +281,24 @@ func TestSuccessfulExecution(t *testing.T) {
 	}
 }
 
+func TestPersistentFlagKeepsSession(t *testing.T) {
+	mgr := &MockSessionManager{
+		fakeEntry: &terminal.HistoryEntry{ID: "cmd-1", Output: "ok\n", ExitCode: 0},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"echo ok","persistent":true}`))
+	if err != nil || result.IsError {
+		t.Fatalf("Execute persistent: result=%#v err=%v", result, err)
+	}
+	if mgr.closeCalls != 0 {
+		t.Errorf("não esperado Close com persistent=true, got %d", mgr.closeCalls)
+	}
+	if mgr.releaseCalls != 1 {
+		t.Errorf("esperado 1 Release com persistent=true, got %d", mgr.releaseCalls)
+	}
+}
+
 func TestExecutionUsesExplicitTerminalWithoutAcquire(t *testing.T) {
 	mgr := &MockSessionManager{
 		liveSessions: map[string]bool{"term-explicit": true},
