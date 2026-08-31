@@ -156,6 +156,31 @@ func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error)
 	return m.Create("", workDir)
 }
 
+// RunEphemeral executa um comando sem criar seção persistente visível.
+// Não adiciona a sessão ao pool nem emite session_created/closed — evita
+// flicker no Terminal e não ocupa o limite de sessões.
+func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
+	session, err := newSession("", workDir, m.config.DefaultShell,
+		func(_, _, _ string) {},
+		func(_, _ string) {},
+		func(_, _, _, _ string) {},
+		func(string, error) {},
+	)
+	if err != nil {
+		return nil, err
+	}
+	session.Start()
+	defer func() { _ = session.Close() }()
+
+	commandID := uuid.NewString()
+	entry := &HistoryEntry{ID: commandID, Command: command, Source: source, StartedAt: time.Now()}
+	if err := session.beginCommand(); err != nil {
+		return nil, err
+	}
+	result, err := session.RunCommand(ctx, command, timeout, source, commandID)
+	return completeCommandEntry(entry, result, err), err
+}
+
 // Release marca uma sessão como idle após uso pelo LLM.
 func (m *Manager) Release(sessionID string) {
 	m.mu.RLock()
