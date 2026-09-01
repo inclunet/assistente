@@ -303,6 +303,15 @@ func TestPersistentFlagKeepsSession(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("Execute persistent: result=%#v err=%v", result, err)
 	}
+	if mgr.acquireCalls != 1 {
+		t.Errorf("esperado 1 Acquire com persistent=true, got %d", mgr.acquireCalls)
+	}
+	if mgr.runCommandCalls != 1 {
+		t.Errorf("esperado 1 RunCommand com persistent=true, got %d", mgr.runCommandCalls)
+	}
+	if mgr.runEphemeralCalls != 0 {
+		t.Errorf("não esperado RunEphemeral com persistent=true, got %d", mgr.runEphemeralCalls)
+	}
 	if mgr.closeCalls != 0 {
 		t.Errorf("não esperado Close com persistent=true, got %d", mgr.closeCalls)
 	}

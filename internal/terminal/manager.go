@@ -160,6 +160,9 @@ func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error)
 // Não adiciona a sessão ao pool nem emite session_created/closed — evita
 // flicker no Terminal e não ocupa o limite de sessões.
 func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*HistoryEntry, error) {
+	if timeout == 0 {
+		timeout = m.config.DefaultTimeout
+	}
 	session, err := newSession("", workDir, m.config.DefaultShell,
 		func(_, _, _ string) {},
 		func(_, _ string) {},
