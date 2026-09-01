@@ -85,7 +85,7 @@ func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (rc *RunCommand) Description() string {
-	return `Runs a shell command. By default it runs as a single ephemeral execution without leaving a persistent terminal tab; pass persistent=true to keep a terminal section alive for interactive use. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new execution. working_directory applies only to a new execution and cannot be combined with terminal_id. Results include a deep link for inspection. Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
+	return `Runs a shell command. By default it runs as a single ephemeral execution without leaving a persistent terminal tab; pass persistent=true to keep a terminal section alive for interactive use. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new execution. working_directory applies only to a new execution and cannot be combined with terminal_id. Results include a deep link for inspection when persistent or terminal_id is used (ephemeral executions have no terminal link). Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {
