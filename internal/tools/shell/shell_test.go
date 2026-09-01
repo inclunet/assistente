@@ -245,13 +245,19 @@ func (m *MockSessionManager) Close(sessionID string) error {
 
 func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
 	m.runEphemeralCalls++
-	if m.fakeEntry != nil && m.fakeRunErr != nil {
-		return m.fakeEntry, m.fakeRunErr
-	}
 	if m.fakeRunErr != nil {
+		// Se há entry configurado, devolve junto do erro (caso timeout com output parcial);
+		// senão, devolve só o erro — espelha o Manager real que sempre retorna entry preenchida no sucesso.
+		if m.fakeEntry != nil {
+			return m.fakeEntry, m.fakeRunErr
+		}
 		return nil, m.fakeRunErr
 	}
-	return m.fakeEntry, nil
+	if m.fakeEntry != nil {
+		return m.fakeEntry, nil
+	}
+	// Por padrão, devolve entry preenchida para não causar panic em testes que esqueceram de configurar fakeEntry.
+	return &terminal.HistoryEntry{ID: "mock-cmd", Output: "mock output", ExitCode: 0}, nil
 }
 
 // TestSuccessfulExecution valida execução bem-sucedida

@@ -173,7 +173,11 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 		return nil, err
 	}
 	session.Start()
-	defer func() { _ = session.Close() }()
+	defer func() {
+		if err := session.Close(); err != nil {
+			logging.Warnf(context.Background(), "terminal.manager", "[Terminal] falha ao fechar sessão efêmera: %v", err)
+		}
+	}()
 
 	commandID := uuid.NewString()
 	entry := &HistoryEntry{ID: commandID, Command: command, Source: source, StartedAt: time.Now()}
