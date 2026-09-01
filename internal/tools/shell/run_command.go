@@ -39,7 +39,9 @@ type GetAllowlistFunc func() *allowlist.Allowlist
 type SessionManager interface {
 	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
 	RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
+	RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
 	Release(sessionID string)
+	Close(sessionID string) error
 }
 
 // sessionLookup é implementada pelo terminal.Manager e permite que o chat
@@ -83,7 +85,7 @@ func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (rc *RunCommand) Description() string {
-	return `Runs a shell command in a persistent PTY session. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new terminal. Existing terminals are never selected silently. working_directory applies only to a new terminal and cannot be combined with terminal_id. Results include a deep link for inspection. Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
+	return `Runs a shell command. By default it runs as a single ephemeral execution without leaving a persistent terminal tab; pass persistent=true to keep a terminal section alive for interactive use. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new execution. working_directory applies only to a new execution and cannot be combined with terminal_id. Results include a deep link for inspection when persistent or terminal_id is used (ephemeral executions have no terminal link). Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {
@@ -100,14 +102,19 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 			},
 			"terminal_id": {
 				"type": "string",
-				"description": "ID de um terminal vivo escolhido explicitamente. Se omitido, uma nova sessão é criada; nenhuma sessão existente é reutilizada silenciosamente."
+				"description": "ID de um terminal vivo escolhido explicitamente. Se omitido, uma nova execução é criada; nenhuma sessão existente é reutilizada silenciosamente."
+			},
+			"persistent": {
+				"type": "boolean",
+				"description": "Se true, mantém a seção de terminal persistente após o comando (útil para sessões interativas). Padrão: false (execução única, sem lotar terminais)."
 			},
 			"timeout_seconds": {
 				"type": "integer",
 				"description": "Timeout em segundos para a execução do comando. Padrão: 30, máximo: 300."
 			}
 		},
-		"required": ["command"]
+		"required": ["command"],
+		"additionalProperties": false
 	}`)
 }
 
@@ -116,6 +123,7 @@ type runCommandArgs struct {
 	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory"`
 	TerminalID       string `json:"terminal_id"`
+	Persistent       bool   `json:"persistent"`
 	TimeoutSeconds   int    `json:"timeout_seconds"`
 }
 
@@ -233,11 +241,12 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	var sessionID string
+	var entry *terminal.HistoryEntry
 	var err error
-	acquiredSession := false
 	if a.TerminalID != "" {
 		sessionID = a.TerminalID
-	} else {
+		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+	} else if a.Persistent {
 		// AEP-0089: Acquire cria uma sessão nova e nunca captura uma idle.
 		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
 		err = acquireErr
@@ -248,17 +257,13 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}, nil
 		}
 		sessionID = session.ID()
-		acquiredSession = true
-	}
-
-	// Executa o comando
-	entry, err := rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
-
-	// Compatibilidade: a Session já volta a idle ao terminar, mas managers
-	// antigos ainda podem depender de Release para sessões criadas via Acquire.
-	// Uma sessão explícita tem ciclo de vida independente desta execução.
-	if acquiredSession {
+		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+		// Sessão persistente permanece viva (idle) para uso interativo.
 		rc.sessionMgr.Release(sessionID)
+	} else {
+		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
+		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, a.Command, timeout, "llm")
+		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
 
 	if err != nil {
@@ -283,28 +288,35 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 			return tools.ToolResult{
 				Content: content,
-				Metadata: map[string]any{
-					"command":    a.Command,
-					"workDir":    workDir,
-					"exitCode":   -1,
-					"timeout":    true,
-					"duration":   timeout.String(),
-					"sessionId":  sessionID,
-					"terminalId": sessionID,
-					"commandId":  entry.ID,
-					"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
-				},
+				Metadata: func() map[string]any {
+					m := map[string]any{
+						"command":   a.Command,
+						"workDir":   workDir,
+						"exitCode":  -1,
+						"timeout":   true,
+						"duration":  timeout.String(),
+						"commandId": entry.ID,
+					}
+					if sessionID != "" {
+						m["sessionId"] = sessionID
+						m["terminalId"] = sessionID
+						m["deepLink"] = deepLinkForSession(sessionID)
+					}
+					return m
+				}(),
 			}, nil
 		}
 
 		// Erro real (sem output ou sem timeout)
 		metadata := map[string]any{
-			"command":    a.Command,
-			"workDir":    workDir,
-			"exitCode":   -1,
-			"sessionId":  sessionID,
-			"terminalId": sessionID,
-			"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
+			"command":  a.Command,
+			"workDir":  workDir,
+			"exitCode": -1,
+		}
+		if sessionID != "" {
+			metadata["sessionId"] = sessionID
+			metadata["terminalId"] = sessionID
+			metadata["deepLink"] = deepLinkForSession(sessionID)
 		}
 		if entry != nil {
 			metadata["commandId"] = entry.ID
@@ -331,16 +343,21 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	return tools.ToolResult{
 		Content: content,
-		Metadata: map[string]any{
-			"command":    a.Command,
-			"workDir":    workDir,
-			"exitCode":   entry.ExitCode,
-			"duration":   entry.EndedAt.Sub(entry.StartedAt).String(),
-			"sessionId":  sessionID,
-			"terminalId": sessionID,
-			"commandId":  entry.ID,
-			"deepLink":   fmt.Sprintf("assistente://terminal/%s", sessionID),
-		},
+		Metadata: func() map[string]any {
+			m := map[string]any{
+				"command":   a.Command,
+				"workDir":   workDir,
+				"exitCode":  entry.ExitCode,
+				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
+				"commandId": entry.ID,
+			}
+			if sessionID != "" {
+				m["sessionId"] = sessionID
+				m["terminalId"] = sessionID
+				m["deepLink"] = deepLinkForSession(sessionID)
+			}
+			return m
+		}(),
 	}, nil
 }
 
@@ -452,4 +469,11 @@ func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
 		parts = append(parts, "reasons=["+strings.Join(result.Reasons, " | ")+"]")
 	}
 	return strings.Join(parts, " ")
+}
+
+func deepLinkForSession(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	return fmt.Sprintf("assistente://terminal/%s", sessionID)
 }

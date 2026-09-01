@@ -60,13 +60,14 @@ Abas e conversas referenciam sessões, mas não são suas proprietárias.
 O chat pode listar, criar, selecionar, usar, interromper e encerrar terminais.
 Essas ações aparecem como tool calls e produzem feedback acessível.
 
-`run_command` aceita `terminal_id` opcional:
+`run_command` aceita `terminal_id` opcional e `persistent`:
 
-- quando presente, usa exatamente a sessão indicada;
-- quando ausente, cria uma nova sessão;
+- quando `terminal_id` presente, usa exatamente a sessão indicada;
+- quando ausente e `persistent=true`, cria uma nova sessão persistente;
+- quando ausente e `persistent` omitido/false (padrão), executa de forma efêmera sem criar seção persistente nem ocupar o limite — não há `terminalId`/`deepLink` persistente;
 - nunca adquire silenciosamente uma sessão idle global.
 
-O resultado inclui `terminalId`, `commandId`, estado e o deep link
+O resultado inclui `terminalId`, `commandId`, estado e, quando há sessão persistente, o deep link
 `assistente://terminal/{terminalId}`. A allowlist e a confirmação do comando
 continuam obrigatórias; ações de gestão de terminal não adicionam uma segunda
 confirmação.
