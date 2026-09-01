@@ -288,28 +288,35 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 			return tools.ToolResult{
 				Content: content,
-				Metadata: map[string]any{
-					"command":    a.Command,
-					"workDir":    workDir,
-					"exitCode":   -1,
-					"timeout":    true,
-					"duration":   timeout.String(),
-					"sessionId":  sessionID,
-					"terminalId": sessionID,
-					"commandId":  entry.ID,
-					"deepLink":   deepLinkForSession(sessionID),
-				},
+				Metadata: func() map[string]any {
+					m := map[string]any{
+						"command":   a.Command,
+						"workDir":   workDir,
+						"exitCode":  -1,
+						"timeout":   true,
+						"duration":  timeout.String(),
+						"commandId": entry.ID,
+					}
+					if sessionID != "" {
+						m["sessionId"] = sessionID
+						m["terminalId"] = sessionID
+						m["deepLink"] = deepLinkForSession(sessionID)
+					}
+					return m
+				}(),
 			}, nil
 		}
 
 		// Erro real (sem output ou sem timeout)
 		metadata := map[string]any{
-			"command":    a.Command,
-			"workDir":    workDir,
-			"exitCode":   -1,
-			"sessionId":  sessionID,
-			"terminalId": sessionID,
-			"deepLink":   deepLinkForSession(sessionID),
+			"command":  a.Command,
+			"workDir":  workDir,
+			"exitCode": -1,
+		}
+		if sessionID != "" {
+			metadata["sessionId"] = sessionID
+			metadata["terminalId"] = sessionID
+			metadata["deepLink"] = deepLinkForSession(sessionID)
 		}
 		if entry != nil {
 			metadata["commandId"] = entry.ID
@@ -336,16 +343,21 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	return tools.ToolResult{
 		Content: content,
-		Metadata: map[string]any{
-			"command":    a.Command,
-			"workDir":    workDir,
-			"exitCode":   entry.ExitCode,
-			"duration":   entry.EndedAt.Sub(entry.StartedAt).String(),
-			"sessionId":  sessionID,
-			"terminalId": sessionID,
-			"commandId":  entry.ID,
-			"deepLink":   deepLinkForSession(sessionID),
-		},
+		Metadata: func() map[string]any {
+			m := map[string]any{
+				"command":   a.Command,
+				"workDir":   workDir,
+				"exitCode":  entry.ExitCode,
+				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
+				"commandId": entry.ID,
+			}
+			if sessionID != "" {
+				m["sessionId"] = sessionID
+				m["terminalId"] = sessionID
+				m["deepLink"] = deepLinkForSession(sessionID)
+			}
+			return m
+		}(),
 	}, nil
 }
 

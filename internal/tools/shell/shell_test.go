@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
@@ -196,7 +198,13 @@ type MockSessionManager struct {
 
 // createMockSession cria uma Session para testes
 func createMockSession(sessionID string) *terminal.Session {
-	return &terminal.Session{}
+	s := &terminal.Session{}
+	// Define o campo privado `id` via reflection/unsafe para que Session.ID() retorne o valor esperado.
+	v := reflect.ValueOf(s).Elem().FieldByName("id")
+	if v.CanAddr() {
+		reflect.NewAt(v.Type(), unsafe.Pointer(v.UnsafeAddr())).Elem().SetString(sessionID)
+	}
+	return s
 }
 
 func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*terminal.Session, error) {
@@ -760,7 +768,8 @@ func TestMetadataCompleto(t *testing.T) {
 	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, "/mydir")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{
 		"command":"echo test",
-		"working_directory":"subdir"
+		"working_directory":"subdir",
+		"persistent":true
 	}`))
 
 	if err != nil {
