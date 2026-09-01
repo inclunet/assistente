@@ -175,7 +175,7 @@ func (m *Manager) RunEphemeral(ctx context.Context, workDir, command string, tim
 	session.Start()
 	defer func() {
 		if err := session.Close(); err != nil {
-			logging.Warnf(context.Background(), "terminal.manager", "[Terminal] falha ao fechar sessão efêmera: %v", err)
+			logging.Warnf(ctx, "terminal.manager", "[Terminal] falha ao fechar sessão efêmera: %v", err)
 		}
 	}()
 
