@@ -113,7 +113,8 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 				"description": "Timeout em segundos para a execução do comando. Padrão: 30, máximo: 300."
 			}
 		},
-		"required": ["command"]
+		"required": ["command"],
+		"additionalProperties": false
 	}`)
 }
 
