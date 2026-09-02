@@ -7,6 +7,9 @@ const mockSave = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
 const mockDuplicate = vi.fn();
+const mockDiscover = vi.hoisted(() =>
+  vi.fn(async (): Promise<Record<string, unknown>> => ({ found: false }))
+);
 let mockServers: Array<Record<string, unknown>> = [];
 
 vi.mock('react-i18next', () => ({
@@ -41,7 +44,7 @@ vi.mock('@wailsjs/go/wailsapi/MCP', () => ({
   SaveMCPServerAuth: vi.fn(() => Promise.resolve()),
   DeleteMCPServerAuth: vi.fn(() => Promise.resolve()),
   GetMCPServerAuthInfo: vi.fn(() => Promise.resolve({ hasAuth: false })),
-  DiscoverMCPServerAuth: vi.fn(() => Promise.resolve({ found: false })),
+  DiscoverMCPServerAuth: mockDiscover,
   DuplicateMCPServer: (slug: string) => mockDuplicate(slug),
 }));
 
@@ -145,15 +148,25 @@ vi.mock('../components/mcp/McpGeneralSection', () => ({
 
 vi.mock('../components/mcp/McpConnectionSection', () => ({
   McpConnectionSection: (props: {
+    url: string;
+    oauth2AuthUrl: string;
+    oauth2TokenUrl: string;
     oauth2CallbackHost: string;
     oauth2CallbackPort: string;
     authType: string;
+    onUrlChange: (value: string) => void;
     onAuthTypeChange: (value: string) => void;
+    onOAuth2AuthUrlChange: (value: string) => void;
+    onOAuth2TokenUrlChange: (value: string) => void;
     onOAuth2CallbackHostChange: (value: string) => void;
     onOAuth2CallbackPortChange: (value: string) => void;
+    onUrlBlur: () => void;
     onManualOverride: () => void;
   }) => (
     <div data-testid="connection-section">
+      <input aria-label="Server URL" value={props.url} onChange={(e) => props.onUrlChange(e.target.value)} />
+      <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
+      <input aria-label="Token URL" value={props.oauth2TokenUrl} onChange={(e) => props.onOAuth2TokenUrlChange(e.target.value)} />
       <span data-testid="callback-host-value">{props.oauth2CallbackHost}</span>
       <span data-testid="callback-port-value">{props.oauth2CallbackPort}</span>
       <label>
@@ -188,6 +201,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
           onChange={(e) => props.onOAuth2CallbackPortChange(e.target.value)}
         />
       </label>
+      <button type="button" onClick={props.onUrlBlur}>Descobrir OAuth</button>
       <button type="button" onClick={props.onManualOverride}>Configurar manualmente</button>
     </div>
   ),
@@ -200,6 +214,7 @@ describe('McpPage — oauth2_callback_host', () => {
     vi.clearAllMocks();
     mockSave.mockResolvedValue(undefined);
     mockLoadServers.mockResolvedValue(undefined);
+    mockDiscover.mockResolvedValue({ found: false });
     mockServers = [];
   });
 
@@ -316,5 +331,29 @@ describe('McpPage — oauth2_callback_host', () => {
 
     const [, config] = mockSave.mock.calls[0];
     expect(config.oauth2_callback_host).toBeUndefined();
+  });
+
+  it('preserva endpoints OAuth preenchidos manualmente durante discovery', async () => {
+    mockDiscover.mockResolvedValue({
+      found: true,
+      status: 'complete',
+      authType: 'oauth2_pkce',
+      authUrl: 'https://descoberto.example/authorize',
+      tokenUrl: 'https://descoberto.example/token',
+      scopes: ['openid'],
+      registrationUrl: '',
+    });
+    await openNewServerForm();
+
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
+    await userEvent.type(screen.getByLabelText('Authorization URL'), 'https://manual.example/authorize');
+    await userEvent.type(screen.getByLabelText('Token URL'), 'https://manual.example/token');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalled());
+    expect(screen.getByLabelText('Authorization URL')).toHaveValue('https://manual.example/authorize');
+    expect(screen.getByLabelText('Token URL')).toHaveValue('https://manual.example/token');
   });
 });

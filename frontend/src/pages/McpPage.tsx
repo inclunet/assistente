@@ -126,7 +126,7 @@ export default function McpPage() {
   const [formOAuth2CallbackHost, setFormOAuth2CallbackHost] = useState('');
 
   // OAuth auto-discovery
-  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'not_found';
+  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found';
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>('idle');
   const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
@@ -290,35 +290,46 @@ export default function McpPage() {
       if (result.found) {
         const fields = new Set<string>();
 
-        if (result.authType) {
+        if (result.authType && formAuthType === 'none') {
           setFormAuthType(result.authType);
           fields.add('authType');
         }
-        if (result.authUrl) {
+        if (result.authUrl && !formOAuth2AuthUrl) {
           setFormOAuth2AuthUrl(result.authUrl);
           fields.add('oauth2AuthUrl');
         }
-        if (result.tokenUrl) {
+        if (result.tokenUrl && !formOAuth2TokenUrl) {
           setFormOAuth2TokenUrl(result.tokenUrl);
           fields.add('oauth2TokenUrl');
         }
-        if (result.scopes?.length > 0) {
+        if (result.scopes?.length > 0 && !formOAuth2Scopes) {
           setFormOAuth2Scopes(result.scopes.join(' '));
           fields.add('oauth2Scopes');
         }
         setDiscoveredFields(fields);
         const resName = result.resourceName || '';
         setDiscoveryResourceName(resName);
-        setDiscoveryRegistrationUrl(result.registrationUrl || '');
+        setDiscoveryRegistrationUrl((current) => current || result.registrationUrl || '');
         if (resName && !formName) setFormName(resName);
         setDiscoveryStatus('found');
+      } else if (result.status === 'partial' || result.protectedResourceFound) {
+        setDiscoveredFields(new Set());
+        setDiscoveryResourceName(result.resourceName || '');
+        setDiscoveryStatus('partial');
       } else {
         setDiscoveryStatus('not_found');
       }
     } catch {
       setDiscoveryStatus('not_found');
     }
-  }, [lastDiscoveredUrl, formName]);
+  }, [
+    lastDiscoveredUrl,
+    formAuthType,
+    formName,
+    formOAuth2AuthUrl,
+    formOAuth2Scopes,
+    formOAuth2TokenUrl,
+  ]);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';

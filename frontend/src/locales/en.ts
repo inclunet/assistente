@@ -1122,6 +1122,8 @@ const en = {
           'OAuth configured automatically{{resourceName}}. Client ID will be registered via DCR.',
         oauthDetectedNoDCR:
           'OAuth detected{{resourceName}}, but without dynamic registration. Enter the Client ID.',
+        oauthPartiallyDetected:
+          'Protected resource metadata detected{{resourceName}}, but the authorization server was not found. Complete the configuration manually.',
         oauthNotDetected: 'OAuth metadata not detected. Configure manually.',
         browserAuthHint:
           'When connecting, the browser will open for authorization. Credentials are stored encrypted in the system keychain.',

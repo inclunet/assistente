@@ -149,6 +149,16 @@ describe('McpConnectionSection — Discovery states', () => {
     expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
   });
 
+  it('discovery parcial: informa a limitação e mantém configuração manual disponível', () => {
+    renderWith({
+      discoveryStatus: 'partial',
+      discoveryResourceName: 'Recurso profundo',
+    });
+
+    expect(screen.getByText(/Metadados do recurso detectados \(Recurso profundo\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
+  });
+
   it('idle: não exibe campos OAuth', () => {
     renderWith({ discoveryStatus: 'idle' });
     expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
