@@ -523,7 +523,7 @@ func classifyDiscoveryStatus(status int) string {
 	}
 }
 
-var sensitiveHintPattern = regexp.MustCompile(`(?i)(token|secret|password|cookie|credential)\s*=\s*("[^"]*"|[^,\s]+)`)
+var sensitiveHintPattern = regexp.MustCompile(`(?i)((?:access_|refresh_|id_)?token|secret|password|cookie|credential)\s*=\s*("[^"]*"|[^,\s]+)`)
 
 func sanitizeWWWAuthenticate(value string) string {
 	value = strings.TrimSpace(strings.Map(func(r rune) rune {

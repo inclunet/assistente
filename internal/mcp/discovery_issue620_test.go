@@ -352,6 +352,20 @@ func TestSanitizeURLHintAcceptsOnlyHTTP(t *testing.T) {
 	}
 }
 
+func TestSanitizeWWWAuthenticateRedactsOAuthTokens(t *testing.T) {
+	got := sanitizeWWWAuthenticate(`Bearer access_token=access-secret, refresh_token="refresh-secret", id_token=id-secret`)
+	for _, secret := range []string{"access-secret", "refresh-secret", "id-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("token OAuth vazou no hint: %q", got)
+		}
+	}
+	for _, key := range []string{"access_token", "refresh_token", "id_token"} {
+		if !strings.Contains(got, key+`="[redacted]"`) {
+			t.Fatalf("chave %s não foi redigida explicitamente: %q", key, got)
+		}
+	}
+}
+
 func TestDiscoveryRedirectStatusFallsBackToPreviousRequest(t *testing.T) {
 	next := &http.Request{}
 	previous := &http.Request{Response: &http.Response{StatusCode: http.StatusTemporaryRedirect}}
