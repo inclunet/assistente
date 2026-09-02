@@ -158,6 +158,8 @@ export default function McpPage() {
   const [manualRegistrationServerUrl, setManualRegistrationServerUrl] = useState('');
   const lastDiscoveredUrlRef = useRef('');
   const discoveryRequestRef = useRef(0);
+  const wasHTTPTransportRef = useRef(false);
+  const wasEditingRef = useRef(false);
 
   useEffect(() => {
     loadServers();
@@ -217,6 +219,8 @@ export default function McpPage() {
     setManualRegistrationServerUrl(config?.url || '');
     lastDiscoveredUrlRef.current = '';
     discoveryRequestRef.current += 1;
+    wasHTTPTransportRef.current = false;
+    wasEditingRef.current = false;
   };
 
   const loadAuthInfo = useCallback(async (slug: string, configAuthType?: string) => {
@@ -353,6 +357,15 @@ export default function McpPage() {
     }
   }, []);
 
+  const handleFormURLChange = useCallback((value: string) => {
+    discoveryRequestRef.current += 1;
+    lastDiscoveredUrlRef.current = '';
+    setDiscoveryRegistrationUrl('');
+    setDiscoveryResourceName('');
+    setDiscoveryStatus('not_found');
+    setFormUrl(value);
+  }, []);
+
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
     if (!isHTTP || !formUrl.trim()) return;
@@ -378,7 +391,11 @@ export default function McpPage() {
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida
   useEffect(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
-    if (isHTTP && isHTTPSDiscoveryUrl(formUrl.trim()) && editing) {
+    const isEditing = editing !== null;
+    const enteredHTTPMode = isHTTP && (!wasHTTPTransportRef.current || !wasEditingRef.current);
+    wasHTTPTransportRef.current = isHTTP;
+    wasEditingRef.current = isEditing;
+    if (enteredHTTPMode && isEditing && isHTTPSDiscoveryUrl(formUrl.trim())) {
       runDiscovery(formUrl.trim());
     }
   }, [editing, formTransport, formUrl, runDiscovery]);
@@ -821,7 +838,7 @@ export default function McpPage() {
               }
               onCommandChange={setFormCommand}
               onArgsChange={setFormArgs}
-              onUrlChange={setFormUrl}
+              onUrlChange={handleFormURLChange}
               onEnvTextChange={setFormEnvText}
               onEnabledChange={setFormEnabled}
               onAutoConnectChange={setFormAutoConnect}

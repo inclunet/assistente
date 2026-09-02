@@ -407,6 +407,16 @@ describe('McpPage — oauth2_callback_host', () => {
     });
   });
 
+  it('não dispara discovery a cada alteração da URL no modo HTTP', async () => {
+    await openNewServerForm();
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+
+    expect(mockDiscover).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+  });
+
   it('limpa registration URL descoberto ao descobrir outro servidor sem DCR', async () => {
     mockDiscover
       .mockResolvedValueOnce({
@@ -465,12 +475,14 @@ describe('McpPage — oauth2_callback_host', () => {
     fireEvent.change(screen.getByLabelText('Server URL'), {
       target: { value: 'https://first.example/mcp' },
     });
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
     await waitFor(() => {
       expect(mockDiscover).toHaveBeenCalledWith('https://first.example/mcp');
     });
     fireEvent.change(screen.getByLabelText('Server URL'), {
       target: { value: 'https://second.example/mcp' },
     });
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
     await waitFor(() => {
       expect(mockDiscover).toHaveBeenCalledWith('https://second.example/mcp');
     });
