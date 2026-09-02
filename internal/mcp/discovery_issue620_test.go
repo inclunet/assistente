@@ -271,6 +271,15 @@ func TestDiscoveryResolvesAndSanitizesRelativeLocationHint(t *testing.T) {
 	}
 }
 
+func TestSanitizeURLHintAcceptsOnlyHTTP(t *testing.T) {
+	if got := sanitizeURLHint("ftp://example.test/metadata?token=secret"); got != "" {
+		t.Fatalf("esquema inesperado exposto no hint: %q", got)
+	}
+	if got := sanitizeURLHint("HTTPS://user:secret@example.test/metadata?token=secret#fragment"); got != "https://example.test/metadata" {
+		t.Fatalf("URL HTTPS não foi saneada: %q", got)
+	}
+}
+
 func TestDiscoveryFollowsSafeRedirect(t *testing.T) {
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
