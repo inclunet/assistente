@@ -62,7 +62,7 @@ const mockedWaitForWailsBridge = vi.mocked(waitForWailsBridge);
 const mockedEventsOn = vi.mocked(EventsOn);
 
 function setStoreState(
-  tabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; title: string; position: number }>,
+  tabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; profileOverride?: Record<string, unknown>; title: string; position: number }>,
   activeTabId: string,
 ) {
   useWorkspaceStore.setState({
@@ -74,6 +74,7 @@ function setStoreState(
         type: t.type as 'chat' | 'editor' | 'terminal' | 'tasklist',
         conversationId: t.conversationId,
         state: t.state,
+        profileOverride: t.profileOverride,
         title: t.title,
         position: t.position,
       })),
@@ -592,6 +593,70 @@ describe('updateTab — filePath no state', () => {
     });
     expect(mockedUpdateWorkspaceTab).toHaveBeenCalledWith('tab-e2-merge', {
       state: { scrollTop: 240 },
+    });
+  });
+});
+
+describe('updateTab — ProfileOverride por patch', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedUpdateWorkspaceTab.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('preserva slug ao trocar somente o modelo', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao' },
+    }], 'tab-chat');
+
+    await useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: 'modelo-b' },
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+      model: 'modelo-b',
+    });
+  });
+
+  it('remove modelo com nil sem apagar o slug', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao', model: 'modelo-b' },
+    }], 'tab-chat');
+
+    await useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: null },
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+    });
+  });
+
+  it('não altera o store quando a persistência falha', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao', model: 'modelo-a' },
+    }], 'tab-chat');
+    mockedUpdateWorkspaceTab.mockRejectedValueOnce(new Error('falha'));
+
+    await expect(useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: 'modelo-b' },
+    })).rejects.toThrow('falha');
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+      model: 'modelo-a',
     });
   });
 });

@@ -182,6 +182,14 @@ const es = {
           ask: 'Preguntar',
         },
       },
+      modelOverride: {
+        label: 'Modelo de esta pestaña',
+        description: 'Elige el modelo para los próximos turnos de esta pestaña sin cambiar el perfil',
+        profileDefault: 'Modelo del perfil',
+        changed: 'El modelo de esta pestaña cambió a {{model}}.',
+        reset: 'Esta pestaña volvió a usar el modelo del perfil.',
+        error: 'No se pudo cambiar el modelo de esta pestaña. Inténtalo de nuevo.',
+      },
       agentWorkDir: {
         title: 'Directorio del agente en esta conversación',
         buttonWorkspace: 'Directorio del agente: {{dir}}, el del workspace activo. Abre el cambio de directorio.',

@@ -183,6 +183,14 @@ const ptBR = {
           ask: 'Perguntar',
         },
       },
+      modelOverride: {
+        label: 'Modelo desta aba',
+        description: 'Escolhe o modelo para os próximos turnos desta aba, sem alterar o perfil',
+        profileDefault: 'Modelo do perfil',
+        changed: 'Modelo desta aba alterado para {{model}}.',
+        reset: 'Esta aba voltou a usar o modelo do perfil.',
+        error: 'Não foi possível alterar o modelo desta aba. Tente novamente.',
+      },
       agentWorkDir: {
         title: 'Diretório do agente nesta conversa',
         buttonWorkspace: 'Diretório do agente: {{dir}}, o do workspace ativo. Abre a troca de diretório.',

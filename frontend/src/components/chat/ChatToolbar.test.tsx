@@ -6,6 +6,15 @@ import { ChatToolbar } from './ChatToolbar';
 const clearConversationMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const loadConversationSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const clearConversationMessagesMock = vi.hoisted(() => vi.fn());
+const updateTabMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const getProfileMock = vi.hoisted(() => vi.fn().mockResolvedValue({
+  chat: { llm_provider: 'native-provider', model: 'modelo-perfil' },
+}));
+const getProvidersMock = vi.hoisted(() => vi.fn().mockResolvedValue([
+  { id: 'native-provider', api_format: 'openai', is_default: true },
+]));
+const modelChangeRef = vi.hoisted(() => ({ current: null as null | ((model: string) => void) }));
+const profileChangeRef = vi.hoisted(() => ({ current: null as null | ((slug: string) => void) }));
 const historyClickMock = vi.hoisted(() => vi.fn());
 const getAgentSessionOptionsMock = vi.hoisted(() => vi.fn().mockResolvedValue({
   conversationId: 'conversation-1',
@@ -47,6 +56,11 @@ vi.mock('@wailsjs/go/wailsapi/ACPOptions', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
   GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
+  GetProfile: getProfileMock,
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
+  GetLLMProvidersWithStatus: getProvidersMock,
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -73,13 +87,27 @@ vi.mock('../pickers', async () => {
 vi.mock('../pickers/ProfilePicker', async () => {
   const React = await import('react');
   return {
-    ProfilePicker: React.forwardRef<HTMLButtonElement>(() => (
-      <button className="picker-button" type="button" onClick={profileClickMock}>
-        Perfil
-      </button>
-    )),
+    ProfilePicker: React.forwardRef<HTMLButtonElement, { onChange: (slug: string) => void }>(({ onChange }) => {
+      profileChangeRef.current = onChange;
+      return (
+        <button className="picker-button" type="button" onClick={profileClickMock}>
+          Perfil
+        </button>
+      );
+    }),
   };
 });
+
+vi.mock('../pickers/ModelPicker', () => ({
+  ModelPicker: ({ value, label, onChange }: {
+    value: string;
+    label: string;
+    onChange: (model: string) => void;
+  }) => {
+    modelChangeRef.current = onChange;
+    return <button type="button" aria-label={`${label}, ${value}`}>{label}</button>;
+  },
+}));
 
 vi.mock('./ChatSessionContext', () => ({
   useChatSession: () => ({
@@ -105,7 +133,7 @@ vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (selector?: (state: unknown) => unknown) => {
     const state = {
       workspace: { profile: 'padrao', tabs: [{ id: 'tab-chat', title: 'Chat', type: 'chat' }] },
-      updateTab: vi.fn().mockResolvedValue(undefined),
+      updateTab: updateTabMock,
     };
     return typeof selector === 'function' ? selector(state) : state;
   },
@@ -175,6 +203,19 @@ function dispatchCtrlKey(key: string) {
   return event;
 }
 
+beforeEach(() => {
+  updateTabMock.mockReset().mockResolvedValue(undefined);
+  getProfileMock.mockReset().mockResolvedValue({
+    chat: { llm_provider: 'native-provider', model: 'modelo-perfil' },
+  });
+  getProvidersMock.mockReset().mockResolvedValue([
+    { id: 'native-provider', api_format: 'openai', is_default: true },
+  ]);
+  modelChangeRef.current = null;
+  profileChangeRef.current = null;
+  mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
+});
+
 describe('ChatToolbar shortcuts', () => {
   beforeEach(() => {
     clearConversationMock.mockClear();
@@ -182,6 +223,15 @@ describe('ChatToolbar shortcuts', () => {
     clearConversationMessagesMock.mockClear();
     historyClickMock.mockClear();
     profileClickMock.mockClear();
+    updateTabMock.mockClear();
+    getProfileMock.mockReset().mockResolvedValue({
+      chat: { llm_provider: 'native-provider', model: 'modelo-perfil' },
+    });
+    getProvidersMock.mockReset().mockResolvedValue([
+      { id: 'native-provider', api_format: 'openai', is_default: true },
+    ]);
+    modelChangeRef.current = null;
+    profileChangeRef.current = null;
     modalState.open = false;
     modalState.inside = false;
     modalState.topmost = true;
@@ -253,6 +303,12 @@ describe('ChatToolbar shortcuts', () => {
 describe('ChatToolbar e o modelo do agente', () => {
   beforeEach(() => {
     getAgentSessionOptionsMock.mockClear();
+    getProfileMock.mockResolvedValue({
+      chat: { llm_provider: 'agent-provider', model: 'modelo-a' },
+    });
+    getProvidersMock.mockResolvedValue([
+      { id: 'agent-provider', api_format: 'acp', is_default: true },
+    ]);
   });
 
   it('mostra o modelo do agente da conversa aberta', async () => {
@@ -274,7 +330,13 @@ describe('ChatToolbar e o modelo do agente', () => {
     expect(await screen.findByRole('button', { name: 'Modelo, Modelo A' })).toBeInTheDocument();
   });
 
-  it('não mostra seletor quando a conversa não fala com agente', async () => {
+  it('mostra o seletor nativo quando a conversa não fala com agente', async () => {
+    getProfileMock.mockResolvedValue({
+      chat: { llm_provider: 'native-provider', model: 'modelo-perfil' },
+    });
+    getProvidersMock.mockResolvedValue([
+      { id: 'native-provider', api_format: 'openai', is_default: true },
+    ]);
     getAgentSessionOptionsMock.mockResolvedValueOnce({
       conversationId: 'conversation-1',
       available: false,
@@ -284,7 +346,95 @@ describe('ChatToolbar e o modelo do agente', () => {
     renderToolbar();
 
     await waitFor(() => expect(getAgentSessionOptionsMock).toHaveBeenCalledWith('conversation-1'));
-    expect(screen.queryByRole('button', { name: /Modelo/ })).toBeNull();
+    expect(await screen.findByRole('button', { name: 'chat.modelOverride.label, $default' })).toBeInTheDocument();
+  });
+});
+
+describe('ChatToolbar e o modelo nativo da aba', () => {
+  beforeEach(() => {
+    getAgentSessionOptionsMock.mockResolvedValue({
+      conversationId: 'conversation-1',
+      available: false,
+      options: [],
+    });
+  });
+
+  it('persiste a escolha no ProfileOverride da aba', async () => {
+    renderToolbar();
+    await screen.findByRole('button', { name: 'chat.modelOverride.label, $default' });
+
+    modelChangeRef.current?.('modelo-b');
+
+    await waitFor(() => expect(updateTabMock).toHaveBeenCalledWith('tab-chat', {
+      profile_override: { model: 'modelo-b' },
+    }));
+  });
+
+  it('remove o override com nil ao voltar ao modelo do perfil', async () => {
+    mockPanelTabRef.current = {
+      id: 'tab-chat',
+      title: 'Chat',
+      type: 'chat',
+      profileOverride: { slug: 'padrao', model: 'modelo-b' },
+    } as unknown as Record<string, unknown>;
+    renderToolbar();
+    await screen.findByRole('button', { name: 'chat.modelOverride.label, modelo-b' });
+
+    modelChangeRef.current?.('$default');
+
+    await waitFor(() => expect(updateTabMock).toHaveBeenCalledWith('tab-chat', {
+      profile_override: { model: null },
+    }));
+  });
+
+  it('limpa modelo incompatível ao trocar para perfil de outro provider', async () => {
+    mockPanelTabRef.current = {
+      id: 'tab-chat',
+      title: 'Chat',
+      type: 'chat',
+      profileOverride: { slug: 'perfil-a', model: 'modelo-a' },
+    } as unknown as Record<string, unknown>;
+    getProfileMock.mockImplementation(async (slug: string) => ({
+      chat: {
+        llm_provider: slug === 'perfil-b' ? 'provider-b' : 'provider-a',
+        model: 'modelo-perfil',
+      },
+    }));
+    getProvidersMock.mockResolvedValue([
+      { id: 'provider-a', api_format: 'openai', is_default: true },
+      { id: 'provider-b', api_format: 'anthropic' },
+    ]);
+    renderToolbar();
+    await waitFor(() => expect(profileChangeRef.current).not.toBeNull());
+
+    profileChangeRef.current?.('perfil-b');
+
+    await waitFor(() => expect(updateTabMock).toHaveBeenCalledWith('tab-chat', {
+      profile_override: { slug: 'perfil-b', model: null },
+    }));
+  });
+
+  it('preserva modelo compatível ao trocar perfil no mesmo provider', async () => {
+    mockPanelTabRef.current = {
+      id: 'tab-chat',
+      title: 'Chat',
+      type: 'chat',
+      profileOverride: { slug: 'perfil-a', model: 'modelo-a' },
+    } as unknown as Record<string, unknown>;
+    getProfileMock.mockResolvedValue({
+      chat: { llm_provider: 'provider-a', model: 'modelo-perfil' },
+    });
+    getProvidersMock.mockResolvedValue([
+      { id: 'provider-a', api_format: 'openai', is_default: true },
+    ]);
+    renderToolbar();
+    await waitFor(() => expect(profileChangeRef.current).not.toBeNull());
+
+    profileChangeRef.current?.('perfil-b');
+
+    await waitFor(() => expect(updateTabMock).toHaveBeenCalledWith('tab-chat', {
+      profile_override: { slug: 'perfil-b' },
+    }));
   });
 });
 

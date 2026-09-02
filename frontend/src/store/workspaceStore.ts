@@ -189,6 +189,22 @@ function mergeTabState(
   return { ...(existing ?? {}), ...patch };
 }
 
+function mergeProfileOverride(
+  existing: Record<string, unknown> | undefined,
+  patch: Record<string, unknown> | null,
+): Record<string, unknown> | undefined {
+  if (patch === null) return undefined;
+  const merged = { ...(existing ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null || value === undefined) {
+      delete merged[key];
+    } else {
+      merged[key] = value;
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   workspace: null,
   workspaces: [],
@@ -472,7 +488,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
                   ...(updates.title !== undefined ? { title: updates.title as string } : {}),
                   ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as string } : {}),
                   ...(updates.state !== undefined ? { state: mergeTabState(t.state, updates.state as Record<string, unknown>) } : {}),
-                  ...(updates.profile_override !== undefined ? { profileOverride: updates.profile_override as Record<string, unknown> } : {}),
+                  ...(updates.profile_override !== undefined
+                    ? {
+                        profileOverride: mergeProfileOverride(
+                          t.profileOverride,
+                          updates.profile_override as Record<string, unknown> | null,
+                        ),
+                      }
+                    : {}),
                 }
               : t
           ),

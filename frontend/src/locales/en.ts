@@ -183,6 +183,14 @@ const en = {
           ask: 'Ask',
         },
       },
+      modelOverride: {
+        label: 'Model for this tab',
+        description: 'Chooses the model for this tab’s next turns without changing the profile',
+        profileDefault: 'Profile model',
+        changed: 'This tab’s model was changed to {{model}}.',
+        reset: 'This tab is using the profile model again.',
+        error: 'The model for this tab could not be changed. Please try again.',
+      },
       agentWorkDir: {
         title: 'Agent directory for this conversation',
         buttonWorkspace: 'Agent directory: {{dir}}, the active workspace one. Opens the directory change.',
