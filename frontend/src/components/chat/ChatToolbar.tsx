@@ -316,25 +316,30 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }
   }, [focusInput, panelTab.id, panelTab.profileOverride, toolbarProfileSlug, updateWsTab, addToast, t]);
 
-  const handleNativeModelChange = useCallback(async (model: string) => {
-    setModelOverrideUpdating(true);
-    try {
-      const reset = model === DEFAULT_ROUTING_SENTINEL;
-      await updateWsTab(panelTab.id, {
-        profile_override: { model: reset ? null : model },
-      });
-      announce(reset
-        ? t('chat.modelOverride.reset')
-        : t('chat.modelOverride.changed', { model }));
-    } catch (error) {
-      logger.error('[ChatToolbar] Erro ao trocar modelo da aba:', error);
-      const message = t('chat.modelOverride.error');
-      addToast(message, 'error');
-      announce(message);
-    } finally {
-      setModelOverrideUpdating(false);
-      focusInput();
-    }
+  const modelChangeChainRef = useRef<Promise<void>>(Promise.resolve());
+  const handleNativeModelChange = useCallback((model: string) => {
+    const run = async () => {
+      setModelOverrideUpdating(true);
+      try {
+        const reset = model === DEFAULT_ROUTING_SENTINEL;
+        await updateWsTab(panelTab.id, {
+          profile_override: { model: reset ? null : model },
+        });
+        announce(reset
+          ? t('chat.modelOverride.reset')
+          : t('chat.modelOverride.changed', { model }));
+      } catch (error) {
+        logger.error('[ChatToolbar] Erro ao trocar modelo da aba:', error);
+        const message = t('chat.modelOverride.error');
+        addToast(message, 'error');
+        announce(message);
+      } finally {
+        setModelOverrideUpdating(false);
+        focusInput();
+      }
+    };
+    modelChangeChainRef.current = modelChangeChainRef.current.then(run, run);
+    return modelChangeChainRef.current;
   }, [addToast, announce, focusInput, panelTab.id, t, updateWsTab]);
 
   // O HistoryPicker chama onChange de forma síncrona (não aguarda a promise), então

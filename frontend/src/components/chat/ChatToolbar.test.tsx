@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatToolbar } from './ChatToolbar';
@@ -435,6 +435,36 @@ describe('ChatToolbar e o modelo nativo da aba', () => {
     await waitFor(() => expect(updateTabMock).toHaveBeenCalledWith('tab-chat', {
       profile_override: { slug: 'perfil-b' },
     }));
+  });
+
+  it('serializa seleções rápidas e aplica a última por último', async () => {
+    let resolveFirst!: () => void;
+    updateTabMock
+      .mockImplementationOnce(() => new Promise<void>((resolve) => {
+        resolveFirst = resolve;
+      }))
+      .mockResolvedValueOnce(undefined);
+    renderToolbar();
+    await screen.findByRole('button', { name: 'chat.modelOverride.label, $default' });
+
+    act(() => {
+      modelChangeRef.current?.('modelo-a');
+      modelChangeRef.current?.('modelo-b');
+    });
+
+    await waitFor(() => expect(updateTabMock).toHaveBeenCalledTimes(1));
+    expect(updateTabMock).toHaveBeenNthCalledWith(1, 'tab-chat', {
+      profile_override: { model: 'modelo-a' },
+    });
+
+    await act(async () => {
+      resolveFirst();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(updateTabMock).toHaveBeenCalledTimes(2));
+    expect(updateTabMock).toHaveBeenNthCalledWith(2, 'tab-chat', {
+      profile_override: { model: 'modelo-b' },
+    });
   });
 });
 
