@@ -67,9 +67,9 @@ Diagramas Mermaid são renderizados com descrição textual alternativa e navega
 
 ### Leitura de documentos
 
-O editor pode abrir documentos do workspace como visualização somente leitura. No modo renderizado, pressione **Enter** na área de conteúdo para mover o foco da âncora de entrada para o documento interno. O leitor de telas passa a navegar títulos, links e demais elementos do conteúdo sem alcançar as barras de ferramentas pelas setas; **Tab** e **Shift+Tab** continuam livres para alcançar controles e sair da área, e **F6** continua alternando entre as regiões do workspace.
+O editor pode abrir documentos do workspace como visualização somente leitura. **Alt+3** ou a ação **Visualização** do menu entram no modo renderizado e levam o foco diretamente ao documento interno, sem exigir Enter adicional. Também é possível pressionar **Enter** na âncora da área de conteúdo ao alcançá-la pela navegação comum. O leitor de telas passa a navegar títulos, links e demais elementos do conteúdo sem alcançar as barras de ferramentas pelas setas; **Tab** e **Shift+Tab** continuam livres para alcançar controles e sair da área, e **F6** continua alternando entre as regiões do workspace.
 
-A leitura continua ativa quando Tab ou F6 levam o foco para outra região. Enquanto o preview atual permanecer visível e ativo, **Esc** devolve o foco ao documento interno mesmo a partir de uma barra de ferramentas ou outro controle fora do conteúdo. Quando o foco já está no documento, **Esc** não executa nenhuma ação. Modais e menus abertos conservam seu próprio comportamento de Escape.
+A leitura continua ativa quando Tab ou F6 levam o foco para outra região. Pressionar **Alt+3** novamente retorna diretamente ao documento. Enquanto o preview atual permanecer visível e ativo, **Esc** também devolve o foco ao documento interno a partir de uma barra de ferramentas ou outro controle fora do conteúdo. Quando o foco já está no documento, **Esc** não executa nenhuma ação. Modais e menus abertos conservam seu próprio comportamento.
 
 Ao abrir um documento no modo de código, o foco entra no Monaco assim que o editor termina de carregar. Um diálogo aberto ou outro campo de texto que já esteja ativo mantém o foco.
 
@@ -80,4 +80,7 @@ Ao abrir um documento no modo de código, o foco entra no Monaco assim que o edi
 | `Ctrl + S` | Salvar |
 | `Ctrl + W` | Fechar aba |
 | `Ctrl + Tab` | Próxima aba |
+| `Alt + 1` | Modo Markdown |
+| `Alt + 2` | Modo de texto rico |
+| `Alt + 3` | Visualização e leitura do documento |
 | Deep link | `assistente://editor/{id}` |

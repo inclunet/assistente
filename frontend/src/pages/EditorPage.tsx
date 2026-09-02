@@ -297,6 +297,8 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     revealSlideNavigationRequest,
     revealFullscreenRequestNonce,
     revealAppendNonce,
+    renderedReadingRequest,
+    consumeRenderedReadingRequest,
     requestRevealSlideNavigation,
     createRevealSlideFromToolbar,
     requestRevealFullscreen,
@@ -405,6 +407,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         revealAppendNonce={revealAppendNonce}
         revealSlideNavigationRequest={revealSlideNavigationRequest}
         revealFullscreenRequestNonce={revealFullscreenRequestNonce}
+        renderedReadingRequest={renderedReadingRequest}
+        onRenderedReadingRequestConsumed={consumeRenderedReadingRequest}
+        isEditorMenuOpen={toolbarMenu.visible}
         richEditorHandleRef={richEditorHandleRef}
         onRequestEditMermaid={requestEditRichMermaid}
         onOpenMermaid={openMermaidEditorByIndex}
