@@ -149,7 +149,9 @@ export function EditorContentArea({
   const renderedAnchorRef = useRef<HTMLDivElement>(null);
   const renderedDocumentRef = useRef<HTMLDivElement>(null);
   const consumedRenderedReadingRequestRef = useRef(0);
+  const onRenderedReadingRequestConsumedRef = useRef(onRenderedReadingRequestConsumed);
   const [readingDocumentKey, setReadingDocumentKey] = useState<string | null>(null);
+  onRenderedReadingRequestConsumedRef.current = onRenderedReadingRequestConsumed;
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
@@ -243,22 +245,90 @@ export function EditorContentArea({
       || isModalOpen()
     ) return;
 
-    consumedRenderedReadingRequestRef.current = renderedReadingRequest.nonce;
-    onRenderedReadingRequestConsumed?.(renderedReadingRequest.nonce);
+    const requestNonce = renderedReadingRequest.nonce;
+    const requestDocumentKey = renderedDocumentKey;
+    const scheduledFrames = new Set<number>();
+    let cancelled = false;
+
+    const scheduleFrame = (callback: () => void) => {
+      const frameId = window.requestAnimationFrame(() => {
+        scheduledFrames.delete(frameId);
+        if (!cancelled) callback();
+      });
+      scheduledFrames.add(frameId);
+    };
+    const canContinue = () => (
+      !cancelled
+      && renderedReadingRequest.nonce === requestNonce
+      && isPanelActive
+      && activeTab?.mode === 'view'
+      && !isEditorMenuOpen
+      && !isModalOpen()
+      && renderedAnchorRef.current?.isConnected === true
+      && renderedDocumentRef.current?.isConnected === true
+    );
+    const consumeAfterEffectiveFocus = () => {
+      const renderedDocument = renderedDocumentRef.current;
+      if (
+        !canContinue()
+        || !renderedDocument
+        || consumedRenderedReadingRequestRef.current === requestNonce
+        || document.activeElement !== renderedDocument
+      ) return;
+      consumedRenderedReadingRequestRef.current = requestNonce;
+      onRenderedReadingRequestConsumedRef.current?.(requestNonce);
+    };
+
     if (renderedReadingActive) {
-      renderedDocumentRef.current?.focus();
-      return;
+      scheduleFrame(() => {
+        if (!canContinue()) return;
+        renderedDocumentRef.current?.focus();
+        consumeAfterEffectiveFocus();
+      });
+    } else {
+      // O WebView2/NVDA precisa observar a superfície já montada, o foco na
+      // âncora externa e, só depois, a criação/focalização da ilha documental.
+      scheduleFrame(() => {
+        if (!canContinue()) return;
+        scheduleFrame(() => {
+          if (!canContinue()) return;
+          renderedAnchorRef.current?.focus();
+          if (document.activeElement !== renderedAnchorRef.current) return;
+          scheduleFrame(() => {
+            if (!canContinue()) return;
+            setReadingDocumentKey(requestDocumentKey);
+          });
+        });
+      });
     }
-    setReadingDocumentKey(renderedDocumentKey);
+
+    return () => {
+      cancelled = true;
+      scheduledFrames.forEach((frameId) => window.cancelAnimationFrame(frameId));
+      scheduledFrames.clear();
+    };
   }, [
+    activeTab?.draftId,
+    activeTab?.filePath,
+    activeTab?.id,
     activeTab?.mode,
     isEditorMenuOpen,
     isPanelActive,
     renderedDocumentKey,
     renderedReadingActive,
-    renderedReadingRequest,
-    onRenderedReadingRequestConsumed,
+    renderedReadingRequest?.nonce,
   ]);
+
+  useEffect(() => {
+    if (
+      !renderedReadingActive
+      || !renderedReadingRequest
+      || renderedReadingRequest.nonce === consumedRenderedReadingRequestRef.current
+      || document.activeElement !== renderedDocumentRef.current
+    ) return;
+    consumedRenderedReadingRequestRef.current = renderedReadingRequest.nonce;
+    onRenderedReadingRequestConsumedRef.current?.(renderedReadingRequest.nonce);
+  }, [renderedReadingActive, renderedReadingRequest]);
 
   useEffect(() => {
     if (activeTab?.loadError) {
