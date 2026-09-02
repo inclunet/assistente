@@ -591,6 +591,10 @@ func (m *Manager) UpdateTabProfileForConversation(tabID, conversationID, profile
 	if tab.ProfileOverride == nil {
 		tab.ProfileOverride = make(map[string]any)
 	}
+	previousSlug, _ := tab.ProfileOverride["slug"].(string)
+	if strings.TrimSpace(previousSlug) != profileSlug {
+		delete(tab.ProfileOverride, "model")
+	}
 	tab.ProfileOverride["slug"] = profileSlug
 	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
 		tab.ProfileOverride = previousOverride

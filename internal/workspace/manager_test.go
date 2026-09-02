@@ -348,9 +348,39 @@ func TestUpdateTabProfileForConversationValidatesRelationship(t *testing.T) {
 	}
 }
 
-func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
-	root := t.TempDir()
-	m := NewManager(root)
+func TestUpdateTabProfileForConversationLimpaModeloQuandoSlugMuda(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:             "tab-profile",
+		Type:           TabTypeChat,
+		ConversationID: conversationID,
+		ProfileOverride: map[string]any{
+			"slug":  "anterior",
+			"model": "modelo-do-provider-anterior",
+			"extra": "preservado",
+		},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, "novo"); err != nil {
+		t.Fatalf("UpdateTabProfileForConversation: %v", err)
+	}
+	override := m.active.FindTab("tab-profile").ProfileOverride
+	if _, exists := override["model"]; exists {
+		t.Fatalf("modelo incompatível deveria ser removido: %#v", override)
+	}
+	if override["slug"] != "novo" || override["extra"] != "preservado" {
+		t.Fatalf("troca não preservou demais campos: %#v", override)
+	}
+}
+
+func TestUpdateTabProfileForConversationPreservaModeloQuandoSlugNaoMuda(t *testing.T) {
+	m := NewManager(t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
@@ -359,7 +389,34 @@ func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
 		ID:              "tab-profile",
 		Type:            TabTypeChat,
 		ConversationID:  conversationID,
-		ProfileOverride: map[string]any{"slug": "anterior"},
+		ProfileOverride: map[string]any{"slug": "atual", "model": "modelo-atual"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, " atual "); err != nil {
+		t.Fatalf("UpdateTabProfileForConversation: %v", err)
+	}
+	if got := m.active.FindTab("tab-profile").ProfileOverride["model"]; got != "modelo-atual" {
+		t.Fatalf("modelo do mesmo perfil não deveria ser removido: %v", got)
+	}
+}
+
+func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager(root)
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:             "tab-profile",
+		Type:           TabTypeChat,
+		ConversationID: conversationID,
+		ProfileOverride: map[string]any{
+			"slug":  "anterior",
+			"model": "modelo-anterior",
+		},
 	}); err != nil {
 		t.Fatalf("AddTab: %v", err)
 	}
@@ -373,7 +430,7 @@ func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
 		t.Fatal("esperava falha de persistência")
 	}
 	tab := m.active.FindTab("tab-profile")
-	if tab.ProfileOverride["slug"] != "anterior" {
+	if tab.ProfileOverride["slug"] != "anterior" || tab.ProfileOverride["model"] != "modelo-anterior" {
 		t.Fatalf("override em memória não foi revertido: %#v", tab.ProfileOverride)
 	}
 }
