@@ -137,7 +137,8 @@ func TestDiscoverOAuthUsesCanonicalPRMResourceAsAuthorizationBase(t *testing.T) 
 		switch r.URL.Path {
 		case "/.well-known/oauth-protected-resource/input":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"resource": serverURL + "/canonical/deep/mcp/../resource?tenant=secret#fragment",
+				"resource":              serverURL + "/canonical/deep/mcp/../resource?tenant=secret#fragment",
+				"authorization_servers": []string{"not-a-url", "https://user:secret@example.test/issuer"},
 			})
 		case "/canonical/deep/.well-known/openid-configuration":
 			_ = json.NewEncoder(w).Encode(map[string]any{

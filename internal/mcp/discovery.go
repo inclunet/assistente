@@ -82,7 +82,7 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	protectedResourceFound := err == nil && prm != nil
 	authServerBases := make([]string, 0)
 	if err == nil && prm != nil {
-		authServerBases = append(authServerBases, prm.AuthorizationServers...)
+		authServerBases = canonicalAuthorizationServerBases(prm.AuthorizationServers)
 		if prm.Resource != "" {
 			resourceBaseURL = prm.Resource
 		}
@@ -261,6 +261,24 @@ func buildResourceBases(rawURL string) []string {
 		if cleanPath == "/" || cleanPath == "." {
 			cleanPath = ""
 		}
+	}
+	return bases
+}
+
+func canonicalAuthorizationServerBases(values []string) []string {
+	seen := make(map[string]struct{})
+	bases := make([]string, 0, len(values))
+	for _, value := range values {
+		candidates := buildResourceBases(value)
+		if len(candidates) == 0 {
+			continue
+		}
+		base := candidates[0]
+		if _, exists := seen[base]; exists {
+			continue
+		}
+		seen[base] = struct{}{}
+		bases = append(bases, base)
 	}
 	return bases
 }
