@@ -196,9 +196,9 @@ function mergeProfileOverride(
   if (patch === null) return undefined;
   const merged = { ...(existing ?? {}) };
   for (const [key, value] of Object.entries(patch)) {
-    if (value === null || value === undefined) {
+    if (value === null) {
       delete merged[key];
-    } else {
+    } else if (value !== undefined) {
       merged[key] = value;
     }
   }

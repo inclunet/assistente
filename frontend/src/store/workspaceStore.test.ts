@@ -640,6 +640,25 @@ describe('updateTab — ProfileOverride por patch', () => {
     });
   });
 
+  it('ignora undefined porque somente null remove uma chave', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao', model: 'modelo-b' },
+    }], 'tab-chat');
+
+    await useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: undefined },
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+      model: 'modelo-b',
+    });
+  });
+
   it('não altera o store quando a persistência falha', async () => {
     setStoreState([{
       id: 'tab-chat',

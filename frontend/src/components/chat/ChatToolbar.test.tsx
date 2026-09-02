@@ -387,6 +387,21 @@ describe('ChatToolbar e o modelo nativo da aba', () => {
     }));
   });
 
+  it('normaliza o modelo e trata entrada vazia como reset', async () => {
+    renderToolbar();
+    await screen.findByRole('button', { name: 'chat.modelOverride.label, $default' });
+
+    modelChangeRef.current?.('  modelo-b  ');
+    await waitFor(() => expect(updateTabMock).toHaveBeenNthCalledWith(1, 'tab-chat', {
+      profile_override: { model: 'modelo-b' },
+    }));
+
+    modelChangeRef.current?.('   ');
+    await waitFor(() => expect(updateTabMock).toHaveBeenNthCalledWith(2, 'tab-chat', {
+      profile_override: { model: null },
+    }));
+  });
+
   it('limpa modelo incompatível ao trocar para perfil de outro provider', async () => {
     mockPanelTabRef.current = {
       id: 'tab-chat',
