@@ -5,7 +5,7 @@ import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
-import { SlashCommandMenu, countFilteredSlashItems, getSlashOptionId } from './SlashCommandMenu';
+import { SlashCommandMenu, getSlashOptionId } from './SlashCommandMenu';
 import { buildSlashItems, filterSlashItems, type SlashItem } from './slashItems';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -194,8 +194,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [slashItems, slashMenuEnabled]);
 
   const closeSlashMenu = useCallback((shouldAnnounce = false) => {
+    const wasOpen = slashMenuWasOpenRef.current;
+    slashMenuWasOpenRef.current = false;
     setShowSlashMenu(false);
-    if (shouldAnnounce) {
+    if (shouldAnnounce && wasOpen) {
       announce(t('chat.slashMenuClosed'), 'polite');
     }
   }, [announce, t]);
@@ -334,7 +336,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Navegação no menu slash
     if (showSlashMenu) {
-      const totalFiltered = countFilteredSlashItems(invocableSkills, slashCommands, slashFilter);
+      const totalFiltered = filteredSlashItems.length;
 
       if (e.key === 'ArrowDown' && totalFiltered > 0) {
         e.preventDefault();
@@ -430,7 +432,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           filter={slashFilter}
           selectedIndex={slashSelectedIndex}
           onSelect={handleSlashSelect}
-          onClose={() => closeSlashMenu()}
+          onClose={() => closeSlashMenu(true)}
           anchorRef={textareaRef}
           listboxId={slashMenuId}
         />
@@ -478,7 +480,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           aria-expanded={slashMenuEnabled ? showSlashMenu : undefined}
           aria-controls={slashMenuEnabled && showSlashMenu ? slashMenuId : undefined}
           aria-activedescendant={activeSlashOptionId}
-          onBlur={() => closeSlashMenu()}
+          onBlur={() => closeSlashMenu(true)}
         />
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
         {isStreaming ? (

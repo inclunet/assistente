@@ -30,7 +30,6 @@ vi.mock('./SlashCommandMenu', () => ({
       {skills.map((skill) => skill.name).join(',')}
     </div>
   ),
-  countFilteredSlashItems: () => 1,
   getSlashOptionId: (listboxId: string, item: { key: string }) =>
     `${listboxId}-option-${item.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
 }));

@@ -151,18 +151,6 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   );
 };
 
-/**
- * Retorna o número de itens do menu para o texto dado — skills do app e
- * comandos do agente juntos. É por ele que as setas sabem onde dar a volta.
- */
-export function countFilteredSlashItems(
-  skillList: skills.SkillInfo[],
-  agentCommands: apidto.AgentCommand[],
-  filter: string,
-): number {
-  return filterSlashItems(buildSlashItems(skillList, agentCommands), filter).length;
-}
-
 export function getSlashOptionId(listboxId: string, item: SlashItem): string {
   const stableItemId = item.key.replace(/[^a-zA-Z0-9_-]/g, '-');
   return `${listboxId}-option-${stableItemId}`;

@@ -192,6 +192,20 @@ describe('ChatInput com comandos do agente', () => {
     expect(announceSpy).not.toHaveBeenCalledWith('chat.slashMenuOpened', 'polite');
   });
 
+  it('anuncia o fechamento quando o campo perde o foco', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    announceSpy.mockClear();
+
+    fireEvent.blur(textarea);
+
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
+    expect(announceSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('escolher um comando do agente escreve a barra e o nome no campo', async () => {
     render(<CampoControlado />);
     await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
