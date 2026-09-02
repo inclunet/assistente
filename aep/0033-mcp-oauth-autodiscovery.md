@@ -87,24 +87,24 @@ func (a *App) DiscoverMCPServerAuth(serverURL string) mcp.OAuthDiscoveryResult {
      - Preencher `oauth2AuthUrl` com `result.authUrl`
      - Preencher `oauth2TokenUrl` com `result.tokenUrl`
      - Preencher `oauth2Scopes` com `result.scopes.join(' ')`
-     - Marcar esses campos como **auto-discovered** (readonly visualmente, com hint explicando)
+     - Preencher somente campos ainda vazios, preservando valores manuais
      - Mostrar hint de sucesso: "Configuração OAuth detectada automaticamente ({resourceName})" ou similar
-  5. Se `!result.found`:
+  5. Se o resultado for parcial ou ausente:
      - Não alterar campos existentes
-     - Mostrar hint neutro: "Servidor não expõe metadados OAuth. Configure manualmente se necessário."
+     - Mostrar hint correspondente e permitir conclusão manual
      - Campos permanecem editáveis normalmente
 
 **Estado de discovery**: adicionar ao componente (ou como props da McpPage):
 ```typescript
-// Novo estado no componente pai (McpPage.tsx)
-const [discoveryStatus, setDiscoveryStatus] = useState<'idle' | 'loading' | 'found' | 'not_found'>('idle');
-const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
-// discoveredFields controla quais campos foram auto-preenchidos e devem ficar readonly
+const [discoveryStatus, setDiscoveryStatus] = useState<
+  'idle' | 'loading' | 'found' | 'partial' | 'not_found'
+>('idle');
 ```
 
 **UX dos campos auto-discovered**:
-- Campos preenchidos por discovery ficam `readOnly` com visual diferenciado (opacidade reduzida ou borda tracejada, como preferir)
-- Um link/botão discreto "Editar manualmente" ao lado do bloco de auth remove o readonly e permite edição livre
+- O estado encontrado mostra apenas os campos que ainda exigem entrada do usuário
+- Um botão "Configurar manualmente" troca para o formulário completo sem apagar
+  os valores existentes
 - Se o usuário limpar a URL ou mudar para outra, resetar o discovery
 
 ### 3. Trigger duplo: blur da URL E mudança de transport
@@ -123,20 +123,20 @@ Adicionar props ao `McpConnectionSection`:
 
 ```typescript
 // Novas props
-discoveryStatus: 'idle' | 'loading' | 'found' | 'not_found';
-discoveredFields: Set<string>; // ex: new Set(['authType', 'oauth2AuthUrl', 'oauth2TokenUrl', 'oauth2Scopes'])
-onManualOverride: () => void; // limpa discoveredFields, permite edição
+discoveryStatus: 'idle' | 'loading' | 'found' | 'partial' | 'not_found';
+onManualOverride: () => void; // apresenta a configuração manual completa
 onUrlBlur: () => void; // dispara discovery
 ```
 
-Os campos de auth OAuth2 verificam se estão em `discoveredFields` para decidir `readOnly`.
+O componente deriva a apresentação do `discoveryStatus`; o estado não torna
+campos manuais somente leitura nem bloqueia o salvamento.
 
 ## Arquivos a modificar
 
 1. **`internal/mcp/discovery.go`** — NOVO — lógica de discovery HTTP
 2. **`app.go`** — adicionar binding `DiscoverMCPServerAuth`
 3. **`frontend/src/pages/McpPage.tsx`** — estado de discovery + callback + efeito de trigger
-4. **`frontend/src/components/mcp/McpConnectionSection.tsx`** — onBlur na URL, props de discovery, readOnly condicional, hints
+4. **`frontend/src/components/mcp/McpConnectionSection.tsx`** — onBlur na URL, props de discovery, estados e hints
 
 ## Arquivos de referência (leia para entender padrões)
 
@@ -187,7 +187,9 @@ Os campos de auth OAuth2 verificam se estão em `discoveredFields` para decidir 
 
 ## Notas importantes
 
-- **Acessibilidade**: campos readOnly devem ser anunciados corretamente por screen readers. Usar `aria-readonly="true"` e incluir hint descritivo (ex: "preenchido automaticamente via discovery").
+- **Acessibilidade**: o status do discovery deve ser anunciado corretamente por
+  leitores de tela. A ação para abandonar o resultado e configurar manualmente
+  permanece disponível por teclado e com nome acessível.
 - **Não bloquear o save**: se o discovery falhar, o formulário funciona normalmente — é apenas uma conveniência.
 - **client_id**: NÃO temos como descobrir o client_id automaticamente via well-known (ele vem do registro do app). O campo client_id permanece editável sempre. No caso do Atlassian, existe um `registration_endpoint` — mas implementar Dynamic Client Registration (RFC 7591) é escopo futuro, não agora. Deixar o campo em branco com hint se `registrationUrl` estiver presente.
 
