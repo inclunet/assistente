@@ -63,13 +63,21 @@ Enter em uma mensagem não interna:
 
 ### D4 — Editor usa isolamento escopado
 
-No modo renderizado, Enter ativa leitura sobre o preview. O documento recebe
-foco e `role="document"`, sem `aria-modal`, `inert` ou focus trap. Assim:
+No modo renderizado, o preview usa dois elementos estáveis e distintos: uma
+âncora externa (`role="group"`) é o único ponto de entrada antes da leitura;
+Enter ativa a leitura e move o foco para uma ilha interna à qual o hook aplica
+`role="document"` e `tabindex` antes de focá-la. A separação é necessária para
+que NVDA/WebView2 reconheça a transição para browse mode; trocar o `role` do
+mesmo elemento já focado não satisfaz esse contrato.
+
+O perfil continua sem `aria-modal`, `inert` ou focus trap. Assim:
 
 - setas operam no documento enquanto o leitor de telas está em browse mode;
 - Tab sai depois do último controle e Shift+Tab sai antes do primeiro;
 - F6/Shift+F6 continuam ciclando pelas landmarks do workspace;
-- Esc devolve foco ao documento renderizado;
+- Tab e F6 não desativam a leitura;
+- enquanto o preview atual estiver ativo, Esc fora da ilha devolve foco ao
+  documento interno, respeitando modais e menus; no próprio documento é no-op;
 - a região renderizada é a área de foco padrão do editor enquanto `mode=view`.
 
 O contrato vale tanto para Markdown comum quanto para projeções somente
@@ -105,8 +113,9 @@ padrão.
 - [x] introduzir leitura escopada no preview;
 - [x] focar o documento ao ativar;
 - [x] registrar o preview como área padrão em `mode=view`;
+- [x] separar a âncora de entrada da ilha interna `role="document"`;
 - [x] manter Tab livre nas bordas e F6/Shift+F6 funcionais;
-- [x] fazer Esc retornar ao documento;
+- [x] fazer Esc retornar globalmente ao documento apenas com a superfície ativa;
 - [x] cobrir Markdown editável e documento projetado somente leitura.
 
 ## Riscos
@@ -134,6 +143,9 @@ padrão.
 - Esc fecha a leitura da mensagem e restaura o foco.
 - No preview do editor, Enter foca um `role="document"` sem tornar a tela
   modal.
+- A âncora do preview e o documento interno são elementos distintos, e o
+  `role="document"` existe antes do foco de entrada.
 - No editor, Tab pode sair pelas bordas e F6/Shift+F6 seguem funcionando.
-- Esc e o foco padrão do editor retornam à região renderizada em `mode=view`.
+- Tab e F6 não encerram a leitura; Esc fora da ilha retorna ao documento apenas
+  enquanto o preview estiver ativo, e Esc no próprio documento é no-op.
 - Nenhuma fase habilita HTML ou formulários arbitrários vindos do conteúdo.

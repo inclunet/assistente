@@ -367,8 +367,11 @@ describe('EditorContentArea document view', () => {
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.openedAnnouncement');
   });
 
-  it('ativa leitura escopada com role document efetivo antes do novo foco', async () => {
+  it('entra numa ilha documental distinta sem prender Tab, Shift+Tab ou F6', async () => {
     const user = userEvent.setup();
+    const before = document.createElement('button');
+    before.textContent = 'Antes do documento';
+    document.body.append(before);
     const { container } = renderContentArea({
       id: 'markdown-view',
       title: 'leitura.md',
@@ -378,30 +381,38 @@ describe('EditorContentArea document view', () => {
       readOnly: false,
       projection: null,
     });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
     const renderedDocument = container.querySelector<HTMLElement>(
       '[data-editor-rendered-document="true"]',
     );
+    expect(renderedAnchor).not.toBe(renderedDocument);
+    expect(renderedAnchor).toHaveAttribute('role', 'group');
+    expect(renderedAnchor).toHaveAttribute('tabindex', '0');
     expect(renderedDocument).not.toBeNull();
-    expect(renderedDocument).toHaveAttribute('role', 'group');
-    expect(renderedDocument).toHaveAttribute('tabindex', '0');
+    expect(renderedDocument).not.toHaveAttribute('role');
+    expect(renderedDocument).not.toHaveAttribute('tabindex');
     expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
       'data-tab-navigation',
       'disabled',
     );
 
-    renderedDocument!.focus();
     const rolesObservedOnFocus: Array<string | null> = [];
     renderedDocument!.addEventListener('focus', () => {
       rolesObservedOnFocus.push(renderedDocument!.getAttribute('role'));
     });
-    fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
+    renderedAnchor!.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
 
+    expect(renderedAnchor).toHaveAttribute('tabindex', '-1');
     expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(renderedDocument).toHaveAttribute('tabindex', '0');
+    expect(renderedDocument).toHaveFocus();
     expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
       'data-tab-navigation',
       'enabled',
     );
-    await waitFor(() => expect(renderedDocument).toHaveFocus());
     expect(rolesObservedOnFocus).toEqual(['document']);
     expect(announceMock).toHaveBeenCalledTimes(1);
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.readingOpened');
@@ -411,11 +422,17 @@ describe('EditorContentArea document view', () => {
     document.body.append(outside);
     const link = screen.getByRole('link', { name: 'Link do documento' });
 
-    // Escape na área padrão é no-op: a leitura permanece ativa e sem anúncio
-    // de saída. Em um descendente, apenas devolve o foco à área padrão.
+    // O documento é a área padrão ativa; Escape nela é consumido como no-op.
     expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(false);
     expect(renderedDocument).toHaveFocus();
     expect(announceMock).toHaveBeenCalledTimes(1);
+
+    // Shift+Tab e Tab ultrapassam as bordas sem incluir a âncora desativada.
+    await user.tab({ shift: true });
+    expect(before).toHaveFocus();
+    renderedDocument!.focus();
+    await user.tab();
+    expect(link).toHaveFocus();
 
     link.focus();
     fireEvent.keyDown(window, { key: 'Escape' });
@@ -425,9 +442,15 @@ describe('EditorContentArea document view', () => {
     link.focus();
     await user.tab();
     expect(outside).toHaveFocus();
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'enabled',
+    );
 
     // O perfil scoped não captura F6: a landmark global pode processá-lo.
     expect(fireEvent.keyDown(window, { key: 'F6' })).toBe(true);
+    expect(outside).toHaveFocus();
 
     isModalOpenMock.mockReturnValue(true);
     fireEvent.keyDown(window, { key: 'Escape' });
@@ -441,13 +464,15 @@ describe('EditorContentArea document view', () => {
     expect(outside).toHaveFocus();
     menu.remove();
 
-    // Escape fora do preview também não interfere no foco atual.
-    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
-    expect(outside).toHaveFocus();
+    // Com a superfície ativa, Escape fora da ilha retorna ao documento.
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(false);
+    expect(renderedDocument).toHaveFocus();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+    before.remove();
     outside.remove();
   });
 
-  it('oferece o mesmo documento focável para projeções somente leitura', async () => {
+  it('oferece o mesmo documento focável para projeções somente leitura', () => {
     const { container } = renderContentArea({
       id: 'pdf-reading',
       title: 'manual.pdf',
@@ -461,11 +486,14 @@ describe('EditorContentArea document view', () => {
     const renderedDocument = container.querySelector<HTMLElement>(
       '[data-editor-rendered-document="true"]',
     );
-    renderedDocument?.focus();
-    fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
 
     expect(renderedDocument).toHaveAttribute('role', 'document');
-    await waitFor(() => expect(renderedDocument).toHaveFocus());
+    expect(renderedDocument).toHaveFocus();
     expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
       'data-tab-navigation',
       'enabled',
@@ -479,16 +507,16 @@ describe('EditorContentArea document view', () => {
       markdown: '<!-- .slide: class="title-slide" -->\n\n# Slide 1\n\n---\n\n# Slide 2\n\n---\n\n# Slide 3',
       mode: 'view',
     });
-    const renderedDocument = container.querySelector<HTMLElement>(
-      '[data-editor-rendered-document="true"]',
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
     );
     expect(screen.getByTestId('reveal-renderer')).toHaveAttribute(
       'data-tab-navigation',
       'disabled',
     );
 
-    renderedDocument?.focus();
-    fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
 
     expect(screen.getByTestId('reveal-renderer')).toHaveAttribute(
       'data-tab-navigation',
@@ -505,18 +533,24 @@ describe('EditorContentArea document view', () => {
       filePath: 'C:/tmp/preview.md',
     };
     const { container, rerender } = renderContentArea(activeTab, { isPanelActive: true });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
     const renderedDocument = container.querySelector<HTMLElement>(
       '[data-editor-rendered-document="true"]',
     );
-    renderedDocument?.focus();
-    fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
     expect(renderedDocument).toHaveAttribute('role', 'document');
-    await waitFor(() => expect(renderedDocument).toHaveFocus());
+    expect(renderedDocument).toHaveFocus();
 
     rerender(contentAreaElement(activeTab, {
       isPanelActive: true,
       debouncedMarkdownForPreview: '# Preview atualizado',
     }));
+    expect(container.querySelector('[data-editor-rendered-document="true"]')).toBe(
+      renderedDocument,
+    );
     expect(renderedDocument).toHaveAttribute('role', 'document');
 
     const replacementTab = {
@@ -526,22 +560,26 @@ describe('EditorContentArea document view', () => {
       markdown: '# Outro arquivo',
     };
     rerender(contentAreaElement(replacementTab, { isPanelActive: true }));
-    expect(renderedDocument).toHaveAttribute('role', 'group');
+    await waitFor(() => expect(renderedDocument).not.toHaveAttribute('role'));
+    expect(renderedAnchor).toHaveAttribute('tabindex', '0');
     expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
       'data-tab-navigation',
       'disabled',
     );
 
-    renderedDocument?.focus();
-    fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
+    expect(container.querySelector('[data-editor-rendered-document="true"]')).toBe(
+      renderedDocument,
+    );
     expect(renderedDocument).toHaveAttribute('role', 'document');
-    await waitFor(() => expect(renderedDocument).toHaveFocus());
+    expect(renderedDocument).toHaveFocus();
 
     const outside = document.createElement('button');
     document.body.append(outside);
     outside.focus();
     rerender(contentAreaElement(replacementTab, { isPanelActive: false }));
-    expect(renderedDocument).toHaveAttribute('role', 'group');
+    await waitFor(() => expect(renderedDocument).not.toHaveAttribute('role'));
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(outside).toHaveFocus();

@@ -67,9 +67,9 @@ Diagramas Mermaid são renderizados com descrição textual alternativa e navega
 
 ### Leitura de documentos
 
-O editor pode abrir documentos do workspace como visualização somente leitura. No modo renderizado, pressione **Enter** na área de conteúdo para iniciar a leitura como documento. O leitor de telas passa a navegar títulos, links e demais elementos do conteúdo; **Tab** continua livre para alcançar controles e sair da área, e **F6** continua alternando entre as regiões do workspace.
+O editor pode abrir documentos do workspace como visualização somente leitura. No modo renderizado, pressione **Enter** na área de conteúdo para mover o foco da âncora de entrada para o documento interno. O leitor de telas passa a navegar títulos, links e demais elementos do conteúdo sem alcançar as barras de ferramentas pelas setas; **Tab** e **Shift+Tab** continuam livres para alcançar controles e sair da área, e **F6** continua alternando entre as regiões do workspace.
 
-A área renderizada é o ponto de foco padrão desse modo. Se o foco estiver em um link ou outro controle dentro do conteúdo, **Esc** o devolve à área renderizada. Quando o foco já está nessa área, **Esc** não executa nenhuma ação.
+A leitura continua ativa quando Tab ou F6 levam o foco para outra região. Enquanto o preview atual permanecer visível e ativo, **Esc** devolve o foco ao documento interno mesmo a partir de uma barra de ferramentas ou outro controle fora do conteúdo. Quando o foco já está no documento, **Esc** não executa nenhuma ação. Modais e menus abertos conservam seu próprio comportamento de Escape.
 
 Ao abrir um documento no modo de código, o foco entra no Monaco assim que o editor termina de carregar. Um diálogo aberto ou outro campo de texto que já esteja ativo mantém o foco.
 
