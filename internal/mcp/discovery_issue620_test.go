@@ -153,6 +153,53 @@ func TestDiscoverOAuthRepresentsPRMWithoutAuthorizationServerMetadata(t *testing
 	}
 }
 
+func TestDiscoverOAuthInfersClientCredentialsWithoutGrantList(t *testing.T) {
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource/mcp":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource":              serverURL + "/mcp",
+				"authorization_servers": []string{serverURL},
+			})
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":         serverURL,
+				"token_endpoint": serverURL + "/token",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	result := DiscoverOAuth(server.URL + "/mcp")
+	if !result.Found || result.AuthType != AuthOAuth2ClientCredentials ||
+		result.AuthURL != "" || result.TokenURL != server.URL+"/token" {
+		t.Fatalf("metadata token-only não inferiu client credentials: %+v", result)
+	}
+	runtimeResult, err := discoverOAuthEndpoints(server.URL + "/mcp")
+	if err != nil || runtimeResult.TokenEndpoint != server.URL+"/token" {
+		t.Fatalf("runtime rejeitou metadata token-only: result=%+v err=%v", runtimeResult, err)
+	}
+}
+
+func TestProtectedResourceMetadataRequiresResourceIdentifier(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resource_name":    "Metadata incompleta",
+			"scopes_supported": []string{"read"},
+		})
+	}))
+	defer server.Close()
+
+	result, _, err := fetchProtectedResourceMetadataDetailed(server.URL + "/mcp")
+	if err == nil || result != nil {
+		t.Fatalf("PRM sem resource foi aceito: result=%+v err=%v", result, err)
+	}
+}
+
 func TestDiscoverOAuthUsesCanonicalPRMResourceAsAuthorizationBase(t *testing.T) {
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

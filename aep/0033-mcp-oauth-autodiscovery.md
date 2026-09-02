@@ -229,12 +229,17 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    `WWW-Authenticate`, `Location` e os campos JSON `error` e
    `error_description` podem virar hints, sempre limitados e saneados.
    Tokens, cookies, credenciais, userinfo, query e fragment não são expostos.
+   Respostas 200 também precisam do schema mínimo: PRM exige `resource`, como
+   determina a RFC 9728 §2, e metadata de Authorization Server precisa de
+   `token_endpoint` para ser utilizável pelo Assistente.
 5. Redirects preservam timeout e limite, rejeitam esquema não HTTP(S),
    credenciais na URL, downgrade de HTTPS e mais de cinco saltos.
 6. O contrato distingue `complete`, `partial` e `not_found`, além de indicar
    separadamente PRM e Authorization Server Metadata encontrados. Ausência de
    `registration_endpoint` exige conclusão manual, mas não invalida metadata
-   OAuth/OIDC.
+   OAuth/OIDC. Metadata com `token_endpoint`, mas sem `authorization_endpoint`,
+   é tratada como Client Credentials mesmo quando a lista opcional
+   `grant_types_supported` não foi publicada.
 7. Valores manuais são soberanos: discovery preenche apenas campos vazios,
    nunca impede salvar e mantém a edição manual disponível em falha parcial ou
    total.

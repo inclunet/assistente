@@ -130,7 +130,8 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	supportsPKCE := slices.Contains(asm.CodeChallengeMethodsSupported, "S256")
 
 	authType := AuthOAuth2PKCE
-	if !supportsPKCE && slices.Contains(asm.GrantTypesSupported, "client_credentials") {
+	if asm.AuthorizationEndpoint == "" ||
+		(!supportsPKCE && slices.Contains(asm.GrantTypesSupported, "client_credentials")) {
 		authType = AuthOAuth2ClientCredentials
 	}
 
@@ -195,7 +196,9 @@ func fetchProtectedResourceMetadataDetailed(mcpURL string) (*protectedResourceMe
 		if attempt.hint != nil {
 			hints = appendHints(hints, *attempt.hint)
 		}
-		if err == nil && (result.Resource != "" || len(result.AuthorizationServers) > 0) {
+		// RFC 9728 §2 exige o identificador do recurso. Outros membros isolados
+		// são hints insuficientes e não transformam a resposta em PRM válido.
+		if err == nil && result.Resource != "" {
 			logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] PRM: encontrado em %s", candidateURL)
 			return &result, hints, nil
 		}
@@ -383,11 +386,9 @@ func buildASMCandidateDetails(authServerBase string) []asmCandidate {
 }
 
 func validAuthServerMetadata(metadata *authServerMetadata) bool {
-	if metadata == nil || metadata.TokenEndpoint == "" {
-		return false
-	}
-	return metadata.AuthorizationEndpoint != "" ||
-		slices.Contains(metadata.GrantTypesSupported, "client_credentials")
+	// grant_types_supported é opcional na RFC 8414. Um token endpoint sem
+	// authorization endpoint ainda é utilizável pelo fluxo client credentials.
+	return metadata != nil && metadata.TokenEndpoint != ""
 }
 
 type fetchAttempt struct {
