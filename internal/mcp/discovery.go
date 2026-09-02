@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	discoveryBodyLimit = 4 * 1024
-	maxDiscoveryHints  = 24
-	maxDiscoveryBases  = 16
+	discoveryErrorBodyLimit    = 4 * 1024
+	discoveryMetadataBodyLimit = 64 * 1024
+	maxDiscoveryHints          = 24
+	maxDiscoveryBases          = 16
 
 	discoveryTotalTimeout       = 12 * time.Second
 	maxDiscoveryAttempts        = 128
@@ -591,13 +592,17 @@ func fetchJSONContext(ctx context.Context, rawURL string, target any) (fetchAtte
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, discoveryBodyLimit+1))
+	bodyLimit := discoveryMetadataBodyLimit
+	if resp.StatusCode != http.StatusOK {
+		bodyLimit = discoveryErrorBodyLimit
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, int64(bodyLimit+1)))
 	if readErr != nil {
 		return fetchAttempt{}, readErr
 	}
-	truncated := len(body) > discoveryBodyLimit
+	truncated := len(body) > bodyLimit
 	if truncated {
-		body = body[:discoveryBodyLimit]
+		body = body[:bodyLimit]
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -623,7 +628,7 @@ func fetchJSONContext(ctx context.Context, rawURL string, target any) (fetchAtte
 		if len(redirects) > 0 {
 			hint.Location = redirects[len(redirects)-1].Location
 		}
-		return fetchAttempt{hint: hint}, fmt.Errorf("metadata excede %d bytes", discoveryBodyLimit)
+		return fetchAttempt{hint: hint}, fmt.Errorf("metadata excede %d bytes", discoveryMetadataBodyLimit)
 	}
 
 	attempt := fetchAttempt{}

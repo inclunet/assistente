@@ -166,12 +166,12 @@ type OAuthDiscovery struct {
 
 // discoverOAuthEndpoints uses the existing discovery infrastructure from
 // discovery.go to fetch protected resource + auth server metadata.
-func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
+func discoverOAuthEndpoints(ctx context.Context, mcpURL string) (*OAuthDiscovery, error) {
 	_, err := extractOrigin(mcpURL)
 	if err != nil {
 		return nil, err
 	}
-	budget := newDiscoveryBudget(context.Background())
+	budget := newDiscoveryBudget(ctx)
 	defer budget.close()
 
 	authServerBases := buildResourceBases(mcpURL)
@@ -545,7 +545,7 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 
 	// 1. Discovery automático de endpoints OAuth (se URL MCP disponível)
 	if rt.discovery == nil && rt.cfg.URL != "" {
-		disc, err := discoverOAuthEndpoints(rt.cfg.URL)
+		disc, err := discoverOAuthEndpoints(ctx, rt.cfg.URL)
 		if err != nil {
 			logging.Infof(ctx, "mcp.oauth", "[MCP:%s] Discovery automático falhou (usando config manual): %v", rt.serverSlug, err)
 		} else {

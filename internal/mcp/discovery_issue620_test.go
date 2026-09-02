@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -111,7 +112,7 @@ func TestDiscoverOAuthWithoutPRMFindsOIDCAtResourceAncestor(t *testing.T) {
 		t.Fatal("OIDC sem registration_endpoint exige conclusão manual")
 	}
 
-	runtimeDiscovery, err := discoverOAuthEndpoints(server.URL + "/api/2.0/mcp/sql")
+	runtimeDiscovery, err := discoverOAuthEndpoints(context.Background(), server.URL+"/api/2.0/mcp/sql")
 	if err != nil {
 		t.Fatalf("discovery usado pelo fluxo OAuth também deve funcionar sem PRM: %v", err)
 	}
@@ -231,6 +232,37 @@ func TestDiscoverOAuthCancellationStopsInFlightRequest(t *testing.T) {
 	}
 }
 
+func TestDiscoverOAuthEndpointsPropagatesCallerCancellation(t *testing.T) {
+	requestStarted := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := discoverOAuthEndpoints(ctx, server.URL+"/mcp")
+		errCh <- err
+	}()
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("runtime discovery não iniciou request")
+	}
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelamento do chamador não foi propagado: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime discovery não respeitou cancelamento do chamador")
+	}
+}
+
 func TestDiscoveryBudgetStopsAfterRepeatedNetworkErrors(t *testing.T) {
 	budget := newDiscoveryBudgetWithLimits(context.Background(), time.Second, 10, 3)
 	defer budget.close()
@@ -278,7 +310,7 @@ func TestDiscoverOAuthInfersClientCredentialsWithoutGrantList(t *testing.T) {
 		result.AuthURL != "" || result.TokenURL != server.URL+"/token" {
 		t.Fatalf("metadata token-only não inferiu client credentials: %+v", result)
 	}
-	runtimeResult, err := discoverOAuthEndpoints(server.URL + "/mcp")
+	runtimeResult, err := discoverOAuthEndpoints(context.Background(), server.URL+"/mcp")
 	if err != nil || runtimeResult.TokenEndpoint != server.URL+"/token" {
 		t.Fatalf("runtime rejeitou metadata token-only: result=%+v err=%v", runtimeResult, err)
 	}
@@ -355,7 +387,7 @@ func TestDiscoverOAuthUsesCanonicalPRMResourceAsAuthorizationBase(t *testing.T) 
 	if !result.Found || result.TokenURL != server.URL+"/token" {
 		t.Fatalf("base canônica do PRM não usada: %+v", result)
 	}
-	runtimeResult, err := discoverOAuthEndpoints(server.URL + "/input?ignored=1#fragment")
+	runtimeResult, err := discoverOAuthEndpoints(context.Background(), server.URL+"/input?ignored=1#fragment")
 	if err != nil {
 		t.Fatalf("runtime discovery falhou: %v", err)
 	}
@@ -374,7 +406,7 @@ func TestDiscoveryNon200HintsAreBoundedAndSanitized(t *testing.T) {
 		}
 		w.Header().Set("Location", "https://user:password@example.test/login?access_token=secret#fragment")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(strings.Repeat("x", discoveryBodyLimit+100)))
+		_, _ = w.Write([]byte(strings.Repeat("x", discoveryErrorBodyLimit+100)))
 	}))
 	defer server.Close()
 
@@ -413,7 +445,7 @@ func TestDiscoveryRecordsTruncatedSuccessfulBodyWithoutExposingIt(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("<html>" + strings.Repeat("sensitive", discoveryBodyLimit) + "</html>"))
+		_, _ = w.Write([]byte("<html>" + strings.Repeat("sensitive", discoveryMetadataBodyLimit) + "</html>"))
 	}))
 	defer server.Close()
 
@@ -428,6 +460,22 @@ func TestDiscoveryRecordsTruncatedSuccessfulBodyWithoutExposingIt(t *testing.T) 
 	}
 	if attempt.hint.JSONError != "" || attempt.hint.WWWAuthenticate != "" {
 		t.Fatalf("conteúdo do body 200 não deve ser exposto: %+v", attempt.hint)
+	}
+}
+
+func TestDiscoveryAcceptsBoundedMetadataLargerThanDiagnosticBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token_endpoint": "https://auth.example/token",
+			"extra_metadata": strings.Repeat("x", discoveryErrorBodyLimit+1),
+		})
+	}))
+	defer server.Close()
+
+	var target authServerMetadata
+	attempt, err := fetchJSON(server.URL, &target)
+	if err != nil || attempt.hint != nil || target.TokenEndpoint != "https://auth.example/token" {
+		t.Fatalf("metadata válida acima do limite diagnóstico foi rejeitada: target=%+v hint=%+v err=%v", target, attempt.hint, err)
 	}
 }
 

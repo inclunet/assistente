@@ -231,7 +231,9 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    Tokens, cookies, credenciais, userinfo, query e fragment não são expostos.
    Respostas 200 também precisam do schema mínimo: PRM exige `resource`, como
    determina a RFC 9728 §2, e metadata de Authorization Server precisa de
-   `token_endpoint` para ser utilizável pelo Assistente.
+   `token_endpoint` para ser utilizável pelo Assistente. Corpos de erro são
+   limitados a 4 KiB; metadata 200 válida pode ocupar até 64 KiB, acomodando
+   documentos OIDC reais sem abrir leitura sem limite.
 5. Redirects preservam timeout e limite, rejeitam esquema não HTTP(S),
    credenciais na URL, downgrade de HTTPS e mais de cinco saltos.
 6. O contrato distingue `complete`, `partial` e `not_found`, além de indicar
@@ -253,6 +255,8 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    candidatos atualmente possíveis, portanto limita evoluções futuras sem
    reduzir a cobertura determinística atual. O timeout global e a interrupção
    por erros repetidos evitam espera multiplicada pelo timeout de cada request.
+   O fluxo OAuth propaga seu contexto ao orçamento para cancelamento por request
+   abortado ou shutdown.
 
 ### Fases
 
