@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ReactNode } from 'react';
+import { act, type ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -8,7 +8,7 @@ const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
 const mockDuplicate = vi.fn();
 const mockDiscover = vi.hoisted(() =>
-  vi.fn(async (): Promise<Record<string, unknown>> => ({ found: false }))
+  vi.fn(async (_url?: string): Promise<Record<string, unknown>> => ({ found: false }))
 );
 let mockServers: Array<Record<string, unknown>> = [];
 
@@ -397,5 +397,102 @@ describe('McpPage — oauth2_callback_host', () => {
     await waitFor(() => {
       expect(screen.getByTestId('registration-url-value')).toBeEmptyDOMElement();
     });
+  });
+
+  it('ignora resposta atrasada de discovery para URL anterior', async () => {
+    let resolveFirst: (value: Record<string, unknown>) => void = () => {};
+    let resolveSecond: (value: Record<string, unknown>) => void = () => {};
+    const first = new Promise<Record<string, unknown>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const second = new Promise<Record<string, unknown>>((resolve) => {
+      resolveSecond = resolve;
+    });
+    mockDiscover.mockImplementation((url?: string) =>
+      url?.includes('first.example') ? first : second
+    );
+    await openNewServerForm();
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://first.example/mcp' },
+    });
+    await waitFor(() => {
+      expect(mockDiscover).toHaveBeenCalledWith('https://first.example/mcp');
+    });
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://second.example/mcp' },
+    });
+    await waitFor(() => {
+      expect(mockDiscover).toHaveBeenCalledWith('https://second.example/mcp');
+    });
+
+    await act(async () => {
+      resolveSecond({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://second.example/authorize',
+        tokenUrl: 'https://second.example/token',
+        scopes: [],
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Token URL')).toHaveValue('https://second.example/token');
+    });
+
+    await act(async () => {
+      resolveFirst({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://first.example/authorize',
+        tokenUrl: 'https://first.example/token',
+        scopes: [],
+      });
+    });
+    expect(screen.getByLabelText('Token URL')).toHaveValue('https://second.example/token');
+  });
+
+  it('não aplica registration URL manual de um servidor após trocar sua URL', async () => {
+    mockServers = [{
+      slug: 'remote',
+      name: 'Remote',
+      description: '',
+      transport: 'streamable',
+      status: 'disconnected',
+      toolCount: 0,
+      enabled: true,
+      autoConnect: false,
+      url: 'https://old.example/mcp',
+    }];
+    mockGetConfig.mockResolvedValue({
+      name: 'Remote',
+      transport: 'streamable',
+      url: 'https://old.example/mcp',
+      auth_type: 'oauth2_pkce',
+      oauth2_registration_url: 'https://old.example/register',
+      enabled: true,
+      auto_connect: false,
+    });
+
+    render(<McpPage />);
+    const editButtons = await screen.findAllByRole('button', { name: 'mcp.actions.edit' });
+    await userEvent.click(editButtons[editButtons.length - 1]);
+    await waitFor(() => {
+      expect(screen.getByTestId('registration-url-value')).toHaveTextContent(
+        'https://old.example/register'
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://new.example/mcp' },
+    });
+    expect(screen.getByTestId('registration-url-value')).toBeEmptyDOMElement();
+
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    const [, config] = mockSave.mock.calls[mockSave.mock.calls.length - 1];
+    expect(config.oauth2_registration_url).toBeUndefined();
   });
 });

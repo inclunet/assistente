@@ -417,7 +417,7 @@ func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
 			StatusCode:      resp.StatusCode,
 			Classification:  classifyDiscoveryStatus(resp.StatusCode),
 			WWWAuthenticate: sanitizeWWWAuthenticate(resp.Header.Get("WWW-Authenticate")),
-			Location:        sanitizeURLHint(resp.Header.Get("Location")),
+			Location:        sanitizeResponseLocation(resp),
 			JSONError:       extractSafeJSONError(body),
 			BodyTruncated:   truncated,
 		}
@@ -496,6 +496,17 @@ func sanitizeURLHint(value string) string {
 		return ""
 	}
 	return result
+}
+
+func sanitizeResponseLocation(resp *http.Response) string {
+	if resp == nil {
+		return ""
+	}
+	location, err := resp.Location()
+	if err != nil {
+		return ""
+	}
+	return sanitizeURLHint(location.String())
 }
 
 func extractSafeJSONError(body []byte) string {

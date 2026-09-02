@@ -198,6 +198,23 @@ func TestDiscoveryRecordsTruncatedSuccessfulBodyWithoutExposingIt(t *testing.T) 
 	}
 }
 
+func TestDiscoveryResolvesAndSanitizesRelativeLocationHint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "/login?access_token=secret#fragment")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	var target authServerMetadata
+	attempt, err := fetchJSON(server.URL+"/metadata", &target)
+	if err == nil {
+		t.Fatal("401 não pode ser aceito como metadata")
+	}
+	if attempt.hint == nil || attempt.hint.Location != server.URL+"/login" {
+		t.Fatalf("Location relativo não resolvido/saneado: %+v", attempt.hint)
+	}
+}
+
 func TestDiscoveryFollowsSafeRedirect(t *testing.T) {
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

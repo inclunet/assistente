@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ApiOutlined,
@@ -132,7 +132,9 @@ export default function McpPage() {
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
   const [manualRegistrationUrl, setManualRegistrationUrl] = useState('');
+  const [manualRegistrationServerUrl, setManualRegistrationServerUrl] = useState('');
   const [lastDiscoveredUrl, setLastDiscoveredUrl] = useState('');
+  const discoveryRequestRef = useRef(0);
 
   useEffect(() => {
     loadServers();
@@ -190,7 +192,9 @@ export default function McpPage() {
     setDiscoveryResourceName('');
     setDiscoveryRegistrationUrl('');
     setManualRegistrationUrl(config?.oauth2_registration_url || '');
+    setManualRegistrationServerUrl(config?.url || '');
     setLastDiscoveredUrl('');
+    discoveryRequestRef.current += 1;
   };
 
   const loadAuthInfo = useCallback(async (slug: string, configAuthType?: string) => {
@@ -284,12 +288,14 @@ export default function McpPage() {
     if (!urlToDiscover || !urlToDiscover.startsWith('https://')) return;
     if (urlToDiscover === lastDiscoveredUrl) return;
 
+    const requestID = ++discoveryRequestRef.current;
     setDiscoveryStatus('loading');
     setDiscoveryRegistrationUrl('');
     setLastDiscoveredUrl(urlToDiscover);
 
     try {
       const result = await DiscoverMCPServerAuth(urlToDiscover);
+      if (requestID !== discoveryRequestRef.current) return;
       if (result.found) {
         const fields = new Set<string>();
 
@@ -325,6 +331,7 @@ export default function McpPage() {
         setDiscoveryStatus('not_found');
       }
     } catch {
+      if (requestID !== discoveryRequestRef.current) return;
       setDiscoveryStatus('not_found');
     }
   }, [
@@ -352,6 +359,7 @@ export default function McpPage() {
   }, [formTransport, formUrl, formName, isNew, runDiscovery]);
 
   const handleManualOverride = useCallback(() => {
+    discoveryRequestRef.current += 1;
     setDiscoveredFields(new Set());
     setDiscoveryRegistrationUrl('');
     setDiscoveryStatus('not_found');
@@ -398,6 +406,8 @@ export default function McpPage() {
 
     const isOAuth2 = formAuthType === 'oauth2_client_credentials' || formAuthType === 'oauth2_pkce';
     const scopesArr = formOAuth2Scopes.trim() ? formOAuth2Scopes.trim().split(/\s+/) : undefined;
+    const applicableManualRegistrationUrl =
+      formUrl.trim() === manualRegistrationServerUrl.trim() ? manualRegistrationUrl : '';
 
     const config = new mcp.ServerConfig({
       name: formName.trim(),
@@ -416,7 +426,7 @@ export default function McpPage() {
       oauth2_auth_url: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
       oauth2_scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
       oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce'
-        ? manualRegistrationUrl || discoveryRegistrationUrl || undefined
+        ? applicableManualRegistrationUrl || discoveryRegistrationUrl || undefined
         : undefined,
       oauth2_callback_port: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
         ? parseInt(formOAuth2CallbackPort, 10) || undefined
@@ -468,7 +478,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, manualRegistrationServerUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -796,7 +806,10 @@ export default function McpPage() {
               discoveryStatus={discoveryStatus}
               discoveredFields={discoveredFields}
               discoveryResourceName={discoveryResourceName}
-              discoveryRegistrationUrl={manualRegistrationUrl || discoveryRegistrationUrl}
+              discoveryRegistrationUrl={
+                (formUrl.trim() === manualRegistrationServerUrl.trim() ? manualRegistrationUrl : '') ||
+                discoveryRegistrationUrl
+              }
               onCommandChange={setFormCommand}
               onArgsChange={setFormArgs}
               onUrlChange={setFormUrl}
