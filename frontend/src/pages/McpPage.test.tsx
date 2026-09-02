@@ -152,6 +152,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     oauth2AuthUrl: string;
     oauth2TokenUrl: string;
     oauth2Scopes: string;
+    discoveryStatus: string;
     discoveryRegistrationUrl: string;
     oauth2CallbackHost: string;
     oauth2CallbackPort: string;
@@ -171,6 +172,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
       <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
       <input aria-label="Token URL" value={props.oauth2TokenUrl} onChange={(e) => props.onOAuth2TokenUrlChange(e.target.value)} />
       <input aria-label="OAuth Scopes" value={props.oauth2Scopes} onChange={(e) => props.onOAuth2ScopesChange(e.target.value)} />
+      <span data-testid="discovery-status-value">{props.discoveryStatus}</span>
       <span data-testid="registration-url-value">{props.discoveryRegistrationUrl}</span>
       <span data-testid="callback-host-value">{props.oauth2CallbackHost}</span>
       <span data-testid="callback-port-value">{props.oauth2CallbackPort}</span>
@@ -413,6 +415,7 @@ describe('McpPage — oauth2_callback_host', () => {
     await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
 
     expect(mockDiscover).not.toHaveBeenCalled();
+    expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('idle');
     await userEvent.click(screen.getByText('Descobrir OAuth'));
     await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
   });

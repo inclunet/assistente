@@ -362,7 +362,7 @@ export default function McpPage() {
     lastDiscoveredUrlRef.current = '';
     setDiscoveryRegistrationUrl('');
     setDiscoveryResourceName('');
-    setDiscoveryStatus('not_found');
+    setDiscoveryStatus('idle');
     setFormUrl(value);
   }, []);
 
