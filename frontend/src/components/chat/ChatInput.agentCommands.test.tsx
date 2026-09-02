@@ -211,6 +211,7 @@ describe('ChatInput com comandos do agente', () => {
 
     fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(announceSpy).toHaveBeenCalledWith('chat.slashItemSelected', 'polite');
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
     await waitFor(() => expect(textarea).toHaveFocus());
   });
 
@@ -226,6 +227,22 @@ describe('ChatInput com comandos do agente', () => {
 
     expect(await screen.findByRole('option')).toHaveTextContent('/revisar');
     expect(announceSpy).not.toHaveBeenCalledWith('chat.slashMenuOpened', 'polite');
+  });
+
+  it('abre o menu quando o valor controlado muda externamente', async () => {
+    const onMessageChange = vi.fn();
+    const props = {
+      onSend: vi.fn(),
+      onMessageChange,
+      agentCommands: comandos,
+    };
+    const { rerender } = render(<ChatInput {...props} message="" />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    rerender(<ChatInput {...props} message="/" />);
+
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
+    expect(screen.getByLabelText('chat.messageLabel')).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('anuncia o fechamento quando o campo perde o foco', async () => {

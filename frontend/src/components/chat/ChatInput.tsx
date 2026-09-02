@@ -206,6 +206,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     }
   }, [slashItems, slashMenuEnabled]);
 
+  useEffect(() => {
+    updateSlashMenu(message);
+  }, [message, updateSlashMenu]);
+
   const closeSlashMenu = useCallback((shouldAnnounce = false) => {
     const wasOpen = slashMenuWasOpenRef.current;
     slashMenuWasOpenRef.current = false;
@@ -230,13 +234,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   // mensagem sair com um espaço solto no fim.
   const handleSlashSelect = useCallback((item: SlashItem) => {
     setMessage(`/${item.token}${item.acceptsInput ? ' ' : ''}`);
-    setShowSlashMenu(false);
+    closeSlashMenu(true);
     announce(t('chat.slashItemSelected', { command: `/${item.token}` }), 'polite');
     // Foca o textarea
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, [announce, textareaRef, setMessage, t]);
+  }, [announce, closeSlashMenu, textareaRef, setMessage, t]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
