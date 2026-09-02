@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatToolbar } from './ChatToolbar';
@@ -12,6 +12,9 @@ const getAgentSessionOptionsMock = vi.hoisted(() => vi.fn().mockResolvedValue({
   available: false,
   options: [],
 }));
+const requestResourceEditMock = vi.hoisted(() => vi.fn());
+const mockPanelTabRef = vi.hoisted(() => ({ current: { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown> }));
+const openAtPointMock = vi.hoisted(() => vi.fn());
 // A conversa deste teste não fala com agente de código: o diretório do agente
 // não existe para ela, e o controle da barra some.
 const getAgentWorkDirMock = vi.hoisted(() => vi.fn().mockRejectedValue(new Error('sem agente')));
@@ -91,10 +94,10 @@ vi.mock('./ChatSessionContext', () => ({
 
 vi.mock('../workspace/WorkspacePanelContext', () => ({
   useWorkspacePanel: () => ({
-    tab: { id: 'tab-chat', title: 'Chat', type: 'chat' },
+    tab: mockPanelTabRef.current,
   }),
   useOptionalWorkspacePanel: () => ({
-    tab: { id: 'tab-chat', title: 'Chat', type: 'chat' },
+    tab: mockPanelTabRef.current,
   }),
 }));
 
@@ -117,7 +120,7 @@ vi.mock('../../store/uiStore', () => ({
 
 vi.mock('../../store/navigationStore', () => ({
   useNavigationStore: {
-    getState: () => ({ requestResourceEdit: vi.fn() }),
+    getState: () => ({ requestResourceEdit: requestResourceEditMock }),
   },
 }));
 
@@ -135,7 +138,7 @@ vi.mock('../../hooks/useDefaultFocus', () => ({
 vi.mock('../../hooks/useAnchoredContextMenu', () => ({
   useAnchoredContextMenu: () => ({
     menu: { visible: false, x: 0, y: 0, items: [], ariaLabel: '' },
-    openAtPoint: vi.fn(),
+    openAtPoint: openAtPointMock,
     closeMenu: vi.fn(),
     onSelectItem: vi.fn(),
   }),
@@ -282,5 +285,46 @@ describe('ChatToolbar e o modelo do agente', () => {
 
     await waitFor(() => expect(getAgentSessionOptionsMock).toHaveBeenCalledWith('conversation-1'));
     expect(screen.queryByRole('button', { name: /Modelo/ })).toBeNull();
+  });
+});
+
+describe('ChatToolbar menu de perfil', () => {
+  beforeEach(() => {
+    requestResourceEditMock.mockClear();
+    openAtPointMock.mockClear();
+    mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
+  });
+
+  it('edita o perfil da aba quando há override', async () => {
+    mockPanelTabRef.current = {
+      id: 'tab-chat',
+      title: 'Chat',
+      type: 'chat',
+      profileOverride: { slug: 'custom' },
+    } as unknown as Record<string, unknown>;
+
+    renderToolbar();
+    const container = screen.getByTestId('profile-picker-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
+
+    await waitFor(() => expect(openAtPointMock).toHaveBeenCalled());
+    const items = openAtPointMock.mock.calls[0][3] as Array<{ id: string; action: () => void }>;
+    const editItem = items.find((i) => i.id === 'edit-active-profile');
+    editItem?.action();
+    expect(requestResourceEditMock).toHaveBeenCalledWith('profiles', 'custom', 'edit');
+  });
+
+  it('edita o perfil padrão quando não há override', async () => {
+    mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
+
+    renderToolbar();
+    const container = screen.getByTestId('profile-picker-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
+
+    await waitFor(() => expect(openAtPointMock).toHaveBeenCalled());
+    const items = openAtPointMock.mock.calls[0][3] as Array<{ id: string; action: () => void }>;
+    const editItem = items.find((i) => i.id === 'edit-active-profile');
+    editItem?.action();
+    expect(requestResourceEditMock).toHaveBeenCalledWith('profiles', 'padrao', 'edit');
   });
 });

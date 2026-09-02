@@ -137,7 +137,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       label: t('chat.editActiveProfile'),
       icon: <EditOutlined />,
       action: () => {
-        useNavigationStore.getState().requestResourceEdit('profiles', activeProfileSlug, 'edit');
+        const slug = effectiveProfileSlug || activeProfileSlug;
+        useNavigationStore.getState().requestResourceEdit('profiles', slug, 'edit');
         navigate('/profiles');
       },
     },
@@ -149,7 +150,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         navigate('/profiles');
       },
     },
-  ], [navigate, t, activeProfileSlug]);
+  ], [navigate, t, activeProfileSlug, effectiveProfileSlug]);
 
   const handleProfileContextMenu = useCallback((e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();
@@ -357,6 +358,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
             <div
               ref={profileContainerRef}
+              data-testid="profile-picker-container"
               onContextMenu={handleProfileContextMenu}
               onKeyDown={handleProfileKeyDown}
             >
