@@ -347,6 +347,9 @@ func TestSanitizeURLHintAcceptsOnlyHTTP(t *testing.T) {
 	if got := sanitizeURLHint("HTTPS://user:secret@example.test/metadata?token=secret#fragment"); got != "https://example.test/metadata" {
 		t.Fatalf("URL HTTPS não foi saneada: %q", got)
 	}
+	if got := sanitizeURLHint("https://example.test/metadata?"); got != "https://example.test/metadata" {
+		t.Fatalf("query vazia foi preservada no hint: %q", got)
+	}
 }
 
 func TestDiscoveryRedirectStatusFallsBackToPreviousRequest(t *testing.T) {

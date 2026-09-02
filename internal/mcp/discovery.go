@@ -550,6 +550,7 @@ func sanitizeURLHint(value string) string {
 	}
 	parsed.User = nil
 	parsed.RawQuery = ""
+	parsed.ForceQuery = false
 	parsed.Fragment = ""
 	parsed.RawFragment = ""
 	result := parsed.String()
