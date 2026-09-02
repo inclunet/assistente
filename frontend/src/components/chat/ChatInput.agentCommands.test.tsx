@@ -172,6 +172,20 @@ describe('ChatInput com comandos do agente', () => {
     await waitFor(() => expect(textarea).toHaveFocus());
   });
 
+  it('não repete o anúncio de abertura ao filtrar o menu', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    announceSpy.mockClear();
+
+    await digitaNoCampo('/rev');
+
+    expect(await screen.findByRole('option')).toHaveTextContent('/revisar');
+    expect(announceSpy).not.toHaveBeenCalledWith('chat.slashMenuOpened', 'polite');
+  });
+
   it('escolher um comando do agente escreve a barra e o nome no campo', async () => {
     render(<CampoControlado />);
     await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
@@ -210,6 +224,17 @@ describe('ChatInput com comandos do agente', () => {
       expect(textarea).toHaveValue('/plan ');
       expect(textarea).toHaveFocus();
     });
+  });
+
+  it('não intercepta Shift+Tab quando o menu está aberto', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+
+    expect(fireEvent.keyDown(textarea, { key: 'Tab', shiftKey: true })).toBe(true);
+    expect(textarea).toHaveValue('/');
   });
 
   it('sem skills e sem comandos o menu não aparece', async () => {

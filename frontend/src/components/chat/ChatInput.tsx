@@ -74,6 +74,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [slashFilter, setSlashFilter] = useState('');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [invocableSkills, setInvocableSkills] = useState<skills.SkillInfo[]>([]);
+  const slashMenuWasOpenRef = useRef(false);
   
   const textareaRef = internalTextareaRef;
   useImperativeHandle(ref, () => internalTextareaRef.current as HTMLTextAreaElement, []);
@@ -200,8 +201,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [announce, t]);
 
   useEffect(() => {
-    if (!showSlashMenu) return;
-    announce(t('chat.slashMenuOpened', { count: filteredSlashItems.length }), 'polite');
+    if (showSlashMenu && !slashMenuWasOpenRef.current) {
+      announce(t('chat.slashMenuOpened', { count: filteredSlashItems.length }), 'polite');
+    }
+    slashMenuWasOpenRef.current = showSlashMenu;
   }, [announce, filteredSlashItems.length, showSlashMenu, t]);
 
   // Quando um item do menu é escolhido. O espaço no fim só aparece quando ainda
@@ -361,7 +364,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         }
         return;
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      if ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
         if (filteredSlashItems[slashSelectedIndex]) {
           handleSlashSelect(filteredSlashItems[slashSelectedIndex]);
