@@ -361,7 +361,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         }
         return;
       }
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
         if (filteredSlashItems[slashSelectedIndex]) {
           handleSlashSelect(filteredSlashItems[slashSelectedIndex]);
@@ -372,10 +372,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         e.preventDefault();
         closeSlashMenu(true);
         textareaRef.current?.focus();
-        return;
-      }
-      if (e.key === 'Tab') {
-        closeSlashMenu();
         return;
       }
     }

@@ -198,6 +198,20 @@ describe('ChatInput com comandos do agente', () => {
     await waitFor(() => expect(textarea).toHaveValue('/revisar'));
   });
 
+  it('preserva seleção por Tab e restaura o foco no campo', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue('/plan ');
+      expect(textarea).toHaveFocus();
+    });
+  });
+
   it('sem skills e sem comandos o menu não aparece', async () => {
     render(<CampoControlado agentCommands={[]} />);
     await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
