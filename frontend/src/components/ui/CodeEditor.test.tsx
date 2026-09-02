@@ -9,6 +9,7 @@ vi.mock('@monaco-editor/react', async () => {
       value: string;
       onChange?: (value: string) => void;
       onMount?: (editor: unknown, monaco: unknown) => void;
+      options?: { ariaLabel?: string };
     }) => {
       React.useEffect(() => {
         props.onMount?.({ getDomNode: () => document.createElement('div') }, {});
@@ -17,6 +18,7 @@ vi.mock('@monaco-editor/react', async () => {
       return (
         <textarea
           data-testid="monaco"
+          aria-label={props.options?.ariaLabel}
           value={props.value}
           onChange={(event) => props.onChange?.(event.target.value)}
         />
@@ -30,7 +32,7 @@ vi.mock('../../lib/monacoLanguageLoader', () => ({
 }));
 
 describe('CodeEditor', () => {
-  it('renderiza placeholder quando vazio', () => {
+  it('renderiza placeholder quando vazio sem região intermediária', async () => {
     render(
       <CodeEditor
         value=""
@@ -41,7 +43,8 @@ describe('CodeEditor', () => {
     );
 
     expect(screen.getByText('Sem conteudo')).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Editor' })).toBeInTheDocument();
+    expect(await screen.findByRole('textbox', { name: 'Editor' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Editor' })).not.toBeInTheDocument();
   });
 
   it('dispara onChange ao editar', () => {
