@@ -29,11 +29,14 @@ export type UseRenderedContentNavigationOptions =
       /** Modal contém interação, exige nome acessível e prende Tab/inert. */
       profile: 'modal';
       dialogLabel: string;
+      handleEscapeOutside?: never;
     }
     | {
       /** Scoped permite que Tab e F6 saiam normalmente. */
       profile: 'scoped';
       dialogLabel?: never;
+      /** Permite que Escape retorne ao documento mesmo com foco fora da superfície. */
+      handleEscapeOutside?: boolean;
     }
   );
 
@@ -78,6 +81,7 @@ export function useRenderedContentNavigation({
   shouldHandleEscape,
   restoreFocusOnDeactivate,
   manageDocumentSemantics = true,
+  handleEscapeOutside,
 }: UseRenderedContentNavigationOptions) {
   const previousActiveElement = useRef<HTMLElement | null>(null);
   const previousElementAttrs = useRef<PreviousElementAttrs | null>(null);
@@ -91,6 +95,9 @@ export function useRenderedContentNavigation({
   const shouldHandleEscapeRef = useRef(shouldHandleEscape);
   const restoreFocusRef = useRef(restoreFocusOnDeactivate ?? profile === 'modal');
   const manageDocumentSemanticsRef = useRef(manageDocumentSemantics);
+  const handleEscapeOutsideRef = useRef(
+    profile === 'scoped' && Boolean(handleEscapeOutside),
+  );
 
   profileRef.current = profile;
   contentSelectorRef.current = contentSelector;
@@ -101,14 +108,13 @@ export function useRenderedContentNavigation({
   shouldHandleEscapeRef.current = shouldHandleEscape;
   restoreFocusRef.current = restoreFocusOnDeactivate ?? profile === 'modal';
   manageDocumentSemanticsRef.current = manageDocumentSemantics;
+  handleEscapeOutsideRef.current = profile === 'scoped' && Boolean(handleEscapeOutside);
 
   useEffect(() => {
     const element = elementRef.current;
     if (!element || !isActive) return;
 
     const activeProfile = profileRef.current;
-    let focusFrame: number | null = null;
-    let focusTimer: number | null = null;
     previousActiveElement.current = document.activeElement as HTMLElement | null;
     previousElementAttrs.current = {
       role: element.getAttribute('role'),
@@ -158,22 +164,9 @@ export function useRenderedContentNavigation({
       if (openAnnouncementRef.current) announce(openAnnouncementRef.current);
     };
 
-    if (activeProfile === 'scoped') {
-      // O preview já está focado como `group` quando Enter ativa a leitura.
-      // Remover esse foco e devolvê-lo após um frame + uma nova tarefa permite
-      // que a árvore de acessibilidade do WebView2 publique `role=document`
-      // antes do novo evento de foco consumido pelo NVDA.
-      if (document.activeElement === focusTarget) focusTarget.blur();
-      focusFrame = window.requestAnimationFrame(() => {
-        focusTimer = window.setTimeout(focusAndAnnounce, 0);
-      });
-    } else {
-      focusAndAnnounce();
-    }
+    focusAndAnnounce();
 
     return () => {
-      if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
-      if (focusTimer !== null) window.clearTimeout(focusTimer);
       if (previousElementAttrs.current) {
         restoreNavigationState(
           element,
@@ -200,7 +193,13 @@ export function useRenderedContentNavigation({
         let isScopedDefaultArea = false;
         if (activeProfile === 'scoped') {
           const activeElement = document.activeElement;
-          if (!activeElement || !element.contains(activeElement)) return;
+          if (
+            !activeElement
+            || (
+              !element.contains(activeElement)
+              && !handleEscapeOutsideRef.current
+            )
+          ) return;
 
           const selector = contentSelectorRef.current;
           const contentElement = (
