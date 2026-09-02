@@ -218,7 +218,8 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    ancestrais e origin. Para cada nível, tenta-se primeiro a forma de RFC 9728
    (`/.well-known/oauth-protected-resource{path}`) e depois o fallback relativo
    já suportado (`{path}/.well-known/oauth-protected-resource`), com
-   deduplicação.
+   deduplicação. A expansão é limitada a 16 bases: preserva o recurso completo,
+   os ancestrais mais próximos e sempre inclui a origin como fallback final.
 3. Quando o PRM não informa `authorization_servers`, recurso, ancestrais e
    origin tornam-se bases candidatas. Para cada base são derivados:
    - RFC 8414: `/.well-known/oauth-authorization-server{issuer-path}`;
@@ -247,9 +248,9 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
 
 ### Riscos
 
-- Mais candidatos aumentam o número máximo de requests. A mitigação é
-  deduplicação, timeout de 5 segundos por request e parada no primeiro schema
-  válido.
+- Mais candidatos aumentam o número máximo de requests. A mitigação é o limite
+  de 16 bases, deduplicação, timeout de 5 segundos por request e parada no
+  primeiro schema válido.
 - Gateways podem devolver conteúdo hostil. Corpos de diagnóstico têm limite
   pequeno, somente JSON escalar explicitamente permitido é aproveitado e HTML
   é descartado.

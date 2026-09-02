@@ -19,6 +19,7 @@ import (
 const (
 	discoveryBodyLimit = 4 * 1024
 	maxDiscoveryHints  = 24
+	maxDiscoveryBases  = 16
 )
 
 // OAuthDiscoveryResult contém os metadados OAuth descobertos de um servidor MCP.
@@ -255,6 +256,12 @@ func buildResourceBases(rawURL string) []string {
 			bases = append(bases, base)
 		}
 		if cleanPath == "" {
+			break
+		}
+		if len(bases) >= maxDiscoveryBases-1 {
+			if _, ok := seen[origin]; !ok {
+				bases = append(bases, origin)
+			}
 			break
 		}
 		cleanPath = path.Dir(cleanPath)

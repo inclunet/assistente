@@ -34,6 +34,28 @@ func TestBuildResourceBasesDeepPathIsDeterministicAndSafe(t *testing.T) {
 	}
 }
 
+func TestBuildResourceBasesLimitsDepthAndKeepsOrigin(t *testing.T) {
+	rawURL := "https://example.com/" + strings.Repeat("segment/", maxDiscoveryBases+20)
+	bases := buildResourceBases(rawURL)
+
+	if len(bases) != maxDiscoveryBases {
+		t.Fatalf("quantidade de bases = %d, esperava %d", len(bases), maxDiscoveryBases)
+	}
+	if bases[0] != strings.TrimRight(rawURL, "/") {
+		t.Fatalf("recurso completo não veio primeiro: %q", bases[0])
+	}
+	if bases[len(bases)-1] != "https://example.com" {
+		t.Fatalf("origin não veio por último: %q", bases[len(bases)-1])
+	}
+	seen := make(map[string]struct{}, len(bases))
+	for _, base := range bases {
+		if _, exists := seen[base]; exists {
+			t.Fatalf("base duplicada: %q", base)
+		}
+		seen[base] = struct{}{}
+	}
+}
+
 func TestBuildPRMCandidatesDeepPathOrderAndDeduplication(t *testing.T) {
 	got := buildPRMCandidates("https://example.com/api/2.0/mcp/sql/")
 	want := []string{
