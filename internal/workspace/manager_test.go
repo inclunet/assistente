@@ -378,6 +378,74 @@ func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
 	}
 }
 
+func TestUpdateTabProfileOverrideFazMergeERemoveComNil(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if err := m.AddTab(Tab{
+		ID:              "tab-model",
+		Type:            TabTypeChat,
+		ProfileOverride: map[string]any{"slug": "programacao", "model": "modelo-antigo"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTab("tab-model", map[string]any{
+		"profile_override": map[string]any{"model": "modelo-novo"},
+	}); err != nil {
+		t.Fatalf("UpdateTab model: %v", err)
+	}
+	tab := m.active.FindTab("tab-model")
+	if tab.ProfileOverride["slug"] != "programacao" || tab.ProfileOverride["model"] != "modelo-novo" {
+		t.Fatalf("patch apagou campos irmãos: %#v", tab.ProfileOverride)
+	}
+
+	if err := m.UpdateTab("tab-model", map[string]any{
+		"profile_override": map[string]any{"model": nil},
+	}); err != nil {
+		t.Fatalf("UpdateTab remove model: %v", err)
+	}
+	if _, exists := tab.ProfileOverride["model"]; exists {
+		t.Fatalf("model deveria ter sido removido: %#v", tab.ProfileOverride)
+	}
+	if tab.ProfileOverride["slug"] != "programacao" {
+		t.Fatalf("remoção do model apagou slug: %#v", tab.ProfileOverride)
+	}
+}
+
+func TestUpdateTabProfileOverrideRollsBackWhenSaveFails(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager(root)
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if err := m.AddTab(Tab{
+		ID:              "tab-model",
+		Type:            TabTypeChat,
+		Title:           "antes",
+		ProfileOverride: map[string]any{"slug": "programacao", "model": "modelo-antigo"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+	blocker := filepath.Join(root, "arquivo")
+	if err := os.WriteFile(blocker, []byte("não é diretório"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.activePath = filepath.Join(blocker, "workspace.yaml")
+
+	if err := m.UpdateTab("tab-model", map[string]any{
+		"title":            "depois",
+		"profile_override": map[string]any{"model": "modelo-novo"},
+	}); err == nil {
+		t.Fatal("esperava falha de persistência")
+	}
+	tab := m.active.FindTab("tab-model")
+	if tab.Title != "antes" || tab.ProfileOverride["model"] != "modelo-antigo" {
+		t.Fatalf("aba em memória não sofreu rollback: %#v", tab)
+	}
+}
+
 func TestUpdateTab_NilRemovesStateKey(t *testing.T) {
 	m := NewManager(t.TempDir())
 	if err := m.Initialize(t.TempDir()); err != nil {

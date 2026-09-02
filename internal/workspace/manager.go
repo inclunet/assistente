@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -478,6 +479,7 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	if tab == nil {
 		return fmt.Errorf("tab not found: %s", tabID)
 	}
+	previousTab := cloneTab(*tab)
 
 	if title, ok := updates["title"].(string); ok {
 		tab.Title = title
@@ -506,10 +508,38 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 		}
 	}
 	if override, ok := updates["profile_override"].(map[string]any); ok {
-		tab.ProfileOverride = override
+		if tab.ProfileOverride == nil {
+			tab.ProfileOverride = make(map[string]any)
+		}
+		for k, v := range override {
+			if v == nil {
+				delete(tab.ProfileOverride, k)
+			} else {
+				tab.ProfileOverride[k] = v
+			}
+		}
+		if len(tab.ProfileOverride) == 0 {
+			tab.ProfileOverride = nil
+		}
+	} else if override, exists := updates["profile_override"]; exists && override == nil {
+		tab.ProfileOverride = nil
 	}
 
-	return m.saveWorkspace(m.active, m.activePath)
+	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
+		*tab = previousTab
+		return err
+	}
+	return nil
+}
+
+func cloneTab(tab Tab) Tab {
+	if tab.ProfileOverride != nil {
+		tab.ProfileOverride = maps.Clone(tab.ProfileOverride)
+	}
+	if tab.State != nil {
+		tab.State = maps.Clone(tab.State)
+	}
+	return tab
 }
 
 // ValidateTabConversation confirma o alvo antes de abrir uma decisão. A
@@ -556,8 +586,12 @@ func (m *Manager) UpdateTabProfileForConversation(tabID, conversationID, profile
 	if profileSlug == "" {
 		return fmt.Errorf("profile slug is required")
 	}
-	previousOverride := tab.ProfileOverride
-	tab.ProfileOverride = map[string]any{"slug": profileSlug}
+	previousOverride := maps.Clone(tab.ProfileOverride)
+	tab.ProfileOverride = maps.Clone(tab.ProfileOverride)
+	if tab.ProfileOverride == nil {
+		tab.ProfileOverride = make(map[string]any)
+	}
+	tab.ProfileOverride["slug"] = profileSlug
 	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
 		tab.ProfileOverride = previousOverride
 		return err
