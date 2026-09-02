@@ -177,6 +177,27 @@ describe('ChatInput com comandos do agente', () => {
     expect(textarea).not.toHaveAttribute('aria-activedescendant');
   });
 
+  it('ajusta a opção ativa quando a lista diminui', async () => {
+    const { rerender } = render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: /\/revisar/ })).toHaveAttribute('aria-selected', 'true');
+
+    rerender(<CampoControlado agentCommands={[comandos[0]]} />);
+
+    const unicaOpcao = await screen.findByRole('option');
+    await waitFor(() => {
+      expect(unicaOpcao).toHaveAttribute('aria-selected', 'true');
+      expect(textarea).toHaveAttribute('aria-activedescendant', unicaOpcao.id);
+    });
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    await waitFor(() => expect(textarea).toHaveValue('/plan '));
+  });
+
   it('anuncia abertura, opção ativa e seleção pelo announcer global', async () => {
     render(<CampoControlado />);
     await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());

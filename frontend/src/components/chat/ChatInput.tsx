@@ -166,10 +166,22 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     [slashItems, slashFilter],
   );
   const isSlashMenuOpen = showSlashMenu && slashItems.length > 0;
-  const activeSlashItem = isSlashMenuOpen ? filteredSlashItems[slashSelectedIndex] : undefined;
+  const activeSlashIndex = filteredSlashItems.length > 0
+    ? Math.min(slashSelectedIndex, filteredSlashItems.length - 1)
+    : 0;
+  const activeSlashItem = isSlashMenuOpen ? filteredSlashItems[activeSlashIndex] : undefined;
   const activeSlashOptionId = activeSlashItem
     ? getSlashOptionId(slashMenuId, activeSlashItem)
     : undefined;
+
+  useEffect(() => {
+    setSlashSelectedIndex((currentIndex) => {
+      const nextIndex = filteredSlashItems.length > 0
+        ? Math.min(currentIndex, filteredSlashItems.length - 1)
+        : 0;
+      return currentIndex === nextIndex ? currentIndex : nextIndex;
+    });
+  }, [filteredSlashItems.length]);
 
   // Detecta slash command no texto
   const updateSlashMenu = useCallback((text: string) => {
@@ -202,6 +214,9 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       announce(t('chat.slashMenuClosed'), 'polite');
     }
   }, [announce, t]);
+  const handleSlashMenuClose = useCallback(() => {
+    closeSlashMenu(true);
+  }, [closeSlashMenu]);
 
   useEffect(() => {
     if (isSlashMenuOpen && !slashMenuWasOpenRef.current) {
@@ -342,7 +357,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
       if (e.key === 'ArrowDown' && totalFiltered > 0) {
         e.preventDefault();
-        const nextIndex = (slashSelectedIndex + 1) % Math.max(totalFiltered, 1);
+        const nextIndex = (activeSlashIndex + 1) % Math.max(totalFiltered, 1);
         setSlashSelectedIndex(nextIndex);
         const nextItem = filteredSlashItems[nextIndex];
         if (nextItem) {
@@ -356,7 +371,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       }
       if (e.key === 'ArrowUp' && totalFiltered > 0) {
         e.preventDefault();
-        const nextIndex = (slashSelectedIndex - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1);
+        const nextIndex = (activeSlashIndex - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1);
         setSlashSelectedIndex(nextIndex);
         const nextItem = filteredSlashItems[nextIndex];
         if (nextItem) {
@@ -373,8 +388,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         && ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey))
       ) {
         e.preventDefault();
-        if (filteredSlashItems[slashSelectedIndex]) {
-          handleSlashSelect(filteredSlashItems[slashSelectedIndex]);
+        if (filteredSlashItems[activeSlashIndex]) {
+          handleSlashSelect(filteredSlashItems[activeSlashIndex]);
         }
         return;
       }
@@ -432,9 +447,9 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           skills={invocableSkills}
           agentCommands={slashCommands}
           filter={slashFilter}
-          selectedIndex={slashSelectedIndex}
+          selectedIndex={activeSlashIndex}
           onSelect={handleSlashSelect}
-          onClose={() => closeSlashMenu(true)}
+          onClose={handleSlashMenuClose}
           anchorRef={textareaRef}
           listboxId={slashMenuId}
         />
