@@ -58,18 +58,36 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     await expect(document).toHaveAttribute('role', 'document');
     await expect(document).toHaveAttribute('tabindex', '0');
     await expect(document).toBeFocused();
+    await expect(documentLink).toHaveAttribute('tabindex', '0');
 
+    const tabIsFree = await page.evaluate(() => window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    ));
+    const shiftTabIsFree = await page.evaluate(() => window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ));
+    expect(tabIsFree).toBe(true);
+    expect(shiftTabIsFree).toBe(true);
+
+    await documentLink.focus();
     await page.keyboard.press('Tab');
-    await expect(documentLink).toBeFocused();
-    await expect(document).toHaveAttribute('role', 'document');
-
-    await document.focus();
-    await page.keyboard.press('Shift+Tab');
+    await expect(documentLink).not.toBeFocused();
     await expect(anchor).not.toBeFocused();
     await expect(document).not.toBeFocused();
     await expect(document).toHaveAttribute('role', 'document');
 
+    await document.focus();
     await page.keyboard.press('F6');
+    await expect(document).not.toBeFocused();
+    const focusLeftDocument = await document.evaluate(
+      (element) => !element.contains(window.document.activeElement),
+    );
+    expect(focusLeftDocument).toBe(true);
     await expect(document).toHaveAttribute('role', 'document');
 
     const toolbarButton = page.locator('.editor-page__toolbar button:not([disabled])').first();
