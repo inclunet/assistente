@@ -31,7 +31,7 @@ vi.mock('./SlashCommandMenu', () => ({
     </div>
   ),
   getSlashOptionId: (listboxId: string, item: { key: string }) =>
-    `${listboxId}-option-${item.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+    `${listboxId}-option-${encodeURIComponent(item.key)}`,
 }));
 
 vi.mock('./MediaPreview', () => ({

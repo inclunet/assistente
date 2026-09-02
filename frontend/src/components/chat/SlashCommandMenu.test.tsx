@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SlashCommandMenu } from './SlashCommandMenu';
+import { getSlashOptionId, SlashCommandMenu } from './SlashCommandMenu';
 import { skills } from '../../../wailsjs/go/models';
 
 vi.mock('react-i18next', () => ({
@@ -34,7 +34,7 @@ describe('SlashCommandMenu', () => {
 
     fireEvent.click(screen.getByRole('option'));
     expect(screen.getByRole('listbox')).toHaveAttribute('id', 'slash-listbox');
-    expect(screen.getByRole('option')).toHaveAttribute('id', 'slash-listbox-option-skill-skill');
+    expect(screen.getByRole('option')).toHaveAttribute('id', 'slash-listbox-option-skill%3Askill');
     expect(screen.getByRole('option')).toHaveAttribute('aria-selected', 'true');
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'skill', token: 'skill', skill: expect.objectContaining({ slug: 'skill' }) }),
@@ -64,5 +64,17 @@ describe('SlashCommandMenu', () => {
     );
 
     expect(screen.getByText('chat.noSlashItemsFound')).toBeInTheDocument();
+  });
+
+  it('gera IDs distintos para chaves com pontuação diferente', () => {
+    const baseItem = {
+      source: 'agent' as const,
+      token: 'a-b',
+      label: 'a-b',
+      acceptsInput: false,
+    };
+
+    expect(getSlashOptionId('slash-listbox', { ...baseItem, key: 'agent:a-b' }))
+      .not.toBe(getSlashOptionId('slash-listbox', { ...baseItem, key: 'agent:a:b' }));
   });
 });

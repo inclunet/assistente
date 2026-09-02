@@ -162,6 +162,21 @@ describe('ChatInput com comandos do agente', () => {
     expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
   });
 
+  it('recolhe o combobox se as opções disponíveis desaparecerem', async () => {
+    const { rerender } = render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findByRole('listbox');
+
+    rerender(<CampoControlado agentCommands={[]} />);
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(textarea).toHaveAttribute('aria-expanded', 'false');
+    expect(textarea).not.toHaveAttribute('aria-controls');
+    expect(textarea).not.toHaveAttribute('aria-activedescendant');
+  });
+
   it('anuncia abertura, opção ativa e seleção pelo announcer global', async () => {
     render(<CampoControlado />);
     await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());

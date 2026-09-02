@@ -165,7 +165,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     () => filterSlashItems(slashItems, slashFilter),
     [slashItems, slashFilter],
   );
-  const activeSlashItem = showSlashMenu ? filteredSlashItems[slashSelectedIndex] : undefined;
+  const isSlashMenuOpen = showSlashMenu && slashItems.length > 0;
+  const activeSlashItem = isSlashMenuOpen ? filteredSlashItems[slashSelectedIndex] : undefined;
   const activeSlashOptionId = activeSlashItem
     ? getSlashOptionId(slashMenuId, activeSlashItem)
     : undefined;
@@ -203,11 +204,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   }, [announce, t]);
 
   useEffect(() => {
-    if (showSlashMenu && !slashMenuWasOpenRef.current) {
+    if (isSlashMenuOpen && !slashMenuWasOpenRef.current) {
       announce(t('chat.slashMenuOpened', { count: filteredSlashItems.length }), 'polite');
     }
-    slashMenuWasOpenRef.current = showSlashMenu;
-  }, [announce, filteredSlashItems.length, showSlashMenu, t]);
+    slashMenuWasOpenRef.current = isSlashMenuOpen;
+  }, [announce, filteredSlashItems.length, isSlashMenuOpen, t]);
 
   // Quando um item do menu é escolhido. O espaço no fim só aparece quando ainda
   // falta escrever alguma coisa: pôr espaço num comando sem argumento faria a
@@ -336,7 +337,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Navegação no menu slash
-    if (showSlashMenu) {
+    if (isSlashMenuOpen) {
       const totalFiltered = filteredSlashItems.length;
 
       if (e.key === 'ArrowDown' && totalFiltered > 0) {
@@ -426,7 +427,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         </div>
       )}
 
-      {showSlashMenu && slashItems.length > 0 && (
+      {isSlashMenuOpen && (
         <SlashCommandMenu
           skills={invocableSkills}
           agentCommands={slashCommands}
@@ -478,8 +479,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           aria-label={t('chat.messageLabel')}
           role={slashMenuEnabled ? 'combobox' : undefined}
           aria-autocomplete={slashMenuEnabled ? 'list' : undefined}
-          aria-expanded={slashMenuEnabled ? showSlashMenu : undefined}
-          aria-controls={slashMenuEnabled && showSlashMenu ? slashMenuId : undefined}
+          aria-expanded={slashMenuEnabled ? isSlashMenuOpen : undefined}
+          aria-controls={slashMenuEnabled && isSlashMenuOpen ? slashMenuId : undefined}
           aria-activedescendant={activeSlashOptionId}
           onBlur={() => closeSlashMenu(true)}
         />

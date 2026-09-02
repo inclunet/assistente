@@ -152,6 +152,6 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
 };
 
 export function getSlashOptionId(listboxId: string, item: SlashItem): string {
-  const stableItemId = item.key.replace(/[^a-zA-Z0-9_-]/g, '-');
+  const stableItemId = encodeURIComponent(item.key);
   return `${listboxId}-option-${stableItemId}`;
 }
