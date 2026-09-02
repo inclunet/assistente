@@ -57,7 +57,7 @@ var discoveryHTTPClient = &http.Client{Timeout: 5 * time.Second}
 // DiscoverOAuth consulta os endpoints well-known de um servidor MCP para
 // preencher automaticamente a configuração de autenticação OAuth.
 //
-// Segue a spec MCP Authorization (RFC 9470 + RFC 8414):
+// Segue a spec MCP Authorization (RFC 9728 + RFC 8414/OIDC Discovery):
 // 1. GET protected resource metadata (resource URL → origin fallback)
 // 2. GET auth server metadata (issuer URL → RFC 8414 path → origin fallback)
 func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
@@ -145,7 +145,7 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 }
 
 // protectedResourceMetadata representa a resposta de
-// GET /.well-known/oauth-protected-resource (RFC 9470 / MCP spec).
+// GET /.well-known/oauth-protected-resource (RFC 9728 / MCP spec).
 type protectedResourceMetadata struct {
 	AuthorizationServers []string `json:"authorization_servers"`
 	ScopesSupported      []string `json:"scopes_supported"`
@@ -167,10 +167,11 @@ type authServerMetadata struct {
 	ResponseTypesSupported        []string `json:"response_types_supported"`
 }
 
-// fetchProtectedResourceMetadata tenta descobrir metadata do recurso protegido (RFC 9470).
-// Candidatos tentados em ordem:
-//  1. {resourceURL}/.well-known/oauth-protected-resource (relativo ao recurso)
-//  2. {origin}/.well-known/oauth-protected-resource (fallback no origin)
+// fetchProtectedResourceMetadata tenta descobrir metadata do recurso protegido
+// conforme RFC 9728. Para recurso, ancestrais e origin, tenta primeiro a
+// localização normativa /.well-known/oauth-protected-resource{path} e depois
+// o fallback relativo {base}/.well-known/oauth-protected-resource, sempre com
+// ordem determinística e deduplicação.
 func fetchProtectedResourceMetadata(mcpURL string) (*protectedResourceMetadata, error) {
 	result, _, err := fetchProtectedResourceMetadataDetailed(mcpURL)
 	return result, err
@@ -269,7 +270,8 @@ func canonicalEscapedPath(rawPath string) string {
 	return "/" + strings.Join(segments, "/")
 }
 
-// fetchAuthServerMetadata tenta descobrir metadata do authorization server (RFC 8414).
+// fetchAuthServerMetadataFromBases tenta descobrir metadata do authorization
+// server (RFC 8414) ou do provider OIDC.
 // Para cada base, tenta primeiro RFC 8414 e OIDC Discovery; em seguida,
 // localizações legadas compatíveis. As bases são processadas em ordem e
 // deduplicadas globalmente.
