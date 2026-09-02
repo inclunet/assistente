@@ -92,7 +92,7 @@ export function CodeEditor({
   };
 
   return (
-    <div className="code-editor" role="region" aria-label={ariaLabel}>
+    <div className="code-editor">
       <Suspense fallback={<div className="code-editor__loading" aria-busy="true" />}>
         <MonacoEditor
           height={height}

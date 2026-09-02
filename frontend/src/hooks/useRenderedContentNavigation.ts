@@ -107,6 +107,8 @@ export function useRenderedContentNavigation({
     if (!element || !isActive) return;
 
     const activeProfile = profileRef.current;
+    let focusFrame: number | null = null;
+    let focusTimer: number | null = null;
     previousActiveElement.current = document.activeElement as HTMLElement | null;
     previousElementAttrs.current = {
       role: element.getAttribute('role'),
@@ -134,6 +136,10 @@ export function useRenderedContentNavigation({
       ?? element.querySelector<HTMLElement>('.chat-message__content')
       ?? element.querySelector<HTMLElement>('.chat-message__text');
 
+    const focusTarget = contentElement && contentElement !== element
+      ? contentElement
+      : element;
+
     if (contentElement && contentElement !== element) {
       if (manageDocumentSemanticsRef.current) {
         previousContentAttrs.current = {
@@ -144,14 +150,30 @@ export function useRenderedContentNavigation({
         contentElement.setAttribute('role', 'document');
         contentElement.setAttribute('tabindex', '0');
       }
-      contentElement.focus();
-    } else {
-      element.focus();
     }
 
-    if (openAnnouncementRef.current) announce(openAnnouncementRef.current);
+    const focusAndAnnounce = () => {
+      if (!focusTarget.isConnected) return;
+      focusTarget.focus();
+      if (openAnnouncementRef.current) announce(openAnnouncementRef.current);
+    };
+
+    if (activeProfile === 'scoped') {
+      // O preview já está focado como `group` quando Enter ativa a leitura.
+      // Remover esse foco e devolvê-lo após um frame + uma nova tarefa permite
+      // que a árvore de acessibilidade do WebView2 publique `role=document`
+      // antes do novo evento de foco consumido pelo NVDA.
+      if (document.activeElement === focusTarget) focusTarget.blur();
+      focusFrame = window.requestAnimationFrame(() => {
+        focusTimer = window.setTimeout(focusAndAnnounce, 0);
+      });
+    } else {
+      focusAndAnnounce();
+    }
 
     return () => {
+      if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
+      if (focusTimer !== null) window.clearTimeout(focusTimer);
       if (previousElementAttrs.current) {
         restoreNavigationState(
           element,
@@ -174,13 +196,31 @@ export function useRenderedContentNavigation({
       if (!element) return;
 
       if (event.key === 'Escape') {
+        const activeProfile = profileRef.current;
+        let isScopedDefaultArea = false;
+        if (activeProfile === 'scoped') {
+          const activeElement = document.activeElement;
+          if (!activeElement || !element.contains(activeElement)) return;
+
+          const selector = contentSelectorRef.current;
+          const contentElement = (
+            selector ? element.querySelector<HTMLElement>(selector) : null
+          )
+            ?? element.querySelector<HTMLElement>('.chat-message__content')
+            ?? element.querySelector<HTMLElement>('.chat-message__text')
+            ?? element;
+          isScopedDefaultArea = activeElement === contentElement;
+        }
+
         const explicitEscapePolicy = shouldHandleEscapeRef.current;
         if (explicitEscapePolicy) {
           if (!explicitEscapePolicy()) return;
-        } else if (
-          profileRef.current === 'scoped'
-          && !element.contains(document.activeElement)
-        ) return;
+        }
+        if (isScopedDefaultArea) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         onEscapeRef.current();

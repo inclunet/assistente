@@ -184,11 +184,9 @@ export function EditorContentArea({
     contentSelector: '[data-editor-rendered-document="true"]',
     onEscape: () => renderedDocumentRef.current?.focus(),
     openAnnouncement: t('editor.documentView.readingOpened'),
-    closeAnnouncement: t('editor.documentView.readingFocused'),
     shouldHandleEscape: () => (
       !isModalOpen()
       && document.querySelector('[role="menu"]') === null
-      && document.activeElement !== renderedDocumentRef.current
     ),
     manageDocumentSemantics: false,
   });

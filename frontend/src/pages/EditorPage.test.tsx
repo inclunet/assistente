@@ -26,6 +26,7 @@ const editorPageMocks = vi.hoisted(() => {
   const state = {
     registeredAdapter: null as unknown,
     editorContentAreaProps: null as Record<string, unknown> | null,
+    mountEditorsAutomatically: true,
     initialRevealSlideIndex: 0,
     markdownModelValue: '',
     markdownSelectionStartOffset: 0,
@@ -305,8 +306,10 @@ vi.mock('../components/editor/EditorContentArea', async () => {
     EditorContentArea: (props: Record<string, unknown>) => {
       editorPageMocks.editorContentAreaProps = props;
       React.useEffect(() => {
-        (props.onMonacoMount as ((editor: unknown, monaco: unknown) => void) | undefined)?.(editorPageMocks.markdownEditor, {});
-        (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(editorPageMocks.richEditor);
+        if (editorPageMocks.mountEditorsAutomatically) {
+          (props.onMonacoMount as ((editor: unknown, monaco: unknown) => void) | undefined)?.(editorPageMocks.markdownEditor, {});
+          (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(editorPageMocks.richEditor);
+        }
         (props.onRevealSlideIndexChange as ((index: number) => void) | undefined)?.(editorPageMocks.initialRevealSlideIndex);
         return () => {
           (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(null);
@@ -411,6 +414,7 @@ describe('EditorPage', () => {
     editorStoreState.documents = {};
     editorPageMocks.registeredAdapter = null;
     editorPageMocks.editorContentAreaProps = null;
+    editorPageMocks.mountEditorsAutomatically = true;
     editorPageMocks.initialRevealSlideIndex = 0;
     editorPageMocks.markdownModelValue = '';
     editorPageMocks.markdownSelectionStartOffset = 0;
@@ -598,6 +602,67 @@ describe('EditorPage', () => {
     render(<EditorPage documentId="tab-1" />);
 
     expect(screen.getByRole('button', { name: 'editor.buttons.insert' })).toBeDisabled();
+  });
+
+  it('foca o Monaco somente depois do onMount assíncrono', async () => {
+    vi.useFakeTimers();
+    editorPageMocks.chatModalIsOpen = false;
+    editorPageMocks.mountEditorsAutomatically = false;
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
+    };
+
+    try {
+      render(<EditorPage documentId="tab-1" />);
+
+      expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
+
+      act(() => {
+        (editorPageMocks.editorContentAreaProps?.onMonacoMount as (
+          editor: unknown,
+          monaco: unknown,
+        ) => void)(editorPageMocks.markdownEditor, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20);
+      });
+
+      expect(editorPageMocks.markdownFocus).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('não rouba foco de outro campo quando o Monaco termina de montar', async () => {
+    vi.useFakeTimers();
+    editorPageMocks.chatModalIsOpen = false;
+    editorPageMocks.mountEditorsAutomatically = false;
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
+    };
+    const otherField = document.createElement('input');
+    document.body.append(otherField);
+
+    try {
+      render(<EditorPage documentId="tab-1" />);
+      otherField.focus();
+
+      act(() => {
+        (editorPageMocks.editorContentAreaProps?.onMonacoMount as (
+          editor: unknown,
+          monaco: unknown,
+        ) => void)(editorPageMocks.markdownEditor, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20);
+      });
+
+      expect(otherField).toHaveFocus();
+      expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
+    } finally {
+      otherField.remove();
+      vi.useRealTimers();
+    }
   });
 
   it('abre menu Inserir com Alt+I quando disponível', () => {
