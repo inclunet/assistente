@@ -19,6 +19,8 @@ export interface SlashCommandMenuProps {
   onClose: () => void;
   /** Posição do menu (referência ao textarea) */
   anchorRef: React.RefObject<HTMLTextAreaElement>;
+  /** ID estável referenciado pelo combobox. */
+  listboxId: string;
 }
 
 export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
@@ -29,10 +31,11 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   onSelect,
   onClose,
   anchorRef,
+  listboxId,
 }) => {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const filtered = filterSlashItems(buildSlashItems(skillList, agentCommands), filter);
 
@@ -66,7 +69,13 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
 
   if (filtered.length === 0) {
     return (
-      <div className="slash-menu" ref={menuRef} role="listbox" aria-label={t('chat.slashCommands')}>
+      <div
+        className="slash-menu"
+        ref={menuRef}
+        id={listboxId}
+        role="listbox"
+        aria-label={t('chat.slashCommands')}
+      >
         {/* A lista tem skills do app e comandos do agente: falar só de skills
             aqui deixaria de fora justamente o que a pessoa pode estar
             procurando. */}
@@ -88,7 +97,13 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   });
 
   return (
-    <div className="slash-menu" ref={menuRef} role="listbox" aria-label={t('chat.slashCommands')}>
+    <div
+      className="slash-menu"
+      ref={menuRef}
+      id={listboxId}
+      role="listbox"
+      aria-label={t('chat.slashCommands')}
+    >
       {groups.map((group) => {
         if (group.items.length === 0) return null;
         return (
@@ -98,12 +113,14 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
               {group.items.map(({ item, index }) => {
                 const isSelected = index === selectedIndex;
                 return (
-                  <button
+                  <div
                     key={item.key}
+                    id={getSlashOptionId(listboxId, item)}
                     ref={(el) => { itemRefs.current[index] = el; }}
                     className={`slash-menu__item ${isSelected ? 'slash-menu__item--selected' : ''}`}
                     role="option"
                     aria-selected={isSelected}
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onSelect(item)}
                   >
                     <div className="slash-menu__item-header">
@@ -123,7 +140,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
                     {item.description && (
                       <div className="slash-menu__item-desc">{item.description}</div>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -134,14 +151,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   );
 };
 
-/**
- * Retorna o número de itens do menu para o texto dado — skills do app e
- * comandos do agente juntos. É por ele que as setas sabem onde dar a volta.
- */
-export function countFilteredSlashItems(
-  skillList: skills.SkillInfo[],
-  agentCommands: apidto.AgentCommand[],
-  filter: string,
-): number {
-  return filterSlashItems(buildSlashItems(skillList, agentCommands), filter).length;
+export function getSlashOptionId(listboxId: string, item: SlashItem): string {
+  const stableItemId = encodeURIComponent(item.key);
+  return `${listboxId}-option-${stableItemId}`;
 }

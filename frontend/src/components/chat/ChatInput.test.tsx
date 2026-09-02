@@ -25,10 +25,13 @@ vi.mock('../../services/mediaService', () => ({
 }));
 
 vi.mock('./SlashCommandMenu', () => ({
-  SlashCommandMenu: ({ skills }: { skills: Array<{ name: string }> }) => (
-    <div data-testid="slash-menu">{skills.map((skill) => skill.name).join(',')}</div>
+  SlashCommandMenu: ({ skills, listboxId }: { skills: Array<{ name: string }>; listboxId: string }) => (
+    <div data-testid="slash-menu" id={listboxId} role="listbox">
+      {skills.map((skill) => skill.name).join(',')}
+    </div>
   ),
-  countFilteredSlashItems: () => 1,
+  getSlashOptionId: (listboxId: string, item: { key: string }) =>
+    `${listboxId}-option-${encodeURIComponent(item.key)}`,
 }));
 
 vi.mock('./MediaPreview', () => ({
@@ -105,6 +108,18 @@ describe('ChatInput', () => {
     fireEvent.change(textarea, { target: { value: '/' } });
 
     expect(await screen.findByTestId('slash-menu')).toBeInTheDocument();
+  });
+
+  it('não carrega nem abre o menu slash quando desabilitado', async () => {
+    render(<ChatInput onSend={() => {}} slashMenuEnabled={false} />);
+
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    fireEvent.change(textarea, { target: { value: '/' } });
+
+    expect(getSkillsForProfileSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('slash-menu')).not.toBeInTheDocument();
+    expect(textarea).not.toHaveAttribute('role', 'combobox');
+    expect(textarea).not.toHaveAttribute('aria-expanded');
   });
 
   it('ignora resposta atrasada de profileSlug anterior', async () => {

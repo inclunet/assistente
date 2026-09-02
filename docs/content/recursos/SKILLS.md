@@ -19,6 +19,11 @@ O prompt inicial traz só catálogo (`slug`, nome, descrição) com orçamento; 
 
 `/skill <nome> [args]` ativa explicitamente uma skill habilitada. O menu `/` lista só skills invocáveis pelo usuário. Com `toolCallingEnabled=false` o modelo não auto-ativa skills, restando só base + `/skill` manual.
 
+No campo de mensagem do chat, digite `/` para abrir o menu de skills e comandos
+disponíveis. Continue digitando para filtrar, use as setas para percorrer as
+opções, `Enter` para escolher e `Esc` para fechar. O foco permanece no campo
+durante a navegação, e a opção ativa é anunciada pelo leitor de telas.
+
 ## Gestão
 
 Em **Skills**: grid com nome/descrição/modo (Auto/Manual) e origem; crie, edite, duplique ou remova skills. Built-ins incluem `coding`, `job-manager` e outras já sem templates.
