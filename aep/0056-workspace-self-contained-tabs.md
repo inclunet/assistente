@@ -35,7 +35,8 @@ O workspace passa a ser responsável por:
 - foco e aba ativa;
 - estado ativo/inativo dos painéis;
 - keep-alive lazy de abas já visitadas;
-- persistência mínima e opaca de `tab.state`.
+- persistência mínima e opaca de `tab.state` e dos overrides de perfil
+  pertencentes à aba.
 
 O workspace não deve criar ou sincronizar diretamente conversas, documentos, sessões de terminal ou listas de tarefas. Essa lógica pertence aos controllers de domínio.
 
@@ -124,6 +125,29 @@ sessão só termina por ação explícita ou pela saída do processo, conforme a
 AEP-0089.
 
 O uso de um singleton global para orquestrar um modal é aceitável como passo intermediário, desde que o singleton seja apenas transporte de estado já vinculado a uma superfície. A evolução preferida é migrar modais e painéis embutidos para controllers por superfície, preservando estado por `tabId`/`surfaceId` quando isso for necessário para UX.
+
+### 10. Override de modelo pertence à aba
+
+Providers HTTP nativos podem ter seu modelo substituído na `ChatToolbar`. Essa
+escolha vive em `Tab.ProfileOverride.model`, no workspace, e portanto:
+
+- sobrevive ao reload do workspace;
+- não altera o perfil;
+- não acompanha a conversa quando ela é aberta em outra aba;
+- só vale para um turno Wails que carregue `SurfaceTabID` explícito e cujo
+  vínculo `tabId + conversationId` ainda seja válido;
+- jamais é recuperada procurando uma aba por `conversationId`.
+
+O patch de `ProfileOverride` preserva chaves irmãs, remove uma chave quando seu
+valor é `nil` e restaura o estado em memória se a persistência falhar. Ao trocar
+de perfil, um modelo de aba incompatível com o provider do novo perfil é
+removido.
+
+No interactor, a precedência é: modelo explícito da requisição, modelo da aba,
+modelo do perfil e default global. O modelo da aba não é aplicado a providers
+ACP: modelo e modo ACP continuam exclusivamente em `AgentOptionsPickers`,
+porque são opções da sessão do agente (AEP-0084 D6), não parâmetros do provider
+HTTP.
 
 ## Fases
 
@@ -248,3 +272,8 @@ O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canô
 - Estado visual/interativo divergente entre painéis é sempre chaveado por `tabId`, `surfaceId`, `sessionKey` ou ID explícito de domínio.
 - Ações de painel não dependem de `activeTabId` para descobrir o alvo de dados.
 - Modais e adapters globais, quando existirem, são vinculados a uma superfície explícita antes de executar preparação, envio ou persistência.
+- O modelo escolhido na toolbar de provider HTTP é persistido por aba, não
+  segue a conversa para outra aba e respeita a precedência definida na decisão
+  10.
+- Providers ACP continuam usando somente os pickers de opções da sessão do
+  agente.
