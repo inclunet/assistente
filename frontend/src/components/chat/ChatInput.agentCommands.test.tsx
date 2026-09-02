@@ -268,6 +268,8 @@ describe('ChatInput com comandos do agente', () => {
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
     expect(onSend).toHaveBeenCalledWith('/comando-inexistente', undefined);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
   });
 
   it('sem skills e sem comandos o menu não aparece', async () => {

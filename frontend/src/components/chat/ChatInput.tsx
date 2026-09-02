@@ -241,6 +241,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       onSend(trimmedMessage, mediaFiles.length > 0 ? mediaFiles : undefined);
       setMessage('');
       setMediaFiles([]);
+      closeSlashMenu(true);
 
       // Reset textarea height and restore focus
       if (textareaRef.current) {
