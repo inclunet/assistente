@@ -61,6 +61,8 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const richEditorRef = useRef<TipTapEditor | null>(null);
   const richEditorHandleRef = useRef<RichTextEditorHandle | null>(null);
   const currentRevealSlideIndexRef = useRef(0);
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   const [currentRevealSlideIndex, setCurrentRevealSlideIndex] = useState(0);
   const [editorReadyNonce, setEditorReadyNonce] = useState(0);
@@ -133,6 +135,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (!activeTab) return;
     if (chatModalOpen) return;
     if (isModalOpen()) return;
+    if (activeTab.mode === 'markdown' && !editorRef.current) return;
 
     const el = document.activeElement as HTMLElement | null;
     const tag = el?.tagName || '';
@@ -146,7 +149,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     // Primeira entrada: sempre tenta focar o editor.
     if (!didInitialEditorAutofocusRef.current) {
       didInitialEditorAutofocusRef.current = true;
-      focusEditorSoon();
+      if (!isTypingTarget) {
+        focusEditorSoon({ preserveFocusedField: true });
+      }
       return;
     }
 
@@ -158,9 +163,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     const isDocumentBody = !el || el === document.body;
 
     if (!isTypingTarget && (isDocumentBody || isEditorZone)) {
-      focusEditorSoon();
+      focusEditorSoon({ preserveExternalFocus: true });
     }
-  }, [sessionLoaded, activeTab?.id, activeTab?.mode, chatModalOpen]);
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, chatModalOpen, editorReadyNonce]);
 
   const { rememberCurrentExplicitSelection, getPreparedSelectionSnapshot } = useEditorSelectionSnapshots({
     activeTab,
@@ -170,13 +175,45 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     richEditorRef,
   });
 
-  function focusEditorSoon() {
+  function focusEditorSoon(options?: {
+    preserveFocusedField?: boolean;
+    preserveExternalFocus?: boolean;
+  }) {
     window.setTimeout(() => {
       try {
-        if (!activeTab) return;
-        if (activeTab.mode === 'markdown') {
+        const currentTab = activeTabRef.current;
+        if (!currentTab) return;
+
+        if (options?.preserveFocusedField || options?.preserveExternalFocus) {
+          if (isModalOpen() || useWorkspaceChatModalStore.getState().isOpen) return;
+
+          const focused = document.activeElement as HTMLElement | null;
+          const focusedTag = focused?.tagName || '';
+          const isFocusedField =
+            !!focused
+            && (
+              focusedTag === 'INPUT'
+              || focusedTag === 'TEXTAREA'
+              || focused.isContentEditable
+              || focused.getAttribute?.('role') === 'textbox'
+            );
+          if (isFocusedField) return;
+
+          if (options.preserveExternalFocus) {
+            const isEditorZone =
+              !!focused
+              && (
+                !!focused.closest?.('.rich-text-editor__content')
+                || !!focused.closest?.('.monaco-editor')
+              );
+            const isDocumentBody = !focused || focused === document.body;
+            if (!isDocumentBody && !isEditorZone) return;
+          }
+        }
+
+        if (currentTab.mode === 'markdown') {
           editorRef.current?.focus?.();
-        } else if (activeTab.mode === 'rich') {
+        } else if (currentTab.mode === 'rich') {
           richEditorRef.current?.commands?.focus?.();
           richEditorRef.current?.view?.focus?.();
         }

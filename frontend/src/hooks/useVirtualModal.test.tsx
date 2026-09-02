@@ -1,6 +1,6 @@
 import { StrictMode, useRef } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 import { useRenderedContentNavigation } from './useRenderedContentNavigation';
 import { useVirtualModal } from './useVirtualModal';
 
@@ -243,14 +243,14 @@ describe('useVirtualModal', () => {
     expect(link).toHaveAttribute('tabindex', '0');
   });
 
-  it('não sobrescreve o foco escolhido pelo consumidor ao desativar perfil scoped', () => {
+  it('não sobrescreve o foco escolhido pelo consumidor ao desativar perfil scoped', async () => {
     const { rerender } = render(<ScopedHarness isActive={false} />);
     const opener = screen.getByTestId('scoped-opener');
     const destination = screen.getByTestId('scoped-destination');
 
     opener.focus();
     rerender(<ScopedHarness isActive={true} />);
-    expect(screen.getByTestId('scoped-content')).toHaveFocus();
+    await waitFor(() => expect(screen.getByTestId('scoped-content')).toHaveFocus());
 
     destination.focus();
     rerender(<ScopedHarness isActive={false} />);
@@ -258,11 +258,12 @@ describe('useVirtualModal', () => {
     expect(destination).toHaveFocus();
   });
 
-  it('não captura Escape fora da região scoped sem política explícita', () => {
+  it('não captura Escape fora da região scoped sem política explícita', async () => {
     const onEscape = vi.fn();
     const { rerender } = render(<ScopedHarness isActive={false} onClose={onEscape} />);
     screen.getByTestId('scoped-opener').focus();
     rerender(<ScopedHarness isActive={true} onClose={onEscape} />);
+    await waitFor(() => expect(screen.getByTestId('scoped-content')).toHaveFocus());
 
     screen.getByTestId('scoped-destination').focus();
     expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);

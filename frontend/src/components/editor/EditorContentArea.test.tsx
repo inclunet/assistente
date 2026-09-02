@@ -367,7 +367,7 @@ describe('EditorContentArea document view', () => {
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.openedAnnouncement');
   });
 
-  it('ativa leitura escopada sem prender Tab ou F6 e Escape devolve o conteúdo', async () => {
+  it('ativa leitura escopada com role document efetivo antes do novo foco', async () => {
     const user = userEvent.setup();
     const { container } = renderContentArea({
       id: 'markdown-view',
@@ -390,20 +390,38 @@ describe('EditorContentArea document view', () => {
     );
 
     renderedDocument!.focus();
+    const rolesObservedOnFocus: Array<string | null> = [];
+    renderedDocument!.addEventListener('focus', () => {
+      rolesObservedOnFocus.push(renderedDocument!.getAttribute('role'));
+    });
     fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
 
     expect(renderedDocument).toHaveAttribute('role', 'document');
-    expect(renderedDocument).toHaveFocus();
     expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
       'data-tab-navigation',
       'enabled',
     );
+    await waitFor(() => expect(renderedDocument).toHaveFocus());
+    expect(rolesObservedOnFocus).toEqual(['document']);
+    expect(announceMock).toHaveBeenCalledTimes(1);
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.readingOpened');
 
     const outside = document.createElement('button');
     outside.textContent = 'Depois do documento';
     document.body.append(outside);
     const link = screen.getByRole('link', { name: 'Link do documento' });
+
+    // Escape na área padrão é no-op: a leitura permanece ativa e sem anúncio
+    // de saída. Em um descendente, apenas devolve o foco à área padrão.
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+    expect(renderedDocument).toHaveFocus();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+
+    link.focus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(renderedDocument).toHaveFocus();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+
     link.focus();
     await user.tab();
     expect(outside).toHaveFocus();
@@ -423,13 +441,13 @@ describe('EditorContentArea document view', () => {
     expect(outside).toHaveFocus();
     menu.remove();
 
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(renderedDocument).toHaveFocus();
-    expect(announceMock).toHaveBeenCalledWith('editor.documentView.readingFocused');
+    // Escape fora do preview também não interfere no foco atual.
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+    expect(outside).toHaveFocus();
     outside.remove();
   });
 
-  it('oferece o mesmo documento focável para projeções somente leitura', () => {
+  it('oferece o mesmo documento focável para projeções somente leitura', async () => {
     const { container } = renderContentArea({
       id: 'pdf-reading',
       title: 'manual.pdf',
@@ -447,6 +465,7 @@ describe('EditorContentArea document view', () => {
     fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
 
     expect(renderedDocument).toHaveAttribute('role', 'document');
+    await waitFor(() => expect(renderedDocument).toHaveFocus());
     expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
       'data-tab-navigation',
       'enabled',
@@ -477,7 +496,7 @@ describe('EditorContentArea document view', () => {
     );
   });
 
-  it('preserva role document em rerenders e desativa a leitura ao ocultar o painel', () => {
+  it('preserva role document em rerenders e desativa a leitura ao ocultar o painel', async () => {
     const activeTab: EditorDocument = {
       id: 'preview-lifecycle',
       title: 'preview.md',
@@ -492,6 +511,7 @@ describe('EditorContentArea document view', () => {
     renderedDocument?.focus();
     fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
     expect(renderedDocument).toHaveAttribute('role', 'document');
+    await waitFor(() => expect(renderedDocument).toHaveFocus());
 
     rerender(contentAreaElement(activeTab, {
       isPanelActive: true,
@@ -515,6 +535,7 @@ describe('EditorContentArea document view', () => {
     renderedDocument?.focus();
     fireEvent.keyDown(renderedDocument!, { key: 'Enter' });
     expect(renderedDocument).toHaveAttribute('role', 'document');
+    await waitFor(() => expect(renderedDocument).toHaveFocus());
 
     const outside = document.createElement('button');
     document.body.append(outside);
