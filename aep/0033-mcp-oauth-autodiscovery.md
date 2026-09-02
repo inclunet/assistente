@@ -123,7 +123,7 @@ Adicionar props ao `McpConnectionSection`:
 
 ```typescript
 // Novas props
-discoveryStatus: 'idle' | 'loading' | 'found' | 'partial' | 'not_found';
+discoveryStatus: 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual';
 onManualOverride: () => void; // apresenta a configuração manual completa
 onUrlBlur: () => void; // dispara discovery
 ```
