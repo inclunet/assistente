@@ -97,7 +97,7 @@ func (a *App) DiscoverMCPServerAuth(serverURL string) mcp.OAuthDiscoveryResult {
 **Estado de discovery**: adicionar ao componente (ou como props da McpPage):
 ```typescript
 const [discoveryStatus, setDiscoveryStatus] = useState<
-  'idle' | 'loading' | 'found' | 'partial' | 'not_found'
+  'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual'
 >('idle');
 ```
 
