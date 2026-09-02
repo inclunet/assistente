@@ -428,7 +428,15 @@ func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fetchAttempt{}, err
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		attempt := fetchAttempt{}
+		if len(redirects) > 0 {
+			redirectHint := redirects[len(redirects)-1]
+			attempt.hint = &redirectHint
+		}
+		return attempt, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 

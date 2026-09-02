@@ -358,6 +358,24 @@ func TestDiscoveryRedirectStatusFallsBackToPreviousRequest(t *testing.T) {
 	}
 }
 
+func TestDiscoveryPreservesHintWhenRedirectIsRejected(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "ftp://example.test/metadata?token=secret")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+
+	var target authServerMetadata
+	attempt, err := fetchJSON(server.URL, &target)
+	if err == nil {
+		t.Fatal("redirect com esquema inseguro não foi rejeitado")
+	}
+	if attempt.hint == nil || attempt.hint.StatusCode != http.StatusFound ||
+		attempt.hint.Classification != "redirect" || attempt.hint.Location != "" {
+		t.Fatalf("hint de redirect rejeitado ausente ou inseguro: %+v", attempt.hint)
+	}
+}
+
 func TestDiscoveryFollowsSafeRedirect(t *testing.T) {
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
