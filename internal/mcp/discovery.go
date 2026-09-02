@@ -245,9 +245,11 @@ func discoverOAuthWithBudget(serverURL string, budget *discoveryBudget) OAuthDis
 
 	logging.Infof(budget.ctx, "mcp.discovery", "[MCP:discovery] Authorization Server Metadata encontrado (%s)", metadataType)
 
-	scopes := resourceScopes
-	if len(scopes) == 0 {
-		scopes = asm.ScopesSupported
+	scopes := append([]string(nil), resourceScopes...)
+	for _, scope := range asm.ScopesSupported {
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
 	}
 
 	supportsPKCE := slices.Contains(asm.CodeChallengeMethodsSupported, "S256")

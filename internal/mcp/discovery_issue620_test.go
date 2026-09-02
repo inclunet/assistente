@@ -284,6 +284,36 @@ func TestDiscoverOAuthInfersClientCredentialsWithoutGrantList(t *testing.T) {
 	}
 }
 
+func TestDiscoverOAuthMergesResourceAndAuthorizationServerScopes(t *testing.T) {
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource/mcp":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource":              serverURL + "/mcp",
+				"authorization_servers": []string{serverURL},
+				"scopes_supported":      []string{"files:read", "shared"},
+			})
+		case "/.well-known/oauth-authorization-server":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":           serverURL,
+				"token_endpoint":   serverURL + "/token",
+				"scopes_supported": []string{"shared", "offline_access"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	result := DiscoverOAuth(server.URL + "/mcp")
+	want := []string{"files:read", "shared", "offline_access"}
+	if !result.Found || !slices.Equal(result.Scopes, want) {
+		t.Fatalf("scopes não foram unidos e deduplicados: got=%v want=%v", result.Scopes, want)
+	}
+}
+
 func TestProtectedResourceMetadataRequiresResourceIdentifier(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

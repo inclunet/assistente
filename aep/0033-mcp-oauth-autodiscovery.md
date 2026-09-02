@@ -239,7 +239,8 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    `registration_endpoint` exige conclusão manual, mas não invalida metadata
    OAuth/OIDC. Metadata com `token_endpoint`, mas sem `authorization_endpoint`,
    é tratada como Client Credentials mesmo quando a lista opcional
-   `grant_types_supported` não foi publicada.
+   `grant_types_supported` não foi publicada. Scopes anunciados pelo PRM e pelo
+   Authorization Server são unidos e deduplicados, preservando a ordem.
 7. Valores manuais são soberanos: discovery preenche apenas campos vazios,
    nunca impede salvar e mantém a edição manual disponível em falha parcial ou
    total. Em resultado parcial, nome e scopes válidos do PRM continuam
