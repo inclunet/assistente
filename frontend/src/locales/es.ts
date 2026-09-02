@@ -1121,6 +1121,8 @@ const es = {
           'OAuth configurado automáticamente{{resourceName}}. El Client ID se registrará mediante DCR.',
         oauthDetectedNoDCR:
           'OAuth detectado{{resourceName}}, pero sin registro dinámico. Indica el Client ID.',
+        oauthPartiallyDetected:
+          'Se detectaron metadatos del recurso protegido{{resourceName}}, pero no se encontró el servidor de autorización. Completa la configuración manualmente.',
         oauthNotDetected: 'Metadatos OAuth no detectados. Configura manualmente.',
         browserAuthHint:
           'Al conectar, el navegador se abrirá para autorizar. Las credenciales se guardan cifradas en el llavero del sistema.',

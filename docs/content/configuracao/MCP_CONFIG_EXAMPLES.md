@@ -241,6 +241,35 @@ Arquivos de configuração ficam em:
 
 ---
 
+## OAuth em servidores MCP remotos
+
+Ao informar uma URL `https://` com transporte SSE ou Streamable HTTP, o
+Assistente procura automaticamente metadados de recurso protegido e do servidor
+OAuth/OIDC. A busca considera o caminho completo da URL, seus diretórios
+ancestrais e a origem. Isso permite descobrir instalações atrás de gateways com
+caminhos como `https://host/api/2.0/mcp`, sem regras específicas de fornecedor.
+
+O resultado mostrado no formulário pode ser:
+
+- **OAuth configurado automaticamente**: endpoints obrigatórios foram
+  encontrados. Se o servidor publicar registro dinâmico, o Client ID poderá ser
+  registrado durante a conexão.
+- **OAuth detectado sem registro dinâmico**: informe o Client ID do aplicativo.
+- **Descoberta parcial**: o recurso protegido foi reconhecido, mas o servidor de
+  autorização não foi localizado; complete os endpoints manualmente.
+- **Não detectado**: use a configuração manual, se o servidor exigir
+  autenticação.
+
+O discovery nunca substitui valores OAuth que você já preencheu. Falha parcial
+ou total também não impede salvar o servidor. Desafios HTTP e erros de discovery
+são tratados com limites e saneamento; tokens, cookies e credenciais não são
+copiados para o resultado exibido. O ciclo completo tem duração limitada e pode
+ser tentado novamente para a mesma URL depois de resultado parcial ou falha.
+Escolher **Configurar manualmente** apenas abre os campos completos; isso não
+transforma uma descoberta bem-sucedida em mensagem de falha.
+
+---
+
 ## Exemplo 8: Servidor Multi-tenancy
 
 ### Workspace-Specific Server

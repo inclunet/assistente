@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ApiOutlined,
@@ -61,6 +61,30 @@ function statusLabel(status: string, t: (key: string) => string): string {
     error: t('mcp.status.error'),
   };
   return labels[status] || status;
+}
+
+function isHTTPSDiscoveryUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function normalizeDiscoveryResourceUrl(value: string): string {
+  try {
+    const parsed = new URL(value.trim());
+    parsed.search = '';
+    parsed.hash = '';
+    parsed.pathname = parsed.pathname === '/' ? '/' : parsed.pathname.replace(/\/+$/, '');
+    return parsed.toString();
+  } catch {
+    return value.trim().replace(/\/+$/, '');
+  }
+}
+
+function isSameDiscoveryResource(first: string, second: string): boolean {
+  return normalizeDiscoveryResourceUrl(first) === normalizeDiscoveryResourceUrl(second);
 }
 
 export default function McpPage() {
@@ -126,12 +150,16 @@ export default function McpPage() {
   const [formOAuth2CallbackHost, setFormOAuth2CallbackHost] = useState('');
 
   // OAuth auto-discovery
-  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'not_found';
+  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual';
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>('idle');
-  const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
-  const [lastDiscoveredUrl, setLastDiscoveredUrl] = useState('');
+  const [manualRegistrationUrl, setManualRegistrationUrl] = useState('');
+  const [manualRegistrationServerUrl, setManualRegistrationServerUrl] = useState('');
+  const lastDiscoveredUrlRef = useRef('');
+  const discoveryRequestRef = useRef(0);
+  const wasHTTPTransportRef = useRef(false);
+  const wasEditingRef = useRef(false);
 
   useEffect(() => {
     loadServers();
@@ -185,10 +213,14 @@ export default function McpPage() {
     setFormOAuth2CallbackHost(config?.oauth2_callback_host || '');
 
     setDiscoveryStatus('idle');
-    setDiscoveredFields(new Set());
     setDiscoveryResourceName('');
-    setDiscoveryRegistrationUrl(config?.oauth2_registration_url || '');
-    setLastDiscoveredUrl('');
+    setDiscoveryRegistrationUrl('');
+    setManualRegistrationUrl(config?.oauth2_registration_url || '');
+    setManualRegistrationServerUrl(config?.url || '');
+    lastDiscoveredUrlRef.current = '';
+    discoveryRequestRef.current += 1;
+    wasHTTPTransportRef.current = false;
+    wasEditingRef.current = false;
   };
 
   const loadAuthInfo = useCallback(async (slug: string, configAuthType?: string) => {
@@ -279,46 +311,63 @@ export default function McpPage() {
   }, [announce, t]);
 
   const runDiscovery = useCallback(async (urlToDiscover: string) => {
-    if (!urlToDiscover || !urlToDiscover.startsWith('https://')) return;
-    if (urlToDiscover === lastDiscoveredUrl) return;
+    if (!isHTTPSDiscoveryUrl(urlToDiscover)) return;
+    if (urlToDiscover === lastDiscoveredUrlRef.current) return;
 
+    const requestID = ++discoveryRequestRef.current;
     setDiscoveryStatus('loading');
-    setLastDiscoveredUrl(urlToDiscover);
+    setDiscoveryRegistrationUrl('');
+    lastDiscoveredUrlRef.current = urlToDiscover;
 
     try {
       const result = await DiscoverMCPServerAuth(urlToDiscover);
+      if (requestID !== discoveryRequestRef.current) return;
       if (result.found) {
-        const fields = new Set<string>();
-
         if (result.authType) {
-          setFormAuthType(result.authType);
-          fields.add('authType');
+          setFormAuthType((current) => current === 'none' ? result.authType : current);
         }
         if (result.authUrl) {
-          setFormOAuth2AuthUrl(result.authUrl);
-          fields.add('oauth2AuthUrl');
+          setFormOAuth2AuthUrl((current) => current || result.authUrl);
         }
         if (result.tokenUrl) {
-          setFormOAuth2TokenUrl(result.tokenUrl);
-          fields.add('oauth2TokenUrl');
+          setFormOAuth2TokenUrl((current) => current || result.tokenUrl);
         }
         if (result.scopes?.length > 0) {
-          setFormOAuth2Scopes(result.scopes.join(' '));
-          fields.add('oauth2Scopes');
+          setFormOAuth2Scopes((current) => current || result.scopes.join(' '));
         }
-        setDiscoveredFields(fields);
         const resName = result.resourceName || '';
         setDiscoveryResourceName(resName);
         setDiscoveryRegistrationUrl(result.registrationUrl || '');
-        if (resName && !formName) setFormName(resName);
+        if (resName) setFormName((current) => current || resName);
         setDiscoveryStatus('found');
+      } else if (result.status === 'partial' || result.protectedResourceFound) {
+        if (result.scopes?.length > 0) {
+          setFormOAuth2Scopes((current) => current || result.scopes.join(' '));
+        }
+        setDiscoveryResourceName(result.resourceName || '');
+        setDiscoveryRegistrationUrl('');
+        setDiscoveryStatus('partial');
+        lastDiscoveredUrlRef.current = '';
       } else {
+        setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('not_found');
+        lastDiscoveredUrlRef.current = '';
       }
     } catch {
+      if (requestID !== discoveryRequestRef.current) return;
       setDiscoveryStatus('not_found');
+      lastDiscoveredUrlRef.current = '';
     }
-  }, [lastDiscoveredUrl, formName]);
+  }, []);
+
+  const handleFormURLChange = useCallback((value: string) => {
+    discoveryRequestRef.current += 1;
+    lastDiscoveredUrlRef.current = '';
+    setDiscoveryRegistrationUrl('');
+    setDiscoveryResourceName('');
+    setDiscoveryStatus('idle');
+    setFormUrl(value);
+  }, []);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
@@ -336,14 +385,20 @@ export default function McpPage() {
   }, [formTransport, formUrl, formName, isNew, runDiscovery]);
 
   const handleManualOverride = useCallback(() => {
-    setDiscoveredFields(new Set());
-    setDiscoveryStatus('not_found');
+    discoveryRequestRef.current += 1;
+    lastDiscoveredUrlRef.current = '';
+    setDiscoveryRegistrationUrl('');
+    setDiscoveryStatus('manual');
   }, []);
 
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida
   useEffect(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
-    if (isHTTP && formUrl.trim() && formUrl.trim().startsWith('https://') && editing) {
+    const isEditing = editing !== null;
+    const enteredHTTPMode = isHTTP && (!wasHTTPTransportRef.current || !wasEditingRef.current);
+    wasHTTPTransportRef.current = isHTTP;
+    wasEditingRef.current = isEditing;
+    if (enteredHTTPMode && isEditing && isHTTPSDiscoveryUrl(formUrl.trim())) {
       runDiscovery(formUrl.trim());
     }
   }, [editing, formTransport, formUrl, runDiscovery]);
@@ -381,6 +436,8 @@ export default function McpPage() {
 
     const isOAuth2 = formAuthType === 'oauth2_client_credentials' || formAuthType === 'oauth2_pkce';
     const scopesArr = formOAuth2Scopes.trim() ? formOAuth2Scopes.trim().split(/\s+/) : undefined;
+    const applicableManualRegistrationUrl =
+      isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '';
 
     const config = new mcp.ServerConfig({
       name: formName.trim(),
@@ -398,7 +455,9 @@ export default function McpPage() {
       oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
       oauth2_auth_url: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
       oauth2_scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
-      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
+      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce'
+        ? applicableManualRegistrationUrl || discoveryRegistrationUrl || undefined
+        : undefined,
       oauth2_callback_port: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
         ? parseInt(formOAuth2CallbackPort, 10) || undefined
         : undefined,
@@ -449,7 +508,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, manualRegistrationServerUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -775,12 +834,14 @@ export default function McpPage() {
               oauth2AuthUrl={formOAuth2AuthUrl}
               oauth2Scopes={formOAuth2Scopes}
               discoveryStatus={discoveryStatus}
-              discoveredFields={discoveredFields}
               discoveryResourceName={discoveryResourceName}
-              discoveryRegistrationUrl={discoveryRegistrationUrl}
+              discoveryRegistrationUrl={
+                (isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '') ||
+                discoveryRegistrationUrl
+              }
               onCommandChange={setFormCommand}
               onArgsChange={setFormArgs}
-              onUrlChange={setFormUrl}
+              onUrlChange={handleFormURLChange}
               onEnvTextChange={setFormEnvText}
               onEnabledChange={setFormEnabled}
               onAutoConnectChange={setFormAutoConnect}

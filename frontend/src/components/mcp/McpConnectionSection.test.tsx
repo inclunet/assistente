@@ -68,7 +68,6 @@ const baseProps: ComponentProps<typeof McpConnectionSection> = {
   oauth2CallbackPort: '',
   oauth2CallbackHost: '',
   discoveryStatus: 'not_found',
-  discoveredFields: new Set<string>(),
   discoveryResourceName: '',
   discoveryRegistrationUrl: '',
   onCommandChange: noop,
@@ -147,6 +146,24 @@ describe('McpConnectionSection — Discovery states', () => {
   it('discovery falhou: exibe configuração manual completa', () => {
     renderWith({ discoveryStatus: 'not_found' });
     expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
+  });
+
+  it('discovery parcial: informa a limitação e mantém configuração manual disponível', () => {
+    renderWith({
+      discoveryStatus: 'partial',
+      discoveryResourceName: 'Recurso profundo',
+    });
+
+    expect(screen.getByText(/Metadados do recurso detectados \(Recurso profundo\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
+  });
+
+  it('modo manual: exibe configuração completa sem anunciar falha', () => {
+    renderWith({ discoveryStatus: 'manual' });
+
+    expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
+    expect(screen.queryByText('Metadados OAuth não detectados. Configure manualmente.')).not.toBeInTheDocument();
+    expect(announceRequestMock).not.toHaveBeenCalled();
   });
 
   it('idle: não exibe campos OAuth', () => {

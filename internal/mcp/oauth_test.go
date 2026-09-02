@@ -688,7 +688,7 @@ func TestDiscoverOAuthEndpoints(t *testing.T) {
 	defer prmSrv.Close()
 	prmURL = prmSrv.URL
 
-	disc, err := discoverOAuthEndpoints(prmSrv.URL + "/mcp")
+	disc, err := discoverOAuthEndpoints(context.Background(), prmSrv.URL+"/mcp")
 	if err != nil {
 		t.Fatalf("discoverOAuthEndpoints failed: %v", err)
 	}
@@ -716,7 +716,7 @@ func TestDiscoverOAuthEndpoints_Fallback(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := discoverOAuthEndpoints(srv.URL + "/mcp")
+	_, err := discoverOAuthEndpoints(context.Background(), srv.URL+"/mcp")
 	if err == nil {
 		t.Error("expected error when discovery returns 404")
 	}
@@ -750,10 +750,10 @@ func TestBuildPRMCandidates(t *testing.T) {
 		wantLast  string
 	}{
 		{
-			name:      "URL with path tries resource first, then origin",
+			name:      "URL with path tries RFC 9728 and compatibility locations for each ancestor",
 			mcpURL:    "https://example.com/mcp/default",
-			wantCount: 2,
-			wantFirst: "https://example.com/mcp/default/.well-known/oauth-protected-resource",
+			wantCount: 5,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp/default",
 			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
 		},
 		{
@@ -766,8 +766,8 @@ func TestBuildPRMCandidates(t *testing.T) {
 		{
 			name:      "URL with single path segment",
 			mcpURL:    "https://example.com/mcp",
-			wantCount: 2,
-			wantFirst: "https://example.com/mcp/.well-known/oauth-protected-resource",
+			wantCount: 3,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp",
 			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
 		},
 	}
@@ -809,9 +809,9 @@ func TestBuildASMCandidates(t *testing.T) {
 			base:      "https://example.com/oauth",
 			wantCount: 6,
 			wantURLs: []string{
-				"https://example.com/oauth/.well-known/oauth-authorization-server",
-				"https://example.com/oauth/.well-known/openid-configuration",
 				"https://example.com/.well-known/oauth-authorization-server/oauth",
+				"https://example.com/oauth/.well-known/openid-configuration",
+				"https://example.com/oauth/.well-known/oauth-authorization-server",
 				"https://example.com/.well-known/openid-configuration/oauth",
 				"https://example.com/.well-known/oauth-authorization-server",
 				"https://example.com/.well-known/openid-configuration",
@@ -952,7 +952,7 @@ func TestDiscoverOAuth_PRMAtResourcePath(t *testing.T) {
 	defer srv.Close()
 	srvURL = srv.URL
 
-	disc, err := discoverOAuthEndpoints(srv.URL + "/api")
+	disc, err := discoverOAuthEndpoints(context.Background(), srv.URL+"/api")
 	if err != nil {
 		t.Fatalf("expected discovery to succeed: %v", err)
 	}
@@ -985,7 +985,7 @@ func TestDiscoverOAuth_ASMAtRFC8414PathLocation(t *testing.T) {
 	defer srv.Close()
 	srvURL = srv.URL
 
-	disc, err := discoverOAuthEndpoints(srv.URL + "/mcp")
+	disc, err := discoverOAuthEndpoints(context.Background(), srv.URL+"/mcp")
 	if err != nil {
 		t.Fatalf("expected discovery to succeed: %v", err)
 	}

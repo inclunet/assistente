@@ -166,35 +166,49 @@ type OAuthDiscovery struct {
 
 // discoverOAuthEndpoints uses the existing discovery infrastructure from
 // discovery.go to fetch protected resource + auth server metadata.
-func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
-	origin, err := extractOrigin(mcpURL)
+func discoverOAuthEndpoints(ctx context.Context, mcpURL string) (*OAuthDiscovery, error) {
+	_, err := extractOrigin(mcpURL)
 	if err != nil {
 		return nil, err
 	}
+	budget := newDiscoveryBudget(ctx)
+	defer budget.close()
 
-	authServerBase := origin
-	var resource string
+	authServerBases := buildResourceBases(mcpURL)
+	resource := mcpURL
+	if len(authServerBases) > 0 {
+		resource = authServerBases[0]
+	}
+	var resourceScopes []string
 
-	prm, err := fetchProtectedResourceMetadata(mcpURL)
-	if err != nil {
-		return nil, fmt.Errorf("protected resource metadata unavailable: %w", err)
-	}
-	if len(prm.AuthorizationServers) > 0 {
-		authServerBase = prm.AuthorizationServers[0]
-	}
-	resource = prm.Resource
-	if resource == "" {
-		resource = mcpURL
+	prm, _, err := fetchProtectedResourceMetadataDetailedWithBudget(budget, mcpURL)
+	if err == nil && prm != nil {
+		hasExplicitAuthServer := false
+		if len(prm.AuthorizationServers) > 0 {
+			if canonicalBases := canonicalAuthorizationServerBases(prm.AuthorizationServers); len(canonicalBases) > 0 {
+				authServerBases = canonicalBases
+				hasExplicitAuthServer = true
+			}
+		}
+		if prm.Resource != "" {
+			if canonicalResourceBases := buildResourceBases(prm.Resource); len(canonicalResourceBases) > 0 {
+				resource = canonicalResourceBases[0]
+				if !hasExplicitAuthServer {
+					authServerBases = canonicalResourceBases
+				}
+			}
+		}
+		resourceScopes = prm.ScopesSupported
 	}
 
-	asm, err := fetchAuthServerMetadata(authServerBase)
+	asm, _, _, err := fetchAuthServerMetadataFromBasesWithBudget(budget, authServerBases)
 	if err != nil {
 		return nil, fmt.Errorf("auth server metadata unavailable: %w", err)
 	}
 
 	// scopes_supported pode vir do recurso protegido (RFC 9728) e/ou do auth server
 	// (RFC 8414). Une os dois para a decisão de offline_access.
-	scopes := append([]string(nil), prm.ScopesSupported...)
+	scopes := append([]string(nil), resourceScopes...)
 	scopes = append(scopes, asm.ScopesSupported...)
 
 	return &OAuthDiscovery{
@@ -531,7 +545,7 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 
 	// 1. Discovery automático de endpoints OAuth (se URL MCP disponível)
 	if rt.discovery == nil && rt.cfg.URL != "" {
-		disc, err := discoverOAuthEndpoints(rt.cfg.URL)
+		disc, err := discoverOAuthEndpoints(ctx, rt.cfg.URL)
 		if err != nil {
 			logging.Infof(ctx, "mcp.oauth", "[MCP:%s] Discovery automático falhou (usando config manual): %v", rt.serverSlug, err)
 		} else {

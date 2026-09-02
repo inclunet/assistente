@@ -3849,6 +3849,7 @@ export namespace llm {
 	    default_model?: string;
 	    is_default?: boolean;
 	    timeout?: number;
+	    stream_idle_timeout_seconds?: number;
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
 	    auth_mode?: string;
@@ -3874,6 +3875,7 @@ export namespace llm {
 	        this.default_model = source["default_model"];
 	        this.is_default = source["is_default"];
 	        this.timeout = source["timeout"];
+	        this.stream_idle_timeout_seconds = source["stream_idle_timeout_seconds"];
 	        this.headers = source["headers"];
 	        this.credential_pattern = source["credential_pattern"];
 	        this.auth_mode = source["auth_mode"];
@@ -3891,6 +3893,28 @@ export namespace llm {
 
 export namespace mcp {
 	
+	export class DiscoveryResponseHint {
+	    statusCode: number;
+	    classification: string;
+	    wwwAuthenticate?: string;
+	    location?: string;
+	    jsonError?: string;
+	    bodyTruncated?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveryResponseHint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statusCode = source["statusCode"];
+	        this.classification = source["classification"];
+	        this.wwwAuthenticate = source["wwwAuthenticate"];
+	        this.location = source["location"];
+	        this.jsonError = source["jsonError"];
+	        this.bodyTruncated = source["bodyTruncated"];
+	    }
+	}
 	export class MCPPromptArgument {
 	    name: string;
 	    description: string;
@@ -4031,6 +4055,11 @@ export namespace mcp {
 	}
 	export class OAuthDiscoveryResult {
 	    found: boolean;
+	    status: string;
+	    protectedResourceFound: boolean;
+	    authorizationServerFound: boolean;
+	    metadataType?: string;
+	    manualCompletionRequired: boolean;
 	    authType: string;
 	    authUrl: string;
 	    tokenUrl: string;
@@ -4039,6 +4068,7 @@ export namespace mcp {
 	    registrationUrl?: string;
 	    resourceName?: string;
 	    supportsPkce: boolean;
+	    responseHints?: DiscoveryResponseHint[];
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -4048,6 +4078,11 @@ export namespace mcp {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.found = source["found"];
+	        this.status = source["status"];
+	        this.protectedResourceFound = source["protectedResourceFound"];
+	        this.authorizationServerFound = source["authorizationServerFound"];
+	        this.metadataType = source["metadataType"];
+	        this.manualCompletionRequired = source["manualCompletionRequired"];
 	        this.authType = source["authType"];
 	        this.authUrl = source["authUrl"];
 	        this.tokenUrl = source["tokenUrl"];
@@ -4056,8 +4091,27 @@ export namespace mcp {
 	        this.registrationUrl = source["registrationUrl"];
 	        this.resourceName = source["resourceName"];
 	        this.supportsPkce = source["supportsPkce"];
+	        this.responseHints = this.convertValues(source["responseHints"], DiscoveryResponseHint);
 	        this.error = source["error"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Root {
 	    uri: string;

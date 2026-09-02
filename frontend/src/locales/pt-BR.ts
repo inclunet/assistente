@@ -1122,6 +1122,8 @@ const ptBR = {
           'OAuth configurado automaticamente{{resourceName}}. Client ID será registrado via DCR.',
         oauthDetectedNoDCR:
           'OAuth detectado{{resourceName}}, mas sem registro dinâmico. Informe o Client ID.',
+        oauthPartiallyDetected:
+          'Metadados do recurso detectados{{resourceName}}, mas o servidor de autorização não foi localizado. Complete a configuração manualmente.',
         oauthNotDetected: 'Metadados OAuth não detectados. Configure manualmente.',
         browserAuthHint:
           'Na conexão, o browser abrirá para autorizar. Credenciais serão armazenadas com criptografia no cofre do sistema.',

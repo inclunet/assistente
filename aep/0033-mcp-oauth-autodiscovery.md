@@ -87,24 +87,24 @@ func (a *App) DiscoverMCPServerAuth(serverURL string) mcp.OAuthDiscoveryResult {
      - Preencher `oauth2AuthUrl` com `result.authUrl`
      - Preencher `oauth2TokenUrl` com `result.tokenUrl`
      - Preencher `oauth2Scopes` com `result.scopes.join(' ')`
-     - Marcar esses campos como **auto-discovered** (readonly visualmente, com hint explicando)
+     - Preencher somente campos ainda vazios, preservando valores manuais
      - Mostrar hint de sucesso: "Configuração OAuth detectada automaticamente ({resourceName})" ou similar
-  5. Se `!result.found`:
+  5. Se o resultado for parcial ou ausente:
      - Não alterar campos existentes
-     - Mostrar hint neutro: "Servidor não expõe metadados OAuth. Configure manualmente se necessário."
+     - Mostrar hint correspondente e permitir conclusão manual
      - Campos permanecem editáveis normalmente
 
 **Estado de discovery**: adicionar ao componente (ou como props da McpPage):
 ```typescript
-// Novo estado no componente pai (McpPage.tsx)
-const [discoveryStatus, setDiscoveryStatus] = useState<'idle' | 'loading' | 'found' | 'not_found'>('idle');
-const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
-// discoveredFields controla quais campos foram auto-preenchidos e devem ficar readonly
+const [discoveryStatus, setDiscoveryStatus] = useState<
+  'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual'
+>('idle');
 ```
 
 **UX dos campos auto-discovered**:
-- Campos preenchidos por discovery ficam `readOnly` com visual diferenciado (opacidade reduzida ou borda tracejada, como preferir)
-- Um link/botão discreto "Editar manualmente" ao lado do bloco de auth remove o readonly e permite edição livre
+- O estado encontrado mostra apenas os campos que ainda exigem entrada do usuário
+- Um botão "Configurar manualmente" troca para o formulário completo sem apagar
+  os valores existentes
 - Se o usuário limpar a URL ou mudar para outra, resetar o discovery
 
 ### 3. Trigger duplo: blur da URL E mudança de transport
@@ -123,20 +123,20 @@ Adicionar props ao `McpConnectionSection`:
 
 ```typescript
 // Novas props
-discoveryStatus: 'idle' | 'loading' | 'found' | 'not_found';
-discoveredFields: Set<string>; // ex: new Set(['authType', 'oauth2AuthUrl', 'oauth2TokenUrl', 'oauth2Scopes'])
-onManualOverride: () => void; // limpa discoveredFields, permite edição
+discoveryStatus: 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual';
+onManualOverride: () => void; // apresenta a configuração manual completa
 onUrlBlur: () => void; // dispara discovery
 ```
 
-Os campos de auth OAuth2 verificam se estão em `discoveredFields` para decidir `readOnly`.
+O componente deriva a apresentação do `discoveryStatus`; o estado não torna
+campos manuais somente leitura nem bloqueia o salvamento.
 
 ## Arquivos a modificar
 
 1. **`internal/mcp/discovery.go`** — NOVO — lógica de discovery HTTP
 2. **`app.go`** — adicionar binding `DiscoverMCPServerAuth`
 3. **`frontend/src/pages/McpPage.tsx`** — estado de discovery + callback + efeito de trigger
-4. **`frontend/src/components/mcp/McpConnectionSection.tsx`** — onBlur na URL, props de discovery, readOnly condicional, hints
+4. **`frontend/src/components/mcp/McpConnectionSection.tsx`** — onBlur na URL, props de discovery, estados e hints
 
 ## Arquivos de referência (leia para entender padrões)
 
@@ -187,7 +187,107 @@ Os campos de auth OAuth2 verificam se estão em `discoveredFields` para decidir 
 
 ## Notas importantes
 
-- **Acessibilidade**: campos readOnly devem ser anunciados corretamente por screen readers. Usar `aria-readonly="true"` e incluir hint descritivo (ex: "preenchido automaticamente via discovery").
+- **Acessibilidade**: o status do discovery deve ser anunciado corretamente por
+  leitores de tela. A ação para abandonar o resultado e configurar manualmente
+  permanece disponível por teclado e com nome acessível.
 - **Não bloquear o save**: se o discovery falhar, o formulário funciona normalmente — é apenas uma conveniência.
 - **client_id**: NÃO temos como descobrir o client_id automaticamente via well-known (ele vem do registro do app). O campo client_id permanece editável sempre. No caso do Atlassian, existe um `registration_endpoint` — mas implementar Dynamic Client Registration (RFC 7591) é escopo futuro, não agora. Deixar o campo em branco com hint se `registrationUrl` estiver presente.
-- **Não precisa de testes por agora**: foco na implementação funcional.
+
+## Evolução: discovery genérico relacionado a caminhos
+
+### Resumo
+
+O discovery passa a considerar a hierarquia completa do caminho do recurso,
+sem reconhecer domínio, marca ou fornecedor. A evolução combina as localizações
+normativas de RFC 9728, RFC 8414 e OIDC Discovery com os fallbacks relativos
+historicamente aceitos pelo Assistente.
+
+### Motivação
+
+Recursos MCP podem estar atrás de gateways com caminhos profundos e não
+publicar Protected Resource Metadata na raiz. Reduzir antecipadamente a URL do
+recurso à origin impede encontrar metadata OAuth/OIDC válida em um ancestral.
+Além disso, tratar discovery como apenas encontrado/não encontrado ocultava
+casos em que o PRM existia, mas a configuração ainda precisava ser completada.
+
+### Decisões
+
+1. A URL do recurso é normalizada sem query, fragment ou credenciais. Segmentos
+   `.` e `..` são resolvidos antes de qualquer request.
+2. Os candidatos PRM são gerados de modo determinístico para recurso,
+   ancestrais e origin. Para cada nível, tenta-se primeiro a forma de RFC 9728
+   (`/.well-known/oauth-protected-resource{path}`) e depois o fallback relativo
+   já suportado (`{path}/.well-known/oauth-protected-resource`), com
+   deduplicação. A expansão é limitada a 16 bases: preserva o recurso completo,
+   os ancestrais mais próximos e sempre inclui a origin como fallback final.
+3. Quando o PRM não informa `authorization_servers`, recurso, ancestrais e
+   origin tornam-se bases candidatas. Para cada base são derivados:
+   - RFC 8414: `/.well-known/oauth-authorization-server{issuer-path}`;
+   - OIDC Discovery: `{issuer}/.well-known/openid-configuration`;
+   - somente depois, os fallbacks de localização anteriormente suportados.
+4. Respostas diferentes de 200 nunca são metadata. Status, desafio
+   `WWW-Authenticate`, `Location` e os campos JSON `error` e
+   `error_description` podem virar hints, sempre limitados e saneados.
+   Tokens, cookies, credenciais, userinfo, query e fragment não são expostos.
+   Respostas 200 também precisam do schema mínimo: PRM exige `resource`, como
+   determina a RFC 9728 §2, e metadata de Authorization Server precisa de
+   `token_endpoint` para ser utilizável pelo Assistente. Corpos de erro são
+   limitados a 4 KiB; metadata 200 válida pode ocupar até 64 KiB, acomodando
+   documentos OIDC reais sem abrir leitura sem limite.
+5. Redirects preservam timeout e limite, rejeitam esquema não HTTP(S),
+   credenciais na URL, downgrade de HTTPS e mais de cinco saltos.
+6. O contrato distingue `complete`, `partial` e `not_found`, além de indicar
+   separadamente PRM e Authorization Server Metadata encontrados. Ausência de
+   `registration_endpoint` exige conclusão manual, mas não invalida metadata
+   OAuth/OIDC. Metadata com `token_endpoint`, mas sem `authorization_endpoint`,
+   é tratada como Client Credentials mesmo quando a lista opcional
+   `grant_types_supported` não foi publicada. Scopes anunciados pelo PRM e pelo
+   Authorization Server são unidos e deduplicados, preservando a ordem.
+7. Valores manuais são soberanos: discovery preenche apenas campos vazios,
+   nunca impede salvar e mantém a edição manual disponível em falha parcial ou
+   total. Em resultado parcial, nome e scopes válidos do PRM continuam
+   disponíveis para ajudar na conclusão manual. A escolha explícita de edição
+   manual usa estado visual próprio e não reclassifica metadata encontrada como
+   `not_found`.
+8. PRM e Authorization Server Metadata compartilham um orçamento global,
+   cancelável por contexto: 12 segundos, até 128 tentativas e interrupção após
+   três erros de rede consecutivos. O teto de tentativas é maior que os 123
+   candidatos atualmente possíveis, portanto limita evoluções futuras sem
+   reduzir a cobertura determinística atual. O timeout global e a interrupção
+   por erros repetidos evitam espera multiplicada pelo timeout de cada request.
+   O fluxo OAuth propaga seu contexto ao orçamento para cancelamento por request
+   abortado ou shutdown.
+
+### Fases
+
+1. Normalizar e expandir candidatos de PRM e Authorization Server Metadata.
+2. Classificar respostas e produzir hints seguros.
+3. Expor estados parciais no binding e na configuração MCP.
+4. Cobrir backend e frontend com testes locais sem rede externa.
+
+### Riscos
+
+- Mais candidatos aumentam o número máximo de requests. A mitigação é o limite
+  de 16 bases, deduplicação, timeout de 5 segundos por request, orçamento global
+  de 12 segundos/128 tentativas, interrupção após três erros de rede
+  consecutivos e parada no primeiro schema válido.
+- Gateways podem devolver conteúdo hostil. Corpos de diagnóstico têm limite
+  pequeno, somente JSON escalar explicitamente permitido é aproveitado e HTML
+  é descartado.
+- Fallbacks legados podem ser ambíguos. Eles permanecem depois das derivações
+  normativas, preservando compatibilidade sem alterar sua precedência sobre os
+  padrões.
+
+### Critérios de aceitação
+
+- Caminhos profundos geram candidatos ordenados e sem duplicação ou traversal.
+- Issuer com path funciona tanto em RFC 8414 quanto em OIDC Discovery.
+- Ausência de PRM ainda permite encontrar metadata em bases ancestrais.
+- 401/403 fornecem apenas hints saneados e não são aceitos como metadata.
+- Redirects seguros funcionam; corpos excessivos são truncados para diagnóstico.
+- Falhas parciais e totais são distinguíveis na UI.
+- Esgotamento ou cancelamento do orçamento interrompe requests em voo, preserva
+  PRM já encontrado e produz hint saneado.
+- Campos manuais existentes permanecem intactos e o formulário continua
+  salvável.
+- Backend e frontend possuem testes obrigatórios para esses comportamentos.
