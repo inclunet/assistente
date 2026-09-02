@@ -336,7 +336,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     if (showSlashMenu) {
       const totalFiltered = countFilteredSlashItems(invocableSkills, slashCommands, slashFilter);
 
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' && totalFiltered > 0) {
         e.preventDefault();
         const nextIndex = (slashSelectedIndex + 1) % Math.max(totalFiltered, 1);
         setSlashSelectedIndex(nextIndex);
@@ -350,7 +350,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         }
         return;
       }
-      if (e.key === 'ArrowUp') {
+      if (e.key === 'ArrowUp' && totalFiltered > 0) {
         e.preventDefault();
         const nextIndex = (slashSelectedIndex - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1);
         setSlashSelectedIndex(nextIndex);
@@ -364,7 +364,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         }
         return;
       }
-      if ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey)) {
+      if (
+        totalFiltered > 0
+        && ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey))
+      ) {
         e.preventDefault();
         if (filteredSlashItems[slashSelectedIndex]) {
           handleSlashSelect(filteredSlashItems[slashSelectedIndex]);

@@ -44,11 +44,17 @@ const comandos = [
 // CampoControlado é o campo como o painel de chat o usa: com o texto vivendo
 // fora dele. Escolher um item escreve nesse texto, e o teste que guardasse o
 // valor por conta própria não provaria que a escrita chegou lá.
-function CampoControlado({ agentCommands = comandos }: { agentCommands?: typeof comandos }) {
+function CampoControlado({
+  agentCommands = comandos,
+  onSend = () => {},
+}: {
+  agentCommands?: typeof comandos;
+  onSend?: (message: string) => void;
+}) {
   const [message, setMessage] = useState('');
   return (
     <ChatInput
-      onSend={() => {}}
+      onSend={onSend}
       message={message}
       onMessageChange={setMessage}
       agentCommands={agentCommands}
@@ -235,6 +241,19 @@ describe('ChatInput com comandos do agente', () => {
 
     expect(fireEvent.keyDown(textarea, { key: 'Tab', shiftKey: true })).toBe(true);
     expect(textarea).toHaveValue('/');
+  });
+
+  it('envia texto iniciado por barra quando o filtro não tem opções', async () => {
+    const onSend = vi.fn();
+    render(<CampoControlado onSend={onSend} />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/comando-inexistente');
+    expect(await screen.findByText('chat.noSlashItemsFound')).toBeInTheDocument();
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledWith('/comando-inexistente', undefined);
   });
 
   it('sem skills e sem comandos o menu não aparece', async () => {
