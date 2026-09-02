@@ -7,13 +7,17 @@ import { ChatInput } from './ChatInput';
 // justamente entre o menu e o campo — a seta contando itens de uma lista e o
 // Enter escolhendo na outra.
 const getSkillsForProfileSpy = vi.fn();
+const announceSpy = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+  useTranslation: () => ({
+    t: (key: string, fallbackOrOptions?: string | Record<string, unknown>) =>
+      typeof fallbackOrOptions === 'string' ? fallbackOrOptions : key,
+  }),
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: announceSpy }),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
@@ -61,6 +65,7 @@ async function digitaNoCampo(texto: string) {
 describe('ChatInput com comandos do agente', () => {
   beforeEach(() => {
     getSkillsForProfileSpy.mockReset();
+    announceSpy.mockReset();
     getSkillsForProfileSpy.mockResolvedValue([]);
   });
 
@@ -126,6 +131,45 @@ describe('ChatInput com comandos do agente', () => {
 
     const selecionado = screen.getAllByRole('option').find((opcao) => opcao.getAttribute('aria-selected') === 'true');
     expect(selecionado?.textContent).toContain('/plan');
+  });
+
+  it('expõe combobox e relaciona a opção ativa ao listbox com IDs estáveis', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    const listbox = await screen.findByRole('listbox');
+    const activeOption = screen.getAllByRole('option')[0];
+
+    expect(textarea).toHaveAttribute('role', 'combobox');
+    expect(textarea).toHaveAttribute('aria-expanded', 'true');
+    expect(textarea).toHaveAttribute('aria-controls', listbox.id);
+    expect(textarea).toHaveAttribute('aria-activedescendant', activeOption.id);
+    expect(activeOption).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+
+    expect(textarea).toHaveFocus();
+    expect(textarea).toHaveAttribute('aria-expanded', 'false');
+    expect(textarea).not.toHaveAttribute('aria-controls');
+    expect(textarea).not.toHaveAttribute('aria-activedescendant');
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
+  });
+
+  it('anuncia abertura, opção ativa e seleção pelo announcer global', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuOpened', 'polite');
+
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashActiveOption', 'polite');
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashItemSelected', 'polite');
+    await waitFor(() => expect(textarea).toHaveFocus());
   });
 
   it('escolher um comando do agente escreve a barra e o nome no campo', async () => {

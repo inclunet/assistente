@@ -1,11 +1,11 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle, useMemo } from 'react';
+import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle, useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
-import { SlashCommandMenu, countFilteredSlashItems } from './SlashCommandMenu';
+import { SlashCommandMenu, countFilteredSlashItems, getSlashOptionId } from './SlashCommandMenu';
 import { buildSlashItems, filterSlashItems, type SlashItem } from './slashItems';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -29,6 +29,8 @@ export interface ChatInputProps {
   onMessageChange?: (message: string) => void;
   onMediaFilesChange?: (mediaFiles: MediaFile[]) => void;
   profileSlug?: string;
+  /** Habilita o menu de skills e comandos iniciado por "/". */
+  slashMenuEnabled?: boolean;
   /**
    * Comandos que o agente de código desta conversa oferece (AEP-0084 D8). Eles
    * entram no mesmo menu da barra: quem digita "/" quer ver o que pode pedir,
@@ -52,6 +54,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     onMessageChange,
     onMediaFilesChange,
     profileSlug,
+    slashMenuEnabled = true,
     agentCommands,
   },
   ref
@@ -64,6 +67,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const slashMenuId = `${useId().replace(/[^a-zA-Z0-9_-]/g, '')}-slash-listbox`;
 
   // Slash command state
   const [showSlashMenu, setShowSlashMenu] = useState(false);
@@ -121,6 +125,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
+    if (!slashMenuEnabled) {
+      setInvocableSkills([]);
+      setShowSlashMenu(false);
+      return;
+    }
     let cancelled = false;
     GetUserInvocableSkillsForProfile(profileSlug || '')
       .then((result) => {
@@ -132,7 +141,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     return () => {
       cancelled = true;
     };
-  }, [profileSlug]);
+  }, [profileSlug, slashMenuEnabled]);
 
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {
@@ -151,10 +160,18 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     () => buildSlashItems(invocableSkills, slashCommands),
     [invocableSkills, slashCommands],
   );
+  const filteredSlashItems = useMemo(
+    () => filterSlashItems(slashItems, slashFilter),
+    [slashItems, slashFilter],
+  );
+  const activeSlashItem = showSlashMenu ? filteredSlashItems[slashSelectedIndex] : undefined;
+  const activeSlashOptionId = activeSlashItem
+    ? getSlashOptionId(slashMenuId, activeSlashItem)
+    : undefined;
 
   // Detecta slash command no texto
   const updateSlashMenu = useCallback((text: string) => {
-    if (slashItems.length === 0) {
+    if (!slashMenuEnabled || slashItems.length === 0) {
       setShowSlashMenu(false);
       return;
     }
@@ -173,7 +190,19 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     } else {
       setShowSlashMenu(false);
     }
-  }, [slashItems]);
+  }, [slashItems, slashMenuEnabled]);
+
+  const closeSlashMenu = useCallback((shouldAnnounce = false) => {
+    setShowSlashMenu(false);
+    if (shouldAnnounce) {
+      announce(t('chat.slashMenuClosed'), 'polite');
+    }
+  }, [announce, t]);
+
+  useEffect(() => {
+    if (!showSlashMenu) return;
+    announce(t('chat.slashMenuOpened', { count: filteredSlashItems.length }), 'polite');
+  }, [announce, filteredSlashItems.length, showSlashMenu, t]);
 
   // Quando um item do menu é escolhido. O espaço no fim só aparece quando ainda
   // falta escrever alguma coisa: pôr espaço num comando sem argumento faria a
@@ -181,11 +210,12 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleSlashSelect = useCallback((item: SlashItem) => {
     setMessage(`/${item.token}${item.acceptsInput ? ' ' : ''}`);
     setShowSlashMenu(false);
+    announce(t('chat.slashItemSelected', { command: `/${item.token}` }), 'polite');
     // Foca o textarea
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, [textareaRef, setMessage]);
+  }, [announce, textareaRef, setMessage, t]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -305,26 +335,47 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSlashSelectedIndex((prev) => (prev + 1) % Math.max(totalFiltered, 1));
+        const nextIndex = (slashSelectedIndex + 1) % Math.max(totalFiltered, 1);
+        setSlashSelectedIndex(nextIndex);
+        const nextItem = filteredSlashItems[nextIndex];
+        if (nextItem) {
+          announce(t('chat.slashActiveOption', {
+            command: `/${nextItem.token}`,
+            position: nextIndex + 1,
+            total: totalFiltered,
+          }), 'polite');
+        }
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSlashSelectedIndex((prev) => (prev - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1));
+        const nextIndex = (slashSelectedIndex - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1);
+        setSlashSelectedIndex(nextIndex);
+        const nextItem = filteredSlashItems[nextIndex];
+        if (nextItem) {
+          announce(t('chat.slashActiveOption', {
+            command: `/${nextItem.token}`,
+            position: nextIndex + 1,
+            total: totalFiltered,
+          }), 'polite');
+        }
         return;
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        // O item na posição atual da mesma lista que o menu desenha.
-        const filtered = filterSlashItems(slashItems, slashFilter);
-        if (filtered[slashSelectedIndex]) {
-          handleSlashSelect(filtered[slashSelectedIndex]);
+        if (filteredSlashItems[slashSelectedIndex]) {
+          handleSlashSelect(filteredSlashItems[slashSelectedIndex]);
         }
         return;
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setShowSlashMenu(false);
+        closeSlashMenu(true);
+        textareaRef.current?.focus();
+        return;
+      }
+      if (e.key === 'Tab') {
+        closeSlashMenu();
         return;
       }
     }
@@ -377,8 +428,9 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           filter={slashFilter}
           selectedIndex={slashSelectedIndex}
           onSelect={handleSlashSelect}
-          onClose={() => setShowSlashMenu(false)}
+          onClose={() => closeSlashMenu()}
           anchorRef={textareaRef}
+          listboxId={slashMenuId}
         />
       )}
 
@@ -419,6 +471,12 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           placeholder={placeholder || t('chat.placeholder')}
           rows={1}
           aria-label={t('chat.messageLabel')}
+          role={slashMenuEnabled ? 'combobox' : undefined}
+          aria-autocomplete={slashMenuEnabled ? 'list' : undefined}
+          aria-expanded={slashMenuEnabled ? showSlashMenu : undefined}
+          aria-controls={slashMenuEnabled && showSlashMenu ? slashMenuId : undefined}
+          aria-activedescendant={activeSlashOptionId}
+          onBlur={() => closeSlashMenu()}
         />
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
         {isStreaming ? (

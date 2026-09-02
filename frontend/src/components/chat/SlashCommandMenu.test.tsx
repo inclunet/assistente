@@ -28,10 +28,14 @@ describe('SlashCommandMenu', () => {
         onSelect={onSelect}
         onClose={onClose}
         anchorRef={anchorRef}
+        listboxId="slash-listbox"
       />
     );
 
     fireEvent.click(screen.getByRole('option'));
+    expect(screen.getByRole('listbox')).toHaveAttribute('id', 'slash-listbox');
+    expect(screen.getByRole('option')).toHaveAttribute('id', 'slash-listbox-option-skill-skill');
+    expect(screen.getByRole('option')).toHaveAttribute('aria-selected', 'true');
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'skill', token: 'skill', skill: expect.objectContaining({ slug: 'skill' }) }),
     );
@@ -55,6 +59,7 @@ describe('SlashCommandMenu', () => {
         onSelect={() => {}}
         onClose={() => {}}
         anchorRef={anchorRef}
+        listboxId="slash-listbox"
       />
     );
 
