@@ -389,10 +389,22 @@ describe('McpPage — oauth2_callback_host', () => {
     await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
 
     await userEvent.click(screen.getByText('Configurar manualmente'));
+    await userEvent.type(screen.getByLabelText('OAuth Scopes'), 'manual:scope');
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByText('Descobrir OAuth'));
 
     await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
     expect(mockDiscover).toHaveBeenLastCalledWith('https://mcp.example/caminho');
+  });
+
+  it('aceita scheme HTTPS sem depender de caixa', async () => {
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'HTTPS://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+
+    await waitFor(() => {
+      expect(mockDiscover).toHaveBeenCalledWith('HTTPS://mcp.example/caminho');
+    });
   });
 
   it('limpa registration URL descoberto ao descobrir outro servidor sem DCR', async () => {

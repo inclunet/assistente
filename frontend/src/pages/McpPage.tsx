@@ -63,6 +63,14 @@ function statusLabel(status: string, t: (key: string) => string): string {
   return labels[status] || status;
 }
 
+function isHTTPSDiscoveryUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function normalizeDiscoveryResourceUrl(value: string): string {
   try {
     const parsed = new URL(value.trim());
@@ -148,7 +156,7 @@ export default function McpPage() {
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
   const [manualRegistrationUrl, setManualRegistrationUrl] = useState('');
   const [manualRegistrationServerUrl, setManualRegistrationServerUrl] = useState('');
-  const [lastDiscoveredUrl, setLastDiscoveredUrl] = useState('');
+  const lastDiscoveredUrlRef = useRef('');
   const discoveryRequestRef = useRef(0);
 
   useEffect(() => {
@@ -207,7 +215,7 @@ export default function McpPage() {
     setDiscoveryRegistrationUrl('');
     setManualRegistrationUrl(config?.oauth2_registration_url || '');
     setManualRegistrationServerUrl(config?.url || '');
-    setLastDiscoveredUrl('');
+    lastDiscoveredUrlRef.current = '';
     discoveryRequestRef.current += 1;
   };
 
@@ -299,38 +307,38 @@ export default function McpPage() {
   }, [announce, t]);
 
   const runDiscovery = useCallback(async (urlToDiscover: string) => {
-    if (!urlToDiscover || !urlToDiscover.startsWith('https://')) return;
-    if (urlToDiscover === lastDiscoveredUrl) return;
+    if (!isHTTPSDiscoveryUrl(urlToDiscover)) return;
+    if (urlToDiscover === lastDiscoveredUrlRef.current) return;
 
     const requestID = ++discoveryRequestRef.current;
     setDiscoveryStatus('loading');
     setDiscoveryRegistrationUrl('');
-    setLastDiscoveredUrl(urlToDiscover);
+    lastDiscoveredUrlRef.current = urlToDiscover;
 
     try {
       const result = await DiscoverMCPServerAuth(urlToDiscover);
       if (requestID !== discoveryRequestRef.current) return;
       if (result.found) {
-        if (result.authType && formAuthType === 'none') {
-          setFormAuthType(result.authType);
+        if (result.authType) {
+          setFormAuthType((current) => current === 'none' ? result.authType : current);
         }
-        if (result.authUrl && !formOAuth2AuthUrl) {
-          setFormOAuth2AuthUrl(result.authUrl);
+        if (result.authUrl) {
+          setFormOAuth2AuthUrl((current) => current || result.authUrl);
         }
-        if (result.tokenUrl && !formOAuth2TokenUrl) {
-          setFormOAuth2TokenUrl(result.tokenUrl);
+        if (result.tokenUrl) {
+          setFormOAuth2TokenUrl((current) => current || result.tokenUrl);
         }
-        if (result.scopes?.length > 0 && !formOAuth2Scopes) {
-          setFormOAuth2Scopes(result.scopes.join(' '));
+        if (result.scopes?.length > 0) {
+          setFormOAuth2Scopes((current) => current || result.scopes.join(' '));
         }
         const resName = result.resourceName || '';
         setDiscoveryResourceName(resName);
         setDiscoveryRegistrationUrl(result.registrationUrl || '');
-        if (resName && !formName) setFormName(resName);
+        if (resName) setFormName((current) => current || resName);
         setDiscoveryStatus('found');
       } else if (result.status === 'partial' || result.protectedResourceFound) {
-        if (result.scopes?.length > 0 && !formOAuth2Scopes) {
-          setFormOAuth2Scopes(result.scopes.join(' '));
+        if (result.scopes?.length > 0) {
+          setFormOAuth2Scopes((current) => current || result.scopes.join(' '));
         }
         setDiscoveryResourceName(result.resourceName || '');
         setDiscoveryRegistrationUrl('');
@@ -343,14 +351,7 @@ export default function McpPage() {
       if (requestID !== discoveryRequestRef.current) return;
       setDiscoveryStatus('not_found');
     }
-  }, [
-    lastDiscoveredUrl,
-    formAuthType,
-    formName,
-    formOAuth2AuthUrl,
-    formOAuth2Scopes,
-    formOAuth2TokenUrl,
-  ]);
+  }, []);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
@@ -369,7 +370,7 @@ export default function McpPage() {
 
   const handleManualOverride = useCallback(() => {
     discoveryRequestRef.current += 1;
-    setLastDiscoveredUrl('');
+    lastDiscoveredUrlRef.current = '';
     setDiscoveryRegistrationUrl('');
     setDiscoveryStatus('not_found');
   }, []);
@@ -377,7 +378,7 @@ export default function McpPage() {
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida
   useEffect(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
-    if (isHTTP && formUrl.trim() && formUrl.trim().startsWith('https://') && editing) {
+    if (isHTTP && isHTTPSDiscoveryUrl(formUrl.trim()) && editing) {
       runDiscovery(formUrl.trim());
     }
   }, [editing, formTransport, formUrl, runDiscovery]);
