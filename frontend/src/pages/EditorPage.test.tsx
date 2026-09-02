@@ -605,27 +605,36 @@ describe('EditorPage', () => {
   });
 
   it('foca o Monaco somente depois do onMount assíncrono', async () => {
+    vi.useFakeTimers();
     editorPageMocks.chatModalIsOpen = false;
     editorPageMocks.mountEditorsAutomatically = false;
     editorStoreState.documents = {
       'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
     };
 
-    render(<EditorPage documentId="tab-1" />);
+    try {
+      render(<EditorPage documentId="tab-1" />);
 
-    expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
+      expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
 
-    act(() => {
-      (editorPageMocks.editorContentAreaProps?.onMonacoMount as (
-        editor: unknown,
-        monaco: unknown,
-      ) => void)(editorPageMocks.markdownEditor, {});
-    });
+      act(() => {
+        (editorPageMocks.editorContentAreaProps?.onMonacoMount as (
+          editor: unknown,
+          monaco: unknown,
+        ) => void)(editorPageMocks.markdownEditor, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20);
+      });
 
-    await vi.waitFor(() => expect(editorPageMocks.markdownFocus).toHaveBeenCalledTimes(1));
+      expect(editorPageMocks.markdownFocus).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('não rouba foco de outro campo quando o Monaco termina de montar', async () => {
+    vi.useFakeTimers();
     editorPageMocks.chatModalIsOpen = false;
     editorPageMocks.mountEditorsAutomatically = false;
     editorStoreState.documents = {
@@ -634,20 +643,26 @@ describe('EditorPage', () => {
     const otherField = document.createElement('input');
     document.body.append(otherField);
 
-    render(<EditorPage documentId="tab-1" />);
-    otherField.focus();
+    try {
+      render(<EditorPage documentId="tab-1" />);
+      otherField.focus();
 
-    act(() => {
-      (editorPageMocks.editorContentAreaProps?.onMonacoMount as (
-        editor: unknown,
-        monaco: unknown,
-      ) => void)(editorPageMocks.markdownEditor, {});
-    });
+      act(() => {
+        (editorPageMocks.editorContentAreaProps?.onMonacoMount as (
+          editor: unknown,
+          monaco: unknown,
+        ) => void)(editorPageMocks.markdownEditor, {});
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20);
+      });
 
-    await new Promise((resolve) => window.setTimeout(resolve, 30));
-    expect(otherField).toHaveFocus();
-    expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
-    otherField.remove();
+      expect(otherField).toHaveFocus();
+      expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
+    } finally {
+      otherField.remove();
+      vi.useRealTimers();
+    }
   });
 
   it('abre menu Inserir com Alt+I quando disponível', () => {
