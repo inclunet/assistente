@@ -265,6 +265,8 @@ ou total também não impede salvar o servidor. Desafios HTTP e erros de discove
 são tratados com limites e saneamento; tokens, cookies e credenciais não são
 copiados para o resultado exibido. O ciclo completo tem duração limitada e pode
 ser tentado novamente para a mesma URL depois de resultado parcial ou falha.
+Escolher **Configurar manualmente** apenas abre os campos completos; isso não
+transforma uma descoberta bem-sucedida em mensagem de falha.
 
 ---
 

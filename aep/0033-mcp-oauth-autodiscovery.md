@@ -244,7 +244,9 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
 7. Valores manuais são soberanos: discovery preenche apenas campos vazios,
    nunca impede salvar e mantém a edição manual disponível em falha parcial ou
    total. Em resultado parcial, nome e scopes válidos do PRM continuam
-   disponíveis para ajudar na conclusão manual.
+   disponíveis para ajudar na conclusão manual. A escolha explícita de edição
+   manual usa estado visual próprio e não reclassifica metadata encontrada como
+   `not_found`.
 8. PRM e Authorization Server Metadata compartilham um orçamento global,
    cancelável por contexto: 12 segundos, até 128 tentativas e interrupção após
    três erros de rede consecutivos. O teto de tentativas é maior que os 123

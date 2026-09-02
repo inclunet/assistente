@@ -158,6 +158,14 @@ describe('McpConnectionSection — Discovery states', () => {
     expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
   });
 
+  it('modo manual: exibe configuração completa sem anunciar falha', () => {
+    renderWith({ discoveryStatus: 'manual' });
+
+    expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
+    expect(screen.queryByText('Metadados OAuth não detectados. Configure manualmente.')).not.toBeInTheDocument();
+    expect(announceRequestMock).not.toHaveBeenCalled();
+  });
+
   it('idle: não exibe campos OAuth', () => {
     renderWith({ discoveryStatus: 'idle' });
     expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();

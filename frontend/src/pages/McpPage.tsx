@@ -150,7 +150,7 @@ export default function McpPage() {
   const [formOAuth2CallbackHost, setFormOAuth2CallbackHost] = useState('');
 
   // OAuth auto-discovery
-  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found';
+  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual';
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>('idle');
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
@@ -388,7 +388,7 @@ export default function McpPage() {
     discoveryRequestRef.current += 1;
     lastDiscoveredUrlRef.current = '';
     setDiscoveryRegistrationUrl('');
-    setDiscoveryStatus('not_found');
+    setDiscoveryStatus('manual');
   }, []);
 
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida

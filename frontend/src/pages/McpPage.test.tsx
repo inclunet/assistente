@@ -391,6 +391,7 @@ describe('McpPage — oauth2_callback_host', () => {
     await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
 
     await userEvent.click(screen.getByText('Configurar manualmente'));
+    expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('manual');
     await userEvent.type(screen.getByLabelText('OAuth Scopes'), 'manual:scope');
     expect(mockDiscover).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByText('Descobrir OAuth'));

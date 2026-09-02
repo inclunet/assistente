@@ -7,7 +7,7 @@ import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 
-type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found';
+type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual';
 
 interface McpConnectionSectionProps {
   transport: string;
@@ -120,7 +120,8 @@ export function McpConnectionSection({
 
   const hasDCR = discoveryStatus === 'found' && !!discoveryRegistrationUrl;
   const discoveredNoDCR = discoveryStatus === 'found' && !discoveryRegistrationUrl;
-  const isManualMode = discoveryStatus === 'not_found' || discoveryStatus === 'partial';
+  const isManualMode =
+    discoveryStatus === 'not_found' || discoveryStatus === 'partial' || discoveryStatus === 'manual';
 
   const discoveryLiveText = (() => {
     switch (discoveryStatus) {
@@ -273,7 +274,7 @@ export function McpConnectionSection({
               </fieldset>
             )}
 
-            {/* Estado C: Discovery parcial/falhou — configuração manual completa */}
+            {/* Estado C: modo manual, discovery parcial/falhou — configuração completa */}
             {isManualMode && (
               <fieldset className="mcp-fieldset">
                 <legend className="mcp-fieldset__legend">{t('mcp.connection.auth')}</legend>
