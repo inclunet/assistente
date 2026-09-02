@@ -399,6 +399,67 @@ describe('McpPage — oauth2_callback_host', () => {
     expect(mockDiscover).toHaveBeenLastCalledWith('https://mcp.example/caminho');
   });
 
+  it.each<[string, Record<string, unknown>]>([
+    ['partial', { found: false, status: 'partial', protectedResourceFound: true }],
+    ['not_found', { found: false, status: 'not_found' }],
+  ])('permite retry explícito da mesma URL após resultado %s', async (status, result) => {
+    mockDiscover.mockResolvedValue(result);
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/retry');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => {
+      expect(screen.getByTestId('discovery-status-value')).toHaveTextContent(status);
+    });
+
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+  });
+
+  it('permite retry explícito da mesma URL após erro', async () => {
+    mockDiscover
+      .mockRejectedValueOnce(new Error('falha transitória'))
+      .mockResolvedValue({ found: false, status: 'not_found' });
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/retry');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => {
+      expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('not_found');
+    });
+
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+  });
+
+  it('não duplica discovery durante loading nem após resultado completo', async () => {
+    let resolveDiscovery: (value: Record<string, unknown>) => void = () => {};
+    mockDiscover.mockImplementation(() => new Promise((resolve) => {
+      resolveDiscovery = resolve;
+    }));
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/complete');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveDiscovery({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://auth.example/authorize',
+        tokenUrl: 'https://auth.example/token',
+        scopes: [],
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('found');
+    });
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+  });
+
   it('aceita scheme HTTPS sem depender de caixa', async () => {
     await openNewServerForm();
     await userEvent.type(screen.getByLabelText('Server URL'), 'HTTPS://mcp.example/caminho');

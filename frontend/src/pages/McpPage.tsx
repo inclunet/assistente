@@ -347,13 +347,16 @@ export default function McpPage() {
         setDiscoveryResourceName(result.resourceName || '');
         setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('partial');
+        lastDiscoveredUrlRef.current = '';
       } else {
         setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('not_found');
+        lastDiscoveredUrlRef.current = '';
       }
     } catch {
       if (requestID !== discoveryRequestRef.current) return;
       setDiscoveryStatus('not_found');
+      lastDiscoveredUrlRef.current = '';
     }
   }, []);
 
