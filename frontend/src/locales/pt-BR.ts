@@ -188,6 +188,14 @@ const ptBR = {
           ask: 'Perguntar',
         },
       },
+      modelOverride: {
+        label: 'Modelo desta aba',
+        description: 'Escolhe o modelo para os próximos turnos desta aba, sem alterar o perfil',
+        profileDefault: 'Modelo do perfil',
+        changed: 'Modelo desta aba alterado para {{model}}.',
+        reset: 'Esta aba voltou a usar o modelo do perfil.',
+        error: 'Não foi possível alterar o modelo desta aba. Tente novamente.',
+      },
       agentWorkDir: {
         title: 'Diretório do agente nesta conversa',
         buttonWorkspace: 'Diretório do agente: {{dir}}, o do workspace ativo. Abre a troca de diretório.',
@@ -1984,7 +1992,7 @@ const ptBR = {
     pickers: {
       base: { loading: 'Carregando...', loadError: 'Erro ao carregar', empty: 'Nenhuma opção disponível', retry: 'Tentar novamente' },
       llmProvider: { label: 'Provedor LLM', description: 'Selecione o provedor de modelo de linguagem', noneConfigured: 'Nenhum provedor configurado. Configure um provedor primeiro.', loadError: 'Erro ao carregar provedores', placeholder: 'Selecione um provedor...', retry: 'Tentar novamente', loading: 'Carregando provedores...' },
-      model: { label: 'Modelo', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecione um provedor primeiro', noModels: 'Nenhum modelo disponível para este provedor.', noModelsGlobal: 'Nenhum modelo disponível. Configure um provedor primeiro.', agentChooses: 'Este agente não oferece escolha de modelo: quem escolhe é ele.', agentUnavailable: 'Não foi possível falar com o agente. Abra Configurações → Provedores e refaça a detecção do agente.', configureApiKey: 'Configure a API key deste provedor em Configurações → Credenciais', loadError: 'Erro ao carregar modelos:', typePlaceholder: 'Digite o modelo...', notLoaded: 'Modelos não carregados. Digite manualmente o nome do modelo.', retry: 'Tentar novamente', loading: 'Carregando modelos...', refresh: 'Recarregar modelos', refreshLabel: 'Recarregar a lista de modelos do provedor', refreshed_one: 'Lista de modelos atualizada: {{count}} modelo', refreshed_other: 'Lista de modelos atualizada: {{count}} modelos' },
+      model: { label: 'Modelo', default: 'Padrão do provedor', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecione um provedor primeiro', noModels: 'Nenhum modelo disponível para este provedor.', noModelsGlobal: 'Nenhum modelo disponível. Configure um provedor primeiro.', agentChooses: 'Este agente não oferece escolha de modelo: quem escolhe é ele.', agentUnavailable: 'Não foi possível falar com o agente. Abra Configurações → Provedores e refaça a detecção do agente.', configureApiKey: 'Configure a API key deste provedor em Configurações → Credenciais', loadError: 'Erro ao carregar modelos:', typePlaceholder: 'Digite o modelo...', notLoaded: 'Modelos não carregados. Digite manualmente o nome do modelo.', retry: 'Tentar novamente', loading: 'Carregando modelos...', refresh: 'Recarregar modelos', refreshLabel: 'Recarregar a lista de modelos do provedor', refreshed_one: 'Lista de modelos atualizada: {{count}} modelo', refreshed_other: 'Lista de modelos atualizada: {{count}} modelos' },
       voice: { disabled: 'Desativado', system: 'Sistema', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voz', description: 'Selecione a voz para síntese de fala', loadError: 'Erro ao carregar vozes', screenReader: 'Desativada (usar leitor de telas)', accessibility: 'Acessibilidade', premium: '• Premium', loading: 'Carregando vozes...' },
       voiceProvider: { label: 'Provedor de Voz', description: 'Selecione o provedor de síntese', loading: 'Carregando provedores...', loadError: 'Erro ao carregar provedores', screenReader: 'Leitor de telas (desativar TTS)', screenReaderDesc: 'Usa o leitor de telas e desativa a síntese de voz', default: 'Padrão (Assistente)', defaultDesc: 'Usa o provedor do Assistente', webspeech: 'WebSpeech (Navegador)', webspeechDesc: 'Vozes do navegador (grátis)', sapi5: 'SAPI5 (Windows)', sapi5Desc: 'Vozes do Windows', followAssistant: 'Seguir voz do Assistente', followAssistantDesc: 'Usa a mesma voz do Assistente', followUser: 'Seguir voz do Usuário', followUserDesc: 'Usa a mesma voz do Usuário', followSystem: 'Seguir voz do Sistema', followSystemDesc: 'Usa a mesma voz do Sistema', llmProvider: 'Provedor LLM', llmProviderWithHost: 'TTS/STT via {{host}}' },
       stt: { label: 'STT', description: 'Selecione o provedor de reconhecimento de fala', webSpeech: 'WebSpeech', webSpeechDesc: 'Navegador (grátis)', whisper: 'Whisper', whisperDesc: 'OpenAI (premium)', whisperViaProvider: 'Whisper (via provedor LLM)', loadError: 'Erro ao carregar provedores', loading: 'Carregando provedores...' },

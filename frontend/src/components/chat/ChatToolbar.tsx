@@ -5,9 +5,11 @@ import { useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigationStore } from '../../store/navigationStore';
 import { ClearConversation } from '@wailsjs/go/wailsapi/Conversations';
-import { GetActiveProfileSlug } from '@wailsjs/go/wailsapi/Profiles';
+import { GetActiveProfileSlug, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
+import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
+import { ModelPicker } from '../pickers/ModelPicker';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
@@ -25,6 +27,25 @@ import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 import './ChatToolbar.css';
+
+const DEFAULT_ROUTING_SENTINEL = '$default';
+
+type ProviderSummary = {
+  id?: unknown;
+  api_format?: unknown;
+  is_default?: unknown;
+};
+
+function providerForProfile(
+  profile: { chat?: { llm_provider?: string } } | null | undefined,
+  providers: ProviderSummary[],
+): ProviderSummary | undefined {
+  const configuredID = profile?.chat?.llm_provider?.trim();
+  if (!configuredID || configuredID === DEFAULT_ROUTING_SENTINEL) {
+    return providers.find((provider) => provider.is_default === true);
+  }
+  return providers.find((provider) => provider.id === configuredID);
+}
 
 export type ChatToolbarConversationChangeHandler = (
   conversationId: string,
@@ -90,6 +111,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
+  const [nativeModelProviderID, setNativeModelProviderID] = useState<string | null>(null);
+  const [modelOverrideUpdating, setModelOverrideUpdating] = useState(false);
 
   useEffect(() => {
     GetActiveProfileSlug().then((slug) => setActiveProfileSlug(slug || 'padrao'));
@@ -98,6 +121,28 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     });
     return unsub;
   }, []);
+
+  const toolbarProfileSlug = effectiveProfileSlug || activeProfileSlug;
+  useEffect(() => {
+    let current = true;
+    setNativeModelProviderID(null);
+    void Promise.all([
+      GetProfile(toolbarProfileSlug),
+      GetLLMProvidersWithStatus(),
+    ]).then(([profile, providers]) => {
+      if (!current) return;
+      const provider = providerForProfile(profile, providers || []);
+      const providerID = typeof provider?.id === 'string' ? provider.id : '';
+      const isAgent = provider?.api_format === 'acp';
+      setNativeModelProviderID(providerID && !isAgent ? providerID : null);
+    }).catch((error: unknown) => {
+      logger.warn('[ChatToolbar] Não foi possível resolver o provedor do modelo:', error);
+      if (current) setNativeModelProviderID(null);
+    });
+    return () => {
+      current = false;
+    };
+  }, [toolbarProfileSlug]);
 
   useEffect(() => {
     announceRequestRef.current = announceRequest;
@@ -233,9 +278,33 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       // mostrava o slug novo otimisticamente mas o profile não chegava
       // ao backend, e a próxima mensagem ia pro perfil errado sem
       // qualquer feedback ao usuário.
-      await updateWsTab(panelTab.id, {
-        profile_override: { slug },
-      });
+      const profilePatch: Record<string, unknown> = { slug };
+      const tabModel = typeof panelTab.profileOverride?.model === 'string'
+        ? panelTab.profileOverride.model.trim()
+        : '';
+      if (tabModel) {
+        try {
+          const [currentProfile, nextProfile, providers] = await Promise.all([
+            GetProfile(toolbarProfileSlug),
+            GetProfile(slug),
+            GetLLMProvidersWithStatus(),
+          ]);
+          const currentProvider = providerForProfile(currentProfile, providers || []);
+          const nextProvider = providerForProfile(nextProfile, providers || []);
+          if (
+            typeof currentProvider?.id !== 'string'
+            || typeof nextProvider?.id !== 'string'
+            || currentProvider.id !== nextProvider.id
+          ) {
+            profilePatch.model = null;
+          }
+        } catch {
+          // Se não for possível provar compatibilidade, não enviamos um modelo
+          // possivelmente inválido ao provider do novo perfil.
+          profilePatch.model = null;
+        }
+      }
+      await updateWsTab(panelTab.id, { profile_override: profilePatch });
     } catch (error) {
       logger.error('[ChatToolbar] Erro ao trocar perfil:', error);
       addToast(
@@ -245,7 +314,34 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     } finally {
       focusInput();
     }
-  }, [focusInput, panelTab.id, updateWsTab, addToast, t]);
+  }, [focusInput, panelTab.id, panelTab.profileOverride, toolbarProfileSlug, updateWsTab, addToast, t]);
+
+  const modelChangeChainRef = useRef<Promise<void>>(Promise.resolve());
+  const handleNativeModelChange = useCallback((model: string) => {
+    const run = async () => {
+      setModelOverrideUpdating(true);
+      try {
+        const normalizedModel = model.trim();
+        const reset = !normalizedModel || normalizedModel === DEFAULT_ROUTING_SENTINEL;
+        await updateWsTab(panelTab.id, {
+          profile_override: { model: reset ? null : normalizedModel },
+        });
+        announce(reset
+          ? t('chat.modelOverride.reset')
+          : t('chat.modelOverride.changed', { model: normalizedModel }));
+      } catch (error) {
+        logger.error('[ChatToolbar] Erro ao trocar modelo da aba:', error);
+        const message = t('chat.modelOverride.error');
+        addToast(message, 'error');
+        announce(message);
+      } finally {
+        setModelOverrideUpdating(false);
+        focusInput();
+      }
+    };
+    modelChangeChainRef.current = modelChangeChainRef.current.then(run, run);
+    return modelChangeChainRef.current;
+  }, [addToast, announce, focusInput, panelTab.id, t, updateWsTab]);
 
   // O HistoryPicker chama onChange de forma síncrona (não aguarda a promise), então
   // seleções rápidas poderiam disparar trocas concorrentes e efeitos fora de ordem.
@@ -348,6 +444,22 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               conversationId={effectiveConversationId}
               disabled={isLoading}
             />
+
+            {nativeModelProviderID && (
+              <ModelPicker
+                value={(panelTab.profileOverride?.model as string | undefined) || DEFAULT_ROUTING_SENTINEL}
+                onChange={(model) => void handleNativeModelChange(model)}
+                providerID={nativeModelProviderID}
+                variant="toolbar"
+                label={t('chat.modelOverride.label')}
+                placeholder={t('pickers.model.filterPlaceholder')}
+                description={t('chat.modelOverride.description')}
+                disabled={isLoading || modelOverrideUpdating}
+                includeDefaultOption
+                defaultOptionLabel={t('chat.modelOverride.profileDefault')}
+                onAnnounce={announce}
+              />
+            )}
 
             {/* Diretório em que o agente desta conversa trabalha. Fica à vista
                 porque é o alcance do que ele pode ler e editar (AEP-0084 D5). */}

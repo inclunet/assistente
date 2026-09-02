@@ -610,6 +610,175 @@ func TestPrepareContext_WorkspaceOverrideMissingFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPrepareContext_ModeloDaAbaRespeitaPrecedencia(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	profile := profiles.DefaultProfile()
+	profile.Name = "Perfil"
+	profile.Chat.Model = "modelo-perfil"
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID: "ws-1",
+			Tabs: workspace.TabsState{Items: []workspace.Tab{{
+				ID:              "tab-chat",
+				Type:            workspace.TabTypeChat,
+				ConversationID:  "conv-1",
+				ProfileOverride: map[string]any{"slug": slug, "model": "modelo-aba"},
+			}}},
+		}},
+	})
+
+	tests := []struct {
+		name          string
+		explicitModel string
+		defaultModel  string
+		want          string
+	}{
+		{name: "aba antes do perfil", want: "modelo-aba"},
+		{name: "requisição antes da aba", explicitModel: "modelo-explicito", want: "modelo-explicito"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+				ConversationID: "conv-1",
+				Source:         "wails",
+				DefaultModel:   tt.defaultModel,
+				Params: ChatParams{
+					Model:        tt.explicitModel,
+					ProfileSlug:  slug,
+					SurfaceTabID: "tab-chat",
+				},
+			})
+			if err != nil {
+				t.Fatalf("PrepareContext: %v", err)
+			}
+			if resp.Params.Model != tt.want {
+				t.Fatalf("Model = %q, want %q", resp.Params.Model, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareContext_ModeloDaAbaExigeWailsTabExplicitaEVinculoValido(t *testing.T) {
+	ws := &workspace.Workspace{
+		ID: "ws-1",
+		Tabs: workspace.TabsState{Items: []workspace.Tab{
+			{
+				ID:              "tab-dona",
+				Type:            workspace.TabTypeChat,
+				ConversationID:  "conv-1",
+				ProfileOverride: map[string]any{"model": "modelo-aba"},
+			},
+			{
+				ID:             "tab-outra",
+				Type:           workspace.TabTypeChat,
+				ConversationID: "conv-2",
+			},
+		}},
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:   &spyEmitter{},
+		ConvRepo:  noopConvRepo{},
+		Workspace: staticWorkspaceProvider{ws: ws},
+	})
+
+	tests := []struct {
+		name   string
+		source string
+		tabID  string
+	}{
+		{name: "canal", source: "telegram", tabID: "tab-dona"},
+		{name: "sem tab explicita", source: "wails"},
+		{name: "vinculo divergente", source: "wails", tabID: "tab-outra"},
+		{name: "tab inexistente", source: "wails", tabID: "tab-ausente"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+				ConversationID: "conv-1",
+				Source:         tt.source,
+				DefaultModel:   "modelo-global",
+				Params:         ChatParams{SurfaceTabID: tt.tabID},
+			})
+			if err != nil {
+				t.Fatalf("PrepareContext: %v", err)
+			}
+			if resp.Params.Model != "modelo-global" {
+				t.Fatalf("Model = %q, want modelo-global", resp.Params.Model)
+			}
+		})
+	}
+}
+
+func TestPrepareContext_NaoProcuraModeloPorConversationID(t *testing.T) {
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:  &spyEmitter{},
+		ConvRepo: noopConvRepo{},
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID: "ws-1",
+			Tabs: workspace.TabsState{Items: []workspace.Tab{
+				{
+					ID:              "tab-com-modelo",
+					Type:            workspace.TabTypeChat,
+					ConversationID:  "conv-1",
+					ProfileOverride: map[string]any{"model": "modelo-aba"},
+				},
+				{
+					ID:             "tab-sem-modelo",
+					Type:           workspace.TabTypeChat,
+					ConversationID: "conv-1",
+				},
+			}},
+		}},
+	})
+	resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		DefaultModel:   "modelo-global",
+		Params:         ChatParams{SurfaceTabID: "tab-sem-modelo"},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp.Params.Model != "modelo-global" {
+		t.Fatalf("Model = %q, want modelo-global", resp.Params.Model)
+	}
+}
+
+func TestPrepareContext_ModeloDoPerfilPrecedeDefaultGlobal(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	profile := profiles.DefaultProfile()
+	profile.Name = "Perfil"
+	profile.Chat.Model = "modelo-perfil"
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+	resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		DefaultModel:   "modelo-global",
+		Params:         ChatParams{ProfileSlug: slug},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp.Params.Model != "modelo-perfil" {
+		t.Fatalf("Model = %q, want modelo-perfil", resp.Params.Model)
+	}
+}
+
 func TestPrepareMessagesEmitsSkillLoadedForOnDemandSkill(t *testing.T) {
 	em := &spyEmitter{}
 	promptBuilder := &capturingPromptBuilder{}

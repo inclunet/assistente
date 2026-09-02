@@ -133,6 +133,22 @@ func profileSlugFromWorkspaceTab(tab *workspace.Tab) string {
 	return strings.TrimSpace(slug)
 }
 
+func (i *Interactor) resolveWorkspaceTabModel(conversationID, source string, params ChatParams) string {
+	if source != "wails" || i.workspace == nil || strings.TrimSpace(params.SurfaceTabID) == "" {
+		return ""
+	}
+	ws := i.workspace.Active()
+	if ws == nil {
+		return ""
+	}
+	tab := ws.FindTab(strings.TrimSpace(params.SurfaceTabID))
+	if tab == nil || strings.TrimSpace(tab.ConversationID) != strings.TrimSpace(conversationID) {
+		return ""
+	}
+	model, _ := tab.ProfileOverride["model"].(string)
+	return strings.TrimSpace(model)
+}
+
 // PrepareContextRequest carries the raw inputs for a message send request.
 type PrepareContextRequest struct {
 	ConversationID string
@@ -250,6 +266,10 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 
 	// 7. Apply profile-level chat defaults onto Params
 	params := req.Params
+	if params.Model == "" &&
+		(i.providerSvc == nil || !i.providerSvc.UsesAgentTurn(ctx, activeProfile)) {
+		params.Model = i.resolveWorkspaceTabModel(req.ConversationID, req.Source, params)
+	}
 	if activeProfile != nil {
 		params.ProfileSlug = strings.TrimSpace(resolvedProfileSlug)
 		logging.Infof(ctx, "chat.interactor", "[PrepareContext] Usando perfil: %s", activeProfile.Name)
