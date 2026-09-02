@@ -34,7 +34,7 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     await wails.setResponse('EditorSaveState', null);
   });
 
-  test('entra em documento interno distinto e mantém navegação global livre', async ({
+  test('Alt+3 entra e retorna diretamente ao documento sem Enter adicional', async ({
     page,
     wails,
   }) => {
@@ -51,8 +51,7 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     await expect(anchor.locator('[data-editor-rendered-document="true"]')).toHaveCount(1);
     await expect(document.locator('.editor-page__toolbar')).toHaveCount(0);
 
-    await anchor.focus();
-    await page.keyboard.press('Enter');
+    await page.keyboard.press('Alt+3');
 
     await expect(anchor).toHaveAttribute('tabindex', '-1');
     await expect(document).toHaveAttribute('role', 'document');
@@ -89,6 +88,9 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     );
     expect(focusLeftDocument).toBe(true);
     await expect(document).toHaveAttribute('role', 'document');
+
+    await page.keyboard.press('Alt+3');
+    await expect(document).toBeFocused();
 
     const toolbarButton = page.locator('.editor-page__toolbar button:not([disabled])').first();
     await toolbarButton.focus();
