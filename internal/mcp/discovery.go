@@ -172,8 +172,8 @@ func appendDiscoveryBudgetHint(hints []DiscoveryResponseHint) []DiscoveryRespons
 // preencher automaticamente a configuração de autenticação OAuth.
 //
 // Segue a spec MCP Authorization (RFC 9728 + RFC 8414/OIDC Discovery):
-// 1. GET protected resource metadata (resource URL → origin fallback)
-// 2. GET auth server metadata (issuer URL → RFC 8414 path → origin fallback)
+// 1. GET protected resource metadata (recurso → ancestrais → origin)
+// 2. GET auth server metadata (bases do PRM ou recurso → ancestrais → origin)
 func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	return discoverOAuthContext(context.Background(), serverURL)
 }
