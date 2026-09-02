@@ -369,6 +369,7 @@ export default function McpPage() {
 
   const handleManualOverride = useCallback(() => {
     discoveryRequestRef.current += 1;
+    setLastDiscoveredUrl('');
     setDiscoveryRegistrationUrl('');
     setDiscoveryStatus('not_found');
   }, []);

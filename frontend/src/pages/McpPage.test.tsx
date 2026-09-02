@@ -382,6 +382,19 @@ describe('McpPage — oauth2_callback_host', () => {
     expect(screen.getByLabelText('OAuth Scopes')).toHaveValue('files:read files:write custom');
   });
 
+  it('permite repetir discovery da mesma URL após escolher configuração manual', async () => {
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByText('Configurar manualmente'));
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+    expect(mockDiscover).toHaveBeenLastCalledWith('https://mcp.example/caminho');
+  });
+
   it('limpa registration URL descoberto ao descobrir outro servidor sem DCR', async () => {
     mockDiscover
       .mockResolvedValueOnce({
