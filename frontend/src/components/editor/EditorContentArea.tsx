@@ -136,6 +136,7 @@ export function EditorContentArea({
   const richEditorInstanceRef = useRef<TipTapEditor | null>(null);
   const pendingRevealSlideFocusRef = useRef(false);
   const renderedPaneRef = useRef<HTMLDivElement>(null);
+  const renderedAnchorRef = useRef<HTMLDivElement>(null);
   const renderedDocumentRef = useRef<HTMLDivElement>(null);
   const [readingDocumentKey, setReadingDocumentKey] = useState<string | null>(null);
   const revealDeck = useMemo(
@@ -178,17 +179,18 @@ export function EditorContentArea({
   );
 
   useRenderedContentNavigation({
-    elementRef: renderedPaneRef,
+    elementRef: renderedAnchorRef,
     isActive: renderedReadingActive,
     profile: 'scoped',
     contentSelector: '[data-editor-rendered-document="true"]',
+    handleEscapeOutside: true,
     onEscape: () => renderedDocumentRef.current?.focus(),
     openAnnouncement: t('editor.documentView.readingOpened'),
     shouldHandleEscape: () => (
       !isModalOpen()
       && document.querySelector('[role="menu"]') === null
     ),
-    manageDocumentSemantics: false,
+    manageDocumentSemantics: true,
   });
 
   const getLatestMarkdown = () => {
@@ -465,16 +467,12 @@ export function EditorContentArea({
             <div className="editor-page__pane-title">{t('editor.panes.preview')}</div>
             <div className="editor-page__preview">
               <div
-                ref={renderedDocumentRef}
-                data-editor-rendered-document="true"
+                ref={renderedAnchorRef}
+                data-editor-rendered-anchor="true"
                 data-reading-active={renderedReadingActive ? 'true' : 'false'}
-                role={renderedReadingActive ? 'document' : 'group'}
-                aria-label={t(
-                  renderedReadingActive
-                    ? 'editor.documentView.readingDocumentLabel'
-                    : 'editor.documentView.readingRegionLabel',
-                )}
-                tabIndex={0}
+                role="group"
+                aria-label={t('editor.documentView.readingRegionLabel')}
+                tabIndex={renderedReadingActive ? -1 : 0}
                 onKeyDown={(event) => {
                   if (
                     !renderedReadingActive
@@ -487,25 +485,31 @@ export function EditorContentArea({
                   }
                 }}
               >
-                {isRevealPreviewDocument ? (
-                  <RevealRenderer
-                    markdown={debouncedMarkdownForPreview}
-                    documentTitle={activeTab.title}
-                    fullscreenRequestNonce={revealFullscreenRequestNonce}
-                    tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
-                  />
-                ) : (
-                  <>
-                    {!activeTab.readOnly ? (
-                      <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
-                    ) : null}
-                    <MarkdownRenderer
-                      content={debouncedMarkdownForPreview}
-                      interactiveButtons={false}
+                <div
+                  ref={renderedDocumentRef}
+                  data-editor-rendered-document="true"
+                  aria-label={t('editor.documentView.readingDocumentLabel')}
+                >
+                  {isRevealPreviewDocument ? (
+                    <RevealRenderer
+                      markdown={debouncedMarkdownForPreview}
+                      documentTitle={activeTab.title}
+                      fullscreenRequestNonce={revealFullscreenRequestNonce}
                       tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
                     />
-                  </>
-                )}
+                  ) : (
+                    <>
+                      {!activeTab.readOnly ? (
+                        <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
+                      ) : null}
+                      <MarkdownRenderer
+                        content={debouncedMarkdownForPreview}
+                        interactiveButtons={false}
+                        tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
+                      />
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
