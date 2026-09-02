@@ -304,10 +304,8 @@ describe('ChatToolbar menu de perfil', () => {
     } as unknown as Record<string, unknown>;
 
     renderToolbar();
-    const container = document.querySelector('[class*="profileContainer"]') || document.body;
-    // Dispara context menu no container do ProfilePicker
-    const picker = screen.getByText('Perfil').closest('div');
-    fireEvent.contextMenu(picker || container, { clientX: 10, clientY: 10 });
+    const container = screen.getByTestId('profile-picker-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
 
     await waitFor(() => expect(openAtPointMock).toHaveBeenCalled());
     const items = openAtPointMock.mock.calls[0][3] as Array<{ id: string; action: () => void }>;
@@ -320,8 +318,8 @@ describe('ChatToolbar menu de perfil', () => {
     mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
 
     renderToolbar();
-    const picker = screen.getByText('Perfil').closest('div');
-    fireEvent.contextMenu(picker || document.body, { clientX: 10, clientY: 10 });
+    const container = screen.getByTestId('profile-picker-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
 
     await waitFor(() => expect(openAtPointMock).toHaveBeenCalled());
     const items = openAtPointMock.mock.calls[0][3] as Array<{ id: string; action: () => void }>;

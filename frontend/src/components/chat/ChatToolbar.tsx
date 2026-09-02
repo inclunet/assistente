@@ -358,6 +358,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
             <div
               ref={profileContainerRef}
+              data-testid="profile-picker-container"
               onContextMenu={handleProfileContextMenu}
               onKeyDown={handleProfileKeyDown}
             >
