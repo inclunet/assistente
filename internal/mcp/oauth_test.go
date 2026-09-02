@@ -750,10 +750,10 @@ func TestBuildPRMCandidates(t *testing.T) {
 		wantLast  string
 	}{
 		{
-			name:      "URL with path tries resource first, then origin",
+			name:      "URL with path tries RFC 9728 and compatibility locations for each ancestor",
 			mcpURL:    "https://example.com/mcp/default",
-			wantCount: 2,
-			wantFirst: "https://example.com/mcp/default/.well-known/oauth-protected-resource",
+			wantCount: 5,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp/default",
 			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
 		},
 		{
@@ -766,8 +766,8 @@ func TestBuildPRMCandidates(t *testing.T) {
 		{
 			name:      "URL with single path segment",
 			mcpURL:    "https://example.com/mcp",
-			wantCount: 2,
-			wantFirst: "https://example.com/mcp/.well-known/oauth-protected-resource",
+			wantCount: 3,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp",
 			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
 		},
 	}
@@ -809,9 +809,9 @@ func TestBuildASMCandidates(t *testing.T) {
 			base:      "https://example.com/oauth",
 			wantCount: 6,
 			wantURLs: []string{
-				"https://example.com/oauth/.well-known/oauth-authorization-server",
-				"https://example.com/oauth/.well-known/openid-configuration",
 				"https://example.com/.well-known/oauth-authorization-server/oauth",
+				"https://example.com/oauth/.well-known/openid-configuration",
+				"https://example.com/oauth/.well-known/oauth-authorization-server",
 				"https://example.com/.well-known/openid-configuration/oauth",
 				"https://example.com/.well-known/oauth-authorization-server",
 				"https://example.com/.well-known/openid-configuration",

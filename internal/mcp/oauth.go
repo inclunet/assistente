@@ -167,34 +167,34 @@ type OAuthDiscovery struct {
 // discoverOAuthEndpoints uses the existing discovery infrastructure from
 // discovery.go to fetch protected resource + auth server metadata.
 func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
-	origin, err := extractOrigin(mcpURL)
+	_, err := extractOrigin(mcpURL)
 	if err != nil {
 		return nil, err
 	}
 
-	authServerBase := origin
-	var resource string
+	resource := mcpURL
+	authServerBases := buildResourceBases(mcpURL)
+	var resourceScopes []string
 
 	prm, err := fetchProtectedResourceMetadata(mcpURL)
-	if err != nil {
-		return nil, fmt.Errorf("protected resource metadata unavailable: %w", err)
-	}
-	if len(prm.AuthorizationServers) > 0 {
-		authServerBase = prm.AuthorizationServers[0]
-	}
-	resource = prm.Resource
-	if resource == "" {
-		resource = mcpURL
+	if err == nil && prm != nil {
+		if len(prm.AuthorizationServers) > 0 {
+			authServerBases = prm.AuthorizationServers
+		}
+		if prm.Resource != "" {
+			resource = prm.Resource
+		}
+		resourceScopes = prm.ScopesSupported
 	}
 
-	asm, err := fetchAuthServerMetadata(authServerBase)
+	asm, _, _, err := fetchAuthServerMetadataFromBases(authServerBases)
 	if err != nil {
 		return nil, fmt.Errorf("auth server metadata unavailable: %w", err)
 	}
 
 	// scopes_supported pode vir do recurso protegido (RFC 9728) e/ou do auth server
 	// (RFC 8414). Une os dois para a decisão de offline_access.
-	scopes := append([]string(nil), prm.ScopesSupported...)
+	scopes := append([]string(nil), resourceScopes...)
 	scopes = append(scopes, asm.ScopesSupported...)
 
 	return &OAuthDiscovery{

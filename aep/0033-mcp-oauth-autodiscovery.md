@@ -190,4 +190,79 @@ Os campos de auth OAuth2 verificam se estão em `discoveredFields` para decidir 
 - **Acessibilidade**: campos readOnly devem ser anunciados corretamente por screen readers. Usar `aria-readonly="true"` e incluir hint descritivo (ex: "preenchido automaticamente via discovery").
 - **Não bloquear o save**: se o discovery falhar, o formulário funciona normalmente — é apenas uma conveniência.
 - **client_id**: NÃO temos como descobrir o client_id automaticamente via well-known (ele vem do registro do app). O campo client_id permanece editável sempre. No caso do Atlassian, existe um `registration_endpoint` — mas implementar Dynamic Client Registration (RFC 7591) é escopo futuro, não agora. Deixar o campo em branco com hint se `registrationUrl` estiver presente.
-- **Não precisa de testes por agora**: foco na implementação funcional.
+
+## Evolução: discovery genérico relacionado a caminhos
+
+### Resumo
+
+O discovery passa a considerar a hierarquia completa do caminho do recurso,
+sem reconhecer domínio, marca ou fornecedor. A evolução combina as localizações
+normativas de RFC 9728, RFC 8414 e OIDC Discovery com os fallbacks relativos
+historicamente aceitos pelo Assistente.
+
+### Motivação
+
+Recursos MCP podem estar atrás de gateways com caminhos profundos e não
+publicar Protected Resource Metadata na raiz. Reduzir antecipadamente a URL do
+recurso à origin impede encontrar metadata OAuth/OIDC válida em um ancestral.
+Além disso, tratar discovery como apenas encontrado/não encontrado ocultava
+casos em que o PRM existia, mas a configuração ainda precisava ser completada.
+
+### Decisões
+
+1. A URL do recurso é normalizada sem query, fragment ou credenciais. Segmentos
+   `.` e `..` são resolvidos antes de qualquer request.
+2. Os candidatos PRM são gerados de modo determinístico para recurso,
+   ancestrais e origin. Para cada nível, tenta-se primeiro a forma de RFC 9728
+   (`/.well-known/oauth-protected-resource{path}`) e depois o fallback relativo
+   já suportado (`{path}/.well-known/oauth-protected-resource`), com
+   deduplicação.
+3. Quando o PRM não informa `authorization_servers`, recurso, ancestrais e
+   origin tornam-se bases candidatas. Para cada base são derivados:
+   - RFC 8414: `/.well-known/oauth-authorization-server{issuer-path}`;
+   - OIDC Discovery: `{issuer}/.well-known/openid-configuration`;
+   - somente depois, os fallbacks de localização anteriormente suportados.
+4. Respostas diferentes de 200 nunca são metadata. Status, desafio
+   `WWW-Authenticate`, `Location` e os campos JSON `error` e
+   `error_description` podem virar hints, sempre limitados e saneados.
+   Tokens, cookies, credenciais, userinfo, query e fragment não são expostos.
+5. Redirects preservam timeout e limite, rejeitam esquema não HTTP(S),
+   credenciais na URL, downgrade de HTTPS e mais de cinco saltos.
+6. O contrato distingue `complete`, `partial` e `not_found`, além de indicar
+   separadamente PRM e Authorization Server Metadata encontrados. Ausência de
+   `registration_endpoint` exige conclusão manual, mas não invalida metadata
+   OAuth/OIDC.
+7. Valores manuais são soberanos: discovery preenche apenas campos vazios,
+   nunca impede salvar e mantém a edição manual disponível em falha parcial ou
+   total.
+
+### Fases
+
+1. Normalizar e expandir candidatos de PRM e Authorization Server Metadata.
+2. Classificar respostas e produzir hints seguros.
+3. Expor estados parciais no binding e na configuração MCP.
+4. Cobrir backend e frontend com testes locais sem rede externa.
+
+### Riscos
+
+- Mais candidatos aumentam o número máximo de requests. A mitigação é
+  deduplicação, timeout de 5 segundos por request e parada no primeiro schema
+  válido.
+- Gateways podem devolver conteúdo hostil. Corpos de diagnóstico têm limite
+  pequeno, somente JSON escalar explicitamente permitido é aproveitado e HTML
+  é descartado.
+- Fallbacks legados podem ser ambíguos. Eles permanecem depois das derivações
+  normativas, preservando compatibilidade sem alterar sua precedência sobre os
+  padrões.
+
+### Critérios de aceitação
+
+- Caminhos profundos geram candidatos ordenados e sem duplicação ou traversal.
+- Issuer com path funciona tanto em RFC 8414 quanto em OIDC Discovery.
+- Ausência de PRM ainda permite encontrar metadata em bases ancestrais.
+- 401/403 fornecem apenas hints saneados e não são aceitos como metadata.
+- Redirects seguros funcionam; corpos excessivos são truncados para diagnóstico.
+- Falhas parciais e totais são distinguíveis na UI.
+- Campos manuais existentes permanecem intactos e o formulário continua
+  salvável.
+- Backend e frontend possuem testes obrigatórios para esses comportamentos.

@@ -28,11 +28,11 @@ export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
 
+export function SetWakeLock(arg1:boolean):Promise<void>;
+
 export function SetupMasterPassword(arg1:string):Promise<string>;
 
 export function SetupVault(arg1:string):Promise<string>;
-
-export function SetWakeLock(arg1:boolean):Promise<void>;
 
 export function ShowWindow():Promise<void>;
 
