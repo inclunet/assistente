@@ -244,6 +244,12 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    nunca impede salvar e mantém a edição manual disponível em falha parcial ou
    total. Em resultado parcial, nome e scopes válidos do PRM continuam
    disponíveis para ajudar na conclusão manual.
+8. PRM e Authorization Server Metadata compartilham um orçamento global,
+   cancelável por contexto: 12 segundos, até 128 tentativas e interrupção após
+   três erros de rede consecutivos. O teto de tentativas é maior que os 123
+   candidatos atualmente possíveis, portanto limita evoluções futuras sem
+   reduzir a cobertura determinística atual. O timeout global e a interrupção
+   por erros repetidos evitam espera multiplicada pelo timeout de cada request.
 
 ### Fases
 
@@ -255,8 +261,9 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
 ### Riscos
 
 - Mais candidatos aumentam o número máximo de requests. A mitigação é o limite
-  de 16 bases, deduplicação, timeout de 5 segundos por request e parada no
-  primeiro schema válido.
+  de 16 bases, deduplicação, timeout de 5 segundos por request, orçamento global
+  de 12 segundos/128 tentativas, interrupção após três erros de rede
+  consecutivos e parada no primeiro schema válido.
 - Gateways podem devolver conteúdo hostil. Corpos de diagnóstico têm limite
   pequeno, somente JSON escalar explicitamente permitido é aproveitado e HTML
   é descartado.
@@ -272,6 +279,8 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
 - 401/403 fornecem apenas hints saneados e não são aceitos como metadata.
 - Redirects seguros funcionam; corpos excessivos são truncados para diagnóstico.
 - Falhas parciais e totais são distinguíveis na UI.
+- Esgotamento ou cancelamento do orçamento interrompe requests em voo, preserva
+  PRM já encontrado e produz hint saneado.
 - Campos manuais existentes permanecem intactos e o formulário continua
   salvável.
 - Backend e frontend possuem testes obrigatórios para esses comportamentos.

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestBuildResourceBasesDeepPathIsDeterministicAndSafe(t *testing.T) {
@@ -150,6 +152,103 @@ func TestDiscoverOAuthRepresentsPRMWithoutAuthorizationServerMetadata(t *testing
 	}
 	if !result.ManualCompletionRequired || result.ResourceName != "Recurso parcial" {
 		t.Fatalf("resultado parcial incompleto: %+v", result)
+	}
+}
+
+func TestDiscoverOAuthPreservesPartialMetadataWhenAttemptBudgetEnds(t *testing.T) {
+	var serverURL string
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path == "/.well-known/oauth-protected-resource/deep/mcp" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource":         serverURL + "/deep/mcp",
+				"resource_name":    "Recurso preservado",
+				"scopes_supported": []string{"read"},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	budget := newDiscoveryBudgetWithLimits(context.Background(), time.Second, 2, 3)
+	defer budget.close()
+	result := discoverOAuthWithBudget(server.URL+"/deep/mcp", budget)
+
+	if result.Status != "partial" || !result.ProtectedResourceFound ||
+		result.ResourceName != "Recurso preservado" || !slices.Equal(result.Scopes, []string{"read"}) {
+		t.Fatalf("metadata parcial perdida ao esgotar orçamento: %+v", result)
+	}
+	if requests != 2 {
+		t.Fatalf("orçamento de tentativas não respeitado: requests=%d", requests)
+	}
+	if !slices.ContainsFunc(result.ResponseHints, func(hint DiscoveryResponseHint) bool {
+		return hint.Classification == "budget_exhausted"
+	}) {
+		t.Fatalf("hint de orçamento ausente: %+v", result.ResponseHints)
+	}
+}
+
+func TestDiscoverOAuthCancellationStopsInFlightRequest(t *testing.T) {
+	requestStarted := make(chan struct{})
+	requestStopped := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-r.Context().Done()
+		close(requestStopped)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	resultCh := make(chan OAuthDiscoveryResult, 1)
+	go func() {
+		resultCh <- discoverOAuthContext(ctx, server.URL+"/deep/mcp")
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("request de discovery não iniciou")
+	}
+	cancel()
+
+	select {
+	case result := <-resultCh:
+		if result.Status != "not_found" || !slices.ContainsFunc(result.ResponseHints, func(hint DiscoveryResponseHint) bool {
+			return hint.Classification == "budget_exhausted"
+		}) {
+			t.Fatalf("cancelamento não retornou resultado seguro: %+v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("discovery não respeitou cancelamento")
+	}
+	select {
+	case <-requestStopped:
+	case <-time.After(time.Second):
+		t.Fatal("handler permaneceu bloqueado após cancelamento")
+	}
+}
+
+func TestDiscoveryBudgetStopsAfterRepeatedNetworkErrors(t *testing.T) {
+	budget := newDiscoveryBudgetWithLimits(context.Background(), time.Second, 10, 3)
+	defer budget.close()
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err := budget.beginAttempt(); err != nil {
+			t.Fatalf("tentativa %d recusada cedo: %v", attempt, err)
+		}
+		err := budget.finishAttempt(context.DeadlineExceeded)
+		if attempt < 3 && err != nil {
+			t.Fatalf("orçamento terminou na tentativa %d: %v", attempt, err)
+		}
+		if attempt == 3 && err == nil {
+			t.Fatal("orçamento não terminou após três erros de rede consecutivos")
+		}
+	}
+	if budget.attempts != 3 {
+		t.Fatalf("tentativas registradas = %d, esperava 3", budget.attempts)
 	}
 }
 

@@ -263,7 +263,8 @@ O resultado mostrado no formulário pode ser:
 O discovery nunca substitui valores OAuth que você já preencheu. Falha parcial
 ou total também não impede salvar o servidor. Desafios HTTP e erros de discovery
 são tratados com limites e saneamento; tokens, cookies e credenciais não são
-copiados para o resultado exibido.
+copiados para o resultado exibido. O ciclo completo tem duração limitada e pode
+ser tentado novamente para a mesma URL depois de resultado parcial ou falha.
 
 ---
 

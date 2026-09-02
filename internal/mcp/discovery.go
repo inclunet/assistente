@@ -4,8 +4,10 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -20,6 +22,10 @@ const (
 	discoveryBodyLimit = 4 * 1024
 	maxDiscoveryHints  = 24
 	maxDiscoveryBases  = 16
+
+	discoveryTotalTimeout       = 12 * time.Second
+	maxDiscoveryAttempts        = 128
+	maxConsecutiveNetworkErrors = 3
 )
 
 // OAuthDiscoveryResult contém os metadados OAuth descobertos de um servidor MCP.
@@ -55,6 +61,113 @@ type DiscoveryResponseHint struct {
 
 var discoveryHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
+type discoveryBudget struct {
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	maxAttempts              int
+	maxConsecutiveNetErrors  int
+	attempts                 int
+	consecutiveNetworkErrors int
+	exhaustedErr             error
+}
+
+func newDiscoveryBudget(parent context.Context) *discoveryBudget {
+	return newDiscoveryBudgetWithLimits(
+		parent,
+		discoveryTotalTimeout,
+		maxDiscoveryAttempts,
+		maxConsecutiveNetworkErrors,
+	)
+}
+
+func newDiscoveryBudgetWithLimits(
+	parent context.Context,
+	timeout time.Duration,
+	maxAttempts int,
+	maxConsecutiveNetErrors int,
+) *discoveryBudget {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	return &discoveryBudget{
+		ctx:                     ctx,
+		cancel:                  cancel,
+		maxAttempts:             maxAttempts,
+		maxConsecutiveNetErrors: maxConsecutiveNetErrors,
+	}
+}
+
+func (budget *discoveryBudget) beginAttempt() error {
+	if budget.exhaustedErr != nil {
+		return budget.exhaustedErr
+	}
+	if err := budget.ctx.Err(); err != nil {
+		budget.exhaustedErr = fmt.Errorf("orçamento global de discovery esgotado: %w", err)
+		return budget.exhaustedErr
+	}
+	if budget.attempts >= budget.maxAttempts {
+		budget.exhaustedErr = fmt.Errorf("orçamento global de discovery esgotado após %d tentativas", budget.attempts)
+		return budget.exhaustedErr
+	}
+	budget.attempts++
+	return nil
+}
+
+func (budget *discoveryBudget) finishAttempt(err error) error {
+	if budget.exhaustedErr != nil {
+		return budget.exhaustedErr
+	}
+	if ctxErr := budget.ctx.Err(); ctxErr != nil {
+		budget.exhaustedErr = fmt.Errorf("orçamento global de discovery esgotado: %w", ctxErr)
+		return budget.exhaustedErr
+	}
+	if err == nil || !isTransientDiscoveryError(err) {
+		budget.consecutiveNetworkErrors = 0
+		return nil
+	}
+	budget.consecutiveNetworkErrors++
+	if budget.consecutiveNetworkErrors >= budget.maxConsecutiveNetErrors {
+		budget.exhaustedErr = fmt.Errorf(
+			"discovery abortado após %d erros de rede consecutivos",
+			budget.consecutiveNetworkErrors,
+		)
+		return budget.exhaustedErr
+	}
+	return nil
+}
+
+func (budget *discoveryBudget) close() {
+	budget.cancel()
+}
+
+func isTransientDiscoveryError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+func discoveryBudgetHint() DiscoveryResponseHint {
+	return DiscoveryResponseHint{Classification: "budget_exhausted"}
+}
+
+func appendDiscoveryBudgetHint(hints []DiscoveryResponseHint) []DiscoveryResponseHint {
+	if slices.ContainsFunc(hints, func(hint DiscoveryResponseHint) bool {
+		return hint.Classification == "budget_exhausted"
+	}) {
+		return hints
+	}
+	hint := discoveryBudgetHint()
+	if len(hints) >= maxDiscoveryHints {
+		hints[len(hints)-1] = hint
+		return hints
+	}
+	return append(hints, hint)
+}
+
 // DiscoverOAuth consulta os endpoints well-known de um servidor MCP para
 // preencher automaticamente a configuração de autenticação OAuth.
 //
@@ -62,6 +175,16 @@ var discoveryHTTPClient = &http.Client{Timeout: 5 * time.Second}
 // 1. GET protected resource metadata (resource URL → origin fallback)
 // 2. GET auth server metadata (issuer URL → RFC 8414 path → origin fallback)
 func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
+	return discoverOAuthContext(context.Background(), serverURL)
+}
+
+func discoverOAuthContext(ctx context.Context, serverURL string) OAuthDiscoveryResult {
+	budget := newDiscoveryBudget(ctx)
+	defer budget.close()
+	return discoverOAuthWithBudget(serverURL, budget)
+}
+
+func discoverOAuthWithBudget(serverURL string, budget *discoveryBudget) OAuthDiscoveryResult {
 	origin, err := extractOrigin(serverURL)
 	if err != nil {
 		return OAuthDiscoveryResult{Status: "not_found", Error: err.Error()}
@@ -71,14 +194,14 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	if bases := buildResourceBases(serverURL); len(bases) > 0 {
 		resourceForLog = bases[0]
 	}
-	logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] Tentando discovery OAuth para %s", resourceForLog)
+	logging.Infof(budget.ctx, "mcp.discovery", "[MCP:discovery] Tentando discovery OAuth para %s", resourceForLog)
 
 	var resourceName string
 	var resourceScopes []string
 	var hints []DiscoveryResponseHint
 	resourceBaseURL := serverURL
 
-	prm, prmHints, err := fetchProtectedResourceMetadataDetailed(serverURL)
+	prm, prmHints, err := fetchProtectedResourceMetadataDetailedWithBudget(budget, serverURL)
 	hints = appendHints(hints, prmHints...)
 	protectedResourceFound := err == nil && prm != nil
 	authServerBases := make([]string, 0)
@@ -89,9 +212,9 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 		}
 		resourceName = prm.ResourceName
 		resourceScopes = prm.ScopesSupported
-		logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] Protected Resource Metadata encontrado")
+		logging.Infof(budget.ctx, "mcp.discovery", "[MCP:discovery] Protected Resource Metadata encontrado")
 	} else {
-		logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] Protected Resource Metadata não encontrado para o recurso")
+		logging.Infof(budget.ctx, "mcp.discovery", "[MCP:discovery] Protected Resource Metadata não encontrado para o recurso")
 	}
 
 	if len(authServerBases) == 0 {
@@ -101,10 +224,10 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 		}
 	}
 
-	asm, metadataType, asmHints, err := fetchAuthServerMetadataFromBases(authServerBases)
+	asm, metadataType, asmHints, err := fetchAuthServerMetadataFromBasesWithBudget(budget, authServerBases)
 	hints = appendHints(hints, asmHints...)
 	if err != nil || asm == nil {
-		logging.Warnf(context.Background(), "mcp.discovery", "[MCP:discovery] Authorization Server Metadata não encontrado")
+		logging.Warnf(budget.ctx, "mcp.discovery", "[MCP:discovery] Authorization Server Metadata não encontrado")
 		status := "not_found"
 		if protectedResourceFound {
 			status = "partial"
@@ -120,7 +243,7 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 		}
 	}
 
-	logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] Authorization Server Metadata encontrado (%s)", metadataType)
+	logging.Infof(budget.ctx, "mcp.discovery", "[MCP:discovery] Authorization Server Metadata encontrado (%s)", metadataType)
 
 	scopes := resourceScopes
 	if len(scopes) == 0 {
@@ -176,31 +299,43 @@ type authServerMetadata struct {
 	ResponseTypesSupported        []string `json:"response_types_supported"`
 }
 
-// fetchProtectedResourceMetadata tenta descobrir metadata do recurso protegido
-// conforme RFC 9728. Para recurso, ancestrais e origin, tenta primeiro a
-// localização normativa /.well-known/oauth-protected-resource{path} e depois
-// o fallback relativo {base}/.well-known/oauth-protected-resource, sempre com
-// ordem determinística e deduplicação.
-func fetchProtectedResourceMetadata(mcpURL string) (*protectedResourceMetadata, error) {
-	result, _, err := fetchProtectedResourceMetadataDetailed(mcpURL)
-	return result, err
+// fetchProtectedResourceMetadataDetailed tenta descobrir metadata do recurso
+// protegido conforme RFC 9728. Para recurso, ancestrais e origin, tenta
+// primeiro a localização normativa /.well-known/oauth-protected-resource{path}
+// e depois o fallback relativo {base}/.well-known/oauth-protected-resource,
+// sempre com ordem determinística e deduplicação.
+func fetchProtectedResourceMetadataDetailed(mcpURL string) (*protectedResourceMetadata, []DiscoveryResponseHint, error) {
+	budget := newDiscoveryBudget(context.Background())
+	defer budget.close()
+	return fetchProtectedResourceMetadataDetailedWithBudget(budget, mcpURL)
 }
 
-func fetchProtectedResourceMetadataDetailed(mcpURL string) (*protectedResourceMetadata, []DiscoveryResponseHint, error) {
+func fetchProtectedResourceMetadataDetailedWithBudget(
+	budget *discoveryBudget,
+	mcpURL string,
+) (*protectedResourceMetadata, []DiscoveryResponseHint, error) {
 	candidates := buildPRMCandidates(mcpURL)
 	var hints []DiscoveryResponseHint
 	for _, candidateURL := range candidates {
-		logging.Debugf(context.Background(), "mcp.discovery", "[MCP:discovery] PRM: tentando %s", candidateURL)
+		if err := budget.beginAttempt(); err != nil {
+			hints = appendDiscoveryBudgetHint(hints)
+			return nil, hints, err
+		}
+		logging.Debugf(budget.ctx, "mcp.discovery", "[MCP:discovery] PRM: tentando %s", candidateURL)
 		var result protectedResourceMetadata
-		attempt, err := fetchJSON(candidateURL, &result)
+		attempt, err := fetchJSONContext(budget.ctx, candidateURL, &result)
 		if attempt.hint != nil {
 			hints = appendHints(hints, *attempt.hint)
 		}
 		// RFC 9728 §2 exige o identificador do recurso. Outros membros isolados
 		// são hints insuficientes e não transformam a resposta em PRM válido.
 		if err == nil && result.Resource != "" {
-			logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] PRM: encontrado em %s", candidateURL)
+			logging.Infof(budget.ctx, "mcp.discovery", "[MCP:discovery] PRM: encontrado em %s", candidateURL)
 			return &result, hints, nil
+		}
+		if budgetErr := budget.finishAttempt(err); budgetErr != nil {
+			hints = appendDiscoveryBudgetHint(hints)
+			return nil, hints, budgetErr
 		}
 	}
 	return nil, hints, fmt.Errorf("protected resource metadata not found (tentou %d URLs)", len(candidates))
@@ -305,12 +440,14 @@ func canonicalEscapedPath(rawPath string) string {
 	return "/" + strings.Join(segments, "/")
 }
 
-// fetchAuthServerMetadataFromBases tenta descobrir metadata do authorization
-// server (RFC 8414) ou do provider OIDC.
-// Para cada base, tenta primeiro RFC 8414 e OIDC Discovery; em seguida,
-// localizações legadas compatíveis. As bases são processadas em ordem e
-// deduplicadas globalmente.
-func fetchAuthServerMetadataFromBases(bases []string) (*authServerMetadata, string, []DiscoveryResponseHint, error) {
+// fetchAuthServerMetadataFromBasesWithBudget tenta descobrir metadata do
+// authorization server (RFC 8414) ou do provider OIDC. Para cada base, tenta
+// primeiro RFC 8414 e OIDC Discovery; em seguida, localizações legadas
+// compatíveis. As bases são processadas em ordem e deduplicadas globalmente.
+func fetchAuthServerMetadataFromBasesWithBudget(
+	budget *discoveryBudget,
+	bases []string,
+) (*authServerMetadata, string, []DiscoveryResponseHint, error) {
 	var hints []DiscoveryResponseHint
 	candidateTypes := make(map[string]string)
 	var candidates []string
@@ -324,15 +461,23 @@ func fetchAuthServerMetadataFromBases(bases []string) (*authServerMetadata, stri
 		}
 	}
 	for _, candidateURL := range candidates {
-		logging.Debugf(context.Background(), "mcp.discovery", "[MCP:discovery] ASM: tentando %s", candidateURL)
+		if err := budget.beginAttempt(); err != nil {
+			hints = appendDiscoveryBudgetHint(hints)
+			return nil, "", hints, err
+		}
+		logging.Debugf(budget.ctx, "mcp.discovery", "[MCP:discovery] ASM: tentando %s", candidateURL)
 		var result authServerMetadata
-		attempt, err := fetchJSON(candidateURL, &result)
+		attempt, err := fetchJSONContext(budget.ctx, candidateURL, &result)
 		if attempt.hint != nil {
 			hints = appendHints(hints, *attempt.hint)
 		}
 		if err == nil && validAuthServerMetadata(&result) {
-			logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] ASM: encontrado em %s", candidateURL)
+			logging.Infof(budget.ctx, "mcp.discovery", "[MCP:discovery] ASM: encontrado em %s", candidateURL)
 			return &result, candidateTypes[candidateURL], hints, nil
+		}
+		if budgetErr := budget.finishAttempt(err); budgetErr != nil {
+			hints = appendDiscoveryBudgetHint(hints)
+			return nil, "", hints, budgetErr
 		}
 	}
 	return nil, "", hints, fmt.Errorf("auth server metadata not found (tentou %d URLs)", len(candidates))
@@ -396,7 +541,11 @@ type fetchAttempt struct {
 }
 
 func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	return fetchJSONContext(context.Background(), rawURL, target)
+}
+
+func fetchJSONContext(ctx context.Context, rawURL string, target any) (fetchAttempt, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return fetchAttempt{}, err
 	}

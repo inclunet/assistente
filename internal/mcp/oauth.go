@@ -171,6 +171,8 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 	if err != nil {
 		return nil, err
 	}
+	budget := newDiscoveryBudget(context.Background())
+	defer budget.close()
 
 	authServerBases := buildResourceBases(mcpURL)
 	resource := mcpURL
@@ -179,7 +181,7 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 	}
 	var resourceScopes []string
 
-	prm, err := fetchProtectedResourceMetadata(mcpURL)
+	prm, _, err := fetchProtectedResourceMetadataDetailedWithBudget(budget, mcpURL)
 	if err == nil && prm != nil {
 		hasExplicitAuthServer := false
 		if len(prm.AuthorizationServers) > 0 {
@@ -199,7 +201,7 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 		resourceScopes = prm.ScopesSupported
 	}
 
-	asm, _, _, err := fetchAuthServerMetadataFromBases(authServerBases)
+	asm, _, _, err := fetchAuthServerMetadataFromBasesWithBudget(budget, authServerBases)
 	if err != nil {
 		return nil, fmt.Errorf("auth server metadata unavailable: %w", err)
 	}
