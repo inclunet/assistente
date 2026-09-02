@@ -131,6 +131,7 @@ export default function McpPage() {
   const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
+  const [manualRegistrationUrl, setManualRegistrationUrl] = useState('');
   const [lastDiscoveredUrl, setLastDiscoveredUrl] = useState('');
 
   useEffect(() => {
@@ -187,7 +188,8 @@ export default function McpPage() {
     setDiscoveryStatus('idle');
     setDiscoveredFields(new Set());
     setDiscoveryResourceName('');
-    setDiscoveryRegistrationUrl(config?.oauth2_registration_url || '');
+    setDiscoveryRegistrationUrl('');
+    setManualRegistrationUrl(config?.oauth2_registration_url || '');
     setLastDiscoveredUrl('');
   };
 
@@ -283,6 +285,7 @@ export default function McpPage() {
     if (urlToDiscover === lastDiscoveredUrl) return;
 
     setDiscoveryStatus('loading');
+    setDiscoveryRegistrationUrl('');
     setLastDiscoveredUrl(urlToDiscover);
 
     try {
@@ -309,14 +312,16 @@ export default function McpPage() {
         setDiscoveredFields(fields);
         const resName = result.resourceName || '';
         setDiscoveryResourceName(resName);
-        setDiscoveryRegistrationUrl((current) => current || result.registrationUrl || '');
+        setDiscoveryRegistrationUrl(result.registrationUrl || '');
         if (resName && !formName) setFormName(resName);
         setDiscoveryStatus('found');
       } else if (result.status === 'partial' || result.protectedResourceFound) {
         setDiscoveredFields(new Set());
         setDiscoveryResourceName(result.resourceName || '');
+        setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('partial');
       } else {
+        setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('not_found');
       }
     } catch {
@@ -348,6 +353,7 @@ export default function McpPage() {
 
   const handleManualOverride = useCallback(() => {
     setDiscoveredFields(new Set());
+    setDiscoveryRegistrationUrl('');
     setDiscoveryStatus('not_found');
   }, []);
 
@@ -409,7 +415,9 @@ export default function McpPage() {
       oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
       oauth2_auth_url: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
       oauth2_scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
-      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
+      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce'
+        ? manualRegistrationUrl || discoveryRegistrationUrl || undefined
+        : undefined,
       oauth2_callback_port: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
         ? parseInt(formOAuth2CallbackPort, 10) || undefined
         : undefined,
@@ -460,7 +468,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -788,7 +796,7 @@ export default function McpPage() {
               discoveryStatus={discoveryStatus}
               discoveredFields={discoveredFields}
               discoveryResourceName={discoveryResourceName}
-              discoveryRegistrationUrl={discoveryRegistrationUrl}
+              discoveryRegistrationUrl={manualRegistrationUrl || discoveryRegistrationUrl}
               onCommandChange={setFormCommand}
               onArgsChange={setFormArgs}
               onUrlChange={setFormUrl}

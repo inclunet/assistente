@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockSave = vi.fn();
@@ -151,6 +151,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     url: string;
     oauth2AuthUrl: string;
     oauth2TokenUrl: string;
+    discoveryRegistrationUrl: string;
     oauth2CallbackHost: string;
     oauth2CallbackPort: string;
     authType: string;
@@ -167,6 +168,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
       <input aria-label="Server URL" value={props.url} onChange={(e) => props.onUrlChange(e.target.value)} />
       <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
       <input aria-label="Token URL" value={props.oauth2TokenUrl} onChange={(e) => props.onOAuth2TokenUrlChange(e.target.value)} />
+      <span data-testid="registration-url-value">{props.discoveryRegistrationUrl}</span>
       <span data-testid="callback-host-value">{props.oauth2CallbackHost}</span>
       <span data-testid="callback-port-value">{props.oauth2CallbackPort}</span>
       <label>
@@ -355,5 +357,45 @@ describe('McpPage — oauth2_callback_host', () => {
     await waitFor(() => expect(mockDiscover).toHaveBeenCalled());
     expect(screen.getByLabelText('Authorization URL')).toHaveValue('https://manual.example/authorize');
     expect(screen.getByLabelText('Token URL')).toHaveValue('https://manual.example/token');
+  });
+
+  it('limpa registration URL descoberto ao descobrir outro servidor sem DCR', async () => {
+    mockDiscover
+      .mockResolvedValueOnce({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://auth.example/authorize',
+        tokenUrl: 'https://auth.example/token',
+        scopes: [],
+        registrationUrl: 'https://auth.example/register',
+      })
+      .mockResolvedValue({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://other.example/authorize',
+        tokenUrl: 'https://other.example/token',
+        scopes: [],
+        registrationUrl: '',
+      });
+    await openNewServerForm();
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://first.example/mcp' },
+    });
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => {
+      expect(screen.getByTestId('registration-url-value')).toHaveTextContent(
+        'https://auth.example/register'
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://second.example/mcp' },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('registration-url-value')).toBeEmptyDOMElement();
+    });
   });
 });
