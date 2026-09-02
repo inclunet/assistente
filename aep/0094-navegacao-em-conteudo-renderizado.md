@@ -83,6 +83,11 @@ O perfil continua sem `aria-modal`, `inert` ou focus trap. Assim:
 O contrato vale tanto para Markdown comum quanto para projeções somente
 leitura de PDF, DOCX e demais formatos documentais suportados.
 
+Alt+3 e a ação equivalente do menu expressam intenção explícita de leitura:
+depois de renderizar `mode=view`, um pedido tipado e consumível uma única vez
+ativa e foca diretamente a ilha interna, inclusive quando o modo já era
+`view`. Mudanças passivas e hidratação não emitem esse pedido.
+
 ### D5 — HTML arbitrário continua proibido
 
 Conteúdo de modelo e documentos é não confiável. O renderer não habilita HTML
@@ -116,6 +121,7 @@ padrão.
 - [x] separar a âncora de entrada da ilha interna `role="document"`;
 - [x] manter Tab livre nas bordas e F6/Shift+F6 funcionais;
 - [x] fazer Esc retornar globalmente ao documento apenas com a superfície ativa;
+- [x] fazer Alt+3/menu entrarem diretamente na ilha por solicitação explícita;
 - [x] cobrir Markdown editável e documento projetado somente leitura.
 
 ## Riscos
@@ -145,6 +151,8 @@ padrão.
   modal.
 - A âncora do preview e o documento interno são elementos distintos, e o
   `role="document"` existe antes do foco de entrada.
+- Alt+3 e o menu de visualização focam diretamente o documento interno, sem
+  Enter adicional, inclusive para retornar à leitura quando `mode=view`.
 - No editor, Tab pode sair pelas bordas e F6/Shift+F6 seguem funcionando.
 - Tab e F6 não encerram a leitura; Esc fora da ilha retorna ao documento apenas
   enquanto o preview estiver ativo, e Esc no próprio documento é no-op.

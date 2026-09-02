@@ -472,6 +472,98 @@ describe('EditorContentArea document view', () => {
     outside.remove();
   });
 
+  it('consome pedido explícito e entra diretamente no documento após o menu fechar', () => {
+    const onConsumed = vi.fn();
+    const activeTab: EditorDocument = {
+      id: 'requested-reading',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    };
+    const { container, rerender } = renderContentArea(activeTab, {
+      renderedReadingRequest: { nonce: 7 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: true,
+    });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(renderedAnchor).toHaveAttribute('tabindex', '0');
+    expect(renderedDocument).not.toHaveAttribute('role');
+
+    rerender(contentAreaElement(activeTab, {
+      renderedReadingRequest: { nonce: 7 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: false,
+    }));
+
+    expect(onConsumed).toHaveBeenCalledOnce();
+    expect(onConsumed).toHaveBeenCalledWith(7);
+    expect(renderedAnchor).toHaveAttribute('tabindex', '-1');
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(renderedDocument).toHaveFocus();
+  });
+
+  it('refoca a ilha ativa a cada novo pedido sem passar pela âncora', () => {
+    const activeTab: EditorDocument = {
+      id: 'requested-reading-again',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    };
+    const onConsumed = vi.fn();
+    const { container, rerender } = renderContentArea(activeTab, {
+      renderedReadingRequest: { nonce: 1 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+    const outside = document.createElement('button');
+    document.body.append(outside);
+
+    outside.focus();
+    rerender(contentAreaElement(activeTab, {
+      renderedReadingRequest: { nonce: 2 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+
+    expect(onConsumed).toHaveBeenLastCalledWith(2);
+    expect(renderedDocument).toHaveFocus();
+    expect(renderedAnchor).not.toHaveFocus();
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    outside.remove();
+  });
+
+  it('não consome pedido de leitura enquanto o painel está inativo', () => {
+    const onConsumed = vi.fn();
+    const { container } = renderContentArea({
+      id: 'inactive-reading',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    }, {
+      isPanelActive: false,
+      renderedReadingRequest: { nonce: 3 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    });
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(renderedDocument).not.toHaveAttribute('role');
+    expect(renderedDocument).not.toHaveFocus();
+  });
+
   it('oferece o mesmo documento focável para projeções somente leitura', () => {
     const { container } = renderContentArea({
       id: 'pdf-reading',

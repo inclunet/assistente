@@ -168,7 +168,7 @@ const editorPageMocks = vi.hoisted(() => {
 const editorStoreState = {
   documents: {} as Record<
     string,
-    { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null; isDirty?: boolean }
+    { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null; isDirty?: boolean; readOnly?: boolean }
   >,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',
@@ -269,6 +269,7 @@ vi.mock('../hooks/useAnchoredContextMenu', () => ({
     openForTrigger: openToolbarMenuSpy,
     closeMenu: vi.fn(),
     onSelectItem: vi.fn(),
+    triggerElementRef: { current: null },
   }),
 }));
 
@@ -696,6 +697,56 @@ describe('EditorPage', () => {
     expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(1, 'tab-1', 'markdown');
     expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(2, 'tab-1', 'rich');
     expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(3, 'tab-1', 'view');
+  });
+
+  it('emite e consome um pedido de leitura a cada Alt+3, inclusive já em view', () => {
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'view',
+        readOnly: true,
+      },
+    };
+
+    render(<EditorPage documentId="tab-1" />);
+
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
+    fireEvent.keyDown(window, { key: '3', altKey: true });
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
+
+    act(() => {
+      (editorPageMocks.editorContentAreaProps?.onRenderedReadingRequestConsumed as (
+        nonce: number,
+      ) => void)(1);
+    });
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
+
+    fireEvent.keyDown(window, { key: '3', altKey: true });
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 2 });
+    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(1, 'tab-1', 'view');
+    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(2, 'tab-1', 'view');
+  });
+
+  it('emite o mesmo pedido explícito ao escolher visualização no menu', async () => {
+    const user = userEvent.setup();
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
+    };
+
+    render(<EditorPage documentId="tab-1" />);
+    await user.click(screen.getByRole('button', { name: 'editor.buttons.mode' }));
+    const lastMenuCall = openToolbarMenuSpy.mock.calls[openToolbarMenuSpy.mock.calls.length - 1];
+    const menuItems = lastMenuCall?.[2] as Array<{
+      id: string;
+      action?: () => void;
+    }>;
+
+    act(() => menuItems.find((item) => item.id === 'mode-view')?.action?.());
+
+    expect(editorStoreState.setDocMode).toHaveBeenCalledWith('tab-1', 'view');
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
   });
 
   it('não executa atalhos de arquivo quando o painel está inativo', async () => {

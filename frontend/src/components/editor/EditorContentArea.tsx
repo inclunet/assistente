@@ -84,6 +84,10 @@ interface RichMermaidRequestContext {
   remove: () => void;
 }
 
+export interface RenderedReadingRequest {
+  nonce: number;
+}
+
 export interface EditorContentAreaProps {
   activeTab: EditorDocument | null;
   isPanelActive?: boolean;
@@ -97,6 +101,9 @@ export interface EditorContentAreaProps {
   revealAppendNonce?: number;
   revealSlideNavigationRequest?: { index: number; nonce: number } | null;
   revealFullscreenRequestNonce?: number;
+  renderedReadingRequest?: RenderedReadingRequest | null;
+  onRenderedReadingRequestConsumed?: (nonce: number) => void;
+  isEditorMenuOpen?: boolean;
   richEditorHandleRef: RefObject<RichTextEditorHandle | null>;
   onRequestEditMermaid: (ctx: RichMermaidRequestContext) => void;
   onOpenMermaid: (index: number, opts?: { insertText?: string }) => void;
@@ -122,6 +129,9 @@ export function EditorContentArea({
   revealAppendNonce = 0,
   revealSlideNavigationRequest = null,
   revealFullscreenRequestNonce = 0,
+  renderedReadingRequest = null,
+  onRenderedReadingRequestConsumed,
+  isEditorMenuOpen = false,
   richEditorHandleRef,
   onRequestEditMermaid,
   onOpenMermaid,
@@ -138,6 +148,7 @@ export function EditorContentArea({
   const renderedPaneRef = useRef<HTMLDivElement>(null);
   const renderedAnchorRef = useRef<HTMLDivElement>(null);
   const renderedDocumentRef = useRef<HTMLDivElement>(null);
+  const consumedRenderedReadingRequestRef = useRef(0);
   const [readingDocumentKey, setReadingDocumentKey] = useState<string | null>(null);
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
@@ -219,6 +230,34 @@ export function EditorContentArea({
     activeTab?.id,
     activeTab?.mode,
     isPanelActive,
+  ]);
+
+  useEffect(() => {
+    if (
+      !renderedReadingRequest
+      || renderedReadingRequest.nonce === consumedRenderedReadingRequestRef.current
+      || !isPanelActive
+      || activeTab?.mode !== 'view'
+      || !renderedDocumentKey
+      || isEditorMenuOpen
+      || isModalOpen()
+    ) return;
+
+    consumedRenderedReadingRequestRef.current = renderedReadingRequest.nonce;
+    onRenderedReadingRequestConsumed?.(renderedReadingRequest.nonce);
+    if (renderedReadingActive) {
+      renderedDocumentRef.current?.focus();
+      return;
+    }
+    setReadingDocumentKey(renderedDocumentKey);
+  }, [
+    activeTab?.mode,
+    isEditorMenuOpen,
+    isPanelActive,
+    renderedDocumentKey,
+    renderedReadingActive,
+    renderedReadingRequest,
+    onRenderedReadingRequestConsumed,
   ]);
 
   useEffect(() => {
