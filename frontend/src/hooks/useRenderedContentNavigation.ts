@@ -96,7 +96,7 @@ export function useRenderedContentNavigation({
   const restoreFocusRef = useRef(restoreFocusOnDeactivate ?? profile === 'modal');
   const manageDocumentSemanticsRef = useRef(manageDocumentSemantics);
   const handleEscapeOutsideRef = useRef(
-    profile === 'scoped' ? handleEscapeOutside : false,
+    profile === 'scoped' && Boolean(handleEscapeOutside),
   );
 
   profileRef.current = profile;
@@ -108,7 +108,7 @@ export function useRenderedContentNavigation({
   shouldHandleEscapeRef.current = shouldHandleEscape;
   restoreFocusRef.current = restoreFocusOnDeactivate ?? profile === 'modal';
   manageDocumentSemanticsRef.current = manageDocumentSemantics;
-  handleEscapeOutsideRef.current = profile === 'scoped' ? handleEscapeOutside : false;
+  handleEscapeOutsideRef.current = profile === 'scoped' && Boolean(handleEscapeOutside);
 
   useEffect(() => {
     const element = elementRef.current;
