@@ -1,7 +1,7 @@
 import { type Ref, forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useEditorStore, type EditorDocument } from '../../store/editorStore';
 import { EditorContentArea } from './EditorContentArea';
@@ -123,6 +123,38 @@ function renderContentArea(
 ) {
   return render(contentAreaElement(activeTab, props));
 }
+
+function installControlledAnimationFrames() {
+  let nextFrameId = 1;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const requestSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    const frameId = nextFrameId++;
+    callbacks.set(frameId, callback);
+    return frameId;
+  });
+  const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => {
+    callbacks.delete(frameId);
+  });
+
+  return {
+    flushFrame() {
+      const currentCallbacks = [...callbacks.values()];
+      callbacks.clear();
+      act(() => currentCallbacks.forEach((callback) => callback(performance.now())));
+    },
+    flushAll() {
+      while (callbacks.size > 0) this.flushFrame();
+    },
+    restore() {
+      requestSpy.mockRestore();
+      cancelSpy.mockRestore();
+    },
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('EditorContentArea Reveal rich mode', () => {
   beforeEach(() => {
@@ -472,7 +504,8 @@ describe('EditorContentArea document view', () => {
     outside.remove();
   });
 
-  it('consome pedido explícito e entra diretamente no documento após o menu fechar', () => {
+  it('só consome o pedido após a sequência observável âncora → documento', () => {
+    const animationFrames = installControlledAnimationFrames();
     const onConsumed = vi.fn();
     const activeTab: EditorDocument = {
       id: 'requested-reading',
@@ -496,20 +529,41 @@ describe('EditorContentArea document view', () => {
     expect(renderedAnchor).toHaveAttribute('tabindex', '0');
     expect(renderedDocument).not.toHaveAttribute('role');
 
+    const focusSequence: string[] = [];
+    const handleFocusIn = (event: FocusEvent) => {
+      if (event.target === renderedAnchor) focusSequence.push('anchor');
+      if (event.target === renderedDocument) focusSequence.push('document');
+    };
+    window.document.addEventListener('focusin', handleFocusIn);
     rerender(contentAreaElement(activeTab, {
       renderedReadingRequest: { nonce: 7 },
       onRenderedReadingRequestConsumed: onConsumed,
       isEditorMenuOpen: false,
     }));
 
+    animationFrames.flushFrame();
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(focusSequence).toEqual([]);
+
+    animationFrames.flushFrame();
+    expect(renderedAnchor).toHaveFocus();
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(focusSequence).toEqual(['anchor']);
+    expect(renderedDocument).not.toHaveAttribute('role');
+
+    animationFrames.flushFrame();
     expect(onConsumed).toHaveBeenCalledOnce();
     expect(onConsumed).toHaveBeenCalledWith(7);
     expect(renderedAnchor).toHaveAttribute('tabindex', '-1');
     expect(renderedDocument).toHaveAttribute('role', 'document');
     expect(renderedDocument).toHaveFocus();
+    expect(focusSequence).toEqual(['anchor', 'document']);
+    window.document.removeEventListener('focusin', handleFocusIn);
+    animationFrames.restore();
   });
 
-  it('refoca a ilha ativa a cada novo pedido sem passar pela âncora', () => {
+  it('refoca a ilha ativa a cada novo pedido sem recriar a semântica', () => {
+    const animationFrames = installControlledAnimationFrames();
     const activeTab: EditorDocument = {
       id: 'requested-reading-again',
       title: 'leitura.md',
@@ -530,17 +584,89 @@ describe('EditorContentArea document view', () => {
     const outside = document.createElement('button');
     document.body.append(outside);
 
+    animationFrames.flushAll();
+    expect(renderedDocument).toHaveFocus();
+    expect(onConsumed).toHaveBeenLastCalledWith(1);
+
     outside.focus();
     rerender(contentAreaElement(activeTab, {
       renderedReadingRequest: { nonce: 2 },
       onRenderedReadingRequestConsumed: onConsumed,
     }));
 
+    expect(outside).toHaveFocus();
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    animationFrames.flushFrame();
     expect(onConsumed).toHaveBeenLastCalledWith(2);
     expect(renderedDocument).toHaveFocus();
     expect(renderedAnchor).not.toHaveFocus();
     expect(renderedDocument).toHaveAttribute('role', 'document');
     outside.remove();
+    animationFrames.restore();
+  });
+
+  it('cancela frames pendentes quando contexto ou pedido mudam', () => {
+    const animationFrames = installControlledAnimationFrames();
+    const onConsumed = vi.fn();
+    const viewTab: EditorDocument = {
+      id: 'cancelled-reading',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    };
+    const { container, rerender } = renderContentArea(viewTab, {
+      renderedReadingRequest: { nonce: 1 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    });
+
+    animationFrames.flushFrame();
+    rerender(contentAreaElement({ ...viewTab, mode: 'markdown' }, {
+      renderedReadingRequest: { nonce: 1 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushAll();
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-editor-rendered-document="true"]')).toBeNull();
+
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 2 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushFrame();
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 3 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushAll();
+    expect(onConsumed.mock.calls).toEqual([[3]]);
+
+    rerender(contentAreaElement({ ...viewTab, mode: 'markdown' }, {
+      renderedReadingRequest: { nonce: 4 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 4 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushFrame();
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 4 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: true,
+    }));
+    animationFrames.flushAll();
+    expect(onConsumed).not.toHaveBeenCalledWith(4);
+
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 5 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: false,
+    }));
+    animationFrames.flushFrame();
+    isModalOpenMock.mockReturnValue(true);
+    animationFrames.flushAll();
+    expect(onConsumed).not.toHaveBeenCalledWith(5);
+    animationFrames.restore();
   });
 
   it('não consome pedido de leitura enquanto o painel está inativo', () => {
