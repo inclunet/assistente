@@ -1,11 +1,11 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle, useMemo } from 'react';
+import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle, useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
-import { SlashCommandMenu, countFilteredSlashItems } from './SlashCommandMenu';
+import { SlashCommandMenu, getSlashOptionId } from './SlashCommandMenu';
 import { buildSlashItems, filterSlashItems, type SlashItem } from './slashItems';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -29,6 +29,8 @@ export interface ChatInputProps {
   onMessageChange?: (message: string) => void;
   onMediaFilesChange?: (mediaFiles: MediaFile[]) => void;
   profileSlug?: string;
+  /** Habilita o menu de skills e comandos iniciado por "/". */
+  slashMenuEnabled?: boolean;
   /**
    * Comandos que o agente de código desta conversa oferece (AEP-0084 D8). Eles
    * entram no mesmo menu da barra: quem digita "/" quer ver o que pode pedir,
@@ -52,6 +54,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     onMessageChange,
     onMediaFilesChange,
     profileSlug,
+    slashMenuEnabled = true,
     agentCommands,
   },
   ref
@@ -64,12 +67,14 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const slashMenuId = `${useId().replace(/[^a-zA-Z0-9_-]/g, '')}-slash-listbox`;
 
   // Slash command state
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [invocableSkills, setInvocableSkills] = useState<skills.SkillInfo[]>([]);
+  const slashMenuWasOpenRef = useRef(false);
   
   const textareaRef = internalTextareaRef;
   useImperativeHandle(ref, () => internalTextareaRef.current as HTMLTextAreaElement, []);
@@ -121,6 +126,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
+    if (!slashMenuEnabled) {
+      setInvocableSkills([]);
+      setShowSlashMenu(false);
+      return;
+    }
     let cancelled = false;
     GetUserInvocableSkillsForProfile(profileSlug || '')
       .then((result) => {
@@ -132,7 +142,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     return () => {
       cancelled = true;
     };
-  }, [profileSlug]);
+  }, [profileSlug, slashMenuEnabled]);
 
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {
@@ -151,10 +161,31 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     () => buildSlashItems(invocableSkills, slashCommands),
     [invocableSkills, slashCommands],
   );
+  const filteredSlashItems = useMemo(
+    () => filterSlashItems(slashItems, slashFilter),
+    [slashItems, slashFilter],
+  );
+  const isSlashMenuOpen = showSlashMenu && slashItems.length > 0;
+  const activeSlashIndex = filteredSlashItems.length > 0
+    ? Math.min(slashSelectedIndex, filteredSlashItems.length - 1)
+    : 0;
+  const activeSlashItem = isSlashMenuOpen ? filteredSlashItems[activeSlashIndex] : undefined;
+  const activeSlashOptionId = activeSlashItem
+    ? getSlashOptionId(slashMenuId, activeSlashItem)
+    : undefined;
+
+  useEffect(() => {
+    setSlashSelectedIndex((currentIndex) => {
+      const nextIndex = filteredSlashItems.length > 0
+        ? Math.min(currentIndex, filteredSlashItems.length - 1)
+        : 0;
+      return currentIndex === nextIndex ? currentIndex : nextIndex;
+    });
+  }, [filteredSlashItems.length]);
 
   // Detecta slash command no texto
   const updateSlashMenu = useCallback((text: string) => {
-    if (slashItems.length === 0) {
+    if (!slashMenuEnabled || slashItems.length === 0) {
       setShowSlashMenu(false);
       return;
     }
@@ -173,19 +204,43 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     } else {
       setShowSlashMenu(false);
     }
-  }, [slashItems]);
+  }, [slashItems, slashMenuEnabled]);
+
+  useEffect(() => {
+    updateSlashMenu(message);
+  }, [message, updateSlashMenu]);
+
+  const closeSlashMenu = useCallback((shouldAnnounce = false) => {
+    const wasOpen = slashMenuWasOpenRef.current;
+    slashMenuWasOpenRef.current = false;
+    setShowSlashMenu(false);
+    if (shouldAnnounce && wasOpen) {
+      announce(t('chat.slashMenuClosed'), 'polite');
+    }
+  }, [announce, t]);
+  const handleSlashMenuClose = useCallback(() => {
+    closeSlashMenu(true);
+  }, [closeSlashMenu]);
+
+  useEffect(() => {
+    if (isSlashMenuOpen && !slashMenuWasOpenRef.current) {
+      announce(t('chat.slashMenuOpened', { count: filteredSlashItems.length }), 'polite');
+    }
+    slashMenuWasOpenRef.current = isSlashMenuOpen;
+  }, [announce, filteredSlashItems.length, isSlashMenuOpen, t]);
 
   // Quando um item do menu é escolhido. O espaço no fim só aparece quando ainda
   // falta escrever alguma coisa: pôr espaço num comando sem argumento faria a
   // mensagem sair com um espaço solto no fim.
   const handleSlashSelect = useCallback((item: SlashItem) => {
     setMessage(`/${item.token}${item.acceptsInput ? ' ' : ''}`);
-    setShowSlashMenu(false);
+    closeSlashMenu(true);
+    announce(t('chat.slashItemSelected', { command: `/${item.token}` }), 'polite');
     // Foca o textarea
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, [textareaRef, setMessage]);
+  }, [announce, closeSlashMenu, textareaRef, setMessage, t]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -206,6 +261,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       onSend(trimmedMessage, mediaFiles.length > 0 ? mediaFiles : undefined);
       setMessage('');
       setMediaFiles([]);
+      closeSlashMenu(true);
 
       // Reset textarea height and restore focus
       if (textareaRef.current) {
@@ -300,31 +356,51 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Navegação no menu slash
-    if (showSlashMenu) {
-      const totalFiltered = countFilteredSlashItems(invocableSkills, slashCommands, slashFilter);
+    if (isSlashMenuOpen) {
+      const totalFiltered = filteredSlashItems.length;
 
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' && totalFiltered > 0) {
         e.preventDefault();
-        setSlashSelectedIndex((prev) => (prev + 1) % Math.max(totalFiltered, 1));
+        const nextIndex = (activeSlashIndex + 1) % Math.max(totalFiltered, 1);
+        setSlashSelectedIndex(nextIndex);
+        const nextItem = filteredSlashItems[nextIndex];
+        if (nextItem) {
+          announce(t('chat.slashActiveOption', {
+            command: `/${nextItem.token}`,
+            position: nextIndex + 1,
+            total: totalFiltered,
+          }), 'polite');
+        }
         return;
       }
-      if (e.key === 'ArrowUp') {
+      if (e.key === 'ArrowUp' && totalFiltered > 0) {
         e.preventDefault();
-        setSlashSelectedIndex((prev) => (prev - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1));
+        const nextIndex = (activeSlashIndex - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1);
+        setSlashSelectedIndex(nextIndex);
+        const nextItem = filteredSlashItems[nextIndex];
+        if (nextItem) {
+          announce(t('chat.slashActiveOption', {
+            command: `/${nextItem.token}`,
+            position: nextIndex + 1,
+            total: totalFiltered,
+          }), 'polite');
+        }
         return;
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      if (
+        totalFiltered > 0
+        && ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey))
+      ) {
         e.preventDefault();
-        // O item na posição atual da mesma lista que o menu desenha.
-        const filtered = filterSlashItems(slashItems, slashFilter);
-        if (filtered[slashSelectedIndex]) {
-          handleSlashSelect(filtered[slashSelectedIndex]);
+        if (filteredSlashItems[activeSlashIndex]) {
+          handleSlashSelect(filteredSlashItems[activeSlashIndex]);
         }
         return;
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setShowSlashMenu(false);
+        closeSlashMenu(true);
+        textareaRef.current?.focus();
         return;
       }
     }
@@ -370,15 +446,16 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         </div>
       )}
 
-      {showSlashMenu && slashItems.length > 0 && (
+      {isSlashMenuOpen && (
         <SlashCommandMenu
           skills={invocableSkills}
           agentCommands={slashCommands}
           filter={slashFilter}
-          selectedIndex={slashSelectedIndex}
+          selectedIndex={activeSlashIndex}
           onSelect={handleSlashSelect}
-          onClose={() => setShowSlashMenu(false)}
+          onClose={handleSlashMenuClose}
           anchorRef={textareaRef}
+          listboxId={slashMenuId}
         />
       )}
 
@@ -419,6 +496,12 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           placeholder={placeholder || t('chat.placeholder')}
           rows={1}
           aria-label={t('chat.messageLabel')}
+          role={slashMenuEnabled ? 'combobox' : undefined}
+          aria-autocomplete={slashMenuEnabled ? 'list' : undefined}
+          aria-expanded={slashMenuEnabled ? isSlashMenuOpen : undefined}
+          aria-controls={slashMenuEnabled && isSlashMenuOpen ? slashMenuId : undefined}
+          aria-activedescendant={activeSlashOptionId}
+          onBlur={() => closeSlashMenu(true)}
         />
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
         {isStreaming ? (

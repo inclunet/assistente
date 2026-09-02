@@ -15,6 +15,7 @@ const storeMocks = vi.hoisted(() => ({
 
 const terminalPageMocks = vi.hoisted(() => ({
   registeredAdapter: null as unknown,
+  slashMenuEnabled: undefined as boolean | undefined,
 }));
 
 const workspaceMocks = vi.hoisted(() => ({
@@ -70,9 +71,23 @@ vi.mock('../components/terminal/TerminalHistory', async () => {
 vi.mock('../components/chat/ChatInput', async () => {
   const React = await import('react');
   return {
-    ChatInput: React.forwardRef<HTMLTextAreaElement, { placeholder: string }>(
-      ({ placeholder }, ref) => <input ref={ref as React.RefObject<HTMLInputElement>} aria-label="chat-input" placeholder={placeholder} />
-    ),
+    ChatInput: React.forwardRef<HTMLTextAreaElement, {
+      placeholder: string;
+      slashMenuEnabled?: boolean;
+      onSend: (message: string) => void;
+    }>(({ placeholder, slashMenuEnabled, onSend }, ref) => {
+      terminalPageMocks.slashMenuEnabled = slashMenuEnabled;
+      return (
+        <textarea
+          ref={ref}
+          aria-label="chat-input"
+          placeholder={placeholder}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onSend(event.currentTarget.value);
+          }}
+        />
+      );
+    }),
   };
 });
 
@@ -146,6 +161,7 @@ describe('TerminalPage', () => {
     storeMocks.interrupt.mockReset();
     workspaceMocks.updateTab.mockReset();
     terminalPageMocks.registeredAdapter = null;
+    terminalPageMocks.slashMenuEnabled = undefined;
     storeState.historyBySession = { 'term-1': [] };
   });
 
@@ -206,6 +222,17 @@ describe('TerminalPage', () => {
     fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
 
     expect(storeMocks.interrupt).not.toHaveBeenCalled();
+  });
+
+  it('desabilita o menu slash e envia "/" como texto normal ao shell', () => {
+    renderTerminalPage();
+
+    const input = screen.getByLabelText('chat-input');
+    fireEvent.change(input, { target: { value: '/' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(terminalPageMocks.slashMenuEnabled).toBe(false);
+    expect(storeMocks.sendInput).toHaveBeenCalledWith('term-1', '/');
   });
 
   it('usa o mesmo histórico no preview e no envio do chat', async () => {

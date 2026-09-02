@@ -57,6 +57,10 @@ A interface inclui:
 - **Histórico**: Lista de comandos e saídas
 - **Input**: Campo para digitar novos comandos
 
+O campo do terminal envia texto diretamente ao shell. `/` é um caractere
+normal nesse campo e não abre o menu de skills do chat. Autocomplete, quando
+disponível, é responsabilidade do shell ativo e de seus recursos nativos.
+
 ## Atalhos
 
 | Atalho | Ação |

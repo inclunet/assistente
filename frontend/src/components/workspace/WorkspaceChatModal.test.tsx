@@ -107,7 +107,7 @@ vi.mock('../chat/ChatPanel', () => ({
             </div>
           </div>
           <div className="chat-input">
-            <textarea aria-label="Mensagem" className="chat-input__textarea" />
+            <textarea aria-label="Mensagem" className="chat-input__textarea" role="combobox" />
           </div>
         </div>
       </div>
@@ -289,14 +289,14 @@ describe('WorkspaceChatModal', () => {
 
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
-    expect(screen.getByRole('textbox', { name: 'Mensagem' })).not.toHaveFocus();
+    expect(screen.getByRole('combobox', { name: 'Mensagem' })).not.toHaveFocus();
     expect(questionnaireControl).toHaveFocus();
   });
 
   it('F6 navega para landmarks do chat modal quando ele esta no topo', () => {
     render(<WorkspaceChatModal />);
 
-    screen.getByRole('textbox', { name: 'Mensagem' }).focus();
+    screen.getByRole('combobox', { name: 'Mensagem' }).focus();
     fireEvent.keyDown(window, { key: 'F6' });
 
     expect(screen.getByRole('button', { name: 'Ação da toolbar' })).toHaveFocus();
@@ -305,7 +305,7 @@ describe('WorkspaceChatModal', () => {
   it('Shift+F6 navega para mensagens/contexto dentro do chat modal', () => {
     render(<WorkspaceChatModal />);
 
-    screen.getByRole('textbox', { name: 'Mensagem' }).focus();
+    screen.getByRole('combobox', { name: 'Mensagem' }).focus();
     fireEvent.keyDown(window, { key: 'F6', shiftKey: true });
 
     expect(screen.getByLabelText('Lista de mensagens')).toHaveFocus();
@@ -318,7 +318,7 @@ describe('WorkspaceChatModal', () => {
     toolbarButton.focus();
     fireEvent.keyDown(toolbarButton, { key: 'Escape' });
 
-    expect(screen.getByRole('textbox', { name: 'Mensagem' })).toHaveFocus();
+    expect(screen.getByRole('combobox', { name: 'Mensagem' })).toHaveFocus();
     expect(workspaceChatModalState.close).not.toHaveBeenCalled();
   });
 
@@ -330,7 +330,7 @@ describe('WorkspaceChatModal', () => {
     fireEvent.keyDown(messageButton, { key: 'Escape' });
 
     expect(messageButton).toHaveFocus();
-    expect(screen.getByRole('textbox', { name: 'Mensagem' })).not.toHaveFocus();
+    expect(screen.getByRole('combobox', { name: 'Mensagem' })).not.toHaveFocus();
   });
 
   it('F6 nao navega para landmarks do workspace atras do modal', () => {
@@ -343,7 +343,7 @@ describe('WorkspaceChatModal', () => {
       </>,
     );
 
-    screen.getByRole('textbox', { name: 'Mensagem' }).focus();
+    screen.getByRole('combobox', { name: 'Mensagem' }).focus();
     fireEvent.keyDown(window, { key: 'F6' });
 
     expect(focusBehind).not.toHaveBeenCalled();
