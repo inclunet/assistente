@@ -197,6 +197,7 @@ export function useRenderedContentNavigation({
 
       if (event.key === 'Escape') {
         const activeProfile = profileRef.current;
+        let isScopedDefaultArea = false;
         if (activeProfile === 'scoped') {
           const activeElement = document.activeElement;
           if (!activeElement || !element.contains(activeElement)) return;
@@ -208,12 +209,17 @@ export function useRenderedContentNavigation({
             ?? element.querySelector<HTMLElement>('.chat-message__content')
             ?? element.querySelector<HTMLElement>('.chat-message__text')
             ?? element;
-          if (activeElement === contentElement) return;
+          isScopedDefaultArea = activeElement === contentElement;
         }
 
         const explicitEscapePolicy = shouldHandleEscapeRef.current;
         if (explicitEscapePolicy) {
           if (!explicitEscapePolicy()) return;
+        }
+        if (isScopedDefaultArea) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
         }
         event.preventDefault();
         event.stopPropagation();

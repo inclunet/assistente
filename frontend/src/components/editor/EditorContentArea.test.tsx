@@ -413,7 +413,7 @@ describe('EditorContentArea document view', () => {
 
     // Escape na área padrão é no-op: a leitura permanece ativa e sem anúncio
     // de saída. Em um descendente, apenas devolve o foco à área padrão.
-    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(false);
     expect(renderedDocument).toHaveFocus();
     expect(announceMock).toHaveBeenCalledTimes(1);
 
