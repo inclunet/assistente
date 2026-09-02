@@ -7,13 +7,17 @@ import { ChatInput } from './ChatInput';
 // justamente entre o menu e o campo — a seta contando itens de uma lista e o
 // Enter escolhendo na outra.
 const getSkillsForProfileSpy = vi.fn();
+const announceSpy = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+  useTranslation: () => ({
+    t: (key: string, fallbackOrOptions?: string | Record<string, unknown>) =>
+      typeof fallbackOrOptions === 'string' ? fallbackOrOptions : key,
+  }),
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: announceSpy }),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
@@ -40,11 +44,17 @@ const comandos = [
 // CampoControlado é o campo como o painel de chat o usa: com o texto vivendo
 // fora dele. Escolher um item escreve nesse texto, e o teste que guardasse o
 // valor por conta própria não provaria que a escrita chegou lá.
-function CampoControlado({ agentCommands = comandos }: { agentCommands?: typeof comandos }) {
+function CampoControlado({
+  agentCommands = comandos,
+  onSend = () => {},
+}: {
+  agentCommands?: typeof comandos;
+  onSend?: (message: string) => void;
+}) {
   const [message, setMessage] = useState('');
   return (
     <ChatInput
-      onSend={() => {}}
+      onSend={onSend}
       message={message}
       onMessageChange={setMessage}
       agentCommands={agentCommands}
@@ -61,6 +71,7 @@ async function digitaNoCampo(texto: string) {
 describe('ChatInput com comandos do agente', () => {
   beforeEach(() => {
     getSkillsForProfileSpy.mockReset();
+    announceSpy.mockReset();
     getSkillsForProfileSpy.mockResolvedValue([]);
   });
 
@@ -128,6 +139,126 @@ describe('ChatInput com comandos do agente', () => {
     expect(selecionado?.textContent).toContain('/plan');
   });
 
+  it('expõe combobox e relaciona a opção ativa ao listbox com IDs estáveis', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    const listbox = await screen.findByRole('listbox');
+    const activeOption = screen.getAllByRole('option')[0];
+
+    expect(textarea).toHaveAttribute('role', 'combobox');
+    expect(textarea).toHaveAttribute('aria-expanded', 'true');
+    expect(textarea).toHaveAttribute('aria-controls', listbox.id);
+    expect(textarea).toHaveAttribute('aria-activedescendant', activeOption.id);
+    expect(activeOption).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+
+    expect(textarea).toHaveFocus();
+    expect(textarea).toHaveAttribute('aria-expanded', 'false');
+    expect(textarea).not.toHaveAttribute('aria-controls');
+    expect(textarea).not.toHaveAttribute('aria-activedescendant');
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
+  });
+
+  it('recolhe o combobox se as opções disponíveis desaparecerem', async () => {
+    const { rerender } = render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findByRole('listbox');
+
+    rerender(<CampoControlado agentCommands={[]} />);
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(textarea).toHaveAttribute('aria-expanded', 'false');
+    expect(textarea).not.toHaveAttribute('aria-controls');
+    expect(textarea).not.toHaveAttribute('aria-activedescendant');
+  });
+
+  it('ajusta a opção ativa quando a lista diminui', async () => {
+    const { rerender } = render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: /\/revisar/ })).toHaveAttribute('aria-selected', 'true');
+
+    rerender(<CampoControlado agentCommands={[comandos[0]]} />);
+
+    const unicaOpcao = await screen.findByRole('option');
+    await waitFor(() => {
+      expect(unicaOpcao).toHaveAttribute('aria-selected', 'true');
+      expect(textarea).toHaveAttribute('aria-activedescendant', unicaOpcao.id);
+    });
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    await waitFor(() => expect(textarea).toHaveValue('/plan '));
+  });
+
+  it('anuncia abertura, opção ativa e seleção pelo announcer global', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuOpened', 'polite');
+
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashActiveOption', 'polite');
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashItemSelected', 'polite');
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
+    await waitFor(() => expect(textarea).toHaveFocus());
+  });
+
+  it('não repete o anúncio de abertura ao filtrar o menu', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    announceSpy.mockClear();
+
+    await digitaNoCampo('/rev');
+
+    expect(await screen.findByRole('option')).toHaveTextContent('/revisar');
+    expect(announceSpy).not.toHaveBeenCalledWith('chat.slashMenuOpened', 'polite');
+  });
+
+  it('abre o menu quando o valor controlado muda externamente', async () => {
+    const onMessageChange = vi.fn();
+    const props = {
+      onSend: vi.fn(),
+      onMessageChange,
+      agentCommands: comandos,
+    };
+    const { rerender } = render(<ChatInput {...props} message="" />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    rerender(<ChatInput {...props} message="/" />);
+
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
+    expect(screen.getByLabelText('chat.messageLabel')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('anuncia o fechamento quando o campo perde o foco', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    announceSpy.mockClear();
+
+    fireEvent.blur(textarea);
+
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
+    expect(announceSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('escolher um comando do agente escreve a barra e o nome no campo', async () => {
     render(<CampoControlado />);
     await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
@@ -152,6 +283,46 @@ describe('ChatInput com comandos do agente', () => {
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
     await waitFor(() => expect(textarea).toHaveValue('/revisar'));
+  });
+
+  it('preserva seleção por Tab e restaura o foco no campo', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue('/plan ');
+      expect(textarea).toHaveFocus();
+    });
+  });
+
+  it('não intercepta Shift+Tab quando o menu está aberto', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+
+    expect(fireEvent.keyDown(textarea, { key: 'Tab', shiftKey: true })).toBe(true);
+    expect(textarea).toHaveValue('/');
+  });
+
+  it('envia texto iniciado por barra quando o filtro não tem opções', async () => {
+    const onSend = vi.fn();
+    render(<CampoControlado onSend={onSend} />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/comando-inexistente');
+    expect(await screen.findByText('chat.noSlashItemsFound')).toBeInTheDocument();
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledWith('/comando-inexistente', undefined);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(announceSpy).toHaveBeenCalledWith('chat.slashMenuClosed', 'polite');
   });
 
   it('sem skills e sem comandos o menu não aparece', async () => {

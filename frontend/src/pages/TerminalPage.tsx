@@ -328,6 +328,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
               : t('terminal.placeholders.command')
           }
           voiceEnabled={false}
+          slashMenuEnabled={false}
           onArrowUp={handleArrowUp}
         />
       </div>
