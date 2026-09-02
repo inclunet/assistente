@@ -146,7 +146,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         el.isContentEditable ||
         el.getAttribute?.('role') === 'textbox');
 
-    // Primeira entrada: sempre tenta focar o editor.
+    // Primeira entrada: foca o editor se nenhum campo de digitação estiver ativo.
     if (!didInitialEditorAutofocusRef.current) {
       didInitialEditorAutofocusRef.current = true;
       if (!isTypingTarget) {
