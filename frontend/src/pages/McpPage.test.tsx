@@ -151,6 +151,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     url: string;
     oauth2AuthUrl: string;
     oauth2TokenUrl: string;
+    oauth2Scopes: string;
     discoveryRegistrationUrl: string;
     oauth2CallbackHost: string;
     oauth2CallbackPort: string;
@@ -159,6 +160,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     onAuthTypeChange: (value: string) => void;
     onOAuth2AuthUrlChange: (value: string) => void;
     onOAuth2TokenUrlChange: (value: string) => void;
+    onOAuth2ScopesChange: (value: string) => void;
     onOAuth2CallbackHostChange: (value: string) => void;
     onOAuth2CallbackPortChange: (value: string) => void;
     onUrlBlur: () => void;
@@ -168,6 +170,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
       <input aria-label="Server URL" value={props.url} onChange={(e) => props.onUrlChange(e.target.value)} />
       <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
       <input aria-label="Token URL" value={props.oauth2TokenUrl} onChange={(e) => props.onOAuth2TokenUrlChange(e.target.value)} />
+      <input aria-label="OAuth Scopes" value={props.oauth2Scopes} onChange={(e) => props.onOAuth2ScopesChange(e.target.value)} />
       <span data-testid="registration-url-value">{props.discoveryRegistrationUrl}</span>
       <span data-testid="callback-host-value">{props.oauth2CallbackHost}</span>
       <span data-testid="callback-port-value">{props.oauth2CallbackPort}</span>
@@ -357,6 +360,26 @@ describe('McpPage — oauth2_callback_host', () => {
     await waitFor(() => expect(mockDiscover).toHaveBeenCalled());
     expect(screen.getByLabelText('Authorization URL')).toHaveValue('https://manual.example/authorize');
     expect(screen.getByLabelText('Token URL')).toHaveValue('https://manual.example/token');
+  });
+
+  it('aproveita scopes do PRM em discovery parcial sem bloquear configuração manual', async () => {
+    mockDiscover.mockResolvedValue({
+      found: false,
+      status: 'partial',
+      protectedResourceFound: true,
+      resourceName: 'Recurso parcial',
+      scopes: ['files:read', 'files:write'],
+    });
+    await openNewServerForm();
+
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('OAuth Scopes')).toHaveValue('files:read files:write');
+    });
+    await userEvent.type(screen.getByLabelText('OAuth Scopes'), ' custom');
+    expect(screen.getByLabelText('OAuth Scopes')).toHaveValue('files:read files:write custom');
   });
 
   it('limpa registration URL descoberto ao descobrir outro servidor sem DCR', async () => {

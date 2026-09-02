@@ -329,6 +329,9 @@ export default function McpPage() {
         if (resName && !formName) setFormName(resName);
         setDiscoveryStatus('found');
       } else if (result.status === 'partial' || result.protectedResourceFound) {
+        if (result.scopes?.length > 0 && !formOAuth2Scopes) {
+          setFormOAuth2Scopes(result.scopes.join(' '));
+        }
         setDiscoveryResourceName(result.resourceName || '');
         setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('partial');

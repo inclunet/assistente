@@ -242,7 +242,8 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    `grant_types_supported` não foi publicada.
 7. Valores manuais são soberanos: discovery preenche apenas campos vazios,
    nunca impede salvar e mantém a edição manual disponível em falha parcial ou
-   total.
+   total. Em resultado parcial, nome e scopes válidos do PRM continuam
+   disponíveis para ajudar na conclusão manual.
 
 ### Fases
 
