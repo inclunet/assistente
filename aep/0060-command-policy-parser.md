@@ -1,6 +1,6 @@
 # AEP-0060: Parser e Política de Comandos
 
-## Status: Draft
+## Status: Done — parser, evaluator, integração e testes em `internal/commandpolicy`
 
 ## Resumo
 
@@ -152,31 +152,31 @@ A migração respeita personalizações: se o usuário já tem qualquer regra es
 
 ## Fases
 
-### Fase 1 — Documentação arquitetural
+### Fase 1 — Documentação arquitetural ✅
 
 - Registrar esta AEP.
 - Definir a primeira subset suportada e os comportamentos conservadores.
 
-### Fase 2 — Package `commandpolicy`
+### Fase 2 — Package `commandpolicy` ✅
 
 - Criar AST mínima para comandos atômicos.
 - Implementar parser da subset comum.
 - Detectar separadores, redirecionamentos, pipes, background e sintaxe ambígua.
 - Adicionar testes unitários do parser.
 
-### Fase 3 — Allowlist estruturada
+### Fase 3 — Allowlist estruturada ✅
 
 - Estender o modelo de allowlist com regras estruturadas.
 - Manter compatibilidade com regras legadas.
 - Cobrir precedência e subcomandos com testes.
 
-### Fase 4 — Integração com `run_command`
+### Fase 4 — Integração com `run_command` ✅
 
 - Substituir a avaliação direta de string por `commandpolicy.Evaluate`.
 - Logar motivos de confirmação/bloqueio para facilitar diagnóstico.
 - Preservar execução da string original no PTY.
 
-### Fase 5 — Validação
+### Fase 5 — Validação ✅
 
 - Rodar testes do pacote de política.
 - Rodar testes de allowlist e shell afetados.
@@ -191,12 +191,16 @@ A migração respeita personalizações: se o usuário já tem qualquer regra es
 
 ## Critérios de aceitação
 
-- `git status && git diff` pode ser autoaprovado quando ambos os comandos são permitidos.
-- `git status && rm -rf dist` não pode ser autoaprovado.
-- `kubectl get pods` pode ser autoaprovado por regra estruturada.
-- `kubectl delete pod x` e `kubectl patch deployment x` não são autoaprovados por uma regra genérica de `kubectl`.
-- `>`, `>>`, `2>`, `2>>`, `<`, `<<`, `|`, `$()` e backticks forçam confirmação na primeira entrega.
-- Tokens especiais dentro de aspas não são tratados como operadores.
-- Regras legadas continuam funcionando.
-- Testes cobrem parser, agregação de decisões, regras estruturadas e integração com `run_command`.
-- Atribuições inline `KEY=VALUE` antes do programa são consumidas em `Command.EnvAssignments`, forçam `confirm` e nunca aparecem em `Reasons`, log do `run_command` ou `Content` devolvido ao LLM.
+Evidências: `internal/commandpolicy/parser_test.go`,
+`evaluator_test.go`, `internal/tools/shell/run_command_test.go` e
+validação de regras em `internal/profiles/manager_test.go`.
+
+- [x] `git status && git diff` pode ser autoaprovado quando permitido.
+- [x] Composto com `rm -rf` não é autoaprovado.
+- [x] Regra estruturada permite `kubectl get pods`.
+- [x] Regra genérica não autoaprova `kubectl delete`/`patch`.
+- [x] Operadores conservadores forçam confirmação.
+- [x] Tokens especiais entre aspas não viram operadores.
+- [x] Regras legadas continuam funcionando.
+- [x] Testes cobrem parser, decisão agregada, regras e `run_command`.
+- [x] Env inline força confirmação e tem valor redigido em razões/log/output.

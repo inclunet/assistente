@@ -1,5 +1,7 @@
 # Refatoração do Sistema de Chat - Componentes Modulares
 
+**Status:** Superseded — componentes Svelte substituídos pela arquitetura React vigente
+
 ## Objetivo
 
 Transformar o sistema de chat monolítico em componentes independentes e reutilizáveis que podem ser usados em diferentes contextos (LLM, P2P, suporte, etc.).

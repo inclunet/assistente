@@ -1,5 +1,7 @@
 # Plano de Implementação: Sistema de Email no Assistente
 
+**Status:** Open
+
 ## 1. Visão Geral
 
 Implementar suporte integrado para email no Assistente com:

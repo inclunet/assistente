@@ -1,6 +1,6 @@
 # AEP-0057: Sessões de Superfície e Timeline de Chat
 
-## Status: Draft
+## Status: Done — identidade e isolamento consolidados nos PRs #110–#113
 
 ## Relação com a AEP-0056
 
@@ -144,49 +144,49 @@ Esse desenho permite trocar Zustand, registry em memória ou outra implementaç�
 
 ## Fases
 
-### Fase 1 — Reformular fronteira de sessão
+### Fase 1 — Reformular fronteira de sessão ✅
 
 - Criar tipos explícitos para `ConversationTimeline`, `ChatSurfaceSession`, `ConversationTurnQueue`, `ChatSessionKey` e `ChatSurfaceOrigin`.
 - Introduzir helpers para derivar `sessionKey` a partir de `tabId`/`surfaceId` e `conversationId`.
 - Criar `ChatSessionProvider`/`useChatSession()` como fronteira primária da UI.
 - Atualizar testes para duas superfícies apontando para a mesma conversa.
 
-### Fase 2 — Separar timeline de estado visual
+### Fase 2 — Separar timeline de estado visual ✅
 
 - Separar cache/timeline por `conversationId` do estado visual por `sessionKey`.
 - Remover acesso direto da UI a registries globais.
 - Migrar `ChatSessionView`, `ChatToolbar`, `MessageList`, `MessageNode` e `ChatMessage` para `useChatSession()`.
 - Garantir que fechar uma aba remove apenas sua sessão visual.
 
-### Fase 3 — Fila de turnos por conversa
+### Fase 3 — Fila de turnos por conversa ✅
 
 - Introduzir ou adaptar a fila de turnos por `conversationId`.
 - Permitir execução paralela entre conversas diferentes.
 - Serializar envios da mesma conversa.
 - Separar cancelamento explícito de novo envio comum.
 
-### Fase 4 — Contrato de origem e eventos
+### Fase 4 — Contrato de origem e eventos ✅
 
 - Ampliar `SendMessage`/`RetryMessage` para receber origem de superfície sem criar outro método de envio.
 - Propagar origem até os eventos `chat:*`.
 - Adicionar identificador de turno quando necessário para correlacionar fila, streaming e retry.
 - Alinhar canais externos ao mesmo contrato de origem via `source`/`surfaceType`.
 
-### Fase 5 — Loader, paginação e janela
+### Fase 5 — Loader, paginação e janela ✅
 
 - Ajustar carregamento inicial para preencher timeline por `conversationId`.
 - Manter janela, cursor e âncora visual por `sessionKey`.
 - Evitar reload desnecessário quando outra superfície já carregou a mesma timeline.
 - Preparar a base para a AEP-0059.
 
-### Fase 6 — Retry, erro e UI de fila
+### Fase 6 — Retry, erro e UI de fila ✅
 
 - Direcionar erro/retry para a sessão de origem quando houver origem.
 - Refletir mensagens persistidas em todas as superfícies interessadas.
 - Expor estado de turno em fila ou bloqueado por conversa.
 - Validar envio em duas conversas diferentes e envio serializado na mesma conversa.
 
-### Fase 7 — Hardening de superfície de chat
+### Fase 7 — Hardening de superfície de chat ✅
 
 - Garantir que `WorkspaceChatModal`, `ChatPanel`, `ChatSessionProvider` e `VoiceButton` sempre recebam identidade explícita de superfície.
 - Remover usos diretos de `activeTabId` para inferir origem de chat, exceto para visibilidade/foco no shell.
@@ -218,7 +218,7 @@ O PR #111 completa o contrato operacional de sessão de chat:
 - Canais externos entram na `ConversationTurnQueue` por `conversationId` e usam origem externa explícita, em vez de adaptar comportamento pela aba ativa.
 - Eventos `chat:*` carregam `surfaceOrigin` quando a origem é conhecida, permitindo que controllers, voz e anúncios escolham a sessão correta.
 
-#### Consolidação no PR #113 e relação com AEP-0059
+#### Consolidação no PR #113 e evolução da AEP-0059
 
 O PR #113 consolidou o carregamento incremental sem enfraquecer a identidade de superfície:
 
@@ -226,7 +226,10 @@ O PR #113 consolidou o carregamento incremental sem enfraquecer a identidade de 
 - `ChatSurfaceSession` passou a carregar sua própria janela renderizada, cursores e estado de carregamento de janela.
 - Duas superfícies da mesma conversa podem manter pontos diferentes do histórico sem compartilhar scroll, paginação ou contagem local.
 
-O próximo PR da AEP-0059 Fase 2.1 preserva esse contrato. A unidade canônica de timeline será calculada no backend por `conversationId`, mas a janela visível continuará pertencendo à `ChatSurfaceSession`.
+A Fase 2.1 da AEP-0059 foi concluída preservando esse contrato: a unidade
+canônica de timeline é calculada no backend por `conversationId`, enquanto a
+janela visível continua pertencendo à `ChatSurfaceSession`. Virtualização e
+conteúdo pesado seguem como follow-ups da AEP-0059.
 
 ## Riscos
 
@@ -241,17 +244,24 @@ O próximo PR da AEP-0059 Fase 2.1 preserva esse contrato. A unidade canônica d
 
 ## Critérios de aceitação
 
-- Duas abas com conversas diferentes podem enviar e receber respostas simultaneamente.
-- Duas superfícies com a mesma conversa compartilham a timeline canônica de mensagens.
-- Duas superfícies com a mesma conversa não compartilham scroll, foco, input, edição, expansão de threads ou erros locais.
-- Envio comum para conversa ocupada não cancela silenciosamente o turno atual.
-- A mesma conversa processa turnos de forma serializada e ordenada.
-- `SendMessage` continua sendo a única chamada de envio frontend-backend.
-- Eventos de chat não dependem de `activeConversationId` global.
-- Componentes de UI usam `ChatSessionProvider`/`useChatSession()` em vez de acessar registries globais diretamente.
-- Fechar uma aba remove apenas sua sessão visual.
-- Cache/timeline por `conversationId` não força estado visual compartilhado.
-- Testes cobrem isolamento por superfície, timeline compartilhada e fila por conversa.
-- Modal de chat do workspace é vinculado explicitamente a uma superfície antes de preparar contexto ou enviar mensagem.
-- Chat renderizado em modal, painel ou embedded recebe contexto de superfície equivalente ao painel de origem.
-- `activeTabId` não é usado para decidir conversa, sessão visual, origem de envio ou retry.
+Evidências: PRs #110–#113,
+`frontend/src/services/chatTurnQueue.test.ts`,
+`chatSessionRegistry.test.ts`, `chatEventController.test.ts`,
+`frontend/src/components/chat/ChatSessionContext.test.tsx`,
+`ChatSurfaceController.test.tsx`, `ChatSessionView.test.tsx` e
+`frontend/src/components/workspace/WorkspaceChatModal.test.tsx`.
+
+- [x] Conversas diferentes enviam e recebem em paralelo.
+- [x] Mesma conversa compartilha timeline canônica.
+- [x] Mesma conversa não compartilha estado visual local.
+- [x] Envio ocupado não cancela silenciosamente o turno atual.
+- [x] Uma conversa processa turnos serializados e ordenados.
+- [x] `SendMessage` permanece o único envio frontend-backend.
+- [x] Eventos não dependem de conversa ativa global.
+- [x] UI usa provider/controller, não registry diretamente.
+- [x] Fechar aba remove somente sua sessão visual.
+- [x] Cache por conversa não força estado visual compartilhado.
+- [x] Testes cobrem isolamento, timeline e fila.
+- [x] Modal é vinculado à superfície antes de preparar/enviar.
+- [x] Modal, painel e embedded recebem contexto equivalente.
+- [x] `activeTabId` não decide conversa, envio ou retry.

@@ -1,6 +1,6 @@
 # AEP-0001: Jobs — Event-Driven Automation
 
-- **Status**: Draft
+- **Status**: In Progress — runtime e persistência avançaram pelas AEPs 0048, 0063 e 0067; roadmap amplo ainda parcial
 - **Autor**: Leonardo Gleison Ferreira
 - **Data**: 2026-03-20
 - **Inspiração**: [Huginn](https://github.com/huginn/huginn) evolved — com MCP, tool calling e LLM

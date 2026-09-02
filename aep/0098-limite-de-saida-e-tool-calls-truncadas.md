@@ -1,6 +1,6 @@
 # AEP-0098 — Limite de saída e tool calls truncadas
 
-**Status:** ✅ Implementado
+**Status:** In Progress — fluxo implementado; regressão focada de `invalid_args` sem stop reason permanece pendente
 
 ## Resumo
 
@@ -128,24 +128,24 @@ transporte e não dispara retry automático de streaming.
 
 ## Fases
 
-1. **Contrato**
+1. **Contrato — entregue**
    - criar o motivo normalizado e a capability de handler;
    - cobrir normalização com testes unitários.
-2. **Adapters**
+2. **Adapters — entregue**
    - propagar o motivo em OpenAI Chat Completions, OpenAI Responses,
      Anthropic, Google e ACP;
    - adicionar regressões para os valores nativos de limite.
-3. **Loop agêntico**
+3. **Loop agêntico — entregue**
    - bloquear atomicamente lotes truncados;
    - permitir uma reformulação orientada a fatiamento;
    - encerrar repetições como `output_limit`.
-4. **Desfecho e interface**
+4. **Desfecho e interface — entregue**
    - propagar `output_limit` em `chat:done`;
    - anunciar o estado e manter disponível a continuação explícita.
-5. **Validação**
+5. **Validação — parcial**
    - executar suites backend e frontend;
    - validar que JSON inválido sem stop reason continua no caminho
-     `invalid_args`.
+     `invalid_args` — regressão focada ainda pendente.
 
 ## Riscos
 
@@ -162,12 +162,31 @@ transporte e não dispara retry automático de streaming.
 
 ## Critérios de aceitação
 
+Não existe pacote `internal/tools/outputlimit` no HEAD. A implementação real
+está distribuída entre `internal/llm/finish_reason.go`, os adapters de
+`internal/llm`, `internal/agent/agentic_loop.go` e o controller frontend.
+
 - [x] O motivo de término chega dos cinco transports ao handler.
 - [x] `max_tokens` é normalizado sem heurística por provider, URL ou modelo.
 - [x] Nenhuma tool local de um lote interrompido é executada ou persistida.
 - [x] Há no máximo uma reformulação automática, orientada a operações menores.
 - [x] Um segundo limite encerra o turno como `output_limit`.
 - [x] Texto parcial é preservado e a continuação explícita permanece disponível.
-- [x] JSON malformado sem `max_tokens` continua classificado como `invalid_args`.
+- [ ] Adicionar regressão focada comprovando que JSON malformado sem
+  `max_tokens` continua classificado como `invalid_args`.
 - [x] Frontend anuncia `output_limit` sem tratá-lo como erro de transporte.
 - [x] Testes Go e Vitest cobrem os caminhos críticos.
+
+Evidências:
+
+- normalização/provider adapters:
+  `internal/llm/finish_reason_test.go` e testes dos providers;
+- atomicidade, uma reformulação e segundo limite:
+  `internal/agent/agentic_loop_test.go`;
+- classificação genérica de `invalid_args`:
+  `internal/tools/executor_test.go`; falta a regressão específica sem stop
+  reason descrita acima;
+- `chat:done.reason=output_limit`:
+  `internal/core/ports/chat_events.go` e testes do agentic loop;
+- anúncio e tratamento frontend:
+  `frontend/src/services/chatEventController.test.ts`.

@@ -1,5 +1,7 @@
 # MCP OAuth Auto-Discovery
 
+**Status:** In Progress — discovery e testes existem; contrato de campos readonly/manual override permanece incompleto
+
 ## Objetivo
 
 Implementar auto-discovery de configuração OAuth para servidores MCP remotos (transport `streamable` ou `sse`). Quando o usuário preenche a URL do servidor e sai do campo, o sistema consulta automaticamente os endpoints well-known do servidor para preencher os campos de autenticação.
@@ -24,7 +26,19 @@ Exemplos reais que validei:
 - Protected Resource: 404 (não implementado)
 - Auth Server: `https://mcp.atlassian.com/.well-known/oauth-authorization-server` → retorna auth_url, token_url, registration_endpoint
 
-## O que implementar
+## Estado atual
+
+- [x] Discovery backend em `internal/mcp/discovery.go`, com testes em
+      `internal/mcp/oauth_test.go`.
+- [x] Binding e disparo no `McpPage`, com estados de loading/found/not_found.
+- [x] Feedback acessível e testes do painel em
+      `McpConnectionSection.test.tsx`.
+- [ ] `McpConnectionSection` recebe `discoveredFields`, mas atualmente o renomeia
+      para `_discoveredFields` e não o usa para tornar campos readonly.
+- [ ] O override manual previsto ainda não fecha o contrato por campo descrito
+      nesta AEP.
+
+## Plano original
 
 ### 1. Backend — Novo endpoint Go `DiscoverMCPServerAuth`
 
@@ -190,4 +204,8 @@ Os campos de auth OAuth2 verificam se estão em `discoveredFields` para decidir 
 - **Acessibilidade**: campos readOnly devem ser anunciados corretamente por screen readers. Usar `aria-readonly="true"` e incluir hint descritivo (ex: "preenchido automaticamente via discovery").
 - **Não bloquear o save**: se o discovery falhar, o formulário funciona normalmente — é apenas uma conveniência.
 - **client_id**: NÃO temos como descobrir o client_id automaticamente via well-known (ele vem do registro do app). O campo client_id permanece editável sempre. No caso do Atlassian, existe um `registration_endpoint` — mas implementar Dynamic Client Registration (RFC 7591) é escopo futuro, não agora. Deixar o campo em branco com hint se `registrationUrl` estiver presente.
-- **Não precisa de testes por agora**: foco na implementação funcional.
+- **Nota histórica obsoleta:** o plano inicial dizia que testes poderiam ser
+  adiados. O estado vigente exige e já possui regressões de discovery em
+  `internal/mcp/oauth_test.go` e de UI em
+  `McpConnectionSection.test.tsx`; novas alterações continuam obrigadas a
+  atualizar a cobertura.

@@ -1,6 +1,6 @@
 # AEP-0062 — Profile Application & Local Provider Auth Modes
 
-Status: Implementado
+Status: Done
 Data: 2026-05-11
 Autor: Claude (sob direção do Leonardo)
 

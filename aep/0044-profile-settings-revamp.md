@@ -1,8 +1,9 @@
 # 0044 — Profile Settings Revamp (Tabbed Panels)
 
+Status: In Progress — abas acessíveis implementadas; deep-link, lazy loading e rollout descritos ainda não foram encerrados
+
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-01
-Status: rascunho
 
 Resumo executivo
 - Objetivo: Refatorar a p├ígina de configura├º├Áes de perfil para um layout em paineis/abas, usando os componentes padronizados do design system existentes. Separar e organizar configura├º├Áes em guias coesas (Geral, Modelos, Skills, Tools, Voz, Acessibilidade, Avan├ºado). Manter visual e componentes j├í existentes; adicionar apenas componentes novos quando estritamente necess├írio.

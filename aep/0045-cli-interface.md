@@ -1,8 +1,9 @@
 # 0045 — Interface CLI como alternativa ao Wails
 
+Status: In Progress — CLI entregue e testada; validação manual de `wails dev` permanece pendente
+
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-18
-Status: concluído
 
 ## Resumo executivo
 
@@ -49,17 +50,19 @@ Casos de uso: automação via scripts, uso em servidores headless, acessibilidad
 
 ### Reestruturação: `internal/app/` + `cmd/`
 
-Em Go, `package main` não pode ser importado por outro package. Para ter dois entrypoints (`cmd/desktop/` e `cmd/asst/`), a lógica do App precisa ser movida para um package importável.
+Em Go, `package main` não pode ser importado por outro package. Para manter os
+dois entrypoints (desktop em `main.go` na raiz e CLI em `cmd/asst/`), a lógica
+do App precisa ficar em um package importável.
 
 **Estrutura resultante:**
 
 ```
 main.go                    ← wails.Run() + embed frontend (permanece na raiz por //go:embed)
 cmd/
-  cli/main.go              ← cobra + adapters CLI (zero Wails)
-  cli/chat.go              ← subcomando chat (streaming + REPL + pipe)
-  cli/profiles.go          ← subcomando profiles (list, show, activate)
-  cli/config.go            ← subcomando config (show, providers, model)
+  asst/main.go             ← cobra + adapters CLI (zero Wails)
+  asst/chat.go             ← subcomando chat (streaming + REPL + pipe)
+  asst/profiles.go         ← subcomando profiles (list, show, activate)
+  asst/config.go           ← subcomando config (show, providers, model)
 internal/
   app/                     ← App struct + StartupWithAdapters() + toda orquestração
     app.go                 ← App struct, NewApp(), StartupWithAdapters(), Shutdown()
@@ -185,9 +188,10 @@ O `cli.EmitterAdapter` traduz eventos para output formatado:
 ### Fase 4 — Build e distribuição ✅
 
 19. ✅ Task `Go: build cli` no `.vscode/tasks.json`
-20. Documentação no README (a ser adicionada conforme necessidade)
+20. Documentação detalhada no README permanece follow-up opcional; `asst --help`
+    e a ajuda dos subcomandos são a referência operacional da CLI.
 
-### Fase 5 — Setup e gerenciamento de providers
+### Fase 5 — Setup e gerenciamento de providers ✅
 
 Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem precisar do desktop.
 
@@ -199,7 +203,7 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 26. `assistente providers default <id>` — Define provider padrão
 27. `assistente providers remove <id>` — Remove provider
 
-### Fase 6 — Credenciais e perfis CRUD
+### Fase 6 — Credenciais e perfis CRUD ✅
 
 28. `assistente credentials list` — Lista credenciais (sem mostrar secrets)
 29. `assistente credentials set <pattern>` — Cria/atualiza credencial (lê secret do stdin ou flag `--value`)
@@ -209,7 +213,7 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 33. `assistente profiles duplicate <slug>` — Duplica perfil
 34. `assistente profiles delete <slug>` — Remove perfil
 
-### Fase 7 — MCP, histórico e tools
+### Fase 7 — MCP, histórico e tools ✅
 
 35. `assistente mcp list` — Lista servidores MCP e status
 36. `assistente mcp add <slug>` — Adiciona servidor (flags: `--command`, `--args`, `--env`)
@@ -220,6 +224,13 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 41. `assistente history show <id>` — Exibe mensagens da conversa
 42. `assistente history delete <id>` — Remove conversa
 43. `assistente tools list` — Lista ferramentas disponíveis (built-in + MCP)
+
+### Evidências das Fases 5–7
+
+Os comandos estão implementados em `cmd/asst/setup.go`, `providers.go`,
+`credentials.go`, `profiles.go`, `mcp.go`, `history.go` e `tools.go`, com testes
+focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
+`cmd/asst/main.go`.
 
 ### Non-goals para CLI
 
@@ -243,16 +254,17 @@ Objetivo: permitir que um usuário CLI-only configure o assistente do zero, sem 
 
 ## Critérios de aceitação
 
-- `go build .` (desktop) compila e `wails dev` funciona normalmente
-- `go build ./cmd/asst` compila sem deps Wails
-- `asst chat "olá"` retorna resposta streaming no terminal
-- `echo "olá" | asst chat` funciona em modo pipe
-- `asst profiles list` lista perfis corretamente
-- `asst setup` configura provedor LLM do zero em ambiente headless
-- `asst providers add` cria e testa conexão com novo provedor
-- `asst credentials set` persiste credenciais de forma segura
-- `go test ./...` sem regressões
-- `internal/app/` não importa Wails (zero `github.com/wailsapp`)
+- [x] `go build .` compila o desktop.
+- [ ] `wails dev` funciona normalmente — não há execução manual reproduzível
+  registrada nesta auditoria.
+- [x] `go build ./cmd/asst` compila sem dependências Wails.
+- [x] Chat interativo e pipe são cobertos por `cmd/asst/chat_test.go`.
+- [x] Perfis são cobertos por `cmd/asst/profiles_test.go`.
+- [x] Setup headless é coberto por `cmd/asst/setup_test.go`.
+- [x] Providers são cobertos por `cmd/asst/providers_test.go`.
+- [x] Credenciais são cobertas por `cmd/asst/credentials_test.go`.
+- [x] Pacotes CLI possuem regressões automatizadas focadas.
+- [x] `internal/app/` não importa `github.com/wailsapp`.
 
 ## Referências
 

@@ -1,5 +1,7 @@
 # Deep Links Internos (`assistente://`)
 
+**Status:** Done
+
 **Data**: 16 de março de 2026
 **Atualizado**: 23 de março de 2026
 
@@ -25,10 +27,10 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 
 | URI | Ação |
 |-----|------|
-| `assistente://conversation/{id}` | Abre/foca aba de chat existente |
-| `assistente://conversation/new` | Cria nova conversa |
-| `assistente://conversation/new?message={texto}&title={título}` | Cria nova conversa, envia mensagem e define título da aba |
-| `assistente://conversation/{id}/send?message={texto}` | Envia mensagem em conversa existente |
+| `assistente://conversation/{id}[?profile={slug}]` | Abre/foca aba de chat existente e opcionalmente aplica o perfil à aba |
+| `assistente://conversation/new[?profile={slug}]` | Cria nova conversa e opcionalmente aplica o perfil |
+| `assistente://conversation/new?message={texto}&title={título}[&profile={slug}]` | Cria nova conversa, envia mensagem, define título e opcionalmente aplica o perfil |
+| `assistente://conversation/{id}/send?message={texto}[&profile={slug}]` | Envia mensagem em conversa existente usando opcionalmente o perfil indicado |
 
 ### Abas do Workspace
 
@@ -97,11 +99,11 @@ verdade — rota fora dela faz o parser devolver `null`.
 Deep links usam a sintaxe padrão de links Markdown. O texto entre colchetes é livre — qualquer rótulo pode ser usado:
 
 ```markdown
-[Abrir conversa](assistente://conversation/42)
+[Abrir conversa](assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc)
 
 [Analise o ticket XPTO](assistente://conversation/new?message=analise%20o%20ticket%20XPTO)
 
-[Continuar análise](assistente://conversation/10/send?message=continue%20a%20análise)
+[Continuar análise](assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc/send?message=continue%20a%20análise)
 
 [Ver histórico](assistente://navigate/history)
 
@@ -135,7 +137,7 @@ O módulo `frontend/src/lib/deepLinks.ts` exporta funções utilitárias para tr
 Verifica se uma string é um deep link `assistente://`.
 
 ```typescript
-isDeepLink('assistente://conversation/42');  // true
+isDeepLink('assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc'); // true
 isDeepLink('https://google.com');            // false
 ```
 
@@ -144,11 +146,14 @@ isDeepLink('https://google.com');            // false
 Faz parse de uma URI e retorna um objeto tipado, ou `null` se inválido.
 
 ```typescript
-parseDeepLink('assistente://conversation/42');
-// → { type: 'conversation:open', conversationId: 42 }
+parseDeepLink('assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc');
+// → { type: 'conversation:open', conversationId: '018f22e2-7c1a-7b3c-8d4e-123456789abc' }
 
 parseDeepLink('assistente://conversation/new?message=oi&title=Teste');
 // → { type: 'conversation:new', message: 'oi', title: 'Teste' }
+
+parseDeepLink('assistente://conversation/new?message=oi&profile=techsupport');
+// → { type: 'conversation:new', message: 'oi', profile: 'techsupport' }
 
 parseDeepLink('assistente://tasklist/5');
 // → { type: 'tab:open', tabType: 'tasklist', contentId: '5' }
@@ -171,8 +176,8 @@ parseDeepLink('https://google.com');
 Constrói uma URI a partir de um objeto de ação. Útil para gerar links programaticamente.
 
 ```typescript
-buildDeepLink({ type: 'conversation:open', conversationId: 42 });
-// → 'assistente://conversation/42'
+buildDeepLink({ type: 'conversation:open', conversationId: '018f22e2-7c1a-7b3c-8d4e-123456789abc' });
+// → 'assistente://conversation/018f22e2-7c1a-7b3c-8d4e-123456789abc'
 
 buildDeepLink({ type: 'tab:new', tabType: 'terminal', cmd: 'npm install' });
 // → 'assistente://terminal/new?cmd=npm+install'
@@ -199,9 +204,9 @@ Retorna a classe CSS específica do tipo (ex: `deep-link--conversation`).
 type TabType = 'tasklist' | 'editor' | 'terminal';
 
 type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: number; title?: string }
-  | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: number; message: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string; profile?: string }
+  | { type: 'conversation:new'; message?: string; title?: string; profile?: string }
+  | { type: 'conversation:send'; conversationId: string; message: string; profile?: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }
@@ -262,7 +267,7 @@ Mensagem Markdown
 
 | Arquivo | Testes | Cobertura |
 |---------|--------|-----------|
-| `frontend/src/lib/deepLinks.test.ts` | 105 | Parser, builder, roundtrip, isDeepLink, classes CSS, executor (todos os action types), validações de segurança |
+| `frontend/src/lib/deepLinks.test.ts` | Parser, builder e executor | Todos os action types, roundtrip, `profile` nas três variantes de conversa, classes CSS e validações de segurança |
 | `frontend/src/lib/markdownItDeepLink.test.ts` | 12 | Plugin: classes, atributos, ARIA, mix com links normais, URIs inválidos |
 | `internal/tools/deeplink/open_deep_link_test.go` | 5 | Validação de prefixo, URIs válidas/inválidas, JSON malformado |
 
@@ -270,7 +275,8 @@ Mensagem Markdown
 
 ## Segurança
 
-- **Validação rigorosa**: IDs devem ser inteiros positivos; rotas são validadas contra lista fixa
+- **Validação rigorosa**: IDs persistidos do backend são strings UUIDv7 válidas;
+  rotas são validadas contra lista fixa
 - **DOMPurify**: apenas o protocolo `assistente://` é adicionado; outros protocolos custom continuam bloqueados
 - **Sem `target="_blank"`**: deep links não abrem janelas externas
 - **Mensagens sanitizadas**: o conteúdo do parâmetro `message` já passa pela sanitização do DOMPurify antes de ser renderizado
@@ -279,7 +285,10 @@ Mensagem Markdown
 
 ## Acessibilidade
 
-- **`role="link"`** e **`aria-label`** descritivo (ex: "Abrir conversa #42") em cada deep link
+- **`role="link"`** e **`aria-label`** descritivo em cada deep link. No contrato
+  atual, `getDeepLinkLabel()` inclui o UUID da conversa no rótulo (por exemplo,
+  "Abrir conversa #018f..."); o `#` é apenas parte da tradução e o valor
+  anunciado é o ID backend, não uma numeração ordinal
 - **`tabindex="0"`**: deep links são navegáveis por Tab (diferente de links normais que usam `tabindex="-1"`)
 - **Teclado**: Enter e Espaço ativam o deep link
 - **`focus-visible`**: anel de foco visível para navegação por teclado

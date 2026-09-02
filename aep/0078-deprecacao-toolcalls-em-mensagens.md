@@ -1,6 +1,6 @@
 # AEP-0078 — Deprecação de `tool_calls` em Mensagens
 
-Status: Draft
+Status: Done — escrita L3 removida do caminho feliz; leitores usam `tool_invocations` com fallback legado
 
 ## Resumo
 
@@ -17,7 +17,9 @@ Isso mantém duas fontes parciais de verdade:
 - `chat_messages.tool_calls`: intenção de chamada, nome legível, argumentos e metadados de exibição;
 - `tool_invocations`: status, input/output técnico, duração, erro, `tool_catalog_id`, `tool_call_id` e origem.
 
-Enquanto o L3 permanecer necessário para leitura, não é seguro parar de gravá-lo em mensagens novas.
+No baseline anterior à implementação, o L3 ainda era necessário para leitura e
+por isso não era seguro parar de gravá-lo. A migração preservou essa leitura
+somente como fallback para dados históricos.
 
 ## Decisões
 
@@ -58,11 +60,12 @@ Os leitores passam a usar `tool_invocations` como fonte primária e `chat_messag
 - sumarização em `internal/summarization/service.go`;
 - frontend que renderiza `toolCalls` quando receber payload legado.
 
-### D4 — Escrita de L3 só para compatibilidade durante a transição
+### D4 — Escrita de L3 removida após a transição
 
-Enquanto todos os leitores não forem migrados, o agentic loop continua gravando `chat_messages.tool_calls`.
-
-Depois da migração de leitura e dos testes de compatibilidade, mensagens novas podem parar de gravar `tool_calls`. A remoção física da coluna não faz parte desta AEP.
+Os leitores foram migrados e cobertos por testes de compatibilidade. O agentic
+loop não grava `chat_messages.tool_calls` no caminho feliz; mensagens novas usam
+o snapshot em `tool_invocations`. O campo permanece apenas para leitura de dados
+históricos, e sua remoção física não faz parte desta AEP.
 
 ### D5 — Dados antigos continuam legíveis
 
@@ -72,49 +75,51 @@ Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas dev
 - mensagens `role=tool` usadas como fallback;
 - invocações ausentes por retenção ou por dados anteriores à AEP-0063.
 
-## Mapa de Dependências Atuais
+## Mapa do estado implementado
 
-| Área | Dependência atual de L3 | Caminho |
+| Área | Estado atual | Evidência |
 |---|---|---|
-| Persistência de chamadas | grava `assistant` com JSON enriquecido em `tool_calls` | `internal/agent/agentic_loop.go` |
-| Timeline | faz parse de `message.ToolCalls`, consolida segmentos e injeta resultados de `tool_invocations` | `internal/app/db.go` |
-| Exportação | procura turnos com `msg.ToolCalls`, hidrata `result` e reserializa JSON | `internal/portability/service.go` |
-| Sumarização | usa `m.ToolCalls` para listar resultados de tools no prompt de resumo | `internal/summarization/service.go` |
-| Modelo persistido | `ChatMessage.ToolCalls` documentado como JSON de chamadas solicitadas | `internal/database/models.go` |
-| Trilha técnica | já possui `ToolCallID`, `ParentInvocationID`, `Input`, `Output` e `Metadata` | `internal/database/models_tool_invocations.go` |
+| Persistência de chamadas | caminho feliz grava snapshot em `tool_invocations`, sem novo L3 | `internal/agent/agentic_loop.go` e testes do agentic loop |
+| Timeline | hidrata chamadas e resultados por invocações, com fallback para mensagens antigas | `internal/chat/timeline.go` e `timeline_test.go` |
+| Exportação | usa invocações para dados novos e preserva fallback legado | `internal/portability/service.go` e `service_test.go` |
+| Sumarização | inclui resultados hidratados sem exigir `m.ToolCalls` | `internal/summarization/service.go` e `service_test.go` |
+| Modelo persistido | `ChatMessage.ToolCalls` permanece somente para leitura compatível | `internal/database/models.go` |
+| Trilha técnica | `ToolCallID`, `ParentInvocationID`, `Input`, `Output` e `Metadata` são canônicos | `internal/database/models_tool_invocations.go` |
 
 ## Fases
 
 ### Fase 1 — Snapshot de exibição em `tool_invocations`
 
-1. Definir schema para os dados exibíveis da chamada, preferencialmente em campos explícitos se forem consultados frequentemente, ou em `metadata` versionado se permanecerem auxiliares.
-2. Atualizar gravação em `internal/agent/agentic_loop.go` e `internal/toolinvocations` para preencher o snapshot junto da invocação.
-3. Garantir redaction consistente com o que hoje vai para `tool_calls`.
+- [x] Schema e metadata de exibição definidos em `tool_invocations`.
+- [x] Agentic loop e `internal/toolinvocations` preenchem o snapshot.
+- [x] Redaction permanece no pipeline compartilhado de invocações.
 
 ### Fase 2 — APIs de leitura por turno
 
-1. Criar função de repository para listar invocações de chat por `turn_id`, aceitando também `assistant_message_id` legado como `origin_id`, ordenadas por iteração/tempo.
-2. Retornar DTO de exibição contendo `tool_call_id`, nome, argumentos redigidos, output, status, erro, duração e metadados MCP.
-3. Cobrir ausência de invocações com fallback para `chat_messages.tool_calls`.
+- [x] Repository lista invocações por turno/origem em ordem determinística.
+- [x] DTO de exibição contém identificação, input redigido, output, status,
+      erro, duração e metadata.
+- [x] Ausência de invocações usa fallback para `chat_messages.tool_calls`.
 
 ### Fase 3 — Migrar timeline, export e sumarização
 
-1. Migrar `internal/app/db.go` para montar `TurnSegmentToolCall` a partir dos DTOs de invocação.
-2. Migrar `internal/portability/service.go` para exportar chamadas/resultados por `tool_invocations`, usando `tool_calls` só para dados antigos.
-3. Migrar `internal/summarization/service.go` para construir o prompt a partir de invocações hidratadas, sem exigir `m.ToolCalls`.
-4. Atualizar testes de timeline, export/import e sumarização cobrindo dados novos e legados.
+- [x] Timeline monta segmentos a partir de invocações hidratadas.
+- [x] Portabilidade exporta dados novos por `tool_invocations`.
+- [x] Sumarização usa resultados hidratados.
+- [x] Testes cobrem formatos novo e legado.
 
 ### Fase 4 — Parar de gravar L3 em mensagens novas
 
-1. Remover a escrita de `toolCallsJSON` em novas mensagens `assistant` do caminho feliz.
-2. Manter fallback `role=tool` apenas para falha de persistência técnica, conforme AEP-0063.
-3. Garantir que reload de conversa, export e sumarização funcionem sem `chat_messages.tool_calls`.
+- [x] Escrita de `toolCallsJSON` removida de mensagens novas no caminho feliz.
+- [x] Fallback `role=tool` restrito a falha de persistência técnica.
+- [x] Reload, exportação e sumarização funcionam sem L3 novo.
 
 ### Fase 5 — Desencorajar uso novo do campo
 
-1. Documentar `ChatMessage.ToolCalls` como legado de leitura.
-2. Evitar novos consumidores frontend/backend do campo.
-3. Avaliar, em AEP futura, se a coluna pode permanecer indefinidamente ou se precisa de migração/removal.
+- [x] `ChatMessage.ToolCalls` documentado como legado de leitura.
+- [x] Novos consumidores usam `tool_invocations`.
+- [x] Remoção física da coluna foi explicitamente deixada para migração futura;
+      isso não reabre a deprecação funcional.
 
 ## Riscos
 
@@ -129,12 +134,18 @@ Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas dev
 
 ## Critérios de aceitação
 
-- Conversas novas com tools renderizam timeline sem depender de `chat_messages.tool_calls`.
-- Exportação de conversas novas inclui chamadas e resultados a partir de `tool_invocations`.
-- Sumarização inclui resultados relevantes de tools sem exigir `m.ToolCalls`.
-- Conversas antigas com `tool_calls` continuam renderizando e exportando corretamente.
-- Testes cobrem os dois formatos: novo (`tool_invocations`) e legado (`chat_messages.tool_calls`).
-- O agentic loop pode parar de gravar L3 no caminho feliz sem orfanar resultados.
+- [x] Conversas novas renderizam timeline por `tool_invocations`.
+- [x] Exportação nova hidrata chamadas/resultados por invocações.
+- [x] Sumarização não exige `m.ToolCalls`.
+- [x] Conversas antigas mantêm fallback L3 para render/export.
+- [x] Testes cobrem formato novo e legado.
+- [x] Agentic loop não grava L3 no caminho feliz nem orfana resultados.
+
+As evidências individualizadas estão no mapa acima; regressões centrais:
+`internal/agent/service_tool_calls_persistence_test.go`,
+`internal/chat/timeline_test.go`, `internal/portability/service_test.go`,
+`internal/summarization/service_test.go` e
+`internal/toolinvocations/repository_test.go`.
 
 ## Relação com AEPs e Issues
 

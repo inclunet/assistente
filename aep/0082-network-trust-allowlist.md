@@ -1,5 +1,7 @@
 # AEP-0082 — Autorização explícita e allowlist escopável para destinos bloqueados por anti-SSRF
 
+**Status:** Done — critérios entregues em `internal/nettrust`, integração HTTP/Wails e UI
+
 ## Resumo
 
 As tools de rede (`http_request`, `web_fetch`, `feed_read`) bloqueiam destinos que

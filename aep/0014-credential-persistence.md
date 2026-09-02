@@ -1,5 +1,7 @@
 # Persistência de Credenciais
 
+**Status:** Done
+
 Este documento descreve o sistema de persistência segura de credenciais implementado no assistente.
 
 ## Visão Geral
@@ -29,7 +31,7 @@ O sistema permite:
 3. **Master Key** (`internal/credentials/master_key.go`)
    - Deriva chaves usando Argon2id
    - Wrap/unwrap da DEK com AES-256-GCM
-   - Geração de recovery keys (48 chars hexadecimal)
+   - Geração de recovery keys Base32 sem padding, em grupos separados por hífen
 
 4. **Keyring** (`internal/credentials/keyring.go`)
    - Integração com keychain do OS (via go-keyring)
@@ -43,7 +45,7 @@ O sistema permite:
 │  Master Password    │
 │  (fornecida 1x)     │
 └──────────┬──────────┘
-           │ Argon2id (32k iterations)
+           │ Argon2id (t=3, m=64 MiB, p=4, chave=32 bytes)
            ↓
     ┌──────────────┐
     │  Derived Key │ (256 bits)
@@ -74,7 +76,8 @@ O sistema permite:
 ### Recovery Key
 
 - Gerada automaticamente durante setup
-- 48 caracteres hexadecimais (192 bits de entropia)
+- 32 bytes aleatórios (256 bits), codificados em Base32 sem padding e exibidos
+  em grupos separados por hífens
 - Também faz wrap da DEK (salva no DB separadamente)
 - Permite recuperação se usuário esquecer master password
 - **Deve ser guardada em local seguro offline**
@@ -101,16 +104,17 @@ O sistema permite:
 
 ```go
 // 1. Setup master key (primeira vez)
-dek, recoveryKey, err := credentials.SetupMasterKey(masterPassword)
+result, err := credentials.SetupMasterKey(store, masterPassword)
+if err != nil {
+    return err
+}
+dek := result.DEK
+recoveryKey := result.RecoveryKey
 
-// 2. Salva wraps no DB
-store.SaveKeyWrap("master", masterSalt, wrappedDEK, argonParams)
-store.SaveKeyWrap("recovery", recoverySalt, wrappedDEKRecovery, argonParams)
+// SetupMasterKey salva no Store os wraps master/recovery e persiste a DEK
+// consistentemente no keychain.
 
-// 3. Salva DEK no keychain
-keyring.SaveDEK(dek)
-
-// 4. Credenciais podem ser registradas
+// 2. Credenciais podem ser registradas
 credMgr.RegisterPattern("*.github.com", &AuthConfig{
     Type:  "bearer",
     Token: "ghp_xxxxx",
@@ -122,20 +126,19 @@ credMgr.RegisterPattern("*.github.com", &AuthConfig{
 ### Carregamento Automático
 
 ```go
-// app.go - initToolRegistry()
-dek, err := keyring.LoadDEK()
+store := credentials.NewDBStore()
+dek, err := credentials.LoadDEKFromKeychain()
 if err != nil {
-    // Fallback: pedir master password e unwrap do DB
+    // Fallback: desbloquear um wrap persistido com UnlockDEKWithSecret.
 }
 
-credStore := db_store.NewDBStore(db, dek)
-credMgr := credentials.NewManagerWithStore(dek, credStore, true)
+credMgr := credentials.NewManagerWithStoreAndPersistence(dek, store, true)
 
-// Carrega credenciais persistidas
-credMgr.LoadFromStore(ctx)
+// Pré-login carrega apenas segredos da instância.
+credMgr.LoadInstanceSecrets(ctx)
 
-// Registra env vars (não persistidas)
-registerEnvCredentials(credMgr)
+// Depois da autenticação, carrega somente o escopo do usuário.
+credMgr.LoadUserCredentials(ctx, userID)
 ```
 
 ### HTTPRequest Tool
@@ -153,38 +156,40 @@ tool := web.NewHTTPRequest(credMgr)
 
 ## Modelos de Dados
 
-### CredentialEntry
+### Contrato vigente
 
 ```go
 type CredentialEntry struct {
-    ID            uint      
-    Pattern       string    // "*.github.com", "api.openai.com"
-    AuthType      string    // "bearer", "basic", "header"
-    TokenEnc      []byte    // Encrypted token
-    UsernameEnc   []byte    // Encrypted username (basic auth)
-    PasswordEnc   []byte    // Encrypted password (basic auth)
-    HeaderNameEnc []byte    // Encrypted header name (custom)
-    HeaderValEnc  []byte    // Encrypted header value (custom)
-    CreatedAt     time.Time
-    UpdatedAt     time.Time
+    UUIDModel
+    UserID          string
+    Pattern         string
+    AuthType        string
+    TokenEnc        string
+    Username        string
+    PasswordEnc     string
+    HeadersEnc      string
+    ExpiresAt       int64
+    RefreshTokenEnc string
+    ClientIDEnc     string
+    ClientSecretEnc string
 }
-```
 
-### CredentialKeyWrap
-
-```go
 type CredentialKeyWrap struct {
-    ID               uint
-    Kind             string // "master" ou "recovery"
-    Salt             []byte // Random salt (16 bytes)
-    WrappedDEK       []byte // DEK wrapped (32 bytes data + 12 nonce + 16 tag)
-    Argon2Time       uint32 // 2
-    Argon2Memory     uint32 // 64 MB
-    Argon2Threads    uint8  // 4
-    Argon2KeyLen     uint32 // 32
-    CreatedAt        time.Time
+    UUIDModel
+    Kind         string
+    Salt         string
+    WrappedDEK   string
+    ArgonTime    uint32
+    ArgonMemory  uint32
+    ArgonThreads uint8
+    DekID        string
 }
 ```
+
+Os IDs são UUIDv7 em `UUIDModel`. Campos criptografados e blobs de wrapping
+são serializados como `string` para persistência SQLite; a conversão
+criptográfica para bytes ocorre na camada `internal/credentials`. Evidência:
+`internal/database/models.go` e `internal/credentials/db_store.go`.
 
 ## Recuperação de Acesso
 
@@ -192,15 +197,15 @@ type CredentialKeyWrap struct {
 
 ```go
 // 1. Usuário perdeu master password
-// 2. Pede recovery key (48 chars hex)
-dek, err := credentials.UnwrapDEK(recoveryKey, keyWrap)
+// 2. Pede a recovery key Base32 exibida no setup
+dek, err := credentials.UnlockDEKWithSecret(
+    store,
+    credentials.KeyWrapKindRecovery,
+    recoveryKey,
+)
 
-// 3. Salva nova master password (opcional)
-newWrap, err := credentials.WrapDEK(dek, newMasterPassword)
-store.SaveKeyWrap("master", newSalt, newWrap, params)
-
-// 4. Salva DEK no keychain
-keyring.SaveDEK(dek)
+// 3. Para criar novos wraps master/recovery sobre a DEK recuperada:
+result, err := credentials.SetupMasterKeyForDEK(store, newMasterPassword, dek)
 ```
 
 ### Perda Total
@@ -226,11 +231,15 @@ Se usuário perder **master password E recovery key**:
 
 ### Parâmetros Argon2id
 
-- **Time cost:** 2 iterations
-- **Memory:** 64 MB
+- **Time cost (`argonTime`):** 3
+- **Memory (`argonMemory`):** 64 × 1024 KiB = 64 MiB
 - **Threads:** 4 (parallelismo)
-- **Key length:** 32 bytes (256 bits)
+- **Key length (`argonKeyLen`):** 32 bytes (256 bits)
 - **Salt:** 16 bytes (128 bits) aleatório por wrap
+
+Esses valores vêm de `internal/credentials/master_key.go` e são fixados nos
+`KeyWrap` persistidos (`ArgonTime`, `ArgonMemory`, `ArgonThreads`). Wrap e unwrap
+são cobertos por `internal/credentials/master_key_test.go`.
 
 ### AES-256-GCM
 
@@ -245,29 +254,39 @@ Se usuário perder **master password E recovery key**:
 
 ```go
 // Setup inicial (wizard)
-func SetupMasterKey(password string) (dek, recoveryKey []byte, err error)
+func SetupMasterKey(store Store, masterPassword string) (*MasterKeySetupResult, error)
+func SetupMasterKeyAdoptingKeychain(store Store, masterPassword string) (*MasterKeySetupResult, error)
+func SetupMasterKeyForDEK(store Store, masterPassword string, dek []byte) (*MasterKeySetupResult, error)
 
 // Wrap/Unwrap DEK
-func WrapDEK(dek, password []byte) (wrapped []byte, salt []byte, err error)
-func UnwrapDEK(password, salt, wrapped []byte) (dek []byte, err error)
+func WrapDEK(secret string, dek []byte, kind string) (*KeyWrap, error)
+func UnwrapDEK(secret string, wrap *KeyWrap) ([]byte, error)
+func UnlockDEKWithSecret(store Store, kind, secret string) ([]byte, error)
 
 // Credential Manager
+func NewManagerWithStoreAndPersistence(encryptionKey []byte, store Store, persist bool) *Manager
 func (m *Manager) RegisterPattern(pattern string, auth *AuthConfig) error
 func (m *Manager) RegisterPatternWithContext(ctx context.Context, pattern string, auth *AuthConfig) error
-func (m *Manager) ResolveForURL(rawURL string) *AuthConfig
-func (m *Manager) LoadFromStore(ctx context.Context) error
+func (m *Manager) ResolveForURL(rawURL string) (*AuthConfig, error)
+func (m *Manager) LoadInstanceSecrets(ctx context.Context) error
+func (m *Manager) LoadUserCredentials(ctx context.Context, userID string) error
 
 // Store operations
-func (s *DBStore) SaveCredential(ctx context.Context, cred *StoredCredential) error
-func (s *DBStore) ListCredentials(ctx context.Context) ([]*StoredCredential, error)
+func NewDBStore() *DBStore
+func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) error
+func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, error)
 func (s *DBStore) DeleteCredential(ctx context.Context, pattern string) error
 
 // Keyring
-func LoadDEK() ([]byte, error)
-func SaveDEK(dek []byte) error
+func LoadDEKFromKeychain() ([]byte, error)
 ```
 
 ### Wizard Flow (app.go)
+
+> **Snippet histórico:** o wizard foi posteriormente movido para controllers e
+> bindings Wails, e a assinatura antiga de `SetupMasterKey(password)` abaixo não
+> é o contrato vigente. O fluxo atual recebe `Store` e consome
+> `*MasterKeySetupResult`, conforme as APIs acima.
 
 ```go
 func (a *App) NeedsWelcomeWizard() bool {
@@ -357,7 +376,7 @@ if (q.type === "password") {
 
 ### Keyring não funciona
 
-Se `keyring.LoadDEK()` falhar:
+Se `credentials.LoadDEKFromKeychain()` falhar:
 1. Windows: verifica se "Credential Manager" está habilitado
 2. macOS: verifica permissões do Keychain
 3. Linux: instala `libsecret` ou `gnome-keyring`

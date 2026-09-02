@@ -1,8 +1,13 @@
-# Implementação Completa do Model Context Protocol (MCP)
+# Implementação do Model Context Protocol (MCP) — núcleo e extensões
 
-## ✅ Status: Implementação Preparada para o Futuro
+## Status: In Progress — núcleo funcional entregue; capacidades avançadas aguardam suporte e wiring do SDK
 
-Este documento descreve a implementação completa de MCP no assistente, incluindo features que estão **preparadas** mas aguardando suporte do SDK Go oficial.
+Este documento reúne o núcleo funcional de MCP e extensões avançadas. Tools,
+resources, prompts, health checks e modo nativo estão entregues. Roots
+dinâmicos, logging do protocolo, progress, subscriptions, sampling recebido do
+servidor e capabilities reais permanecem apenas parcialmente preparados e não
+integram uma sessão MCP completa enquanto o SDK/wiring correspondente estiver
+ausente.
 
 ---
 
@@ -34,9 +39,20 @@ Este documento descreve a implementação completa de MCP no assistente, incluin
 
 ### 5. **Native MCP Mode** ✅ FUNCIONAL
 - ✅ MCP nativo real via Responses API (OpenAI) e MCP Connector (Anthropic)
-- ✅ Decisão capability-driven baseada em `api_format` do provider
+- ✅ Capacidade física pelo contrato `ChatProvider.NativeMCPCapable()`; o
+  `api_format` escolhe o adapter/protocolo do provider, mas não decide sozinho o
+  modo MCP
+- ✅ Política por perfil em `Profile.Chat.NativeMCP` (`nil` = automático
+  otimista, `true` = forçar tentativa nativa se capaz, `false` = adapter)
+- ✅ Elegibilidade final por turno cruza candidatos HTTP do
+  `Manager.GetEligibleNativeMCPServers()` com `prefer_bridge=false` e as tools
+  `preloaded` da política efetiva em `ToolSelectionPolicy`
 - ✅ Coexistência: tools internas + MCP nativo + STDIO bridges na mesma request
 - ✅ Deduplicação automática de tools (bridges removidas quando há caminho nativo)
+
+O desenho antigo que inferia a decisão diretamente de `api_format` é histórico.
+O contrato vigente, incluindo fallback no mesmo turno e persistência do ajuste
+automático `nil → false`, está detalhado na AEP-0021 (revisão v7).
 
 ### 6. **Workspace Roots** ✅ PREPARADO
 - ✅ Tipos definidos (`Root`)
@@ -146,7 +162,7 @@ Quando o SDK Go oficial (`github.com/modelcontextprotocol/go-sdk`) adicionar sup
 2. **Type-safe** - Todos os tipos definidos corretamente
 3. **Testada** - Build compila sem erros
 4. **Documentada** - TODOs indicam exatamente o que fazer
-5. **Completa** - Todas as features principais do MCP cobertas
+5. **Núcleo completo** - Tools, resources, prompts, health checks e modo nativo cobertos
 6. **Compatível** - Funciona com SDK v1.3.0 atual
 
 ---
@@ -179,6 +195,9 @@ func (a *App) UnsubscribeFromMCPResource(slug, uri string) error
 
 ## 🚀 Conclusão
 
-A implementação está **100% preparada** para suportar toda a especificação MCP. Quando o SDK Go oficial adicionar suporte às features avançadas, será questão de minutos ativar tudo, não de horas reescrevendo código.
+A implementação funcional cobre o núcleo usado pelo Assistente. As capacidades
+marcadas como “Preparado” não contam como entregues: tipos e handlers existem,
+mas ainda exigem suporte do SDK, wiring de sessão e testes de integração antes
+de esta AEP poder ser concluída.
 
 **Esta é a abordagem ideal para um assistente generalista!** ✨

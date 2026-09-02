@@ -1,6 +1,6 @@
 # AEP-0065 — Rate limiting nas chamadas ao provedor LLM
 
-Status: Implementado
+Status: Done
 Data: 2026-06-01
 Atualizado: 2026-08-21
 Autor: Cursor Agent (Inclunet)

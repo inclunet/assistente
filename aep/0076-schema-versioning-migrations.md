@@ -1,8 +1,9 @@
 # AEP-0076 — Versionamento de Schema do Banco (schema_migrations)
 
+**Status:** Done
+
 | Campo | Valor |
 |-------|-------|
-| Status | ✅ Done |
 | Issue | [#247](https://github.com/inclunet/assistente/issues/247) |
 | Relacionados | AEP-0046 (UUIDv7), AEP-0052 (Multi-user), AEP-0074 (Compaction) |
 
@@ -70,7 +71,17 @@ Regras:
   - `v8 normalize_summarizing_in_progress_bool`
   - `v9 refresh_url_to_enc`
 
-A ordem v3..v9 preserva exatamente a ordem anterior das chamadas em `Init()`.
+A ordem v1..v9 é o **baseline histórico** entregue por esta AEP e preserva a
+ordem anterior das chamadas custom em `Init()`. O mecanismo continuou recebendo
+migrações depois dessa entrega. No registro vigente:
+
+- **Pré-AutoMigrate:** `v10 acp_session_user_id_not_null`;
+- **Pós-AutoMigrate:** `v11 drop_acp_session_prompt_prefix_hash`;
+- **Pós-AutoMigrate:** `v12 acp_providers_single_type`.
+
+`v12` é apenas a maior versão no snapshot atual, não um teto permanente. Novas
+mudanças estruturais devem continuar sendo acrescentadas ao fim de
+`schemaMigrations` com a próxima versão livre.
 
 ### D4 — Adoção de bancos existentes sem quebra (`DetectApplied`)
 
@@ -87,9 +98,22 @@ As demais migrações (v2–v9) são **idempotentes e baratas** (índices `IF NO
 ## Fases (de implementação)
 
 1. **Mecanismo**: `migrator.go` com `migration`, `schemaMigrations`, `runMigrations`/`runMigrationList`, `ensureSchemaMigrationsTable`, `appliedMigrationVersions`, `recordMigration`, `syncUserVersion`.
-2. **Migração das custom existentes**: encapsular as funções já existentes (mantidas intactas) como entradas v1..v9, preservando ordem e fases.
+2. **Migração do baseline custom histórico**: encapsular as funções que já
+   existiam como entradas v1..v9, preservando ordem e fases.
 3. **Refatorar `Init()`**: substituir as chamadas diretas por `runMigrations(db, phasePreAutoMigrate)` (antes do `AutoMigrate`) e `runMigrations(db, phasePostAutoMigrate)` (depois).
-4. **Testes**: aplicação ordenada, idempotência, filtragem por fase, `DetectApplied` (carimba sem rodar), parada em erro, consistência do registro, detector UUIDv7 e integração do registro real (fresh DB + segundo boot no-op).
+4. **Testes do framework e do registro evolutivo**: aplicação ordenada,
+   idempotência, filtragem por fase, `DetectApplied` (carimba sem rodar), parada
+   em erro, consistência do registro, detector UUIDv7 e integração do registro
+   real (fresh DB + segundo boot no-op). Esses testes percorrem a lista vigente,
+   hoje v1..v12, sem codificar v12 como versão final.
+
+### Extensões posteriores ao baseline
+
+As versões v10..v12 são uso continuado do framework entregue, não reabertura
+das fases 1–4: `internal/database/migrator.go` as registra nas fases adequadas,
+e `internal/database/migrator_test.go` valida ordenação estritamente crescente,
+ausência de duplicatas, aplicação de todo o registro real e idempotência no
+segundo boot.
 
 ## Riscos
 
@@ -101,7 +125,10 @@ As demais migrações (v2–v9) são **idempotentes e baratas** (índices `IF NO
 ## Critérios de aceitação
 
 - [x] Tabela `schema_migrations` criada no boot e `PRAGMA user_version` espelhando a maior versão contígua aplicada (prefixo 1..N sem buracos).
-- [x] Migrações custom existentes migradas para o mecanismo (v1..v9), preservando ordem e fases.
+- [x] Migrações custom que formavam o baseline histórico foram migradas para o
+  mecanismo (v1..v9), preservando ordem e fases.
+- [x] Registro vigente inclui v10..v12 e permanece extensível; testes exercitam
+  a lista completa sem tratar v12 como limite permanente.
 - [x] Bancos já migrados **não** reexecutam a conversão UUIDv7 (marcada via `DetectApplied`).
 - [x] `AutoMigrate` mantido para adição de colunas.
 - [x] Testes: ordem, idempotência, fase, `DetectApplied`, parada em erro, registro real (fresh DB + segundo boot no-op).

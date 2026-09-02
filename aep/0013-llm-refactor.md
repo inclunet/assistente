@@ -1,5 +1,7 @@
 # Plano de Refatoração: LLM Client Centralizado
 
+**Status:** Superseded — plano de cliente HTTP manual substituído pela interface `ChatProvider` da AEP-0037
+
 **Data:** 6 de março de 2026  
 **Objetivo:** Migrar o pacote `internal/llm` para o padrão de cliente HTTP centralizado, eliminando gambiarras e estabelecendo arquitetura limpa e bem testada.
 
@@ -701,5 +703,5 @@ Esta refatoração elimina os últimos resquícios de arquitetura problemática 
 
 ---
 
-**Status:** 📋 Planejamento Completo - Pronto para Execução  
-**Próximo Passo:** Aprovação e execução Fase 1
+**Estado histórico:** planejamento não executado literalmente; a migração posterior
+adotou SDKs e a interface `ChatProvider` definida pela AEP-0037.

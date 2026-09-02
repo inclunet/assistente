@@ -1,6 +1,6 @@
 # LLM Provider Manager Architecture
 
-**Status:** Planning  
+**Status:** In Progress — núcleo e testes de integração entregues; Fases 7/8 e documentação ainda não foram reconciliadas por completo
 **Date:** March 6, 2026  
 **Goal:** Replace global LLM configuration with per-profile provider management + credential-based authentication
 
@@ -644,6 +644,11 @@ dele para LLM/modelo/voz/perfil ativo.
   - ✅ No breaking changes detected
 
 #### 8.5 Documentation 🚧
+
+Os itens abaixo permanecem abertos. A implementação dos cenários críticos já está coberta em
+`internal/app/app_phase8_integration_test.go`, `internal/app/app_provider_crud_test.go`
+e `internal/profiles/provider_validation_test.go`.
+
 - [ ] Update `docs/PROFILES.md` with provider field
 - [ ] Update `docs/CREDENTIAL_SYSTEM.md` with flow diagram
 - [ ] Create `docs/PROVIDER_MANAGER.md` user guide
@@ -835,8 +840,7 @@ If user has `config.json` with `APIKey` and `APIBaseURL`:
 
 ## Next Steps
 
-1. ✅ Review this plan with user
-2. 🔄 Start Phase 1: Create provider.go and registry.go
-3. 🔄 Set up initial tests
-4. 🔄 Implement app.go integration
-5. 🔄 Test legacy config migration
+1. ✅ Core provider registry, profile integration and credential flow implemented.
+2. ✅ Integration and CRUD tests added under `internal/app`.
+3. 🔄 Reconcile the remaining Phase 7 checklist with current builtin profiles.
+4. 🔄 Complete or explicitly defer the open Phase 8 documentation items.

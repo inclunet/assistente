@@ -1,6 +1,6 @@
 # AEP-0056: Workspace com Abas Autocontidas
 
-## Status: Draft
+## Status: Done — contrato consolidado nos PRs #110–#113
 
 ## Resumo
 
@@ -127,27 +127,27 @@ O uso de um singleton global para orquestrar um modal é aceitável como passo i
 
 ## Fases
 
-### Fase 1 — Contrato arquitetural
+### Fase 1 — Contrato arquitetural ✅
 
 - Atualizar AEP-0040 para permitir controllers por aba/conversa, mantendo contrato compartilhado de envio.
 - Atualizar instruções de agentes (`CLAUDE.md`, `.github/copilot-instructions.md`) para refletir a nova regra.
 - Registrar esta AEP como plano guarda-chuva da mudança.
 - Registrar AEPs filhas para os próximos PRs: AEP-0057, AEP-0058 e AEP-0059.
 
-### Fase 2 — Workspace shell e keep-alive
+### Fase 2 — Workspace shell e keep-alive ✅
 
 - Introduzir um host de painéis com lazy mount por aba visitada.
 - Expor contrato `active/inactive` para cada painel.
 - Garantir que painéis inativos fiquem fora de foco, atalhos locais e árvore acessível.
 - Reduzir acoplamentos do workspace com detalhes de DOM dos domínios.
 
-### Fase 3 — Controllers por domínio
+### Fase 3 — Controllers por domínio ✅
 
 - Mover bridges de chat, editor, terminal e tasklist para controllers de domínio.
 - Manter `tab.state` como metadado opaco persistido pelo workspace.
 - Remover sincronizações específicas de domínio do shell do workspace quando houver controller equivalente.
 
-### Fase 4 — Chat autocontido por conversa
+### Fase 4 — Chat autocontido por conversa ✅
 
 Esta fase passa a ser detalhada pela AEP-0057.
 
@@ -156,7 +156,7 @@ Esta fase passa a ser detalhada pela AEP-0057.
 - Permitir envio simultâneo em conversas diferentes.
 - Garantir que retry e nova mensagem continuem delegando ao contrato compartilhado.
 
-### Fase 5 — Arbitragem global de acessibilidade e voz
+### Fase 5 — Arbitragem global de acessibilidade e voz ✅
 
 Esta fase passa a ser detalhada pela AEP-0058.
 
@@ -164,7 +164,7 @@ Esta fase passa a ser detalhada pela AEP-0058.
 - Garantir TTS exclusivo com fila/arbitragem e perfil efetivo da aba origem.
 - Garantir STT local apenas na aba ativa.
 
-### Fase 6 — Otimizações específicas
+### Fase 6 — Otimizações específicas ✅ no escopo desta AEP
 
 Esta fase passa a ser detalhada pela AEP-0059.
 
@@ -174,7 +174,7 @@ Esta fase passa a ser detalhada pela AEP-0059.
 - Persistir eventos/histórico de terminal por sessão.
 - Escopar estado visual de tasklist por lista.
 
-### Fase 7 — Hardening de ownership por superfície
+### Fase 7 — Hardening de ownership por superfície ✅
 
 - Auditar stores globais para separar cache compartilhado de estado visual por superfície.
 - Exigir APIs parametrizadas por ID para ações de domínio.
@@ -213,7 +213,7 @@ O PR #112 não altera o alvo arquitetural nem entra na AEP-0059. Ele endurece a 
 - Efeitos globais de feedback ignoram origens vinculadas a abas do workspace que já foram removidas.
 - Documentação antiga de contexto de superfície passa a apontar explicitamente para o contrato vigente das AEPs 0056, 0057 e 0058.
 
-#### Consolidação no PR #113 e próximo contrato
+#### Consolidação no PR #113 e evolução posterior
 
 O PR #113 avançou a parte de performance prevista na Fase 6 sem reabrir a separação de painéis:
 
@@ -221,7 +221,10 @@ O PR #113 avançou a parte de performance prevista na Fase 6 sem reabrir a separ
 - A janela de mensagens do chat passou a ser estado de `ChatSurfaceSession`, não estado global compartilhado pelo workspace.
 - Carregar histórico em uma superfície de chat não altera a janela visual de outra superfície, inclusive quando chat aparece embutido em editor, terminal ou tasklist.
 
-O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canônica de itens de timeline para contagem, posição e agrupamento acessível. Essa mudança não cria novo acoplamento com o workspace e não altera o ownership dos painéis definido por esta AEP.
+A Fase 2.1 da AEP-0059 foi concluída posteriormente, tornando o backend a
+fonte canônica de itens de timeline sem alterar o ownership dos painéis desta
+AEP. Virtualização acessível e conteúdo pesado sob demanda permanecem
+follow-ups de performance da AEP-0059, fora do escopo de autocontenção aqui.
 
 ## Riscos
 
@@ -235,16 +238,22 @@ O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canô
 
 ## Critérios de aceitação
 
-- Trocar entre abas já visitadas não remonta conteúdo pesado desnecessariamente.
-- Workspace não orquestra detalhes internos de chat, editor, terminal ou tasklist.
-- Duas abas com conversas diferentes podem enviar mensagens em paralelo.
-- Eventos de chat são processados apenas pelo controller do `conversationId` correspondente.
-- Aba inativa não captura foco, atalhos locais ou microfone.
-- Existe apenas uma live region global para anúncios.
-- TTS não fala duas respostas ao mesmo tempo e respeita o perfil efetivo da aba origem.
-- STT local só funciona na aba ativa.
-- Conversas longas carregam e renderizam de forma incremental conforme a AEP-0059.
-- Cada commit do PR mantém build/lint/testes focados em estado revisável.
-- Estado visual/interativo divergente entre painéis é sempre chaveado por `tabId`, `surfaceId`, `sessionKey` ou ID explícito de domínio.
-- Ações de painel não dependem de `activeTabId` para descobrir o alvo de dados.
-- Modais e adapters globais, quando existirem, são vinculados a uma superfície explícita antes de executar preparação, envio ou persistência.
+Evidências: PRs #110–#113 e regressões em
+`frontend/src/components/workspace/*test.tsx`,
+`frontend/src/components/{chat,editor,terminal,taskLists}/*test.tsx`,
+`frontend/src/services/chatTurnQueue.test.ts` e
+`frontend/src/services/voiceAccessibility/*test.ts`.
+
+- [x] Trocar abas visitadas não remonta conteúdo pesado desnecessariamente.
+- [x] Workspace não orquestra detalhes internos dos quatro domínios.
+- [x] Conversas diferentes enviam em paralelo.
+- [x] Eventos são filtrados pelo controller do `conversationId`.
+- [x] Aba inativa não captura foco, atalhos locais ou microfone.
+- [x] Existe uma live region global.
+- [x] TTS é exclusivo e respeita o perfil da origem.
+- [x] STT local funciona somente na aba ativa.
+- [x] Conversas longas carregam incrementalmente com timeline canônica.
+- [x] PRs #110–#113 mantiveram validações focadas.
+- [x] Estado visual usa identidade explícita de superfície/domínio.
+- [x] Ações de domínio não inferem alvo por `activeTabId`.
+- [x] Modais/adapters vinculam a superfície antes da ação.

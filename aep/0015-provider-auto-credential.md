@@ -1,5 +1,7 @@
 # Feature: Auto-extração de Credenciais ao Adicionar Provedores
 
+**Status:** In Progress — criação/atualização entregues; cleanup de credencial no DELETE permanece pendente
+
 ## Objetivo
 Simplificar a adição de provedores LLM extraindo automaticamente o domínio do `base_url` e salvando a API key diretamente no `credentials.Manager`, eliminando a necessidade do usuário configurar manualmente o credential pattern.
 
@@ -28,9 +30,17 @@ A implementação é direta e usa infraestrutura já existente:
 
 ---
 
-## Fluxo de Implementação
+## Fluxo REST proposto originalmente (histórico, não implementado)
 
-### Backend: `POST /api/providers`
+> Toda esta seção registra a proposta inicial de uma API REST. Os endpoints
+> `/api/providers` não existem no runtime atual. `CreateLLMProvider` e os DTOs
+> têm contrapartes reais, mas não são handlers HTTP: o binding Wails em
+> `internal/wailsapi/llm_providers.go` delega a
+> `controllers/LLMController.CreateLLMProvider`, que chama
+> `internal/providers/service.go`; o frontend usa os bindings gerados. Os
+> snippets abaixo preservam apenas a forma proposta originalmente para REST.
+
+### Backend proposto: `POST /api/providers`
 
 ```go
 // app.go
@@ -298,7 +308,12 @@ function ProviderForm({ onSubmit }: Props) {
 
 ---
 
-## Endpoint API Completo
+## Endpoint REST completo (proposta histórica, não implementada)
+
+> Os exemplos de request/response de `POST`, `PUT` e `DELETE` abaixo são
+> exclusivamente o desenho REST original. Não documentam endpoints disponíveis.
+> O contrato vigente é Wails + `providers.Service`, conforme a seção
+> **Implementação entregue**.
 
 ### `POST /api/providers`
 
@@ -361,39 +376,28 @@ Permite atualizar API key:
 
 ---
 
-### `DELETE /api/providers/{id}`
+### `DELETE /api/providers/{id}` (proposta REST histórica)
 
-**Comportamento:**
-- Remove provider do registry
-- **TAMBÉM remove credencial associada** (cleanup automático)
+**Estado equivalente no contrato Wails atual:**
 
-**Implementation:**
-```go
-func (a *App) DeleteLLMProvider(ctx context.Context, id string) error {
-    provider := a.llmRegistry.Get(id)
-    if provider == nil {
-        return errors.New("provider não encontrado")
-    }
+- [x] `internal/providers/service.go:Service.Delete` remove o provider do
+  registry; a API Wails persiste a remoção pelo hook `PersistDelete` de
+  `internal/wailsapi/llm_providers.go`.
+- [ ] Remove a credencial associada. `CredentialManager` expõe
+  `DeletePattern`, mas `Service.Delete` não consulta nem apaga
+  `CredentialPattern`; portanto a credencial pode permanecer órfã.
 
-    // 1. Remover provider do registry
-    err := a.llmRegistry.Remove(id)
-    if err != nil {
-        return err
-    }
-
-    // 2. Remover credencial associada (se existir)
-    if provider.CredentialPattern != "" {
-        // Nota: credentials.Manager pode não ter método Delete ainda
-        // Implementar se necessário ou deixar credencial órfã (será sobrescrita)
-    }
-
-    return nil
-}
-```
+O cleanup automático fazia parte do escopo aceito desta AEP e não deve ser
+descrito como entregue enquanto o serviço e seus testes não comprovarem a
+remoção segura, inclusive quando um mesmo pattern for compartilhado.
 
 ---
 
-## Testes
+## Testes propostos originalmente (histórico)
+
+Os snippets desta seção pertencem ao desenho REST não implementado e não são
+evidência executável do runtime atual. As regressões reais estão listadas em
+**Implementação entregue**.
 
 ### Unit Tests
 ```go
@@ -447,34 +451,24 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 
 ---
 
-## Roadmap
+## Implementação entregue
 
-### Phase 5.1 (Backend)
-- [ ] Implementar `extractDomainPattern()` helper
-- [ ] Adicionar campo `api_key` em `CreateProviderRequest`
-- [ ] Modificar `CreateLLMProvider()` para salvar credencial
-- [ ] Adicionar `UpdateProviderCredential()` método
-- [ ] Implementar endpoint `POST /api/providers`
-- [ ] Testes unitários + integração
+O desenho original foi absorvido pelo serviço de providers, sem criar o endpoint
+HTTP paralelo sugerido no plano:
 
-### Phase 5.2 (Frontend)
-- [ ] Adicionar campo "API Key" em `ProviderForm`
-- [ ] Implementar extração visual de pattern
-- [ ] Toggle show/hide password
-- [ ] Validação de formato de key
-- [ ] Feedback de sucesso/erro
-- [ ] Testes de componente
+- [x] `internal/providers/service.go` recebe `APIKey` na criação/atualização,
+      deriva o pattern do `BaseURL` e registra a credencial no manager.
+- [x] `CreateLLMProviderRequest` transporta `api_key` sem persistir a chave no
+      registro público do provider.
+- [x] `frontend/src/components/settings/ProviderForm.tsx` oferece o campo de
+      credencial no fluxo de criação/edição.
+- [x] `internal/app/app_provider_crud_test.go` cobre criação com API key,
+      atualização e ausência de credencial.
+- [x] `internal/app/app_phase8_integration_test.go` cobre migração, resolução de
+      pattern e injeção automática da credencial.
+- [x] `internal/app/app_provider_crud_test.go` comprova a remoção do provider.
+- [ ] O DELETE remove com segurança a credencial que deixou de ser usada; o
+      teste atual não verifica cleanup do cofre.
 
-### Phase 5.3 (Validação)
-- [ ] Teste end-to-end: criar provider → usar em profile → fazer chat
-- [ ] Verificar credencial injetada corretamente
-- [ ] Validar segurança (não expor key em logs/JSON)
-
----
-
-## Status: 📋 **PLANEJADO**
-
-**Inclusão no Plano:** Phase 5 (Frontend UI for Provider Manager)  
-**Prioridade:** Alta (melhora significativamente UX)  
-**Complexidade:** Baixa (infraestrutura já existe)  
-**Estimativa:** 4-6 horas de desenvolvimento + testes
+O endpoint REST `POST /api/providers` proposto originalmente não foi necessário:
+desktop e frontend usam o binding/controlador compartilhado de providers.

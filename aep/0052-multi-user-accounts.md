@@ -1,6 +1,6 @@
 # AEP-0052 — Sistema de Contas de Usuário
 
-**Status**: Em implementação — **multi-user single-tenant alpha**
+**Status**: In Progress — **multi-user single-tenant alpha**
 (P1-1 do re-review do PR #94). Não cobre cenários "enterprise
 multi-tenant" (rotação multi-key com grace period, federação SSO,
 isolamento criptográfico por usuário). Esses pontos estão listados

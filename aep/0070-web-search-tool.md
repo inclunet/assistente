@@ -1,6 +1,6 @@
 # AEP-0070 — Tool `web_search` (busca web → JSON canônico paginável)
 
-Status: Draft
+Status: Done — saída canônica paginável implementada em `internal/tools/web/web_search.go` e testes
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 
@@ -168,6 +168,29 @@ oficiais quando disponíveis, com métricas de "parsing vazio" para detectar que
 
 A adição de qualquer um desses provedores **não altera o contrato JSON** nem os
 parâmetros da tool — apenas troca a implementação por trás de `SearchProvider`.
+
+## Fases da v1
+
+- [x] Contrato JSON canônico e resultado estruturado.
+- [x] Provedor DuckDuckGo atrás de `SearchProvider`.
+- [x] Paginação por `offset`, limites e `has_more` heurístico.
+- [x] Registro no catálogo como builtin de risco `network`.
+- [x] Testes unitários e HTTP fake sem dependência de rede externa.
+
+## Critérios de aceitação da v1
+
+- [x] Resultado contém query, provider, offset, count, has_more e results.
+- [x] Página vazia preserva `results: []`.
+- [x] `offset` chega ao provedor e pagina resultados.
+- [x] `max_results` aplica default e teto documentados.
+- [x] Erros do provedor são propagados sem fabricar resultados.
+- [x] DuckDuckGo extrai título, URL real e snippet do HTML.
+- [x] Output é marcado como estruturado para LLM e jobs.
+
+Evidências: `internal/tools/web/web_search_test.go`,
+`internal/tools/catalog_test.go` e registro em
+`internal/app/app_tool_registry.go`. Provedores com API, cache e seleção
+automática permanecem fora do escopo da v1.
 
 ## Arquivos
 

@@ -1,6 +1,6 @@
 # AEP-0068 — Sub-agentes em segundo plano (tool de sub-conversas)
 
-Status: Draft
+Status: Done — Fases 1–5 entregues nos PRs empilhados de sub-agentes
 Data: 2026-06-02
 Autor: Inclunet + Cursor Agent
 
@@ -51,12 +51,18 @@ quanto os jobs o acionam pelo mesmo caminho.
   documenta e alinha ao contrato de eventos/mensagens.
 - **AEP-0052 (Contas de Usuário)**: toda sub-conversa pertence ao mesmo `userID`;
   `resume` valida owner.
-- **AEP-0025/0062 (Profiles)**: o `profile` do sub-agente define modelo,
-  comportamento e as **tools habilitadas** via `Profile.Chat.EnabledTools` (lista;
-  `nil` = seleção dinâmica/catálogo). O gate global de tool calling é o booleano
-  `Profile.Chat.DisableTools` (`true` = sub-agente **sem nenhuma** tool, não é
-  denylist). Assim, se a tool `subagent` estiver fora de `EnabledTools` (ou
-  `DisableTools=true`), o sub-agente **não** pode criar novos sub-agentes.
+- **AEP-0025/0062 (Profiles) + AEP-0081 (política efetiva de tools)**: o
+  `profile` do sub-agente define modelo, comportamento e disponibilidade de
+  tools por `ToolSelectionPolicy.ResolveEffectiveToolPolicy`. A precedência é:
+  `DisableTools=true` desliga tudo; `ToolPolicy` não vazio governa a política
+  nova; `ToolPolicyDefault` sozinho também a ativa quando `EnabledTools=nil`,
+  mas uma lista legada não nula permanece soberana se não houver mapa explícito.
+  Na ausência de mapa/default vale `EnabledTools`. Para a tool `subagent`,
+  `preloaded` significa disponível desde
+  o início, `on_demand` significa descobrível e invocável somente após carga
+  pelo catálogo, e `disabled` impede a invocação. Portanto a recursão só ocorre
+  quando a política efetiva do profile filho torna `subagent` disponível; não
+  basta consultar `EnabledTools`.
 - **AEP-0001/0048/0063 (Jobs e Tool Invocations)**: jobs chamam a tool `subagent`;
   a persistência separa run de negócio de `tool_invocations`; proveniência via
   `eventctx` e circuit-breaker são reaproveitados como backstop anti-runaway.
@@ -89,11 +95,10 @@ quanto os jobs o acionam pelo mesmo caminho.
 - `model` (string, opcional): modelo de execução do sub-agente (`llm.ChatParams.Model`),
   **sobrescreve** o modelo derivado do `profile` para aquele run. Não é persistido na
   entidade `Conversation` (que só tem `Title`) — é parâmetro de execução do envio.
-- `tools` (string[], opcional): **restringe** (subconjunto) sobre as tools já
-  habilitadas pelo profile — o profile é o gate primário. Semântica de vazio (alinhada
-  à base, que distingue `nil` de `[]`): **omitido/`nil`** = herda as tools do profile;
-  **`[]` (lista vazia)** = nenhuma tool (sub-agente sem tool calling). Itens fora do
-  habilitado pelo profile são ignorados (nunca expandem privilégio).
+- `tools` (registro histórico da proposta): o runtime vigente de
+  `internal/tools/subagent/subagent.go` não expõe esse parâmetro no schema. A
+  disponibilidade de tools do run vem da política efetiva do `profile`; não há
+  override por chamada que amplie ou restrinja esse conjunto.
 - `run_id` (string UUIDv7, opcional — AEP-0046): identifica um **run específico**
   (turno) de uma sub-conversa para `status`/`cancel`. Se omitido, as operações abaixo
   agem sobre o **run mais recente** da `conversation_id` informada.
@@ -194,9 +199,11 @@ propagada:
 ### Profundidade e segurança
 
 - **Profundidade governada pelo profile**: o sub-agente cria novos sub-agentes
-  apenas se o profile dele habilitar a tool `subagent`. Sem `max_depth` próprio nem
-  proibição hardcoded. Qualquer profile instalado pode ser escolhido, mas a troca
-  explícita em relação ao pai exige autorização conforme a AEP-0101.
+  apenas se a política efetiva do profile dele deixar a tool `subagent`
+  `preloaded`, ou `on_demand` e posteriormente carregada. Estado `disabled` e
+  `DisableTools=true` bloqueiam. Sem `max_depth` próprio nem proibição hardcoded.
+  Qualquer profile instalado pode ser escolhido, mas a troca explícita em
+  relação ao pai exige autorização conforme a AEP-0101.
 - **Backstop anti-runaway** (não é limite de profundidade): proveniência `eventctx`
   + circuit-breaker (`chain_id`/histórico) compartilhados com jobs, limite de
   concorrência por usuário/pai e timeout por run.
@@ -216,27 +223,28 @@ propagada:
   `ParentInvocationID` + da tabela `sub_agent_runs`. O campo `ParentInvocationID` já
   existe e é suportado no modelo/repositório
   (`internal/database/models_tool_invocations.go`, `internal/toolinvocations/repository.go`);
-  o que falta é o **pipeline de chat preenchê-lo** — esta AEP passa a populá-lo para
-  encadear a invocação ao turno pai. (Caso a telemetria futura exija distinguir runs de
+  o pipeline entregue o preenche em `internal/tools/subagent/subagent.go` e o propaga
+  por `internal/subagent/manager.go`, encadeando a invocação ao turno pai; há regressão
+  em `internal/tools/subagent/subagent_test.go`. (Caso a telemetria futura exija distinguir runs de
   sub-agente já na linha de `tool_invocations`, isso será uma evolução explícita da
   AEP-0063, não uma extensão silenciosa aqui.)
 
 ## Fases
 
-- **Fase 1 — Núcleo síncrono**: modelo de dados (`sub_agent_runs`,
+- [x] **Fase 1 — Núcleo síncrono**: modelo de dados (`sub_agent_runs`,
   `Conversation.kind/parent_conversation_id`); pacote `internal/subagent`
   (Manager+Repository); tool `subagent` mínima (cria conversa nova + `background:false`
   + `profile`); detecção de conclusão por callback in-process.
-- **Fase 2 — Background + aviso**: goroutine `WithoutCancel`; `background:true` com
+- [x] **Fase 2 — Background + aviso**: goroutine `WithoutCancel`; `background:true` com
   handle imediato; aviso pelo lado do assistente (continua vs nova mensagem) +
   auto-wake + proveniência; fila serializada por conversa-pai + idempotência;
   `prompt` omitido = status; `cancel`.
-- **Fase 3 — Reuso/continuidade**: `conversation_id` (resume) preservando contexto;
+- [x] **Fase 3 — Reuso/continuidade**: `conversation_id` (resume) preservando contexto;
   `clear` (reset); integração com sumarização para conversas longas.
-- **Fase 4 — Jobs**: job chamando a tool `subagent` (conversa fixa = histórico
+- [x] **Fase 4 — Jobs**: job chamando a tool `subagent` (conversa fixa = histórico
   recorrente; ou conversa nova por run); proveniência/circuit-breaker compartilhados;
   reconciliação de runs órfãos no startup.
-- **Fase 5 — UI + limites**: sub-conversas são **mescladas na listagem do Histórico**
+- [x] **Fase 5 — UI + limites**: sub-conversas são **mescladas na listagem do Histórico**
   (`HistoryPage`), não em página separada — são conversas comuns do ponto de vista do
   usuário (mesma tabela, mesmas ações: abrir, renomear, excluir, exportar). A listagem
   vem de **um único binding `GetConversations`**, que inclui as sub-conversas (campo
@@ -301,19 +309,28 @@ da anterior.
 - **Atribuição do aviso**: entregar como conteúdo do assistente é uma extensão do
   fluxo de mensagens; precisa respeitar o contrato do AEP-0040.
 
+### Evidências
+
+- Fases 1–3: `internal/subagent/manager.go`, `repository.go`,
+  `manager_test.go` e `repository_test.go`.
+- Fase 4: integração e reconciliação cobertas pelos testes de manager/tool e pelo
+  histórico de implementação `feat/subagent` F1–F4.
+- Fase 5: `manager_runs_ui_test.go`, `internal/wailsapi/subagent_test.go`,
+  `subAgentRunsStore.test.ts` e `SubAgentRunsModal.test.tsx`.
+
 ## Critérios de aceitação
 
-- O LLM inicia um sub-agente, recebe `run_id`/`conversation_id`, e o sub-agente roda
+- [x] O LLM inicia um sub-agente, recebe `run_id`/`conversation_id`, e o sub-agente roda
   numa conversa visível do mesmo usuário.
-- `background:false` retorna o resultado inline; `background:true` permite consultar
+- [x] `background:false` retorna o resultado inline; `background:true` permite consultar
   status e injeta o aviso de conclusão pelo lado do assistente, com auto-wake.
-- Passar um `conversation_id` reabre a sub-conversa preservando o contexto; `clear:true`
+- [x] Passar um `conversation_id` reabre a sub-conversa preservando o contexto; `clear:true`
   reseta antes de enviar.
-- `profile=<slug>` faz o sub-agente rodar com modelo/comportamento do profile indicado.
-- Um job consegue chamar `subagent` com `conversation_id` fixo mantendo histórico
+- [x] `profile=<slug>` faz o sub-agente rodar com modelo/comportamento do profile indicado.
+- [x] Um job consegue chamar `subagent` com `conversation_id` fixo mantendo histórico
   (batch recorrente) ou criando conversa nova por run.
-- O sub-agente só cria novos sub-agentes se o profile dele habilitar a tool `subagent`;
+- [x] O sub-agente só cria novos sub-agentes se o profile dele habilitar a tool `subagent`;
   proveniência/circuit-breaker impedem runaway; limites de concorrência e timeout
   respeitados.
-- Testes backend (manager, tool, runtime, resume, jobs) e frontend (eventos/UI)
+- [x] Testes backend (manager, tool, runtime, resume, jobs) e frontend (eventos/UI)
   passando; CI verde a cada fase.
