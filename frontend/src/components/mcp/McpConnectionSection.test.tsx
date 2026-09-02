@@ -68,7 +68,6 @@ const baseProps: ComponentProps<typeof McpConnectionSection> = {
   oauth2CallbackPort: '',
   oauth2CallbackHost: '',
   discoveryStatus: 'not_found',
-  discoveredFields: new Set<string>(),
   discoveryResourceName: '',
   discoveryRegistrationUrl: '',
   onCommandChange: noop,

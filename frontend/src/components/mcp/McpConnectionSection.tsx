@@ -31,7 +31,6 @@ interface McpConnectionSectionProps {
   oauth2CallbackPort: string;
   oauth2CallbackHost: string;
   discoveryStatus: DiscoveryStatus;
-  discoveredFields: Set<string>;
   discoveryResourceName: string;
   discoveryRegistrationUrl: string;
   onCommandChange: (value: string) => void;
@@ -81,7 +80,6 @@ export function McpConnectionSection({
   oauth2CallbackPort,
   oauth2CallbackHost,
   discoveryStatus,
-  discoveredFields: _discoveredFields,
   discoveryResourceName,
   discoveryRegistrationUrl,
   onCommandChange,

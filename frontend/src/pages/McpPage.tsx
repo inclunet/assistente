@@ -144,7 +144,6 @@ export default function McpPage() {
   // OAuth auto-discovery
   type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found';
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>('idle');
-  const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
   const [manualRegistrationUrl, setManualRegistrationUrl] = useState('');
@@ -204,7 +203,6 @@ export default function McpPage() {
     setFormOAuth2CallbackHost(config?.oauth2_callback_host || '');
 
     setDiscoveryStatus('idle');
-    setDiscoveredFields(new Set());
     setDiscoveryResourceName('');
     setDiscoveryRegistrationUrl('');
     setManualRegistrationUrl(config?.oauth2_registration_url || '');
@@ -313,32 +311,24 @@ export default function McpPage() {
       const result = await DiscoverMCPServerAuth(urlToDiscover);
       if (requestID !== discoveryRequestRef.current) return;
       if (result.found) {
-        const fields = new Set<string>();
-
         if (result.authType && formAuthType === 'none') {
           setFormAuthType(result.authType);
-          fields.add('authType');
         }
         if (result.authUrl && !formOAuth2AuthUrl) {
           setFormOAuth2AuthUrl(result.authUrl);
-          fields.add('oauth2AuthUrl');
         }
         if (result.tokenUrl && !formOAuth2TokenUrl) {
           setFormOAuth2TokenUrl(result.tokenUrl);
-          fields.add('oauth2TokenUrl');
         }
         if (result.scopes?.length > 0 && !formOAuth2Scopes) {
           setFormOAuth2Scopes(result.scopes.join(' '));
-          fields.add('oauth2Scopes');
         }
-        setDiscoveredFields(fields);
         const resName = result.resourceName || '';
         setDiscoveryResourceName(resName);
         setDiscoveryRegistrationUrl(result.registrationUrl || '');
         if (resName && !formName) setFormName(resName);
         setDiscoveryStatus('found');
       } else if (result.status === 'partial' || result.protectedResourceFound) {
-        setDiscoveredFields(new Set());
         setDiscoveryResourceName(result.resourceName || '');
         setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('partial');
@@ -376,7 +366,6 @@ export default function McpPage() {
 
   const handleManualOverride = useCallback(() => {
     discoveryRequestRef.current += 1;
-    setDiscoveredFields(new Set());
     setDiscoveryRegistrationUrl('');
     setDiscoveryStatus('not_found');
   }, []);
@@ -820,7 +809,6 @@ export default function McpPage() {
               oauth2AuthUrl={formOAuth2AuthUrl}
               oauth2Scopes={formOAuth2Scopes}
               discoveryStatus={discoveryStatus}
-              discoveredFields={discoveredFields}
               discoveryResourceName={discoveryResourceName}
               discoveryRegistrationUrl={
                 (isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '') ||
