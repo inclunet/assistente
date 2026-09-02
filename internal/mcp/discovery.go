@@ -75,6 +75,7 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	var resourceName string
 	var resourceScopes []string
 	var hints []DiscoveryResponseHint
+	resourceBaseURL := serverURL
 
 	prm, prmHints, err := fetchProtectedResourceMetadataDetailed(serverURL)
 	hints = appendHints(hints, prmHints...)
@@ -82,6 +83,9 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	authServerBases := make([]string, 0)
 	if err == nil && prm != nil {
 		authServerBases = append(authServerBases, prm.AuthorizationServers...)
+		if prm.Resource != "" {
+			resourceBaseURL = prm.Resource
+		}
 		resourceName = prm.ResourceName
 		resourceScopes = prm.ScopesSupported
 		logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] Protected Resource Metadata encontrado")
@@ -90,7 +94,10 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	}
 
 	if len(authServerBases) == 0 {
-		authServerBases = buildResourceBases(serverURL)
+		authServerBases = buildResourceBases(resourceBaseURL)
+		if len(authServerBases) == 0 && resourceBaseURL != serverURL {
+			authServerBases = buildResourceBases(serverURL)
+		}
 	}
 
 	asm, metadataType, asmHints, err := fetchAuthServerMetadataFromBases(authServerBases)
@@ -443,7 +450,17 @@ func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
 		redirectHint := redirects[len(redirects)-1]
 		attempt.hint = &redirectHint
 	}
-	return attempt, json.Unmarshal(body, target)
+	if err := json.Unmarshal(body, target); err != nil {
+		hint := &DiscoveryResponseHint{
+			StatusCode:     resp.StatusCode,
+			Classification: "invalid_metadata",
+		}
+		if attempt.hint != nil {
+			hint.Location = attempt.hint.Location
+		}
+		return fetchAttempt{hint: hint}, err
+	}
+	return attempt, nil
 }
 
 func classifyDiscoveryStatus(status int) string {

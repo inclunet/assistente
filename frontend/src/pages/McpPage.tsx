@@ -63,6 +63,22 @@ function statusLabel(status: string, t: (key: string) => string): string {
   return labels[status] || status;
 }
 
+function normalizeDiscoveryResourceUrl(value: string): string {
+  try {
+    const parsed = new URL(value.trim());
+    parsed.search = '';
+    parsed.hash = '';
+    parsed.pathname = parsed.pathname === '/' ? '/' : parsed.pathname.replace(/\/+$/, '');
+    return parsed.toString();
+  } catch {
+    return value.trim().replace(/\/+$/, '');
+  }
+}
+
+function isSameDiscoveryResource(first: string, second: string): boolean {
+  return normalizeDiscoveryResourceUrl(first) === normalizeDiscoveryResourceUrl(second);
+}
+
 export default function McpPage() {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
@@ -407,7 +423,7 @@ export default function McpPage() {
     const isOAuth2 = formAuthType === 'oauth2_client_credentials' || formAuthType === 'oauth2_pkce';
     const scopesArr = formOAuth2Scopes.trim() ? formOAuth2Scopes.trim().split(/\s+/) : undefined;
     const applicableManualRegistrationUrl =
-      formUrl.trim() === manualRegistrationServerUrl.trim() ? manualRegistrationUrl : '';
+      isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '';
 
     const config = new mcp.ServerConfig({
       name: formName.trim(),
@@ -807,7 +823,7 @@ export default function McpPage() {
               discoveredFields={discoveredFields}
               discoveryResourceName={discoveryResourceName}
               discoveryRegistrationUrl={
-                (formUrl.trim() === manualRegistrationServerUrl.trim() ? manualRegistrationUrl : '') ||
+                (isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '') ||
                 discoveryRegistrationUrl
               }
               onCommandChange={setFormCommand}

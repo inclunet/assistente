@@ -131,6 +131,40 @@ func TestDiscoverOAuthRepresentsPRMWithoutAuthorizationServerMetadata(t *testing
 	}
 }
 
+func TestDiscoverOAuthUsesCanonicalPRMResourceAsAuthorizationBase(t *testing.T) {
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource/input":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"resource": serverURL + "/canonical/deep/mcp/../resource?tenant=secret#fragment",
+			})
+		case "/canonical/deep/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 serverURL + "/canonical/deep",
+				"authorization_endpoint": serverURL + "/authorize",
+				"token_endpoint":         serverURL + "/token",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	result := DiscoverOAuth(server.URL + "/input")
+	if !result.Found || result.TokenURL != server.URL+"/token" {
+		t.Fatalf("base canônica do PRM não usada: %+v", result)
+	}
+	runtimeResult, err := discoverOAuthEndpoints(server.URL + "/input?ignored=1#fragment")
+	if err != nil {
+		t.Fatalf("runtime discovery falhou: %v", err)
+	}
+	if runtimeResult.Resource != server.URL+"/canonical/deep/resource" {
+		t.Fatalf("resource RFC 8707 não normalizado: %q", runtimeResult.Resource)
+	}
+}
+
 func TestDiscoveryNon200HintsAreBoundedAndSanitized(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "oauth-protected-resource") {
@@ -195,6 +229,27 @@ func TestDiscoveryRecordsTruncatedSuccessfulBodyWithoutExposingIt(t *testing.T) 
 	}
 	if attempt.hint.JSONError != "" || attempt.hint.WWWAuthenticate != "" {
 		t.Fatalf("conteúdo do body 200 não deve ser exposto: %+v", attempt.hint)
+	}
+}
+
+func TestDiscoveryRecordsInvalidSuccessfulJSONWithoutExposingBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html>token=secret</html>"))
+	}))
+	defer server.Close()
+
+	var target authServerMetadata
+	attempt, err := fetchJSON(server.URL, &target)
+	if err == nil {
+		t.Fatal("HTML curto não pode ser aceito como metadata")
+	}
+	if attempt.hint == nil || attempt.hint.StatusCode != http.StatusOK ||
+		attempt.hint.Classification != "invalid_metadata" {
+		t.Fatalf("hint de JSON inválido ausente: %+v", attempt.hint)
+	}
+	if attempt.hint.JSONError != "" || attempt.hint.WWWAuthenticate != "" {
+		t.Fatalf("body inválido não deve ser exposto: %+v", attempt.hint)
 	}
 }
 

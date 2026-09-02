@@ -172,8 +172,11 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 		return nil, err
 	}
 
-	resource := mcpURL
 	authServerBases := buildResourceBases(mcpURL)
+	resource := mcpURL
+	if len(authServerBases) > 0 {
+		resource = authServerBases[0]
+	}
 	var resourceScopes []string
 
 	prm, err := fetchProtectedResourceMetadata(mcpURL)
@@ -182,7 +185,12 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 			authServerBases = prm.AuthorizationServers
 		}
 		if prm.Resource != "" {
-			resource = prm.Resource
+			if canonicalResourceBases := buildResourceBases(prm.Resource); len(canonicalResourceBases) > 0 {
+				resource = canonicalResourceBases[0]
+				if len(prm.AuthorizationServers) == 0 {
+					authServerBases = canonicalResourceBases
+				}
+			}
 		}
 		resourceScopes = prm.ScopesSupported
 	}

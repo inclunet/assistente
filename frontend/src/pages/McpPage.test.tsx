@@ -486,6 +486,13 @@ describe('McpPage — oauth2_callback_host', () => {
     });
 
     fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://old.example/mcp/?view=config#oauth' },
+    });
+    expect(screen.getByTestId('registration-url-value')).toHaveTextContent(
+      'https://old.example/register'
+    );
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
       target: { value: 'https://new.example/mcp' },
     });
     expect(screen.getByTestId('registration-url-value')).toBeEmptyDOMElement();
