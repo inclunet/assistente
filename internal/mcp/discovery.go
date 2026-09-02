@@ -425,7 +425,15 @@ func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
 		return fetchAttempt{hint: hint}, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	if truncated {
-		return fetchAttempt{}, fmt.Errorf("metadata excede %d bytes", discoveryBodyLimit)
+		hint := &DiscoveryResponseHint{
+			StatusCode:     resp.StatusCode,
+			Classification: "invalid_metadata",
+			BodyTruncated:  true,
+		}
+		if len(redirects) > 0 {
+			hint.Location = redirects[len(redirects)-1].Location
+		}
+		return fetchAttempt{hint: hint}, fmt.Errorf("metadata excede %d bytes", discoveryBodyLimit)
 	}
 
 	attempt := fetchAttempt{}

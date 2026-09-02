@@ -176,6 +176,28 @@ func TestDiscoveryNon200HintsAreBoundedAndSanitized(t *testing.T) {
 	}
 }
 
+func TestDiscoveryRecordsTruncatedSuccessfulBodyWithoutExposingIt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html>" + strings.Repeat("sensitive", discoveryBodyLimit) + "</html>"))
+	}))
+	defer server.Close()
+
+	var target authServerMetadata
+	attempt, err := fetchJSON(server.URL, &target)
+	if err == nil {
+		t.Fatal("body 200 acima do limite não pode ser aceito como metadata")
+	}
+	if attempt.hint == nil || attempt.hint.StatusCode != http.StatusOK ||
+		attempt.hint.Classification != "invalid_metadata" || !attempt.hint.BodyTruncated {
+		t.Fatalf("hint de truncamento ausente: %+v", attempt.hint)
+	}
+	if attempt.hint.JSONError != "" || attempt.hint.WWWAuthenticate != "" {
+		t.Fatalf("conteúdo do body 200 não deve ser exposto: %+v", attempt.hint)
+	}
+}
+
 func TestDiscoveryFollowsSafeRedirect(t *testing.T) {
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
