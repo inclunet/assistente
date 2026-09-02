@@ -406,12 +406,8 @@ func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
 	client := *discoveryHTTPClient
 	originalRedirectPolicy := client.CheckRedirect
 	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
-		statusCode := 0
-		if next.Response != nil {
-			statusCode = next.Response.StatusCode
-		}
 		redirects = append(redirects, DiscoveryResponseHint{
-			StatusCode:     statusCode,
+			StatusCode:     discoveryRedirectStatus(next, via),
 			Classification: "redirect",
 			Location:       sanitizeURLHint(next.URL.String()),
 		})
@@ -487,6 +483,19 @@ func fetchJSON(rawURL string, target any) (fetchAttempt, error) {
 		return fetchAttempt{hint: hint}, err
 	}
 	return attempt, nil
+}
+
+func discoveryRedirectStatus(next *http.Request, via []*http.Request) int {
+	if next != nil && next.Response != nil {
+		return next.Response.StatusCode
+	}
+	if len(via) > 0 {
+		previous := via[len(via)-1]
+		if previous != nil && previous.Response != nil {
+			return previous.Response.StatusCode
+		}
+	}
+	return 0
 }
 
 func classifyDiscoveryStatus(status int) string {

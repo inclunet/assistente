@@ -349,6 +349,15 @@ func TestSanitizeURLHintAcceptsOnlyHTTP(t *testing.T) {
 	}
 }
 
+func TestDiscoveryRedirectStatusFallsBackToPreviousRequest(t *testing.T) {
+	next := &http.Request{}
+	previous := &http.Request{Response: &http.Response{StatusCode: http.StatusTemporaryRedirect}}
+
+	if got := discoveryRedirectStatus(next, []*http.Request{previous}); got != http.StatusTemporaryRedirect {
+		t.Fatalf("status do redirect = %d, esperava %d", got, http.StatusTemporaryRedirect)
+	}
+}
+
 func TestDiscoveryFollowsSafeRedirect(t *testing.T) {
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
