@@ -320,6 +320,8 @@ describe('setActiveTab', () => {
   });
 
   it('faz rollback quando backend falha e aba ativa não mudou', async () => {
+    const rollbackListener = vi.fn();
+    window.addEventListener('workspace:tab-activation-rollback', rollbackListener);
     setStoreState([
       { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
       { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
@@ -335,6 +337,13 @@ describe('setActiveTab', () => {
       expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-1');
     });
     expect(mockedAnnounce).toHaveBeenCalled();
+    expect(rollbackListener).toHaveBeenCalledWith(expect.objectContaining({
+      detail: {
+        failedTabId: 'tab-2',
+        rollbackTabId: 'tab-1',
+      },
+    }));
+    window.removeEventListener('workspace:tab-activation-rollback', rollbackListener);
   });
 
   it('não faz rollback quando outra troca já ocorreu antes do erro', async () => {

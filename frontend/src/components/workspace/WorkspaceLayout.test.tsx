@@ -180,6 +180,7 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
 
   beforeEach(() => {
     storeMock.state.workspace.activeTabId = 'tab-1';
+    storeMock.state.workspace.tabs[1].type = 'editor';
     storeMock.setActiveTab.mockClear();
     shortcutMock.useWorkspaceKeyboardShortcuts.mockClear();
     vi.mocked(restoreDefaultFocus).mockClear();
@@ -217,6 +218,7 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
   });
 
   it('atalho global de aba restaura foco na area default apos troca', () => {
+    storeMock.state.workspace.tabs[1].type = 'chat';
     const { rerender } = renderWorkspaceLayout();
 
     shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
@@ -248,6 +250,53 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     expect(focusPanel).toHaveBeenCalledOnce();
     expect(restoreDefaultFocus).not.toHaveBeenCalled();
     unregister();
+  });
+
+  it('preserva o pedido até o controller lazy da aba editor registrar foco', () => {
+    const focusPanel = vi.fn(() => true);
+    const { rerender } = renderWorkspaceLayout();
+
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
+    storeMock.state.workspace.activeTabId = 'tab-2';
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+
+    expect(focusPanel).not.toHaveBeenCalled();
+    const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
+    expect(focusPanel).toHaveBeenCalledOnce();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it('restaura foco na aba anterior quando a ativação por atalho falha', () => {
+    const { rerender } = renderWorkspaceLayout();
+
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
+    storeMock.state.workspace.activeTabId = 'tab-2';
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+
+    window.dispatchEvent(new CustomEvent('workspace:tab-activation-rollback', {
+      detail: {
+        failedTabId: 'tab-2',
+        rollbackTabId: 'tab-1',
+      },
+    }));
+    storeMock.state.workspace.activeTabId = 'tab-1';
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+
+    expect(restoreDefaultFocus).toHaveBeenCalled();
+    expect(screen.getByTestId('default-focus')).toHaveFocus();
   });
 
   it('usa o documento renderizado como foco padrão da área de conteúdo', () => {

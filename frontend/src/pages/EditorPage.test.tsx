@@ -721,6 +721,24 @@ describe('EditorPage', () => {
     });
   });
 
+  it('envia a última troca de modo sem aguardar persistência anterior', () => {
+    updateWorkspaceTabSpy.mockImplementationOnce(() => new Promise<void>(() => undefined));
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'rich' },
+    };
+
+    render(<EditorPage documentId="tab-1" />);
+    fireEvent.keyDown(window, { key: '1', altKey: true });
+    fireEvent.keyDown(window, { key: '3', altKey: true });
+
+    expect(updateWorkspaceTabSpy).toHaveBeenNthCalledWith(1, 'tab-1', {
+      state: { displayMode: 'markdown' },
+    });
+    expect(updateWorkspaceTabSpy).toHaveBeenNthCalledWith(2, 'tab-1', {
+      state: { displayMode: 'view' },
+    });
+  });
+
   it('emite e consome um pedido de leitura a cada Alt+3, inclusive já em view', () => {
     editorStoreState.documents = {
       'tab-1': {
@@ -774,6 +792,7 @@ describe('EditorPage', () => {
   });
 
   it('mantém pedido de foco pendente até o Monaco terminar de montar', async () => {
+    editorPageMocks.chatModalIsOpen = false;
     editorPageMocks.mountEditorsAutomatically = false;
     editorStoreState.documents = {
       'tab-1': {
@@ -804,6 +823,39 @@ describe('EditorPage', () => {
       expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
     });
     externalInput.remove();
+  });
+
+  it('não deixa foco atrasado do editor atravessar abertura de modal', async () => {
+    vi.useFakeTimers();
+    editorPageMocks.chatModalIsOpen = false;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'markdown',
+      },
+    };
+
+    try {
+      render(<EditorPage documentId="tab-1" isPanelActive />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20);
+      });
+      editorPageMocks.markdownFocus.mockClear();
+
+      act(() => {
+        expect(requestWorkspacePanelFocus('tab-1')).toBe(true);
+      });
+      editorPageMocks.chatModalIsOpen = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20);
+      });
+
+      expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('emite o mesmo pedido explícito ao escolher visualização no menu', async () => {

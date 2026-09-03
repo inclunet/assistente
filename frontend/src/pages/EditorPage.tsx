@@ -189,10 +189,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       try {
         const currentTab = activeTabRef.current;
         if (!currentTab || !isPanelActiveRef.current) return;
+        if (isModalOpen() || useWorkspaceChatModalStore.getState().isOpen) return;
 
         if (options?.preserveFocusedField || options?.preserveExternalFocus) {
-          if (isModalOpen() || useWorkspaceChatModalStore.getState().isOpen) return;
-
           const focused = document.activeElement as HTMLElement | null;
           const focusedTag = focused?.tagName || '';
           const isFocusedField =

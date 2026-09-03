@@ -13,7 +13,11 @@ import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAcce
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
-import { requestWorkspacePanelFocus } from './workspacePanelFocusRegistry';
+import {
+  cancelWorkspacePanelFocus,
+  queueWorkspacePanelFocus,
+  requestWorkspacePanelFocus,
+} from './workspacePanelFocusRegistry';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
@@ -42,8 +46,10 @@ export function WorkspaceLayout() {
 
   const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
   const restoreFocusToTablistRef = useRef<string | null>(null);
+  const lastTabShortcutTargetRef = useRef<string | null>(null);
   const markTabShortcutNavigation = useCallback((tabId: string) => {
     restoreFocusAfterTabShortcutRef.current = tabId;
+    lastTabShortcutTargetRef.current = tabId;
   }, []);
 
   useWorkspaceKeyboardShortcuts({
@@ -290,6 +296,24 @@ export function WorkspaceLayout() {
   const prevActiveTabIdRef = useRef(activeTabId);
 
   useEffect(() => {
+    const handleActivationRollback = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        failedTabId?: string;
+        rollbackTabId?: string | null;
+      }>).detail;
+      if (
+        !detail?.rollbackTabId
+        || lastTabShortcutTargetRef.current !== detail.failedTabId
+      ) return;
+      cancelWorkspacePanelFocus(detail.failedTabId);
+      lastTabShortcutTargetRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = detail.rollbackTabId;
+    };
+    window.addEventListener('workspace:tab-activation-rollback', handleActivationRollback);
+    return () => window.removeEventListener('workspace:tab-activation-rollback', handleActivationRollback);
+  }, []);
+
+  useEffect(() => {
     if (!isWorkspaceRoute || !activeTabId) return;
     if (activeTabId === prevActiveTabIdRef.current) return;
     prevActiveTabIdRef.current = activeTabId;
@@ -313,12 +337,17 @@ export function WorkspaceLayout() {
     }
 
     restoreFocusAfterTabShortcutRef.current = null;
+    const activeTabType = workspace?.tabs.find((tab) => tab.id === activeTabId)?.type;
     requestAnimationFrame(() => {
       if (!requestWorkspacePanelFocus(activeTabId)) {
-        restoreDefaultFocus();
+        if (activeTabType === 'editor') {
+          queueWorkspacePanelFocus(activeTabId);
+        } else {
+          restoreDefaultFocus();
+        }
       }
     });
-  }, [activeTabId, isWorkspaceRoute]);
+  }, [activeTabId, isWorkspaceRoute, workspace?.tabs]);
 
   useEffect(() => {
     ensureModalCleanup();

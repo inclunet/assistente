@@ -469,6 +469,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
             ? { ...state.workspace, activeTabId: rollbackId }
             : null,
         }));
+        window.dispatchEvent(new CustomEvent('workspace:tab-activation-rollback', {
+          detail: {
+            failedTabId: tabId,
+            rollbackTabId: rollbackId,
+          },
+        }));
         announce(i18next.t('workspace.tabSwitchFailed'));
       }
     });

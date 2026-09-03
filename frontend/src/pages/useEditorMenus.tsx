@@ -99,7 +99,6 @@ export function useEditorMenus({
   const [revealFullscreenRequestNonce, setRevealFullscreenRequestNonce] = useState(0);
   const [revealAppendNonce, setRevealAppendNonce] = useState(0);
   const renderedReadingRequestNonceRef = useRef(0);
-  const modePersistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [renderedReadingRequest, setRenderedReadingRequest] = useState<RenderedReadingRequest | null>(null);
   const updateWorkspaceTab = useWorkspaceStore((state) => state.updateTab);
   const consumeRenderedReadingRequest = useCallback((nonce: number) => {
@@ -268,11 +267,12 @@ export function useEditorMenus({
       useEditorStore.getState().setDocMode(activeTab.id, nextMode);
       const effectiveMode: EditorMode = activeTab.readOnly ? 'view' : nextMode;
 
-      modePersistenceQueueRef.current = modePersistenceQueueRef.current
-        .catch(() => undefined)
-        .then(() => updateWorkspaceTab(activeTab.id, {
+      // Dispara cada atualização imediatamente: manter a última mudança atrás
+      // de uma Promise local permitiria que o app encerrasse antes mesmo de a
+      // chamada final chegar ao backend.
+      void updateWorkspaceTab(activeTab.id, {
           state: { displayMode: effectiveMode },
-        }))
+        })
         .catch(() => {
           addToast(t('editor.modePersistenceFailed'), 'error');
         });
