@@ -116,11 +116,11 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
         mode: resolveEditorDisplayMode(
           tab.state?.displayMode,
           'markdown',
-          projection?.readOnly ?? loadError,
+          (projection?.readOnly ?? false) || loadError,
         ),
         filePath: filePath || null,
         draftId: draftId || (filePath ? null : tabId),
-        readOnly: projection?.readOnly ?? loadError,
+        readOnly: (projection?.readOnly ?? false) || loadError,
         projection: projection?.projected
           ? {
               format: projection.format,

@@ -15,6 +15,7 @@ import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
 import {
   cancelWorkspacePanelFocus,
+  hasWorkspacePanelFocusHandler,
   queueWorkspacePanelFocus,
   requestWorkspacePanelFocus,
 } from './workspacePanelFocusRegistry';
@@ -339,12 +340,12 @@ export function WorkspaceLayout() {
     restoreFocusAfterTabShortcutRef.current = null;
     const activeTabType = workspace?.tabs.find((tab) => tab.id === activeTabId)?.type;
     requestAnimationFrame(() => {
-      if (!requestWorkspacePanelFocus(activeTabId)) {
-        if (activeTabType === 'editor') {
-          queueWorkspacePanelFocus(activeTabId);
-        } else {
-          restoreDefaultFocus();
-        }
+      if (hasWorkspacePanelFocusHandler(activeTabId)) {
+        requestWorkspacePanelFocus(activeTabId);
+      } else if (activeTabType === 'editor') {
+        queueWorkspacePanelFocus(activeTabId);
+      } else {
+        restoreDefaultFocus();
       }
     });
   }, [activeTabId, isWorkspaceRoute, workspace?.tabs]);

@@ -26,6 +26,10 @@ export function requestWorkspacePanelFocus(tabId: string): boolean {
   return handlers.get(tabId)?.() ?? false;
 }
 
+export function hasWorkspacePanelFocusHandler(tabId: string): boolean {
+  return handlers.has(tabId);
+}
+
 export function queueWorkspacePanelFocus(tabId: string): void {
   pendingRequests.add(tabId);
 }

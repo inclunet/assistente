@@ -271,6 +271,27 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     unregister();
   });
 
+  it('não enfileira novamente quando um controller registrado recusa foco', () => {
+    const refusedFocus = vi.fn(() => false);
+    const unregisterRefused = registerWorkspacePanelFocus('tab-2', refusedFocus);
+    const { rerender } = renderWorkspaceLayout();
+
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
+    storeMock.state.workspace.activeTabId = 'tab-2';
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+
+    expect(refusedFocus).toHaveBeenCalledOnce();
+    unregisterRefused();
+    const replacementFocus = vi.fn(() => true);
+    const unregisterReplacement = registerWorkspacePanelFocus('tab-2', replacementFocus);
+    expect(replacementFocus).not.toHaveBeenCalled();
+    unregisterReplacement();
+  });
+
   it('restaura foco na aba anterior quando a ativação por atalho falha', () => {
     const { rerender } = renderWorkspaceLayout();
 
