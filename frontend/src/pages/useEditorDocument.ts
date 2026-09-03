@@ -248,9 +248,9 @@ export function useEditorDocument({
           // best-effort
         }
 
-        setSessionLoaded(true);
+        if (!cancelled) setSessionLoaded(true);
       } catch {
-        setSessionLoaded(true);
+        if (!cancelled) setSessionLoaded(true);
       }
     })();
 

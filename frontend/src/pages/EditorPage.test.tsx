@@ -770,6 +770,7 @@ describe('EditorPage', () => {
   });
 
   it('reutiliza o pedido de leitura ao receber foco da troca de aba', async () => {
+    editorPageMocks.chatModalIsOpen = false;
     editorStoreState.documents = {
       'tab-1': {
         id: 'tab-1',
@@ -789,6 +790,24 @@ describe('EditorPage', () => {
     await waitFor(() => {
       expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
     });
+  });
+
+  it('recusa foco da troca de aba enquanto o chat modal está aberto', () => {
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'view',
+      },
+    };
+
+    render(<EditorPage documentId="tab-1" isPanelActive />);
+
+    act(() => {
+      expect(requestWorkspacePanelFocus('tab-1')).toBe(false);
+    });
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
   });
 
   it('mantém pedido de foco pendente até o Monaco terminar de montar', async () => {

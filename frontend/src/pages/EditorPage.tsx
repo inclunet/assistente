@@ -352,7 +352,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   useEffect(() => {
     if (!currentDocumentId) return;
     return registerWorkspacePanelFocus(currentDocumentId, () => {
-      if (!isPanelActiveRef.current || isModalOpen()) return false;
+      if (
+        !isPanelActiveRef.current
+        || isModalOpen()
+        || useWorkspaceChatModalStore.getState().isOpen
+      ) return false;
       setWorkspaceFocusRequestNonce((nonce) => nonce + 1);
       return true;
     });
@@ -366,6 +370,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       || !sessionLoaded
       || !activeTab
       || isModalOpen()
+      || chatModalOpen
     ) return;
 
     if (activeTab.mode === 'markdown' && !editorRef.current) return;
@@ -380,6 +385,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   }, [
     activeTab?.id,
     activeTab?.mode,
+    chatModalOpen,
     editorReadyNonce,
     isPanelActive,
     requestRenderedReadingFocus,

@@ -307,13 +307,16 @@ export function WorkspaceLayout() {
         failedTabId?: string;
         rollbackTabId?: string | null;
       }>).detail;
+      const failedTabId = detail?.failedTabId;
+      const rollbackTabId = detail?.rollbackTabId;
       if (
-        !detail?.rollbackTabId
-        || lastTabShortcutTargetRef.current !== detail.failedTabId
+        !failedTabId
+        || !rollbackTabId
+        || lastTabShortcutTargetRef.current !== failedTabId
       ) return;
-      cancelWorkspacePanelFocus(detail.failedTabId);
+      cancelWorkspacePanelFocus(failedTabId);
       lastTabShortcutTargetRef.current = null;
-      restoreFocusAfterTabShortcutRef.current = detail.rollbackTabId;
+      restoreFocusAfterTabShortcutRef.current = rollbackTabId;
     };
     window.addEventListener('workspace:tab-activation-rollback', handleActivationRollback);
     return () => window.removeEventListener('workspace:tab-activation-rollback', handleActivationRollback);
