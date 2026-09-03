@@ -25,7 +25,7 @@ Cada aba representa um arquivo ou draft. O estado das abas é preservado por wor
 - Novo arquivo: **Menu File → Novo**
 - Salvar: **Ctrl + S** (salva no disco) ou auto-save
 - Salvar como: **Menu File → Salvar Como**
-- O modo Código, Rich Text ou Visualização pertence à aba e é restaurado
+- O modo Código, Rico ou Visualização pertence à aba e é restaurado
   mesmo depois de fechar e abrir novamente o Assistente. Fechar a aba remove
   essa escolha.
 

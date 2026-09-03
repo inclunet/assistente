@@ -369,6 +369,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       || isModalOpen()
     ) return;
 
+    if (activeTab.mode === 'markdown' && !editorRef.current) return;
+    if (activeTab.mode === 'rich' && !richEditorRef.current) return;
+
     consumedWorkspaceFocusRequestRef.current = workspaceFocusRequestNonce;
     if (activeTab.mode === 'view') {
       requestRenderedReadingFocus();

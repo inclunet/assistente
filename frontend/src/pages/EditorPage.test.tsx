@@ -773,6 +773,39 @@ describe('EditorPage', () => {
     });
   });
 
+  it('mantém pedido de foco pendente até o Monaco terminar de montar', async () => {
+    editorPageMocks.mountEditorsAutomatically = false;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'markdown',
+      },
+    };
+
+    render(<EditorPage documentId="tab-1" isPanelActive />);
+    const externalInput = document.createElement('input');
+    document.body.appendChild(externalInput);
+    externalInput.focus();
+    act(() => {
+      expect(requestWorkspacePanelFocus('tab-1')).toBe(true);
+    });
+    expect(editorPageMocks.markdownFocus).not.toHaveBeenCalled();
+
+    act(() => {
+      (editorPageMocks.editorContentAreaProps?.onMonacoMount as (
+        editor: unknown,
+        monaco: unknown,
+      ) => void)(editorPageMocks.markdownEditor, {});
+    });
+
+    await waitFor(() => {
+      expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+    });
+    externalInput.remove();
+  });
+
   it('emite o mesmo pedido explícito ao escolher visualização no menu', async () => {
     const user = userEvent.setup();
     editorStoreState.documents = {
