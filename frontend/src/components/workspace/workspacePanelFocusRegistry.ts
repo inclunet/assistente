@@ -37,3 +37,11 @@ export function queueWorkspacePanelFocus(tabId: string): void {
 export function cancelWorkspacePanelFocus(tabId: string): void {
   pendingRequests.delete(tabId);
 }
+
+export function pruneWorkspacePanelFocus(validTabIds: ReadonlySet<string>): void {
+  for (const tabId of pendingRequests) {
+    if (!validTabIds.has(tabId)) {
+      pendingRequests.delete(tabId);
+    }
+  }
+}

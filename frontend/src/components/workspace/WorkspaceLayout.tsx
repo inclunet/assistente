@@ -16,6 +16,7 @@ import { WorkspaceToolbar } from './WorkspaceToolbar';
 import {
   cancelWorkspacePanelFocus,
   hasWorkspacePanelFocusHandler,
+  pruneWorkspacePanelFocus,
   queueWorkspacePanelFocus,
   requestWorkspacePanelFocus,
 } from './workspacePanelFocusRegistry';
@@ -62,6 +63,10 @@ export function WorkspaceLayout() {
   useVoiceAccessibilityWorkspaceResolver();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
+
+  useEffect(() => {
+    pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));
+  }, [workspace?.tabs]);
 
   useEffect(() => {
     if (!isWorkspaceRoute) {

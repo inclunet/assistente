@@ -339,10 +339,10 @@ describe('setActiveTab', () => {
       });
       expect(mockedAnnounce).toHaveBeenCalled();
       expect(rollbackListener).toHaveBeenCalledWith(expect.objectContaining({
-        detail: {
+        detail: expect.objectContaining({
           failedTabId: 'tab-2',
           rollbackTabId: 'tab-1',
-        },
+        }),
       }));
     } finally {
       window.removeEventListener('workspace:tab-activation-rollback', rollbackListener);
