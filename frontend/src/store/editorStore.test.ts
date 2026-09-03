@@ -119,9 +119,18 @@ describe('editorStore — filePath lifecycle', () => {
       title: 'Editado',
       markdown: '# Alterado',
     };
+    const editedProvisional = {
+      ...provisional,
+      markdown: '# Alteração local',
+      hasLocalChanges: true,
+    };
 
     expect(preferLiveEditorDocument(loaded, provisional)).toBe(loaded);
     expect(preferLiveEditorDocument(loaded, live)).toBe(live);
+    expect(preferLiveEditorDocument(loaded, editedProvisional)).toEqual({
+      ...editedProvisional,
+      sessionHydrated: true,
+    });
   });
 
 });

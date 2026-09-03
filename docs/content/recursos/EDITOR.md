@@ -12,7 +12,7 @@ O Assistente possui um editor de texto integrado com suporte a múltiplas abas, 
 | Modo | Descrição |
 |---|---|
 | **Código** | Editor Monaco (mesmo do VS Code) com syntax highlighting |
-| **Rich Text** | Editor de texto rico com formatação |
+| **Rico** | Editor de texto rico com formatação |
 | **Visualização** | Documento renderizado para leitura e navegação |
 
 ## Funcionalidades
@@ -89,7 +89,7 @@ modo salvo da aba: Monaco, editor rico ou documento renderizado.
 | `Ctrl + Shift + Tab` | Aba anterior |
 | `Ctrl + PageDown` | Próxima aba |
 | `Ctrl + PageUp` | Aba anterior |
-| `Alt + 1` | Modo Markdown |
+| `Alt + 1` | Modo Código |
 | `Alt + 2` | Modo de texto rico |
 | `Alt + 3` | Visualização e leitura do documento |
 | Deep link | `assistente://editor/{id}` |

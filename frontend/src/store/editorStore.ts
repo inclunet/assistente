@@ -24,7 +24,11 @@ export function preferLiveEditorDocument(
   loaded: EditorDocument,
   existing: EditorDocument | undefined,
 ): EditorDocument {
-  return existing?.sessionHydrated === false ? loaded : existing ?? loaded;
+  if (!existing) return loaded;
+  if (existing.sessionHydrated !== false) return existing;
+  return existing.hasLocalChanges || existing.isDirty
+    ? { ...existing, sessionHydrated: true }
+    : loaded;
 }
 
 export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
@@ -71,6 +75,8 @@ export interface EditorDocument {
   loadError?: boolean;
   /** Distingue o documento provisório do controller do snapshot de sessão. */
   sessionHydrated?: boolean;
+  /** Protege edição feita enquanto o snapshot de sessão ainda era carregado. */
+  hasLocalChanges?: boolean;
 }
 
 
@@ -135,6 +141,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       projection: initial?.projection ?? null,
       loadError: initial?.loadError ?? false,
       sessionHydrated: initial?.sessionHydrated ?? true,
+      hasLocalChanges: false,
     };
 
     set((state) => ({
@@ -197,7 +204,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setDocMarkdown: (docId, markdown) => {
-    set((state) => ({ documents: updateDoc(state.documents, docId, { markdown }) }));
+    set((state) => ({
+      documents: updateDoc(state.documents, docId, {
+        markdown,
+        hasLocalChanges: true,
+      }),
+    }));
   },
 
   setDocMode: (docId, mode) => {
@@ -205,7 +217,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const doc = state.documents[docId];
       if (!doc) return state;
       const next: EditorMode = doc.readOnly ? 'view' : mode === 'rich' || mode === 'view' ? mode : 'markdown';
-      return { documents: updateDoc(state.documents, docId, { mode: next }) };
+      return {
+        documents: updateDoc(state.documents, docId, {
+          mode: next,
+          hasLocalChanges: true,
+        }),
+      };
     });
   },
 
