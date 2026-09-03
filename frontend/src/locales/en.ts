@@ -1307,6 +1307,7 @@ const en = {
       },
       empty: { noTabs: 'No tabs open' },
       labels: { profile: 'Profile (editor)' },
+      modePersistenceFailed: 'Could not save this tab display mode.',
       modes: { markdown: 'Code', rich: 'Rich', view: 'Preview' },
       aria: { toolbar: 'Editor toolbar', markdownEditor: 'Markdown editor', preview: 'Rendered preview', richEditor: 'Rich editor', fileMenu: 'File menu', formatMenu: 'Format menu', insertMenu: 'Insert menu', modeMenu: 'Mode menu' },
       placeholders: { markdown: 'Write in Markdown...', rich: 'Write…' },

@@ -13,6 +13,7 @@ import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAcce
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
+import { requestWorkspacePanelFocus } from './workspacePanelFocusRegistry';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
@@ -312,7 +313,11 @@ export function WorkspaceLayout() {
     }
 
     restoreFocusAfterTabShortcutRef.current = null;
-    requestAnimationFrame(() => restoreDefaultFocus());
+    requestAnimationFrame(() => {
+      if (!requestWorkspacePanelFocus(activeTabId)) {
+        restoreDefaultFocus();
+      }
+    });
   }, [activeTabId, isWorkspaceRoute]);
 
   useEffect(() => {

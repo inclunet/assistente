@@ -4,6 +4,8 @@ import { logger } from '../utils/logger';
 import {
   useEditorStore,
   DEFAULT_MD,
+  preferLiveEditorDocument,
+  resolveEditorDisplayMode,
   type EditorDocument,
   type EditorMode,
 } from '../store/editorStore';
@@ -41,6 +43,7 @@ export function useEditorDocument({
   documents,
 }: UseEditorDocumentArgs) {
   const hydrate = useEditorStore((s) => s.hydrate);
+  const workspaceId = useWorkspaceStore((s) => s.workspace?.id ?? null);
 
   const fileModeByPathRef = useRef<Record<string, EditorMode>>({});
   const prevDocsRef = useRef<Record<string, EditorDocument>>({});
@@ -79,12 +82,14 @@ export function useEditorDocument({
 
   // Restaura sessão (abas abertas) via workspace YAML + EditorLoadState (arquivo JSON).
   useEffect(() => {
-    if (!isWsInitialized) return;
+    if (!isWsInitialized || !workspaceId) return;
+    setSessionLoaded(false);
     let cancelled = false;
 
     (async () => {
       try {
         const wsState = useWorkspaceStore.getState();
+        if (wsState.workspace?.id !== workspaceId) return;
         const wsEditorTabs = (wsState.workspace?.tabs || []).filter((tab) => tab.type === 'editor');
 
         const editorState = await EditorLoadState();
@@ -158,9 +163,14 @@ export function useEditorDocument({
           }
 
           const pathKey = filePath ? normalizePathKey(filePath) : '';
-          const mode: EditorMode = readOnly
-            ? 'view'
-            : pathKey ? fileModeByPathRef.current[pathKey] || 'markdown' : 'markdown';
+          const legacyMode = pathKey
+            ? fileModeByPathRef.current[pathKey] || 'markdown'
+            : 'markdown';
+          const mode = resolveEditorDisplayMode(
+            tab.state?.displayMode,
+            legacyMode,
+            readOnly,
+          );
           const title = filePath ? basenameFromPath(filePath) : tab.title || 'Novo documento';
 
           loadedTabs.push({
@@ -174,12 +184,22 @@ export function useEditorDocument({
             readOnly,
             projection,
             loadError,
+            sessionHydrated: true,
           });
+        }
+
+        const loadedDocs: Record<string, EditorDocument> = {};
+        for (const tab of loadedTabs) {
+          // Um painel adicional pode montar enquanto a sessão já está viva.
+          // Nesse caso, o documento em memória é mais novo que o snapshot de
+          // disco e não pode ser substituído por uma segunda hidratação.
+          const existing = useEditorStore.getState().documents[tab.id];
+          loadedDocs[tab.id] = preferLiveEditorDocument(tab, existing);
         }
 
         // Popula o cache do autosave com o conteúdo carregado.
         try {
-          for (const tab of loadedTabs) {
+          for (const tab of Object.values(loadedDocs)) {
             updateLatestMarkdownForTab(tab.id, String(tab.markdown ?? ''));
           }
         } catch {
@@ -196,11 +216,6 @@ export function useEditorDocument({
           }
         } catch {
           // best-effort
-        }
-
-        const loadedDocs: Record<string, EditorDocument> = {};
-        for (const tab of loadedTabs) {
-          loadedDocs[tab.id] = tab;
         }
 
         hydrate({
@@ -241,7 +256,8 @@ export function useEditorDocument({
 
     return () => {
       cancelled = true;
-    };  }, [isWsInitialized]);
+    };
+  }, [hydrate, isWsInitialized, workspaceId]);
 
   // Mantém cache do markdown atual da aba ativa para flush/abas.
   useEffect(() => {

@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditorGetFileInfo, EditorReadFile, EditorWriteFile } from '@wailsjs/go/wailsapi/Editor';
 import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 
 const openToolbarMenuSpy = vi.fn();
+const updateWorkspaceTabSpy = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const editorPageMocks = vi.hoisted(() => {
   const revealSlideMarkdown = '## Slide 2\nselected rich text';
   const runtimeHandlers: Record<string, Array<(data: unknown) => void>> = {};
@@ -186,6 +187,10 @@ const editorStoreState = {
   consumePendingInsert: vi.fn().mockReturnValue(null),
   getDocument: vi.fn(),
   removeDocument: vi.fn(),
+  workspaceHydration: { workspaceId: 'ws-1', status: 'loaded' as const },
+  claimWorkspaceHydration: vi.fn(() => false),
+  completeWorkspaceHydration: vi.fn(),
+  cancelWorkspaceHydration: vi.fn(),
 };
 
 vi.mock('react-i18next', () => ({
@@ -206,12 +211,12 @@ vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector: (state: Record<string, unknown>) => unknown) => selector({
       addTab: vi.fn(),
-      updateTab: vi.fn(),
-      workspace: { tabs: [], profile: undefined },
+      updateTab: updateWorkspaceTabSpy,
+      workspace: { id: 'ws-1', tabs: [], profile: undefined },
       getActiveTab: () => undefined,
       isInitialized: true,
     }),
-    { getState: () => ({ workspace: { tabs: [] }, addTab: vi.fn(), getActiveTab: () => undefined }), subscribe: () => () => {} }
+    { getState: () => ({ workspace: { id: 'ws-1', tabs: [] }, addTab: vi.fn(), getActiveTab: () => undefined }), subscribe: () => () => {} }
   ),
   useActiveTab: () => undefined,
 }));
@@ -409,6 +414,7 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
 }));
 
 import EditorPage from './EditorPage';
+import { requestWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
 
 describe('EditorPage', () => {
   beforeEach(() => {
@@ -467,6 +473,7 @@ describe('EditorPage', () => {
     richEditor.isFocused = true;
     richEditor.view.hasFocus = () => true;
     openToolbarMenuSpy.mockReset();
+    updateWorkspaceTabSpy.mockClear();
     editorStoreState.setDocMarkdown.mockReset();
     editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
       const tab = editorStoreState.documents[tabId];
@@ -699,6 +706,21 @@ describe('EditorPage', () => {
     expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(3, 'tab-1', 'view');
   });
 
+  it('persiste o modo escolhido no state da própria aba', async () => {
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
+    };
+
+    render(<EditorPage documentId="tab-1" />);
+    fireEvent.keyDown(window, { key: '3', altKey: true });
+
+    await waitFor(() => {
+      expect(updateWorkspaceTabSpy).toHaveBeenCalledWith('tab-1', {
+        state: { displayMode: 'view' },
+      });
+    });
+  });
+
   it('emite e consome um pedido de leitura a cada Alt+3, inclusive já em view', () => {
     editorStoreState.documents = {
       'tab-1': {
@@ -727,6 +749,28 @@ describe('EditorPage', () => {
     expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 2 });
     expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(1, 'tab-1', 'view');
     expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(2, 'tab-1', 'view');
+  });
+
+  it('reutiliza o pedido de leitura ao receber foco da troca de aba', async () => {
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'view',
+      },
+    };
+
+    render(<EditorPage documentId="tab-1" isPanelActive />);
+    expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toBeNull();
+
+    act(() => {
+      expect(requestWorkspacePanelFocus('tab-1')).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(editorPageMocks.editorContentAreaProps?.renderedReadingRequest).toEqual({ nonce: 1 });
+    });
   });
 
   it('emite o mesmo pedido explícito ao escolher visualização no menu', async () => {

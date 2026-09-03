@@ -1306,6 +1306,7 @@ const es = {
       },
       empty: { noTabs: 'Ninguna pestaña abierta' },
       labels: { profile: 'Perfil (editor)' },
+      modePersistenceFailed: 'No se pudo guardar el modo de visualización de esta pestaña.',
       modes: { markdown: 'Código', rich: 'Enriquecido', view: 'Vista previa' },
       aria: { toolbar: 'Barra de herramientas del editor', markdownEditor: 'Editor Markdown', preview: 'Vista previa renderizada', richEditor: 'Editor enriquecido', fileMenu: 'Menú Archivo', formatMenu: 'Menú Formato', insertMenu: 'Menú Insertar', modeMenu: 'Menú Modo' },
       placeholders: { markdown: 'Escribe en Markdown...', rich: 'Escribe…' },

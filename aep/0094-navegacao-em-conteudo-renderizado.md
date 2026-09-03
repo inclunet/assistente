@@ -88,6 +88,13 @@ depois de renderizar `mode=view`, um pedido tipado e consumível uma única vez
 ativa e foca diretamente a ilha interna, inclusive quando o modo já era
 `view`. Mudanças passivas e hidratação não emitem esse pedido.
 
+A troca de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp ou Ctrl+PageDown
+também é uma solicitação explícita de foco na superfície ativada. Quando a aba
+restaurada está em `view`, o controller do editor consome essa solicitação
+reutilizando a mesma sequência âncora → documento de Alt+3. Restaurar
+`displayMode=view` durante a hidratação continua sendo passivo e não move o
+foco por si só.
+
 ### D5 — HTML arbitrário continua proibido
 
 Conteúdo de modelo e documentos é não confiável. O renderer não habilita HTML
@@ -153,6 +160,8 @@ padrão.
   `role="document"` existe antes do foco de entrada.
 - Alt+3 e o menu de visualização focam diretamente o documento interno, sem
   Enter adicional, inclusive para retornar à leitura quando `mode=view`.
+- Trocar para uma aba em `view` pelos atalhos globais de navegação foca
+  diretamente o documento interno com a mesma sequência de entrada.
 - No editor, Tab pode sair pelas bordas e F6/Shift+F6 seguem funcionando.
 - Tab e F6 não encerram a leitura; Esc fora da ilha retorna ao documento apenas
   enquanto o preview estiver ativo, e Esc no próprio documento é no-op.

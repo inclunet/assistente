@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { WorkspaceLayout } from './WorkspaceLayout';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
+import { registerWorkspacePanelFocus } from './workspacePanelFocusRegistry';
 
 type MockWorkspaceState = {
   workspace: {
@@ -229,6 +230,24 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
 
     expect(restoreDefaultFocus).toHaveBeenCalled();
     expect(screen.getByTestId('default-focus')).toHaveFocus();
+  });
+
+  it('delega o foco ao controller da aba ativada antes do fallback genérico', () => {
+    const focusPanel = vi.fn(() => true);
+    const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
+    const { rerender } = renderWorkspaceLayout();
+
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
+    storeMock.state.workspace.activeTabId = 'tab-2';
+    rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+
+    expect(focusPanel).toHaveBeenCalledOnce();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    unregister();
   });
 
   it('usa o documento renderizado como foco padrão da área de conteúdo', () => {

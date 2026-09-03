@@ -3,6 +3,30 @@ import { create } from 'zustand';
 
 export type EditorMode = 'markdown' | 'rich' | 'view';
 
+export function normalizeEditorMode(
+  value: unknown,
+  fallback: EditorMode = 'markdown',
+): EditorMode {
+  return value === 'markdown' || value === 'rich' || value === 'view'
+    ? value
+    : fallback;
+}
+
+export function resolveEditorDisplayMode(
+  persistedMode: unknown,
+  legacyMode: EditorMode,
+  readOnly: boolean,
+): EditorMode {
+  return readOnly ? 'view' : normalizeEditorMode(persistedMode, legacyMode);
+}
+
+export function preferLiveEditorDocument(
+  loaded: EditorDocument,
+  existing: EditorDocument | undefined,
+): EditorDocument {
+  return existing?.sessionHydrated === false ? loaded : existing ?? loaded;
+}
+
 export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
 export type EditorInsertTarget = 'document' | 'new_document';
@@ -45,13 +69,15 @@ export interface EditorDocument {
   readOnly?: boolean;
   projection?: EditorDocumentProjection | null;
   loadError?: boolean;
+  /** Distingue o documento provisório do controller do snapshot de sessão. */
+  sessionHydrated?: boolean;
 }
 
 
 interface EditorState {
   documents: Record<string, EditorDocument>;
 
-  createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId' | 'readOnly' | 'projection' | 'loadError'>>) => string;
+  createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId' | 'readOnly' | 'projection' | 'loadError' | 'sessionHydrated'>>) => string;
   removeDocument: (docId: string) => void;
   renameDocument: (docId: string, title: string) => void;
   setDocMarkdown: (docId: string, markdown: string) => void;
@@ -108,6 +134,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       readOnly: initial?.readOnly ?? false,
       projection: initial?.projection ?? null,
       loadError: initial?.loadError ?? false,
+      sessionHydrated: initial?.sessionHydrated ?? true,
     };
 
     set((state) => ({
