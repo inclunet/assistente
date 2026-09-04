@@ -136,3 +136,15 @@ func TestGetMessagesExpandsEachTurnOnlyOnce(t *testing.T) {
 		t.Fatalf("turn queried %d times, want 1", reader.turnCalls[turnID])
 	}
 }
+
+func TestMessagePayloadOmitsEmptyToolCallSentinels(t *testing.T) {
+	for _, sentinel := range []string{"", " ", "[]", " null "} {
+		item, err := messagePayload(database.ChatMessage{ToolCalls: sentinel})
+		if err != nil {
+			t.Fatalf("messagePayload(%q): %v", sentinel, err)
+		}
+		if item.ToolCalls != nil {
+			t.Errorf("messagePayload(%q) returned tool_calls=%s, want omitted", sentinel, item.ToolCalls)
+		}
+	}
+}

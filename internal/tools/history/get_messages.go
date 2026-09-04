@@ -190,10 +190,13 @@ func messagePayload(msg database.ChatMessage) (getMessagePayload, error) {
 		CreatedAt:      msg.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 	if toolCalls := strings.TrimSpace(msg.ToolCalls); toolCalls != "" {
-		if !json.Valid([]byte(toolCalls)) {
+		var calls []json.RawMessage
+		if err := json.Unmarshal([]byte(toolCalls), &calls); err != nil {
 			return getMessagePayload{}, fmt.Errorf("invalid tool_calls JSON")
 		}
-		item.ToolCalls = json.RawMessage(toolCalls)
+		if len(calls) > 0 {
+			item.ToolCalls = json.RawMessage(toolCalls)
+		}
 	}
 	return item, nil
 }
