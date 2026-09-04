@@ -11,6 +11,10 @@ export interface AppConfig {
   decisionAlertSound: boolean;
   /** Impede bloqueio/suspensão da tela enquanto a janela está em foco. Default: true. */
   preventScreenLock: boolean;
+  editor: {
+    /** Tratamento de mudança externa segura. Default: autoReload. */
+    externalChange: 'autoReload' | 'prompt';
+  };
 }
 
 interface SettingsState {
@@ -27,15 +31,21 @@ const validThemes: AppConfig['theme'][] = [
 ];
 const validLanguages: AppConfig['language'][] = ['pt-BR', 'en', 'es'];
 
-const defaultConfig: AppConfig = {
+export const defaultConfig: AppConfig = {
   theme: 'assistente',
   language: 'pt-BR',
   decisionAlertSound: true,
   preventScreenLock: true,
+  editor: {
+    externalChange: 'autoReload',
+  },
 };
 
-function sanitizeConfig(persistedConfig: Partial<AppConfig> | null | undefined): AppConfig {
-  const config: AppConfig = { ...defaultConfig };
+export function sanitizeConfig(persistedConfig: Partial<AppConfig> | null | undefined): AppConfig {
+  const config: AppConfig = {
+    ...defaultConfig,
+    editor: { ...defaultConfig.editor },
+  };
   if (validThemes.includes(persistedConfig?.theme as AppConfig['theme'])) {
     config.theme = persistedConfig!.theme as AppConfig['theme'];
   }
@@ -48,6 +58,10 @@ function sanitizeConfig(persistedConfig: Partial<AppConfig> | null | undefined):
   if (typeof persistedConfig?.preventScreenLock === 'boolean') {
     config.preventScreenLock = persistedConfig.preventScreenLock;
   }
+  const externalChange = persistedConfig?.editor?.externalChange;
+  if (externalChange === 'autoReload' || externalChange === 'prompt') {
+    config.editor.externalChange = externalChange;
+  }
   return config;
 }
 
@@ -58,12 +72,18 @@ export const useSettingsStore = create<SettingsState>()(
 
       updateConfig: (partial) =>
         set((state) => ({
-          config: { ...state.config, ...partial },
+          config: {
+            ...state.config,
+            ...partial,
+            editor: partial.editor
+              ? { ...state.config.editor, ...partial.editor }
+              : state.config.editor,
+          },
         })),
     }),
     {
       name: 'assistente-settings',
-      version: 3,
+      version: 4,
       migrate: (persisted: unknown, version: number) => {
         const persistedState =
           typeof persisted === 'object' && persisted !== null
@@ -79,7 +99,7 @@ export const useSettingsStore = create<SettingsState>()(
           config.theme = 'assistente';
         }
 
-        // v1 → v2: decisionAlertSound default true se ausente (já no sanitize).
+        // v4: editor.externalChange default autoReload se ausente (já no sanitize).
         return { config };
       },
       partialize: (state) => ({ config: state.config }),

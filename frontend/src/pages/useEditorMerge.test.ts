@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { EditorGetFileInfo, EditorReadFile, EditorWriteDraft } from '@wailsjs/go/wailsapi/Editor';
+import { renderHook, act, waitFor } from '@testing-library/react';
+import {
+  EditorGetFileInfo,
+  EditorReadFile,
+  EditorWriteDraft,
+  EditorWriteFile,
+} from '@wailsjs/go/wailsapi/Editor';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -9,12 +14,6 @@ vi.mock('react-i18next', () => ({
 const addToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
   useUIStore: (selector: (s: { addToast: typeof addToast }) => unknown) => selector({ addToast }),
-}));
-
-const requestQuestionnaire = vi.fn();
-vi.mock('../store/questionnaireUIStore', () => ({
-  useQuestionnaireUIStore: (selector: (s: { request: typeof requestQuestionnaire }) => unknown) =>
-    selector({ request: requestQuestionnaire }),
 }));
 
 const editorStoreState = {
@@ -226,181 +225,179 @@ describe('useEditorMerge', () => {
       } as never);
     });
 
-    it('usa "Manter minha versão" como opção padrão do questionário', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
-      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
-
-      const { result } = setup();
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo externo',
-        });
+    const openDecision = async (
+      result: ReturnType<typeof setup>['result'],
+      opts?: {
+        diskContent?: string;
+        diskReadError?: string;
+        cause?: 'external' | 'assisted';
+      },
+    ) => {
+      let pending!: Promise<void>;
+      act(() => {
+        pending = result.current.promptResolveExternalChangeForTab(
+          't1',
+          '/tmp/doc.md',
+          opts,
+        );
       });
+      await waitFor(() => expect(result.current.externalChangeDecision).not.toBeNull());
+      return { pending };
+    };
 
-      const questions = requestQuestionnaire.mock.calls[0][0].questions as Array<{ id: string; default?: string }>;
-      const choice = questions.find((q) => q.id === 'choice');
-      expect(choice?.default).toBe('editor.options.useMine');
+    const choose = async (
+      result: ReturnType<typeof setup>['result'],
+      pending: Promise<void>,
+      action: Parameters<typeof result.current.resolveExternalChangeDecision>[0],
+    ) => {
+      await act(async () => {
+        result.current.resolveExternalChangeDecision(action);
+        await pending;
+      });
+    };
+
+    it('expõe opções diretas e mantém minha versão como foco seguro no host', async () => {
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+      const { result } = setup();
+      const { pending } = await openDecision(result, { diskContent: 'conteudo externo' });
+
+      expect(result.current.externalChangeDecision).toMatchObject({
+        title: 'editor.questionnaire.externalChangeTitle',
+        description: 'editor.questionnaire.externalChangeDesc',
+        labels: {
+          useDisk: 'editor.options.useDisk',
+          resolveMerge: 'editor.options.resolveMerge',
+          useMine: 'editor.options.useMine',
+          saveAs: 'editor.options.saveAs',
+          notNow: 'editor.buttons.notNow',
+        },
+      });
+      await choose(result, pending, 'not-now');
     });
 
-    it('ao cancelar com disco ainda divergente, mantém o lock e avisa que o autosave está pausado', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+    it('ao decidir depois com disco divergente, mantém lock e avisa sobre autosave', async () => {
       vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
-
       const { result } = setup();
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo externo',
-        });
-      });
+      const { pending } = await openDecision(result, { diskContent: 'conteudo externo' });
+      await choose(result, pending, 'not-now');
 
       expect(result.current.isExternalConflictLocked('t1')).toBe(true);
       expect(addToast).toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
     });
 
-    it('não mostra a mensagem crua do backend quando a leitura do disco falha', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+    it('não mostra mensagem crua quando a leitura do disco falha', async () => {
       vi.mocked(EditorReadFile).mockRejectedValue(new Error('falha ao acessar arquivo'));
-
       const { result } = setup();
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md');
-      });
+      const { pending } = await openDecision(result);
 
-      const questions = requestQuestionnaire.mock.calls[0][0].questions as Array<{
-        id: string;
-        content?: string;
-      }>;
-      const disk = questions.find((q) => q.id === 'disk');
-      expect(disk?.content).toBe('editor.errors.diskReadFailed');
-      expect(disk?.content).not.toContain('falha ao acessar arquivo');
+      expect(result.current.externalChangeDecision?.diskPreview).toBe(
+        'editor.errors.diskReadFailed',
+      );
+      expect(result.current.externalChangeDecision?.diskPreview).not.toContain(
+        'falha ao acessar arquivo',
+      );
+      await choose(result, pending, 'not-now');
     });
 
-    it('usa título/descrição de mudança externa por padrão', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
-      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
-
-      const { result } = setup();
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo externo',
-        });
-      });
-
-      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string; description: string };
-      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
-      expect(payload.description).toBe('editor.questionnaire.externalChangeDesc');
-    });
-
-    it('com causa assistida, usa título/descrição de alteração do assistente e toast específico ao cancelar', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+    it('preserva causa assistida no diálogo e no aviso', async () => {
       vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
-
       const { result } = setup();
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo da tool',
-          cause: 'assisted',
-        });
+      const { pending } = await openDecision(result, {
+        diskContent: 'conteudo da tool',
+        cause: 'assisted',
       });
 
-      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string; description: string };
-      expect(payload.title).toBe('editor.questionnaire.assistedChangeTitle');
-      expect(payload.description).toBe('editor.questionnaire.assistedChangeDesc');
+      expect(result.current.externalChangeDecision?.title).toBe(
+        'editor.questionnaire.assistedChangeTitle',
+      );
+      await choose(result, pending, 'not-now');
       expect(addToast).toHaveBeenCalledWith('editor.toast.assistedChange', 'warning');
-      expect(addToast).not.toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
     });
 
-    it('reabrir o prompt sem causa reusa a causa assistida lembrada do lock pendente', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
-      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
-
-      const { result } = setup();
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo da tool',
-          cause: 'assisted',
-        });
-      });
-
-      // Reabertura sem opts (ex.: Salvar com lock ativo em useEditorFileActions).
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md');
-      });
-
-      const payload = requestQuestionnaire.mock.calls[1][0] as { title: string };
-      expect(payload.title).toBe('editor.questionnaire.assistedChangeTitle');
-    });
-
-    it('destravar o conflito limpa a causa lembrada (próximo prompt volta ao padrão externo)', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
-      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
-
-      const { result } = setup();
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo da tool',
-          cause: 'assisted',
-        });
-      });
-
-      act(() => {
-        result.current.setExternalConflictLocked('t1', false);
-      });
-
+    it('usar disco só substitui conteúdo após ação explícita', async () => {
       vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo externo',
-        });
-      });
+      const { result } = setup();
+      const { pending } = await openDecision(result, { diskContent: 'conteudo externo' });
 
-      const payload = requestQuestionnaire.mock.calls[1][0] as { title: string };
-      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
+      expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+      await choose(result, pending, 'use-disk');
+      expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith(
+        't1',
+        'conteudo externo',
+      );
+      expect(result.current.isExternalConflictLocked('t1')).toBe(false);
     });
 
-    it('chamada com aba inexistente não vaza a causa para um prompt futuro do mesmo id', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
-      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
-
+    it('ignora ação desconhecida sem sobrescrever o disco', async () => {
       const { result } = setup();
-      // Aba ainda não existe: retorna cedo, sem persistir a causa.
+      const { pending } = await openDecision(result, {
+        diskContent: 'conteudo externo',
+      });
+
+      await choose(result, pending, 'ação-desconhecida' as never);
+
+      expect(EditorWriteFile).not.toHaveBeenCalled();
+      expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+      expect(result.current.isExternalConflictLocked('t1')).toBe(true);
+    });
+
+    it.each([
+      ['use-disk', 'recarrega o arquivo'],
+      ['resolve-merge', 'inicia o merge'],
+    ] as const)(
+      'relê o disco após falha temporária e %s',
+      async (action, _description) => {
+        vi.mocked(EditorReadFile).mockResolvedValue('conteudo recuperado' as never);
+        const { result } = setup();
+        const { pending } = await openDecision(result, {
+          diskReadError: 'disk_read_failed',
+        });
+
+        await choose(result, pending, action);
+
+        expect(EditorReadFile).toHaveBeenCalledWith('/tmp/doc.md');
+        if (action === 'use-disk') {
+          expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith(
+            't1',
+            'conteudo recuperado',
+          );
+        } else {
+          expect(EditorWriteDraft).toHaveBeenCalledTimes(3);
+        }
+      },
+    );
+
+    it('chamada com aba inexistente não abre decisão nem vaza causa', async () => {
+      const { result } = setup();
       editorStoreState.documents = {};
       await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', { cause: 'assisted' });
+        await result.current.promptResolveExternalChangeForTab(
+          't1',
+          '/tmp/doc.md',
+          { cause: 'assisted' },
+        );
       });
-      expect(requestQuestionnaire).not.toHaveBeenCalled();
+      expect(result.current.externalChangeDecision).toBeNull();
 
-      // A aba passa a existir e um conflito externo real abre o prompt.
       editorStoreState.documents = { t1: docWithPath };
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo externo',
-        });
-      });
-
-      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string };
-      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
+      const { pending } = await openDecision(result, { diskContent: 'conteudo externo' });
+      expect(result.current.externalChangeDecision?.title).toBe(
+        'editor.questionnaire.externalChangeTitle',
+      );
+      await choose(result, pending, 'not-now');
     });
 
-    it('ao cancelar com disco já igual ao local, desfaz o lock em vez de matar o autosave', async () => {
-      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+    it('ao decidir depois com disco convergido, destrava o autosave', async () => {
       const { result } = setup();
       act(() => {
         result.current.updateLatestMarkdownForTab('t1', 'conteudo convergido');
       });
-      // O prompt abre com divergência, mas na re-checagem do cancelamento o
-      // disco já convergiu com o local.
       vi.mocked(EditorReadFile).mockResolvedValue('conteudo convergido' as never);
-
-      await act(async () => {
-        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
-          diskContent: 'conteudo externo',
-        });
-      });
+      const { pending } = await openDecision(result, { diskContent: 'conteudo externo' });
+      await choose(result, pending, 'not-now');
 
       expect(result.current.isExternalConflictLocked('t1')).toBe(false);
       expect(editorStoreState.setDocDirty).toHaveBeenCalledWith('t1', false);
-      expect(addToast).not.toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
     });
   });
 

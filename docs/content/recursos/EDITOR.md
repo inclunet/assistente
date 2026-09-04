@@ -44,11 +44,25 @@ O chat inline permite pedir para a IA editar, gerar ou transformar conteúdo dir
 
 ### Monitoramento de Arquivos
 
-O editor monitora mudanças em arquivos abertos no disco (via `fsnotify`). Se um arquivo for modificado externamente:
+O editor monitora mudanças em arquivos abertos no disco (via `fsnotify`). Em
+**Configurações → Aparência → Editor**, a opção **Quando um arquivo mudar no
+disco** controla o comportamento:
 
-- O editor notifica sobre o conflito
-- Oferece opção de recarregar ou manter a versão local
-- Suporta merge em caso de conflitos
+- **Recarregar automaticamente quando for seguro** (padrão): acompanha o
+  arquivo quando a aba não tem conteúdo local divergente.
+- **Sempre perguntar em mudanças externas**: abre a decisão mesmo quando a aba
+  está limpa.
+
+Uma alteração aprovada do Assistente também pode ser recarregada
+automaticamente quando o conteúdo local ainda corresponde à versão conhecida
+do disco. O editor nunca descarta silenciosamente uma edição local divergente.
+Nesses conflitos, ele pausa o autosave e oferece botões para usar a versão do
+disco, resolver conflitos no estilo Git, manter a versão local, salvar como
+outro arquivo ou decidir depois.
+
+O diálogo de decisão recebe foco imediatamente, é anunciado pelo leitor de
+telas e toca o som de alerta configurado. Pressione **Ctrl+Shift+R** para ouvir
+a pergunta novamente.
 
 ## Formatos Suportados
 

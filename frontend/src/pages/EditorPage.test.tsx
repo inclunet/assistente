@@ -200,6 +200,16 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('../store/settingsStore', () => ({
+  useSettingsStore: (selector: (state: unknown) => unknown) =>
+    selector({
+      config: {
+        decisionAlertSound: false,
+        editor: { externalChange: 'autoReload' },
+      },
+    }),
+}));
+
 vi.mock('../store/editorStore', () => ({
   useEditorStore: Object.assign(
     (selector: (state: typeof editorStoreState) => unknown) => selector(editorStoreState),
@@ -542,6 +552,7 @@ describe('EditorPage', () => {
   }
 
   async function createRichEditorChatSendPlan(markdown = '## Slide 2\nselected rich text') {
+    vi.mocked(EditorReadFile).mockResolvedValue(markdown as never);
     editorStoreState.documents = {
       'tab-1': {
         id: 'tab-1',
@@ -1578,6 +1589,17 @@ describe('EditorPage', () => {
       name: 'edit_file',
       status: 'ok',
     });
+    editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
+      path: 'doc.md',
+      origin: 'assistant_tool',
+      assisted: true,
+    });
+    await waitFor(() =>
+      expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith(
+        'tab-1',
+        '## Slide 2\nselected rich text alterado',
+      ),
+    );
 
     await act(async () => {
       await plan.afterSend?.();
@@ -1745,7 +1767,7 @@ describe('EditorPage', () => {
         isDirty: false,
       },
     };
-    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+    vi.mocked(EditorReadFile).mockResolvedValue('antes da tool' as never);
 
     render(
       <EditorPage
@@ -1774,6 +1796,7 @@ describe('EditorPage', () => {
       tabId: 'tab-1',
       conversationId: 'conv-1',
     });
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
       conversationId: 'conv-1',
       name: 'edit_file',
