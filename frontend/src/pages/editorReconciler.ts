@@ -39,7 +39,7 @@ export type ReconcileTrigger =
   | 'file_changed'
   /** Checagem de metadados antes do autosave gravar no disco. */
   | 'pre_save'
-  /** Re-checagem ao focar/mostrar a janela (sem auto-reload). */
+  /** Re-checagem ao focar/mostrar a janela (auto-reload só quando explicitamente permitido e seguro). */
   | 'focus_recheck';
 
 /**

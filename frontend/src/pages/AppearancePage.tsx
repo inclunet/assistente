@@ -69,7 +69,8 @@ export default function AppearancePage() {
   );
 
   const handleEditorExternalChange = useCallback(
-    (value: 'autoReload' | 'prompt') => {
+    (value: string) => {
+      if (value !== 'autoReload' && value !== 'prompt') return;
       updateConfig({ editor: { externalChange: value } });
       announce(
         value === 'autoReload'
@@ -226,9 +227,7 @@ export default function AppearancePage() {
               className="appearance-pref__select"
               value={editorExternalChange}
               aria-describedby="editor-external-change-hint"
-              onChange={(event) =>
-                handleEditorExternalChange(event.target.value as 'autoReload' | 'prompt')
-              }
+              onChange={(event) => handleEditorExternalChange(event.target.value)}
             >
               <option value="autoReload">
                 {t('appearance.editorExternalChangeOptions.autoReload')}

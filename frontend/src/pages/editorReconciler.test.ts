@@ -263,6 +263,19 @@ describe('decideExternalChange', () => {
       ).toEqual({ action: 'prompt_conflict', openPrompt: true, cause: 'external' });
     });
 
+    it('auto-recarrega aba limpa na re-checagem de foco quando permitido', () => {
+      expect(
+        decideExternalChange(
+          makeInput({
+            trigger: 'focus_recheck',
+            diskHash: DISK,
+            localHash: LOCAL,
+            allowAutoReload: true,
+          }),
+        ),
+      ).toEqual({ action: 'auto_reload' });
+    });
+
     it('trava e pergunta quando a aba está suja', () => {
       expect(
         decideExternalChange(makeInput({ diskHash: DISK, localHash: LOCAL, tabIsDirty: true, allowAutoReload: true }))

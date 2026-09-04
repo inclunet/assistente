@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from '../test/a11yAxe';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -63,6 +63,18 @@ describe('AppearancePage editor.externalChange', () => {
     expect(announce).toHaveBeenCalledWith(
       'appearance.announce.editorExternalChangePrompt',
     );
+  });
+
+  it('ignora valor inválido vindo do DOM', () => {
+    render(<AppearancePage />);
+
+    fireEvent.change(
+      screen.getByLabelText('appearance.editorExternalChange'),
+      { target: { value: 'valor-inválido' } },
+    );
+
+    expect(updateConfig).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('não tem violações de acessibilidade', async () => {
