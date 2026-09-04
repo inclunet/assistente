@@ -697,7 +697,7 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('job: Desabilitada')).toBeInTheDocument();
   });
 
-  it('promove load_skill informado pelo runtime sem abrir outros opt-ins', () => {
+  it('normaliza e promove load_skill informado pelo runtime sem abrir outros opt-ins', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -708,7 +708,7 @@ describe('ProfileToolsSection', () => {
         ]}
         toolPolicy={{ edit_file: 'preloaded' }}
         toolPolicyDefault="disabled"
-        runtimeTools={['load_skill']}
+        runtimeTools={['  load_skill  ']}
         availableAllowlists={mockAllowlists}
         onChange={onChange}
       />
