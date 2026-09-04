@@ -18,8 +18,6 @@ const (
 	catalogActionLoad       = "load"
 	catalogActionUnload     = "unload"
 	catalogActionListLoaded = "list_loaded"
-
-	loadedToolRejectWildcardLimit = "wildcard_limit_exceeded"
 )
 
 type CatalogToolStore interface {
@@ -285,7 +283,6 @@ func (t *CatalogTool) expandLoadSelectors(ctx context.Context, requested []strin
 	entries, err := t.store.ListTools(ctx, ToolCatalogFilter{
 		NameIn:             runtime.VisibleNames,
 		AvailabilityStatus: ToolAvailabilityAvailable,
-		Limit:              MaxCatalogSearchCandidates + 1,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -320,7 +317,7 @@ func (t *CatalogTool) expandLoadSelectors(ctx context.Context, requested []strin
 		case total == 0:
 			rejected = append(rejected, LoadedToolChange{Name: raw, Reason: LoadedToolRejectUnavailable})
 		case total > MaxCatalogWildcardMatches:
-			rejected = append(rejected, LoadedToolChange{Name: raw, Reason: loadedToolRejectWildcardLimit})
+			rejected = append(rejected, LoadedToolChange{Name: raw, Reason: LoadedToolRejectWildcardLimit})
 		}
 	}
 	return normalizeRequestedToolNames(expanded), rejected, nil

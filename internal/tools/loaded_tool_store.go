@@ -18,6 +18,7 @@ const (
 	LoadedToolRejectAlreadyLoaded string          = "already_loaded"
 	LoadedToolRejectPreloaded     string          = "preloaded"
 	LoadedToolRejectControlPlane  string          = "control_plane"
+	LoadedToolRejectWildcardLimit string          = "wildcard_limit_exceeded"
 )
 
 type LoadedToolRecord struct {

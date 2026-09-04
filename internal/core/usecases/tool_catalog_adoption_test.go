@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"assistente/internal/chat"
@@ -14,8 +15,12 @@ type adoptionCatalogStore struct {
 	entries []tools.ToolCatalogEntry
 }
 
-func (s adoptionCatalogStore) ListTools(context.Context, tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
-	return append([]tools.ToolCatalogEntry(nil), s.entries...), nil
+func (s adoptionCatalogStore) ListTools(_ context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
+	entries := append([]tools.ToolCatalogEntry(nil), s.entries...)
+	if filter.Limit > 0 && len(entries) > filter.Limit {
+		entries = entries[:filter.Limit]
+	}
+	return entries, nil
 }
 
 type adoptionTool struct {
@@ -97,6 +102,53 @@ func TestCatalogLoadWildcardUsesCanonicalMatcher(t *testing.T) {
 		payload.LoadedTools[0] != "mcp_atlassian__get_issue" ||
 		payload.LoadedTools[1] != "mcp_atlassian__search_issues" {
 		t.Fatalf("wildcard carregou conjunto inesperado: %#v", payload.LoadedTools)
+	}
+}
+
+func TestCatalogLoadWildcardEvaluatesAllVisibleEntriesAndCapsMatches(t *testing.T) {
+	entries := make([]tools.ToolCatalogEntry, 0, 230)
+	visible := make([]string, 0, 230)
+	for i := 0; i < 205; i++ {
+		name := fmt.Sprintf("mcp_slack__tool_%03d", i)
+		entries = append(entries, tools.ToolCatalogEntry{Name: name, Package: "mcp:slack", AvailabilityStatus: tools.ToolAvailabilityAvailable})
+		visible = append(visible, name)
+	}
+	for i := 0; i < 25; i++ {
+		name := fmt.Sprintf("mcp_atlassian__tool_%03d", i)
+		entries = append(entries, tools.ToolCatalogEntry{Name: name, Package: "mcp:atlassian", AvailabilityStatus: tools.ToolAvailabilityAvailable})
+		visible = append(visible, name)
+	}
+	ctx := tools.WithToolCatalogRuntime(context.Background(), tools.ToolCatalogRuntime{
+		Store:          tools.NewLoadedToolStore(),
+		ConversationID: "conv-large",
+		ProfileSlug:    "padrao",
+		VisibleNames:   visible,
+		MatchSelector:  canonicalToolSelectorMatcher,
+	})
+	result, err := tools.NewCatalogTool(adoptionCatalogStore{entries: entries}).Execute(
+		ctx,
+		json.RawMessage(`{"action":"load","tools":["mcp/atlassian/*"]}`),
+	)
+	if err != nil || result.IsError {
+		t.Fatalf("load wildcard amplo: result=%#v err=%v", result, err)
+	}
+	var payload struct {
+		LoadedTools   []string `json:"loaded_tools"`
+		RejectedTools []struct {
+			Name   string `json:"name"`
+			Reason string `json:"reason"`
+		} `json:"rejected_tools"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(payload.LoadedTools) != tools.MaxCatalogWildcardMatches {
+		t.Fatalf("loaded=%d, esperado limite %d", len(payload.LoadedTools), tools.MaxCatalogWildcardMatches)
+	}
+	if len(payload.RejectedTools) != 1 ||
+		payload.RejectedTools[0].Name != "mcp/atlassian/*" ||
+		payload.RejectedTools[0].Reason != tools.LoadedToolRejectWildcardLimit {
+		t.Fatalf("rejeição de limite inesperada: %#v", payload.RejectedTools)
 	}
 }
 
