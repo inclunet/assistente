@@ -630,6 +630,15 @@ const en = {
       preventScreenLock: 'Keep screen awake when focused',
       preventScreenLockHint:
         'Prevents screen lock or sleep while the app window is focused. Turn off to let the system manage idle.',
+      editorTitle: 'Editor',
+      editorDescription: 'Preferences for files opened in the integrated editor.',
+      editorExternalChange: 'When a file changes on disk',
+      editorExternalChangeHint:
+        'Automatic reload only happens when local content is preserved. Divergent local edits always require a decision.',
+      editorExternalChangeOptions: {
+        autoReload: 'Reload automatically when safe',
+        prompt: 'Always ask for external changes',
+      },
       aria: { selectTheme: 'Select theme', selectLanguage: 'Select language' },
       announce: {
         themeChanged: 'Theme changed to {{label}}',
@@ -638,6 +647,8 @@ const en = {
         decisionAlertSoundOff: 'Alert sound on confirmations disabled',
         preventScreenLockOn: 'Keep screen awake enabled',
         preventScreenLockOff: 'Keep screen awake disabled',
+        editorExternalChangeAutoReload: 'Safe external changes will reload automatically',
+        editorExternalChangePrompt: 'External changes will always require a decision',
       },
       themes: {
         assistente: { label: 'Assistant', desc: 'Vibrant dark blue theme (default)' },
