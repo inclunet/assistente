@@ -107,6 +107,7 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 
 	messages := make([]database.ChatMessage, 0, len(params.IDs))
 	seen := make(map[string]struct{}, len(params.IDs))
+	expandedTurns := make(map[string]struct{})
 	for _, rawID := range params.IDs {
 		id := strings.TrimSpace(rawID)
 		if id == "" {
@@ -134,10 +135,15 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 			turnID = msg.ID
 		}
 		if params.IncludeToolResults && turnID != "" {
+			turnKey := msg.ConversationID + "\x00" + turnID
+			if _, expanded := expandedTurns[turnKey]; expanded {
+				continue
+			}
 			turnMessages, err := t.reader.GetTurnMessagesWithContext(ctx, turnID)
 			if err != nil {
 				return tools.ToolResult{Content: "Tool results could not be read for the requested message.", IsError: true}, nil
 			}
+			expandedTurns[turnKey] = struct{}{}
 			for _, turnMsg := range turnMessages {
 				if turnMsg.Role != "tool" || turnMsg.ConversationID != msg.ConversationID {
 					continue

@@ -12,8 +12,9 @@ import (
 )
 
 type fakeMessageReader struct {
-	messages map[string]database.ChatMessage
-	turns    map[string][]database.ChatMessage
+	messages  map[string]database.ChatMessage
+	turns     map[string][]database.ChatMessage
+	turnCalls map[string]int
 }
 
 func (f *fakeMessageReader) GetMessageWithContext(_ context.Context, id string) (*database.ChatMessage, error) {
@@ -25,6 +26,9 @@ func (f *fakeMessageReader) GetMessageWithContext(_ context.Context, id string) 
 }
 
 func (f *fakeMessageReader) GetTurnMessagesWithContext(_ context.Context, turnID string) ([]database.ChatMessage, error) {
+	if f.turnCalls != nil {
+		f.turnCalls[turnID]++
+	}
 	return f.turns[turnID], nil
 }
 
@@ -99,5 +103,36 @@ func TestGetMessagesPreservesOrderAndDeduplicates(t *testing.T) {
 	}
 	if !result.Structured {
 		t.Fatal("JSON result must be marked Structured")
+	}
+}
+
+func TestGetMessagesExpandsEachTurnOnlyOnce(t *testing.T) {
+	turnID := "user-1"
+	reader := &fakeMessageReader{
+		messages: map[string]database.ChatMessage{
+			"user-1": {
+				UUIDModel:      database.UUIDModel{ID: "user-1"},
+				ConversationID: "conv",
+				Role:           "user",
+			},
+			"assistant-1": {
+				UUIDModel:      database.UUIDModel{ID: "assistant-1"},
+				ConversationID: "conv",
+				TurnID:         &turnID,
+				Role:           "assistant",
+			},
+		},
+		turns:     map[string][]database.ChatMessage{turnID: {}},
+		turnCalls: map[string]int{},
+	}
+	tool := &GetMessagesTool{reader: reader}
+	ctx := database.WithUserID(context.Background(), "user")
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"ids":["user-1","assistant-1"],"include_tool_results":true}`))
+	if err != nil || result.IsError {
+		t.Fatalf("unexpected result: %+v, err=%v", result, err)
+	}
+	if reader.turnCalls[turnID] != 1 {
+		t.Fatalf("turn queried %d times, want 1", reader.turnCalls[turnID])
 	}
 }
