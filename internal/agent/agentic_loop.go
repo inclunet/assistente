@@ -311,6 +311,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 
 	// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
 	retriedCallIDs := r.retryRetryableTools(ctx, toolCalls, execResults, execBatch.PersistedByCallID, iteration)
+	recordRecentToolUsage(ctx, execResults)
 
 	// 5f. Emit tool_end/failure events e acumula stats
 	iterationTools := r.emitToolEndsAndAccount(execResults, retriedCallIDs)
@@ -419,9 +420,30 @@ func (r *agenticLoopRunner) persistAndAccountNativeMCP(ctx context.Context, resu
 			})
 			r.totalToolCallCount++
 			r.toolsUsedSet[ev.Name] = struct{}{}
+			if ev.Error == "" {
+				recordRecentToolNames(ctx, ev.Name)
+			}
 		}
 	}
 	return iterationNativeTools
+}
+
+func recordRecentToolUsage(ctx context.Context, results []tools.ToolExecutionResult) {
+	names := make([]string, 0, len(results))
+	for _, result := range results {
+		if !result.Result.IsError {
+			names = append(names, result.ToolName)
+		}
+	}
+	recordRecentToolNames(ctx, names...)
+}
+
+func recordRecentToolNames(ctx context.Context, names ...string) {
+	runtime, ok := tools.ToolCatalogRuntimeFromContext(ctx)
+	if !ok || runtime.Store == nil {
+		return
+	}
+	runtime.Store.RecordUsage(runtime.ConversationID, runtime.ProfileSlug, names...)
 }
 
 // turnStillValid valida, de forma repo-driven, que a mensagem do turno ainda

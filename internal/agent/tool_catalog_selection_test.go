@@ -1,11 +1,30 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
 	"assistente/internal/llm"
 	"assistente/internal/tools"
 )
+
+func TestSuccessfulAgenticToolUseUpdatesConversationRecency(t *testing.T) {
+	store := tools.NewLoadedToolStore()
+	ctx := tools.WithToolCatalogRuntime(context.Background(), tools.ToolCatalogRuntime{
+		Store:          store,
+		ConversationID: "conv-1",
+		ProfileSlug:    "padrao",
+	})
+	recordRecentToolUsage(ctx, []tools.ToolExecutionResult{
+		{ToolName: "read_file", Result: tools.ToolResult{Content: "ok"}},
+		{ToolName: "write_file", Result: tools.ToolResult{IsError: true}},
+		{ToolName: tools.ToolCatalogName, Result: tools.ToolResult{Content: "{}"}},
+	})
+	got := store.RecentNames("conv-1", "padrao")
+	if len(got) != 1 || got[0] != "read_file" {
+		t.Fatalf("recência agêntica = %#v", got)
+	}
+}
 
 func TestSelectedToolsFromCatalog(t *testing.T) {
 	selected := selectedToolsFromCatalog([]tools.ToolExecutionResult{
