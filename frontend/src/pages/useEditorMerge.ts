@@ -4,7 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { logger } from '../utils/logger';
 import { useEditorStore, type EditorDocument } from '../store/editorStore';
 import { useUIStore } from '../store/uiStore';
-import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
+import type {
+  EditorExternalChangeAction,
+  EditorExternalChangeDecision,
+} from '../components/editor/EditorExternalChangeDialog';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import {
   EditorDeleteDraft,
@@ -34,7 +37,7 @@ const errorMessage = (e: unknown): string => String((e as Error)?.message || e |
  * Hook que concentra o estado e a lógica de merge/conflito externo do editor:
  * - cache do markdown atual por aba (base para comparar com o disco);
  * - metadados/baseline de disco e detecção de mudança externa;
- * - sessões de merge no estilo Git e o questionário de resolução de conflito.
+ * - sessões de merge no estilo Git e o DecisionDialog de resolução de conflito.
  *
  * As funções retornadas fecham sobre refs estáveis e setters do store, então
  * podem ser usadas dentro de efeitos sem alterar suas dependências.
@@ -42,7 +45,6 @@ const errorMessage = (e: unknown): string => String((e as Error)?.message || e |
 export function useEditorMerge() {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
-  const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const setDocFilePath = useEditorStore((s) => s.setDocFilePath);
@@ -80,9 +82,41 @@ export function useEditorMerge() {
   // incluí-lo nas dependências de useMemo para recomputar quando lock/merge
   // mudarem sem que `activeTab` tenha mudado.
   const [mergeStateRevision, setMergeStateRevision] = useState(0);
+  const [externalChangeDecision, setExternalChangeDecision] =
+    useState<EditorExternalChangeDecision | null>(null);
+  const externalChangeDecisionResolverRef =
+    useRef<((action: EditorExternalChangeAction) => void) | null>(null);
+  const externalChangeDecisionQueueRef = useRef<
+    Array<{
+      decision: EditorExternalChangeDecision;
+      resolve: (action: EditorExternalChangeAction) => void;
+    }>
+  >([]);
   const bumpMergeStateRevision = useCallback(() => {
     setMergeStateRevision((r) => r + 1);
   }, []);
+
+  const resolveExternalChangeDecision = useCallback((action: EditorExternalChangeAction) => {
+    const resolve = externalChangeDecisionResolverRef.current;
+    if (!resolve) return;
+    resolve(action);
+    const next = externalChangeDecisionQueueRef.current.shift();
+    externalChangeDecisionResolverRef.current = next?.resolve ?? null;
+    setExternalChangeDecision(next?.decision ?? null);
+  }, []);
+
+  const requestExternalChangeDecision = useCallback(
+    (decision: EditorExternalChangeDecision) =>
+      new Promise<EditorExternalChangeAction>((resolve) => {
+        if (externalChangeDecisionResolverRef.current) {
+          externalChangeDecisionQueueRef.current.push({ decision, resolve });
+          return;
+        }
+        externalChangeDecisionResolverRef.current = resolve;
+        setExternalChangeDecision(decision);
+      }),
+    [],
+  );
 
   const getMergeSession = (tabId: string): MergeSession | null => {
     const id = String(tabId || '');
@@ -315,68 +349,34 @@ export function useEditorMerge() {
       const diffText = diskReadError ? '' : buildUnifiedDiff(diskContent, localContent);
       const diffPreviewText = diffText ? composePreviewText(diffText, t, 30000) : '';
 
-      const resp = await requestQuestionnaire({
-        id: `ui-editor-external-change-${Date.now()}`,
+      const action = await requestExternalChangeDecision({
         title: assistedCause
           ? t('editor.questionnaire.assistedChangeTitle')
           : t('editor.questionnaire.externalChangeTitle'),
         description: assistedCause
           ? t('editor.questionnaire.assistedChangeDesc')
           : t('editor.questionnaire.externalChangeDesc'),
-        submitLabel: t('editor.buttons.apply'),
-        cancelLabel: t('editor.buttons.notNow'),
-        allowCancel: true,
-        questions: [
-          {
-            id: 'path',
-            type: 'readonly_code' as const,
-            prompt: t('editor.prompts.file'),
-            content: String(filePath || ''),
-          },
-          ...(diffPreviewText
-            ? [
-                {
-                  id: 'diff',
-                  type: 'readonly_code' as const,
-                  prompt: t('editor.prompts.diff'),
-                  content: diffPreviewText,
-                },
-              ]
-            : []),
-          {
-            id: 'disk',
-            type: 'readonly_code' as const,
-            prompt: t('editor.prompts.diskPreview'),
-            content: diskPreviewText,
-          },
-          {
-            id: 'local',
-            type: 'readonly_code' as const,
-            prompt: t('editor.prompts.localPreview'),
-            content: localPreviewText,
-          },
-          {
-            id: 'choice',
-            type: 'single_choice' as const,
-            prompt: t('editor.prompts.action'),
-            required: true,
-            options: [
-              t('editor.options.useDisk'),
-              t('editor.options.resolveMerge'),
-              t('editor.options.useMine'),
-              t('editor.options.saveAs'),
-            ],
-            // "Manter minha versão" como padrão: um Enter afobado não pode
-            // descartar a digitação recente do usuário (crítico com leitor de
-            // telas, onde o diálogo abre no meio da digitação).
-            default: t('editor.options.useMine'),
-          },
-        ],
+        filePath: String(filePath || ''),
+        diffPreview: diffPreviewText,
+        diskPreview: diskPreviewText,
+        localPreview: localPreviewText,
+        diskReadFailed: !!diskReadError,
+        labels: {
+          file: t('editor.prompts.file'),
+          diff: t('editor.prompts.diff'),
+          disk: t('editor.prompts.diskPreview'),
+          local: t('editor.prompts.localPreview'),
+          useDisk: t('editor.options.useDisk'),
+          resolveMerge: t('editor.options.resolveMerge'),
+          useMine: t('editor.options.useMine'),
+          saveAs: t('editor.options.saveAs'),
+          notNow: t('editor.buttons.notNow'),
+        },
       });
 
-      if (resp.cancelled) {
+      if (action === 'not-now') {
         // Re-checa uma vez antes de manter o lock: se disco e local
-        // convergiram enquanto o questionário estava aberto (mesmo
+        // convergiram enquanto o diálogo estava aberto (mesmo
         // silent-resolve do início da função), desfaz o lock em vez de deixar
         // o autosave morto.
         try {
@@ -400,9 +400,7 @@ export function useEditorMerge() {
         return;
       }
 
-      const choice = String(resp.answers?.choice || '').trim();
-
-      if (choice === t('editor.options.resolveMerge')) {
+      if (action === 'resolve-merge') {
         if (diskReadError) {
           addToast(t('editor.toast.diskReadFailed'), 'error');
           return;
@@ -416,7 +414,7 @@ export function useEditorMerge() {
         return;
       }
 
-      if (choice === t('editor.options.useDisk')) {
+      if (action === 'use-disk') {
         if (diskReadError) {
           addToast(t('editor.toast.diskReadFailed'), 'error');
           return;
@@ -438,7 +436,7 @@ export function useEditorMerge() {
         return;
       }
 
-      if (choice.startsWith(t('editor.options.saveAs'))) {
+      if (action === 'save-as') {
         const suggested = basenameFromPath(filePath) || t('editor.dialog.defaultFilename');
         const newPath = String((await EditorSaveFileDialog(suggested, editorFileDialogLabels(t, 'save'))) || '').trim();
         if (!newPath) return;
@@ -486,6 +484,8 @@ export function useEditorMerge() {
   return {
     // Contador reativo que muda quando o lock externo ou a merge session mudam.
     mergeStateRevision,
+    externalChangeDecision,
+    resolveExternalChangeDecision,
 
     // Refs compartilhadas (somente leitura/escrita pontual por outros hooks).
     latestMarkdownByTabRef,

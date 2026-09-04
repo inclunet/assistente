@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Menu } from '../components/menu';
 import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
+import { EditorExternalChangeDialog } from '../components/editor/EditorExternalChangeDialog';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { EditorContentArea } from '../components/editor/EditorContentArea';
@@ -76,7 +77,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
   // ----- Hooks de lógica extraída -----
   const merge = useEditorMerge();
-  const { mergeStateRevision, getMergeSession, updateLatestMarkdownForTab } = merge;
+  const {
+    mergeStateRevision,
+    getMergeSession,
+    updateLatestMarkdownForTab,
+    externalChangeDecision,
+    resolveExternalChangeDecision,
+  } = merge;
 
   const allDocs = useMemo(() => Object.values(documents), [documents]);
 
@@ -477,6 +484,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         onCancel={cancelMermaidModal}
         onApply={applyMermaidModal}
         onRemove={removeMermaidFromModal}
+      />
+
+      <EditorExternalChangeDialog
+        decision={externalChangeDecision}
+        onAction={resolveExternalChangeDecision}
       />
 
       <Menu
