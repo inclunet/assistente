@@ -174,6 +174,35 @@ func TestSearchMessageContent_LimitRespected(t *testing.T) {
 	}
 }
 
+func TestSearchMessageContentConversationScopeVsGlobal(t *testing.T) {
+	setupTestDBWithFTS(t)
+	conv1ID, conv2ID := seedTestMessages(t)
+
+	global, err := SearchMessageContentWithContext(testCtx(), "Para", 20)
+	if err != nil {
+		t.Fatalf("global search failed: %v", err)
+	}
+	if len(global) < 2 {
+		t.Fatalf("expected global results from both conversations, got %#v", global)
+	}
+
+	scoped, err := SearchMessageContentInConversationWithContext(testCtx(), "Para", conv1ID, 20)
+	if err != nil {
+		t.Fatalf("conversation search failed: %v", err)
+	}
+	if len(scoped) == 0 {
+		t.Fatal("expected results in selected conversation")
+	}
+	for _, result := range scoped {
+		if result.ConversationID != conv1ID {
+			t.Fatalf("scoped search leaked conversation %q (expected %q)", result.ConversationID, conv1ID)
+		}
+		if result.ConversationID == conv2ID {
+			t.Fatal("scoped search returned result from another conversation")
+		}
+	}
+}
+
 func TestSearchMessageContentWithContextScopesByUser(t *testing.T) {
 	setupTestDBWithFTS(t)
 
@@ -203,6 +232,19 @@ func TestSearchMessageContentWithContextScopesByUser(t *testing.T) {
 	}
 	if results[0].ConversationID != anaConv.ID {
 		t.Fatalf("expected ana conversation only, got %#v", results[0])
+	}
+
+	results, err = SearchMessageContentInConversationWithContext(
+		WithUserID(context.Background(), "user-ana"),
+		"shared-secret",
+		leoConv.ID,
+		20,
+	)
+	if err != nil {
+		t.Fatalf("cross-user conversation scope failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("conversation filter must not bypass user scope, got %#v", results)
 	}
 }
 
