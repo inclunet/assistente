@@ -283,10 +283,45 @@ func TestToolSelectionPolicy_ToolForaDoRegistryMantemCatalogoCarregado(t *testin
 		t.Fatalf("tool_catalog deveria continuar preloaded para a tool voltar a ser descoberta, got %s",
 			effective.State(tools.ToolCatalogName))
 	}
-	if effective.State("mcp_temporariamente_indisponivel") != ToolPolicyDisabled {
-		t.Fatalf("tool ausente não pode ganhar capability, got %s",
+	if effective.State("mcp_temporariamente_indisponivel") != ToolPolicyOnDemand {
+		t.Fatalf("State deve resolver política mesmo antes da tool entrar no registry, got %s",
 			effective.State("mcp_temporariamente_indisponivel"))
 	}
+}
+
+func TestToolSelectionPolicy_WildcardsSaoAplicadosLazyARegistroMCPPosterior(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicyDefault: string(ToolPolicyDisabled),
+		ToolPolicy: map[string]string{
+			"mcp/*":                 string(ToolPolicyOnDemand),
+			"mcp/atlassian/*":       string(ToolPolicyPreloaded),
+			"mcp_atlassian__delete": string(ToolPolicyDisabled),
+		},
+	})
+
+	if got := effective.State("mcp_atlassian__search"); got != ToolPolicyPreloaded {
+		t.Fatalf("wildcard futuro específico = %s, esperado preloaded", got)
+	}
+	if got := effective.State("mcp_slack__send"); got != ToolPolicyOnDemand {
+		t.Fatalf("wildcard futuro geral = %s, esperado on_demand", got)
+	}
+	if got := effective.State("mcp_atlassian__delete"); got != ToolPolicyDisabled {
+		t.Fatalf("negação literal = %s, esperado disabled", got)
+	}
+
+	r.MustRegister(newToolDef("mcp_atlassian__search"))
+	r.MustRegister(newToolDef("mcp_atlassian__delete"))
+	r.MustRegister(newToolDef("mcp_slack__send"))
+
+	assertNames(t, "preloaded lazy", effective.PreloadedNames(), []string{tools.ToolCatalogName, "mcp_atlassian__search"})
+	assertNames(t, "visible lazy", effective.CatalogVisibleNames(), []string{
+		tools.ToolCatalogName,
+		"mcp_atlassian__search",
+		"mcp_slack__send",
+		"mcp_srv__do",
+	})
 }
 
 func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandCatalog(t *testing.T) {
@@ -421,6 +456,24 @@ func TestToolSelectionPolicy_ToolPolicyRuntimePreloadsUnspecifiedLoadSkill(t *te
 		t.Fatalf("load_skill runtime ausente do tool_policy deveria ser preloaded, got %s", effective.State(tools.LoadSkillName))
 	}
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.LoadSkillName, "read_file"})
+}
+
+func TestToolSelectionPolicy_RuntimeControlPlaneNaoTransformaWildcardEmAutorizacaoOptIn(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"*": string(ToolPolicyPreloaded),
+		},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+
+	if effective.State(tools.LoadSkillName) != ToolPolicyPreloaded {
+		t.Fatalf("load_skill autorizada pelo runtime deveria ser preloaded, got %s", effective.State(tools.LoadSkillName))
+	}
+	if effective.State("text_edit") != ToolPolicyDisabled {
+		t.Fatalf("wildcard permissivo não deveria autorizar outro opt-in, got %s", effective.State("text_edit"))
+	}
 }
 
 func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) {

@@ -8,11 +8,16 @@ import { type DataGridColumn } from '../ui/DataGrid';
 import { RangeSlider } from '../ui/RangeSlider';
 import { Combobox, type ComboboxItem } from '../pickers/Combobox';
 import { parseToolSource, extractMcpServers } from '../../utils/toolSource';
+import {
+  normalizeToolPolicyMap,
+  normalizeToolPolicyState,
+  resolveToolPolicy,
+  type ToolPolicyState,
+} from '../../utils/toolPolicyMatcher';
 import { ResourceSelectionSection } from './ResourceSelectionSection';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 export type ToolFilter = 'all' | 'local' | 'mcp' | `mcp:${string}`;
-type ToolPolicyState = 'disabled' | 'on_demand' | 'preloaded';
 
 const TOOL_POLICY_DISABLED: ToolPolicyState = 'disabled';
 const TOOL_POLICY_ON_DEMAND: ToolPolicyState = 'on_demand';
@@ -74,6 +79,7 @@ interface ToolRow {
   description: string;
   sourceType: string;
   sourceLabel: string;
+  package?: string;
   optIn: boolean;
 }
 
@@ -122,6 +128,7 @@ export function ProfileToolsSection({
       description: tool.description || '',
       sourceType: tool.source_type || 'local',
       sourceLabel: tool.source_label || 'Local',
+      package: tool.package || undefined,
       optIn: tool.opt_in || false,
     })),
     [availableTools],
@@ -153,20 +160,10 @@ export function ProfileToolsSection({
 
   // O backend apara os nomes antes de aplicar a política. Normalizar aqui uma
   // vez só evita que uma chave com espaços seja aceita lá e ignorada aqui.
-  const normalizedToolPolicy = useMemo(() => {
-    const normalized: Record<string, string> = {};
-    for (const [name, state] of Object.entries(toolPolicy ?? {})) {
-      const key = name.trim();
-      if (key === '') continue;
-      const existing = normalized[key];
-      if (existing != null
-        && toolPolicyStateRank(normalizeToolPolicyState(state))
-          >= toolPolicyStateRank(normalizeToolPolicyState(existing))
-      ) continue;
-      normalized[key] = state;
-    }
-    return normalized;
-  }, [toolPolicy]);
+  const normalizedToolPolicy = useMemo(
+    () => normalizeToolPolicyMap(toolPolicy),
+    [toolPolicy],
+  );
 
   const hasExplicitToolPolicy = Object.keys(normalizedToolPolicy).length > 0;
 
@@ -240,14 +237,25 @@ export function ProfileToolsSection({
         ? TOOL_POLICY_ON_DEMAND
         : TOOL_POLICY_DISABLED;
       for (const item of toolRows) {
-        policy[item.name] = item.optIn ? TOOL_POLICY_DISABLED : defaultState;
+        policy[item.name] = resolveToolPolicy(normalizedToolPolicy, defaultState, {
+          name: item.name,
+          package: item.package,
+          optIn: item.optIn,
+        }).state;
       }
-      for (const [name, state] of Object.entries(normalizedToolPolicy)) {
-        if (!allNames.includes(name)) continue;
-        policy[name] = normalizeToolPolicyState(state);
-      }
-      for (const name of runtimeTools) {
-        if (!allNames.includes(name) || isToolExplicitlyDisabled(normalizedToolPolicy, name)) continue;
+      for (const rawName of runtimeTools) {
+        const name = rawName.trim();
+        if (!name) continue;
+        const item = toolRows.find((row) => row.name === name);
+        if (!item) continue;
+        const match = resolveToolPolicy(normalizedToolPolicy, defaultState, {
+          name: item.name,
+          package: item.package,
+          optIn: item.optIn,
+        });
+        // RuntimeTools espelha a autorização explícita do control-plane no
+        // backend (AEP-0081 D8); não é uma elevação causada pelo wildcard.
+        if (match.explicit && match.state === TOOL_POLICY_DISABLED && !match.deniedOptIn) continue;
         policy[name] = TOOL_POLICY_PRELOADED;
       }
       return withCatalogForOnDemandTools(policy, {
@@ -668,18 +676,6 @@ export function ProfileToolsSection({
       </div>
     </ResourceSelectionSection>
   );
-}
-
-function normalizeToolPolicyState(state: string): ToolPolicyState {
-  const normalized = state.trim();
-  if (normalized === TOOL_POLICY_ON_DEMAND || normalized === TOOL_POLICY_PRELOADED) return normalized;
-  return TOOL_POLICY_DISABLED;
-}
-
-function toolPolicyStateRank(state: ToolPolicyState): number {
-  if (state === TOOL_POLICY_DISABLED) return 0;
-  if (state === TOOL_POLICY_ON_DEMAND) return 1;
-  return 2;
 }
 
 function isToolExplicitlyDisabled(toolPolicy: Record<string, string> | null, name: string): boolean {

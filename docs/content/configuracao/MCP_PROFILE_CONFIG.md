@@ -82,23 +82,56 @@ O modelo usa todas simultaneamente. Tools nativas são resolvidas server-side; t
 
 ---
 
-## Configuração do Perfil
+## Política MCP no perfil
 
-O perfil de conversa **não** tem campos para controlar MCP nativo. Os campos relevantes são:
+O perfil controla quais tools MCP ficam bloqueadas, disponíveis sob demanda ou
+pré-carregadas por meio de `tool_policy`:
 
 ```json
 {
   "chat": {
     "llm_provider": "openai-default",
     "disable_tools": false,
-    "enabled_tools": null
+    "tool_policy_default": "disabled",
+    "tool_policy": {
+      "mcp/*": "on_demand",
+      "mcp/atlassian/*": "preloaded",
+      "mcp_atlassian__create_issue": "disabled"
+    }
   }
 }
 ```
 
 - `llm_provider` — determina indiretamente o caminho MCP via `api_format` do provider
 - `disable_tools` — desabilita todo tool calling (incluindo MCP)
-- `enabled_tools` — filtra quais tools estão disponíveis (null = todas)
+- `tool_policy_default` — estado de tools não cobertas por outra regra
+- `tool_policy` — mapa de nomes/seletores para `disabled`, `on_demand` ou `preloaded`
+
+### Seletores aceitos
+
+- `mcp/*` seleciona todas as tools MCP.
+- `mcp/<slug>/*` seleciona um servidor, por exemplo `mcp/atlassian/*`.
+- `mcp:<slug>/*` é alias da forma anterior.
+- `package/<pacote>/*` seleciona builtins pelo pacote do catálogo, por exemplo
+  `package/history/*`; `<pacote>/*` é a forma curta.
+- `*` seleciona todas as tools nativas.
+- `mcp_<slug>__*` é a forma correspondente ao namespace interno.
+
+A precedência é: nome literal, wildcard específico, wildcard geral e default.
+Em empate vence o estado mais restritivo. Portanto, no exemplo,
+`mcp_atlassian__create_issue=disabled` vence o preload do servidor. Defaults e
+wildcards também cobrem tools conectadas depois de o perfil ser carregado.
+Tools opt-in nunca são liberadas por wildcard; capacidades internas de
+control-plane ainda podem ser autorizadas explicitamente pelo runtime.
+
+O editor de perfis mostra o estado efetivo de cada tool conectada. Os wildcards
+continuam preservados no JSON; não é necessário manter manualmente uma lista
+para cada nova tool de um servidor.
+
+Os perfis builtin **Padrão** e **Programação** já incluem
+`"mcp/*": "on_demand"`. Assim, MCPs atuais e futuras funcionam sem configuração
+manual, mas permanecem fora do payload inicial. Essa disponibilidade não
+ignora allowlists, risco, confiança de rede ou confirmações de execução.
 
 ---
 

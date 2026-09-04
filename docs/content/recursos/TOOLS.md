@@ -7,6 +7,18 @@ weight: 12
 
 O assistente expõe 15 famílias de tools ao LLM: filesystem, shell, web, feed, http, memory, tasklist, mcpserver, history, job, questionnaire, skillloader, subagent e outras. Cada tool tem baseline operacional por perfil e é auditável no histórico do turno.
 
+## MCP nos perfis padrão
+
+Os perfis **Padrão** e **Programação** deixam todas as tools MCP disponíveis
+sob demanda. Elas não entram no payload inicial: o agente as descobre e carrega
+quando necessário. A regra cobre automaticamente tools de servidores MCP
+conectados no futuro, sem exigir edição manual do perfil.
+
+Disponibilidade sob demanda não concede aprovação de execução. Allowlists,
+classificação de risco, confiança de rede e confirmações continuam sendo
+aplicadas normalmente. Tools opt-in também permanecem bloqueadas até uma
+autorização explícita.
+
 ## Histórico
 
 As tools de histórico permitem localizar e recuperar contexto de conversas anteriores:

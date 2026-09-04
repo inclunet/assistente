@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	mcplib "assistente/internal/mcp"
 	"assistente/internal/tools"
 )
 
@@ -17,13 +18,20 @@ const (
 
 type EffectiveToolPolicy struct {
 	states             map[string]ToolPolicyState
+	registry           *tools.Registry
+	matcher            ToolPolicyMatcher
+	structured         bool
 	legacyAllPreloaded bool
 	disabled           bool
 	unavailable        bool
 }
 
 func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) EffectiveToolPolicy {
-	policy := EffectiveToolPolicy{states: map[string]ToolPolicyState{}, disabled: cfg.DisableTools}
+	policy := EffectiveToolPolicy{
+		states:   map[string]ToolPolicyState{},
+		registry: p.registry,
+		disabled: cfg.DisableTools,
+	}
 	if p.registry == nil {
 		policy.unavailable = true
 		return policy
@@ -46,22 +54,13 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			p.applyLegacyAllowlist(&policy, names, cfg)
 			return policy
 		}
-		defaultState := normalizeToolPolicyDefault(cfg.ToolPolicyDefault)
+		policy.structured = true
+		policy.matcher = NewToolPolicyMatcher(configured, cfg.ToolPolicyDefault)
 		for _, name := range names {
-			state := defaultState
-			if p.registry.IsOptIn(name) {
-				state = ToolPolicyDisabled
-			}
-			policy.states[name] = state
-		}
-		for name, state := range configured {
-			if !p.registry.Has(name) {
-				continue
-			}
-			policy.states[name] = normalizeToolPolicyState(state)
+			policy.states[name] = policy.matcher.Resolve(p.toolPolicyTarget(name)).State
 		}
 		policy.ensureCatalogForOnDemandTools(configured)
-		policy.applyRuntimeTools(cfg.RuntimeTools, true, explicitDisabledToolPolicyNames(configured))
+		policy.applyRuntimeTools(cfg.RuntimeTools, true)
 		return policy
 	}
 
@@ -75,7 +74,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 				}
 				policy.states[name] = ToolPolicyPreloaded
 			}
-			policy.applyRuntimeTools(cfg.RuntimeTools, true, nil)
+			policy.applyRuntimeTools(cfg.RuntimeTools, true)
 			return policy
 		}
 		for _, name := range names {
@@ -86,7 +85,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			policy.states[name] = ToolPolicyOnDemand
 		}
 		policy.states[tools.ToolCatalogName] = ToolPolicyPreloaded
-		policy.applyRuntimeTools(cfg.RuntimeTools, true, nil)
+		policy.applyRuntimeTools(cfg.RuntimeTools, true)
 		return policy
 	}
 
@@ -106,7 +105,7 @@ func (p *ToolSelectionPolicy) applyLegacyAllowlist(policy *EffectiveToolPolicy, 
 		}
 		policy.states[name] = ToolPolicyPreloaded
 	}
-	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime, nil)
+	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime)
 }
 
 func (p EffectiveToolPolicy) State(name string) ToolPolicyState {
@@ -121,6 +120,9 @@ func (p EffectiveToolPolicy) State(name string) ToolPolicyState {
 	}
 	if state, ok := p.states[name]; ok {
 		return state
+	}
+	if p.structured {
+		return p.matcher.Resolve(p.target(name)).State
 	}
 	return ToolPolicyDisabled
 }
@@ -144,9 +146,10 @@ func (p EffectiveToolPolicy) PreloadedNames() []string {
 	if p.legacyAllPreloaded {
 		return nil
 	}
-	names := make([]string, 0, len(p.states))
-	for name, state := range p.states {
-		if state == ToolPolicyPreloaded {
+	registered := p.registry.Names()
+	names := make([]string, 0, len(registered))
+	for _, name := range registered {
+		if p.State(name) == ToolPolicyPreloaded {
 			names = append(names, name)
 		}
 	}
@@ -164,8 +167,10 @@ func (p EffectiveToolPolicy) CatalogVisibleNames() []string {
 	if p.legacyAllPreloaded {
 		return nil
 	}
-	names := make([]string, 0, len(p.states))
-	for name, state := range p.states {
+	registered := p.registry.Names()
+	names := make([]string, 0, len(registered))
+	for _, name := range registered {
+		state := p.State(name)
 		if state == ToolPolicyOnDemand || state == ToolPolicyPreloaded {
 			names = append(names, name)
 		}
@@ -178,7 +183,7 @@ func (p EffectiveToolPolicy) NativePreloadedAllowlist() []string {
 	return p.PreloadedNames()
 }
 
-func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow bool, explicitlyDisabled map[string]struct{}) {
+func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow bool) {
 	if !allow {
 		return
 	}
@@ -187,13 +192,45 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 		if name == "" {
 			continue
 		}
-		if _, blocked := explicitlyDisabled[name]; blocked {
-			continue
+		if p.structured {
+			match := p.matcher.Resolve(p.target(name))
+			// RuntimeTools é uma autorização explícita do control-plane (D8 da
+			// AEP-0081), não uma elevação causada pelo default/wildcard do
+			// perfil. Bloqueios configurados continuam soberanos; DeniedOptIn
+			// apenas registra que o matcher, isoladamente, não autorizou a tool.
+			if match.Explicit && match.State == ToolPolicyDisabled && !match.DeniedOptIn {
+				continue
+			}
 		}
 		if _, ok := p.states[name]; ok || p.legacyAllPreloaded {
 			p.states[name] = ToolPolicyPreloaded
 		}
 	}
+}
+
+func (p *ToolSelectionPolicy) toolPolicyTarget(name string) ToolPolicyTarget {
+	return toolPolicyTargetFromRegistry(p.registry, name)
+}
+
+func (p EffectiveToolPolicy) target(name string) ToolPolicyTarget {
+	return toolPolicyTargetFromRegistry(p.registry, name)
+}
+
+func toolPolicyTargetFromRegistry(registry *tools.Registry, name string) ToolPolicyTarget {
+	if registry == nil {
+		return ToolPolicyTarget{Name: name}
+	}
+	target := ToolPolicyTarget{Name: name, OptIn: registry.IsOptIn(name)}
+	tool, ok := registry.Get(name)
+	if !ok {
+		return target
+	}
+	// Só o formato canônico completo mcp_<slug>__<tool> identifica uma ponte
+	// MCP. Builtins como mcp_server mantêm seus CatalogMetadata.Package.
+	if _, _, isMCP := mcplib.ParseToolName(name); !isMCP {
+		target.Package = tools.CatalogMetadataForTool(tool).Package
+	}
+	return target
 }
 
 // normalizeToolPolicyMap apara os nomes e descarta os vazios, para que o mapa
@@ -204,14 +241,15 @@ func normalizeToolPolicyMap(configured map[string]string) map[string]string {
 	}
 	normalized := make(map[string]string, len(configured))
 	for name, state := range configured {
-		name = strings.TrimSpace(name)
-		if name == "" {
+		selector, ok := ParseToolPolicySelector(name)
+		if !ok {
 			continue
 		}
 		// Duas chaves cruas podem virar o mesmo nome ("read_file" e
 		// " read_file "). A ordem de iteração do map em Go não é estável, então
 		// sem desempate o estado aplicado sairia no sorteio. Vence o mais
 		// restritivo, que é a escolha segura e reproduzível.
+		name = selector.Canonical
 		if existing, ok := normalized[name]; ok {
 			if toolPolicyStateRank(normalizeToolPolicyState(state)) >= toolPolicyStateRank(normalizeToolPolicyState(existing)) {
 				continue
@@ -223,22 +261,6 @@ func normalizeToolPolicyMap(configured map[string]string) map[string]string {
 		return nil
 	}
 	return normalized
-}
-
-func explicitDisabledToolPolicyNames(configured map[string]string) map[string]struct{} {
-	if len(configured) == 0 {
-		return nil
-	}
-	disabled := make(map[string]struct{})
-	for name, state := range configured {
-		if normalizeToolPolicyState(state) == ToolPolicyDisabled {
-			disabled[name] = struct{}{}
-		}
-	}
-	if len(disabled) == 0 {
-		return nil
-	}
-	return disabled
 }
 
 func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[string]string) {

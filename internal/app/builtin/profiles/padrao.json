@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.3.0",
+  "_builtin_version": "4.4.0",
   "name": "Padrão",
   "description": "Assistente geral para pesquisa, análise, escrita e tarefas cotidianas. Use quando o trabalho não for predominantemente desenvolvimento de software; pode delegar partes especializadas a outros profiles.",
   "icon": "chatbox",
@@ -23,6 +23,7 @@
       "collect_responses": "preloaded",
       "profile": "preloaded",
       "subagent": "preloaded",
+      "mcp/*": "on_demand",
       "text_edit": "disabled"
     },
     "enabled_skills": [
