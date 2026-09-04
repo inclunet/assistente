@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { EditorGetFileInfo, EditorReadFile, EditorWriteDraft } from '@wailsjs/go/wailsapi/Editor';
+import {
+  EditorGetFileInfo,
+  EditorReadFile,
+  EditorWriteDraft,
+  EditorWriteFile,
+} from '@wailsjs/go/wailsapi/Editor';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -321,6 +326,19 @@ describe('useEditorMerge', () => {
         'conteudo externo',
       );
       expect(result.current.isExternalConflictLocked('t1')).toBe(false);
+    });
+
+    it('ignora ação desconhecida sem sobrescrever o disco', async () => {
+      const { result } = setup();
+      const { pending } = await openDecision(result, {
+        diskContent: 'conteudo externo',
+      });
+
+      await choose(result, pending, 'ação-desconhecida' as never);
+
+      expect(EditorWriteFile).not.toHaveBeenCalled();
+      expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+      expect(result.current.isExternalConflictLocked('t1')).toBe(true);
     });
 
     it.each([

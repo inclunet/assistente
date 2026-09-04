@@ -402,6 +402,16 @@ export function useEditorMerge() {
         return;
       }
 
+      if (
+        action !== 'resolve-merge' &&
+        action !== 'use-disk' &&
+        action !== 'save-as' &&
+        action !== 'use-mine'
+      ) {
+        logger.warn('[EditorPage] ação de conflito externo desconhecida:', action);
+        return;
+      }
+
       const recoverDiskRead = async (): Promise<boolean> => {
         if (!diskReadError) return true;
         try {
@@ -474,7 +484,8 @@ export function useEditorMerge() {
         return;
       }
 
-      // Usar minha versão (sobrescrever no disco)
+      // Usar minha versão (sobrescrever no disco) somente após a validação
+      // explícita acima; IDs inesperados nunca chegam a este ponto.
       try {
         markSelfWrite(filePath);
         await EditorWriteFile(filePath, localContent);
