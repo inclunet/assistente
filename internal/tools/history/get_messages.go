@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -187,7 +188,7 @@ func messagePayload(msg database.ChatMessage) (getMessagePayload, error) {
 		Role:           msg.Role,
 		Content:        msg.Content,
 		ToolCallID:     msg.ToolCallID,
-		CreatedAt:      msg.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		CreatedAt:      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if toolCalls := strings.TrimSpace(msg.ToolCalls); toolCalls != "" {
 		var calls []json.RawMessage

@@ -148,3 +148,16 @@ func TestMessagePayloadOmitsEmptyToolCallSentinels(t *testing.T) {
 		}
 	}
 }
+
+func TestMessagePayloadPreservesTimestampPrecision(t *testing.T) {
+	createdAt := time.Date(2026, 9, 4, 14, 32, 7, 123456789, time.FixedZone("UTC-3", -3*60*60))
+	item, err := messagePayload(database.ChatMessage{
+		UUIDModel: database.UUIDModel{CreatedAt: createdAt},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.CreatedAt != "2026-09-04T17:32:07.123456789Z" {
+		t.Fatalf("created_at = %q, want timestamp UTC with full precision", item.CreatedAt)
+	}
+}
