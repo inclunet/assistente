@@ -200,6 +200,26 @@ func TestCatalogToolQueryRanksBeyondFirstTwoHundredEntries(t *testing.T) {
 	}
 }
 
+func TestCatalogToolSearchWithoutQueryKeepsRepositoryPagination(t *testing.T) {
+	store := &fakeCatalogToolStore{
+		entries: []ToolCatalogEntry{
+			{Name: "alpha", Package: "other", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+			{Name: "beta", Package: "preferred", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+		},
+	}
+	ctx := WithToolCatalogRuntime(context.Background(), ToolCatalogRuntime{
+		PreferredPackages: []string{"preferred"},
+	})
+
+	result, err := NewCatalogTool(store).Execute(ctx, json.RawMessage(`{"action":"search","limit":10}`))
+	if err != nil || result.IsError {
+		t.Fatalf("Execute sem query: result=%#v err=%v", result, err)
+	}
+	if store.filter.Limit != 11 || store.filter.Offset != 0 {
+		t.Fatalf("listagem sem query removeu paginação do repositório: %#v", store.filter)
+	}
+}
+
 func TestCatalogToolFiltersByProfileVisibleNames(t *testing.T) {
 	store := &fakeCatalogToolStore{
 		entries: []ToolCatalogEntry{

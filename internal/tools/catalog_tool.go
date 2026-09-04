@@ -167,12 +167,13 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 			recentNames = runtime.Store.RecentNames(runtime.ConversationID, runtime.ProfileSlug)
 		}
 	}
-	rankedSearch := strings.TrimSpace(req.Query) != "" || len(preferredPackages) > 0 || len(recentNames) > 0
+	fullCatalogRanking := strings.TrimSpace(req.Query) != ""
+	rankedSearch := fullCatalogRanking || len(preferredPackages) > 0 || len(recentNames) > 0
 	storeLimit, storeOffset := limit+1, offset
-	if rankedSearch {
+	if fullCatalogRanking {
 		// Ranking precisa considerar todo o conjunto já restrito por visibilidade
 		// e filtros. O teto de 200 pertence apenas ao auto-search do primeiro
-		// turno; aplicá-lo aqui tornaria query/preferência dependente da ordem SQL.
+		// turno; aplicá-lo aqui tornaria a query dependente da ordem SQL.
 		storeLimit, storeOffset = 0, 0
 	}
 	filter := ToolCatalogFilter{
@@ -198,10 +199,12 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 			PreferredPackages: preferredPackages,
 			RecentNames:       recentNames,
 		})
-		if offset >= len(entries) {
-			entries = nil
-		} else if offset > 0 {
-			entries = entries[offset:]
+		if fullCatalogRanking {
+			if offset >= len(entries) {
+				entries = nil
+			} else if offset > 0 {
+				entries = entries[offset:]
+			}
 		}
 	}
 	hasMore := len(entries) > limit
