@@ -408,9 +408,10 @@ describe('EditorContentArea document view', () => {
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.openedAnnouncement');
   });
 
-  it('omite o aviso global e mantém Mermaid editável pelo mouse e teclado', () => {
+  it('omite o aviso global e mantém Mermaid editável pelo mouse e teclado', async () => {
+    const user = userEvent.setup();
     const onOpenMermaid = vi.fn();
-    renderContentArea({
+    const { container } = renderContentArea({
       id: 'mermaid-view',
       title: 'diagrama.md',
       markdown: '```mermaid\ngraph TD\nA --> B\n```',
@@ -424,7 +425,16 @@ describe('EditorContentArea document view', () => {
     });
 
     fireEvent.doubleClick(diagram);
-    fireEvent.keyDown(diagram, { key: 'Enter' });
+    const readingAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    expect(readingAnchor).not.toBeNull();
+    readingAnchor?.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(diagram).toHaveAttribute('tabindex', '0'));
+    diagram.focus();
+    await user.keyboard('{Enter}');
 
     expect(onOpenMermaid).toHaveBeenCalledTimes(2);
     expect(onOpenMermaid).toHaveBeenNthCalledWith(1, 0);
