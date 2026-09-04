@@ -16,6 +16,7 @@ export default function AppearancePage() {
   const updateConfig = useSettingsStore((s) => s.updateConfig);
   const decisionAlertSound = useSettingsStore((s) => s.config.decisionAlertSound);
   const preventScreenLock = useSettingsStore((s) => s.config.preventScreenLock);
+  const editorExternalChange = useSettingsStore((s) => s.config.editor.externalChange);
   const { announce } = useAnnouncer();
   const currentLang = i18n.language as LanguageId;
   useContentPageLandmarks({ pageClass: 'appearance-page' });
@@ -62,6 +63,19 @@ export default function AppearancePage() {
         enabled
           ? t('appearance.announce.preventScreenLockOn')
           : t('appearance.announce.preventScreenLockOff'),
+      );
+    },
+    [updateConfig, announce, t],
+  );
+
+  const handleEditorExternalChange = useCallback(
+    (value: string) => {
+      if (value !== 'autoReload' && value !== 'prompt') return;
+      updateConfig({ editor: { externalChange: value } });
+      announce(
+        value === 'autoReload'
+          ? t('appearance.announce.editorExternalChangeAutoReload')
+          : t('appearance.announce.editorExternalChangePrompt'),
       );
     },
     [updateConfig, announce, t],
@@ -193,6 +207,37 @@ export default function AppearancePage() {
             />
             <p id="appearance-prevent-screen-lock-hint" className="appearance-pref__hint">
               {t('appearance.preventScreenLockHint')}
+            </p>
+          </div>
+        </section>
+
+        <section className="appearance-section">
+          <h2 className="appearance-section__title">
+            {t('appearance.editorTitle')}
+          </h2>
+          <p className="appearance-section__description">
+            {t('appearance.editorDescription')}
+          </p>
+          <div className="appearance-pref">
+            <label className="appearance-pref__label" htmlFor="editor-external-change">
+              {t('appearance.editorExternalChange')}
+            </label>
+            <select
+              id="editor-external-change"
+              className="appearance-pref__select"
+              value={editorExternalChange}
+              aria-describedby="editor-external-change-hint"
+              onChange={(event) => handleEditorExternalChange(event.target.value)}
+            >
+              <option value="autoReload">
+                {t('appearance.editorExternalChangeOptions.autoReload')}
+              </option>
+              <option value="prompt">
+                {t('appearance.editorExternalChangeOptions.prompt')}
+              </option>
+            </select>
+            <p id="editor-external-change-hint" className="appearance-pref__hint appearance-pref__hint--aligned">
+              {t('appearance.editorExternalChangeHint')}
             </p>
           </div>
         </section>

@@ -630,6 +630,15 @@ const ptBR = {
       preventScreenLock: 'Manter a tela ligada quando em foco',
       preventScreenLockHint:
         'Impede o bloqueio ou suspensão da tela enquanto a janela do app estiver em foco. Desative se preferir que o sistema gerencie o repouso.',
+      editorTitle: 'Editor',
+      editorDescription: 'Preferências para arquivos abertos no editor integrado.',
+      editorExternalChange: 'Quando um arquivo mudar no disco',
+      editorExternalChangeHint:
+        'A recarga automática só ocorre quando o conteúdo local está preservado. Edições locais divergentes sempre pedem uma decisão.',
+      editorExternalChangeOptions: {
+        autoReload: 'Recarregar automaticamente quando for seguro',
+        prompt: 'Sempre perguntar em mudanças externas',
+      },
       aria: { selectTheme: 'Selecionar tema', selectLanguage: 'Selecionar idioma' },
       announce: {
         themeChanged: 'Tema alterado para {{label}}',
@@ -638,6 +647,8 @@ const ptBR = {
         decisionAlertSoundOff: 'Som de alerta em confirmações desativado',
         preventScreenLockOn: 'Manter a tela ligada ativado',
         preventScreenLockOff: 'Manter a tela ligada desativado',
+        editorExternalChangeAutoReload: 'Mudanças externas seguras serão recarregadas automaticamente',
+        editorExternalChangePrompt: 'Mudanças externas sempre pedirão uma decisão',
       },
       themes: {
         assistente: { label: 'Assistente', desc: 'Tema escuro azul vibrante (padrão)' },

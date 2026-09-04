@@ -629,6 +629,15 @@ const es = {
       preventScreenLock: 'Mantener la pantalla encendida al enfocar',
       preventScreenLockHint:
         'Evita el bloqueo o suspensión mientras la ventana está enfocada. Desactívalo para que el sistema gestione el reposo.',
+      editorTitle: 'Editor',
+      editorDescription: 'Preferencias para archivos abiertos en el editor integrado.',
+      editorExternalChange: 'Cuando un archivo cambie en disco',
+      editorExternalChangeHint:
+        'La recarga automática solo ocurre cuando se conserva el contenido local. Las ediciones locales divergentes siempre requieren una decisión.',
+      editorExternalChangeOptions: {
+        autoReload: 'Recargar automáticamente cuando sea seguro',
+        prompt: 'Preguntar siempre por cambios externos',
+      },
       aria: { selectTheme: 'Seleccionar tema', selectLanguage: 'Seleccionar idioma' },
       announce: {
         themeChanged: 'Tema cambiado a {{label}}',
@@ -637,6 +646,8 @@ const es = {
         decisionAlertSoundOff: 'Sonido de alerta en confirmaciones desactivado',
         preventScreenLockOn: 'Mantener la pantalla encendida activado',
         preventScreenLockOff: 'Mantener la pantalla encendida desactivado',
+        editorExternalChangeAutoReload: 'Los cambios externos seguros se recargarán automáticamente',
+        editorExternalChangePrompt: 'Los cambios externos siempre requerirán una decisión',
       },
       themes: {
         assistente: { label: 'Asistente', desc: 'Tema oscuro azul vibrante (predeterminado)' },
