@@ -5,12 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { EditorExternalChangeDialog } from './EditorExternalChangeDialog';
 
 const announceRequest = vi.fn();
+const playSound = vi.fn();
 vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({ announceRequest }),
 }));
 vi.mock('../../services/audioFeedback', () => ({
   SOUND_TYPES: { ALERT: 'alert' },
-  playSound: vi.fn(),
+  playSound: (...args: unknown[]) => playSound(...args),
 }));
 vi.mock('../../store/settingsStore', () => ({
   useSettingsStore: (selector: (state: unknown) => unknown) =>
@@ -21,6 +22,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 const decision = {
+  id: 'decision-1',
   title: 'Arquivo modificado',
   description: 'Escolha como resolver.',
   filePath: 'C:/tmp/doc.md',
@@ -85,5 +87,24 @@ describe('EditorExternalChangeDialog', () => {
       expect.objectContaining({ announcePriority: 'assertive' }),
     );
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('anuncia e toca alerta novamente ao avançar a fila com o mesmo texto', async () => {
+    const { rerender } = render(
+      <EditorExternalChangeDialog decision={decision} onAction={vi.fn()} />,
+    );
+    await waitFor(() => expect(announceRequest).toHaveBeenCalledTimes(1));
+    announceRequest.mockClear();
+    playSound.mockClear();
+
+    rerender(
+      <EditorExternalChangeDialog
+        decision={{ ...decision, id: 'decision-2' }}
+        onAction={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(announceRequest).toHaveBeenCalledTimes(1));
+    expect(playSound).toHaveBeenCalledWith('alert');
   });
 });

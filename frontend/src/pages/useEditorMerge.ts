@@ -86,6 +86,7 @@ export function useEditorMerge() {
     useState<EditorExternalChangeDecision | null>(null);
   const externalChangeDecisionResolverRef =
     useRef<((action: EditorExternalChangeAction) => void) | null>(null);
+  const externalChangeDecisionSequenceRef = useRef(0);
   const externalChangeDecisionQueueRef = useRef<
     Array<{
       decision: EditorExternalChangeDecision;
@@ -350,6 +351,7 @@ export function useEditorMerge() {
       const diffPreviewText = diffText ? composePreviewText(diffText, t, 30000) : '';
 
       const action = await requestExternalChangeDecision({
+        id: `editor-external-change-${tabId}-${++externalChangeDecisionSequenceRef.current}`,
         title: assistedCause
           ? t('editor.questionnaire.assistedChangeTitle')
           : t('editor.questionnaire.externalChangeTitle'),

@@ -8,6 +8,7 @@ export type EditorExternalChangeAction =
   | 'not-now';
 
 export interface EditorExternalChangeDecision {
+  id: string;
   title: string;
   description: string;
   filePath: string;
@@ -71,6 +72,7 @@ export function EditorExternalChangeDialog({
 
   return (
     <DecisionDialog
+      key={decision.id}
       isOpen
       title={decision.title}
       description={decision.description}
