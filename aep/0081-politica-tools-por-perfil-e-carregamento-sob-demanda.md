@@ -126,8 +126,9 @@ Nomes alternativos como `activate`/`deactivate` foram considerados, mas `load`/`
 
 Busca e ranking seguem uma ordem total: relevância textual decrescente, posição
 do pacote em `PreferredToolPackages`, recência da conversa e, como fallback,
-origem e nome. A busca ampla avalia no máximo 200 candidatas e mantém páginas de
-até 50 resultados. `load` aceita os mesmos seletores canônicos de
+origem e nome. A busca explícita ranqueia todo o conjunto autorizado e pagina a
+saída em até 50 resultados; somente o auto-search interno avalia no máximo 200
+candidatas. `load` aceita os mesmos seletores canônicos de
 `tool_policy` definidos pela #629 (`*`, `mcp/*`, `mcp/<servidor>/*`,
 `package/*` e `package/<pacote>/*`), reutilizando o mesmo parser/matcher. Cada
 wildcard expande no máximo 20 candidatas autorizadas; o ToolPlanner aplica

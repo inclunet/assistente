@@ -160,6 +160,46 @@ func TestCatalogToolPaginatesAfterFirstPage(t *testing.T) {
 	}
 }
 
+func TestCatalogToolQueryRanksBeyondFirstTwoHundredEntries(t *testing.T) {
+	entries := make([]ToolCatalogEntry, 0, 206)
+	for i := 0; i < 205; i++ {
+		name := fmt.Sprintf("tool_%03d", i)
+		entries = append(entries, ToolCatalogEntry{
+			Name:               name,
+			DisplayName:        name,
+			Description:        "generic capability",
+			Origin:             ToolOriginBuiltin,
+			AvailabilityStatus: ToolAvailabilityAvailable,
+		})
+	}
+	entries = append(entries, ToolCatalogEntry{
+		Name:               "z_needle_reader",
+		DisplayName:        "Needle reader",
+		Description:        "Find the needle capability",
+		Origin:             ToolOriginBuiltin,
+		Risk:               "read",
+		AvailabilityStatus: ToolAvailabilityAvailable,
+	})
+	store := &fakeCatalogToolStore{entries: entries}
+
+	result, err := NewCatalogTool(store).Execute(context.Background(), json.RawMessage(`{"query":"needle"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("Execute query: result=%#v err=%v", result, err)
+	}
+	if store.filter.Limit != 0 || store.filter.Offset != 0 {
+		t.Fatalf("ranking explícito foi limitado antes da busca: %#v", store.filter)
+	}
+	var payload struct {
+		Tools []catalogToolItem `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(payload.Tools) != 1 || payload.Tools[0].Name != "z_needle_reader" {
+		t.Fatalf("resultado relevante fora do prefixo foi omitido: %#v", payload.Tools)
+	}
+}
+
 func TestCatalogToolFiltersByProfileVisibleNames(t *testing.T) {
 	store := &fakeCatalogToolStore{
 		entries: []ToolCatalogEntry{

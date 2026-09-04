@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	// MaxCatalogSearchCandidates limita a busca ampla anterior ao ranking.
+	// MaxCatalogSearchCandidates limita apenas o auto-search do primeiro turno.
+	// A busca explícita pagina a saída, mas ranqueia todo o conjunto autorizado.
 	MaxCatalogSearchCandidates = 200
 	// MaxCatalogWildcardMatches impede que um único seletor despeje um catálogo
 	// inteiro no contexto. O ToolPlanner continua aplicando o budget de schema.

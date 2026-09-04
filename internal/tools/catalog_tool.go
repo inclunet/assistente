@@ -170,7 +170,10 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 	rankedSearch := strings.TrimSpace(req.Query) != "" || len(preferredPackages) > 0 || len(recentNames) > 0
 	storeLimit, storeOffset := limit+1, offset
 	if rankedSearch {
-		storeLimit, storeOffset = MaxCatalogSearchCandidates+1, 0
+		// Ranking precisa considerar todo o conjunto já restrito por visibilidade
+		// e filtros. O teto de 200 pertence apenas ao auto-search do primeiro
+		// turno; aplicá-lo aqui tornaria query/preferência dependente da ordem SQL.
+		storeLimit, storeOffset = 0, 0
 	}
 	filter := ToolCatalogFilter{
 		NameIn:             visibleNames,
