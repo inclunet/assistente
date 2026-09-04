@@ -72,7 +72,7 @@ func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {
 	}
 	name := tool.Name()
 	schema := tool.Parameters()
-	metadata := catalogMetadataForTool(tool)
+	metadata := CatalogMetadataForTool(tool)
 	return ToolCatalogEntry{
 		Name:               name,
 		DisplayName:        name,
@@ -125,7 +125,10 @@ func DefaultBuiltinCatalogMetadata() CatalogMetadata {
 	return CatalogMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
 }
 
-func catalogMetadataForTool(tool Tool) CatalogMetadata {
+// CatalogMetadataForTool devolve os metadados declarados pela tool. É a API
+// canônica para consumidores de política que precisam selecionar por pacote
+// sem duplicar os defaults do catálogo.
+func CatalogMetadataForTool(tool Tool) CatalogMetadata {
 	if provider, ok := tool.(CatalogMetadataProvider); ok {
 		return provider.CatalogMetadata()
 	}

@@ -34,8 +34,8 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-function tool(name: string, description: string, sourceType = 'local', sourceLabel = 'Local', displayName?: string, optIn = false) {
-  return { name, display_name: displayName ?? name, description, source_type: sourceType, source_label: sourceLabel, opt_in: optIn };
+function tool(name: string, description: string, sourceType = 'local', sourceLabel = 'Local', displayName?: string, optIn = false, packageName?: string) {
+  return { name, display_name: displayName ?? name, description, source_type: sourceType, source_label: sourceLabel, opt_in: optIn, package: packageName };
 }
 
 const mockTools = [
@@ -629,6 +629,54 @@ describe('ProfileToolsSection', () => {
       read_file: 'preloaded',
       job: 'disabled',
     });
+  });
+
+  it('espelha wildcards MCP, package e negação literal no grid', () => {
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('mcp_atlassian__search', 'Search', 'mcp', 'Atlassian', 'search'),
+          tool('mcp_atlassian__delete', 'Delete', 'mcp', 'Atlassian', 'delete'),
+          tool('mcp_slack__send', 'Send', 'mcp', 'Slack', 'send'),
+          tool('search_conversations', 'History', 'local', 'Local', undefined, false, 'history'),
+          tool('read_file', 'Read', 'local', 'Local', undefined, false, 'filesystem'),
+        ]}
+        toolPolicy={{
+          'mcp/*': 'on_demand',
+          'mcp:atlassian/*': 'preloaded',
+          mcp_atlassian__delete: 'disabled',
+          'package/history/*': 'preloaded',
+        }}
+        toolPolicyDefault="disabled"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('search (Atlassian): Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('delete (Atlassian): Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('send (Slack): Sob demanda')).toBeInTheDocument();
+    expect(screen.getByLabelText('search_conversations: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+  });
+
+  it('não eleva opt-in por wildcard permissivo no grid', () => {
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('job', 'Job', 'local', 'Local', undefined, true, 'job'),
+          tool('read_file', 'Read', 'local', 'Local', undefined, false, 'filesystem'),
+        ]}
+        toolPolicy={{ '*': 'preloaded' }}
+        toolPolicyDefault="on_demand"
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('job: Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Pré-carregada')).toBeInTheDocument();
   });
 
   it('mantém opt-in disabled no fallback legado', () => {
