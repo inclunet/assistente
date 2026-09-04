@@ -103,7 +103,7 @@ func (s *LoadedToolStore) RecordUsage(conversationID, profileSlug string, names 
 	state := s.ensureLocked(conversationID, profileSlug)
 	for _, raw := range names {
 		name := strings.TrimSpace(raw)
-		if name == "" || name == ToolCatalogName {
+		if name == "" || name == ToolCatalogName || name == LoadSkillName {
 			continue
 		}
 		next := make([]string, 0, len(state.recent)+1)

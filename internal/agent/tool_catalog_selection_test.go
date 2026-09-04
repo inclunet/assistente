@@ -19,6 +19,7 @@ func TestSuccessfulAgenticToolUseUpdatesConversationRecency(t *testing.T) {
 		{ToolName: "read_file", Result: tools.ToolResult{Content: "ok"}},
 		{ToolName: "write_file", Result: tools.ToolResult{IsError: true}},
 		{ToolName: tools.ToolCatalogName, Result: tools.ToolResult{Content: "{}"}},
+		{ToolName: tools.LoadSkillName, Result: tools.ToolResult{Content: "{}"}},
 	})
 	got := store.RecentNames("conv-1", "padrao")
 	if len(got) != 1 || got[0] != "read_file" {
