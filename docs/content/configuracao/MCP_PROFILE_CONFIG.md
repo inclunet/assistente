@@ -128,6 +128,11 @@ O editor de perfis mostra o estado efetivo de cada tool conectada. Os wildcards
 continuam preservados no JSON; não é necessário manter manualmente uma lista
 para cada nova tool de um servidor.
 
+Os perfis builtin **Padrão** e **Programação** já incluem
+`"mcp/*": "on_demand"`. Assim, MCPs atuais e futuras funcionam sem configuração
+manual, mas permanecem fora do payload inicial. Essa disponibilidade não
+ignora allowlists, risco, confiança de rede ou confirmações de execução.
+
 ---
 
 ## Referências

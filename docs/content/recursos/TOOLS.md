@@ -25,6 +25,18 @@ política do perfil, disponibilidade, allowlists, confirmações e orçamento de
 schemas. Para operações sensíveis, o carregamento apenas disponibiliza a
 capacidade; ele não aprova sua execução.
 
+## MCP nos perfis padrão
+
+Os perfis **Padrão** e **Programação** deixam todas as tools MCP disponíveis
+sob demanda. Elas não entram no payload inicial: o agente as descobre e carrega
+quando necessário. A regra cobre automaticamente tools de servidores MCP
+conectados no futuro, sem exigir edição manual do perfil.
+
+Disponibilidade sob demanda não concede aprovação de execução. Allowlists,
+classificação de risco, confiança de rede e confirmações continuam sendo
+aplicadas normalmente. Tools opt-in também permanecem bloqueadas até uma
+autorização explícita.
+
 ## Histórico
 
 As tools de histórico permitem localizar e recuperar contexto de conversas anteriores:

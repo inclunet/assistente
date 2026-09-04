@@ -5,17 +5,20 @@ import (
 	"io/fs"
 	"testing"
 
+	"assistente/internal/chat"
 	"assistente/internal/profiles"
 )
 
 func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 	tests := []struct {
 		filename       string
+		version        string
 		defaultState   string
 		expectedPolicy map[string]string
 	}{
 		{
 			filename:     "programacao.json",
+			version:      "4.5.0",
 			defaultState: "on_demand",
 			expectedPolicy: map[string]string{
 				"read_file":    "preloaded",
@@ -28,11 +31,13 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 				"update_plan":  "preloaded",
 				"profile":      "preloaded",
 				"subagent":     "preloaded",
+				"mcp/*":        "on_demand",
 				"text_edit":    "disabled",
 			},
 		},
 		{
 			filename:     "padrao.json",
+			version:      "4.4.0",
 			defaultState: "on_demand",
 			expectedPolicy: map[string]string{
 				"read_file":         "preloaded",
@@ -43,11 +48,13 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 				"collect_responses": "preloaded",
 				"profile":           "preloaded",
 				"subagent":          "preloaded",
+				"mcp/*":             "on_demand",
 				"text_edit":         "disabled",
 			},
 		},
 		{
 			filename:     "editor-texto.json",
+			version:      "4.3.0",
 			defaultState: "disabled",
 			expectedPolicy: map[string]string{
 				"text_edit": "preloaded",
@@ -56,6 +63,7 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 		},
 		{
 			filename:       "canais-comunicacao.json",
+			version:        "4.2.0",
 			defaultState:   "disabled",
 			expectedPolicy: map[string]string{},
 		},
@@ -81,6 +89,9 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 			var profile profiles.Profile
 			if err := json.Unmarshal(data, &profile); err != nil {
 				t.Fatalf("decodificar profile: %v", err)
+			}
+			if profile.BuiltinVersion != tc.version {
+				t.Fatalf("_builtin_version = %q, esperado %q", profile.BuiltinVersion, tc.version)
 			}
 			if profile.Chat.ToolPolicyDefault != tc.defaultState {
 				t.Fatalf("tool_policy_default = %q, esperado %q", profile.Chat.ToolPolicyDefault, tc.defaultState)
@@ -114,6 +125,76 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 			}
 			if len(reloaded.Chat.ToolPolicy) != len(tc.expectedPolicy) {
 				t.Fatalf("tool_policy = %#v após instalar, esperado %#v", reloaded.Chat.ToolPolicy, tc.expectedPolicy)
+			}
+		})
+	}
+}
+
+func TestBuiltinProfilesMCPWildcardCobreToolsFuturasSemPreload(t *testing.T) {
+	for _, filename := range []string{"padrao.json", "programacao.json"} {
+		t.Run(filename, func(t *testing.T) {
+			data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+filename)
+			if err != nil {
+				t.Fatalf("ler profile builtin: %v", err)
+			}
+			var profile profiles.Profile
+			if err := json.Unmarshal(data, &profile); err != nil {
+				t.Fatalf("decodificar profile: %v", err)
+			}
+
+			matcher := chat.NewToolPolicyMatcher(profile.Chat.ToolPolicy, profile.Chat.ToolPolicyDefault)
+			futureMCP := matcher.Resolve(chat.ToolPolicyTarget{Name: "mcp_future_server__new_tool"})
+			if futureMCP.State != chat.ToolPolicyOnDemand {
+				t.Fatalf("MCP futura = %s, esperado on_demand", futureMCP.State)
+			}
+			if futureMCP.State == chat.ToolPolicyPreloaded {
+				t.Fatal("MCP futura não deve entrar no payload inicial")
+			}
+			optIn := matcher.Resolve(chat.ToolPolicyTarget{Name: "future_opt_in", OptIn: true})
+			if optIn.State != chat.ToolPolicyDisabled {
+				t.Fatalf("opt-in futura = %s, esperado disabled", optIn.State)
+			}
+		})
+	}
+}
+
+func TestUpgradeBuiltinAplicaWildcardMCPPreservandoRuntime(t *testing.T) {
+	tests := []struct {
+		filename        string
+		installedBefore string
+	}{
+		{filename: "padrao.json", installedBefore: "4.3.0"},
+		{filename: "programacao.json", installedBefore: "4.4.0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.filename, func(t *testing.T) {
+			data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+tc.filename)
+			if err != nil {
+				t.Fatalf("ler profile builtin: %v", err)
+			}
+			var embedded profiles.Profile
+			if err := json.Unmarshal(data, &embedded); err != nil {
+				t.Fatalf("decodificar profile: %v", err)
+			}
+			if !isVersionNewer(embedded.BuiltinVersion, tc.installedBefore) {
+				t.Fatalf("versão %s deve atualizar instalação %s", embedded.BuiltinVersion, tc.installedBefore)
+			}
+
+			existing := embedded
+			existing.BuiltinVersion = tc.installedBefore
+			existing.Active = true
+			existing.Chat.ToolPolicy = make(map[string]string, len(embedded.Chat.ToolPolicy))
+			for name, state := range embedded.Chat.ToolPolicy {
+				existing.Chat.ToolPolicy[name] = state
+			}
+			delete(existing.Chat.ToolPolicy, "mcp/*")
+
+			upgraded := mergeBuiltinPreservingRuntime(embedded, &existing)
+			if upgraded.Chat.ToolPolicy["mcp/*"] != string(chat.ToolPolicyOnDemand) {
+				t.Fatalf("upgrade não aplicou mcp/*: %#v", upgraded.Chat.ToolPolicy)
+			}
+			if !upgraded.Active {
+				t.Fatal("upgrade deve preservar estado runtime Active")
 			}
 		})
 	}

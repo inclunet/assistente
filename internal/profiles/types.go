@@ -330,6 +330,7 @@ func DefaultToolPolicy() map[string]string {
 		"collect_responses": "preloaded",
 		"profile":           "preloaded",
 		"subagent":          "preloaded",
+		"mcp/*":             "on_demand",
 		"text_edit":         "disabled",
 	}
 }
