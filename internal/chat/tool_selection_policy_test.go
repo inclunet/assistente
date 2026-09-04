@@ -458,6 +458,24 @@ func TestToolSelectionPolicy_ToolPolicyRuntimePreloadsUnspecifiedLoadSkill(t *te
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.LoadSkillName, "read_file"})
 }
 
+func TestToolSelectionPolicy_RuntimeControlPlaneNaoTransformaWildcardEmAutorizacaoOptIn(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"*": string(ToolPolicyPreloaded),
+		},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+
+	if effective.State(tools.LoadSkillName) != ToolPolicyPreloaded {
+		t.Fatalf("load_skill autorizada pelo runtime deveria ser preloaded, got %s", effective.State(tools.LoadSkillName))
+	}
+	if effective.State("text_edit") != ToolPolicyDisabled {
+		t.Fatalf("wildcard permissivo não deveria autorizar outro opt-in, got %s", effective.State("text_edit"))
+	}
+}
+
 func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)

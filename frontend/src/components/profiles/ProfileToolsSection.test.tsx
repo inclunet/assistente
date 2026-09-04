@@ -719,6 +719,27 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('edit_file: Pré-carregada')).toBeInTheDocument();
   });
 
+  it('separa autorização runtime de wildcard permissivo para opt-ins', () => {
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('load_skill', 'Load skill', 'local', 'Local', undefined, true, 'skills'),
+          tool('job', 'Job', 'local', 'Local', undefined, true, 'job'),
+          tool('read_file', 'Read file', 'local', 'Local', undefined, false, 'filesystem'),
+        ]}
+        toolPolicy={{ '*': 'preloaded' }}
+        toolPolicyDefault="disabled"
+        runtimeTools={['load_skill']}
+        availableAllowlists={mockAllowlists}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('load_skill: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('job: Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Pré-carregada')).toBeInTheDocument();
+  });
+
   it('anexa runtime tool à allowlist legada explícita', () => {
     const onChange = vi.fn();
     render(

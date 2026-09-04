@@ -196,7 +196,9 @@ O matcher é aplicado de forma lazy por `State`: defaults e wildcards também
 resolvem nomes ainda ausentes, e as listas efetivas são expandidas novamente
 quando uma MCP registra suas tools. Isso não torna uma tool ausente executável;
 o registry continua sendo a fonte de execução. Tools opt-in não podem ser
-elevadas por default ou wildcard permissivo e exigem uma entrada literal.
+elevadas por default ou wildcard permissivo. Elas exigem uma entrada literal,
+salvo capacidades de control-plane autorizadas explicitamente pelo runtime
+conforme D8 (`RuntimeTools`, como `load_skill` enquanto há skill sob demanda).
 
 ## Fases
 

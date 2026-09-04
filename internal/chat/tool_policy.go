@@ -193,6 +193,10 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 		}
 		if p.structured {
 			match := p.matcher.Resolve(p.target(name))
+			// RuntimeTools é uma autorização explícita do control-plane (D8 da
+			// AEP-0081), não uma elevação causada pelo default/wildcard do
+			// perfil. Bloqueios configurados continuam soberanos; DeniedOptIn
+			// apenas registra que o matcher, isoladamente, não autorizou a tool.
 			if match.Explicit && match.State == ToolPolicyDisabled && !match.DeniedOptIn {
 				continue
 			}

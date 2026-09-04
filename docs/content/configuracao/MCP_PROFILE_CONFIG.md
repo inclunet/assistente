@@ -121,7 +121,8 @@ A precedência é: nome literal, wildcard específico, wildcard geral e default.
 Em empate vence o estado mais restritivo. Portanto, no exemplo,
 `mcp_atlassian__create_issue=disabled` vence o preload do servidor. Defaults e
 wildcards também cobrem tools conectadas depois de o perfil ser carregado.
-Tools opt-in exigem entrada literal e nunca são liberadas por wildcard.
+Tools opt-in nunca são liberadas por wildcard; capacidades internas de
+control-plane ainda podem ser autorizadas explicitamente pelo runtime.
 
 O editor de perfis mostra o estado efetivo de cada tool conectada. Os wildcards
 continuam preservados no JSON; não é necessário manter manualmente uma lista

@@ -251,6 +251,8 @@ export function ProfileToolsSection({
           package: item.package,
           optIn: item.optIn,
         });
+        // RuntimeTools espelha a autorização explícita do control-plane no
+        // backend (AEP-0081 D8); não é uma elevação causada pelo wildcard.
         if (match.explicit && match.state === TOOL_POLICY_DISABLED && !match.deniedOptIn) continue;
         policy[name] = TOOL_POLICY_PRELOADED;
       }
