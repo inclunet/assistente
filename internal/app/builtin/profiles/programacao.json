@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.4.0",
+  "_builtin_version": "4.5.0",
   "name": "Programação",
   "description": "Agente de desenvolvimento de software para explorar repositórios, planejar, editar código, executar comandos e validar mudanças. Use para implementação, correção, refatoração, testes e revisão técnica; pode delegar pesquisa ou trabalho paralelo a outros profiles.",
   "icon": "code-slash-outline",
@@ -25,6 +25,7 @@
       "update_plan": "preloaded",
       "profile": "preloaded",
       "subagent": "preloaded",
+      "mcp/*": "on_demand",
       "text_edit": "disabled"
     },
     "enabled_skills": [
