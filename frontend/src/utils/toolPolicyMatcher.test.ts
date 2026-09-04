@@ -17,6 +17,15 @@ describe('toolPolicyMatcher', () => {
     expect(parseToolPolicySelector(raw)?.canonical).toBe(canonical);
   });
 
+  it.each([
+    'mcp/atlassian cloud/*',
+    'mcp:atlassian\tcloud/*',
+    'package/my package/*',
+    'my package/*',
+  ])('rejeita o escopo não canônico %s', (raw) => {
+    expect(parseToolPolicySelector(raw)).toBeNull();
+  });
+
   it('aplica literal, wildcard específico, wildcard geral e default nessa ordem', () => {
     const policy = normalizeToolPolicyMap({
       'mcp/*': 'preloaded',

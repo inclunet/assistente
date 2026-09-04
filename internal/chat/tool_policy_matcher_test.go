@@ -48,6 +48,21 @@ func TestParseToolPolicySelectorNormalizaAliases(t *testing.T) {
 	}
 }
 
+func TestParseToolPolicySelectorRejeitaEscoposNaoCanonicos(t *testing.T) {
+	for _, raw := range []string{
+		"mcp/atlassian cloud/*",
+		"mcp:atlassian\tcloud/*",
+		"package/my package/*",
+		"my package/*",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if selector, ok := ParseToolPolicySelector(raw); ok {
+				t.Fatalf("seletor não canônico deveria ser rejeitado: %#v", selector)
+			}
+		})
+	}
+}
+
 func TestToolPolicyMatcherPrecedenciaEDesempateRestritivo(t *testing.T) {
 	matcher := NewToolPolicyMatcher(map[string]string{
 		"mcp/*":                       string(ToolPolicyPreloaded),

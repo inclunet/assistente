@@ -33,7 +33,7 @@ function delimited(value: string, prefix: string, suffix: string): string | null
 }
 
 function scopedSelector(kind: 'mcp-server' | 'package', value: string): Selector | null {
-  if (value === '' || /[/*:]/.test(value)) return null;
+  if (value === '' || /[/*:\s]/.test(value)) return null;
   return {
     canonical: kind === 'mcp-server' ? `mcp/${value}/*` : `package/${value}/*`,
     kind,
@@ -79,6 +79,7 @@ function selectorMatches(selector: Selector, target: ToolPolicyTarget): boolean 
     case 'mcp-server': return source.type === 'mcp' && source.serverSlug === selector.value;
     case 'package': return target.package === selector.value;
   }
+  return false;
 }
 
 export function normalizeToolPolicyState(state: string): ToolPolicyState {
