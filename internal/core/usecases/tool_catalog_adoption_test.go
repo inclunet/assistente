@@ -16,7 +16,22 @@ type adoptionCatalogStore struct {
 }
 
 func (s adoptionCatalogStore) ListTools(_ context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
-	entries := append([]tools.ToolCatalogEntry(nil), s.entries...)
+	allowed := make(map[string]struct{}, len(filter.NameIn))
+	for _, name := range filter.NameIn {
+		allowed[name] = struct{}{}
+	}
+	entries := make([]tools.ToolCatalogEntry, 0, len(s.entries))
+	for _, entry := range s.entries {
+		if filter.NameIn != nil {
+			if _, ok := allowed[entry.Name]; !ok {
+				continue
+			}
+		}
+		if filter.AvailabilityStatus != "" && entry.AvailabilityStatus != filter.AvailabilityStatus {
+			continue
+		}
+		entries = append(entries, entry)
+	}
 	if filter.Limit > 0 && len(entries) > filter.Limit {
 		entries = entries[:filter.Limit]
 	}
