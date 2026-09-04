@@ -38,7 +38,8 @@ type loadedToolConversationState struct {
 	// o mesmo ciclo de vida in-memory por conversa das tools carregadas.
 	recent []string
 	// autoSearchAttempted garante uma única tentativa no ciclo de vida runtime
-	// da conversa, mesmo quando a janela de contexto omite turnos antigos.
+	// da combinação conversa+perfil, mesmo quando a janela de contexto omite
+	// turnos antigos.
 	autoSearchAttempted bool
 }
 

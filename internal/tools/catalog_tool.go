@@ -81,7 +81,7 @@ func NewCatalogTool(store CatalogToolStore) *CatalogTool {
 func (t *CatalogTool) Name() string { return ToolCatalogName }
 
 func (t *CatalogTool) Description() string {
-	return "Discover and manage authorized on-demand tools. Search once with a task query and optional filters; results rank task relevance, profile preferred packages, conversation recency, then stable name. Examples: {\"action\":\"search\",\"query\":\"read files\",\"category\":\"filesystem\",\"risk\":\"read\"}, {\"action\":\"search\",\"query\":\"search Jira\",\"package\":\"mcp:atlassian\"}, {\"action\":\"load\",\"tools\":[\"read_file\"]}, or {\"action\":\"load\",\"tools\":[\"mcp/atlassian/*\"]}. Wildcard load is capped at 20 matches and still obeys profile policy, availability, risk controls and schema budget. Disabled or opt-in tools are never elevated."
+	return "Discover and manage authorized on-demand tools. Search once with a task query and optional filters; results rank task relevance, profile preferred packages, conversation recency, then stable origin and name. Examples: {\"action\":\"search\",\"query\":\"read files\",\"category\":\"filesystem\",\"risk\":\"read\"}, {\"action\":\"search\",\"query\":\"search Jira\",\"package\":\"mcp:atlassian\"}, {\"action\":\"load\",\"tools\":[\"read_file\"]}, or {\"action\":\"load\",\"tools\":[\"mcp/atlassian/*\"]}. Wildcard load is capped at 20 matches and still obeys profile policy, availability, risk controls and schema budget. Disabled or opt-in tools are never elevated."
 }
 
 func (t *CatalogTool) Parameters() json.RawMessage {
