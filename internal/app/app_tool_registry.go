@@ -352,6 +352,7 @@ func (a *App) initToolRegistry() {
 	// Registra ferramenta de busca no histórico de conversas
 	a.toolRegistry.MustRegister(history.NewSearchConversations(a.msgRepo))
 	a.toolRegistry.MustRegister(history.NewGetConversationInfo())
+	a.toolRegistry.MustRegister(history.NewGetMessages())
 
 	// Registra ferramentas de gerenciamento de task lists
 	tlMgr := &serviceTaskListManager{svc: a.taskSvc}
