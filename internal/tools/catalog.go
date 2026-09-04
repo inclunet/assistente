@@ -125,9 +125,10 @@ func DefaultBuiltinCatalogMetadata() CatalogMetadata {
 	return CatalogMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
 }
 
-// CatalogMetadataForTool devolve os metadados declarados pela tool. É a API
-// canônica para consumidores de política que precisam selecionar por pacote
-// sem duplicar os defaults do catálogo.
+// CatalogMetadataForTool devolve os metadados declarados pela tool ou, quando
+// ela não implementa CatalogMetadataProvider, o fallback de builtin retornado
+// por DefaultBuiltinCatalogMetadata. É a API canônica para consumidores de
+// política que precisam selecionar por pacote sem duplicar esses defaults.
 func CatalogMetadataForTool(tool Tool) CatalogMetadata {
 	if provider, ok := tool.(CatalogMetadataProvider); ok {
 		return provider.CatalogMetadata()
