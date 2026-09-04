@@ -18,6 +18,8 @@ const (
 	catalogActionLoad       = "load"
 	catalogActionUnload     = "unload"
 	catalogActionListLoaded = "list_loaded"
+
+	loadedToolRejectWildcardLimit = "wildcard_limit_exceeded"
 )
 
 type CatalogToolStore interface {
@@ -31,6 +33,7 @@ type CatalogTool struct {
 type catalogToolRequest struct {
 	Action             string   `json:"action,omitempty"`
 	Tools              []string `json:"tools,omitempty"`
+	Query              string   `json:"query,omitempty"`
 	Origin             string   `json:"origin,omitempty"`
 	Category           string   `json:"category,omitempty"`
 	Class              string   `json:"class,omitempty"`
@@ -80,7 +83,7 @@ func NewCatalogTool(store CatalogToolStore) *CatalogTool {
 func (t *CatalogTool) Name() string { return ToolCatalogName }
 
 func (t *CatalogTool) Description() string {
-	return "Discover, load, unload, and list tool capabilities from the persisted catalog. Optional action defaults to search for compatibility. Use action=search to find visible tools, action=load with tools:[name] to make specific on-demand tools available, action=unload to remove loaded on-demand tools, and action=list_loaded to inspect tools currently available in this conversation/session. Disabled-by-profile tools are hidden and cannot be loaded."
+	return "Discover and manage authorized on-demand tools. Search once with a task query and optional filters; results rank task relevance, profile preferred packages, conversation recency, then stable name. Examples: {\"action\":\"search\",\"query\":\"read files\",\"category\":\"filesystem\",\"risk\":\"read\"}, {\"action\":\"search\",\"query\":\"search Jira\",\"package\":\"mcp:atlassian\"}, {\"action\":\"load\",\"tools\":[\"read_file\"]}, or {\"action\":\"load\",\"tools\":[\"mcp/atlassian/*\"]}. Wildcard load is capped at 20 matches and still obeys profile policy, availability, risk controls and schema budget. Disabled or opt-in tools are never elevated."
 }
 
 func (t *CatalogTool) Parameters() json.RawMessage {
@@ -88,7 +91,8 @@ func (t *CatalogTool) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
     "action": {"type": "string", "enum": ["search", "load", "unload", "list_loaded"], "description": "Control action. Defaults to search when omitted."},
-    "tools": {"type": "array", "items": {"type": "string"}, "description": "Tool names for action=load or action=unload. Load tools one at a time or in a small granular set."},
+    "tools": {"type": "array", "items": {"type": "string"}, "description": "Names for load/unload. Load also accepts the canonical policy selectors *, mcp/*, mcp/<server>/*, package/* and package/<package>/*; each wildcard is capped at 20 authorized matches."},
+    "query": {"type": "string", "description": "Task-oriented text search over name, description, tags, category, class and package. Example: read files, search the web, or Jira issues."},
     "origin": {"type": "string", "description": "Optional origin filter: builtin, mcp_bridge, or mcp_native."},
     "category": {"type": "string", "description": "Optional category filter, for example filesystem, web, tasklist, or mcp:<server>."},
     "class": {"type": "string", "description": "Optional capability class, for example read_context, edit_files, web_lookup, task_management, mcp_tool."},
@@ -156,6 +160,20 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 		}
 		return ToolResult{Content: string(data)}, nil
 	}
+	runtime, hasRuntime := ToolCatalogRuntimeFromContext(ctx)
+	recentNames := []string(nil)
+	preferredPackages := []string(nil)
+	if hasRuntime {
+		preferredPackages = runtime.PreferredPackages
+		if runtime.Store != nil {
+			recentNames = runtime.Store.RecentNames(runtime.ConversationID, runtime.ProfileSlug)
+		}
+	}
+	rankedSearch := strings.TrimSpace(req.Query) != "" || len(preferredPackages) > 0 || len(recentNames) > 0
+	storeLimit, storeOffset := limit+1, offset
+	if rankedSearch {
+		storeLimit, storeOffset = MaxCatalogSearchCandidates+1, 0
+	}
 	filter := ToolCatalogFilter{
 		NameIn:             visibleNames,
 		Origin:             strings.TrimSpace(req.Origin),
@@ -165,14 +183,26 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 		Risk:               strings.TrimSpace(req.Risk),
 		AvailabilityStatus: strings.TrimSpace(req.AvailabilityStatus),
 		IncludeUnavailable: req.IncludeUnavailable,
-		Limit:              limit + 1,
-		Offset:             offset,
+		Limit:              storeLimit,
+		Offset:             storeOffset,
 	}
 	entries, err := t.store.ListTools(ctx, filter)
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
 	}
 	entries = filterCatalogEntriesByVisibleNames(entries, filter.NameIn)
+	if rankedSearch {
+		entries = RankCatalogEntries(entries, CatalogDiscoveryOptions{
+			Query:             req.Query,
+			PreferredPackages: preferredPackages,
+			RecentNames:       recentNames,
+		})
+		if offset >= len(entries) {
+			entries = nil
+		} else if offset > 0 {
+			entries = entries[offset:]
+		}
+	}
 	hasMore := len(entries) > limit
 	if len(entries) > limit {
 		entries = entries[:limit]
@@ -217,11 +247,16 @@ func (t *CatalogTool) executeLoad(ctx context.Context, req catalogToolRequest) (
 	if len(requested) == 0 {
 		return marshalCatalogToolResponse(catalogToolResponse{LoadedTools: []string{}, SelectedTools: []string{}, RejectedTools: []catalogToolRejection{}})
 	}
+	requested, selectorRejected, err := t.expandLoadSelectors(ctx, requested, runtime)
+	if err != nil {
+		return ToolResult{Content: fmt.Sprintf("erro ao expandir seletores do catálogo de tools: %v", err), IsError: true}, nil
+	}
 	available, loadRejected, err := t.partitionAvailableTools(ctx, requested, runtime.VisibleNames)
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
 	}
 	loaded, rejected := runtime.Store.Load(runtime.ConversationID, runtime.ProfileSlug, available, runtime.VisibleNames, runtime.PreloadedNames, runtime.ControlPlane)
+	rejected = append(rejected, selectorRejected...)
 	rejected = append(rejected, loadRejected...)
 	resp := catalogToolResponse{
 		SelectedTools: loadedToolChangeNames(loaded),
@@ -230,6 +265,65 @@ func (t *CatalogTool) executeLoad(ctx context.Context, req catalogToolRequest) (
 		Count:         len(loaded),
 	}
 	return marshalCatalogToolResponse(resp)
+}
+
+func (t *CatalogTool) expandLoadSelectors(ctx context.Context, requested []string, runtime ToolCatalogRuntime) ([]string, []LoadedToolChange, error) {
+	if runtime.MatchSelector == nil {
+		return requested, nil, nil
+	}
+	needsCatalog := false
+	for _, raw := range requested {
+		_, wildcard := runtime.MatchSelector(raw, ToolCatalogEntry{Name: raw})
+		if wildcard {
+			needsCatalog = true
+			break
+		}
+	}
+	if !needsCatalog {
+		return requested, nil, nil
+	}
+	entries, err := t.store.ListTools(ctx, ToolCatalogFilter{
+		NameIn:             runtime.VisibleNames,
+		AvailabilityStatus: ToolAvailabilityAvailable,
+		Limit:              MaxCatalogSearchCandidates + 1,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	entries = filterCatalogEntriesByVisibleNames(entries, runtime.VisibleNames)
+	entries = RankCatalogEntries(entries, CatalogDiscoveryOptions{
+		PreferredPackages: runtime.PreferredPackages,
+		RecentNames:       runtime.Store.RecentNames(runtime.ConversationID, runtime.ProfileSlug),
+	})
+	expanded := make([]string, 0, len(requested))
+	var rejected []LoadedToolChange
+	for _, raw := range requested {
+		_, wildcard := runtime.MatchSelector(raw, ToolCatalogEntry{Name: raw})
+		if !wildcard {
+			expanded = append(expanded, raw)
+			continue
+		}
+		matches := 0
+		total := 0
+		for _, entry := range entries {
+			match, _ := runtime.MatchSelector(raw, entry)
+			if !match {
+				continue
+			}
+			total++
+			if matches < MaxCatalogWildcardMatches {
+				expanded = append(expanded, entry.Name)
+				matches++
+			}
+		}
+		switch {
+		case total == 0:
+			rejected = append(rejected, LoadedToolChange{Name: raw, Reason: LoadedToolRejectUnavailable})
+		case total > MaxCatalogWildcardMatches:
+			rejected = append(rejected, LoadedToolChange{Name: raw, Reason: loadedToolRejectWildcardLimit})
+		}
+	}
+	return normalizeRequestedToolNames(expanded), rejected, nil
 }
 
 func (t *CatalogTool) executeUnload(ctx context.Context, req catalogToolRequest) (ToolResult, error) {

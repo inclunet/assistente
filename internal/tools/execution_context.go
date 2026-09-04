@@ -55,12 +55,16 @@ func ToolCatalogVisibleNamesFromContext(ctx context.Context) ([]string, bool) {
 type toolCatalogRuntimeKey struct{}
 
 type ToolCatalogRuntime struct {
-	Store          *LoadedToolStore
-	ConversationID string
-	ProfileSlug    string
-	VisibleNames   []string
-	PreloadedNames []string
-	ControlPlane   []string
+	Store             *LoadedToolStore
+	ConversationID    string
+	ProfileSlug       string
+	VisibleNames      []string
+	PreloadedNames    []string
+	ControlPlane      []string
+	PreferredPackages []string
+	// MatchSelector reutiliza a gramática canônica de tool_policy sem criar
+	// dependência tools -> chat. O bool wildcard distingue seletores de literais.
+	MatchSelector func(selector string, entry ToolCatalogEntry) (matches, wildcard bool)
 }
 
 func WithToolCatalogRuntime(ctx context.Context, runtime ToolCatalogRuntime) context.Context {

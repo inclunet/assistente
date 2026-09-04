@@ -33,6 +33,12 @@ type LoadedToolChange struct {
 type loadedToolConversationState struct {
 	profileSlug string
 	loaded      map[string]struct{}
+	// recent mantém uma LRU pequena, mais recente primeiro. O estado compartilha
+	// o mesmo ciclo de vida in-memory por conversa das tools carregadas.
+	recent []string
+	// autoSearchAttempted garante uma única tentativa no ciclo de vida runtime
+	// da conversa, mesmo quando a janela de contexto omite turnos antigos.
+	autoSearchAttempted bool
 }
 
 // LoadedToolStore mantém, em memória, as tools carregadas sob demanda por
@@ -69,6 +75,58 @@ func (s *LoadedToolStore) Loaded(conversationID, profileSlug string, visible []s
 	}
 	sort.Strings(names)
 	return names
+}
+
+const maxRecentToolsPerConversation = 64
+
+func (s *LoadedToolStore) ClaimAutoSearch(conversationID, profileSlug string) bool {
+	if s == nil || strings.TrimSpace(conversationID) == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.ensureLocked(conversationID, profileSlug)
+	if state.autoSearchAttempted {
+		return false
+	}
+	state.autoSearchAttempted = true
+	return true
+}
+
+func (s *LoadedToolStore) RecordUsage(conversationID, profileSlug string, names ...string) {
+	if s == nil || strings.TrimSpace(conversationID) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.ensureLocked(conversationID, profileSlug)
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" || name == ToolCatalogName {
+			continue
+		}
+		next := make([]string, 0, len(state.recent)+1)
+		next = append(next, name)
+		for _, existing := range state.recent {
+			if existing != name {
+				next = append(next, existing)
+			}
+		}
+		if len(next) > maxRecentToolsPerConversation {
+			next = next[:maxRecentToolsPerConversation]
+		}
+		state.recent = next
+	}
+}
+
+func (s *LoadedToolStore) RecentNames(conversationID, profileSlug string) []string {
+	if s == nil || strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := s.ensureLocked(conversationID, profileSlug)
+	return append([]string(nil), state.recent...)
 }
 
 func (s *LoadedToolStore) Load(conversationID, profileSlug string, names []string, visible []string, preloaded []string, controlPlane []string) (loaded, rejected []LoadedToolChange) {
