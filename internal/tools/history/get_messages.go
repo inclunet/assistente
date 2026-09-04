@@ -192,12 +192,24 @@ func messagePayload(msg database.ChatMessage) (getMessagePayload, error) {
 	}
 	if toolCalls := strings.TrimSpace(msg.ToolCalls); toolCalls != "" {
 		var calls []json.RawMessage
-		if err := json.Unmarshal([]byte(toolCalls), &calls); err != nil {
+		if err := json.Unmarshal([]byte(toolCalls), &calls); err == nil {
+			if len(calls) > 0 {
+				item.ToolCalls = json.RawMessage(toolCalls)
+			}
+			return item, nil
+		}
+
+		// Compatibilidade com histórico legado: a timeline também aceita uma
+		// única tool call persistida como objeto e a trata como array unitário.
+		var single map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(toolCalls), &single); err != nil {
 			return getMessagePayload{}, fmt.Errorf("invalid tool_calls JSON")
 		}
-		if len(calls) > 0 {
-			item.ToolCalls = json.RawMessage(toolCalls)
+		normalized, err := json.Marshal([]map[string]json.RawMessage{single})
+		if err != nil {
+			return getMessagePayload{}, fmt.Errorf("normalize legacy tool_calls: %w", err)
 		}
+		item.ToolCalls = normalized
 	}
 	return item, nil
 }

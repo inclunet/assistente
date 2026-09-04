@@ -161,3 +161,19 @@ func TestMessagePayloadPreservesTimestampPrecision(t *testing.T) {
 		t.Fatalf("created_at = %q, want timestamp UTC with full precision", item.CreatedAt)
 	}
 }
+
+func TestMessagePayloadNormalizesLegacySingleToolCall(t *testing.T) {
+	item, err := messagePayload(database.ChatMessage{
+		ToolCalls: `{"id":"legacy-call","type":"function","function":{"name":"search","arguments":"{}"}}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []map[string]any
+	if err := json.Unmarshal(item.ToolCalls, &calls); err != nil {
+		t.Fatalf("normalized tool_calls is not an array: %v", err)
+	}
+	if len(calls) != 1 || calls[0]["id"] != "legacy-call" {
+		t.Fatalf("unexpected normalized tool_calls: %#v", calls)
+	}
+}
