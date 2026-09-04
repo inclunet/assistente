@@ -117,6 +117,16 @@ func (s *DBMessageStore) SearchMessages(ctx context.Context, query string, limit
 	return database.SearchMessageContentWithContext(ctx, query, limit)
 }
 
+// SearchMessagesInConversation restringe a busca FTS a uma conversa do
+// usuário autenticado. O repository mantém o filtro por user_id mesmo com o
+// conversationID explícito.
+func (s *DBMessageStore) SearchMessagesInConversation(ctx context.Context, query, conversationID string, limit int) ([]database.MessageSearchResult, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.SearchMessageContentInConversationWithContext(ctx, query, conversationID, limit)
+}
+
 // DBConversationStore implementa ConversationRepository usando o banco de dados SQLite via GORM.
 type DBConversationStore struct{}
 
