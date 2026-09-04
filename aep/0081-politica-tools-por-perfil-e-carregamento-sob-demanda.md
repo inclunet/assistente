@@ -173,6 +173,31 @@ Context Providers podem registrar tools de ação/consulta, mas a exposição de
 
 SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas não pode elevar uma tool `disabled`. Actions sobre surface continuam exigindo alvo estruturado e validação de staleness quando aplicável.
 
+### D10. Seletores wildcard na política
+
+`tool_policy` aceita literais e seletores para que perfis governem integrações
+que ainda não entraram no registry:
+
+- `mcp/*`: todas as tools MCP;
+- `mcp/<slug>/*`: tools de um servidor MCP;
+- `mcp:<slug>/*`: alias de `mcp/<slug>/*`;
+- `package/<pacote>/*`: builtins cujo `CatalogMetadata.Package` coincide;
+- `<pacote>/*`: forma curta do seletor de pacote;
+- `*`: todas as tools nativas;
+- formas canônicas internas `mcp_<slug>__*` e `mcp_*__*`.
+
+A resolução segue `literal > wildcard específico > wildcard geral > default`.
+Quando dois seletores de mesma especificidade coincidem, vence o estado mais
+restritivo (`disabled`, depois `on_demand`, depois `preloaded`). Assim, uma
+negação literal como `mcp_atlassian__create_issue=disabled` sempre vence
+`mcp/atlassian/*=on_demand`.
+
+O matcher é aplicado de forma lazy por `State`: defaults e wildcards também
+resolvem nomes ainda ausentes, e as listas efetivas são expandidas novamente
+quando uma MCP registra suas tools. Isso não torna uma tool ausente executável;
+o registry continua sendo a fonte de execução. Tools opt-in não podem ser
+elevadas por default ou wildcard permissivo e exigem uma entrada literal.
+
 ## Fases
 
 ### Fase 1 — AEP e contrato
@@ -240,4 +265,6 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 - Tools carregadas sob demanda persistem por conversa/sessão até restart, TTL, `unload`, mudança de `schema_hash`, indisponibilidade, mudança de perfil ou budget.
 - `tool_catalog` é tratado como bootstrap/control-plane conforme a política de tool calling, e `load_skill`/autoativação de skills pelo modelo permanece indisponível conforme AEP-0072.
 - MCP bridge/native, tools destrutivas e budgets de schema respeitam a mesma política central.
+- Wildcards MCP e de pacote obedecem à precedência documentada, resolvem tools
+  registradas posteriormente e não elevam opt-ins.
 - Nenhum fluxo alternativo de envio de mensagens é criado.

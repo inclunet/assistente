@@ -347,6 +347,12 @@ curl http://localhost:3000/mcp/health
 ...
 ```
 
+Esses nomes canônicos podem ser usados literalmente em `tool_policy`. Para
+governar um servidor inteiro, use `mcp/filesystem/*` (ou
+`mcp:filesystem/*`); para todas as MCPs, use `mcp/*`. Uma entrada literal
+`disabled` sempre vence o wildcard do servidor. Veja
+[MCP — Configuração](MCP_PROFILE_CONFIG.md#política-mcp-no-perfil).
+
 ---
 
 ## Troubleshooting
