@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	mcplib "assistente/internal/mcp"
 	"assistente/internal/tools"
 )
 
@@ -208,29 +209,25 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 }
 
 func (p *ToolSelectionPolicy) toolPolicyTarget(name string) ToolPolicyTarget {
-	if p.registry == nil {
-		return ToolPolicyTarget{Name: name}
-	}
-	target := ToolPolicyTarget{Name: name, OptIn: p.registry.IsOptIn(name)}
-	tool, ok := p.registry.Get(name)
-	if !ok {
-		return target
-	}
-	// Pontes MCP usam o namespace como fonte de seleção. Não aplique nelas o
-	// package "basic" de fallback reservado a builtins sem metadados.
-	if !strings.HasPrefix(name, "mcp_") {
-		target.Package = tools.CatalogMetadataForTool(tool).Package
-	}
-	return target
+	return toolPolicyTargetFromRegistry(p.registry, name)
 }
 
 func (p EffectiveToolPolicy) target(name string) ToolPolicyTarget {
-	if p.registry == nil {
+	return toolPolicyTargetFromRegistry(p.registry, name)
+}
+
+func toolPolicyTargetFromRegistry(registry *tools.Registry, name string) ToolPolicyTarget {
+	if registry == nil {
 		return ToolPolicyTarget{Name: name}
 	}
-	target := ToolPolicyTarget{Name: name, OptIn: p.registry.IsOptIn(name)}
-	tool, ok := p.registry.Get(name)
-	if ok && !strings.HasPrefix(name, "mcp_") {
+	target := ToolPolicyTarget{Name: name, OptIn: registry.IsOptIn(name)}
+	tool, ok := registry.Get(name)
+	if !ok {
+		return target
+	}
+	// Só o formato canônico completo mcp_<slug>__<tool> identifica uma ponte
+	// MCP. Builtins como mcp_server mantêm seus CatalogMetadata.Package.
+	if _, _, isMCP := mcplib.ParseToolName(name); !isMCP {
 		target.Package = tools.CatalogMetadataForTool(tool).Package
 	}
 	return target

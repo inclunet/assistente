@@ -92,7 +92,7 @@ func parseDelimitedSelector(value, prefix, suffix string) (string, bool) {
 
 func mcpServerSelector(slug string) (ToolPolicySelector, bool) {
 	slug = strings.TrimSpace(slug)
-	if slug == "" || strings.ContainsAny(slug, "/*:") {
+	if slug == "" || strings.ContainsAny(slug, "/*: \t\r\n") {
 		return ToolPolicySelector{}, false
 	}
 	return ToolPolicySelector{
@@ -104,7 +104,7 @@ func mcpServerSelector(slug string) (ToolPolicySelector, bool) {
 
 func packageSelector(pkg string) (ToolPolicySelector, bool) {
 	pkg = strings.TrimSpace(pkg)
-	if pkg == "" || strings.ContainsAny(pkg, "/*:") {
+	if pkg == "" || strings.ContainsAny(pkg, "/*: \t\r\n") {
 		return ToolPolicySelector{}, false
 	}
 	return ToolPolicySelector{

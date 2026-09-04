@@ -17,6 +17,15 @@ describe('toolPolicyMatcher', () => {
     expect(parseToolPolicySelector(raw)?.canonical).toBe(canonical);
   });
 
+  it.each([
+    'mcp/atlassian cloud/*',
+    'mcp:atlassian\tcloud/*',
+    'package/my package/*',
+    'my package/*',
+  ])('rejeita o escopo não canônico %s', (raw) => {
+    expect(parseToolPolicySelector(raw)).toBeNull();
+  });
+
   it('aplica literal, wildcard específico, wildcard geral e default nessa ordem', () => {
     const policy = normalizeToolPolicyMap({
       'mcp/*': 'preloaded',
@@ -54,6 +63,20 @@ describe('toolPolicyMatcher', () => {
       name: 'job',
       package: 'job',
       optIn: true,
+    }).state).toBe('on_demand');
+  });
+
+  it('aplica package à builtin mcp_server e namespace à MCP canônica', () => {
+    const policy = normalizeToolPolicyMap({
+      'package/mcp/*': 'preloaded',
+      'mcp/atlassian/*': 'on_demand',
+    });
+    expect(resolveToolPolicy(policy, 'disabled', {
+      name: 'mcp_server',
+      package: 'mcp',
+    }).state).toBe('preloaded');
+    expect(resolveToolPolicy(policy, 'disabled', {
+      name: 'mcp_atlassian__search',
     }).state).toBe('on_demand');
   });
 });
