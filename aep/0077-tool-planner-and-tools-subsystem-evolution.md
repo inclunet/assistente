@@ -81,3 +81,7 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 - **AEP-0072 (Skill Loading Runtime)**: progressive disclosure de skills é o análogo já entregue; o ToolPlanner traz disciplina semelhante (budget/catálogo leve) para tools.
 - **AEP-0071 (Structured Tool Output Size)**: o budget de *entrada* (schema bytes) do planner complementa o teto de *saída* já definido lá.
 - **AEP-0081 (Tools por Perfil)**: estende o planner com estados tri-state por perfil, carregamento sob demanda via `tool_catalog` e persistência por conversa/sessão.
+- **Adoção experimental do catálogo (#630)**: aplica o ranking também à busca,
+  acrescenta recência efêmera por conversa e permite preload automático
+  read-only no primeiro turno. O planner e seu budget acumulado continuam sendo
+  a barreira final para todo schema carregado.

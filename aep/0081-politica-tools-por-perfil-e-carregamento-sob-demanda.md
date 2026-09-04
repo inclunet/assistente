@@ -18,6 +18,13 @@ O `tool_catalog` passa a ser a única interface de control-plane para descoberta
 
 Tools carregadas por `tool_catalog action=load` podem persistir por conversa/sessão em turnos futuros, até restart, TTL, mudança de `schema_hash`, estouro de budget ou `unload`, sempre respeitando allowlist/estado do perfil.
 
+> **Evolução experimental (#630).** O contrato deixa de exigir que todo
+> primeiro turno faça dois saltos manuais. Uma busca interna, read-only e
+> limitada pode pré-carregar até 3 candidatas `on_demand` de risco `read` quando
+> houver correspondência textual útil. O catálogo continua sendo o único
+> control-plane; esse preload não muda política nem contorna opt-in,
+> disponibilidade, allowlist ou budget.
+
 ## Motivação
 
 AEP-0049 introduziu o `tool_catalog` como catálogo persistido de builtins e MCP. AEP-0077 concluiu a centralização da seleção via `ToolSelectionPolicy` e `ToolPlanner`, com budget de schema, ranking e resolução bridge/native. Ainda falta representar, no perfil e na UI, uma política clara entre "bloqueado", "descobrível sob demanda" e "sempre disponível".
@@ -117,6 +124,18 @@ Semântica das ações:
 
 Nomes alternativos como `activate`/`deactivate` foram considerados, mas `load`/`unload` refletem melhor o efeito real: disponibilizar ou remover schema/capacidade do conjunto efetivo, não executar a tool de domínio.
 
+Busca e ranking seguem uma ordem total: relevância textual decrescente, posição
+do pacote em `PreferredToolPackages`, recência da conversa e, como fallback,
+origem e nome. A busca explícita com `query` ranqueia todo o conjunto autorizado
+e pagina a saída em até 50 resultados. A listagem sem `query` mantém paginação
+no repositório e reranqueia somente a página corrente, evitando carregar o
+catálogo inteiro; somente o auto-search interno avalia no máximo 200 candidatas.
+`load` aceita os mesmos seletores canônicos de
+`tool_policy` definidos pela #629 (`*`, `mcp/*`, `mcp/<servidor>/*`,
+`package/*` e `package/<pacote>/*`), reutilizando o mesmo parser/matcher. Cada
+wildcard expande no máximo 20 candidatas autorizadas; o ToolPlanner aplica
+depois o budget acumulado de schema.
+
 ### D5. Persistência por conversa/sessão
 
 Tools carregadas por `tool_catalog action=load` podem permanecer disponíveis em turnos seguintes da mesma conversa/sessão.
@@ -132,6 +151,12 @@ Escopo inicial:
 - replanejamento quando o budget de schema for excedido.
 
 A persistência de loaded tools não substitui o `tool_catalog`. Ela é um cache de disponibilidade efetiva para o agentic loop, derivado da política do perfil e do catálogo.
+
+A recência usada no ranking compartilha esse armazenamento in-memory por
+conversa/perfil. É uma LRU limitada às 64 tools usadas com sucesso mais
+recentemente, reiniciada com o app e invalidada quando o perfil efetivo muda.
+Não se cria nova persistência: `tool_invocations` permanece o histórico
+auditável, enquanto essa LRU é somente um sinal efêmero de ordenação.
 
 ### D6. Budget, schema hash e governança
 
@@ -166,6 +191,13 @@ Regras:
 - o usuário não deve precisar habilitar manualmente `tool_catalog` para conseguir descobrir tools em um perfil que permite tools sob demanda.
 
 Se `disable_tools=true`, o runtime pode remover até mesmo `tool_catalog` do modelo. Nesse modo, `/skill` explícito do usuário continua sendo carregamento backend-driven, conforme AEP-0072, mas autoativação por modelo não ocorre.
+
+No primeiro turno de uma conversa, o backend pode executar auto-search usando o
+texto já persistido do usuário. A operação consulta no máximo 200 entradas,
+registra em log candidatas/preload/rejeições e pré-carrega no máximo 3 tools.
+Somente `on_demand` + `available` + risco `read` é elegível. Riscos `network`,
+`write`, `shell` e `destructive`, tools `disabled`, opt-ins não autorizadas e
+itens fora da visibilidade do perfil nunca entram automaticamente.
 
 ### D9. Relação com Context Providers e SurfaceContext
 
@@ -269,4 +301,10 @@ conforme D8 (`RuntimeTools`, como `load_skill` enquanto há skill sob demanda).
 - MCP bridge/native, tools destrutivas e budgets de schema respeitam a mesma política central.
 - Wildcards MCP e de pacote obedecem à precedência documentada, resolvem tools
   registradas posteriormente e não elevam opt-ins.
+- Search ranqueia deterministicamente por relevância, pacote preferido,
+  recência por conversa e fallback estável.
+- Wildcard em `load` reutiliza o matcher de política, expande no máximo 20
+  candidatas visíveis e não altera autorização.
+- Auto-search do primeiro turno é read-only, limitado, observável e nunca
+  pré-carrega risco de escrita, shell, rede ou destrutivo.
 - Nenhum fluxo alternativo de envio de mensagens é criado.

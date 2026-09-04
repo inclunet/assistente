@@ -350,6 +350,37 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	basePreloadedToolNames := baseEffectiveToolPolicy.PreloadedNames()
 	toolCatalogVisibleNames := baseEffectiveToolPolicy.CatalogVisibleNames()
 	controlPlaneToolNames := controlPlaneNamesFromPolicy(baseEffectiveToolPolicy)
+	// Primeiro turno: busca interna limitada e observável, seguida de preload
+	// somente de candidatas on_demand com risco "read". A autorização continua
+	// vindo da policy e o ToolPlanner ainda aplica o budget ao conjunto final.
+	if !disableTools && req.RetryMessageID == "" && isFirstConversationTurn(messages) &&
+		uc.loadedToolStore != nil && database.DB() != nil &&
+		uc.loadedToolStore.ClaimAutoSearch(req.ConversationID, params.ProfileSlug) {
+		recentNames := uc.loadedToolStore.RecentNames(req.ConversationID, params.ProfileSlug)
+		autoNames, autoErr := autoDiscoverReadOnlyTools(
+			ctx,
+			toolcatalog.NewDBRepository(database.DB()),
+			baseEffectiveToolPolicy,
+			userContent,
+			preferredToolPackages,
+			recentNames,
+		)
+		if autoErr != nil {
+			logging.Warnf(ctx, "core.usecases.send-message", "[SendMessage] auto-search do tool_catalog falhou sem bloquear o turno: %v", autoErr)
+		} else if len(autoNames) > 0 {
+			candidates := append([]string(nil), autoNames...)
+			loaded, rejected := uc.loadedToolStore.Load(
+				req.ConversationID,
+				params.ProfileSlug,
+				autoNames,
+				toolCatalogVisibleNames,
+				basePreloadedToolNames,
+				controlPlaneToolNames,
+			)
+			autoNames = loadedToolChangeNames(loaded)
+			logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] tool_catalog auto-search: candidatas=%v preload=%v rejeitadas=%d", candidates, autoNames, len(rejected))
+		}
+	}
 	if uc.loadedToolStore != nil && !disableTools {
 		loadedRuntimeTools := uc.loadedToolStore.Loaded(req.ConversationID, params.ProfileSlug, toolCatalogVisibleNames)
 		loadedRuntimeTools = availableLoadedRuntimeTools(ctx, loadedRuntimeTools)
@@ -459,12 +490,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		effectiveToolPolicy := toolPolicy.ResolveEffectiveToolPolicy(toolCfg)
 		agentCtx = tools.WithToolCatalogVisibleNames(agentCtx, effectiveToolPolicy.CatalogVisibleNames())
 		agentCtx = tools.WithToolCatalogRuntime(agentCtx, tools.ToolCatalogRuntime{
-			Store:          uc.loadedToolStore,
-			ConversationID: req.ConversationID,
-			ProfileSlug:    params.ProfileSlug,
-			VisibleNames:   effectiveToolPolicy.CatalogVisibleNames(),
-			PreloadedNames: basePreloadedToolNames,
-			ControlPlane:   controlPlaneToolNames,
+			Store:             uc.loadedToolStore,
+			ConversationID:    req.ConversationID,
+			ProfileSlug:       params.ProfileSlug,
+			VisibleNames:      effectiveToolPolicy.CatalogVisibleNames(),
+			PreloadedNames:    basePreloadedToolNames,
+			ControlPlane:      controlPlaneToolNames,
+			PreferredPackages: preferredToolPackages,
+			MatchSelector:     canonicalToolSelectorMatcher,
 		})
 		// Injeta caminhos de arquivos abertos em abas de editor para que
 		// filesystem tools possam ler/editar esses arquivos fora do workDir.
@@ -502,6 +535,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}()
 	}
 	return req.ConversationID, nil
+}
+
+func loadedToolChangeNames(changes []tools.LoadedToolChange) []string {
+	names := make([]string, 0, len(changes))
+	for _, change := range changes {
+		names = append(names, change.Name)
+	}
+	return names
 }
 
 // whisperTranscribeFunc cria o callback de transcrição STT para o pipeline.

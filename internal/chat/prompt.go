@@ -11,23 +11,22 @@ Key behaviors:
 - Use markdown formatting for better readability
 - Adapt your communication style to the user's needs`
 
-// CatalogFirstToolPrompt instrui o modelo a seguir o fluxo catalog-first (AEP-0049, D16):
-// quando o gating por catálogo está ativo, as únicas tools inicialmente disponíveis
-// são tools de controle como "tool_catalog"; as demais só ficam disponíveis APÓS
-// serem carregadas pelo catálogo.
+// CatalogFirstToolPrompt instrui o modelo sobre o fluxo híbrido da AEP-0081:
+// baseline e um preload read-only do primeiro turno podem coexistir com o
+// catálogo; demais tools só ficam disponíveis após load.
 // Esta seção é injetada sempre que o gating por catálogo está ativo, para que a ordem
 // "consultar catálogo → tools ficam disponíveis → usar" não dependa apenas da exposição
 // de tools nem de uma descrição de tool opcional.
 const CatalogFirstToolPrompt = `<tool_selection_protocol>
-Tool access in this session is gated by a catalog. Initially the only regular tool loading capability available to you is "tool_catalog"; other runtime control tools may be provided separately when available. Other tools (file access, web search, tasks, MCP servers, etc.) are NOT yet available and will not appear until you load them.
+Tool access in this session is gated by a catalog. A small profile baseline and task-relevant read-only tools may already be available. Never assume other tools exist until they are provided or loaded through "tool_catalog".
 
-Follow this order strictly:
-1. First, call "tool_catalog" with action="search" to discover the capabilities you need for the task. You can filter by origin, category, class, package, risk or availability.
-2. Then call "tool_catalog" with action="load" and tools:["tool_name"] for each specific on-demand capability you need.
-3. The tools you load become available only on the NEXT iteration/turn, after the catalog responds with loaded_tools.
-4. Only AFTER that may you invoke the real tools.
+When a needed capability is not already available:
+1. Call "tool_catalog" once with action="search" and a task-oriented query. You can also filter by origin, category, class, package, risk or availability.
+2. Call "tool_catalog" with action="load" and exact names or a bounded selector such as "mcp/atlassian/*".
+3. Loaded tools become available on the NEXT iteration after the catalog responds with loaded_tools.
+4. Then invoke the newly available tools.
 
-Never call a tool that has not been provided to you yet — such a call will fail. Whenever you are unsure which tools exist, consult "tool_catalog" first.
+Never call a tool that has not been provided. Search and preload never override profile policy, opt-in, risk controls, allowlists, confirmations or schema budget.
 </tool_selection_protocol>`
 
 // InjectSystemPrompt insere ou combina o fullSystemPrompt nas mensagens.

@@ -127,6 +127,12 @@ Esta AEP reserva fases próprias para:
 Essas mudanças não entram no baseline inicial porque alteram contratos de
 execução e interação além da seleção de tools.
 
+A adoção experimental do catálogo da issue #630 complementa, sem ampliar, o
+baseline: no primeiro turno somente candidatas `on_demand` de risco `read`
+podem ser pré-carregadas por relevância. Escrita, shell, rede, destrutivas e
+opt-ins continuam exigindo autorização/carregamento explícitos. Pacotes
+preferenciais influenciam ranking, mas nunca mudam o estado tri-state.
+
 ## Fases
 
 1. **Política e profiles builtin**
