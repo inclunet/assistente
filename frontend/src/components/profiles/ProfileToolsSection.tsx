@@ -243,7 +243,9 @@ export function ProfileToolsSection({
           optIn: item.optIn,
         }).state;
       }
-      for (const name of runtimeTools) {
+      for (const rawName of runtimeTools) {
+        const name = rawName.trim();
+        if (!name) continue;
         const item = toolRows.find((row) => row.name === name);
         if (!item) continue;
         const match = resolveToolPolicy(normalizedToolPolicy, defaultState, {
