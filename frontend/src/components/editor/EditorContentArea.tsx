@@ -607,16 +607,11 @@ export function EditorContentArea({
                       tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
                     />
                   ) : (
-                    <>
-                      {!activeTab.readOnly ? (
-                        <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
-                      ) : null}
-                      <MarkdownRenderer
-                        content={debouncedMarkdownForPreview}
-                        interactiveButtons={false}
-                        tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
-                      />
-                    </>
+                    <MarkdownRenderer
+                      content={debouncedMarkdownForPreview}
+                      interactiveButtons={false}
+                      tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
+                    />
                   )}
                 </div>
               </div>

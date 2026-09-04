@@ -38,7 +38,7 @@ vi.mock('../ui/CodeEditor', () => ({
 }));
 
 vi.mock('../ui/MarkdownRenderer', () => ({
-  MarkdownRenderer: (props: { tabNavigation?: string }) => (
+  MarkdownRenderer: (props: { content?: string; tabNavigation?: string }) => (
     <div
       data-testid="markdown-renderer"
       data-tab-navigation={props.tabNavigation}
@@ -46,6 +46,15 @@ vi.mock('../ui/MarkdownRenderer', () => ({
       <a href="https://example.com" tabIndex={props.tabNavigation === 'enabled' ? 0 : -1}>
         Link do documento
       </a>
+      {props.content?.includes('```mermaid') ? (
+        <div
+          className="mermaid-diagram"
+          data-mermaid-index="0"
+          role="img"
+          aria-label="editor.presentation.mermaidDiagramLabel"
+          tabIndex={props.tabNavigation === 'enabled' ? 0 : -1}
+        />
+      ) : null}
     </div>
   ),
 }));
@@ -397,6 +406,29 @@ describe('EditorContentArea document view', () => {
     expect(screen.getByText('editor.documentView.partialExtraction')).toBeInTheDocument();
     expect(screen.queryByText('editor.hints.previewMermaid')).not.toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith('editor.documentView.openedAnnouncement');
+  });
+
+  it('omite o aviso global e mantém Mermaid editável pelo mouse e teclado', () => {
+    const onOpenMermaid = vi.fn();
+    renderContentArea({
+      id: 'mermaid-view',
+      title: 'diagrama.md',
+      markdown: '```mermaid\ngraph TD\nA --> B\n```',
+      mode: 'view',
+      readOnly: false,
+    }, { onOpenMermaid });
+
+    expect(screen.queryByText('editor.hints.previewMermaid')).not.toBeInTheDocument();
+    const diagram = screen.getByRole('img', {
+      name: 'editor.presentation.mermaidDiagramLabel',
+    });
+
+    fireEvent.doubleClick(diagram);
+    fireEvent.keyDown(diagram, { key: 'Enter' });
+
+    expect(onOpenMermaid).toHaveBeenCalledTimes(2);
+    expect(onOpenMermaid).toHaveBeenNthCalledWith(1, 0);
+    expect(onOpenMermaid).toHaveBeenNthCalledWith(2, 0);
   });
 
   it('entra numa ilha documental distinta sem prender Tab, Shift+Tab ou F6', async () => {
