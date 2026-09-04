@@ -8,11 +8,13 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 type searchConversationsArgs struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	Query          string `json:"query"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
 }
 
 // SearchRepo abstrai a busca full-text no histórico de mensagens.
@@ -20,7 +22,15 @@ type SearchRepo interface {
 	SearchMessages(ctx context.Context, query string, limit int) ([]database.MessageSearchResult, error)
 }
 
-// SearchConversationsTool busca no histórico de mensagens de todas as conversas.
+// ScopedSearchRepo estende SearchRepo com busca restrita a uma conversa.
+// A interface separada preserva compatibilidade com implementações existentes
+// que oferecem somente a busca global.
+type ScopedSearchRepo interface {
+	SearchMessagesInConversation(ctx context.Context, query, conversationID string, limit int) ([]database.MessageSearchResult, error)
+}
+
+// SearchConversationsTool busca no histórico de mensagens, globalmente ou em
+// uma conversa específica.
 // Usa FTS5 (full-text search) com ranking BM25 para encontrar discussões anteriores.
 type SearchConversationsTool struct {
 	repo SearchRepo
@@ -64,7 +74,7 @@ func (t *SearchConversationsTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *SearchConversationsTool) Description() string {
-	return "Searches the full message history across ALL conversations using full-text search. Use this to find if a topic was already discussed, what was concluded, or to recall past context. Supports words, \"exact phrases\", prefix* matching, and OR/AND/NOT operators. Returns results ranked by relevance (BM25)."
+	return "Searches message history using full-text search. By default it searches ALL conversations. Pass a conversation_id to restrict results, or conversation_id=\"current\" to safely use the current conversation from the invocation context. Supports words, \"exact phrases\", prefix* matching, and OR/AND/NOT operators. Returns results ranked by relevance (BM25)."
 }
 
 func (t *SearchConversationsTool) Parameters() json.RawMessage {
@@ -74,6 +84,10 @@ func (t *SearchConversationsTool) Parameters() json.RawMessage {
 			"query": {
 				"type": "string",
 				"description": "Termo de busca. Exemplos: 'autenticação JWT', '\"rolling context\"', 'signal OR telegram', 'implement*'"
+			},
+			"conversation_id": {
+				"type": "string",
+				"description": "Opcional. ID da conversa para restringir a busca. Use \"current\" para a conversa corrente. Omitir mantém a busca global em todas as conversas do usuário."
 			},
 			"limit": {
 				"type": "integer",
@@ -102,10 +116,31 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 		limit = 20
 	}
 
+	conversationID := strings.TrimSpace(params.ConversationID)
+	if strings.EqualFold(conversationID, "current") {
+		inv, ok := invocationctx.Get(ctx)
+		if !ok || strings.TrimSpace(inv.ConversationID) == "" {
+			return tools.ToolResult{
+				Content: "Busca rejeitada: conversation_id=\"current\" requer uma conversa corrente no contexto de invocação",
+				IsError: true,
+			}, nil
+		}
+		conversationID = strings.TrimSpace(inv.ConversationID)
+	}
+
 	var results []database.MessageSearchResult
 	var err error
 	if t.repo != nil {
-		results, err = t.repo.SearchMessages(ctx, query, limit)
+		if conversationID == "" {
+			results, err = t.repo.SearchMessages(ctx, query, limit)
+		} else if scopedRepo, ok := t.repo.(ScopedSearchRepo); ok {
+			results, err = scopedRepo.SearchMessagesInConversation(ctx, query, conversationID, limit)
+		} else {
+			return tools.ToolResult{
+				Content: "Erro de configuração: SearchRepo não suporta busca por conversation_id",
+				IsError: true,
+			}, nil
+		}
 	} else if t.allowDirectFallback {
 		// SECURITY: SearchMessageContentWithContext já é fail-closed por
 		// userID, mas mantemos a validação aqui para que o erro seja
@@ -114,7 +149,7 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 		if _, gErr := database.RequireUserID(ctx); gErr != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Busca rejeitada: %v", gErr), IsError: true}, nil
 		}
-		results, err = database.SearchMessageContentWithContext(ctx, query, limit)
+		results, err = database.SearchMessageContentInConversationWithContext(ctx, query, conversationID, limit)
 	} else {
 		return tools.ToolResult{Content: "Erro de configuração: SearchConversationsTool sem repo", IsError: true}, nil
 	}
@@ -123,12 +158,16 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 	}
 
 	if len(results) == 0 {
+		metadata := map[string]any{
+			"query":   query,
+			"results": 0,
+		}
+		if conversationID != "" {
+			metadata["conversation_id"] = conversationID
+		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Nenhum resultado encontrado para: %s", query),
-			Metadata: map[string]any{
-				"query":   query,
-				"results": 0,
-			},
+			Content:  fmt.Sprintf("Nenhum resultado encontrado para: %s", query),
+			Metadata: metadata,
 		}, nil
 	}
 
@@ -166,12 +205,16 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 		sb.WriteString("\n")
 	}
 
+	metadata := map[string]any{
+		"query":         query,
+		"results":       len(results),
+		"conversations": len(grouped),
+	}
+	if conversationID != "" {
+		metadata["conversation_id"] = conversationID
+	}
 	return tools.ToolResult{
-		Content: sb.String(),
-		Metadata: map[string]any{
-			"query":         query,
-			"results":       len(results),
-			"conversations": len(grouped),
-		},
+		Content:  sb.String(),
+		Metadata: metadata,
 	}, nil
 }
