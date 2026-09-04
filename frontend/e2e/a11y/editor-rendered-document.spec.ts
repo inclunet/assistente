@@ -32,6 +32,7 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     await wails.setResponse('EditorWatchFile', null);
     await wails.setResponse('EditorUnwatchFile', null);
     await wails.setResponse('EditorSaveState', null);
+    await wails.setResponse('UpdateWorkspaceTab', null);
   });
 
   test('Alt+3 entra e retorna diretamente ao documento sem Enter adicional', async ({
@@ -44,6 +45,9 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     const document = page.locator('[data-editor-rendered-document="true"]');
     const documentLink = document.getByRole('link', { name: 'Link do documento' });
 
+    await expect(page.getByRole('toolbar', { name: 'Editor toolbar' })).toBeVisible({
+      timeout: 30_000,
+    });
     await page.keyboard.press('Alt+1');
     const monacoInput = page.getByRole('textbox', { name: 'Markdown editor' });
     await expect(monacoInput).toBeVisible({ timeout: 15_000 });
@@ -148,5 +152,62 @@ test.describe('Preview renderizado do editor — ilha documental', () => {
     await page.keyboard.press('Escape');
     await expect(document).toBeFocused();
     await expect(document).toHaveAttribute('role', 'document');
+  });
+
+  test('troca de aba restaura o foco conforme o displayMode persistido', async ({
+    page,
+    wails,
+  }) => {
+    await wails.setResponse('GetActiveWorkspace', {
+      id: 'ws-1',
+      name: 'Workspace',
+      profile: '',
+      created_at: now,
+      last_used: now,
+      tabs: {
+        active: 'editor-tab-a',
+        items: [
+          {
+            id: 'editor-tab-a',
+            type: 'editor',
+            title: 'Visualização',
+            position: 0,
+            state: {
+              filePath: 'C:/tmp/manual-a.md',
+              displayMode: 'view',
+            },
+          },
+          {
+            id: 'editor-tab-b',
+            type: 'editor',
+            title: 'Código',
+            position: 1,
+            state: {
+              filePath: 'C:/tmp/manual-b.md',
+              displayMode: 'markdown',
+            },
+          },
+        ],
+      },
+    });
+    await wails.waitForApp();
+
+    const activePanel = () => page.locator('.ws-content__panel[data-active="true"]');
+    const renderedDocument = activePanel().locator('[data-editor-rendered-document="true"]');
+    await expect(renderedDocument).toBeVisible({ timeout: 15_000 });
+
+    await page.keyboard.press('Control+Tab');
+    const monacoInput = activePanel().getByRole('textbox', { name: 'Markdown editor' });
+    await expect(monacoInput).toBeVisible({ timeout: 15_000 });
+    await expect(monacoInput).toBeFocused();
+
+    await page.keyboard.press('Control+Shift+Tab');
+    await expect(renderedDocument).toHaveAttribute('role', 'document');
+    await expect(renderedDocument).toBeFocused();
+
+    await page.keyboard.press('Control+PageDown');
+    await expect(monacoInput).toBeFocused();
+    await page.keyboard.press('Control+PageUp');
+    await expect(renderedDocument).toBeFocused();
   });
 });

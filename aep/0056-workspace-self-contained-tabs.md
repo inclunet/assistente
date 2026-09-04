@@ -52,11 +52,23 @@ Cada tipo de aba deve controlar seu conteúdo:
 
 Estados visuais como loading, scroll, streaming, expansão de threads, tool calls, seleção e edição devem ser escopados ao controller da aba ou ao conteúdo persistido, não a um singleton global que represente toda a aplicação.
 
+No editor, o modo de exibição é estado da superfície: `markdown`, `rich` ou
+`view` fica em `WorkspaceTab.state.displayMode`, associado ao `tabId`. A
+escolha permanece enquanto a aba existir, inclusive após reiniciar o
+aplicativo. Uma aba nova pode usar a preferência legada do arquivo como valor
+inicial, mas depois disso cada aba evolui seu próprio `displayMode`.
+
 ### 3. Keep-alive lazy por aba visitada
 
 Abas não visitadas permanecem inativas e não carregam conteúdo pesado. Ao visitar uma aba pela primeira vez, seu painel é montado. Depois disso, enquanto a aba continuar aberta e dentro da política de cache, o painel permanece vivo e apenas alterna entre ativo e inativo.
 
 Painéis inativos devem ficar fora da navegação por teclado e da árvore de leitores de tela. Eles não podem capturar foco, atalhos locais, microfone ou ações de UI que pertençam à aba ativa.
+
+Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp ou Ctrl+PageDown, o
+shell solicita foco ao controller da superfície ativada. O controller é
+responsável por escolher o alvo correto e só atende depois de seu painel estar
+ativo. No editor, isso significa Monaco em `markdown`, TipTap em `rich` e a
+ilha documental da AEP-0094 em `view`.
 
 ### 4. Chat por controller de conversa/aba
 

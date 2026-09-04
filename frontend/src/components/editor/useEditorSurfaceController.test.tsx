@@ -24,6 +24,13 @@ vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
 
 vi.mock('../../store/editorStore', () => ({
   DEFAULT_MD: '# Novo documento',
+  resolveEditorDisplayMode: (value: unknown, fallback: string, readOnly: boolean) => (
+    readOnly
+      ? 'view'
+      : value === 'markdown' || value === 'rich' || value === 'view'
+        ? value
+        : fallback
+  ),
   useEditorStore: Object.assign(
     (selector: (state: typeof editorMocks) => unknown) => selector(editorMocks),
     {
@@ -88,6 +95,24 @@ describe('useEditorSurfaceController', () => {
         id: 'editor-tab',
         filePath: 'C:/tmp/doc.md',
         markdown: '# Arquivo',
+      }));
+    });
+  });
+
+  it('aplica displayMode persistido ao documento provisório', async () => {
+    renderHook(() => useEditorSurfaceController({
+      ...editorTab,
+      state: {
+        ...editorTab.state,
+        displayMode: 'view',
+      },
+    }, true));
+
+    await waitFor(() => {
+      expect(editorMocks.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'editor-tab',
+        mode: 'view',
+        sessionHydrated: false,
       }));
     });
   });

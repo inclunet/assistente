@@ -22,6 +22,7 @@ import { useEditorMenus } from './useEditorMenus';
 import { useEditorMerge } from './useEditorMerge';
 import { useEditorDocument } from './useEditorDocument';
 import { useEditorPersistence } from './useEditorPersistence';
+import { registerWorkspacePanelFocus } from '../components/workspace/workspacePanelFocusRegistry';
 import type {
   MonacoCodeEditor,
   MonacoNamespace,
@@ -63,9 +64,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const currentRevealSlideIndexRef = useRef(0);
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
+  const isPanelActiveRef = useRef(isPanelActive);
+  isPanelActiveRef.current = isPanelActive;
 
   const [currentRevealSlideIndex, setCurrentRevealSlideIndex] = useState(0);
   const [editorReadyNonce, setEditorReadyNonce] = useState(0);
+  const [workspaceFocusRequestNonce, setWorkspaceFocusRequestNonce] = useState(0);
+  const consumedWorkspaceFocusRequestRef = useRef(0);
 
   const chatModalOpen = useWorkspaceChatModalStore((s) => s.isOpen);
 
@@ -131,6 +136,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   // Não rouba foco de modais nem de campos de digitação.
   const didInitialEditorAutofocusRef = useRef(false);
   useEffect(() => {
+    if (!isPanelActive) return;
     if (!sessionLoaded) return;
     if (!activeTab) return;
     if (chatModalOpen) return;
@@ -165,7 +171,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (!isTypingTarget && (isDocumentBody || isEditorZone)) {
       focusEditorSoon({ preserveExternalFocus: true });
     }
-  }, [sessionLoaded, activeTab?.id, activeTab?.mode, chatModalOpen, editorReadyNonce]);
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, chatModalOpen, editorReadyNonce, isPanelActive]);
 
   const { rememberCurrentExplicitSelection, getPreparedSelectionSnapshot } = useEditorSelectionSnapshots({
     activeTab,
@@ -182,11 +188,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     window.setTimeout(() => {
       try {
         const currentTab = activeTabRef.current;
-        if (!currentTab) return;
+        if (!currentTab || !isPanelActiveRef.current) return;
+        if (isModalOpen() || useWorkspaceChatModalStore.getState().isOpen) return;
 
         if (options?.preserveFocusedField || options?.preserveExternalFocus) {
-          if (isModalOpen() || useWorkspaceChatModalStore.getState().isOpen) return;
-
           const focused = document.activeElement as HTMLElement | null;
           const focusedTag = focused?.tagName || '';
           const isFocusedField =
@@ -299,6 +304,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     revealAppendNonce,
     renderedReadingRequest,
     consumeRenderedReadingRequest,
+    requestRenderedReadingFocus,
     requestRevealSlideNavigation,
     createRevealSlideFromToolbar,
     requestRevealFullscreen,
@@ -342,6 +348,50 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     focusEditorSoon,
     addToast,
   });
+
+  useEffect(() => {
+    if (!currentDocumentId) return;
+    return registerWorkspacePanelFocus(currentDocumentId, () => {
+      if (
+        !isPanelActiveRef.current
+        || isModalOpen()
+        || useWorkspaceChatModalStore.getState().isOpen
+      ) return false;
+      setWorkspaceFocusRequestNonce((nonce) => nonce + 1);
+      return true;
+    });
+  }, [currentDocumentId]);
+
+  useEffect(() => {
+    if (
+      workspaceFocusRequestNonce === 0
+      || consumedWorkspaceFocusRequestRef.current === workspaceFocusRequestNonce
+      || !isPanelActive
+      || !sessionLoaded
+      || !activeTab
+      || isModalOpen()
+      || chatModalOpen
+    ) return;
+
+    if (activeTab.mode === 'markdown' && !editorRef.current) return;
+    if (activeTab.mode === 'rich' && !richEditorRef.current) return;
+
+    consumedWorkspaceFocusRequestRef.current = workspaceFocusRequestNonce;
+    if (activeTab.mode === 'view') {
+      requestRenderedReadingFocus();
+    } else {
+      focusEditorSoon();
+    }
+  }, [
+    activeTab?.id,
+    activeTab?.mode,
+    chatModalOpen,
+    editorReadyNonce,
+    isPanelActive,
+    requestRenderedReadingFocus,
+    sessionLoaded,
+    workspaceFocusRequestNonce,
+  ]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>

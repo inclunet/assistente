@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useActiveTab, useWorkspaceTabs, type WorkspaceTab } from '../../store/workspaceStore';
 import { WorkspacePanelProvider } from './WorkspacePanelContext';
@@ -10,8 +10,19 @@ const Loading = () => (
 );
 
 function WorkspaceTabPanel({ tab, isActive }: { tab: WorkspaceTab; isActive: boolean }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (isActive) return;
+    const focused = document.activeElement as HTMLElement | null;
+    if (focused && panelRef.current?.contains(focused)) {
+      focused.blur();
+    }
+  }, [isActive]);
+
   return (
     <div
+      ref={panelRef}
       className="ws-content__panel"
       data-tab-id={tab.id}
       data-tab-type={tab.type}

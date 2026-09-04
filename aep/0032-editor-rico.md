@@ -134,6 +134,12 @@ Observação: `Ctrl+I` já aparece na ajuda como “Perfis de interação”. Me
 ### Comportamento
 - Um toggle na Toolbar: **Rico** / **Markdown**.
 - A aba mantém um estado `mode` e um campo `markdown` (fonte de verdade).
+- O modo de exibição (`markdown`, `rich` ou `view`) pertence à identidade da
+  aba e é persistido em `WorkspaceTab.state.displayMode`. Enquanto a aba
+  existir, a escolha sobrevive à troca de abas e à reinicialização do
+  aplicativo; fechar/remover a aba encerra esse estado.
+- A preferência histórica por caminho de arquivo é usada apenas como fallback
+  para abas legadas ou recém-criadas que ainda não tenham `displayMode`.
 
 ### Regras de sincronização
 - Ao entrar no modo rico: `markdown` → parse → setContent no TipTap.

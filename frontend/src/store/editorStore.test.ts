@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useEditorStore } from './editorStore';
+import {
+  normalizeEditorMode,
+  preferLiveEditorDocument,
+  resolveEditorDisplayMode,
+  useEditorStore,
+} from './editorStore';
 
 function resetStore() {
   useEditorStore.setState({ documents: {}, pendingInsert: null });
@@ -82,6 +87,52 @@ describe('editorStore — filePath lifecycle', () => {
     expect(useEditorStore.getState().documents['d1'].filePath).toBe('/a.md');
     expect(useEditorStore.getState().documents['d2'].filePath).toBeNull();
   });
+
+  it('normaliza somente modos de exibição suportados', () => {
+    expect(normalizeEditorMode('view')).toBe('view');
+    expect(normalizeEditorMode('rich')).toBe('rich');
+    expect(normalizeEditorMode('desconhecido', 'markdown')).toBe('markdown');
+  });
+
+  it('restaura displayMode da aba antes do fallback legado', () => {
+    expect(resolveEditorDisplayMode('view', 'rich', false)).toBe('view');
+    expect(resolveEditorDisplayMode(undefined, 'rich', false)).toBe('rich');
+    expect(resolveEditorDisplayMode('markdown', 'rich', true)).toBe('view');
+  });
+
+  it('substitui apenas documento provisório durante hidratação posterior', () => {
+    const loaded = {
+      id: 'tab-1',
+      title: 'Disco',
+      markdown: '# Disco',
+      mode: 'view' as const,
+      sessionHydrated: true,
+    };
+    const provisional = {
+      ...loaded,
+      title: 'Provisório',
+      mode: 'markdown' as const,
+      sessionHydrated: false,
+    };
+    const live = {
+      ...loaded,
+      title: 'Editado',
+      markdown: '# Alterado',
+    };
+    const editedProvisional = {
+      ...provisional,
+      markdown: '# Alteração local',
+      hasLocalChanges: true,
+    };
+
+    expect(preferLiveEditorDocument(loaded, provisional)).toBe(loaded);
+    expect(preferLiveEditorDocument(loaded, live)).toBe(live);
+    expect(preferLiveEditorDocument(loaded, editedProvisional)).toEqual({
+      ...editedProvisional,
+      sessionHydrated: true,
+    });
+  });
+
 });
 
 describe('editorStore — projeção somente leitura', () => {

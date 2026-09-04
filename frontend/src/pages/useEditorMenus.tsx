@@ -9,7 +9,7 @@ import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import type { RenderedReadingRequest } from '../components/editor/EditorContentArea';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import { useEditorStore, type EditorDocument, type EditorInsertRequest, type EditorMode } from '../store/editorStore';
-import type { WorkspaceTab } from '../store/workspaceStore';
+import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { normalizePathKey } from '../utils/path';
 import { isModalOpen } from '../components/ui/Modal';
 import {
@@ -100,8 +100,13 @@ export function useEditorMenus({
   const [revealAppendNonce, setRevealAppendNonce] = useState(0);
   const renderedReadingRequestNonceRef = useRef(0);
   const [renderedReadingRequest, setRenderedReadingRequest] = useState<RenderedReadingRequest | null>(null);
+  const updateWorkspaceTab = useWorkspaceStore((state) => state.updateTab);
   const consumeRenderedReadingRequest = useCallback((nonce: number) => {
     setRenderedReadingRequest((current) => current?.nonce === nonce ? null : current);
+  }, []);
+  const requestRenderedReadingFocus = useCallback(() => {
+    renderedReadingRequestNonceRef.current += 1;
+    setRenderedReadingRequest({ nonce: renderedReadingRequestNonceRef.current });
   }, []);
 
   const fileMenuItems = useMemo(() => {
@@ -260,24 +265,34 @@ export function useEditorMenus({
       }
 
       useEditorStore.getState().setDocMode(activeTab.id, nextMode);
+      const effectiveMode: EditorMode = activeTab.readOnly ? 'view' : nextMode;
+
+      // Dispara cada atualização imediatamente: manter a última mudança atrás
+      // de uma Promise local permitiria que o app encerrasse antes mesmo de a
+      // chamada final chegar ao backend.
+      void updateWorkspaceTab(activeTab.id, {
+          state: { displayMode: effectiveMode },
+        })
+        .catch(() => {
+          addToast(t('editor.modePersistenceFailed'), 'error');
+        });
 
       // Se for arquivo real, memoriza preferência apenas de modos de edição.
-      if (activeTab.filePath && (nextMode === 'markdown' || nextMode === 'rich')) {
-        fileModeByPathRef.current[normalizePathKey(String(activeTab.filePath))] = nextMode;
+      if (activeTab.filePath && (effectiveMode === 'markdown' || effectiveMode === 'rich')) {
+        fileModeByPathRef.current[normalizePathKey(String(activeTab.filePath))] = effectiveMode;
       }
 
-      if (nextMode === 'view') {
+      if (effectiveMode === 'view') {
         // Ao escolher o modo pelo menu, evita que o fechamento restaure o
         // gatilho depois de a ilha documental receber foco.
         if (source === 'menu') toolbarMenuTriggerRef.current = null;
-        renderedReadingRequestNonceRef.current += 1;
-        setRenderedReadingRequest({ nonce: renderedReadingRequestNonceRef.current });
+        requestRenderedReadingFocus();
         return;
       }
 
       focusEditorSoon();
     },
-    [activeTab]
+    [activeTab, addToast, requestRenderedReadingFocus, t, updateWorkspaceTab]
   );
 
   const fileMenuItemsForContextMenu = useMemo((): MenuItem[] => {
@@ -470,6 +485,7 @@ export function useEditorMenus({
     revealAppendNonce,
     renderedReadingRequest,
     consumeRenderedReadingRequest,
+    requestRenderedReadingFocus,
     requestRevealSlideNavigation,
     createRevealSlideFromToolbar,
     requestRevealFullscreen,

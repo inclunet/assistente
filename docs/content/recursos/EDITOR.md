@@ -12,9 +12,8 @@ O Assistente possui um editor de texto integrado com suporte a múltiplas abas, 
 | Modo | Descrição |
 |---|---|
 | **Código** | Editor Monaco (mesmo do VS Code) com syntax highlighting |
-| **Rich Text** | Editor de texto rico com formatação |
-| **Markdown** | Renderização de Markdown com preview |
-| **Mermaid** | Editor e preview de diagramas Mermaid |
+| **Rico** | Editor de texto rico com formatação |
+| **Visualização** | Documento renderizado para leitura e navegação |
 
 ## Funcionalidades
 
@@ -26,6 +25,9 @@ Cada aba representa um arquivo ou draft. O estado das abas é preservado por wor
 - Novo arquivo: **Menu File → Novo**
 - Salvar: **Ctrl + S** (salva no disco) ou auto-save
 - Salvar como: **Menu File → Salvar Como**
+- O modo Código, Rico ou Visualização pertence à aba e é restaurado
+  mesmo depois de fechar e abrir novamente o Assistente. Fechar a aba remove
+  essa escolha.
 
 ### Auto-Save
 
@@ -73,6 +75,10 @@ A leitura continua ativa quando Tab ou F6 levam o foco para outra região. Press
 
 Ao abrir um documento no modo de código, o foco entra no Monaco assim que o editor termina de carregar. Um diálogo aberto ou outro campo de texto que já esteja ativo mantém o foco.
 
+Ao mudar de aba com **Ctrl+Tab**, **Ctrl+Shift+Tab**, **Ctrl+PageUp** ou
+**Ctrl+PageDown**, o foco entra diretamente na superfície correspondente ao
+modo salvo da aba: Monaco, editor rico ou documento renderizado.
+
 ## Atalhos
 
 | Atalho | Ação |
@@ -80,7 +86,10 @@ Ao abrir um documento no modo de código, o foco entra no Monaco assim que o edi
 | `Ctrl + S` | Salvar |
 | `Ctrl + W` | Fechar aba |
 | `Ctrl + Tab` | Próxima aba |
-| `Alt + 1` | Modo Markdown |
+| `Ctrl + Shift + Tab` | Aba anterior |
+| `Ctrl + PageDown` | Próxima aba |
+| `Ctrl + PageUp` | Aba anterior |
+| `Alt + 1` | Modo Código |
 | `Alt + 2` | Modo de texto rico |
 | `Alt + 3` | Visualização e leitura do documento |
 | Deep link | `assistente://editor/{id}` |
