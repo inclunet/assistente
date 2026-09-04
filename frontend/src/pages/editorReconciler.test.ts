@@ -217,8 +217,44 @@ describe('decideExternalChange', () => {
   describe('mudança externa real', () => {
     it('auto-recarrega aba limpa quando permitido', () => {
       expect(
-        decideExternalChange(makeInput({ diskHash: DISK, localHash: LOCAL, tabIsDirty: false, allowAutoReload: true }))
+        decideExternalChange(
+          makeInput({
+            diskHash: DISK,
+            localHash: LOCAL,
+            lastKnownDiskHash: LOCAL,
+            tabIsDirty: false,
+            allowAutoReload: true,
+          })
+        )
       ).toEqual({ action: 'auto_reload' });
+    });
+
+    it('auto-recarrega aba declarada limpa antes de existir baseline', () => {
+      expect(
+        decideExternalChange(
+          makeInput({
+            diskHash: DISK,
+            localHash: LOCAL,
+            lastKnownDiskHash: null,
+            tabIsDirty: false,
+            allowAutoReload: true,
+          })
+        )
+      ).toEqual({ action: 'auto_reload' });
+    });
+
+    it('preferência prompt força pergunta mesmo em aba externa limpa', () => {
+      expect(
+        decideExternalChange(
+          makeInput({
+            diskHash: DISK,
+            localHash: LOCAL,
+            lastKnownDiskHash: LOCAL,
+            tabIsDirty: false,
+            allowAutoReload: false,
+          })
+        )
+      ).toEqual({ action: 'prompt_conflict', openPrompt: true, cause: 'external' });
     });
 
     it('não auto-recarrega na re-checagem de foco (allowAutoReload ausente)', () => {
