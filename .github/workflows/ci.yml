@@ -60,6 +60,13 @@ jobs:
       - name: Go build
         run: go build ./...
 
+      - name: Cross-compile da CLI para macOS sem cgo
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o /tmp/asst-darwin-amd64 ./cmd/asst/
+          GOOS=darwin GOARCH=arm64 go build -o /tmp/asst-darwin-arm64 ./cmd/asst/
+
       - name: Go tests (com cobertura)
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
