@@ -136,3 +136,37 @@ func TestEffectiveToolPolicyExpandePackagePelosMetadadosDoRegistry(t *testing.T)
 		t.Fatalf("wildcard de package não deve elevar opt-in, got %s", got)
 	}
 }
+
+func TestEffectiveToolPolicyDistingueBuiltinMCPServerDePonteCanonica(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(policyMetadataTool{name: tools.ToolCatalogName, pkg: "control"})
+	policy := NewToolSelectionPolicy(registry)
+	cfg := ProfileToolConfig{
+		ToolPolicyDefault: string(ToolPolicyDisabled),
+		ToolPolicy: map[string]string{
+			"package/mcp/*":   string(ToolPolicyPreloaded),
+			"mcp/atlassian/*": string(ToolPolicyOnDemand),
+		},
+	}
+	effectiveLazy := policy.ResolveEffectiveToolPolicy(cfg)
+
+	// Ambas entram depois da resolução para exercitar EffectiveToolPolicy.target.
+	registry.MustRegister(policyMetadataTool{name: "mcp_server", pkg: "mcp"})
+	registry.MustRegister(policyMetadataTool{name: "mcp_atlassian__search", pkg: "mcp"})
+
+	if got := effectiveLazy.State("mcp_server"); got != ToolPolicyPreloaded {
+		t.Fatalf("builtin mcp_server deveria manter package no caminho lazy, got %s", got)
+	}
+	if got := effectiveLazy.State("mcp_atlassian__search"); got != ToolPolicyOnDemand {
+		t.Fatalf("ponte MCP canônica deveria usar namespace, não package, got %s", got)
+	}
+
+	// Nova resolução exercita ToolSelectionPolicy.toolPolicyTarget.
+	effectiveResolved := policy.ResolveEffectiveToolPolicy(cfg)
+	if got := effectiveResolved.State("mcp_server"); got != ToolPolicyPreloaded {
+		t.Fatalf("builtin mcp_server deveria manter package no resolve, got %s", got)
+	}
+	if got := effectiveResolved.State("mcp_atlassian__search"); got != ToolPolicyOnDemand {
+		t.Fatalf("ponte MCP canônica deveria continuar on_demand no resolve, got %s", got)
+	}
+}

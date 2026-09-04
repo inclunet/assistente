@@ -56,4 +56,18 @@ describe('toolPolicyMatcher', () => {
       optIn: true,
     }).state).toBe('on_demand');
   });
+
+  it('aplica package à builtin mcp_server e namespace à MCP canônica', () => {
+    const policy = normalizeToolPolicyMap({
+      'package/mcp/*': 'preloaded',
+      'mcp/atlassian/*': 'on_demand',
+    });
+    expect(resolveToolPolicy(policy, 'disabled', {
+      name: 'mcp_server',
+      package: 'mcp',
+    }).state).toBe('preloaded');
+    expect(resolveToolPolicy(policy, 'disabled', {
+      name: 'mcp_atlassian__search',
+    }).state).toBe('on_demand');
+  });
 });

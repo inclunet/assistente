@@ -10,8 +10,11 @@ export function parseToolSource(toolName: string): ToolSource {
   if (!toolName.startsWith(MCP_PREFIX)) return { type: 'local' };
   const rest = toolName.slice(MCP_PREFIX.length);
   const sepIdx = rest.indexOf(MCP_SEPARATOR);
-  if (sepIdx < 0) return { type: 'local' };
-  return { type: 'mcp', serverSlug: rest.slice(0, sepIdx) };
+  if (sepIdx <= 0 || sepIdx + MCP_SEPARATOR.length >= rest.length) return { type: 'local' };
+  const serverSlug = rest.slice(0, sepIdx).trim();
+  const toolNamePart = rest.slice(sepIdx + MCP_SEPARATOR.length).trim();
+  if (serverSlug === '' || toolNamePart === '') return { type: 'local' };
+  return { type: 'mcp', serverSlug };
 }
 
 export interface McpServerEntry {
