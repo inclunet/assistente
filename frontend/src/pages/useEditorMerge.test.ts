@@ -222,7 +222,11 @@ describe('useEditorMerge', () => {
 
     const openDecision = async (
       result: ReturnType<typeof setup>['result'],
-      opts?: { diskContent?: string; cause?: 'external' | 'assisted' },
+      opts?: {
+        diskContent?: string;
+        diskReadError?: string;
+        cause?: 'external' | 'assisted';
+      },
     ) => {
       let pending!: Promise<void>;
       act(() => {
@@ -318,6 +322,32 @@ describe('useEditorMerge', () => {
       );
       expect(result.current.isExternalConflictLocked('t1')).toBe(false);
     });
+
+    it.each([
+      ['use-disk', 'recarrega o arquivo'],
+      ['resolve-merge', 'inicia o merge'],
+    ] as const)(
+      'relê o disco após falha temporária e %s',
+      async (action, _description) => {
+        vi.mocked(EditorReadFile).mockResolvedValue('conteudo recuperado' as never);
+        const { result } = setup();
+        const { pending } = await openDecision(result, {
+          diskReadError: 'disk_read_failed',
+        });
+
+        await choose(result, pending, action);
+
+        expect(EditorReadFile).toHaveBeenCalledWith('/tmp/doc.md');
+        if (action === 'use-disk') {
+          expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith(
+            't1',
+            'conteudo recuperado',
+          );
+        } else {
+          expect(EditorWriteDraft).toHaveBeenCalledTimes(3);
+        }
+      },
+    );
 
     it('chamada com aba inexistente não abre decisão nem vaza causa', async () => {
       const { result } = setup();

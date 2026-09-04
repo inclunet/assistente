@@ -402,11 +402,24 @@ export function useEditorMerge() {
         return;
       }
 
-      if (action === 'resolve-merge') {
-        if (diskReadError) {
+      const recoverDiskRead = async (): Promise<boolean> => {
+        if (!diskReadError) return true;
+        try {
+          diskContent = normalizeEditorDocumentResult(
+            await EditorReadFile(filePath),
+            filePath,
+          ).content;
+          diskReadError = '';
+          return true;
+        } catch (e) {
+          logger.warn('[EditorPage] falha ao reler disco após decisão:', e);
           addToast(t('editor.toast.diskReadFailed'), 'error');
-          return;
+          return false;
         }
+      };
+
+      if (action === 'resolve-merge') {
+        if (!(await recoverDiskRead())) return;
         try {
           await startMergeSessionForTab(tabId, filePath, diskContent, localContent);
         } catch (e) {
@@ -417,10 +430,7 @@ export function useEditorMerge() {
       }
 
       if (action === 'use-disk') {
-        if (diskReadError) {
-          addToast(t('editor.toast.diskReadFailed'), 'error');
-          return;
-        }
+        if (!(await recoverDiskRead())) return;
 
         try {
           setDocMarkdown(tabId, diskContent);
