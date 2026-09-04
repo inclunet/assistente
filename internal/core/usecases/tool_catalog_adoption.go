@@ -44,7 +44,7 @@ func autoDiscoverReadOnlyTools(
 	entries, err := store.ListTools(ctx, tools.ToolCatalogFilter{
 		NameIn:             visible,
 		AvailabilityStatus: tools.ToolAvailabilityAvailable,
-		Limit:              tools.MaxCatalogSearchCandidates + 1,
+		Limit:              tools.MaxCatalogSearchCandidates,
 	})
 	if err != nil {
 		return nil, err
