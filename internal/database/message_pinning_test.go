@@ -49,6 +49,13 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	if err != nil || !reloaded.Pinned {
 		t.Fatalf("pinned state was not persisted: message=%+v err=%v", reloaded, err)
 	}
+	if err := db.Model(&ChatMessage{}).Where("id = ?", anaMessage.ID).Updates(map[string]any{
+		"audio":      "audio grande",
+		"media":      "mídia grande",
+		"tool_calls": "chamadas grandes",
+	}).Error; err != nil {
+		t.Fatalf("populate large message fields: %v", err)
+	}
 
 	list, err := GetPinnedMessagesWithContext(anaCtx, anaConversation.ID)
 	if err != nil {
@@ -56,6 +63,9 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].ID != anaMessage.ID {
 		t.Fatalf("unexpected pinned list: %+v", list)
+	}
+	if list[0].Audio != "" || list[0].Media != "" || list[0].ToolCalls != "" {
+		t.Fatalf("pinned list loaded large unused fields: %+v", list[0])
 	}
 	if _, err := ToggleMessagePinWithContext(anaCtx, leoMessage.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("cross-user toggle error = %v, want record not found", err)

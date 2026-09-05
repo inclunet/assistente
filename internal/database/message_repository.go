@@ -321,6 +321,16 @@ func (r *MessageRepository) GetPinnedMessagesWithContext(ctx context.Context, co
 	}
 	var messages []ChatMessage
 	err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).
+		Select(
+			"chat_messages.id",
+			"chat_messages.created_at",
+			"chat_messages.updated_at",
+			"chat_messages.conversation_id",
+			"chat_messages.parent_id",
+			"chat_messages.role",
+			"chat_messages.content",
+			"chat_messages.pinned",
+		).
 		Where("chat_messages.conversation_id = ? AND chat_messages.pinned = ?", conversationID, true).
 		Order("chat_messages.created_at ASC, chat_messages.id ASC").
 		Find(&messages).Error
