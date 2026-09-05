@@ -392,6 +392,13 @@ type MessageUpdatedEvent struct {
 	Content        string `json:"content"`
 }
 
+// MessagePinChangedEvent is the payload for message:pin_changed.
+type MessagePinChangedEvent struct {
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`
+	Pinned         bool   `json:"pinned"`
+}
+
 // ConversationRenamedEvent is the payload for conversation:renamed.
 type ConversationRenamedEvent struct {
 	ConversationID string `json:"conversationId"`

@@ -102,6 +102,10 @@ export function GetMessagesBefore(arg1, arg2, arg3) {
   return window['go']['wailsapi']['Conversations']['GetMessagesBefore'](arg1, arg2, arg3);
 }
 
+export function GetPinnedMessages(arg1) {
+  return window['go']['wailsapi']['Conversations']['GetPinnedMessages'](arg1);
+}
+
 export function GetRecentMessages(arg1, arg2) {
   return window['go']['wailsapi']['Conversations']['GetRecentMessages'](arg1, arg2);
 }
@@ -120,6 +124,10 @@ export function SearchConversationHistory(arg1, arg2) {
 
 export function SetConversationModel(arg1, arg2) {
   return window['go']['wailsapi']['Conversations']['SetConversationModel'](arg1, arg2);
+}
+
+export function ToggleMessagePin(arg1) {
+  return window['go']['wailsapi']['Conversations']['ToggleMessagePin'](arg1);
 }
 
 export function UpdateConversation(arg1, arg2, arg3) {

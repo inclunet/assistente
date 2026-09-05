@@ -263,6 +263,72 @@ func (r *MessageRepository) GetMessageWithContext(ctx context.Context, messageID
 	return &msg, nil
 }
 
+// ToggleMessagePinWithContext alterna a fixação de uma mensagem persistida.
+// O ownership é herdado da conversa e validado fail-closed pelo contexto.
+func ToggleMessagePinWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
+	return NewMessageRepository(db).ToggleMessagePinWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) ToggleMessagePinWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil, fmt.Errorf("messageID é obrigatório")
+	}
+
+	var updated ChatMessage
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current ChatMessage
+		if err := scopedMessageQuery(ctx, tx.Model(&ChatMessage{})).
+			First(&current, "chat_messages.id = ?", messageID).Error; err != nil {
+			return err
+		}
+		messageIDs := scopedMessageQuery(ctx, tx.Model(&ChatMessage{}).
+			Select("chat_messages.id").
+			Where("chat_messages.id = ?", messageID))
+		if err := tx.Model(&ChatMessage{}).
+			Where("id = ?", messageID).
+			Where("id IN (?)", messageIDs).
+			Update("pinned", !current.Pinned).Error; err != nil {
+			return err
+		}
+		current.Pinned = !current.Pinned
+		updated = current
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &updated, nil
+}
+
+// GetPinnedMessagesWithContext lista todas as mensagens fixadas da conversa,
+// inclusive mensagens internas e de threads, em ordem cronológica.
+func GetPinnedMessagesWithContext(ctx context.Context, conversationID string) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetPinnedMessagesWithContext(ctx, conversationID)
+}
+
+func (r *MessageRepository) GetPinnedMessagesWithContext(ctx context.Context, conversationID string) ([]ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationID é obrigatório")
+	}
+	if _, err := NewConversationRepository(r.db).GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	var messages []ChatMessage
+	err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.pinned = ?", conversationID, true).
+		Order("chat_messages.created_at ASC, chat_messages.id ASC").
+		Find(&messages).Error
+	return messages, err
+}
+
 // AddToolMessageWithContext adiciona uma mensagem de role="tool" (resposta de
 // tool ao orquestrador) para o usuário do contexto.
 func AddToolMessageWithContext(ctx context.Context, conversationID string, content string) (*ChatMessage, error) {

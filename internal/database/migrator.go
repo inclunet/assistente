@@ -197,6 +197,15 @@ var schemaMigrations = []migration{
 		Phase: phasePostAutoMigrate,
 		Run:   migrateAgentProvidersToSingleType,
 	},
+	{
+		Version: 13,
+		Name:    "chat_message_pinned_index",
+		// PÓS: AutoMigrate cria a coluna pinned antes do índice de listagem.
+		Phase: phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			return database.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_pinned_created ON chat_messages (conversation_id, pinned, created_at, id)`).Error
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

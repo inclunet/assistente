@@ -405,6 +405,25 @@ func (c *ConversationsController) UpdateMessage(ctx context.Context, messageID s
 	return nil
 }
 
+// ToggleMessagePin alterna a fixação persistente e publica o novo estado.
+func (c *ConversationsController) ToggleMessagePin(ctx context.Context, messageID string) (*database.ChatMessage, error) {
+	msg, err := database.ToggleMessagePinWithContext(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+	c.emit("message:pin_changed", ports.MessagePinChangedEvent{
+		ConversationID: msg.ConversationID,
+		MessageID:      msg.ID,
+		Pinned:         msg.Pinned,
+	})
+	return msg, nil
+}
+
+// GetPinnedMessages lista as mensagens fixadas da conversa atual.
+func (c *ConversationsController) GetPinnedMessages(ctx context.Context, conversationID string) ([]database.ChatMessage, error) {
+	return database.GetPinnedMessagesWithContext(ctx, conversationID)
+}
+
 // UpdateConversationModel altera só o modelo da conversa.
 func (c *ConversationsController) UpdateConversationModel(ctx context.Context, id string, model string) error {
 	return database.UpdateConversationWithContext(ctx, id, "", model)

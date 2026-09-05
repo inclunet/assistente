@@ -211,6 +211,7 @@ type ChatMessage struct {
 	CacheMissTokens  int     `json:"cacheMissTokens,omitempty" gorm:"default:0"`  // Tokens de prompt não atendidos pelo cache
 	Model            string  `json:"model,omitempty"`                             // Modelo usado
 	Source           string  `json:"source,omitempty"`                            // Origem da mensagem: "wails", "telegram", "signal", etc.
+	Pinned           bool    `json:"pinned" gorm:"not null;default:false"`        // Fixação persistente na conversa
 }
 
 // ==================== Context Providers / Memory ====================

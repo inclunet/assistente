@@ -81,6 +81,7 @@ type EnrichedMessage struct {
 	CacheMissTokens  int       `json:"cacheMissTokens,omitempty"`
 	Model            string    `json:"model,omitempty"`
 	Source           string    `json:"source,omitempty"`
+	Pinned           bool      `json:"pinned"`
 	CreatedAt        time.Time `json:"createdAt"`
 	Timestamp        int64     `json:"timestamp"`
 	IsStreaming      bool      `json:"isStreaming"`
