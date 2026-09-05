@@ -89,4 +89,5 @@ describe('confirmStore', () => {
     await expect(p).resolves.toBe(true);
     expect(focus).toHaveBeenCalledTimes(1);
   });
+
 });
