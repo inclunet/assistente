@@ -14,7 +14,7 @@ func TestFSTrustNotWired(t *testing.T) {
 	if err := api.RemovePathAllowlistEntry("global", "/tmp/a", "file", "read", "allow"); !errors.Is(err, ErrFSTrustNotWired) {
 		t.Fatalf("RemovePathAllowlistEntry: want ErrFSTrustNotWired, got %v", err)
 	}
-	if err := api.AddPathDenyEntry("/tmp/a", "file", "read", "global", ""); !errors.Is(err, ErrFSTrustNotWired) {
-		t.Fatalf("AddPathDenyEntry: want ErrFSTrustNotWired, got %v", err)
+	if err := api.AddPathAllowlistEntry("/tmp/a", "file", "read", "allow", "global", ""); !errors.Is(err, ErrFSTrustNotWired) {
+		t.Fatalf("AddPathAllowlistEntry: want ErrFSTrustNotWired, got %v", err)
 	}
 }

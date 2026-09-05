@@ -44,8 +44,11 @@ deixa de ser bypass de segurança.
 | D-Q7 | A **raiz** de um walk (`grep`, `list`, `search`) passa pelo fluxo normal e pode pedir autorização; as **entradas percorridas** que escapam do sandbox são **puladas em silêncio**, nunca viram prompt. |
 
 **Fase 2 (concluída):** denylist explícita que pode restringir até dentro do
-workdir — “sempre permitido” deixa de ser absoluto quando houver deny. Criação
-de deny é UI-only (D9); allow continua só via consentimento.
+workdir — “sempre permitido” deixa de ser absoluto quando houver deny.
+
+**Follow-up #561:** além do consentimento original, a pessoa pode negar e
+lembrar no diálogo ou criar allow/deny persistente na gestão. As duas origens
+usam o mesmo modelo e o mesmo `Manager`; deny continua com precedência absoluta.
 
 ### D1. Hook único em `validatePathWithPolicy`
 
@@ -128,10 +131,12 @@ O prompter monta `kind: decision` com:
 - **ação explícita opcional** por escopo (ou um segundo conjunto) para
   autorizar a **pasta pai `/**`** com a **mesma operação** — só se o usuário
   escolher essa ação (D-Q1);
-- última ação: Negar.
+- ações de negar e lembrar (`session`, `workspace`, `profile`, `global`) para
+  o path exato + operação atual;
+- última ação: Negar somente esta tentativa (`once`).
 
 `actionId` estável (`once`, `session`, …, `dir-once`, `dir-session`, …,
-`deny`). Nunca o rótulo traduzido.
+`deny-session`, …, `deny-global`, `deny`). Nunca o rótulo traduzido.
 
 ### D4. Remove bypass “open editor”
 
@@ -166,9 +171,10 @@ operação, motivo “fora do sandbox”) com sugestões e deep link
 
 ### D7. UI de gestão (Fase 1b / Fase 2 leve)
 
-Listar e remover entradas persistidas (workspace / profile / global). **Allow
-não** se cria pela tela — nasce só do consentimento (mesmo D7 do AEP-0082).
-**Deny** se cria pelo formulário da página (D9 / Fase 2).
+Listar, criar e remover entradas persistidas (workspace / profile / global).
+O formulário aceita `allow` ou `deny`, path/arquivo ou pasta, operação, escopo
+e observação. Escopos efêmeros não são oferecidos na gestão porque dependem de
+uma tentativa ou conversa ativa.
 
 Pode ir no mesmo PR da Fase 1 se couber; senão PR empilhado imediatamente após.
 
@@ -195,11 +201,11 @@ Fase 2:
 - entradas `Deny` com a mesma forma (`Path`/`Kind`/`Operation`/`Scope`/`Effect`);
 - ordem: **deny** (qualquer escopo) → raízes / allow trust → prompt;
 - trust **nunca** anula deny;
-- **Criação de deny é só pela UI de gestão** (`PathAllowlistPage` →
-  `AddPathDenyEntry`). Não há ação “Negar e lembrar” no DecisionDialog
-  (AEP-0091); o diálogo de consentimento continua só com escopos de *allow*
-  + Negar pontual. A página lista/remove allows e denies; o formulário cria
-  **apenas** deny (allow continua nascendo só do consentimento, D7).
+- deny pode nascer pela UI de gestão ou pela ação explícita “Negar e lembrar”
+  do `DecisionDialog`; a recusa `once` nunca persiste;
+- a página lista/remove e cria allows e denies persistentes;
+- todas as origens delegam persistência e isolamento ao mesmo núcleo
+  `trustscope`, sem formato ou contrato paralelo.
 
 ## Segurança
 
@@ -241,7 +247,9 @@ Fase 2:
 - [x] Migrar `fstrust` e `nettrust` preservando APIs e comportamento
 - [x] Preservar schemas e caminhos dos arquivos versão 1
 - [x] Cobrir equivalência de escopos, serialização e leitura de dados existentes
-- [ ] Avaliar UX de allow/deny em PR empilhada posterior
+- [x] Negar e lembrar no `DecisionDialog`, com escopos isolados e fail-closed
+- [x] Criar allow/deny persistente pela UI de gestão
+- [x] Feedback acessível, i18n e testes de cancelamento/persistência
 
 ## Riscos
 
