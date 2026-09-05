@@ -73,9 +73,6 @@ func TestChatBindingsAreSafeBeforeStartup(t *testing.T) {
 	if _, err := api.RetryMessage("c1", "m1", llm.ChatParams{}); !errors.Is(err, wailsapi.ErrChatNotWired) {
 		t.Fatalf("RetryMessage() error = %v, want ErrChatNotWired", err)
 	}
-	if _, err := api.SendMessageSync(nil, llm.ChatParams{}); !errors.Is(err, wailsapi.ErrChatNotWired) {
-		t.Fatalf("SendMessageSync() error = %v, want ErrChatNotWired", err)
-	}
 }
 
 func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
