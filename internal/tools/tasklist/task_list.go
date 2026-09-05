@@ -289,6 +289,9 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if params.Limit != nil && (*params.Limit < 1 || *params.Limit > database.MaxTaskPageLimit) {
 		return tools.ToolResult{Content: fmt.Sprintf("limit must be between 1 and %d", database.MaxTaskPageLimit), IsError: true}, nil
 	}
+	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) == "" {
+		return tools.ToolResult{Content: "cursor must be a non-empty next_cursor or null", IsError: true}, nil
+	}
 
 	if params.Duplicate && !hasListRef {
 		return tools.ToolResult{Content: "duplicate requires task_list_id or task_list_slug to reference the source list", IsError: true}, nil
