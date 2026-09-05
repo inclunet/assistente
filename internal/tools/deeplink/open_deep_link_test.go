@@ -43,6 +43,7 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 		"unsupported navigate routes",
 		"invalid required or validated parameter combinations",
 		"tool_catalog",
+		"empty route",
 		`{"uri":`,
 	}
 
