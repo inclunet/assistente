@@ -764,9 +764,9 @@ const es = {
       loading: 'Cargando la lista de permitidos de paths...',
       toolbarLabel: 'Barra de herramientas de la lista de permitidos de paths',
       gridLabel: 'Paths autorizados fuera del sandbox',
-      description: 'Paths fuera del workspace activo (y de ~/.assistente) que autorizó al asistente a acceder. Cada entrada vale para un path y una operación hasta que la elimine aquí.',
+      description: 'Gestione permisos y prohibiciones por path y operación. Las prohibiciones prevalecen sobre los permisos en cualquier alcance.',
       sessionNote: 'Esta lista cubre solo el workspace actual, el perfil activo y el alcance global. Las autorizaciones solo del intento, solo de la conversación o de otros perfiles no aparecen aquí: las efímeras caducan solas; las de otros perfiles siguen valiendo cuando ese perfil esté activo.',
-      empty: 'No hay paths autorizados. Todo acceso fuera del sandbox sigue pidiendo consentimiento.',
+      empty: 'No hay reglas de path persistentes. Todo acceso fuera del sandbox sigue pidiendo consentimiento.',
       loadFailedBody: 'No se pudo cargar la lista de permitidos de paths. Las autorizaciones que existan siguen vigentes: recargue para intentarlo de nuevo.',
       columns: {
         path: 'Path',
@@ -796,15 +796,17 @@ const es = {
         unknown: 'Un alcance que esta app no reconoce',
       },
       form: {
-        title: 'Agregar prohibición de path',
+        title: 'Agregar regla de path',
         path: 'Path',
         kind: 'Tipo',
         operation: 'Operación',
+        effect: 'Efecto',
         scope: 'Alcance',
         reason: 'Observación (opcional)',
-        submit: 'Agregar prohibición',
-        pathRequired: 'Indique el path a prohibir',
-        operationRequired: 'Indique la operación a prohibir',
+        submitAllow: 'Agregar permiso',
+        submitDeny: 'Agregar prohibición',
+        pathRequired: 'Indique el path de la regla',
+        operationRequired: 'Indique la operación de la regla',
       },
       actions: {
         remove: 'Eliminar',
@@ -819,17 +821,19 @@ const es = {
       toast: {
         removed: 'Autorización de path eliminada',
         denyRemoved: 'Prohibición de path eliminada',
+        allowAdded: 'Permiso de path agregado',
         denyAdded: 'Prohibición de path agregada',
       },
       announce: {
         removed: 'Autorización de path eliminada: {{path}} ({{scope}}).',
         denyRemoved: 'Prohibición de path eliminada: {{path}} ({{scope}}).',
+        allowAdded: 'Permiso de path agregado: {{path}}.',
         denyAdded: 'Prohibición de path agregada: {{path}}.',
       },
       error: {
         loadFailed: 'Error al cargar la lista de permitidos de paths',
         removeFailed: 'Error al eliminar la autorización de path',
-        addFailed: 'Error al agregar la prohibición de path',
+        addRuleFailed: 'Error al agregar la regla de path',
         reloadAfterRemoveFailed:
           'La autorización se eliminó, pero la lista no pudo actualizarse. Recargue para confirmar.',
       },
@@ -4287,8 +4291,14 @@ const es = {
         },
         fstrust: {
           title: 'Autorizar acceso a una ruta fuera del workspace',
-          description: 'El asistente pidió la operación "{{operation}}" en una ruta fuera del workspace activo y de ~/.assistente. Autoriza solo la ruta exacta de este intento, o elige explícitamente liberar la carpeta padre.',
+          description: 'El asistente pidió la operación "{{operation}}" en una ruta fuera del workspace activo y de ~/.assistente. Permita la ruta o la carpeta padre, deniegue este intento o recuerde la denegación en el alcance elegido.',
           cancel: 'Denegar',
+          deny: {
+            session: 'Denegar durante esta conversación',
+            workspace: 'Denegar en este workspace (proyecto)',
+            profile: 'Denegar en este perfil',
+            global: 'Denegar globalmente (todos los workspaces y perfiles)',
+          },
           scope: {
             once: 'Solo este intento',
             session: 'Durante esta conversación',

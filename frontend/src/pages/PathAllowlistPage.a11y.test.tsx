@@ -11,6 +11,7 @@ const tStable = (key: string, fb?: string) => (typeof fb === 'string' ? fb : key
 vi.mock('@wailsjs/go/wailsapi/FSTrust', () => ({
   GetPathAllowlist: (...args: unknown[]) => mockGetPathAllowlist(...args),
   RemovePathAllowlistEntry: vi.fn(),
+  AddPathAllowlistEntry: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
