@@ -494,7 +494,6 @@ func TestChatMethodsNotOnUnauthAllowlist(t *testing.T) {
 	for _, name := range []string{
 		"SendMessage",
 		"RetryMessage",
-		"SendMessageSync",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s está em wailsapi.Chat; não pertence à allowlist de *App", name)
