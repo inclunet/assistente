@@ -329,7 +329,7 @@ func TestToolBackgroundFlagPropagated(t *testing.T) {
 }
 
 func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
-	content := strings.Repeat("resposta integral ", 2000)
+	content := `{"data":"` + strings.Repeat("x", 20_000) + `"}`
 	runner := &fakeRunner{result: subagent.RunResult{
 		ConversationID:     "child-conv",
 		RunID:              "run-raw",
@@ -347,8 +347,8 @@ func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
 	if res.Content != content {
 		t.Fatalf("raw não devolveu completion.response integral: got=%d want=%d", len(res.Content), len(content))
 	}
-	if json.Valid([]byte(res.Content)) {
-		t.Fatal("raw não deveria envelopar a resposta em JSON")
+	if !json.Valid([]byte(res.Content)) {
+		t.Fatal("raw deveria preservar o JSON puro produzido pelo sub-agente")
 	}
 	if res.Metadata["conversation_id"] != "child-conv" ||
 		res.Metadata["run_id"] != "run-raw" ||
