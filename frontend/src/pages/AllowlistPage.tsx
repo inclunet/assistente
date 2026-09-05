@@ -19,7 +19,7 @@ import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { DialogActions } from '../components/ui/DialogActions';
 import { AllowlistGeneralSection } from '../components/allowlist/AllowlistGeneralSection';
@@ -30,6 +30,7 @@ import { useEditableList } from '../hooks/useEditableList';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './AllowlistPage.css';
 
 type AllowlistInfo = allowlist.AllowlistInfo;
@@ -166,24 +167,7 @@ export default function AllowlistPage() {
     ready: !crud.loading && crud.items.length > 0,
   });
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.key !== 'n' && event.key !== 'N') return;
-      const target = event.target as HTMLElement | null;
-      const isInput =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
-      if (isInput) return;
-      event.preventDefault();
-      crud.openNew();
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [crud]);
+  useActivePanelNewShortcut(crud.openNew);
 
   const handleEdit = useCallback(
     async (row: AllowlistRow) => {

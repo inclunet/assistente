@@ -21,7 +21,7 @@ import {
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
 import { AGENT_API_FORMAT } from '../config/providers';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -30,6 +30,7 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useConfirm } from '../hooks/useConfirm';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './ProvidersPage.css';
 
 interface Provider {
@@ -133,24 +134,7 @@ export default function ProvidersPage() {
     setIsEditing(true);
   };
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.key !== 'n' && event.key !== 'N') return;
-      const target = event.target as HTMLElement | null;
-      const isInput =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
-      if (isInput) return;
-      event.preventDefault();
-      handleAddProvider();
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [handleAddProvider]);
+  useActivePanelNewShortcut(handleAddProvider);
 
   const handleEditProvider = useCallback((provider: ProviderRow) => {
     setEditingProvider({

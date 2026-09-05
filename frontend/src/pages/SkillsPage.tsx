@@ -28,6 +28,7 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './SkillsPage.css';
 
 type SkillInfo = skills.SkillInfo;
@@ -196,6 +197,8 @@ export default function SkillsPage() {
     onNew: () => crud.openNew(),
     ready: !crud.loading && crud.items.length > 0,
   });
+
+  useActivePanelNewShortcut(crud.openNew);
 
   // --- Grid columns ---
 

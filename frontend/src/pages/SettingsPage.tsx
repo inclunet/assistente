@@ -5,6 +5,7 @@ import { Spin } from 'antd';
 import { Tabs, TabList, Tab, TabPanel } from '../components/ui/tabs';
 import { ParentLandmarkProvider } from '../hooks/useLandmarkNavigation';
 import { announce } from '../hooks/useAnnouncer';
+import { ActivePanelContext } from '../hooks/useActivePanelShortcut';
 import './SettingsPage.css';
 
 const ProvidersPage = lazy(() => import('./ProvidersPage'));
@@ -292,17 +293,19 @@ export default function SettingsPage() {
 
         {SETTINGS_TABS.map(({ id, component: Component }) => (
           <TabPanel key={id} value={id} className="settings-tabs__panel">
-            <ParentLandmarkProvider value={true}>
-              <Suspense
-                fallback={
-                  <div className="settings-tabs__loading" aria-busy="true">
-                    <Spin size="large" />
-                  </div>
-                }
-              >
-                <Component />
-              </Suspense>
-            </ParentLandmarkProvider>
+            <ActivePanelContext.Provider value={id === activeTab}>
+              <ParentLandmarkProvider value={true}>
+                <Suspense
+                  fallback={
+                    <div className="settings-tabs__loading" aria-busy="true">
+                      <Spin size="large" />
+                    </div>
+                  }
+                >
+                  <Component />
+                </Suspense>
+              </ParentLandmarkProvider>
+            </ActivePanelContext.Provider>
           </TabPanel>
         ))}
       </Tabs>
