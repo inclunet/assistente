@@ -25,6 +25,18 @@ const INSTALL_PROGRESS_EVENT = 'acp:install:progress';
 type InstallPlan = apidto.ACPInstallPlan;
 
 /**
+ * Pede ao backend a atualização descrita pelo plano que ele próprio forneceu.
+ * Mantém uma única tradução plano → confirmação para o formulário e para
+ * ações rápidas, sem recriar o fluxo de instalação no frontend.
+ */
+export const requestACPAgentUpdate = (plan: InstallPlan) => UpdateACPAgent(plan.agent_id, {
+  distribution: plan.distribution || '',
+  origin: plan.origin || '',
+  sha256: plan.sha256 || '',
+  accept_unverified: !!plan.unverified,
+});
+
+/**
  * Marco da instalação, como o backend o emite (`ACPInstallProgress`, em
  * `internal/app/app_acp_install.go`).
  *
@@ -381,9 +393,10 @@ export const AgentInstall = ({
    * ao fim que os provedores foram repontados, que é a parte que não aparece em
    * nenhum marco.
    */
-  const handleUpdate = async (acceptUnverified = false) => {
-    const agentID = plan?.agent_id;
-    if (!agentID) return;
+  const handleUpdate = async () => {
+    const currentPlan = plan;
+    const agentID = currentPlan?.agent_id;
+    if (!agentID || !currentPlan) return;
     const kind = agentId;
     setConfirming('');
     setBusy(true);
@@ -392,12 +405,7 @@ export const AgentInstall = ({
     setUpdatingNow(true);
     setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
     try {
-      const installation = await UpdateACPAgent(agentID, {
-        distribution: plan?.distribution || '',
-        origin: plan?.origin || '',
-        sha256: plan?.sha256 || '',
-        accept_unverified: acceptUnverified,
-      });
+      const installation = await requestACPAgentUpdate(currentPlan);
       if (!doAgente(kind)) return;
       updateRef.current = 'settled';
       onResolved(installation.command, installation.args || [], installation.env || undefined);
@@ -861,7 +869,7 @@ export const AgentInstall = ({
         onAction={(actionId) => {
           if (actionId === 'confirm') {
             if (busy) return;
-            void (updating ? handleUpdate(unverified) : handleInstall(unverified));
+            void (updating ? handleUpdate() : handleInstall(unverified));
             return;
           }
           setConfirming('');

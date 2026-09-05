@@ -7,11 +7,14 @@ import {
   EditOutlined,
   StarFilled,
   StarOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import {
+  ACPAgentInstallPlan,
   CanRemoveACPAgent,
   RemoveACPAgent,
 } from '@wailsjs/go/wailsapi/ACPInstall';
+import type { apidto } from '@wailsjs/go/models';
 import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
@@ -20,9 +23,11 @@ import {
 } from '@wailsjs/go/wailsapi/LLMProviders';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
+import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
+import { requestACPAgentUpdate } from '../components/settings/AgentInstall';
 import { AGENT_API_FORMAT } from '../config/providers';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
@@ -65,6 +70,8 @@ interface ProviderRow extends Provider {
   statusText: string;
 }
 
+type InstallPlan = apidto.ACPInstallPlan;
+
 export default function ProvidersPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
@@ -83,6 +90,8 @@ export default function ProvidersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
+  const [updatePlans, setUpdatePlans] = useState<Record<string, InstallPlan>>({});
+  const [updateTarget, setUpdateTarget] = useState<{ provider: ProviderRow; plan: InstallPlan } | null>(null);
 
   const loadProviders = async () => {
     setLoading(true);
@@ -95,6 +104,18 @@ export default function ProvidersPage() {
         statusText: getStatusText(p.credential_status),
       })) as ProviderRow[];
       setProviders(mapped);
+      const agentIDs = Array.from(new Set(
+        mapped
+          .filter((provider) => provider.api_format === AGENT_API_FORMAT)
+          .map((provider) => (provider.acp_agent_id || '').trim())
+          .filter(Boolean),
+      ));
+      const plans = await Promise.allSettled(
+        agentIDs.map(async (agentID) => [agentID, await ACPAgentInstallPlan(agentID)] as const),
+      );
+      setUpdatePlans(Object.fromEntries(
+        plans.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+      ));
     } catch (error) {
       logger.error('Erro ao carregar provedores:', error);
       addToast(t('providers.error.loadFailed', 'Erro ao carregar provedores'), 'error');
@@ -226,6 +247,36 @@ export default function ProvidersPage() {
     }
   };
 
+  const handleUpdateAgent = (provider: ProviderRow) => {
+    if (provider.api_format !== AGENT_API_FORMAT) return;
+    const agentID = (provider.acp_agent_id || '').trim();
+    const plan = updatePlans[agentID];
+    if (!agentID || !plan?.update || !plan.can_update) return;
+    setUpdateTarget({ provider, plan });
+  };
+
+  const confirmUpdateAgent = async () => {
+    const target = updateTarget;
+    if (!target) return;
+    setUpdateTarget(null);
+    try {
+      const installation = await requestACPAgentUpdate(target.plan);
+      const message = t('providers.toast.agentUpdated', {
+        name: target.provider.name,
+        version: installation.version,
+      });
+      addToast(message, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(message);
+      await loadProviders();
+    } catch (error: unknown) {
+      const message = t('providers.error.updateAgentFailed', {
+        reason: getErrorMessage(error) || t('providers.error.updateAgentFailedUnknown'),
+      });
+      addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(message, 'assertive');
+    }
+  };
+
   const handleDeleteProvider = async (provider: ProviderRow) => {
     const confirmed = await confirm({
       title: t('providers.confirm.deleteTitle'),
@@ -337,6 +388,12 @@ export default function ProvidersPage() {
   ];
   // Gera as ações contextuais para cada linha de provedor
   function getProviderRowActions(item: ProviderRow) {
+    const agentID = (item.acp_agent_id || '').trim();
+    const updatePlan = updatePlans[agentID];
+    const canUpdate = item.api_format === AGENT_API_FORMAT
+      && !!agentID
+      && !!updatePlan?.update
+      && !!updatePlan.can_update;
     const actions = [
       {
         id: 'edit',
@@ -355,6 +412,13 @@ export default function ProvidersPage() {
         label: t('providers.actions.duplicate', 'Duplicar'),
         icon: <CopyOutlined />,
         onClick: () => handleDuplicateProvider(item),
+      },
+      {
+        id: 'updateAgent',
+        label: t('providers.actions.updateAgent', 'Atualizar agente'),
+        icon: <ReloadOutlined />,
+        onClick: () => handleUpdateAgent(item),
+        disabled: !canUpdate,
       },
       {
         id: 'delete',
@@ -451,6 +515,54 @@ export default function ProvidersPage() {
               />
             </div>
           </Modal>
+
+          <DecisionDialog
+            isOpen={!!updateTarget}
+            onCancel={() => setUpdateTarget(null)}
+            title={t('providerForm.agent.catalog.confirm.titleUpdate', {
+              agent: updateTarget?.plan.name || updateTarget?.provider.name || '',
+              version: updateTarget?.plan.version || '',
+            })}
+            description={t('providerForm.agent.catalog.confirm.introUpdate')}
+            severity={updateTarget?.plan.unverified ? 'permission' : 'info'}
+            initialFocusSelector={
+              updateTarget?.plan.unverified ? '[data-decision-action="cancel"]' : undefined
+            }
+            safeActionId="cancel"
+            actions={[
+              {
+                id: 'confirm',
+                label: t(
+                  updateTarget?.plan.unverified
+                    ? 'providerForm.agent.catalog.confirm.confirmUpdateUnverifiedBtn'
+                    : 'providerForm.agent.catalog.confirm.confirmUpdateBtn',
+                ),
+                primary: true,
+                variant: 'primary',
+              },
+              {
+                id: 'cancel',
+                label: t('providerForm.agent.catalog.confirm.cancelBtn'),
+                variant: 'outline',
+              },
+            ]}
+            onAction={(actionId) => {
+              if (actionId === 'confirm') void confirmUpdateAgent();
+              else setUpdateTarget(null);
+            }}
+            body={updateTarget ? (
+              <dl>
+                <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
+                <dd>{updateTarget.plan.name || updateTarget.provider.name}</dd>
+                <dt>{t('providerForm.agent.catalog.confirm.installedVersion')}</dt>
+                <dd>{updateTarget.plan.installed?.version}</dd>
+                <dt>{t('providerForm.agent.catalog.confirm.newVersion')}</dt>
+                <dd>{updateTarget.plan.version}</dd>
+                <dt>{t('providerForm.agent.catalog.confirm.origin')}</dt>
+                <dd>{updateTarget.plan.origin}</dd>
+              </dl>
+            ) : undefined}
+          />
 
         </>
       )}
