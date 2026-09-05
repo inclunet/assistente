@@ -30,3 +30,4 @@ Trilha de leitura sugerida — comece pelo Kickstart e siga na ordem. Cada item 
 | 19 | [Terminal](TERMINAL/) | Sessões efêmeras com histórico |
 | 20 | [Deep Links](DEEP_LINKS/) | Navegação via `assistente://` |
 | 21 | [Hotkeys](HOTKEYS/) | Atalhos globais e de navegação |
+| 22 | [Chat](CHAT/) | Mensagens, navegação e fixação persistente |
