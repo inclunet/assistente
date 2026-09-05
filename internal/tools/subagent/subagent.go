@@ -321,7 +321,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		if err != nil {
 			return errResult(fmt.Sprintf("erro ao consultar status do sub-agente: %v", err)), nil
 		}
-		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}), nil
+		metadata := map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}
+		if res.AssistantMessageID != "" {
+			metadata["assistant_message_id"] = res.AssistantMessageID
+		}
+		return jsonResult(res, false, metadata), nil
 	}
 }
 

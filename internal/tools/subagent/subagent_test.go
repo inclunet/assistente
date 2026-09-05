@@ -127,8 +127,8 @@ func TestToolMetadata(t *testing.T) {
 	if !json.Valid(tool.Parameters()) {
 		t.Fatal("schema de parâmetros inválido")
 	}
-	description := tool.Description()
-	for _, guidance := range []string{"When to use:", "Don't use:", "Synchronous", "Background", "tokens", "concurrency"} {
+	description := strings.ToLower(tool.Description())
+	for _, guidance := range []string{"when to use", "don't use", "synchronous", "background", "tokens", "concurrency"} {
 		if !strings.Contains(description, guidance) {
 			t.Fatalf("descrição sem orientação %q: %s", guidance, description)
 		}
@@ -205,7 +205,12 @@ func TestToolCancelRouting(t *testing.T) {
 }
 
 func TestToolStatusRouting(t *testing.T) {
-	runner := &fakeRunner{statusResult: subagent.StatusResult{ConversationID: "c1", RunID: "r1", Status: subagent.StatusRunning}}
+	runner := &fakeRunner{statusResult: subagent.StatusResult{
+		ConversationID:     "c1",
+		RunID:              "r1",
+		Status:             subagent.StatusSucceeded,
+		AssistantMessageID: "msg-1",
+	}}
 	tool := NewWithProvider(func() Runner { return runner })
 
 	res, err := tool.Execute(context.Background(), json.RawMessage(`{"conversation_id":"c1"}`))
@@ -217,6 +222,9 @@ func TestToolStatusRouting(t *testing.T) {
 	}
 	if runner.lastStatusID[0] != "c1" {
 		t.Fatalf("status não roteado com conversation_id: %#v", runner.lastStatusID)
+	}
+	if res.Metadata["assistant_message_id"] != "msg-1" {
+		t.Fatalf("assistant_message_id ausente da metadata de status: %#v", res.Metadata)
 	}
 }
 
