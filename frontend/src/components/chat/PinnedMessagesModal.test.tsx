@@ -64,6 +64,7 @@ describe('PinnedMessagesModal', () => {
 
     expect(await screen.findByText('Resposta importante')).toBeInTheDocument();
     const unpin = screen.getByRole('button', { name: 'chat.unpinMessage' });
+    expect(unpin).toHaveAccessibleDescription('Resposta importante');
     await user.click(unpin);
 
     expect(toggleMessagePin).toHaveBeenCalledWith('message-1');

@@ -88,7 +88,9 @@ export function PinnedMessagesModal({
               <li className="pinned-messages__item" key={message.id}>
                 <article>
                   <h3>{t(roleKey(message.role))}</h3>
-                  <p>{message.content || t('chat.pins.noTextContent')}</p>
+                  <p id={`pinned-message-${message.id}-content`}>
+                    {message.content || t('chat.pins.noTextContent')}
+                  </p>
                   {(message.parentId || message.role === 'tool') && (
                     <p className="pinned-messages__context">
                       {message.parentId ? t('chat.pins.threadMessage') : t('chat.pins.toolMessage')}
@@ -99,6 +101,7 @@ export function PinnedMessagesModal({
                     variant="secondary"
                     size="sm"
                     onClick={() => void unpin(message.id)}
+                    aria-describedby={`pinned-message-${message.id}-content`}
                   >
                     {t('chat.unpinMessage')}
                   </Button>
