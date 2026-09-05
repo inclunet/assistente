@@ -324,6 +324,7 @@ export default function ProfilesPage() {
   };
 
   const handleCloseEditor = () => {
+    if (saving) return;
     const request = editorRequest;
     crud.closeEditor();
     setEditorRequest(null);
@@ -591,6 +592,7 @@ export default function ProfilesPage() {
         onClose={handleCloseEditor}
         title={editorTitle}
         size="xl"
+        allowClose={!saving}
         initialFocusSelector={editorRequest?.tab ? '[role="tab"][aria-selected="true"]' : undefined}
       >
         {editingProfile && (
@@ -619,7 +621,7 @@ export default function ProfilesPage() {
               <Button onClick={handleSave} loading={saving}>
                 {t('profiles.saveBtn', 'Salvar')}
               </Button>
-              <Button variant="secondary" onClick={handleCloseEditor}>
+              <Button variant="secondary" onClick={handleCloseEditor} disabled={saving}>
                 {t('common.cancel', 'Cancelar')}
               </Button>
               <div className="profiles-editor__footer-spacer" />
