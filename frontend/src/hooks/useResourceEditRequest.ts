@@ -3,13 +3,14 @@ import { useNavigationStore, type EditableResource, type ResourceEditRequest } f
 
 /**
  * Hook for pages to consume pending resource-edit requests from deep links.
- * Calls `onEdit(id)` or `onNew()` once after mount or when a new request arrives.
+ * Calls `onEdit(id, request)` or `onNew(request)` once after mount or when a
+ * new request arrives, preserving metadata such as the target tab and caller.
  */
 export function useResourceEditRequest(
   resource: EditableResource,
   callbacks: {
-    onEdit: (id: string) => void;
-    onNew?: () => void;
+    onEdit: (id: string, request: ResourceEditRequest) => void;
+    onNew?: (request: ResourceEditRequest) => void;
     ready?: boolean;
   },
 ): void {
@@ -29,9 +30,9 @@ export function useResourceEditRequest(
     processedRef.current = request.timestamp;
 
     if (request.action === 'new' && callbacks.onNew) {
-      callbacks.onNew();
+      callbacks.onNew(request);
     } else if (request.action === 'edit' && request.id) {
-      callbacks.onEdit(request.id);
+      callbacks.onEdit(request.id, request);
     }
   }, [pending, ready, resource, consumeResourceEdit, callbacks]);
 }
