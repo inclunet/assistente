@@ -44,7 +44,12 @@ func (t *TaskNoteTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TaskNoteTool) Description() string {
-	return "Creates or updates a note on a task. Identify the task with task_id, or task_code (Task.Code across lists; optional task_list_id/slug to disambiguate), or (task_list_id or task_list_slug + code), same rules as the task tool for list+code. If task_id and task_code are both sent, task_id wins; task_code must match that task's code. (1) note_id → update content; optional task ref must match the note's task. (2) source + external_id → idempotent upsert for synced comments (works with task_id or task_code). (3) else manual create (requires type). Types: 1=internal, 2=customer, 3=agent, 4=system."
+	return `Create or update a persistent note/comment attached to one task; this tool does not change the task's core fields or delete notes.
+Use when: recording internal context, a customer response, an agent action, a system event, or synchronizing an external comment. For sync, source + external_id performs an idempotent upsert.
+Do not use: use task for title, status, assignee, hierarchy, or deletion; task_list for the container/workflow; memory only for durable knowledge that should outlive task tracking.
+Persistence, risk, and cost: notes persist in the database and note events may trigger jobs. Avoid secrets and redundant transcripts; long notes increase later task-read output. Updating by note_id replaces its content.
+Resolution: task_id wins; task_code resolves Task.Code across lists and can be scoped by task_list_id/slug; list + code follows task resolution. note_id updates an existing note. Manual create requires type: 1 internal, 2 customer, 3 agent, 4 system.
+Examples: add {"task_id":"<id>","type":1,"content":"Waiting for approval"}; sync {"task_code":"FSD-123","source":"jira","external_id":"comment-9","type":2,"content":"Approved"}.`
 }
 
 func (t *TaskNoteTool) Parameters() json.RawMessage {

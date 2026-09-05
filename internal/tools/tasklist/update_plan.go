@@ -67,10 +67,11 @@ func (t *UpdatePlan) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *UpdatePlan) Description() string {
-	return "Creates or replaces the execution plan for the current conversation. " +
-		"Send the complete ordered list on every call. Reuse stable item ids and update statuses as work advances. " +
-		"At most one item may be in_progress. The plan is persisted in the Task List Manager; " +
-		"use task_list, task, and task_note only for advanced task-management operations."
+	return `Create or replace the complete ordered execution plan for the current conversation and update it as work advances.
+Use when: a multi-step request benefits from visible progress. Send the full snapshot on every call, reuse stable item IDs, and keep at most one item in_progress.
+Do not use: skip for trivial one-step work. Use task_list, task, and task_note for general boards, independent cards, workflows, or comments; do not use this as a job scheduler.
+Persistence, risk, and cost: the plan is persisted in the Task List Manager and linked to the conversation. Items omitted from a later snapshot are removed, so partial updates can lose plan steps; keep plans concise (maximum 100 items).
+Example: {"title":"Ship fix","plan":[{"id":"inspect","step":"Inspect failure","status":"in_progress"},{"id":"verify","step":"Run tests","status":"pending"}]}.`
 }
 
 func (t *UpdatePlan) Parameters() json.RawMessage {
