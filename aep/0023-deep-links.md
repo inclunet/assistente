@@ -54,6 +54,7 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 |-----|------|
 | `assistente://{recurso}/new` | Abre formulário de criação do recurso |
 | `assistente://{recurso}/edit/{id}` | Abre formulário de edição do recurso |
+| `assistente://profiles/edit/{slug}?tab=voice` | Edita o perfil diretamente na seção de voz |
 
 Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `tasklists`
 
@@ -162,6 +163,9 @@ parseDeepLink('assistente://editor/open?file=/tmp/test.md');
 parseDeepLink('assistente://profiles/edit/programacao');
 // → { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' }
 
+parseDeepLink('assistente://profiles/edit/programacao?tab=voice');
+// → { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao', tab: 'voice' }
+
 parseDeepLink('https://google.com');
 // → null
 ```
@@ -203,7 +207,7 @@ type DeepLinkAction =
   | { type: 'conversation:new'; message?: string; title?: string }
   | { type: 'conversation:send'; conversationId: number; message: string }
   | { type: 'navigate'; route: string }
-  | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
+  | { type: 'resource:edit'; resource: EditableResource; resourceId: string; tab?: 'voice' }
   | { type: 'resource:new'; resource: EditableResource }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
   | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
