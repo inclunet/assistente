@@ -555,7 +555,6 @@ describe('ChatSessionView', () => {
     await waitFor(() => {
       expect(requestConfirmMock).toHaveBeenCalledWith(expect.objectContaining({
         title: 'chat.voiceSetup.title',
-        restoreFocusOnConfirm: false,
       }));
     });
     expect(executeDeepLinkMock).toHaveBeenCalledWith(

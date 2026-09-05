@@ -8,11 +8,6 @@ export interface ConfirmOptions {
   confirmText?: string;
   cancelText?: string;
   variant?: ConfirmVariant;
-  /**
-   * Se false, não restaura o foco ao confirmar (útil antes de navegar).
-   * Cancelar sempre restaura o foco. Default: true.
-   */
-  restoreFocusOnConfirm?: boolean;
 }
 
 export interface ConfirmRequest extends Required<Pick<ConfirmOptions, 'title' | 'message'>> {
@@ -26,7 +21,6 @@ interface ConfirmInternal {
   request: ConfirmRequest;
   resolve: (value: boolean) => void;
   restoreFocusTo: HTMLElement | null;
-  restoreFocusOnConfirm: boolean;
 }
 
 const queue: ConfirmInternal[] = [];
@@ -76,9 +70,7 @@ export const useConfirmStore = create<ConfirmUIState>(() => ({
 
     if (internal) {
       internal.resolve(confirmed);
-      if (!confirmed || internal.restoreFocusOnConfirm) {
-        safeRestoreFocus(internal.restoreFocusTo);
-      }
+      safeRestoreFocus(internal.restoreFocusTo);
     }
 
     showNext();
@@ -100,12 +92,7 @@ export function requestConfirm(options: ConfirmOptions): Promise<boolean> {
   const restoreFocusTo = (document.activeElement as HTMLElement | null) ?? null;
 
   return new Promise<boolean>((resolve) => {
-    queue.push({
-      request,
-      resolve,
-      restoreFocusTo,
-      restoreFocusOnConfirm: options.restoreFocusOnConfirm ?? true,
-    });
+    queue.push({ request, resolve, restoreFocusTo });
     showNext();
   });
 }

@@ -90,34 +90,4 @@ describe('confirmStore', () => {
     expect(focus).toHaveBeenCalledTimes(1);
   });
 
-  it('não restaura foco ao confirmar uma decisão que navega, mas restaura ao cancelar', async () => {
-    vi.resetModules();
-    const mod = await import('./confirmStore');
-
-    const focus = vi.fn();
-    const element = { focus };
-    const globalWithDoc = globalThis as typeof globalThis & { document: Document };
-    Object.defineProperty(globalWithDoc.document, 'activeElement', {
-      value: element as unknown as Element,
-      configurable: true,
-    });
-
-    const confirmed = mod.requestConfirm({
-      title: 'Configurar voz',
-      message: 'Deseja configurar?',
-      restoreFocusOnConfirm: false,
-    });
-    mod.useConfirmStore.getState().confirm();
-    await expect(confirmed).resolves.toBe(true);
-    expect(focus).not.toHaveBeenCalled();
-
-    const cancelled = mod.requestConfirm({
-      title: 'Configurar voz',
-      message: 'Deseja configurar?',
-      restoreFocusOnConfirm: false,
-    });
-    mod.useConfirmStore.getState().cancel();
-    await expect(cancelled).resolves.toBe(false);
-    expect(focus).toHaveBeenCalledTimes(1);
-  });
 });

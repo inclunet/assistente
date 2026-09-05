@@ -425,7 +425,6 @@ function ChatSessionViewContent({
           confirmText: t('chat.voiceSetup.configure'),
           cancelText: t('common.cancel'),
           variant: 'info',
-          restoreFocusOnConfirm: false,
         });
         if (!shouldConfigure) return;
 
