@@ -265,7 +265,10 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 			newClaim = true
 		}
 	} else if err != nil {
-		return err
+		// Sem um claim legível não é seguro decidir quem pode adotar o legado.
+		// Falha fechada somente para a adoção: preserva marcador/dados para
+		// recuperação manual, enquanto o storage novo do usuário segue útil.
+		return nil
 	}
 
 	// A reserva é instance-wide e imutável: somente o primeiro usuário que a

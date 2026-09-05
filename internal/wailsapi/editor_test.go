@@ -560,6 +560,47 @@ func TestEditorLegacyMigrationIgnoresPartialClaimTemporaryFile(t *testing.T) {
 	}
 }
 
+func TestEditorCorruptedLegacyClaimDisablesOnlyAdoption(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	corrupted := []byte(`{"version":`)
+	if err := os.WriteFile(editorMigrationClaimPath(), corrupted, 0600); err != nil {
+		t.Fatal(err)
+	}
+	legacyDraft := filepath.Join(legacyEditorDir(), "drafts", "legado.md")
+	if err := os.WriteFile(legacyDraft, []byte("não adotar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "01991f7c-1000-7000-8000-00000000006a"
+	api := attachEditorForUser(userID)
+	if err := api.EditorWriteDraft("novo", "storage funcional"); err != nil {
+		t.Fatalf("claim corrompido bloqueou storage novo: %v", err)
+	}
+	if got, err := api.EditorReadDraft("novo"); err != nil || got != "storage funcional" {
+		t.Fatalf("storage novo indisponível: %q, %v", got, err)
+	}
+	if _, err := api.EditorReadDraft("legado"); err == nil {
+		t.Fatal("claim corrompido permitiu adoção legada")
+	}
+	if _, err := api.EditorReadFile(legacyDraft); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("claim corrompido permitiu acesso ao legado: %v", err)
+	}
+	if data, err := os.ReadFile(editorMigrationClaimPath()); err != nil || string(data) != string(corrupted) {
+		t.Fatalf("claim corrompido foi alterado: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(legacyDraft); err != nil || string(data) != "não adotar" {
+		t.Fatalf("legado foi alterado: %q, %v", data, err)
+	}
+}
+
 func TestEditorPrivateFilesUse0600(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permissões POSIX não se aplicam no Windows")
