@@ -6,7 +6,6 @@ import {
   CancelACPAgentInstall,
   InstallACPAgent,
   RemoveACPAgent,
-  UpdateACPAgent,
 } from '@wailsjs/go/wailsapi/ACPInstall';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import type { apidto } from '@wailsjs/go/models';
@@ -14,6 +13,7 @@ import { Button } from '../ui/Button';
 import { DecisionDialog } from '../ui/DecisionDialog';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { formatFileSize } from '../../services/mediaService';
+import { requestACPAgentUpdate } from '../../services/acpInstall';
 import './AgentInstall.css';
 
 /**
@@ -23,21 +23,6 @@ import './AgentInstall.css';
 const INSTALL_PROGRESS_EVENT = 'acp:install:progress';
 
 type InstallPlan = apidto.ACPInstallPlan;
-
-/**
- * Pede ao backend a atualização descrita pelo plano que ele próprio forneceu.
- * Mantém uma única tradução plano → confirmação para o formulário e para
- * ações rápidas, sem recriar o fluxo de instalação no frontend.
- */
-export const requestACPAgentUpdate = (
-  plan: InstallPlan,
-  acceptUnverified: boolean,
-) => UpdateACPAgent(plan.agent_id, {
-  distribution: plan.distribution || '',
-  origin: plan.origin || '',
-  sha256: plan.sha256 || '',
-  accept_unverified: acceptUnverified,
-});
 
 /**
  * Marco da instalação, como o backend o emite (`ACPInstallProgress`, em
