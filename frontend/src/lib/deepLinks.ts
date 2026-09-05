@@ -2,7 +2,12 @@ import type { NavigateFunction } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
-import { useNavigationStore, type EditableResource } from '../store/navigationStore';
+import {
+  useNavigationStore,
+  type EditableResource,
+  type ProfileEditorTab,
+  type WorkspaceNavigationCaller,
+} from '../store/navigationStore';
 import { useUIStore } from '../store/uiStore';
 import { useTerminalStore } from '../store/terminalStore';
 import { announce } from '../hooks/useAnnouncer';
@@ -28,7 +33,12 @@ export type DeepLinkAction =
   | { type: 'conversation:new'; message?: string; title?: string; profile?: string }
   | { type: 'conversation:send'; conversationId: string; message: string; profile?: string }
   | { type: 'navigate'; route: string }
-  | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
+  | {
+      type: 'resource:edit';
+      resource: EditableResource;
+      resourceId: string;
+      tab?: ProfileEditorTab;
+    }
   | { type: 'resource:new'; resource: EditableResource }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
   | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
@@ -49,6 +59,15 @@ const EDITABLE_RESOURCES = new Set<EditableResource>([
 ]);
 
 const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
+const PROFILE_EDITOR_TABS = new Set<ProfileEditorTab>(['voice']);
+
+function isValidResourceTab(
+  resource: EditableResource,
+  tab: string | undefined,
+): tab is ProfileEditorTab | undefined {
+  if (!tab) return true;
+  return resource === 'profiles' && PROFILE_EDITOR_TABS.has(tab as ProfileEditorTab);
+}
 
 function defaultTitleForNewTab(tabType: TabType): string {
   const typeLabel = i18n.t(`workspace.tabType.${tabType}`);
@@ -166,7 +185,14 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
       }
       if (action === 'edit' && segments[2]) {
         const resourceId = decodeURIComponent(segments.slice(2).join('/'));
-        return { type: 'resource:edit', resource: resource as EditableResource, resourceId };
+        const tabParam = params.get('tab');
+        if (!isValidResourceTab(resource as EditableResource, tabParam || undefined)) return null;
+        return {
+          type: 'resource:edit',
+          resource: resource as EditableResource,
+          resourceId,
+          ...(tabParam ? { tab: tabParam as ProfileEditorTab } : {}),
+        };
       }
     }
 
@@ -206,8 +232,15 @@ export function buildDeepLink(action: DeepLinkAction): string {
     case 'navigate':
       return `${DEEP_LINK_PREFIX}navigate/${action.route}`;
 
-    case 'resource:edit':
-      return `${DEEP_LINK_PREFIX}${action.resource}/edit/${encodeURIComponent(action.resourceId)}`;
+    case 'resource:edit': {
+      if (!isValidResourceTab(action.resource, action.tab)) {
+        throw new Error('Invalid resource editor tab');
+      }
+      const params = new URLSearchParams();
+      if (action.tab) params.set('tab', action.tab);
+      const qs = params.toString();
+      return `${DEEP_LINK_PREFIX}${action.resource}/edit/${encodeURIComponent(action.resourceId)}${qs ? `?${qs}` : ''}`;
+    }
 
     case 'resource:new':
       return `${DEEP_LINK_PREFIX}${action.resource}/new`;
@@ -283,6 +316,7 @@ export function getDeepLinkTypeClass(action: DeepLinkAction): string {
 
 export interface DeepLinkDeps {
   navigate: NavigateFunction;
+  caller?: WorkspaceNavigationCaller;
 }
 
 export async function executeDeepLink(
@@ -412,8 +446,18 @@ export async function executeDeepLink(
     }
 
     case 'resource:edit': {
+      if (!isValidResourceTab(action.resource, action.tab)) {
+        throw new Error('Invalid resource editor tab');
+      }
       const navStore = useNavigationStore.getState();
-      navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
+      if (action.tab || deps.caller) {
+        navStore.requestResourceEdit(action.resource, action.resourceId, 'edit', {
+          ...(action.tab ? { tab: action.tab } : {}),
+          ...(deps.caller ? { caller: deps.caller } : {}),
+        });
+      } else {
+        navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
+      }
       const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
       const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);

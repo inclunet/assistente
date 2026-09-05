@@ -41,7 +41,7 @@ func (t *OpenDeepLinkTool) Description() string {
 - Tab open: assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
 - Tab create: assistente://tasklist/new?title=..., assistente://editor/new?title=..., assistente://editor/open?file=..., assistente://terminal/new?cmd=...
 - Navigate: assistente://navigate/{route}. Settings screens are tabs, so the route keeps the settings/ prefix (routes: settings, settings/providers, settings/mcp, settings/skills, settings/channels, settings/contacts, settings/credentials, settings/allowlists, settings/network-allowlist, settings/path-allowlist, settings/appearance, settings/data, settings/restore-defaults, profiles, history, memories, tasklists, help, about, update)
-- Resource edit/new: assistente://{resource}/new, assistente://{resource}/edit/{id} (resources: profiles, providers, credentials, allowlists, skills, mcp, channels, tasklists)`
+- Resource edit/new: assistente://{resource}/new, assistente://{resource}/edit/{id} (resources: profiles, providers, credentials, allowlists, skills, mcp, channels, tasklists). Profile editing accepts the validated tab=voice query parameter to open voice settings directly: assistente://profiles/edit/{slug}?tab=voice`
 }
 
 func (t *OpenDeepLinkTool) Parameters() json.RawMessage {

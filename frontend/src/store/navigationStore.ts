@@ -11,16 +11,37 @@ export type EditableResource =
   | 'memories'
   | 'tasklists';
 
+export type ProfileEditorTab = 'voice';
+
+export interface WorkspaceNavigationCaller {
+  kind: 'workspace';
+  tabId: string;
+  surfaceId: string;
+  conversationId: string | null;
+}
+
 export interface ResourceEditRequest {
   resource: EditableResource;
   id: string;
   action: 'edit' | 'new';
+  tab?: ProfileEditorTab;
+  caller?: WorkspaceNavigationCaller;
   timestamp: number;
+}
+
+export interface ResourceEditOptions {
+  tab?: ProfileEditorTab;
+  caller?: WorkspaceNavigationCaller;
 }
 
 interface NavigationState {
   pendingEdit: ResourceEditRequest | null;
-  requestResourceEdit: (resource: EditableResource, id: string, action?: 'edit' | 'new') => void;
+  requestResourceEdit: (
+    resource: EditableResource,
+    id: string,
+    action?: 'edit' | 'new',
+    options?: ResourceEditOptions,
+  ) => void;
   consumeResourceEdit: (resource: EditableResource) => ResourceEditRequest | null;
   clearPendingEdit: () => void;
 }
@@ -28,9 +49,16 @@ interface NavigationState {
 export const useNavigationStore = create<NavigationState>((set, get) => ({
   pendingEdit: null,
 
-  requestResourceEdit: (resource, id, action = 'edit') => {
+  requestResourceEdit: (resource, id, action = 'edit', options) => {
     set({
-      pendingEdit: { resource, id, action, timestamp: Date.now() },
+      pendingEdit: {
+        resource,
+        id,
+        action,
+        ...(options?.tab ? { tab: options.tab } : {}),
+        ...(options?.caller ? { caller: options.caller } : {}),
+        timestamp: Date.now(),
+      },
     });
   },
 

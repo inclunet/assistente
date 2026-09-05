@@ -87,6 +87,12 @@ const en = {
       via: 'Via',
       stopAudio: 'Stop audio',
       playAudio: 'Play audio',
+      voiceSetup: {
+        title: 'Voice not configured',
+        description: 'This profile does not have a voice configured. Would you like to configure it now?',
+        configure: 'Configure voice',
+        profileUnavailable: 'The current profile could not be identified for voice setup.',
+      },
       continueResponse: 'Continue response',
       continueResponseLabel: 'Continue response',
       outputLimitReached: 'The response reached its output limit. Use “Continue response” or ask to split the task into smaller parts.',

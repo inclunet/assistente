@@ -8,8 +8,8 @@ import { useNavigationStore, type EditableResource, type ResourceEditRequest } f
 export function useResourceEditRequest(
   resource: EditableResource,
   callbacks: {
-    onEdit: (id: string) => void;
-    onNew?: () => void;
+    onEdit: (id: string, request: ResourceEditRequest) => void;
+    onNew?: (request: ResourceEditRequest) => void;
     ready?: boolean;
   },
 ): void {
@@ -29,9 +29,9 @@ export function useResourceEditRequest(
     processedRef.current = request.timestamp;
 
     if (request.action === 'new' && callbacks.onNew) {
-      callbacks.onNew();
+      callbacks.onNew(request);
     } else if (request.action === 'edit' && request.id) {
-      callbacks.onEdit(request.id);
+      callbacks.onEdit(request.id, request);
     }
   }, [pending, ready, resource, consumeResourceEdit, callbacks]);
 }

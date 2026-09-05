@@ -336,6 +336,17 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://profiles/edit/')).toBeNull();
     });
 
+    it('aceita somente a aba de voz em edição de perfil', () => {
+      expect(parseDeepLink('assistente://profiles/edit/programacao?tab=voice')).toEqual({
+        type: 'resource:edit',
+        resource: 'profiles',
+        resourceId: 'programacao',
+        tab: 'voice',
+      });
+      expect(parseDeepLink('assistente://profiles/edit/programacao?tab=tools')).toBeNull();
+      expect(parseDeepLink('assistente://providers/edit/openai?tab=voice')).toBeNull();
+    });
+
   });
 
   describe('resource:new', () => {
@@ -563,6 +574,25 @@ describe('buildDeepLink', () => {
     expect(uri).toBe('assistente://credentials/edit/llm%3A%2F%2F*');
   });
 
+  it('constrói resource:edit de perfil com aba de voz', () => {
+    const uri = buildDeepLink({
+      type: 'resource:edit',
+      resource: 'profiles',
+      resourceId: 'programacao',
+      tab: 'voice',
+    });
+    expect(uri).toBe('assistente://profiles/edit/programacao?tab=voice');
+  });
+
+  it('rejeita aba de perfil aplicada programaticamente a outro recurso', () => {
+    expect(() => buildDeepLink({
+      type: 'resource:edit',
+      resource: 'providers',
+      resourceId: 'openai',
+      tab: 'voice',
+    })).toThrow('Invalid resource editor tab');
+  });
+
   it('constrói resource:new', () => {
     const uri = buildDeepLink({ type: 'resource:new', resource: 'skills' });
     expect(uri).toBe('assistente://skills/new');
@@ -632,6 +662,7 @@ describe('roundtrip build → parse', () => {
     { type: 'navigate', route: 'tasklists' },
     { type: 'navigate', route: '' },
     { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' },
+    { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao', tab: 'voice' },
     { type: 'resource:edit', resource: 'credentials', resourceId: 'llm://*' },
     { type: 'resource:edit', resource: 'tasklists', resourceId: '42' },
     { type: 'resource:new', resource: 'skills' },
@@ -983,6 +1014,32 @@ describe('executeDeepLink', () => {
       expect(mockRequestResourceEdit).toHaveBeenCalledWith('profiles', 'programacao', 'edit');
       expect(mockNavigate).toHaveBeenCalledWith('/profiles');
       expect(mockAnnounce).toHaveBeenCalled();
+    });
+
+    it('propaga aba validada e caller da superfície para o editor', async () => {
+      const caller = {
+        kind: 'workspace' as const,
+        tabId: 'chat-tab',
+        surfaceId: 'page:tab:chat-tab',
+        conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+      };
+
+      await executeDeepLink(
+        {
+          type: 'resource:edit',
+          resource: 'profiles',
+          resourceId: 'programacao',
+          tab: 'voice',
+        },
+        { ...deps, caller },
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith(
+        'profiles',
+        'programacao',
+        'edit',
+        { tab: 'voice', caller },
+      );
     });
 
     it('navega para memories como página first-level', async () => {

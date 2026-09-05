@@ -28,6 +28,21 @@ const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
 const handleErrorMock = vi.hoisted(() => vi.fn());
+const requestConfirmMock = vi.hoisted(() => vi.fn());
+const executeDeepLinkMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigateMock,
+}));
+
+vi.mock('../../store/confirmStore', () => ({
+  requestConfirm: (...args: unknown[]) => requestConfirmMock(...args),
+}));
+
+vi.mock('../../lib/deepLinks', () => ({
+  executeDeepLink: (...args: unknown[]) => executeDeepLinkMock(...args),
+}));
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -171,6 +186,7 @@ vi.mock('./MessageList', async () => {
       onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void;
       threadedMessages?: Array<{ id?: string; message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string } }>;
       shouldShowContinue?: (message: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string }) => boolean;
+      onSpeak?: (message: { id: string; role: string; content: string }) => void;
       onJumpToStart?: () => Promise<void> | void;
       onJumpToEnd?: () => Promise<void> | void;
       onLoadNewer?: (trigger: 'scroll' | 'navigation') => Promise<void> | void;
@@ -182,6 +198,7 @@ vi.mock('./MessageList', async () => {
       onJumpToStart,
       onJumpToEnd,
       onLoadNewer,
+      onSpeak,
     },
     ref: React.Ref<HTMLDivElement>,
   ) => (
@@ -208,6 +225,12 @@ vi.mock('./MessageList', async () => {
       </button>
       <button type="button" onClick={() => void Promise.resolve(onLoadNewer?.('scroll'))}>
         load-newer-scroll
+      </button>
+      <button
+        type="button"
+        onClick={() => onSpeak?.({ id: 'message-1', role: 'assistant', content: 'Olá' })}
+      >
+        speak-message
       </button>
       {threadedMessages.map((message) => (
         <div
@@ -330,6 +353,11 @@ describe('ChatSessionView', () => {
     modalState.open = false;
     contextMenuState.visible = true;
     runtimeEventHandlers.clear();
+    requestConfirmMock.mockReset();
+    requestConfirmMock.mockResolvedValue(false);
+    executeDeepLinkMock.mockReset();
+    executeDeepLinkMock.mockResolvedValue(undefined);
+    navigateMock.mockReset();
     useShortcutsHelpStore.setState({ isOpen: false });
   });
 
@@ -508,6 +536,46 @@ describe('ChatSessionView', () => {
 
     expect(showMenuMock).toHaveBeenCalled();
     expect(screen.getByText('Copiar')).toBeInTheDocument();
+  });
+
+  it('oferece configurar voz e preserva a origem ao confirmar', async () => {
+    requestConfirmMock.mockResolvedValueOnce(true);
+    const chatSurface = surface({ surfaceType: 'page', tabId: 'chat-tab' });
+    renderWithPanel(
+      <ChatSessionView
+        surface={chatSurface}
+        onSend={vi.fn()}
+        showShortcutsHelp={false}
+        profileSlug="programacao"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'speak-message' }));
+
+    await waitFor(() => {
+      expect(requestConfirmMock).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'chat.voiceSetup.title',
+        restoreFocusOnConfirm: false,
+      }));
+    });
+    expect(executeDeepLinkMock).toHaveBeenCalledWith(
+      {
+        type: 'resource:edit',
+        resource: 'profiles',
+        resourceId: 'programacao',
+        tab: 'voice',
+      },
+      {
+        navigate: navigateMock,
+        caller: {
+          kind: 'workspace',
+          tabId: 'chat-tab',
+          surfaceId: chatSurface.surfaceId,
+          conversationId,
+        },
+      },
+    );
+    expect(speakMessageMock).not.toHaveBeenCalled();
   });
 
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {

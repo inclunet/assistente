@@ -11,6 +11,7 @@ import { ProfileSkillsSection } from './ProfileSkillsSection';
 import { ProfileContextProvidersSection } from './ProfileContextProvidersSection';
 import { ProfileToolsSection } from './ProfileToolsSection';
 import { ProfileAudioTab } from './ProfileAudioTab';
+import type { ProfileEditorTab } from '../../store/navigationStore';
 import './ProfileEditorTabs.css';
 
 const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
@@ -55,6 +56,7 @@ export interface ProfileEditorTabsProps {
   availableAllowlists: allowlist.AllowlistInfo[];
   updateField: (path: string, value: unknown) => void;
   updateFields: (updates: Record<string, unknown>) => void;
+  initialTab?: ProfileEditorTab;
 }
 
 export function ProfileEditorTabs({
@@ -65,9 +67,12 @@ export function ProfileEditorTabs({
   availableAllowlists,
   updateField,
   updateFields,
+  initialTab,
 }: ProfileEditorTabsProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<EditorTabId>('general');
+  const [activeTab, setActiveTab] = useState<EditorTabId>(
+    initialTab === 'voice' ? 'audio' : 'general',
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingShortcutFocusRef = useRef<EditorTabId | null>(null);
   const { isAgent: agentProvider, resolved: agentProviderResolved } = useAgentProvider(
@@ -82,6 +87,12 @@ export function ProfileEditorTabs({
     editingProfile.chat?.disable_skills ?? false,
     editingProfile.chat?.disable_on_demand_skills ?? false,
   );
+
+  useLayoutEffect(() => {
+    if (initialTab === 'voice') {
+      setActiveTab('audio');
+    }
+  }, [initialTab]);
 
   const handleTabChange = useCallback((v: string) => {
     pendingShortcutFocusRef.current = null;

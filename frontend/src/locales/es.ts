@@ -86,6 +86,12 @@ const es = {
       via: 'Vía',
       stopAudio: 'Detener audio',
       playAudio: 'Reproducir audio',
+      voiceSetup: {
+        title: 'Voz no configurada',
+        description: 'Este perfil no tiene una voz configurada. ¿Deseas configurarla ahora?',
+        configure: 'Configurar voz',
+        profileUnavailable: 'No se pudo identificar el perfil actual para configurar la voz.',
+      },
       stop: 'Detener',
       cancelGeneration: 'Cancelar generación',
       cancelGenerationLabel: 'Cancelar generación (Esc)',

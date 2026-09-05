@@ -87,6 +87,12 @@ const ptBR = {
       via: 'Via',
       stopAudio: 'Parar áudio',
       playAudio: 'Reproduzir áudio',
+      voiceSetup: {
+        title: 'Voz não configurada',
+        description: 'Este perfil não tem uma voz configurada. Deseja configurar a voz agora?',
+        configure: 'Configurar voz',
+        profileUnavailable: 'Não foi possível identificar o perfil atual para configurar a voz.',
+      },
       stop: 'Parar',
       cancelGeneration: 'Cancelar geração',
       cancelGenerationLabel: 'Cancelar geração (Esc)',

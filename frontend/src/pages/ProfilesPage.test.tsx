@@ -4,6 +4,30 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockDuplicateProfile = vi.fn();
+const mockNavigate = vi.fn();
+const mockSetActiveTab = vi.fn();
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => mockNavigate,
+}));
+
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: Object.assign(
+    (selector?: (state: Record<string, unknown>) => unknown) => {
+      const state = {
+        workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: 'conversation-1' }] },
+        setActiveTab: mockSetActiveTab,
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+      workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: 'conversation-1' }] },
+      setActiveTab: mockSetActiveTab,
+      }),
+    },
+  ),
+}));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -211,13 +235,18 @@ vi.mock('../components/ui/EditorPanel', () => ({
 }));
 
 import ProfilesPage from './ProfilesPage';
-import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
+import { GetProfile, UpdateProfile } from '@wailsjs/go/wailsapi/Profiles';
+import { useNavigationStore } from '../store/navigationStore';
 
 describe('ProfilesPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockDuplicateProfile.mockReset();
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
+    mockNavigate.mockReset();
+    mockSetActiveTab.mockReset();
+    useNavigationStore.getState().clearPendingEdit();
+    vi.mocked(UpdateProfile).mockClear();
     mockDuplicateProfile.mockResolvedValue('perfil-padrao-copia');
   });
 
@@ -299,5 +328,53 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     await waitFor(() => {
       expect(vi.mocked(GetProfile)).toHaveBeenCalledWith('perfil-padrao-copia');
     });
+  });
+
+  it('abre voz por navegação e retorna à aba de origem ao cancelar', async () => {
+    const user = userEvent.setup();
+    useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
+      tab: 'voice',
+      caller: {
+        kind: 'workspace',
+        tabId: 'chat-tab',
+        surfaceId: 'page:tab:chat-tab',
+        conversationId: 'conversation-1',
+      },
+    });
+
+    render(<ProfilesPage />);
+
+    await waitFor(() => {
+      const voiceTab = screen.getAllByRole('tab').find(
+        (tab) => tab.getAttribute('data-tab-value') === 'audio',
+      );
+      expect(voiceTab).toHaveAttribute('aria-selected', 'true');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
+  });
+
+  it('retorna à aba de origem depois de salvar o perfil', async () => {
+    const user = userEvent.setup();
+    useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
+      tab: 'voice',
+      caller: {
+        kind: 'workspace',
+        tabId: 'chat-tab',
+        surfaceId: 'page:tab:chat-tab',
+        conversationId: 'conversation-1',
+      },
+    });
+
+    render(<ProfilesPage />);
+    await screen.findByRole('button', { name: 'Salvar' });
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(vi.mocked(UpdateProfile)).toHaveBeenCalled());
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
   });
 });
