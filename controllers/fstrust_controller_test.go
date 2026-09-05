@@ -50,18 +50,18 @@ func TestFSTrustRemoveInvalidKind(t *testing.T) {
 	}
 }
 
-func TestFSTrustAddPathDenyEntry(t *testing.T) {
+func TestFSTrustAddPathAllowlistEntryDeny(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	mgr := fstrust.NewManagerWithDirs(dir, dir)
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 	path := filepath.Join(dir, "bloqueado.txt")
 
-	if err := c.AddPathDenyEntry(context.Background(), path, "file", "read", "global", "teste"); err != nil {
-		t.Fatalf("AddPathDenyEntry: %v", err)
+	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "deny", "global", "teste"); err != nil {
+		t.Fatalf("AddPathAllowlistEntry deny: %v", err)
 	}
-	if err := c.AddPathDenyEntry(context.Background(), path, "file", "read", "session", ""); err == nil {
-		t.Fatal("session não deveria ser aceito para denylist")
+	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "deny", "session", ""); err == nil {
+		t.Fatal("session não deveria ser aceito para regra persistente")
 	}
 
 	views := c.GetPathAllowlist(context.Background())
@@ -70,7 +70,29 @@ func TestFSTrustAddPathDenyEntry(t *testing.T) {
 	}
 }
 
-func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
+func TestFSTrustAddPathAllowlistEntryAllow(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mgr := fstrust.NewManagerWithDirs(dir, dir)
+	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
+	path := filepath.Join(dir, "permitido.txt")
+
+	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", " ReAd ", "allow", "global", " docs "); err != nil {
+		t.Fatalf("AddPathAllowlistEntry allow: %v", err)
+	}
+	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "allow", "session", ""); err == nil {
+		t.Fatal("session não deveria ser aceito pela gestão persistente")
+	}
+	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "maybe", "global", ""); err == nil {
+		t.Fatal("efeito desconhecido não deveria ser aceito")
+	}
+	views := c.GetPathAllowlist(context.Background())
+	if len(views) != 1 || views[0].Effect != "allow" || views[0].Operation != "read" || views[0].Reason != "docs" {
+		t.Fatalf("want 1 allow normalizado, got %#v", views)
+	}
+}
+
+func TestFSTrustAddPathAllowlistEntryTrims(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	mgr := fstrust.NewManagerWithDirs(dir, dir)
@@ -80,8 +102,8 @@ func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
 	// para casar o que o MatchDeny usa em tempo de acesso.
 	raw := "  " + filepath.Join(dir, "sub", "..", "bloqueado.txt") + "  "
 
-	if err := c.AddPathDenyEntry(context.Background(), raw, "file", "  ReAd  ", "global", "  motivo  "); err != nil {
-		t.Fatalf("AddPathDenyEntry: %v", err)
+	if err := c.AddPathAllowlistEntry(context.Background(), raw, "file", "  ReAd  ", "deny", "global", "  motivo  "); err != nil {
+		t.Fatalf("AddPathAllowlistEntry: %v", err)
 	}
 
 	views := c.GetPathAllowlist(context.Background())
@@ -100,7 +122,7 @@ func TestFSTrustAddPathDenyEntryTrims(t *testing.T) {
 	}
 }
 
-func TestFSTrustAddPathDenyEntryExpandsHome(t *testing.T) {
+func TestFSTrustAddPathAllowlistEntryExpandsHome(t *testing.T) {
 	t.Parallel()
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -110,8 +132,8 @@ func TestFSTrustAddPathDenyEntryExpandsHome(t *testing.T) {
 	mgr := fstrust.NewManagerWithDirs(dir, dir)
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 
-	if err := c.AddPathDenyEntry(context.Background(), "~/segredo.env", "file", "read", "global", ""); err != nil {
-		t.Fatalf("AddPathDenyEntry: %v", err)
+	if err := c.AddPathAllowlistEntry(context.Background(), "~/segredo.env", "file", "read", "deny", "global", ""); err != nil {
+		t.Fatalf("AddPathAllowlistEntry: %v", err)
 	}
 
 	views := c.GetPathAllowlist(context.Background())
@@ -127,13 +149,13 @@ func TestFSTrustAddPathDenyEntryExpandsHome(t *testing.T) {
 	}
 }
 
-func TestFSTrustAddPathDenyEntryRejectsRelative(t *testing.T) {
+func TestFSTrustAddPathAllowlistEntryRejectsRelative(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	mgr := fstrust.NewManagerWithDirs(dir, dir)
 	c := NewFSTrustController(FSTrustControllerConfig{FSTrustMgr: mgr})
 
-	if err := c.AddPathDenyEntry(context.Background(), "relativo/segredo.env", "file", "read", "global", ""); err == nil {
+	if err := c.AddPathAllowlistEntry(context.Background(), "relativo/segredo.env", "file", "read", "deny", "global", ""); err == nil {
 		t.Fatal("path relativo deveria ser rejeitado")
 	}
 	if len(c.GetPathAllowlist(context.Background())) != 0 {

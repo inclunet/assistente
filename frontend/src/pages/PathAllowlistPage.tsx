@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
-  AddPathDenyEntry,
+  AddPathAllowlistEntry,
   GetPathAllowlist,
   RemovePathAllowlistEntry,
 } from '@wailsjs/go/wailsapi/FSTrust';
@@ -35,18 +35,20 @@ interface PathAllowlistRow {
   [key: string]: unknown;
 }
 
-interface DenyFormState {
+interface RuleFormState {
   path: string;
   kind: string;
   operation: string;
+  effect: string;
   scope: string;
   reason: string;
 }
 
-const EMPTY_DENY_FORM: DenyFormState = {
+const EMPTY_RULE_FORM: RuleFormState = {
   path: '',
   kind: 'file',
   operation: '',
+  effect: 'deny',
   scope: 'workspace',
   reason: '',
 };
@@ -77,7 +79,7 @@ export default function PathAllowlistPage() {
   const [rows, setRows] = useState<PathAllowlistRow[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [focused, setFocused] = useState<PathAllowlistRow | null>(null);
-  const [denyForm, setDenyForm] = useState<DenyFormState>(EMPTY_DENY_FORM);
+  const [ruleForm, setRuleForm] = useState<RuleFormState>(EMPTY_RULE_FORM);
   const [pathError, setPathError] = useState<string | undefined>();
   const [operationError, setOperationError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
@@ -205,11 +207,11 @@ export default function PathAllowlistPage() {
     [addToast, announce, mapEntries, requestConfirm, scopeName, t],
   );
 
-  const submitDeny = useCallback(
+  const submitRule = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const path = denyForm.path.trim();
-      const operation = denyForm.operation.trim();
+      const path = ruleForm.path.trim();
+      const operation = ruleForm.operation.trim();
       let hasError = false;
       if (!path) {
         setPathError(t('pathAllowlist.form.pathRequired'));
@@ -229,20 +231,22 @@ export default function PathAllowlistPage() {
 
       setSubmitting(true);
       try {
-        await AddPathDenyEntry(
+        await AddPathAllowlistEntry(
           path,
-          denyForm.kind,
+          ruleForm.kind,
           operation,
-          denyForm.scope,
-          denyForm.reason.trim(),
+          ruleForm.effect,
+          ruleForm.scope,
+          ruleForm.reason.trim(),
         );
-        setDenyForm(EMPTY_DENY_FORM);
+        setRuleForm(EMPTY_RULE_FORM);
         setPathError(undefined);
         setOperationError(undefined);
-        addToast(t('pathAllowlist.toast.denyAdded'), 'success', undefined, undefined, {
+        const isAllow = ruleForm.effect === 'allow';
+        addToast(t(isAllow ? 'pathAllowlist.toast.allowAdded' : 'pathAllowlist.toast.denyAdded'), 'success', undefined, undefined, {
           suppressAnnounce: true,
         });
-        announce(t('pathAllowlist.announce.denyAdded', { path }));
+        announce(t(isAllow ? 'pathAllowlist.announce.allowAdded' : 'pathAllowlist.announce.denyAdded', { path }));
         try {
           const entries = (await GetPathAllowlist()) ?? [];
           setLoadFailed(false);
@@ -252,13 +256,13 @@ export default function PathAllowlistPage() {
           addToast(t('pathAllowlist.error.loadFailed'), 'warning');
         }
       } catch (error) {
-        logger.error('Erro ao adicionar denylist de path:', error);
-        addToast(t('pathAllowlist.error.addFailed'), 'error');
+        logger.error('Erro ao adicionar regra de path:', error);
+        addToast(t('pathAllowlist.error.addRuleFailed'), 'error');
       } finally {
         setSubmitting(false);
       }
     },
-    [addToast, announce, denyForm, mapEntries, t],
+    [addToast, announce, mapEntries, ruleForm, t],
   );
 
   const rowActions = useCallback(
@@ -324,6 +328,11 @@ export default function PathAllowlistPage() {
     { value: 'dir', label: t('pathAllowlist.kind.dir') },
   ];
 
+  const effectOptions = [
+    { value: 'allow', label: t('pathAllowlist.effect.allow') },
+    { value: 'deny', label: t('pathAllowlist.effect.deny') },
+  ];
+
   const scopeOptions = PERSISTENT_SCOPES.map((scope) => ({
     value: scope,
     label: t(`pathAllowlist.scope.${scope}`),
@@ -370,15 +379,15 @@ export default function PathAllowlistPage() {
         <p className="path-allowlist-page__description">{t('pathAllowlist.description')}</p>
         <p className="path-allowlist-page__note">{t('pathAllowlist.sessionNote')}</p>
 
-        <form className="path-allowlist-page__form" noValidate onSubmit={(event) => void submitDeny(event)}>
+        <form className="path-allowlist-page__form" noValidate onSubmit={(event) => void submitRule(event)}>
           <h2 className="path-allowlist-page__form-title">{t('pathAllowlist.form.title')}</h2>
           <div className="path-allowlist-page__form-grid">
             <Input
-              id="path-deny-path"
+              id="path-rule-path"
               label={t('pathAllowlist.form.path')}
-              value={denyForm.path}
+              value={ruleForm.path}
               onChange={(event) => {
-                setDenyForm((current) => ({ ...current, path: event.target.value }));
+                setRuleForm((current) => ({ ...current, path: event.target.value }));
                 if (pathError) setPathError(undefined);
               }}
               error={pathError}
@@ -386,22 +395,22 @@ export default function PathAllowlistPage() {
               required
             />
             <Select
-              id="path-deny-kind"
+              id="path-rule-kind"
               label={t('pathAllowlist.form.kind')}
-              value={denyForm.kind}
+              value={ruleForm.kind}
               options={kindOptions}
               onChange={(event) =>
-                setDenyForm((current) => ({ ...current, kind: event.target.value }))
+                setRuleForm((current) => ({ ...current, kind: event.target.value }))
               }
               fullWidth
               required
             />
             <Input
-              id="path-deny-operation"
+              id="path-rule-operation"
               label={t('pathAllowlist.form.operation')}
-              value={denyForm.operation}
+              value={ruleForm.operation}
               onChange={(event) => {
-                setDenyForm((current) => ({ ...current, operation: event.target.value }));
+                setRuleForm((current) => ({ ...current, operation: event.target.value }));
                 if (operationError) setOperationError(undefined);
               }}
               error={operationError}
@@ -409,29 +418,42 @@ export default function PathAllowlistPage() {
               required
             />
             <Select
-              id="path-deny-scope"
+              id="path-rule-effect"
+              label={t('pathAllowlist.form.effect')}
+              value={ruleForm.effect}
+              options={effectOptions}
+              onChange={(event) =>
+                setRuleForm((current) => ({ ...current, effect: event.target.value }))
+              }
+              fullWidth
+              required
+            />
+            <Select
+              id="path-rule-scope"
               label={t('pathAllowlist.form.scope')}
-              value={denyForm.scope}
+              value={ruleForm.scope}
               options={scopeOptions}
               onChange={(event) =>
-                setDenyForm((current) => ({ ...current, scope: event.target.value }))
+                setRuleForm((current) => ({ ...current, scope: event.target.value }))
               }
               fullWidth
               required
             />
             <Input
-              id="path-deny-reason"
+              id="path-rule-reason"
               label={t('pathAllowlist.form.reason')}
-              value={denyForm.reason}
+              value={ruleForm.reason}
               onChange={(event) =>
-                setDenyForm((current) => ({ ...current, reason: event.target.value }))
+                setRuleForm((current) => ({ ...current, reason: event.target.value }))
               }
               fullWidth
             />
           </div>
           <div className="path-allowlist-page__form-actions">
             <Button type="submit" variant="primary" loading={submitting}>
-              {t('pathAllowlist.form.submit')}
+              {t(ruleForm.effect === 'allow'
+                ? 'pathAllowlist.form.submitAllow'
+                : 'pathAllowlist.form.submitDeny')}
             </Button>
           </div>
         </form>
