@@ -75,8 +75,15 @@ func TestSearchConversations_Parameters(t *testing.T) {
 			t.Error("'conversation_id' must remain optional for backwards compatibility")
 		}
 	}
-	limit := props["limit"].(map[string]interface{})
-	if !strings.Contains(strings.ToLower(limit["description"].(string)), "not a page cursor") {
+	limit, ok := props["limit"].(map[string]interface{})
+	if !ok {
+		t.Fatal("limit must be an object")
+	}
+	description, ok := limit["description"].(string)
+	if !ok {
+		t.Fatal("limit description must be a string")
+	}
+	if !strings.Contains(strings.ToLower(description), "not a page cursor") {
 		t.Error("limit description should distinguish result caps from pagination")
 	}
 }

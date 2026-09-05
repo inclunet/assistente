@@ -44,8 +44,15 @@ func TestGetConversationInfo_Parameters(t *testing.T) {
 			t.Errorf("schema must have '%s' property", key)
 		}
 	}
-	messageLimit := props["message_limit"].(map[string]interface{})
-	if !strings.Contains(strings.ToLower(messageLimit["description"].(string)), "not a pagination cursor") {
+	messageLimit, ok := props["message_limit"].(map[string]interface{})
+	if !ok {
+		t.Fatal("message_limit must be an object")
+	}
+	description, ok := messageLimit["description"].(string)
+	if !ok {
+		t.Fatal("message_limit description must be a string")
+	}
+	if !strings.Contains(strings.ToLower(description), "not a pagination cursor") {
 		t.Error("message_limit should distinguish recent-message caps from pagination")
 	}
 	if schema["additionalProperties"] != false {
