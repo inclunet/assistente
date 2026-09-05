@@ -77,6 +77,7 @@ export interface ChatSessionContextValue {
   loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
   retryMessageToConversation: ReturnType<typeof useChatStore.getState>['retryMessageToConversation'];
   updateConversationMessage: ReturnType<typeof useChatStore.getState>['updateConversationMessage'];
+	updateConversationMessagePinned: ReturnType<typeof useChatStore.getState>['updateConversationMessagePinned'];
   clearConversationMessages: ReturnType<typeof useChatStore.getState>['clearConversationMessages'];
   startConversationEditing: (conversationId: string, id: string) => void;
   startConversationReading: (conversationId: string, id: string) => void;
@@ -138,6 +139,7 @@ export function ChatSessionProvider({
   const ensureConversationSurfaceSession = useChatStore((state) => state.ensureConversationSurfaceSession);
   const removeConversationSurfaceSession = useChatStore((state) => state.removeConversationSurfaceSession);
   const updateConversationMessage = useChatStore((state) => state.updateConversationMessage);
+	const updateConversationMessagePinned = useChatStore((state) => state.updateConversationMessagePinned);
   const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
   const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
   const startConversationReadingBase = useChatStore((state) => state.startConversationReading);
@@ -310,6 +312,7 @@ export function ChatSessionProvider({
     loadMessageChildren,
     retryMessageToConversation,
     updateConversationMessage,
+		updateConversationMessagePinned,
     clearConversationMessages,
     startConversationEditing,
     startConversationReading,
@@ -355,6 +358,7 @@ export function ChatSessionProvider({
     toggleConversationReasoningExpanded,
     toggleConversationThreadExpanded,
     updateConversationMessage,
+		updateConversationMessagePinned,
   ]);
 
   return (

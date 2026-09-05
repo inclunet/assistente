@@ -69,6 +69,7 @@ function createSession(overrides: Partial<ChatSessionContextValue> = {}): ChatSe
     loadMessageChildren: vi.fn(),
     retryMessageToConversation: vi.fn(),
     updateConversationMessage: vi.fn(),
+    updateConversationMessagePinned: vi.fn(),
     clearConversationMessages: vi.fn(),
     startConversationEditing: vi.fn(),
     startConversationReading: vi.fn(),

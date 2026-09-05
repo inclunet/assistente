@@ -181,6 +181,13 @@ export function updateMessageContentInTree(nodes: MessageNode[], messageId: stri
   });
 }
 
+export function updateMessagePinnedInTree(nodes: MessageNode[], messageId: string, pinned: boolean): MessageNode[] {
+	return mapMessageTree(nodes, (node) => {
+		if (String(node.message.id) !== messageId) return node;
+		return cloneNode(node, { message: cloneMessage(node.message, { pinned }) });
+	});
+}
+
 export function markMessageStreamingInTree(nodes: MessageNode[], messageId: string, turnId?: string | null): MessageNode[] {
   const turnPatch: Partial<Message> = turnId ? { turnId } : {};
   return mapMessageTree(nodes, (node) => {

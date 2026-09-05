@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatToolbar } from './ChatToolbar';
 
@@ -42,6 +43,8 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   ClearConversation: clearConversationMock,
+  GetPinnedMessages: vi.fn().mockResolvedValue([]),
+  ToggleMessagePin: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
@@ -68,6 +71,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 }));
 
 vi.mock('../ui/Modal', () => ({
+  Modal: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   isModalOpen: () => modalState.open,
   useIsInsideModal: () => modalState.inside,
   useModalIsTopmost: () => () => modalState.topmost,

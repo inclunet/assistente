@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MediaCategory, type MediaFile } from '../../services/mediaService';
 
 const updateMessageMock = vi.fn();
+const updateMessagePinnedMock = vi.fn();
 const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
@@ -85,6 +86,7 @@ const chatStoreState = {
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
+  updateConversationMessagePinned: updateMessagePinnedMock,
   toggleConversationReasoningExpanded: vi.fn(),
   isConversationReasoningExpanded: () => false,
   startConversationEditing: vi.fn(),
@@ -145,6 +147,7 @@ vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   DeleteMessage: vi.fn(),
+  ToggleMessagePin: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({

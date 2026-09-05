@@ -24,7 +24,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage } from '@wailsjs/go/wailsapi/Conversations';
+import { DeleteMessage, ToggleMessagePin } from '@wailsjs/go/wailsapi/Conversations';
 import { EditorGetDraftPath } from '@wailsjs/go/wailsapi/Editor';
 import { GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -168,6 +168,7 @@ function ChatSessionViewContent({
     loadConversationSession,
     retryMessageToConversation,
     updateConversationMessage,
+    updateConversationMessagePinned,
     toggleConversationReasoningExpanded,
     isConversationReasoningExpanded,
     startConversationEditing,
@@ -617,8 +618,19 @@ function ChatSessionViewContent({
     },
     onSendToEditor: sendToEditor,
     editorTargets,
-    onPin: (_message) => {
-      announce(t('chat.announce.pinComingSoon'));
+    onPin: async (message) => {
+      if (!isBackendId(message.id)) return;
+      try {
+        const result = await ToggleMessagePin(message.id);
+        announce(result.pinned ? t('chat.announce.messagePinned') : t('chat.announce.messageUnpinned'));
+      } catch (error) {
+        handleError(error, {
+          source: 'ChatSessionView.onPin',
+          userMessage: t('chat.pins.toggleError'),
+          severity: ErrorSeverity.RECOVERABLE,
+          metadata: { messageId: message.id },
+        });
+      }
     },
     onToggleReasoning: (message) => {
       const targetConversationId = conversation?.id;
@@ -771,6 +783,23 @@ function ChatSessionViewContent({
       if (unsubscribe) unsubscribe();
     };
   }, [conversationId, updateConversationMessage]);
+
+  useEffect(() => {
+    const handleMessagePinChanged = (data: unknown) => {
+      const eventData = data as { conversationId?: string; messageId?: string; pinned?: boolean };
+      if (
+        eventData.conversationId !== conversationId
+        || !eventData.messageId
+        || typeof eventData.pinned !== 'boolean'
+      ) return;
+      updateConversationMessagePinned(conversationId, eventData.messageId, eventData.pinned);
+    };
+
+    const unsubscribe = EventsOn('message:pin_changed', handleMessagePinChanged);
+    return () => {
+      unsubscribe();
+    };
+  }, [conversationId, updateConversationMessagePinned]);
 
   useEffect(() => {
     if (!conversationId) return;
