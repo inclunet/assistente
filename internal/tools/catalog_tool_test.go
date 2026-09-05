@@ -16,6 +16,26 @@ type fakeCatalogToolStore struct {
 	calls   int
 }
 
+func TestCatalogToolDescriptionExplainsDiscoveryAndPolicyBoundaries(t *testing.T) {
+	description := strings.ToLower(NewCatalogTool(nil).Description())
+	for _, concept := range []string{
+		"authorized on-demand tools",
+		"task query",
+		"profile preferred packages",
+		"conversation recency",
+		`"action":"search"`,
+		`"action":"load"`,
+		"wildcard",
+		"profile policy",
+		"schema budget",
+		"disabled or opt-in tools are never elevated",
+	} {
+		if !strings.Contains(description, concept) {
+			t.Errorf("Description() deve documentar %q", concept)
+		}
+	}
+}
+
 func (s *fakeCatalogToolStore) ListTools(_ context.Context, filter ToolCatalogFilter) ([]ToolCatalogEntry, error) {
 	s.calls++
 	s.filter = filter
