@@ -4203,6 +4203,9 @@ const en = {
         success: 'Setup completed successfully!',
         error: 'Setup error. Check Settings.',
       },
+      updater: {
+        checkError: 'Updates could not be checked right now. The app will try again later.',
+      },
       summary: {
         started: 'Summarizing conversation ({{count}} messages)...',
         completed: 'Conversation summary updated ({{count}} messages summarized)',
