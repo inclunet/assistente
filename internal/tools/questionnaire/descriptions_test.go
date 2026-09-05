@@ -46,6 +46,9 @@ func TestCollectResponsesParameterDescriptionsCoverQuestionContract(t *testing.T
 			t.Errorf("user-facing parameter %q should require the user's language", field)
 		}
 	}
+	if !strings.Contains(strings.ToLower(schema.Properties["title"].Description), "optional") {
+		t.Errorf("title description should reflect that the parameter is optional")
+	}
 	questions := schema.Properties["questions"]
 	if questions.Items == nil {
 		t.Fatal("questions should retain an item schema")

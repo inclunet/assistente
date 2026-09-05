@@ -53,7 +53,7 @@ func (t *CollectResponsesTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"title": {"type": "string", "description": "Short heading in the user's language that tells them why answers are needed."},
+			"title": {"type": "string", "description": "Optional short heading in the user's language that tells them why answers are needed. Omit it when the questions need no shared heading."},
 			"description": {"type": "string", "description": "Optional brief context in the user's language shared by all questions. Do not repeat each prompt or include hidden instructions."},
 			"allow_cancel": {"type": "boolean", "description": "Whether the user may cancel instead of answering. Defaults to true; set false only when proceeding without answers is unsafe or impossible."},
 			"submit_label": {"type": "string", "description": "Optional concise submit-button label in the user's language."},
