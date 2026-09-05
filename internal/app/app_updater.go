@@ -104,7 +104,7 @@ func (a *App) initUpdater() {
 	logging.Infof(context.Background(), "app.app-updater", "[Updater] Inicializado (versão atual: %s)", AppVersion)
 }
 
-// checkForUpdatesOnStartup verifica atualizações ao iniciar (não bloqueante).
+// checkForUpdatesOnStartup executa o scheduler cancelável de atualizações.
 func (a *App) checkForUpdatesOnStartup() {
-	a.updaterCtrl.CheckForUpdatesOnStartup(a.ctx)
+	a.updaterCtrl.RunUpdateChecks(a.ctx)
 }
