@@ -38,6 +38,8 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 		"terminal cmd",
 		"shell allowlist/confirmation policy",
 		"does not grant content access",
+		"requires a non-empty uri after trimming",
+		"checks the assistente:// prefix",
 		"frontend parser rejects unsupported navigate routes and invalid required or validated parameter combinations",
 		"tool_catalog",
 		`{"uri":`,
