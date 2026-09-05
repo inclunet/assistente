@@ -53,7 +53,7 @@ func (t *TextEdit) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TextEdit) Description() string {
-	return "Replaces the selected text in the active editor text file after user confirmation (Apply/Reject). Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB); CSV and RTF remain editable as text. Use 'original' with the exact selected text and 'replacement' with the final content. Only works from an editor tab with an open file; elsewhere use edit_file."
+	return "Replace one exact selection in the active editor text file after explicit user confirmation. Use only from an editor tab with an active file when the user should review the before/after change. Do not use outside that surface (use edit_file with path), for multiple occurrences, or for opaque/binary documents. original must occur exactly once and replacement must be the complete final selection. Risk: write with mandatory confirmation."
 }
 
 func (t *TextEdit) Parameters() json.RawMessage {
@@ -62,28 +62,28 @@ func (t *TextEdit) Parameters() json.RawMessage {
 		"properties": {
 			"original": {
 				"type": "string",
-				"description": "Trecho exato do texto selecionado a substituir. Deve corresponder exatamente ao conteúdo do arquivo (incluindo indentação) e ser único; se não for, inclua mais contexto ao redor."
+				"description": "Exact non-empty selected text currently in the active file, including whitespace and indentation; include surrounding context until it occurs exactly once."
 			},
 			"replacement": {
 				"type": "string",
-				"description": "Conteúdo final que substituirá o trecho selecionado. Somente o texto final, sem explicações."
+				"description": "Complete final text replacing original; provide only file content, not commentary."
 			},
 			"format": {
 				"type": "string",
 				"enum": ["markdown", "plain"],
-				"description": "Formato do conteúdo final. Padrão: markdown."
+				"description": "Content format used in the confirmation UI; defaults to markdown. This does not convert the file."
 			},
 			"notes": {
 				"type": "string",
-				"description": "Justificativa breve da alteração, quando útil."
+				"description": "Optional brief rationale shown to the user during confirmation; omit when it adds no useful context."
 			},
 			"title": {
 				"type": "string",
-				"description": "Título opcional para o questionário de confirmação."
+				"description": "Optional concise title for the confirmation prompt."
 			},
 			"description": {
 				"type": "string",
-				"description": "Descrição opcional para o questionário de confirmação."
+				"description": "Optional concise explanation shown in the confirmation prompt."
 			}
 		},
 		"required": ["original", "replacement"],

@@ -41,7 +41,7 @@ func (t *ReadFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *ReadFile) Description() string {
-	return "Reads a file and returns line-numbered content. Text files (code, Markdown, HTML, JSON, CSV, RTF, ...) are returned verbatim, exactly as stored on disk. Only opaque documents the model cannot read as-is (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, EPUB) are converted to a Markdown projection (not the original file), with extraction capped at 32 MiB of input; text has no such cap. Set document_mode to \"markdown\" to also convert text formats that have a projection (e.g. a CSV rendered as a Markdown table). Use offset (1-indexed; negative counts from end) and limit (number of lines of the returned content). Without offset/limit, returns the whole result."
+	return "Read the contents of one known file with line numbers. Use when you already know the path and need to inspect text or a supported document; use offset and limit for large text files. Do not use to discover paths (use search_files), search across file contents (use grep_search), or inspect a directory (use list_directory). Text is returned verbatim by default; opaque documents such as PDF, DOCX, XLSX, PPTX, ODF, and EPUB are projected to Markdown and may cost more to extract (32 MiB input limit, no OCR). Risk: read-only."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
@@ -50,20 +50,20 @@ func (t *ReadFile) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do arquivo (absoluto ou relativo ao diretório de trabalho)"
+				"description": "Absolute path or path relative to the working directory of the single file to read; use list_directory or search_files first if the path is unknown."
 			},
 			"offset": {
 				"type": "integer",
-				"description": "Linha inicial (1-indexed) do conteúdo retornado. Se negativo, conta do final."
+				"description": "First line to return: positive values are 1-indexed; negative values count backward from the end."
 			},
 			"limit": {
 				"type": "integer",
-				"description": "Número máximo de linhas a retornar. Sem limit, retorna tudo a partir do offset."
+				"description": "Maximum number of lines to return from offset; omit to return the remainder of the file."
 			},
 			"document_mode": {
 				"type": "string",
 				"enum": ["auto", "markdown"],
-				"description": "auto (padrão): só documento opaco (PDF/DOCX/XLSX/PPTX/ODF/EPUB) vira Markdown; arquivo de texto volta como está. markdown: converte também formatos textuais com projeção, como CSV em tabela. OCR não está disponível (AEP-0093, issue #565) e por isso o valor \"ocr\" fica fora do enum."
+				"description": "Projection mode. auto (default) returns text verbatim and projects only opaque supported documents to Markdown; markdown also projects supported textual formats, such as CSV to a table. OCR is unavailable."
 			}
 		},
 		"required": ["path"],

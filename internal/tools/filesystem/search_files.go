@@ -29,7 +29,7 @@ func (t *SearchFiles) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *SearchFiles) Description() string {
-	return "Finds files by glob pattern. Use **/ for recursive search (e.g., '**/test_*.py'). Without **/, it searches only the base directory."
+	return "Find file and directory paths by glob pattern without reading their contents. Use when a path is unknown or you need files by name or extension; use **/ for recursive matching (for example, **/*_test.go). Do not use to search text inside files (use grep_search), read a known file (use read_file), or browse one directory level (use list_directory). Recursive searches walk the tree and cost more; narrow path and max_results when possible. Risk: read-only."
 }
 
 func (t *SearchFiles) Parameters() json.RawMessage {
@@ -38,15 +38,15 @@ func (t *SearchFiles) Parameters() json.RawMessage {
 		"properties": {
 			"pattern": {
 				"type": "string",
-				"description": "Padrão glob para busca. Exemplos: '*.go', '**/*.ts', 'internal/**/*.go', 'README*'"
+				"description": "Glob matched against path names, for example '*.go' in one directory or '**/*.go' recursively. This does not search file contents."
 			},
 			"path": {
 				"type": "string",
-				"description": "Diretório base para busca (padrão: diretório de trabalho)"
+				"description": "Base directory to search, absolute or relative to the working directory; defaults to the working directory."
 			},
 			"max_results": {
 				"type": "integer",
-				"description": "Número máximo de resultados (padrão: 100)"
+				"description": "Maximum number of matching paths to return; defaults to 100. Lower values reduce output and traversal cost."
 			}
 		},
 		"required": ["pattern"],
