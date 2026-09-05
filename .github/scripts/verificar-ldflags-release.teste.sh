@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Os cifrões abaixo são literais do workflow inspecionado.
+# shellcheck disable=SC2016
 set -euo pipefail
 
 workflow=.github/workflows/release.yml
