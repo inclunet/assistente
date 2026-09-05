@@ -6,7 +6,6 @@ import {
   CancelACPAgentInstall,
   InstallACPAgent,
   RemoveACPAgent,
-  UpdateACPAgent,
 } from '@wailsjs/go/wailsapi/ACPInstall';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import type { apidto } from '@wailsjs/go/models';
@@ -14,6 +13,7 @@ import { Button } from '../ui/Button';
 import { DecisionDialog } from '../ui/DecisionDialog';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { formatFileSize } from '../../services/mediaService';
+import { requestACPAgentUpdate } from '../../services/acpInstall';
 import './AgentInstall.css';
 
 /**
@@ -381,9 +381,10 @@ export const AgentInstall = ({
    * ao fim que os provedores foram repontados, que é a parte que não aparece em
    * nenhum marco.
    */
-  const handleUpdate = async (acceptUnverified = false) => {
-    const agentID = plan?.agent_id;
-    if (!agentID) return;
+  const handleUpdate = async (acceptUnverified: boolean) => {
+    const currentPlan = plan;
+    const agentID = currentPlan?.agent_id;
+    if (!agentID || !currentPlan) return;
     const kind = agentId;
     setConfirming('');
     setBusy(true);
@@ -392,12 +393,7 @@ export const AgentInstall = ({
     setUpdatingNow(true);
     setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
     try {
-      const installation = await UpdateACPAgent(agentID, {
-        distribution: plan?.distribution || '',
-        origin: plan?.origin || '',
-        sha256: plan?.sha256 || '',
-        accept_unverified: acceptUnverified,
-      });
+      const installation = await requestACPAgentUpdate(currentPlan, acceptUnverified);
       if (!doAgente(kind)) return;
       updateRef.current = 'settled';
       onResolved(installation.command, installation.args || [], installation.env || undefined);
