@@ -4178,6 +4178,9 @@ const es = {
         success: '¡Configuración completada con éxito!',
         error: 'Error al configurar. Verifica en Ajustes.',
       },
+      updater: {
+        checkError: 'No se pudieron buscar actualizaciones ahora. La aplicación volverá a intentarlo más tarde.',
+      },
       summary: {
         started: 'Resumiendo conversación ({{count}} mensajes)...',
         completed: 'Resumen de conversación actualizado ({{count}} mensajes resumidos)',
