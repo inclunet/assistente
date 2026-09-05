@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,16 @@ func (f *fakeUpdaterService) callCount() int {
 type recordingEmitter struct {
 	mu     sync.Mutex
 	events []string
+}
+
+type reentrantEmitter struct {
+	ctrl  *UpdaterController
+	calls atomic.Int32
+}
+
+func (e *reentrantEmitter) Emit(_ string, _ any) {
+	e.calls.Add(1)
+	e.ctrl.reportCheckErrorOnce()
 }
 
 func (e *recordingEmitter) Emit(event string, _ any) {
@@ -236,6 +247,27 @@ func TestErroDeCheckEmiteFeedbackGenericoUmaVez(t *testing.T) {
 	<-done
 	if got := emitter.count(updateCheckErrorEvent); got != 1 {
 		t.Fatalf("%s = %d, quer 1 sem spam periódico", updateCheckErrorEvent, got)
+	}
+}
+
+func TestReportCheckErrorOncePermiteEmitterReentranteSemDeadlock(t *testing.T) {
+	ctrl := NewUpdaterController(UpdaterControllerConfig{AppVersion: "1.0.0"})
+	emitter := &reentrantEmitter{ctrl: ctrl}
+	ctrl.emitter = emitter
+
+	done := make(chan struct{})
+	go func() {
+		ctrl.reportCheckErrorOnce()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("reportCheckErrorOnce bloqueou quando o emitter reentrou no controller")
+	}
+	if got := emitter.calls.Load(); got != 1 {
+		t.Fatalf("emissões = %d, quer 1 mesmo com reentrância", got)
 	}
 }
 

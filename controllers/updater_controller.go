@@ -212,14 +212,17 @@ func (c *UpdaterController) checkAndPrompt(ctx context.Context) {
 
 func (c *UpdaterController) reportCheckErrorOnce() {
 	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
 	if c.errorReported {
+		c.stateMu.Unlock()
 		return
 	}
 	c.errorReported = true
-	if c.emitter != nil {
+	emitter := c.emitter
+	c.stateMu.Unlock()
+
+	if emitter != nil {
 		// Sem payload de erro: detalhes internos ficam apenas no log.
-		c.emitter.Emit(updateCheckErrorEvent, nil)
+		emitter.Emit(updateCheckErrorEvent, nil)
 	}
 }
 
