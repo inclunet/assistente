@@ -174,11 +174,16 @@ Pode ir no mesmo PR da Fase 1 se couber; senão PR empilhado imediatamente após
 
 ### D8. Relação com `trustscope` (AEP-0082 D8)
 
-O núcleo escopado idealmente vira `internal/trustscope` compartilhado por
-rede e FS. **Fase 1 pode espelhar `nettrust` em `fstrust`** para entregar o
-comportamento sem bloquear na extração. Extração para `trustscope` fica como
-follow-up explícito (issue/AEP ou fase 1.5), sem mudar o formato em disco das
-allowlists de rede.
+O núcleo escopado virou `internal/trustscope`, compartilhado por rede e FS na
+primeira fase da issue #561. O pacote comum concentra `Scope`, identidade de
+conversa/perfil, sessão, ordem de consulta e escrita atômica. `fstrust` mantém
+no próprio domínio o modelo, a validação de path, os efeitos allow/deny e o
+match file/dir.
+
+A migração preserva as APIs públicas dos consumidores e os arquivos versão 1
+em `path-allowlist/` e `network-allowlist/`. Arquivo ausente significa store
+vazio; erro de leitura ou JSON inválido jamais concede trust e impede
+sobrescrita (fail-closed).
 
 ### D9. Denylist dentro do workdir (Fase 2) — fechada
 
@@ -230,11 +235,20 @@ Fase 2:
 - [x] UI e limpeza de sessão
 - [x] Critérios de aceite próprios
 
+### Follow-up #561 — contrato compartilhado
+
+- [x] Extrair `internal/trustscope` sem ciclos de importação
+- [x] Migrar `fstrust` e `nettrust` preservando APIs e comportamento
+- [x] Preservar schemas e caminhos dos arquivos versão 1
+- [x] Cobrir equivalência de escopos, serialização e leitura de dados existentes
+- [ ] Avaliar UX de allow/deny em PR empilhada posterior
+
 ## Riscos
 
 - **Prompt fatigue:** muitas operações granulares. Mitigação: escopos
   session/workspace e ação explícita de pasta quando o fluxo for amplo.
-- **Duplicação nettrust/fstrust:** dívida até `trustscope`; aceitável na Fase 1.
+- **Generalização excessiva:** mitigada mantendo validação e match nos domínios;
+  `trustscope` só conhece o contrato de escopo e armazenamento.
 - **Symlink / junction no Windows:** exigir resolução antes de persistir.
 - **Downgrade de UX do editor:** quem dependia do bypass precisará autorizar
   uma vez — intencional.
