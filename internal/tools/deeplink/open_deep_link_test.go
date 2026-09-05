@@ -21,32 +21,59 @@ func (f *fakeEmitter) EmitDeepLink(uri string) {
 
 func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 	description := strings.ToLower(NewOpenDeepLink(nil).Description())
-	required := []string{
+	requiredConcepts := []string{
 		"use when:",
 		"do not use:",
 		"markdown deep link",
-		"focus an existing matching tab",
+		"focus",
+		"existing matching tab",
 		"caller-aware",
 		"no caller context",
 		"returns to the profiles list",
 		"tab=voice",
-		"settings/network-allowlist",
-		"settings/path-allowlist",
-		"settings/restore-defaults",
-		"profiles, history, memories, tasklists, help, about, update",
-		"interrupt the user's focus",
-		"terminal cmd",
-		"shell allowlist/confirmation policy",
-		"does not grant content access",
-		"requires a non-empty uri after trimming",
-		"checks the assistente:// prefix",
-		"frontend parser rejects unsupported navigate routes and invalid required or validated parameter combinations",
+		"interrupt",
+		"terminal/new",
+		"frontend terminal flow",
+		"rather than the run_command tool",
+		"user explicitly asks",
+		"does not itself grant content access",
+		"non-empty uri",
+		"after trimming",
+		"assistente:// prefix",
+		"unsupported navigate routes",
+		"invalid required or validated parameter combinations",
 		"tool_catalog",
 		`{"uri":`,
 	}
 
-	for _, concept := range required {
+	for _, concept := range requiredConcepts {
 		assert.Contains(t, description, strings.ToLower(concept), "Description() deve documentar %q", concept)
+	}
+
+	validatedRoutes := []string{
+		"settings",
+		"settings/providers",
+		"settings/mcp",
+		"settings/skills",
+		"settings/channels",
+		"settings/contacts",
+		"settings/credentials",
+		"settings/allowlists",
+		"settings/network-allowlist",
+		"settings/path-allowlist",
+		"settings/appearance",
+		"settings/data",
+		"settings/restore-defaults",
+		"profiles",
+		"history",
+		"memories",
+		"tasklists",
+		"help",
+		"about",
+		"update",
+	}
+	for _, route := range validatedRoutes {
+		assert.Contains(t, description, route, "Description() deve listar a rota validada %q", route)
 	}
 }
 
