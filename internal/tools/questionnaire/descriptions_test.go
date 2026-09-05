@@ -1,0 +1,52 @@
+package questionnaire
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestCollectResponsesDescriptionGuidesSelectionAndCost(t *testing.T) {
+	description := NewCollectResponses(nil).Description()
+	for _, want := range []string{
+		"Use when",
+		"Do not use",
+		"pauses work for user input",
+		"Example:",
+	} {
+		if !strings.Contains(description, want) {
+			t.Errorf("Description should contain %q, got %q", want, description)
+		}
+	}
+}
+
+func TestCollectResponsesParameterDescriptionsCoverQuestionContract(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+			Items       *struct {
+				Properties map[string]struct {
+					Description string `json:"description"`
+				} `json:"properties"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(NewCollectResponses(nil).Parameters(), &schema); err != nil {
+		t.Fatalf("Parameters returned invalid JSON: %v", err)
+	}
+
+	for _, field := range []string{"title", "description", "allow_cancel", "submit_label", "cancel_label", "questions"} {
+		if strings.TrimSpace(schema.Properties[field].Description) == "" {
+			t.Errorf("top-level parameter %q should explain its use", field)
+		}
+	}
+	questions := schema.Properties["questions"]
+	if questions.Items == nil {
+		t.Fatal("questions should retain an item schema")
+	}
+	for _, field := range []string{"id", "type", "prompt", "description", "content", "required", "options", "min", "max", "step", "placeholder", "default"} {
+		if strings.TrimSpace(questions.Items.Properties[field].Description) == "" {
+			t.Errorf("question parameter %q should explain its use", field)
+		}
+	}
+}

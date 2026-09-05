@@ -45,15 +45,15 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Load an enabled on-demand skill into the current turn. Use this when the task matches a skill from the prompt's skill catalog and you need the full skill instructions before continuing. Only profile-enabled on-demand skills can be loaded. This is a runtime control tool with ordering semantics: when load_skill appears in the same tool batch as other tool calls, the runtime executes load_skill first and applies the loaded skill's permissions/context before running the remaining calls, while preserving the original result order in the conversation."
+	return "Load one model-invocable, on-demand skill from the prompt's skill catalog into the current turn. Use before acting when the task matches a catalog entry and its full workflow or permissions are needed; give the exact catalog slug and a brief task-specific reason. Do not use for the profile's base skill, disabled or unlisted skills, supporting files, or general tool discovery. Loading consumes context and may narrow tool, filesystem, command, or network permissions, so load only a relevant skill. If other tool calls need those permissions now, include load_skill in the same batch: the runtime executes it first while preserving result order. Example: {\"skill\":\"code-review\",\"reason\":\"review the current changes for regressions\"}."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "skill": {"type": "string", "description": "Skill slug or canonical skill name to load."},
-    "reason": {"type": "string", "description": "Brief reason why this skill is needed for the current task. If you need additional tools in the same assistant turn, include load_skill in the same batch; the runtime will execute it first and apply its permissions before the other calls."}
+    "skill": {"type": "string", "description": "Exact slug or canonical name of a model-invocable on-demand skill shown in the current prompt catalog. Do not guess names or request a base, disabled, or unlisted skill."},
+    "reason": {"type": "string", "description": "Brief task-specific reason the skill's full workflow is needed now, for example 'review the current changes for regressions'. Do not paste the user request or generic justification. When subsequent calls need the skill's permissions in this turn, send them in the same batch; load_skill runs first."}
   },
   "required": ["skill"]
 }`)
