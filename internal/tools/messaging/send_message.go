@@ -32,7 +32,12 @@ func (t *SendMessageTool) Name() string {
 }
 
 func (t *SendMessageTool) Description() string {
-	return "Sends a text message via external messaging (Telegram/Signal/Slack). Use for proactive notifications when requested. The channel must be configured and the contact authorized."
+	return `Send one new outbound text immediately through a configured external Telegram, Signal, or Slack adapter.
+Use when: the user explicitly asks to notify or message a known external destination, and you already have the exact channel-specific recipient identifier.
+Do not use: do not use for the assistant's normal reply to the current chat or an inbound channel message; the backend-driven conversation pipeline delivers those replies. This tool is also not Chat.SendMessage, does not create a conversation or persisted user message, and must not replace Chat.RetryMessage, which re-runs a response from an existing persisted user message.
+Risk: this performs an external side effect immediately. Verify the channel, recipient, and final text before calling; repeating a call can send a duplicate.
+Cost: one adapter/network send; it does not invoke the LLM or wait for a reply.
+Example: {"channel":"signal","to":"+5511999999999","message":"O relatório ficou pronto."}.`
 }
 
 func (t *SendMessageTool) Parameters() json.RawMessage {
@@ -41,16 +46,16 @@ func (t *SendMessageTool) Parameters() json.RawMessage {
 		"properties": {
 			"channel": {
 				"type": "string",
-				"description": "The messaging platform to use (e.g., 'telegram', 'signal', 'slack')",
+				"description": "Configured and connected external adapter that will send the message. Choose exactly one of telegram, signal, or slack.",
 				"enum": ["telegram", "signal", "slack"]
 			},
 			"to": {
 				"type": "string",
-				"description": "Recipient identifier (Telegram chat_id, Signal E.164 phone number, or Slack channel/DM ID such as C…/D… — not a Slack user ID U…)"
+				"description": "Exact destination identifier already known for the selected channel: Telegram chat_id, Signal E.164 phone number, or Slack channel/DM ID such as C…/D…. Do not pass a Slack user ID (U…)."
 			},
 			"message": {
 				"type": "string",
-				"description": "The text message to send"
+				"description": "Final text to send immediately. Pass only recipient-facing content, not tool instructions or retry metadata."
 			}
 		},
 		"required": ["channel", "to", "message"]
