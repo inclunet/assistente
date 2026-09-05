@@ -1,7 +1,7 @@
 {
-  "_builtin_version": "4.5.0",
+  "_builtin_version": "4.6.0",
   "name": "Programação",
-  "description": "Agente de desenvolvimento de software para explorar repositórios, planejar, editar código, executar comandos e validar mudanças. Use para implementação, correção, refatoração, testes e revisão técnica; pode delegar pesquisa ou trabalho paralelo a outros profiles.",
+  "description": "Agente de desenvolvimento de software para explorar repositórios, planejar mudanças, editar código, executar comandos e validar resultados. Use quando precisar implementar funcionalidades, corrigir bugs, depurar, refatorar, escrever testes ou fazer revisão técnica. Não use para pesquisa, redação ou planejamento geral sem trabalho relevante em código; nesses casos, escolha Padrão. Exemplos: corrigir um teste com falha; adicionar uma API; revisar um diff; executar build e lint.",
   "icon": "code-slash-outline",
   "chat": {
     "llm_provider": "$default",
