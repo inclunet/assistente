@@ -30,7 +30,7 @@ func (t *ListDirectory) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *ListDirectory) Description() string {
-	return "Lists files and directories for a path (default: working directory). Returns name, type, and size. Not recursive by default; use recursive=true and max_depth."
+	return "List the entries of a known directory with file types and sizes. Use for a quick directory overview, normally one level at a time. Do not use to read file contents (use read_file), find paths by glob (use search_files), or search text (use grep_search). Recursive listing can return up to 1,000 entries and costs more; prefer non-recursive calls or a narrow max_depth. Risk: read-only."
 }
 
 func (t *ListDirectory) Parameters() json.RawMessage {
@@ -39,15 +39,15 @@ func (t *ListDirectory) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do diretório (absoluto ou relativo ao diretório de trabalho). Padrão: diretório de trabalho."
+				"description": "Directory to list, absolute or relative to the working directory; defaults to the working directory. This must be a directory, not a file."
 			},
 			"recursive": {
 				"type": "boolean",
-				"description": "Se true, lista recursivamente todos os subdiretórios. Padrão: false."
+				"description": "Whether to descend into subdirectories; defaults to false. Recursive output is capped at 1,000 entries."
 			},
 			"max_depth": {
 				"type": "integer",
-				"description": "Profundidade máxima da recursão (somente com recursive=true). Padrão: 3."
+				"description": "Maximum depth when recursive is true; defaults to 3 and is ignored for a non-recursive listing."
 			}
 		},
 		"additionalProperties": false

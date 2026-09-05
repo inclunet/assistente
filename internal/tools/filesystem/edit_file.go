@@ -52,7 +52,7 @@ func (t *EditFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *EditFile) Description() string {
-	return "Edits an existing text file by replacing an exact string (old_string) with another (new_string). Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB); CSV and RTF remain editable as text. old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
+	return "Make one exact text replacement in an existing file. Use for a focused edit after reading the current file; include enough unchanged context in old_string to make it unique. Use replace_all only when every exact occurrence should change. Do not use to create or fully rewrite a file (use write_file), apply multiple distinct edits atomically (use apply_patch), or edit opaque/binary documents. The active editor file may require user confirmation. Risk: write."
 }
 
 func (t *EditFile) Parameters() json.RawMessage {
@@ -61,19 +61,19 @@ func (t *EditFile) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do arquivo a editar (absoluto ou relativo ao diretório de trabalho)"
+				"description": "Existing text file to edit, absolute or relative to the working directory."
 			},
 			"old_string": {
 				"type": "string",
-				"description": "Texto exato a ser encontrado e substituído. Deve incluir contexto suficiente para ser único no arquivo."
+				"description": "Exact non-empty text currently in the file, including whitespace and indentation. Include surrounding unchanged context so it occurs once unless replace_all is intentional."
 			},
 			"new_string": {
 				"type": "string",
-				"description": "Texto que substituirá old_string."
+				"description": "Exact final text that replaces old_string; may be empty to remove the matched text."
 			},
 			"replace_all": {
 				"type": "boolean",
-				"description": "Se true, substitui TODAS as ocorrências de old_string. Padrão: false (substitui apenas a primeira ocorrência, falhando se houver mais de uma)."
+				"description": "When true, replace every exact occurrence of old_string. Defaults to false, which requires old_string to be unique."
 			}
 		},
 		"required": ["path", "old_string", "new_string"],

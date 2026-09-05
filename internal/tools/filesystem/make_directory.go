@@ -27,15 +27,15 @@ func (t *MakeDirectory) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *MakeDirectory) Description() string {
-	return "Creates a directory on disk. Validates paths, respects skill filesystem scope, and blocks sensitive paths. Uses MkdirAll by default."
+	return "Create a directory, including missing parent directories by default. Use when an empty directory is required before later file operations. Do not use before write_file solely to create parents, because write_file already does that, and do not use to create files. With parents=false, creation fails if the immediate parent is missing. Risk: write."
 }
 
 func (t *MakeDirectory) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"path": {"type": "string", "description": "Caminho do diretório a criar (absoluto ou relativo ao diretório de trabalho)"},
-			"parents": {"type": "boolean", "description": "Se true, cria diretórios intermediários. Padrão: true"}
+			"path": {"type": "string", "description": "Directory to create, absolute or relative to the working directory."},
+			"parents": {"type": "boolean", "description": "Whether to create missing parent directories; defaults to true. Set false only when the parent must already exist."}
 		},
 		"required": ["path"],
 		"additionalProperties": false
