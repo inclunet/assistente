@@ -207,31 +207,115 @@ func readEditorMigrationClaim(path string) (editorMigrationClaim, error) {
 	return claim, nil
 }
 
+func ensurePrivateDirectory(path string) error {
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return err
+	}
+	expected, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if expected.Mode()&os.ModeSymlink != 0 || !expected.IsDir() {
+		return fmt.Errorf("diretório privado inválido ou symlink: %s", path)
+	}
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	actual, err := dir.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, actual) {
+		return fmt.Errorf("diretório privado substituído durante validação: %s", path)
+	}
+	if err := dir.Chmod(0700); err != nil {
+		return fmt.Errorf("falha ao restringir diretório privado: %w", err)
+	}
+	return nil
+}
+
 func copyLegacyEditorFile(source, destination string, overwriteIncomplete bool) error {
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.Mode().IsRegular() {
+		return fmt.Errorf("origem legada não é arquivo regular")
+	}
 	src, err := os.Open(source)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = src.Close() }()
-
-	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
-		return err
-	}
-	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	if overwriteIncomplete {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	}
-	dst, err := os.OpenFile(destination, flags, 0600)
+	openedSourceInfo, err := src.Stat()
 	if err != nil {
-		if os.IsExist(err) && !overwriteIncomplete {
-			return nil
-		}
 		return err
 	}
+	if !os.SameFile(sourceInfo, openedSourceInfo) {
+		return fmt.Errorf("origem legada substituída durante validação")
+	}
+
+	if err := ensurePrivateDirectory(filepath.Dir(destination)); err != nil {
+		return err
+	}
+
+	var dst *os.File
+	created := false
+	destinationInfo, statErr := os.Lstat(destination)
+	switch {
+	case statErr == nil:
+		if destinationInfo.Mode()&os.ModeSymlink != 0 || !destinationInfo.Mode().IsRegular() {
+			return fmt.Errorf("destino migrado não é arquivo regular")
+		}
+		dst, err = os.OpenFile(destination, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		openedDestinationInfo, infoErr := dst.Stat()
+		if infoErr != nil {
+			_ = dst.Close()
+			return infoErr
+		}
+		if !os.SameFile(destinationInfo, openedDestinationInfo) {
+			_ = dst.Close()
+			return fmt.Errorf("destino migrado substituído durante validação")
+		}
+		if err := dst.Chmod(0600); err != nil {
+			_ = dst.Close()
+			return fmt.Errorf("falha ao restringir arquivo migrado: %w", err)
+		}
+		if !overwriteIncomplete {
+			return dst.Close()
+		}
+		if err := dst.Truncate(0); err != nil {
+			_ = dst.Close()
+			return err
+		}
+		if _, err := dst.Seek(0, io.SeekStart); err != nil {
+			_ = dst.Close()
+			return err
+		}
+	case os.IsNotExist(statErr):
+		dst, err = os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		created = true
+		if err := dst.Chmod(0600); err != nil {
+			_ = dst.Close()
+			_ = os.Remove(destination)
+			return fmt.Errorf("falha ao restringir arquivo migrado: %w", err)
+		}
+	default:
+		return statErr
+	}
+
 	ok := false
 	defer func() {
 		_ = dst.Close()
-		if !ok {
+		if created && !ok {
 			_ = os.Remove(destination)
 		}
 	}()
@@ -285,9 +369,31 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 	if claim.UserID != userID {
 		return nil
 	}
+	if err := ensurePrivateDirectory(paths.root); err != nil {
+		return fmt.Errorf("falha ao preparar diretório privado do editor: %w", err)
+	}
+	if err := ensurePrivateDirectory(paths.draftDir); err != nil {
+		return fmt.Errorf("falha ao preparar diretório privado de drafts: %w", err)
+	}
 	completionPath := filepath.Join(paths.root, ".legacy-migration-v1-complete")
-	if _, err := os.Stat(completionPath); err == nil {
-		return nil
+	if info, err := os.Lstat(completionPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("marcador de conclusão da migração inválido")
+		}
+		completion, openErr := os.OpenFile(completionPath, os.O_WRONLY, 0)
+		if openErr != nil {
+			return openErr
+		}
+		openedInfo, statErr := completion.Stat()
+		if statErr != nil || !os.SameFile(info, openedInfo) {
+			_ = completion.Close()
+			return fmt.Errorf("marcador de conclusão substituído durante validação")
+		}
+		if chmodErr := completion.Chmod(0600); chmodErr != nil {
+			_ = completion.Close()
+			return fmt.Errorf("falha ao restringir marcador de conclusão: %w", chmodErr)
+		}
+		return completion.Close()
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -327,14 +433,15 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 		}
 	}
 
-	if err := os.MkdirAll(paths.root, 0700); err != nil {
-		return err
-	}
 	completion, err := os.OpenFile(completionPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil && !os.IsExist(err) {
 		return fmt.Errorf("falha ao concluir migração legada do editor: %w", err)
 	}
 	if err == nil {
+		if chmodErr := completion.Chmod(0600); chmodErr != nil {
+			_ = completion.Close()
+			return fmt.Errorf("falha ao restringir marcador de conclusão: %w", chmodErr)
+		}
 		if closeErr := completion.Close(); closeErr != nil {
 			return fmt.Errorf("falha ao concluir migração legada do editor: %w", closeErr)
 		}

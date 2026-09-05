@@ -451,6 +451,149 @@ func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
 	}
 }
 
+func TestEditorLegacyMigrationTightensPreexistingDestinations(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	legacyDir := legacyEditorDir()
+	if err := os.MkdirAll(filepath.Join(legacyDir, "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "state.json"), []byte(`{"fileModeByPath":{"legado.md":"rich"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "drafts", "legado.md"), []byte("origem legada"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "01991f7c-1000-7000-8000-00000000006a"
+	paths, err := editorPathsForUser(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(paths.root, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(paths.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.state, []byte(`{"fileModeByPath":{"destino.md":"source"}}`), 0666); err != nil {
+		t.Fatal(err)
+	}
+	draftPath := filepath.Join(paths.draftDir, "legado.md")
+	if err := os.WriteFile(draftPath, []byte("destino preservado"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(paths.state, 0666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(draftPath, 0666); err != nil {
+		t.Fatal(err)
+	}
+
+	api := attachEditorForUser(userID)
+	state, err := api.EditorLoadState()
+	if err != nil {
+		t.Fatalf("migração falhou ao restringir destinos: %v", err)
+	}
+	if state.FileModeByPath["destino.md"] != "source" {
+		t.Fatalf("state preexistente foi sobrescrito: %+v", state)
+	}
+	if got, err := api.EditorReadDraft("legado"); err != nil || got != "destino preservado" {
+		t.Fatalf("draft preexistente foi sobrescrito: %q, %v", got, err)
+	}
+
+	for _, path := range []string{paths.root, paths.draftDir, paths.state, draftPath} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("Lstat(%s): %v", path, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("destino privado virou symlink: %s", path)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		// Windows não expõe o modelo POSIX completo em FileMode; o contrato
+		// portável aqui é a operação concluir sem seguir links nem perder dados.
+		return
+	}
+	for _, path := range []string{paths.root, paths.draftDir} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0700 {
+			t.Fatalf("%s perm = %04o, quer 0700", path, got)
+		}
+	}
+	for _, path := range []string{paths.state, draftPath} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0600 {
+			t.Fatalf("%s perm = %04o, quer 0600", path, got)
+		}
+	}
+}
+
+func TestEditorLegacyMigrationRejectsDestinationSymlinks(t *testing.T) {
+	for _, target := range []string{"state", "draft"} {
+		t.Run(target, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+
+			userID := "01991f7c-1000-7000-8000-00000000006b"
+			paths, err := editorPathsForUser(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(paths.draftDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+
+			external := filepath.Join(tempDir, "externo-"+target+".txt")
+			if err := os.WriteFile(external, []byte("não alterar"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var legacy, destination string
+			if target == "state" {
+				legacy = filepath.Join(legacyEditorDir(), "state.json")
+				destination = paths.state
+			} else {
+				legacy = filepath.Join(legacyEditorDir(), "drafts", "legado.md")
+				destination = filepath.Join(paths.draftDir, "legado.md")
+			}
+			if err := os.WriteFile(legacy, []byte("conteúdo legado"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(external, destination); err != nil {
+				t.Skipf("symlink indisponível neste ambiente: %v", err)
+			}
+
+			if _, err := attachEditorForUser(userID).EditorLoadState(); err == nil {
+				t.Fatalf("migração seguiu symlink de destino de %s", target)
+			}
+			data, err := os.ReadFile(external)
+			if err != nil || string(data) != "não alterar" {
+				t.Fatalf("alvo externo foi alterado ou apagado: %q, %v", data, err)
+			}
+		})
+	}
+}
+
 func TestEditorLegacyMigrationIgnoresSymlinks(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)

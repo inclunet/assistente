@@ -681,10 +681,11 @@ func TestEditorWriteDraftMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
 
 func TestStopAllEditorWatchesClearsSessionMarkers(t *testing.T) {
 	t.Parallel()
+	sessionPath := filepath.Join(t.TempDir(), "conta-a.md")
 	app := &App{
 		editorDirWatches: map[string]*editorDirWatch{},
 		editorAssistedWriteByPath: map[string][]editorAssistedWrite{
-			"/tmp/conta-a.md": {{origin: editorWriteOriginEditorUI}},
+			sessionPath: {{origin: editorWriteOriginEditorUI}},
 		},
 	}
 
