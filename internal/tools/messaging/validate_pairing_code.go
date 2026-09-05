@@ -30,7 +30,7 @@ func (t *ValidatePairingCodeTool) Name() string {
 func (t *ValidatePairingCodeTool) Description() string {
 	return `Validate one pending six-digit external-channel pairing code against its exact channel and contact identifier.
 Use when: only an internal recovery flow explicitly asks to check a code that is already pending for that same channel/contact pair. The normal inbound pairing flow is handled directly by the messaging gateway before any message reaches the LLM.
-Do not use: do not initiate pairing, guess a code, validate ordinary message text, or treat this as message sending or retry. This operation only validates and consumes pairing state; by itself it does not add the contact to the authorized contacts list.
+Do not use: do not initiate pairing, guess a code, validate ordinary message text, or treat this as message sending or retry. This operation only validates and consumes pairing state; it does not call contact authorization. Its legacy success result means only that validation succeeded, despite wording that says the contact was authorized; the normal gateway performs the separate authorization step.
 Risk: a wrong code consumes one of the limited attempts, and a correct code is single-use and removed after validation. Confirm channel, contact_id, and all six digits before calling.
 Cost: local in-memory validation only; no network request or LLM call.
 Example: {"channel":"telegram","contact_id":"123456789","code":"042731"}.`
