@@ -3,7 +3,8 @@ import { useNavigationStore, type EditableResource, type ResourceEditRequest } f
 
 /**
  * Hook for pages to consume pending resource-edit requests from deep links.
- * Calls `onEdit(id)` or `onNew()` once after mount or when a new request arrives.
+ * Calls `onEdit(id, request)` or `onNew(request)` once after mount or when a
+ * new request arrives, preserving metadata such as the target tab and caller.
  */
 export function useResourceEditRequest(
   resource: EditableResource,
