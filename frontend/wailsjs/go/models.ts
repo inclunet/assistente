@@ -1861,6 +1861,7 @@ export namespace chat {
 	    cacheMissTokens?: number;
 	    model?: string;
 	    source?: string;
+	    pinned: boolean;
 	    // Go type: time
 	    createdAt: any;
 	    timestamp: number;
@@ -1892,6 +1893,7 @@ export namespace chat {
 	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.model = source["model"];
 	        this.source = source["source"];
+	        this.pinned = source["pinned"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.timestamp = source["timestamp"];
 	        this.isStreaming = source["isStreaming"];
@@ -2236,6 +2238,7 @@ export namespace database {
 	    cacheMissTokens?: number;
 	    model?: string;
 	    source?: string;
+	    pinned: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -2265,6 +2268,7 @@ export namespace database {
 	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.model = source["model"];
 	        this.source = source["source"];
+	        this.pinned = source["pinned"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

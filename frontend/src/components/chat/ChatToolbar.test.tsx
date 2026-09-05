@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatToolbar } from './ChatToolbar';
 
@@ -23,6 +24,9 @@ const getAgentSessionOptionsMock = vi.hoisted(() => vi.fn().mockResolvedValue({
 }));
 const requestResourceEditMock = vi.hoisted(() => vi.fn());
 const mockPanelTabRef = vi.hoisted(() => ({ current: { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown> }));
+const activeConversationRef = vi.hoisted(() => ({
+  current: { id: 'conversation-1', title: 'Conversa' } as { id: string; title: string } | null,
+}));
 const openAtPointMock = vi.hoisted(() => vi.fn());
 // A conversa deste teste não fala com agente de código: o diretório do agente
 // não existe para ela, e o controle da barra some.
@@ -42,6 +46,8 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   ClearConversation: clearConversationMock,
+  GetPinnedMessages: vi.fn().mockResolvedValue([]),
+  ToggleMessagePin: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
@@ -68,6 +74,9 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 }));
 
 vi.mock('../ui/Modal', () => ({
+  Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
+    isOpen ? <div>{children}</div> : null
+  ),
   isModalOpen: () => modalState.open,
   useIsInsideModal: () => modalState.inside,
   useModalIsTopmost: () => () => modalState.topmost,
@@ -113,7 +122,7 @@ vi.mock('./ChatSessionContext', () => ({
   useChatSession: () => ({
     conversationId: 'conversation-1',
     session: { queuedTurnCount: 0 },
-    conversation: { id: 'conversation-1', title: 'Conversa' },
+    conversation: activeConversationRef.current,
     isLoading: false,
     clearConversationMessages: clearConversationMessagesMock,
     loadConversationSession: loadConversationSessionMock,
@@ -213,7 +222,19 @@ beforeEach(() => {
   ]);
   modelChangeRef.current = null;
   profileChangeRef.current = null;
+  activeConversationRef.current = { id: 'conversation-1', title: 'Conversa' };
   mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
+});
+
+describe('ChatToolbar mensagens fixadas', () => {
+  it('abre a lista enquanto os detalhes da conversa ainda carregam', async () => {
+    activeConversationRef.current = null;
+    renderToolbar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'chat.pins.button' }));
+
+    expect(await screen.findByText('chat.pins.description')).toBeInTheDocument();
+  });
 });
 
 describe('ChatToolbar shortcuts', () => {
