@@ -26,7 +26,10 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 		"do not use:",
 		"markdown deep link",
 		"focus",
-		"existing matching tab",
+		"matching chat tab",
+		"live terminal ids",
+		"editor/{id} opens a new editor tab",
+		"editor tabs are not matched by that id",
 		"tab open:",
 		"caller-aware",
 		"no caller context",
@@ -45,6 +48,7 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 		"invalid required or validated parameter combinations",
 		"tool_catalog",
 		"empty route",
+		"assistente://navigate/",
 		`{"uri":`,
 	}
 
