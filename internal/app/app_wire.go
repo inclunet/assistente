@@ -62,7 +62,6 @@ func (a *App) wireUpdater() {
 		Updater:          a.updater,
 		Emitter:          a.emitter,
 		QuestionnaireMgr: a.questionnaireMgr,
-		ProviderSvc:      a.providerSvc,
 		AppVersion:       AppVersion,
 	})
 	if a.updaterAPI != nil {
@@ -241,7 +240,6 @@ func (a *App) wireWelcome() {
 		CredMgr:                    a.credMgr,
 		ProviderSvc:                a.providerSvc,
 		LLMRegistry:                a.llmRegistry,
-		Updater:                    a.updater,
 		UpdaterCtrl:                a.updaterCtrl,
 		ConfigureCredentialManager: a.configureCredentialManager,
 		InitLLMClient:              a.initLLMClient,

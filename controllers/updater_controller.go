@@ -4,30 +4,43 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"assistente/internal/core/ports"
-	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 	"assistente/internal/updater"
 )
 
+const updateCheckErrorEvent = "update:check-error"
+
+type updaterService interface {
+	CheckForUpdates(context.Context) (*updater.UpdateInfo, error)
+	ApplyUpdate(context.Context) error
+}
+
 // UpdaterControllerConfig agrupa dependências do UpdaterController.
 type UpdaterControllerConfig struct {
-	Updater          *updater.Updater
+	Updater          updaterService
 	Emitter          ports.Emitter
 	QuestionnaireMgr *questionnaire.Manager
-	ProviderSvc      *providers.Service
 	AppVersion       string
 }
 
 // UpdaterController expõe operações de verificação e aplicação de atualizações.
 type UpdaterController struct {
-	updater          *updater.Updater
+	updater          updaterService
 	emitter          ports.Emitter
 	questionnaireMgr *questionnaire.Manager
-	providerSvc      *providers.Service
 	appVersion       string
+	startupDelay     time.Duration
+	checkInterval    time.Duration
+	checkTimeout     time.Duration
+	checkRequests    chan struct{}
+
+	stateMu         sync.Mutex
+	promptedVersion string
+	errorReported   bool
 }
 
 // NewUpdaterController cria um UpdaterController com as dependências fornecidas.
@@ -36,8 +49,11 @@ func NewUpdaterController(cfg UpdaterControllerConfig) *UpdaterController {
 		updater:          cfg.Updater,
 		emitter:          cfg.Emitter,
 		questionnaireMgr: cfg.QuestionnaireMgr,
-		providerSvc:      cfg.ProviderSvc,
 		appVersion:       cfg.AppVersion,
+		startupDelay:     5 * time.Second,
+		checkInterval:    updater.CheckInterval,
+		checkTimeout:     30 * time.Second,
+		checkRequests:    make(chan struct{}, 1),
 	}
 }
 
@@ -81,46 +97,132 @@ func (c *UpdaterController) StartUpdate(ctx context.Context) error {
 	return nil
 }
 
-// CheckForUpdatesOnStartup verifica atualizações ao iniciar (não bloqueante).
-func (c *UpdaterController) CheckForUpdatesOnStartup(ctx context.Context) {
+// RunUpdateChecks mantém a verificação de startup e as verificações periódicas
+// no contexto raiz do app. O método bloqueia até o cancelamento para que o App
+// possa rastreá-lo no bgWG e fazer join no Shutdown.
+func (c *UpdaterController) RunUpdateChecks(ctx context.Context) {
 	if c.appVersion == "dev" {
 		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Modo desenvolvimento detectado (AppVersion=%s): pulando verificação de updates", c.appVersion)
 		return
 	}
 
-	time.Sleep(5 * time.Second)
-
-	provCount, countErr := c.providerSvc.Count(ctx)
-	if countErr != nil {
-		logging.Errorf(ctx, "controllers.updater-controller", "[Updater] Erro ao contar providers para verificação de atualizações: %v", countErr)
-		return
+	delay := c.startupDelay
+	if delay < 0 {
+		delay = 0
 	}
-	if provCount == 0 {
-		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Pulando verificação de atualizações: nenhum provider configurado")
-		return
+	interval := c.checkInterval
+	if interval <= 0 {
+		interval = updater.CheckInterval
 	}
 
-	checkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	startupTimer := time.NewTimer(delay)
+	defer startupTimer.Stop()
+	startupC := startupTimer.C
+
+	var ticker *time.Ticker
+	var tickerC <-chan time.Time
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-startupC:
+		case <-tickerC:
+		case <-c.checkRequests:
+		}
+
+		c.checkAndPrompt(ctx)
+
+		if startupC != nil {
+			if !startupTimer.Stop() {
+				select {
+				case <-startupTimer.C:
+				default:
+				}
+			}
+			startupC = nil
+			ticker = time.NewTicker(interval)
+			tickerC = ticker.C
+		}
+
+		// Uma solicitação pós-wizard que chegou durante o fetch já foi atendida
+		// pelo check em voo. Esvaziá-la evita um segundo fetch imediato.
+		select {
+		case <-c.checkRequests:
+		default:
+		}
+	}
+}
+
+// RequestUpdateCheck antecipa a primeira verificação (por exemplo, ao terminar
+// o wizard). O canal de capacidade 1 agrega solicitações concorrentes.
+func (c *UpdaterController) RequestUpdateCheck() {
+	select {
+	case c.checkRequests <- struct{}{}:
+	default:
+	}
+}
+
+func (c *UpdaterController) checkAndPrompt(ctx context.Context) {
+	if c.updater == nil {
+		return
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, c.checkTimeout)
 	defer cancel()
 
 	info, err := c.updater.CheckForUpdates(checkCtx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		logging.Errorf(ctx, "controllers.updater-controller", "[Updater] Erro ao verificar atualizações: %v", err)
+		c.reportCheckErrorOnce()
 		return
 	}
+
+	c.stateMu.Lock()
+	c.errorReported = false
+	c.stateMu.Unlock()
 
 	if !info.Available {
 		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Aplicativo está atualizado (v%s)", info.CurrentVersion)
 		return
 	}
 
+	c.stateMu.Lock()
+	if c.promptedVersion == info.LatestVersion {
+		c.stateMu.Unlock()
+		return
+	}
+	c.promptedVersion = info.LatestVersion
+	c.stateMu.Unlock()
+
 	logging.Infof(ctx, "controllers.updater-controller", "[Updater] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
-	go c.promptForUpdate(ctx, info)
+	c.promptForUpdate(ctx, info)
 }
 
-// PromptForUpdate pergunta ao usuário se deseja atualizar (público para uso em app_welcome.go).
+func (c *UpdaterController) reportCheckErrorOnce() {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.errorReported {
+		return
+	}
+	c.errorReported = true
+	if c.emitter != nil {
+		// Sem payload de erro: detalhes internos ficam apenas no log.
+		c.emitter.Emit(updateCheckErrorEvent, nil)
+	}
+}
+
+// PromptForUpdate pergunta ao usuário se deseja atualizar.
 func (c *UpdaterController) PromptForUpdate(ctx context.Context, info *updater.UpdateInfo) {
-	go c.promptForUpdate(ctx, info)
+	c.promptForUpdate(ctx, info)
 }
 
 // updateTextKey é o assunto deste diálogo nas chaves de tradução (AEP-0085 D7).
