@@ -58,7 +58,7 @@ func TestShellDescriptionsDisambiguateExecutionAndLifecycle(t *testing.T) {
 			desc: NewRunCommand(nil, nil, nil, ".").Description(),
 			required: []string{
 				"terminal_session", "ephemeral", "persistent=true", "terminal_id",
-				"terminalid from the result metadata", "cannot be combined",
+				"terminalid", "metadata", "cannot be combined",
 				"allowlist", "confirmation", "tool_catalog", `{"command":`,
 			},
 		},
