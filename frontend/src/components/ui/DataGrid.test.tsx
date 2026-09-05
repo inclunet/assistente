@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { DataGrid, DataGridColumn } from './DataGrid';
 
 const announceMock = vi.hoisted(() => vi.fn());
@@ -130,6 +130,49 @@ describe('DataGrid (list mode — backward compat)', () => {
   it('className é aplicado ao container', () => {
     render(<DataGrid items={items} columns={columns} className="my-custom" autoFocusOnMount={false} />);
     expect(getGrid().classList.contains('my-custom')).toBe(true);
+  });
+
+  it('abre ações por Shift+F10, navega por setas e ativa com Enter', async () => {
+    const update = vi.fn();
+    render(
+      <DataGrid
+        items={items.slice(0, 1)}
+        columns={columns}
+        autoFocusOnMount={false}
+        getRowActions={() => [
+          { id: 'edit', label: 'Editar', action: vi.fn() },
+          { id: 'update', label: 'Atualizar agente', action: update },
+        ]}
+      />,
+    );
+    focusGrid();
+
+    fireEvent.keyDown(getGrid(), { key: 'F10', shiftKey: true });
+    const menu = await screen.findByRole('menu');
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    fireEvent.keyDown(menu, { key: 'Enter' });
+
+    expect(update).toHaveBeenCalledOnce();
+  });
+
+  it('abre ações pelo mouse e restaura o foco da célula ao fechar com Escape', async () => {
+    render(
+      <DataGrid
+        items={items.slice(0, 1)}
+        columns={columns}
+        autoFocusOnMount={false}
+        getRowActions={() => [
+          { id: 'update', label: 'Atualizar agente', action: vi.fn() },
+        ]}
+      />,
+    );
+    const row = screen.getAllByRole('row')[1];
+
+    fireEvent.contextMenu(row, { clientX: 20, clientY: 30 });
+    const menu = await screen.findByRole('menu');
+    fireEvent.keyDown(menu, { key: 'Escape' });
+
+    await waitFor(() => expect(getCells()[0]).toHaveFocus());
   });
 });
 
