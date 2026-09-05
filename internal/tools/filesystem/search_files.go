@@ -29,7 +29,7 @@ func (t *SearchFiles) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *SearchFiles) Description() string {
-	return "Find file and directory paths by glob pattern without reading their contents. Use when a path is unknown or you need files by name or extension; use **/ for recursive matching (for example, **/*_test.go). Do not use to search text inside files (use grep_search), read a known file (use read_file), or browse one directory level (use list_directory). Recursive searches walk the tree and cost more; narrow path and max_results when possible. Risk: read-only."
+	return "Find file paths by glob pattern without reading their contents; non-recursive patterns can also match directories. Use when a path is unknown or you need files by name or extension; use **/ for recursive file matching (for example, **/*_test.go). Do not use to search text inside files (use grep_search), read a known file (use read_file), or browse one directory level (use list_directory). Recursive searches walk the tree and cost more; narrow path and max_results when possible. Risk: read-only."
 }
 
 func (t *SearchFiles) Parameters() json.RawMessage {
@@ -38,7 +38,7 @@ func (t *SearchFiles) Parameters() json.RawMessage {
 		"properties": {
 			"pattern": {
 				"type": "string",
-				"description": "Glob matched against path names, for example '*.go' in one directory or '**/*.go' recursively. This does not search file contents."
+				"description": "Glob matched against path names, for example '*.go' in one directory or '**/*.go' recursively. Recursive patterns return files only; non-recursive patterns may also match directories. This does not search file contents."
 			},
 			"path": {
 				"type": "string",
