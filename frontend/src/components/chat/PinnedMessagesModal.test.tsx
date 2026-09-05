@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat, database } from '../../../wailsjs/go/models';
+import { database } from '../../../wailsjs/go/models';
 import { PinnedMessagesModal } from './PinnedMessagesModal';
 
 const { getPinnedMessages, toggleMessagePin, announce, eventHandlers } = vi.hoisted(() => ({
@@ -45,7 +45,7 @@ describe('PinnedMessagesModal', () => {
         pinned: true,
       }),
     ]);
-    toggleMessagePin.mockResolvedValue(chat.EnrichedMessage.createFrom({
+    toggleMessagePin.mockResolvedValue(database.ChatMessage.createFrom({
       id: 'message-1',
       conversationId: 'conversation-1',
       role: 'assistant',
@@ -81,9 +81,13 @@ describe('PinnedMessagesModal', () => {
     );
     await waitFor(() => expect(getPinnedMessages).toHaveBeenCalledTimes(1));
 
-    eventHandlers.get('message:pin_changed')?.({ conversationId: 'other' });
+    act(() => {
+      eventHandlers.get('message:pin_changed')?.({ conversationId: 'other' });
+    });
     expect(getPinnedMessages).toHaveBeenCalledTimes(1);
-    eventHandlers.get('message:pin_changed')?.({ conversationId: 'conversation-1' });
+    act(() => {
+      eventHandlers.get('message:pin_changed')?.({ conversationId: 'conversation-1' });
+    });
     await waitFor(() => expect(getPinnedMessages).toHaveBeenCalledTimes(2));
   });
 });

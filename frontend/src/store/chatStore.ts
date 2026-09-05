@@ -64,7 +64,7 @@ import {
   finalizeStreamingNode,
   hasMessageId,
   updateMessageContentInTree,
-	updateMessagePinnedInTree,
+  updateMessagePinnedInTree,
   updateMessageReasoningInTree,
   type Message,
   type MessageNode,
@@ -169,7 +169,7 @@ interface ChatStore {
   loadBoundaryMessagesForConversation: (conversationId: string, sessionKey: string, anchor: 'start' | 'end') => Promise<void>;
 
   updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
-	updateConversationMessagePinned: (conversationId: string, messageId: string, pinned: boolean) => void;
+  updateConversationMessagePinned: (conversationId: string, messageId: string, pinned: boolean) => void;
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   clearConversationMessages: (conversationId: string) => void;
 
@@ -1211,14 +1211,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
     },
 
-	updateConversationMessagePinned: (conversationId, messageId, pinned) => {
-		set((state) => {
-			return patchConversation(state, conversationId, (conversation) => ({
-				...conversation,
-				threadedMessages: updateMessagePinnedInTree(conversation.threadedMessages, messageId, pinned),
-			}));
-		});
-	},
+    updateConversationMessagePinned: (conversationId, messageId, pinned) => {
+      set((state) => {
+        return patchConversation(state, conversationId, (conversation) => ({
+          ...conversation,
+          threadedMessages: updateMessagePinnedInTree(conversation.threadedMessages, messageId, pinned),
+        }));
+      });
+    },
 
     updateConversationMessageReasoning: (conversationId, messageId, reasoning) => {
       set((state) => {
