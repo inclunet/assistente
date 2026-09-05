@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"assistente/internal/eventctx"
 	"assistente/internal/profileaccess"
 	"assistente/internal/subagent"
 	"assistente/internal/toolinvocations"
+	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
 
@@ -125,6 +127,12 @@ func TestToolMetadata(t *testing.T) {
 	if !json.Valid(tool.Parameters()) {
 		t.Fatal("schema de parâmetros inválido")
 	}
+	description := strings.ToLower(tool.Description())
+	for _, guidance := range []string{"when to use", "don't use", "synchronous", "background", "tokens", "concurrency"} {
+		if !strings.Contains(description, guidance) {
+			t.Fatalf("descrição sem orientação %q: %s", guidance, description)
+		}
+	}
 }
 
 func TestToolRequiresPrompt(t *testing.T) {
@@ -197,7 +205,13 @@ func TestToolCancelRouting(t *testing.T) {
 }
 
 func TestToolStatusRouting(t *testing.T) {
-	runner := &fakeRunner{statusResult: subagent.StatusResult{ConversationID: "c1", RunID: "r1", Status: subagent.StatusRunning}}
+	runner := &fakeRunner{statusResult: subagent.StatusResult{
+		ConversationID:     "c1",
+		RunID:              "r1",
+		Status:             subagent.StatusSucceeded,
+		AssistantMessageID: "msg-1",
+		Error:              "aviso persistido",
+	}}
 	tool := NewWithProvider(func() Runner { return runner })
 
 	res, err := tool.Execute(context.Background(), json.RawMessage(`{"conversation_id":"c1"}`))
@@ -209,6 +223,12 @@ func TestToolStatusRouting(t *testing.T) {
 	}
 	if runner.lastStatusID[0] != "c1" {
 		t.Fatalf("status não roteado com conversation_id: %#v", runner.lastStatusID)
+	}
+	if res.Metadata["assistant_message_id"] != "msg-1" {
+		t.Fatalf("assistant_message_id ausente da metadata de status: %#v", res.Metadata)
+	}
+	if res.Metadata["error"] != "aviso persistido" {
+		t.Fatalf("error ausente da metadata de status: %#v", res.Metadata)
 	}
 }
 
@@ -309,6 +329,134 @@ func TestToolBackgroundFlagPropagated(t *testing.T) {
 	}
 	if !runner.lastParams.Background {
 		t.Fatal("background=true não propagado ao Runner")
+	}
+}
+
+func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
+	content := `{"data":"` + strings.Repeat("x", 20_000) + `"}`
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID:     "child-conv",
+		RunID:              "run-raw",
+		Status:             subagent.StatusSucceeded,
+		ResultSummary:      content[:100],
+		AssistantMessageID: "msg-raw",
+		Response:           content,
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"gere dados","raw":true}`))
+	if err != nil || res.IsError {
+		t.Fatalf("raw síncrono falhou: result=%#v err=%v", res, err)
+	}
+	if res.Content != content {
+		t.Fatalf("raw não devolveu completion.response integral: got=%d want=%d", len(res.Content), len(content))
+	}
+	if !runner.lastParams.PreserveResponse {
+		t.Fatal("raw deve solicitar preservação da resposta integral ao Manager")
+	}
+	if !json.Valid([]byte(res.Content)) {
+		t.Fatal("raw deveria preservar o JSON puro produzido pelo sub-agente")
+	}
+	if res.Metadata["conversation_id"] != "child-conv" ||
+		res.Metadata["run_id"] != "run-raw" ||
+		res.Metadata["assistant_message_id"] != "msg-raw" {
+		t.Fatalf("IDs ausentes da metadata raw: %#v", res.Metadata)
+	}
+}
+
+func TestToolRawPreservesBusinessErrorInMetadata(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID: "child-conv",
+		RunID:          "run-failed",
+		Status:         subagent.StatusFailed,
+		Error:          "provider indisponível",
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"faça X","raw":true}`))
+	if err != nil || res.IsError {
+		t.Fatalf("desfecho de negócio raw não deveria falhar a tool: result=%#v err=%v", res, err)
+	}
+	if res.Metadata["error"] != "provider indisponível" {
+		t.Fatalf("erro de negócio ausente da metadata raw: %#v", res.Metadata)
+	}
+}
+
+func TestToolRawDefaultPreservesEnvelope(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID: "child-conv",
+		RunID:          "run-default",
+		Status:         subagent.StatusSucceeded,
+		ResultSummary:  "compatível",
+		Response:       "conteúdo direto",
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"faça X"}`))
+	if err != nil || res.IsError {
+		t.Fatalf("modo default falhou: result=%#v err=%v", res, err)
+	}
+	var envelope subagent.RunResult
+	if err := json.Unmarshal([]byte(res.Content), &envelope); err != nil {
+		t.Fatalf("default deve manter envelope JSON: %v", err)
+	}
+	if envelope.ResultSummary != "compatível" || envelope.Response != "" {
+		t.Fatalf("envelope compatível inesperado: %#v", envelope)
+	}
+}
+
+func TestToolRawBackgroundFailsBeforeRun(t *testing.T) {
+	runner := &fakeRunner{}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"x","raw":true,"background":true}`))
+	if err != nil || !res.IsError {
+		t.Fatalf("raw+background deveria falhar por validação: result=%#v err=%v", res, err)
+	}
+	if runner.lastParams.Prompt != "" {
+		t.Fatalf("runner não deveria ser chamado: %#v", runner.lastParams)
+	}
+}
+
+func TestToolRawRejectedOutsideSend(t *testing.T) {
+	tool := NewWithProvider(func() Runner { return &fakeRunner{} })
+	for _, args := range []string{
+		`{"conversation_id":"c1","raw":true}`,
+		`{"conversation_id":"c1","cancel":true,"raw":true}`,
+	} {
+		res, err := tool.Execute(context.Background(), json.RawMessage(args))
+		if err != nil || !res.IsError {
+			t.Fatalf("raw fora de send deveria falhar para %s: result=%#v err=%v", args, res, err)
+		}
+	}
+}
+
+func TestToolRawStillRespectsExecutorLimit(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID: "child-conv",
+		RunID:          "run-large",
+		Status:         subagent.StatusSucceeded,
+		Response:       strings.Repeat("x", 2048),
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	cfg := tools.DefaultExecutorConfig()
+	cfg.MaxResultSize = 256
+	executor := tools.NewExecutor(registry, cfg)
+
+	exec := executor.ExecuteOne(parentCtx(), tools.ToolCall{
+		ID: "call-raw",
+		Function: tools.FunctionCall{
+			Name:      "subagent",
+			Arguments: `{"prompt":"gere muito","raw":true}`,
+		},
+	})
+	if exec.Result.IsError {
+		t.Fatalf("limite textual deve truncar, não falhar: %#v", exec)
+	}
+	if len(exec.Result.Content) > cfg.MaxResultSize || exec.Result.Metadata["truncated"] != true {
+		t.Fatalf("raw deve respeitar limite comum do executor: len=%d metadata=%#v", len(exec.Result.Content), exec.Result.Metadata)
 	}
 }
 
