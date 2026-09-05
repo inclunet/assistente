@@ -10,39 +10,23 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"assistente/internal/trustscope"
 )
 
-// Scope define o alcance de uma autorização de path, do mais efêmero ao mais
-// amplo. A ordem de match no Manager é sessão → perfil → workspace → global.
-type Scope string
+// Scope é o contrato compartilhado de alcance de trust.
+type Scope = trustscope.Scope
 
 const (
-	// ScopeOnce libera apenas a tentativa atual; nunca é persistida.
-	ScopeOnce Scope = "once"
-	// ScopeSession vale enquanto durar a conversa/sessão (em memória).
-	ScopeSession Scope = "session"
-	// ScopeWorkspace persiste no .assistente/ do diretório de trabalho (projeto).
-	ScopeWorkspace Scope = "workspace"
-	// ScopeProfile persiste por perfil ativo (arquivo por slug em ~/.assistente/).
-	ScopeProfile Scope = "profile"
-	// ScopeGlobal persiste globalmente em ~/.assistente/.
-	ScopeGlobal Scope = "global"
+	ScopeOnce      = trustscope.ScopeOnce
+	ScopeSession   = trustscope.ScopeSession
+	ScopeWorkspace = trustscope.ScopeWorkspace
+	ScopeProfile   = trustscope.ScopeProfile
+	ScopeGlobal    = trustscope.ScopeGlobal
 )
 
 // ValidScope reporta se s é um escopo conhecido.
-func ValidScope(s Scope) bool {
-	switch s {
-	case ScopeOnce, ScopeSession, ScopeWorkspace, ScopeProfile, ScopeGlobal:
-		return true
-	default:
-		return false
-	}
-}
-
-// IsPersistent reporta se o escopo é gravado em disco (workspace/profile/global).
-func (s Scope) IsPersistent() bool {
-	return s == ScopeWorkspace || s == ScopeProfile || s == ScopeGlobal
-}
+var ValidScope = trustscope.ValidScope
 
 // Kind distingue autorização de arquivo exato versus diretório (prefixo).
 type Kind string

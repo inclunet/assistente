@@ -2,500 +2,131 @@ package fstrust
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"assistente/internal/configdir"
-	"assistente/internal/logging"
-	"assistente/internal/tools/invocationctx"
+	"assistente/internal/trustscope"
 )
 
-// ErrEntryNotFound é devolvido por Remove quando nenhuma entrada casa com o
-// (path, kind, operation) informado no escopo.
+// ErrEntryNotFound é devolvido quando nenhuma entrada casa com a chave.
 var ErrEntryNotFound = errors.New("entrada de allowlist de path não encontrada")
 
-// subdir é o subdiretório dentro de .assistente/ onde as allowlists de path
-// persistentes ficam.
 const subdir = "path-allowlist"
 
-const (
-	globalFile    = "global.json"
-	workspaceFile = "workspace.json"
-)
-
-// storeFile é o formato em disco de uma allowlist de path persistida.
-type storeFile struct {
-	Version int              `json:"version"`
-	Entries []AllowlistEntry `json:"entries"`
+type entryQuery struct {
+	path      string
+	kind      Kind
+	operation string
+	effect    Effect
 }
 
-// Manager guarda as allowlists de path nos 5 escopos. Sessão fica em memória
-// (chaveada por ConversationID); workspace/perfil/global são arquivos JSON sob
-// .assistente/path-allowlist/.
+// Manager mantém a API de fstrust e delega o contrato escopado a trustscope.
 type Manager struct {
-	mu      sync.RWMutex                // sessão e funções/configuração em memória
-	fileMu  sync.RWMutex                // transações dos arquivos persistidos
-	session map[string][]AllowlistEntry // conversationID -> entradas de sessão
-
-	homeDir           func() string
-	workDir           func() string
-	activeProfileSlug func() string
+	core *trustscope.Manager[AllowlistEntry, entryQuery]
 }
 
-// NewManager cria um Manager usando os diretórios canônicos do configdir.
+func managerConfig() trustscope.Config[AllowlistEntry, entryQuery] {
+	return trustscope.Config[AllowlistEntry, entryQuery]{
+		Subdir:        subdir,
+		LogComponent:  "fstrust.manager",
+		LogPrefix:     "[FsTrust]",
+		DomainLabel:   "path",
+		NotFoundError: ErrEntryNotFound,
+		Adapter: trustscope.Adapter[AllowlistEntry, entryQuery]{
+			Scope: func(entry AllowlistEntry) trustscope.Scope { return entry.Scope },
+			Normalize: func(entry AllowlistEntry) (AllowlistEntry, error) {
+				entry.Path = NormalizePath(entry.Path)
+				if entry.Path == "" {
+					return entry, fmt.Errorf("path vazio não pode ser autorizado")
+				}
+				if !ValidKind(entry.Kind) {
+					return entry, fmt.Errorf("kind inválido: %q", entry.Kind)
+				}
+				if strings.TrimSpace(entry.Operation) == "" {
+					return entry, fmt.Errorf("operation vazia não pode ser autorizada")
+				}
+				if !ValidEffect(entry.Effect) {
+					return entry, fmt.Errorf("effect inválido: %q", entry.Effect)
+				}
+				entry.Effect = NormalizedEffect(entry.Effect)
+				if entry.CreatedAt.IsZero() {
+					entry.CreatedAt = time.Now().UTC()
+				}
+				return entry, nil
+			},
+			Key: func(entry AllowlistEntry) entryQuery {
+				return queryFor(entry.Path, entry.Kind, entry.Operation, entry.Effect)
+			},
+			Matches: func(entry AllowlistEntry, query entryQuery) bool {
+				return NormalizedEffect(entry.Effect) == query.effect &&
+					entry.Matches(query.path, query.operation)
+			},
+			SameKey: func(entry AllowlistEntry, query entryQuery) bool {
+				return NormalizePath(entry.Path) == query.path &&
+					entry.Kind == query.kind &&
+					entry.Operation == query.operation &&
+					NormalizedEffect(entry.Effect) == query.effect
+			},
+		},
+	}
+}
+
+func queryFor(path string, kind Kind, operation string, effect Effect) entryQuery {
+	return entryQuery{
+		path:      NormalizePath(path),
+		kind:      kind,
+		operation: operation,
+		effect:    NormalizedEffect(effect),
+	}
+}
+
+// NewManager cria um Manager usando os diretórios canônicos.
 func NewManager() *Manager {
-	return &Manager{
-		session: make(map[string][]AllowlistEntry),
-		homeDir: configdir.GetHomeDir,
-		workDir: configdir.GetWorkDir,
-	}
+	return &Manager{core: trustscope.NewManager(managerConfig())}
 }
 
-// NewManagerWithDirs cria um Manager com diretórios fixos (para testes).
+// NewManagerWithDirs cria um Manager com diretórios fixos para testes.
 func NewManagerWithDirs(homeDir, workDir string) *Manager {
-	return &Manager{
-		session: make(map[string][]AllowlistEntry),
-		homeDir: func() string { return homeDir },
-		workDir: func() string { return workDir },
-	}
+	return &Manager{core: trustscope.NewManagerWithDirs(managerConfig(), homeDir, workDir)}
 }
 
-// SetActiveProfileSlugFunc injeta o resolvedor do slug do perfil ativo.
 func (m *Manager) SetActiveProfileSlugFunc(f func() string) {
-	m.mu.Lock()
-	m.activeProfileSlug = f
-	m.mu.Unlock()
+	m.core.SetActiveProfileSlugFunc(f)
 }
 
-// SetWorkspaceDirFunc injeta um resolvedor dinâmico do diretório .assistente do
-// workspace ATIVO. Se f devolver "", cai no configdir.
 func (m *Manager) SetWorkspaceDirFunc(f func() string) {
-	if f == nil {
-		return
-	}
-	m.mu.Lock()
-	m.workDir = func() string {
-		if dir := f(); dir != "" {
-			return dir
-		}
-		return configdir.GetWorkDir()
-	}
-	m.mu.Unlock()
+	m.core.SetWorkspaceDirFunc(f)
 }
 
-// ClearSession remove todas as entradas do escopo de sessão de uma conversa.
 func (m *Manager) ClearSession(conversationID string) {
-	if conversationID == "" {
-		return
-	}
-	m.mu.Lock()
-	delete(m.session, conversationID)
-	m.mu.Unlock()
+	m.core.ClearSession(conversationID)
 }
 
-// Match procura uma autorização (EffectAllow) para absPath+operation em todos
-// os escopos, na ordem sessão → perfil → workspace → global.
-// Entradas Deny são ignoradas aqui — use MatchDeny (precedência).
+// Match procura uma autorização na ordem canônica dos escopos.
 func (m *Manager) Match(ctx context.Context, absPath, operation string) Decision {
-	return m.matchEffect(ctx, absPath, operation, EffectAllow)
+	match := m.core.Find(ctx, queryFor(absPath, "", operation, EffectAllow))
+	return Decision{Allowed: match.Found, Scope: match.Scope, Entry: match.Entry}
 }
 
-// MatchDeny procura uma proibição (EffectDeny) para absPath+operation na mesma
-// ordem de escopos. Trust allow nunca anula um deny (AEP-0092 D9). Devolve
-// DenyMatch (com Matched explícito) para não confundir com o allow de Match.
+// MatchDeny procura uma proibição com precedência sobre qualquer allow.
 func (m *Manager) MatchDeny(ctx context.Context, absPath, operation string) DenyMatch {
-	d := m.matchEffect(ctx, absPath, operation, EffectDeny)
-	return DenyMatch{Matched: d.Entry != nil, Scope: d.Scope, Entry: d.Entry}
+	match := m.core.Find(ctx, queryFor(absPath, "", operation, EffectDeny))
+	return DenyMatch{Matched: match.Found, Scope: match.Scope, Entry: match.Entry}
 }
 
-func (m *Manager) matchEffect(ctx context.Context, absPath, operation string, effect Effect) Decision {
-	absPath = NormalizePath(absPath)
-	convID, profileSlug := m.identity(ctx)
-
-	m.mu.RLock()
-	var sessionEntries []AllowlistEntry
-	if convID != "" {
-		sessionEntries = append(sessionEntries, m.session[convID]...)
-	}
-	profilePath := m.profilePath(profileSlug)
-	workspacePath := m.workspacePath()
-	globalPath := m.globalPath()
-	m.mu.RUnlock()
-
-	if e := firstMatch(sessionEntries, absPath, operation, effect); e != nil {
-		return Decision{Allowed: effect == EffectAllow, Scope: ScopeSession, Entry: e}
-	}
-
-	m.fileMu.RLock()
-	defer m.fileMu.RUnlock()
-
-	if profilePath != "" {
-		if e := firstMatch(m.loadFileOrEmpty(ctx, profilePath), absPath, operation, effect); e != nil {
-			return Decision{Allowed: effect == EffectAllow, Scope: ScopeProfile, Entry: e}
-		}
-	}
-
-	if e := firstMatch(m.loadFileOrEmpty(ctx, workspacePath), absPath, operation, effect); e != nil {
-		return Decision{Allowed: effect == EffectAllow, Scope: ScopeWorkspace, Entry: e}
-	}
-
-	if e := firstMatch(m.loadFileOrEmpty(ctx, globalPath), absPath, operation, effect); e != nil {
-		return Decision{Allowed: effect == EffectAllow, Scope: ScopeGlobal, Entry: e}
-	}
-
-	return Decision{Allowed: false}
-}
-
-// Add registra uma entrada no escopo indicado. ScopeOnce é no-op.
 func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
-	entry.Path = NormalizePath(entry.Path)
-	if entry.Path == "" {
-		return fmt.Errorf("path vazio não pode ser autorizado")
-	}
-	if !ValidKind(entry.Kind) {
-		return fmt.Errorf("kind inválido: %q", entry.Kind)
-	}
-	if strings.TrimSpace(entry.Operation) == "" {
-		return fmt.Errorf("operation vazia não pode ser autorizada")
-	}
-	if !ValidScope(entry.Scope) {
-		return fmt.Errorf("escopo inválido: %q", entry.Scope)
-	}
-	if !ValidEffect(entry.Effect) {
-		return fmt.Errorf("effect inválido: %q", entry.Effect)
-	}
-	entry.Effect = NormalizedEffect(entry.Effect)
-	if entry.CreatedAt.IsZero() {
-		entry.CreatedAt = time.Now().UTC()
-	}
-
-	convID, profileSlug := m.identity(ctx)
-
-	switch entry.Scope {
-	case ScopeOnce:
-		return nil
-	case ScopeSession:
-		if convID == "" {
-			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
-		}
-		m.mu.Lock()
-		m.session[convID] = upsert(m.session[convID], entry)
-		m.mu.Unlock()
-		return nil
-	case ScopeWorkspace:
-		m.mu.RLock()
-		path := m.workspacePath()
-		m.mu.RUnlock()
-		m.fileMu.Lock()
-		defer m.fileMu.Unlock()
-		return m.addToFile(path, entry)
-	case ScopeProfile:
-		if profileSlug == "" {
-			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
-		}
-		m.mu.RLock()
-		path := m.profilePath(profileSlug)
-		m.mu.RUnlock()
-		m.fileMu.Lock()
-		defer m.fileMu.Unlock()
-		return m.addToFile(path, entry)
-	case ScopeGlobal:
-		m.mu.RLock()
-		path := m.globalPath()
-		m.mu.RUnlock()
-		m.fileMu.Lock()
-		defer m.fileMu.Unlock()
-		return m.addToFile(path, entry)
-	default:
-		return fmt.Errorf("escopo não suportado: %q", entry.Scope)
-	}
+	return m.core.Add(ctx, entry)
 }
 
-// List devolve entradas de sessão + perfil + workspace + global.
 func (m *Manager) List(ctx context.Context) []AllowlistEntry {
-	var out []AllowlistEntry
-	convID, profileSlug := m.identity(ctx)
-
-	m.mu.RLock()
-	if convID != "" {
-		out = append(out, m.session[convID]...)
-	}
-	profilePath := m.profilePath(profileSlug)
-	workspacePath := m.workspacePath()
-	globalPath := m.globalPath()
-	m.mu.RUnlock()
-
-	m.fileMu.RLock()
-	defer m.fileMu.RUnlock()
-
-	if profilePath != "" {
-		out = append(out, m.loadFileOrEmpty(ctx, profilePath)...)
-	}
-	out = append(out, m.loadFileOrEmpty(ctx, workspacePath)...)
-	out = append(out, m.loadFileOrEmpty(ctx, globalPath)...)
-	return out
+	return m.core.List(ctx)
 }
 
-// Remove apaga a primeira entrada que casar path+kind+operation+effect no escopo.
 func (m *Manager) Remove(ctx context.Context, scope Scope, path string, kind Kind, operation string, effect Effect) error {
-	// Valida antes de normalizar (consistente com Add): sem isso, um effect
-	// inválido viraria um ErrEntryNotFound silencioso, difícil de depurar.
 	if !ValidEffect(effect) {
 		return fmt.Errorf("effect inválido: %q", effect)
 	}
-	path = NormalizePath(path)
-	effect = NormalizedEffect(effect)
-
-	convID, profileSlug := m.identity(ctx)
-
-	switch scope {
-	case ScopeSession:
-		if convID == "" {
-			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
-		}
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		entries, removed := removeMatch(m.session[convID], path, kind, operation, effect)
-		if !removed {
-			return ErrEntryNotFound
-		}
-		m.session[convID] = entries
-		return nil
-	case ScopeWorkspace:
-		m.mu.RLock()
-		storePath := m.workspacePath()
-		m.mu.RUnlock()
-		m.fileMu.Lock()
-		defer m.fileMu.Unlock()
-		return m.removeFromFile(storePath, path, kind, operation, effect)
-	case ScopeProfile:
-		if profileSlug == "" {
-			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
-		}
-		m.mu.RLock()
-		storePath := m.profilePath(profileSlug)
-		m.mu.RUnlock()
-		m.fileMu.Lock()
-		defer m.fileMu.Unlock()
-		return m.removeFromFile(storePath, path, kind, operation, effect)
-	case ScopeGlobal:
-		m.mu.RLock()
-		storePath := m.globalPath()
-		m.mu.RUnlock()
-		m.fileMu.Lock()
-		defer m.fileMu.Unlock()
-		return m.removeFromFile(storePath, path, kind, operation, effect)
-	default:
-		return fmt.Errorf("escopo não removível: %q", scope)
-	}
-}
-
-// ---- paths ----
-
-func (m *Manager) globalPath() string {
-	return filepath.Join(m.homeDir(), subdir, globalFile)
-}
-
-func (m *Manager) workspacePath() string {
-	base := m.workDir()
-	if base == "" {
-		return ""
-	}
-	return filepath.Join(base, subdir, workspaceFile)
-}
-
-func (m *Manager) profilePath(slug string) string {
-	slug = sanitizeSlug(slug)
-	if slug == "" {
-		return ""
-	}
-	return filepath.Join(m.homeDir(), subdir, "profile-"+slug+".json")
-}
-
-// ---- file I/O ----
-
-func (m *Manager) loadFile(path string) ([]AllowlistEntry, error) {
-	if path == "" {
-		return nil, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("erro ao ler allowlist de path %s: %w", path, err)
-	}
-	var sf storeFile
-	if err := json.Unmarshal(data, &sf); err != nil {
-		return nil, fmt.Errorf("allowlist de path inválida %s: %w", path, err)
-	}
-	return sf.Entries, nil
-}
-
-func (m *Manager) loadFileOrEmpty(ctx context.Context, path string) []AllowlistEntry {
-	entries, err := m.loadFile(path)
-	if err != nil {
-		logging.Errorf(ctx, "fstrust.manager", "[FsTrust] %v", err)
-		return nil
-	}
-	return entries
-}
-
-func (m *Manager) addToFile(path string, entry AllowlistEntry) error {
-	if path == "" {
-		return fmt.Errorf("caminho de allowlist indisponível para o escopo %q", entry.Scope)
-	}
-	existing, err := m.loadFile(path)
-	if err != nil {
-		return fmt.Errorf("não foi possível ler a allowlist antes de gravar (evitando perda de dados): %w", err)
-	}
-	return m.saveFile(path, upsert(existing, entry))
-}
-
-func (m *Manager) removeFromFile(path string, entryPath string, kind Kind, operation string, effect Effect) error {
-	if path == "" {
-		return fmt.Errorf("caminho de allowlist indisponível")
-	}
-	existing, err := m.loadFile(path)
-	if err != nil {
-		return fmt.Errorf("não foi possível ler a allowlist antes de remover: %w", err)
-	}
-	entries, removed := removeMatch(existing, entryPath, kind, operation, effect)
-	if !removed {
-		return ErrEntryNotFound
-	}
-	return m.saveFile(path, entries)
-}
-
-func (m *Manager) saveFile(path string, entries []AllowlistEntry) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("erro ao criar diretório de allowlist de path: %w", err)
-	}
-	data, err := json.MarshalIndent(storeFile{Version: 1, Entries: entries}, "", "  ")
-	if err != nil {
-		return fmt.Errorf("erro ao serializar allowlist de path: %w", err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".allowlist-*.tmp")
-	if err != nil {
-		return fmt.Errorf("erro ao criar arquivo temporário de allowlist de path: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("erro ao gravar allowlist de path: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("erro ao finalizar allowlist de path: %w", err)
-	}
-	if err := replaceFile(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("erro ao substituir allowlist de path: %w", err)
-	}
-	return nil
-}
-
-// replaceFile substitui path pelo conteúdo de tmpName via rename atômico, com
-// retries para sharing violations transitórias no Windows.
-func replaceFile(tmpName, path string) error {
-	const attempts = 5
-	var err error
-	for i := 0; i < attempts; i++ {
-		if err = os.Rename(tmpName, path); err == nil {
-			return nil
-		}
-		time.Sleep(time.Duration(i+1) * 10 * time.Millisecond)
-	}
-	return err
-}
-
-// ---- helpers ----
-
-func firstMatch(entries []AllowlistEntry, absPath, operation string, effect Effect) *AllowlistEntry {
-	want := NormalizedEffect(effect)
-	for i := range entries {
-		if NormalizedEffect(entries[i].Effect) != want {
-			continue
-		}
-		if entries[i].Matches(absPath, operation) {
-			e := entries[i]
-			return &e
-		}
-	}
-	return nil
-}
-
-// upsert substitui uma entrada com mesmo Path+Kind+Operation+Effect ou anexa.
-// Allow e deny do mesmo path podem coexistir: MatchDeny tem precedência e o
-// consentimento (allow) nunca apaga um deny criado pela UI (AEP-0092 D9).
-func upsert(entries []AllowlistEntry, entry AllowlistEntry) []AllowlistEntry {
-	keyPath := NormalizePath(entry.Path)
-	keyEffect := NormalizedEffect(entry.Effect)
-	for i := range entries {
-		if NormalizePath(entries[i].Path) == keyPath &&
-			entries[i].Kind == entry.Kind &&
-			entries[i].Operation == entry.Operation &&
-			NormalizedEffect(entries[i].Effect) == keyEffect {
-			entries[i] = entry
-			return entries
-		}
-	}
-	return append(entries, entry)
-}
-
-func removeMatch(entries []AllowlistEntry, path string, kind Kind, operation string, effect Effect) ([]AllowlistEntry, bool) {
-	keyPath := NormalizePath(path)
-	keyEffect := NormalizedEffect(effect)
-	out := make([]AllowlistEntry, 0, len(entries))
-	removed := false
-	for _, e := range entries {
-		if !removed && NormalizePath(e.Path) == keyPath && e.Kind == kind && e.Operation == operation && NormalizedEffect(e.Effect) == keyEffect {
-			removed = true
-			continue
-		}
-		out = append(out, e)
-	}
-	return out, removed
-}
-
-func identityFromContext(ctx context.Context) (conversationID, profileSlug string) {
-	if inv, ok := invocationctx.Get(ctx); ok {
-		return inv.ConversationID, inv.ProfileSlug
-	}
-	return "", ""
-}
-
-func (m *Manager) identity(ctx context.Context) (conversationID, profileSlug string) {
-	conversationID, profileSlug = identityFromContext(ctx)
-	if profileSlug != "" {
-		return conversationID, profileSlug
-	}
-	m.mu.RLock()
-	f := m.activeProfileSlug
-	m.mu.RUnlock()
-	if f != nil {
-		profileSlug = f()
-	}
-	return conversationID, profileSlug
-}
-
-func sanitizeSlug(slug string) string {
-	slug = strings.TrimSpace(strings.ToLower(slug))
-	slug = strings.ReplaceAll(slug, "..", "")
-	slug = strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			return r
-		default:
-			return -1
-		}
-	}, slug)
-	return slug
+	return m.core.Remove(ctx, scope, queryFor(path, kind, operation, effect))
 }
