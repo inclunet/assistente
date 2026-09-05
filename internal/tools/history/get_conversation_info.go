@@ -34,7 +34,7 @@ func NewGetConversationInfo() *GetConversationInfoTool {
 func (t *GetConversationInfoTool) Name() string { return "get_conversation_info" }
 
 func (t *GetConversationInfoTool) Description() string {
-	return "Returns information about the CURRENT conversation (or a specific one by id): its conversation_id, title, channel, message count, rolling summary, and the tasks/task lists linked to it. Use this to obtain the current conversation_id so you can link tasks or task lists to it via the 'task' / 'task_list' tools (their conversation_id parameter). Omit conversation_id to use the conversation in progress."
+	return "Returns metadata and the rolling summary for the current conversation, or for one specified by ID, including its conversation_id, title, channel, message count, and linked tasks or task lists. Use it to understand a conversation at low cost or obtain its ID for links; request a small recent-message window only when the summary is insufficient. Do not use it to search for matching discussions (use search_conversations) or rehydrate complete messages by ID (use get_messages). It inspects exactly one conversation per call; including messages increases output cost and is capped at the 50 most recent root messages, not paginated history."
 }
 
 func (t *GetConversationInfoTool) Parameters() json.RawMessage {
@@ -43,15 +43,15 @@ func (t *GetConversationInfoTool) Parameters() json.RawMessage {
 		"properties": {
 			"conversation_id": {
 				"type": "string",
-				"description": "Conversation id to inspect. Omit to use the current conversation (recommended)."
+				"description": "Exact conversation ID to inspect. Omit to use the current invocation's conversation; only one conversation is returned per call."
 			},
 			"include_messages": {
 				"type": "boolean",
-				"description": "When true, includes the most recent root messages of the conversation. Default false."
+				"description": "When true, also returns a recent root-message window. Default false; keep false when metadata or the rolling summary is enough because message content increases output cost."
 			},
 			"message_limit": {
 				"type": "integer",
-				"description": "Max number of recent messages to include when include_messages is true (default 20, max 50)."
+				"description": "Maximum recent root messages when include_messages is true (default 20, maximum 50). This is a cap on the newest messages, not a pagination cursor."
 			}
 		},
 		"additionalProperties": false

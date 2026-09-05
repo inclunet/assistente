@@ -74,7 +74,7 @@ func (t *SearchConversationsTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *SearchConversationsTool) Description() string {
-	return "Searches message history using full-text search. By default it searches ALL conversations. Pass a conversation_id to restrict results, or conversation_id=\"current\" to safely use the current conversation from the invocation context. Supports words, \"exact phrases\", prefix* matching, and OR/AND/NOT operators. Returns results ranked by relevance (BM25)."
+	return "Finds relevant messages in conversation history by full-text query and returns ranked snippets with conversation and message IDs, not complete messages. Use it to locate prior discussions globally, or set conversation_id (including \"current\") to search within one conversation; then pass selected message IDs to get_messages for full textual rehydration. Do not use it for conversation metadata or rolling summaries (use get_conversation_info), or to read an entire conversation. Results are relevance-ranked and limited to at most 100 per call; broad global queries cost more and should be narrowed by query, conversation, and limit rather than treated as pagination or export."
 }
 
 func (t *SearchConversationsTool) Parameters() json.RawMessage {
@@ -83,15 +83,15 @@ func (t *SearchConversationsTool) Parameters() json.RawMessage {
 		"properties": {
 			"query": {
 				"type": "string",
-				"description": "Termo de busca. Exemplos: 'autenticação JWT', '\"rolling context\"', 'signal OR telegram', 'implement*'"
+				"description": "Full-text query used to locate message snippets and IDs. Supports words, exact phrases in quotes, prefix* matching, and OR/AND/NOT; make it specific to reduce broad-history search cost."
 			},
 			"conversation_id": {
 				"type": "string",
-				"description": "Opcional. ID da conversa para restringir a busca. Use \"current\" para a conversa corrente. Omitir mantém a busca global em todas as conversas do usuário."
+				"description": "Optional conversation scope. Use an exact conversation ID or \"current\" for the invocation's conversation; omit to search all conversations accessible to the current user."
 			},
 			"limit": {
 				"type": "integer",
-				"description": "Número máximo de resultados (padrão: 20, máximo: 100)",
+				"description": "Maximum ranked snippets returned (default 20, maximum 100). This is a result cap, not a page cursor; refine the query or conversation scope for omitted matches.",
 				"default": 20
 			}
 		},

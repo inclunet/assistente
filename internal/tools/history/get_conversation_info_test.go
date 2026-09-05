@@ -18,8 +18,11 @@ func TestGetConversationInfo_Name(t *testing.T) {
 
 func TestGetConversationInfo_Description(t *testing.T) {
 	tool := NewGetConversationInfo()
-	if tool.Description() == "" {
-		t.Error("description should not be empty")
+	description := strings.ToLower(tool.Description())
+	for _, concept := range []string{"metadata", "rolling summary", "search_conversations", "get_messages", "one conversation", "not paginated"} {
+		if !strings.Contains(description, concept) {
+			t.Errorf("description should explain %q", concept)
+		}
 	}
 }
 
@@ -40,6 +43,10 @@ func TestGetConversationInfo_Parameters(t *testing.T) {
 		if _, ok := props[key]; !ok {
 			t.Errorf("schema must have '%s' property", key)
 		}
+	}
+	messageLimit := props["message_limit"].(map[string]interface{})
+	if !strings.Contains(strings.ToLower(messageLimit["description"].(string)), "not a pagination cursor") {
+		t.Error("message_limit should distinguish recent-message caps from pagination")
 	}
 	if schema["additionalProperties"] != false {
 		t.Error("schema should forbid additionalProperties")

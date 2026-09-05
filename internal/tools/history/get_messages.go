@@ -50,7 +50,7 @@ func (t *GetMessagesTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *GetMessagesTool) Description() string {
-	return "Retrieves the complete textual content of up to 20 historical messages by ID. Returns content, tool_calls and tool_call_id while omitting large binary media. Set include_tool_results to include tool-result messages from the same turns."
+	return "Rehydrates the complete textual content and tool-call fields of known historical message IDs, while omitting large binary media. Use it after search_conversations (or another result that supplied IDs) when snippets are insufficient and exact message content is needed. IDs may reference any conversations accessible to the current user; the response identifies each conversation, so keep related IDs together when reconstructing context. Do not use it to discover messages, inspect conversation metadata or summaries, or load a whole conversation. Request at most 20 IDs per call and batch further IDs across calls; include_tool_results expands the selected turns and increases output cost, so enable it only when tool outputs are needed."
 }
 
 func (t *GetMessagesTool) Parameters() json.RawMessage {
@@ -59,14 +59,14 @@ func (t *GetMessagesTool) Parameters() json.RawMessage {
 		"properties": {
 			"ids": {
 				"type": "array",
-				"description": "Message IDs to retrieve, in the desired order (maximum 20).",
+				"description": "Known message IDs to rehydrate, in the desired order (maximum 20 per call). IDs may come from accessible conversations; batch additional IDs in separate calls.",
 				"items": {"type": "string", "minLength": 1},
 				"minItems": 1,
 				"maxItems": 20
 			},
 			"include_tool_results": {
 				"type": "boolean",
-				"description": "When true, also includes role=tool result messages from the same turns. Default false."
+				"description": "When true, also includes role=tool result messages from the selected messages' turns. Default false; enable only when those outputs are needed because expansion can substantially increase response size."
 			}
 		},
 		"required": ["ids"],
