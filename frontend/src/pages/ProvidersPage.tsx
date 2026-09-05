@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   CopyOutlined,
@@ -92,6 +92,25 @@ export default function ProvidersPage() {
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
   const [updatePlans, setUpdatePlans] = useState<Record<string, InstallPlan>>({});
   const [updateTarget, setUpdateTarget] = useState<{ provider: ProviderRow; plan: InstallPlan } | null>(null);
+  const updatePlanSeq = useRef(0);
+
+  const loadUpdatePlans = async (items: ProviderRow[]) => {
+    const seq = ++updatePlanSeq.current;
+    setUpdatePlans({});
+    const agentIDs = Array.from(new Set(
+      items
+        .filter((provider) => provider.api_format === AGENT_API_FORMAT)
+        .map((provider) => (provider.acp_agent_id || '').trim())
+        .filter(Boolean),
+    ));
+    const plans = await Promise.allSettled(
+      agentIDs.map(async (agentID) => [agentID, await ACPAgentInstallPlan(agentID)] as const),
+    );
+    if (seq !== updatePlanSeq.current) return;
+    setUpdatePlans(Object.fromEntries(
+      plans.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+    ));
+  };
 
   const loadProviders = async () => {
     setLoading(true);
@@ -104,18 +123,7 @@ export default function ProvidersPage() {
         statusText: getStatusText(p.credential_status),
       })) as ProviderRow[];
       setProviders(mapped);
-      const agentIDs = Array.from(new Set(
-        mapped
-          .filter((provider) => provider.api_format === AGENT_API_FORMAT)
-          .map((provider) => (provider.acp_agent_id || '').trim())
-          .filter(Boolean),
-      ));
-      const plans = await Promise.allSettled(
-        agentIDs.map(async (agentID) => [agentID, await ACPAgentInstallPlan(agentID)] as const),
-      );
-      setUpdatePlans(Object.fromEntries(
-        plans.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
-      ));
+      void loadUpdatePlans(mapped);
     } catch (error) {
       logger.error('Erro ao carregar provedores:', error);
       addToast(t('providers.error.loadFailed', 'Erro ao carregar provedores'), 'error');
@@ -255,12 +263,12 @@ export default function ProvidersPage() {
     setUpdateTarget({ provider, plan });
   };
 
-  const confirmUpdateAgent = async () => {
+  const confirmUpdateAgent = async (acceptUnverified: boolean) => {
     const target = updateTarget;
     if (!target) return;
     setUpdateTarget(null);
     try {
-      const installation = await requestACPAgentUpdate(target.plan);
+      const installation = await requestACPAgentUpdate(target.plan, acceptUnverified);
       const message = t('providers.toast.agentUpdated', {
         name: target.provider.name,
         version: installation.version,
@@ -547,8 +555,11 @@ export default function ProvidersPage() {
               },
             ]}
             onAction={(actionId) => {
-              if (actionId === 'confirm') void confirmUpdateAgent();
-              else setUpdateTarget(null);
+              if (actionId === 'confirm') {
+                void confirmUpdateAgent(!!updateTarget?.plan.unverified);
+              } else {
+                setUpdateTarget(null);
+              }
             }}
             body={updateTarget ? (
               <dl>

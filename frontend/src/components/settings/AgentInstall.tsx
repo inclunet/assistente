@@ -29,11 +29,14 @@ type InstallPlan = apidto.ACPInstallPlan;
  * Mantém uma única tradução plano → confirmação para o formulário e para
  * ações rápidas, sem recriar o fluxo de instalação no frontend.
  */
-export const requestACPAgentUpdate = (plan: InstallPlan) => UpdateACPAgent(plan.agent_id, {
+export const requestACPAgentUpdate = (
+  plan: InstallPlan,
+  acceptUnverified: boolean,
+) => UpdateACPAgent(plan.agent_id, {
   distribution: plan.distribution || '',
   origin: plan.origin || '',
   sha256: plan.sha256 || '',
-  accept_unverified: !!plan.unverified,
+  accept_unverified: acceptUnverified,
 });
 
 /**
@@ -393,7 +396,7 @@ export const AgentInstall = ({
    * ao fim que os provedores foram repontados, que é a parte que não aparece em
    * nenhum marco.
    */
-  const handleUpdate = async () => {
+  const handleUpdate = async (acceptUnverified: boolean) => {
     const currentPlan = plan;
     const agentID = currentPlan?.agent_id;
     if (!agentID || !currentPlan) return;
@@ -405,7 +408,7 @@ export const AgentInstall = ({
     setUpdatingNow(true);
     setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
     try {
-      const installation = await requestACPAgentUpdate(currentPlan);
+      const installation = await requestACPAgentUpdate(currentPlan, acceptUnverified);
       if (!doAgente(kind)) return;
       updateRef.current = 'settled';
       onResolved(installation.command, installation.args || [], installation.env || undefined);
@@ -869,7 +872,7 @@ export const AgentInstall = ({
         onAction={(actionId) => {
           if (actionId === 'confirm') {
             if (busy) return;
-            void (updating ? handleUpdate() : handleInstall(unverified));
+            void (updating ? handleUpdate(unverified) : handleInstall(unverified));
             return;
           }
           setConfirming('');
