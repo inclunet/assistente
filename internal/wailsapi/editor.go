@@ -45,6 +45,7 @@ type Editor struct {
 }
 
 var editorLegacyMigrationMu sync.Mutex
+var publishEditorMigrationClaim = os.Link
 
 // NewEditor cria o bind vazio; AttachEditor preenche deps no startup.
 func NewEditor() *Editor {
@@ -184,7 +185,7 @@ func createJSONPrivateAtomic(path string, value any) error {
 	// Link publica o inode completo de forma atômica e falha com IsExist sem
 	// substituir o claim vencedor. Um crash durante encode/fsync deixa apenas
 	// o temporário, que nunca é interpretado como claim.
-	return os.Link(tempPath, path)
+	return publishEditorMigrationClaim(tempPath, path)
 }
 
 func readEditorMigrationClaim(path string) (editorMigrationClaim, error) {
@@ -256,7 +257,10 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 		}
 		if err := createJSONPrivateAtomic(claimPath, claim); err != nil {
 			if !os.IsExist(err) {
-				return fmt.Errorf("falha ao reservar migração legada do editor: %w", err)
+				// Hardlinks podem não existir em alguns filesystems. Sem a
+				// publicação atômica, não arriscamos um claim parcial: apenas
+				// desabilitamos a adoção legada; o storage novo segue útil.
+				return nil
 			}
 			claim, err = readEditorMigrationClaim(claimPath)
 			if err != nil {
@@ -286,9 +290,11 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 
 	overwriteIncomplete := !newClaim
 	legacyState := filepath.Join(legacyDir, "state.json")
-	if _, err := os.Stat(legacyState); err == nil {
-		if err := copyLegacyEditorFile(legacyState, paths.state, overwriteIncomplete); err != nil {
-			return fmt.Errorf("falha ao migrar estado legado do editor: %w", err)
+	if info, err := os.Lstat(legacyState); err == nil {
+		if info.Mode().IsRegular() {
+			if err := copyLegacyEditorFile(legacyState, paths.state, overwriteIncomplete); err != nil {
+				return fmt.Errorf("falha ao migrar estado legado do editor: %w", err)
+			}
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -300,7 +306,11 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 		return fmt.Errorf("falha ao listar drafts legados: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
 		if err := configdir.ValidateFilename(entry.Name()); err != nil {
@@ -567,7 +577,7 @@ func (api *Editor) EditorLoadState() (*apidto.EditorState, error) {
 			if os.IsNotExist(err) {
 				return emptyEditorState(), nil
 			}
-			return nil, fmt.Errorf("falha ao ler editor/state.json: %w", err)
+			return nil, fmt.Errorf("falha ao ler estado user-scoped do editor: %w", err)
 		}
 
 		var state apidto.EditorState
@@ -604,7 +614,7 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 			return struct{}{}, fmt.Errorf("falha ao serializar editor state: %w", err)
 		}
 		if err := os.WriteFile(p, b, 0600); err != nil {
-			return struct{}{}, fmt.Errorf("falha ao salvar editor/state.json: %w", err)
+			return struct{}{}, fmt.Errorf("falha ao salvar estado user-scoped do editor: %w", err)
 		}
 		if err := ensurePrivatePath(p); err != nil {
 			return struct{}{}, err

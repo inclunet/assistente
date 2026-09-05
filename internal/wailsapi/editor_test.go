@@ -448,6 +448,79 @@ func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
 	}
 }
 
+func TestEditorLegacyMigrationIgnoresSymlinks(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	external := t.TempDir()
+	externalState := filepath.Join(external, "state.json")
+	externalDraft := filepath.Join(external, "draft.md")
+	if err := os.WriteFile(externalState, []byte(`{"fileModeByPath":{"vazou":"rich"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(externalDraft, []byte("segredo externo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(externalState, filepath.Join(legacyEditorDir(), "state.json")); err != nil {
+		t.Skipf("symlink indisponível neste ambiente: %v", err)
+	}
+	if err := os.Symlink(externalDraft, filepath.Join(legacyEditorDir(), "drafts", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	api := attachEditorForUser("01991f7c-1000-7000-8000-00000000007a")
+	state, err := api.EditorLoadState()
+	if err != nil || len(state.FileModeByPath) != 0 {
+		t.Fatalf("state via symlink foi migrado: %+v, %v", state, err)
+	}
+	if _, err := api.EditorReadDraft("link"); err == nil {
+		t.Fatal("draft via symlink foi migrado")
+	}
+	if data, err := os.ReadFile(externalDraft); err != nil || string(data) != "segredo externo" {
+		t.Fatalf("alvo externo foi alterado: %q, %v", data, err)
+	}
+}
+
+func TestEditorUnavailableAtomicPublishDisablesOnlyLegacyAdoption(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", "legado.md"), []byte("não adotar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	originalPublisher := publishEditorMigrationClaim
+	publishEditorMigrationClaim = func(_, _ string) error {
+		return errors.New("hardlink indisponível")
+	}
+	t.Cleanup(func() { publishEditorMigrationClaim = originalPublisher })
+
+	api := attachEditorForUser("01991f7c-1000-7000-8000-00000000008a")
+	if err := api.EditorWriteDraft("novo", "funciona"); err != nil {
+		t.Fatalf("falha de hardlink bloqueou editor novo: %v", err)
+	}
+	if got, err := api.EditorReadDraft("novo"); err != nil || got != "funciona" {
+		t.Fatalf("storage novo indisponível: %q, %v", got, err)
+	}
+	if _, err := api.EditorReadDraft("legado"); err == nil {
+		t.Fatal("legado foi adotado sem claim atômico")
+	}
+	if _, err := os.Stat(editorMigrationClaimPath()); !os.IsNotExist(err) {
+		t.Fatalf("claim parcial foi publicado: %v", err)
+	}
+}
+
 func TestEditorLegacyMigrationIsIdempotentAndConcurrent(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
