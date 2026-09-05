@@ -186,6 +186,7 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
       if (action === 'edit' && segments[2]) {
         const resourceId = decodeURIComponent(segments.slice(2).join('/'));
         const tabParam = params.get('tab');
+        if (params.has('tab') && !tabParam) return null;
         if (!isValidResourceTab(resource as EditableResource, tabParam || undefined)) return null;
         return {
           type: 'resource:edit',

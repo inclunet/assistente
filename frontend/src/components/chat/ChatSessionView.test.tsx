@@ -578,6 +578,33 @@ describe('ChatSessionView', () => {
     expect(speakMessageMock).not.toHaveBeenCalled();
   });
 
+  it('informa erro quando não consegue abrir a configuração de voz', async () => {
+    requestConfirmMock.mockResolvedValueOnce(true);
+    executeDeepLinkMock.mockRejectedValueOnce(new Error('falha de navegação'));
+    const chatSurface = surface({ surfaceType: 'page', tabId: 'chat-tab' });
+    renderWithPanel(
+      <ChatSessionView
+        surface={chatSurface}
+        onSend={vi.fn()}
+        showShortcutsHelp={false}
+        profileSlug="programacao"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'speak-message' }));
+
+    await waitFor(() => {
+      expect(handleErrorMock).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          source: 'ChatSessionView.voiceSetup',
+          userMessage: 'chat.voiceSetup.error',
+          severity: 'recoverable',
+        }),
+      );
+    });
+  });
+
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));

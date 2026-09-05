@@ -92,6 +92,7 @@ const ptBR = {
         description: 'Este perfil não tem uma voz configurada. Deseja configurar a voz agora?',
         configure: 'Configurar voz',
         profileUnavailable: 'Não foi possível identificar o perfil atual para configurar a voz.',
+        error: 'Não foi possível abrir a configuração de voz.',
       },
       stop: 'Parar',
       cancelGeneration: 'Cancelar geração',

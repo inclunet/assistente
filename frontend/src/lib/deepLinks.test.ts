@@ -344,6 +344,7 @@ describe('parseDeepLink', () => {
         tab: 'voice',
       });
       expect(parseDeepLink('assistente://profiles/edit/programacao?tab=tools')).toBeNull();
+      expect(parseDeepLink('assistente://profiles/edit/programacao?tab=')).toBeNull();
       expect(parseDeepLink('assistente://providers/edit/openai?tab=voice')).toBeNull();
     });
 

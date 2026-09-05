@@ -456,6 +456,16 @@ function ChatSessionViewContent({
               : {}),
           },
         );
+      } catch (error) {
+        handleError(error, {
+          source: 'ChatSessionView.voiceSetup',
+          userMessage: t('chat.voiceSetup.error'),
+          severity: ErrorSeverity.RECOVERABLE,
+          metadata: {
+            profileSlug: profileSlug || activeProfileSlug || undefined,
+            surfaceId: origin.surfaceId,
+          },
+        });
       } finally {
         voiceSetupPromptPendingRef.current = false;
       }

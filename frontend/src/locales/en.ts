@@ -92,6 +92,7 @@ const en = {
         description: 'This profile does not have a voice configured. Would you like to configure it now?',
         configure: 'Configure voice',
         profileUnavailable: 'The current profile could not be identified for voice setup.',
+        error: 'Voice settings could not be opened.',
       },
       continueResponse: 'Continue response',
       continueResponseLabel: 'Continue response',
