@@ -4,7 +4,7 @@ import { ActivePanelContext, useActivePanelNewShortcut } from './useActivePanelS
 
 const mockIsModalOpen = vi.fn(() => false);
 
-vi.mock('../components/ui/Modal', () => ({
+vi.mock('../lib/modalRegistry', () => ({
   isModalOpen: () => mockIsModalOpen(),
 }));
 

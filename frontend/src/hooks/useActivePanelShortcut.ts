@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect } from 'react';
-import { isModalOpen } from '../components/ui/Modal';
+import { isModalOpen } from '../lib/modalRegistry';
 
 /**
  * Indica se a superfície que contém o componente está ativa.
