@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"assistente/internal/fstrust"
@@ -156,6 +157,19 @@ func TestEmptyHomeFailsClosedForGlobalAndProfile(t *testing.T) {
 		Scope: nettrust.ScopeProfile,
 	}); err == nil {
 		t.Fatal("home vazio deve impedir persistência de perfil em path relativo")
+	}
+}
+
+func TestInvalidProfileSlugFailsWithPreciseError(t *testing.T) {
+	manager := nettrust.NewManagerWithDirs(t.TempDir(), t.TempDir())
+	manager.SetActiveProfileSlugFunc(func() string { return "../" })
+
+	err := manager.Add(context.Background(), nettrust.AllowlistEntry{
+		Host:  "profile.internal",
+		Scope: nettrust.ScopeProfile,
+	})
+	if err == nil || !strings.Contains(err.Error(), "ProfileSlug válido") {
+		t.Fatalf("slug sanitizado para vazio deve retornar erro preciso, got %v", err)
 	}
 }
 

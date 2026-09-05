@@ -181,6 +181,9 @@ func (m *Manager[E, Q]) Add(ctx context.Context, entry E) error {
 		if profileSlug == "" {
 			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
 		}
+		if sanitizeSlug(profileSlug) == "" {
+			return fmt.Errorf("escopo de perfil requer ProfileSlug válido no contexto")
+		}
 		return m.addPersistent(m.profilePathLocked(profileSlug), entry, scope)
 	case ScopeGlobal:
 		return m.addPersistent(m.globalPathLocked(), entry, scope)
@@ -234,6 +237,9 @@ func (m *Manager[E, Q]) Remove(ctx context.Context, scope Scope, query Q) error 
 	case ScopeProfile:
 		if profileSlug == "" {
 			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
+		}
+		if sanitizeSlug(profileSlug) == "" {
+			return fmt.Errorf("escopo de perfil requer ProfileSlug válido no contexto")
 		}
 		return m.removePersistent(m.profilePathLocked(profileSlug), query)
 	case ScopeGlobal:

@@ -15,7 +15,7 @@ Controle o que o assistente e as tools podem acessar fora do workspace.
 ## Escopos e compatibilidade
 
 As autorizações de rede e arquivos usam os mesmos escopos: uma tentativa,
-conversa, workspace, perfil ou global. As regras continuam separadas por
+conversa, perfil, workspace ou global. As regras continuam separadas por
 domínio e são consultadas da mais específica para a mais ampla.
 
 Atualizações do app preservam as allowlists existentes em
