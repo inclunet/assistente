@@ -318,7 +318,12 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("erro ao limpar sub-conversa: %w", err)
 	}
 
-	result := RunResult{ConversationID: childConvID, RunID: run.ID, Status: run.Status}
+	result := RunResult{
+		ConversationID:   childConvID,
+		RunID:            run.ID,
+		Status:           run.Status,
+		preserveResponse: p.PreserveResponse,
+	}
 
 	// 3. Registra o callback de conclusão e o run ativo ANTES de enviar.
 	//    O TTL do callback é alinhado ao timeout EFETIVO do run (resolveTimeout):
@@ -931,6 +936,12 @@ func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result 
 	result.ResultSummary = run.ResultSummary
 	result.AssistantMessageID = o.assistantMessageID
 	result.Error = o.errMsg
+	// Mantém a resposta integral apenas quando o consumidor síncrono pediu o
+	// opt-in raw. O modo compatível e o background não devem reter um payload
+	// potencialmente grande; entrega e persistência usam ResultSummary.
+	if !run.Background && result.preserveResponse {
+		result.Response = o.summary
+	}
 	return *result
 }
 
