@@ -37,7 +37,7 @@ func TestSearchConversations_Name(t *testing.T) {
 func TestSearchConversations_Description(t *testing.T) {
 	tool := NewSearchConversationsForTest(nil)
 	desc := strings.ToLower(tool.Description())
-	for _, concept := range []string{"snippets", "message ids", "get_messages", "get_conversation_info", "at most 100", "broad global"} {
+	for _, concept := range []string{"snippets", "message ids", "get_messages", "get_conversation_info", "above-100", "fall back to 20", "broad global"} {
 		if !strings.Contains(desc, concept) {
 			t.Errorf("description should explain %q", concept)
 		}
@@ -85,6 +85,9 @@ func TestSearchConversations_Parameters(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(description), "not a page cursor") {
 		t.Error("limit description should distinguish result caps from pagination")
+	}
+	if !strings.Contains(strings.ToLower(description), "above-100 values fall back to 20") {
+		t.Error("limit description should explain the out-of-range fallback")
 	}
 }
 

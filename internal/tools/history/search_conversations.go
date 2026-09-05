@@ -74,7 +74,7 @@ func (t *SearchConversationsTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *SearchConversationsTool) Description() string {
-	return "Finds relevant messages in conversation history by full-text query and returns ranked snippets with conversation and message IDs, not complete messages. Use it to locate prior discussions globally, or set conversation_id (including \"current\") to search within one conversation; then pass selected message IDs to get_messages for full textual rehydration. Do not use it for conversation metadata or rolling summaries (use get_conversation_info), or to read an entire conversation. Results are relevance-ranked and limited to at most 100 per call; broad global queries cost more and should be narrowed by query, conversation, and limit rather than treated as pagination or export."
+	return "Finds relevant messages in conversation history by full-text query and returns ranked snippets with conversation and message IDs, not complete messages. Use it to locate prior discussions globally, or set conversation_id (including \"current\") to search within one conversation; then pass selected message IDs to get_messages for full textual rehydration. Do not use it for conversation metadata or rolling summaries (use get_conversation_info), or to read an entire conversation. Results are relevance-ranked; limit accepts 1-100, while omitted, non-positive, or above-100 values fall back to 20. Broad global queries cost more and should be narrowed by query, conversation, and limit rather than treated as pagination or export."
 }
 
 func (t *SearchConversationsTool) Parameters() json.RawMessage {
@@ -91,7 +91,7 @@ func (t *SearchConversationsTool) Parameters() json.RawMessage {
 			},
 			"limit": {
 				"type": "integer",
-				"description": "Maximum ranked snippets returned (default 20, maximum 100). This is a result cap, not a page cursor; refine the query or conversation scope for omitted matches.",
+				"description": "Maximum ranked snippets returned. Valid range: 1-100; omitted, non-positive, or above-100 values fall back to 20. This is a result cap, not a page cursor; refine the query or conversation scope for omitted matches.",
 				"default": 20
 			}
 		},
