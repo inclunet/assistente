@@ -8,7 +8,10 @@ export interface ConfirmOptions {
   confirmText?: string;
   cancelText?: string;
   variant?: ConfirmVariant;
-  /** Mantém o foco na origem ao cancelar, mas permite navegar ao confirmar. */
+  /**
+   * Se false, não restaura o foco ao confirmar (útil antes de navegar).
+   * Cancelar sempre restaura o foco. Default: true.
+   */
   restoreFocusOnConfirm?: boolean;
 }
 
