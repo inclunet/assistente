@@ -71,7 +71,9 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 }));
 
 vi.mock('../ui/Modal', () => ({
-  Modal: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
+    isOpen ? <div>{children}</div> : null
+  ),
   isModalOpen: () => modalState.open,
   useIsInsideModal: () => modalState.inside,
   useModalIsTopmost: () => () => modalState.topmost,
