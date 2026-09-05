@@ -59,7 +59,12 @@ func New(service Service) *Tool {
 func (t *Tool) Name() string { return "memory" }
 
 func (t *Tool) Description() string {
-	return "Search, read, write, update, archive, unarchive, delete, and summarize long-term memory records. Use the fewest operations possible: search/list first, get details only when needed, write only durable preferences/facts/decisions."
+	return `Search and govern structured long-term memory records that can influence future conversations: list/search/get, write or patch, archive/unarchive, delete, and summarize policy usage.
+Use when: durable user preferences, identity, project facts, decisions, conventions, or resolved knowledge should be recalled across turns. Search first to reuse or update an existing record, then get details only when needed.
+Do not use: do not store transient chat context, task progress (use update_plan/task/task_note), job state, large source documents, credentials, tokens, or uncertain guesses. A conversation message already remains in history without becoming memory.
+Persistence, risk, and cost: records persist in the database. core/pinned/auto records may consume future prompt budget and bias answers; write narrowly scoped, concise facts with appropriate confidence and expiry. archive preserves a record outside normal retrieval; delete removes it. Broad searches and long content increase context cost.
+Actions: explicit action is preferred. write with no id creates; write with id patches only supplied fields. search/list supports filters; summary returns policy counts.
+Examples: search {"action":"search","query":"release convention","scopes":["project"]}; create {"action":"write","content":"Release tags use vMAJOR.MINOR.PATCH","kind":"convention","scope":"project","load_policy":"retrievable","confidence":90}; archive {"action":"archive","id":"<id>"}.`
 }
 
 func (t *Tool) Parameters() json.RawMessage {

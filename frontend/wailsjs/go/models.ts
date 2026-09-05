@@ -3626,20 +3626,6 @@ export namespace llm {
 	        this.TurnID = source["TurnID"];
 	    }
 	}
-	export class FunctionCall {
-	    name: string;
-	    arguments: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new FunctionCall(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.arguments = source["arguments"];
-	    }
-	}
 	export class FunctionDefinition {
 	    name: string;
 	    description: string;
@@ -3655,80 +3641,6 @@ export namespace llm {
 	        this.description = source["description"];
 	        this.parameters = source["parameters"];
 	    }
-	}
-	export class ToolCall {
-	    id: string;
-	    type: string;
-	    function: FunctionCall;
-	
-	    static createFrom(source: any = {}) {
-	        return new ToolCall(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.type = source["type"];
-	        this.function = this.convertValues(source["function"], FunctionCall);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class Message {
-	    role: string;
-	    content?: any;
-	    thinking?: string;
-	    reasoning_content?: string;
-	    tool_calls?: ToolCall[];
-	    tool_call_id?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Message(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.role = source["role"];
-	        this.content = source["content"];
-	        this.thinking = source["thinking"];
-	        this.reasoning_content = source["reasoning_content"];
-	        this.tool_calls = this.convertValues(source["tool_calls"], ToolCall);
-	        this.tool_call_id = source["tool_call_id"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class ModelOption {
 	    value: string;
@@ -3889,7 +3801,6 @@ export namespace llm {
 	        this.acp_agent_id = source["acp_agent_id"];
 	    }
 	}
-	
 
 }
 
@@ -5110,6 +5021,7 @@ export namespace profiles {
 	    description: string;
 	    icon: string;
 	    source: string;
+	    builtin: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProfileInfo(source);
@@ -5122,6 +5034,7 @@ export namespace profiles {
 	        this.description = source["description"];
 	        this.icon = source["icon"];
 	        this.source = source["source"];
+	        this.builtin = source["builtin"];
 	    }
 	}
 	
