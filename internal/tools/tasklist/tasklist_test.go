@@ -786,7 +786,10 @@ func TestGetTaskList_ParametersValidJSON(t *testing.T) {
 			t.Fatalf("expected %q in tool parameters schema", field)
 		}
 	}
-	taskListID, _ := props["task_list_id"].(map[string]any)
+	taskListID, ok := props["task_list_id"].(map[string]any)
+	if !ok {
+		t.Fatalf("task_list_id schema = %#v, want an object", props["task_list_id"])
+	}
 	if taskListID["type"] != "string" {
 		t.Fatalf("task_list_id schema type = %v, want string UUID", taskListID["type"])
 	}
