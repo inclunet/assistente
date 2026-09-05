@@ -420,6 +420,19 @@ func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
 	if err != nil || state.FileModeByPath["legado.md"] != "rich" {
 		t.Fatalf("primeiro usuário não adotou state: %+v, %v", state, err)
 	}
+	pathsB, err := editorPathsForUser(userB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pathsB.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(pathsB.root, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(pathsB.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := apiB.EditorReadDraft("legado"); err == nil {
 		t.Fatal("segundo usuário herdou draft legado")
 	}
@@ -442,12 +455,70 @@ func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
 	if claim.UserID != userA {
 		t.Fatalf("claim inesperado: %+v", claim)
 	}
+	if runtime.GOOS != "windows" {
+		for _, path := range []string{pathsB.root, pathsB.draftDir} {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != 0700 {
+				t.Fatalf("diretório do segundo usuário %s perm = %04o, quer 0700", path, got)
+			}
+		}
+	}
 	pathsA, err := editorPathsForUser(userA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(pathsA.root, ".legacy-migration-v1-complete")); err != nil {
 		t.Fatalf("marcador de conclusão ausente: %v", err)
+	}
+}
+
+func TestEditorLegacyMigrationRejectsStorageSymlinkForNonOwner(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	legacyDir := legacyEditorDir()
+	if err := os.MkdirAll(legacyDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "state.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ownerID := "01991f7c-1000-7000-8000-00000000006c"
+	if _, err := attachEditorForUser(ownerID).EditorLoadState(); err != nil {
+		t.Fatalf("dono não adquiriu claim legado: %v", err)
+	}
+
+	otherID := "01991f7c-1000-7000-8000-00000000006d"
+	otherPaths, err := editorPathsForUser(otherID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(otherPaths.root), 0700); err != nil {
+		t.Fatal(err)
+	}
+	external := t.TempDir()
+	sentinel := filepath.Join(external, "sentinela.txt")
+	if err := os.WriteFile(sentinel, []byte("não alterar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, otherPaths.root); err != nil {
+		t.Skipf("symlink de diretório indisponível neste ambiente: %v", err)
+	}
+
+	if _, err := attachEditorForUser(otherID).EditorLoadState(); err == nil {
+		t.Fatal("storage symlinkado do segundo usuário não falhou fechado")
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "não alterar" {
+		t.Fatalf("destino externo foi alterado: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(external, "drafts")); !os.IsNotExist(err) {
+		t.Fatalf("migração seguiu symlink e criou drafts externos: %v", err)
 	}
 }
 

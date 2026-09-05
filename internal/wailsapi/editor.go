@@ -337,6 +337,15 @@ func copyLegacyEditorFile(source, destination string, overwriteIncomplete bool) 
 }
 
 func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
+	// O storage próprio precisa ser validado para todo usuário, mesmo quando
+	// ele não vence o claim legado ou quando a adoção é desabilitada.
+	if err := ensurePrivateDirectory(paths.root); err != nil {
+		return fmt.Errorf("falha ao preparar diretório privado do editor: %w", err)
+	}
+	if err := ensurePrivateDirectory(paths.draftDir); err != nil {
+		return fmt.Errorf("falha ao preparar diretório privado de drafts: %w", err)
+	}
+
 	legacyDir := legacyEditorDir()
 	claimPath := editorMigrationClaimPath()
 	claim, err := readEditorMigrationClaim(claimPath)
@@ -372,12 +381,6 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 	// adquiriu pode adotar os dados legados. Outros usuários começam vazios.
 	if claim.UserID != userID {
 		return nil
-	}
-	if err := ensurePrivateDirectory(paths.root); err != nil {
-		return fmt.Errorf("falha ao preparar diretório privado do editor: %w", err)
-	}
-	if err := ensurePrivateDirectory(paths.draftDir); err != nil {
-		return fmt.Errorf("falha ao preparar diretório privado de drafts: %w", err)
 	}
 	completionPath := filepath.Join(paths.root, ".legacy-migration-v1-complete")
 	if info, err := os.Lstat(completionPath); err == nil {
