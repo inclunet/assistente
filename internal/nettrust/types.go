@@ -28,7 +28,9 @@ const (
 )
 
 // ValidScope reporta se s é um escopo conhecido.
-var ValidScope = trustscope.ValidScope
+func ValidScope(s Scope) bool {
+	return trustscope.ValidScope(s)
+}
 
 // AllowlistEntry é uma autorização de rede para um host/padrão barrado por
 // anti-SSRF. Guarda metadados para auditoria: quem criou, quando, por quê, os

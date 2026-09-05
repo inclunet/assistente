@@ -26,7 +26,9 @@ const (
 )
 
 // ValidScope reporta se s é um escopo conhecido.
-var ValidScope = trustscope.ValidScope
+func ValidScope(s Scope) bool {
+	return trustscope.ValidScope(s)
+}
 
 // Kind distingue autorização de arquivo exato versus diretório (prefixo).
 type Kind string

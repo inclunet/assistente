@@ -13,8 +13,9 @@ import (
 )
 
 func TestConsumerScopesUseSharedContract(t *testing.T) {
-	var networkScope trustscope.Scope = nettrust.ScopeWorkspace
-	var filesystemScope trustscope.Scope = fstrust.ScopeWorkspace
+	asSharedScope := func(scope trustscope.Scope) trustscope.Scope { return scope }
+	networkScope := asSharedScope(nettrust.ScopeWorkspace)
+	filesystemScope := asSharedScope(fstrust.ScopeWorkspace)
 	if networkScope != filesystemScope || !networkScope.IsPersistent() {
 		t.Fatalf("escopos dos consumidores divergiram: rede=%q fs=%q", networkScope, filesystemScope)
 	}
