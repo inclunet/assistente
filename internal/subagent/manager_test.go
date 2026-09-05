@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
@@ -72,6 +73,9 @@ func TestManagerRunSyncSuccess(t *testing.T) {
 	if res.ResultSummary != "resposta do sub-agente" || res.AssistantMessageID != "msg-1" {
 		t.Fatalf("resultado inesperado: %#v", res)
 	}
+	if res.Response != "" {
+		t.Fatalf("modo compatível não deve reter resposta integral: %q", res.Response)
+	}
 	if res.ConversationID == "" || res.RunID == "" {
 		t.Fatalf("handles ausentes: %#v", res)
 	}
@@ -98,6 +102,66 @@ func TestManagerRunSyncSuccess(t *testing.T) {
 	}
 	if run.CompletedAt == nil || run.StartedAt == nil {
 		t.Fatalf("timestamps do run não preenchidos: %#v", run)
+	}
+}
+
+func TestManagerRunSyncPreservesIntegralResponseInMemory(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	fullResponse := strings.Repeat("conteúdo extenso ", maxResultSummary)
+
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, fullResponse, "msg-large")
+			return p.ConversationID, nil
+		},
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "gere conteúdo extenso", PreserveResponse: true})
+	if err != nil {
+		t.Fatalf("Run erro inesperado: %v", err)
+	}
+	if res.Response != fullResponse {
+		t.Fatalf("resposta em memória foi truncada: got=%d want=%d", len(res.Response), len(fullResponse))
+	}
+	if len(res.ResultSummary) > maxResultSummary || !utf8.ValidString(res.ResultSummary) {
+		t.Fatalf("result_summary deve respeitar limite e UTF-8: len=%d valid=%t", len(res.ResultSummary), utf8.ValidString(res.ResultSummary))
+	}
+	run, err := repo.Get(ctx, res.RunID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if len(run.ResultSummary) > maxResultSummary || !utf8.ValidString(run.ResultSummary) {
+		t.Fatalf("resumo persistido deve respeitar limite e UTF-8: len=%d valid=%t", len(run.ResultSummary), utf8.ValidString(run.ResultSummary))
+	}
+}
+
+func TestManagerFinishDoesNotRetainIntegralResponseInBackground(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	mgr := NewManager(ManagerConfig{Repo: repo})
+	run := &database.SubAgentRun{
+		UserID:              "user-a",
+		ChildConversationID: "child-background",
+		Status:              StatusRunning,
+		Background:          true,
+	}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("criar run: %v", err)
+	}
+	result := RunResult{ConversationID: run.ChildConversationID, RunID: run.ID, preserveResponse: true}
+	finished := mgr.finalize(ctx, run, &result, outcome{
+		status:  StatusSucceeded,
+		summary: strings.Repeat("resposta extensa ", maxResultSummary),
+	})
+
+	if finished.Response != "" {
+		t.Fatalf("background não deve reter resposta integral: %d bytes", len(finished.Response))
+	}
+	if len(finished.ResultSummary) > maxResultSummary || !utf8.ValidString(finished.ResultSummary) {
+		t.Fatalf("background deve manter apenas resumo limitado e válido: len=%d", len(finished.ResultSummary))
 	}
 }
 
