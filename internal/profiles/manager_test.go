@@ -60,6 +60,40 @@ func TestManagerGetActiveSlug(t *testing.T) {
 	}
 }
 
+func TestManagerListIdentificaBuiltinSemConfundirCustomizado(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	builtin := DefaultProfile()
+	builtin.Name = "Builtin"
+	builtin.BuiltinVersion = "1.0.0"
+	builtinSlug, err := manager.Create(builtin)
+	if err != nil {
+		t.Fatalf("criar builtin: %v", err)
+	}
+	custom := DefaultProfile()
+	custom.Name = "Custom"
+	custom.BuiltinVersion = ""
+	customSlug, err := manager.Create(custom)
+	if err != nil {
+		t.Fatalf("criar customizado: %v", err)
+	}
+
+	infos, err := manager.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySlug := make(map[string]ProfileInfo, len(infos))
+	for _, info := range infos {
+		bySlug[info.Slug] = info
+	}
+	if !bySlug[builtinSlug].Builtin {
+		t.Fatalf("profile builtin não foi identificado: %#v", bySlug[builtinSlug])
+	}
+	if bySlug[customSlug].Builtin {
+		t.Fatalf("profile customizado foi marcado como builtin: %#v", bySlug[customSlug])
+	}
+}
+
 // TestManagerNativeMCPPersistsTriState garante que o override tri-state de MCP
 // nativo (Chat.NativeMCP) sobrevive ao Create/Get (persistência JSON). Cobre o
 // caminho de sub-agentes também: eles carregam o mesmo Profile por slug, então
