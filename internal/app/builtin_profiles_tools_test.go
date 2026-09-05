@@ -234,7 +234,8 @@ func TestProfileListExpoeDescricoesBuiltinAcionaveisParaRoteamento(t *testing.T)
 		store.infos = append(store.infos, profiles.ProfileInfo{
 			Slug: slug, Name: profile.Name, Description: profile.Description,
 		})
-		store.bySlug[slug] = &profile
+		profileCopy := profile
+		store.bySlug[slug] = &profileCopy
 	}
 
 	items, err := profileaccess.NewService(store, nil, nil, nil).List(t.Context(), "padrao")
