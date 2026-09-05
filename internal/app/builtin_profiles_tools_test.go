@@ -2,12 +2,32 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"assistente/internal/chat"
+	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 )
+
+type builtinRoutingProfileStore struct {
+	infos  []profiles.ProfileInfo
+	bySlug map[string]*profiles.Profile
+}
+
+func (s builtinRoutingProfileStore) List() ([]profiles.ProfileInfo, error) {
+	return s.infos, nil
+}
+
+func (s builtinRoutingProfileStore) Get(slug string) (*profiles.Profile, error) {
+	profile := s.bySlug[slug]
+	if profile == nil {
+		return nil, errors.New("profile não encontrado")
+	}
+	return profile, nil
+}
 
 func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 	tests := []struct {
@@ -18,7 +38,7 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 	}{
 		{
 			filename:     "programacao.json",
-			version:      "4.5.0",
+			version:      "4.6.0",
 			defaultState: "on_demand",
 			expectedPolicy: map[string]string{
 				"read_file":    "preloaded",
@@ -37,7 +57,7 @@ func TestBuiltinProfilesDeclareOperationalToolBaselines(t *testing.T) {
 		},
 		{
 			filename:     "padrao.json",
-			version:      "4.4.0",
+			version:      "4.5.0",
 			defaultState: "on_demand",
 			expectedPolicy: map[string]string{
 				"read_file":         "preloaded",
@@ -200,6 +220,51 @@ func TestUpgradeBuiltinAplicaWildcardMCPPreservandoRuntime(t *testing.T) {
 	}
 }
 
+func TestProfileListExpoeDescricoesBuiltinAcionaveisParaRoteamento(t *testing.T) {
+	store := builtinRoutingProfileStore{bySlug: make(map[string]*profiles.Profile)}
+	for _, slug := range []string{"padrao", "programacao"} {
+		data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+slug+".json")
+		if err != nil {
+			t.Fatalf("ler profile builtin %s: %v", slug, err)
+		}
+		var profile profiles.Profile
+		if err := json.Unmarshal(data, &profile); err != nil {
+			t.Fatalf("decodificar profile builtin %s: %v", slug, err)
+		}
+		store.infos = append(store.infos, profiles.ProfileInfo{
+			Slug: slug, Name: profile.Name, Description: profile.Description,
+		})
+		store.bySlug[slug] = &profile
+	}
+
+	items, err := profileaccess.NewService(store, nil, nil, nil).List(t.Context(), "padrao")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("profile list = %#v, esperados Padrão e Programação", items)
+	}
+
+	bySlug := make(map[string]profileaccess.ProfileSummary, len(items))
+	for _, item := range items {
+		bySlug[item.Slug] = item
+		for _, section := range []string{"Use quando", "Não use", "Exemplos:"} {
+			if !strings.Contains(item.Description, section) {
+				t.Errorf("descrição de %s não contém %q: %q", item.Slug, section, item.Description)
+			}
+		}
+	}
+	if !bySlug["padrao"].Current {
+		t.Fatal("profile list não marcou Padrão como atual")
+	}
+	if !strings.Contains(bySlug["padrao"].Description, "escolha Programação") {
+		t.Errorf("Padrão não orienta a especialização em código: %q", bySlug["padrao"].Description)
+	}
+	if !strings.Contains(bySlug["programacao"].Description, "escolha Padrão") {
+		t.Errorf("Programação não orienta o retorno a tarefas gerais: %q", bySlug["programacao"].Description)
+	}
+}
+
 // Quando nenhum arquivo de perfil pôde ser lido, o Manager cai no
 // DefaultProfile() em vez do padrao.json. Se os dois divergirem, justamente a
 // instalação degradada perde o baseline da AEP-0096.
@@ -214,6 +279,9 @@ func TestDefaultProfileEspelhaOBaselineDoPadraoBuiltin(t *testing.T) {
 	}
 
 	fallback := profiles.DefaultProfile()
+	if fallback.Description != builtin.Description {
+		t.Fatalf("description do fallback = %q, esperado %q", fallback.Description, builtin.Description)
+	}
 	if fallback.Chat.ToolPolicyDefault != builtin.Chat.ToolPolicyDefault {
 		t.Fatalf("tool_policy_default do fallback = %q, esperado %q",
 			fallback.Chat.ToolPolicyDefault, builtin.Chat.ToolPolicyDefault)
