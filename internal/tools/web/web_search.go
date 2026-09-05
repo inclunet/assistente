@@ -74,7 +74,7 @@ func (t *WebSearch) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *WebSearch) Description() string {
-	return `Searches the web and returns ranked links with titles and snippets. Use when you need to discover sources or do not yet know the target URL; for example {"query":"Go context cancellation documentation","max_results":5}. Do not use to read a known page (use web_fetch), call an API with HTTP controls (use http_request), or parse a known RSS/Atom/JSON feed (use feed_read). Results are paginated JSON; while has_more is true, request the next page with offset = previous offset + count. Risk: sends the query to an external search provider and requires network access. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
+	return `Searches the web and returns ranked links with titles and snippets. Use when you need to discover sources or do not yet know the target URL; for example {"query":"Go context cancellation documentation","max_results":5}. Do not use to read a known page (use web_fetch), call an API with HTTP controls (use http_request), or parse a known RSS/Atom/JSON feed (use feed_read). Returns paginated JSON with query, provider, offset, count, has_more, and results; while has_more is true, request the next page with offset = previous offset + count. Risk: sends the query to an external search provider and requires network access. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *WebSearch) Parameters() json.RawMessage {

@@ -30,7 +30,8 @@ func TestWebToolDescriptionsDisambiguateNetworkCapabilities(t *testing.T) {
 			desc: NewWebSearch(nil).Description(),
 			required: []string{
 				"discover", "web_fetch", "http_request", "feed_read",
-				"external search provider", "tool_catalog", `{"query":`,
+				"count", "has_more", "results", "external search provider",
+				"tool_catalog", `{"query":`,
 			},
 		},
 		{
