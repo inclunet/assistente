@@ -13,7 +13,6 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
-	"assistente/internal/wakelock"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/apidto"
@@ -50,6 +49,7 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/wailsapi"
+	"assistente/internal/wakelock"
 	"assistente/internal/workspace"
 )
 
@@ -95,7 +95,7 @@ type App struct {
 	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
-	wakeLock         wakelock.Manager             // Previne bloqueio/suspensão quando a janela está em foco
+	wakeLock         wakelock.Manager            // Previne bloqueio/suspensão quando a janela está em foco
 
 	credMgr           *credentials.Manager
 	credStore         credentials.Store
@@ -882,9 +882,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o banco de dados (falha crítica: sem DB nada funciona)
 	if err := InitDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
-	}
-	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
-		logging.Errorf(ctx, "app.app", "Erro ao limpar drafts órfãos do editor no startup: %v", err)
 	}
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/

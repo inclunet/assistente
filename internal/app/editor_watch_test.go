@@ -650,7 +650,7 @@ func TestEditorWriteDraftMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
 
 	app := &App{}
 	draftID := "draft-teste"
-	p := filepath.Join(draftDir(), draftID+".md")
+	p := filepath.Join(configdir.GetHomeDir(), "users", "user-teste", "editor", "drafts", draftID+".md")
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -676,5 +676,21 @@ func TestEditorWriteDraftMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
 	}
 	if origin != "editor_ui" {
 		t.Fatalf("origin = %q, want editor_ui", origin)
+	}
+}
+
+func TestStopAllEditorWatchesClearsSessionMarkers(t *testing.T) {
+	t.Parallel()
+	app := &App{
+		editorDirWatches: map[string]*editorDirWatch{},
+		editorAssistedWriteByPath: map[string][]editorAssistedWrite{
+			"/tmp/conta-a.md": {{origin: editorWriteOriginEditorUI}},
+		},
+	}
+
+	app.stopAllEditorWatches()
+
+	if len(app.editorAssistedWriteByPath) != 0 {
+		t.Fatalf("marcações da sessão anterior permaneceram: %+v", app.editorAssistedWriteByPath)
 	}
 }

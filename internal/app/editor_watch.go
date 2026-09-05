@@ -395,6 +395,7 @@ func (a *App) stopAllEditorWatches() {
 	a.editorWatchMu.Lock()
 	watches := a.editorDirWatches
 	a.editorDirWatches = map[string]*editorDirWatch{}
+	a.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 	a.editorWatchMu.Unlock()
 
 	for _, dw := range watches {

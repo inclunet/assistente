@@ -3,18 +3,23 @@ package wailsapi
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/apidto"
 	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/docextract"
 )
+
+const editorTestUserID = "01991f7c-1000-7000-8000-000000000001"
 
 func writeEditorTestDOCX(t *testing.T, path, text string) {
 	t.Helper()
@@ -205,7 +210,7 @@ func setupEditorAPITest(t *testing.T) *Editor {
 	t.Cleanup(configdir.ResetForTests)
 
 	api := NewEditor()
-	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
 		AppContext:    func() context.Context { return context.Background() },
 		Dialog:        func() ports.SystemDialogPort { return nil },
 		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
@@ -213,6 +218,272 @@ func setupEditorAPITest(t *testing.T) *Editor {
 		UnwatchFile:   func(path string) error { return nil },
 	})
 	return api
+}
+
+func attachEditorForUser(userID string) *Editor {
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), userID)}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return nil },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile:     func(path string) error { return nil },
+		UnwatchFile:   func(path string) error { return nil },
+	})
+	return api
+}
+
+func editorTestPaths(t *testing.T) editorUserPaths {
+	t.Helper()
+	paths, err := editorPathsForUser(editorTestUserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
+func TestEditorRejectsContextWithoutUserID(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return &fakeDialog{} },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile:     func(path string) error { return nil },
+		UnwatchFile:   func(path string) error { return nil },
+	})
+
+	if _, err := api.EditorGetDraftPath("draft"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("draft sem userID: %v", err)
+	}
+	if _, err := api.EditorReadFile(filepath.Join(tempDir, "doc.md")); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("arquivo sem userID: %v", err)
+	}
+	if err := api.EditorWatchFile(filepath.Join(tempDir, "doc.md")); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("watch sem userID: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, ".assistente", "users")); !os.IsNotExist(err) {
+		t.Fatalf("operação sem userID criou storage: %v", err)
+	}
+}
+
+func TestEditorIsolatesDraftsAndStateBetweenUsers(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-00000000000a"
+	userB := "01991f7c-1000-7000-8000-00000000000b"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+
+	if err := apiA.EditorWriteDraft("mesmo-id", "segredo A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiB.EditorWriteDraft("mesmo-id", "segredo B"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiA.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{"a.md": "rich"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiB.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{"b.md": "markdown"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	gotA, err := apiA.EditorReadDraft("mesmo-id")
+	if err != nil || gotA != "segredo A" {
+		t.Fatalf("draft A = %q, %v", gotA, err)
+	}
+	gotB, err := apiB.EditorReadDraft("mesmo-id")
+	if err != nil || gotB != "segredo B" {
+		t.Fatalf("draft B = %q, %v", gotB, err)
+	}
+	stateA, err := apiA.EditorLoadState()
+	if err != nil || stateA.FileModeByPath["a.md"] != "rich" || stateA.FileModeByPath["b.md"] != "" {
+		t.Fatalf("state A inesperado: %+v, %v", stateA, err)
+	}
+	stateB, err := apiB.EditorLoadState()
+	if err != nil || stateB.FileModeByPath["b.md"] != "markdown" || stateB.FileModeByPath["a.md"] != "" {
+		t.Fatalf("state B inesperado: %+v, %v", stateB, err)
+	}
+
+	pathA, _ := apiA.EditorGetDraftPath("mesmo-id")
+	pathB, _ := apiB.EditorGetDraftPath("mesmo-id")
+	if pathA == pathB || !strings.Contains(pathA, filepath.Join("users", userA)) || !strings.Contains(pathB, filepath.Join("users", userB)) {
+		t.Fatalf("paths não isolados: A=%q B=%q", pathA, pathB)
+	}
+	if _, err := apiB.EditorReadFile(pathA); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("usuário B abriu draft A como arquivo comum: %v", err)
+	}
+	if err := apiB.EditorWriteFile(pathA, "sobrescrito"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("usuário B escreveu draft A como arquivo comum: %v", err)
+	}
+	if err := apiB.EditorWatchFile(pathA); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("usuário B observou draft A como arquivo comum: %v", err)
+	}
+}
+
+func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	legacyDir := legacyEditorDir()
+	if err := os.MkdirAll(filepath.Join(legacyDir, "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "drafts", "legado.md"), []byte("conteúdo legado"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "state.json"), []byte(`{"fileModeByPath":{"legado.md":"rich"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userA := "01991f7c-1000-7000-8000-00000000001a"
+	userB := "01991f7c-1000-7000-8000-00000000001b"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+
+	got, err := apiA.EditorReadDraft("legado")
+	if err != nil || got != "conteúdo legado" {
+		t.Fatalf("primeiro usuário não adotou draft: %q, %v", got, err)
+	}
+	state, err := apiA.EditorLoadState()
+	if err != nil || state.FileModeByPath["legado.md"] != "rich" {
+		t.Fatalf("primeiro usuário não adotou state: %+v, %v", state, err)
+	}
+	if _, err := apiB.EditorReadDraft("legado"); err == nil {
+		t.Fatal("segundo usuário herdou draft legado")
+	}
+	if _, err := apiB.EditorReadFile(filepath.Join(legacyDir, "drafts", "legado.md")); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("segundo usuário abriu legado como arquivo comum: %v", err)
+	}
+	stateB, err := apiB.EditorLoadState()
+	if err != nil || len(stateB.FileModeByPath) != 0 {
+		t.Fatalf("segundo usuário herdou state: %+v, %v", stateB, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(legacyDir, "drafts", "legado.md")); err != nil || string(data) != "conteúdo legado" {
+		t.Fatalf("migração apagou/alterou legado: %q, %v", data, err)
+	}
+
+	var claim editorMigrationClaim
+	data, err := os.ReadFile(editorMigrationClaimPath())
+	if err != nil || json.Unmarshal(data, &claim) != nil {
+		t.Fatalf("claim inválido: %s, %v", data, err)
+	}
+	if claim.UserID != userA {
+		t.Fatalf("claim inesperado: %+v", claim)
+	}
+	pathsA, err := editorPathsForUser(userA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(pathsA.root, ".legacy-migration-v1-complete")); err != nil {
+		t.Fatalf("marcador de conclusão ausente: %v", err)
+	}
+}
+
+func TestEditorLegacyMigrationIsIdempotentAndConcurrent(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", "race.md"), []byte("legado"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userA := "01991f7c-1000-7000-8000-00000000002a"
+	userB := "01991f7c-1000-7000-8000-00000000002b"
+	apis := []*Editor{attachEditorForUser(userA), attachEditorForUser(userB)}
+	errs := make(chan error, 2)
+	for _, api := range apis {
+		go func(api *Editor) {
+			_, err := api.EditorLoadState()
+			errs <- err
+		}(api)
+	}
+	for range apis {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	owners := 0
+	var ownerAPI *Editor
+	for _, api := range apis {
+		if got, err := api.EditorReadDraft("race"); err == nil && got == "legado" {
+			owners++
+			ownerAPI = api
+		}
+	}
+	if owners != 1 {
+		t.Fatalf("draft legado teve %d donos, quer 1", owners)
+	}
+	if err := ownerAPI.EditorWriteDraft("race", "novo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ownerAPI.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ownerAPI.EditorReadDraft("race")
+	if err != nil || got != "novo" {
+		t.Fatalf("rerun sobrescreveu dado novo: %q, %v", got, err)
+	}
+}
+
+func TestEditorLegacyMigrationRecoversIncompleteCopy(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userID := "01991f7c-1000-7000-8000-00000000003a"
+	paths, err := editorPathsForUser(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", "crash.md"), []byte("conteúdo completo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONPrivate(editorMigrationClaimPath(), editorMigrationClaim{
+		Version:   editorMigrationVersion,
+		UserID:    userID,
+		ClaimedAt: time.Now().UnixMilli(),
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.draftDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.draftDir, "crash.md"), []byte("parcial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	api := attachEditorForUser(userID)
+	got, err := api.EditorReadDraft("crash")
+	if err != nil || got != "conteúdo completo" {
+		t.Fatalf("retomada não reparou cópia parcial: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.root, ".legacy-migration-v1-complete")); err != nil {
+		t.Fatalf("retomada não concluiu migração: %v", err)
+	}
 }
 
 func TestEditorPrivateFilesUse0600(t *testing.T) {
@@ -246,7 +517,7 @@ func TestEditorPrivateFilesUse0600(t *testing.T) {
 	if err := api.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{}}); err != nil {
 		t.Fatalf("EditorSaveState: %v", err)
 	}
-	statePath := editorStatePath()
+	statePath := editorTestPaths(t).state
 	stateInfo, err := os.Stat(statePath)
 	if err != nil {
 		t.Fatalf("stat state: %v", err)
@@ -312,7 +583,7 @@ func TestEditorPrivateFilesTightenLegacyModes(t *testing.T) {
 		t.Fatalf("editor dir legado perm = %04o, quer 0700 após rewrite de draft", got)
 	}
 
-	statePath := editorStatePath()
+	statePath := editorTestPaths(t).state
 	if err := os.MkdirAll(filepath.Dir(statePath), 0755); err != nil {
 		t.Fatalf("mkdir state legado: %v", err)
 	}
@@ -472,7 +743,7 @@ func setupEditorAPIWithDialog(t *testing.T, dialog ports.SystemDialogPort) *Edit
 	t.Cleanup(configdir.ResetForTests)
 
 	api := NewEditor()
-	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
 		AppContext:    func() context.Context { return context.Background() },
 		Dialog:        func() ports.SystemDialogPort { return dialog },
 		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
@@ -606,7 +877,7 @@ func TestEditorSaveFileDialogAppliesFallbackWhenLabelsEmpty(t *testing.T) {
 func TestEditorWatchNormalizaPathNaBorda(t *testing.T) {
 	var observados []string
 	api := NewEditor()
-	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
 		AppContext:    func() context.Context { return context.Background() },
 		Dialog:        func() ports.SystemDialogPort { return nil },
 		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
