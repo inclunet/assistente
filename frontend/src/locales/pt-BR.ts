@@ -4179,6 +4179,9 @@ const ptBR = {
         success: 'Configuração concluída com sucesso!',
         error: 'Erro ao configurar. Verifique nas Configurações.',
       },
+      updater: {
+        checkError: 'Não foi possível verificar atualizações agora. O aplicativo tentará novamente mais tarde.',
+      },
       summary: {
         started: 'Sumarizando conversa ({{count}} mensagens)...',
         completed: 'Resumo da conversa atualizado ({{count}} mensagens resumidas)',
