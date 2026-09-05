@@ -2,7 +2,7 @@
 
 Branch: `chore/auditoria-legado`
 Data: 2026-09-05
-Base analisada: `origin/main` em `a909281c`
+Base analisada: `origin/main` em `4e758277`
 
 ## Resultado executivo
 
@@ -102,8 +102,8 @@ turno seguinte, nùo somente estado interno. Assim, eles comprovam que:
 
 | Conjunto | Arquivos Go nùo vazios | Linhas | Arquivos com marcador | Linhas com marcador | Densidade |
 |---|---:|---:|---:|---:|---:|
-| Produùùo (`!*_test.go`) | 517 | 133.499 | 102 | 450 | 0,3371% |
-| Testes (`*_test.go`) | 457 | 140.347 | 79 | 550 | 0,3919% |
+| Produùùo (`!*_test.go`) | 517 | 133.575 | 102 | 450 | 0,3369% |
+| Testes (`*_test.go`) | 457 | 140.440 | 79 | 550 | 0,3916% |
 
 No ACP, hù 20 linhas com marcador em produùùo:
 
