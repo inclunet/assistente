@@ -61,7 +61,7 @@ func TestFSTrustAddPathAllowlistEntryDeny(t *testing.T) {
 		t.Fatalf("AddPathAllowlistEntry deny: %v", err)
 	}
 	if err := c.AddPathAllowlistEntry(context.Background(), path, "file", "read", "deny", "session", ""); err == nil {
-		t.Fatal("session não deveria ser aceito para denylist")
+		t.Fatal("session não deveria ser aceito para regra persistente")
 	}
 
 	views := c.GetPathAllowlist(context.Background())

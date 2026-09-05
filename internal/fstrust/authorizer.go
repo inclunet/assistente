@@ -25,8 +25,9 @@ type PromptRequest struct {
 type PromptDecision struct {
 	Approve bool
 	Scope   Scope
-	// EffectDeny registra uma recusa lembrada no escopo escolhido. Uma recusa
-	// ScopeOnce bloqueia somente a tentativa atual e não é armazenada.
+	// Effect indica allow ou deny. Deny em ScopeOnce bloqueia só a tentativa;
+	// nos demais escopos, registra uma recusa lembrada. Allow segue o fluxo de
+	// autorização e persistência abaixo.
 	Effect Effect
 	// Kind=dir concede o diretório pai (ou o próprio path se já for dir) para a
 	// operação; Kind=file concede o path resolvido exato.

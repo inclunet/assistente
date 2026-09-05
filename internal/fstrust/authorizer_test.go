@@ -154,7 +154,7 @@ func TestAuthorizer_PromptDeny(t *testing.T) {
 	}
 }
 
-func TestAuthorizer_PromptDenyRememberPersistsFailClosed(t *testing.T) {
+func TestAuthorizer_PromptDenyRememberPersists(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManagerWithDirs(dir, dir)
 	ctx := context.Background()
