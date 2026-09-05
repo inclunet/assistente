@@ -19,6 +19,7 @@ import (
 const (
 	globalFile    = "global.json"
 	workspaceFile = "workspace.json"
+	storeVersion  = 1
 )
 
 // Adapter mantém no domínio consumidor a validação e a semântica das entradas.
@@ -294,6 +295,14 @@ func (m *Manager[E, Q]) loadFile(path string) ([]E, error) {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, fmt.Errorf("allowlist de %s inválida %s: %w", m.config.DomainLabel, path, err)
 	}
+	if file.Version != storeVersion {
+		return nil, fmt.Errorf(
+			"allowlist de %s com versão não suportada em %s: %d",
+			m.config.DomainLabel,
+			path,
+			file.Version,
+		)
+	}
 	return file.Entries, nil
 }
 
@@ -310,7 +319,7 @@ func (m *Manager[E, Q]) saveFile(path string, entries []E) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("erro ao criar diretório de allowlist de %s: %w", m.config.DomainLabel, err)
 	}
-	data, err := json.MarshalIndent(storeFile[E]{Version: 1, Entries: entries}, "", "  ")
+	data, err := json.MarshalIndent(storeFile[E]{Version: storeVersion, Entries: entries}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("erro ao serializar allowlist de %s: %w", m.config.DomainLabel, err)
 	}

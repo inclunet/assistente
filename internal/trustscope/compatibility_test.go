@@ -142,6 +142,31 @@ func TestCorruptPersistentStoreFailsClosedWithoutOverwrite(t *testing.T) {
 	}
 }
 
+func TestUnknownStoreVersionFailsClosedWithoutOverwrite(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "network-allowlist", "global.json")
+	const future = `{"version":2,"entries":[{"host":"blocked.internal","scope":"global","created_at":"2026-01-02T03:04:05Z"}]}`
+	writeFixture(t, path, future)
+
+	manager := nettrust.NewManagerWithDirs(home, home)
+	if decision := manager.Match(context.Background(), "blocked.internal", "443"); decision.Allowed {
+		t.Fatal("versão desconhecida jamais pode conceder trust")
+	}
+	if err := manager.Add(context.Background(), nettrust.AllowlistEntry{
+		Host:  "new.internal",
+		Scope: nettrust.ScopeGlobal,
+	}); err == nil {
+		t.Fatal("versão desconhecida deve impedir sobrescrita")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != future {
+		t.Fatalf("store de versão desconhecida foi sobrescrito: %q", data)
+	}
+}
+
 func TestEmptyHomeFailsClosedForGlobalAndProfile(t *testing.T) {
 	manager := nettrust.NewManagerWithDirs("", t.TempDir())
 	if err := manager.Add(context.Background(), nettrust.AllowlistEntry{
