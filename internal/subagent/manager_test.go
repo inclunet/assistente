@@ -136,6 +136,32 @@ func TestManagerRunSyncPreservesIntegralResponseInMemory(t *testing.T) {
 	}
 }
 
+func TestManagerFinishDoesNotRetainIntegralResponseInBackground(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	mgr := NewManager(ManagerConfig{Repo: repo})
+	run := &database.SubAgentRun{
+		UserID:              "user-a",
+		ChildConversationID: "child-background",
+		Status:              StatusRunning,
+		Background:          true,
+	}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatalf("criar run: %v", err)
+	}
+	result := RunResult{ConversationID: run.ChildConversationID, RunID: run.ID}
+	finished := mgr.finalize(ctx, run, &result, outcome{
+		status:  StatusSucceeded,
+		summary: strings.Repeat("resposta extensa ", maxResultSummary),
+	})
+
+	if finished.Response != "" {
+		t.Fatalf("background não deve reter resposta integral: %d bytes", len(finished.Response))
+	}
+	if len(finished.ResultSummary) > maxResultSummary || !utf8.ValidString(finished.ResultSummary) {
+		t.Fatalf("background deve manter apenas resumo limitado e válido: len=%d", len(finished.ResultSummary))
+	}
+}
+
 // TestWaitClassifiesCtxDone garante que o caminho ctx.Done() do wait distingue
 // timed_out (deadline) de cancelled (cancelamento explícito), em vez de marcar
 // sempre cancelled. cancelCh aberto, done vazio e timeout longo: só o ctx.Done()

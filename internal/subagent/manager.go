@@ -931,10 +931,12 @@ func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result 
 	result.ResultSummary = run.ResultSummary
 	result.AssistantMessageID = o.assistantMessageID
 	result.Error = o.errMsg
-	// Mantém a resposta integral apenas no retorno em memória. O resumo
-	// persistido e exposto pelo envelope/status permanece limitado a 16 KiB;
-	// consumidores raw síncronos podem usar Response sem passar por esse corte.
-	result.Response = o.summary
+	// Mantém a resposta integral apenas no retorno síncrono em memória. O modo
+	// background não consome Response e não deve reter um payload potencialmente
+	// grande; nele, entrega e persistência continuam usando ResultSummary.
+	if !run.Background {
+		result.Response = o.summary
+	}
 	return *result
 }
 

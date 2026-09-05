@@ -357,6 +357,24 @@ func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
 	}
 }
 
+func TestToolRawPreservesBusinessErrorInMetadata(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID: "child-conv",
+		RunID:          "run-failed",
+		Status:         subagent.StatusFailed,
+		Error:          "provider indisponível",
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"faça X","raw":true}`))
+	if err != nil || res.IsError {
+		t.Fatalf("desfecho de negócio raw não deveria falhar a tool: result=%#v err=%v", res, err)
+	}
+	if res.Metadata["error"] != "provider indisponível" {
+		t.Fatalf("erro de negócio ausente da metadata raw: %#v", res.Metadata)
+	}
+}
+
 func TestToolRawDefaultPreservesEnvelope(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{
 		ConversationID: "child-conv",
