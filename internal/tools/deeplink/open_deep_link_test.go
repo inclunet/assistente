@@ -3,6 +3,7 @@ package deeplink
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,59 @@ type fakeEmitter struct {
 func (f *fakeEmitter) EmitDeepLink(uri string) {
 	f.lastURI = uri
 	f.calls++
+}
+
+func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
+	description := strings.ToLower(NewOpenDeepLink(nil).Description())
+	required := []string{
+		"use when:",
+		"do not use:",
+		"markdown deep link",
+		"focus an existing matching tab",
+		"caller-aware",
+		"no caller context",
+		"returns to the profiles list",
+		"tab=voice",
+		"settings/network-allowlist",
+		"settings/path-allowlist",
+		"settings/restore-defaults",
+		"profiles, history, memories, tasklists, help, about, update",
+		"interrupt the user's focus",
+		"terminal cmd",
+		"shell allowlist/confirmation policy",
+		"does not grant content access",
+		"frontend parser rejects unsupported routes and parameters",
+		"tool_catalog",
+		`{"uri":`,
+	}
+
+	for _, concept := range required {
+		assert.Contains(t, description, strings.ToLower(concept), "Description() deve documentar %q", concept)
+	}
+}
+
+func TestOpenDeepLink_ParametersDescribeSafeURIConstruction(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+		Required             []string `json:"required"`
+		AdditionalProperties bool     `json:"additionalProperties"`
+	}
+	assert.NoError(t, json.Unmarshal(NewOpenDeepLink(nil).Parameters(), &schema))
+
+	uriDescription := strings.ToLower(schema.Properties["uri"].Description)
+	for _, concept := range []string{
+		"exact assistente:// uri",
+		"link=",
+		"do not invent",
+		"url-encode",
+		"unsupported routes or editor tabs",
+	} {
+		assert.Contains(t, uriDescription, concept)
+	}
+	assert.Equal(t, []string{"uri"}, schema.Required)
+	assert.False(t, schema.AdditionalProperties)
 }
 
 func TestOpenDeepLink_Execute(t *testing.T) {

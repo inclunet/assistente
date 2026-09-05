@@ -35,13 +35,17 @@ func (t *OpenDeepLinkTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *OpenDeepLinkTool) Description() string {
-	return `Opens a deep link in the application. Supported URIs:
-- Conversations: assistente://conversation/{id}, assistente://conversation/new?message=...&title=..., assistente://conversation/{id}/send?message=...
-  Conversation links accept an optional profile={slug} query parameter that forces the target conversation to use a specific profile (works for new, open and send). Add it with "?" when the URI has no query yet, or with "&" when it already has one — e.g. assistente://conversation/{id}?profile=techsupport or assistente://conversation/new?message=...&profile=programacao.
-- Tab open: assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
-- Tab create: assistente://tasklist/new?title=..., assistente://editor/new?title=..., assistente://editor/open?file=..., assistente://terminal/new?cmd=...
-- Navigate: assistente://navigate/{route}. Settings screens are tabs, so the route keeps the settings/ prefix (routes: settings, settings/providers, settings/mcp, settings/skills, settings/channels, settings/contacts, settings/credentials, settings/allowlists, settings/network-allowlist, settings/path-allowlist, settings/appearance, settings/data, settings/restore-defaults, profiles, history, memories, tasklists, help, about, update)
-- Resource edit/new: assistente://{resource}/new, assistente://{resource}/edit/{id} (resources: profiles, providers, credentials, allowlists, skills, mcp, channels, memories, tasklists). Profile editing accepts the validated tab=voice query parameter to open voice settings directly: assistente://profiles/edit/{slug}?tab=voice`
+	return `Open, focus, or navigate to an Assistente resource by executing one exact assistente:// deep link in the frontend.
+Use when: the user explicitly asks to open or navigate to an app resource. Reuse an exact link= or assistente:// URI when available; for example {"uri":"assistente://profiles/edit/programacao?tab=voice"} opens that profile directly on voice settings.
+Do not use: to read resource contents, obtain permissions, open external HTTP(S) URLs, or merely offer a clickable reference (return a Markdown deep link instead). Do not invent IDs, slugs, paths, or routes. URL-encode generated path IDs and query values.
+Focus and return: conversation and tab links focus an existing matching tab or open one when supported. Navigation changes the user's current view. The validated profile tab is only tab=voice. Caller-aware UI flows can return to the originating workspace surface after profile save/cancel, but this tool's backend event carries no caller context, so a direct profile edit opened here returns to the profiles list.
+Supported forms:
+- Conversations: assistente://conversation/{id}, assistente://conversation/new?message=...&title=..., assistente://conversation/{id}/send?message=.... Optional profile={slug} applies to new, open, and send; use ? for the first query parameter and & for later ones.
+- Existing tabs: assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}.
+- New tabs: assistente://tasklist/new?title=..., assistente://editor/new?title=..., assistente://editor/open?file=..., assistente://terminal/new?cmd=....
+- Pages: assistente://navigate/{route}. The frontend accepts only: empty route, settings, settings/providers, settings/mcp, settings/skills, settings/channels, settings/contacts, settings/credentials, settings/allowlists, settings/network-allowlist, settings/path-allowlist, settings/appearance, settings/data, settings/restore-defaults, profiles, history, memories, tasklists, help, about, update. Settings tabs require the settings/ prefix.
+- Resource forms: assistente://{resource}/new and assistente://{resource}/edit/{id}, for profiles, providers, credentials, allowlists, skills, mcp, channels, memories, or tasklists. Only profile edit accepts a tab parameter: assistente://profiles/edit/{slug}?tab=voice.
+Risk: executing a link can interrupt the user's focus; new/edit/send links can create or change app state, conversation send transmits a message, and terminal cmd can run a command under the normal shell allowlist/confirmation policy. A deep link does not grant content access or bypass validation, authorization, tool policy, or confirmations. The Go tool checks only the assistente:// prefix; the frontend parser rejects unsupported routes and parameters. If unavailable, discover and load open_deep_link with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *OpenDeepLinkTool) Parameters() json.RawMessage {
@@ -50,7 +54,7 @@ func (t *OpenDeepLinkTool) Parameters() json.RawMessage {
 		"properties": {
 			"uri": {
 				"type": "string",
-				"description": "Deep link URI starting with assistente://"
+				"description": "Exact assistente:// URI to execute. Reuse a provided link= value when possible; do not invent IDs, slugs, paths, or routes. URL-encode path IDs and query values. Unsupported routes or editor tabs are rejected by the frontend."
 			}
 		},
 		"required": ["uri"],
