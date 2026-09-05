@@ -7,7 +7,7 @@ weight: 11
 
 Controle o que o assistente e as tools podem acessar fora do workspace.
 
-- **Rede**: domínios permitidos por conversa, workspace, perfil ou globalmente;
+- **Rede**: domínios permitidos por conversa, perfil, workspace ou globalmente;
   bloqueios avisam com motivo.
 - **Arquivos**: paths fora do sandbox precisam de autorização explícita.
 - Gerencie em **Configurações → Rede/Arquivos**; mudanças valem no próximo turno.
