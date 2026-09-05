@@ -8,9 +8,12 @@ const mockCreateProvider = vi.fn();
 const mockDeleteProvider = vi.fn();
 const mockCanRemoveAgent = vi.fn();
 const mockRemoveAgent = vi.fn();
+const mockAgentInstallPlan = vi.fn();
+const mockUpdateAgent = vi.fn();
 const mockConfirm = vi.fn();
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
+const mockAnnounceRequest = vi.fn();
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -22,8 +25,10 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPInstall', () => ({
+  ACPAgentInstallPlan: (agentID: string) => mockAgentInstallPlan(agentID),
   CanRemoveACPAgent: (agentID: string) => mockCanRemoveAgent(agentID),
   RemoveACPAgent: (agentID: string) => mockRemoveAgent(agentID),
+  UpdateACPAgent: (agentID: string, confirmation: unknown) => mockUpdateAgent(agentID, confirmation),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
@@ -42,6 +47,7 @@ vi.mock('../hooks/useGridFocus', () => ({
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
     announce: mockAnnounce,
+    announceRequest: mockAnnounceRequest,
   }),
 }));
 
@@ -82,7 +88,7 @@ vi.mock('../components/ui/DataGrid', () => ({
   }: {
     items?: Array<{ id: string; name: string; type: string; base_url: string }>;
     onFocusChange?: (item: { id: string; name: string; type: string; base_url: string } | null) => void;
-    getRowActions?: (item: { id: string; name: string; type: string; base_url: string }) => Array<{ id: string; label?: string; onClick?: () => void }>;
+    getRowActions?: (item: { id: string; name: string; type: string; base_url: string }) => Array<{ id: string; label?: string; disabled?: boolean; onClick?: () => void }>;
   }) => (
     <div>
       <button type="button" onClick={() => onFocusChange?.(items?.[0] ?? null)}>
@@ -92,7 +98,7 @@ vi.mock('../components/ui/DataGrid', () => ({
         <div key={item.id}>
           <span>{item.name}</span>
           {getRowActions?.(item)?.map((action) => (
-            <button key={action.id} type="button" onClick={action.onClick}>
+            <button key={action.id} type="button" onClick={action.onClick} disabled={action.disabled}>
               {action.label}
             </button>
           ))}
@@ -105,6 +111,7 @@ vi.mock('../components/ui/DataGrid', () => ({
 vi.mock('../components/ui/Modal', () => ({
   Modal: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) => (isOpen ? <div>{children}</div> : null),
   isModalOpen: () => false,
+  useModalIsTopmost: () => () => true,
 }));
 
 // O dublê mostra o que recebeu: é a única forma de um teste de página provar que
@@ -149,14 +156,18 @@ describe('ProvidersPage', () => {
     mockDeleteProvider.mockReset();
     mockCanRemoveAgent.mockReset();
     mockRemoveAgent.mockReset();
+    mockAgentInstallPlan.mockReset();
+    mockUpdateAgent.mockReset();
     mockConfirm.mockReset();
     mockCreateProvider.mockResolvedValue(undefined);
     mockDeleteProvider.mockResolvedValue(undefined);
     mockCanRemoveAgent.mockResolvedValue(false);
     mockRemoveAgent.mockResolvedValue(undefined);
+    mockUpdateAgent.mockResolvedValue({ version: '2.0.0' });
     mockConfirm.mockResolvedValue(true);
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
+    mockAnnounceRequest.mockReset();
     nowSpy.mockReturnValue(123);
   });
 
@@ -274,6 +285,134 @@ describe('ProvidersPage', () => {
 
     await waitFor(() => {
       expect(mockDeleteProvider).toHaveBeenCalledWith('openai-1');
+    });
+  });
+
+  it('mantem Atualizar agente desabilitado para provedor que nao e ACP', async () => {
+    render(<ProvidersPage />);
+
+    await screen.findByText('OpenAI');
+
+    expect(screen.getByRole('button', { name: 'Atualizar agente' })).toBeDisabled();
+    expect(mockAgentInstallPlan).not.toHaveBeenCalled();
+  });
+
+  it('mantem Atualizar agente desabilitado quando o catalogo nao tem versao nova', async () => {
+    mockGetProviders.mockResolvedValue([{
+      id: 'cursor-1',
+      name: 'Cursor local',
+      type: 'acp',
+      api_format: 'acp',
+      base_url: '',
+      credential_required: false,
+      credential_status: 'none',
+      acp_agent_id: 'cursor',
+    }]);
+    mockAgentInstallPlan.mockResolvedValue({
+      agent_id: 'cursor',
+      installed: { version: '1.0.0' },
+      version: '1.0.0',
+      update: false,
+      can_update: false,
+    });
+
+    render(<ProvidersPage />);
+
+    await waitFor(() => {
+      expect(mockAgentInstallPlan).toHaveBeenCalledWith('cursor');
+    });
+    expect(screen.getByRole('button', { name: 'Atualizar agente' })).toBeDisabled();
+  });
+
+  it('atualiza agente ACP pelo fluxo Wails existente e anuncia sucesso', async () => {
+    mockGetProviders.mockResolvedValue([{
+      id: 'cursor-1',
+      name: 'Cursor local',
+      type: 'acp',
+      api_format: 'acp',
+      base_url: '',
+      credential_required: false,
+      credential_status: 'none',
+      acp_agent_id: 'cursor',
+    }]);
+    mockAgentInstallPlan.mockResolvedValue({
+      agent_id: 'cursor',
+      name: 'Cursor',
+      installed: { version: '1.0.0' },
+      version: '2.0.0',
+      distribution: 'binary',
+      origin: 'https://example.test/cursor.zip',
+      sha256: 'abc123',
+      update: true,
+      can_update: true,
+      unverified: false,
+    });
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    const update = await screen.findByRole('button', { name: 'Atualizar agente' });
+    await waitFor(() => expect(update).toBeEnabled());
+    await user.click(update);
+    await user.click(await screen.findByRole('button', {
+      name: 'providerForm.agent.catalog.confirm.confirmUpdateBtn',
+    }));
+
+    await waitFor(() => {
+      expect(mockUpdateAgent).toHaveBeenCalledWith('cursor', {
+        distribution: 'binary',
+        origin: 'https://example.test/cursor.zip',
+        sha256: 'abc123',
+        accept_unverified: false,
+      });
+      expect(mockAnnounce).toHaveBeenCalledWith('providers.toast.agentUpdated');
+    });
+  });
+
+  it('anuncia de forma assertiva quando a atualização do agente falha', async () => {
+    mockGetProviders.mockResolvedValue([{
+      id: 'cursor-1',
+      name: 'Cursor local',
+      type: 'acp',
+      api_format: 'acp',
+      base_url: '',
+      credential_required: false,
+      credential_status: 'none',
+      acp_agent_id: 'cursor',
+    }]);
+    mockAgentInstallPlan.mockResolvedValue({
+      agent_id: 'cursor',
+      name: 'Cursor',
+      installed: { version: '1.0.0' },
+      version: '2.0.0',
+      distribution: 'binary',
+      origin: 'https://example.test/cursor.zip',
+      sha256: 'abc123',
+      update: true,
+      can_update: true,
+    });
+    mockUpdateAgent.mockRejectedValue(new Error('turno em andamento'));
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    const update = await screen.findByRole('button', { name: 'Atualizar agente' });
+    await waitFor(() => expect(update).toBeEnabled());
+    await user.click(update);
+    await user.click(await screen.findByRole('button', {
+      name: 'providerForm.agent.catalog.confirm.confirmUpdateBtn',
+    }));
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        'providers.error.updateAgentFailed',
+        'assertive',
+      );
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'providers.error.updateAgentFailed',
+        'error',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
     });
   });
 

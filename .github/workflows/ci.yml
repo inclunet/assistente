@@ -34,6 +34,9 @@ jobs:
       - name: Teste do atualizador de PRs
         run: .github/scripts/atualizar-prs-com-main.teste.sh
 
+      - name: Teste dos ldflags de release
+        run: .github/scripts/verificar-ldflags-release.teste.sh
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
