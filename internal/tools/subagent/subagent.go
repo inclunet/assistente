@@ -61,7 +61,7 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Delegate specialized, parallelizable, or context-isolated work to a sub-agent running in its own persisted sub-conversation. Use the profile tool with action='list' first when a different specialization may help; an explicit profile different from the parent always requires user authorization for that invocation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent. Without 'conversation_id' it creates a new sub-conversation; with 'conversation_id' it resumes an existing one, preserving its full context (like resuming by agent id). Add 'clear':true to reset that sub-conversation's history before sending. With 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' (and 'cancel') and pass either 'conversation_id' (queries its most recent run) OR 'run_id' alone (the run is resolved by its id) to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt' and 'clear'."
+	return "Delegate work to a sub-agent in its own persisted conversation. When to use: a specialized profile, isolated context, parallel work, or a long task that should not block this turn. Don't use: short tasks that available tools can complete directly, or work that needs the parent's full conversational context. Send with 'prompt'; omit 'conversation_id' to create or provide it to resume. Synchronous (default) waits and costs this turn's latency; use 'raw':true when the exact response must be consumed directly. Background returns IDs immediately and later delivers the result to the parent; raw+background is invalid. Both modes consume tokens and one limited concurrency slot while running. Omit 'prompt' for status, or use 'cancel':true with 'conversation_id' to cancel. Use profile action=list before choosing a different profile; cross-profile delegation requires authorization."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -75,6 +75,10 @@ func (t *Tool) Parameters() json.RawMessage {
 			"background": {
 				"type": "boolean",
 				"description": "If true, return a handle immediately and deliver the result back to this conversation when done. Default false (wait inline)."
+			},
+			"raw": {
+				"type": "boolean",
+				"description": "For synchronous send only. If true, return the sub-agent's exact response as Content instead of the JSON envelope. IDs and status remain in metadata. Cannot be combined with background=true, status, or cancel. Default false."
 			},
 			"conversation_id": {
 				"type": "string",
@@ -112,6 +116,7 @@ func (t *Tool) Parameters() json.RawMessage {
 type subagentArgs struct {
 	Prompt         string `json:"prompt"`
 	Background     bool   `json:"background,omitempty"`
+	Raw            bool   `json:"raw,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
 	RunID          string `json:"run_id,omitempty"`
 	Cancel         bool   `json:"cancel,omitempty"`
@@ -167,6 +172,12 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	// "Validações mínimas": run sempre pertence a uma conversa; em status o
 	// run_id basta).
 	isStatus := !a.Cancel && !a.Clear && prompt == ""
+	if a.Raw && a.Background {
+		return errResult("'raw' não pode ser combinado com 'background': use raw somente em envio síncrono"), nil
+	}
+	if a.Raw && (a.Cancel || isStatus) {
+		return errResult("'raw' requer 'prompt' e só é válido em envio síncrono"), nil
+	}
 	if runID != "" && conversationID == "" && !isStatus {
 		return errResult("'run_id' requer 'conversation_id'"), nil
 	}
@@ -291,7 +302,18 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		// error_message e emitir tool_failure/retries indevidos. IsError fica
 		// reservado a falhas da PRÓPRIA tool (args inválidos, wiring ausente,
 		// erro do runner/manager), tratadas acima.
-		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}), nil
+		metadata := map[string]any{
+			"conversation_id": res.ConversationID,
+			"run_id":          res.RunID,
+			"status":          res.Status,
+		}
+		if res.AssistantMessageID != "" {
+			metadata["assistant_message_id"] = res.AssistantMessageID
+		}
+		if a.Raw {
+			return tools.ToolResult{Content: res.Response, Metadata: metadata}, nil
+		}
+		return jsonResult(res, false, metadata), nil
 
 	default:
 		// Status (prompt omitido).

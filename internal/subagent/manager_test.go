@@ -101,6 +101,40 @@ func TestManagerRunSyncSuccess(t *testing.T) {
 	}
 }
 
+func TestManagerRunSyncPreservesIntegralResponseInMemory(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	fullResponse := strings.Repeat("conteúdo extenso ", maxResultSummary)
+
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, fullResponse, "msg-large")
+			return p.ConversationID, nil
+		},
+	})
+
+	res, err := mgr.Run(ctx, RunParams{Prompt: "gere conteúdo extenso"})
+	if err != nil {
+		t.Fatalf("Run erro inesperado: %v", err)
+	}
+	if res.Response != fullResponse {
+		t.Fatalf("resposta em memória foi truncada: got=%d want=%d", len(res.Response), len(fullResponse))
+	}
+	if len(res.ResultSummary) != maxResultSummary {
+		t.Fatalf("result_summary deve manter limite persistente: got=%d want=%d", len(res.ResultSummary), maxResultSummary)
+	}
+	run, err := repo.Get(ctx, res.RunID)
+	if err != nil {
+		t.Fatalf("buscar run: %v", err)
+	}
+	if len(run.ResultSummary) != maxResultSummary {
+		t.Fatalf("resumo persistido deve continuar limitado: got=%d want=%d", len(run.ResultSummary), maxResultSummary)
+	}
+}
+
 // TestWaitClassifiesCtxDone garante que o caminho ctx.Done() do wait distingue
 // timed_out (deadline) de cancelled (cancelamento explícito), em vez de marcar
 // sempre cancelled. cancelCh aberto, done vazio e timeout longo: só o ctx.Done()

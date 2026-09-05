@@ -76,6 +76,12 @@ quanto os jobs o acionam pelo mesmo caminho.
   preservando histórico.
 - `background` (bool, default `false`): `false` → executa e o pai **espera** o
   resultado (inline); `true` → retorna o handle na hora e **avisa ao concluir**.
+- `raw` (bool, default `false`): somente em envio síncrono
+  (`prompt` presente e `background:false`). Quando `true`, o `Content` da tool é
+  a resposta integral recebida do sub-agente, sem envelope JSON e sem passar
+  pelo corte de 16 KiB de `result_summary`; IDs e status permanecem em
+  `ToolResult.Metadata`. O limite geral de saída do executor continua valendo,
+  conforme a AEP-0071.
 - `clear` (bool, default `false`): reseta o histórico da sub-conversa **e envia** a
   nova mensagem na mesma chamada (requer `conversation_id` **e** `prompt`; não é
   válido em consultas de `status`).
@@ -119,6 +125,9 @@ quanto os jobs o acionam pelo mesmo caminho.
   já identifica o run.
 - `run_id`/`conversation_id` que não pertencem ao usuário → erro (escopo AEP-0052).
 - Sem `prompt`, sem `cancel` e sem `conversation_id`/`run_id` → erro (nada a fazer).
+- `raw:true` com `background:true`, status ou cancel → erro de validação antes
+  de criar run. Falhar fechado é mais seguro do que ignorar uma intenção de
+  formato: background precisa preservar o envelope/handle e a entrega posterior.
 
 #### Retorno da tool
 
@@ -129,8 +138,12 @@ enum já usado em `tool_invocations`). Variações por modo:
 - `background:false` (síncrono): além do handle, retorna o **resultado final**
   (`result_summary`/conteúdo da resposta do sub-agente e `assistant_message_id`). O
   pai guarda `conversation_id`/`run_id` para retomar (`resume`) ou cancelar depois.
+  Com `raw:true`, retorna diretamente a resposta integral como `Content`; não
+  serializa o `RunResult`. A persistência e consultas posteriores continuam
+  usando o `result_summary` limitado.
 - `background:true`: retorna o handle imediatamente (`status` tipicamente `queued`/
-  `running`); o resultado chega depois pelo aviso de conclusão.
+  `running`); o resultado chega depois pelo aviso de conclusão. `raw:true` é
+  inválido nesse modo.
 - `status` (sem `prompt`): retorna o estado atual do run alvo (`status`, e
   `result_summary`/`assistant_message_id`/`error` quando já concluído).
 - `cancel`: se havia run ativo (`queued`/`running`), retorna o handle com
@@ -307,6 +320,9 @@ da anterior.
   numa conversa visível do mesmo usuário.
 - `background:false` retorna o resultado inline; `background:true` permite consultar
   status e injeta o aviso de conclusão pelo lado do assistente, com auto-wake.
+- `raw:true` em envio síncrono retorna a resposta integral sem envelope, mantém
+  os IDs em metadata e não altera o contrato default; combinações com
+  background/status/cancel falham antes da execução.
 - Passar um `conversation_id` reabre a sub-conversa preservando o contexto; `clear:true`
   reseta antes de enviar.
 - `profile=<slug>` faz o sub-agente rodar com modelo/comportamento do profile indicado.

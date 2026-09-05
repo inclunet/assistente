@@ -223,6 +223,11 @@ type RunResult struct {
 	ResultSummary      string `json:"result_summary,omitempty"`
 	AssistantMessageID string `json:"assistant_message_id,omitempty"`
 	Error              string `json:"error,omitempty"`
+	// Response preserva em memória a resposta integral recebida do callback.
+	// Não é serializada no envelope nem persistida; a tool `subagent` a usa
+	// somente no retorno raw de runs síncronos. ResultSummary continua limitado
+	// para persistência e para o contrato compatível do envelope/status.
+	Response string `json:"-"`
 }
 
 // Repository persiste runs de sub-agente (tabela sub_agent_runs, AEP-0068).

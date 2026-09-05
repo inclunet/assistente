@@ -37,6 +37,25 @@ classificação de risco, confiança de rede e confirmações continuam sendo
 aplicadas normalmente. Tools opt-in também permanecem bloqueadas até uma
 autorização explícita.
 
+## Sub-agentes
+
+A tool `subagent` delega trabalho especializado, paralelizável, longo ou que se
+beneficie de contexto isolado. Para tarefas curtas que uma tool direta resolve,
+delegar adiciona latência, consumo de contexto e ocupa uma das vagas limitadas
+de concorrência.
+
+Por padrão, o modo síncrono espera e retorna um envelope JSON com status e IDs,
+preservando a compatibilidade das chamadas existentes. Em envios síncronos,
+`raw:true` devolve diretamente a resposta integral do sub-agente como conteúdo
+da tool; os IDs continuam disponíveis nos metadados. O limite geral de saída do
+executor ainda se aplica.
+
+`background:true` retorna os IDs imediatamente, mantém a execução em segundo
+plano e entrega o resultado posteriormente à conversa pai. A combinação
+`raw:true` com background é rejeitada, pois o modo assíncrono precisa preservar
+o handle e o contrato de entrega. `raw` também não se aplica a consultas de
+status nem a cancelamentos.
+
 ## Histórico
 
 As tools de histórico permitem localizar e recuperar contexto de conversas anteriores:
