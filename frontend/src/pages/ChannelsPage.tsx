@@ -25,7 +25,7 @@ import { Button, PageLoading } from '../components';
 import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { DataGrid, type DataGridColumn } from '../components/ui/DataGrid';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { EditorPanelFields, EditorPanelFooter } from '../components/ui/EditorPanel';
 import { DialogActions } from '../components/ui/DialogActions';
 import { ContextMenu, MenuItem } from '../components/menu';
@@ -34,6 +34,7 @@ import CreateChannelModal from '../components/modals/CreateChannelModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useSignalChannelController } from '../hooks/useSignalChannelController';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import type { SignalForm, SlackForm, TelegramForm } from '../components/channels';
 import './ChannelsPage.css';
 
@@ -265,7 +266,7 @@ export default function ChannelsPage() {
     loadAll();
   };
 
-  const openCreateMenu = () => {
+  const openCreateMenu = useCallback(() => {
     if (createMenuVisible) {
       setCreateMenuVisible(false);
       return;
@@ -277,24 +278,13 @@ export default function ChannelsPage() {
       setCreateMenuPosition({ x: rect.left, y: rect.bottom + 6 });
     }
     setCreateMenuVisible(true);
-  };
+  }, [createMenuVisible]);
 
   const closeCreateMenu = () => {
     setCreateMenuVisible(false);
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
-        e.preventDefault();
-        openCreateMenu();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [openCreateMenu]);
+  useActivePanelNewShortcut(openCreateMenu);
 
 
   const handleQuickCreate = async (template: channels.ChannelTemplate) => {

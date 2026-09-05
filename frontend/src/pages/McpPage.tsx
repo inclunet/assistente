@@ -23,7 +23,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Button, PageLoading } from '../components';
 import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
 import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { DialogActions } from '../components/ui/DialogActions';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -32,6 +32,7 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './McpPage.css';
 
 type ServerInfo = mcp.ServerInfo;
@@ -284,24 +285,7 @@ export default function McpPage() {
     ready: !isLoading && rows.length > 0,
   });
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.key !== 'n' && event.key !== 'N') return;
-      const target = event.target as HTMLElement | null;
-      const isInput =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
-      if (isInput) return;
-      event.preventDefault();
-      handleNew();
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [handleNew]);
+  useActivePanelNewShortcut(handleNew);
 
   const handleCloseEditor = useCallback(() => {
     setEditing(null);
