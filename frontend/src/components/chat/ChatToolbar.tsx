@@ -514,19 +514,20 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         onSelect={onSelectContextMenuItem}
       />
 
+      {effectiveConversationId && (
+        <PinnedMessagesModal
+          conversationId={effectiveConversationId}
+          isOpen={isPinnedModalOpen}
+          onClose={() => setIsPinnedModalOpen(false)}
+        />
+      )}
+
       {activeConversation?.id && (
-        <>
-          <PinnedMessagesModal
-            conversationId={activeConversation.id}
-            isOpen={isPinnedModalOpen}
-            onClose={() => setIsPinnedModalOpen(false)}
-          />
-          <TokenStatsModal
-            conversationId={activeConversation.id}
-            isOpen={isTokenModalOpen}
-            onClose={() => setIsTokenModalOpen(false)}
-          />
-        </>
+        <TokenStatsModal
+          conversationId={activeConversation.id}
+          isOpen={isTokenModalOpen}
+          onClose={() => setIsTokenModalOpen(false)}
+        />
       )}
     </>
   );
