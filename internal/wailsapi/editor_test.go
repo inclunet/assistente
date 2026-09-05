@@ -17,6 +17,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/docextract"
+	"assistente/internal/tools/filesystem"
 )
 
 const editorTestUserID = "01991f7c-1000-7000-8000-000000000001"
@@ -326,6 +327,51 @@ func TestEditorIsolatesDraftsAndStateBetweenUsers(t *testing.T) {
 	}
 	if err := apiB.EditorWatchFile(pathA); !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("usuário B observou draft A como arquivo comum: %v", err)
+	}
+}
+
+func TestEditorBlocksCrossUserSymlinkPaths(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-00000000005a"
+	userB := "01991f7c-1000-7000-8000-00000000005b"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+	if err := apiB.EditorWriteDraft("segredo", "conteúdo B"); err != nil {
+		t.Fatal(err)
+	}
+	pathsA, _ := editorPathsForUser(userA)
+	pathsB, _ := editorPathsForUser(userB)
+	if err := os.MkdirAll(pathsA.root, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	dirLink := filepath.Join(pathsA.root, "atalho-b")
+	if err := os.Symlink(pathsB.draftDir, dirLink); err != nil {
+		t.Skipf("symlink indisponível neste ambiente: %v", err)
+	}
+	escapedExisting := filepath.Join(dirLink, "segredo.md")
+	if _, err := apiA.EditorReadFile(escapedExisting); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("leitura via symlink atravessou usuário: %v", err)
+	}
+	if err := apiA.EditorWatchFile(escapedExisting); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("watch via symlink atravessou usuário: %v", err)
+	}
+
+	danglingLink := filepath.Join(pathsA.root, "novo-b.md")
+	targetB := filepath.Join(pathsB.draftDir, "novo-b.md")
+	if err := os.Symlink(targetB, danglingLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiA.EditorWriteFile(danglingLink, "não autorizado"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("escrita via symlink pendurado atravessou usuário: %v", err)
+	}
+	if _, err := os.Stat(targetB); !os.IsNotExist(err) {
+		t.Fatalf("alvo de B foi criado: %v", err)
 	}
 }
 
@@ -904,6 +950,7 @@ func TestEditorSaveFileDialogAppliesFallbackWhenLabelsEmpty(t *testing.T) {
 
 func TestEditorWatchNormalizaPathNaBorda(t *testing.T) {
 	var observados []string
+	watchPath := filepath.Join(t.TempDir(), "doc.md")
 	api := NewEditor()
 	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
 		AppContext:    func() context.Context { return context.Background() },
@@ -919,15 +966,19 @@ func TestEditorWatchNormalizaPathNaBorda(t *testing.T) {
 		},
 	})
 
-	if err := api.EditorWatchFile("  C:/tmp/doc.md  "); err != nil {
+	if err := api.EditorWatchFile("  " + watchPath + "  "); err != nil {
 		t.Fatalf("EditorWatchFile: %v", err)
 	}
-	if err := api.EditorUnwatchFile("  C:/tmp/doc.md  "); err != nil {
+	if err := api.EditorUnwatchFile("  " + watchPath + "  "); err != nil {
 		t.Fatalf("EditorUnwatchFile: %v", err)
 	}
+	expected, err := filesystem.ResolveForComparison(watchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, got := range observados {
-		if got != "C:/tmp/doc.md" {
-			t.Fatalf("hook recebeu %q, quer path sem espaços", got)
+		if got != expected {
+			t.Fatalf("hook recebeu %q, quer path resolvido %q", got, expected)
 		}
 	}
 

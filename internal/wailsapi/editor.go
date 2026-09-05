@@ -366,35 +366,47 @@ func pathInside(base, candidate string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-// validateUserFilePath mantém a liberdade do editor para abrir arquivos
+// resolveUserFilePath mantém a liberdade do editor para abrir arquivos
 // escolhidos pelo usuário fora do storage interno, mas impede que um path
 // preservado no workspace seja reinterpretado como arquivo comum e atravesse
-// a fronteira de drafts/estado de outra conta.
-func (api *Editor) validateUserFilePath(ctx context.Context, path string) error {
+// a fronteira de drafts/estado de outra conta. O retorno já tem symlinks
+// resolvidos e deve ser usado no I/O para não voltar ao path lexical validado.
+func (api *Editor) resolveUserFilePath(ctx context.Context, path string) (string, error) {
 	paths, err := api.userPaths(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
-	absolute, err := filepath.Abs(filepath.Clean(strings.TrimSpace(path)))
+	resolved, err := filesystem.ResolveForComparison(strings.TrimSpace(path))
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	usersRoot := filepath.Join(configdir.GetHomeDir(), "users")
-	if pathInside(usersRoot, absolute) && !pathInside(paths.root, absolute) {
-		return database.ErrUserScopeRequired
+	usersRoot, err := filesystem.ResolveForComparison(filepath.Join(configdir.GetHomeDir(), "users"))
+	if err != nil {
+		return "", err
 	}
-	if pathInside(legacyEditorDir(), absolute) {
+	userRoot, err := filesystem.ResolveForComparison(paths.root)
+	if err != nil {
+		return "", err
+	}
+	legacyRoot, err := filesystem.ResolveForComparison(legacyEditorDir())
+	if err != nil {
+		return "", err
+	}
+	if pathInside(usersRoot, resolved) && !pathInside(userRoot, resolved) {
+		return "", database.ErrUserScopeRequired
+	}
+	if pathInside(legacyRoot, resolved) {
 		claim, err := readEditorMigrationClaim(editorMigrationClaimPath())
 		if err != nil {
-			return database.ErrUserScopeRequired
+			return "", database.ErrUserScopeRequired
 		}
 		userID, _ := database.UserIDFromContext(ctx)
 		if claim.UserID != userID {
-			return database.ErrUserScopeRequired
+			return "", database.ErrUserScopeRequired
 		}
 	}
-	return nil
+	return resolved, nil
 }
 
 // ensurePrivatePath reforça 0700 no diretório e 0600 no arquivo.
@@ -622,7 +634,8 @@ func (api *Editor) readDocument(ctx context.Context, path string) (*apidto.Edito
 	if p == "" {
 		return nil, fmt.Errorf("path vazio")
 	}
-	if err := api.validateUserFilePath(ctx, p); err != nil {
+	p, err := api.resolveUserFilePath(ctx, p)
+	if err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(p)
@@ -737,7 +750,8 @@ func (api *Editor) EditorGetFileInfo(path string) (*apidto.EditorFileInfo, error
 		if p == "" {
 			return nil, fmt.Errorf("path vazio")
 		}
-		if err := api.validateUserFilePath(ctx, p); err != nil {
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
 			return nil, err
 		}
 
@@ -773,7 +787,8 @@ func (api *Editor) EditorWriteFile(path string, content string) error {
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
 		}
-		if err := api.validateUserFilePath(ctx, p); err != nil {
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
 			return struct{}{}, err
 		}
 		if existing, readErr := readEditorFilePrefix(p); readErr == nil {
@@ -812,10 +827,11 @@ func (api *Editor) EditorRenameFile(oldPath string, newBaseName string) (string,
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		if err := api.validateUserFilePath(ctx, oldPath); err != nil {
+		resolvedOldPath, err := api.resolveUserFilePath(ctx, oldPath)
+		if err != nil {
 			return "", err
 		}
-		return filesystem.RenameFileSameDirWithPolicy(oldPath, newBaseName, filesystem.EditorPolicy())
+		return filesystem.RenameFileSameDirWithPolicy(resolvedOldPath, newBaseName, filesystem.EditorPolicy())
 	})
 }
 
@@ -871,7 +887,8 @@ func (api *Editor) EditorWatchFile(path string) error {
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
 		}
-		if err := api.validateUserFilePath(ctx, p); err != nil {
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, hooks.WatchFile(p)
@@ -896,7 +913,8 @@ func (api *Editor) EditorUnwatchFile(path string) error {
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
 		}
-		if err := api.validateUserFilePath(ctx, p); err != nil {
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, hooks.UnwatchFile(p)
