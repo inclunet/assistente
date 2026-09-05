@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,31 @@ func TestGetMessagesContract(t *testing.T) {
 	}
 	if _, ok := properties["include_tool_results"]; !ok {
 		t.Fatal("include_tool_results missing from schema")
+	}
+}
+
+func TestGetMessagesDescriptionExplainsRehydrationScopeAndCost(t *testing.T) {
+	tool := NewGetMessages()
+	description := strings.ToLower(tool.Description())
+	for _, concept := range []string{"known historical message ids", "search_conversations", "accessible to the current user", "whole conversation", "20 ids per call", "output cost"} {
+		if !strings.Contains(description, concept) {
+			t.Errorf("description should explain %q", concept)
+		}
+	}
+
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatalf("invalid parameter schema: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(schema.Properties["ids"].Description), "separate calls") {
+		t.Error("ids should explain batching beyond the per-call limit")
+	}
+	if !strings.Contains(strings.ToLower(schema.Properties["include_tool_results"].Description), "response size") {
+		t.Error("include_tool_results should explain its output cost")
 	}
 }
 
