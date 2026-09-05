@@ -746,6 +746,7 @@ func exportConversation(conv *database.Conversation, includeAudio bool) Conversa
 			TotalTokens:      msg.TotalTokens,
 			Model:            msg.Model,
 			Source:           msg.Source,
+			Pinned:           msg.Pinned,
 			CreatedAt:        msg.CreatedAt,
 		}
 		if msg.ParentID != nil {
@@ -976,6 +977,7 @@ func importConversationMessages(tx *gorm.DB, conversationID string, conv Convers
 			TotalTokens:      msg.TotalTokens,
 			Model:            msg.Model,
 			Source:           msg.Source,
+			Pinned:           msg.Pinned,
 		}
 		if !msg.CreatedAt.IsZero() {
 			newMsg.CreatedAt = msg.CreatedAt

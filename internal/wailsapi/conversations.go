@@ -235,6 +235,28 @@ func (api *Conversations) UpdateMessage(messageID string, newContent string) err
 	return err
 }
 
+// ToggleMessagePin alterna a fixação persistente de uma mensagem.
+func (api *Conversations) ToggleMessagePin(messageID string) (*database.ChatMessage, error) {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) (*database.ChatMessage, error) {
+		return ctrl.ToggleMessagePin(ctx, messageID)
+	})
+}
+
+// GetPinnedMessages lista as mensagens fixadas de uma conversa.
+func (api *Conversations) GetPinnedMessages(conversationID string) ([]database.ChatMessage, error) {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) ([]database.ChatMessage, error) {
+		return ctrl.GetPinnedMessages(ctx, conversationID)
+	})
+}
+
 // UpdateConversationModel altera o modelo da conversa.
 func (api *Conversations) UpdateConversationModel(id string, model string) error {
 	session, ctrl, err := api.deps()

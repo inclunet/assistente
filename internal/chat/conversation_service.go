@@ -39,6 +39,7 @@ func EnrichMessage(msg Message) EnrichedMessage {
 		CacheMissTokens:  msg.CacheMissTokens,
 		Model:            msg.Model,
 		Source:           msg.Source,
+		Pinned:           msg.Pinned,
 		CreatedAt:        msg.CreatedAt,
 		Timestamp:        msg.CreatedAt.UnixMilli(),
 		IsStreaming:      false,

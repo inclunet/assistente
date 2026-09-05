@@ -454,7 +454,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     <div
       ref={messageRef}
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
-      aria-label={isEditing || isReading ? undefined : getAriaLabel()}
+      aria-label={isEditing || isReading
+        ? undefined
+        : `${message.pinned ? `${t('chat.pinnedMessage')}. ` : ''}${getAriaLabel()}`}
       aria-busy={effectiveIsStreaming && !isAgenticStreaming}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
@@ -483,6 +485,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           <h3 className="chat-message__role">
             {getDisplayRole()}
           </h3>
+          {message.pinned && (
+            <span className="chat-message__pinned-badge">
+              <span aria-hidden="true">📌</span>
+              {t('chat.pinnedMessage')}
+            </span>
+          )}
           {message.source && message.source !== 'wails' && message.source !== '' && !isToolOnlyTurnPlaceholder && (
             <span className="chat-message__source-badge" aria-label={`${t('chat.via')} ${message.source}`}>
               {message.source === 'telegram' && <SendOutlined aria-hidden="true" />}
