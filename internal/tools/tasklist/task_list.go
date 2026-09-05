@@ -30,6 +30,10 @@ type taskListArgs struct {
 	Slug              *string         `json:"slug,omitempty"`
 	Duplicate         bool            `json:"duplicate,omitempty"`
 	SummaryOnly       bool            `json:"summary_only,omitempty"`
+	StatusID          *int            `json:"status_id,omitempty"`
+	Limit             *int            `json:"limit,omitempty"`
+	Cursor            string          `json:"cursor,omitempty"`
+	Sort              string          `json:"sort,omitempty"`
 	Title             string          `json:"title,omitempty"`
 	Description       string          `json:"description,omitempty"`
 	PreferredViewMode string          `json:"preferred_view_mode,omitempty"`
@@ -57,12 +61,12 @@ func (t *TaskListTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TaskListTool) Description() string {
-	return `Manage persistent task-list containers and their workflow: list, read, summarize, create, update, duplicate, configure validation/custom actions, or link a whole list to a conversation. This tool does not delete lists.
-Use when: you need the board/list itself, workflow status IDs, list-level policy, or lightweight status counts. With no parameters it lists lists; task_list_id/task_list_slug reads details; summary_only avoids returning every task.
+	return `Manage persistent task-list containers and their workflow: list, read, filter/page tasks, summarize, create, update, duplicate, configure validation/custom actions, or link a whole list to a conversation. This tool does not delete lists.
+Use when: you need the board/list itself, workflow status IDs, list-level policy, lightweight status counts, or a bounded task page. With no parameters it lists lists; task_list_id/task_list_slug reads legacy full details; summary_only avoids returning tasks. For automation, use status_id plus limit and sort, then continue with next_cursor while has_more is true.
 Do not use: use task for one card, task_note for a card's comments/history, or update_plan for the current conversation's simple execution plan. A job_pipeline groups automations, not tasks.
-Persistence, risk, and cost: writes persist in the database. Workflow changes can affect every task and removed statuses require status_migration; custom actions can later publish events or open links. Full details may be large, so prefer summary_only when counts are enough.
-Resolution: if both task_list_id and task_list_slug are supplied they must identify the same list. duplicate copies configuration but not tasks. Omitted policy/action fields are preserved; validation_policy {} and custom_actions [] clear them.
-Examples: list {}; summarize {"task_list_slug":"release","summary_only":true}; create {"title":"Release","slug":"release"}; inspect workflow {"task_list_slug":"release"}.`
+Persistence, risk, and cost: writes persist in the database. Workflow changes can affect every task and removed statuses require status_migration; custom actions can later publish events or open links. Legacy full details may be large. Paged reads are flat (subtasks carry parent_id), database-backed, and capped at 100.
+Resolution: if both task_list_id and task_list_slug are supplied they must identify the same list. Paging cursors are opaque and bound to the list, status filter, and sort. created_at plus id is the stable ordering key. duplicate copies configuration but not tasks. Omitted policy/action fields are preserved; validation_policy {} and custom_actions [] clear them.
+Examples: list {}; summarize {"task_list_slug":"release","summary_only":true}; oldest open page {"task_list_slug":"release","status_id":1,"limit":20,"sort":"created_at:asc"}; continue {"task_list_slug":"release","status_id":1,"limit":20,"sort":"created_at:asc","cursor":"<next_cursor>"}; create {"title":"Release","slug":"release"}.`
 }
 
 func (t *TaskListTool) Parameters() json.RawMessage {
@@ -84,6 +88,28 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 			"summary_only": {
 				"type": "boolean",
 				"description": "When true, returns only task counts per status (lightweight). Requires task_list_id or task_list_slug"
+			},
+			"status_id": {
+				"type": "integer",
+				"minimum": 1,
+				"description": "Optional workflow status filter for a paged read. Requires task_list_id or task_list_slug and cannot be combined with summary_only or writes"
+			},
+			"limit": {
+				"type": "integer",
+				"minimum": 1,
+				"maximum": 100,
+				"default": 100,
+				"description": "Maximum tasks in a paged read (1-100). Supplying limit enables paged mode; omitted defaults to 100 when another paging field is supplied"
+			},
+			"cursor": {
+				"type": "string",
+				"description": "Opaque next_cursor from a previous response. It is bound to the same task list, status_id, and sort; do not construct or modify it"
+			},
+			"sort": {
+				"type": "string",
+				"enum": ["created_at:asc", "created_at:desc"],
+				"default": "created_at:asc",
+				"description": "Explicit stable order for paged reads. created_at is ordered with task id as a deterministic tie-breaker"
 			},
 			"duplicate": {
 				"type": "boolean",
@@ -248,9 +274,23 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	idPtr := taskListIDPtrForResolve(params.TaskListID)
 	slugRef := strings.TrimSpace(params.TaskListSlug)
 	hasListRef := idPtr != nil || slugRef != ""
+	hasPageQuery := params.StatusID != nil || params.Limit != nil ||
+		strings.TrimSpace(params.Cursor) != "" || strings.TrimSpace(params.Sort) != ""
 
 	if params.SummaryOnly && !hasListRef {
 		return tools.ToolResult{Content: "summary_only requires task_list_id or task_list_slug", IsError: true}, nil
+	}
+	if hasPageQuery && !hasListRef {
+		return tools.ToolResult{Content: "status_id, limit, cursor, and sort require task_list_id or task_list_slug", IsError: true}, nil
+	}
+	if hasPageQuery && params.SummaryOnly {
+		return tools.ToolResult{Content: "summary_only cannot be combined with status_id, limit, cursor, or sort", IsError: true}, nil
+	}
+	if hasPageQuery && isWrite {
+		return tools.ToolResult{Content: "status_id, limit, cursor, and sort are read-only parameters and cannot be combined with writes", IsError: true}, nil
+	}
+	if params.Limit != nil && (*params.Limit < 1 || *params.Limit > database.MaxTaskPageLimit) {
+		return tools.ToolResult{Content: fmt.Sprintf("limit must be between 1 and %d", database.MaxTaskPageLimit), IsError: true}, nil
 	}
 
 	if params.Duplicate && !hasListRef {
@@ -271,6 +311,9 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		}
 		if params.SummaryOnly {
 			return t.statusSummary(ctx, resolved)
+		}
+		if hasPageQuery {
+			return t.pagedDetails(ctx, resolved, params)
 		}
 		return t.fullDetails(ctx, resolved)
 	}
@@ -414,8 +457,9 @@ func (t *TaskListTool) statusSummary(ctx context.Context, taskListID string) (to
 
 	resultJSON, _ := json.Marshal(response)
 	return tools.ToolResult{
-		Content:  string(resultJSON),
-		Metadata: map[string]any{"task_list_id": taskListID},
+		Content:    string(resultJSON),
+		Metadata:   map[string]any{"task_list_id": taskListID},
+		Structured: true,
 	}, nil
 }
 
@@ -509,9 +553,109 @@ func (t *TaskListTool) fullDetails(ctx context.Context, taskListID string) (tool
 
 	resultJSON, _ := json.Marshal(response)
 	return tools.ToolResult{
-		Content:  string(resultJSON),
-		Metadata: map[string]any{"task_list_id": taskList.ID},
+		Content:    string(resultJSON),
+		Metadata:   map[string]any{"task_list_id": taskList.ID},
+		Structured: true,
 	}, nil
+}
+
+func (t *TaskListTool) pagedDetails(ctx context.Context, taskListID string, params taskListArgs) (tools.ToolResult, error) {
+	if params.StatusID != nil {
+		workflow, err := t.mgr.GetWorkflow(ctx, taskListID)
+		if err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("cannot load workflow to validate status_id: %v", err), IsError: true}, nil
+		}
+		statuses, parseErr := parseWorkflowStatuses(workflow)
+		if parseErr != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("cannot validate status_id: %v", parseErr), IsError: true}, nil
+		}
+		valid := false
+		for _, status := range statuses {
+			if status.ID == *params.StatusID {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return tools.ToolResult{Content: fmt.Sprintf("status_id %d does not exist in the task list workflow", *params.StatusID), IsError: true}, nil
+		}
+	}
+
+	limit := database.DefaultTaskPageLimit
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	sort := strings.TrimSpace(params.Sort)
+	if sort == "" {
+		sort = database.TaskSortCreatedAtAsc
+	}
+	page, err := t.mgr.ListTasksPage(ctx, database.TaskPageQuery{
+		TaskListID: taskListID,
+		StatusID:   params.StatusID,
+		Limit:      limit,
+		Cursor:     params.Cursor,
+		Sort:       sort,
+	})
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error listing task page: %v", err), IsError: true}, nil
+	}
+	taskList := page.TaskList
+
+	type pagedTaskInfo struct {
+		ID          string  `json:"id"`
+		Title       string  `json:"title"`
+		Description string  `json:"description,omitempty"`
+		StatusID    int     `json:"status_id"`
+		ParentID    *string `json:"parent_id,omitempty"`
+		CreatedAt   string  `json:"created_at"`
+	}
+	tasks := make([]pagedTaskInfo, len(page.Tasks))
+	for i, task := range page.Tasks {
+		tasks[i] = pagedTaskInfo{
+			ID:          task.ID,
+			Title:       task.Title,
+			Description: task.Description,
+			StatusID:    task.StatusID,
+			ParentID:    task.ParentID,
+			CreatedAt:   task.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		}
+	}
+	response := map[string]any{
+		"id":          taskList.ID,
+		"title":       taskList.Title,
+		"tasks":       tasks,
+		"limit":       limit,
+		"sort":        sort,
+		"has_more":    page.HasMore,
+		"next_cursor": nil,
+	}
+	if taskList.Slug != "" {
+		response["slug"] = taskList.Slug
+	}
+	if params.StatusID != nil {
+		response["status_id"] = *params.StatusID
+	}
+	if page.NextCursor != "" {
+		response["next_cursor"] = page.NextCursor
+	}
+	resultJSON, err := json.Marshal(response)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error encoding task page: %v", err), IsError: true}, nil
+	}
+	metadata := map[string]any{
+		"task_list_id": taskList.ID,
+		"count":        len(tasks),
+		"limit":        limit,
+		"sort":         sort,
+		"has_more":     page.HasMore,
+	}
+	if params.StatusID != nil {
+		metadata["status_id"] = *params.StatusID
+	}
+	if page.NextCursor != "" {
+		metadata["next_cursor"] = page.NextCursor
+	}
+	return tools.ToolResult{Content: string(resultJSON), Metadata: metadata, Structured: true}, nil
 }
 
 // ==================== Write Operations ====================

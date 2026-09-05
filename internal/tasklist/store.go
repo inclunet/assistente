@@ -43,6 +43,7 @@ type TaskListRepository interface {
 	GetTask(ctx context.Context, id string) (*database.Task, error)
 	GetTasksByTaskListID(ctx context.Context, taskListID string) ([]database.Task, error)
 	GetTasksByStatus(ctx context.Context, taskListID string, statusID int) ([]database.Task, error)
+	ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error)
 	FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error)
 	ResolveTaskRef(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error)
 	ResolveTaskIDByTaskCode(ctx context.Context, taskListID *string, taskCode string) (string, error)

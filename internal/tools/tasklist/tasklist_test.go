@@ -1069,6 +1069,121 @@ func TestGetTaskList_SummaryOnly_WithoutID_Error(t *testing.T) {
 	}
 }
 
+func TestGetTaskList_PagedByStatusWithCursor(t *testing.T) {
+	mgr := newFakeManager(t)
+	tl := mgr.addTaskList("Triagem", defaultStatuses())
+	first := mgr.addTask(tl.ID, "Primeira", 1)
+	second := mgr.addTask(tl.ID, "Segunda", 1)
+	_ = mgr.addTask(tl.ID, "Outro status", 2)
+	third := mgr.addTask(tl.ID, "Terceira", 1)
+	base := time.Date(2026, 9, 5, 10, 0, 0, 0, time.UTC)
+	for index, task := range []*database.Task{first, second, third} {
+		if err := mgr.db.Model(&database.Task{}).Where("id = ?", task.ID).
+			Update("created_at", base.Add(time.Duration(index)*time.Minute)).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr.refreshSnapshots()
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(mgr.ctx, mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"status_id":    1,
+		"limit":        2,
+		"sort":         "created_at:asc",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !result.Structured {
+		t.Fatal("expected canonical paged JSON to be marked structured")
+	}
+	var page struct {
+		Tasks []struct {
+			ID string `json:"id"`
+		} `json:"tasks"`
+		NextCursor *string `json:"next_cursor"`
+		HasMore    bool    `json:"has_more"`
+		Limit      int     `json:"limit"`
+		Sort       string  `json:"sort"`
+		StatusID   int     `json:"status_id"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &page); err != nil {
+		t.Fatalf("invalid page JSON: %v\n%s", err, result.Content)
+	}
+	if len(page.Tasks) != 2 || page.Tasks[0].ID != first.ID || page.Tasks[1].ID != second.ID {
+		t.Fatalf("unexpected first page: %+v", page.Tasks)
+	}
+	if !page.HasMore || page.NextCursor == nil || *page.NextCursor == "" {
+		t.Fatalf("expected next page metadata: %+v", page)
+	}
+	if page.Limit != 2 || page.Sort != "created_at:asc" || page.StatusID != 1 {
+		t.Fatalf("unexpected query echo: %+v", page)
+	}
+
+	next, err := tool.Execute(mgr.ctx, mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"status_id":    1,
+		"limit":        2,
+		"sort":         "created_at:asc",
+		"cursor":       *page.NextCursor,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.IsError {
+		t.Fatalf("unexpected next-page error: %s", next.Content)
+	}
+	var lastPage struct {
+		Tasks []struct {
+			ID string `json:"id"`
+		} `json:"tasks"`
+		NextCursor *string `json:"next_cursor"`
+		HasMore    bool    `json:"has_more"`
+	}
+	if err := json.Unmarshal([]byte(next.Content), &lastPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(lastPage.Tasks) != 1 || lastPage.Tasks[0].ID != third.ID || lastPage.HasMore || lastPage.NextCursor != nil {
+		t.Fatalf("unexpected last page: %+v", lastPage)
+	}
+}
+
+func TestGetTaskList_PagingValidation(t *testing.T) {
+	mgr := newFakeManager(t)
+	tl := mgr.addTaskList("Triagem", defaultStatuses())
+	tool := NewTaskList(mgr)
+
+	tests := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{name: "requires list", args: map[string]any{"limit": 10}, want: "require task_list_id or task_list_slug"},
+		{name: "limit too small", args: map[string]any{"task_list_id": tl.ID, "limit": 0}, want: "limit must be between"},
+		{name: "limit too large", args: map[string]any{"task_list_id": tl.ID, "limit": 101}, want: "limit must be between"},
+		{name: "summary conflict", args: map[string]any{"task_list_id": tl.ID, "limit": 10, "summary_only": true}, want: "cannot be combined"},
+		{name: "write conflict", args: map[string]any{"task_list_id": tl.ID, "limit": 10, "title": "Novo"}, want: "read-only parameters"},
+		{name: "unknown status", args: map[string]any{"task_list_id": tl.ID, "status_id": 99}, want: "does not exist"},
+		{name: "invalid sort", args: map[string]any{"task_list_id": tl.ID, "sort": "updated_at:desc"}, want: "sort inválido"},
+		{name: "invalid cursor", args: map[string]any{"task_list_id": tl.ID, "cursor": "not-a-cursor"}, want: "cursor inválido"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := tool.Execute(mgr.ctx, mustMarshal(t, test.args))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, test.want) {
+				t.Fatalf("expected error containing %q, got %+v", test.want, result)
+			}
+		})
+	}
+}
+
 func TestTask_ReadNoNotes(t *testing.T) {
 	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())

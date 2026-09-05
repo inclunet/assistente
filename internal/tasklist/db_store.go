@@ -221,6 +221,13 @@ func (s *DBStore) GetTasksByStatus(ctx context.Context, taskListID string, statu
 	return database.GetTasksByStatusWithContext(ctx, taskListID, statusID)
 }
 
+func (s *DBStore) ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return database.TaskPage{}, err
+	}
+	return database.ListTasksPageWithContext(ctx, query)
+}
+
 func (s *DBStore) FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
