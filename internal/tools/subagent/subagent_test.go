@@ -210,6 +210,7 @@ func TestToolStatusRouting(t *testing.T) {
 		RunID:              "r1",
 		Status:             subagent.StatusSucceeded,
 		AssistantMessageID: "msg-1",
+		Error:              "aviso persistido",
 	}}
 	tool := NewWithProvider(func() Runner { return runner })
 
@@ -225,6 +226,9 @@ func TestToolStatusRouting(t *testing.T) {
 	}
 	if res.Metadata["assistant_message_id"] != "msg-1" {
 		t.Fatalf("assistant_message_id ausente da metadata de status: %#v", res.Metadata)
+	}
+	if res.Metadata["error"] != "aviso persistido" {
+		t.Fatalf("error ausente da metadata de status: %#v", res.Metadata)
 	}
 }
 

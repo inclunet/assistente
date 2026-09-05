@@ -329,6 +329,9 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		if res.AssistantMessageID != "" {
 			metadata["assistant_message_id"] = res.AssistantMessageID
 		}
+		if res.Error != "" {
+			metadata["error"] = res.Error
+		}
 		return jsonResult(res, false, metadata), nil
 	}
 }
