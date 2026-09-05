@@ -339,6 +339,9 @@ func TestEditorIsolatesDraftsAndStateBetweenUsers(t *testing.T) {
 	if err := apiB.EditorWatchFile(pathA); !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("usuário B observou draft A como arquivo comum: %v", err)
 	}
+	if len(apiA.prepared) != 1 || len(apiB.prepared) != 1 {
+		t.Fatalf("preparação deveria ser cacheada uma vez por API: A=%d B=%d", len(apiA.prepared), len(apiB.prepared))
+	}
 }
 
 func TestEditorBlocksCrossUserSymlinkPaths(t *testing.T) {

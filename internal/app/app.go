@@ -882,6 +882,11 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	if err := InitDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
+	// Drafts não são mais varridos por idade no boot pré-login. O cleanup
+	// legado apagava qualquer arquivo >24h sem consultar abas/merges e podia
+	// destruir recuperação de crash. Fechamento explícito da aba continua
+	// removendo seu draft; uma retenção automática futura precisa ser
+	// user-scoped e provar ausência de referências antes de excluir.
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
 	a.installBuiltinProfiles()

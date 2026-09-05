@@ -42,6 +42,7 @@ type Editor struct {
 	session     Session
 	hooks       EditorHooks
 	cache       *docextract.ProjectionCache
+	prepared    map[string]struct{}
 }
 
 var editorLegacyMigrationMu sync.Mutex
@@ -49,7 +50,10 @@ var publishEditorMigrationClaim = os.Link
 
 // NewEditor cria o bind vazio; AttachEditor preenche deps no startup.
 func NewEditor() *Editor {
-	return &Editor{cache: docextract.NewProjectionCache(docextract.DefaultCacheConfig())}
+	return &Editor{
+		cache:    docextract.NewProjectionCache(docextract.DefaultCacheConfig()),
+		prepared: map[string]struct{}{},
+	}
 }
 
 func (api *Editor) projectionCache() *docextract.ProjectionCache {
@@ -349,11 +353,18 @@ func (api *Editor) userPaths(ctx context.Context) (editorUserPaths, error) {
 	}
 	api.migrationMu.Lock()
 	defer api.migrationMu.Unlock()
+	if _, ok := api.prepared[userID]; ok {
+		return paths, nil
+	}
 	editorLegacyMigrationMu.Lock()
 	defer editorLegacyMigrationMu.Unlock()
 	if err := migrateLegacyEditorData(userID, paths); err != nil {
 		return editorUserPaths{}, err
 	}
+	if api.prepared == nil {
+		api.prepared = map[string]struct{}{}
+	}
+	api.prepared[userID] = struct{}{}
 	return paths, nil
 }
 
