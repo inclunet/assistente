@@ -28,16 +28,21 @@ func (t *ValidatePairingCodeTool) Name() string {
 }
 
 func (t *ValidatePairingCodeTool) Description() string {
-	return "Validates a pairing code for an unknown contact. Used internally to authorize contacts after they provide the correct 6-digit pairing code received in their first message."
+	return `Validate one pending six-digit external-channel pairing code against its exact channel and contact identifier.
+Use when: only an internal recovery flow explicitly asks to check a code that is already pending for that same channel/contact pair. The normal inbound pairing flow is handled directly by the messaging gateway before any message reaches the LLM.
+Do not use: do not initiate pairing, guess a code, validate ordinary message text, or treat this as message sending or retry. This operation only validates and consumes pairing state; by itself it does not add the contact to the authorized contacts list.
+Risk: a wrong code consumes one of the limited attempts, and a correct code is single-use and removed after validation. Confirm channel, contact_id, and all six digits before calling.
+Cost: local in-memory validation only; no network request or LLM call.
+Example: {"channel":"telegram","contact_id":"123456789","code":"042731"}.`
 }
 
 func (t *ValidatePairingCodeTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"channel": {"type": "string", "description": "Canal de mensageria (signal, telegram, etc)"},
-			"contact_id": {"type": "string", "description": "ID do contato"},
-			"code": {"type": "string", "description": "Código de pareamento de 6 dígitos"}
+			"channel": {"type": "string", "description": "Exact external channel on which the pending code was generated, such as telegram, signal, or slack."},
+			"contact_id": {"type": "string", "description": "Exact sender/contact identifier associated with the pending code on that channel; not a display name or username."},
+			"code": {"type": "string", "description": "Exact six-digit code as a string, preserving any leading zero. A wrong value consumes an attempt; a correct value is single-use."}
 		},
 		"required": ["channel", "contact_id", "code"]
 	}`)
