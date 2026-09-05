@@ -280,23 +280,21 @@ func (r *MessageRepository) ToggleMessagePinWithContext(ctx context.Context, mes
 
 	var updated ChatMessage
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var current ChatMessage
-		if err := scopedMessageQuery(ctx, tx.Model(&ChatMessage{})).
-			First(&current, "chat_messages.id = ?", messageID).Error; err != nil {
-			return err
-		}
 		messageIDs := scopedMessageQuery(ctx, tx.Model(&ChatMessage{}).
 			Select("chat_messages.id").
 			Where("chat_messages.id = ?", messageID))
-		if err := tx.Model(&ChatMessage{}).
+		result := tx.Model(&ChatMessage{}).
 			Where("id = ?", messageID).
 			Where("id IN (?)", messageIDs).
-			Update("pinned", !current.Pinned).Error; err != nil {
-			return err
+			Update("pinned", gorm.Expr("NOT pinned"))
+		if result.Error != nil {
+			return result.Error
 		}
-		current.Pinned = !current.Pinned
-		updated = current
-		return nil
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return scopedMessageQuery(ctx, tx.Model(&ChatMessage{})).
+			First(&updated, "chat_messages.id = ?", messageID).Error
 	})
 	if err != nil {
 		return nil, err

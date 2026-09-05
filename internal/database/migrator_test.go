@@ -423,17 +423,23 @@ func TestMessagePinMigrationAddsColumnAndListingIndex(t *testing.T) {
 		t.Fatal("AutoMigrate não criou chat_messages.pinned")
 	}
 
-	migration := schemaMigrations[len(schemaMigrations)-1]
-	if migration.Version != 13 || migration.Name != "chat_message_pinned_index" {
-		t.Fatalf("última migração inesperada: v%d %s", migration.Version, migration.Name)
+	var pinMigration *migration
+	for index := range schemaMigrations {
+		if schemaMigrations[index].Version == 13 && schemaMigrations[index].Name == "chat_message_pinned_index" {
+			pinMigration = &schemaMigrations[index]
+			break
+		}
 	}
-	if err := migration.Run(database); err != nil {
+	if pinMigration == nil {
+		t.Fatal("migração de pin não encontrada")
+	}
+	if err := pinMigration.Run(database); err != nil {
 		t.Fatalf("aplicar migração de pin: %v", err)
 	}
 	if !database.Migrator().HasIndex(&ChatMessage{}, "idx_chat_messages_conversation_pinned_created") {
 		t.Fatal("índice de mensagens fixadas não foi criado")
 	}
-	if err := migration.Run(database); err != nil {
+	if err := pinMigration.Run(database); err != nil {
 		t.Fatalf("migração de pin não é idempotente: %v", err)
 	}
 }
