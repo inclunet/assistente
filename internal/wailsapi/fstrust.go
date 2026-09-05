@@ -64,14 +64,14 @@ func (f *FSTrust) RemovePathAllowlistEntry(scope, path, kind, operation, effect 
 	return err
 }
 
-// AddPathDenyEntry cria uma proibição persistente (só EffectDeny).
-func (f *FSTrust) AddPathDenyEntry(path, kind, operation, scope, reason string) error {
+// AddPathAllowlistEntry cria uma regra persistente allow ou deny.
+func (f *FSTrust) AddPathAllowlistEntry(path, kind, operation, effect, scope, reason string) error {
 	session, ctrl, err := f.deps()
 	if err != nil {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.AddPathDenyEntry(ctx, path, kind, operation, scope, reason)
+		return struct{}{}, ctrl.AddPathAllowlistEntry(ctx, path, kind, operation, effect, scope, reason)
 	})
 	return err
 }

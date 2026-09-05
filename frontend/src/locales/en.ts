@@ -790,9 +790,9 @@ const en = {
       loading: 'Loading path allowlist...',
       toolbarLabel: 'Path allowlist toolbar',
       gridLabel: 'Paths allowed outside the sandbox',
-      description: 'Paths outside the active workspace (and ~/.assistente) that you allowed the assistant to access. Each entry covers one path and one operation until you remove it here.',
+      description: 'Manage permissions and denials by path and operation. Denials take precedence over permissions in every scope.',
       sessionNote: 'This list covers only the current workspace, the active profile, and the global scope. Attempt-only, conversation-only, or other-profile authorizations are not shown here — ephemeral ones expire on their own; other profiles’ entries still apply when that profile is active.',
-      empty: 'No allowed paths. Every access outside the sandbox still asks for consent.',
+      empty: 'No persistent path rules. Every access outside the sandbox still asks for consent.',
       loadFailedBody: 'Could not load the path allowlist. Any authorization that exists is still in effect — reload to try again.',
       columns: {
         path: 'Path',
@@ -822,15 +822,17 @@ const en = {
         unknown: 'A scope this app does not recognize',
       },
       form: {
-        title: 'Add path denial',
+        title: 'Add path rule',
         path: 'Path',
         kind: 'Kind',
         operation: 'Operation',
+        effect: 'Effect',
         scope: 'Scope',
         reason: 'Note (optional)',
-        submit: 'Add denial',
-        pathRequired: 'Enter the path to deny',
-        operationRequired: 'Enter the operation to deny',
+        submitAllow: 'Add permission',
+        submitDeny: 'Add denial',
+        pathRequired: 'Enter the rule path',
+        operationRequired: 'Enter the rule operation',
       },
       actions: {
         remove: 'Remove',
@@ -845,17 +847,19 @@ const en = {
       toast: {
         removed: 'Path authorization removed',
         denyRemoved: 'Path denial removed',
+        allowAdded: 'Path permission added',
         denyAdded: 'Path denial added',
       },
       announce: {
         removed: 'Path authorization removed: {{path}} ({{scope}}).',
         denyRemoved: 'Path denial removed: {{path}} ({{scope}}).',
+        allowAdded: 'Path permission added: {{path}}.',
         denyAdded: 'Path denial added: {{path}}.',
       },
       error: {
         loadFailed: 'Error loading the path allowlist',
         removeFailed: 'Error removing the path authorization',
-        addFailed: 'Error adding the path denial',
+        addRuleFailed: 'Error adding the path rule',
         reloadAfterRemoveFailed:
           'The authorization was removed, but the list could not be refreshed. Reload to confirm.',
       },
@@ -4312,8 +4316,14 @@ const en = {
         },
         fstrust: {
           title: 'Authorize access to a path outside the workspace',
-          description: 'The assistant requested the "{{operation}}" operation on a path outside the active workspace and ~/.assistente. Authorize only the exact path for this attempt, or explicitly choose to allow the parent folder.',
+          description: 'The assistant requested the "{{operation}}" operation on a path outside the active workspace and ~/.assistente. Allow the path or parent folder, deny this attempt, or remember the denial in the selected scope.',
           cancel: 'Deny',
+          deny: {
+            session: 'Deny for this conversation',
+            workspace: 'Deny in this workspace (project)',
+            profile: 'Deny in this profile',
+            global: 'Deny globally (all workspaces and profiles)',
+          },
           scope: {
             once: 'This attempt only',
             session: 'For this conversation',
