@@ -3,6 +3,7 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"assistente/internal/profileaccess"
@@ -79,6 +80,31 @@ func TestListProfilesDefaultsAction(t *testing.T) {
 	}
 	if payload.Action != ActionList || payload.CurrentSlug != "geral" || len(payload.Profiles) != 1 {
 		t.Fatalf("payload inesperado: %#v", payload)
+	}
+}
+
+func TestDescriptionOrientsProfileRoutingWithoutFreezingProse(t *testing.T) {
+	tool := New(nil, nil)
+	description := strings.ToLower(tool.Description())
+	for _, concept := range []string{"action='list'", "action='switch'", "user authorization", "next turn", "subagent", "tools or privileges"} {
+		if !strings.Contains(description, concept) {
+			t.Errorf("description should explain %q", concept)
+		}
+	}
+
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
+		t.Fatalf("invalid parameter schema: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(schema.Properties["slug"].Description), "action=list") {
+		t.Error("slug should direct callers to the installed profile list")
+	}
+	if !strings.Contains(strings.ToLower(schema.Properties["reason"].Description), "authorization") {
+		t.Error("reason should explain that it is shown for authorization")
 	}
 }
 

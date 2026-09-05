@@ -3,6 +3,7 @@ package history
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"assistente/internal/database"
@@ -35,9 +36,11 @@ func TestSearchConversations_Name(t *testing.T) {
 
 func TestSearchConversations_Description(t *testing.T) {
 	tool := NewSearchConversationsForTest(nil)
-	desc := tool.Description()
-	if desc == "" {
-		t.Error("description should not be empty")
+	desc := strings.ToLower(tool.Description())
+	for _, concept := range []string{"snippets", "message ids", "get_messages", "get_conversation_info", "above-100", "fall back to 20", "broad global"} {
+		if !strings.Contains(desc, concept) {
+			t.Errorf("description should explain %q", concept)
+		}
 	}
 }
 
@@ -71,6 +74,20 @@ func TestSearchConversations_Parameters(t *testing.T) {
 		if r == "conversation_id" {
 			t.Error("'conversation_id' must remain optional for backwards compatibility")
 		}
+	}
+	limit, ok := props["limit"].(map[string]interface{})
+	if !ok {
+		t.Fatal("limit must be an object")
+	}
+	description, ok := limit["description"].(string)
+	if !ok {
+		t.Fatal("limit description must be a string")
+	}
+	if !strings.Contains(strings.ToLower(description), "not a page cursor") {
+		t.Error("limit description should distinguish result caps from pagination")
+	}
+	if !strings.Contains(strings.ToLower(description), "above-100 values fall back to 20") {
+		t.Error("limit description should explain the out-of-range fallback")
 	}
 }
 
