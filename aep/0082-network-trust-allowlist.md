@@ -155,7 +155,10 @@ Fica decidido desde já, para a implementação futura não reabrir o desenho:
    que a confirmação binária de hoje não tem.
 4. **O núcleo escopado vira `internal/trustscope`** (Scope, store por escopo,
    `identity(ctx)`, `ClearSession`, escrita atômica), extraído do `nettrust` sem
-   mudar o formato em disco das allowlists de rede já persistidas.
+   mudar o formato em disco das allowlists de rede já persistidas. A extração
+   comum a `nettrust` e `fstrust` foi entregue na primeira fase da issue #561;
+   o trust de comandos continua futuro e consumirá esse contrato sem ampliar o
+   escopo desta entrega.
 5. **A sessão de comando é limpa junto com a de rede** em
    `resetConversationScopedState`, pelo mesmo motivo de D4: conversa reciclada
    que reutilize o ID não pode herdar autorização.
@@ -183,8 +186,9 @@ com o documento de allowlist do perfil. A implementação terá AEP próprio
    deep link `settings/network-allowlist` na rota e na mensagem de bloqueio,
    destaque do host declarado pelo skill no consentimento (D7, D6, D5), e a
    decisão sobre escopar comandos bash (D8).
-3. **(futuro)** Escopos de runtime para comandos bash e núcleo `trustscope`
-   compartilhado, conforme o modelo fixado em D8 — em AEP e issue próprios.
+3. **(parcial)** Núcleo `trustscope` compartilhado por rede e filesystem
+   entregue na issue #561. Escopos de runtime para comandos bash continuam
+   futuros, conforme o modelo fixado em D8 — em AEP e issue próprios.
 
 ## Riscos / limitações
 
