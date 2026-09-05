@@ -30,15 +30,6 @@ Se preferir, o release também pode ser criado pela interface web do GitHub.
 
 Use tags semânticas como `v1.0.1`. O workflow injeta `AppVersion` sem o prefixo `v`, e o updater normaliza esse prefixo apenas na comparação para evitar falso update na mesma versão.
 
-### 4. Commitar alterações da versão
-```bash
-git checkout main
-git pull
-git add .
-git commit -m "chore: prepare release v1.0.1"
-git push
-```
-
 ## Pronto! Agora Fazer Releases é Simples
 
 ## Release Nova Versão (30 segundos)
@@ -49,14 +40,19 @@ git checkout main
 git pull
 
 # 2. Crie o release; o workflow será acionado por release.created
-gh release create v1.0.1 --title "v1.0.1" --notes "Notas da versão"
+gh release create v1.0.1 --target main --title "v1.0.1" --notes "Notas da versão"
 ```
 
 GitHub Actions vai:
 - Rodar testes backend e frontend
 - Buildar CLI e app desktop
+- Injetar `assistente/internal/app.AppVersion` nos builds Wails
 - Gerar checksums
 - Anexar os assets ao GitHub Release criado
+
+O ldflag da CLI é diferente: o build de `./cmd/asst/` usa
+`-X main.AppVersion=<versão>`, pois a variável da CLI vive em
+`cmd/asst/main.go`.
 
 Para o auto-update, os executáveis desktop precisam manter o prefixo `assistente-`, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`. Assets da CLI usam `asst-*`, e pacotes como `.deb`, `.rpm`, `.msi`, `.pkg`, `.dmg` e `.AppImage` não são selecionados pelo updater in-place.
 
@@ -97,6 +93,7 @@ Automaticamente no próximo startup do app:
 - Teste a API: `gh api repos/inclunet/assistente/releases/latest`
 - Confira se os assets desktop seguem os nomes esperados pelo updater, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`
 - Confira se a tag do release e o `AppVersion` representam a mesma versão sem depender do prefixo `v`
+- Confira se os dois builds Wails em `.github/workflows/release.yml` usam `-X assistente/internal/app.AppVersion=$VERSION`
 - Veja logs do app: procure "[Updater]"
 
 ## Documentação Completa
