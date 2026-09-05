@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 interface SkillGeneralSectionProps {
   item: {
     name?: string;
+    version?: string;
     description?: string;
     auto?: boolean;
   };
@@ -30,6 +31,25 @@ export function SkillGeneralSection({
             onChange={(e) => onFieldChange('name', e.target.value)}
             placeholder={t('skills.generalSection.namePlaceholder')}
           />
+        </div>
+
+        <div className="skill-field">
+          <label htmlFor="sk-version" className="skill-field__label">
+            {t('skills.generalSection.version')}
+          </label>
+          <input
+            id="sk-version"
+            type="text"
+            className="skill-field__input"
+            value={item.version || ''}
+            onChange={(e) => onFieldChange('version', e.target.value)}
+            placeholder={t('skills.generalSection.versionPlaceholder')}
+            pattern="\d+\.\d+\.\d+"
+            aria-describedby="sk-version-hint"
+          />
+          <span id="sk-version-hint" className="skills-field__hint">
+            {t('skills.generalSection.versionHint')}
+          </span>
         </div>
 
         <div className="skill-field">

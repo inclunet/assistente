@@ -11,6 +11,9 @@ vi.mock('react-i18next', () => ({
         'skills.generalSection.title': 'Geral',
         'skills.generalSection.name': 'Nome',
         'skills.generalSection.namePlaceholder': 'Ex: Criar Componente React',
+        'skills.generalSection.version': 'Versão',
+        'skills.generalSection.versionPlaceholder': '1.0.0',
+        'skills.generalSection.versionHint': 'Use versionamento semântico no formato X.Y.Z.',
         'skills.generalSection.description': 'Descrição',
         'skills.generalSection.descriptionPlaceholder': 'Quando este skill deve ser usado',
         'skills.generalSection.auto': 'Auto — injetar automaticamente no system prompt',
@@ -25,12 +28,13 @@ describe('SkillGeneralSection', () => {
     const onFieldChange = vi.fn();
     render(
       <SkillGeneralSection
-        item={{ name: 'Skill X', description: 'Desc', auto: true }}
+        item={{ name: 'Skill X', version: '1.2.3', description: 'Desc', auto: true }}
         onFieldChange={onFieldChange}
       />
     );
 
     expect(screen.getByLabelText('Nome')).toHaveValue('Skill X');
+    expect(screen.getByLabelText('Versão')).toHaveValue('1.2.3');
     expect(screen.getByLabelText('Descrição')).toHaveValue('Desc');
     expect(screen.getByLabelText(/Auto —/)).toBeChecked();
   });
@@ -39,15 +43,17 @@ describe('SkillGeneralSection', () => {
     const onFieldChange = vi.fn();
     render(
       <SkillGeneralSection
-        item={{ name: '', description: '', auto: false }}
+        item={{ name: '', version: '', description: '', auto: false }}
         onFieldChange={onFieldChange}
       />
     );
 
     fireEvent.change(screen.getByLabelText('Nome'), { target: { value: 'Nova' } });
+    fireEvent.change(screen.getByLabelText('Versão'), { target: { value: '2.0.0' } });
     fireEvent.change(screen.getByLabelText('Descrição'), { target: { value: 'Detalhe' } });
 
     expect(onFieldChange).toHaveBeenCalledWith('name', 'Nova');
+    expect(onFieldChange).toHaveBeenCalledWith('version', '2.0.0');
     expect(onFieldChange).toHaveBeenCalledWith('description', 'Detalhe');
   });
 
@@ -70,7 +76,7 @@ describe('SkillGeneralSection', () => {
     const onFieldChange = vi.fn();
     render(
       <SkillGeneralSection
-        item={{ name: '', description: '', auto: false }}
+        item={{ name: '', version: '', description: '', auto: false }}
         onFieldChange={onFieldChange}
       />
     );
@@ -79,6 +85,7 @@ describe('SkillGeneralSection', () => {
       'placeholder',
       'Ex: Criar Componente React'
     );
+    expect(screen.getByLabelText('Versão')).toHaveAttribute('pattern', '\\d+\\.\\d+\\.\\d+');
     expect(screen.getByLabelText('Descrição')).toHaveAttribute(
       'placeholder',
       'Quando este skill deve ser usado'

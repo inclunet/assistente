@@ -1,11 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const mockGetSkills = vi.fn();
 const mockGetSkill = vi.fn();
 const mockGetSkillSearchPaths = vi.fn();
 const mockDuplicateSkill = vi.fn();
+const mockCreateSkill = vi.fn();
+const mockUpdateSkill = vi.fn();
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -20,8 +23,8 @@ vi.mock('@wailsjs/go/wailsapi/Skills', () => ({
   GetSkills: () => mockGetSkills(),
   GetSkill: (slug: string) => mockGetSkill(slug),
   GetSkillSearchPaths: () => mockGetSkillSearchPaths(),
-  CreateSkill: vi.fn(),
-  UpdateSkill: vi.fn(),
+  CreateSkill: (request: unknown) => mockCreateSkill(request),
+  UpdateSkill: (slug: string, request: unknown) => mockUpdateSkill(slug, request),
   DeleteSkill: vi.fn(),
   DuplicateSkill: (slug: string) => mockDuplicateSkill(slug),
 }));
@@ -140,6 +143,8 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
     mockGetSkill.mockReset();
     mockGetSkillSearchPaths.mockReset();
     mockDuplicateSkill.mockReset();
+    mockCreateSkill.mockReset();
+    mockUpdateSkill.mockReset();
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
 
@@ -148,6 +153,7 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
         {
           slug: 'skill-base',
           name: 'skill-base',
+          version: '2.3.4',
           description: 'Descricao valida',
           disableModelInvocation: false,
           source: 'home',
@@ -158,6 +164,7 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
         {
           slug: 'skill-base',
           name: 'skill-base',
+          version: '2.3.4',
           description: 'Descricao valida',
           disableModelInvocation: false,
           source: 'home',
@@ -166,6 +173,7 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
         {
           slug: 'skill-base-copia',
           name: 'skill-base-copia',
+          version: '2.3.4',
           description: 'Descricao valida',
           disableModelInvocation: false,
           source: 'home',
@@ -176,6 +184,7 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
     mockGetSkill.mockResolvedValue({
       slug: 'skill-base-copia',
       name: 'skill-base-copia',
+      version: '2.3.4',
       description: 'Descricao valida',
       disableModelInvocation: false,
       source: 'home',
@@ -185,6 +194,8 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
 
     mockGetSkillSearchPaths.mockResolvedValue([]);
     mockDuplicateSkill.mockResolvedValue('skill-base-copia');
+    mockCreateSkill.mockResolvedValue('novo-skill');
+    mockUpdateSkill.mockResolvedValue(undefined);
   });
 
   it('duplica um skill via menu de acoes', async () => {
@@ -209,5 +220,68 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
     await waitFor(() => {
       expect(mockGetSkill).toHaveBeenCalledWith('skill-base-copia');
     });
+  });
+
+  it('cria skill com a versão semântica padrão', async () => {
+    const user = userEvent.setup();
+    render(<SkillsPage />);
+    await screen.findByText('skill-base');
+
+    await user.click(screen.getByRole('button', { name: 'Novo Skill' }));
+
+    expect(screen.getByLabelText('skills.generalSection.version')).toHaveValue('1.0.0');
+    await user.type(screen.getByLabelText('skills.generalSection.name'), 'novo-skill');
+    await user.type(
+      screen.getByLabelText('skills.generalSection.description'),
+      'Descrição válida para o skill',
+    );
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => {
+      expect(mockCreateSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'novo-skill',
+          version: '1.0.0',
+          description: 'Descrição válida para o skill',
+        }),
+      );
+    });
+  });
+
+  it('preserva versão existente e defaulta skill legada sem version ao editar', async () => {
+    const user = userEvent.setup();
+    mockGetSkill
+      .mockResolvedValueOnce({
+        slug: 'skill-base',
+        name: 'skill-base',
+        version: '2.3.4',
+        description: 'Descricao valida',
+        disableModelInvocation: false,
+        source: 'home',
+        tools: { allowed: [] },
+        content: 'conteudo',
+      })
+      .mockResolvedValueOnce({
+        slug: 'skill-base',
+        name: 'skill-base',
+        description: 'Descricao valida',
+        disableModelInvocation: false,
+        source: 'home',
+        tools: { allowed: [] },
+        content: 'conteudo',
+      });
+
+    const { unmount } = render(<SkillsPage />);
+    await screen.findByText('skill-base');
+    let editButtons = screen.getAllByRole('button', { name: 'Editar skill' });
+    await user.click(editButtons[editButtons.length - 1]);
+    expect(await screen.findByLabelText('skills.generalSection.version')).toHaveValue('2.3.4');
+    unmount();
+
+    render(<SkillsPage />);
+    await screen.findByText('skill-base');
+    editButtons = screen.getAllByRole('button', { name: 'Editar skill' });
+    await user.click(editButtons[editButtons.length - 1]);
+    expect(await screen.findByLabelText('skills.generalSection.version')).toHaveValue('1.0.0');
   });
 });
