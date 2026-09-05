@@ -33,6 +33,20 @@ Cada aba representa um arquivo ou draft. O estado das abas é preservado por wor
 
 Quando ativado, o editor salva drafts automaticamente conforme você edita. Drafts são preservados mesmo se fechar o app e reabrir.
 
+### Privacidade entre contas
+
+Drafts, preferências de modo e sessões de resolução de conflitos ficam
+separados por conta autenticada neste computador. Ao sair ou trocar de conta,
+o conteúdo em memória do editor e os monitores de arquivos da sessão anterior
+são encerrados antes de a próxima conta abrir o workspace.
+
+Na primeira abertura após atualizar uma instalação antiga, os dados que
+estavam em `~/.assistente/editor/` são adotados uma única vez pela primeira
+conta que entrar. A adoção pode ser repetida com segurança se o aplicativo for
+interrompido e nunca entrega os mesmos dados a uma segunda conta. Os arquivos
+legados são mantidos como cópia de segurança; o Assistente não os apaga
+silenciosamente.
+
 ### Chat Inline
 
 O chat inline permite pedir para a IA editar, gerar ou transformar conteúdo diretamente no editor:

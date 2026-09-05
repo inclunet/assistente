@@ -232,7 +232,7 @@ Recursos em filesystem não devem ser “prefixados” ad hoc por usuário nesta
 | `channels/*.json`, contatos e mapeamento contato→conversa | usuário/integração | Legado em arquivo; ao tocar credenciais do canal, usar contexto autenticado | **Concluída** via **AEP-0083** / [PR #400](https://github.com/inclunet/assistente/pull/400) — tabelas `channels` / `channel_contacts` / `channel_contact_conversations` |
 | `jobs/` e logs de jobs | usuário/automação | Logs em disco ainda são legado local | migrar jobs para DB em AEP-0048 com `user_id` e retention |
 | `workspace.yaml`, `workspaces/index.yaml` | cliente/UX local | Estado de UI do cliente, não autorização do servidor | no split, tratar como estado do cliente; IDs referenciados continuam validados no backend |
-| `editor/state.json` e `editor/drafts/` | cliente/UX local | Estado local do cliente, pode conter conteúdo sensível | no split, manter local ao cliente ou migrar para recurso user-scoped se sincronizar |
+| `users/<user_id>/editor/state.json` e `users/<user_id>/editor/drafts/` | usuário/UX local | Isolado por conta autenticada; legado em `editor/` é adotado uma única vez pelo primeiro usuário elegível, sem apagar a origem | no split, manter local ao cliente com identidade autenticada ou migrar para recurso user-scoped se sincronizar |
 | allowlists (`allowlists/*.json`) | usuário/perfil | Legado em arquivo vinculado ao perfil | migrar junto de profiles/skills ou referenciar por `user_id` no DB |
 | config global (`config.json`, TLS, HTTP bind, updater) | instância | Sem `user_id` | manter como configuração operacional da instância |
 
