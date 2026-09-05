@@ -360,6 +360,43 @@ func TestEditorIsolatesDraftsAndStateBetweenUsers(t *testing.T) {
 	}
 }
 
+func TestEditorAllowsFilesInAuthenticatedUserRootOutsideEditor(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-000000000074"
+	userB := "01991f7c-1000-7000-8000-000000000075"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+	if _, err := apiA.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apiB.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	pathsA, _ := editorPathsForUser(userA)
+	ownFile := filepath.Join(filepath.Dir(pathsA.root), "anexos", "proprio.md")
+	if err := os.MkdirAll(filepath.Dir(ownFile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ownFile, []byte("arquivo próprio"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := apiA.EditorReadFile(ownFile); err != nil {
+		t.Fatalf("usuário não abriu arquivo da própria raiz: %v", err)
+	}
+	if err := apiA.EditorWriteFile(ownFile, "atualizado"); err != nil {
+		t.Fatalf("usuário não escreveu arquivo da própria raiz: %v", err)
+	}
+	if _, err := apiB.EditorReadFile(ownFile); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("outro usuário abriu arquivo de A: %v", err)
+	}
+}
+
 func TestEditorBlocksCrossUserSymlinkPaths(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
@@ -1087,6 +1124,48 @@ func TestEditorCorruptedLegacyClaimDisablesOnlyAdoption(t *testing.T) {
 	}
 	if data, err := os.ReadFile(legacyDraft); err != nil || string(data) != "não adotar" {
 		t.Fatalf("legado foi alterado: %q, %v", data, err)
+	}
+}
+
+func TestEditorClaimRaceWithIncompatibleWinnerDisablesOnlyAdoption(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacyDraft := filepath.Join(legacyEditorDir(), "drafts", "legado.md")
+	if err := os.WriteFile(legacyDraft, []byte("não adotar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	incompatible := []byte(`{"version":2,"userId":"outro","claimedAt":1}`)
+	originalPublisher := publishEditorMigrationClaim
+	publishEditorMigrationClaim = func(_, destination string) error {
+		if err := os.WriteFile(destination, incompatible, 0600); err != nil {
+			return err
+		}
+		return os.ErrExist
+	}
+	t.Cleanup(func() { publishEditorMigrationClaim = originalPublisher })
+
+	api := attachEditorForUser("01991f7c-1000-7000-8000-000000000076")
+	if err := api.EditorWriteDraft("novo", "storage funcional"); err != nil {
+		t.Fatalf("claim incompatível vencedor bloqueou storage novo: %v", err)
+	}
+	if got, err := api.EditorReadDraft("novo"); err != nil || got != "storage funcional" {
+		t.Fatalf("storage novo indisponível: %q, %v", got, err)
+	}
+	if _, err := api.EditorReadDraft("legado"); err == nil {
+		t.Fatal("legado foi adotado após corrida com claim incompatível")
+	}
+	if data, err := os.ReadFile(editorMigrationClaimPath()); err != nil || string(data) != string(incompatible) {
+		t.Fatalf("claim vencedor foi alterado: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(legacyDraft); err != nil || string(data) != "não adotar" {
+		t.Fatalf("dado legado foi alterado: %q, %v", data, err)
 	}
 }
 

@@ -419,7 +419,9 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 			}
 			claim, err = readEditorMigrationClaim(claimPath)
 			if err != nil {
-				return err
+				// Outro processo publicou algo ilegível/incompatível entre a
+				// leitura e o create. Falhamos fechado só para a adoção.
+				return nil
 			}
 		} else {
 			newClaim = true
@@ -589,7 +591,7 @@ func (api *Editor) resolveUserFilePath(ctx context.Context, path string) (string
 	if err != nil {
 		return "", err
 	}
-	userRoot, err := filesystem.ResolveForComparison(paths.root)
+	userRoot, err := filesystem.ResolveForComparison(filepath.Dir(paths.root))
 	if err != nil {
 		return "", err
 	}
@@ -671,6 +673,15 @@ func writePrivateEditorFile(paths editorUserPaths, filePath string, content []by
 	editorPrivateFileMu.Lock()
 	defer editorPrivateFileMu.Unlock()
 
+	dir := filepath.Dir(filePath)
+	if filepath.Base(dir) == "drafts" {
+		if err := ensurePrivateDirectory(filepath.Dir(dir)); err != nil {
+			return err
+		}
+	}
+	if err := ensurePrivateDirectory(dir); err != nil {
+		return err
+	}
 	resolved, err := resolvePrivateEditorFile(paths, filePath)
 	if err != nil {
 		return err
