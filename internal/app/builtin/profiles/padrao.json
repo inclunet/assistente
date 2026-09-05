@@ -1,7 +1,7 @@
 {
-  "_builtin_version": "4.4.0",
+  "_builtin_version": "4.5.0",
   "name": "Padrão",
-  "description": "Assistente geral para pesquisa, análise, escrita e tarefas cotidianas. Use quando o trabalho não for predominantemente desenvolvimento de software; pode delegar partes especializadas a outros profiles.",
+  "description": "Assistente geral para pesquisar, analisar, escrever, organizar e resolver tarefas cotidianas. Use quando a solicitação combinar assuntos, não exigir trabalho predominante em código ou ainda estiver pouco definida. Não use para implementar, depurar, refatorar ou revisar software de forma substancial; nesses casos, escolha Programação. Exemplos: resumir documentos; comparar opções; redigir um e-mail; planejar uma viagem.",
   "icon": "chatbox",
   "chat": {
     "llm_provider": "$default",

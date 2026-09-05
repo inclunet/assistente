@@ -61,6 +61,9 @@ func opcoesDeAgente(modelo, modo string) []acp.ConfigOption {
 				{Value: "acceptEdits", Name: "Aceitar edições"},
 				{Value: "dontAsk", Name: "Não perguntar"},
 				{Value: "bypassPermissions"},
+				// O Codex configura approvalPolicy=never neste modo (AEP-0086
+				// Q2), então ele segue pelo mesmo aviso dos modos do Claude.
+				{Value: "agent-full-access", Name: "Acesso total"},
 			},
 		},
 	}
@@ -457,6 +460,27 @@ func TestTrocarParaModoQueDispensaAPerguntaAvisaAConversa(t *testing.T) {
 	// no meio do português, e não diz a ninguém o que passou a valer.
 	if aviso.Mode != "Não perguntar" {
 		t.Fatalf("o aviso não nomeou o modo como o seletor o nomeia: %q", aviso.Mode)
+	}
+}
+
+// O modo de acesso total do Codex usa approvalPolicy=never. A identificação do
+// valor em internal/acp precisa alcançar o aviso compartilhado, e não apenas o
+// teste isolado da lista.
+func TestAcessoTotalDoCodexAvisaQueAPerguntaFoiDispensada(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := optionsAPI(a).SetAgentSessionOption("conversa-1", acp.CategoryMode, "agent-full-access"); err != nil {
+		t.Fatalf("SetAgentSessionOption: %v", err)
+	}
+
+	aviso := avisoUnico(t, emissor)
+	if aviso.Kind != ports.ChatNoticeKindModeSkipsPermission {
+		t.Fatalf("motivo do aviso = %q", aviso.Kind)
+	}
+	if aviso.Mode != "Acesso total" {
+		t.Fatalf("o aviso não nomeou o modo do Codex: %q", aviso.Mode)
 	}
 }
 

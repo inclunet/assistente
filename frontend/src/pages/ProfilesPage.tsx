@@ -41,6 +41,7 @@ import {
   buildTabChatSurfaceId,
   buildWorkspaceModalChatSurfaceId,
 } from '../services/chatSessionRegistry';
+import { profileDisplayDescription } from '../lib/profileDescription';
 import './ProfilesPage.css';
 
 type ProfileInfo = profiles.ProfileInfo;
@@ -50,6 +51,7 @@ interface ProfileRow extends Profile {
   id: string; // slug as id
   slug: string;
   source?: string;
+  builtin?: boolean;
   isActive?: boolean;
   [key: string]: unknown;
 }
@@ -79,11 +81,13 @@ export default function ProfilesPage() {
 
     const workspaceState = useWorkspaceStore.getState();
     const callerTab = workspaceState.workspace?.tabs.find((tab) => tab.id === caller.tabId);
-    const expectedSurfaceId = caller.surfaceType === 'modal'
-      ? buildWorkspaceModalChatSurfaceId(caller.tabId)
-      : buildTabChatSurfaceId(caller.tabId, caller.surfaceType);
+    const surfaceMatches = caller.surfaceType === 'modal'
+      ? caller.surfaceId === buildWorkspaceModalChatSurfaceId(caller.tabId)
+      : caller.surfaceType === 'page'
+        ? caller.surfaceId === buildTabChatSurfaceId(caller.tabId, 'page')
+        : caller.surfaceId.trim().length > 0;
     const conversationMatches = (callerTab?.conversationId ?? null) === caller.conversationId;
-    if (!callerTab || caller.surfaceId !== expectedSurfaceId || !conversationMatches) return;
+    if (!callerTab || !surfaceMatches || !conversationMatches) return;
 
     navigate('/');
     requestAnimationFrame(() => {
@@ -114,6 +118,7 @@ export default function ProfilesPage() {
           description: p.description || '',
           icon: p.icon || '',
           source: p.source,
+          builtin: p.builtin,
           isActive: p.slug === resolvedSlug,
         })) as ProfileRow[];
       },
@@ -319,6 +324,7 @@ export default function ProfilesPage() {
   };
 
   const handleCloseEditor = () => {
+    if (saving) return;
     const request = editorRequest;
     crud.closeEditor();
     setEditorRequest(null);
@@ -372,6 +378,7 @@ export default function ProfilesPage() {
       label: t('profiles.colDescription', 'Descrição'),
       width: '28%',
       truncate: true,
+      format: (_value, row) => profileDisplayDescription(t, row),
     },
     {
       key: 'source',
@@ -473,9 +480,9 @@ export default function ProfilesPage() {
       crud.items.filter(
         (row) =>
           row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (row.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+          profileDisplayDescription(t, row).toLowerCase().includes(searchTerm.toLowerCase())
       ),
-    [crud.items, searchTerm]
+    [crud.items, searchTerm, t]
   );
 
   const getItemId = useCallback((item: ProfileRow) => item.id, []);
@@ -585,6 +592,7 @@ export default function ProfilesPage() {
         onClose={handleCloseEditor}
         title={editorTitle}
         size="xl"
+        allowClose={!saving}
         initialFocusSelector={editorRequest?.tab ? '[role="tab"][aria-selected="true"]' : undefined}
       >
         {editingProfile && (
@@ -613,7 +621,7 @@ export default function ProfilesPage() {
               <Button onClick={handleSave} loading={saving}>
                 {t('profiles.saveBtn', 'Salvar')}
               </Button>
-              <Button variant="secondary" onClick={handleCloseEditor}>
+              <Button variant="secondary" onClick={handleCloseEditor} disabled={saving}>
                 {t('common.cancel', 'Cancelar')}
               </Button>
               <div className="profiles-editor__footer-spacer" />

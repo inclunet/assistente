@@ -11,13 +11,14 @@ export type EditableResource =
   | 'memories'
   | 'tasklists';
 
-export type ProfileEditorTab = 'voice';
+/** Seções públicas do editor de perfil aceitas pela navegação e por deep links. */
+export type ProfileEditSection = 'voice';
 
 export interface WorkspaceNavigationCaller {
   kind: 'workspace';
   tabId: string;
   surfaceId: string;
-  surfaceType: 'page' | 'modal';
+  surfaceType: 'page' | 'embedded' | 'modal';
   conversationId: string | null;
 }
 
@@ -25,13 +26,13 @@ export interface ResourceEditRequest {
   resource: EditableResource;
   id: string;
   action: 'edit' | 'new';
-  tab?: ProfileEditorTab;
+  tab?: ProfileEditSection;
   caller?: WorkspaceNavigationCaller;
   timestamp: number;
 }
 
 export interface ResourceEditOptions {
-  tab?: ProfileEditorTab;
+  tab?: ProfileEditSection;
   caller?: WorkspaceNavigationCaller;
 }
 

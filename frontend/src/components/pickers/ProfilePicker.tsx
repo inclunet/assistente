@@ -6,6 +6,7 @@ import { BasePicker } from './BasePicker';
 import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useTranslation } from 'react-i18next';
+import { profileDisplayDescription } from '../../lib/profileDescription';
 
 export interface ProfilePickerProps {
   /** Callback when profile is selected */
@@ -48,7 +49,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     const isControlled = value !== undefined;
     const { t } = useTranslation();
     const resolvedLabel = label ?? t('profiles.pickerLabel', 'Perfil');
-    const [profileList, setProfileList] = useState<Array<{ name: string; slug: string; description: string; icon: string; source: string }>>([]);
+    const [profileList, setProfileList] = useState<Array<{ name: string; slug: string; description: string; icon: string; source: string; builtin?: boolean }>>([]);
     const [activeSlug, setActiveSlug] = useState<string>('padrao');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -127,10 +128,11 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         });
       }
       for (const profile of profileList) {
+        const displayDescription = profileDisplayDescription(t, profile);
         items.push({
           value: profile.slug,
           label: `${profile.name}`.trim(),
-          sublabel: profile.description || undefined,
+          sublabel: displayDescription || undefined,
         });
       }
       return items;

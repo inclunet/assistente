@@ -86,6 +86,19 @@ const podcastFixture = `<?xml version="1.0" encoding="UTF-8"?>
   </channel>
 </rss>`
 
+func TestFeedReadDescriptionDisambiguatesStructuredFeeds(t *testing.T) {
+	description := strings.ToLower(NewFeedRead(nil).Description())
+	for _, required := range []string{
+		"structured entries", "web_search", "web_fetch", "http_request",
+		"since", "include_content", "network request", "network policy",
+		"tool_catalog", `{"url":`,
+	} {
+		if !strings.Contains(description, strings.ToLower(required)) {
+			t.Errorf("Description() deve documentar %q", required)
+		}
+	}
+}
+
 func TestParseFeedRSS_StripHTML(t *testing.T) {
 	feed, err := parseFeed(strings.NewReader(rssFixture), parseOptions{MaxItems: 20, StripHTML: true})
 	if err != nil {

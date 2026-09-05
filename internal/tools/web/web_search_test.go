@@ -19,6 +19,51 @@ func TestWebSearch_Name(t *testing.T) {
 	}
 }
 
+func TestWebToolDescriptionsDisambiguateNetworkCapabilities(t *testing.T) {
+	tests := []struct {
+		name     string
+		desc     string
+		required []string
+	}{
+		{
+			name: "web_search",
+			desc: NewWebSearch(nil).Description(),
+			required: []string{
+				"discover", "web_fetch", "http_request", "feed_read",
+				"count", "has_more", "results", "external search provider",
+				"tool_catalog", `{"query":`,
+			},
+		},
+		{
+			name: "web_fetch",
+			desc: NewWebFetch(nil).Description(),
+			required: []string{
+				"known", "web_search", "http_request", "feed_read",
+				"network request", "network policy", "tool_catalog", `{"url":`,
+			},
+		},
+		{
+			name: "http_request",
+			desc: NewHTTPRequest(nil).Description(),
+			required: []string{
+				"api", "web_search", "web_fetch", "feed_read", "mutating",
+				"confirmation", "network policy", "tool_catalog", `{"url":`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			description := strings.ToLower(tt.desc)
+			for _, required := range tt.required {
+				if !strings.Contains(description, strings.ToLower(required)) {
+					t.Errorf("Description() deve documentar %q", required)
+				}
+			}
+		})
+	}
+}
+
 func TestWebSearch_Parameters(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	tool := NewWebSearch(credMgr)

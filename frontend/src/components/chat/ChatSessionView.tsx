@@ -444,7 +444,11 @@ function ChatSessionViewContent({
           },
           {
             navigate,
-            ...(origin.tabId && (origin.surfaceType === 'page' || origin.surfaceType === 'modal')
+            ...(origin.tabId && (
+              origin.surfaceType === 'page'
+              || origin.surfaceType === 'embedded'
+              || origin.surfaceType === 'modal'
+            )
               ? {
                   caller: {
                     kind: 'workspace' as const,

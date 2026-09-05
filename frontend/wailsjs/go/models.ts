@@ -5025,6 +5025,7 @@ export namespace profiles {
 	    description: string;
 	    icon: string;
 	    source: string;
+	    builtin: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProfileInfo(source);
@@ -5037,6 +5038,7 @@ export namespace profiles {
 	        this.description = source["description"];
 	        this.icon = source["icon"];
 	        this.source = source["source"];
+	        this.builtin = source["builtin"];
 	    }
 	}
 	

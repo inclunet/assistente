@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockDuplicateProfile = vi.fn();
@@ -368,6 +368,28 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
   });
 
+  it('retorna à aba que contém a superfície embedded ao cancelar', async () => {
+    const user = userEvent.setup();
+    useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
+      tab: 'voice',
+      caller: {
+        kind: 'workspace',
+        tabId: 'chat-tab',
+        surfaceId: 'embedded:editor:chat-tab',
+        surfaceType: 'embedded',
+        conversationId: 'conversation-1',
+      },
+    });
+
+    render(<ProfilesPage />);
+    await screen.findByRole('button', { name: 'Cancelar' });
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
+    expect(mockRequestOpen).not.toHaveBeenCalled();
+  });
+
   it('retorna à aba de origem depois de salvar o perfil', async () => {
     const user = userEvent.setup();
     useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
@@ -386,6 +408,39 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     await user.click(screen.getByRole('button', { name: 'Salvar' }));
 
     await waitFor(() => expect(vi.mocked(UpdateProfile)).toHaveBeenCalled());
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
+  });
+
+  it('impede cancelar ou fechar enquanto o perfil está sendo salvo', async () => {
+    const user = userEvent.setup();
+    let finishUpdate!: () => void;
+    vi.mocked(UpdateProfile).mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        finishUpdate = resolve;
+      }),
+    );
+    useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
+      tab: 'voice',
+      caller: {
+        kind: 'workspace',
+        tabId: 'chat-tab',
+        surfaceId: 'page:tab:chat-tab',
+        surfaceType: 'page',
+        conversationId: 'conversation-1',
+      },
+    });
+
+    render(<ProfilesPage />);
+    await user.click(await screen.findByRole('button', { name: 'Salvar' }));
+
+    const cancelButton = screen.getByRole('button', { name: 'Cancelar' });
+    await waitFor(() => expect(cancelButton).toBeDisabled());
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(cancelButton).toBeInTheDocument();
+
+    finishUpdate();
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
     await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
   });
