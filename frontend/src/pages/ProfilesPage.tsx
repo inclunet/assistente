@@ -33,6 +33,7 @@ import { useUIStore } from '../store/uiStore';
 import { useEditableList } from '../hooks/useEditableList';
 import { useProfileDependencies } from '../hooks/useProfileDependencies';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { profileDisplayDescription } from '../lib/profileDescription';
 import './ProfilesPage.css';
 
 type ProfileInfo = profiles.ProfileInfo;
@@ -42,6 +43,7 @@ interface ProfileRow extends Profile {
   id: string; // slug as id
   slug: string;
   source?: string;
+  builtin?: boolean;
   isActive?: boolean;
   [key: string]: unknown;
 }
@@ -83,6 +85,7 @@ export default function ProfilesPage() {
           description: p.description || '',
           icon: p.icon || '',
           source: p.source,
+          builtin: p.builtin,
           isActive: p.slug === resolvedSlug,
         })) as ProfileRow[];
       },
@@ -325,6 +328,7 @@ export default function ProfilesPage() {
       label: t('profiles.colDescription', 'Descrição'),
       width: '28%',
       truncate: true,
+      format: (_value, row) => profileDisplayDescription(t, row),
     },
     {
       key: 'source',
@@ -426,9 +430,9 @@ export default function ProfilesPage() {
       crud.items.filter(
         (row) =>
           row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (row.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+          profileDisplayDescription(t, row).toLowerCase().includes(searchTerm.toLowerCase())
       ),
-    [crud.items, searchTerm]
+    [crud.items, searchTerm, t]
   );
 
   const getItemId = useCallback((item: ProfileRow) => item.id, []);
