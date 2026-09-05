@@ -27,6 +27,7 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 		"markdown deep link",
 		"focus",
 		"existing matching tab",
+		"tab open:",
 		"caller-aware",
 		"no caller context",
 		"returns to the profiles list",
