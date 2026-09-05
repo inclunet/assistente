@@ -88,37 +88,37 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Manage persisted MCP server configurations using the existing MCP manager. No params lists servers. slug reads safe details without env values. action supports create, update, delete, duplicate, connect, disconnect, reconnect, reload and logs. When action is omitted, slug plus any configuration field infers create for a missing server or update for an existing server. Writes require slug and use the same user-scoped backend contracts as the MCP page; env values are accepted for create/update but are redacted from read responses."
+	return "Inspect or manage the current user's persisted MCP server configurations and runtime connections. Use list/get/logs to diagnose a server, or create/update/connect/disconnect/reconnect/reload/delete/duplicate only when the user asks to change MCP setup. Do not use this to discover or invoke a server's tools; use tool_catalog and the loaded MCP tools instead. Mutations can start local processes, make network connections, change future tool availability, or permanently delete configuration; inspect first when intent or slug is uncertain. Environment values may contain secrets: send them only for create/update and never echo them because reads redact values. Examples: {} lists servers; {\"action\":\"logs\",\"slug\":\"github\",\"limit\":50} diagnoses one; {\"action\":\"disconnect\",\"slug\":\"github\"} changes runtime state."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete", "duplicate", "connect", "disconnect", "reconnect", "reload", "logs"], "description": "Operation to perform. When omitted, no slug lists servers; slug without configuration fields reads server details; slug plus configuration fields infers create for a missing server or update for an existing server."},
-    "slug": {"type": "string", "pattern": "^(?![Nn][Aa][Tt][Ii][Vv][Ee]$)(?!.*__)[A-Za-z0-9_-]+$", "description": "User-scoped MCP server slug. Required for get/update/delete/duplicate/connect/disconnect/reconnect/logs. For create, this is the new slug. Use only letters, numbers, underscore or hyphen; the slug native and the substring __ are reserved for MCP bridge/native tool names."},
+    "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete", "duplicate", "connect", "disconnect", "reconnect", "reload", "logs"], "description": "Operation to perform. Prefer explicit actions for mutations. When omitted: no slug means list; slug alone means get; slug plus any configuration field infers create if missing or update if present."},
+    "slug": {"type": "string", "pattern": "^(?![Nn][Aa][Tt][Ii][Vv][Ee]$)(?!.*__)[A-Za-z0-9_-]+$", "description": "Exact user-scoped server identifier. Required for every server-specific action and used as the new identifier for create. Obtain it from list when uncertain. Only letters, numbers, underscore, and hyphen are allowed; native and __ are reserved."},
     "new_slug": {"type": "string", "description": "Reserved for future explicit duplicate target slugs. The current backend generates copy slugs; do not use unless supported by the backend."},
-    "limit": {"type": "integer", "description": "Log limit for action=logs. Defaults to 100 and caps at 500.", "minimum": 1, "maximum": 500},
-    "name": {"type": "string", "description": "Display name. Required when creating."},
-    "description": {"type": "string"},
-    "transport": {"type": "string", "enum": ["stdio", "sse", "streamable"], "description": "MCP transport. Required when creating unless command or url allows backend defaults."},
-    "command": {"type": "string", "description": "Command for stdio servers."},
-    "args": {"type": "array", "items": {"type": "string"}, "description": "Arguments for stdio servers. Send [] to clear args on update; null is rejected."},
-    "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Environment variables for stdio servers. Values may be sensitive; they are never returned by this tool. On update, omitted env preserves existing values, a non-empty object merges keys into the existing env, and {} clears env explicitly; null is rejected."},
-    "url": {"type": "string", "description": "URL for sse or streamable servers."},
-    "auth_type": {"type": "string", "enum": ["none", "bearer", "basic", "oauth2_client_credentials", "oauth2_pkce"]},
-    "oauth2_client_id": {"type": "string"},
-    "oauth2_auth_url": {"type": "string"},
-    "oauth2_token_url": {"type": "string"},
-    "oauth2_scopes": {"type": "array", "items": {"type": "string"}, "description": "OAuth2 scopes. Send [] to clear scopes on update; null is rejected."},
-    "oauth2_callback_port": {"type": "integer"},
-    "oauth2_callback_host": {"type": "string"},
-    "oauth2_registration_url": {"type": "string"},
-    "oauth2_device_auth_url": {"type": "string"},
-    "disable_sse": {"type": "boolean"},
-    "prefer_bridge": {"type": "boolean"},
-    "enabled": {"type": "boolean", "description": "Enable or disable this server configuration."},
-    "auto_connect": {"type": "boolean", "description": "Whether this server should auto-connect after login/startup."}
+    "limit": {"type": "integer", "description": "Maximum entries returned by action=logs. Defaults to 100 and is capped at 500; request only what is needed to limit output cost.", "minimum": 1, "maximum": 500},
+    "name": {"type": "string", "description": "Human-readable server name. Required for create; omit on update to preserve the current name."},
+    "description": {"type": "string", "description": "Optional human-readable purpose of the server. An explicit empty string clears it on update."},
+    "transport": {"type": "string", "enum": ["stdio", "sse", "streamable"], "description": "Connection transport. Use stdio with command for a local process, or sse/streamable with url for HTTP. Omit on update to preserve it."},
+    "command": {"type": "string", "description": "Executable or command for transport=stdio. Starting or connecting the server may run this local process."},
+    "args": {"type": "array", "items": {"type": "string"}, "description": "Arguments passed verbatim to a stdio command. Omit on update to preserve, send [] to clear, and never send null."},
+    "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Environment variables for a stdio process. Values may be secrets and are never returned. On update, omit to preserve, send a non-empty object to merge keys, or {} to clear all; null is rejected."},
+    "url": {"type": "string", "description": "Server endpoint for sse or streamable transport. Connecting may send network traffic and authentication to this URL; verify the host before changing it."},
+    "auth_type": {"type": "string", "enum": ["none", "bearer", "basic", "oauth2_client_credentials", "oauth2_pkce"], "description": "Authentication flow used by the server. Credentials and tokens are managed separately; do not place them in this field."},
+    "oauth2_client_id": {"type": "string", "description": "Public OAuth client identifier, not a client secret. Omit on update to preserve it."},
+    "oauth2_auth_url": {"type": "string", "description": "OAuth authorization endpoint used by interactive authorization flows."},
+    "oauth2_token_url": {"type": "string", "description": "OAuth token endpoint. Verify the host before saving because credentials may be sent there."},
+    "oauth2_scopes": {"type": "array", "items": {"type": "string"}, "description": "OAuth permissions requested from the provider. Request least privilege; omit on update to preserve, send [] to clear, and never send null."},
+    "oauth2_callback_port": {"type": "integer", "description": "Local callback port for OAuth flows. Omit to preserve the current value or use the backend default."},
+    "oauth2_callback_host": {"type": "string", "description": "Local callback host for OAuth flows. Use a loopback host unless the server setup explicitly requires otherwise."},
+    "oauth2_registration_url": {"type": "string", "description": "Optional OAuth dynamic client registration endpoint. Verify the host before saving."},
+    "oauth2_device_auth_url": {"type": "string", "description": "Optional OAuth device authorization endpoint used by device-code flows."},
+    "disable_sse": {"type": "boolean", "description": "Disable SSE fallback for this server. Omit on update to preserve the current setting."},
+    "prefer_bridge": {"type": "boolean", "description": "Prefer local bridge execution instead of native provider MCP when both are possible. This changes how future tool calls are routed."},
+    "enabled": {"type": "boolean", "description": "Whether this configuration is eligible to run. Disabling can make its tools unavailable."},
+    "auto_connect": {"type": "boolean", "description": "Whether to connect automatically after login or startup, which may start a process or make a network connection."}
   },
   "additionalProperties": false
 }`)
