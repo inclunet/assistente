@@ -63,7 +63,7 @@ func (t *FeedRead) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *FeedRead) Description() string {
-	return "Fetches a feed URL (RSS, Atom, JSON Feed, or podcast) and returns it as canonical JSON: feed metadata plus a normalized list of items (title, link, dates in RFC3339 when parseable - otherwise the raw feed string is kept, summary, enclosures). Podcast feeds include iTunes metadata (duration, episode/season, audio enclosures). Authentication is applied automatically per domain when a credential is registered. Use this instead of web_fetch when the URL is a feed and you want structured items to process with other tools/LLM."
+	return `Fetches a known RSS, Atom, JSON Feed, or podcast URL and returns canonical JSON with feed metadata and normalized items. Use when you need structured entries, dates, summaries, enclosures, or podcast metadata; for example {"url":"https://example.com/feed.xml","max_items":10}. Do not use to discover a feed URL (use web_search), read an ordinary webpage (use web_fetch), or make an arbitrary API request (use http_request). Use since to filter dated items and include_content sparingly to limit output; credentials registered for the domain are applied automatically. Risk: makes an external network request; local/private destinations and redirects are guarded by the network policy. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *FeedRead) Parameters() json.RawMessage {
