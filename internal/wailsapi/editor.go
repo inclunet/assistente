@@ -269,7 +269,11 @@ func copyLegacyEditorFile(source, destination string, overwriteIncomplete bool) 
 		if destinationInfo.Mode()&os.ModeSymlink != 0 || !destinationInfo.Mode().IsRegular() {
 			return fmt.Errorf("destino migrado não é arquivo regular")
 		}
-		dst, err = os.OpenFile(destination, os.O_WRONLY, 0)
+		openFlags := os.O_RDONLY
+		if overwriteIncomplete {
+			openFlags = os.O_RDWR
+		}
+		dst, err = os.OpenFile(destination, openFlags, 0)
 		if err != nil {
 			return err
 		}
@@ -380,7 +384,7 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return fmt.Errorf("marcador de conclusão da migração inválido")
 		}
-		completion, openErr := os.OpenFile(completionPath, os.O_WRONLY, 0)
+		completion, openErr := os.OpenFile(completionPath, os.O_RDONLY, 0)
 		if openErr != nil {
 			return openErr
 		}

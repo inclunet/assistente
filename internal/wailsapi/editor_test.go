@@ -490,11 +490,20 @@ func TestEditorLegacyMigrationTightensPreexistingDestinations(t *testing.T) {
 	if err := os.WriteFile(draftPath, []byte("destino preservado"), 0666); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(paths.state, 0666); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(draftPath, 0666); err != nil {
-		t.Fatal(err)
+	if runtime.GOOS == "windows" {
+		if err := os.Chmod(paths.state, 0666); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(draftPath, 0666); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := os.Chmod(paths.state, 0400); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(draftPath, 0400); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	api := attachEditorForUser(userID)
