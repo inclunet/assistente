@@ -81,6 +81,7 @@ export interface EditorDocument {
 
 
 interface EditorState {
+  ownerUserId: string | null;
   documents: Record<string, EditorDocument>;
 
   createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId' | 'readOnly' | 'projection' | 'loadError' | 'sessionHydrated'>>) => string;
@@ -101,6 +102,8 @@ interface EditorState {
   requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string | null;
   consumePendingInsert: () => EditorInsertRequest | null;
 
+  prepareUser: (userId: string) => void;
+  clearUser: () => void;
   hydrate: (payload: { documents: Record<string, EditorDocument> }) => void;
 }
 
@@ -121,6 +124,7 @@ function updateDoc(documents: Record<string, EditorDocument>, docId: string, pat
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
+  ownerUserId: null,
   documents: {},
 
   pendingInsert: null,
@@ -266,6 +270,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   getDocument: (docId) => get().documents[docId],
+
+  prepareUser: (userId) => {
+    const normalized = String(userId ?? '').trim();
+    if (!normalized || get().ownerUserId === normalized) return;
+    set({
+      ownerUserId: normalized,
+      documents: {},
+      pendingInsert: null,
+    });
+  },
+
+  clearUser: () => {
+    set({
+      ownerUserId: null,
+      documents: {},
+      pendingInsert: null,
+    });
+  },
 
   hydrate: (payload) => {
     set({

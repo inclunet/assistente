@@ -7,7 +7,7 @@ import {
 } from './editorStore';
 
 function resetStore() {
-  useEditorStore.setState({ documents: {}, pendingInsert: null });
+  useEditorStore.setState({ ownerUserId: null, documents: {}, pendingInsert: null });
 }
 
 describe('editorStore — filePath lifecycle', () => {
@@ -86,6 +86,27 @@ describe('editorStore — filePath lifecycle', () => {
 
     expect(useEditorStore.getState().documents['d1'].filePath).toBe('/a.md');
     expect(useEditorStore.getState().documents['d2'].filePath).toBeNull();
+  });
+
+  it('limpa conteúdo em memória ao alternar usuário e no logout', () => {
+    useEditorStore.getState().prepareUser('user-a');
+    useEditorStore.getState().createDocument({
+      id: 'segredo',
+      title: 'Privado',
+      markdown: 'conteúdo de A',
+    });
+
+    useEditorStore.getState().prepareUser('user-a');
+    expect(useEditorStore.getState().documents.segredo?.markdown).toBe('conteúdo de A');
+
+    useEditorStore.getState().prepareUser('user-b');
+    expect(useEditorStore.getState().ownerUserId).toBe('user-b');
+    expect(useEditorStore.getState().documents).toEqual({});
+
+    useEditorStore.getState().createDocument({ id: 'b', markdown: 'conteúdo de B' });
+    useEditorStore.getState().clearUser();
+    expect(useEditorStore.getState().ownerUserId).toBeNull();
+    expect(useEditorStore.getState().documents).toEqual({});
   });
 
   it('normaliza somente modos de exibição suportados', () => {

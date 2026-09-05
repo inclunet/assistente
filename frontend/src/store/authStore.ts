@@ -9,6 +9,7 @@ import {
   SetupVault,
   UnlockVault,
 } from '@wailsjs/go/app/App';
+import { useEditorStore } from './editorStore';
 
 export interface AuthStatus {
   vaultConfigured: boolean;
@@ -149,6 +150,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
         set({ isLoading: false });
       } catch (error) {
         logger.error('[authStore] loadStatus failed', error);
+        useEditorStore.getState().clearUser();
         set({
           error: mapBackendError(error),
           isLoading: false,
@@ -210,6 +212,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const user = parseAuthUser(await Login({ username, password, clientLabel: 'Wails desktop' }));
+      useEditorStore.getState().prepareUser(user.userId);
       set({
         user,
         isAuthenticated: true,
@@ -218,6 +221,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       });
     } catch (error) {
       logger.error('[authStore] login failed', error);
+      useEditorStore.getState().clearUser();
       set({
         error: mapBackendError(error),
         isLoading: false,
@@ -243,6 +247,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
           logger.warn('[authStore] refresh result discarded: logout in flight');
           return;
         }
+        useEditorStore.getState().prepareUser(user.userId);
         set({ user, isAuthenticated: true, error: null });
       } catch (error) {
         if (logoutGeneration !== generationAtStart) {
@@ -251,6 +256,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
           return;
         }
         logger.warn('[authStore] refresh failed', error);
+        useEditorStore.getState().clearUser();
         set({ user: null, isAuthenticated: false });
       }
     })();
@@ -271,6 +277,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       logger.warn('[authStore] logout RPC failed', error);
     }
     purgeLegacyTokenStorage();
+    useEditorStore.getState().clearUser();
     set({ user: null, isAuthenticated: false, error: null });
   },
 }));

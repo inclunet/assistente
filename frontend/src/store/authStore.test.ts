@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from '@testing-library/react';
 
 import { useAuthStore, __testing__ as authTesting } from './authStore';
+import { useEditorStore } from './editorStore';
 
 const mockGetAuthStatus = vi.fn();
 const mockRefreshAuth = vi.fn();
@@ -42,6 +43,7 @@ beforeEach(() => {
     error: null,
     isAuthenticated: false,
   });
+  useEditorStore.getState().clearUser();
 });
 
 describe('authStore.refresh', () => {
@@ -123,11 +125,17 @@ describe('authStore.refresh', () => {
       await useAuthStore.getState().refresh();
     });
     expect(useAuthStore.getState().user?.userId).toBe('u-1');
+    useEditorStore.getState().createDocument({
+      id: 'privado-u1',
+      markdown: 'não pode chegar ao usuário 2',
+    });
 
     await act(async () => {
       await useAuthStore.getState().refresh();
     });
     expect(useAuthStore.getState().user?.userId).toBe('u-2');
+    expect(useEditorStore.getState().ownerUserId).toBe('u-2');
+    expect(useEditorStore.getState().documents).toEqual({});
     expect(mockRefreshAuth).toHaveBeenCalledTimes(2);
   });
 });
@@ -180,5 +188,7 @@ describe('authStore boot purge (B25 adaptado)', () => {
     });
 
     expect(localStorage.getItem('assistente-auth-refresh-token')).toBeNull();
+    expect(useEditorStore.getState().ownerUserId).toBeNull();
+    expect(useEditorStore.getState().documents).toEqual({});
   });
 });
