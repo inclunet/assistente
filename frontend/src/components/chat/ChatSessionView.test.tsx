@@ -570,6 +570,7 @@ describe('ChatSessionView', () => {
           kind: 'workspace',
           tabId: 'chat-tab',
           surfaceId: chatSurface.surfaceId,
+          surfaceType: chatSurface.surfaceType,
           conversationId,
         },
       },

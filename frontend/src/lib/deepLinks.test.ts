@@ -1022,6 +1022,7 @@ describe('executeDeepLink', () => {
         kind: 'workspace' as const,
         tabId: 'chat-tab',
         surfaceId: 'page:tab:chat-tab',
+        surfaceType: 'page' as const,
         conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
       };
 

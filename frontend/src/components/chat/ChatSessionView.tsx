@@ -449,6 +449,7 @@ function ChatSessionViewContent({
                     kind: 'workspace' as const,
                     tabId: origin.tabId,
                     surfaceId: origin.surfaceId,
+                    surfaceType: origin.surfaceType,
                     conversationId: origin.conversationId,
                   },
                 }

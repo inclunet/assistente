@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 const mockDuplicateProfile = vi.fn();
 const mockNavigate = vi.fn();
 const mockSetActiveTab = vi.fn();
+const mockRequestOpen = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
@@ -27,6 +28,12 @@ vi.mock('../store/workspaceStore', () => ({
       }),
     },
   ),
+}));
+
+vi.mock('../store/workspaceChatModalStore', () => ({
+  useWorkspaceChatModalStore: {
+    getState: () => ({ requestOpen: mockRequestOpen }),
+  },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -245,6 +252,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     mockAnnounce.mockReset();
     mockNavigate.mockReset();
     mockSetActiveTab.mockReset();
+    mockRequestOpen.mockReset();
     useNavigationStore.getState().clearPendingEdit();
     vi.mocked(UpdateProfile).mockClear();
     mockDuplicateProfile.mockResolvedValue('perfil-padrao-copia');
@@ -338,6 +346,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
         kind: 'workspace',
         tabId: 'chat-tab',
         surfaceId: 'page:tab:chat-tab',
+        surfaceType: 'page',
         conversationId: 'conversation-1',
       },
     });
@@ -365,6 +374,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
         kind: 'workspace',
         tabId: 'chat-tab',
         surfaceId: 'page:tab:chat-tab',
+        surfaceType: 'page',
         conversationId: 'conversation-1',
       },
     });

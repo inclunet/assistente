@@ -36,6 +36,11 @@ import { useProfileDependencies } from '../hooks/useProfileDependencies';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import type { ResourceEditRequest } from '../store/navigationStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import {
+  buildTabChatSurfaceId,
+  buildWorkspaceModalChatSurfaceId,
+} from '../services/chatSessionRegistry';
 import './ProfilesPage.css';
 
 type ProfileInfo = profiles.ProfileInfo;
@@ -76,8 +81,15 @@ export default function ProfilesPage() {
     requestAnimationFrame(() => {
       const workspaceState = useWorkspaceStore.getState();
       const callerTab = workspaceState.workspace?.tabs.find((tab) => tab.id === caller.tabId);
-      if (callerTab) {
-        workspaceState.setActiveTab(caller.tabId);
+      const expectedSurfaceId = caller.surfaceType === 'modal'
+        ? buildWorkspaceModalChatSurfaceId(caller.tabId)
+        : buildTabChatSurfaceId(caller.tabId, caller.surfaceType);
+      const conversationMatches = (callerTab?.conversationId ?? null) === caller.conversationId;
+      if (!callerTab || caller.surfaceId !== expectedSurfaceId || !conversationMatches) return;
+
+      workspaceState.setActiveTab(caller.tabId);
+      if (caller.surfaceType === 'modal') {
+        void useWorkspaceChatModalStore.getState().requestOpen(caller.tabId);
       }
     });
   }, [navigate]);

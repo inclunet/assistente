@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ChatSurfaceType } from '../services/chatSessionRegistry';
 
 export type EditableResource =
   | 'profiles'
@@ -17,6 +18,7 @@ export interface WorkspaceNavigationCaller {
   kind: 'workspace';
   tabId: string;
   surfaceId: string;
+  surfaceType: ChatSurfaceType;
   conversationId: string | null;
 }
 

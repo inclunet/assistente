@@ -56,7 +56,7 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 | `assistente://{recurso}/edit/{id}` | Abre formulário de edição do recurso |
 | `assistente://profiles/edit/{slug}?tab=voice` | Edita o perfil diretamente na seção de voz |
 
-Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `tasklists`
+Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `memories`, `tasklists`
 
 ### Rotas Válidas para `navigate`
 
