@@ -1516,6 +1516,12 @@ const en = {
       empty: 'No profiles',
       selectedAnnounce: 'Profile selected: {{name}}',
       changedAnnounce: 'Profile changed to {{name}}',
+      builtinDescriptions: {
+        padrao: 'General-purpose assistant for researching, analyzing, writing, organizing, and handling everyday tasks. Use when the request spans multiple subjects, does not primarily involve code, or is still loosely defined. Do not use for substantial software implementation, debugging, refactoring, or review; choose the “Programação” profile instead. Examples: summarize documents; compare options; draft an email; plan a trip.',
+        programacao: 'Software development agent for exploring repositories, planning changes, editing code, running commands, and validating results. Use when you need to implement features, fix bugs, debug, refactor, write tests, or perform technical reviews. Do not use for general research, writing, or planning without relevant code work; choose the “Padrão” profile instead. Examples: fix a failing test; add an API; review a diff; run build and lint.',
+        'editor-texto': 'Profile for editing in the text editor and the open file.',
+        'canais-comunicacao': 'Lean, secure profile for messages in external channels such as Signal and Telegram.',
+      },
       activated: 'Profile "{{name}}" activated!',
       activatedAnnounce: 'Profile {{name}} activated',
       activateError: 'Error activating profile',

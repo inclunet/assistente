@@ -1516,6 +1516,12 @@ const ptBR = {
       empty: 'Nenhum perfil',
       selectedAnnounce: 'Perfil selecionado: {{name}}',
       changedAnnounce: 'Perfil alterado para {{name}}',
+      builtinDescriptions: {
+        padrao: 'Assistente geral para pesquisar, analisar, escrever, organizar e resolver tarefas cotidianas. Use quando a solicitação combinar assuntos, não exigir trabalho predominante em código ou ainda estiver pouco definida. Não use para implementar, depurar, refatorar ou revisar software de forma substancial; nesses casos, escolha Programação. Exemplos: resumir documentos; comparar opções; redigir um e-mail; planejar uma viagem.',
+        programacao: 'Agente de desenvolvimento de software para explorar repositórios, planejar mudanças, editar código, executar comandos e validar resultados. Use quando precisar implementar funcionalidades, corrigir bugs, depurar, refatorar, escrever testes ou fazer revisão técnica. Não use para pesquisa, redação ou planejamento geral sem trabalho relevante em código; nesses casos, escolha Padrão. Exemplos: corrigir um teste com falha; adicionar uma API; revisar um diff; executar build e lint.',
+        'editor-texto': 'Perfil para edição dentro do editor de texto e do arquivo aberto.',
+        'canais-comunicacao': 'Perfil enxuto e seguro para mensagens em canais externos (Signal, Telegram e outros).',
+      },
       activated: 'Perfil "{{name}}" ativado!',
       activatedAnnounce: 'Perfil {{name}} ativado',
       activateError: 'Erro ao ativar perfil',
