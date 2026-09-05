@@ -81,6 +81,10 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	if unpinned.Pinned {
 		t.Fatal("expected pinned=false")
 	}
+	if unpinned.Role != anaMessage.Role || unpinned.Content != anaMessage.Content ||
+		unpinned.CreatedAt.IsZero() || unpinned.UpdatedAt.IsZero() {
+		t.Fatalf("toggle omitted required message fields: %+v", unpinned)
+	}
 	if unpinned.Audio != "" || unpinned.Media != "" || unpinned.ToolCalls != "" {
 		t.Fatalf("toggle loaded large unused fields: %+v", unpinned)
 	}
