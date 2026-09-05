@@ -81,11 +81,13 @@ export default function ProfilesPage() {
 
     const workspaceState = useWorkspaceStore.getState();
     const callerTab = workspaceState.workspace?.tabs.find((tab) => tab.id === caller.tabId);
-    const expectedSurfaceId = caller.surfaceType === 'modal'
-      ? buildWorkspaceModalChatSurfaceId(caller.tabId)
-      : buildTabChatSurfaceId(caller.tabId, caller.surfaceType);
+    const surfaceMatches = caller.surfaceType === 'modal'
+      ? caller.surfaceId === buildWorkspaceModalChatSurfaceId(caller.tabId)
+      : caller.surfaceType === 'page'
+        ? caller.surfaceId === buildTabChatSurfaceId(caller.tabId, 'page')
+        : caller.surfaceId.trim().length > 0;
     const conversationMatches = (callerTab?.conversationId ?? null) === caller.conversationId;
-    if (!callerTab || caller.surfaceId !== expectedSurfaceId || !conversationMatches) return;
+    if (!callerTab || !surfaceMatches || !conversationMatches) return;
 
     navigate('/');
     requestAnimationFrame(() => {

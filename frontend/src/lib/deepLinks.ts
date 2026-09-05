@@ -5,7 +5,7 @@ import { useEditorStore } from '../store/editorStore';
 import {
   useNavigationStore,
   type EditableResource,
-  type ProfileEditorTab,
+  type ProfileEditSection,
   type WorkspaceNavigationCaller,
 } from '../store/navigationStore';
 import { useUIStore } from '../store/uiStore';
@@ -37,7 +37,7 @@ export type DeepLinkAction =
       type: 'resource:edit';
       resource: EditableResource;
       resourceId: string;
-      tab?: ProfileEditorTab;
+      tab?: ProfileEditSection;
     }
   | { type: 'resource:new'; resource: EditableResource }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
@@ -59,14 +59,14 @@ const EDITABLE_RESOURCES = new Set<EditableResource>([
 ]);
 
 const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
-const PROFILE_EDITOR_TABS = new Set<ProfileEditorTab>(['voice']);
+const PROFILE_EDIT_SECTIONS = new Set<ProfileEditSection>(['voice']);
 
 function isValidResourceTab(
   resource: EditableResource,
   tab: string | undefined,
-): tab is ProfileEditorTab | undefined {
+): tab is ProfileEditSection | undefined {
   if (!tab) return true;
-  return resource === 'profiles' && PROFILE_EDITOR_TABS.has(tab as ProfileEditorTab);
+  return resource === 'profiles' && PROFILE_EDIT_SECTIONS.has(tab as ProfileEditSection);
 }
 
 function defaultTitleForNewTab(tabType: TabType): string {
@@ -192,7 +192,7 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
           type: 'resource:edit',
           resource: resource as EditableResource,
           resourceId,
-          ...(tabParam ? { tab: tabParam as ProfileEditorTab } : {}),
+          ...(tabParam ? { tab: tabParam as ProfileEditSection } : {}),
         };
       }
     }

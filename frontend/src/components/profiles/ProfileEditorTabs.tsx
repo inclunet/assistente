@@ -11,7 +11,7 @@ import { ProfileSkillsSection } from './ProfileSkillsSection';
 import { ProfileContextProvidersSection } from './ProfileContextProvidersSection';
 import { ProfileToolsSection } from './ProfileToolsSection';
 import { ProfileAudioTab } from './ProfileAudioTab';
-import type { ProfileEditorTab } from '../../store/navigationStore';
+import type { ProfileEditSection } from '../../store/navigationStore';
 import './ProfileEditorTabs.css';
 
 const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
@@ -56,7 +56,7 @@ export interface ProfileEditorTabsProps {
   availableAllowlists: allowlist.AllowlistInfo[];
   updateField: (path: string, value: unknown) => void;
   updateFields: (updates: Record<string, unknown>) => void;
-  initialTab?: ProfileEditorTab;
+  initialTab?: ProfileEditSection;
 }
 
 export function ProfileEditorTabs({

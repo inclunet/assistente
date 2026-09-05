@@ -578,6 +578,42 @@ describe('ChatSessionView', () => {
     expect(speakMessageMock).not.toHaveBeenCalled();
   });
 
+  it('preserva caller ao configurar voz em superfície embedded', async () => {
+    requestConfirmMock.mockResolvedValueOnce(true);
+    const chatSurface = surface({
+      surfaceId: 'embedded:editor:chat-tab',
+      surfaceType: 'embedded',
+      tabId: 'chat-tab',
+    });
+    renderWithPanel(
+      <ChatSessionView
+        variant="embedded"
+        surface={chatSurface}
+        onSend={vi.fn()}
+        showShortcutsHelp={false}
+        profileSlug="programacao"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'speak-message' }));
+
+    await waitFor(() => {
+      expect(executeDeepLinkMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'resource:edit', tab: 'voice' }),
+        {
+          navigate: navigateMock,
+          caller: {
+            kind: 'workspace',
+            tabId: 'chat-tab',
+            surfaceId: 'embedded:editor:chat-tab',
+            surfaceType: 'embedded',
+            conversationId,
+          },
+        },
+      );
+    });
+  });
+
   it('informa erro quando não consegue abrir a configuração de voz', async () => {
     requestConfirmMock.mockResolvedValueOnce(true);
     executeDeepLinkMock.mockRejectedValueOnce(new Error('falha de navegação'));

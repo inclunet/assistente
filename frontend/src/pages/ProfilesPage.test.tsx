@@ -368,6 +368,28 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
   });
 
+  it('retorna à aba que contém a superfície embedded ao cancelar', async () => {
+    const user = userEvent.setup();
+    useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
+      tab: 'voice',
+      caller: {
+        kind: 'workspace',
+        tabId: 'chat-tab',
+        surfaceId: 'embedded:editor:chat-tab',
+        surfaceType: 'embedded',
+        conversationId: 'conversation-1',
+      },
+    });
+
+    render(<ProfilesPage />);
+    await screen.findByRole('button', { name: 'Cancelar' });
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
+    expect(mockRequestOpen).not.toHaveBeenCalled();
+  });
+
   it('retorna à aba de origem depois de salvar o perfil', async () => {
     const user = userEvent.setup();
     useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
