@@ -11,22 +11,22 @@ export function SkillContentSection({
 }: SkillContentSectionProps) {
   const { t } = useTranslation();
   return (
-    <section className="skill-section" data-testid="skill-content-section">
-      <h3 className="skill-section__title">{t('skills.contentSection.title')}</h3>
-      <div className="skill-fields">
-        <div className="skill-field">
-          <label htmlFor="sk-content" className="skill-field__label">
+    <section className="skills-section" data-testid="skill-content-section">
+      <h3 className="skills-section__title">{t('skills.contentSection.title')}</h3>
+      <div className="skills-fields">
+        <div className="skills-field">
+          <label htmlFor="sk-content" className="skills-field__label">
             {t('skills.contentSection.label')}
           </label>
           <textarea
             id="sk-content"
-            className="skill-field__textarea"
+            className="skills-field__textarea"
             rows={15}
             value={content || ''}
             onChange={(e) => onContentChange(e.target.value)}
             placeholder={t('skills.contentSection.placeholder')}
           />
-          <span className="skill-field__hint">
+          <span className="skills-field__hint">
             {t('skills.contentSection.hint')}
           </span>
         </div>

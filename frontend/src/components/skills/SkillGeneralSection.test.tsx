@@ -37,6 +37,8 @@ describe('SkillGeneralSection', () => {
     expect(screen.getByLabelText('Versão')).toHaveValue('1.2.3');
     expect(screen.getByLabelText('Descrição')).toHaveValue('Desc');
     expect(screen.getByLabelText(/Auto —/)).toBeChecked();
+    expect(screen.getByTestId('skill-general-section')).toHaveClass('skills-section');
+    expect(screen.getByLabelText('Versão')).toHaveClass('skills-field__input');
   });
 
   it('dispara onFieldChange ao editar nome e descrição', async () => {

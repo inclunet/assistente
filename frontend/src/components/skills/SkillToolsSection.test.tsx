@@ -33,6 +33,8 @@ describe('SkillToolsSection', () => {
     expect(
       screen.getByText('Liste as ferramentas (tool calling) que podem ser usadas neste skill.')
     ).toBeInTheDocument();
+    expect(screen.getByTestId('skill-tools-section')).toHaveClass('skills-section');
+    expect(screen.getByLabelText('Ferramentas (separadas por vírgula)')).toHaveClass('skills-field__input');
   });
 
   it('dispara onToolsChange ao editar', async () => {

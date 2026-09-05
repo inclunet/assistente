@@ -11,22 +11,22 @@ export function SkillToolsSection({
 }: SkillToolsSectionProps) {
   const { t } = useTranslation();
   return (
-    <section className="skill-section" data-testid="skill-tools-section">
-      <h3 className="skill-section__title">{t('skills.toolsSection.title')}</h3>
-      <div className="skill-fields">
-        <div className="skill-field">
-          <label htmlFor="sk-tools" className="skill-field__label">
+    <section className="skills-section" data-testid="skill-tools-section">
+      <h3 className="skills-section__title">{t('skills.toolsSection.title')}</h3>
+      <div className="skills-fields">
+        <div className="skills-field">
+          <label htmlFor="sk-tools" className="skills-field__label">
             {t('skills.toolsSection.label')}
           </label>
           <input
             id="sk-tools"
             type="text"
-            className="skill-field__input"
+            className="skills-field__input"
             value={toolsString}
             onChange={(e) => onToolsChange(e.target.value)}
             placeholder={t('skills.toolsSection.placeholder')}
           />
-          <span className="skill-field__hint">
+          <span className="skills-field__hint">
             {t('skills.toolsSection.hint')}
           </span>
         </div>

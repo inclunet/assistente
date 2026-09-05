@@ -33,6 +33,8 @@ describe('SkillContentSection', () => {
     expect(
       screen.getByText('Este conteúdo será incluído no system prompt quando o skill estiver ativo.')
     ).toBeInTheDocument();
+    expect(screen.getByTestId('skill-content-section')).toHaveClass('skills-section');
+    expect(screen.getByLabelText('Conteúdo do Skill')).toHaveClass('skills-field__textarea');
   });
 
   it('dispara onContentChange ao editar', async () => {
