@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
@@ -123,15 +124,15 @@ func TestManagerRunSyncPreservesIntegralResponseInMemory(t *testing.T) {
 	if res.Response != fullResponse {
 		t.Fatalf("resposta em memória foi truncada: got=%d want=%d", len(res.Response), len(fullResponse))
 	}
-	if len(res.ResultSummary) != maxResultSummary {
-		t.Fatalf("result_summary deve manter limite persistente: got=%d want=%d", len(res.ResultSummary), maxResultSummary)
+	if len(res.ResultSummary) > maxResultSummary || !utf8.ValidString(res.ResultSummary) {
+		t.Fatalf("result_summary deve respeitar limite e UTF-8: len=%d valid=%t", len(res.ResultSummary), utf8.ValidString(res.ResultSummary))
 	}
 	run, err := repo.Get(ctx, res.RunID)
 	if err != nil {
 		t.Fatalf("buscar run: %v", err)
 	}
-	if len(run.ResultSummary) != maxResultSummary {
-		t.Fatalf("resumo persistido deve continuar limitado: got=%d want=%d", len(run.ResultSummary), maxResultSummary)
+	if len(run.ResultSummary) > maxResultSummary || !utf8.ValidString(run.ResultSummary) {
+		t.Fatalf("resumo persistido deve respeitar limite e UTF-8: len=%d valid=%t", len(run.ResultSummary), utf8.ValidString(run.ResultSummary))
 	}
 }
 
