@@ -43,6 +43,9 @@ Task lists are persisted in the application database and managed through tools. 
 - When a task is completed or its status changes, use `task` with `task_id` and updated fields.
 - When adding a task, use `task` with `task_list_id` and `title`.
 - Use `task_list` with `task_list_id` for latest list data if significant time has passed.
+- For large boards, do not read the entire list. Use `status_id`, `limit` (1-100), and an explicit `sort` (`created_at:asc` or `created_at:desc`). Continue with the opaque `next_cursor` while `has_more` is true, preserving the same list, status filter, and sort.
+- Paged task results are flat: subtasks are separate entries carrying `parent_id`. Omitting all paging fields preserves the legacy hierarchical full-list response.
+- For consuming jobs that move processed cards out of the selected status, query the first page again on the next run. Use `cursor` for read-only traversal or explicit resume, not when the filtered set intentionally shrinks between calls.
 - Use `task` with `task_id` alone to read task details and notes.
 - When changing task status, use the stable status ID returned by the tools, not only the label.
 - When changing workflows, provide `status_migration` if removing statuses that have tasks.
