@@ -26,6 +26,12 @@ func TestConversationsNotWired(t *testing.T) {
 	if _, err := api.GetConversationMessageWindow(chat.MessageWindowRequest{}); !errors.Is(err, ErrConversationsNotWired) {
 		t.Fatalf("GetConversationMessageWindow: got %v", err)
 	}
+	if _, err := api.ToggleMessagePin("id"); !errors.Is(err, ErrConversationsNotWired) {
+		t.Fatalf("ToggleMessagePin: got %v", err)
+	}
+	if _, err := api.GetPinnedMessages("id"); !errors.Is(err, ErrConversationsNotWired) {
+		t.Fatalf("GetPinnedMessages: got %v", err)
+	}
 	if _, err := api.SearchConversationHistory("q", 10); !errors.Is(err, ErrConversationsNotWired) {
 		t.Fatalf("SearchConversationHistory: got %v", err)
 	}
@@ -122,6 +128,14 @@ func TestConversationsUsesWithUserNotRequireAuth(t *testing.T) {
 		}},
 		{"UpdateMessage", func() error {
 			return api.UpdateMessage("id", "c")
+		}},
+		{"ToggleMessagePin", func() error {
+			_, err := api.ToggleMessagePin("id")
+			return err
+		}},
+		{"GetPinnedMessages", func() error {
+			_, err := api.GetPinnedMessages("id")
+			return err
 		}},
 		{"UpdateConversationModel", func() error {
 			return api.UpdateConversationModel("id", "m")
