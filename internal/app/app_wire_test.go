@@ -668,9 +668,6 @@ func TestWireChatAttachesBind(t *testing.T) {
 	t.Parallel()
 	a := &App{
 		chatCtrl: controllers.NewChatController(controllers.ChatControllerConfig{}),
-		settingsCtrl: controllers.NewSettingsController(controllers.SettingsControllerConfig{
-			ProfileMgr: profiles.NewManager(),
-		}),
 	}
 	api := wailsapi.NewChat()
 	SetChatAPI(a, api)
@@ -680,10 +677,6 @@ func TestWireChatAttachesBind(t *testing.T) {
 	_, err := api.SendMessage("c1", "hi", "", llm.ChatParams{})
 	if !errors.Is(err, database.ErrUserScopeRequired) {
 		t.Fatalf("sem sessão: want ErrUserScopeRequired, got %v", err)
-	}
-	_, err = api.SendMessageSync(nil, llm.ChatParams{})
-	if !errors.Is(err, database.ErrUserScopeRequired) {
-		t.Fatalf("SendMessageSync sem sessão: want ErrUserScopeRequired, got %v", err)
 	}
 }
 

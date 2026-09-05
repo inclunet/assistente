@@ -57,7 +57,12 @@ func (t *TaskListTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TaskListTool) Description() string {
-	return `Full CRUD for task lists. Without params → lists all. Identify a list by task_list_id and/or task_list_slug (at least one for read/update/duplicate/summary); if both are sent, they must refer to the same list. With id or slug only → full details. With summary_only → lightweight status counts. Optional slug (create/duplicate: initial slug for the new list; update: set or clear — use empty string to remove slug). With title and no existing list reference → create. With id or slug → update (title may be omitted to keep current). With duplicate + title → copy (tasks NOT copied). validation_policy: task_code_regex, allowed_note_sources, note_external_id_regex, note_external_parent_id_regex; {} clears. custom_actions: optional per-list context-menu items/buttons (publish a domain event and/or open a link); [] clears, omit to keep. Workflow updates with removed statuses need status_migration.`
+	return `Manage persistent task-list containers and their workflow: list, read, summarize, create, update, duplicate, configure validation/custom actions, or link a whole list to a conversation. This tool does not delete lists.
+Use when: you need the board/list itself, workflow status IDs, list-level policy, or lightweight status counts. With no parameters it lists lists; task_list_id/task_list_slug reads details; summary_only avoids returning every task.
+Do not use: use task for one card, task_note for a card's comments/history, or update_plan for the current conversation's simple execution plan. A job_pipeline groups automations, not tasks.
+Persistence, risk, and cost: writes persist in the database. Workflow changes can affect every task and removed statuses require status_migration; custom actions can later publish events or open links. Full details may be large, so prefer summary_only when counts are enough.
+Resolution: if both task_list_id and task_list_slug are supplied they must identify the same list. duplicate copies configuration but not tasks. Omitted policy/action fields are preserved; validation_policy {} and custom_actions [] clear them.
+Examples: list {}; summarize {"task_list_slug":"release","summary_only":true}; create {"title":"Release","slug":"release"}; inspect workflow {"task_list_slug":"release"}.`
 }
 
 func (t *TaskListTool) Parameters() json.RawMessage {
