@@ -119,6 +119,25 @@ describe('ChatMessage', () => {
     }));
   });
 
+  it('indica fixação por texto e no nome acessível', () => {
+    const message = new chat.EnrichedMessage({
+      id: 'pinned-message',
+      conversationId,
+      role: 'assistant',
+      content: 'Resposta importante',
+      pinned: true,
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: false,
+      internal: false,
+    });
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.getByText('chat.pinnedMessage')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^chat\.pinnedMessage\./)).toBeInTheDocument();
+  });
+
   it('habilita a navegação interna do renderer somente no modo de leitura', () => {
     const message = new chat.EnrichedMessage({
       id: 'reading-navigation',

@@ -23,6 +23,7 @@ import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
 import { AgentOptionsPickers } from './AgentOptionsPickers';
 import { AgentWorkDirControl } from './AgentWorkDirControl';
+import { PinnedMessagesModal } from './PinnedMessagesModal';
 import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
@@ -110,6 +111,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const previousQueuedTurnCountRef = useRef<number | null>(null);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [isPinnedModalOpen, setIsPinnedModalOpen] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
   const [nativeModelProviderID, setNativeModelProviderID] = useState<string | null>(null);
   const [modelOverrideUpdating, setModelOverrideUpdating] = useState(false);
@@ -431,6 +433,17 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
             <ToolbarSeparator />
 
+            <ToolbarButton
+              label={t('chat.pins.button')}
+              icon="📌"
+              title={t('chat.pins.buttonDescription')}
+              aria-label={t('chat.pins.button')}
+              onClick={() => setIsPinnedModalOpen(true)}
+              disabled={!effectiveConversationId}
+            />
+
+            <ToolbarSeparator />
+
             <TokenStatsButton
               conversationId={activeConversation?.id}
               onOpenModal={() => setIsTokenModalOpen(true)}
@@ -500,6 +513,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         onClose={closeContextMenu}
         onSelect={onSelectContextMenuItem}
       />
+
+      {effectiveConversationId && (
+        <PinnedMessagesModal
+          conversationId={effectiveConversationId}
+          isOpen={isPinnedModalOpen}
+          onClose={() => setIsPinnedModalOpen(false)}
+        />
+      )}
 
       {activeConversation?.id && (
         <TokenStatsModal
