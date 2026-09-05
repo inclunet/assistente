@@ -248,6 +248,29 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('bloqueia o salvamento quando a versão não segue X.Y.Z', async () => {
+    const user = userEvent.setup();
+    render(<SkillsPage />);
+    await screen.findByText('skill-base');
+
+    await user.click(screen.getByRole('button', { name: 'Novo Skill' }));
+    await user.type(screen.getByLabelText('skills.generalSection.name'), 'novo-skill');
+    await user.type(
+      screen.getByLabelText('skills.generalSection.description'),
+      'Descrição válida para o skill',
+    );
+    const versionInput = screen.getByLabelText('skills.generalSection.version');
+    await user.clear(versionInput);
+    await user.type(versionInput, '1.0');
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(mockCreateSkill).not.toHaveBeenCalled();
+    expect(mockAddToast).toHaveBeenCalledWith(
+      'Versão deve seguir o formato semântico X.Y.Z',
+      'error',
+    );
+  });
+
   it('preserva versão existente e defaulta skill legada sem version ao editar', async () => {
     const user = userEvent.setup();
     mockGetSkill
@@ -272,16 +295,22 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
       });
 
     const { unmount } = render(<SkillsPage />);
-    await screen.findByText('skill-base');
-    let editButtons = screen.getAllByRole('button', { name: 'Editar skill' });
-    await user.click(editButtons[editButtons.length - 1]);
+    let skillRow = (await screen.findByText('skill-base')).closest('div');
+    await user.click(within(skillRow as HTMLElement).getByRole('button', { name: 'Editar skill' }));
     expect(await screen.findByLabelText('skills.generalSection.version')).toHaveValue('2.3.4');
     unmount();
 
     render(<SkillsPage />);
-    await screen.findByText('skill-base');
-    editButtons = screen.getAllByRole('button', { name: 'Editar skill' });
-    await user.click(editButtons[editButtons.length - 1]);
+    skillRow = (await screen.findByText('skill-base')).closest('div');
+    await user.click(within(skillRow as HTMLElement).getByRole('button', { name: 'Editar skill' }));
     expect(await screen.findByLabelText('skills.generalSection.version')).toHaveValue('1.0.0');
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => {
+      expect(mockUpdateSkill).toHaveBeenCalledWith(
+        'skill-base',
+        expect.objectContaining({ version: '1.0.0' }),
+      );
+    });
   });
 });
