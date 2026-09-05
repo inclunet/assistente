@@ -518,6 +518,10 @@ func (api *Editor) userPaths(ctx context.Context) (editorUserPaths, error) {
 	api.migrationMu.Lock()
 	defer api.migrationMu.Unlock()
 	if _, ok := api.prepared[userID]; ok {
+		if _, err := validateEditorStorageRoot(userID, paths); err != nil {
+			delete(api.prepared, userID)
+			return editorUserPaths{}, fmt.Errorf("storage preparado do editor ficou inválido: %w", err)
+		}
 		return paths, nil
 	}
 	editorLegacyMigrationMu.Lock()

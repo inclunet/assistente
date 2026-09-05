@@ -584,6 +584,63 @@ func TestEditorRejectsSymlinkedUserDirectory(t *testing.T) {
 	}
 }
 
+func TestEditorRevalidatesPreparedStorageAfterSymlinkSwap(t *testing.T) {
+	for _, component := range []string{"user", "editor", "drafts"} {
+		t.Run(component, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+
+			userID := "01991f7c-1000-7000-8000-000000000071"
+			api := attachEditorForUser(userID)
+			if err := api.EditorWriteDraft("antes", "conteúdo inicial"); err != nil {
+				t.Fatalf("preparação inicial: %v", err)
+			}
+			paths, err := editorPathsForUser(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var replacedPath string
+			switch component {
+			case "user":
+				replacedPath = filepath.Dir(paths.root)
+			case "editor":
+				replacedPath = paths.root
+			default:
+				replacedPath = paths.draftDir
+			}
+			if err := os.RemoveAll(replacedPath); err != nil {
+				t.Fatal(err)
+			}
+			external := t.TempDir()
+			sentinel := filepath.Join(external, "sentinela.txt")
+			if err := os.WriteFile(sentinel, []byte("não alterar"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(external, replacedPath); err != nil {
+				t.Skipf("symlink de diretório indisponível neste ambiente: %v", err)
+			}
+
+			if err := api.EditorWriteDraft("depois", "não gravar"); !errors.Is(err, database.ErrUserScopeRequired) {
+				t.Fatalf("cache aceitou troca por symlink em %s: %v", component, err)
+			}
+			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "não alterar" {
+				t.Fatalf("alvo externo foi alterado: %q, %v", data, err)
+			}
+			entries, err := os.ReadDir(external)
+			if err != nil || len(entries) != 1 || entries[0].Name() != "sentinela.txt" {
+				t.Fatalf("storage foi criado no alvo externo: %+v, %v", entries, err)
+			}
+			if len(api.prepared) != 0 {
+				t.Fatalf("cache inválido não foi removido: %+v", api.prepared)
+			}
+		})
+	}
+}
+
 func TestEditorLegacyMigrationTightensPreexistingDestinations(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
