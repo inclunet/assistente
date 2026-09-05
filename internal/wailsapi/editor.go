@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -362,7 +363,13 @@ func requireEditorUser(ctx context.Context) error {
 }
 
 func pathInside(base, candidate string) bool {
-	rel, err := filepath.Rel(filepath.Clean(base), filepath.Clean(candidate))
+	base = filepath.Clean(base)
+	candidate = filepath.Clean(candidate)
+	if runtime.GOOS == "windows" {
+		base = strings.ToLower(base)
+		candidate = strings.ToLower(candidate)
+	}
+	rel, err := filepath.Rel(base, candidate)
 	if err != nil {
 		return false
 	}

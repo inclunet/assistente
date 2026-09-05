@@ -272,6 +272,17 @@ func TestEditorRejectsContextWithoutUserID(t *testing.T) {
 	}
 }
 
+func TestEditorPathInsideIsCaseInsensitiveOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("semântica específica de paths Windows")
+	}
+	base := `C:\Users\Pessoa\.assistente\users`
+	candidate := `c:\users\pessoa\.ASSISTENTE\USERS\outro\editor\state.json`
+	if !pathInside(base, candidate) {
+		t.Fatalf("pathInside deveria ignorar casing no Windows: base=%q candidate=%q", base, candidate)
+	}
+}
+
 func TestEditorIsolatesDraftsAndStateBetweenUsers(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)
