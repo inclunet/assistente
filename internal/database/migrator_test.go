@@ -442,6 +442,12 @@ func TestMessagePinMigrationAddsColumnAndListingIndex(t *testing.T) {
 	if err := pinMigration.Run(database); err != nil {
 		t.Fatalf("migração de pin não é idempotente: %v", err)
 	}
+	if err := database.Migrator().DropTable(&ChatMessage{}); err != nil {
+		t.Fatalf("remover tabela para simular falha: %v", err)
+	}
+	if err := pinMigration.Run(database); !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("falha do índice deveria adiar migração, recebeu: %v", err)
+	}
 }
 
 // TestRealRegistry_FreshDBAppliesAllAndIsIdempotent exercita o registro real
