@@ -227,7 +227,43 @@ Os três modos do Codex descrevem **permissão**, e não estratégia de raciocí
 and edit files, and run commands") e `agent-full-access` ("Codex can edit files
 outside this workspace and run commands with network access. Exercise caution
 when using."). O padrão é `agent`. O que essas descrições significam para o
-`session/request_permission` não foi sondado, e o AEP não presume (D15).
+`session/request_permission` foi sondado depois, e está registrado na Q2.
+
+### 5. Os modos atuais do Codex e o pedido de permissão
+
+Sonda executada em 2026-09-05 no Windows, com Node 24, autenticação local já
+existente e `@agentclientprotocol/codex-acp` 1.10.0 (Codex 0.153.3). Essa é a
+versão que o registro ACP publicava naquele dia. Cada combinação abriu uma
+sessão nova; pedidos de permissão foram contados e respondidos negativamente, e
+todos os arquivos-alvo ficavam numa árvore temporária removida ao fim.
+
+O resultado foi:
+
+| modo | editar no `cwd` | comando local inofensivo | editar fora do `cwd` |
+|---|---|---|---|
+| `read-only` | 0 pedidos; executou | 0 pedidos; executou | 1 pedido (`edit`); negado pela sonda, não executou |
+| `agent` | 0 pedidos; executou | 0 pedidos; executou | 0 pedidos; a revisão automática não tentou a edição |
+| `agent-full-access` | 0 pedidos; executou | 0 pedidos; executou | 0 pedidos; executou |
+
+O nome histórico `read-only` já não descreve literalmente o preset atual. Na
+1.10.0 ele aparece como **Ask for approval** e usa `approvalPolicy:
+on-request`, revisor `user` e sandbox `workspaceWrite`: trabalha dentro do
+workspace sem perguntar e pergunta para sair dele. `agent` usa o mesmo
+`on-request` e o mesmo sandbox, mas entrega a revisão a `auto_review`; por isso
+os zero pedidos da amostra **não** provam que a pergunta foi desativada. A
+própria descrição diz que ações consideradas potencialmente inseguras ainda
+podem chegar à pessoa.
+
+`agent-full-access` é diferente por contrato, não só pela amostra: o código do
+adaptador o converte em `approvalPolicy: never` e sandbox
+`dangerFullAccess`, e passa esses valores em todo `turn/start`. A documentação
+oficial do Codex define `never` como a política que não interrompe para pedir
+aprovação, e os testes ponta a ponta do adaptador confirmam escrita fora do
+workspace sem `session/request_permission`. Portanto este modo dispensa o
+pedido para as ações locais cobertas pela barreira do app e precisa entrar na
+lista da D15. Pedidos de outra natureza, como elicitações MCP, continuam sendo
+contratos próprios e não são transformados em autorização de máquina por essa
+classificação.
 
 ## Decisões
 
@@ -885,21 +921,26 @@ esse assunto com instalação faria um AEP que não se consegue revisar.
 Fica registrado como trabalho de outro AEP. Este só se compromete a não estragar
 o caminho: o que vem do registro não toca em opção de sessão.
 
-### D15. Modo de agente novo não entra na lista de "barreira caída" por palpite
+### D15. Só modo comprovado entra na lista de "barreira caída"
 
 `internal/acp/permission_modes.go` mantém uma lista curta de modos que
 **sabidamente** dispensam o `session/request_permission` (`bypassPermissions` e
-`dontAsk`, do Claude Code), e o comentário dela explica por que é curta: o app
-não presume o significado de um modo pelo nome, porque errar alarma sobre modo
-inofensivo e cala sobre modo perigoso — e aviso que não corresponde ao
-comportamento ensina a ignorar avisos.
+`dontAsk`, do Claude Code, e `agent-full-access`, do Codex), e o comentário dela
+explica por que é curta: o app não presume o significado de um modo pelo nome,
+porque errar alarma sobre modo inofensivo e cala sobre modo perigoso — e aviso
+que não corresponde ao comportamento ensina a ignorar avisos.
 
 O `agent-full-access` do Codex é tentador: a descrição fala em editar fora do
-workspace e rodar comandos com acesso à rede. Mas "acesso amplo" e "não
-pergunta" são coisas diferentes, e a descrição não diz a segunda. **Ele não
-entra na lista** enquanto não houver sonda que prove.
+workspace e rodar comandos com acesso à rede. A descrição sozinha não bastava,
+mas a Q2 confirmou o comportamento por três fontes convergentes: mapeamento
+para `approvalPolicy: never` no código do adaptador, definição oficial dessa
+política no Codex e sonda autenticada. **Ele entra na lista.**
 
-O que a sonda precisaria fazer está em [Q2](#q2-o-que-os-modos-do-codex-fazem-com-o-pedido-de-permissão).
+`read-only` e `agent` ficam de fora. Ambos mantêm `approvalPolicy:
+on-request`; o primeiro encaminha à pessoa pedidos para sair do workspace, e o
+segundo usa revisão automática, mas preserva a possibilidade de perguntar em
+ações consideradas inseguras. Ausência de pedido numa amostra não equivale a
+desativação por contrato.
 
 ## Questões em aberto
 
@@ -912,23 +953,24 @@ questão pelo número a encontre.
 
 ### Q2. O que os modos do Codex fazem com o pedido de permissão?
 
-`read-only`, `agent` e `agent-full-access` descrevem alcance; nenhuma descrição
-diz se o agente ainda **pergunta**. Sem isso, o app não sabe se deve avisar na
-conversa que a barreira caiu (D15).
+**Respondida em 2026-09-05.** A matriz completa e o ambiente estão na descoberta
+empírica 5. A resposta que afeta o app é:
 
-A sonda que responde: com o adaptador autenticado, abrir uma sessão em cada um
-dos três modos e pedir uma ação que exija permissão — escrever um arquivo no
-`cwd` e rodar um comando —, contando quantos `session/request_permission`
-chegam em cada modo. `read-only` deveria perguntar para as duas; `agent`,
-talvez para o comando; `agent-full-access` é o que precisa ser observado. Vale
-repetir com uma escrita fora do `cwd`, que é o que a descrição dele destaca.
+- `read-only`: não pergunta para edição e comando dentro do workspace; pergunta
+  quando precisa sair dele. Não dispensa a barreira inteira.
+- `agent`: a revisão automática resolve as ações comuns da sonda sem
+  `session/request_permission`, mas o preset continua em `on-request` e reserva
+  perguntas para ações consideradas potencialmente inseguras. Não dispensa a
+  barreira por contrato.
+- `agent-full-access`: usa `approvalPolicy: never` com
+  `dangerFullAccess`; não pede permissão para editar dentro ou fora do
+  workspace nem para executar comandos. É o único modo do Codex que entra na
+  lista de "barreira caída".
 
-Ela não foi feita aqui porque exige autenticar o Codex e deixar o agente agir na
-máquina — o que uma sonda de leitura não deve fazer sem que alguém peça. **O dono
-do projeto decidiu deixá-la para depois**: a questão fica aberta por escolha, não
-por esquecimento, e a D15 já diz o que o app faz enquanto ela não tem resposta —
-não põe modo nenhum do Codex na lista de "barreira caída". **A Q2 permanece
-deliberadamente aberta e não bloqueia o fechamento das fases deste AEP.**
+A hipótese antiga sobre `read-only` perguntar para toda edição e comando deixou
+de valer porque o preset mudou entre o adaptador 1.1.9 sondado na redação inicial
+e o 1.10.0 atual. O identificador foi preservado por compatibilidade, enquanto o
+nome, o sandbox e o revisor passaram a acompanhar os presets do cliente desktop.
 
 ## Fases
 
@@ -1293,6 +1335,14 @@ ter.
   <https://github.com/agentclientprotocol/registry/blob/main/FORMAT.md>
 - Índice: <https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json>
 - Adaptador do Codex: <https://github.com/agentclientprotocol/codex-acp>
+- Presets de permissão do adaptador:
+  <https://github.com/agentclientprotocol/codex-acp/blob/061f9a4a2e463a220d7a3ab2ae5e9732837085ef/src/AgentMode.ts>
+- Testes ponta a ponta de aprovação do adaptador:
+  <https://github.com/agentclientprotocol/codex-acp/blob/v1.10.0/src/__tests__/CodexACPAgent/e2e/acp-e2e-shell-approval.test.ts>
+- Aprovações e sandbox do Codex:
+  <https://developers.openai.com/codex/agent-approvals-security>
+- Mudança dos presets para acompanhar o cliente desktop:
+  <https://github.com/agentclientprotocol/codex-acp/pull/430>
 - AEP-0084 (agentes ACP como providers — D5 diretório, D9 permissões, D11
   saneamento, D12 provider sem HTTP, D15 spawn no Windows), AEP-0052
   (multiusuário), AEP-0058 (arbitragem de voz e anúncio), AEP-0082 (allowlist de
