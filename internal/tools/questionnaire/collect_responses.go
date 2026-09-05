@@ -72,8 +72,8 @@ func (t *CollectResponsesTool) Parameters() json.RawMessage {
 						"content": {"type": "string", "description": "Non-editable reference content shown only with type=readonly_code; it does not produce an answer."},
 						"required": {"type": "boolean", "description": "Whether this answer is mandatory before submission. Use sparingly when omission would block or invalidate the next action."},
 						"options": {"type": "array", "items": {"type": "string"}, "description": "Distinct choices in the user's language, required by single_choice and multiple_choice. Include all meaningful alternatives and a localized open-ended option when the list is not exhaustive."},
-						"min": {"type": "number", "description": "Minimum accepted value for number or scale questions."},
-						"max": {"type": "number", "description": "Maximum accepted value for number or scale questions; must not be less than min."},
+						"min": {"type": "number", "description": "Minimum accepted value for type=number."},
+						"max": {"type": "number", "description": "Maximum accepted value for type=number; must not be less than min."},
 						"step": {"type": "number", "description": "Increment between accepted numeric values."},
 						"placeholder": {"type": "string", "description": "Optional example or format hint in the user's language for text input; never use it as the only label or instruction."},
 						"default": {"description": "Optional initial answer. If textual, use the user's language; provide it only when a safe, clearly implied default exists."}

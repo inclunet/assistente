@@ -45,7 +45,7 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Load one model-invocable, on-demand skill from the prompt's skill catalog into the current turn. Use before acting when the task matches a catalog entry and its full workflow or permissions are needed; give the exact catalog slug and a brief task-specific reason. Do not use for the profile's base skill, disabled or unlisted skills, supporting files, or general tool discovery. Loading consumes context and may narrow tool, filesystem, command, or network permissions, so load only a relevant skill. If other tool calls need those permissions now, include load_skill in the same batch: the runtime executes it first while preserving result order. Example: {\"skill\":\"code-review\",\"reason\":\"review the current changes for regressions\"}."
+	return "Load one model-invocable, on-demand skill from the prompt's skill catalog into the current turn. Use before acting when the task matches a catalog entry and its full workflow or permissions are needed; give the exact catalog slug and, optionally, a brief task-specific reason. Do not use for the profile's base skill, disabled or unlisted skills, supporting files, or general tool discovery. Loading consumes context and may narrow tool, filesystem, command, or network permissions, so load only a relevant skill. If other tool calls need those permissions now, include load_skill in the same batch: the runtime executes it first while preserving result order. Example: {\"skill\":\"code-review\",\"reason\":\"review the current changes for regressions\"}."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -53,7 +53,7 @@ func (t *Tool) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
     "skill": {"type": "string", "description": "Exact slug or canonical name of a model-invocable on-demand skill shown in the current prompt catalog. Do not guess names or request a base, disabled, or unlisted skill."},
-    "reason": {"type": "string", "description": "Brief task-specific reason the skill's full workflow is needed now, for example 'review the current changes for regressions'. Do not paste the user request or generic justification. When subsequent calls need the skill's permissions in this turn, send them in the same batch; load_skill runs first."}
+    "reason": {"type": "string", "description": "Optional brief task-specific reason the skill's full workflow is needed now, for example 'review the current changes for regressions'. Do not paste the user request or generic justification. When subsequent calls need the skill's permissions in this turn, send them in the same batch; load_skill runs first."}
   },
   "required": ["skill"]
 }`)

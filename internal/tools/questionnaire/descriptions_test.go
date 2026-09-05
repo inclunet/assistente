@@ -60,4 +60,10 @@ func TestCollectResponsesParameterDescriptionsCoverQuestionContract(t *testing.T
 			t.Errorf("user-facing question parameter %q should require the user's language", field)
 		}
 	}
+	for _, field := range []string{"min", "max"} {
+		description := strings.ToLower(questions.Items.Properties[field].Description)
+		if !strings.Contains(description, "type=number") || strings.Contains(description, "scale") {
+			t.Errorf("question parameter %q should reflect numeric validation only, got %q", field, description)
+		}
+	}
 }

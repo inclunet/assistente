@@ -38,6 +38,7 @@ func TestParameterDescriptionsRequireCatalogIdentityAndSpecificReason(t *testing
 	}{
 		{field: "skill", text: "shown in the current prompt catalog"},
 		{field: "skill", text: "do not guess"},
+		{field: "reason", text: "optional"},
 		{field: "reason", text: "task-specific reason"},
 		{field: "reason", text: "same batch"},
 	} {
