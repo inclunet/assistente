@@ -141,6 +141,24 @@ func TestCorruptPersistentStoreFailsClosedWithoutOverwrite(t *testing.T) {
 	}
 }
 
+func TestEmptyHomeFailsClosedForGlobalAndProfile(t *testing.T) {
+	manager := nettrust.NewManagerWithDirs("", t.TempDir())
+	if err := manager.Add(context.Background(), nettrust.AllowlistEntry{
+		Host:  "global.internal",
+		Scope: nettrust.ScopeGlobal,
+	}); err == nil {
+		t.Fatal("home vazio deve impedir persistência global em path relativo")
+	}
+
+	manager.SetActiveProfileSlugFunc(func() string { return "default" })
+	if err := manager.Add(context.Background(), nettrust.AllowlistEntry{
+		Host:  "profile.internal",
+		Scope: nettrust.ScopeProfile,
+	}); err == nil {
+		t.Fatal("home vazio deve impedir persistência de perfil em path relativo")
+	}
+}
+
 func writeFixture(t *testing.T, path, data string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

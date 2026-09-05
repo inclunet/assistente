@@ -392,7 +392,11 @@ func (m *Manager[E, Q]) identity(ctx context.Context) (conversationID, profileSl
 }
 
 func (m *Manager[E, Q]) globalPath() string {
-	return filepath.Join(m.homeDir(), m.config.Subdir, globalFile)
+	base := m.homeDir()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, m.config.Subdir, globalFile)
 }
 
 func (m *Manager[E, Q]) workspacePath() string {
@@ -405,10 +409,11 @@ func (m *Manager[E, Q]) workspacePath() string {
 
 func (m *Manager[E, Q]) profilePath(slug string) string {
 	slug = sanitizeSlug(slug)
-	if slug == "" {
+	base := m.homeDir()
+	if slug == "" || base == "" {
 		return ""
 	}
-	return filepath.Join(m.homeDir(), m.config.Subdir, "profile-"+slug+".json")
+	return filepath.Join(base, m.config.Subdir, "profile-"+slug+".json")
 }
 
 // WorkspacePath devolve o arquivo persistente do workspace resolvido agora.
