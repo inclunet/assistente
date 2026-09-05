@@ -80,6 +80,20 @@ wails build -ldflags "-X assistente/internal/app.AppVersion=1.0.1"
 
 Isso substitui o valor de `AppVersion` no binário compilado.
 
+## Verificação automática de atualizações
+
+Em builds de release, o aplicativo consulta o GitHub Releases no startup e a
+cada 6 horas. Essa verificação funciona mesmo quando nenhum provedor de LLM foi
+configurado. Ao concluir o assistente de boas-vindas, a primeira consulta pode
+ser antecipada pelo mesmo agendador.
+
+Se a consulta falhar, o aplicativo mostra um aviso acessível e não bloqueante,
+sem detalhes internos, e tenta novamente no próximo intervalo. A mesma versão
+não volta a abrir o convite de atualização durante a execução atual.
+
+O guard de desenvolvimento permanece: quando `AppVersion` é `"dev"`, checks
+automáticos não são executados.
+
 ### GitHub Actions (.github/workflows/release.yml)
 
 ```yaml

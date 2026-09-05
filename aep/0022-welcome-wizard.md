@@ -53,20 +53,20 @@ Utiliza o sistema de questionários existente (`questionnaire.Manager`):
 - Validação de campos obrigatórios
 - Feedback visual de progresso
 
-### 4. Proteção do Auto-Update
+### 4. Auto-Update Independente de Provedor
 
-Auto-update agora só funciona com LLM configurado:
-- Evita verificar atualizações em sistema não configurado
-- Previne uso desnecessário de recursos de rede
-- Melhor experiência para usuários novos
+A verificação de atualização é uma responsabilidade da instância e não depende
+de configuração de LLM:
+- funciona mesmo com zero providers cadastrados;
+- usa o scheduler único do updater, cancelável no shutdown;
+- mantém o guard de desenvolvimento (`AppVersion == "dev"`).
 
 ### 5. Verificação de Updates Após Wizard
 
-Após completar o wizard, o sistema automaticamente:
-- Aguarda 2 segundos para finalizar configuração
-- Verifica se há atualizações disponíveis
-- Oferece ao usuário a oportunidade de atualizar se houver nova versão
-- Usa o mesmo fluxo de questionário para confirmação
+Após completar o wizard, o sistema sinaliza o scheduler único para antecipar a
+primeira verificação. O mesmo fluxo atende startup, pós-wizard e periodicidade,
+evitando fetches e prompts concorrentes. Se houver nova versão, a decisão usa
+`Questionnaire KindDecision` conforme o AEP-0091.
 
 ## Arquivos Modificados
 
@@ -79,8 +79,8 @@ Após completar o wizard, o sistema automaticamente:
    - `createWizardProvider()` - Cria provedor no registry + credential manager + SQLite
    - `saveWelcomeConfig()` - Salva configuração legada (config.json)
    - `updateAllProfilesProviderAndModel()` - Atualiza provedor e modelo em todos os perfis
-   - `checkForUpdatesOnStartup()` - Modificada para verificar LLM configurado
-   - `checkForUpdatesAfterWizard()` - Verifica updates após configuração inicial
+   - `checkForUpdatesOnStartup()` - Executa o scheduler cancelável do updater
+   - `RequestUpdateCheck()` - Antecipa o check ao concluir o wizard
 
 ### Frontend (TypeScript/React)
 
@@ -159,7 +159,7 @@ Após completar o wizard, o sistema automaticamente:
 - [ ] Erro na listagem de modelos
 - [ ] Entrada manual de modelo
 - [ ] Verificar se perfis foram atualizados
-- [ ] Verificar se auto-update não roda sem config
+- [ ] Verificar se auto-update roda mesmo sem provider configurado
 
 ## Notas de Implementação
 
