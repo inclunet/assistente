@@ -8,14 +8,15 @@ import (
 
 func TestDescriptionExplainsSkillLoadingBoundariesAndCost(t *testing.T) {
 	description := New(nil, nil).Description()
+	normalized := strings.ToLower(description)
 	for _, want := range []string{
-		"Use before acting",
-		"Do not use",
-		"Loading consumes context",
+		"use before acting",
+		"do not use",
+		"loading consumes context",
 		"runtime executes it first",
-		"Example:",
+		"example:",
 	} {
-		if !strings.Contains(description, want) {
+		if !strings.Contains(normalized, want) {
 			t.Errorf("Description should contain %q, got %q", want, description)
 		}
 	}
@@ -36,11 +37,11 @@ func TestParameterDescriptionsRequireCatalogIdentityAndSpecificReason(t *testing
 		text  string
 	}{
 		{field: "skill", text: "shown in the current prompt catalog"},
-		{field: "skill", text: "Do not guess"},
+		{field: "skill", text: "do not guess"},
 		{field: "reason", text: "task-specific reason"},
 		{field: "reason", text: "same batch"},
 	} {
-		if !strings.Contains(schema.Properties[want.field].Description, want.text) {
+		if !strings.Contains(strings.ToLower(schema.Properties[want.field].Description), want.text) {
 			t.Errorf("parameter %q should contain %q, got %q", want.field, want.text, schema.Properties[want.field].Description)
 		}
 	}

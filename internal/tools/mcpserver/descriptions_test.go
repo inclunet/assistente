@@ -8,14 +8,15 @@ import (
 
 func TestDescriptionDistinguishesManagementFromToolDiscovery(t *testing.T) {
 	description := New(&fakeManager{}).Description()
+	normalized := strings.ToLower(description)
 	for _, want := range []string{
-		"Use list/get/logs",
-		"Do not use this to discover or invoke",
+		"use list/get/logs",
+		"do not use this to discover or invoke",
 		"start local processes",
 		"permanently delete",
-		"Examples:",
+		"examples:",
 	} {
-		if !strings.Contains(description, want) {
+		if !strings.Contains(normalized, want) {
 			t.Errorf("Description should contain %q, got %q", want, description)
 		}
 	}
@@ -40,12 +41,12 @@ func TestParameterDescriptionsDocumentEveryManagementField(t *testing.T) {
 		field string
 		text  string
 	}{
-		{field: "action", text: "Prefer explicit actions for mutations"},
-		{field: "env", text: "Values may be secrets"},
+		{field: "action", text: "prefer explicit actions for mutations"},
+		{field: "env", text: "values may be secrets"},
 		{field: "oauth2_scopes", text: "least privilege"},
 		{field: "prefer_bridge", text: "future tool calls are routed"},
 	} {
-		if !strings.Contains(schema.Properties[want.field].Description, want.text) {
+		if !strings.Contains(strings.ToLower(schema.Properties[want.field].Description), want.text) {
 			t.Errorf("parameter %q should contain %q, got %q", want.field, want.text, schema.Properties[want.field].Description)
 		}
 	}

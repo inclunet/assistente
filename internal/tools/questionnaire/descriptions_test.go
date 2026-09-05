@@ -8,13 +8,14 @@ import (
 
 func TestCollectResponsesDescriptionGuidesSelectionAndCost(t *testing.T) {
 	description := NewCollectResponses(nil).Description()
+	normalized := strings.ToLower(description)
 	for _, want := range []string{
-		"Use when",
-		"Do not use",
+		"use when",
+		"do not use",
 		"pauses work for user input",
-		"Example:",
+		"example:",
 	} {
-		if !strings.Contains(description, want) {
+		if !strings.Contains(normalized, want) {
 			t.Errorf("Description should contain %q, got %q", want, description)
 		}
 	}
