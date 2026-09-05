@@ -347,6 +347,9 @@ func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
 	if res.Content != content {
 		t.Fatalf("raw não devolveu completion.response integral: got=%d want=%d", len(res.Content), len(content))
 	}
+	if !runner.lastParams.PreserveResponse {
+		t.Fatal("raw deve solicitar preservação da resposta integral ao Manager")
+	}
 	if !json.Valid([]byte(res.Content)) {
 		t.Fatal("raw deveria preservar o JSON puro produzido pelo sub-agente")
 	}

@@ -73,6 +73,9 @@ func TestManagerRunSyncSuccess(t *testing.T) {
 	if res.ResultSummary != "resposta do sub-agente" || res.AssistantMessageID != "msg-1" {
 		t.Fatalf("resultado inesperado: %#v", res)
 	}
+	if res.Response != "" {
+		t.Fatalf("modo compatível não deve reter resposta integral: %q", res.Response)
+	}
 	if res.ConversationID == "" || res.RunID == "" {
 		t.Fatalf("handles ausentes: %#v", res)
 	}
@@ -117,7 +120,7 @@ func TestManagerRunSyncPreservesIntegralResponseInMemory(t *testing.T) {
 		},
 	})
 
-	res, err := mgr.Run(ctx, RunParams{Prompt: "gere conteúdo extenso"})
+	res, err := mgr.Run(ctx, RunParams{Prompt: "gere conteúdo extenso", PreserveResponse: true})
 	if err != nil {
 		t.Fatalf("Run erro inesperado: %v", err)
 	}
@@ -148,7 +151,7 @@ func TestManagerFinishDoesNotRetainIntegralResponseInBackground(t *testing.T) {
 	if err := repo.Create(ctx, run); err != nil {
 		t.Fatalf("criar run: %v", err)
 	}
-	result := RunResult{ConversationID: run.ChildConversationID, RunID: run.ID}
+	result := RunResult{ConversationID: run.ChildConversationID, RunID: run.ID, preserveResponse: true}
 	finished := mgr.finalize(ctx, run, &result, outcome{
 		status:  StatusSucceeded,
 		summary: strings.Repeat("resposta extensa ", maxResultSummary),

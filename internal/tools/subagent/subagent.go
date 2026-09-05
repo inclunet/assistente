@@ -290,6 +290,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			Model:                strings.TrimSpace(a.Model),
 			Title:                strings.TrimSpace(a.Title),
 			Background:           a.Background,
+			PreserveResponse:     a.Raw,
 		})
 		if err != nil {
 			return errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err)), nil
