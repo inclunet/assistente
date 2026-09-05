@@ -63,6 +63,7 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 	}
 
 	validatedRoutes := []string{
+		"empty route",
 		"settings",
 		"settings/providers",
 		"settings/mcp",
@@ -84,9 +85,16 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 		"about",
 		"update",
 	}
-	for _, route := range validatedRoutes {
-		assert.Contains(t, description, route, "Description() deve listar a rota validada %q", route)
+	_, routesText, found := strings.Cut(description, "the frontend accepts only:")
+	if !assert.True(t, found, "Description() deve delimitar a lista de rotas validadas") {
+		return
 	}
+	routesText, _, found = strings.Cut(routesText, ". settings tabs require")
+	if !assert.True(t, found, "Description() deve encerrar a lista antes da regra de settings") {
+		return
+	}
+	listedRoutes := strings.Split(strings.TrimSpace(routesText), ", ")
+	assert.ElementsMatch(t, validatedRoutes, listedRoutes, "Description() deve listar exatamente as rotas validadas")
 }
 
 func TestOpenDeepLink_ParametersDescribeSafeURIConstruction(t *testing.T) {
