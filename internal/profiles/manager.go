@@ -57,6 +57,7 @@ func (m *Manager) List() ([]ProfileInfo, error) {
 			Description: profile.Description,
 			Icon:        profile.Icon,
 			Source:      string(f.Source),
+			Builtin:     profile.BuiltinVersion != "",
 		})
 	}
 

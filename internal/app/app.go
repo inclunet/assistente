@@ -326,9 +326,8 @@ type App struct {
 	// refresh e cancel de streaming. Criado em main; streamMgr permanece no *App.
 	llmModelsAPI *wailsapi.LLMModels
 
-	// chatAPI é o bind Wails do domínio chat/envio (AEP-0088): SendMessage,
-	// RetryMessage e SendMessageSync (probe de acessibilidade). Criado em main
-	// e wired após NewChatController + wireSettings (sync via settingsCtrl).
+	// chatAPI é o bind Wails do domínio chat/envio (AEP-0040, AEP-0088):
+	// SendMessage e RetryMessage. Criado em main e wired após NewChatController.
 	// sendMessageFromChannel permanece no *App.
 	chatAPI *wailsapi.Chat
 

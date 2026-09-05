@@ -301,6 +301,7 @@ type ProfileInfo struct {
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
 	Source      string `json:"source"` // "exe", "home", "workdir"
+	Builtin     bool   `json:"builtin"`
 }
 
 // Trigger types
@@ -347,7 +348,7 @@ func DefaultProfile() *Profile {
 	}
 	return &Profile{
 		Name:        "Padrão",
-		Description: "Assistente geral para pesquisa, análise, escrita e tarefas cotidianas. Use quando o trabalho não for predominantemente desenvolvimento de software; pode delegar partes especializadas a outros profiles.",
+		Description: "Assistente geral para pesquisar, analisar, escrever, organizar e resolver tarefas cotidianas. Use quando a solicitação combinar assuntos, não exigir trabalho predominante em código ou ainda estiver pouco definida. Não use para implementar, depurar, refatorar ou revisar software de forma substancial; nesses casos, escolha Programação. Exemplos: resumir documentos; comparar opções; redigir um e-mail; planejar uma viagem.",
 		Icon:        "chatbox",
 		Chat: ChatConfig{
 			LLMProvider:                   DefaultProviderSentinel,

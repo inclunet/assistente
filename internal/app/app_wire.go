@@ -153,11 +153,10 @@ func (a *App) wireCredentials() {
 // wireSettings monta o SettingsController e associa o bind Wails (AEP-0088).
 func (a *App) wireSettings() {
 	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
-		CredMgr:     a.credMgr,
-		ProfileMgr:  a.profileManager,
-		SkillMgr:    a.skillMgr,
-		Emitter:     a.emitter,
-		ProviderSvc: a.providerSvc,
+		CredMgr:    a.credMgr,
+		ProfileMgr: a.profileManager,
+		SkillMgr:   a.skillMgr,
+		Emitter:    a.emitter,
 		RestartChannel: func(channelName string) error {
 			// Via Messaging bind: WithUser + SetCredentialUserID + ownership
 			// (não chamar msgCtrl.RestartChannel direto — perde escopo de credenciais).
@@ -400,16 +399,14 @@ func (a *App) wireLLMModels() {
 	)
 }
 
-// wireChat associa o bind Wails de SendMessage/RetryMessage/SendMessageSync (AEP-0088).
-// SendMessageSync usa settingsCtrl (montado em wireSettings) como SyncChatSender —
-// probe de acessibilidade fora do pipeline AEP-0040. ChatController interno,
-// streamMgr e sendMessageFromChannel permanecem no App.
+// wireChat associa o bind Wails de SendMessage/RetryMessage (AEP-0040, AEP-0088).
+// ChatController interno, streamMgr e sendMessageFromChannel permanecem no App.
 // Na CLI o bind é criado aqui (main GUI já registra via SetChatAPI).
 func (a *App) wireChat() {
 	if a.chatAPI == nil {
 		a.chatAPI = wailsapi.NewChat()
 	}
-	wailsapi.AttachChat(a.chatAPI, wailsSession{app: a}, a.chatCtrl, a.settingsCtrl)
+	wailsapi.AttachChat(a.chatAPI, wailsSession{app: a}, a.chatCtrl)
 }
 
 // wireACPCommands associa o bind Wails ao Manager ACP já criado em initACP (AEP-0088).
