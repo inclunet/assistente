@@ -294,6 +294,7 @@ func (r *MessageRepository) ToggleMessagePinWithContext(ctx context.Context, mes
 			return gorm.ErrRecordNotFound
 		}
 		return scopedMessageQuery(ctx, tx.Model(&ChatMessage{})).
+			Select("chat_messages.id", "chat_messages.conversation_id", "chat_messages.pinned").
 			First(&updated, "chat_messages.id = ?", messageID).Error
 	})
 	if err != nil {

@@ -81,6 +81,9 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	if unpinned.Pinned {
 		t.Fatal("expected pinned=false")
 	}
+	if unpinned.Audio != "" || unpinned.Media != "" || unpinned.ToolCalls != "" {
+		t.Fatalf("toggle loaded large unused fields: %+v", unpinned)
+	}
 }
 
 func TestMessagePinningRequiresAuthenticatedUser(t *testing.T) {
