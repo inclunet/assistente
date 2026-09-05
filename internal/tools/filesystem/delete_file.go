@@ -28,15 +28,15 @@ func (t *DeleteFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *DeleteFile) Description() string {
-	return "Deletes a file on disk (not directories). Validates paths, respects skill filesystem scope, and blocks sensitive files."
+	return "Permanently delete one file. Use only when the requested outcome requires removing that specific file. Do not use for directories, cleanup speculation, or content changes; prefer editing or moving when deletion is unnecessary. The operation is destructive and does not provide recovery. Risk: destructive."
 }
 
 func (t *DeleteFile) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"path": {"type": "string", "description": "Caminho do arquivo a remover (absoluto ou relativo ao diretório de trabalho)"},
-			"missing_ok": {"type": "boolean", "description": "Se true, não falha quando o arquivo não existir. Padrão: false"}
+			"path": {"type": "string", "description": "Existing file to delete permanently, absolute or relative to the working directory; directories are rejected."},
+			"missing_ok": {"type": "boolean", "description": "Whether an absent file counts as success; defaults to false. Use true for idempotent cleanup of an explicitly named file."}
 		},
 		"required": ["path"],
 		"additionalProperties": false
