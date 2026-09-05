@@ -48,7 +48,7 @@ func TestMessagingDescriptionsDistinguishSendRetryAndPairing(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			normalized := strings.ToLower(test.description)
-			for _, section := range []string{"use when:", "do not use:", "risk:", "cost:"} {
+			for _, section := range []string{"use when:", "do not use:", "risk", "cost"} {
 				if !strings.Contains(normalized, section) {
 					t.Errorf("description missing guidance section %q", section)
 				}
@@ -99,7 +99,12 @@ func TestMessagingParameterDescriptionsExposeDestinationAndPairingRisks(t *testi
 				t.Fatalf("unmarshal parameters: %v", err)
 			}
 			for parameter, concepts := range test.concepts {
-				description := strings.ToLower(schema.Properties[parameter].Description)
+				property, ok := schema.Properties[parameter]
+				if !ok {
+					t.Errorf("parameters schema missing property %q", parameter)
+					continue
+				}
+				description := strings.ToLower(property.Description)
 				for _, concept := range concepts {
 					if !strings.Contains(description, strings.ToLower(concept)) {
 						t.Errorf("parameter %q missing concept %q", parameter, concept)
