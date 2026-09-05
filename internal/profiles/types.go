@@ -301,6 +301,7 @@ type ProfileInfo struct {
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
 	Source      string `json:"source"` // "exe", "home", "workdir"
+	Builtin     bool   `json:"builtin"`
 }
 
 // Trigger types
