@@ -74,8 +74,8 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 		"type": "object",
 		"properties": {
 			"task_list_id": {
-				"type": "integer",
-				"description": "ID of the task list. Omit to list all (read) or create (write). With task_list_slug, both must match the same list. With only id or slug → read details; with title → update; with duplicate → copy"
+				"type": "string",
+				"description": "UUID of the task list. Omit to list all (read) or create (write). With task_list_slug, both must match the same list. With only id or slug → read details; with title → update; with duplicate → copy"
 			},
 			"task_list_slug": {
 				"type": "string",

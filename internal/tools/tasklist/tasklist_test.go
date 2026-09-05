@@ -781,6 +781,15 @@ func TestGetTaskList_ParametersValidJSON(t *testing.T) {
 	if _, ok := props["custom_actions"]; !ok {
 		t.Fatalf("expected 'custom_actions' in tool parameters schema")
 	}
+	for _, field := range []string{"status_id", "limit", "cursor", "sort"} {
+		if _, ok := props[field]; !ok {
+			t.Fatalf("expected %q in tool parameters schema", field)
+		}
+	}
+	taskListID, _ := props["task_list_id"].(map[string]any)
+	if taskListID["type"] != "string" {
+		t.Fatalf("task_list_id schema type = %v, want string UUID", taskListID["type"])
+	}
 }
 
 func TestGetTaskList_Name(t *testing.T) {
