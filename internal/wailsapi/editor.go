@@ -152,16 +152,19 @@ func editorDraftPath(paths editorUserPaths, draftId string) (string, error) {
 	return filepath.Join(paths.draftDir, id+".md"), nil
 }
 
-func writeJSONPrivate(path string, value any, exclusive bool) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+func createJSONPrivateAtomic(path string, value any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	if exclusive {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	}
-	f, err := os.OpenFile(path, flags, 0600)
+	f, err := os.CreateTemp(dir, ".editor-migration-claim-*.tmp")
 	if err != nil {
+		return err
+	}
+	tempPath := f.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
 		return err
 	}
 	encoder := json.NewEncoder(f)
@@ -174,7 +177,13 @@ func writeJSONPrivate(path string, value any, exclusive bool) error {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// Link publica o inode completo de forma atômica e falha com IsExist sem
+	// substituir o claim vencedor. Um crash durante encode/fsync deixa apenas
+	// o temporário, que nunca é interpretado como claim.
+	return os.Link(tempPath, path)
 }
 
 func readEditorMigrationClaim(path string) (editorMigrationClaim, error) {
@@ -244,7 +253,7 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 			UserID:    userID,
 			ClaimedAt: time.Now().UnixMilli(),
 		}
-		if err := writeJSONPrivate(claimPath, claim, true); err != nil {
+		if err := createJSONPrivateAtomic(claimPath, claim); err != nil {
 			if !os.IsExist(err) {
 				return fmt.Errorf("falha ao reservar migração legada do editor: %w", err)
 			}

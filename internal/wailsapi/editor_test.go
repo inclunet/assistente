@@ -462,11 +462,11 @@ func TestEditorLegacyMigrationRecoversIncompleteCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", "crash.md"), []byte("conteúdo completo"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeJSONPrivate(editorMigrationClaimPath(), editorMigrationClaim{
+	if err := createJSONPrivateAtomic(editorMigrationClaimPath(), editorMigrationClaim{
 		Version:   editorMigrationVersion,
 		UserID:    userID,
 		ClaimedAt: time.Now().UnixMilli(),
-	}, true); err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(paths.draftDir, 0700); err != nil {
@@ -483,6 +483,34 @@ func TestEditorLegacyMigrationRecoversIncompleteCopy(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(paths.root, ".legacy-migration-v1-complete")); err != nil {
 		t.Fatalf("retomada não concluiu migração: %v", err)
+	}
+}
+
+func TestEditorLegacyMigrationIgnoresPartialClaimTemporaryFile(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(legacyEditorDir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(legacyEditorDir(), ".editor-migration-claim-crash.tmp")
+	if err := os.WriteFile(partial, []byte(`{"version":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "01991f7c-1000-7000-8000-00000000004a"
+	if _, err := attachEditorForUser(userID).EditorLoadState(); err != nil {
+		t.Fatalf("temporário parcial bloqueou migração: %v", err)
+	}
+	claim, err := readEditorMigrationClaim(editorMigrationClaimPath())
+	if err != nil || claim.UserID != userID {
+		t.Fatalf("claim final inválido: %+v, %v", claim, err)
+	}
+	if data, err := os.ReadFile(partial); err != nil || string(data) != `{"version":` {
+		t.Fatalf("temporário legado foi apagado silenciosamente: %q, %v", data, err)
 	}
 }
 
