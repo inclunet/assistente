@@ -405,6 +405,66 @@ func TestEditorBlocksCrossUserSymlinkPaths(t *testing.T) {
 	}
 }
 
+func TestEditorBlocksSymlinksInPrivateDraftAndStateFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-000000000072"
+	userB := "01991f7c-1000-7000-8000-000000000073"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+	if err := apiA.EditorWriteDraft("inicial", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiB.EditorWriteDraft("segredo", "segredo B"); err != nil {
+		t.Fatal(err)
+	}
+	stateB := apidto.EditorState{FileModeByPath: map[string]string{"b.md": "rich"}}
+	if err := apiB.EditorSaveState(stateB); err != nil {
+		t.Fatal(err)
+	}
+	pathsA, _ := editorPathsForUser(userA)
+	pathsB, _ := editorPathsForUser(userB)
+
+	draftLink := filepath.Join(pathsA.draftDir, "atalho.md")
+	draftB := filepath.Join(pathsB.draftDir, "segredo.md")
+	if err := os.Symlink(draftB, draftLink); err != nil {
+		t.Skipf("symlink de arquivo indisponível neste ambiente: %v", err)
+	}
+	if _, err := apiA.EditorReadDraft("atalho"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("leitura de draft seguiu symlink cross-user: %v", err)
+	}
+	if err := apiA.EditorWriteDraft("atalho", "sobrescrito"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("escrita de draft seguiu symlink cross-user: %v", err)
+	}
+	if got, err := apiB.EditorReadDraft("segredo"); err != nil || got != "segredo B" {
+		t.Fatalf("draft de B foi alterado: %q, %v", got, err)
+	}
+
+	if err := apiA.EditorSaveState(apidto.EditorState{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(pathsA.state); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(pathsB.state, pathsA.state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apiA.EditorLoadState(); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("leitura de state seguiu symlink cross-user: %v", err)
+	}
+	if err := apiA.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{"ataque.md": "rich"}}); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("escrita de state seguiu symlink cross-user: %v", err)
+	}
+	gotStateB, err := apiB.EditorLoadState()
+	if err != nil || gotStateB.FileModeByPath["b.md"] != "rich" || gotStateB.FileModeByPath["ataque.md"] != "" {
+		t.Fatalf("state de B foi alterado: %+v, %v", gotStateB, err)
+	}
+}
+
 func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)

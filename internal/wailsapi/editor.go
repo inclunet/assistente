@@ -46,6 +46,7 @@ type Editor struct {
 }
 
 var editorLegacyMigrationMu sync.Mutex
+var editorPrivateFileMu sync.RWMutex
 var publishEditorMigrationClaim = os.Link
 
 // NewEditor cria o bind vazio; AttachEditor preenche deps no startup.
@@ -612,26 +613,127 @@ func (api *Editor) resolveUserFilePath(ctx context.Context, path string) (string
 	return resolved, nil
 }
 
-// ensurePrivatePath reforça 0700 no diretório e 0600 no arquivo.
-// Necessário porque os.WriteFile/MkdirAll não corrigem modo de paths já
-// existentes criados com permissões mais abertas em versões anteriores.
-// Para drafts, também restringe o diretório editor do usuário.
-func ensurePrivatePath(filePath string) error {
-	dir := filepath.Dir(filePath)
-	if err := os.Chmod(dir, 0700); err != nil {
-		return fmt.Errorf("falha ao restringir diretório privado: %w", err)
+func resolvePrivateEditorFile(paths editorUserPaths, filePath string) (string, error) {
+	resolvedRoot, err := filesystem.ResolveForComparison(paths.root)
+	if err != nil {
+		return "", err
 	}
-	if filepath.Base(dir) == "drafts" {
-		parent := filepath.Dir(dir)
-		if filepath.Base(parent) == "editor" {
-			if err := os.Chmod(parent, 0700); err != nil {
-				return fmt.Errorf("falha ao restringir diretório editor: %w", err)
-			}
+	rel, err := filepath.Rel(paths.root, filePath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", database.ErrUserScopeRequired
+	}
+	expected := filepath.Join(resolvedRoot, rel)
+	resolved, err := filesystem.ResolveForComparison(filePath)
+	if err != nil {
+		return "", err
+	}
+	if !pathInside(resolvedRoot, resolved) || !samePath(expected, resolved) {
+		return "", database.ErrUserScopeRequired
+	}
+	return resolved, nil
+}
+
+func readPrivateEditorFile(paths editorUserPaths, filePath string) ([]byte, error) {
+	editorPrivateFileMu.RLock()
+	defer editorPrivateFileMu.RUnlock()
+
+	resolved, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil {
+		return nil, err
+	}
+	expectedInfo, err := os.Lstat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if expectedInfo.Mode()&os.ModeSymlink != 0 || !expectedInfo.Mode().IsRegular() {
+		return nil, database.ErrUserScopeRequired
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	actualInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(expectedInfo, actualInfo) {
+		return nil, database.ErrUserScopeRequired
+	}
+	resolvedAfter, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil || !samePath(resolved, resolvedAfter) {
+		return nil, database.ErrUserScopeRequired
+	}
+	return io.ReadAll(file)
+}
+
+func writePrivateEditorFile(paths editorUserPaths, filePath string, content []byte) error {
+	editorPrivateFileMu.Lock()
+	defer editorPrivateFileMu.Unlock()
+
+	resolved, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil {
+		return err
+	}
+	var file *os.File
+	created := false
+	expectedInfo, statErr := os.Lstat(resolved)
+	switch {
+	case statErr == nil:
+		if expectedInfo.Mode()&os.ModeSymlink != 0 || !expectedInfo.Mode().IsRegular() {
+			return database.ErrUserScopeRequired
 		}
+		file, err = os.OpenFile(resolved, os.O_RDWR, 0)
+		if err != nil {
+			return err
+		}
+		actualInfo, infoErr := file.Stat()
+		if infoErr != nil || !os.SameFile(expectedInfo, actualInfo) {
+			_ = file.Close()
+			return database.ErrUserScopeRequired
+		}
+	case os.IsNotExist(statErr):
+		file, err = os.OpenFile(resolved, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		created = true
+	default:
+		return statErr
 	}
-	if err := os.Chmod(filePath, 0600); err != nil {
+	ok := false
+	defer func() {
+		_ = file.Close()
+		if created && !ok {
+			_ = os.Remove(resolved)
+		}
+	}()
+
+	resolvedAfter, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil || !samePath(resolved, resolvedAfter) {
+		return database.ErrUserScopeRequired
+	}
+	if err := file.Chmod(0600); err != nil {
 		return fmt.Errorf("falha ao restringir arquivo privado: %w", err)
 	}
+	if !created {
+		if err := file.Truncate(0); err != nil {
+			return err
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+	}
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	ok = true
 	return nil
 }
 
@@ -672,22 +774,15 @@ func (api *Editor) EditorWriteDraft(draftId string, content string) error {
 		if err != nil {
 			return struct{}{}, err
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-			return struct{}{}, fmt.Errorf("falha ao criar diretório de drafts: %w", err)
-		}
 		commit := hooks.MarkSelfWrite(p)
-		if err := filesystem.WriteFileBytes(p, []byte(content), 0600); err != nil {
+		if err := writePrivateEditorFile(paths, p, []byte(content)); err != nil {
 			if commit != nil {
 				commit(false)
 			}
 			return struct{}{}, fmt.Errorf("falha ao salvar draft: %w", err)
 		}
-		// Self-write commit antes do Chmod: o conteúdo já está no disco.
 		if commit != nil {
 			commit(true)
-		}
-		if err := ensurePrivatePath(p); err != nil {
-			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	})
@@ -709,7 +804,7 @@ func (api *Editor) EditorReadDraft(draftId string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		data, err := filesystem.ReadFileBytes(p)
+		data, err := readPrivateEditorFile(paths, p)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return "", fmt.Errorf("draft não encontrado")
@@ -755,7 +850,7 @@ func (api *Editor) EditorLoadState() (*apidto.EditorState, error) {
 			return nil, err
 		}
 		p := paths.state
-		data, err := os.ReadFile(p)
+		data, err := readPrivateEditorFile(paths, p)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return emptyEditorState(), nil
@@ -789,18 +884,12 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 			return struct{}{}, err
 		}
 		p := paths.state
-		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-			return struct{}{}, fmt.Errorf("falha ao criar diretório do editor: %w", err)
-		}
 		b, err := json.MarshalIndent(&state, "", "  ")
 		if err != nil {
 			return struct{}{}, fmt.Errorf("falha ao serializar editor state: %w", err)
 		}
-		if err := os.WriteFile(p, b, 0600); err != nil {
+		if err := writePrivateEditorFile(paths, p, b); err != nil {
 			return struct{}{}, fmt.Errorf("falha ao salvar estado user-scoped do editor: %w", err)
-		}
-		if err := ensurePrivatePath(p); err != nil {
-			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	})
