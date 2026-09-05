@@ -200,11 +200,14 @@ func (c *UpdaterController) checkAndPrompt(ctx context.Context) {
 		c.stateMu.Unlock()
 		return
 	}
-	c.promptedVersion = info.LatestVersion
 	c.stateMu.Unlock()
 
 	logging.Infof(ctx, "controllers.updater-controller", "[Updater] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
-	c.promptForUpdate(ctx, info)
+	if c.promptForUpdate(ctx, info) {
+		c.stateMu.Lock()
+		c.promptedVersion = info.LatestVersion
+		c.stateMu.Unlock()
+	}
 }
 
 func (c *UpdaterController) reportCheckErrorOnce() {
@@ -280,10 +283,10 @@ func updatePromptPayload(info *updater.UpdateInfo) questionnaire.RequestPayload 
 }
 
 // promptForUpdate pergunta ao usuário se deseja atualizar.
-func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.UpdateInfo) {
+func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.UpdateInfo) bool {
 	if c.questionnaireMgr == nil {
 		logging.Warnf(ctx, "controllers.updater-controller", "[Updater] Questionnaire manager não disponível")
-		return
+		return false
 	}
 
 	qCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -293,12 +296,12 @@ func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.U
 
 	if err != nil {
 		logging.Errorf(ctx, "controllers.updater-controller", "[Updater] Erro ao solicitar confirmação: %v", err)
-		return
+		return false
 	}
 
 	if resp.Cancelled {
 		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Usuário cancelou a atualização")
-		return
+		return true
 	}
 
 	id, ok := questionnaire.DecisionActionID(resp)
@@ -307,14 +310,15 @@ func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.U
 		// atualizar continua sendo o certo, mas registrado como o defeito que é.
 		logging.Warnf(ctx, "controllers.updater-controller",
 			"[Updater] Resposta de decisão sem %q; atualização não aplicada", questionnaire.AnswerActionID)
-		return
+		return true
 	}
 	if id != "update" {
 		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Usuário adiou a atualização")
-		return
+		return true
 	}
 	c.emitter.Emit("navigate:update", nil)
 	go c.applyUpdateWithProgress(ctx)
+	return true
 }
 
 // applyUpdateWithProgress aplica a atualização com feedback de progresso via eventos.

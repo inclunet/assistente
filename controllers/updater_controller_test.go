@@ -198,6 +198,28 @@ func TestRunUpdateChecksNaoRepetePromptDaMesmaVersao(t *testing.T) {
 	}
 }
 
+func TestRunUpdateChecksNaoDeduplicaPromptQueNaoPodeSerExibido(t *testing.T) {
+	service := &fakeUpdaterService{info: &updater.UpdateInfo{
+		Available: true, CurrentVersion: "1.0.0", LatestVersion: "1.1.0",
+	}}
+	ctrl := newTestUpdaterController(service, &recordingEmitter{}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ctrl.RunUpdateChecks(ctx)
+		close(done)
+	}()
+
+	waitForCalls(t, service, 3)
+	cancel()
+	<-done
+	ctrl.stateMu.Lock()
+	defer ctrl.stateMu.Unlock()
+	if ctrl.promptedVersion != "" {
+		t.Fatalf("versão marcada como exibida sem questionnaire: %q", ctrl.promptedVersion)
+	}
+}
+
 func TestErroDeCheckEmiteFeedbackGenericoUmaVez(t *testing.T) {
 	service := &fakeUpdaterService{err: errors.New("token e URL internos")}
 	emitter := &recordingEmitter{}
