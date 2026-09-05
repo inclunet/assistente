@@ -47,6 +47,42 @@ func executeTerminalSession(t *testing.T, tool *TerminalSession, args string) ma
 	return result.Metadata
 }
 
+func TestShellDescriptionsDisambiguateExecutionAndLifecycle(t *testing.T) {
+	tests := []struct {
+		name     string
+		desc     string
+		required []string
+	}{
+		{
+			name: "run_command",
+			desc: NewRunCommand(nil, nil, nil, ".").Description(),
+			required: []string{
+				"terminal_session", "ephemeral", "persistent=true", "terminal_id",
+				"allowlist", "confirmation", "tool_catalog", `{"command":`,
+			},
+		},
+		{
+			name: "terminal_session",
+			desc: NewTerminalSession(nil, ".").Description(),
+			required: []string{
+				"run_command", "do not use to execute commands", "remain available",
+				"interrupt", "close", "risk", "tool_catalog", `{"action":`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			description := strings.ToLower(tt.desc)
+			for _, required := range tt.required {
+				if !strings.Contains(description, strings.ToLower(required)) {
+					t.Errorf("Description() deve documentar %q", required)
+				}
+			}
+		})
+	}
+}
+
 func TestTerminalSessionList(t *testing.T) {
 	manager := &fakeTerminalSessionManager{
 		sessions: []terminal.SessionInfo{{ID: "one"}, {ID: "two"}},
