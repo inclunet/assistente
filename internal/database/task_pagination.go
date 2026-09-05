@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 const (
@@ -185,4 +187,20 @@ func ListTasksPageWithContext(ctx context.Context, input TaskPageQuery) (TaskPag
 		page.Tasks = []Task{}
 	}
 	return page, nil
+}
+
+func ensureTaskPaginationIndexes(database *gorm.DB) error {
+	if database == nil || !database.Migrator().HasTable(&Task{}) {
+		return nil
+	}
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_tasks_list_created_id ON tasks (task_list_id, created_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_list_status_created_id ON tasks (task_list_id, status_id, created_at, id)`,
+	}
+	for _, statement := range statements {
+		if err := database.Exec(statement).Error; err != nil {
+			return fmt.Errorf("criar índice de paginação de tasks: %w", err)
+		}
+	}
+	return nil
 }

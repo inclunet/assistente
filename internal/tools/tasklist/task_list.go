@@ -32,8 +32,8 @@ type taskListArgs struct {
 	SummaryOnly       bool            `json:"summary_only,omitempty"`
 	StatusID          *int            `json:"status_id,omitempty"`
 	Limit             *int            `json:"limit,omitempty"`
-	Cursor            string          `json:"cursor,omitempty"`
-	Sort              string          `json:"sort,omitempty"`
+	Cursor            *string         `json:"cursor,omitempty"`
+	Sort              *string         `json:"sort,omitempty"`
 	Title             string          `json:"title,omitempty"`
 	Description       string          `json:"description,omitempty"`
 	PreferredViewMode string          `json:"preferred_view_mode,omitempty"`
@@ -98,17 +98,15 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 				"type": "integer",
 				"minimum": 1,
 				"maximum": 100,
-				"default": 100,
 				"description": "Maximum tasks in a paged read (1-100). Supplying any of status_id, limit, cursor, or sort enables paged mode; limit defaults to 100 when omitted"
 			},
 			"cursor": {
-				"type": "string",
+				"type": ["string", "null"],
 				"description": "Opaque next_cursor from a previous response. It is bound to the same task list, status_id, and sort; do not construct or modify it"
 			},
 			"sort": {
-				"type": "string",
-				"enum": ["created_at:asc", "created_at:desc"],
-				"default": "created_at:asc",
+				"type": ["string", "null"],
+				"enum": ["created_at:asc", "created_at:desc", null],
 				"description": "Explicit stable order for paged reads. created_at is ordered with task id as a deterministic tie-breaker"
 			},
 			"duplicate": {
@@ -274,8 +272,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	idPtr := taskListIDPtrForResolve(params.TaskListID)
 	slugRef := strings.TrimSpace(params.TaskListSlug)
 	hasListRef := idPtr != nil || slugRef != ""
-	hasPageQuery := params.StatusID != nil || params.Limit != nil ||
-		strings.TrimSpace(params.Cursor) != "" || strings.TrimSpace(params.Sort) != ""
+	hasPageQuery := params.StatusID != nil || params.Limit != nil || params.Cursor != nil || params.Sort != nil
 
 	if params.SummaryOnly && !hasListRef {
 		return tools.ToolResult{Content: "summary_only requires task_list_id or task_list_slug", IsError: true}, nil
@@ -585,7 +582,14 @@ func (t *TaskListTool) pagedDetails(ctx context.Context, taskListID string, para
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
-	sort := strings.TrimSpace(params.Sort)
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = strings.TrimSpace(*params.Cursor)
+	}
+	sort := ""
+	if params.Sort != nil {
+		sort = strings.TrimSpace(*params.Sort)
+	}
 	if sort == "" {
 		sort = database.TaskSortCreatedAtAsc
 	}
@@ -593,7 +597,7 @@ func (t *TaskListTool) pagedDetails(ctx context.Context, taskListID string, para
 		TaskListID: taskListID,
 		StatusID:   params.StatusID,
 		Limit:      limit,
-		Cursor:     params.Cursor,
+		Cursor:     cursor,
 		Sort:       sort,
 	})
 	if err != nil {

@@ -793,6 +793,15 @@ func TestGetTaskList_ParametersValidJSON(t *testing.T) {
 	if taskListID["type"] != "string" {
 		t.Fatalf("task_list_id schema type = %v, want string UUID", taskListID["type"])
 	}
+	for _, field := range []string{"limit", "sort"} {
+		property, ok := props[field].(map[string]any)
+		if !ok {
+			t.Fatalf("%s schema = %#v, want an object", field, props[field])
+		}
+		if _, exposesDefault := property["default"]; exposesDefault {
+			t.Fatalf("%s must keep its fallback server-side to preserve legacy reads", field)
+		}
+	}
 }
 
 func TestGetTaskList_Name(t *testing.T) {
@@ -1193,6 +1202,35 @@ func TestGetTaskList_PagingValidation(t *testing.T) {
 				t.Fatalf("expected error containing %q, got %+v", test.want, result)
 			}
 		})
+	}
+}
+
+func TestGetTaskList_AcceptsNullCursorInPagedRead(t *testing.T) {
+	mgr := newFakeManager(t)
+	tl := mgr.addTaskList("Triagem", defaultStatuses())
+	mgr.addTask(tl.ID, "Nova", 1)
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(mgr.ctx, mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"status_id":    1,
+		"limit":        10,
+		"cursor":       nil,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("cursor null should behave as omitted: %s", result.Content)
+	}
+	var page struct {
+		Tasks []json.RawMessage `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tasks) != 1 {
+		t.Fatalf("expected one task, got %d", len(page.Tasks))
 	}
 }
 

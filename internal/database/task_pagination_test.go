@@ -147,3 +147,28 @@ func TestListTasksPageWithContext_EnforcesUserScope(t *testing.T) {
 		t.Fatal("expected cross-user query to fail")
 	}
 }
+
+func TestEnsureTaskPaginationIndexes(t *testing.T) {
+	testDB := setupTaskPaginationTestDB(t)
+	if err := ensureTaskPaginationIndexes(testDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureTaskPaginationIndexes(testDB); err != nil {
+		t.Fatalf("index creation must be idempotent: %v", err)
+	}
+	var indexes []struct {
+		Name string
+	}
+	if err := testDB.Raw(`PRAGMA index_list('tasks')`).Scan(&indexes).Error; err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]bool, len(indexes))
+	for _, index := range indexes {
+		got[index.Name] = true
+	}
+	for _, name := range []string{"idx_tasks_list_created_id", "idx_tasks_list_status_created_id"} {
+		if !got[name] {
+			t.Fatalf("expected pagination index %q, got %v", name, got)
+		}
+	}
+}
