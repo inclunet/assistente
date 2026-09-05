@@ -8,9 +8,11 @@ condicionais de mensageria e catálogo e a tool de runtime `load_skill`. Tools
 dinâmicas fornecidas por servidores MCP não fazem parte deste inventário.
 
 O diagnóstico `adequada` significa que a descrição informa gatilho de uso,
-limites ou alternativa relevante e risco/custo quando aplicável. A coluna PR
-indica a entrega responsável pela descrição vigente, não necessariamente pela
-criação da tool.
+limites ou alternativa relevante e risco/custo quando aplicável. `Grupo` é uma
+classificação editorial desta auditoria por domínio e pode divergir de
+`CatalogMetadata.Category` ou `CatalogMetadata.Package`. A coluna PR indica a
+entrega responsável pela descrição vigente, não necessariamente pela criação
+da tool.
 
 | Tool | Grupo | Registro | Diagnóstico | PR |
 |---|---|---|---|---|
@@ -56,7 +58,9 @@ criação da tool.
 
 - O golden executável do catálogo cobria 29 das 37 tools locais. Ele agora
   instancia todas as 37, exige nomes únicos por mapa, descrição não vazia e
-  equivalência de metadados, tags, schema e descrição.
+  equivalência de metadados, tags, schema e descrição. A ampliação também
+  revelou e corrigiu `get_conversation_info` fora da categoria e do pacote
+  `history`.
 - `tool_catalog` tinha testes funcionais, mas nenhum contrato direto para a
   orientação de descoberta, ranking, carregamento e limites de política. O
   contrato foi adicionado sem reescrever a descrição aprovada no PR #636.

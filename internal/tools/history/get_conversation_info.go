@@ -33,6 +33,10 @@ func NewGetConversationInfo() *GetConversationInfoTool {
 
 func (t *GetConversationInfoTool) Name() string { return "get_conversation_info" }
 
+func (t *GetConversationInfoTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "history", Class: "read_context", Package: "history", Risk: "read"}
+}
+
 func (t *GetConversationInfoTool) Description() string {
 	return "Returns metadata and the rolling summary for the current conversation, or for one specified by ID, including its conversation_id, title, channel, message count, and linked tasks or task lists. Use it to understand a conversation at low cost or obtain its ID for links; request a small recent-message window only when the summary is insufficient. Do not use it to search for matching discussions (use search_conversations) or rehydrate complete messages by ID (use get_messages). It inspects exactly one conversation per call; including messages increases output cost and is capped at the 50 most recent root messages, not paginated history."
 }

@@ -23,8 +23,6 @@ func TestCatalogToolDescriptionExplainsDiscoveryAndPolicyBoundaries(t *testing.T
 		"task query",
 		"profile preferred packages",
 		"conversation recency",
-		`"action":"search"`,
-		`"action":"load"`,
 		"wildcard",
 		"profile policy",
 		"schema budget",
@@ -32,6 +30,12 @@ func TestCatalogToolDescriptionExplainsDiscoveryAndPolicyBoundaries(t *testing.T
 	} {
 		if !strings.Contains(description, concept) {
 			t.Errorf("Description() deve documentar %q", concept)
+		}
+	}
+	compactDescription := strings.Join(strings.Fields(description), "")
+	for _, example := range []string{`"action":"search"`, `"action":"load"`} {
+		if !strings.Contains(compactDescription, example) {
+			t.Errorf("Description() deve documentar o exemplo %q", example)
 		}
 	}
 }
