@@ -77,16 +77,16 @@ export default function ProfilesPage() {
     const caller = request?.caller;
     if (!caller) return;
 
+    const workspaceState = useWorkspaceStore.getState();
+    const callerTab = workspaceState.workspace?.tabs.find((tab) => tab.id === caller.tabId);
+    const expectedSurfaceId = caller.surfaceType === 'modal'
+      ? buildWorkspaceModalChatSurfaceId(caller.tabId)
+      : buildTabChatSurfaceId(caller.tabId, caller.surfaceType);
+    const conversationMatches = (callerTab?.conversationId ?? null) === caller.conversationId;
+    if (!callerTab || caller.surfaceId !== expectedSurfaceId || !conversationMatches) return;
+
     navigate('/');
     requestAnimationFrame(() => {
-      const workspaceState = useWorkspaceStore.getState();
-      const callerTab = workspaceState.workspace?.tabs.find((tab) => tab.id === caller.tabId);
-      const expectedSurfaceId = caller.surfaceType === 'modal'
-        ? buildWorkspaceModalChatSurfaceId(caller.tabId)
-        : buildTabChatSurfaceId(caller.tabId, caller.surfaceType);
-      const conversationMatches = (callerTab?.conversationId ?? null) === caller.conversationId;
-      if (!callerTab || caller.surfaceId !== expectedSurfaceId || !conversationMatches) return;
-
       workspaceState.setActiveTab(caller.tabId);
       if (caller.surfaceType === 'modal') {
         void useWorkspaceChatModalStore.getState().requestOpen(caller.tabId);

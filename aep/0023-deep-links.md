@@ -203,9 +203,9 @@ Retorna a classe CSS específica do tipo (ex: `deep-link--conversation`).
 type TabType = 'tasklist' | 'editor' | 'terminal';
 
 type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: number; title?: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string }
   | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: number; message: string }
+  | { type: 'conversation:send'; conversationId: string; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string; tab?: 'voice' }
   | { type: 'resource:new'; resource: EditableResource }

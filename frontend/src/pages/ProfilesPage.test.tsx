@@ -7,6 +7,7 @@ const mockDuplicateProfile = vi.fn();
 const mockNavigate = vi.fn();
 const mockSetActiveTab = vi.fn();
 const mockRequestOpen = vi.fn();
+let mockConversationId = 'conversation-1';
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
@@ -16,15 +17,15 @@ vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector?: (state: Record<string, unknown>) => unknown) => {
       const state = {
-        workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: 'conversation-1' }] },
+        workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: mockConversationId }] },
         setActiveTab: mockSetActiveTab,
       };
       return selector ? selector(state) : state;
     },
     {
       getState: () => ({
-      workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: 'conversation-1' }] },
-      setActiveTab: mockSetActiveTab,
+        workspace: { tabs: [{ id: 'chat-tab', type: 'chat', conversationId: mockConversationId }] },
+        setActiveTab: mockSetActiveTab,
       }),
     },
   ),
@@ -253,6 +254,7 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     mockNavigate.mockReset();
     mockSetActiveTab.mockReset();
     mockRequestOpen.mockReset();
+    mockConversationId = 'conversation-1';
     useNavigationStore.getState().clearPendingEdit();
     vi.mocked(UpdateProfile).mockClear();
     mockDuplicateProfile.mockResolvedValue('perfil-padrao-copia');
@@ -386,5 +388,26 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     await waitFor(() => expect(vi.mocked(UpdateProfile)).toHaveBeenCalled());
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
     await waitFor(() => expect(mockSetActiveTab).toHaveBeenCalledWith('chat-tab'));
+  });
+
+  it('permanece em perfis quando o contexto de origem ficou inválido', async () => {
+    const user = userEvent.setup();
+    useNavigationStore.getState().requestResourceEdit('profiles', 'padrao', 'edit', {
+      tab: 'voice',
+      caller: {
+        kind: 'workspace',
+        tabId: 'chat-tab',
+        surfaceId: 'page:tab:chat-tab',
+        surfaceType: 'page',
+        conversationId: 'conversation-original',
+      },
+    });
+
+    render(<ProfilesPage />);
+    await screen.findByRole('button', { name: 'Cancelar' });
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockSetActiveTab).not.toHaveBeenCalled();
   });
 });

@@ -443,7 +443,7 @@ function ChatSessionViewContent({
           },
           {
             navigate,
-            ...(origin.tabId
+            ...(origin.tabId && (origin.surfaceType === 'page' || origin.surfaceType === 'modal')
               ? {
                   caller: {
                     kind: 'workspace' as const,
