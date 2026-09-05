@@ -53,11 +53,11 @@ func (t *CollectResponsesTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"title": {"type": "string", "description": "Short heading that tells the user why answers are needed, for example 'Questions for the implementation plan'."},
-			"description": {"type": "string", "description": "Optional brief context shared by all questions. Do not repeat each prompt or include hidden instructions."},
+			"title": {"type": "string", "description": "Short heading in the user's language that tells them why answers are needed."},
+			"description": {"type": "string", "description": "Optional brief context in the user's language shared by all questions. Do not repeat each prompt or include hidden instructions."},
 			"allow_cancel": {"type": "boolean", "description": "Whether the user may cancel instead of answering. Defaults to true; set false only when proceeding without answers is unsafe or impossible."},
-			"submit_label": {"type": "string", "description": "Optional concise label for the submit button, such as 'Continue' or 'Save answers'."},
-			"cancel_label": {"type": "string", "description": "Optional concise label for the cancel button."},
+			"submit_label": {"type": "string", "description": "Optional concise submit-button label in the user's language."},
+			"cancel_label": {"type": "string", "description": "Optional concise cancel-button label in the user's language."},
 			"questions": {
 				"type": "array",
 				"minItems": 1,
@@ -67,16 +67,16 @@ func (t *CollectResponsesTool) Parameters() json.RawMessage {
 					"properties": {
 						"id": {"type": "string", "description": "Stable unique key used in the returned answers object, for example 'output_format'. Never reuse an id within the questionnaire."},
 						"type": {"type": "string", "enum": ["text", "long_text", "number", "boolean", "single_choice", "multiple_choice", "scale", "date", "readonly_code"], "description": "Input format. Use single_choice for one explicit option, multiple_choice for several, long_text for prose, and readonly_code only to display non-editable reference content."},
-						"prompt": {"type": "string", "description": "Direct, neutral question that can be understood without relying on option order or visual cues."},
-						"description": {"type": "string", "description": "Optional clarification, constraints, or consequence of the choice. Do not hide required information here."},
+						"prompt": {"type": "string", "description": "Direct, neutral question in the user's language that can be understood without relying on option order or visual cues."},
+						"description": {"type": "string", "description": "Optional clarification, constraints, or consequence in the user's language. Do not hide required information here."},
 						"content": {"type": "string", "description": "Non-editable reference content shown only with type=readonly_code; it does not produce an answer."},
 						"required": {"type": "boolean", "description": "Whether this answer is mandatory before submission. Use sparingly when omission would block or invalidate the next action."},
-						"options": {"type": "array", "items": {"type": "string"}, "description": "Distinct user-facing choices required by single_choice and multiple_choice. Include all meaningful alternatives; add an 'Other' option when the list is not exhaustive."},
+						"options": {"type": "array", "items": {"type": "string"}, "description": "Distinct choices in the user's language, required by single_choice and multiple_choice. Include all meaningful alternatives and a localized open-ended option when the list is not exhaustive."},
 						"min": {"type": "number", "description": "Minimum accepted value for number or scale questions."},
 						"max": {"type": "number", "description": "Maximum accepted value for number or scale questions; must not be less than min."},
 						"step": {"type": "number", "description": "Increment between accepted numeric values."},
-						"placeholder": {"type": "string", "description": "Optional example or format hint for text input; never use it as the only label or instruction."},
-						"default": {"description": "Optional initial answer. Use only when a safe, clearly implied default exists."}
+						"placeholder": {"type": "string", "description": "Optional example or format hint in the user's language for text input; never use it as the only label or instruction."},
+						"default": {"description": "Optional initial answer. If textual, use the user's language; provide it only when a safe, clearly implied default exists."}
 					},
 					"required": ["id", "type", "prompt"]
 				}

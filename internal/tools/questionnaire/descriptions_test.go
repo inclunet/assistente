@@ -41,6 +41,11 @@ func TestCollectResponsesParameterDescriptionsCoverQuestionContract(t *testing.T
 			t.Errorf("top-level parameter %q should explain its use", field)
 		}
 	}
+	for _, field := range []string{"title", "description", "submit_label", "cancel_label"} {
+		if !strings.Contains(strings.ToLower(schema.Properties[field].Description), "user's language") {
+			t.Errorf("user-facing parameter %q should require the user's language", field)
+		}
+	}
 	questions := schema.Properties["questions"]
 	if questions.Items == nil {
 		t.Fatal("questions should retain an item schema")
@@ -48,6 +53,11 @@ func TestCollectResponsesParameterDescriptionsCoverQuestionContract(t *testing.T
 	for _, field := range []string{"id", "type", "prompt", "description", "content", "required", "options", "min", "max", "step", "placeholder", "default"} {
 		if strings.TrimSpace(questions.Items.Properties[field].Description) == "" {
 			t.Errorf("question parameter %q should explain its use", field)
+		}
+	}
+	for _, field := range []string{"prompt", "description", "options", "placeholder", "default"} {
+		if !strings.Contains(strings.ToLower(questions.Items.Properties[field].Description), "user's language") {
+			t.Errorf("user-facing question parameter %q should require the user's language", field)
 		}
 	}
 }
