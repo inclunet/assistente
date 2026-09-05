@@ -790,9 +790,9 @@ const ptBR = {
       loading: 'Carregando allowlist de paths...',
       toolbarLabel: 'Barra de ferramentas da allowlist de paths',
       gridLabel: 'Paths autorizados fora do sandbox',
-      description: 'Paths fora do workspace ativo (e de ~/.assistente) que você autorizou o assistente a acessar. Cada entrada vale para um path e uma operação até ser removida aqui.',
+      description: 'Gerencie permissões e proibições por path e operação. Proibições prevalecem sobre permissões em qualquer escopo.',
       sessionNote: 'Esta lista cobre só o workspace atual, o perfil ativo e o escopo global. Autorizações só da tentativa, só da conversa ou de outros perfis não aparecem aqui — as efêmeras expiram sozinhas; as de outros perfis continuam valendo quando aquele perfil estiver ativo.',
-      empty: 'Nenhum path autorizado. Todo acesso fora do sandbox continua pedindo consentimento.',
+      empty: 'Nenhuma regra de path persistente. Todo acesso fora do sandbox continua pedindo consentimento.',
       loadFailedBody: 'Não foi possível carregar a allowlist de paths. As autorizações que existirem continuam valendo — recarregue para tentar de novo.',
       columns: {
         path: 'Path',
@@ -822,15 +822,17 @@ const ptBR = {
         unknown: 'Escopo que este app não reconhece',
       },
       form: {
-        title: 'Adicionar proibição de path',
+        title: 'Adicionar regra de path',
         path: 'Path',
         kind: 'Tipo',
         operation: 'Operação',
+        effect: 'Efeito',
         scope: 'Escopo',
         reason: 'Observação (opcional)',
-        submit: 'Adicionar proibição',
-        pathRequired: 'Informe o path a proibir',
-        operationRequired: 'Informe a operação a proibir',
+        submitAllow: 'Adicionar permissão',
+        submitDeny: 'Adicionar proibição',
+        pathRequired: 'Informe o path da regra',
+        operationRequired: 'Informe a operação da regra',
       },
       actions: {
         remove: 'Remover',
@@ -845,17 +847,19 @@ const ptBR = {
       toast: {
         removed: 'Autorização de path removida',
         denyRemoved: 'Proibição de path removida',
+        allowAdded: 'Permissão de path adicionada',
         denyAdded: 'Proibição de path adicionada',
       },
       announce: {
         removed: 'Autorização de path removida: {{path}} ({{scope}}).',
         denyRemoved: 'Proibição de path removida: {{path}} ({{scope}}).',
+        allowAdded: 'Permissão de path adicionada: {{path}}.',
         denyAdded: 'Proibição de path adicionada: {{path}}.',
       },
       error: {
         loadFailed: 'Erro ao carregar a allowlist de paths',
         removeFailed: 'Erro ao remover a autorização de path',
-        addFailed: 'Erro ao adicionar a proibição de path',
+        addRuleFailed: 'Erro ao adicionar a regra de path',
         reloadAfterRemoveFailed:
           'A autorização foi removida, mas a lista não pôde ser atualizada. Recarregue para confirmar.',
       },
@@ -4313,8 +4317,14 @@ const ptBR = {
         },
         fstrust: {
           title: 'Autorizar acesso a caminho fora do workspace',
-          description: 'O assistente pediu a operação "{{operation}}" em um caminho fora do workspace ativo e de ~/.assistente. Autorize apenas o path exato desta tentativa, ou escolha explicitamente liberar a pasta pai.',
+          description: 'O assistente pediu a operação "{{operation}}" em um caminho fora do workspace ativo e de ~/.assistente. Permita o path ou a pasta pai, negue esta tentativa ou lembre a negação no escopo escolhido.',
           cancel: 'Negar',
+          deny: {
+            session: 'Negar durante esta conversa',
+            workspace: 'Negar neste workspace (projeto)',
+            profile: 'Negar neste perfil',
+            global: 'Negar globalmente (todos os workspaces e perfis)',
+          },
           scope: {
             once: 'Somente esta tentativa',
             session: 'Durante esta conversa',

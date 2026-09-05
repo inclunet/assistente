@@ -803,6 +803,7 @@ export function buildWailsMockScript(): string {
       Profiles: makeProxy('wailsapi.Profiles'),
       Hotkeys: makeProxy('wailsapi.Hotkeys'),
       NetTrust: makeProxy('wailsapi.NetTrust'),
+      FSTrust: makeProxy('wailsapi.FSTrust'),
       Credentials: makeProxy('wailsapi.Credentials'),
       Settings: makeProxy('wailsapi.Settings'),
       MCP: makeProxy('wailsapi.MCP'),

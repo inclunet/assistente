@@ -25,6 +25,10 @@ type PromptRequest struct {
 type PromptDecision struct {
 	Approve bool
 	Scope   Scope
+	// Effect indica allow ou deny. Deny em ScopeOnce bloqueia só a tentativa;
+	// nos demais escopos, registra uma recusa lembrada. Allow segue o fluxo de
+	// autorização e persistência abaixo.
+	Effect Effect
 	// Kind=dir concede o diretório pai (ou o próprio path se já for dir) para a
 	// operação; Kind=file concede o path resolvido exato.
 	Kind Kind
@@ -97,8 +101,35 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		return fmt.Errorf("falha ao solicitar autorização de path %s (%s): %w", requested, operation, err)
 	}
 	if !decision.Approve {
+		scope := decision.Scope
+		if !ValidScope(scope) {
+			scope = ScopeOnce
+		}
+		if NormalizedEffect(decision.Effect) == EffectDeny && a.mgr != nil && scope != ScopeOnce {
+			kind := decision.Kind
+			if !ValidKind(kind) {
+				kind = KindFile
+			}
+			entryPath := resolved
+			if kind == KindDir {
+				entryPath = dirGrantRoot(resolved)
+			}
+			if err := a.mgr.Add(ctx, AllowlistEntry{
+				Path:      entryPath,
+				Kind:      kind,
+				Operation: operation,
+				Effect:    EffectDeny,
+				Scope:     scope,
+				CreatedBy: creatorFor(skillSlug),
+			}); err != nil {
+				// Fail-closed: a falha em lembrar nunca libera a tentativa.
+				logging.Errorf(ctx, "fstrust.authorizer",
+					"[FsTrust] falha ao persistir deny (escopo %s) para path=%s: %v",
+					scope, entryPath, err)
+			}
+		}
 		logging.Infof(ctx, "fstrust.authorizer",
-			"[FsTrust] autorização negada: path=%s op=%s", requested, operation)
+			"[FsTrust] autorização negada: path=%s op=%s escopo=%s", requested, operation, scope)
 		return newDeniedPathError(requested, operation, "autorização negada pelo usuário", true)
 	}
 
