@@ -38,7 +38,7 @@ func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
 		"terminal cmd",
 		"shell allowlist/confirmation policy",
 		"does not grant content access",
-		"frontend parser rejects unsupported routes and parameters",
+		"frontend parser rejects unsupported navigate routes and invalid required or validated parameter combinations",
 		"tool_catalog",
 		`{"uri":`,
 	}
@@ -54,7 +54,7 @@ func TestOpenDeepLink_ParametersDescribeSafeURIConstruction(t *testing.T) {
 			Description string `json:"description"`
 		} `json:"properties"`
 		Required             []string `json:"required"`
-		AdditionalProperties bool     `json:"additionalProperties"`
+		AdditionalProperties *bool    `json:"additionalProperties"`
 	}
 	assert.NoError(t, json.Unmarshal(NewOpenDeepLink(nil).Parameters(), &schema))
 
@@ -64,12 +64,16 @@ func TestOpenDeepLink_ParametersDescribeSafeURIConstruction(t *testing.T) {
 		"link=",
 		"do not invent",
 		"url-encode",
-		"unsupported routes or editor tabs",
+		"unsupported navigate routes",
+		"invalid required or validated parameter combinations",
+		"frontend parser",
 	} {
 		assert.Contains(t, uriDescription, concept)
 	}
 	assert.Equal(t, []string{"uri"}, schema.Required)
-	assert.False(t, schema.AdditionalProperties)
+	if assert.NotNil(t, schema.AdditionalProperties, "schema deve declarar additionalProperties") {
+		assert.False(t, *schema.AdditionalProperties)
+	}
 }
 
 func TestOpenDeepLink_Execute(t *testing.T) {
