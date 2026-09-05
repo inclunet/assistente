@@ -69,7 +69,7 @@ func (t *HTTPRequest) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *HTTPRequest) Description() string {
-	return "Makes complete HTTP requests supporting all methods (GET/POST/PUT/DELETE/PATCH), custom headers, request body, and authentication. Blocks local/private hosts by default. Use for API calls, REST endpoints, and data submission."
+	return `Makes an HTTP(S) request with explicit method, headers, body, response mode, and size limit. Use for APIs or endpoints that require protocol-level control; for example {"url":"https://api.example.com/items","method":"GET","extract_mode":"json"}. Do not use to search for a URL (use web_search), read a normal page with readability extraction (use web_fetch), or parse feed entries (use feed_read). Credentials registered for the domain are applied automatically; do not place secrets in arguments. Risk: performs a network operation, and mutating methods can change remote state; PUT, PATCH, and DELETE may require user confirmation. Local/private destinations and redirects are guarded by the network policy. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *HTTPRequest) Parameters() json.RawMessage {
