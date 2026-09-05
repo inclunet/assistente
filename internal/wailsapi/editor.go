@@ -236,6 +236,62 @@ func ensurePrivateDirectory(path string) error {
 	return nil
 }
 
+func samePath(base, candidate string) bool {
+	return pathInside(base, candidate) && pathInside(candidate, base)
+}
+
+func validateEditorStorageRoot(userID string, paths editorUserPaths) (string, error) {
+	usersRoot := filepath.Join(configdir.GetHomeDir(), "users")
+	resolvedUsersRoot, err := filesystem.ResolveForComparison(usersRoot)
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver raiz de usuários: %w", err)
+	}
+	resolvedUserRoot, err := filesystem.ResolveForComparison(filepath.Dir(paths.root))
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver diretório do usuário: %w", err)
+	}
+	resolvedEditorRoot, err := filesystem.ResolveForComparison(paths.root)
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver diretório do editor: %w", err)
+	}
+	resolvedDraftDir, err := filesystem.ResolveForComparison(paths.draftDir)
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver diretório de drafts: %w", err)
+	}
+
+	expectedUserRoot := filepath.Join(resolvedUsersRoot, userID)
+	expectedEditorRoot := filepath.Join(expectedUserRoot, "editor")
+	expectedDraftDir := filepath.Join(expectedEditorRoot, "drafts")
+	if samePath(resolvedUsersRoot, resolvedEditorRoot) ||
+		!pathInside(resolvedUsersRoot, resolvedEditorRoot) ||
+		!samePath(expectedUserRoot, resolvedUserRoot) ||
+		!samePath(expectedEditorRoot, resolvedEditorRoot) ||
+		!samePath(expectedDraftDir, resolvedDraftDir) {
+		return "", database.ErrUserScopeRequired
+	}
+	return resolvedUsersRoot, nil
+}
+
+func preparePrivateEditorStorage(userID string, paths editorUserPaths) error {
+	resolvedUsersRoot, err := validateEditorStorageRoot(userID, paths)
+	if err != nil {
+		return err
+	}
+	for _, dir := range []string{filepath.Dir(paths.root), paths.root, paths.draftDir} {
+		if err := ensurePrivateDirectory(dir); err != nil {
+			return err
+		}
+	}
+	resolvedUsersRootAfter, err := validateEditorStorageRoot(userID, paths)
+	if err != nil {
+		return err
+	}
+	if !samePath(resolvedUsersRoot, resolvedUsersRootAfter) {
+		return fmt.Errorf("raiz de usuários substituída durante validação")
+	}
+	return nil
+}
+
 func copyLegacyEditorFile(source, destination string, overwriteIncomplete bool) error {
 	sourceInfo, err := os.Lstat(source)
 	if err != nil {
@@ -339,11 +395,8 @@ func copyLegacyEditorFile(source, destination string, overwriteIncomplete bool) 
 func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 	// O storage próprio precisa ser validado para todo usuário, mesmo quando
 	// ele não vence o claim legado ou quando a adoção é desabilitada.
-	if err := ensurePrivateDirectory(paths.root); err != nil {
-		return fmt.Errorf("falha ao preparar diretório privado do editor: %w", err)
-	}
-	if err := ensurePrivateDirectory(paths.draftDir); err != nil {
-		return fmt.Errorf("falha ao preparar diretório privado de drafts: %w", err)
+	if err := preparePrivateEditorStorage(userID, paths); err != nil {
+		return fmt.Errorf("falha ao preparar storage privado do editor: %w", err)
 	}
 
 	legacyDir := legacyEditorDir()
@@ -423,17 +476,14 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 		return fmt.Errorf("falha ao listar drafts legados: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
 		if err := configdir.ValidateFilename(entry.Name()); err != nil {
 			continue
 		}
 		source := filepath.Join(legacyDraftDir, entry.Name())
+		info, err := os.Lstat(source)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
 		destination := filepath.Join(paths.draftDir, entry.Name())
 		if err := copyLegacyEditorFile(source, destination, overwriteIncomplete); err != nil {
 			return fmt.Errorf("falha ao migrar draft legado %q: %w", entry.Name(), err)
@@ -517,11 +567,15 @@ func pathInside(base, candidate string) bool {
 // a fronteira de drafts/estado de outra conta. O retorno já tem symlinks
 // resolvidos e deve ser usado no I/O para não voltar ao path lexical validado.
 func (api *Editor) resolveUserFilePath(ctx context.Context, path string) (string, error) {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return "", fmt.Errorf("path vazio")
+	}
 	paths, err := api.userPaths(ctx)
 	if err != nil {
 		return "", err
 	}
-	resolved, err := filesystem.ResolveForComparison(strings.TrimSpace(path))
+	resolved, err := filesystem.ResolveForComparison(trimmedPath)
 	if err != nil {
 		return "", err
 	}

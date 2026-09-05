@@ -82,7 +82,7 @@ describe('editorStore — filePath lifecycle', () => {
       'd1': { id: 'd1', title: 'A', markdown: '# A', mode: 'markdown' as const, filePath: '/a.md', draftId: null },
       'd2': { id: 'd2', title: 'B', markdown: '# B', mode: 'rich' as const, filePath: null, draftId: 'd2' },
     };
-    useEditorStore.getState().hydrate({ documents: docs });
+    useEditorStore.getState().hydrate({ ownerUserId: null, documents: docs });
 
     expect(useEditorStore.getState().documents['d1'].filePath).toBe('/a.md');
     expect(useEditorStore.getState().documents['d2'].filePath).toBeNull();
@@ -106,6 +106,27 @@ describe('editorStore — filePath lifecycle', () => {
     useEditorStore.getState().createDocument({ id: 'b', markdown: 'conteúdo de B' });
     useEditorStore.getState().clearUser();
     expect(useEditorStore.getState().ownerUserId).toBeNull();
+    expect(useEditorStore.getState().documents).toEqual({});
+  });
+
+  it('descarta hidratação assíncrona pertencente ao usuário anterior', () => {
+    useEditorStore.getState().prepareUser('user-a');
+    const staleDocuments = {
+      segredo: {
+        id: 'segredo',
+        title: 'A',
+        markdown: 'conteúdo de A',
+        mode: 'markdown' as const,
+      },
+    };
+
+    useEditorStore.getState().prepareUser('user-b');
+    useEditorStore.getState().hydrate({
+      ownerUserId: 'user-a',
+      documents: staleDocuments,
+    });
+
+    expect(useEditorStore.getState().ownerUserId).toBe('user-b');
     expect(useEditorStore.getState().documents).toEqual({});
   });
 

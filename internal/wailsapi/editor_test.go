@@ -272,6 +272,22 @@ func TestEditorRejectsContextWithoutUserID(t *testing.T) {
 	}
 }
 
+func TestEditorRejectsEmptyFilePathBeforePreparingStorage(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	api := attachEditorForUser(editorTestUserID)
+	if _, err := api.EditorRenameFile(" \t ", "novo.md"); err == nil || !strings.Contains(err.Error(), "path vazio") {
+		t.Fatalf("rename com path vazio: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, ".assistente", "users")); !os.IsNotExist(err) {
+		t.Fatalf("path vazio preparou storage inesperadamente: %v", err)
+	}
+}
+
 func TestEditorPathInsideIsCaseInsensitiveOnWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("semântica específica de paths Windows")
@@ -519,6 +535,52 @@ func TestEditorLegacyMigrationRejectsStorageSymlinkForNonOwner(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(external, "drafts")); !os.IsNotExist(err) {
 		t.Fatalf("migração seguiu symlink e criou drafts externos: %v", err)
+	}
+}
+
+func TestEditorRejectsSymlinkedUserDirectory(t *testing.T) {
+	for _, targetKind := range []string{"outside-users", "other-user"} {
+		t.Run(targetKind, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+
+			userID := "01991f7c-1000-7000-8000-00000000006e"
+			paths, err := editorPathsForUser(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			usersRoot := filepath.Dir(filepath.Dir(paths.root))
+			if err := os.MkdirAll(usersRoot, 0700); err != nil {
+				t.Fatal(err)
+			}
+			target := t.TempDir()
+			if targetKind == "other-user" {
+				target = filepath.Join(usersRoot, "01991f7c-1000-7000-8000-00000000006f")
+				if err := os.MkdirAll(target, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sentinel := filepath.Join(target, "sentinela.txt")
+			if err := os.WriteFile(sentinel, []byte("não alterar"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Dir(paths.root)); err != nil {
+				t.Skipf("symlink de diretório indisponível neste ambiente: %v", err)
+			}
+
+			if _, err := attachEditorForUser(userID).EditorLoadState(); !errors.Is(err, database.ErrUserScopeRequired) {
+				t.Fatalf("diretório de usuário symlinkado não falhou fechado: %v", err)
+			}
+			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "não alterar" {
+				t.Fatalf("destino externo foi alterado: %q, %v", data, err)
+			}
+			if _, err := os.Stat(filepath.Join(target, "editor")); !os.IsNotExist(err) {
+				t.Fatalf("storage foi criado através do symlink pai: %v", err)
+			}
+		})
 	}
 }
 

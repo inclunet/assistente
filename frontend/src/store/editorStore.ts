@@ -104,7 +104,10 @@ interface EditorState {
 
   prepareUser: (userId: string) => void;
   clearUser: () => void;
-  hydrate: (payload: { documents: Record<string, EditorDocument> }) => void;
+  hydrate: (payload: {
+    ownerUserId: string | null;
+    documents: Record<string, EditorDocument>;
+  }) => void;
 }
 
 function newId(): string {
@@ -290,8 +293,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   hydrate: (payload) => {
-    set({
-      documents: payload.documents,
-    });
+    set((state) =>
+      state.ownerUserId === payload.ownerUserId
+        ? { documents: payload.documents }
+        : state,
+    );
   },
 }));
