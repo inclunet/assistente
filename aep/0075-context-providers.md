@@ -23,7 +23,7 @@ Esta AEP cria a arquitetura de `Context Providers`, responsáveis por produzir b
 Resultado da implementação no merge do PR #297:
 
 - `memory`, `workspace` e `tasklist` são registrados como Context Providers no runtime;
-- `memory` usa records estruturados em banco no caminho novo, com fallback legado somente como compatibilidade de leitura;
+- `memory` usa exclusivamente records estruturados em banco no runtime; arquivos Markdown antigos permanecem intocados apenas como backup;
 - tasklists vinculadas são renderizadas pelo provider `tasklist`, preservando o gating da skill `tasklist-manager`;
 - perfis configuram Context Providers por `enabled`, `budget` em caracteres/runes e `settings` via `profiles.Profile.ContextProviders`;
 - a UI de perfil tem aba dedicada de Context Providers, separada de skills e de cache;
@@ -121,20 +121,19 @@ Não haverá migrador automático dos arquivos antigos em `~/.assistente/memory`
 
 Migração dos dados legados:
 
-- os arquivos antigos continuam como fonte de referência temporária;
-- o usuário poderá pedir ao modelo para ler esses arquivos e recompor a memória em records estruturados;
+- os arquivos antigos permanecem intocados no disco como backup, mas não entram automaticamente no prompt;
+- o runtime não cria novos `memory.md` nem diretórios periódicos associados ao formato retirado;
+- o usuário poderá pedir explicitamente ao modelo para ler um backup e recompor a memória em records estruturados;
 - o modelo deve classificar cada record ao gravar no banco;
 - a recomposição assistida deve preferir qualidade e deduplicação, não conversão mecânica 1:1;
-- após validação manual, os arquivos podem ser mantidos apenas como backup/legado.
+- a aplicação não apaga os backups após a recomposição.
 
-Observabilidade e expiração do fallback:
+Retirada do fallback:
 
-- cada inclusão efetiva de conteúdo de `memory.md` sem usuário autenticado emite o evento estruturado `legacy_memory_markdown_adapter_applied`;
-- o evento tem somente dimensões fixas de baixa cardinalidade (`component=context_compatibility`, `adapter=memory_markdown_without_auth` e `schema_version=1`);
-- conteúdo, paths, payloads, IDs de usuário e demais atributos de correlação não podem ser registrados;
-- contexto autenticado e baseado em records canônicos não emite esse evento;
-- o fallback só fica elegível para remoção quando a versão mínima suportada do Assistente for uma versão que sempre autentique a montagem de memória, instalações nessa faixa tiverem caminho documentado de recomposição e o evento permanecer sem ocorrências numa janela operacional representativa;
-- a remoção exige atualizar esta AEP com a versão mínima concreta e a evidência observada antes de alterar o comportamento.
+- a aplicação é autocontida e não possui consumidores externos antigos desse contrato;
+- por decisão explícita do mantenedor, a leitura e injeção automática de `memory.md` sem autenticação foi retirada imediatamente, sem fase de observabilidade;
+- sem usuário autenticado, o Memory Provider não consulta arquivos nem o banco e não produz bloco dinâmico;
+- com usuário autenticado, somente records do banco podem compor `user_memory`.
 
 ### D2.2. Memórias precisam de governança no frontend
 
@@ -434,7 +433,7 @@ Status: concluída pelo PR #297.
 
 ### Fase 2 — Memory provider
 
-Status: concluída no caminho novo pelo PR #297 e PRs anteriores, mantendo fallback legado de leitura conforme previsto.
+Status: concluída pelo PR #297 e PRs anteriores; o fallback legado de leitura foi retirado por decisão posterior do mantenedor.
 
 - Extrair a skill `memory` para provider.
 - Criar bloco de instruções estáveis de memória.
@@ -443,7 +442,7 @@ Status: concluída no caminho novo pelo PR #297 e PRs anteriores, mantendo fallb
 - Introduzir tools de busca/leitura/escrita de memória.
 - Expor APIs Wails para CRUD, busca, arquivamento e resumo de política.
 - Criar tela frontend para listar, filtrar, editar, arquivar e excluir memórias.
-- Manter fallback legado até a migração estar validada.
+- Preservar arquivos antigos apenas como backup, sem leitura ou criação automática no runtime.
 
 ### Fase 3 — Workspace provider
 
@@ -501,6 +500,7 @@ Status: concluída para os builtins atuais. O runtime novo trata `SKILL.md` como
 - [x] `workspace` não é mais carregada como skill no caminho novo.
 - [x] Memórias são persistidas como records estruturados no banco no caminho novo.
 - [x] Não existe migrador automático dos arquivos antigos de memória; a recomposição é assistida pelo modelo.
+- [x] `memory.md` não entra automaticamente no prompt e arquivos existentes não são apagados.
 - [x] Existe tela frontend para visualizar, filtrar, editar, arquivar e excluir memórias salvas.
 - [x] A tela deixa claro quais memórias impactam automaticamente o prompt.
 - [x] APIs Wails permitem CRUD, busca e arquivamento de records de memória.
