@@ -810,6 +810,11 @@ func TestGetTaskList_ParametersValidJSON(t *testing.T) {
 			t.Fatalf("%s must keep its fallback server-side to preserve legacy reads", field)
 		}
 	}
+	limit := props["limit"].(map[string]any)
+	description, _ := limit["description"].(string)
+	if !strings.Contains(description, "non-null") || !strings.Contains(description, "null is treated as omitted") {
+		t.Fatalf("limit description must document null pagination semantics, got %q", description)
+	}
 }
 
 func TestGetTaskList_Name(t *testing.T) {
@@ -1116,7 +1121,7 @@ func TestGetTaskList_PagedByStatusWithCursor(t *testing.T) {
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(mgr.ctx, mustMarshal(t, map[string]any{
-		"task_list_id": tl.ID,
+		"task_list_id": "  " + tl.ID + "  ",
 		"status_id":    1,
 		"limit":        2,
 		"sort":         "created_at:asc",
@@ -1201,6 +1206,7 @@ func TestGetTaskList_PagingValidation(t *testing.T) {
 		{name: "invalid cursor", args: map[string]any{"task_list_id": tl.ID, "cursor": "not-a-cursor"}, want: "cursor inválido"},
 		{name: "empty cursor", args: map[string]any{"task_list_id": tl.ID, "cursor": "  "}, want: "cursor must be a non-empty"},
 		{name: "empty sort", args: map[string]any{"task_list_id": tl.ID, "sort": "  "}, want: "sort must be created_at"},
+		{name: "empty list id", args: map[string]any{"task_list_id": "   "}, want: "task_list_id must be a non-empty"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
