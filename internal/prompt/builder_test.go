@@ -97,10 +97,12 @@ func providerBuildRequestForTest(enabledSkills []string, disableSkills bool, dis
 	case chat.TemplateData:
 		req.ToolCallingEnabled = data.ToolCallingEnabled
 		req.EnabledTools = append([]string(nil), data.EnabledTools...)
+		req.ImplicitToolSelectionUnavailable = data.ImplicitToolSelectionUnavailable
 	case *chat.TemplateData:
 		if data != nil {
 			req.ToolCallingEnabled = data.ToolCallingEnabled
 			req.EnabledTools = append([]string(nil), data.EnabledTools...)
+			req.ImplicitToolSelectionUnavailable = data.ImplicitToolSelectionUnavailable
 		}
 	default:
 		req.ToolCallingEnabled = true
@@ -1205,6 +1207,72 @@ func TestComputeEnabledToolNames_ProfileNilToolsFailsClosedWhenCatalogMissing(t 
 	names := b.ComputeEnabledToolNames(profile)
 	if len(names) != 0 {
 		t.Fatalf("Expected no implicit tools without catalog, got %v", names)
+	}
+	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	if !data.ImplicitToolSelectionUnavailable {
+		t.Fatalf("TemplateData deve preservar o motivo tipado da seleção: %+v", data)
+	}
+	messages := buildPromptForTest(b, []llm.Message{{Role: "user", Content: "oi"}}, nil, false, false, data, "", "")
+	system, ok := messages[0].Content.(string)
+	if !ok || !strings.Contains(system, "<tool_selection_status>") ||
+		!strings.Contains(system, "No implicit tools were exposed") {
+		t.Fatalf("prompt deve incluir status fail-closed, got %#v", messages)
+	}
+}
+
+func TestBuildTemplateData_OmitsFailClosedStatusForIntentionalSelections(t *testing.T) {
+	withoutCatalog := tools.NewRegistry()
+	_ = withoutCatalog.Register(&fakeTool{name: "read_file"})
+
+	tests := []struct {
+		name    string
+		builder *prompt.Builder
+		profile *profiles.Profile
+	}{
+		{
+			name:    "tools desabilitadas",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{DisableTools: true}},
+		},
+		{
+			name:    "allowlist vazia",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{EnabledTools: []string{}}},
+		},
+		{
+			name:    "allowlist explícita",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{EnabledTools: []string{"read_file"}}},
+		},
+		{
+			name:    "preloaded explícita com on demand",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{
+				ToolPolicyDefault: "on_demand",
+				ToolPolicy: map[string]string{
+					"read_file": "preloaded",
+				},
+			}},
+		},
+		{
+			name: "catálogo disponível",
+			builder: &prompt.Builder{Tools: func() *tools.Registry {
+				reg := tools.NewRegistry()
+				_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+				_ = reg.Register(&fakeTool{name: "read_file"})
+				return reg
+			}()},
+			profile: &profiles.Profile{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data := tc.builder.BuildTemplateData(tc.profile, llm.ChatParams{}, "conv-1")
+			if data.ImplicitToolSelectionUnavailable {
+				t.Fatalf("status não deveria aparecer: %+v", data)
+			}
+		})
 	}
 }
 
