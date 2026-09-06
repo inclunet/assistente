@@ -62,14 +62,15 @@ type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
 func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
-	enabledToolNames := b.ComputeEnabledToolNames(activeProfile)
+	enabledToolNames, implicitToolSelectionUnavailable := b.resolveToolSelection(activeProfile)
 	data := TemplateData{
-		Profile:            activeProfile,
-		ProfileSlug:        params.ProfileSlug,
-		ToolCallingEnabled: len(enabledToolNames) > 0,
-		EnabledTools:       enabledToolNames,
-		EnabledToolCount:   len(enabledToolNames),
-		ConversationID:     conversationID,
+		Profile:                          activeProfile,
+		ProfileSlug:                      params.ProfileSlug,
+		ToolCallingEnabled:               len(enabledToolNames) > 0,
+		EnabledTools:                     enabledToolNames,
+		EnabledToolCount:                 len(enabledToolNames),
+		ImplicitToolSelectionUnavailable: implicitToolSelectionUnavailable,
+		ConversationID:                   conversationID,
 	}
 
 	var activeTab *workspace.Tab
@@ -376,41 +377,37 @@ func buildTurnContextBlock(turnContext []string) string {
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.
 func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []string {
-	if activeProfile != nil && activeProfile.Chat.DisableTools {
-		return nil
-	}
-	if b.Tools == nil || b.Tools.Count() == 0 {
-		return nil
+	names, _ := b.resolveToolSelection(activeProfile)
+	return names
+}
+
+func (b *Builder) resolveToolSelection(activeProfile *profiles.Profile) ([]string, bool) {
+	if activeProfile == nil || b.Tools == nil {
+		return nil, false
 	}
 
-	var defs []tools.ToolDefinition
 	var runtimeTools []string
 	if b.modelOnDemandSkillAvailable(activeProfile) {
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)
 	}
-	if activeProfile != nil {
-		initialEnabledTools := chat.NewToolSelectionPolicy(b.Tools).InitialEnabledToolNames(chat.ProfileToolConfig{
-			EnabledTools:      activeProfile.Chat.EnabledTools,
-			ToolPolicy:        activeProfile.Chat.ToolPolicy,
-			ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
-			DisableTools:      activeProfile.Chat.DisableTools,
-			RuntimeTools:      runtimeTools,
-		})
-		defs = b.Tools.FilterByNames(initialEnabledTools)
-	} else {
-		// Sem perfil não existe autorização para expor implicitamente o registry.
-		// O caller deve fornecer uma seleção de perfil explícita.
-		return nil
-	}
+	effective := chat.NewToolSelectionPolicy(b.Tools).ResolveEffectiveToolPolicy(chat.ProfileToolConfig{
+		EnabledTools:      activeProfile.Chat.EnabledTools,
+		ToolPolicy:        activeProfile.Chat.ToolPolicy,
+		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
+		DisableTools:      activeProfile.Chat.DisableTools,
+		RuntimeTools:      runtimeTools,
+	})
+	defs := b.Tools.FilterByNames(effective.PreloadedNames())
+	unavailable := effective.SelectionStatus() == chat.ToolSelectionCatalogUnavailable && len(defs) == 0
 	if len(defs) == 0 {
-		return nil
+		return nil, unavailable
 	}
 
 	names := make([]string, 0, len(defs))
 	for _, d := range defs {
 		names = append(names, d.Function.Name)
 	}
-	return names
+	return names, unavailable
 }
 
 func (b *Builder) modelOnDemandSkillAvailable(activeProfile *profiles.Profile) bool {
