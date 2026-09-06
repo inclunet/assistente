@@ -45,7 +45,10 @@ func TestConjuntoFinalDoTurnoDeAgenteChegaVazioAoRoteamento(t *testing.T) {
 	registry.MustRegister(testTool{name: "regular_tool"})
 	policy := chat.NewToolSelectionPolicy(registry)
 
-	perfil := &profiles.Profile{Chat: profiles.ChatConfig{LLMProvider: "cursor"}}
+	perfil := &profiles.Profile{Chat: profiles.ChatConfig{
+		LLMProvider:  "cursor",
+		EnabledTools: []string{"regular_tool"},
+	}}
 	cfgDoTurno := func(p *profiles.Profile) chat.ProfileToolConfig {
 		return chat.ProfileToolConfig{
 			EnabledTools:      p.Chat.EnabledTools,
