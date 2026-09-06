@@ -1,8 +1,10 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,6 +144,46 @@ func TestServiceBuildUsesLegacyInstructionsWithoutAuthenticatedUser(t *testing.T
 	}
 	if block := findMemoryBlock(blocks, "user_memory"); block == nil || !strings.Contains(block.Content, "memória legada global") {
 		t.Fatalf("expected legacy memory block, got: %+v", blocks)
+	}
+}
+
+func TestLegacyMemoryAdapterObservabilityDoesNotLeakSensitiveData(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	const sensitiveContent = "segredo-memoria-nao-registrar"
+	restoreFile := setupLegacyMemoryFile(t, sensitiveContent)
+	defer restoreFile()
+
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	defer slog.SetDefault(previousLogger)
+
+	if _, err := svc.PromptBlock(context.Background(), 500); err != nil {
+		t.Fatalf("PromptBlock legacy: %v", err)
+	}
+	entry := logs.String()
+	for _, expected := range []string{
+		legacyMemoryAdapterEvent,
+		`"component":"context_compatibility"`,
+		`"adapter":"memory_markdown_without_auth"`,
+		`"schema_version":1`,
+	} {
+		if !strings.Contains(entry, expected) {
+			t.Fatalf("evento legado não contém %q: %s", expected, entry)
+		}
+	}
+	for _, forbidden := range []string{sensitiveContent, ".assistente", "memory.md", "user_id", "payload", "path"} {
+		if strings.Contains(entry, forbidden) {
+			t.Fatalf("evento legado vazou %q: %s", forbidden, entry)
+		}
+	}
+
+	logs.Reset()
+	if _, err := svc.PromptBlock(ctx, 500); err != nil {
+		t.Fatalf("PromptBlock canônico: %v", err)
+	}
+	if strings.Contains(logs.String(), legacyMemoryAdapterEvent) {
+		t.Fatalf("contexto canônico não deve emitir evento legado: %s", logs.String())
 	}
 }
 
