@@ -51,7 +51,7 @@ type NativeMCPManager interface {
 }
 
 // BuildLLMToolDefs constrói a lista de tool definitions para o LLM.
-// Se disableTools for true, retorna nil. Se enabledTools for nil, inclui todas.
+// Se disableTools for true ou enabledTools for nil/vazio, retorna nil.
 func BuildLLMToolDefs(registry *tools.Registry, enabledTools []string, disableTools bool) []llm.ToolDefinition {
 	return NewToolSelectionPolicy(registry).buildLLMToolDefs(enabledTools, disableTools)
 }

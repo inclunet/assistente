@@ -36,7 +36,7 @@ func NewToolSelectionPolicy(registry *tools.Registry) *ToolSelectionPolicy {
 
 // ProfileToolConfig descreve a configuração de perfil/turno que governa a
 // seleção. Semântica legada de EnabledTools:
-//   - nil   → todas as tools (gateado pelo catálogo quando ele existe no registry);
+//   - nil   → seleção dinâmica via tool_catalog; sem catálogo, falha fechado;
 //   - []    → seleção explícita de zero tools (tool calling desligado);
 //   - lista → allowlist explícita do perfil.
 //
@@ -157,18 +157,13 @@ func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider,
 // ---------------------------------------------------------------------------
 
 // buildLLMToolDefs constrói a lista de tool definitions para o LLM.
-// Se disableTools for true, retorna nil. Se enabledTools for nil, inclui todas.
+// Se disableTools for true ou a seleção for nil/vazia, retorna nil.
 func (p *ToolSelectionPolicy) buildLLMToolDefs(enabledTools []string, disableTools bool) []llm.ToolDefinition {
-	if disableTools || p.registry == nil || p.registry.Count() == 0 {
+	if disableTools || p.registry == nil || p.registry.Count() == 0 || len(enabledTools) == 0 {
 		return nil
 	}
 
-	var toolDefs []tools.ToolDefinition
-	if enabledTools != nil {
-		toolDefs = p.registry.FilterByNames(enabledTools)
-	} else {
-		toolDefs = p.registry.ToDefinitions()
-	}
+	toolDefs := p.registry.FilterByNames(enabledTools)
 
 	result := make([]llm.ToolDefinition, len(toolDefs))
 	for i, td := range toolDefs {
@@ -186,7 +181,7 @@ func (p *ToolSelectionPolicy) buildLLMToolDefs(enabledTools []string, disableToo
 
 // resolveInitialEnabledTools resolve a seleção inicial a partir do perfil: quando
 // o perfil não fixa tools (enabledTools nil) e o catálogo existe, começa só com o
-// tool_catalog (progressive disclosure); caso contrário preserva a seleção.
+// tool_catalog (progressive disclosure); sem catálogo, falha fechado.
 func (p *ToolSelectionPolicy) resolveInitialEnabledTools(enabledTools []string, disableTools bool) []string {
 	if disableTools || enabledTools != nil || p.registry == nil {
 		return enabledTools
@@ -194,7 +189,7 @@ func (p *ToolSelectionPolicy) resolveInitialEnabledTools(enabledTools []string, 
 	if p.registry.Has(tools.ToolCatalogName) {
 		return []string{tools.ToolCatalogName}
 	}
-	return nil
+	return []string{}
 }
 
 // resolveInitialEnabledToolsWithRuntime adiciona as runtime tools (ex.: load_skill)
@@ -204,20 +199,16 @@ func (p *ToolSelectionPolicy) resolveInitialEnabledToolsWithRuntime(enabledTools
 	if disableTools || p.registry == nil || len(runtimeTools) == 0 {
 		return initial
 	}
+	// Sem catálogo, o perfil default/legado não autoriza implicitamente nem
+	// runtime tools. Uma seleção explícita continua sendo tratada abaixo.
+	if enabledTools == nil && !p.registry.Has(tools.ToolCatalogName) {
+		return []string{}
+	}
 	// [] é uma seleção explícita de zero tools no perfil; não adiciona runtime tools.
 	if enabledTools != nil && len(enabledTools) == 0 {
 		return initial
 	}
-	if initial == nil {
-		defs := p.registry.ToDefinitions()
-		names := make([]string, 0, len(defs)+len(runtimeTools))
-		for _, def := range defs {
-			names = append(names, def.Function.Name)
-		}
-		initial = names
-	} else {
-		initial = append([]string{}, initial...)
-	}
+	initial = append([]string{}, initial...)
 	seen := make(map[string]struct{}, len(initial)+len(runtimeTools))
 	for _, name := range initial {
 		if name = strings.TrimSpace(name); name != "" {
