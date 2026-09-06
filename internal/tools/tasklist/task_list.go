@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -604,7 +605,7 @@ func (t *TaskListTool) pagedDetails(ctx context.Context, taskListID string, para
 		Sort:       sort,
 	})
 	if err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("Error listing task page: %v", err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("Error listing task page (task_list_id=%s): %v", taskListID, err), IsError: true}, nil
 	}
 	taskList := page.TaskList
 
@@ -624,7 +625,7 @@ func (t *TaskListTool) pagedDetails(ctx context.Context, taskListID string, para
 			Description: task.Description,
 			StatusID:    task.StatusID,
 			ParentID:    task.ParentID,
-			CreatedAt:   task.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+			CreatedAt:   task.CreatedAt.UTC().Format(time.RFC3339Nano),
 		}
 	}
 	response := map[string]any{
