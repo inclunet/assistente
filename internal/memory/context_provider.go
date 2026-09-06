@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"assistente/internal/configdir"
 	"assistente/internal/contextprovider"
 	"assistente/internal/database"
 )
@@ -26,9 +25,6 @@ func (s *Service) Metadata() contextprovider.ProviderMetadata {
 
 func (s *Service) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	instructions := memoryInstructionsBlock
-	if _, ok := database.UserIDFromContext(ctx); !ok {
-		instructions = legacyMemoryInstructionsBlock
-	}
 	blocks := []contextprovider.Block{{
 		Provider:   s.Name(),
 		Name:       "memory_instructions",
@@ -55,16 +51,10 @@ func (s *Service) Build(ctx context.Context, req contextprovider.BuildRequest) (
 
 func memoryInstructionsBlock() string {
 	return `<memory_instructions>
-Use the memory tool for durable user/project facts, preferences, corrections, conventions, and decisions that should survive future conversations.
+Use the memory tool only when an authenticated user is available. Do not call it in unauthenticated flows.
+When authenticated, use it for durable user/project facts, preferences, corrections, conventions, and decisions that should survive future conversations.
 Prefer database-backed memory records. Use load policies deliberately: core/pinned for facts that should enter context, auto for relevant contextual recall, retrievable for searchable history, and archived for disabled records.
-Do not write new memories to legacy Markdown files. In unauthenticated legacy compatibility flows, memory.md may appear as read-only context until the user recomposes it into database records.
-</memory_instructions>`
-}
-
-func legacyMemoryInstructionsBlock() string {
-	return `<memory_instructions>
-Database-backed durable memory requires an authenticated user. You are in legacy compatibility mode: legacy memory.md content may appear as read-only context.
-Do not call the memory tool to create, update, or delete records until the user is authenticated. You may propose memory.md additions for the user to apply manually.
+Durable memory is stored only as authenticated database-backed records.
 </memory_instructions>`
 }
 
@@ -77,7 +67,7 @@ func (s *Service) promptBlock(ctx context.Context, req contextprovider.BuildRequ
 		budgetChars = defaultPromptBudget
 	}
 	if _, ok := database.UserIDFromContext(ctx); !ok {
-		return legacyPromptBlock(budgetChars), nil
+		return "", nil
 	}
 	records, err := s.store.PromptCandidates(ctx, PromptCandidateFilter{
 		LoadPolicies:   []string{LoadPolicyCore, LoadPolicyPinned, LoadPolicyAuto},
@@ -121,31 +111,6 @@ func (s *Service) hasAnyMemoryRecord(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return len(result.Records) > 0, nil
-}
-
-func legacyPromptBlock(budgetChars int) string {
-	data, _, err := configdir.NewResolver("memory").Read("memory.md")
-	if err != nil {
-		return ""
-	}
-	content := strings.TrimSpace(string(data))
-	if content == "" || strings.Contains(content, "Ainda não há memórias salvas") {
-		return ""
-	}
-	const prefix = "<legacy_user_memory>\nRead-only legacy memory.md content. Durable database-backed memory requires authentication; propose changes for the user to apply manually.\n"
-	const suffix = "\n</legacy_user_memory>"
-	contentBudget := budgetChars - len([]rune(prefix)) - len([]rune(suffix))
-	if contentBudget <= 0 {
-		return ""
-	}
-	runes := []rune(content)
-	if len(runes) > contentBudget {
-		content = strings.TrimSpace(string(runes[:contentBudget]))
-	}
-	if content == "" {
-		return ""
-	}
-	return prefix + content + suffix
 }
 
 func firstNonEmpty(values ...string) string {
