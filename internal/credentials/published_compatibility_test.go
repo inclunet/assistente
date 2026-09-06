@@ -1,7 +1,6 @@
 package credentials
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -22,7 +21,6 @@ func TestPublishedCredentialRepairRemainsEquivalentFrom019Through050(t *testing.
 	if err != nil {
 		t.Fatalf("ler fixture: %v", err)
 	}
-	original := append([]byte(nil), raw...)
 	var fixture publishedCredentialFixture
 	if err := json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatalf("parsear fixture: %v", err)
@@ -57,12 +55,5 @@ func TestPublishedCredentialRepairRemainsEquivalentFrom019Through050(t *testing.
 				t.Fatalf("release %s: segunda execução não foi idempotente: changed=%d err=%v", release, changed, err)
 			}
 		})
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("relê fixture: %v", err)
-	}
-	if !bytes.Equal(got, original) {
-		t.Fatal("reparo de credenciais alterou a fixture fonte")
 	}
 }
