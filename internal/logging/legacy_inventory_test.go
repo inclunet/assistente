@@ -88,7 +88,7 @@ func repositoryRoot(t *testing.T) string {
 func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *[]string) {
 	t.Helper()
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+	file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly|parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse imports de %s: %v", path, err)
 	}
@@ -111,7 +111,7 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 		return
 	}
 
-	file, err = parser.ParseFile(fset, path, nil, 0)
+	file, err = parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
