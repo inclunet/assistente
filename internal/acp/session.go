@@ -759,7 +759,6 @@ func (s *session) setLegacyOption(ctx context.Context, id, value string) error {
 		return wrapCallError(fmt.Sprintf("trocar a opção %q da sessão pelo seletor %s", id, method), err)
 	}
 	recordCompatibility(
-		ctx,
 		compatibilityLegacySelector,
 		slog.String("selector_method", method),
 		slog.String("option_category", category),

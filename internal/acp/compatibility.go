@@ -21,7 +21,6 @@ const (
 // locais ficam de fora: não são necessários para a métrica e exporiam detalhes
 // da instalação.
 func recordCompatibility(
-	ctx context.Context,
 	feature string,
 	attrs ...slog.Attr,
 ) {
@@ -31,5 +30,8 @@ func recordCompatibility(
 	for _, attr := range attrs {
 		fields = append(fields, attr)
 	}
+	// Deliberadamente não herda o contexto do turno: Logger acrescentaria IDs
+	// de conversa, turno, perfil e tool, que não pertencem a esta métrica.
+	ctx := context.Background()
 	logging.Logger(ctx, logComponent).InfoContext(ctx, "compatibilidade ACP utilizada", fields...)
 }
