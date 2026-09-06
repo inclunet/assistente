@@ -1,0 +1,186 @@
+package logging
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+const (
+	expectedLegacyFormatCount  = 788
+	expectedLegacyFormatDigest = "454e1699fb4eb17d85b4dce14d595f9da3873e1dc556a08106a1e29bd7d615d1"
+)
+
+// TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
+// Ele impede a reintrodução de Printf e caracteriza os formatos de produção
+// que ainda dependem de normalizeLegacyMessage antes de sua remoção futura.
+func TestLegacyLoggingInventory(t *testing.T) {
+	root := repositoryRoot(t)
+	var printfSites []string
+	var legacyFormats []string
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "dist":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		inventoryFile(t, root, path, &printfSites, &legacyFormats)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("percorrer fontes Go: %v", err)
+	}
+
+	sort.Strings(printfSites)
+	if len(printfSites) != 0 {
+		t.Fatalf("logging.Printf foi reintroduzido:\n%s", strings.Join(printfSites, "\n"))
+	}
+
+	sort.Strings(legacyFormats)
+	digestBytes := sha256.Sum256([]byte(strings.Join(legacyFormats, "\n")))
+	digest := hex.EncodeToString(digestBytes[:])
+	t.Logf("inventário: logging.Printf=0; formatos alterados pela normalização=%d; sha256=%s",
+		len(legacyFormats), digest)
+	if len(legacyFormats) != expectedLegacyFormatCount || digest != expectedLegacyFormatDigest {
+		t.Fatalf("inventário legado mudou; revise a migração e atualize a baseline conscientemente:\n%s",
+			strings.Join(legacyFormats, "\n"))
+	}
+}
+
+func repositoryRoot(t *testing.T) string {
+	t.Helper()
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("localizar arquivo do teste")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+}
+
+func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *[]string) {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("parse imports de %s: %v", path, err)
+	}
+	aliases := make(map[string]struct{})
+	dotImport := false
+	for _, spec := range file.Imports {
+		importPath, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || importPath != "assistente/internal/logging" {
+			continue
+		}
+		if spec.Name == nil {
+			aliases["logging"] = struct{}{}
+		} else if spec.Name.Name == "." {
+			dotImport = true
+		} else if spec.Name.Name != "_" {
+			aliases[spec.Name.Name] = struct{}{}
+		}
+	}
+	if len(aliases) == 0 && !dotImport {
+		return
+	}
+
+	file, err = parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Fatalf("caminho relativo de %s: %v", path, err)
+	}
+	relative = filepath.ToSlash(relative)
+
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		method, ok := loggingMethod(call.Fun, aliases, dotImport)
+		if !ok {
+			return true
+		}
+		if method == "Printf" {
+			*printfSites = append(*printfSites, relative+":"+fset.Position(call.Pos()).String())
+			return true
+		}
+		formatIndex, tracked := legacyFormatIndex(method)
+		if !tracked || len(call.Args) <= formatIndex {
+			return true
+		}
+		literal, ok := call.Args[formatIndex].(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return true
+		}
+		format, err := strconv.Unquote(literal.Value)
+		if err != nil || normalizeLegacyMessage(format) == strings.TrimSpace(format) {
+			return true
+		}
+		component := literalString(call.Args, 1)
+		*legacyFormats = append(*legacyFormats, strings.Join([]string{
+			relative, method, component, format,
+		}, "|"))
+		return true
+	})
+}
+
+func loggingMethod(fun ast.Expr, aliases map[string]struct{}, dotImport bool) (string, bool) {
+	if ident, ok := fun.(*ast.Ident); ok && dotImport {
+		return ident.Name, true
+	}
+	selector, ok := fun.(*ast.SelectorExpr)
+	if !ok {
+		return "", false
+	}
+	ident, ok := selector.X.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	_, ok = aliases[ident.Name]
+	return selector.Sel.Name, ok
+}
+
+func legacyFormatIndex(method string) (int, bool) {
+	switch method {
+	case "Debugf", "Infof", "Warnf", "Errorf", "Fatalf", "Print", "Println":
+		return 2, true
+	case "Logf":
+		return 3, true
+	default:
+		return 0, false
+	}
+}
+
+func literalString(args []ast.Expr, index int) string {
+	if len(args) <= index {
+		return "<dynamic>"
+	}
+	literal, ok := args[index].(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		return "<dynamic>"
+	}
+	value, err := strconv.Unquote(literal.Value)
+	if err != nil {
+		return "<invalid>"
+	}
+	return value
+}
