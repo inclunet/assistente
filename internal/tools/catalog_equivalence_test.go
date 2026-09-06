@@ -118,6 +118,9 @@ func TestBuiltinCatalogEntriesMatchGolden(t *testing.T) {
 	for _, tool := range builtinsUnderTest() {
 		entry := tools.CatalogEntryFromTool(tool)
 		name := tool.Name()
+		if seen[name] {
+			t.Fatalf("builtin %q aparece mais de uma vez em builtinsUnderTest", name)
+		}
 		seen[name] = true
 
 		want, ok := goldenBuiltinCatalogMetadata[name]
