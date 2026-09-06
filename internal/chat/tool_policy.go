@@ -17,13 +17,18 @@ const (
 )
 
 type EffectiveToolPolicy struct {
-	states             map[string]ToolPolicyState
-	registry           *tools.Registry
-	matcher            ToolPolicyMatcher
-	structured         bool
-	legacyAllPreloaded bool
-	disabled           bool
-	unavailable        bool
+	states   map[string]ToolPolicyState
+	registry *tools.Registry
+	matcher  ToolPolicyMatcher
+
+	structured bool
+	// allPreloadedWithoutCatalog preserva o default aberto somente quando o
+	// control-plane tool_catalog não está disponível. O nome descreve a
+	// condição operacional; não é um modo legado genérico nem licença para
+	// ignorar a política estruturada de um perfil (AEP-0081 D3).
+	allPreloadedWithoutCatalog bool
+	disabled                   bool
+	unavailable                bool
 }
 
 func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) EffectiveToolPolicy {
@@ -66,7 +71,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 
 	if cfg.EnabledTools == nil {
 		if !p.registry.Has(tools.ToolCatalogName) {
-			policy.legacyAllPreloaded = true
+			policy.allPreloadedWithoutCatalog = true
 			for _, name := range names {
 				if p.registry.IsOptIn(name) {
 					policy.states[name] = ToolPolicyDisabled
@@ -112,7 +117,7 @@ func (p EffectiveToolPolicy) State(name string) ToolPolicyState {
 	if p.disabled {
 		return ToolPolicyDisabled
 	}
-	if p.legacyAllPreloaded {
+	if p.allPreloadedWithoutCatalog {
 		if state, ok := p.states[name]; ok {
 			return state
 		}
@@ -143,7 +148,7 @@ func (p EffectiveToolPolicy) PreloadedNames() []string {
 	if p.disabled {
 		return []string{}
 	}
-	if p.legacyAllPreloaded {
+	if p.allPreloadedWithoutCatalog {
 		return nil
 	}
 	registered := p.registry.Names()
@@ -164,7 +169,7 @@ func (p EffectiveToolPolicy) CatalogVisibleNames() []string {
 	if p.disabled {
 		return []string{}
 	}
-	if p.legacyAllPreloaded {
+	if p.allPreloadedWithoutCatalog {
 		return nil
 	}
 	registered := p.registry.Names()
@@ -202,7 +207,7 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 				continue
 			}
 		}
-		if _, ok := p.states[name]; ok || p.legacyAllPreloaded {
+		if _, ok := p.states[name]; ok || p.allPreloadedWithoutCatalog {
 			p.states[name] = ToolPolicyPreloaded
 		}
 	}
