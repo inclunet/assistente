@@ -58,19 +58,10 @@ func normalizeTaskPageQuery(query TaskPageQuery) (TaskPageQuery, error) {
 	if query.StatusID != nil && *query.StatusID <= 0 {
 		return query, errors.New("status_id deve ser maior que zero")
 	}
-	if query.Limit == 0 {
-		query.Limit = DefaultTaskPageLimit
-	}
-	if query.Limit < 1 || query.Limit > MaxTaskPageLimit {
-		return query, fmt.Errorf("limit deve estar entre 1 e %d", MaxTaskPageLimit)
-	}
-	if query.Sort == "" {
-		query.Sort = TaskSortCreatedAtAsc
-	}
-	switch query.Sort {
-	case TaskSortCreatedAtAsc, TaskSortCreatedAtDesc:
-	default:
-		return query, fmt.Errorf("sort inválido: use %q ou %q", TaskSortCreatedAtAsc, TaskSortCreatedAtDesc)
+	var err error
+	query.Limit, query.Sort, err = normalizePageWindow(query.Limit, query.Sort)
+	if err != nil {
+		return query, err
 	}
 	return query, nil
 }

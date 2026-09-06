@@ -347,6 +347,14 @@ func (f *fakeTaskListManager) GetTaskListStats(ctx context.Context, taskListID s
 	return stats, err
 }
 
+func (f *fakeTaskListManager) ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	page, err := f.realTaskListManager.ListTaskNotesPage(ctx, query)
+	f.refreshSnapshots()
+	return page, err
+}
+
 func (f *fakeTaskListManager) CreateTask(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
 	ctx = f.effectiveCtx(ctx)
 	if f.createTaskErr != nil {
