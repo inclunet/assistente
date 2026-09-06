@@ -66,6 +66,26 @@ func TestLegacyLoggingInventory(t *testing.T) {
 	}
 }
 
+func TestInventoryFileDetectsPrintfInLoggingPackage(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "internal", "logging")
+	if err := os.MkdirAll(packageDir, 0755); err != nil {
+		t.Fatalf("criar pacote logging temporário: %v", err)
+	}
+	path := filepath.Join(packageDir, "sample.go")
+	if err := os.WriteFile(path, []byte("package logging\nfunc sample() { Printf(\"mensagem\") }\n"), 0644); err != nil {
+		t.Fatalf("criar fonte temporária: %v", err)
+	}
+
+	var printfSites []string
+	var legacyFormats []string
+	inventoryFile(t, root, path, &printfSites, &legacyFormats)
+
+	if len(printfSites) != 1 {
+		t.Fatalf("call sites de Printf = %v, want 1", printfSites)
+	}
+}
+
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 	current, err := os.Getwd()
@@ -87,6 +107,7 @@ func repositoryRoot(t *testing.T) string {
 
 func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *[]string) {
 	t.Helper()
+	ownPackage := filepath.Clean(filepath.Dir(path)) == filepath.Join(root, "internal", "logging")
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly|parser.SkipObjectResolution)
 	if err != nil {
@@ -107,7 +128,7 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 			aliases[spec.Name.Name] = struct{}{}
 		}
 	}
-	if len(aliases) == 0 && !dotImport {
+	if len(aliases) == 0 && !dotImport && !ownPackage {
 		return
 	}
 
@@ -126,7 +147,7 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 		if !ok {
 			return true
 		}
-		method, ok := loggingMethod(call.Fun, aliases, dotImport)
+		method, ok := loggingMethod(call.Fun, aliases, dotImport || ownPackage)
 		if !ok {
 			return true
 		}
