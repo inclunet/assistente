@@ -99,7 +99,7 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 				"type": "integer",
 				"minimum": 1,
 				"maximum": 100,
-				"description": "Maximum tasks in a paged read (1-100). Supplying any of status_id, limit, cursor, or sort enables paged mode; limit defaults to 100 when omitted"
+				"description": "Maximum tasks in a paged read (1-100). Supplying a non-null status_id, limit, cursor, or sort enables paged mode; null is treated as omitted, and limit defaults to 100 when omitted"
 			},
 			"cursor": {
 				"type": ["string", "null"],

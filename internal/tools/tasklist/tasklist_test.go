@@ -802,6 +802,11 @@ func TestGetTaskList_ParametersValidJSON(t *testing.T) {
 			t.Fatalf("%s must keep its fallback server-side to preserve legacy reads", field)
 		}
 	}
+	limit := props["limit"].(map[string]any)
+	description, _ := limit["description"].(string)
+	if !strings.Contains(description, "non-null") || !strings.Contains(description, "null is treated as omitted") {
+		t.Fatalf("limit description must document null pagination semantics, got %q", description)
+	}
 }
 
 func TestGetTaskList_Name(t *testing.T) {
