@@ -113,9 +113,8 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 	if surfaceState == nil && activeTabMatchesSurface && len(activeTab.State) > 0 {
 		surfaceState = activeTab.State
 	}
-	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface context json")
+	surfaceContext := chat.DecodeCanonicalSurfaceContextJSON(params.SurfaceContextJSON, "[prompt] surface context json")
 	data.ProjectID = firstNonEmpty(
-		stringFromMap(surfaceContext, "projectId"),
 		stringFromNestedMap(surfaceContext, "metadata", "projectId"),
 		stringFromMap(surfaceState, "projectId"),
 	)
