@@ -433,22 +433,14 @@ func modelOptionFrom(state *legacyModelState) ConfigOption {
 // mesma informação no formato estável. Sem modelo nenhum na lista não há opção:
 // um seletor vazio diria que a escolha existe e não deixaria escolher.
 func withModelOption(options []ConfigOption, state *legacyModelState) []ConfigOption {
-	result, _ := withModelOptionUsage(options, state)
-	return result
-}
-
-// withModelOptionUsage acrescenta o payload anterior e informa se ele
-// contribuiu de fato para a saída. A conversão acontece uma vez só, mesmo
-// quando quem chama também precisa registrar o uso da compatibilidade.
-func withModelOptionUsage(options []ConfigOption, state *legacyModelState) ([]ConfigOption, bool) {
 	if state == nil || hasCategory(options, CategoryModel) {
-		return options, false
+		return options
 	}
 	option := modelOptionFrom(state)
 	if len(option.Values) == 0 {
-		return options, false
+		return options
 	}
-	return append(options, option), true
+	return append(options, option)
 }
 
 // withKnownLegacy preserva o que a sessão já conhecia e o conjunto novo não

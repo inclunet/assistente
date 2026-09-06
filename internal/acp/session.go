@@ -744,8 +744,7 @@ func (s *session) confirmLocally(ctx context.Context, id, value string) []Config
 // configOptions virou o caminho único, e depender do que ele tipou hoje é o que
 // a saída de baixo nível existe para evitar (AEP-0084 D2).
 func (s *session) setLegacyOption(ctx context.Context, id, value string) error {
-	category := s.categoryOf(id)
-	method, field, ok := legacySelector(category)
+	method, field, ok := legacySelector(s.categoryOf(id))
 	if !ok {
 		return fmt.Errorf("o agente não conhece %s e a opção %q não tem seletor anterior",
 			sdk.AgentMethodSessionSetConfigOption, id)
@@ -757,11 +756,6 @@ func (s *session) setLegacyOption(ctx context.Context, id, value string) error {
 	if err != nil {
 		return wrapCallError(fmt.Sprintf("trocar a opção %q da sessão pelo seletor %s", id, method), err)
 	}
-	s.cn.recordCompatibility(compatibilityEvent{
-		Feature:        compatibilityLegacySelector,
-		SelectorMethod: method,
-		OptionCategory: category,
-	})
 	return nil
 }
 

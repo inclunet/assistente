@@ -107,12 +107,6 @@ type Config struct {
 	// Vale o mesmo cuidado do OnConfigOptions: roda na goroutine de entrega e
 	// segura o protocolo enquanto não voltar.
 	OnCommands func(sessionID string, commands []Command)
-
-	// observeCompatibility recebe a mesma observação de baixa cardinalidade
-	// escrita no log. Fica interna ao transporte até existir um coletor
-	// explícito fora do pacote; hoje permite testar o contrato sem trocar o
-	// logger global do processo.
-	observeCompatibility func(compatibilityEvent)
 }
 
 func (c Config) validate() error {
