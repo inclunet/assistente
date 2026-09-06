@@ -59,6 +59,18 @@ func TestFormatoEstavelNaoEhContadoComoCompatibilidade(t *testing.T) {
 	}
 }
 
+func TestAgenteHibridoPriorizaFormatoEstavelSemContarCompatibilidade(t *testing.T) {
+	output := captureCompatibilityLogs(t)
+	ctx := testContext(t)
+	client := newTestClient(t, scriptHibrido, nil)
+
+	_ = startSession(t, client, ctx)
+
+	if logs := output.String(); strings.Contains(logs, `"compatibility_feature":"legacy_models_payload"`) {
+		t.Fatalf("payload redundante do agente híbrido foi contado como compatibilidade: %s", logs)
+	}
+}
+
 func TestSeletorAnteriorRegistraMetodoEfetivamenteUsado(t *testing.T) {
 	output := captureCompatibilityLogs(t)
 	ctx := testContext(t)

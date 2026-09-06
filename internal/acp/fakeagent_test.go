@@ -53,6 +53,10 @@ const (
 	// (AEP-0084, Fase 10). O scriptLegado não serve para isso: ele recusa o
 	// seletor novo, mas ainda anuncia as opções pelo formato de hoje.
 	scriptSoLegado = "so-legado"
+	// scriptHibrido repete o mesmo modelo nos dois formatos. O app deve usar o
+	// configOptions estável e não contar a presença redundante de `models`
+	// como consumo da compatibilidade.
+	scriptHibrido = "hibrido"
 	// scriptModelo responde ao turno dizendo em que modelo ele está, que é como
 	// o teste confere que a troca valeu para o turno seguinte.
 	scriptModelo        = "modelo"
@@ -243,14 +247,18 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 			// sessão pendurada.
 			option["name"] = a.bookkeeping()
 		}
-		a.reply(*msg.ID, map[string]any{
+		response := map[string]any{
 			"sessionId":     sid,
 			"configOptions": []any{option},
 			"modes": map[string]any{
 				"currentModeId":  "agent",
 				"availableModes": []any{map[string]any{"id": "agent", "name": "Agente"}, map[string]any{"id": "plan", "name": "Plano"}},
 			},
-		})
+		}
+		if a.script == scriptHibrido {
+			response["models"] = fakeLegacyModels(a.currentModel(sid))
+		}
+		a.reply(*msg.ID, response)
 		if a.script == scriptComandos {
 			// Depois da resposta e fora de turno: é onde o agente de verdade
 			// conta os comandos dele.
