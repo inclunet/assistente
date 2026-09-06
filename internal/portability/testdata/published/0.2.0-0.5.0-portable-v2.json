@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "exportedAt": "2026-08-16T12:00:00Z",
+  "appVersion": "0.2.0",
+  "options": {
+    "includeAudio": false,
+    "includeCredentials": false
+  },
+  "resources": {
+    "conversations": [
+      {
+        "id": "0198b300-0000-7000-8000-000000000001",
+        "title": "Fixture portável v2",
+        "createdAt": "2026-08-16T11:59:00Z",
+        "messages": [
+          {
+            "id": "0198b300-0000-7000-8000-000000000002",
+            "conversationId": "0198b300-0000-7000-8000-000000000001",
+            "role": "user",
+            "content": "mensagem de teste",
+            "createdAt": "2026-08-16T11:59:01Z"
+          }
+        ]
+      }
+    ]
+  }
+}
