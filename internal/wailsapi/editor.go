@@ -8,12 +8,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"assistente/internal/apidto"
 	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/docextract"
 	"assistente/internal/tools/filesystem"
 )
@@ -34,15 +37,24 @@ type EditorHooks struct {
 // Auth só via WithUser — sem chamar o helper de auth do App no call site.
 // Editor é sensível: nenhum método aqui roda sem sessão autenticada (fail-closed).
 type Editor struct {
-	mu      sync.RWMutex
-	session Session
-	hooks   EditorHooks
-	cache   *docextract.ProjectionCache
+	mu          sync.RWMutex
+	migrationMu sync.Mutex
+	session     Session
+	hooks       EditorHooks
+	cache       *docextract.ProjectionCache
+	prepared    map[string]struct{}
 }
+
+var editorLegacyMigrationMu sync.Mutex
+var editorPrivateFileMu sync.RWMutex
+var publishEditorMigrationClaim = os.Link
 
 // NewEditor cria o bind vazio; AttachEditor preenche deps no startup.
 func NewEditor() *Editor {
-	return &Editor{cache: docextract.NewProjectionCache(docextract.DefaultCacheConfig())}
+	return &Editor{
+		cache:    docextract.NewProjectionCache(docextract.DefaultCacheConfig()),
+		prepared: map[string]struct{}{},
+	}
 }
 
 func (api *Editor) projectionCache() *docextract.ProjectionCache {
@@ -104,42 +116,635 @@ func (api *Editor) deps() (Session, EditorHooks, error) {
 	return api.session, api.hooks, nil
 }
 
-func editorDraftDir() string {
-	return filepath.Join(configdir.GetHomeDir(), "editor", "drafts")
+const editorMigrationVersion = 1
+
+type editorMigrationClaim struct {
+	Version   int    `json:"version"`
+	UserID    string `json:"userId"`
+	ClaimedAt int64  `json:"claimedAt"`
 }
 
-func editorStatePath() string {
-	return filepath.Join(configdir.GetHomeDir(), "editor", "state.json")
+type editorUserPaths struct {
+	root     string
+	draftDir string
+	state    string
 }
 
-func editorDraftPath(draftId string) (string, error) {
+func legacyEditorDir() string {
+	return filepath.Join(configdir.GetHomeDir(), "editor")
+}
+
+func editorMigrationClaimPath() string {
+	return filepath.Join(legacyEditorDir(), "user-scope-migration.json")
+}
+
+func editorPathsForUser(userID string) (editorUserPaths, error) {
+	userID = strings.TrimSpace(userID)
+	if err := configdir.ValidateFilename(userID); err != nil {
+		return editorUserPaths{}, fmt.Errorf("userID inválido: %w", err)
+	}
+	root := filepath.Join(configdir.GetHomeDir(), "users", userID, "editor")
+	return editorUserPaths{
+		root:     root,
+		draftDir: filepath.Join(root, "drafts"),
+		state:    filepath.Join(root, "state.json"),
+	}, nil
+}
+
+func editorDraftPath(paths editorUserPaths, draftId string) (string, error) {
 	id := strings.TrimSpace(draftId)
 	if err := configdir.ValidateFilename(id); err != nil {
 		return "", fmt.Errorf("draftId inválido: %w", err)
 	}
-	return filepath.Join(editorDraftDir(), id+".md"), nil
+	return filepath.Join(paths.draftDir, id+".md"), nil
 }
 
-// ensurePrivatePath reforça 0700 no diretório e 0600 no arquivo.
-// Necessário porque os.WriteFile/MkdirAll não corrigem modo de paths já
-// existentes criados com permissões mais abertas em versões anteriores.
-// Para drafts em editor/drafts, também restringe o pai editor (legado 0755).
-func ensurePrivatePath(filePath string) error {
-	dir := filepath.Dir(filePath)
-	if err := os.Chmod(dir, 0700); err != nil {
+func createJSONPrivateAtomic(path string, value any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".editor-migration-claim-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := f.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	encoder := json.NewEncoder(f)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(value); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// Link publica o inode completo de forma atômica e falha com IsExist sem
+	// substituir o claim vencedor. Um crash durante encode/fsync deixa apenas
+	// o temporário, que nunca é interpretado como claim.
+	return publishEditorMigrationClaim(tempPath, path)
+}
+
+func readEditorMigrationClaim(path string) (editorMigrationClaim, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return editorMigrationClaim{}, err
+	}
+	var claim editorMigrationClaim
+	if err := json.Unmarshal(data, &claim); err != nil {
+		return editorMigrationClaim{}, fmt.Errorf("marcador de migração do editor inválido: %w", err)
+	}
+	if claim.Version != editorMigrationVersion || strings.TrimSpace(claim.UserID) == "" {
+		return editorMigrationClaim{}, fmt.Errorf("marcador de migração do editor incompatível")
+	}
+	return claim, nil
+}
+
+func ensurePrivateDirectory(path string) error {
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return err
+	}
+	expected, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if expected.Mode()&os.ModeSymlink != 0 || !expected.IsDir() {
+		return fmt.Errorf("diretório privado inválido ou symlink: %s", path)
+	}
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	actual, err := dir.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, actual) {
+		return fmt.Errorf("diretório privado substituído durante validação: %s", path)
+	}
+	if err := dir.Chmod(0700); err != nil {
 		return fmt.Errorf("falha ao restringir diretório privado: %w", err)
 	}
-	if filepath.Base(dir) == "drafts" {
-		parent := filepath.Dir(dir)
-		if filepath.Base(parent) == "editor" {
-			if err := os.Chmod(parent, 0700); err != nil {
-				return fmt.Errorf("falha ao restringir diretório editor: %w", err)
-			}
+	return nil
+}
+
+func samePath(base, candidate string) bool {
+	return pathInside(base, candidate) && pathInside(candidate, base)
+}
+
+func validateEditorStorageRoot(userID string, paths editorUserPaths) (string, error) {
+	usersRoot := filepath.Join(configdir.GetHomeDir(), "users")
+	resolvedUsersRoot, err := filesystem.ResolveForComparison(usersRoot)
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver raiz de usuários: %w", err)
+	}
+	resolvedUserRoot, err := filesystem.ResolveForComparison(filepath.Dir(paths.root))
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver diretório do usuário: %w", err)
+	}
+	resolvedEditorRoot, err := filesystem.ResolveForComparison(paths.root)
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver diretório do editor: %w", err)
+	}
+	resolvedDraftDir, err := filesystem.ResolveForComparison(paths.draftDir)
+	if err != nil {
+		return "", fmt.Errorf("falha ao resolver diretório de drafts: %w", err)
+	}
+
+	expectedUserRoot := filepath.Join(resolvedUsersRoot, userID)
+	expectedEditorRoot := filepath.Join(expectedUserRoot, "editor")
+	expectedDraftDir := filepath.Join(expectedEditorRoot, "drafts")
+	if samePath(resolvedUsersRoot, resolvedEditorRoot) ||
+		!pathInside(resolvedUsersRoot, resolvedEditorRoot) ||
+		!samePath(expectedUserRoot, resolvedUserRoot) ||
+		!samePath(expectedEditorRoot, resolvedEditorRoot) ||
+		!samePath(expectedDraftDir, resolvedDraftDir) {
+		return "", database.ErrUserScopeRequired
+	}
+	return resolvedUsersRoot, nil
+}
+
+func preparePrivateEditorStorage(userID string, paths editorUserPaths) error {
+	resolvedUsersRoot, err := validateEditorStorageRoot(userID, paths)
+	if err != nil {
+		return err
+	}
+	for _, dir := range []string{filepath.Dir(paths.root), paths.root, paths.draftDir} {
+		if err := ensurePrivateDirectory(dir); err != nil {
+			return err
 		}
 	}
-	if err := os.Chmod(filePath, 0600); err != nil {
+	resolvedUsersRootAfter, err := validateEditorStorageRoot(userID, paths)
+	if err != nil {
+		return err
+	}
+	if !samePath(resolvedUsersRoot, resolvedUsersRootAfter) {
+		return fmt.Errorf("raiz de usuários substituída durante validação")
+	}
+	return nil
+}
+
+func copyLegacyEditorFile(source, destination string, overwriteIncomplete bool) error {
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.Mode().IsRegular() {
+		return fmt.Errorf("origem legada não é arquivo regular")
+	}
+	src, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = src.Close() }()
+	openedSourceInfo, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(sourceInfo, openedSourceInfo) {
+		return fmt.Errorf("origem legada substituída durante validação")
+	}
+
+	if err := ensurePrivateDirectory(filepath.Dir(destination)); err != nil {
+		return err
+	}
+
+	var dst *os.File
+	created := false
+	destinationInfo, statErr := os.Lstat(destination)
+	switch {
+	case statErr == nil:
+		if destinationInfo.Mode()&os.ModeSymlink != 0 || !destinationInfo.Mode().IsRegular() {
+			return fmt.Errorf("destino migrado não é arquivo regular")
+		}
+		openFlags := os.O_RDONLY
+		if overwriteIncomplete {
+			openFlags = os.O_RDWR
+		}
+		dst, err = os.OpenFile(destination, openFlags, 0)
+		if err != nil {
+			return err
+		}
+		openedDestinationInfo, infoErr := dst.Stat()
+		if infoErr != nil {
+			_ = dst.Close()
+			return infoErr
+		}
+		if !os.SameFile(destinationInfo, openedDestinationInfo) {
+			_ = dst.Close()
+			return fmt.Errorf("destino migrado substituído durante validação")
+		}
+		if err := dst.Chmod(0600); err != nil {
+			_ = dst.Close()
+			return fmt.Errorf("falha ao restringir arquivo migrado: %w", err)
+		}
+		if !overwriteIncomplete {
+			return dst.Close()
+		}
+		if err := dst.Truncate(0); err != nil {
+			_ = dst.Close()
+			return err
+		}
+		if _, err := dst.Seek(0, io.SeekStart); err != nil {
+			_ = dst.Close()
+			return err
+		}
+	case os.IsNotExist(statErr):
+		dst, err = os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		created = true
+		if err := dst.Chmod(0600); err != nil {
+			_ = dst.Close()
+			_ = os.Remove(destination)
+			return fmt.Errorf("falha ao restringir arquivo migrado: %w", err)
+		}
+	default:
+		return statErr
+	}
+
+	ok := false
+	defer func() {
+		_ = dst.Close()
+		if created && !ok {
+			_ = os.Remove(destination)
+		}
+	}()
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+	if err := dst.Sync(); err != nil {
+		return err
+	}
+	if err := dst.Close(); err != nil {
+		return err
+	}
+	ok = true
+	return nil
+}
+
+func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
+	// O storage próprio precisa ser validado para todo usuário, mesmo quando
+	// ele não vence o claim legado ou quando a adoção é desabilitada.
+	if err := preparePrivateEditorStorage(userID, paths); err != nil {
+		return fmt.Errorf("falha ao preparar storage privado do editor: %w", err)
+	}
+
+	legacyDir := legacyEditorDir()
+	claimPath := editorMigrationClaimPath()
+	claim, err := readEditorMigrationClaim(claimPath)
+	newClaim := false
+	if os.IsNotExist(err) {
+		claim = editorMigrationClaim{
+			Version:   editorMigrationVersion,
+			UserID:    userID,
+			ClaimedAt: time.Now().UnixMilli(),
+		}
+		if err := createJSONPrivateAtomic(claimPath, claim); err != nil {
+			if !os.IsExist(err) {
+				// Hardlinks podem não existir em alguns filesystems. Sem a
+				// publicação atômica, não arriscamos um claim parcial: apenas
+				// desabilitamos a adoção legada; o storage novo segue útil.
+				return nil
+			}
+			claim, err = readEditorMigrationClaim(claimPath)
+			if err != nil {
+				// Outro processo publicou algo ilegível/incompatível entre a
+				// leitura e o create. Falhamos fechado só para a adoção.
+				return nil
+			}
+		} else {
+			newClaim = true
+		}
+	} else if err != nil {
+		// Sem um claim legível não é seguro decidir quem pode adotar o legado.
+		// Falha fechada somente para a adoção: preserva marcador/dados para
+		// recuperação manual, enquanto o storage novo do usuário segue útil.
+		return nil
+	}
+
+	// A reserva é instance-wide e imutável: somente o primeiro usuário que a
+	// adquiriu pode adotar os dados legados. Outros usuários começam vazios.
+	if claim.UserID != userID {
+		return nil
+	}
+	completionPath := filepath.Join(paths.root, ".legacy-migration-v1-complete")
+	if info, err := os.Lstat(completionPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("marcador de conclusão da migração inválido")
+		}
+		completion, openErr := os.OpenFile(completionPath, os.O_RDONLY, 0)
+		if openErr != nil {
+			return openErr
+		}
+		openedInfo, statErr := completion.Stat()
+		if statErr != nil || !os.SameFile(info, openedInfo) {
+			_ = completion.Close()
+			return fmt.Errorf("marcador de conclusão substituído durante validação")
+		}
+		if chmodErr := completion.Chmod(0600); chmodErr != nil {
+			_ = completion.Close()
+			return fmt.Errorf("falha ao restringir marcador de conclusão: %w", chmodErr)
+		}
+		return completion.Close()
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	overwriteIncomplete := !newClaim
+	legacyState := filepath.Join(legacyDir, "state.json")
+	if info, err := os.Lstat(legacyState); err == nil {
+		if info.Mode().IsRegular() {
+			if err := copyLegacyEditorFile(legacyState, paths.state, overwriteIncomplete); err != nil {
+				return fmt.Errorf("falha ao migrar estado legado do editor: %w", err)
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	legacyDraftDir := filepath.Join(legacyDir, "drafts")
+	entries, err := os.ReadDir(legacyDraftDir)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("falha ao listar drafts legados: %w", err)
+	}
+	for _, entry := range entries {
+		if err := configdir.ValidateFilename(entry.Name()); err != nil {
+			continue
+		}
+		source := filepath.Join(legacyDraftDir, entry.Name())
+		info, err := os.Lstat(source)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
+		destination := filepath.Join(paths.draftDir, entry.Name())
+		if err := copyLegacyEditorFile(source, destination, overwriteIncomplete); err != nil {
+			return fmt.Errorf("falha ao migrar draft legado %q: %w", entry.Name(), err)
+		}
+	}
+
+	completion, err := os.OpenFile(completionPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil && !os.IsExist(err) {
+		return fmt.Errorf("falha ao concluir migração legada do editor: %w", err)
+	}
+	if err == nil {
+		if chmodErr := completion.Chmod(0600); chmodErr != nil {
+			_ = completion.Close()
+			return fmt.Errorf("falha ao restringir marcador de conclusão: %w", chmodErr)
+		}
+		if closeErr := completion.Close(); closeErr != nil {
+			return fmt.Errorf("falha ao concluir migração legada do editor: %w", closeErr)
+		}
+	}
+	return nil
+}
+
+func (api *Editor) userPaths(ctx context.Context) (editorUserPaths, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return editorUserPaths{}, err
+	}
+	paths, err := editorPathsForUser(userID)
+	if err != nil {
+		return editorUserPaths{}, err
+	}
+	api.migrationMu.Lock()
+	defer api.migrationMu.Unlock()
+	if _, ok := api.prepared[userID]; ok {
+		if _, err := validateEditorStorageRoot(userID, paths); err != nil {
+			delete(api.prepared, userID)
+			return editorUserPaths{}, fmt.Errorf("storage preparado do editor ficou inválido: %w", err)
+		}
+		return paths, nil
+	}
+	editorLegacyMigrationMu.Lock()
+	defer editorLegacyMigrationMu.Unlock()
+	if err := migrateLegacyEditorData(userID, paths); err != nil {
+		return editorUserPaths{}, err
+	}
+	if api.prepared == nil {
+		api.prepared = map[string]struct{}{}
+	}
+	api.prepared[userID] = struct{}{}
+	return paths, nil
+}
+
+// PrepareEditorUserStorage reserva/adota o storage legado durante o login.
+// É função de pacote (não método) para não ampliar a superfície Wails.
+func PrepareEditorUserStorage(api *Editor, ctx context.Context) error {
+	if api == nil {
+		return nil
+	}
+	_, err := api.userPaths(ctx)
+	return err
+}
+
+func requireEditorUser(ctx context.Context) error {
+	_, err := database.RequireUserID(ctx)
+	return err
+}
+
+func pathInside(base, candidate string) bool {
+	base = filepath.Clean(base)
+	candidate = filepath.Clean(candidate)
+	if runtime.GOOS == "windows" {
+		base = strings.ToLower(base)
+		candidate = strings.ToLower(candidate)
+	}
+	rel, err := filepath.Rel(base, candidate)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// resolveUserFilePath mantém a liberdade do editor para abrir arquivos
+// escolhidos pelo usuário fora do storage interno, mas impede que um path
+// preservado no workspace seja reinterpretado como arquivo comum e atravesse
+// a fronteira de drafts/estado de outra conta. O retorno já tem symlinks
+// resolvidos e deve ser usado no I/O para não voltar ao path lexical validado.
+func (api *Editor) resolveUserFilePath(ctx context.Context, path string) (string, error) {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return "", fmt.Errorf("path vazio")
+	}
+	paths, err := api.userPaths(ctx)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filesystem.ResolveForComparison(trimmedPath)
+	if err != nil {
+		return "", err
+	}
+
+	usersRoot, err := filesystem.ResolveForComparison(filepath.Join(configdir.GetHomeDir(), "users"))
+	if err != nil {
+		return "", err
+	}
+	userRoot, err := filesystem.ResolveForComparison(filepath.Dir(paths.root))
+	if err != nil {
+		return "", err
+	}
+	legacyRoot, err := filesystem.ResolveForComparison(legacyEditorDir())
+	if err != nil {
+		return "", err
+	}
+	if pathInside(usersRoot, resolved) && !pathInside(userRoot, resolved) {
+		return "", database.ErrUserScopeRequired
+	}
+	if pathInside(legacyRoot, resolved) {
+		claim, err := readEditorMigrationClaim(editorMigrationClaimPath())
+		if err != nil {
+			return "", database.ErrUserScopeRequired
+		}
+		userID, _ := database.UserIDFromContext(ctx)
+		if claim.UserID != userID {
+			return "", database.ErrUserScopeRequired
+		}
+	}
+	return resolved, nil
+}
+
+func resolvePrivateEditorFile(paths editorUserPaths, filePath string) (string, error) {
+	resolvedRoot, err := filesystem.ResolveForComparison(paths.root)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(paths.root, filePath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", database.ErrUserScopeRequired
+	}
+	expected := filepath.Join(resolvedRoot, rel)
+	resolved, err := filesystem.ResolveForComparison(filePath)
+	if err != nil {
+		return "", err
+	}
+	if !pathInside(resolvedRoot, resolved) || !samePath(expected, resolved) {
+		return "", database.ErrUserScopeRequired
+	}
+	return resolved, nil
+}
+
+func readPrivateEditorFile(paths editorUserPaths, filePath string) ([]byte, error) {
+	editorPrivateFileMu.RLock()
+	defer editorPrivateFileMu.RUnlock()
+
+	resolved, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil {
+		return nil, err
+	}
+	expectedInfo, err := os.Lstat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if expectedInfo.Mode()&os.ModeSymlink != 0 || !expectedInfo.Mode().IsRegular() {
+		return nil, database.ErrUserScopeRequired
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	actualInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(expectedInfo, actualInfo) {
+		return nil, database.ErrUserScopeRequired
+	}
+	resolvedAfter, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil || !samePath(resolved, resolvedAfter) {
+		return nil, database.ErrUserScopeRequired
+	}
+	return io.ReadAll(file)
+}
+
+func writePrivateEditorFile(paths editorUserPaths, filePath string, content []byte) error {
+	editorPrivateFileMu.Lock()
+	defer editorPrivateFileMu.Unlock()
+
+	dir := filepath.Dir(filePath)
+	if filepath.Base(dir) == "drafts" {
+		if err := ensurePrivateDirectory(filepath.Dir(dir)); err != nil {
+			return err
+		}
+	}
+	if err := ensurePrivateDirectory(dir); err != nil {
+		return err
+	}
+	resolved, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil {
+		return err
+	}
+	var file *os.File
+	created := false
+	expectedInfo, statErr := os.Lstat(resolved)
+	switch {
+	case statErr == nil:
+		if expectedInfo.Mode()&os.ModeSymlink != 0 || !expectedInfo.Mode().IsRegular() {
+			return database.ErrUserScopeRequired
+		}
+		file, err = os.OpenFile(resolved, os.O_RDWR, 0)
+		if err != nil {
+			return err
+		}
+		actualInfo, infoErr := file.Stat()
+		if infoErr != nil || !os.SameFile(expectedInfo, actualInfo) {
+			_ = file.Close()
+			return database.ErrUserScopeRequired
+		}
+	case os.IsNotExist(statErr):
+		file, err = os.OpenFile(resolved, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		created = true
+	default:
+		return statErr
+	}
+	ok := false
+	defer func() {
+		_ = file.Close()
+		if created && !ok {
+			_ = os.Remove(resolved)
+		}
+	}()
+
+	resolvedAfter, err := resolvePrivateEditorFile(paths, filePath)
+	if err != nil || !samePath(resolved, resolvedAfter) {
+		return database.ErrUserScopeRequired
+	}
+	if err := file.Chmod(0600); err != nil {
 		return fmt.Errorf("falha ao restringir arquivo privado: %w", err)
 	}
+	if !created {
+		if err := file.Truncate(0); err != nil {
+			return err
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+	}
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	ok = true
 	return nil
 }
 
@@ -157,7 +762,11 @@ func (api *Editor) EditorGetDraftPath(draftId string) (string, error) {
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		return editorDraftPath(draftId)
+		paths, err := api.userPaths(ctx)
+		if err != nil {
+			return "", err
+		}
+		return editorDraftPath(paths, draftId)
 	})
 }
 
@@ -168,26 +777,23 @@ func (api *Editor) EditorWriteDraft(draftId string, content string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		p, err := editorDraftPath(draftId)
+		paths, err := api.userPaths(ctx)
 		if err != nil {
 			return struct{}{}, err
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-			return struct{}{}, fmt.Errorf("falha ao criar diretório de drafts: %w", err)
+		p, err := editorDraftPath(paths, draftId)
+		if err != nil {
+			return struct{}{}, err
 		}
 		commit := hooks.MarkSelfWrite(p)
-		if err := filesystem.WriteFileBytes(p, []byte(content), 0600); err != nil {
+		if err := writePrivateEditorFile(paths, p, []byte(content)); err != nil {
 			if commit != nil {
 				commit(false)
 			}
 			return struct{}{}, fmt.Errorf("falha ao salvar draft: %w", err)
 		}
-		// Self-write commit antes do Chmod: o conteúdo já está no disco.
 		if commit != nil {
 			commit(true)
-		}
-		if err := ensurePrivatePath(p); err != nil {
-			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	})
@@ -201,11 +807,15 @@ func (api *Editor) EditorReadDraft(draftId string) (string, error) {
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		p, err := editorDraftPath(draftId)
+		paths, err := api.userPaths(ctx)
 		if err != nil {
 			return "", err
 		}
-		data, err := filesystem.ReadFileBytes(p)
+		p, err := editorDraftPath(paths, draftId)
+		if err != nil {
+			return "", err
+		}
+		data, err := readPrivateEditorFile(paths, p)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return "", fmt.Errorf("draft não encontrado")
@@ -223,7 +833,11 @@ func (api *Editor) EditorDeleteDraft(draftId string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		p, err := editorDraftPath(draftId)
+		paths, err := api.userPaths(ctx)
+		if err != nil {
+			return struct{}{}, err
+		}
+		p, err := editorDraftPath(paths, draftId)
 		if err != nil {
 			return struct{}{}, err
 		}
@@ -242,13 +856,17 @@ func (api *Editor) EditorLoadState() (*apidto.EditorState, error) {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*apidto.EditorState, error) {
-		p := editorStatePath()
-		data, err := os.ReadFile(p)
+		paths, err := api.userPaths(ctx)
+		if err != nil {
+			return nil, err
+		}
+		p := paths.state
+		data, err := readPrivateEditorFile(paths, p)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return emptyEditorState(), nil
 			}
-			return nil, fmt.Errorf("falha ao ler editor/state.json: %w", err)
+			return nil, fmt.Errorf("falha ao ler estado user-scoped do editor: %w", err)
 		}
 
 		var state apidto.EditorState
@@ -272,19 +890,17 @@ func (api *Editor) EditorSaveState(state apidto.EditorState) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		p := editorStatePath()
-		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-			return struct{}{}, fmt.Errorf("falha ao criar diretório do editor: %w", err)
+		paths, err := api.userPaths(ctx)
+		if err != nil {
+			return struct{}{}, err
 		}
+		p := paths.state
 		b, err := json.MarshalIndent(&state, "", "  ")
 		if err != nil {
 			return struct{}{}, fmt.Errorf("falha ao serializar editor state: %w", err)
 		}
-		if err := os.WriteFile(p, b, 0600); err != nil {
-			return struct{}{}, fmt.Errorf("falha ao salvar editor/state.json: %w", err)
-		}
-		if err := ensurePrivatePath(p); err != nil {
-			return struct{}{}, err
+		if err := writePrivateEditorFile(paths, p, b); err != nil {
+			return struct{}{}, fmt.Errorf("falha ao salvar estado user-scoped do editor: %w", err)
 		}
 		return struct{}{}, nil
 	})
@@ -320,6 +936,10 @@ func (api *Editor) readDocument(ctx context.Context, path string) (*apidto.Edito
 	p := strings.TrimSpace(path)
 	if p == "" {
 		return nil, fmt.Errorf("path vazio")
+	}
+	p, err := api.resolveUserFilePath(ctx, p)
+	if err != nil {
+		return nil, err
 	}
 	info, err := os.Stat(p)
 	if err != nil {
@@ -383,6 +1003,9 @@ func (api *Editor) EditorOpenFile(labels apidto.FileDialogLabels) (*apidto.Edito
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*apidto.EditorOpenResult, error) {
+		if err := requireEditorUser(ctx); err != nil {
+			return nil, err
+		}
 		if hooks.AppContext() == nil {
 			return nil, fmt.Errorf("app não inicializado")
 		}
@@ -423,9 +1046,16 @@ func (api *Editor) EditorGetFileInfo(path string) (*apidto.EditorFileInfo, error
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*apidto.EditorFileInfo, error) {
+		if err := requireEditorUser(ctx); err != nil {
+			return nil, err
+		}
 		p := strings.TrimSpace(path)
 		if p == "" {
 			return nil, fmt.Errorf("path vazio")
+		}
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
+			return nil, err
 		}
 
 		info, err := os.Stat(p)
@@ -453,9 +1083,16 @@ func (api *Editor) EditorWriteFile(path string, content string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		if err := requireEditorUser(ctx); err != nil {
+			return struct{}{}, err
+		}
 		p := strings.TrimSpace(path)
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
+		}
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
+			return struct{}{}, err
 		}
 		if existing, readErr := readEditorFilePrefix(p); readErr == nil {
 			if err := docextract.CheckWritable(existing, p); err != nil {
@@ -493,7 +1130,11 @@ func (api *Editor) EditorRenameFile(oldPath string, newBaseName string) (string,
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		return filesystem.RenameFileSameDirWithPolicy(oldPath, newBaseName, filesystem.EditorPolicy())
+		resolvedOldPath, err := api.resolveUserFilePath(ctx, oldPath)
+		if err != nil {
+			return "", err
+		}
+		return filesystem.RenameFileSameDirWithPolicy(resolvedOldPath, newBaseName, filesystem.EditorPolicy())
 	})
 }
 
@@ -506,6 +1147,9 @@ func (api *Editor) EditorSaveFileDialog(suggestedFilename string, labels apidto.
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
+		if err := requireEditorUser(ctx); err != nil {
+			return "", err
+		}
 		if hooks.AppContext() == nil {
 			return "", fmt.Errorf("app não inicializado")
 		}
@@ -536,12 +1180,19 @@ func (api *Editor) EditorWatchFile(path string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		if err := requireEditorUser(ctx); err != nil {
+			return struct{}{}, err
+		}
 		if hooks.AppContext() == nil {
 			return struct{}{}, fmt.Errorf("app não inicializado")
 		}
 		p := strings.TrimSpace(path)
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
+		}
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, hooks.WatchFile(p)
 	})
@@ -555,12 +1206,19 @@ func (api *Editor) EditorUnwatchFile(path string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		if err := requireEditorUser(ctx); err != nil {
+			return struct{}{}, err
+		}
 		if hooks.AppContext() == nil {
 			return struct{}{}, fmt.Errorf("app não inicializado")
 		}
 		p := strings.TrimSpace(path)
 		if p == "" {
 			return struct{}{}, fmt.Errorf("path vazio")
+		}
+		p, err := api.resolveUserFilePath(ctx, p)
+		if err != nil {
+			return struct{}{}, err
 		}
 		return struct{}{}, hooks.UnwatchFile(p)
 	})

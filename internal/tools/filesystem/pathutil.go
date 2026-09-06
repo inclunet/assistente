@@ -209,6 +209,13 @@ func resolveForComparison(absPath string) (string, error) {
 	return "", fmt.Errorf("muitos níveis de symlink em %s", absPath)
 }
 
+// ResolveForComparison expõe a resolução canônica de symlinks para outros
+// domínios internos que precisam aplicar fronteiras de ownership por path.
+// Também resolve links cujo alvo final ainda não existe.
+func ResolveForComparison(path string) (string, error) {
+	return resolveForComparison(path)
+}
+
 func validatePath(fullPath, workDir string) error {
 	_, err := validatePathResolved(fullPath, workDir)
 	return err

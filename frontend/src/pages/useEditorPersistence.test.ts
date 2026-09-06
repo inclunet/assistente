@@ -135,7 +135,10 @@ function renderPersistence(
   opts: { allDocs?: EditorDocument[]; currentDocumentId?: string } = {}
 ) {
   const allDocs = opts.allDocs ?? [doc];
-  useEditorStore.getState().hydrate({ documents: Object.fromEntries(allDocs.map((d) => [d.id, d])) });
+  useEditorStore.getState().hydrate({
+    ownerUserId: useEditorStore.getState().ownerUserId,
+    documents: Object.fromEntries(allDocs.map((d) => [d.id, d])),
+  });
 
   return renderHook(() =>
     useEditorPersistence({
@@ -153,7 +156,10 @@ describe('useEditorPersistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fileChangedHandler = null;
-    useEditorStore.getState().hydrate({ documents: {} });
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: {},
+    });
     externalChangeSetting = 'autoReload';
     vi.mocked(EditorGetFileInfo).mockResolvedValue({
       exists: true,
