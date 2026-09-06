@@ -129,6 +129,9 @@ func TestLegacyMemoryFileNeverEntersPrompt(t *testing.T) {
 	if strings.Contains(instructions.Content, "memory.md") || strings.Contains(instructions.Content, "legacy compatibility") {
 		t.Fatalf("instruções não devem mencionar o fluxo removido: %s", instructions.Content)
 	}
+	if !strings.Contains(instructions.Content, "Do not call it in unauthenticated flows") {
+		t.Fatalf("instruções devem impedir uso da tool sem autenticação: %s", instructions.Content)
+	}
 
 	if _, err := svc.PromptBlock(ctx, 500); err != nil {
 		t.Fatalf("PromptBlock canônico: %v", err)

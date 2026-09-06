@@ -51,7 +51,8 @@ func (s *Service) Build(ctx context.Context, req contextprovider.BuildRequest) (
 
 func memoryInstructionsBlock() string {
 	return `<memory_instructions>
-Use the memory tool for durable user/project facts, preferences, corrections, conventions, and decisions that should survive future conversations.
+Use the memory tool only when an authenticated user is available. Do not call it in unauthenticated flows.
+When authenticated, use it for durable user/project facts, preferences, corrections, conventions, and decisions that should survive future conversations.
 Prefer database-backed memory records. Use load policies deliberately: core/pinned for facts that should enter context, auto for relevant contextual recall, retrievable for searchable history, and archived for disabled records.
 Durable memory is stored only as authenticated database-backed records.
 </memory_instructions>`
