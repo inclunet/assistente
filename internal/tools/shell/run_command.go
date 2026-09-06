@@ -199,7 +199,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
-	logPolicyDecision(ctx, commandSummary, decision, summarizePolicyReasons(policyResult))
+	logPolicyDecision(ctx, commandSummary, policyResult)
 
 	switch decision {
 	case allowlist.DecisionDeny:
@@ -387,18 +387,23 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func logPolicyDecision(ctx context.Context, commandSummary string, decision allowlist.Decision, reasons string) {
+func logPolicyDecision(ctx context.Context, commandSummary string, result commandpolicy.EvaluationResult) {
 	logger := logging.Logger(ctx, "tools.shell.run-command")
+	if !logger.Enabled(ctx, slog.LevelInfo) {
+		return
+	}
+	decision := result.Decision
 	attrs := []any{
 		slog.String("command_summary", commandSummary),
 		slog.String("decision", decision.String()),
 	}
 	message := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decision)
 	if decision != allowlist.DecisionApprove {
+		reasons := summarizePolicyReasons(result)
 		message += fmt.Sprintf(", motivos: %s", reasons)
 		attrs = append(attrs, slog.String("reasons", reasons))
 	}
-	logger.Info(message, attrs...)
+	logger.Log(ctx, slog.LevelInfo, message, attrs...)
 }
 
 // evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:

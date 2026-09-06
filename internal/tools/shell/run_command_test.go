@@ -197,8 +197,8 @@ func TestLogPolicyDecisionPreservesMessageAndDoesNotLeakCommand(t *testing.T) {
 			var output bytes.Buffer
 			previous := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
-			logPolicyDecision(context.Background(), commandSummary, decision, reasons)
-			slog.SetDefault(previous)
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			logPolicyDecision(context.Background(), commandSummary, result)
 
 			if strings.Contains(output.String(), secret) {
 				t.Fatalf("log estruturado vazou segredo: %s", output.String())

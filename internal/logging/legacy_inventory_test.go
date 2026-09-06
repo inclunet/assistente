@@ -120,7 +120,9 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 			return true
 		}
 		if method == "Printf" {
-			*printfSites = append(*printfSites, relative+":"+fset.Position(call.Pos()).String())
+			position := fset.Position(call.Pos())
+			*printfSites = append(*printfSites, relative+":"+
+				strconv.Itoa(position.Line)+":"+strconv.Itoa(position.Column))
 			return true
 		}
 		formatIndex, tracked := legacyFormatIndex(method)
