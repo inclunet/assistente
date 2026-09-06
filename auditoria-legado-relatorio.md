@@ -8,7 +8,7 @@ Base analisada: `origin/main` em `4e758277`
 
 O levantamento preliminar confundiu compatibilidade exercitada por testes com código mantido apenas por eles. A análise de chamadas, entradas dinâmicas e AEPs corrigiu essa classificação.
 
-Não há lote de produção ACP inequivocamente seguro para remover. `legacyModelState` e `session/set_model` são entradas de produção para agentes que anunciam modelos somente no formato anterior a `configOptions`. `fakeLegacyModels`, `scriptLegado` e `scriptSoLegado` vivem em testes, mas provam esse contrato. `legacyAllPreloaded` preserva perfis legados sem política estruturada de tools.
+Não há lote de produção ACP inequivocamente seguro para remover. `legacyModelState` e `session/set_model` são entradas de produção para agentes que anunciam modelos somente no formato anterior a `configOptions`. `fakeLegacyModels`, `scriptLegado` e `scriptSoLegado` vivem em testes, mas provam esse contrato.
 
 O lote seguro de remoção tem, portanto, **zero linhas**. Remover os candidatos P0 quebraria compatibilidade documentada ou apagaria sua cobertura. O relatório preliminar e o comentário original da issue foram corrigidos.
 
@@ -105,9 +105,14 @@ Entram em produção por `newSessionResponse.Models` e `loadSessionResponse.Mode
 
 Existem apenas em `*_test.go`, porém são cobertura, não produção retida artificialmente. Removê-las enfraqueceria a prova do contrato.
 
-### P0 — política de tools: manter
+### P0 — política de tools: decisão superada
 
-`legacyAllPreloaded` é alcançado por `ResolveEffectiveToolPolicy`, chamado pelo envio e pelo builder de prompt com configuração derivada do perfil. Preserva `EnabledTools == nil` quando o registry não possui `tool_catalog`. O AEP-0081 D3 exige a semântica de perfis legados. Remoção dependeria de migração obrigatória e garantia do catálogo até em degradação de banco; nenhuma foi estabelecida.
+A decisão posterior do mantenedor na issue #674 substituiu esta conclusão.
+`EnabledTools == nil` sem `tool_catalog` agora falha fechado: nenhuma tool é
+exposta implicitamente. Allowlist ou `preloaded` explícito continua valendo
+somente para os itens escolhidos, e `on_demand` nunca é promovido por ausência
+do catálogo. O estado de catálogo indisponível permanece distinguível de
+`disable_tools=true` e de seleção explícita vazia.
 
 ### P1 — migrações, importadores e limpeza: manter
 
