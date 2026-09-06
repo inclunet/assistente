@@ -13,6 +13,7 @@ type TaskListManager interface {
 	GetTaskList(ctx context.Context, id string) (*database.TaskList, error)
 	GetAllTaskLists(ctx context.Context) ([]database.TaskList, error)
 	GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error)
+	ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error)
 	UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error
 	SetTaskListConversation(ctx context.Context, id string, conversationID *string) error
 	ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error)
@@ -37,6 +38,7 @@ type TaskListManager interface {
 	GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error)
 	CreateTaskNote(ctx context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
 	UpsertTaskNoteByExternal(ctx context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error)
+	ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error)
 	UpdateTaskNote(ctx context.Context, noteID string, content string) error
 	GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error)
 	GetTaskNote(ctx context.Context, noteID string) (*database.TaskNote, error)

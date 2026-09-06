@@ -206,6 +206,22 @@ var schemaMigrations = []migration{
 			return deferIfErr(database.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_pinned_created ON chat_messages (conversation_id, pinned, created_at, id)`).Error)
 		},
 	},
+	{
+		Version: 14,
+		Name:    "task_pagination_indexes",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			return deferIfErr(ensureTaskPaginationIndexes(database))
+		},
+	},
+	{
+		Version: 15,
+		Name:    "task_note_pagination_indexes",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			return deferIfErr(ensureTaskNotePaginationIndexes(database))
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
