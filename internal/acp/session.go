@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -756,6 +757,14 @@ func (s *session) setLegacyOption(ctx context.Context, id, value string) error {
 	if err != nil {
 		return wrapCallError(fmt.Sprintf("trocar a opção %q da sessão pelo seletor %s", id, method), err)
 	}
+	recordCompatibility(
+		ctx,
+		s.cn.cfg,
+		compatibilityLegacySelector,
+		s.id,
+		slog.String("selector_method", method),
+		slog.String("option_category", s.categoryOf(id)),
+	)
 	return nil
 }
 

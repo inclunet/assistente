@@ -443,6 +443,16 @@ func withModelOption(options []ConfigOption, state *legacyModelState) []ConfigOp
 	return append(options, option)
 }
 
+// usesLegacyModelState diz se o payload anterior contribui de fato para a
+// saída. Agentes que enviam os dois formatos continuam pelo configOptions e não
+// contam como consumidores da compatibilidade só porque repetiram `models`.
+func usesLegacyModelState(options []ConfigOption, state *legacyModelState) bool {
+	if state == nil || hasCategory(options, CategoryModel) {
+		return false
+	}
+	return len(modelOptionFrom(state).Values) > 0
+}
+
 // withKnownLegacy preserva o que a sessão já conhecia e o conjunto novo não
 // trouxe. Acontece com quem anuncia modo ou modelo pelo formato legado: aquilo
 // chega uma vez, na abertura da sessão, e o conjunto que o agente manda depois

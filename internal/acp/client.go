@@ -179,7 +179,11 @@ func (c *conn) openSession(ctx context.Context, dir string) (*session, error) {
 		return nil, errors.New("agente ACP devolveu sessão sem identificador")
 	}
 
-	options := withModelOption(withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes), resp.Models)
+	options := withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
+	if usesLegacyModelState(options, resp.Models) {
+		recordCompatibility(ctx, c.cfg, compatibilityLegacyModelsPayload, string(resp.SessionId))
+	}
+	options = withModelOption(options, resp.Models)
 	return c.registerSession(string(resp.SessionId), dir, options), nil
 }
 
@@ -229,7 +233,11 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 		return nil, wrapCallError("retomar sessão no agente ACP", err)
 	}
 
-	sess.setConfigOptions(withModelOption(withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes), resp.Models))
+	options := withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
+	if usesLegacyModelState(options, resp.Models) {
+		recordCompatibility(ctx, cn.cfg, compatibilityLegacyModelsPayload, sessionID)
+	}
+	sess.setConfigOptions(withModelOption(options, resp.Models))
 	return sess, nil
 }
 
