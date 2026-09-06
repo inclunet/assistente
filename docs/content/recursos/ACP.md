@@ -30,7 +30,8 @@ Modelos vêm da sessão de descoberta do agente (cache por provider). A troca us
 O Assistente mantém os formatos ACP anteriores enquanto qualquer agente
 suportado ou publicado no catálogo depender deles. O payload `models` e o
 seletor `session/set_model` são avaliados separadamente. A remoção só pode ser
-proposta quando a matriz de testes de todos os agentes suportados não tiver
+proposta quando a matriz de testes de todos os agentes oficialmente suportados
+e de todas as entradas publicadas no snapshot do catálogo oficial não tiver
 consumidor nem resultado desconhecido para o contrato correspondente. Não há
 telemetria nem janela arbitrária por versão. O procedimento técnico está no
 runbook `docs/operations/acp-compatibility-retirement.md` do repositório.

@@ -762,8 +762,8 @@ o `buildEnv` do MCP.
 Os contratos anteriores de modelo não expiram por idade, por mudança do SDK ou
 por ausência em testes locais. Eles têm ciclos de vida separados:
 
-- **payload `models`**: leitura de `newSessionResponse.Models` e
-  `loadSessionResponse.Models`;
+- **payload `models`**: leitura do campo `models` nas respostas de
+  `session/new` e `session/load`;
 - **seletor `session/set_model`**: fallback usado somente quando
   `session/set_config_option` responde JSON-RPC `-32601`.
 
