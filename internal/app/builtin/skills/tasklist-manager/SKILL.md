@@ -30,7 +30,7 @@ Task lists are persisted in the application database and managed through tools. 
 - `update_plan`: create or replace the assistant's execution plan for the current conversation with one compact snapshot.
 - `task_list`: create, read, update, delete and configure task lists, workflows and custom actions.
 - `task`: create, read, update, delete, duplicate, move and link individual tasks.
-- `task_note`: create and update task notes.
+- `task_note`: list/filter/page task notes or create/update/synchronize one note.
 - `get_conversation_info`: read the current conversation ID and any linked task lists/tasks.
 
 ## Core Rules
@@ -54,6 +54,9 @@ Task lists are persisted in the application database and managed through tools. 
 - Set `assignee_name` to an empty string to clear the assignee. Omit the field entirely to preserve the current value.
 - Assignee changes are automatically recorded as system notes for audit trail.
 - Use `task_note` for task notes instead of embedding note history in descriptions.
+- Use `task_note` with `list: true` for read-only note queues. Optionally filter by a resolved task (`task_id` or `task_code`), `source`, `type`, `external_id`, or `external_parent_id`; then page with `limit`, explicit `sort`, and the opaque `next_cursor`.
+- A paged note cursor is bound to every filter and the sort order. Preserve them exactly while `has_more` is true. Omitted external filters match any value; `null` matches notes where that value is absent (for example, top-level notes with `external_parent_id: null`).
+- Omitting `list` preserves the existing write/upsert mode. Never combine `list: true` with `content`, `note_id`, author fields, or `external_updated_at`.
 - To delete a task, call `task` with `task_id` and `delete: true`.
 - To duplicate a task, call `task` with `task_id` and `duplicate: true`.
 - To move a task, call `task` with `task_id` and the target `task_list_id`.
