@@ -22,8 +22,8 @@ const (
 
 	// A ausência do marker continuará suportada por pelo menos duas releases
 	// posteriores à release que introduzir seu formato versionado. Remoção após
-	// essa janela também depende da política geral da issue #676 e de fixtures
-	// cobrindo a versão mínima suportada.
+	// essa janela também depende da política universal de upgrades das issues
+	// #676/#689 e de fixtures para todas as origens publicadas ainda suportadas.
 	legacyContextProviderMinimumMarkerlessReleaseWindow = 2
 )
 
@@ -48,6 +48,7 @@ type legacyContextProviderMarker struct {
 type legacyContextProviderMigrationResult struct {
 	Status                  legacyContextProviderMigrationStatus
 	MarkerFormat            string
+	MarkerFormatVersion     int
 	AppVersion              string
 	MarkerAppVersion        string
 	BackedUpSlugs           []string
@@ -83,14 +84,7 @@ func runLegacyContextProviderSkillsMigration(homeDir, appVersion string) legacyC
 	result := newLegacyContextProviderSkillsMigrator(homeDir, appVersion).Run()
 	ctx := logging.WithAttrs(
 		context.Background(),
-		slog.String("migration", "legacy_context_provider_skills"),
-		slog.String("status", string(result.Status)),
-		slog.String("marker_format", result.MarkerFormat),
-		slog.String("app_version", result.AppVersion),
-		slog.String("marker_app_version", result.MarkerAppVersion),
-		slog.Int("backed_up_count", len(result.BackedUpSlugs)),
-		slog.Int("failure_count", len(result.Failures)),
-		slog.Int("markerless_release_window", result.MarkerlessReleaseWindow),
+		legacyContextProviderMigrationLogAttrs(result)...,
 	)
 	logger := logging.Logger(ctx, "app.legacy-skill-migration")
 	if len(result.Failures) > 0 {
@@ -99,6 +93,22 @@ func runLegacyContextProviderSkillsMigration(homeDir, appVersion string) legacyC
 		logger.Info("Migração de skills antigas verificada")
 	}
 	return result
+}
+
+func legacyContextProviderMigrationLogAttrs(result legacyContextProviderMigrationResult) []slog.Attr {
+	return []slog.Attr{
+		slog.String("migration", "legacy_context_provider_skills"),
+		slog.String("status", string(result.Status)),
+		slog.String("marker_format", result.MarkerFormat),
+		slog.Int("marker_format_version", result.MarkerFormatVersion),
+		slog.String("app_version", result.AppVersion),
+		slog.String("marker_app_version", result.MarkerAppVersion),
+		slog.Int("backed_up_count", len(result.BackedUpSlugs)),
+		slog.Any("backed_up_slugs", result.BackedUpSlugs),
+		slog.Int("failure_count", len(result.Failures)),
+		slog.Any("failures", result.Failures),
+		slog.Int("markerless_release_window", result.MarkerlessReleaseWindow),
+	}
 }
 
 func (m *legacyContextProviderSkillsMigrator) Run() legacyContextProviderMigrationResult {
@@ -181,6 +191,7 @@ func (m *legacyContextProviderSkillsMigrator) Run() legacyContextProviderMigrati
 	}
 	result.Status = legacyContextProviderMigrationCompleted
 	result.MarkerFormat = "versioned"
+	result.MarkerFormatVersion = marker.FormatVersion
 	result.MarkerAppVersion = m.appVersion
 	return result
 }
@@ -207,6 +218,7 @@ func (m *legacyContextProviderSkillsMigrator) inspectMarker(
 	var marker legacyContextProviderMarker
 	if err := json.Unmarshal(data, &marker); err == nil && marker.FormatVersion > 0 {
 		result.MarkerFormat = "versioned"
+		result.MarkerFormatVersion = marker.FormatVersion
 		result.MarkerAppVersion = marker.AppVersion
 		return true, nil
 	}

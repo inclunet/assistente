@@ -246,10 +246,12 @@ Política de retenção:
 
 - marker ausente continua aceito por **no mínimo duas releases posteriores**
   à primeira release que gravar o marker versionado;
-- essa janela é piso de suporte e não desativa automaticamente o migrador;
-- a retirada exige, cumulativamente, a política geral de upgrades diretos e
-  intermediários da issue #676, fixtures da versão mínima suportada e
-  evidência de que nenhuma origem suportada ainda chega sem marker;
+- essa janela é piso de suporte, não define versão mínima nem desativa
+  automaticamente o migrador;
+- a retirada exige, cumulativamente, a política universal de upgrades diretos
+  da issue #676/PR #689, fixtures para todas as releases publicadas abrangidas
+  por essa política e evidência de que nenhuma origem suportada ainda chega
+  sem marker;
 - até esses critérios existirem, o migrador e os testes de marker legado,
   primeira execução, backup, falha parcial e retomada permanecem.
 

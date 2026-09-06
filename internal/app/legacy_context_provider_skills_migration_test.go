@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,8 +31,15 @@ func TestLegacyContextProviderSkillsMigrationFirstRunBacksUpAndVersionsMarker(t 
 	if result.Status != legacyContextProviderMigrationCompleted {
 		t.Fatalf("status = %q, want %q; failures=%v", result.Status, legacyContextProviderMigrationCompleted, result.Failures)
 	}
-	if result.MarkerFormat != "versioned" || result.MarkerAppVersion != "0.6.0" {
-		t.Fatalf("marker diagnostic = format %q app %q", result.MarkerFormat, result.MarkerAppVersion)
+	if result.MarkerFormat != "versioned" ||
+		result.MarkerFormatVersion != legacyContextProviderMarkerFormatVersion ||
+		result.MarkerAppVersion != "0.6.0" {
+		t.Fatalf(
+			"marker diagnostic = format %q version %d app %q",
+			result.MarkerFormat,
+			result.MarkerFormatVersion,
+			result.MarkerAppVersion,
+		)
 	}
 	if !slices.Equal(result.BackedUpSlugs, legacyContextProviderSkillSlugs) {
 		t.Fatalf("backed up = %#v, want %#v", result.BackedUpSlugs, legacyContextProviderSkillSlugs)
@@ -88,6 +96,43 @@ func TestLegacyContextProviderSkillsMigrationAcceptsExistingLegacyMarker(t *test
 		if _, err := os.Stat(filepath.Join(homeDir, slug, "SKILL.md")); err != nil {
 			t.Fatalf("skill %s should remain after existing marker: %v", slug, err)
 		}
+	}
+}
+
+func TestLegacyContextProviderSkillsMigrationReadsVersionedMarkerDiagnostics(t *testing.T) {
+	t.Parallel()
+	homeDir := t.TempDir()
+	marker := legacyContextProviderMarker{
+		FormatVersion: 7,
+		AppVersion:    "0.4.0",
+		CompletedAt:   time.Date(2026, time.August, 20, 10, 0, 0, 0, time.UTC),
+	}
+	data, err := json.Marshal(marker)
+	if err != nil {
+		t.Fatalf("marshal marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(homeDir, legacyContextProviderCleanupMarker), data, 0644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+	writeLegacySkill(t, homeDir, "memory")
+
+	result := newLegacyContextProviderSkillsMigrator(homeDir, "0.6.0").Run()
+
+	if result.Status != legacyContextProviderMigrationAlreadyCompleted {
+		t.Fatalf("status = %q, want %q", result.Status, legacyContextProviderMigrationAlreadyCompleted)
+	}
+	if result.MarkerFormat != "versioned" ||
+		result.MarkerFormatVersion != 7 ||
+		result.MarkerAppVersion != "0.4.0" {
+		t.Fatalf(
+			"marker diagnostic = format %q version %d app %q",
+			result.MarkerFormat,
+			result.MarkerFormatVersion,
+			result.MarkerAppVersion,
+		)
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, "memory", "SKILL.md")); err != nil {
+		t.Fatalf("existing marker must keep skill untouched: %v", err)
 	}
 }
 
@@ -149,6 +194,36 @@ func TestLegacyContextProviderSkillsMigrationReportsAndRecoversPartialFailure(t 
 	}
 }
 
+func TestLegacyContextProviderMigrationLogAttrsExposeSanitizedDetails(t *testing.T) {
+	t.Parallel()
+	homeDir := t.TempDir()
+	result := legacyContextProviderMigrationResult{
+		Status:                  legacyContextProviderMigrationPartialFailure,
+		MarkerFormat:            "versioned",
+		MarkerFormatVersion:     3,
+		AppVersion:              "dev",
+		MarkerAppVersion:        "0.5.0",
+		BackedUpSlugs:           []string{"memory"},
+		Failures:                []string{"mover skill antiga workspace para backup: acesso negado"},
+		MarkerlessReleaseWindow: 2,
+	}
+
+	attrs := migrationAttrsByKey(legacyContextProviderMigrationLogAttrs(result))
+
+	if got := attrs["marker_format_version"].Int64(); got != 3 {
+		t.Fatalf("marker_format_version = %d, want 3", got)
+	}
+	if got, ok := attrs["backed_up_slugs"].Any().([]string); !ok || !slices.Equal(got, result.BackedUpSlugs) {
+		t.Fatalf("backed_up_slugs = %#v, want %#v", attrs["backed_up_slugs"].Any(), result.BackedUpSlugs)
+	}
+	if got, ok := attrs["failures"].Any().([]string); !ok || !slices.Equal(got, result.Failures) {
+		t.Fatalf("failures = %#v, want %#v", attrs["failures"].Any(), result.Failures)
+	}
+	if strings.Contains(attrs["failures"].String(), homeDir) {
+		t.Fatalf("failure attrs expose home path: %s", attrs["failures"].String())
+	}
+}
+
 func TestLegacyContextProviderSkillsMigrationMarkerlessSupportPolicy(t *testing.T) {
 	t.Parallel()
 	result := newLegacyContextProviderSkillsMigrator(t.TempDir(), "dev").Run()
@@ -159,6 +234,14 @@ func TestLegacyContextProviderSkillsMigrationMarkerlessSupportPolicy(t *testing.
 	if result.Status != legacyContextProviderMigrationCompleted {
 		t.Fatalf("empty install status = %q, failures=%v", result.Status, result.Failures)
 	}
+}
+
+func migrationAttrsByKey(attrs []slog.Attr) map[string]slog.Value {
+	values := make(map[string]slog.Value, len(attrs))
+	for _, attr := range attrs {
+		values[attr.Key] = attr.Value
+	}
+	return values
 }
 
 func writeLegacySkill(t *testing.T, homeDir, slug string) {
