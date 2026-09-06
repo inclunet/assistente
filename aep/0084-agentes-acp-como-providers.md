@@ -767,63 +767,27 @@ por ausência em testes locais. Eles têm ciclos de vida separados:
 - **seletor `session/set_model`**: fallback usado somente quando
   `session/set_config_option` responde JSON-RPC `-32601`.
 
-Para cada contrato, a remoção só fica elegível depois de passar, nesta ordem,
-por dois gates:
+#### Evidência canônica e remoção
 
-1. **zero consumidores conhecidos**: nenhum agente suportado pelo app ou
-   publicado no catálogo oficial pode depender do contrato. Entrada que não
-   pôde ser testada conta como dependência desconhecida e mantém a
-   compatibilidade;
-2. **duas versões estáveis consecutivas e completas sem uso observado**: depois
-   da saída do último consumidor, duas versões estáveis consecutivas do
-   Assistente precisam encerrar suas janelas de observação sem evento daquele
-   contrato. Pré-releases, builds de desenvolvimento e nightlies não contam. Um
-   evento reinicia em zero apenas o contador do contrato que ele nomeia.
+A evidência canônica é uma **matriz de testes de todos os agentes oficialmente
+suportados pelo app e de todas as entradas publicadas no snapshot do catálogo
+oficial**. Logs de instalações não entram na decisão e o app não coleta
+telemetria para expirar esses contratos.
 
-Uma versão estável é considerada completa para esta decisão quando a versão
-estável seguinte é publicada e o registro da anterior é fechado. Assim, a
-remoção nunca entra numa das duas versões observadas: ela só pode ser proposta
-para uma versão posterior ao fechamento da segunda janela. Se o último
-consumidor sair durante uma janela, essa versão não conta; a contagem começa na
-próxima estável publicada com todos os consumidores já migrados.
+Para cada agente e contrato, a matriz registra `usa`, `não usa` ou
+`desconhecido`. Agente não executado, distribuição relevante não coberta ou
+resultado inconclusivo é `desconhecido`, nunca ausência de consumo. Tanto
+`desconhecido` quanto `usa` bloqueiam a remoção daquele contrato.
 
-#### Evidência, agregação e privacidade
-
-A fonte primária são os eventos estruturados introduzidos pela observabilidade
-da compatibilidade:
-
-- `compatibility_feature=legacy_models_payload`, quando `models` foi necessário
-  para formar a opção de modelo;
-- `compatibility_feature=legacy_session_selector`, com
-  `selector_method=session/set_model` e `option_category=model`, quando o
-  fallback foi efetivamente chamado.
-
-O evento do payload não é emitido quando o mesmo agente também oferece
-`configOptions`; presença redundante não é dependência. O evento do seletor não
-é emitido quando o método estável funciona. Portanto, os contadores medem uso
-necessário, e não mera presença no wire.
-
-Não há upload automático nem identificador de instalação. A agregação é feita
-por **versão estável + contrato**, somando:
-
-1. a matriz de compatibilidade executada pelo projeto contra o snapshot do
-   catálogo e as versões dos agentes testadas;
-2. ocorrências em logs diagnósticos que usuários tenham enviado
-   voluntariamente.
-
-Ausência em logs voluntários, sozinha, não fecha uma janela: a matriz completa é
-obrigatória. Presença em qualquer uma das fontes reinicia a contagem. O registro
-de cada janela guarda versão do app, data, snapshot/digest do catálogo, agente e
-versão testados, plataforma/distribuição, resultado por contrato e total
-agregado. Não guarda log bruto, prompt, resposta, comando, argumento, path,
-sessão, conversa, turno, perfil, usuário ou identificador de instalação. Os
-eventos usam contexto vazio justamente para não herdar esses campos. Recebido um
-log voluntário, só os contadores permitidos entram no registro; o arquivo bruto
-segue o processo normal de suporte e não é anexado à evidência publicada.
+Quando a matriz completa provar `não usa` para todos os agentes, a remoção do
+contrato correspondente pode ser proposta diretamente. Não há prazo, janela por
+versão nem período de espera adicional: o PR de remoção atualiza este AEP,
+remove somente o contrato liberado e mantém testes que provem listagem e troca
+de modelo para todos os agentes cobertos.
 
 #### Checklist obrigatório antes de remover
 
-O procedimento operacional e o modelo do registro vivem em
+O procedimento operacional e o modelo da matriz vivem em
 `docs/operations/acp-compatibility-retirement.md`. Em resumo, para **cada**
 contrato candidato:
 
@@ -834,16 +798,15 @@ contrato candidato:
   do Claude Code, enquanto continuarem suportados ou publicados;
 - cobrir `session/new`, `session/load`, listagem e troca de modelo, confirmando
   no turno seguinte o modelo efetivo;
-- conferir separadamente os dois contadores, inclusive agente híbrido e fallback
-  restrito a `-32601`;
-- anexar ao PR de remoção os registros das duas versões estáveis consecutivas e
-  completas e a matriz atual sem consumidor.
+- registrar separadamente se o agente depende do payload `models` e se a troca
+  depende de `session/set_model`;
+- anexar ao PR de remoção a matriz completa, sem consumidor nem resultado
+  desconhecido para o contrato candidato.
 
 Na sonda da Fase 9 (`@github/copilot` 1.0.78) e na auditoria #664, o GitHub
 Copilot CLI dependia do payload `models`; essa evidência mantém fechado o gate de
 consumidor até uma matriz posterior provar sua migração. A situação de
-`session/set_model` é avaliada separadamente: a ausência de consumidor conhecido
-não autoriza remoção antes das duas janelas completas.
+`session/set_model` é avaliada separadamente pela mesma matriz.
 
 ## Fases
 
@@ -1308,13 +1271,13 @@ do método; um que não diz nada continua caindo no que a procura sabe e, por
 ### Fase 11 — Política de expiração da compatibilidade anterior (feita)
 
 Documenta a decisão do D16 e o procedimento operacional que torna verificáveis
-os gates por contrato, sem retirar fallback nem ampliar a coleta.
+os gates por contrato, sem retirar fallback nem adicionar telemetria.
 
-**Aceite:** payload `models` e seletor `session/set_model` têm contadores e
-critérios independentes; agentes suportados/publicados bloqueiam a remoção
-enquanto dependerem; depois do último consumidor, duas versões estáveis
-consecutivas e completas precisam fechar sem uso observado; fonte, agregação,
-privacidade e matriz de teste estão documentadas.
+**Aceite:** payload `models` e seletor `session/set_model` têm critérios
+independentes; a matriz cobre todos os agentes suportados/publicados; consumidor
+ou resultado desconhecido bloqueia a remoção; zero consumidores permite propor
+diretamente a retirada do contrato correspondente com atualização do AEP e dos
+testes.
 
 ## Riscos
 
@@ -1323,7 +1286,7 @@ privacidade e matriz de teste estão documentadas.
 - **O protocolo está em movimento.** Modelos já vêm em dois formatos no mesmo
   payload; o legado deve sumir. Suportamos os dois e preferimos o estável. A
   expiração segue o D16 por contrato; uma mudança aparente no ecossistema ou a
-  ausência de relato não substitui a matriz nem as duas janelas completas.
+  ausência de relato não substitui a matriz completa.
 - **Um dos agentes é atendido por adaptador de terceiros** (Fase 7): o Claude
   Code não fala ACP, e a ponte é um pacote npm do ecossistema, que já mudou de
   nome uma vez. O risco não é o do SDK, que a interface interna isola: é o de a
@@ -1376,9 +1339,9 @@ privacidade e matriz de teste estão documentadas.
   com quem só fala o legado.
 - Payload `models` e seletor `session/set_model` permanecem enquanto qualquer
   agente suportado/publicado depender de cada um; depois do último consumidor,
-  cada contrato só pode ser removido após duas versões estáveis consecutivas e
-  completas sem seu evento de uso, com matriz e evidência agregada conforme o
-  D16.
+  a matriz completa sem consumidor nem resultado desconhecido permite propor
+  diretamente a remoção separada, com atualização do AEP e dos testes conforme
+  o D16.
 - Subir cada agente é configuração do template dele — subcomando, flag ou
   argumento nenhum —, e não uma suposição do app sobre como todos sobem.
 - O comando de login que a tela mostra é o do agente, quando ele o informa em

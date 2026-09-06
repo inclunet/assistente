@@ -29,10 +29,10 @@ Modelos vêm da sessão de descoberta do agente (cache por provider). A troca us
 
 O Assistente mantém os formatos ACP anteriores enquanto qualquer agente
 suportado ou publicado no catálogo depender deles. O payload `models` e o
-seletor `session/set_model` são avaliados separadamente; depois da saída do
-último consumidor, cada um ainda precisa atravessar duas versões estáveis
-consecutivas e completas sem uso observado antes de uma remoção. O procedimento
-técnico, incluindo evidência e privacidade, está no
+seletor `session/set_model` são avaliados separadamente. A remoção só pode ser
+proposta quando a matriz de testes de todos os agentes suportados não tiver
+consumidor nem resultado desconhecido para o contrato correspondente. Não há
+telemetria nem janela arbitrária por versão. O procedimento técnico está no
 [runbook de expiração da compatibilidade](https://github.com/inclunet/assistente/blob/main/docs/operations/acp-compatibility-retirement.md).
 
 ## Permissões
