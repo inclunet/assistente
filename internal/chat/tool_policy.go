@@ -110,14 +110,16 @@ func (p *ToolSelectionPolicy) applyLegacyAllowlist(policy *EffectiveToolPolicy, 
 	for _, name := range names {
 		policy.states[name] = ToolPolicyDisabled
 	}
-	allowRuntime := len(cfg.EnabledTools) > 0 && p.registry.Has(tools.ToolCatalogName)
+	hasExplicitAuthorization := false
 	for _, name := range cfg.EnabledTools {
 		name = strings.TrimSpace(name)
 		if name == "" || !p.registry.Has(name) {
 			continue
 		}
 		policy.states[name] = ToolPolicyPreloaded
+		hasExplicitAuthorization = true
 	}
+	allowRuntime := hasExplicitAuthorization && p.registry.Has(tools.ToolCatalogName)
 	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime)
 }
 
