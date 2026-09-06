@@ -60,7 +60,8 @@ da tool.
   instancia todas as 37, exige nomes únicos por mapa, descrição não vazia e
   equivalência de metadados, tags, schema e descrição. A ampliação também
   revelou e corrigiu `get_conversation_info` fora da categoria e do pacote
-  `history`.
+  `history`, além de `memory`, `send_message` e `validate_pairing_code`
+  classificadas incorretamente como somente leitura.
 - `tool_catalog` tinha testes funcionais, mas nenhum contrato direto para a
   orientação de descoberta, ranking, carregamento e limites de política. O
   contrato foi adicionado sem reescrever a descrição aprovada no PR #636.

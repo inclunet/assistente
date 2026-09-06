@@ -31,6 +31,10 @@ func (t *SendMessageTool) Name() string {
 	return "send_message"
 }
 
+func (t *SendMessageTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "network"}
+}
+
 func (t *SendMessageTool) Description() string {
 	return `Send one new outbound text immediately through a configured external Telegram, Signal, or Slack adapter.
 Use when: the user explicitly asks to notify or message a known external destination, and you already have the exact channel-specific recipient identifier.
