@@ -147,6 +147,13 @@ func TestListTaskNotesPageWithContext_NullFiltersAndUserScope(t *testing.T) {
 	seedTaskNotePage(t, testDB, "user-b", "list-b", "task-b", []TaskNote{
 		{UUIDModel: UUIDModel{ID: "note-private", CreatedAt: base}, Type: TaskNoteInternal, Content: "Private"},
 	})
+	if err := testDB.Exec(`
+		UPDATE task_notes
+		SET external_source = NULL, external_id = NULL, external_parent_id = NULL
+		WHERE id = ?
+	`, "note-local").Error; err != nil {
+		t.Fatal(err)
+	}
 	page, err := ListTaskNotesPageWithContext(WithUserID(context.Background(), "user-a"), TaskNotePageQuery{
 		Source:           NullableStringFilter{Set: true},
 		ExternalID:       NullableStringFilter{Set: true},

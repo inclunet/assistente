@@ -242,7 +242,7 @@ func applyNullableStringFilter(query *gorm.DB, column string, filter NullableStr
 		return query
 	}
 	if filter.Value == nil {
-		return query.Where(column + " = ''")
+		return query.Where("(" + column + " IS NULL OR " + column + " = '')")
 	}
 	return query.Where(column+" = ?", *filter.Value)
 }
