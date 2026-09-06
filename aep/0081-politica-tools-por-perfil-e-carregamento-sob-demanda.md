@@ -1,8 +1,8 @@
 # AEP-0081 — Política de Tools por Perfil e Carregamento sob Demanda
 
-Status: Draft
+Status: Accepted
 Criado em: 2026-07-01
-Relacionado: AEP-0021, AEP-0049, AEP-0050, AEP-0063, AEP-0071, AEP-0072, AEP-0075, AEP-0077, AEP-0080
+Relacionado: AEP-0021, AEP-0049, AEP-0050, AEP-0063, AEP-0071, AEP-0072, AEP-0075, AEP-0077, AEP-0080, issue #674
 
 ## Resumo
 
@@ -17,6 +17,13 @@ Estados:
 O `tool_catalog` passa a ser a única interface de control-plane para descoberta e gestão de tools sob demanda. Ele recebe um campo opcional `action`; quando `action` for omitido, o comportamento padrão continua sendo busca/listagem para compatibilidade. Ações iniciais: `search`, `load`, `unload` e `list_loaded`.
 
 Tools carregadas por `tool_catalog action=load` podem persistir por conversa/sessão em turnos futuros, até restart, TTL, mudança de `schema_hash`, estouro de budget ou `unload`, sempre respeitando allowlist/estado do perfil.
+
+A ausência de `tool_catalog` no registry é uma degradação operacional
+suportada e permanente, não uma violação fatal nem dívida com prazo para
+remoção. Nesse estado não existe control-plane para materializar
+`on_demand`; por isso a policy preserva capacidade útil promovendo as tools
+autorizadas para o conjunto inicial, sem elevar opt-ins nem contornar
+`disable_tools`, seleção vazia ou allowlist explícita.
 
 > **Evolução experimental (#630).** O contrato deixa de exigir que todo
 > primeiro turno faça dois saltos manuais. Uma busca interna, read-only e
@@ -70,11 +77,26 @@ Regras:
 
 ### D3. Compatibilidade com `enabled_tools`
 
-Enquanto o schema persistido ainda for `enabled_tools`, a migração semântica deve ser determinística e sem perda:
+`enabled_tools` é um contrato de importação retrocompatível permanente. Sua
+interpretação deve ser determinística e sem perda:
 
 - `enabled_tools` ausente ou `null`: perfil legado aberto. O runtime usa defaults do ToolPlanner; tools elegíveis entram como `on_demand`, e apenas o conjunto mínimo/control-plane entra como `preloaded`.
 - `enabled_tools: []`: seleção explícita vazia. Todas as tools ficam `disabled`, exceto bootstrap/control-plane obrigatório quando permitido pela política.
 - `enabled_tools: ["a", "b"]`: allowlist explícita. As tools listadas ficam inicialmente `preloaded` para preservar comportamento anterior; tools ausentes ficam `disabled`.
+
+Na ausência de `tool_catalog`, a primeira regra degrada todas as tools
+registradas não opt-in para `preloaded`, pois não há caminho posterior de
+descoberta/carregamento. As outras duas regras não se abrem: `[]` continua sem
+tools e a allowlist continua expondo somente seus itens registrados. Em todos
+os casos `disable_tools=true` vence.
+
+Não há versão mínima nem janela de expiração para esse formato. Perfis sem
+`enabled_tools`, com `null`, com `[]` ou com allowlist continuam aceitos pelo
+decoder corrente, inclusive em importações futuras. `_builtin_version`
+versiona o conteúdo builtin e não é versão de schema do perfil. Uma futura
+persistência de `tool_policy` pode armazenar a representação tri-state, mas
+não deve reescrever obrigatoriamente arquivos legados nem criar migração cujo
+objetivo seja retirar este fallback.
 
 Quando houver novo schema de perfil, a representação recomendada é um mapa por tool:
 
@@ -186,6 +208,10 @@ Regras:
 `tool_catalog` e `load_skill` são capacidades de bootstrap/control-plane. Para não quebrar descoberta:
 
 - `tool_catalog` deve permanecer disponível como control-plane quando tool calling estiver habilitado e o perfil permitir descoberta de tools;
+- se o catálogo persistido ou seu backing store não estiver disponível, o
+  runtime continua funcional pela degradação permanente: estados
+  `on_demand` autorizados são promovidos a `preloaded`; isso não registra um
+  catálogo sintético e não torna a ausência fatal;
 - `load_skill` ou mecanismo equivalente de autoativação de skill pelo modelo segue a política da AEP-0072: não deve ser exposto ao modelo, e skills `on_demand` não podem ser autoativadas pelo modelo;
 - a UI pode mostrar essas capacidades como sistema/read-only ou sempre disponíveis conforme a política final;
 - o usuário não deve precisar habilitar manualmente `tool_catalog` para conseguir descobrir tools em um perfil que permite tools sob demanda.
@@ -232,6 +258,40 @@ elevadas por default ou wildcard permissivo. Elas exigem uma entrada literal,
 salvo capacidades de control-plane autorizadas explicitamente pelo runtime
 conforme D8 (`RuntimeTools`, como `load_skill` enquanto há skill sob demanda).
 
+### D11. Inventário de construção e degradação
+
+O contrato considera todos os construtores e consumidores que podem observar
+um registry parcial:
+
+- `App.initToolRegistry` cria o registry executável e registra as builtins
+  antes da inicialização do MCP;
+- `App.initMCP` registra `tool_catalog` somente quando `database.DB()` existe;
+  indisponibilidade do banco deixa o registry válido, porém sem catálogo;
+- o envio (`internal/core/usecases/send_message.go`) e a construção do prompt
+  (`internal/prompt/builder.go`) instanciam `ToolSelectionPolicy` sobre esse
+  mesmo registry;
+- os wrappers de compatibilidade em `internal/chat/tool_defs.go` também criam
+  a mesma policy e não definem uma semântica paralela;
+- registries mínimos criados por testes e subsistemas isolados só entram no
+  contrato de seleção de chat quando forem explicitamente fornecidos à
+  policy.
+
+Matriz de degradação:
+
+| Estado de entrada | Resultado |
+|---|---|
+| Registry `nil` | nenhuma tool; operação nil-safe |
+| Registry vazio | nenhuma tool |
+| Registry sem `tool_catalog` + `enabled_tools` ausente/`null` | todas as registradas não opt-in são preloaded |
+| Registry sem `tool_catalog` + `enabled_tools: []` | nenhuma tool |
+| Registry sem `tool_catalog` + allowlist | somente itens registrados da allowlist são preloaded |
+| Registry sem `tool_catalog` + `tool_policy` com `on_demand` | tools autorizadas `on_demand` são promovidas a `preloaded` |
+| `disable_tools=true` | nenhuma tool, independentemente do registry e do perfil |
+
+Essa matriz é contrato executável. Adicionar um novo construtor de registry ou
+um novo consumidor de seleção exige reutilizar `ToolSelectionPolicy` e cobrir
+explicitamente o caso sem catálogo.
+
 ## Fases
 
 ### Fase 1 — AEP e contrato
@@ -239,7 +299,8 @@ conforme D8 (`RuntimeTools`, como `load_skill` enquanto há skill sob demanda).
 - Aprovar esta AEP e atualizar referências em AEPs relacionadas.
 - Definir nomes finais dos estados (`disabled`, `on_demand`, `preloaded`) e labels localizadas para UI.
 - Definir schema de request/response de `tool_catalog` com `action` opcional.
-- Nenhuma mudança funcional no runtime neste PR documental.
+- Manter como contrato permanente a degradação sem `tool_catalog`, sem
+  migração de retirada e sem mudança funcional no runtime (#674).
 
 ### Fase 2 — Política efetiva no backend
 
@@ -284,7 +345,7 @@ conforme D8 (`RuntimeTools`, como `load_skill` enquanto há skill sob demanda).
 | Budget descarregar tool necessária | Médio | Resposta estruturada com motivo, ranking determinístico e possibilidade de recarregar. |
 | MCP bridge com centenas de tools inflar contexto | Alto | `on_demand` como default para catálogo amplo, schema budget e omissão explícita. |
 | UX tri-state confundir usuários | Médio | Grid único, labels textuais, ajuda curta e anúncio de estado. |
-| Bootstrap quebrar descoberta | Alto | `tool_catalog` tratado como control-plane sempre disponível quando tools sob demanda forem permitidas. |
+| Bootstrap quebrar descoberta | Alto | Preferir `tool_catalog`; quando ausente, promover as tools autorizadas e preservar filtros, opt-ins e bloqueios. |
 | Tool carregada ficar obsoleta após schema change | Médio | Invalidação por `schema_hash` e availability. |
 
 ## Critérios de aceitação
@@ -292,6 +353,11 @@ conforme D8 (`RuntimeTools`, como `load_skill` enquanto há skill sob demanda).
 - Existe uma política tri-state por tool no perfil: `disabled`, `on_demand`, `preloaded`.
 - O Profile Manager usa um único grid/lista de tools, com controle tri-state acessível e alternância por `Space`.
 - `enabled_tools` legado tem migração/compatibilidade documentada e testada.
+- Perfis com `enabled_tools` ausente, `null`, `[]` ou allowlist permanecem
+  aceitos sem prazo de expiração e sem migração obrigatória.
+- A ausência de `tool_catalog` não é fatal: a matriz de degradação da D11 é
+  coberta por testes de upgrade/importação e seleção.
+- Nenhuma migração é criada para remover o fallback sem catálogo.
 - `tool_catalog` aceita `action` opcional e assume `search` quando omitida.
 - `tool_catalog` implementa `search`, `load`, `unload` e `list_loaded` sem criar meta-tools paralelas.
 - `search` não revela tools `disabled` para o perfil.
