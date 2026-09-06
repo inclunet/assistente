@@ -8,7 +8,7 @@ import (
 	"assistente/internal/tools"
 )
 
-func TestToolPolicyUpgradeLegacyEnabledToolsPreservesCatalogDegradation(t *testing.T) {
+func TestToolPolicyUpgradeLegacyEnabledToolsFailsClosedWithoutCatalog(t *testing.T) {
 	withCatalog := charRegistry(t)
 	withoutCatalog := tools.NewRegistry()
 	withoutCatalog.MustRegister(newToolDef("read_file"))
@@ -27,14 +27,14 @@ func TestToolPolicyUpgradeLegacyEnabledToolsPreservesCatalogDegradation(t *testi
 			json:               `{}`,
 			wantNil:            true,
 			wantWithCatalog:    []string{tools.ToolCatalogName},
-			wantWithoutCatalog: []string{"grep_search", "read_file"},
+			wantWithoutCatalog: []string{},
 		},
 		{
 			name:               "null",
 			json:               `{"enabled_tools":null}`,
 			wantNil:            true,
 			wantWithCatalog:    []string{tools.ToolCatalogName},
-			wantWithoutCatalog: []string{"grep_search", "read_file"},
+			wantWithoutCatalog: []string{},
 		},
 		{
 			name:               "lista vazia",
@@ -69,8 +69,12 @@ func TestToolPolicyUpgradeLegacyEnabledToolsPreservesCatalogDegradation(t *testi
 			policyWithoutCatalog := NewToolSelectionPolicy(withoutCatalog)
 			gotWithoutCatalog := defNames(policyWithoutCatalog.InitialToolDefs(cfg))
 			assertNames(t, "sem catálogo", gotWithoutCatalog, tc.wantWithoutCatalog)
-			if policyWithoutCatalog.ResolveEffectiveToolPolicy(cfg).State("text_edit") != ToolPolicyDisabled {
+			effectiveWithoutCatalog := policyWithoutCatalog.ResolveEffectiveToolPolicy(cfg)
+			if effectiveWithoutCatalog.State("text_edit") != ToolPolicyDisabled {
 				t.Fatal("degradação sem catálogo não deve elevar tool opt-in")
+			}
+			if persisted.EnabledTools == nil && effectiveWithoutCatalog.SelectionStatus() != ToolSelectionCatalogUnavailable {
+				t.Fatalf("perfil legado/default deve distinguir catálogo ausente, got %s", effectiveWithoutCatalog.SelectionStatus())
 			}
 		})
 	}
