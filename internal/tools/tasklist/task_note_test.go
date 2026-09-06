@@ -3,6 +3,7 @@ package tasklist
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,7 @@ func TestTaskNote_ListPagedByTaskSourceAndType(t *testing.T) {
 	task.Code = "ISSUE-1"
 	customer := database.TaskNoteCustomer
 	base := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	tiedNoteContent := make(map[string]string)
 	for index, externalID := range []string{"comment-a", "comment-b", "comment-c"} {
 		note, _, err := mgr.UpsertTaskNoteByExternal(context.Background(), database.UpsertTaskNoteByExternalParams{
 			TaskID:           task.ID,
@@ -87,6 +89,9 @@ func TestTaskNote_ListPagedByTaskSourceAndType(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if index < 2 {
+			tiedNoteContent[note.ID] = externalID
 		}
 		if err := mgr.db.Model(&database.TaskNote{}).Where("id = ?", note.ID).
 			Updates(map[string]any{"created_at": base.Add(time.Duration(index/2) * time.Minute)}).Error; err != nil {
@@ -102,7 +107,7 @@ func TestTaskNote_ListPagedByTaskSourceAndType(t *testing.T) {
 	first, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"list":               true,
 		"task_code":          "ISSUE-1",
-		"task_list_id":       list.ID,
+		"task_list_id":       "  " + list.ID + "  ",
 		"source":             "jira",
 		"type":               2,
 		"external_parent_id": "thread-1",
@@ -133,7 +138,14 @@ func TestTaskNote_ListPagedByTaskSourceAndType(t *testing.T) {
 	if len(firstBody.Notes) != 2 || !firstBody.HasMore || firstBody.NextCursor == "" {
 		t.Fatalf("unexpected first page body: %+v", firstBody)
 	}
-	if firstBody.Notes[0].Content != "comment-a" || firstBody.Notes[1].Content != "comment-b" {
+	tiedIDs := make([]string, 0, len(tiedNoteContent))
+	for id := range tiedNoteContent {
+		tiedIDs = append(tiedIDs, id)
+	}
+	sort.Strings(tiedIDs)
+	if firstBody.Notes[0].ID != tiedIDs[0] || firstBody.Notes[1].ID != tiedIDs[1] ||
+		firstBody.Notes[0].Content != tiedNoteContent[tiedIDs[0]] ||
+		firstBody.Notes[1].Content != tiedNoteContent[tiedIDs[1]] {
 		t.Fatalf("created_at+id tie-breaker is unstable: %+v", firstBody.Notes)
 	}
 

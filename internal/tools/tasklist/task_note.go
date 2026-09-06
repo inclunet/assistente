@@ -196,6 +196,7 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if err := json.Unmarshal(args, &rawFields); err != nil {
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
 	}
+	params.TaskListID = strings.TrimSpace(params.TaskListID)
 
 	if params.List {
 		return t.listNotes(ctx, params, rawFields)
