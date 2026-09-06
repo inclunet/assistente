@@ -296,7 +296,7 @@ explicitamente o caso sem catálogo.
 
 ### Fase 1 — AEP e contrato
 
-- Aprovar esta AEP e atualizar referências em AEPs relacionadas.
+- Registrar a aprovação desta AEP e atualizar referências em AEPs relacionadas.
 - Definir nomes finais dos estados (`disabled`, `on_demand`, `preloaded`) e labels localizadas para UI.
 - Definir schema de request/response de `tool_catalog` com `action` opcional.
 - Manter como contrato permanente a degradação sem `tool_catalog`, sem
