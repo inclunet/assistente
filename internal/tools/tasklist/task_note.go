@@ -197,6 +197,20 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
 	}
 	params.TaskListID = strings.TrimSpace(params.TaskListID)
+	if params.TaskID != nil {
+		taskID := strings.TrimSpace(*params.TaskID)
+		if taskID == "" {
+			return tools.ToolResult{Content: "task_id must be a non-empty UUID or null", IsError: true}, nil
+		}
+		params.TaskID = &taskID
+	}
+	if params.NoteID != nil {
+		noteID := strings.TrimSpace(*params.NoteID)
+		if noteID == "" {
+			return tools.ToolResult{Content: "note_id must be a non-empty UUID", IsError: true}, nil
+		}
+		params.NoteID = &noteID
+	}
 
 	if params.List {
 		return t.listNotes(ctx, params, rawFields)

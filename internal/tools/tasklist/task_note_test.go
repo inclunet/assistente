@@ -222,7 +222,8 @@ func TestTaskNote_ListValidationAndNullFilter(t *testing.T) {
 	}
 
 	local, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
-		"list": true, "source": nil, "external_id": nil, "external_parent_id": nil,
+		"list": true, "task_id": "  " + task.ID + "  ",
+		"source": nil, "external_id": nil, "external_parent_id": nil,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -238,6 +239,16 @@ func TestTaskNote_ListValidationAndNullFilter(t *testing.T) {
 	}
 	if len(body.Notes) != 1 || body.Notes[0]["content"] != "local" {
 		t.Fatalf("null filters returned unexpected notes: %+v", body.Notes)
+	}
+
+	emptyNoteID, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"note_id": "  ", "content": "x",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !emptyNoteID.IsError || !strings.Contains(emptyNoteID.Content, "note_id must be a non-empty") {
+		t.Fatalf("empty note_id should fail explicitly: %+v", emptyNoteID)
 	}
 }
 
