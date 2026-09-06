@@ -751,7 +751,7 @@ func buildAgenticInvocationContext(ctx context.Context, params llm.ChatParams, c
 		TabType:        params.TabType,
 		ActiveFilePath: params.ActiveFilePath,
 		SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
-		SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
+		SurfaceContext: chat.DecodeCanonicalSurfaceContextJSON(params.SurfaceContextJSON, "[agent] surface context payload"),
 		ConversationID: conversationID,
 		TurnID:         turnID,
 		ProfileSlug:    params.ProfileSlug,
