@@ -1,0 +1,28 @@
+{
+  "name": "Perfil sintético 0.3.0",
+  "description": "Fixture sem dados pessoais",
+  "icon": "flask-outline",
+  "chat": {
+    "llm_provider": "provedor-sintetico",
+    "model": "modelo-sintetico",
+    "temperature": 0.2,
+    "max_tokens": 3072,
+    "top_p": 1,
+    "response_timeout": 150,
+    "tool_policy_default": "on_demand",
+    "enabled_tools": ["read_file"],
+    "enabled_skills": ["skill-base"]
+  },
+  "voice": {
+    "assistant": {"enabled": false, "provider": "disabled", "rate": 1, "pitch": 1, "volume": 1},
+    "user": {"enabled": false, "provider": "disabled", "rate": 1, "pitch": 1, "volume": 1},
+    "system": {"enabled": false, "provider": "disabled", "rate": 1, "pitch": 1, "volume": 1}
+  },
+  "input": {
+    "enabled": true,
+    "stt_provider": "webspeech",
+    "language": "pt-BR",
+    "feedback_sounds": false
+  },
+  "channels": {"response_mode": "always_text"}
+}

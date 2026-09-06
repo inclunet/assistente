@@ -18,6 +18,8 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/docextract"
 	"assistente/internal/tools/filesystem"
+	sqlitegorm "github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 const editorTestUserID = "01991f7c-1000-7000-8000-000000000001"
@@ -585,6 +587,186 @@ func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(pathsA.root, ".legacy-migration-v1-complete")); err != nil {
 		t.Fatalf("marcador de conclusão ausente: %v", err)
+	}
+}
+
+func TestPublishedEditor019UpgradesDirectlyFromDatabase(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	dbFile := filepath.Join(tempDir, ".assistente", "conversations.db")
+	if err := os.MkdirAll(filepath.Dir(dbFile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile(filepath.Join("..", "database", "testdata", "published", "0.1.9.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed, err := gorm.Open(sqlitegorm.Open(dbFile), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seed.Exec(string(fixture)).Error; err != nil {
+		t.Fatalf("carregar fixture do editor 0.1.9: %v", err)
+	}
+	sqlSeed, err := seed.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlSeed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	previous := database.DB()
+	database.SetDB(nil)
+	if err := database.Init(); err != nil {
+		t.Fatalf("startup direto da 0.1.9: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+		database.SetDB(previous)
+	})
+
+	userA := "01991f7c-1000-7000-8000-000000000091"
+	apiA := attachEditorForUser(userA)
+	state, err := apiA.EditorLoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.FileModeByPath["documento-sintetico.md"] != "rich" ||
+		state.MergeSessionsByTabId["tab-publicada"].MineDraftId != "rascunho-publicado" {
+		t.Fatalf("estado 0.1.9 não preservado: %+v", state)
+	}
+	if got, err := apiA.EditorReadDraft("rascunho-publicado"); err != nil || got != "# Conteúdo sintético 0.1.9" {
+		t.Fatalf("draft 0.1.9 não preservado: %q, %v", got, err)
+	}
+	if got, err := apiA.EditorReadDraft("rascunho-conflito"); err != nil || got != "versão sintética local" {
+		t.Fatalf("draft de merge 0.1.9 não preservado: %q, %v", got, err)
+	}
+
+	if err := apiA.EditorWriteDraft("rascunho-publicado", "edição posterior"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apiA.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := apiA.EditorReadDraft("rascunho-publicado"); got != "edição posterior" {
+		t.Fatalf("segunda passagem sobrescreveu edição: %q", got)
+	}
+
+	userB := "01991f7c-1000-7000-8000-000000000092"
+	apiB := attachEditorForUser(userB)
+	if _, err := apiB.EditorReadDraft("rascunho-publicado"); err == nil {
+		t.Fatal("segundo usuário herdou dados do editor 0.1.9")
+	}
+	stateB, err := apiB.EditorLoadState()
+	if err != nil || len(stateB.FileModeByPath) != 0 {
+		t.Fatalf("segundo usuário herdou estado 0.1.9: %+v, %v", stateB, err)
+	}
+
+	var sourceCount int64
+	if err := database.DB().Table("editor_documents").Count(&sourceCount).Error; err != nil || sourceCount != 2 {
+		t.Fatalf("tabelas de origem foram alteradas: count=%d err=%v", sourceCount, err)
+	}
+	assertPrivateEditorFixturePermissions(t, userA)
+}
+
+func TestPublishedEditorFilesystemLayoutsUpgradeDirectly(t *testing.T) {
+	for _, version := range []string{"0.2.0", "0.3.0", "0.4.0", "0.5.0"} {
+		t.Run(version, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+
+			fixtureRoot := filepath.Join("testdata", "published", version, "editor")
+			stateBytes, err := os.ReadFile(filepath.Join(fixtureRoot, "state.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			draftID := "rascunho-" + version
+			draftBytes, err := os.ReadFile(filepath.Join(fixtureRoot, "drafts", draftID+".md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(legacyEditorDir(), "state.json"), stateBytes, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", draftID+".md"), draftBytes, 0600); err != nil {
+				t.Fatal(err)
+			}
+
+			userA := "01991f7c-1000-7000-8000-0000000000a1"
+			apiA := attachEditorForUser(userA)
+			state, err := apiA.EditorLoadState()
+			if err != nil {
+				t.Fatal(err)
+			}
+			pathKey := "documento-sintetico-" + version + ".md"
+			if state.FileModeByPath[pathKey] == "" || state.MergeSessionsByTabId["tab-"+version].MineDraftId != draftID {
+				t.Fatalf("estado %s não preservado: %+v", version, state)
+			}
+			if got, err := apiA.EditorReadDraft(draftID); err != nil || string(draftBytes) != got {
+				t.Fatalf("draft %s não preservado: %q, %v", version, got, err)
+			}
+
+			if err := apiA.EditorWriteDraft(draftID, "edição posterior "+version); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := apiA.EditorLoadState(); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := apiA.EditorReadDraft(draftID); got != "edição posterior "+version {
+				t.Fatalf("segunda passagem %s sobrescreveu edição: %q", version, got)
+			}
+
+			apiB := attachEditorForUser("01991f7c-1000-7000-8000-0000000000b2")
+			if _, err := apiB.EditorReadDraft(draftID); err == nil {
+				t.Fatalf("segundo usuário herdou fixture %s", version)
+			}
+			if source, err := os.ReadFile(filepath.Join(legacyEditorDir(), "drafts", draftID+".md")); err != nil || string(source) != string(draftBytes) {
+				t.Fatalf("origem %s foi alterada: %q, %v", version, source, err)
+			}
+			assertPrivateEditorFixturePermissions(t, userA)
+		})
+	}
+}
+
+func assertPrivateEditorFixturePermissions(t *testing.T, userID string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	paths, err := editorPathsForUser(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{paths.root, paths.draftDir} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0700 {
+			t.Fatalf("permissão de diretório %s: %v, %v", path, info, err)
+		}
+	}
+	files := []string{paths.state}
+	entries, err := os.ReadDir(paths.draftDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		files = append(files, filepath.Join(paths.draftDir, entry.Name()))
+	}
+	for _, path := range files {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("permissão de arquivo %s: %v, %v", path, info, err)
+		}
 	}
 }
 

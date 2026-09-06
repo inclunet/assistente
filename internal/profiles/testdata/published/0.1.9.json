@@ -1,0 +1,43 @@
+{
+  "_builtin_version": "2.1.0",
+  "name": "Perfil sintético 0.1.9",
+  "description": "Fixture sem dados pessoais",
+  "icon": "flask-outline",
+  "active": true,
+  "chat": {
+    "llm_provider": "provedor-sintetico",
+    "model": "modelo-sintetico",
+    "temperature": 0.4,
+    "max_tokens": 2048,
+    "top_p": 0.9,
+    "response_timeout": 120,
+    "enabled_tools": null,
+    "enabled_skills": ["skill-sintetica"],
+    "mcp_mode": "adapter",
+    "mcp_native_tested": false
+  },
+  "voice": {
+    "provider": "openai",
+    "llm_provider_id": "provedor-voz-sintetico",
+    "voice_id": "voz-sintetica",
+    "rate": 1.1,
+    "pitch": 0.9,
+    "volume": 0.8,
+    "enabled_for_agent": true,
+    "enabled_for_user": false,
+    "channel_response_mode": "always_audio"
+  },
+  "interaction": {
+    "stt_provider": "whisper_api",
+    "llm_provider_id": "provedor-stt-sintetico",
+    "language": "pt-BR",
+    "feedback_sounds": true,
+    "triggers": [
+      {
+        "type": "hotkey",
+        "enabled": true,
+        "hotkey": "Ctrl+Shift+Space"
+      }
+    ]
+  }
+}
