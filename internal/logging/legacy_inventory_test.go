@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -71,7 +72,11 @@ func repositoryRoot(t *testing.T) string {
 	if !ok {
 		t.Fatal("localizar arquivo do teste")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("raiz calculada não contém go.mod: %s: %v", root, err)
+	}
+	return root
 }
 
 func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *[]string) {
@@ -137,7 +142,11 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 		if err != nil || normalizeLegacyMessage(format) == strings.TrimSpace(format) {
 			return true
 		}
-		component := literalString(call.Args, 1)
+		componentIndex := 1
+		if method == "Logf" {
+			componentIndex = 2
+		}
+		component := literalString(call.Args, componentIndex)
 		*legacyFormats = append(*legacyFormats, strings.Join([]string{
 			relative, method, component, format,
 		}, "|"))
