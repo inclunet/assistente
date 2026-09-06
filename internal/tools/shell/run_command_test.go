@@ -1,8 +1,11 @@
 package shell
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -164,6 +167,67 @@ func TestRedactCommandForLog_DoesNotIncludeArgs(t *testing.T) {
 				if strings.Contains(summary, leak) {
 					t.Errorf("summary %q vazou %q (nunca deveria conter args)", summary, leak)
 				}
+			}
+		})
+	}
+}
+
+func TestLogPolicyDecisionPreservesMessageAndDoesNotLeakCommand(t *testing.T) {
+	const secret = "hunter2-supersecret"
+	rawCommand := "TOKEN=" + secret + " psql -W " + secret
+	baseResult := commandpolicy.Evaluate(rawCommand, &allowlist.Allowlist{
+		AlwaysDeny:    []string{"psql"},
+		DefaultAction: "confirm",
+	})
+	if baseResult.Decision != allowlist.DecisionDeny {
+		t.Fatalf("pré-condição: decision = %s, want deny", baseResult.Decision.String())
+	}
+	commandSummary := redactCommandForLog(rawCommand, baseResult)
+
+	for _, decision := range []allowlist.Decision{allowlist.DecisionApprove, allowlist.DecisionDeny} {
+		t.Run(decision.String(), func(t *testing.T) {
+			result := baseResult
+			result.Decision = decision
+			reasons := summarizePolicyReasons(result)
+			wantMessage := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decision.String())
+			if decision != allowlist.DecisionApprove {
+				wantMessage += fmt.Sprintf(", motivos: %s", reasons)
+			}
+
+			var output bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			var logCtx context.Context
+			if decision != allowlist.DecisionApprove {
+				logCtx = context.Background()
+			}
+			logPolicyDecision(logCtx, commandSummary, result)
+
+			if strings.Contains(output.String(), secret) {
+				t.Fatalf("log estruturado vazou segredo: %s", output.String())
+			}
+			var record map[string]any
+			if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+				t.Fatalf("decodificar log estruturado: %v", err)
+			}
+			for key, want := range map[string]string{
+				"level":           "INFO",
+				"component":       "tools.shell.run-command",
+				"msg":             wantMessage,
+				"command_summary": commandSummary,
+				"decision":        decision.String(),
+			} {
+				if got := record[key]; got != want {
+					t.Errorf("%s = %v, want %q", key, got, want)
+				}
+			}
+			gotReasons, hasReasons := record["reasons"]
+			if decision == allowlist.DecisionApprove && hasReasons {
+				t.Errorf("approve não deve registrar reasons: %v", gotReasons)
+			}
+			if decision != allowlist.DecisionApprove && gotReasons != reasons {
+				t.Errorf("reasons = %v, want %q", gotReasons, reasons)
 			}
 		})
 	}

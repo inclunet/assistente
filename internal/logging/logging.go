@@ -98,11 +98,6 @@ func Logf(ctx context.Context, level slog.Level, component string, format string
 	logger.Log(ctx, level, normalizeLegacyMessage(fmt.Sprintf(format, args...)))
 }
 
-// Printf is the migration bridge for legacy formatted log call sites.
-func Printf(ctx context.Context, component string, format string, args ...any) {
-	Logf(ctx, slog.LevelInfo, component, format, args...)
-}
-
 // Debugf records a debug formatted message.
 func Debugf(ctx context.Context, component string, format string, args ...any) {
 	Logf(ctx, slog.LevelDebug, component, format, args...)
