@@ -774,11 +774,11 @@ por dois gates:
    publicado no catálogo oficial pode depender do contrato. Entrada que não
    pôde ser testada conta como dependência desconhecida e mantém a
    compatibilidade;
-2. **duas versões estáveis completas sem uso observado**: depois da saída do
-   último consumidor, duas versões estáveis consecutivas do Assistente precisam
-   encerrar suas janelas de observação sem evento daquele contrato. Pré-releases,
-   builds de desenvolvimento e nightlies não contam. Um evento reinicia em zero
-   apenas o contador do contrato que ele nomeia.
+2. **duas versões estáveis consecutivas e completas sem uso observado**: depois
+   da saída do último consumidor, duas versões estáveis consecutivas do
+   Assistente precisam encerrar suas janelas de observação sem evento daquele
+   contrato. Pré-releases, builds de desenvolvimento e nightlies não contam. Um
+   evento reinicia em zero apenas o contador do contrato que ele nomeia.
 
 Uma versão estável é considerada completa para esta decisão quando a versão
 estável seguinte é publicada e o registro da anterior é fechado. Assim, a
@@ -836,13 +836,14 @@ contrato candidato:
   no turno seguinte o modelo efetivo;
 - conferir separadamente os dois contadores, inclusive agente híbrido e fallback
   restrito a `-32601`;
-- anexar ao PR de remoção os registros das duas versões estáveis completas e a
-  matriz atual sem consumidor.
+- anexar ao PR de remoção os registros das duas versões estáveis consecutivas e
+  completas e a matriz atual sem consumidor.
 
-Hoje o GitHub Copilot CLI observado depende do payload `models`; portanto o gate
-de consumidor desse contrato está fechado e nenhuma janela começou. A situação
-de `session/set_model` é avaliada separadamente: a ausência de consumidor
-conhecido não autoriza remoção antes das duas janelas completas.
+Na sonda da Fase 9 (`@github/copilot` 1.0.78) e na auditoria #664, o GitHub
+Copilot CLI dependia do payload `models`; essa evidência mantém fechado o gate de
+consumidor até uma matriz posterior provar sua migração. A situação de
+`session/set_model` é avaliada separadamente: a ausência de consumidor conhecido
+não autoriza remoção antes das duas janelas completas.
 
 ## Fases
 
@@ -1312,8 +1313,8 @@ os gates por contrato, sem retirar fallback nem ampliar a coleta.
 **Aceite:** payload `models` e seletor `session/set_model` têm contadores e
 critérios independentes; agentes suportados/publicados bloqueiam a remoção
 enquanto dependerem; depois do último consumidor, duas versões estáveis
-completas precisam fechar sem uso observado; fonte, agregação, privacidade e
-matriz de teste estão documentadas.
+consecutivas e completas precisam fechar sem uso observado; fonte, agregação,
+privacidade e matriz de teste estão documentadas.
 
 ## Riscos
 
@@ -1375,8 +1376,9 @@ matriz de teste estão documentadas.
   com quem só fala o legado.
 - Payload `models` e seletor `session/set_model` permanecem enquanto qualquer
   agente suportado/publicado depender de cada um; depois do último consumidor,
-  cada contrato só pode ser removido após duas versões estáveis completas sem
-  seu evento de uso, com matriz e evidência agregada conforme o D16.
+  cada contrato só pode ser removido após duas versões estáveis consecutivas e
+  completas sem seu evento de uso, com matriz e evidência agregada conforme o
+  D16.
 - Subir cada agente é configuração do template dele — subcomando, flag ou
   argumento nenhum —, e não uma suposição do app sobre como todos sobem.
 - O comando de login que a tela mostra é o do agente, quando ele o informa em
