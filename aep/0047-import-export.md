@@ -2,7 +2,10 @@
 
 ## Dependências
 
-- **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Esta AEP agora assume que a migração para UUIDv7 já aconteceu e passa a usar esses IDs estáveis como contrato portável. O formato legado sem IDs deixa de ser suportado.
+- **AEP-0046** (Migração de IDs sequenciais para UUIDv7): o formato canônico
+  usa IDs estáveis. O export publicado pela 0.1.9, com IDs numéricos, permanece
+  aceito por um adaptador de entrada para cumprir a política de upgrade
+  universal; novas exportações nunca voltam a produzi-lo.
 - **AEP-0052** (Sistema de Contas de Usuário): etapa posterior que adiciona `user_id` aos recursos DB-only atuais. A partir dela, export/import deve operar no escopo do usuário autenticado e não mais no namespace global da instância.
 - **AEP-0048**, **AEP-0050** e **AEP-0051**: recursos que hoje ainda vivem fora do banco ou dependem de migrações estruturais complementares ficam para etapas posteriores, já nascendo com `user_id` após a AEP-0052.
 
@@ -342,9 +345,17 @@ Na UI de export, ao detectar que recursos selecionados contêm campos potencialm
 O campo `version: 2` no export identifica o novo contrato baseado em IDs estáveis:
 
 - Importação sempre verifica a versão antes de processar
-- O formato legado `version: 1` deixa de ser suportado
+- O envelope legado publicado até 0.1.9
+  (`metadata.version: "2.0"`, conversas no topo e IDs numéricos) é adaptado
+  para `version: 2` antes da análise/importação. IDs determinísticos preservam
+  idempotência e as referências `parentId`/`turnId`.
+- Nenhum formato efetivamente publicado deixa de ser suportado. Formatos
+  experimentais nunca publicados não entram nessa garantia.
 - Versões futuras podem adicionar campos sem quebrar compatibilidade (campos desconhecidos são ignorados)
 - Se uma versão futura fizer mudanças incompatíveis, incrementa o número e o importador antigo rejeita com mensagem clara
+
+Não existe versão intermediária obrigatória: arquivos gerados por qualquer
+release publicada são importados diretamente pela release atual.
 
 ### D11 — Interface: menu principal
 
@@ -456,6 +467,8 @@ type LocalizedMessage struct {
 
 21. Testes Go: export/import roundtrip para conversas, providers, tasklists e credenciais.
 22. Testes Go: versionamento (`version: 2` aceito; versões incompatíveis rejeitadas) e campos desconhecidos ignorados quando inofensivos.
+22a. Fixture publicada 0.1.9 adaptada e importada de forma idempotente; fixture
+     v2 parametrizada para 0.2.0–0.5.0.
 23. Testes Go: recursos fora do escopo no import geram warning; recursos fora do escopo no export são rejeitados.
 24. Testes frontend: modais de export/import, seleção DB-only, senha de credenciais, preview e warnings.
 
@@ -484,7 +497,9 @@ DB-only descrito em D0.
 7. **Credenciais** ficam excluídas por padrão e, quando incluídas, aparecem apenas em bloco criptografado por senha de exportação; `CredentialKeyWrap` nunca é exportado.
 8. **Bloco de credenciais obrigatório**: se `includeCredentials: true`, `resources.credentials` deve existir e ser válido.
 9. **Áudio** é excluído por padrão; `audioMimeType` é preservado. Quando `includeAudio` for usado, o comportamento deve ser explícito na UI/CLI.
-10. **Versionamento**: import aceita `version: 2` e rejeita versões incompatíveis com mensagem clara.
+10. **Versionamento**: import aceita `version: 2`, adapta diretamente o
+    envelope publicado pela 0.1.9 e rejeita somente versões desconhecidas/não
+    publicadas com mensagem clara.
 11. **Importação** aceita apenas o formato JSON canônico; HTML/PDF são apenas formatos derivados de exportação.
 12. **HTML/PDF** são gerados a partir do mesmo modelo canônico de conversas do export JSON.
 13. **i18n**: todas as strings de UI novas existem nos 3 locales.
