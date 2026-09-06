@@ -12,10 +12,15 @@ import (
 )
 
 func TestPublished019ChannelsImportDirectlyIdempotentlyAndPreserveSources(t *testing.T) {
+	fixtureRoot, err := filepath.Abs(filepath.Join("testdata", "published", "0.1.9"))
+	if err != nil {
+		t.Fatalf("resolver caminho do corpus: %v", err)
+	}
 	setupTempHome(t)
+	t.Chdir(t.TempDir())
+	configdir.ResetForTests()
 	db := setupChannelsDB(t)
 
-	fixtureRoot := filepath.Join("testdata", "published", "0.1.9")
 	originals := copyPublishedChannelFixture(t, fixtureRoot, configdir.GetHomeDir())
 
 	ctx := database.WithUserID(context.Background(), "published-fixture-user")

@@ -231,7 +231,7 @@ func parseLegacyChannelConfig(data []byte) (*ChannelConfig, error) {
 			}
 			var numericID uint64
 			if err := json.Unmarshal(value, &numericID); err != nil {
-				return nil, fmt.Errorf("conversation id de %s inválido", contactID)
+				return nil, fmt.Errorf("conversation id do contato %q inválido: %w", contactID, err)
 			}
 			normalized[contactID] = strconv.FormatUint(numericID, 10)
 		}

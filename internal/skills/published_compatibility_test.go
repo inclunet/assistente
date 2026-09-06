@@ -34,13 +34,16 @@ func TestPublishedSkillFormatIsEquivalentFrom019Through050(t *testing.T) {
 func TestPublishedSkillsLoadRepeatedlyRejectInvalidAndPreserveSources(t *testing.T) {
 	valid := readPublishedSkillFixture(t, "0.1.9-0.5.0", "SKILL.md")
 	invalid := readPublishedSkillFixture(t, "invalid", "SKILL.md")
+	home := t.TempDir()
 	workdir := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Chdir(workdir)
 	configdir.ResetForTests()
 	t.Cleanup(configdir.ResetForTests)
 
-	validPath := filepath.Join(".assistente", "skills", "corpus-skill", "SKILL.md")
-	invalidPath := filepath.Join(".assistente", "skills", "invalid", "SKILL.md")
+	validPath := filepath.Join(configdir.GetHomeDir(), "skills", "corpus-skill", "SKILL.md")
+	invalidPath := filepath.Join(configdir.GetHomeDir(), "skills", "invalid", "SKILL.md")
 	writePublishedSkillFixture(t, validPath, valid)
 	writePublishedSkillFixture(t, invalidPath, invalid)
 
