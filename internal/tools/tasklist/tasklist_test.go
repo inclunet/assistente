@@ -347,6 +347,14 @@ func (f *fakeTaskListManager) GetTaskListStats(ctx context.Context, taskListID s
 	return stats, err
 }
 
+func (f *fakeTaskListManager) ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	page, err := f.realTaskListManager.ListTaskNotesPage(ctx, query)
+	f.refreshSnapshots()
+	return page, err
+}
+
 func (f *fakeTaskListManager) CreateTask(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
 	ctx = f.effectiveCtx(ctx)
 	if f.createTaskErr != nil {
@@ -2063,8 +2071,8 @@ func TestUpsertTaskNote_ZeroTaskID(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error for empty task ID")
 	}
-	if !strings.Contains(result.Content, "informe task_id ou code") {
-		t.Errorf("expected task ref error, got: %s", result.Content)
+	if !strings.Contains(result.Content, "task_id must be a non-empty") {
+		t.Errorf("expected explicit task_id validation error, got: %s", result.Content)
 	}
 }
 
