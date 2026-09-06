@@ -164,9 +164,6 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 	writeStructuredFocus(&body, normalized)
 	writeStructuredContent(&body, normalized)
 	writeStructuredMetadata(&body, normalized)
-	if strings.TrimSpace(body.String()) == "" && normalized.Incomplete {
-		body.WriteString("<notice>surface context is incomplete and must not be used as a trusted mutation target</notice>\n")
-	}
 	bodyContent := strings.TrimRight(body.String(), "\n")
 	if strings.TrimSpace(bodyContent) == "" {
 		return ""
@@ -220,6 +217,47 @@ func surfaceSelectionText(surface *normalizedSurfaceContext) string {
 	return arraySummary(surface.Selection["items"])
 }
 
+type normalizedSurfaceContext struct {
+	SurfaceType     string
+	SurfaceID       string
+	Title           string
+	Mode            string
+	Selection       map[string]any
+	Focus           map[string]any
+	Content         map[string]any
+	Metadata        map[string]any
+	SnapshotVersion string
+	CapturedAt      string
+	StaleAfterMs    string
+}
+
+func normalizeSurfaceContext(surface *contextprovider.Surface) *normalizedSurfaceContext {
+	if surface == nil {
+		return nil
+	}
+	ctx := surface.Context
+	surfaceType := stringFromMap(ctx, "surfaceType")
+	surfaceID := stringFromMap(ctx, "surfaceId")
+	snapshotVersion := stringFromMap(ctx, "snapshotVersion")
+	if surfaceType == "" || surfaceID == "" || snapshotVersion == "" {
+		return nil
+	}
+
+	return &normalizedSurfaceContext{
+		SurfaceType:     surfaceType,
+		SurfaceID:       surfaceID,
+		Title:           stringFromMap(ctx, "title"),
+		Mode:            stringFromMap(ctx, "mode"),
+		Selection:       mapFromMap(ctx, "selection"),
+		Focus:           mapFromMap(ctx, "focus"),
+		Content:         mapFromMap(ctx, "content"),
+		Metadata:        mapFromMap(ctx, "metadata"),
+		SnapshotVersion: snapshotVersion,
+		CapturedAt:      stringFromMap(ctx, "capturedAt"),
+		StaleAfterMs:    numberStringFromMap(ctx, "staleAfterMs"),
+	}
+}
+
 func buildSurfaceOpenTag(surface *normalizedSurfaceContext) string {
 	attrs := []string{
 		xmlAttr("surface_type", surface.SurfaceType),
@@ -237,9 +275,6 @@ func buildSurfaceOpenTag(surface *normalizedSurfaceContext) string {
 	}
 	if surface.StaleAfterMs != "" {
 		attrs = append(attrs, xmlAttr("stale_after_ms", surface.StaleAfterMs))
-	}
-	if surface.Incomplete {
-		attrs = append(attrs, `incomplete="true"`)
 	}
 	return "<surface_context\n  " + strings.Join(attrs, "\n  ") + "\n>"
 }
@@ -708,13 +743,13 @@ func surfaceTextLimit(surfaceType string) int {
 func metadataAllowlist(surfaceType string) []string {
 	switch strings.TrimSpace(surfaceType) {
 	case "editor":
-		return []string{"documentId", "filePath", "draftId", "language", "presentationDetection", "slideCount", "currentSlideIndex", "currentSlideLabel", "projectId", "legacySurfaceContext"}
+		return []string{"documentId", "filePath", "draftId", "language", "presentationDetection", "slideCount", "currentSlideIndex", "currentSlideLabel", "projectId"}
 	case "tasklist":
-		return []string{"taskListId", "slug", "taskCount", "statuses", "projectId", "legacySurfaceContext"}
+		return []string{"taskListId", "slug", "taskCount", "statuses", "projectId"}
 	case "terminal":
-		return []string{"sessionId", "cwd", "shell", "historyEntryCount", "lastExitCode", "projectId", "legacySurfaceContext"}
+		return []string{"sessionId", "cwd", "shell", "historyEntryCount", "lastExitCode", "projectId"}
 	default:
-		return []string{"projectId", "legacySurfaceContext"}
+		return []string{"projectId"}
 	}
 }
 

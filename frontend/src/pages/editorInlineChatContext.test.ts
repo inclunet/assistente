@@ -177,6 +177,7 @@ describe('buildEditorInlineChatSurfaceContext', () => {
 
     expect(ctx.surfaceType).toBe('editor');
     expect(ctx.surfaceId).toBe('tab-1');
+    expect(ctx.snapshotVersion).toMatch(/^editor:tab-1:/);
     expect(ctx.mode).toBe('reveal');
     expect(ctx.focus?.kind).toBe('slide');
     expect(ctx.content?.kind).toBe('reveal_slide');

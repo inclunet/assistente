@@ -25,9 +25,6 @@ func (s *Service) Metadata() contextprovider.ProviderMetadata {
 
 func (s *Service) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	instructions := memoryInstructionsBlock
-	if _, ok := database.UserIDFromContext(ctx); !ok {
-		instructions = legacyMemoryAdapterInstructions
-	}
 	blocks := []contextprovider.Block{{
 		Provider:   s.Name(),
 		Name:       "memory_instructions",
@@ -56,7 +53,7 @@ func memoryInstructionsBlock() string {
 	return `<memory_instructions>
 Use the memory tool for durable user/project facts, preferences, corrections, conventions, and decisions that should survive future conversations.
 Prefer database-backed memory records. Use load policies deliberately: core/pinned for facts that should enter context, auto for relevant contextual recall, retrievable for searchable history, and archived for disabled records.
-Do not write new memories to legacy Markdown files. In unauthenticated legacy compatibility flows, memory.md may appear as read-only context until the user recomposes it into database records.
+Durable memory is stored only as authenticated database-backed records.
 </memory_instructions>`
 }
 
@@ -69,7 +66,7 @@ func (s *Service) promptBlock(ctx context.Context, req contextprovider.BuildRequ
 		budgetChars = defaultPromptBudget
 	}
 	if _, ok := database.UserIDFromContext(ctx); !ok {
-		return buildLegacyMemoryPromptBlock(budgetChars), nil
+		return "", nil
 	}
 	records, err := s.store.PromptCandidates(ctx, PromptCandidateFilter{
 		LoadPolicies:   []string{LoadPolicyCore, LoadPolicyPinned, LoadPolicyAuto},

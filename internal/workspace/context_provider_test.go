@@ -1,16 +1,13 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"assistente/internal/contextprovider"
-	"assistente/internal/database"
 )
 
 func mustAbsPath(t *testing.T, name string) string {
@@ -155,9 +152,18 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 			"surface_context": 1000,
 		},
 		Surface: &contextprovider.Surface{
-			Type:    "editor",
-			Title:   "Arquivo",
-			Context: map[string]any{"selectedText": "seleção"},
+			Type:  "editor",
+			Title: "Arquivo",
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-1",
+				"snapshotVersion": "editor:tab-1:1",
+				"selection": map[string]any{
+					"kind":     "text",
+					"text":     "seleção",
+					"explicit": true,
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -172,7 +178,7 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 	if strings.Contains(blocks[0].Content, "<workspace_context>") {
 		t.Fatalf("surface-only request should not emit workspace context: %q", blocks[0].Content)
 	}
-	if !strings.Contains(blocks[0].Content, `incomplete="true"`) || !strings.Contains(blocks[0].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
+	if !strings.Contains(blocks[0].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
 		t.Fatalf("surface block missing selected text: %q", blocks[0].Content)
 	}
 }
@@ -200,94 +206,35 @@ func TestContextProviderOmitsEmptyStructuredSurfaceContext(t *testing.T) {
 	}
 }
 
-func TestContextProviderMapsLegacyTasklistIDToAllowlistedMetadata(t *testing.T) {
-	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
-		ProviderBudgets: map[string]int{
-			"surface_context": 1000,
+func TestContextProviderDoesNotAdaptIncompleteSurfacePayload(t *testing.T) {
+	for name, surfaceContext := range map[string]map[string]any{
+		"campos legados": {"selectedText": "segredo", "tasksPreview": "- tarefa"},
+		"sem surfaceId": {
+			"surfaceType":     "editor",
+			"snapshotVersion": "editor:ausente:1",
+			"selection":       map[string]any{"kind": "text", "text": "segredo"},
 		},
-		Surface: &contextprovider.Surface{
-			Type:  "tasklist",
-			Title: "Tarefas",
-			State: map[string]any{"tasklistId": "tl-legacy"},
-			Context: map[string]any{
-				"tasksPreview": "- Revisar PR",
-			},
+		"sem snapshotVersion": {
+			"surfaceType": "editor",
+			"surfaceId":   "tab-1",
+			"selection":   map[string]any{"kind": "text", "text": "segredo"},
 		},
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if len(blocks) != 1 {
-		t.Fatalf("len(blocks) = %d, want surface context", len(blocks))
-	}
-	if !strings.Contains(blocks[0].Content, `<metadata key="task_list_id">tl-legacy</metadata>`) {
-		t.Fatalf("legacy tasklist ID should render with allowlisted key: %q", blocks[0].Content)
-	}
-	if strings.Contains(blocks[0].Content, `key="tasklist_id"`) {
-		t.Fatalf("legacy tasklist ID should not render with non-allowlisted key: %q", blocks[0].Content)
-	}
-}
-
-func TestLegacySurfaceAdapterObservabilityDoesNotLeakSensitiveData(t *testing.T) {
-	const (
-		sensitiveContent = "segredo-surface-nao-registrar"
-		sensitiveUserID  = "usuario-nao-registrar"
-		sensitivePath    = "C:/privado/segredo.txt"
-	)
-	var logs bytes.Buffer
-	previousLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
-	defer slog.SetDefault(previousLogger)
-
-	ctx := database.WithUserID(context.Background(), sensitiveUserID)
-	_, err := NewSurfaceContextProvider().Build(ctx, contextprovider.BuildRequest{
-		ProviderBudgets: map[string]int{"surface_context": 1000},
-		Surface: &contextprovider.Surface{
-			Type:  "editor",
-			State: map[string]any{"filePath": sensitivePath},
-			Context: map[string]any{
-				"selectedText": sensitiveContent,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Build legado: %v", err)
-	}
-	entry := logs.String()
-	for _, expected := range []string{
-		legacySurfaceAdapterEvent,
-		`"component":"context_compatibility"`,
-		`"adapter":"incomplete_surface_context"`,
-		`"schema_version":1`,
 	} {
-		if !strings.Contains(entry, expected) {
-			t.Fatalf("evento legado não contém %q: %s", expected, entry)
-		}
-	}
-	for _, forbidden := range []string{sensitiveContent, sensitiveUserID, sensitivePath, "user_id", "payload", "filePath"} {
-		if strings.Contains(entry, forbidden) {
-			t.Fatalf("evento legado vazou %q: %s", forbidden, entry)
-		}
-	}
-
-	logs.Reset()
-	_, err = NewSurfaceContextProvider().Build(ctx, contextprovider.BuildRequest{
-		ProviderBudgets: map[string]int{"surface_context": 1000},
-		Surface: &contextprovider.Surface{
-			Type: "editor",
-			Context: map[string]any{
-				"surfaceType":     "editor",
-				"surfaceId":       "surface-canonica",
-				"snapshotVersion": "editor:surface-canonica:1",
-				"content":         map[string]any{"kind": "text", "text": sensitiveContent},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Build canônico: %v", err)
-	}
-	if strings.Contains(logs.String(), legacySurfaceAdapterEvent) {
-		t.Fatalf("contexto canônico não deve emitir evento legado: %s", logs.String())
+		t.Run(name, func(t *testing.T) {
+			blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+				ProviderBudgets: map[string]int{"surface_context": 1000},
+				Surface: &contextprovider.Surface{
+					Type:    "editor",
+					Context: surfaceContext,
+				},
+			})
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if len(blocks) != 0 {
+				t.Fatalf("payload incompleto não deve ser adaptado: %+v", blocks)
+			}
+		})
 	}
 }
 
@@ -458,7 +405,13 @@ func TestSurfaceContextProviderRespectsOwnProfileBudget(t *testing.T) {
 		Surface: &contextprovider.Surface{
 			Type: "editor",
 			Context: map[string]any{
-				"selectedText": strings.Repeat("linha com conteúdo ", 20),
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-editor",
+				"snapshotVersion": "editor:tab-editor:1",
+				"selection": map[string]any{
+					"kind": "text",
+					"text": strings.Repeat("linha com conteúdo ", 20),
+				},
 			},
 		},
 	})

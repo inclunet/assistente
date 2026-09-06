@@ -980,10 +980,16 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
 	data := b.BuildTemplateData(nil, llm.ChatParams{
-		ProfileSlug:        "editor-texto",
-		TabType:            "editor",
-		SurfaceStateJSON:   `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
-		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false,"projectId":"project-a"}`,
+		ProfileSlug:      "editor-texto",
+		TabType:          "editor",
+		SurfaceStateJSON: `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
+		SurfaceContextJSON: `{
+			"surfaceType":"editor",
+			"surfaceId":"tab-2",
+			"snapshotVersion":"editor:tab-2:1",
+			"selection":{"kind":"text","text":"hello","isEmpty":false},
+			"metadata":{"projectId":"project-a"}
+		}`,
 	}, "7")
 
 	if data.Surface == nil {
@@ -998,8 +1004,9 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 	if got := data.Surface.State["filePath"]; got != "/tmp/readme.md" {
 		t.Fatalf("Surface.State[filePath] = %v, want /tmp/readme.md", got)
 	}
-	if got := data.Surface.Context["selectedText"]; got != "hello" {
-		t.Fatalf("Surface.Context[selectedText] = %v, want hello", got)
+	selection, _ := data.Surface.Context["selection"].(map[string]any)
+	if got := selection["text"]; got != "hello" {
+		t.Fatalf("Surface.Context.selection.text = %v, want hello", got)
 	}
 	if data.ProjectID != "project-a" {
 		t.Fatalf("ProjectID = %q, want project-a", data.ProjectID)
@@ -1020,6 +1027,24 @@ func TestBuildTemplateData_ReadsProjectIDFromSurfaceMetadata(t *testing.T) {
 
 	if data.ProjectID != "project-from-metadata" {
 		t.Fatalf("ProjectID = %q, want project-from-metadata", data.ProjectID)
+	}
+}
+
+func TestBuildTemplateData_DiscardsIncompleteSurfaceContext(t *testing.T) {
+	b := &prompt.Builder{}
+	data := b.BuildTemplateData(nil, llm.ChatParams{
+		TabType:            "editor",
+		SurfaceContextJSON: `{"selectedText":"hello","projectId":"projeto-legado"}`,
+	}, "7")
+
+	if data.Surface == nil {
+		t.Fatal("tabType ainda deve identificar a surface")
+	}
+	if data.Surface.Context != nil {
+		t.Fatalf("payload incompleto não deve chegar ao contexto: %#v", data.Surface.Context)
+	}
+	if data.ProjectID != "" {
+		t.Fatalf("projectId legado não deve ser aceito: %q", data.ProjectID)
 	}
 }
 

@@ -16,6 +16,23 @@ func DecodeSurfaceJSONMap(raw string, logPrefix string) map[string]any {
 	})
 }
 
+// DecodeCanonicalSurfaceContextJSON aceita somente o envelope completo
+// definido pela AEP-0080. Payloads antigos ou incompletos são ignorados.
+func DecodeCanonicalSurfaceContextJSON(raw string, logPrefix string) map[string]any {
+	decoded := DecodeSurfaceJSONMap(raw, logPrefix)
+	if !hasNonEmptySurfaceString(decoded, "surfaceType") ||
+		!hasNonEmptySurfaceString(decoded, "surfaceId") ||
+		!hasNonEmptySurfaceString(decoded, "snapshotVersion") {
+		return nil
+	}
+	return decoded
+}
+
+func hasNonEmptySurfaceString(values map[string]any, key string) bool {
+	value, ok := values[key].(string)
+	return ok && strings.TrimSpace(value) != ""
+}
+
 // DecodeSurfaceJSONMapWithLogger permite injetar o logger em testes sem tocar no logger global.
 func DecodeSurfaceJSONMapWithLogger(raw string, logPrefix string, logf func(string, ...any)) map[string]any {
 	raw = strings.TrimSpace(raw)
