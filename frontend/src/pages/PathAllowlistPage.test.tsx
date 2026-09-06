@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 
 const mockGetPathAllowlist = vi.fn();
 const mockRemovePathAllowlistEntry = vi.fn();
-const mockAddPathDenyEntry = vi.fn();
+const mockAddPathAllowlistEntry = vi.fn();
 const mockConfirm = vi.fn();
 const mockAnnounce = vi.fn();
 const mockAddToast = vi.fn();
@@ -13,7 +13,7 @@ const mockAddToast = vi.fn();
 vi.mock('@wailsjs/go/wailsapi/FSTrust', () => ({
   GetPathAllowlist: (...args: unknown[]) => mockGetPathAllowlist(...args),
   RemovePathAllowlistEntry: (...args: unknown[]) => mockRemovePathAllowlistEntry(...args),
-  AddPathDenyEntry: (...args: unknown[]) => mockAddPathDenyEntry(...args),
+  AddPathAllowlistEntry: (...args: unknown[]) => mockAddPathAllowlistEntry(...args),
 }));
 
 vi.mock('react-i18next', () => {
@@ -112,7 +112,7 @@ describe('PathAllowlistPage', () => {
     mockConfirm.mockResolvedValue(true);
     mockGetPathAllowlist.mockResolvedValue([entradaDeDocs]);
     mockRemovePathAllowlistEntry.mockResolvedValue(undefined);
-    mockAddPathDenyEntry.mockResolvedValue(undefined);
+    mockAddPathAllowlistEntry.mockResolvedValue(undefined);
   });
 
   it('mostra o path autorizado com tipo, operação, efeito e escopo', async () => {
@@ -295,13 +295,14 @@ describe('PathAllowlistPage', () => {
     await user.type(screen.getByLabelText('pathAllowlist.form.operation *'), 'read');
     await user.selectOptions(screen.getByLabelText('pathAllowlist.form.scope *'), 'workspace');
     await user.type(screen.getByLabelText('pathAllowlist.form.reason'), 'bloquear .env');
-    await user.click(screen.getByRole('button', { name: 'pathAllowlist.form.submit' }));
+    await user.click(screen.getByRole('button', { name: 'pathAllowlist.form.submitDeny' }));
 
     await waitFor(() => {
-      expect(mockAddPathDenyEntry).toHaveBeenCalledWith(
+      expect(mockAddPathAllowlistEntry).toHaveBeenCalledWith(
         '/tmp/segredo.env',
         'file',
         'read',
+        'deny',
         'workspace',
         'bloquear .env',
       );
@@ -317,8 +318,36 @@ describe('PathAllowlistPage', () => {
       expect.stringContaining('pathAllowlist.announce.denyAdded'),
     );
     await waitFor(() => {
-      expect(screen.getByText('pathAllowlist.effect.deny')).toBeInTheDocument();
+      expect(screen.getAllByText('pathAllowlist.effect.deny')).toHaveLength(2);
     });
+  });
+
+  it('cria permissão persistente pela gestão sem chamar o contrato de deny', async () => {
+    const user = userEvent.setup();
+    mockGetPathAllowlist.mockResolvedValueOnce([]).mockResolvedValueOnce([entradaDeDocs]);
+
+    render(<PathAllowlistPage />);
+    await waitFor(() => expect(screen.getByText('pathAllowlist.empty')).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText('pathAllowlist.form.path *'), '/tmp/projeto/docs/readme.md');
+    await user.selectOptions(screen.getByLabelText('pathAllowlist.form.effect *'), 'allow');
+    await user.type(screen.getByLabelText('pathAllowlist.form.operation *'), 'read');
+    await user.selectOptions(screen.getByLabelText('pathAllowlist.form.scope *'), 'workspace');
+    await user.click(screen.getByRole('button', { name: 'pathAllowlist.form.submitAllow' }));
+
+    await waitFor(() => {
+      expect(mockAddPathAllowlistEntry).toHaveBeenCalledWith(
+        '/tmp/projeto/docs/readme.md',
+        'file',
+        'read',
+        'allow',
+        'workspace',
+        '',
+      );
+    });
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('pathAllowlist.announce.allowAdded'),
+    );
   });
 
   it('usa textos de proibição ao remover uma entrada deny', async () => {

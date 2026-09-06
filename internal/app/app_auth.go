@@ -12,6 +12,7 @@ import (
 	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/wailsapi"
 )
 
 type AuthStatus struct {
@@ -545,6 +546,10 @@ func (a *App) adoptLegacyDataForUser(userID string) error {
 	if err := database.AdoptLegacyData(userID); err != nil {
 		return err
 	}
+	editorCtx := database.WithUserID(a.appContext(), userID)
+	if err := wailsapi.PrepareEditorUserStorage(a.editorAPI, editorCtx); err != nil {
+		return err
+	}
 	if a.credMgr != nil {
 		return a.credMgr.LoadUserCredentials(a.appContext(), userID)
 	}
@@ -872,6 +877,11 @@ func (a *App) RetryUserRuntimeInit() (RuntimePartialInitPayload, error) {
 }
 
 func (a *App) stopUserScopedRuntime() {
+	// Watchers e marcações de self-write pertencem à sessão que os criou.
+	// Encerrá-los antes de trocar/limpar o usuário impede que eventos tardios
+	// de uma conta sejam entregues à próxima sessão.
+	a.stopAllEditorWatches()
+
 	a.userRuntimeMu.Lock()
 	if a.userRuntimeCancel != nil {
 		a.userRuntimeCancel()

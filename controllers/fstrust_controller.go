@@ -74,15 +74,19 @@ func (c *FSTrustController) GetPathAllowlist(ctx context.Context) []apidto.PathA
 	return views
 }
 
-// AddPathDenyEntry cria uma proibição persistente (EffectDeny). Allow continua
-// nascendo só do consentimento — a UI de gestão não cria allow (AEP-0092 D9).
-func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, operation, scope, reason string) error {
+// AddPathAllowlistEntry cria uma regra persistente pela UI de gestão. Allow e
+// deny usam o mesmo contrato; o efeito é dado explícito, não uma API paralela.
+func (c *FSTrustController) AddPathAllowlistEntry(ctx context.Context, path, kind, operation, effect, scope, reason string) error {
 	if c.fsTrustMgr == nil {
 		return fmt.Errorf("gerenciador de allowlist de path não inicializado")
 	}
+	eff := fstrust.Effect(strings.TrimSpace(effect))
+	if eff == "" || !fstrust.ValidEffect(eff) {
+		return fmt.Errorf("effect inválido para regra de path: %q (use allow ou deny)", effect)
+	}
 	s := fstrust.Scope(scope)
 	if !s.IsPersistent() {
-		return fmt.Errorf("escopo inválido para denylist: %q (use workspace, profile ou global)", scope)
+		return fmt.Errorf("escopo inválido para regra de path: %q (use workspace, profile ou global)", scope)
 	}
 	k := fstrust.Kind(kind)
 	if !fstrust.ValidKind(k) {
@@ -112,19 +116,17 @@ func (c *FSTrustController) AddPathDenyEntry(ctx context.Context, path, kind, op
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("path deve ser absoluto (ou começar com ~): %q", path)
 	}
-	// Persiste o destino real (symlinks resolvidos + normalizado), igual ao
-	// allow: o MatchDeny casa pelo path resolvido, então gravar o alias cru
-	// permitiria burlar o deny pelo caminho real (e salvaria ".."/separadores
-	// inconsistentes).
+	// Persiste o destino real para que allow e deny casem o mesmo alvo e um
+	// alias/symlink não amplie nem contorne a regra escolhida.
 	resolved, err := fstrust.ResolvePath(path)
 	if err != nil {
-		return fmt.Errorf("não foi possível resolver o path %q para a denylist: %w", path, err)
+		return fmt.Errorf("não foi possível resolver o path %q para a regra: %w", path, err)
 	}
 	return c.fsTrustMgr.Add(c.managementContext(ctx), fstrust.AllowlistEntry{
 		Path:      resolved,
 		Kind:      k,
 		Operation: operation,
-		Effect:    fstrust.EffectDeny,
+		Effect:    fstrust.NormalizedEffect(eff),
 		Scope:     s,
 		CreatedBy: "user",
 		Reason:    reason,

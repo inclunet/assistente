@@ -198,7 +198,10 @@ describe('EditorContentArea Reveal rich mode', () => {
     const onRichMarkdownChange = vi.fn();
     // Conteúdo do slide atual sem edições pendentes: a troca não deve emitir nada.
     richEditorHandle.getMarkdown.mockReturnValue('# Slide 1');
-    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
 
     const { rerender, getByTestId } = renderContentArea(activeTab, { onRichEditorReady, onRichMarkdownChange });
 
@@ -256,7 +259,10 @@ describe('EditorContentArea Reveal rich mode', () => {
     };
     const onRichMarkdownChange = vi.fn();
     richEditorHandle.getMarkdown.mockReturnValue('# Slide 1 editado');
-    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
 
     const { rerender } = renderContentArea(activeTab, { onRichMarkdownChange });
 
@@ -314,7 +320,10 @@ key: value
 ---
 
 Texto depois`);
-    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
 
     const { rerender } = renderContentArea(activeTab, { onRichMarkdownChange });
 
@@ -356,7 +365,10 @@ Veja <https://example.com>`;
       markdown,
       mode: 'rich',
     };
-    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
 
     const { getByTestId } = renderContentArea(activeTab);
 
@@ -373,7 +385,10 @@ Veja <https://example.com>`;
       markdown,
       mode: 'rich',
     };
-    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
 
     const { getByTestId } = renderContentArea(activeTab);
 
