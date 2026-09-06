@@ -980,9 +980,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o gerenciador de skills
 	a.initSkills()
 
-	// Garante que o diretório de memória existe no home
-	a.initMemoryDir()
-
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
