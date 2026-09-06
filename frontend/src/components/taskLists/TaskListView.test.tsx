@@ -6,6 +6,7 @@ import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
 
 const openCreateModalMock = vi.fn();
+const registerWorkspaceChatAdapterMock = vi.hoisted(() => vi.fn());
 const chatModalState = vi.hoisted(() => ({
   isOpen: false,
   boundTabId: null as string | null,
@@ -91,7 +92,7 @@ vi.mock('../../hooks/useDefaultFocus', () => ({
 }));
 
 vi.mock('../../hooks/useRegisterWorkspaceChatAdapter', () => ({
-  useRegisterWorkspaceChatAdapter: vi.fn(),
+  useRegisterWorkspaceChatAdapter: registerWorkspaceChatAdapterMock,
 }));
 
 vi.mock('../ui/Modal', () => ({
@@ -140,6 +141,7 @@ describe('TaskListView', () => {
     chatModalState.boundTabId = null;
     chatModalState.boundConversationId = null;
     openCreateModalMock.mockReset();
+    registerWorkspaceChatAdapterMock.mockReset();
     taskListStoreState.loadTaskList.mockReset();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
@@ -163,6 +165,22 @@ describe('TaskListView', () => {
     await user.keyboard('n');
 
     expect(openCreateModalMock).not.toHaveBeenCalled();
+  });
+
+  it('emite SurfaceContext canônico para o chat da tasklist', async () => {
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await waitFor(() => expect(registerWorkspaceChatAdapterMock).toHaveBeenCalled());
+    const calls = registerWorkspaceChatAdapterMock.mock.calls;
+    const adapter = calls[calls.length - 1]?.[1] as {
+      send: (instruction: string) => Promise<{ paramsOverride?: { surfaceContextJson?: string } }>;
+    };
+    const plan = await adapter.send('Resuma a lista');
+    const surfaceContext = JSON.parse(String(plan.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.surfaceType).toBe('tasklist');
+    expect(surfaceContext.surfaceId).toBe('tasklist-tab');
+    expect(surfaceContext.snapshotVersion).toMatch(/^tasklist:tasklist-tab:/);
   });
 
   it('responde a atalhos globais quando o painel está ativo', async () => {
