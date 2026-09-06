@@ -13,6 +13,7 @@ type TaskListManager interface {
 	GetTaskList(ctx context.Context, id string) (*database.TaskList, error)
 	GetAllTaskLists(ctx context.Context) ([]database.TaskList, error)
 	GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error)
+	ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error)
 	UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error
 	SetTaskListConversation(ctx context.Context, id string, conversationID *string) error
 	ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error)

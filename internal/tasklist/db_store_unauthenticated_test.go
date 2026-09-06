@@ -110,6 +110,10 @@ func TestDBStore_UnauthenticatedErrors(t *testing.T) {
 			_, err := store.GetTasksByStatus(ctx, "x", 1)
 			return err
 		}},
+		{"ListTasksPage", func() error {
+			_, err := store.ListTasksPage(ctx, database.TaskPageQuery{TaskListID: "x"})
+			return err
+		}},
 		{"FindTaskByCode", func() error {
 			_, err := store.FindTaskByCode(ctx, "x", "ABC-1")
 			return err

@@ -116,6 +116,9 @@ func (m *serviceTaskListManager) GetAllTaskLists(ctx context.Context) ([]databas
 func (m *serviceTaskListManager) GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error) {
 	return m.svc.GetTaskListStats(ctx, taskListID)
 }
+func (m *serviceTaskListManager) ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error) {
+	return m.svc.ListTasksPage(ctx, query)
+}
 func (m *serviceTaskListManager) UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
 	return m.svc.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug)
 }
