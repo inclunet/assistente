@@ -27,6 +27,14 @@ Informe `comando` (ex.: `node`, `powershell -File agent.ps1 acp`), `args` e `env
 
 Modelos vêm da sessão de descoberta do agente (cache por provider). A troca usa `set_config_option`/`set_model` conforme o agente.
 
+O Assistente mantém os formatos ACP anteriores enquanto qualquer agente
+suportado ou publicado no catálogo depender deles. O payload `models` e o
+seletor `session/set_model` são avaliados separadamente; depois da saída do
+último consumidor, cada um ainda precisa atravessar duas versões estáveis
+completas sem uso observado antes de uma remoção. O procedimento técnico,
+incluindo evidência e privacidade, está no
+[runbook de expiração da compatibilidade](https://github.com/inclunet/assistente/blob/main/docs/operations/acp-compatibility-retirement.md).
+
 ## Permissões
 
 Todo `request_permission` do agente vira um questionário na UI (ou mensagem numerada em canais). `Permitir sempre` grava por **classe** (`execute`/`edit`/`read`) em `.assistente/acp-permissions/<perfil>.json`. Gerencie em **Configurações → Permissões do Agente**; canais e jobs nunca gravam "sempre".

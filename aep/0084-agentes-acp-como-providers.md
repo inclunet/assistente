@@ -757,6 +757,93 @@ builtin do Cursor detecta a instalação e, no Windows, aponta para o wrapper
 instalada. Reusamos `osutil.HideConsoleWindow` (senão cada spawn rouba o foco) e
 o `buildEnv` do MCP.
 
+### D16. Expiração independente dos contratos anteriores
+
+Os contratos anteriores de modelo não expiram por idade, por mudança do SDK ou
+por ausência em testes locais. Eles têm ciclos de vida separados:
+
+- **payload `models`**: leitura de `newSessionResponse.Models` e
+  `loadSessionResponse.Models`;
+- **seletor `session/set_model`**: fallback usado somente quando
+  `session/set_config_option` responde JSON-RPC `-32601`.
+
+Para cada contrato, a remoção só fica elegível depois de passar, nesta ordem,
+por dois gates:
+
+1. **zero consumidores conhecidos**: nenhum agente suportado pelo app ou
+   publicado no catálogo oficial pode depender do contrato. Entrada que não
+   pôde ser testada conta como dependência desconhecida e mantém a
+   compatibilidade;
+2. **duas versões estáveis completas sem uso observado**: depois da saída do
+   último consumidor, duas versões estáveis consecutivas do Assistente precisam
+   encerrar suas janelas de observação sem evento daquele contrato. Pré-releases,
+   builds de desenvolvimento e nightlies não contam. Um evento reinicia em zero
+   apenas o contador do contrato que ele nomeia.
+
+Uma versão estável é considerada completa para esta decisão quando a versão
+estável seguinte é publicada e o registro da anterior é fechado. Assim, a
+remoção nunca entra numa das duas versões observadas: ela só pode ser proposta
+para uma versão posterior ao fechamento da segunda janela. Se o último
+consumidor sair durante uma janela, essa versão não conta; a contagem começa na
+próxima estável publicada com todos os consumidores já migrados.
+
+#### Evidência, agregação e privacidade
+
+A fonte primária são os eventos estruturados introduzidos pela observabilidade
+da compatibilidade:
+
+- `compatibility_feature=legacy_models_payload`, quando `models` foi necessário
+  para formar a opção de modelo;
+- `compatibility_feature=legacy_session_selector`, com
+  `selector_method=session/set_model` e `option_category=model`, quando o
+  fallback foi efetivamente chamado.
+
+O evento do payload não é emitido quando o mesmo agente também oferece
+`configOptions`; presença redundante não é dependência. O evento do seletor não
+é emitido quando o método estável funciona. Portanto, os contadores medem uso
+necessário, e não mera presença no wire.
+
+Não há upload automático nem identificador de instalação. A agregação é feita
+por **versão estável + contrato**, somando:
+
+1. a matriz de compatibilidade executada pelo projeto contra o snapshot do
+   catálogo e as versões dos agentes testadas;
+2. ocorrências em logs diagnósticos que usuários tenham enviado
+   voluntariamente.
+
+Ausência em logs voluntários, sozinha, não fecha uma janela: a matriz completa é
+obrigatória. Presença em qualquer uma das fontes reinicia a contagem. O registro
+de cada janela guarda versão do app, data, snapshot/digest do catálogo, agente e
+versão testados, plataforma/distribuição, resultado por contrato e total
+agregado. Não guarda log bruto, prompt, resposta, comando, argumento, path,
+sessão, conversa, turno, perfil, usuário ou identificador de instalação. Os
+eventos usam contexto vazio justamente para não herdar esses campos. Recebido um
+log voluntário, só os contadores permitidos entram no registro; o arquivo bruto
+segue o processo normal de suporte e não é anexado à evidência publicada.
+
+#### Checklist obrigatório antes de remover
+
+O procedimento operacional e o modelo do registro vivem em
+`docs/operations/acp-compatibility-retirement.md`. Em resumo, para **cada**
+contrato candidato:
+
+- congelar o snapshot do catálogo oficial usado pela versão;
+- testar toda entrada publicada nesse snapshot, nas distribuições/plataformas
+  suportadas que puderem mudar o protocolo; entrada não testada bloqueia;
+- testar explicitamente Cursor CLI, OpenCode, GitHub Copilot CLI e o adaptador
+  do Claude Code, enquanto continuarem suportados ou publicados;
+- cobrir `session/new`, `session/load`, listagem e troca de modelo, confirmando
+  no turno seguinte o modelo efetivo;
+- conferir separadamente os dois contadores, inclusive agente híbrido e fallback
+  restrito a `-32601`;
+- anexar ao PR de remoção os registros das duas versões estáveis completas e a
+  matriz atual sem consumidor.
+
+Hoje o GitHub Copilot CLI observado depende do payload `models`; portanto o gate
+de consumidor desse contrato está fechado e nenhuma janela começou. A situação
+de `session/set_model` é avaliada separadamente: a ausência de consumidor
+conhecido não autoriza remoção antes das duas janelas completas.
+
 ## Fases
 
 ### Fase 1 — Transporte (`internal/acp`) (feita)
@@ -1217,12 +1304,25 @@ o app adivinharia; um que explica em texto tem a explicação na tela, com o nom
 do método; um que não diz nada continua caindo no que a procura sabe e, por
 último, no palpite; e nenhuma dessas linhas é executada pelo app.
 
+### Fase 11 — Política de expiração da compatibilidade anterior (feita)
+
+Documenta a decisão do D16 e o procedimento operacional que torna verificáveis
+os gates por contrato, sem retirar fallback nem ampliar a coleta.
+
+**Aceite:** payload `models` e seletor `session/set_model` têm contadores e
+critérios independentes; agentes suportados/publicados bloqueiam a remoção
+enquanto dependerem; depois do último consumidor, duas versões estáveis
+completas precisam fechar sem uso observado; fonte, agregação, privacidade e
+matriz de teste estão documentadas.
+
 ## Riscos
 
 - **SDK não oficial.** Mitigado pela interface interna (D2), versão pinada e
   testes com agente falso; a troca de SDK não vaza para o provider.
 - **O protocolo está em movimento.** Modelos já vêm em dois formatos no mesmo
-  payload; o legado deve sumir. Suportamos os dois e preferimos o estável.
+  payload; o legado deve sumir. Suportamos os dois e preferimos o estável. A
+  expiração segue o D16 por contrato; uma mudança aparente no ecossistema ou a
+  ausência de relato não substitui a matriz nem as duas janelas completas.
 - **Um dos agentes é atendido por adaptador de terceiros** (Fase 7): o Claude
   Code não fala ACP, e a ponte é um pacote npm do ecossistema, que já mudou de
   nome uma vez. O risco não é o do SDK, que a interface interna isola: é o de a
@@ -1273,6 +1373,10 @@ do método; um que não diz nada continua caindo no que a procura sabe e, por
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
   de seleção, e com os demais agentes pelo formato que cada um fala — inclusive
   com quem só fala o legado.
+- Payload `models` e seletor `session/set_model` permanecem enquanto qualquer
+  agente suportado/publicado depender de cada um; depois do último consumidor,
+  cada contrato só pode ser removido após duas versões estáveis completas sem
+  seu evento de uso, com matriz e evidência agregada conforme o D16.
 - Subir cada agente é configuração do template dele — subcomando, flag ou
   argumento nenhum —, e não uma suposição do app sobre como todos sobem.
 - O comando de login que a tela mostra é o do agente, quando ele o informa em
