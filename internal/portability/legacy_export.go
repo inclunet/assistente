@@ -53,23 +53,24 @@ var legacyExportNamespace = uuid.MustParse("db28819e-8584-59ec-9422-6f1c178d69dc
 
 func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 	var probe struct {
-		Metadata json.RawMessage `json:"metadata"`
+		Metadata struct {
+			Version string `json:"version"`
+			Type    string `json:"type"`
+		} `json:"metadata"`
+		Conversations json.RawMessage `json:"conversations"`
 	}
-	if err := json.Unmarshal(raw, &probe); err != nil || len(probe.Metadata) == 0 {
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, false, nil
+	}
+	if strings.TrimSpace(probe.Metadata.Type) != "conversations" ||
+		strings.TrimSpace(probe.Metadata.Version) != "2.0" ||
+		len(probe.Conversations) == 0 {
 		return nil, false, nil
 	}
 
 	var legacy legacyConversationsExportFile
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return nil, true, fmt.Errorf("erro ao parsear exportação legada: %w", err)
-	}
-	if strings.TrimSpace(legacy.Metadata.Type) != "conversations" ||
-		strings.TrimSpace(legacy.Metadata.Version) != "2.0" {
-		return nil, true, fmt.Errorf(
-			"formato legado não reconhecido: tipo %q, versão %q",
-			legacy.Metadata.Type,
-			legacy.Metadata.Version,
-		)
 	}
 
 	file := &ExportFile{

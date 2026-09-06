@@ -85,3 +85,19 @@ func TestPublishedPortableV2RemainsCompatibleFrom020Through050(t *testing.T) {
 		})
 	}
 }
+
+func TestUnrelatedMetadataDoesNotSelectLegacyAdapter(t *testing.T) {
+	raw := `{
+		"version": 2,
+		"metadata": {"type": "third-party", "version": "1"},
+		"options": {},
+		"resources": {}
+	}`
+	file, unsupported, err := parseExportFile(raw)
+	if err != nil {
+		t.Fatalf("metadata não relacionada bloqueou formato canônico: %v", err)
+	}
+	if file.Version != ExportVersion || len(unsupported) != 0 {
+		t.Fatalf("parse canônico inesperado: file=%#v unsupported=%v", file, unsupported)
+	}
+}

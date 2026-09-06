@@ -10,11 +10,10 @@ import (
 // Ele contém somente números e identificadores estáveis definidos no código;
 // não inclui caminhos, IDs de usuário nem conteúdo persistido.
 type UpgradeDiagnostic struct {
-	SchemaVersion   int      `json:"schemaVersion"`
-	LatestVersion   int      `json:"latestVersion"`
-	AppliedCount    int      `json:"appliedCount"`
-	PendingVersions []int    `json:"pendingVersions"`
-	PendingNames    []string `json:"pendingNames"`
+	SchemaVersion   int   `json:"schemaVersion"`
+	LatestVersion   int   `json:"latestVersion"`
+	AppliedCount    int   `json:"appliedCount"`
+	PendingVersions []int `json:"pendingVersions"`
 }
 
 func GetUpgradeDiagnostic() (UpgradeDiagnostic, error) {
@@ -24,7 +23,6 @@ func GetUpgradeDiagnostic() (UpgradeDiagnostic, error) {
 func buildUpgradeDiagnostic(database *gorm.DB) (UpgradeDiagnostic, error) {
 	diagnostic := UpgradeDiagnostic{
 		PendingVersions: []int{},
-		PendingNames:    []string{},
 	}
 	if len(schemaMigrations) > 0 {
 		diagnostic.LatestVersion = schemaMigrations[len(schemaMigrations)-1].Version
@@ -35,7 +33,6 @@ func buildUpgradeDiagnostic(database *gorm.DB) (UpgradeDiagnostic, error) {
 	if !database.Migrator().HasTable("schema_migrations") {
 		for _, migration := range schemaMigrations {
 			diagnostic.PendingVersions = append(diagnostic.PendingVersions, migration.Version)
-			diagnostic.PendingNames = append(diagnostic.PendingNames, migration.Name)
 		}
 		return diagnostic, nil
 	}
@@ -55,7 +52,6 @@ func buildUpgradeDiagnostic(database *gorm.DB) (UpgradeDiagnostic, error) {
 			continue
 		}
 		diagnostic.PendingVersions = append(diagnostic.PendingVersions, migration.Version)
-		diagnostic.PendingNames = append(diagnostic.PendingNames, migration.Name)
 	}
 	return diagnostic, nil
 }
