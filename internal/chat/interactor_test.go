@@ -78,6 +78,39 @@ func newTestInteractor(em events.Emitter) *Interactor {
 	})
 }
 
+type buildRequestCaptureProvider struct {
+	req contextprovider.BuildRequest
+}
+
+func (p *buildRequestCaptureProvider) Name() string { return "capture" }
+
+func (p *buildRequestCaptureProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
+	p.req = req
+	return nil, nil
+}
+
+func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
+	capture := &buildRequestCaptureProvider{}
+	interactor := NewInteractor(InteractorConfig{
+		ContextProviders: contextprovider.NewRegistry(capture),
+	})
+
+	interactor.buildDynamicContext(
+		context.Background(),
+		TemplateData{ImplicitToolSelectionUnavailable: true},
+		"oi",
+		"",
+		"",
+		nil,
+		false,
+		&profiles.Profile{},
+	)
+
+	if !capture.req.ImplicitToolSelectionUnavailable {
+		t.Fatal("BuildRequest não recebeu o estado tipado de fail-closed")
+	}
+}
+
 type retryMessageRepoStub struct {
 	getMessage func(messageID string) (*database.ChatMessage, error)
 }
