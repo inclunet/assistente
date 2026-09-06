@@ -3,18 +3,24 @@ package wailsapi
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/apidto"
 	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/docextract"
+	"assistente/internal/tools/filesystem"
 )
+
+const editorTestUserID = "01991f7c-1000-7000-8000-000000000001"
 
 func writeEditorTestDOCX(t *testing.T, path, text string) {
 	t.Helper()
@@ -205,7 +211,7 @@ func setupEditorAPITest(t *testing.T) *Editor {
 	t.Cleanup(configdir.ResetForTests)
 
 	api := NewEditor()
-	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
 		AppContext:    func() context.Context { return context.Background() },
 		Dialog:        func() ports.SystemDialogPort { return nil },
 		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
@@ -213,6 +219,954 @@ func setupEditorAPITest(t *testing.T) *Editor {
 		UnwatchFile:   func(path string) error { return nil },
 	})
 	return api
+}
+
+func attachEditorForUser(userID string) *Editor {
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), userID)}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return nil },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile:     func(path string) error { return nil },
+		UnwatchFile:   func(path string) error { return nil },
+	})
+	return api
+}
+
+func editorTestPaths(t *testing.T) editorUserPaths {
+	t.Helper()
+	paths, err := editorPathsForUser(editorTestUserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
+func TestEditorRejectsContextWithoutUserID(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	api := NewEditor()
+	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+		AppContext:    func() context.Context { return context.Background() },
+		Dialog:        func() ports.SystemDialogPort { return &fakeDialog{} },
+		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
+		WatchFile:     func(path string) error { return nil },
+		UnwatchFile:   func(path string) error { return nil },
+	})
+
+	if _, err := api.EditorGetDraftPath("draft"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("draft sem userID: %v", err)
+	}
+	if _, err := api.EditorReadFile(filepath.Join(tempDir, "doc.md")); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("arquivo sem userID: %v", err)
+	}
+	if err := api.EditorWatchFile(filepath.Join(tempDir, "doc.md")); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("watch sem userID: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, ".assistente", "users")); !os.IsNotExist(err) {
+		t.Fatalf("operação sem userID criou storage: %v", err)
+	}
+}
+
+func TestEditorRejectsEmptyFilePathBeforePreparingStorage(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	api := attachEditorForUser(editorTestUserID)
+	if _, err := api.EditorRenameFile(" \t ", "novo.md"); err == nil || !strings.Contains(err.Error(), "path vazio") {
+		t.Fatalf("rename com path vazio: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, ".assistente", "users")); !os.IsNotExist(err) {
+		t.Fatalf("path vazio preparou storage inesperadamente: %v", err)
+	}
+}
+
+func TestEditorPathInsideIsCaseInsensitiveOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("semântica específica de paths Windows")
+	}
+	base := `C:\Users\Pessoa\.assistente\users`
+	candidate := `c:\users\pessoa\.ASSISTENTE\USERS\outro\editor\state.json`
+	if !pathInside(base, candidate) {
+		t.Fatalf("pathInside deveria ignorar casing no Windows: base=%q candidate=%q", base, candidate)
+	}
+}
+
+func TestEditorIsolatesDraftsAndStateBetweenUsers(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-00000000000a"
+	userB := "01991f7c-1000-7000-8000-00000000000b"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+
+	if err := apiA.EditorWriteDraft("mesmo-id", "segredo A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiB.EditorWriteDraft("mesmo-id", "segredo B"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiA.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{"a.md": "rich"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiB.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{"b.md": "markdown"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	gotA, err := apiA.EditorReadDraft("mesmo-id")
+	if err != nil || gotA != "segredo A" {
+		t.Fatalf("draft A = %q, %v", gotA, err)
+	}
+	gotB, err := apiB.EditorReadDraft("mesmo-id")
+	if err != nil || gotB != "segredo B" {
+		t.Fatalf("draft B = %q, %v", gotB, err)
+	}
+	stateA, err := apiA.EditorLoadState()
+	if err != nil || stateA.FileModeByPath["a.md"] != "rich" || stateA.FileModeByPath["b.md"] != "" {
+		t.Fatalf("state A inesperado: %+v, %v", stateA, err)
+	}
+	stateB, err := apiB.EditorLoadState()
+	if err != nil || stateB.FileModeByPath["b.md"] != "markdown" || stateB.FileModeByPath["a.md"] != "" {
+		t.Fatalf("state B inesperado: %+v, %v", stateB, err)
+	}
+
+	pathA, _ := apiA.EditorGetDraftPath("mesmo-id")
+	pathB, _ := apiB.EditorGetDraftPath("mesmo-id")
+	if pathA == pathB || !strings.Contains(pathA, filepath.Join("users", userA)) || !strings.Contains(pathB, filepath.Join("users", userB)) {
+		t.Fatalf("paths não isolados: A=%q B=%q", pathA, pathB)
+	}
+	if _, err := apiB.EditorReadFile(pathA); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("usuário B abriu draft A como arquivo comum: %v", err)
+	}
+	if err := apiB.EditorWriteFile(pathA, "sobrescrito"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("usuário B escreveu draft A como arquivo comum: %v", err)
+	}
+	if err := apiB.EditorWatchFile(pathA); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("usuário B observou draft A como arquivo comum: %v", err)
+	}
+	if len(apiA.prepared) != 1 || len(apiB.prepared) != 1 {
+		t.Fatalf("preparação deveria ser cacheada uma vez por API: A=%d B=%d", len(apiA.prepared), len(apiB.prepared))
+	}
+}
+
+func TestEditorAllowsFilesInAuthenticatedUserRootOutsideEditor(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-000000000074"
+	userB := "01991f7c-1000-7000-8000-000000000075"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+	if _, err := apiA.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apiB.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	pathsA, _ := editorPathsForUser(userA)
+	ownFile := filepath.Join(filepath.Dir(pathsA.root), "anexos", "proprio.md")
+	if err := os.MkdirAll(filepath.Dir(ownFile), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ownFile, []byte("arquivo próprio"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := apiA.EditorReadFile(ownFile); err != nil {
+		t.Fatalf("usuário não abriu arquivo da própria raiz: %v", err)
+	}
+	if err := apiA.EditorWriteFile(ownFile, "atualizado"); err != nil {
+		t.Fatalf("usuário não escreveu arquivo da própria raiz: %v", err)
+	}
+	if _, err := apiB.EditorReadFile(ownFile); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("outro usuário abriu arquivo de A: %v", err)
+	}
+}
+
+func TestEditorBlocksCrossUserSymlinkPaths(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-00000000005a"
+	userB := "01991f7c-1000-7000-8000-00000000005b"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+	if err := apiB.EditorWriteDraft("segredo", "conteúdo B"); err != nil {
+		t.Fatal(err)
+	}
+	pathsA, _ := editorPathsForUser(userA)
+	pathsB, _ := editorPathsForUser(userB)
+	if err := os.MkdirAll(pathsA.root, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	dirLink := filepath.Join(pathsA.root, "atalho-b")
+	if err := os.Symlink(pathsB.draftDir, dirLink); err != nil {
+		t.Skipf("symlink indisponível neste ambiente: %v", err)
+	}
+	escapedExisting := filepath.Join(dirLink, "segredo.md")
+	if _, err := apiA.EditorReadFile(escapedExisting); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("leitura via symlink atravessou usuário: %v", err)
+	}
+	if err := apiA.EditorWatchFile(escapedExisting); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("watch via symlink atravessou usuário: %v", err)
+	}
+
+	danglingLink := filepath.Join(pathsA.root, "novo-b.md")
+	targetB := filepath.Join(pathsB.draftDir, "novo-b.md")
+	if err := os.Symlink(targetB, danglingLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiA.EditorWriteFile(danglingLink, "não autorizado"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("escrita via symlink pendurado atravessou usuário: %v", err)
+	}
+	if _, err := os.Stat(targetB); !os.IsNotExist(err) {
+		t.Fatalf("alvo de B foi criado: %v", err)
+	}
+}
+
+func TestEditorBlocksSymlinksInPrivateDraftAndStateFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userA := "01991f7c-1000-7000-8000-000000000072"
+	userB := "01991f7c-1000-7000-8000-000000000073"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+	if err := apiA.EditorWriteDraft("inicial", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := apiB.EditorWriteDraft("segredo", "segredo B"); err != nil {
+		t.Fatal(err)
+	}
+	stateB := apidto.EditorState{FileModeByPath: map[string]string{"b.md": "rich"}}
+	if err := apiB.EditorSaveState(stateB); err != nil {
+		t.Fatal(err)
+	}
+	pathsA, _ := editorPathsForUser(userA)
+	pathsB, _ := editorPathsForUser(userB)
+
+	draftLink := filepath.Join(pathsA.draftDir, "atalho.md")
+	draftB := filepath.Join(pathsB.draftDir, "segredo.md")
+	if err := os.Symlink(draftB, draftLink); err != nil {
+		t.Skipf("symlink de arquivo indisponível neste ambiente: %v", err)
+	}
+	if _, err := apiA.EditorReadDraft("atalho"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("leitura de draft seguiu symlink cross-user: %v", err)
+	}
+	if err := apiA.EditorWriteDraft("atalho", "sobrescrito"); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("escrita de draft seguiu symlink cross-user: %v", err)
+	}
+	if got, err := apiB.EditorReadDraft("segredo"); err != nil || got != "segredo B" {
+		t.Fatalf("draft de B foi alterado: %q, %v", got, err)
+	}
+
+	if err := apiA.EditorSaveState(apidto.EditorState{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(pathsA.state); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(pathsB.state, pathsA.state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apiA.EditorLoadState(); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("leitura de state seguiu symlink cross-user: %v", err)
+	}
+	if err := apiA.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{"ataque.md": "rich"}}); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("escrita de state seguiu symlink cross-user: %v", err)
+	}
+	gotStateB, err := apiB.EditorLoadState()
+	if err != nil || gotStateB.FileModeByPath["b.md"] != "rich" || gotStateB.FileModeByPath["ataque.md"] != "" {
+		t.Fatalf("state de B foi alterado: %+v, %v", gotStateB, err)
+	}
+}
+
+func TestEditorLegacyMigrationBelongsOnlyToFirstEligibleUser(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	legacyDir := legacyEditorDir()
+	if err := os.MkdirAll(filepath.Join(legacyDir, "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "drafts", "legado.md"), []byte("conteúdo legado"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "state.json"), []byte(`{"fileModeByPath":{"legado.md":"rich"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userA := "01991f7c-1000-7000-8000-00000000001a"
+	userB := "01991f7c-1000-7000-8000-00000000001b"
+	apiA := attachEditorForUser(userA)
+	apiB := attachEditorForUser(userB)
+
+	got, err := apiA.EditorReadDraft("legado")
+	if err != nil || got != "conteúdo legado" {
+		t.Fatalf("primeiro usuário não adotou draft: %q, %v", got, err)
+	}
+	state, err := apiA.EditorLoadState()
+	if err != nil || state.FileModeByPath["legado.md"] != "rich" {
+		t.Fatalf("primeiro usuário não adotou state: %+v, %v", state, err)
+	}
+	pathsB, err := editorPathsForUser(userB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pathsB.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(pathsB.root, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(pathsB.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apiB.EditorReadDraft("legado"); err == nil {
+		t.Fatal("segundo usuário herdou draft legado")
+	}
+	if _, err := apiB.EditorReadFile(filepath.Join(legacyDir, "drafts", "legado.md")); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("segundo usuário abriu legado como arquivo comum: %v", err)
+	}
+	stateB, err := apiB.EditorLoadState()
+	if err != nil || len(stateB.FileModeByPath) != 0 {
+		t.Fatalf("segundo usuário herdou state: %+v, %v", stateB, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(legacyDir, "drafts", "legado.md")); err != nil || string(data) != "conteúdo legado" {
+		t.Fatalf("migração apagou/alterou legado: %q, %v", data, err)
+	}
+
+	var claim editorMigrationClaim
+	data, err := os.ReadFile(editorMigrationClaimPath())
+	if err != nil || json.Unmarshal(data, &claim) != nil {
+		t.Fatalf("claim inválido: %s, %v", data, err)
+	}
+	if claim.UserID != userA {
+		t.Fatalf("claim inesperado: %+v", claim)
+	}
+	if runtime.GOOS != "windows" {
+		for _, path := range []string{pathsB.root, pathsB.draftDir} {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != 0700 {
+				t.Fatalf("diretório do segundo usuário %s perm = %04o, quer 0700", path, got)
+			}
+		}
+	}
+	pathsA, err := editorPathsForUser(userA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(pathsA.root, ".legacy-migration-v1-complete")); err != nil {
+		t.Fatalf("marcador de conclusão ausente: %v", err)
+	}
+}
+
+func TestEditorLegacyMigrationRejectsStorageSymlinkForNonOwner(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	legacyDir := legacyEditorDir()
+	if err := os.MkdirAll(legacyDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "state.json"), []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ownerID := "01991f7c-1000-7000-8000-00000000006c"
+	if _, err := attachEditorForUser(ownerID).EditorLoadState(); err != nil {
+		t.Fatalf("dono não adquiriu claim legado: %v", err)
+	}
+
+	otherID := "01991f7c-1000-7000-8000-00000000006d"
+	otherPaths, err := editorPathsForUser(otherID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(otherPaths.root), 0700); err != nil {
+		t.Fatal(err)
+	}
+	external := t.TempDir()
+	sentinel := filepath.Join(external, "sentinela.txt")
+	if err := os.WriteFile(sentinel, []byte("não alterar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, otherPaths.root); err != nil {
+		t.Skipf("symlink de diretório indisponível neste ambiente: %v", err)
+	}
+
+	if _, err := attachEditorForUser(otherID).EditorLoadState(); err == nil {
+		t.Fatal("storage symlinkado do segundo usuário não falhou fechado")
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "não alterar" {
+		t.Fatalf("destino externo foi alterado: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(external, "drafts")); !os.IsNotExist(err) {
+		t.Fatalf("migração seguiu symlink e criou drafts externos: %v", err)
+	}
+}
+
+func TestEditorRejectsSymlinkedUserDirectory(t *testing.T) {
+	for _, targetKind := range []string{"outside-users", "other-user"} {
+		t.Run(targetKind, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+
+			userID := "01991f7c-1000-7000-8000-00000000006e"
+			paths, err := editorPathsForUser(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			usersRoot := filepath.Dir(filepath.Dir(paths.root))
+			if err := os.MkdirAll(usersRoot, 0700); err != nil {
+				t.Fatal(err)
+			}
+			target := t.TempDir()
+			if targetKind == "other-user" {
+				target = filepath.Join(usersRoot, "01991f7c-1000-7000-8000-00000000006f")
+				if err := os.MkdirAll(target, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sentinel := filepath.Join(target, "sentinela.txt")
+			if err := os.WriteFile(sentinel, []byte("não alterar"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Dir(paths.root)); err != nil {
+				t.Skipf("symlink de diretório indisponível neste ambiente: %v", err)
+			}
+
+			if _, err := attachEditorForUser(userID).EditorLoadState(); !errors.Is(err, database.ErrUserScopeRequired) {
+				t.Fatalf("diretório de usuário symlinkado não falhou fechado: %v", err)
+			}
+			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "não alterar" {
+				t.Fatalf("destino externo foi alterado: %q, %v", data, err)
+			}
+			if _, err := os.Stat(filepath.Join(target, "editor")); !os.IsNotExist(err) {
+				t.Fatalf("storage foi criado através do symlink pai: %v", err)
+			}
+		})
+	}
+}
+
+func TestEditorRevalidatesPreparedStorageAfterSymlinkSwap(t *testing.T) {
+	for _, component := range []string{"user", "editor", "drafts"} {
+		t.Run(component, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+
+			userID := "01991f7c-1000-7000-8000-000000000071"
+			api := attachEditorForUser(userID)
+			if err := api.EditorWriteDraft("antes", "conteúdo inicial"); err != nil {
+				t.Fatalf("preparação inicial: %v", err)
+			}
+			paths, err := editorPathsForUser(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var replacedPath string
+			switch component {
+			case "user":
+				replacedPath = filepath.Dir(paths.root)
+			case "editor":
+				replacedPath = paths.root
+			default:
+				replacedPath = paths.draftDir
+			}
+			if err := os.RemoveAll(replacedPath); err != nil {
+				t.Fatal(err)
+			}
+			external := t.TempDir()
+			sentinel := filepath.Join(external, "sentinela.txt")
+			if err := os.WriteFile(sentinel, []byte("não alterar"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(external, replacedPath); err != nil {
+				t.Skipf("symlink de diretório indisponível neste ambiente: %v", err)
+			}
+
+			if err := api.EditorWriteDraft("depois", "não gravar"); !errors.Is(err, database.ErrUserScopeRequired) {
+				t.Fatalf("cache aceitou troca por symlink em %s: %v", component, err)
+			}
+			if data, err := os.ReadFile(sentinel); err != nil || string(data) != "não alterar" {
+				t.Fatalf("alvo externo foi alterado: %q, %v", data, err)
+			}
+			entries, err := os.ReadDir(external)
+			if err != nil || len(entries) != 1 || entries[0].Name() != "sentinela.txt" {
+				t.Fatalf("storage foi criado no alvo externo: %+v, %v", entries, err)
+			}
+			if len(api.prepared) != 0 {
+				t.Fatalf("cache inválido não foi removido: %+v", api.prepared)
+			}
+		})
+	}
+}
+
+func TestEditorLegacyMigrationTightensPreexistingDestinations(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	legacyDir := legacyEditorDir()
+	if err := os.MkdirAll(filepath.Join(legacyDir, "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "state.json"), []byte(`{"fileModeByPath":{"legado.md":"rich"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "drafts", "legado.md"), []byte("origem legada"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "01991f7c-1000-7000-8000-00000000006a"
+	paths, err := editorPathsForUser(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(paths.root, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(paths.draftDir, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.state, []byte(`{"fileModeByPath":{"destino.md":"source"}}`), 0666); err != nil {
+		t.Fatal(err)
+	}
+	draftPath := filepath.Join(paths.draftDir, "legado.md")
+	if err := os.WriteFile(draftPath, []byte("destino preservado"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		if err := os.Chmod(paths.state, 0666); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(draftPath, 0666); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := os.Chmod(paths.state, 0400); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(draftPath, 0400); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	api := attachEditorForUser(userID)
+	state, err := api.EditorLoadState()
+	if err != nil {
+		t.Fatalf("migração falhou ao restringir destinos: %v", err)
+	}
+	if state.FileModeByPath["destino.md"] != "source" {
+		t.Fatalf("state preexistente foi sobrescrito: %+v", state)
+	}
+	if got, err := api.EditorReadDraft("legado"); err != nil || got != "destino preservado" {
+		t.Fatalf("draft preexistente foi sobrescrito: %q, %v", got, err)
+	}
+
+	for _, path := range []string{paths.root, paths.draftDir, paths.state, draftPath} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("Lstat(%s): %v", path, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("destino privado virou symlink: %s", path)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		// Windows não expõe o modelo POSIX completo em FileMode; o contrato
+		// portável aqui é a operação concluir sem seguir links nem perder dados.
+		return
+	}
+	for _, path := range []string{paths.root, paths.draftDir} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0700 {
+			t.Fatalf("%s perm = %04o, quer 0700", path, got)
+		}
+	}
+	for _, path := range []string{paths.state, draftPath} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0600 {
+			t.Fatalf("%s perm = %04o, quer 0600", path, got)
+		}
+	}
+}
+
+func TestEditorLegacyMigrationRejectsDestinationSymlinks(t *testing.T) {
+	for _, target := range []string{"state", "draft"} {
+		t.Run(target, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+			t.Setenv("USERPROFILE", tempDir)
+			configdir.ResetForTests()
+			t.Cleanup(configdir.ResetForTests)
+
+			userID := "01991f7c-1000-7000-8000-00000000006b"
+			paths, err := editorPathsForUser(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(paths.draftDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+
+			external := filepath.Join(tempDir, "externo-"+target+".txt")
+			if err := os.WriteFile(external, []byte("não alterar"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var legacy, destination string
+			if target == "state" {
+				legacy = filepath.Join(legacyEditorDir(), "state.json")
+				destination = paths.state
+			} else {
+				legacy = filepath.Join(legacyEditorDir(), "drafts", "legado.md")
+				destination = filepath.Join(paths.draftDir, "legado.md")
+			}
+			if err := os.WriteFile(legacy, []byte("conteúdo legado"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(external, destination); err != nil {
+				t.Skipf("symlink indisponível neste ambiente: %v", err)
+			}
+
+			if _, err := attachEditorForUser(userID).EditorLoadState(); err == nil {
+				t.Fatalf("migração seguiu symlink de destino de %s", target)
+			}
+			data, err := os.ReadFile(external)
+			if err != nil || string(data) != "não alterar" {
+				t.Fatalf("alvo externo foi alterado ou apagado: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestEditorLegacyMigrationIgnoresSymlinks(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	external := t.TempDir()
+	externalState := filepath.Join(external, "state.json")
+	externalDraft := filepath.Join(external, "draft.md")
+	if err := os.WriteFile(externalState, []byte(`{"fileModeByPath":{"vazou":"rich"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(externalDraft, []byte("segredo externo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(externalState, filepath.Join(legacyEditorDir(), "state.json")); err != nil {
+		t.Skipf("symlink indisponível neste ambiente: %v", err)
+	}
+	if err := os.Symlink(externalDraft, filepath.Join(legacyEditorDir(), "drafts", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	api := attachEditorForUser("01991f7c-1000-7000-8000-00000000007a")
+	state, err := api.EditorLoadState()
+	if err != nil || len(state.FileModeByPath) != 0 {
+		t.Fatalf("state via symlink foi migrado: %+v, %v", state, err)
+	}
+	if _, err := api.EditorReadDraft("link"); err == nil {
+		t.Fatal("draft via symlink foi migrado")
+	}
+	if data, err := os.ReadFile(externalDraft); err != nil || string(data) != "segredo externo" {
+		t.Fatalf("alvo externo foi alterado: %q, %v", data, err)
+	}
+}
+
+func TestEditorUnavailableAtomicPublishDisablesOnlyLegacyAdoption(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", "legado.md"), []byte("não adotar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	originalPublisher := publishEditorMigrationClaim
+	publishEditorMigrationClaim = func(_, _ string) error {
+		return errors.New("hardlink indisponível")
+	}
+	t.Cleanup(func() { publishEditorMigrationClaim = originalPublisher })
+
+	api := attachEditorForUser("01991f7c-1000-7000-8000-00000000008a")
+	if err := api.EditorWriteDraft("novo", "funciona"); err != nil {
+		t.Fatalf("falha de hardlink bloqueou editor novo: %v", err)
+	}
+	if got, err := api.EditorReadDraft("novo"); err != nil || got != "funciona" {
+		t.Fatalf("storage novo indisponível: %q, %v", got, err)
+	}
+	if _, err := api.EditorReadDraft("legado"); err == nil {
+		t.Fatal("legado foi adotado sem claim atômico")
+	}
+	if _, err := os.Stat(editorMigrationClaimPath()); !os.IsNotExist(err) {
+		t.Fatalf("claim parcial foi publicado: %v", err)
+	}
+}
+
+func TestEditorLegacyMigrationIsIdempotentAndConcurrent(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", "race.md"), []byte("legado"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userA := "01991f7c-1000-7000-8000-00000000002a"
+	userB := "01991f7c-1000-7000-8000-00000000002b"
+	apis := []*Editor{attachEditorForUser(userA), attachEditorForUser(userB)}
+	errs := make(chan error, 2)
+	for _, api := range apis {
+		go func(api *Editor) {
+			_, err := api.EditorLoadState()
+			errs <- err
+		}(api)
+	}
+	for range apis {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	owners := 0
+	var ownerAPI *Editor
+	for _, api := range apis {
+		if got, err := api.EditorReadDraft("race"); err == nil && got == "legado" {
+			owners++
+			ownerAPI = api
+		}
+	}
+	if owners != 1 {
+		t.Fatalf("draft legado teve %d donos, quer 1", owners)
+	}
+	if err := ownerAPI.EditorWriteDraft("race", "novo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ownerAPI.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ownerAPI.EditorReadDraft("race")
+	if err != nil || got != "novo" {
+		t.Fatalf("rerun sobrescreveu dado novo: %q, %v", got, err)
+	}
+}
+
+func TestEditorLegacyMigrationRecoversIncompleteCopy(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	userID := "01991f7c-1000-7000-8000-00000000003a"
+	paths, err := editorPathsForUser(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyEditorDir(), "drafts", "crash.md"), []byte("conteúdo completo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := createJSONPrivateAtomic(editorMigrationClaimPath(), editorMigrationClaim{
+		Version:   editorMigrationVersion,
+		UserID:    userID,
+		ClaimedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.draftDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.draftDir, "crash.md"), []byte("parcial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	api := attachEditorForUser(userID)
+	got, err := api.EditorReadDraft("crash")
+	if err != nil || got != "conteúdo completo" {
+		t.Fatalf("retomada não reparou cópia parcial: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.root, ".legacy-migration-v1-complete")); err != nil {
+		t.Fatalf("retomada não concluiu migração: %v", err)
+	}
+}
+
+func TestEditorLegacyMigrationIgnoresPartialClaimTemporaryFile(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(legacyEditorDir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(legacyEditorDir(), ".editor-migration-claim-crash.tmp")
+	if err := os.WriteFile(partial, []byte(`{"version":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "01991f7c-1000-7000-8000-00000000004a"
+	if _, err := attachEditorForUser(userID).EditorLoadState(); err != nil {
+		t.Fatalf("temporário parcial bloqueou migração: %v", err)
+	}
+	claim, err := readEditorMigrationClaim(editorMigrationClaimPath())
+	if err != nil || claim.UserID != userID {
+		t.Fatalf("claim final inválido: %+v, %v", claim, err)
+	}
+	if data, err := os.ReadFile(partial); err != nil || string(data) != `{"version":` {
+		t.Fatalf("temporário legado foi apagado silenciosamente: %q, %v", data, err)
+	}
+}
+
+func TestEditorCorruptedLegacyClaimDisablesOnlyAdoption(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	corrupted := []byte(`{"version":`)
+	if err := os.WriteFile(editorMigrationClaimPath(), corrupted, 0600); err != nil {
+		t.Fatal(err)
+	}
+	legacyDraft := filepath.Join(legacyEditorDir(), "drafts", "legado.md")
+	if err := os.WriteFile(legacyDraft, []byte("não adotar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "01991f7c-1000-7000-8000-00000000006a"
+	api := attachEditorForUser(userID)
+	if err := api.EditorWriteDraft("novo", "storage funcional"); err != nil {
+		t.Fatalf("claim corrompido bloqueou storage novo: %v", err)
+	}
+	if got, err := api.EditorReadDraft("novo"); err != nil || got != "storage funcional" {
+		t.Fatalf("storage novo indisponível: %q, %v", got, err)
+	}
+	if _, err := api.EditorReadDraft("legado"); err == nil {
+		t.Fatal("claim corrompido permitiu adoção legada")
+	}
+	if _, err := api.EditorReadFile(legacyDraft); !errors.Is(err, database.ErrUserScopeRequired) {
+		t.Fatalf("claim corrompido permitiu acesso ao legado: %v", err)
+	}
+	if data, err := os.ReadFile(editorMigrationClaimPath()); err != nil || string(data) != string(corrupted) {
+		t.Fatalf("claim corrompido foi alterado: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(legacyDraft); err != nil || string(data) != "não adotar" {
+		t.Fatalf("legado foi alterado: %q, %v", data, err)
+	}
+}
+
+func TestEditorClaimRaceWithIncompatibleWinnerDisablesOnlyAdoption(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	if err := os.MkdirAll(filepath.Join(legacyEditorDir(), "drafts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacyDraft := filepath.Join(legacyEditorDir(), "drafts", "legado.md")
+	if err := os.WriteFile(legacyDraft, []byte("não adotar"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	incompatible := []byte(`{"version":2,"userId":"outro","claimedAt":1}`)
+	originalPublisher := publishEditorMigrationClaim
+	publishEditorMigrationClaim = func(_, destination string) error {
+		if err := os.WriteFile(destination, incompatible, 0600); err != nil {
+			return err
+		}
+		return os.ErrExist
+	}
+	t.Cleanup(func() { publishEditorMigrationClaim = originalPublisher })
+
+	api := attachEditorForUser("01991f7c-1000-7000-8000-000000000076")
+	if err := api.EditorWriteDraft("novo", "storage funcional"); err != nil {
+		t.Fatalf("claim incompatível vencedor bloqueou storage novo: %v", err)
+	}
+	if got, err := api.EditorReadDraft("novo"); err != nil || got != "storage funcional" {
+		t.Fatalf("storage novo indisponível: %q, %v", got, err)
+	}
+	if _, err := api.EditorReadDraft("legado"); err == nil {
+		t.Fatal("legado foi adotado após corrida com claim incompatível")
+	}
+	if data, err := os.ReadFile(editorMigrationClaimPath()); err != nil || string(data) != string(incompatible) {
+		t.Fatalf("claim vencedor foi alterado: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(legacyDraft); err != nil || string(data) != "não adotar" {
+		t.Fatalf("dado legado foi alterado: %q, %v", data, err)
+	}
 }
 
 func TestEditorPrivateFilesUse0600(t *testing.T) {
@@ -246,7 +1200,7 @@ func TestEditorPrivateFilesUse0600(t *testing.T) {
 	if err := api.EditorSaveState(apidto.EditorState{FileModeByPath: map[string]string{}}); err != nil {
 		t.Fatalf("EditorSaveState: %v", err)
 	}
-	statePath := editorStatePath()
+	statePath := editorTestPaths(t).state
 	stateInfo, err := os.Stat(statePath)
 	if err != nil {
 		t.Fatalf("stat state: %v", err)
@@ -312,7 +1266,7 @@ func TestEditorPrivateFilesTightenLegacyModes(t *testing.T) {
 		t.Fatalf("editor dir legado perm = %04o, quer 0700 após rewrite de draft", got)
 	}
 
-	statePath := editorStatePath()
+	statePath := editorTestPaths(t).state
 	if err := os.MkdirAll(filepath.Dir(statePath), 0755); err != nil {
 		t.Fatalf("mkdir state legado: %v", err)
 	}
@@ -472,7 +1426,7 @@ func setupEditorAPIWithDialog(t *testing.T, dialog ports.SystemDialogPort) *Edit
 	t.Cleanup(configdir.ResetForTests)
 
 	api := NewEditor()
-	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
 		AppContext:    func() context.Context { return context.Background() },
 		Dialog:        func() ports.SystemDialogPort { return dialog },
 		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
@@ -605,8 +1559,9 @@ func TestEditorSaveFileDialogAppliesFallbackWhenLabelsEmpty(t *testing.T) {
 
 func TestEditorWatchNormalizaPathNaBorda(t *testing.T) {
 	var observados []string
+	watchPath := filepath.Join(t.TempDir(), "doc.md")
 	api := NewEditor()
-	AttachEditor(api, stubSession{ctx: context.Background()}, EditorHooks{
+	AttachEditor(api, stubSession{ctx: database.WithUserID(context.Background(), editorTestUserID)}, EditorHooks{
 		AppContext:    func() context.Context { return context.Background() },
 		Dialog:        func() ports.SystemDialogPort { return nil },
 		MarkSelfWrite: func(path string) func(bool) { return func(bool) {} },
@@ -620,15 +1575,19 @@ func TestEditorWatchNormalizaPathNaBorda(t *testing.T) {
 		},
 	})
 
-	if err := api.EditorWatchFile("  C:/tmp/doc.md  "); err != nil {
+	if err := api.EditorWatchFile("  " + watchPath + "  "); err != nil {
 		t.Fatalf("EditorWatchFile: %v", err)
 	}
-	if err := api.EditorUnwatchFile("  C:/tmp/doc.md  "); err != nil {
+	if err := api.EditorUnwatchFile("  " + watchPath + "  "); err != nil {
 		t.Fatalf("EditorUnwatchFile: %v", err)
 	}
+	expected, err := filesystem.ResolveForComparison(watchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, got := range observados {
-		if got != "C:/tmp/doc.md" {
-			t.Fatalf("hook recebeu %q, quer path sem espaços", got)
+		if got != expected {
+			t.Fatalf("hook recebeu %q, quer path resolvido %q", got, expected)
 		}
 	}
 

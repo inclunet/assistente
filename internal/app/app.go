@@ -13,7 +13,6 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
-	"assistente/internal/wakelock"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/apidto"
@@ -50,6 +49,7 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/wailsapi"
+	"assistente/internal/wakelock"
 	"assistente/internal/workspace"
 )
 
@@ -95,7 +95,7 @@ type App struct {
 	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
-	wakeLock         wakelock.Manager             // Previne bloqueio/suspensão quando a janela está em foco
+	wakeLock         wakelock.Manager            // Previne bloqueio/suspensão quando a janela está em foco
 
 	credMgr           *credentials.Manager
 	credStore         credentials.Store
@@ -882,9 +882,11 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	if err := InitDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
-	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
-		logging.Errorf(ctx, "app.app", "Erro ao limpar drafts órfãos do editor no startup: %v", err)
-	}
+	// Drafts não são mais varridos por idade no boot pré-login. O cleanup
+	// legado apagava qualquer arquivo >24h sem consultar abas/merges e podia
+	// destruir recuperação de crash. Fechamento explícito da aba continua
+	// removendo seu draft; uma retenção automática futura precisa ser
+	// user-scoped e provar ausência de referências antes de excluir.
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
 	a.installBuiltinProfiles()

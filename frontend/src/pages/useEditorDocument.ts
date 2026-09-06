@@ -85,6 +85,7 @@ export function useEditorDocument({
     if (!isWsInitialized || !workspaceId) return;
     setSessionLoaded(false);
     let cancelled = false;
+    const hydrationOwnerUserId = useEditorStore.getState().ownerUserId;
 
     (async () => {
       try {
@@ -93,7 +94,10 @@ export function useEditorDocument({
         const wsEditorTabs = (wsState.workspace?.tabs || []).filter((tab) => tab.type === 'editor');
 
         const editorState = await EditorLoadState();
-        if (cancelled) return;
+        if (
+          cancelled ||
+          useEditorStore.getState().ownerUserId !== hydrationOwnerUserId
+        ) return;
 
         // Preferências por arquivo.
         try {
@@ -188,6 +192,10 @@ export function useEditorDocument({
           });
         }
 
+        if (
+          cancelled ||
+          useEditorStore.getState().ownerUserId !== hydrationOwnerUserId
+        ) return;
         const loadedDocs: Record<string, EditorDocument> = {};
         for (const tab of loadedTabs) {
           // Um painel adicional pode montar enquanto a sessão já está viva.
@@ -219,6 +227,7 @@ export function useEditorDocument({
         }
 
         hydrate({
+          ownerUserId: hydrationOwnerUserId,
           documents: loadedDocs,
         });
 
