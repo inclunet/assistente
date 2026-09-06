@@ -33,7 +33,7 @@ seletor `session/set_model` são avaliados separadamente. A remoção só pode s
 proposta quando a matriz de testes de todos os agentes suportados não tiver
 consumidor nem resultado desconhecido para o contrato correspondente. Não há
 telemetria nem janela arbitrária por versão. O procedimento técnico está no
-[runbook de expiração da compatibilidade](https://github.com/inclunet/assistente/blob/main/docs/operations/acp-compatibility-retirement.md).
+runbook `docs/operations/acp-compatibility-retirement.md` do repositório.
 
 ## Permissões
 
