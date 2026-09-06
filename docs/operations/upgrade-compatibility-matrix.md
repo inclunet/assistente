@@ -26,10 +26,10 @@ o conjunto de origens suportadas.
 | Skills `SKILL.md` em disco | carregamento/importação de skills | b69cb1c1 (2026-06-08) | 0.2.0 | testes de import e catálogo | Alto: skills de instalações antigas somem |
 | `channels/*.json` e `contacts.json` | pós-login → `ImportLegacyChannelsWithContext` | a893d4de (2026-07-27) | 0.2.0 | smoke automático do AEP-0083, idempotência e arquivos intactos | Crítico: canais, contatos e referências de segredo somem |
 | Cleanup opt-in de canais | UI/API → `CleanupLegacyChannelJSON` | 7bfc1bf5 (2026-07-27) | 0.2.0 | dry-run, backup e confirmação testados | Alto se automatizado: pode destruir a única cópia antes de import concluído |
-| Estado de editor anterior por usuário | abertura do editor → `migrateLegacyEditorData` | anterior a 0.2.0 | 0.2.0 | testes do pacote `wailsapi` | Médio: layout/documentos locais deixam de ser encontrados |
-| Workspaces e remap anteriores | startup do workspace manager | anterior a 0.2.0 | 0.2.0 | testes do manager | Médio/alto: abas e vínculos ficam órfãos |
+| Editor SQLite 0.1.9 e filesystem 0.2.0–0.5.0 → storage por usuário | login/abertura do editor → `migrateLegacyEditorData` | 0.1.9 | 0.1.9 | fixture SQL 0.1.9 + fixtures de diretório 0.2.0–0.5.0; upgrade direto, idempotência, modo/merge, permissões e adoção exclusiva | Alto: drafts, modo e sessões de merge deixam de ser encontrados ou vazam entre contas |
+| Workspaces e remaps publicados | startup do workspace manager | 0.2.0 | 0.2.0 | fixtures YAML + remap por release 0.2.0–0.5.0; conversa/tasklist, editor, terminal, perfil e segunda passagem | Médio/alto: abas e vínculos ficam órfãos |
 | ACP `models` + `session/set_model` | respostas JSON-RPC e fallback após `-32601` | contrato AEP-0084 | 0.2.0 | fixtures de agente legado e efeito no turno seguinte | Alto: agentes publicados no protocolo anterior perdem troca de modelo |
-| Perfil sem política estruturada de tools | `ResolveEffectiveToolPolicy` (`legacyAllPreloaded`) | AEP-0081 | 0.2.0 | testes do planner/política | Alto: tools deixam de carregar em perfis existentes |
+| Perfis JSON e política de tools | `profiles.Profile.UnmarshalJSON` + `ResolveEffectiveToolPolicy` (`legacyAllPreloaded`/tri-state) | formato original anterior a 0.1.9; política estruturada na 0.2.0 | 0.1.9 | fixtures 0.1.9–0.5.0; adaptação voice/interaction/MCP, nil/lista/política, wildcard e idempotência | Alto: configurações de voz/STT/canais ou tools mudam silenciosamente |
 
 ## Fixtures e limites reais
 
@@ -46,11 +46,27 @@ o conjunto de origens suportadas.
   Lacuna: [#684](https://github.com/inclunet/assistente/issues/684).
 - Corpus por release para MCP, jobs, skills, channels e contacts:
   [#686](https://github.com/inclunet/assistente/issues/686).
-- Layouts publicados de editor, workspaces e perfis/tools:
-  [#685](https://github.com/inclunet/assistente/issues/685).
+- Editor:
+  - `0.1.9` persistia sessão e drafts nas tabelas SQLite
+    `editor_session_states`/`editor_documents`;
+  - `0.2.0`–`0.5.0` persistiam `editor/state.json` e `editor/drafts/`.
+  O upgrade atual preserva `fileModeByPath`, sessões de merge e todo markdown.
+  Campos da sessão 0.1.9 sem equivalente atual (`version`, `autoSaveEnabled`,
+  `activeTabId`, `profileSlug`, lista/metadados das abas e
+  `externalConflictLockedByTabId`) são deliberadamente descartados; as tabelas
+  de origem permanecem intactas para recuperação.
+- Workspaces existem nas releases `0.2.0`–`0.5.0`. A `0.1.9` não continha o
+  domínio `internal/workspace` nem `workspace.yaml`, portanto não há fixture
+  artificial para essa release.
+- Perfis JSON existem em todas as releases `0.1.9`–`0.5.0`. O adaptador da
+  `0.1.9` converte voz monolítica, `interaction`, resposta de canais e
+  `mcp_mode`; `enable_thinking`, quando presente em JSON histórico, é
+  deliberadamente ignorado porque não tem contrato equivalente ao
+  `reasoning_effort` atual.
 
-Até essas issues serem fechadas, todos os caminhos legados correspondentes
-permanecem obrigatórios.
+Os fixtures acima fecham a lacuna da
+[#685](https://github.com/inclunet/assistente/issues/685). Todos os caminhos
+legados correspondentes permanecem obrigatórios pela política universal.
 
 ## Regra para evolução
 
