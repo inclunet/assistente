@@ -31,8 +31,8 @@ O Assistente mantém os formatos ACP anteriores enquanto qualquer agente
 suportado ou publicado no catálogo depender deles. O payload `models` e o
 seletor `session/set_model` são avaliados separadamente; depois da saída do
 último consumidor, cada um ainda precisa atravessar duas versões estáveis
-completas sem uso observado antes de uma remoção. O procedimento técnico,
-incluindo evidência e privacidade, está no
+consecutivas e completas sem uso observado antes de uma remoção. O procedimento
+técnico, incluindo evidência e privacidade, está no
 [runbook de expiração da compatibilidade](https://github.com/inclunet/assistente/blob/main/docs/operations/acp-compatibility-retirement.md).
 
 ## Permissões
