@@ -359,6 +359,17 @@ func TestToolSelectionPolicy_ToolPolicyDoesNotElevateDisabledCatalog(t *testing.
 		t.Fatalf("read_file deveria permanecer on_demand, got %s", effective.State("read_file"))
 	}
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{})
+	assertNames(t, "visíveis", effective.CatalogVisibleNames(), []string{})
+	if effective.AllowsRuntimeLoad("read_file") || effective.IsVisibleInCatalog("read_file") {
+		t.Fatal("catálogo desabilitado não pode carregar nem revelar read_file")
+	}
+	got := policy.ResolveExpandedToolDefs(nil, nil, nil, []string{"read_file"}, ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			tools.ToolCatalogName: string(ToolPolicyDisabled),
+			"read_file":           string(ToolPolicyOnDemand),
+		},
+	})
+	assertNames(t, "expansão", defNames(got), []string{})
 }
 
 func TestToolSelectionPolicy_ToolPolicyRespeitaChaveComEspacos(t *testing.T) {
@@ -578,7 +589,7 @@ func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) 
 	}
 
 	explicit := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{EnabledTools: []string{"read_file"}})
-	assertNames(t, "visible explicit", explicit.CatalogVisibleNames(), []string{"read_file"})
+	assertNames(t, "allowlist sem catálogo ativo", explicit.CatalogVisibleNames(), []string{})
 }
 
 func TestToolSelectionPolicy_NativeMCPUsesPreloadedAllowlist(t *testing.T) {
