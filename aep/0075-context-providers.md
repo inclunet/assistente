@@ -222,6 +222,37 @@ Colunas mínimas:
 
 O detalhe de edição deve mostrar uma explicação curta da política selecionada. Isso é necessário porque mudar `core`, `pinned`, `auto`, `retrievable` ou `archived` altera diretamente quais memórias podem impactar o prompt.
 
+### D2.5. Migração das skills antigas de contexto
+
+As instalações anteriores à separação de Context Providers podem conter
+`skills/memory` e `skills/workspace`. No startup, um migrador de
+compatibilidade independente da instalação de built-ins move somente esses
+dois diretórios para `.legacy-backup/context-providers-<timestamp>/` e grava
+`.legacy-context-providers-cleaned` após concluir todas as etapas.
+
+Esse caminho não é a importação filesystem → banco da AEP-0051 D9. A
+importação prevista ali continua não-destrutiva; este migrador trata apenas
+duas built-ins que deixaram de ser skills por decisão desta AEP. A instalação
+e atualização das demais skills preserva seu comportamento.
+
+O marker passa a ser JSON versionado com `formatVersion`, `appVersion` e
+`completedAt`. Qualquer marker já existente no formato anterior
+(timestamp/texto) continua significando migração concluída e nunca provoca
+uma segunda movimentação. A execução produz diagnóstico estruturado com
+status, formato e versão do marker, versão do app, quantidade de backups,
+falhas e janela de retenção, sem conteúdo de skills ou dados pessoais.
+
+Política de retenção:
+
+- marker ausente continua aceito por **no mínimo duas releases posteriores**
+  à primeira release que gravar o marker versionado;
+- essa janela é piso de suporte e não desativa automaticamente o migrador;
+- a retirada exige, cumulativamente, a política geral de upgrades diretos e
+  intermediários da issue #676, fixtures da versão mínima suportada e
+  evidência de que nenhuma origem suportada ainda chega sem marker;
+- até esses critérios existirem, o migrador e os testes de marker legado,
+  primeira execução, backup, falha parcial e retomada permanecem.
+
 ### D3. Workspace vira Context Provider
 
 `workspace` deixa de ser skill.
