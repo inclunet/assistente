@@ -388,16 +388,20 @@ func containsString(values []string, target string) bool {
 }
 
 func logPolicyDecision(ctx context.Context, commandSummary string, result commandpolicy.EvaluationResult) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger := logging.Logger(ctx, "tools.shell.run-command")
 	if !logger.Enabled(ctx, slog.LevelInfo) {
 		return
 	}
 	decision := result.Decision
+	decisionText := decision.String()
 	attrs := []any{
 		slog.String("command_summary", commandSummary),
-		slog.String("decision", decision.String()),
+		slog.String("decision", decisionText),
 	}
-	message := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decision)
+	message := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decisionText)
 	if decision != allowlist.DecisionApprove {
 		reasons := summarizePolicyReasons(result)
 		message += fmt.Sprintf(", motivos: %s", reasons)

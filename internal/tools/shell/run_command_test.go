@@ -180,7 +180,7 @@ func TestLogPolicyDecisionPreservesMessageAndDoesNotLeakCommand(t *testing.T) {
 		DefaultAction: "confirm",
 	})
 	if baseResult.Decision != allowlist.DecisionDeny {
-		t.Fatalf("pré-condição: decision = %s, want deny", baseResult.Decision)
+		t.Fatalf("pré-condição: decision = %s, want deny", baseResult.Decision.String())
 	}
 	commandSummary := redactCommandForLog(rawCommand, baseResult)
 
@@ -189,7 +189,7 @@ func TestLogPolicyDecisionPreservesMessageAndDoesNotLeakCommand(t *testing.T) {
 			result := baseResult
 			result.Decision = decision
 			reasons := summarizePolicyReasons(result)
-			wantMessage := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decision)
+			wantMessage := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decision.String())
 			if decision != allowlist.DecisionApprove {
 				wantMessage += fmt.Sprintf(", motivos: %s", reasons)
 			}
@@ -198,7 +198,11 @@ func TestLogPolicyDecisionPreservesMessageAndDoesNotLeakCommand(t *testing.T) {
 			previous := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
 			t.Cleanup(func() { slog.SetDefault(previous) })
-			logPolicyDecision(context.Background(), commandSummary, result)
+			var logCtx context.Context
+			if decision != allowlist.DecisionApprove {
+				logCtx = context.Background()
+			}
+			logPolicyDecision(logCtx, commandSummary, result)
 
 			if strings.Contains(output.String(), secret) {
 				t.Fatalf("log estruturado vazou segredo: %s", output.String())
