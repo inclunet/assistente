@@ -324,6 +324,10 @@ func (s *Service) GetTasksByStatus(ctx context.Context, taskListID string, statu
 	return s.store.GetTasksByStatus(ctx, taskListID, statusID)
 }
 
+func (s *Service) ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error) {
+	return s.store.ListTasksPage(ctx, query)
+}
+
 func (s *Service) FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error) {
 	return s.store.FindTaskByCode(ctx, taskListID, code)
 }
