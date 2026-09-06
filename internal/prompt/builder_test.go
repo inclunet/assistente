@@ -1144,14 +1144,14 @@ func TestComputeEnabledToolNames_NilRegistry_ReturnsNil(t *testing.T) {
 	}
 }
 
-func TestComputeEnabledToolNames_AllTools_WhenNoFilter(t *testing.T) {
+func TestComputeEnabledToolNames_NoProfileFailsClosed(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})
 	_ = reg.Register(&fakeTool{name: "write_file"})
 	b := &prompt.Builder{Tools: reg}
 	names := b.ComputeEnabledToolNames(nil)
-	if len(names) != 2 {
-		t.Errorf("Expected 2 tools, got %v", names)
+	if len(names) != 0 {
+		t.Errorf("perfil ausente não deve expor tools, got %v", names)
 	}
 }
 
@@ -1195,7 +1195,7 @@ func TestComputeEnabledToolNames_AddsLoadSkillForModelOnDemandSkills(t *testing.
 	}
 }
 
-func TestComputeEnabledToolNames_ProfileNilToolsFallsBackWhenCatalogMissing(t *testing.T) {
+func TestComputeEnabledToolNames_ProfileNilToolsFailsClosedWhenCatalogMissing(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})
 	_ = reg.Register(&fakeTool{name: "write_file"})
@@ -1203,8 +1203,27 @@ func TestComputeEnabledToolNames_ProfileNilToolsFallsBackWhenCatalogMissing(t *t
 	b := &prompt.Builder{Tools: reg}
 
 	names := b.ComputeEnabledToolNames(profile)
-	if len(names) != 2 {
-		t.Fatalf("Expected all tools without catalog, got %v", names)
+	if len(names) != 0 {
+		t.Fatalf("Expected no implicit tools without catalog, got %v", names)
+	}
+}
+
+func TestComputeEnabledToolNames_RuntimeToolDoesNotOpenLegacyProfileWithoutCatalog(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.LoadSkillName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "review"}
+	b := &prompt.Builder{
+		Tools: reg,
+		Skills: &mockSkillReader{allSkillsFull: []skills.Skill{
+			makeSkill("base", "Base", "Base skill", "base content", false, true),
+			makeSkill("review", "Review", "Review skill", "review content", false, true),
+		}},
+	}
+
+	if names := b.ComputeEnabledToolNames(profile); len(names) != 0 {
+		t.Fatalf("runtime tool não deve abrir perfil legado sem catálogo, got %v", names)
 	}
 }
 

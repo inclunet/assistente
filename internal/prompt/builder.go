@@ -396,13 +396,11 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 			DisableTools:      activeProfile.Chat.DisableTools,
 			RuntimeTools:      runtimeTools,
 		})
-		if initialEnabledTools != nil {
-			defs = b.Tools.FilterByNames(initialEnabledTools)
-		} else {
-			defs = b.Tools.ToDefinitions()
-		}
+		defs = b.Tools.FilterByNames(initialEnabledTools)
 	} else {
-		defs = b.Tools.ToDefinitions()
+		// Sem perfil não existe autorização para expor implicitamente o registry.
+		// O caller deve fornecer uma seleção de perfil explícita.
+		return nil
 	}
 	if len(defs) == 0 {
 		return nil
