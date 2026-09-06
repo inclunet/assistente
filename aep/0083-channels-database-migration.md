@@ -154,6 +154,9 @@ Todas as fases abaixo foram entregues no PR #400:
 - [x] Pattern futuro `channel:{slug}:app` documentado (ClientID+ClientSecret)
 - [x] Upgrade direto desde qualquer versão publicada não depende de versão intermediária
 - [x] Import e cleanup não expõem tokens ou identificadores no diagnóstico local
+- [x] Fixtures SQLite 0.2.0–0.5.0 preservam canal, contato, mapeamento
+  contato→conversa, referências sem segredo e isolamento por `user_id` no
+  upgrade direto e no segundo boot
 
 ## Smoke (pós-merge)
 

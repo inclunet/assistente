@@ -107,10 +107,13 @@ Ele não inclui caminhos, IDs, conteúdo ou credenciais.
 2. **Migração das custom existentes**: encapsular as funções já existentes (mantidas intactas) como entradas v1..v9, preservando ordem e fases.
 3. **Refatorar `Init()`**: substituir as chamadas diretas por `runMigrations(db, phasePreAutoMigrate)` (antes do `AutoMigrate`) e `runMigrations(db, phasePostAutoMigrate)` (depois).
 4. **Testes**: aplicação ordenada, idempotência, filtragem por fase, `DetectApplied` (carimba sem rodar), parada em erro, consistência do registro, detector UUIDv7 e integração do registro real (fresh DB + segundo boot no-op).
-5. **Compatibilidade publicada**: fixture 0.1.9 atravessa diretamente todo o
-   pipeline até a versão atual; releases 0.2.0–0.5.0 compartilham o prefixo
-   versionado v1–v12 e permanecem cobertas pelo registry. Dumps completos por
-   release são follow-ups rastreados, não cobertura presumida.
+5. **Compatibilidade publicada**: fixtures 0.1.9–0.5.0 atravessam diretamente
+   todo o pipeline até a versão atual. As reconstruções 0.2.0–0.5.0 executam
+   o `AutoMigrate` de cada tag e carregam dados relacionados de todos os
+   domínios persistidos relevantes, com duas pessoas para provar isolamento.
+   A 0.2.0 não possui `llm_providers.reasoning_content_mode`; os schemas
+   0.3.0, 0.4.0 e 0.5.0 são semanticamente equivalentes. Proveniência,
+   fingerprints e limites ficam no README das fixtures.
 
 ## Riscos
 
@@ -132,4 +135,6 @@ Ele não inclui caminhos, IDs, conteúdo ou credenciais.
 - [x] Política de upgrade direto universal documentada e diagnóstico local sem PII.
 - [x] Fixture 0.1.9 exercita upgrade direto com preservação de conversa,
   mensagens e hierarquia.
+- [x] Fixtures 0.2.0–0.5.0 exercitam upgrade direto e segundo boot idempotente,
+  preservando contagens, relações, hierarquias, `user_id` e isolamento.
 - [x] `go build`, `go vet`, `go test`, `golangci-lint` verdes.
