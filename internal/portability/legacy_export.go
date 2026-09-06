@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -49,7 +50,7 @@ type legacyMessageExport struct {
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
-var legacyExportNamespace = uuid.MustParse("db28819e-8584-59ec-9422-6f1c178d69dc")
+const legacyExportNamespace = "db28819e-8584-59ec-9422-6f1c178d69dc"
 
 func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 	var probe struct {
@@ -144,5 +145,20 @@ func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 func legacyStableID(exportedAt time.Time, kind string, oldID uint, discriminator string) string {
 	key := exportedAt.UTC().Format(time.RFC3339Nano) + "|" + kind + "|" +
 		strconv.FormatUint(uint64(oldID), 10) + "|" + discriminator
-	return uuid.NewSHA1(legacyExportNamespace, []byte(key)).String()
+	hash := sha256.Sum256([]byte(legacyExportNamespace + "|" + key))
+	var id uuid.UUID
+	// UUIDv7 usa 48 bits de timestamp seguidos por versão/variante e entropia.
+	// A entropia vem do hash estável para que reimportar o mesmo arquivo
+	// preserve IDs, sem sair do contrato UUIDv7 usado pelo runtime.
+	timestamp := exportedAt.UTC().UnixMilli()
+	id[0] = byte(timestamp >> 40)
+	id[1] = byte(timestamp >> 32)
+	id[2] = byte(timestamp >> 24)
+	id[3] = byte(timestamp >> 16)
+	id[4] = byte(timestamp >> 8)
+	id[5] = byte(timestamp)
+	copy(id[6:], hash[:10])
+	id[6] = (id[6] & 0x0f) | 0x70
+	id[8] = (id[8] & 0x3f) | 0x80
+	return id.String()
 }

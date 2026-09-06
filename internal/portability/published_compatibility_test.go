@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"assistente/internal/database"
+
+	"github.com/google/uuid"
 )
 
 func TestPublishedExport019ImportsDirectlyAndIdempotently(t *testing.T) {
@@ -48,6 +50,16 @@ func TestPublishedExport019ImportsDirectlyAndIdempotently(t *testing.T) {
 	conversation := file.Resources.Conversations[0]
 	if conversation.ID == "" || len(conversation.Messages) != 2 {
 		t.Fatalf("adaptação incompleta: %#v", conversation)
+	}
+	for _, id := range []string{
+		conversation.ID,
+		conversation.Messages[0].ID,
+		conversation.Messages[1].ID,
+	} {
+		parsed, err := uuid.Parse(id)
+		if err != nil || parsed.Version() != 7 {
+			t.Fatalf("ID adaptado não é UUIDv7: %q (%v)", id, err)
+		}
 	}
 	if conversation.Messages[1].ParentID != conversation.Messages[0].ID ||
 		conversation.Messages[1].TurnID != conversation.Messages[0].ID {
