@@ -145,11 +145,11 @@ func (p EffectiveToolPolicy) AllowsRuntimeLoad(name string) bool {
 	if state == ToolPolicyPreloaded {
 		return true
 	}
-	return state == ToolPolicyOnDemand && p.registry != nil && p.registry.Has(tools.ToolCatalogName)
+	return state == ToolPolicyOnDemand && p.State(tools.ToolCatalogName) == ToolPolicyPreloaded
 }
 
 func (p EffectiveToolPolicy) IsVisibleInCatalog(name string) bool {
-	return p.registry != nil && p.registry.Has(tools.ToolCatalogName) && p.AllowsRuntimeLoad(name)
+	return p.State(tools.ToolCatalogName) == ToolPolicyPreloaded && p.AllowsRuntimeLoad(name)
 }
 
 func (p EffectiveToolPolicy) PreloadedNames() []string {
@@ -177,7 +177,7 @@ func (p EffectiveToolPolicy) CatalogVisibleNames() []string {
 	if p.disabled {
 		return []string{}
 	}
-	if !p.registry.Has(tools.ToolCatalogName) {
+	if p.State(tools.ToolCatalogName) != ToolPolicyPreloaded {
 		return []string{}
 	}
 	registered := p.registry.Names()
