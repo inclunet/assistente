@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundedSurfaceSnapshotValue, buildChatSurfaceParams } from './chatSurface';
+import { boundedSurfaceSnapshotValue, buildChatSurfaceParams, type SurfaceContext } from './chatSurface';
 
 describe('buildChatSurfaceParams', () => {
   it('serializa state e context e preserva activeFilePath do editor', () => {
@@ -15,8 +15,16 @@ describe('buildChatSurfaceParams', () => {
       {
         profileSlug: 'editor-texto',
         context: {
-          selectedText: 'hello',
-          selectionEmpty: false,
+          surfaceType: 'editor',
+          surfaceId: 'draft-1',
+          title: 'README',
+          snapshotVersion: 'editor:draft-1:1',
+          selection: {
+            kind: 'text',
+            text: 'hello',
+            isEmpty: false,
+            explicit: true,
+          },
         },
       },
     );
@@ -40,9 +48,7 @@ describe('buildChatSurfaceParams', () => {
         isEmpty: false,
         explicit: true,
       },
-      metadata: {
-        legacySurfaceContext: true,
-      },
+      snapshotVersion: 'editor:draft-1:1',
     });
   });
 
@@ -53,7 +59,7 @@ describe('buildChatSurfaceParams', () => {
         state: {},
       },
       {
-        context: {},
+        context: {} as SurfaceContext,
       },
     );
 
@@ -63,7 +69,7 @@ describe('buildChatSurfaceParams', () => {
     expect(params.activeFilePath).toBeUndefined();
   });
 
-  it('preserva envelope SurfaceContext já normalizado', () => {
+  it('serializa envelope SurfaceContext canônico', () => {
     const params = buildChatSurfaceParams(
       { id: 'tab-1', type: 'terminal', title: 'Terminal' },
       {
@@ -85,36 +91,18 @@ describe('buildChatSurfaceParams', () => {
     });
   });
 
-  it('suporta selectionEmpty legado sem inferir explicit quando ausente', () => {
-    const emptySelectionParams = buildChatSurfaceParams(
+  it('descarta payload incompleto em vez de adaptá-lo', () => {
+    const params = buildChatSurfaceParams(
       { type: 'editor', state: { draftId: 'draft-1' } },
       {
         context: {
           selectedText: 'hello',
           selectionEmpty: true,
-        },
+        } as unknown as SurfaceContext,
       },
     );
 
-    expect(JSON.parse(String(emptySelectionParams.surfaceContextJson))).toMatchObject({
-      selection: {
-        isEmpty: true,
-        explicit: false,
-      },
-    });
-
-    const unknownSelectionParams = buildChatSurfaceParams(
-      { type: 'editor', state: { draftId: 'draft-1' } },
-      {
-        context: {
-          selectedText: 'hello',
-        },
-      },
-    );
-
-    const selection = JSON.parse(String(unknownSelectionParams.surfaceContextJson)).selection;
-    expect(selection).not.toHaveProperty('isEmpty');
-    expect(selection).not.toHaveProperty('explicit');
+    expect(params.surfaceContextJson).toBeUndefined();
   });
 
   it('limita valores usados como seed de snapshot', () => {

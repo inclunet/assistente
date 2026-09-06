@@ -152,9 +152,18 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 			"surface_context": 1000,
 		},
 		Surface: &contextprovider.Surface{
-			Type:    "editor",
-			Title:   "Arquivo",
-			Context: map[string]any{"selectedText": "seleção"},
+			Type:  "editor",
+			Title: "Arquivo",
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-1",
+				"snapshotVersion": "editor:tab-1:1",
+				"selection": map[string]any{
+					"kind":     "text",
+					"text":     "seleção",
+					"explicit": true,
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -169,7 +178,7 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 	if strings.Contains(blocks[0].Content, "<workspace_context>") {
 		t.Fatalf("surface-only request should not emit workspace context: %q", blocks[0].Content)
 	}
-	if !strings.Contains(blocks[0].Content, `incomplete="true"`) || !strings.Contains(blocks[0].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
+	if !strings.Contains(blocks[0].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
 		t.Fatalf("surface block missing selected text: %q", blocks[0].Content)
 	}
 }
@@ -197,31 +206,35 @@ func TestContextProviderOmitsEmptyStructuredSurfaceContext(t *testing.T) {
 	}
 }
 
-func TestContextProviderMapsLegacyTasklistIDToAllowlistedMetadata(t *testing.T) {
-	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
-		ProviderBudgets: map[string]int{
-			"surface_context": 1000,
+func TestContextProviderDoesNotAdaptIncompleteSurfacePayload(t *testing.T) {
+	for name, surfaceContext := range map[string]map[string]any{
+		"campos legados": {"selectedText": "segredo", "tasksPreview": "- tarefa"},
+		"sem surfaceId": {
+			"surfaceType":     "editor",
+			"snapshotVersion": "editor:ausente:1",
+			"selection":       map[string]any{"kind": "text", "text": "segredo"},
 		},
-		Surface: &contextprovider.Surface{
-			Type:  "tasklist",
-			Title: "Tarefas",
-			State: map[string]any{"tasklistId": "tl-legacy"},
-			Context: map[string]any{
-				"tasksPreview": "- Revisar PR",
-			},
+		"sem snapshotVersion": {
+			"surfaceType": "editor",
+			"surfaceId":   "tab-1",
+			"selection":   map[string]any{"kind": "text", "text": "segredo"},
 		},
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if len(blocks) != 1 {
-		t.Fatalf("len(blocks) = %d, want surface context", len(blocks))
-	}
-	if !strings.Contains(blocks[0].Content, `<metadata key="task_list_id">tl-legacy</metadata>`) {
-		t.Fatalf("legacy tasklist ID should render with allowlisted key: %q", blocks[0].Content)
-	}
-	if strings.Contains(blocks[0].Content, `key="tasklist_id"`) {
-		t.Fatalf("legacy tasklist ID should not render with non-allowlisted key: %q", blocks[0].Content)
+	} {
+		t.Run(name, func(t *testing.T) {
+			blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+				ProviderBudgets: map[string]int{"surface_context": 1000},
+				Surface: &contextprovider.Surface{
+					Type:    "editor",
+					Context: surfaceContext,
+				},
+			})
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if len(blocks) != 0 {
+				t.Fatalf("payload incompleto não deve ser adaptado: %+v", blocks)
+			}
+		})
 	}
 }
 
@@ -392,7 +405,13 @@ func TestSurfaceContextProviderRespectsOwnProfileBudget(t *testing.T) {
 		Surface: &contextprovider.Surface{
 			Type: "editor",
 			Context: map[string]any{
-				"selectedText": strings.Repeat("linha com conteúdo ", 20),
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-editor",
+				"snapshotVersion": "editor:tab-editor:1",
+				"selection": map[string]any{
+					"kind": "text",
+					"text": strings.Repeat("linha com conteúdo ", 20),
+				},
 			},
 		},
 	})
