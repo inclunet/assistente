@@ -38,6 +38,7 @@ type TaskListManager interface {
 	GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error)
 	CreateTaskNote(ctx context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
 	UpsertTaskNoteByExternal(ctx context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error)
+	ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error)
 	UpdateTaskNote(ctx context.Context, noteID string, content string) error
 	GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error)
 	GetTaskNote(ctx context.Context, noteID string) (*database.TaskNote, error)

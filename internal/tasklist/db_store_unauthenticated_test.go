@@ -167,6 +167,10 @@ func TestDBStore_UnauthenticatedErrors(t *testing.T) {
 			_, _, err := store.UpsertTaskNoteByExternal(ctx, database.UpsertTaskNoteByExternalParams{TaskID: "x"})
 			return err
 		}},
+		{"ListTaskNotesPage", func() error {
+			_, err := store.ListTaskNotesPage(ctx, database.TaskNotePageQuery{})
+			return err
+		}},
 		{"GetTaskNotes", func() error {
 			_, err := store.GetTaskNotes(ctx, "x")
 			return err
