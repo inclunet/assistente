@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,7 +103,12 @@ func TestLegacyContextProviderSkillsMigrationReportsAndRecoversPartialFailure(t 
 	realRename := migrator.rename
 	migrator.rename = func(oldPath, newPath string) error {
 		if filepath.Base(oldPath) == "workspace" {
-			return errors.New("falha injetada")
+			return &os.LinkError{
+				Op:  "rename",
+				Old: oldPath,
+				New: newPath,
+				Err: errors.New("falha injetada"),
+			}
 		}
 		return realRename(oldPath, newPath)
 	}
@@ -114,6 +120,9 @@ func TestLegacyContextProviderSkillsMigrationReportsAndRecoversPartialFailure(t 
 	}
 	if !slices.Equal(result.BackedUpSlugs, []string{"memory"}) || len(result.Failures) != 1 {
 		t.Fatalf("partial result = backed up %#v failures %#v", result.BackedUpSlugs, result.Failures)
+	}
+	if strings.Contains(strings.Join(result.Failures, " "), homeDir) {
+		t.Fatalf("failure diagnostic exposes home path: %#v", result.Failures)
 	}
 	if _, err := os.Stat(filepath.Join(homeDir, "memory")); !os.IsNotExist(err) {
 		t.Fatalf("memory should be backed up, stat err=%v", err)

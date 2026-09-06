@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -128,17 +129,29 @@ func (m *legacyContextProviderSkillsMigrator) Run() legacyContextProviderMigrati
 		targetDir := filepath.Join(m.homeDir, slug)
 		if _, err := m.stat(targetDir); err != nil {
 			if !os.IsNotExist(err) {
-				result.Failures = append(result.Failures, fmt.Sprintf("verificar skill antiga %s: %v", slug, err))
+				result.Failures = append(result.Failures, fmt.Sprintf(
+					"verificar skill antiga %s: %s",
+					slug,
+					sanitizeFilesystemError(err),
+				))
 			}
 			continue
 		}
 		backupDir := filepath.Join(backupRoot, slug)
 		if err := m.mkdirAll(filepath.Dir(backupDir), 0755); err != nil {
-			result.Failures = append(result.Failures, fmt.Sprintf("criar backup da skill antiga %s: %v", slug, err))
+			result.Failures = append(result.Failures, fmt.Sprintf(
+				"criar backup da skill antiga %s: %s",
+				slug,
+				sanitizeFilesystemError(err),
+			))
 			continue
 		}
 		if err := m.rename(targetDir, backupDir); err != nil {
-			result.Failures = append(result.Failures, fmt.Sprintf("mover skill antiga %s para backup: %v", slug, err))
+			result.Failures = append(result.Failures, fmt.Sprintf(
+				"mover skill antiga %s para backup: %s",
+				slug,
+				sanitizeFilesystemError(err),
+			))
 			continue
 		}
 		result.BackedUpSlugs = append(result.BackedUpSlugs, slug)
@@ -163,7 +176,7 @@ func (m *legacyContextProviderSkillsMigrator) Run() legacyContextProviderMigrati
 	}
 	if err := m.writeFile(markerFile, data, 0644); err != nil {
 		result.Status = legacyContextProviderMigrationMarkerWriteError
-		result.Failures = append(result.Failures, fmt.Sprintf("gravar marker: %v", err))
+		result.Failures = append(result.Failures, fmt.Sprintf("gravar marker: %s", sanitizeFilesystemError(err)))
 		return result
 	}
 	result.Status = legacyContextProviderMigrationCompleted
@@ -183,7 +196,7 @@ func (m *legacyContextProviderSkillsMigrator) inspectMarker(
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("verificar marker: %w", err)
+		return false, fmt.Errorf("verificar marker: %s", sanitizeFilesystemError(err))
 	}
 
 	data, err := m.readFile(markerFile)
@@ -199,4 +212,21 @@ func (m *legacyContextProviderSkillsMigrator) inspectMarker(
 	}
 	result.MarkerFormat = "legacy"
 	return true, nil
+}
+
+func sanitizeFilesystemError(err error) string {
+	for err != nil {
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			err = pathErr.Err
+			continue
+		}
+		var linkErr *os.LinkError
+		if errors.As(err, &linkErr) {
+			err = linkErr.Err
+			continue
+		}
+		return err.Error()
+	}
+	return "erro desconhecido"
 }
