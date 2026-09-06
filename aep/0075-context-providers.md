@@ -127,6 +127,15 @@ Migração dos dados legados:
 - a recomposição assistida deve preferir qualidade e deduplicação, não conversão mecânica 1:1;
 - após validação manual, os arquivos podem ser mantidos apenas como backup/legado.
 
+Observabilidade e expiração do fallback:
+
+- cada inclusão efetiva de conteúdo de `memory.md` sem usuário autenticado emite o evento estruturado `legacy_memory_markdown_adapter_applied`;
+- o evento tem somente dimensões fixas de baixa cardinalidade (`component=context_compatibility`, `adapter=memory_markdown_without_auth` e `schema_version=1`);
+- conteúdo, paths, payloads, IDs de usuário e demais atributos de correlação não podem ser registrados;
+- contexto autenticado e baseado em records canônicos não emite esse evento;
+- o fallback só fica elegível para remoção quando a versão mínima suportada do Assistente for uma versão que sempre autentique a montagem de memória, instalações nessa faixa tiverem caminho documentado de recomposição e o evento permanecer sem ocorrências numa janela operacional representativa;
+- a remoção exige atualizar esta AEP com a versão mínima concreta e a evidência observada antes de alterar o comportamento.
+
 ### D2.2. Memórias precisam de governança no frontend
 
 Ao sair de arquivos Markdown e passar a usar records estruturados em banco, a memória deixa de ser diretamente editável pelo usuário no filesystem. Portanto, o Memory Provider exige uma tela de governança no frontend.

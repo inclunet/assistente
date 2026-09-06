@@ -222,6 +222,15 @@ Compatibilidade permitida:
 - manter campos especializados existentes, como `activeFilePath`, enquanto tools de arquivo dependerem deles;
 - aceitar ausência de especializações em surfaces ainda não migradas, desde que não sejam tratadas como alvos confiáveis para mutação.
 
+Observabilidade e expiração do adapter:
+
+- cada normalização de payload incompleto que acione o adapter legado emite o evento estruturado `legacy_surface_context_adapter_applied`;
+- o evento usa somente dimensões fixas de baixa cardinalidade (`component=context_compatibility`, `adapter=incomplete_surface_context` e `schema_version=1`);
+- conteúdo, paths, payloads, IDs de usuário, IDs de surface e versões de snapshot não podem ser registrados;
+- envelopes canônicos com `surfaceType`, `surfaceId` e `snapshotVersion` não emitem esse evento;
+- o adapter só fica elegível para remoção quando a versão mínima suportada de todos os clientes/surfaces emissores já produzir o envelope obrigatório e o evento permanecer sem ocorrências numa janela operacional representativa;
+- a remoção exige atualizar esta AEP com a versão mínima concreta e a evidência observada antes de alterar o comportamento.
+
 Compatibilidade não permitida:
 
 - criar wrappers alternativos de envio de mensagem por surface;
