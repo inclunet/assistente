@@ -349,6 +349,13 @@ func (s *DBStore) UpsertTaskNoteByExternal(ctx context.Context, p database.Upser
 	return database.UpsertTaskNoteByExternalWithContext(ctx, p)
 }
 
+func (s *DBStore) ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return database.TaskNotePage{}, err
+	}
+	return database.ListTaskNotesPageWithContext(ctx, query)
+}
+
 func (s *DBStore) GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
