@@ -1,0 +1,10 @@
+{
+  "telegram": [
+    {
+      "id": "contact-fixture",
+      "display_name": "Pessoa Sintética",
+      "username": "fixture_user",
+      "authorized_at": "2026-03-18T12:00:00Z"
+    }
+  ]
+}

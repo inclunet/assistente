@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "bot_token_ref": "channel:telegram:bot_token",
+  "profile": "fixture",
+  "max_history": 12,
+  "max_contacts": 2,
+  "conversations": {
+    "contact-fixture": 7
+  }
+}

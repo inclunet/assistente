@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,8 +148,8 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 		Source:       LegacyConfigSource(),
 		FileSuffix:   ".json",
 		Parse: func(file portability.LegacyImportFile, data []byte) (LegacyChannelItem, error) {
-			var cfg ChannelConfig
-			if err := json.Unmarshal(data, &cfg); err != nil {
+			cfg, err := parseLegacyChannelConfig(data)
+			if err != nil {
 				return LegacyChannelItem{}, err
 			}
 			slug := strings.ToLower(strings.TrimSpace(file.Name))
@@ -161,7 +162,7 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 			if strings.TrimSpace(cfg.DisplayName) == "" {
 				cfg.DisplayName = defaultDisplayName(cfg.Type)
 			}
-			return LegacyChannelItem{Slug: slug, Config: &cfg, Path: file.Path}, nil
+			return LegacyChannelItem{Slug: slug, Config: cfg, Path: file.Path}, nil
 		},
 		Import: func(ctx context.Context, item LegacyChannelItem) (bool, error) {
 			exists, err := channelExistsForUser(userID, item.Slug)
@@ -206,6 +207,49 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 	result.Warnings = append(result.Warnings, contactsResult.Warnings...)
 	result.Errors = append(result.Errors, contactsResult.Errors...)
 	return result, nil
+}
+
+// parseLegacyChannelConfig aceita tanto os IDs numéricos gravados pela 0.1.9
+// quanto os UUIDs string das releases posteriores. A normalização ocorre
+// apenas em memória; o arquivo fonte continua intocado.
+func parseLegacyChannelConfig(data []byte) (*ChannelConfig, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	if encoded, ok := raw["conversations"]; ok {
+		var legacy map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &legacy); err != nil {
+			return nil, fmt.Errorf("conversations inválido: %w", err)
+		}
+		normalized := make(map[string]string, len(legacy))
+		for contactID, value := range legacy {
+			var stringID string
+			if err := json.Unmarshal(value, &stringID); err == nil {
+				normalized[contactID] = stringID
+				continue
+			}
+			var numericID uint64
+			if err := json.Unmarshal(value, &numericID); err != nil {
+				return nil, fmt.Errorf("conversation id do contato %q inválido: %w", contactID, err)
+			}
+			normalized[contactID] = strconv.FormatUint(numericID, 10)
+		}
+		var err error
+		raw["conversations"], err = json.Marshal(normalized)
+		if err != nil {
+			return nil, err
+		}
+		data, err = json.Marshal(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var cfg ChannelConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }
 
 func importLegacyContactsFile(ctx context.Context, userID string) portability.LegacyImportResult {

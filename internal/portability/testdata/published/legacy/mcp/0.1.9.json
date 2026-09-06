@@ -1,0 +1,12 @@
+{
+  "name": "Servidor sintético 0.1.9",
+  "description": "Fixture sem credenciais reais",
+  "transport": "stdio",
+  "command": "fixture-mcp",
+  "args": ["--modo", "teste"],
+  "env": {
+    "FIXTURE_MODE": "synthetic"
+  },
+  "enabled": true,
+  "auto_connect": false
+}
