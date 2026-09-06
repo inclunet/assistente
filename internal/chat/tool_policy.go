@@ -16,32 +16,41 @@ const (
 	ToolPolicyPreloaded ToolPolicyState = "preloaded"
 )
 
+type ToolSelectionStatus string
+
+const (
+	ToolSelectionReady               ToolSelectionStatus = "ready"
+	ToolSelectionDisabled            ToolSelectionStatus = "disabled"
+	ToolSelectionExplicitEmpty       ToolSelectionStatus = "explicit_empty"
+	ToolSelectionCatalogUnavailable  ToolSelectionStatus = "catalog_unavailable"
+	ToolSelectionRegistryUnavailable ToolSelectionStatus = "registry_unavailable"
+)
+
 type EffectiveToolPolicy struct {
 	states   map[string]ToolPolicyState
 	registry *tools.Registry
 	matcher  ToolPolicyMatcher
 
-	structured bool
-	// allPreloadedWithoutCatalog preserva o default aberto somente quando o
-	// control-plane tool_catalog não está disponível. O nome descreve a
-	// condição operacional; não é um modo legado genérico nem licença para
-	// ignorar a política estruturada de um perfil (AEP-0081 D3).
-	allPreloadedWithoutCatalog bool
-	disabled                   bool
-	unavailable                bool
+	structured  bool
+	status      ToolSelectionStatus
+	disabled    bool
+	unavailable bool
 }
 
 func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) EffectiveToolPolicy {
 	policy := EffectiveToolPolicy{
 		states:   map[string]ToolPolicyState{},
 		registry: p.registry,
+		status:   ToolSelectionReady,
 		disabled: cfg.DisableTools,
 	}
 	if p.registry == nil {
 		policy.unavailable = true
+		policy.status = ToolSelectionRegistryUnavailable
 		return policy
 	}
 	if cfg.DisableTools {
+		policy.status = ToolSelectionDisabled
 		return policy
 	}
 
@@ -65,21 +74,17 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			policy.states[name] = policy.matcher.Resolve(p.toolPolicyTarget(name)).State
 		}
 		policy.ensureCatalogForOnDemandTools(configured)
-		policy.applyRuntimeTools(cfg.RuntimeTools, true)
+		policy.applyRuntimeTools(cfg.RuntimeTools, p.registry.Has(tools.ToolCatalogName))
+		policy.markCatalogUnavailable(configured)
 		return policy
 	}
 
 	if cfg.EnabledTools == nil {
 		if !p.registry.Has(tools.ToolCatalogName) {
-			policy.allPreloadedWithoutCatalog = true
 			for _, name := range names {
-				if p.registry.IsOptIn(name) {
-					policy.states[name] = ToolPolicyDisabled
-					continue
-				}
-				policy.states[name] = ToolPolicyPreloaded
+				policy.states[name] = ToolPolicyDisabled
 			}
-			policy.applyRuntimeTools(cfg.RuntimeTools, true)
+			policy.status = ToolSelectionCatalogUnavailable
 			return policy
 		}
 		for _, name := range names {
@@ -94,6 +99,9 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 		return policy
 	}
 
+	if len(cfg.EnabledTools) == 0 {
+		policy.status = ToolSelectionExplicitEmpty
+	}
 	p.applyLegacyAllowlist(&policy, names, cfg)
 	return policy
 }
@@ -102,7 +110,7 @@ func (p *ToolSelectionPolicy) applyLegacyAllowlist(policy *EffectiveToolPolicy, 
 	for _, name := range names {
 		policy.states[name] = ToolPolicyDisabled
 	}
-	allowRuntime := len(cfg.EnabledTools) > 0
+	allowRuntime := len(cfg.EnabledTools) > 0 && p.registry.Has(tools.ToolCatalogName)
 	for _, name := range cfg.EnabledTools {
 		name = strings.TrimSpace(name)
 		if name == "" || !p.registry.Has(name) {
@@ -117,12 +125,6 @@ func (p EffectiveToolPolicy) State(name string) ToolPolicyState {
 	if p.disabled {
 		return ToolPolicyDisabled
 	}
-	if p.allPreloadedWithoutCatalog {
-		if state, ok := p.states[name]; ok {
-			return state
-		}
-		return ToolPolicyPreloaded
-	}
 	if state, ok := p.states[name]; ok {
 		return state
 	}
@@ -132,13 +134,20 @@ func (p EffectiveToolPolicy) State(name string) ToolPolicyState {
 	return ToolPolicyDisabled
 }
 
+func (p EffectiveToolPolicy) SelectionStatus() ToolSelectionStatus {
+	return p.status
+}
+
 func (p EffectiveToolPolicy) AllowsRuntimeLoad(name string) bool {
 	state := p.State(name)
-	return state == ToolPolicyOnDemand || state == ToolPolicyPreloaded
+	if state == ToolPolicyPreloaded {
+		return true
+	}
+	return state == ToolPolicyOnDemand && p.registry != nil && p.registry.Has(tools.ToolCatalogName)
 }
 
 func (p EffectiveToolPolicy) IsVisibleInCatalog(name string) bool {
-	return p.AllowsRuntimeLoad(name)
+	return p.registry != nil && p.registry.Has(tools.ToolCatalogName) && p.AllowsRuntimeLoad(name)
 }
 
 func (p EffectiveToolPolicy) PreloadedNames() []string {
@@ -147,9 +156,6 @@ func (p EffectiveToolPolicy) PreloadedNames() []string {
 	}
 	if p.disabled {
 		return []string{}
-	}
-	if p.allPreloadedWithoutCatalog {
-		return nil
 	}
 	registered := p.registry.Names()
 	names := make([]string, 0, len(registered))
@@ -169,8 +175,8 @@ func (p EffectiveToolPolicy) CatalogVisibleNames() []string {
 	if p.disabled {
 		return []string{}
 	}
-	if p.allPreloadedWithoutCatalog {
-		return nil
+	if !p.registry.Has(tools.ToolCatalogName) {
+		return []string{}
 	}
 	registered := p.registry.Names()
 	names := make([]string, 0, len(registered))
@@ -207,7 +213,7 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 				continue
 			}
 		}
-		if _, ok := p.states[name]; ok || p.allPreloadedWithoutCatalog {
+		if _, ok := p.states[name]; ok {
 			p.states[name] = ToolPolicyPreloaded
 		}
 	}
@@ -295,11 +301,6 @@ func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[strin
 		}
 	}
 	if _, ok := p.states[tools.ToolCatalogName]; !ok {
-		for name, state := range p.states {
-			if state == ToolPolicyOnDemand {
-				p.states[name] = ToolPolicyPreloaded
-			}
-		}
 		return
 	}
 	for name, state := range p.states {
@@ -308,6 +309,22 @@ func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[strin
 		}
 		if state == ToolPolicyOnDemand {
 			p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
+			return
+		}
+	}
+}
+
+func (p *EffectiveToolPolicy) markCatalogUnavailable(configured map[string]string) {
+	if p.registry.Has(tools.ToolCatalogName) {
+		return
+	}
+	if state, explicitlyConfigured := configured[tools.ToolCatalogName]; explicitlyConfigured &&
+		normalizeToolPolicyState(state) == ToolPolicyDisabled {
+		return
+	}
+	for _, state := range p.states {
+		if state == ToolPolicyOnDemand {
+			p.status = ToolSelectionCatalogUnavailable
 			return
 		}
 	}
