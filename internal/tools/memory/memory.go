@@ -58,6 +58,10 @@ func New(service Service) *Tool {
 
 func (t *Tool) Name() string { return "memory" }
 
+func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "write"}
+}
+
 func (t *Tool) Description() string {
 	return `Search and govern structured long-term memory records that can influence future conversations: list/search/get, write or patch, archive/unarchive, delete, and summarize policy usage.
 Use when: durable user preferences, identity, project facts, decisions, conventions, or resolved knowledge should be recalled across turns. Search first to reuse or update an existing record, then get details only when needed.
