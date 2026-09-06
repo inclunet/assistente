@@ -197,6 +197,9 @@ func (m *serviceTaskListManager) CreateTaskNote(ctx context.Context, taskID stri
 func (m *serviceTaskListManager) UpsertTaskNoteByExternal(ctx context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
 	return m.svc.UpsertTaskNoteByExternal(ctx, p)
 }
+func (m *serviceTaskListManager) ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error) {
+	return m.svc.ListTaskNotesPage(ctx, query)
+}
 func (m *serviceTaskListManager) UpdateTaskNote(ctx context.Context, noteID string, content string) error {
 	return m.svc.UpdateTaskNote(ctx, noteID, content)
 }
