@@ -182,7 +182,7 @@ func (c *conn) openSession(ctx context.Context, dir string) (*session, error) {
 	options := withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
 	options, usedLegacyModels := withModelOptionUsage(options, resp.Models)
 	if usedLegacyModels {
-		recordCompatibility(compatibilityLegacyModelsPayload)
+		c.recordCompatibility(compatibilityEvent{Feature: compatibilityLegacyModelsPayload})
 	}
 	return c.registerSession(string(resp.SessionId), dir, options), nil
 }
@@ -236,7 +236,7 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 	options := withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
 	options, usedLegacyModels := withModelOptionUsage(options, resp.Models)
 	if usedLegacyModels {
-		recordCompatibility(compatibilityLegacyModelsPayload)
+		cn.recordCompatibility(compatibilityEvent{Feature: compatibilityLegacyModelsPayload})
 	}
 	sess.setConfigOptions(options)
 	return sess, nil

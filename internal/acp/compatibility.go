@@ -12,6 +12,12 @@ const (
 	compatibilityLegacySelector      = "legacy_session_selector"
 )
 
+type compatibilityEvent struct {
+	Feature        string
+	SelectorMethod string
+	OptionCategory string
+}
+
 // recordCompatibility registra o uso efetivo de um contrato ACP anterior.
 // Esses eventos são a evidência necessária para decidir uma futura expiração:
 // presença do código ou de testes não diz se um agente real ainda depende dele.
@@ -20,18 +26,21 @@ const (
 // ser contados nos logs. Identificador de sessão, comando, argumentos e paths
 // locais ficam de fora: não são necessários para a métrica e exporiam detalhes
 // da instalação.
-func recordCompatibility(
-	feature string,
-	attrs ...slog.Attr,
-) {
+func (c *conn) recordCompatibility(event compatibilityEvent) {
 	fields := []any{
-		slog.String("compatibility_feature", feature),
+		slog.String("compatibility_feature", event.Feature),
 	}
-	for _, attr := range attrs {
-		fields = append(fields, attr)
+	if event.SelectorMethod != "" {
+		fields = append(fields, slog.String("selector_method", event.SelectorMethod))
+	}
+	if event.OptionCategory != "" {
+		fields = append(fields, slog.String("option_category", event.OptionCategory))
 	}
 	// Deliberadamente não herda o contexto do turno: Logger acrescentaria IDs
 	// de conversa, turno, perfil e tool, que não pertencem a esta métrica.
 	ctx := context.Background()
 	logging.Logger(ctx, logComponent).InfoContext(ctx, "compatibilidade ACP utilizada", fields...)
+	if c.cfg.observeCompatibility != nil {
+		c.cfg.observeCompatibility(event)
+	}
 }
