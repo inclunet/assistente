@@ -75,6 +75,15 @@ type Profile struct {
 | Speech/TTS runtime | `profileSlug` | slug string |
 | LLM routing | `ChatParams.ProfileSlug` | slug string |
 
+### Compatibilidade anterior à migração para DB
+
+O layout JSON da 0.1.9 usava `voice` monolítico, `interaction`,
+`voice.channel_response_mode` e `chat.mcp_mode`. O decoder atual adapta esses
+campos para roles de voz, `input`, `channels` e `native_mcp` sem regravar o
+arquivo. Releases 0.2.0–0.5.0 já usam o layout estrutural atual. Fixtures por
+release fixam também a semântica de `enabled_tools` ausente/vazio e da política
+tri-state, que a futura migração para DB não poderá alterar.
+
 ---
 
 ## Decisões

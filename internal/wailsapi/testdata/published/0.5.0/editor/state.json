@@ -1,0 +1,14 @@
+{
+  "fileModeByPath": {
+    "documento-sintetico-0.5.0.md": "rich"
+  },
+  "mergeSessionsByTabId": {
+    "tab-0.5.0": {
+      "originalPath": "documento-sintetico-0.5.0.md",
+      "mineDraftId": "rascunho-0.5.0",
+      "diskDraftId": "rascunho-0.5.0",
+      "conflictDraftId": "rascunho-0.5.0",
+      "createdAt": 1773835380000
+    }
+  }
+}
