@@ -214,6 +214,14 @@ var schemaMigrations = []migration{
 			return deferIfErr(ensureTaskPaginationIndexes(database))
 		},
 	},
+	{
+		Version: 15,
+		Name:    "task_note_pagination_indexes",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			return deferIfErr(ensureTaskNotePaginationIndexes(database))
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
