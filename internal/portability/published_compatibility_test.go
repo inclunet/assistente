@@ -79,6 +79,7 @@ func TestPublishedPortableV2RemainsCompatibleFrom020Through050(t *testing.T) {
 	}
 	for _, release := range []string{"0.2.0", "0.3.0", "0.4.0", "0.5.0"} {
 		t.Run(release, func(t *testing.T) {
+			setupPortabilityTestDB(t)
 			fixture["appVersion"] = release
 			versioned, err := json.Marshal(fixture)
 			if err != nil {
@@ -94,7 +95,53 @@ func TestPublishedPortableV2RemainsCompatibleFrom020Through050(t *testing.T) {
 			if len(unsupported) != 0 || len(file.Resources.Conversations) != 1 {
 				t.Fatalf("fixture não reconhecida: unsupported=%v file=%#v", unsupported, file)
 			}
+			original := append([]byte(nil), versioned...)
+			if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(versioned), nil, ""); err != nil {
+				t.Fatalf("import direto do release %s: %v", release, err)
+			}
+			if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(versioned), nil, ""); err != nil {
+				t.Fatalf("reimportação do release %s: %v", release, err)
+			}
+			var conversations, messages int64
+			if err := database.DB().Model(&database.Conversation{}).Count(&conversations).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := database.DB().Model(&database.ChatMessage{}).Count(&messages).Error; err != nil {
+				t.Fatal(err)
+			}
+			if conversations != 1 || messages != 1 {
+				t.Fatalf("release %s duplicou/perdeu dados: conversas=%d mensagens=%d", release, conversations, messages)
+			}
+			if string(versioned) != string(original) {
+				t.Fatalf("release %s teve a fonte alterada", release)
+			}
 		})
+	}
+}
+
+func TestPublishedPortableV2RejectsFutureVersionWithoutPartialImport(t *testing.T) {
+	setupPortabilityTestDB(t)
+	raw := `{
+		"version": 999,
+		"appVersion": "future",
+		"options": {},
+		"resources": {
+			"conversations": [{
+				"id": "0198b300-0000-7000-8000-000000000099",
+				"title": "não deve entrar",
+				"messages": []
+			}]
+		}
+	}`
+	if _, err := ImportConversationsWithContext(portabilityTestCtx(), raw, nil, ""); err == nil {
+		t.Fatal("versão futura deveria ser rejeitada")
+	}
+	var conversations int64
+	if err := database.DB().Model(&database.Conversation{}).Count(&conversations).Error; err != nil {
+		t.Fatal(err)
+	}
+	if conversations != 0 {
+		t.Fatalf("rejeição deixou import parcial: conversas=%d", conversations)
 	}
 }
 

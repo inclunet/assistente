@@ -1,0 +1,6 @@
+id: corpus-job-invalido
+name: Job inválido sintético
+enabled: true
+triggers:
+  - type: cron
+    expression: "não é cron"
