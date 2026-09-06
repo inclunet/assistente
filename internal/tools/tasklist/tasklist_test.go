@@ -1192,6 +1192,7 @@ func TestGetTaskList_PagingValidation(t *testing.T) {
 		{name: "invalid sort", args: map[string]any{"task_list_id": tl.ID, "sort": "updated_at:desc"}, want: "sort inválido"},
 		{name: "invalid cursor", args: map[string]any{"task_list_id": tl.ID, "cursor": "not-a-cursor"}, want: "cursor inválido"},
 		{name: "empty cursor", args: map[string]any{"task_list_id": tl.ID, "cursor": "  "}, want: "cursor must be a non-empty"},
+		{name: "empty sort", args: map[string]any{"task_list_id": tl.ID, "sort": "  "}, want: "sort must be created_at"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

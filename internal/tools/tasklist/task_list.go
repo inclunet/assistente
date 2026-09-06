@@ -293,6 +293,9 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) == "" {
 		return tools.ToolResult{Content: "cursor must be a non-empty next_cursor or null", IsError: true}, nil
 	}
+	if params.Sort != nil && strings.TrimSpace(*params.Sort) == "" {
+		return tools.ToolResult{Content: "sort must be created_at:asc, created_at:desc, or null", IsError: true}, nil
+	}
 
 	if params.Duplicate && !hasListRef {
 		return tools.ToolResult{Content: "duplicate requires task_list_id or task_list_slug to reference the source list", IsError: true}, nil
