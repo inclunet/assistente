@@ -121,8 +121,11 @@ func ListTasksPageWithContext(ctx context.Context, input TaskPageQuery) (TaskPag
 		return TaskPage{}, err
 	}
 	var taskList TaskList
-	if err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
-		First(&taskList, "id = ?", query.TaskListID).Error; err != nil {
+	err = WithSQLiteBusyRetry(ctx, "tasklist.get.page", func() error {
+		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").
+			First(&taskList, "id = ?", query.TaskListID).Error
+	})
+	if err != nil {
 		return TaskPage{}, err
 	}
 	cursor, cursorTime, err := decodeTaskPageCursor(query.Cursor, query)

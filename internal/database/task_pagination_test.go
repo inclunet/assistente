@@ -148,6 +148,66 @@ func TestListTasksPageWithContext_EnforcesUserScope(t *testing.T) {
 	}
 }
 
+func TestListTasksPageWithContext_RetriesMetadataReadDuringTransientLock(t *testing.T) {
+	path := t.TempDir() + "/task-page-retry.db"
+	testDB, cleanup := openSQLitePolicyTestDB(t, "file:"+path+"?_pragma=busy_timeout(1)&_pragma=journal_mode(DELETE)")
+	defer cleanup()
+	if err := testDB.AutoMigrate(&TaskList{}, &Task{}); err != nil {
+		t.Fatal(err)
+	}
+	previous := DB()
+	SetDB(testDB)
+	defer SetDB(previous)
+
+	ctx := WithUserID(context.Background(), "user-a")
+	list := TaskList{UUIDModel: UUIDModel{ID: "list-a"}, UserID: "user-a", Title: "Fila"}
+	if err := testDB.Create(&list).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.Create(&Task{
+		UUIDModel:  UUIDModel{ID: "task-a"},
+		TaskListID: list.ID,
+		Title:      "A",
+		StatusID:   1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockConn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lockConn.Close() }()
+	if _, err := lockConn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = lockConn.ExecContext(ctx, "ROLLBACK") }()
+
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(90 * time.Millisecond)
+		_, _ = lockConn.ExecContext(ctx, "COMMIT")
+		close(released)
+	}()
+
+	started := time.Now()
+	page, err := ListTasksPageWithContext(ctx, TaskPageQuery{TaskListID: list.ID, Limit: 10})
+	if err != nil {
+		t.Fatalf("paged read should recover from transient metadata lock: %v", err)
+	}
+	<-released
+	if elapsed := time.Since(started); elapsed < 50*time.Millisecond {
+		t.Fatalf("read completed too quickly (%s), metadata retry path was not exercised", elapsed)
+	}
+	if len(page.Tasks) != 1 || page.Tasks[0].ID != "task-a" {
+		t.Fatalf("unexpected page after retry: %+v", page)
+	}
+}
+
 func TestEnsureTaskPaginationIndexes(t *testing.T) {
 	testDB := setupTaskPaginationTestDB(t)
 	if err := ensureTaskPaginationIndexes(testDB); err != nil {
