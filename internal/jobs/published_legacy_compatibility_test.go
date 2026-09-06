@@ -27,9 +27,14 @@ func TestAcceptedLegacyJobCorpusImportsIdempotentlyAndPreservesSources(t *testin
 	if err != nil {
 		t.Fatalf("carregar job importado: %v", err)
 	}
+	hasInterval := false
+	hasManual := false
+	for _, trigger := range job.Triggers {
+		hasInterval = hasInterval || (trigger.Type == TriggerInterval && trigger.Every == "30m")
+		hasManual = hasManual || trigger.Type == TriggerManual
+	}
 	if job.Pipeline != "corpus" || job.Inputs["query"] != "valor-sintetico" ||
-		len(job.Triggers) != 2 || job.Triggers[0].Every != "30m" ||
-		job.Triggers[1].Type != TriggerManual {
+		len(job.Triggers) != 2 || !hasInterval || !hasManual {
 		t.Fatalf("dados do job não foram preservados: %+v", job)
 	}
 

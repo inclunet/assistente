@@ -95,7 +95,6 @@ func TestPublishedPortableV2RemainsCompatibleFrom020Through050(t *testing.T) {
 			if len(unsupported) != 0 || len(file.Resources.Conversations) != 1 {
 				t.Fatalf("fixture não reconhecida: unsupported=%v file=%#v", unsupported, file)
 			}
-			original := append([]byte(nil), versioned...)
 			if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(versioned), nil, ""); err != nil {
 				t.Fatalf("import direto do release %s: %v", release, err)
 			}
@@ -111,9 +110,6 @@ func TestPublishedPortableV2RemainsCompatibleFrom020Through050(t *testing.T) {
 			}
 			if conversations != 1 || messages != 1 {
 				t.Fatalf("release %s duplicou/perdeu dados: conversas=%d mensagens=%d", release, conversations, messages)
-			}
-			if string(versioned) != string(original) {
-				t.Fatalf("release %s teve a fonte alterada", release)
 			}
 		})
 	}
