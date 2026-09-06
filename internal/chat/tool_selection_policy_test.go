@@ -499,6 +499,20 @@ func TestToolSelectionPolicy_WithoutCatalogDoesNotAppendRuntimeTools(t *testing.
 	assertNames(t, "policy explícita", structured.PreloadedNames(), []string{"read_file"})
 }
 
+func TestToolSelectionPolicy_InvalidLegacyAllowlistDoesNotAuthorizeRuntimeTools(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		EnabledTools: []string{"  ", "missing_tool"},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+
+	assertNames(t, "allowlist sem autorização válida", effective.PreloadedNames(), []string{})
+	if effective.State(tools.LoadSkillName) != ToolPolicyDisabled {
+		t.Fatalf("runtime tool não pode ser liberada por entrada inválida, got %s", effective.State(tools.LoadSkillName))
+	}
+}
+
 func TestToolSelectionPolicy_ToolPolicyRuntimeDoesNotElevateDisabledLoadSkill(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)
