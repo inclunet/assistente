@@ -11,7 +11,7 @@ produção oficial que possa ser copiado para os testes.
 | --- | --- | --- |
 | 0.2.0 | `634bc1488c0a05ace8161191845ac8c10a12dc69` | `da57ca9e006513280f250af3427e28b2a6840b8862c1b24117607373a5599a17` |
 | 0.3.0 | `bb5a13e26bbf28d8a156c2300704c99d2d5df1a5` | `d643dfcb1d5ccf51e0a9ae671cd187a9b48ccd0e034f3ba9b3d7e507c147c42d` |
-| 0.4.0 | `1501ab34823bfe11ca28859baaa029d4e9976862` | `d643dfcb1d5ccf51e0a9ae671cd187a9b48ccd0e034f3ba9b3d7e507c147c42d` |
+| 0.4.0 | `cfd5aa74e56489a5bafd6a8d09917ef608d100d5` | `d643dfcb1d5ccf51e0a9ae671cd187a9b48ccd0e034f3ba9b3d7e507c147c42d` |
 | 0.5.0 | `812fb1a34b7811e0630f6be43cbb5821a91b00dc` | `d643dfcb1d5ccf51e0a9ae671cd187a9b48ccd0e034f3ba9b3d7e507c147c42d` |
 
 O fingerprint semântico ordena tabelas, colunas, índices e chaves estrangeiras

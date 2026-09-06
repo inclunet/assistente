@@ -17,7 +17,7 @@ o conjunto de origens suportadas.
 |---|---|---:|---:|---|---|
 | Banco com PK `INTEGER` → UUIDv7 | `database.Init` → migração v1 | 5d3d7eb9 (2026-04-26) | 0.2.0 | fixture SQL 0.1.9 + teste de upgrade direto; testes de relações em `migration_uuid_test.go` | Crítico: 0.1.9 não inicia/preserva relações |
 | Adoção de rows sem `user_id` | login/refresh → `AdoptLegacyData` | AEP-0052 (2026-05) | 0.2.0 | `multiuser_migration_test.go` e `credential_loss_repro_test.go` | Crítico: dados pré-multiusuário ficam invisíveis |
-| Migrações numeradas v1–v14 | `database.Init`, antes/depois de `AutoMigrate` | 78c26b94 (2026-06-21) | 0.2.0 (v1–v12) | registry, idempotência, fixture 0.1.9 e diagnóstico local | Crítico: quebra bancos de qualquer release anterior ao passo removido |
+| Migrações numeradas v1–v15 | `database.Init`, antes/depois de `AutoMigrate` | 78c26b94 (2026-06-21) | 0.2.0 (v1–v12) | registry, idempotência, fixtures 0.1.9–0.5.0 e diagnóstico local | Crítico: quebra bancos de qualquer release anterior ao passo removido |
 | `refresh_url` plaintext → campo cifrado | migração v9 + recriptografia do cofre | 5381ff3b (2026-06-10) | 0.2.0 | `bloco6_migrations_test.go`, `reencrypt_legacy_test.go` | Crítico: perda de refresh token ou segredo em claro |
 | Export de conversas com `metadata.version="2.0"` e IDs numéricos | `AnalyzeImportData`/`ImportData` → `parseExportFile` | f3737a82 (2026-01-26) | 0.1.9 | fixture realista 0.1.9, adaptador determinístico e teste idempotente | Alto: backups gerados pela 0.1.9 ficam inutilizáveis |
 | Export canônico `version: 2` | mesmos call sites de análise/importação | AEP-0047 (2026-04) | 0.2.0 | fixture comum e parse parametrizado para 0.2.0–0.5.0 | Crítico: backups de todas as releases atuais |
@@ -41,10 +41,15 @@ o conjunto de origens suportadas.
   `internal/portability/testdata/published/0.2.0-0.5.0-portable-v2.json`.
   As quatro tags usam o mesmo `ExportVersion = 2`; o teste varia
   `appVersion` e verifica todas.
-- Bancos binários completos 0.2.0–0.5.0 não são versionados nesta rodada.
-  Um dump vazio não exercitaria dados nem relações e daria falsa confiança.
-  Lacuna: [#684](https://github.com/inclunet/assistente/issues/684).
-- Corpus por release para MCP, jobs, skills, channels e contacts:
+- Bancos 0.2.0–0.5.0:
+  `internal/database/testdata/published/{0.2.0,0.3.0,0.4.0,0.5.0}.sql`.
+  São reconstruções determinísticas executando o schema de cada tag, com duas
+  pessoas e dados relacionados de conversas, tasklists, MCP/tools, jobs,
+  canais/contatos, memória, tags, ACP e credenciais sem segredo. Cada fixture
+  atravessa diretamente o pipeline atual duas vezes. O README do diretório
+  registra commits, fingerprints e o delta de schema; 0.3.0–0.5.0 são
+  semanticamente equivalentes.
+- Corpus **de arquivos legados** por release para MCP, jobs, skills, channels e contacts:
   [#686](https://github.com/inclunet/assistente/issues/686).
 - Layouts publicados de editor, workspaces e perfis/tools:
   [#685](https://github.com/inclunet/assistente/issues/685).
