@@ -27,6 +27,10 @@ func (t *ValidatePairingCodeTool) Name() string {
 	return "validate_pairing_code"
 }
 
+func (t *ValidatePairingCodeTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "write"}
+}
+
 func (t *ValidatePairingCodeTool) Description() string {
 	return `Validate one pending six-digit external-channel pairing code against its exact channel and contact identifier.
 Use when: only an internal recovery flow explicitly asks to check a code that is already pending for that same channel/contact pair. The normal inbound pairing flow is handled directly by the messaging gateway before any message reaches the LLM.
