@@ -275,6 +275,9 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	hasListRef := idPtr != nil || slugRef != ""
 	hasPageQuery := params.StatusID != nil || params.Limit != nil || params.Cursor != nil || params.Sort != nil
 
+	if params.TaskListID != nil && strings.TrimSpace(*params.TaskListID) == "" && slugRef == "" {
+		return tools.ToolResult{Content: "task_list_id must be a non-empty string or null", IsError: true}, nil
+	}
 	if params.SummaryOnly && !hasListRef {
 		return tools.ToolResult{Content: "summary_only requires task_list_id or task_list_slug", IsError: true}, nil
 	}
@@ -1069,9 +1072,12 @@ func (t *TaskListTool) applyCustomActions(ctx context.Context, taskListID string
 }
 
 func taskListIDPtrForResolve(p *string) *string {
-	if p == nil || *p == "" {
+	if p == nil {
 		return nil
 	}
-	v := *p
+	v := strings.TrimSpace(*p)
+	if v == "" {
+		return nil
+	}
 	return &v
 }
