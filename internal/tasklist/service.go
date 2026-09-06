@@ -649,6 +649,10 @@ func (s *Service) UpsertTaskNoteByExternal(ctx context.Context, p database.Upser
 	return note, created, nil
 }
 
+func (s *Service) ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error) {
+	return s.store.ListTaskNotesPage(ctx, query)
+}
+
 func (s *Service) GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error) {
 	return s.store.GetTaskNotes(ctx, taskID)
 }
