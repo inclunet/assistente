@@ -2065,8 +2065,8 @@ func TestUpsertTaskNote_ZeroTaskID(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error for empty task ID")
 	}
-	if !strings.Contains(result.Content, "informe task_id ou code") {
-		t.Errorf("expected task ref error, got: %s", result.Content)
+	if !strings.Contains(result.Content, "task_id must be a non-empty") {
+		t.Errorf("expected explicit task_id validation error, got: %s", result.Content)
 	}
 }
 
