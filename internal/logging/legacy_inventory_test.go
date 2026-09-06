@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,8 +21,9 @@ const (
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
-// Ele impede a reintrodução de Printf e caracteriza os formatos de produção
-// que ainda dependem de normalizeLegacyMessage antes de sua remoção futura.
+// Ele impede a reintrodução de call sites de Printf em produção e caracteriza
+// os formatos que ainda dependem de normalizeLegacyMessage antes de sua
+// remoção futura.
 func TestLegacyLoggingInventory(t *testing.T) {
 	root := repositoryRoot(t)
 	var printfSites []string
@@ -68,15 +68,21 @@ func TestLegacyLoggingInventory(t *testing.T) {
 
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("localizar arquivo do teste")
+	current, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("obter diretório de trabalho: %v", err)
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Fatalf("raiz calculada não contém go.mod: %s: %v", root, err)
+	for {
+		info, statErr := os.Stat(filepath.Join(current, "go.mod"))
+		if statErr == nil && !info.IsDir() {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			t.Fatalf("não foi possível localizar go.mod a partir de %s", current)
+		}
+		current = parent
 	}
-	return root
 }
 
 func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *[]string) {
