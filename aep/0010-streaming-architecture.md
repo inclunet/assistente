@@ -1,5 +1,7 @@
 # Refatoração: Arquitetura de Streaming e Mensagens
 
+**Status:** Superseded — contrato vigente consolidado nas AEPs 0040, 0057 e 0064
+
 ## Adendo (2026-05) — Contrato vigente e exemplos históricos
 
 Este documento nasceu durante uma fase anterior do projeto e contém exemplos (Svelte, criação implícita de conversa no envio) que **não são mais contrato vigente**.

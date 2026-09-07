@@ -1,6 +1,6 @@
 # Sistema de Auto-Update
 
-Status: Atualizado para a implementação real em `internal/updater/updater.go` e `.github/workflows/release.yml`.
+Status: Done — fluxo de release, verificações automáticas e aplicação por plataforma entregues
 
 ## Resumo
 

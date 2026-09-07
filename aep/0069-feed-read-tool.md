@@ -1,6 +1,6 @@
 # AEP-0069 — Tool `feed_read` (RSS/Atom/JSON Feed/Podcast → JSON canônico)
 
-Status: Draft
+Status: Done — implementação em `internal/tools/feed/feed_read.go` e testes de catálogo/guardrails
 Data: 2026-06-04
 Autor: Inclunet + Cursor Agent
 
@@ -55,8 +55,11 @@ com as tools já existentes.
   lista de nomes, categorias, enclosures). Quando há extensão iTunes ou enclosure
   de áudio, `is_podcast=true` e os blocos `podcast` (feed e item) são preenchidos.
 - **D5 — Read-only e seguro.** Tool sem efeitos colaterais; `Risk: "network"` no
-  catálogo. Bloqueia hosts locais/privados (defesa básica anti-SSRF), espelhando
-  `web_fetch`. Exige `http`/`https`.
+  catálogo. Destinos públicos `http`/`https` seguem sem prompt. Destinos
+  locais/privados são bloqueados por padrão, mas podem ser liberados mediante
+  consentimento e allowlist pelo `NetworkAuthorizer` (AEP-0082). Um destino
+  privado descoberto apenas após redirect não abre um novo prompt e permanece
+  bloqueado; schemes inválidos e excesso de redirects também são hard-deny.
 - **D6 — Parâmetros enxutos.** `url` (obrigatório), `max_items` (default 20),
   `include_content` (default false), `strip_html` (default true), `since`
   (RFC3339; filtra itens mais antigos, mantendo itens sem data parseável).
@@ -82,6 +85,35 @@ com as tools já existentes.
 
 A estrutura `parseFeed` desacoplada já deixa a porta aberta para essas evoluções
 sem reescrever a normalização.
+
+## Fases da v1
+
+- [x] Parser normaliza RSS, Atom, JSON Feed e extensões de podcast.
+- [x] Tool aplica limites, filtros e opções de conteúdo.
+- [x] Fetch reutiliza cliente HTTP/credenciais e guardrails anti-SSRF.
+- [x] Tool está registrada no catálogo com risco `network`.
+- [x] Testes cobrem formatos, podcast, filtros, erros, redirects e bloqueio
+  padrão de hosts privados; a autorização compartilhada é coberta em
+  `internal/tools/http/client_authorize_test.go`.
+
+## Critérios de aceitação da v1
+
+- [x] Saída JSON canônica é estável entre os quatro formatos suportados.
+- [x] `max_items`, `include_content`, `strip_html` e `since` funcionam.
+- [x] Podcast preserva enclosure e metadados iTunes normalizados.
+- [x] HTTP/HTTPS público é aceito sem prompt; acesso direto local/privado exige
+  autorização explícita via `NetworkAuthorizer` e allowlist.
+- [x] Destino privado descoberto somente após redirect não solicita
+  consentimento e é bloqueado; scheme inválido e limite de redirects falham
+  fechados.
+- [x] Feed autenticado usa a pilha HTTP compartilhada sem expor segredo ao modelo.
+- [x] Resultado é marcado como estruturado e arrays vazios não viram `null`.
+
+Evidências: `internal/tools/feed/feed_read_test.go`,
+`internal/tools/http/client_authorize_test.go`,
+`internal/tools/http/redirect_test.go`, `internal/tools/catalog_test.go` e registro em
+`internal/app/app_tool_registry.go`. Persistência, polling e UI permanecem
+explicitamente fora do escopo da v1.
 
 ## Arquivos
 

@@ -1,5 +1,7 @@
 # Implementação de Guias (Tabs) de Chat
 
+**Status:** Superseded — plano Svelte substituído pelo Unified Workspace e pelas superfícies das AEPs 0034, 0056 e 0057
+
 ## Resumo
 
 Este documento descreve o plano de implementação de um sistema de múltiplas guias para o chat, permitindo ao usuário ter várias conversas abertas simultaneamente, similar a um navegador de abas.

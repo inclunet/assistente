@@ -1,6 +1,6 @@
 # AEP-0066 — Indicador de status de conexão com a API LLM
 
-Status: Proposto
+Status: Done — escopo principal entregue; follow-ups permanecem separados
 Data: 2026-06-01
 Autor: Inclunet + Cursor Agent
 

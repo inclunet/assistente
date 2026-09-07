@@ -1,6 +1,6 @@
 # AEP-0061 — Incident report: credenciais não resolvidas após login, routing cruzado entre profiles e MCPs reabrindo OAuth a cada restart
 
-**Status:** Aceito
+**Status:** Accepted
 **Data:** 2026-05-11
 **Autor:** Engenharia Assistente
 **Relacionado:** AEP-0046 (UUIDv7), AEP-0052 (multi-user accounts)

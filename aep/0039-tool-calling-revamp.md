@@ -1,6 +1,6 @@
 # Tool Calling — Revamp & Enhancements
 
-## Status: Proposto
+## Status: In Progress — Fases 3–4 entregues; Fases 1, 2 e 5 permanecem parciais
 
 ---
 
@@ -98,7 +98,7 @@ Resumo final identico ao modo padrao.
 
 ---
 
-## Fase 1 — Eventos unificados
+## Fase 1 — Eventos unificados 🚧
 
 ### Problema
 
@@ -165,7 +165,7 @@ func emitToolEnd(emitter Emitter, opts ToolEndEvent) { ... }
 
 ---
 
-## Fase 2 — Enriquecimento de `chat:done` e `chat:segment_done`
+## Fase 2 — Enriquecimento de `chat:done` e `chat:segment_done` 🚧
 
 ### Problema
 
@@ -237,7 +237,7 @@ O backend ja possui todos os dados necessarios no momento da emissao: `iteration
 
 ---
 
-## Fase 3 — Resiliencia do executor
+## Fase 3 — Resiliencia do executor ✅
 
 ### Problema
 
@@ -273,7 +273,7 @@ type ToolExecutionResult struct {
 
 ---
 
-## Fase 4 — Pre-check de context window
+## Fase 4 — Pre-check de context window ✅
 
 ### Problema
 
@@ -301,7 +301,7 @@ Separar `MaxResultDisplaySize` (200 bytes para UI) de `MaxResultContextSize` (li
 
 ---
 
-## Fase 5 — Persistencia enriquecida de metadata
+## Fase 5 — Persistencia enriquecida de metadata 🚧
 
 ### Problema
 
@@ -360,19 +360,32 @@ Base sobre a qual esta AEP constroi. Estabeleceu:
 
 **Conflito: nenhum.** Esta AEP estende os structs existentes com campos opcionais. Nenhuma remocao ou renomeacao de campos da 0040.
 
-### AEP-0021 (MCP Native Mode) — IMPLEMENTADA (v3)
+### AEP-0021 (MCP Native Mode) — IN PROGRESS (revisão v7)
 
-Introduziu `native: bool` nos eventos de tool. Esta AEP deprecia `native` em favor de `origin: string` (fase 1).
+A revisão v7 define a política vigente de MCP nativo: capacidade física do
+provider por `NativeMCPCapable()`, override tri-state por perfil em
+`Profile.Chat.NativeMCP *bool`, auto otimista e fallback no mesmo turno para
+adapter com as bridge tools preservadas. Quando o modo automático encontra um
+endpoint incompatível, o perfil é autoajustado de `nil` para `false`; overrides
+explícitos não são sobrescritos.
 
-**Risco real: baixo.** O campo `native` e setado pelo backend para MCP nativo (`true`) mas nunca para bridge/built-in (default `false`). O frontend declara o campo no tipo TypeScript mas **nunca o consome** em nenhuma logica. A migracao pode ser feita com deprecacao suave (emitir ambos por 1 release) ou direta (substituir, ja que nenhum consumidor depende do campo).
+O registro antigo de `native: bool` pertence às revisões iniciais. Para a
+telemetria tratada nesta AEP, `origin` continua sendo a classificação canônica
+entre builtin, bridge e MCP nativo; a decisão de roteamento permanece
+responsabilidade da AEP-0021 e da política compartilhada de seleção.
 
-### AEP-0037 (SDK Migration) — IMPLEMENTADA (v2)
+### AEP-0037 (SDK Migration) — IN PROGRESS (v2)
 
-Concluida. Sem risco de merge — os arquivos `service.go` e `runAgenticLoop()` ja estao na versao final pos-migracao, que esta AEP modifica.
+O provider contract e o agentic loop usados por esta AEP já foram migrados.
+A AEP-0037 continua `In Progress` por cleanup residual da Fase 6, sem bloquear
+o escopo parcial desta proposta.
 
-### AEP-0045 (CLI Interface) — IMPLEMENTADA
+### AEP-0045 (CLI Interface) — IN PROGRESS
 
-Define a arquitetura do CLI adapter. Esta AEP estende o CLI com exibicao de tool calls e resumo `chat:done`.
+O escopo funcional do CLI adapter, incluindo exibição de tool calls e resumo
+`chat:done`, está entregue e possui testes. A AEP-0045 permanece `In Progress`
+porque a validação manual de `wails dev` continua pendente; essa pendência não
+bloqueia o recorte CLI consumido por esta AEP.
 
 **Conflito: nenhum.** 0045 e a fundacao; 0039 e consumidora.
 
@@ -382,11 +395,11 @@ Nenhum conflito identificado. AEPs 0033 (MCP OAuth), 0034 (workspace), 0035 (spl
 
 ---
 
-## Ordem de execucao sugerida
+## Registro histórico da ordem de execução
 
 | Fase | Risco | Impacto | Dependencias |
 |------|-------|---------|-------------|
-| 1 — Eventos unificados | Baixo | Medio | AEP-0040 e 0037 implementadas (ja OK) |
+| 1 — Eventos unificados | Baixo | Medio | AEP-0040 vigente; integração necessária da 0037 já entregue, com cleanup residual |
 | 2 — chat:done/segment enriquecido | Baixo | Alto | AEP-0040 implementada (ja OK) |
 | 3 — Resiliencia do executor | Medio | Alto | Nenhuma |
 | 4 — Pre-check context window | Medio | Alto | Nenhuma |
@@ -394,4 +407,75 @@ Nenhum conflito identificado. AEPs 0033 (MCP OAuth), 0034 (workspace), 0035 (spl
 
 Fases 1-4 sao independentes entre si e podem ser feitas em qualquer ordem (respeitadas as pre-condicoes). Fase 5 aproveita o campo `origin` introduzido na fase 1.
 
-**Sequencia recomendada:** Fase 2 primeiro (maior impacto, menor risco, sem pre-condicoes alem de 0040), depois fase 1, depois 3-5.
+**Sequência originalmente recomendada:** Fase 2 primeiro, depois Fase 1 e,
+por fim, Fases 3–5. As Fases 3–4 foram concluídas; Fases 1, 2 e 5 permanecem
+parciais conforme as lacunas abaixo.
+
+## Estado verificado, critérios e evidências
+
+O texto de “proposta” acima preserva o desenho que orientou a implementação.
+O contrato vigente usa IDs `string`/UUID e não mantém mais o campo legado
+`native`; `origin` é a classificação canônica.
+
+### Fase 1 — parcial
+
+- [x] Eventos de builtin, bridge, MCP nativo e ACP usam os structs comuns com
+  `origin`, `serverLabel` e tentativa.
+- [x] Execuções locais propagam duração.
+- [x] GUI e CLI consomem o mesmo protocolo; o CLI oferece resumo padrão e
+  detalhes em `--verbose`.
+- [ ] Propagar duração real de MCP nativo; hoje seus eventos terminam com
+  `DurationMs = 0`.
+
+Evidências: `internal/core/ports/chat_events.go`,
+`internal/agent/tool_events.go`, `agentic_loop_test.go`,
+`frontend/src/services/chatEventController.test.ts` e
+`adapters/cli/cli_test.go`.
+
+### Fase 2 — parcial
+
+- [x] `chat:done` inclui reason, iterações, contagem, nomes de tools e campos de
+  tokens.
+- [x] `chat:segment_done` inclui `ToolsInIteration`.
+- [ ] Acumular usage de todas as iterações no resumo terminal; hoje
+  `chat:done` recebe `LastUsage`, isto é, apenas a usage da última chamada.
+
+Evidências: `internal/agent/agentic_loop_test.go`,
+`service_stats_test.go`, `internal/core/ports/chat_events.go` e
+`adapters/cli/cli_test.go`.
+
+### Fase 3 — entregue
+
+- [x] Executor classifica erro, retryability e duração.
+- [x] `chat:tool_failure` informa tentativa e `willRetry`.
+- [x] Retry automático é limitado pela iteração disponível e possui regressão.
+
+Evidências: `internal/tools/executor.go`, `executor_test.go` e
+`internal/agent/agentic_loop_test.go`.
+
+### Fase 4 — entregue
+
+- [x] Pre-check considera janela configurada e overhead das mensagens.
+- [x] Resultados excedentes são truncados de forma UTF-8 safe antes da próxima
+  chamada ao provider.
+
+Evidências: `internal/agent/context.go`, `context_test.go` e
+`agentic_loop.go`.
+
+### Fase 5 — parcial
+
+- [x] Persistência canônica ocorre em `tool_invocations`, não em L3
+  `ChatMessage.ToolCalls`.
+- [x] Para execuções locais, metadata preserva argumentos redigidos, origem,
+  servidor, iteração e duração; status permanece coluna própria da invocation.
+- [x] MCP nativo e execução local convergem para a projeção comum nos campos
+  efetivamente disponíveis.
+- [ ] Persistir duração real para MCP nativo; atualmente esse caminho converge
+  com `DurationMs = 0`, a mesma lacuna registrada na Fase 1.
+
+Evidências: `internal/toolinvocations/service.go`, `service_test.go`,
+`internal/agent/service_tool_calls_persistence_test.go`,
+`service_native_mcp_test.go` e AEPs 0063/0078.
+
+Além de evoluções aditivas de UX ou novos tipos de origem, as duas pendências
+acima pertencem ao escopo aceito e mantêm esta AEP `In Progress`.

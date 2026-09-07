@@ -1,5 +1,14 @@
 # HTTP Request - Guardrails de Segurança
 
+**Status:** In Progress — guardrails implementados; cobertura de aprovação para DELETE/PUT/PATCH pendente
+
+> **Contrato vigente:** `HTTPRequest` recebe `credentials.Manager` em
+> `NewHTTPRequest(credMgr)` e delega autenticação ao cliente central de
+> `internal/tools/http`, que resolve credenciais pela URL. Não existem
+> `SetCredential`, `credential_key`, `auth_bearer` ou `auth_basic` no contrato
+> da tool. O desenho por chave descrito abaixo é histórico e foi superseded
+> pelas AEPs 0018 e 0019.
+
 ## Problema
 
 Ao dar ao modelo LLM acesso a uma ferramenta HTTP completa, surgem dois riscos principais:
@@ -19,8 +28,8 @@ Ao dar ao modelo LLM acesso a uma ferramenta HTTP completa, surgem dois riscos p
 
 #### Implementação
 ```go
-// No app.go, ao registrar http_request:
-httpReqTool := web.NewHTTPRequest()
+// Ao registrar http_request, o manager vigente é obrigatório:
+httpReqTool := web.NewHTTPRequest(credMgr)
 httpReqTool.SetConfirmFunc(func(ctx context.Context, method, url, body string) (bool, error) {
     // Mostra dialog de confirmação ao usuário
     resp, err := questionnaireMgr.RequestQuestionnaire(ctx, ...)
@@ -48,7 +57,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 
 ---
 
-### 2. Gestão Segura de Credenciais
+### 2. Gestão segura de credenciais — design histórico superseded
 
 #### Problema
 ❌ **Modelo vê o token**:
@@ -59,7 +68,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 }
 ```
 
-#### Solução
+#### Solução originalmente proposta
 ✅ **Usar chaves de credenciais**:
 ```json
 {
@@ -71,7 +80,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 #### Como funciona
 1. **Armazenar credenciais** antes de registrar a tool:
    ```go
-   httpReqTool := web.NewHTTPRequest()
+   httpReqTool := web.NewHTTPRequest(credMgr)
    httpReqTool.SetCredential("github_token", os.Getenv("GITHUB_TOKEN"))
    httpReqTool.SetCredential("stripe_key", loadFromVault("stripe_secret"))
    ```
@@ -185,13 +194,13 @@ anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
 
 ---
 
-## Configuração no Sistema
+## Configuração por chave — exemplos históricos, não usar
 
 ### Carregar credenciais de variáveis de ambiente
 
 **`app.go`**:
 ```go
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 httpReqTool.SetConfirmFunc(confirmCallback)
 
 // Carrega credenciais de variáveis de ambiente
@@ -225,7 +234,7 @@ a.toolRegistry.MustRegister(httpReqTool)
 ```go
 // Carrega config
 cfg := loadConfig()
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 
 for key, value := range cfg.HTTPCredentials {
     httpReqTool.SetCredential(key, value)
@@ -235,7 +244,7 @@ for key, value := range cfg.HTTPCredentials {
 ### Carregar de vault/secret manager (produção)
 
 ```go
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 
 // Exemplo com AWS Secrets Manager
 githubToken, _ := awsSecretsManager.GetSecret("prod/github_token")
@@ -270,7 +279,7 @@ httpReqTool.SetCredential("stripe_key", stripeKey.Data["value"].(string))
 
 ---
 
-## Exemplos Práticos
+## Exemplos práticos do design histórico
 
 ### Exemplo 1: GitHub API (seguro)
 
@@ -371,3 +380,21 @@ httpReqTool.SetCredential("slack_webhook", "https://hooks.slack.com/...")
 - [ ] Histórico de operações aprovadas/negadas
 - [ ] Templates de aprovação (auto-aprovar DELETE de recursos de teste)
 - [ ] Dry-run mode (simular sem executar)
+
+## Critérios e evidências do escopo entregue
+
+- [x] `internal/tools/web/http_request.go` encaminha `DELETE`, `PUT` e `PATCH`
+  ao callback de confirmação.
+- [x] `internal/tools/web/http_request_test.go` cobre DELETE sem callback e
+  DELETE negado/cancelado pelo callback.
+- [ ] Cobrir aprovação de DELETE e adicionar regressões de aprovação/negação
+  equivalentes para PUT e PATCH.
+- [x] O modelo não recebe token, senha ou chave de credencial no schema da
+  tool.
+- [x] O `credentials.Manager` é injetado no cliente HTTP central, que resolve
+  autenticação por URL.
+- [x] Proteções anti-SSRF pré/pós-DNS e em redirects vivem em
+  `internal/tools/http` e possuem regressões próprias.
+- [x] Ausência dos métodos históricos `SetCredential` e dos argumentos
+  `credential_key`/`auth_*` está reconciliada como substituição arquitetural,
+  não como funcionalidade pendente.

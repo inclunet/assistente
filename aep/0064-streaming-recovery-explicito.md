@@ -1,6 +1,6 @@
 # AEP-0064 — Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração
 
-Status: Proposto
+Status: Done — cancelamento, recuperação automática e continuação explícita implementados
 Data: 2026-05-21
 Autor: Leonardo Gleison (Inclunet) + GitHub Copilot
 
@@ -84,18 +84,30 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 ### 7) Backend-driven: sem mensagens “fantasma” persistentes no frontend
 
 - O frontend não deve criar mensagens locais persistentes para simular streaming.
-- Um placeholder visual temporário é aceitável enquanto o primeiro evento ainda não trouxe o `messageId` persistido, desde que seja migrado para esse ID assim que disponível.
-- Para suportar recuperação/continuação, o backend deve ser a fonte da verdade: mensagem do assistant deve existir no banco (placeholder) e ser atualizada conforme conteúdo parcial evolui.
+- O frontend também não cria placeholder visual local antes de receber
+  `messageId`. O placeholder pertence ao backend: é persistido no banco e
+  emitido por evento com ID canônico antes de qualquer renderização.
+- Para suportar recuperação/continuação, o backend é a única fonte da verdade:
+  a mensagem do assistant existe no banco e é atualizada conforme o conteúdo
+  parcial evolui. Isso segue AEP-0040 e o contrato backend-driven do projeto.
 
 ## Fases
 
-1. **Docs**: escrever este AEP e aplicar adendos mínimos em AEPs antigas com exemplos/contratos desatualizados.
-2. **Cancelamento**: expor `CancelStreamingForConversation` ao frontend (binding Wails) e implementar botão/menu/atalho `Esc` (este último escopado ao campo de edição — ver Decisão 4 / Issue #202).
-3. **Profile settings**: persistir as opções de recuperação no perfil e aplicar defaults no envio.
-4. **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
-5. **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
-6. **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
-7. **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação e ausência de prefill acidental.
+- [x] **Docs**: escrever este AEP e aplicar adendos mínimos em AEPs antigas com exemplos/contratos desatualizados.
+- [x] **Cancelamento**: expor `CancelStreamingForConversation` ao frontend (binding Wails) e implementar botão/menu/atalho `Esc` (este último escopado ao campo de edição — ver Decisão 4 / Issue #202).
+- [x] **Profile settings**: persistir as opções de recuperação no perfil e aplicar defaults no envio.
+- [x] **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
+- [x] **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
+- [x] **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
+- [x] **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação e ausência de prefill acidental.
+
+### Evidências
+
+- Recuperação e continuação: `internal/agent/streaming_recovery_test.go` e
+  `internal/agent/continuation_test.go`.
+- Cancelamento e UX: `frontend/src/components/chat/ChatInput.test.tsx`,
+  `ChatSessionView.test.tsx` e `frontend/src/lib/messageMenuItems.test.ts`.
+- Configuração de perfil: `frontend/src/components/profiles/ProfileChatSection.test.tsx`.
 
 ## Riscos
 
@@ -106,10 +118,15 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 
 ## Critérios de aceitação
 
-- Requests normais nunca enviam `assistant prefill` acidental.
-- Em interrupção de streaming com texto parcial, o app tenta recuperar automaticamente até 3 vezes.
-- Após falhar (ou após cancelamento), a UI mostra “Continuar resposta” no menu da mensagem sempre que o perfil permitir; a continuação usa `assistant prefill` quando suportado ou fallback por mensagem de usuário quando o provider/modelo não suporta prefill (Issue #124).
-- “Cancelar geração” funciona via botão e menu (sempre) e via `Esc` **apenas quando o foco está no campo de edição**; com o foco em outro elemento, o `Esc` devolve o foco ao campo de edição sem cancelar, preservando o fechamento de menus de contexto e a guarda de modal aberto (Issue #202).
-- Cancelamento não limpa fila inteira; apenas interrompe a geração atual.
-- Perfis expõem as opções com rótulos amigáveis e i18n (pt-BR, en, es).
-- Suite de testes cobre os comportamentos críticos.
+- [x] Requests normais nunca enviam `assistant prefill` acidental.
+- [x] Em interrupção com texto parcial, o app tenta recuperação automática até
+  3 vezes.
+- [x] Após falha/cancelamento, “Continuar resposta” usa prefill quando
+  suportado ou fallback por mensagem de usuário (Issue #124).
+- [x] “Cancelar geração” funciona por botão/menu e por `Esc` somente com foco
+  no campo de edição, preservando menus e modais (Issue #202).
+- [x] Cancelamento interrompe somente a geração atual, sem limpar a fila.
+- [x] Perfis expõem opções com i18n em pt-BR, en e es.
+- [x] O frontend renderiza somente mensagem/placeholder persistido e emitido
+  pelo backend com `messageId` canônico.
+- [x] A suíte cobre recuperação, continuação, cancelamento e configuração.

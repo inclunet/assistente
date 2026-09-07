@@ -1,6 +1,6 @@
 # AEP-0051 — Migração de Skills para Banco de Dados
 
-**Status**: Proposta (revisada 2026-06-08)  
+**Status**: Draft — revisada em 2026-06-08
 **Criado em**: 2026-04-21  
 **Depende de**: AEP-0046 (UUIDv7 Migration)  
 **Fundação de**: AEP-0072 (Skill Catalog & Loading)  

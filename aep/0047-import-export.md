@@ -1,5 +1,7 @@
 # AEP-0047 — Importação e Exportação de Conteúdo
 
+**Status:** In Progress — escopo DB-only e upgrades entregues; cobertura explícita de acessibilidade do fluxo inline permanece pendente
+
 ## Dependências
 
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): o formato canônico

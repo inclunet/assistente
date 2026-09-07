@@ -1,5 +1,7 @@
 # Deep Links Internos (`assistente://`)
 
+**Status:** Done — contrato implementado e coberto por regressões de navegação
+
 **Data**: 16 de março de 2026
 **Atualizado**: 23 de março de 2026
 

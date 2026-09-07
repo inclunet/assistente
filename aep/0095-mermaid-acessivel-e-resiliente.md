@@ -1,6 +1,6 @@
 # AEP-0095: Mermaid acessível e resiliente
 
-- **Status**: In Progress
+- **Status**: Done
 - **Data**: 2026-08-21
 
 ## Resumo
@@ -110,6 +110,26 @@ próprias, como menus de contexto no Markdown e `sync()` do deck no Reveal.
 - [x] substituir o elemento neutro pelo contrato oficial;
 - [x] manter a auditoria de live regions verde.
 
+### Evidências
+
+- Adaptador compartilhado, navigator e announcer:
+  `frontend/src/lib/accessibleMermaid.ts` e
+  `accessibleMermaid.test.ts`.
+- Integração Markdown, fallback localizado e falha parcial:
+  `frontend/src/components/ui/MarkdownRenderer.tsx` e
+  `MarkdownRenderer.test.tsx`.
+- Reuso no Reveal, cleanup, navegação e isolamento:
+  `frontend/src/components/editor/RevealRenderer.tsx` e
+  `RevealRenderer.test.tsx`.
+- Integração real da biblioteca e regressões auxiliares:
+  `accessibleMermaid.integration.test.ts`, `mermaidFence.test.ts` e testes do
+  editor Mermaid.
+- Entregas de implementação:
+  [PR #570 — Mermaid acessível](https://github.com/inclunet/assistente/pull/570),
+  [PR #571 — integração Reveal](https://github.com/inclunet/assistente/pull/571),
+  [PR #572 — erro contido](https://github.com/inclunet/assistente/pull/572) e
+  [PR #573 — canal oficial do announcer](https://github.com/inclunet/assistente/pull/573).
+
 ## Riscos
 
 - APIs internas do Mermaid podem variar dentro da faixa suportada pela
@@ -125,14 +145,26 @@ próprias, como menus de contexto no Markdown e `sync()` do deck no Reveal.
 
 ## Critérios de aceitação
 
-- Flowcharts suportados são navegáveis por teclado nos modos de leitura.
-- Fora do modo de leitura, diagramas não entram na ordem de Tab.
-- Não existe nova live region local em chat, editor ou Reveal.
-- Tipos não suportados continuam visualmente renderizados.
-- Um bloco inválido não impede a leitura do restante do documento nem o
+- [x] Flowcharts suportados são navegáveis por teclado nos modos de leitura.
+- [x] Fora do modo de leitura, diagramas não entram na ordem de Tab.
+- [x] Não existe nova live region local em chat, editor ou Reveal.
+- [x] Tipos não suportados continuam visualmente renderizados.
+- [x] Um bloco inválido não impede a leitura do restante do documento nem o
   processamento de outros diagramas.
-- O erro exibido é localizado, conciso e possui detalhes recolhíveis.
-- Nenhum desenho de erro do Mermaid escapa do bloco para o `body`.
-- Menus e fluxos de copiar, editar, enviar e renderizar novamente permanecem.
-- Markdown e Reveal compartilham o mesmo contrato de renderização e cleanup.
-- Testes de acessibilidade, TypeScript, lint e Vitest permanecem verdes.
+- [x] O erro exibido é localizado, conciso e possui detalhes recolhíveis.
+- [x] Nenhum desenho de erro do Mermaid escapa do bloco para o `body`.
+- [x] Menus e fluxos de copiar, editar, enviar e renderizar novamente permanecem.
+- [x] Markdown e Reveal compartilham o mesmo contrato de renderização e cleanup.
+- [x] Testes focados cobrem acessibilidade, integração, cleanup e falhas
+  isoladas nas duas superfícies.
+- [x] TypeScript está verde (`npx tsc --noEmit`).
+- [x] ESLint, incluindo `jsx-a11y`, e Stylelint estão verdes.
+- [x] Vitest, incluindo as regressões Mermaid e `axe-core`, está verde.
+
+Os gates são reproduzíveis pelo contrato de
+`.github/workflows/ci.yml`: etapas `TypeScript check`, `ESLint`, `Stylelint` e
+`Tests (includes axe-core a11y)`, equivalentes a `npx tsc --noEmit`,
+`npm run lint`, `npm run lint:css` e `npm run test`. A cobertura específica
+permanece nos testes concretos listados em **Evidências**; os PRs de
+implementação também estão vinculados ali. Checks de um PR documental posterior
+não constituem evidência da implementação desta AEP.

@@ -1,6 +1,6 @@
 # AEP-0067 — Eventos de domínio de Tasklists e Custom Actions
 
-Status: Proposto
+Status: In Progress — núcleo entregue; cobertura do picker e do fluxo frontend completo ainda não foi comprovada
 Data: 2026-06-02
 Autor: Inclunet + Cursor Agent
 
@@ -369,15 +369,22 @@ alto risco. Mitigações combinadas: proveniência + circuit breaker + `trigger.
 
 ## Critérios de aceitação
 
-- [ ] `Manager.PublishDomainEvent` publica no `EventBus` (subscriber recebe).
-- [ ] Refresh manual publica `tasklist.list.refresh_requested` a partir do menu do board.
-- [ ] Eventos de domínio emitidos num único ponto do `Service` (todos os entrypoints convergem).
-- [ ] Proveniência (`_source`/`_source_job_id`/`_chain_id`) no payload; job que muta card não re-dispara a si mesmo com `when {{ eq .event._source "user" }}`.
-- [ ] `custom_actions` persistido (coluna JSON), editável via UI; itens nativos preservados.
-- [ ] `TriggerCustomAction` renderiza `payload_template`/`link` e publica o evento; `link` abre deeplink interno ou URL externa.
-- [ ] Eventos de domínio + eventos das custom actions aparecem no picker do `JobBuilder`.
-- [ ] Skill `job-manager` documenta os novos eventos e recipes.
-- [ ] Testes Go (publish/sink/refresh/custom action/anti-loop) e frontend (menu/detalhes/binding) + build.
+- [x] `Manager.PublishDomainEvent` publica no `EventBus` (subscriber recebe).
+- [x] Refresh manual publica `tasklist.list.refresh_requested` a partir do menu do board.
+- [x] Eventos de domínio emitidos num único ponto do `Service` (todos os entrypoints convergem).
+- [x] Proveniência (`_source`/`_source_job_id`/`_chain_id`) no payload; job que muta card não re-dispara a si mesmo com `when {{ eq .event._source "user" }}`.
+- [x] `custom_actions` persistido (coluna JSON), editável via UI; itens nativos preservados.
+- [x] `TriggerCustomAction` renderiza `payload_template`/`link` e publica o evento; `link` abre deeplink interno ou URL externa.
+- [ ] Eventos de domínio + eventos das custom actions aparecem no picker do
+      `JobBuilder` com teste focado de regressão.
+- [x] Skill `job-manager` documenta os novos eventos e recipes.
+- [x] Testes Go cobrem publish, refresh, custom actions e anti-loop em
+      `internal/tasklist/domain_events_test.go`,
+      `internal/wailsapi/tasklist_actions_test.go`,
+      `internal/tools/tasklist/tasklist_test.go` e
+      `internal/jobs/domain_events_test.go`.
+- [ ] Testes frontend ainda precisam comprovar o binding/picker e o fluxo
+      completo de custom actions no `JobBuilder`.
 
 ## Fora de escopo
 
