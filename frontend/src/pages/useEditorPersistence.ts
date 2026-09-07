@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { logger } from '../utils/logger';
 import { useEditorStore, type EditorDocument } from '../store/editorStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { useUIStore } from '../store/uiStore';
 import { normalizePathKey } from '../utils/path';
 import { diskInfoEquals, hashStringFNV1a32, normalizeDiskInfo } from '../lib/editorMergeUtils';
@@ -78,6 +79,7 @@ export function useEditorPersistence({
 }: UseEditorPersistenceArgs) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
+  const externalChangeSetting = useSettingsStore((s) => s.config.editor.externalChange);
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const setDocDirty = useEditorStore((s) => s.setDocDirty);
   const setDocProjection = useEditorStore((s) => s.setDocProjection);
@@ -446,7 +448,7 @@ export function useEditorPersistence({
       if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
         await reconcileExternalChangeForTab(tab, {
           trigger: 'focus_recheck',
-          allowAutoReload: !!tab.readOnly,
+          allowAutoReload: externalChangeSetting === 'autoReload',
           notifyAutoReload: true,
         });
       }
@@ -477,7 +479,7 @@ export function useEditorPersistence({
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);
     };
-  }, [sessionLoaded, currentDocumentId]);
+  }, [sessionLoaded, currentDocumentId, externalChangeSetting]);
 
   // Watcher de mudanças externas (sincroniza watch/unwatch com as abas abertas).
   useEffect(() => {
@@ -575,7 +577,10 @@ export function useEditorPersistence({
           selfWrite,
           assisted,
           probablySelfWrite,
-          allowAutoReload: true,
+          // Mudança assistida pode acompanhar o disco quando o reconciliador
+          // prova que não há divergência local. Para mudança externa comum, a
+          // preferência `prompt` força a decisão até em aba limpa.
+          allowAutoReload: assisted || externalChangeSetting === 'autoReload',
           notifyAutoReload: true,
           readDisk,
         });
@@ -589,7 +594,7 @@ export function useEditorPersistence({
         // ignore
       }
     };
-  }, [sessionLoaded, currentDocumentId]);
+  }, [sessionLoaded, currentDocumentId, externalChangeSetting]);
 
   // Limpa timers de autosave ao desmontar.
   useEffect(() => {

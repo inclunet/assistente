@@ -41,7 +41,12 @@ func (t *PipelineTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *PipelineTool) Description() string {
-	return "Composite DB-backed job pipeline manager. No params lists persisted pipelines. slug reads a pipeline. With slug plus fields updates, or creates that explicit slug when not found and name is present. Without slug plus name creates with a generated slug. enabled toggles scheduling for jobs in the pipeline. delete removes a pipeline."
+	return `Manage persistent job pipelines: named groups of related jobs with shared enable/disable state. Pipelines organize jobs; they do not execute tools, define step order, or pass data themselves.
+Use when: grouping automations for navigation or enabling/disabling all jobs in a workflow. No parameters lists pipelines; slug reads one; name creates one.
+Do not use: use job to configure triggers, tool inputs, event chaining, execution, or run history. Use task_list for human task boards rather than automation groups.
+Persistence, risk, and cost: pipeline metadata persists in the database. Disabling a pipeline stops its jobs from being effectively scheduled; deleting or changing a pipeline can affect the whole group. Reads are lightweight and never run jobs.
+Resolution: slug plus write fields updates, or creates that slug when absent and name is present; enabled changes group scheduling state; delete requires slug.
+Examples: create {"name":"Morning routine"}; disable {"slug":"morning-routine","enabled":false}; inspect {"slug":"morning-routine"}.`
 }
 
 func (t *PipelineTool) Parameters() json.RawMessage {

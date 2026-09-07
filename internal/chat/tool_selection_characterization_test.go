@@ -102,7 +102,7 @@ func initialSelectionCases(t *testing.T) []initialSelectionCase {
 		{name: "enabledNil_comLoadSkillRuntime", registry: r, enabled: nil, runtime: []string{tools.LoadSkillName}, want: []string{tools.ToolCatalogName, tools.LoadSkillName}},
 		{name: "enabledVazioExplicito_ficaVazio", registry: r, enabled: []string{}, runtime: []string{tools.LoadSkillName}, want: []string{}},
 		{name: "enabledExplicito_appendLoadSkill", registry: r, enabled: []string{"read_file", "write_file"}, runtime: []string{tools.LoadSkillName}, want: []string{tools.LoadSkillName, "read_file", "write_file"}},
-		{name: "semCatalogo_enabledNil_caiEmTodasAsTools", registry: noCatalog, enabled: nil, want: []string{"grep_search", "read_file"}},
+		{name: "semCatalogo_enabledNil_falhaFechado", registry: noCatalog, enabled: nil, want: []string{}},
 		{name: "disableTools_retornaNada", registry: r, enabled: []string{"read_file"}, disable: true, want: []string{}},
 	}
 }

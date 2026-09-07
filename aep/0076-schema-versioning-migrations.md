@@ -1,9 +1,8 @@
 # AEP-0076 — Versionamento de Schema do Banco (schema_migrations)
 
-**Status:** Done
-
 | Campo | Valor |
 |-------|-------|
+| Status | ✅ Done |
 | Issue | [#247](https://github.com/inclunet/assistente/issues/247) |
 | Relacionados | AEP-0046 (UUIDv7), AEP-0052 (Multi-user), AEP-0074 (Compaction) |
 
@@ -71,17 +70,7 @@ Regras:
   - `v8 normalize_summarizing_in_progress_bool`
   - `v9 refresh_url_to_enc`
 
-A ordem v1..v9 é o **baseline histórico** entregue por esta AEP e preserva a
-ordem anterior das chamadas custom em `Init()`. O mecanismo continuou recebendo
-migrações depois dessa entrega. No registro vigente:
-
-- **Pré-AutoMigrate:** `v10 acp_session_user_id_not_null`;
-- **Pós-AutoMigrate:** `v11 drop_acp_session_prompt_prefix_hash`;
-- **Pós-AutoMigrate:** `v12 acp_providers_single_type`.
-
-`v12` é apenas a maior versão no snapshot atual, não um teto permanente. Novas
-mudanças estruturais devem continuar sendo acrescentadas ao fim de
-`schemaMigrations` com a próxima versão livre.
+A ordem v3..v9 preserva exatamente a ordem anterior das chamadas em `Init()`.
 
 ### D4 — Adoção de bancos existentes sem quebra (`DetectApplied`)
 
@@ -95,25 +84,36 @@ As demais migrações (v2–v9) são **idempotentes e baratas** (índices `IF NO
 
 `AutoMigrate` não é removido nem versionado. Ele continua sendo a forma idiomática (GORM) de adicionar colunas e tabelas novas a partir dos models. Apenas **mudanças estruturais** (conversões de tipo, índices custom, normalizações de dados legados) passam pelo mecanismo versionado.
 
+### D6 — Compatibilidade universal entre releases
+
+É suportado o upgrade direto de **toda versão publicada** para a versão atual,
+sem instalação intermediária. Portanto:
+
+- uma migração publicada nunca é renumerada, reutilizada ou removida;
+- `AutoMigrate` e as fases pré/pós devem aceitar o estado de qualquer tag;
+- caminhos pré-versionamento, inclusive PKs `INTEGER`, continuam detectáveis;
+- toda nova release entra na matriz
+  `docs/operations/upgrade-compatibility-matrix.md`;
+- alteração de schema exige fixture sintética sem PII ou issue específica que
+  documente a lacuna; uma lacuna de fixture não autoriza remover o caminho.
+
+`UpgradeDiagnostic`, emitido localmente após as migrações, registra somente
+versão do schema, versão mais recente, quantidade aplicada e números pendentes.
+Ele não inclui caminhos, IDs, conteúdo ou credenciais.
+
 ## Fases (de implementação)
 
 1. **Mecanismo**: `migrator.go` com `migration`, `schemaMigrations`, `runMigrations`/`runMigrationList`, `ensureSchemaMigrationsTable`, `appliedMigrationVersions`, `recordMigration`, `syncUserVersion`.
-2. **Migração do baseline custom histórico**: encapsular as funções que já
-   existiam como entradas v1..v9, preservando ordem e fases.
+2. **Migração das custom existentes**: encapsular as funções já existentes (mantidas intactas) como entradas v1..v9, preservando ordem e fases.
 3. **Refatorar `Init()`**: substituir as chamadas diretas por `runMigrations(db, phasePreAutoMigrate)` (antes do `AutoMigrate`) e `runMigrations(db, phasePostAutoMigrate)` (depois).
-4. **Testes do framework e do registro evolutivo**: aplicação ordenada,
-   idempotência, filtragem por fase, `DetectApplied` (carimba sem rodar), parada
-   em erro, consistência do registro, detector UUIDv7 e integração do registro
-   real (fresh DB + segundo boot no-op). Esses testes percorrem a lista vigente,
-   hoje v1..v12, sem codificar v12 como versão final.
-
-### Extensões posteriores ao baseline
-
-As versões v10..v12 são uso continuado do framework entregue, não reabertura
-das fases 1–4: `internal/database/migrator.go` as registra nas fases adequadas,
-e `internal/database/migrator_test.go` valida ordenação estritamente crescente,
-ausência de duplicatas, aplicação de todo o registro real e idempotência no
-segundo boot.
+4. **Testes**: aplicação ordenada, idempotência, filtragem por fase, `DetectApplied` (carimba sem rodar), parada em erro, consistência do registro, detector UUIDv7 e integração do registro real (fresh DB + segundo boot no-op).
+5. **Compatibilidade publicada**: fixtures 0.1.9–0.5.0 atravessam diretamente
+   todo o pipeline até a versão atual. As reconstruções 0.2.0–0.5.0 executam
+   o `AutoMigrate` de cada tag e carregam dados relacionados de todos os
+   domínios persistidos relevantes, com duas pessoas para provar isolamento.
+   A 0.2.0 não possui `llm_providers.reasoning_content_mode`; os schemas
+   0.3.0, 0.4.0 e 0.5.0 são semanticamente equivalentes. Proveniência,
+   fingerprints e limites ficam no README das fixtures.
 
 ## Riscos
 
@@ -121,15 +121,20 @@ segundo boot.
 - **Banco legado em INTEGER aberto pela primeira vez**: `DetectApplied` da v1 retorna `false` e a conversão real roda — comportamento idêntico ao anterior, agora registrado ao final.
 - **Edição incorreta da lista** (versão duplicada/fora de ordem): guardado por teste de consistência do registro.
 - **Espelho `user_version` divergir da tabela**: `user_version` é apenas informativo; nenhuma lógica depende dele como fonte de verdade.
+- **Fixture parcial parecer cobertura integral**: a matriz declara recursos e
+  relações exercitados. Caminhos não representados permanecem retidos e viram
+  lacunas rastreadas.
 
 ## Critérios de aceitação
 
 - [x] Tabela `schema_migrations` criada no boot e `PRAGMA user_version` espelhando a maior versão contígua aplicada (prefixo 1..N sem buracos).
-- [x] Migrações custom que formavam o baseline histórico foram migradas para o
-  mecanismo (v1..v9), preservando ordem e fases.
-- [x] Registro vigente inclui v10..v12 e permanece extensível; testes exercitam
-  a lista completa sem tratar v12 como limite permanente.
+- [x] Migrações custom existentes migradas para o mecanismo (v1..v9), preservando ordem e fases.
 - [x] Bancos já migrados **não** reexecutam a conversão UUIDv7 (marcada via `DetectApplied`).
 - [x] `AutoMigrate` mantido para adição de colunas.
 - [x] Testes: ordem, idempotência, fase, `DetectApplied`, parada em erro, registro real (fresh DB + segundo boot no-op).
+- [x] Política de upgrade direto universal documentada e diagnóstico local sem PII.
+- [x] Fixture 0.1.9 exercita upgrade direto com preservação de conversa,
+  mensagens e hierarquia.
+- [x] Fixtures 0.2.0–0.5.0 exercitam upgrade direto e segundo boot idempotente,
+  preservando contagens, relações, hierarquias, `user_id` e isolamento.
 - [x] `go build`, `go vet`, `go test`, `golangci-lint` verdes.

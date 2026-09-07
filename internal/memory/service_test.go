@@ -102,46 +102,46 @@ func TestServiceBuildReturnsInstructionsAndErrorWhenPromptFails(t *testing.T) {
 	}
 }
 
-func TestLegacyMemoryBlockIsSkippedForAuthenticatedUser(t *testing.T) {
+func TestLegacyMemoryFileNeverEntersPrompt(t *testing.T) {
 	svc, ctx, _ := setupMemoryService(t)
-	restore := setupLegacyMemoryFile(t, "memória legada global")
+	memoryFile, restore := setupLegacyMemoryFile(t, "memória legada global")
 	defer restore()
 
-	block, err := svc.PromptBlock(ctx, 500)
+	block, err := svc.PromptBlock(context.Background(), 500)
 	if err != nil {
-		t.Fatalf("PromptBlock authenticated: %v", err)
+		t.Fatalf("PromptBlock sem autenticação: %v", err)
 	}
 	if block != "" {
-		t.Fatalf("expected no authenticated legacy block, got %q", block)
+		t.Fatalf("memory.md não deve entrar no prompt sem autenticação: %q", block)
 	}
-
-	block, err = svc.PromptBlock(context.Background(), 500)
-	if err != nil {
-		t.Fatalf("PromptBlock legacy: %v", err)
-	}
-	if !strings.Contains(block, "memória legada global") {
-		t.Fatalf("expected unauthenticated legacy block, got %q", block)
-	}
-}
-
-func TestServiceBuildUsesLegacyInstructionsWithoutAuthenticatedUser(t *testing.T) {
-	svc, _, _ := setupMemoryService(t)
-	restore := setupLegacyMemoryFile(t, "memória legada global")
-	defer restore()
 
 	blocks, err := svc.Build(context.Background(), contextprovider.BuildRequest{})
 	if err != nil {
-		t.Fatalf("Build legacy: %v", err)
+		t.Fatalf("Build sem autenticação: %v", err)
+	}
+	if dynamic := findMemoryBlock(blocks, "user_memory"); dynamic != nil {
+		t.Fatalf("memory.md não deve gerar bloco dinâmico: %+v", dynamic)
 	}
 	instructions := findMemoryBlock(blocks, "memory_instructions")
 	if instructions == nil {
 		t.Fatalf("memory_instructions block not found: %+v", blocks)
 	}
-	if !containsAll(instructions.Content, "legacy compatibility mode", "Do not call the memory tool") {
-		t.Fatalf("unexpected legacy instructions: %s", instructions.Content)
+	if strings.Contains(instructions.Content, "memory.md") || strings.Contains(instructions.Content, "legacy compatibility") {
+		t.Fatalf("instruções não devem mencionar o fluxo removido: %s", instructions.Content)
 	}
-	if block := findMemoryBlock(blocks, "user_memory"); block == nil || !strings.Contains(block.Content, "memória legada global") {
-		t.Fatalf("expected legacy memory block, got: %+v", blocks)
+	if !strings.Contains(instructions.Content, "Do not call it in unauthenticated flows") {
+		t.Fatalf("instruções devem impedir uso da tool sem autenticação: %s", instructions.Content)
+	}
+
+	if _, err := svc.PromptBlock(ctx, 500); err != nil {
+		t.Fatalf("PromptBlock canônico: %v", err)
+	}
+	data, err := os.ReadFile(memoryFile)
+	if err != nil {
+		t.Fatalf("memory.md existente não deve ser apagado: %v", err)
+	}
+	if string(data) != "memória legada global" {
+		t.Fatalf("memory.md existente não deve ser alterado: %q", data)
 	}
 }
 
@@ -592,7 +592,7 @@ func stringPtr(value string) *string {
 	return &value
 }
 
-func setupLegacyMemoryFile(t *testing.T, content string) func() {
+func setupLegacyMemoryFile(t *testing.T, content string) (string, func()) {
 	t.Helper()
 	previousWorkDir, err := os.Getwd()
 	if err != nil {
@@ -603,14 +603,15 @@ func setupLegacyMemoryFile(t *testing.T, content string) func() {
 	if err := os.MkdirAll(memoryDir, 0700); err != nil {
 		t.Fatalf("mkdir memory dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(memoryDir, "memory.md"), []byte(content), 0600); err != nil {
+	memoryFile := filepath.Join(memoryDir, "memory.md")
+	if err := os.WriteFile(memoryFile, []byte(content), 0600); err != nil {
 		t.Fatalf("write memory.md: %v", err)
 	}
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("chdir temp: %v", err)
 	}
 	configdir.ResetForTests()
-	return func() {
+	return memoryFile, func() {
 		_ = os.Chdir(previousWorkDir)
 		configdir.ResetForTests()
 	}

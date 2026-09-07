@@ -14,3 +14,4 @@ Documentação de referência para build, release e versionamento do Assistente.
 | [Release Debug](RELEASE_DEBUG/) | Troubleshooting de releases |
 | [Release Quickstart](RELEASE_QUICKSTART/) | Quick start para processo de release |
 | [Versionamento](VERSIONING/) | Esquema de versionamento do projeto |
+| [Atualizações e compatibilidade](UPGRADES/) | Upgrade direto desde qualquer versão publicada |

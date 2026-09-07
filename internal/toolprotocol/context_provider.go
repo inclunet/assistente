@@ -10,6 +10,13 @@ import (
 
 const defaultPromptBudget = 4000
 const protocolTruncationNotice = "... Additional tool selection protocol content omitted due to context budget."
+const unavailableStatusTruncationNotice = "... Additional tool availability status omitted due to context budget."
+
+const unavailableStatusPrompt = `<tool_selection_status>
+Dynamic tool discovery is unavailable because tool_catalog is unavailable.
+No implicit tools were exposed.
+The user can explicitly select tools in the profile editor.
+</tool_selection_status>`
 
 type ContextProvider struct{}
 
@@ -31,6 +38,24 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 }
 
 func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
+	if req.ImplicitToolSelectionUnavailable {
+		content := contextprovider.TrimTaggedBlockToBudget(
+			unavailableStatusPrompt,
+			"tool_selection_status",
+			unavailableStatusTruncationNotice,
+			req.Budget(p.Name(), defaultPromptBudget),
+		)
+		if content == "" {
+			return nil, nil
+		}
+		return []contextprovider.Block{{
+			Provider:   p.Name(),
+			Name:       "tool_selection_status",
+			Volatility: contextprovider.VolatilityStable,
+			Priority:   8,
+			Content:    content,
+		}}, nil
+	}
 	if !catalogFirstActive(req) {
 		return nil, nil
 	}

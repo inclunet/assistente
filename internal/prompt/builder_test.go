@@ -97,10 +97,12 @@ func providerBuildRequestForTest(enabledSkills []string, disableSkills bool, dis
 	case chat.TemplateData:
 		req.ToolCallingEnabled = data.ToolCallingEnabled
 		req.EnabledTools = append([]string(nil), data.EnabledTools...)
+		req.ImplicitToolSelectionUnavailable = data.ImplicitToolSelectionUnavailable
 	case *chat.TemplateData:
 		if data != nil {
 			req.ToolCallingEnabled = data.ToolCallingEnabled
 			req.EnabledTools = append([]string(nil), data.EnabledTools...)
+			req.ImplicitToolSelectionUnavailable = data.ImplicitToolSelectionUnavailable
 		}
 	default:
 		req.ToolCallingEnabled = true
@@ -980,10 +982,16 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
 	data := b.BuildTemplateData(nil, llm.ChatParams{
-		ProfileSlug:        "editor-texto",
-		TabType:            "editor",
-		SurfaceStateJSON:   `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
-		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false,"projectId":"project-a"}`,
+		ProfileSlug:      "editor-texto",
+		TabType:          "editor",
+		SurfaceStateJSON: `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
+		SurfaceContextJSON: `{
+			"surfaceType":"editor",
+			"surfaceId":"tab-2",
+			"snapshotVersion":"editor:tab-2:1",
+			"selection":{"kind":"text","text":"hello","isEmpty":false},
+			"metadata":{"projectId":"project-a"}
+		}`,
 	}, "7")
 
 	if data.Surface == nil {
@@ -998,8 +1006,9 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 	if got := data.Surface.State["filePath"]; got != "/tmp/readme.md" {
 		t.Fatalf("Surface.State[filePath] = %v, want /tmp/readme.md", got)
 	}
-	if got := data.Surface.Context["selectedText"]; got != "hello" {
-		t.Fatalf("Surface.Context[selectedText] = %v, want hello", got)
+	selection, _ := data.Surface.Context["selection"].(map[string]any)
+	if got := selection["text"]; got != "hello" {
+		t.Fatalf("Surface.Context.selection.text = %v, want hello", got)
 	}
 	if data.ProjectID != "project-a" {
 		t.Fatalf("ProjectID = %q, want project-a", data.ProjectID)
@@ -1020,6 +1029,24 @@ func TestBuildTemplateData_ReadsProjectIDFromSurfaceMetadata(t *testing.T) {
 
 	if data.ProjectID != "project-from-metadata" {
 		t.Fatalf("ProjectID = %q, want project-from-metadata", data.ProjectID)
+	}
+}
+
+func TestBuildTemplateData_DiscardsIncompleteSurfaceContext(t *testing.T) {
+	b := &prompt.Builder{}
+	data := b.BuildTemplateData(nil, llm.ChatParams{
+		TabType:            "editor",
+		SurfaceContextJSON: `{"selectedText":"hello","projectId":"projeto-legado"}`,
+	}, "7")
+
+	if data.Surface == nil {
+		t.Fatal("tabType ainda deve identificar a surface")
+	}
+	if data.Surface.Context != nil {
+		t.Fatalf("payload incompleto não deve chegar ao contexto: %#v", data.Surface.Context)
+	}
+	if data.ProjectID != "" {
+		t.Fatalf("projectId legado não deve ser aceito: %q", data.ProjectID)
 	}
 }
 
@@ -1119,14 +1146,14 @@ func TestComputeEnabledToolNames_NilRegistry_ReturnsNil(t *testing.T) {
 	}
 }
 
-func TestComputeEnabledToolNames_AllTools_WhenNoFilter(t *testing.T) {
+func TestComputeEnabledToolNames_NoProfileFailsClosed(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})
 	_ = reg.Register(&fakeTool{name: "write_file"})
 	b := &prompt.Builder{Tools: reg}
 	names := b.ComputeEnabledToolNames(nil)
-	if len(names) != 2 {
-		t.Errorf("Expected 2 tools, got %v", names)
+	if len(names) != 0 {
+		t.Errorf("perfil ausente não deve expor tools, got %v", names)
 	}
 }
 
@@ -1170,7 +1197,7 @@ func TestComputeEnabledToolNames_AddsLoadSkillForModelOnDemandSkills(t *testing.
 	}
 }
 
-func TestComputeEnabledToolNames_ProfileNilToolsFallsBackWhenCatalogMissing(t *testing.T) {
+func TestComputeEnabledToolNames_ProfileNilToolsFailsClosedWhenCatalogMissing(t *testing.T) {
 	reg := tools.NewRegistry()
 	_ = reg.Register(&fakeTool{name: "read_file"})
 	_ = reg.Register(&fakeTool{name: "write_file"})
@@ -1178,8 +1205,93 @@ func TestComputeEnabledToolNames_ProfileNilToolsFallsBackWhenCatalogMissing(t *t
 	b := &prompt.Builder{Tools: reg}
 
 	names := b.ComputeEnabledToolNames(profile)
-	if len(names) != 2 {
-		t.Fatalf("Expected all tools without catalog, got %v", names)
+	if len(names) != 0 {
+		t.Fatalf("Expected no implicit tools without catalog, got %v", names)
+	}
+	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	if !data.ImplicitToolSelectionUnavailable {
+		t.Fatalf("TemplateData deve preservar o motivo tipado da seleção: %+v", data)
+	}
+	messages := buildPromptForTest(b, []llm.Message{{Role: "user", Content: "oi"}}, nil, false, false, data, "", "")
+	system, ok := messages[0].Content.(string)
+	if !ok || !strings.Contains(system, "<tool_selection_status>") ||
+		!strings.Contains(system, "No implicit tools were exposed") {
+		t.Fatalf("prompt deve incluir status fail-closed, got %#v", messages)
+	}
+}
+
+func TestBuildTemplateData_OmitsFailClosedStatusForIntentionalSelections(t *testing.T) {
+	withoutCatalog := tools.NewRegistry()
+	_ = withoutCatalog.Register(&fakeTool{name: "read_file"})
+
+	tests := []struct {
+		name    string
+		builder *prompt.Builder
+		profile *profiles.Profile
+	}{
+		{
+			name:    "tools desabilitadas",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{DisableTools: true}},
+		},
+		{
+			name:    "allowlist vazia",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{EnabledTools: []string{}}},
+		},
+		{
+			name:    "allowlist explícita",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{EnabledTools: []string{"read_file"}}},
+		},
+		{
+			name:    "preloaded explícita com on demand",
+			builder: &prompt.Builder{Tools: withoutCatalog},
+			profile: &profiles.Profile{Chat: profiles.ChatConfig{
+				ToolPolicyDefault: "on_demand",
+				ToolPolicy: map[string]string{
+					"read_file": "preloaded",
+				},
+			}},
+		},
+		{
+			name: "catálogo disponível",
+			builder: &prompt.Builder{Tools: func() *tools.Registry {
+				reg := tools.NewRegistry()
+				_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+				_ = reg.Register(&fakeTool{name: "read_file"})
+				return reg
+			}()},
+			profile: &profiles.Profile{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data := tc.builder.BuildTemplateData(tc.profile, llm.ChatParams{}, "conv-1")
+			if data.ImplicitToolSelectionUnavailable {
+				t.Fatalf("status não deveria aparecer: %+v", data)
+			}
+		})
+	}
+}
+
+func TestComputeEnabledToolNames_RuntimeToolDoesNotOpenLegacyProfileWithoutCatalog(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.LoadSkillName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "review"}
+	b := &prompt.Builder{
+		Tools: reg,
+		Skills: &mockSkillReader{allSkillsFull: []skills.Skill{
+			makeSkill("base", "Base", "Base skill", "base content", false, true),
+			makeSkill("review", "Review", "Review skill", "review content", false, true),
+		}},
+	}
+
+	if names := b.ComputeEnabledToolNames(profile); len(names) != 0 {
+		t.Fatalf("runtime tool não deve abrir perfil legado sem catálogo, got %v", names)
 	}
 }
 

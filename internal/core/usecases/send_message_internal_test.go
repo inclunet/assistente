@@ -29,6 +29,7 @@ func (t testTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, e
 // tools opt-in; perfil com allowlist explícito pode selecioná-las.
 func TestDynamicExpansionDropsOptInOnlyForDynamicProfile(t *testing.T) {
 	registry := tools.NewRegistry()
+	registry.MustRegister(testTool{name: tools.ToolCatalogName})
 	registry.MustRegister(testTool{name: "regular_tool"})
 	registry.MustRegisterOptIn(testTool{name: "text_edit"})
 	policy := chat.NewToolSelectionPolicy(registry)

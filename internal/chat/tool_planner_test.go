@@ -80,6 +80,16 @@ func TestPolicyPlanner_EssencialNuncaCortada(t *testing.T) {
 	assertNames(t, "essencial preservada sob budget mínimo", got, []string{tools.ToolCatalogName})
 }
 
+func TestPolicyPlanner_LegacyWithoutCatalogFailsClosedBeforeBudget(t *testing.T) {
+	r := tools.NewRegistry()
+	r.MustRegister(toolWithSchema("read_file", 30))
+	r.MustRegister(toolWithSchema("write_file", 30))
+	policy := NewToolSelectionPolicy(r)
+
+	got := policy.InitialToolDefs(ProfileToolConfig{SchemaBytesBudget: 1000})
+	assertNames(t, "sem catálogo", defNames(got), []string{})
+}
+
 // TestPolicyPlanner_ExpansaoComBudget verifica o corte por budget também na
 // expansão dinâmica (ResolveExpandedToolDefs), o segundo ponto de integração.
 func TestPolicyPlanner_ExpansaoComBudget(t *testing.T) {

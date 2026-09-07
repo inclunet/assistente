@@ -13,6 +13,12 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
+let externalChangeSetting: 'autoReload' | 'prompt' = 'autoReload';
+vi.mock('../store/settingsStore', () => ({
+  useSettingsStore: (selector: (state: unknown) => unknown) =>
+    selector({ config: { editor: { externalChange: externalChangeSetting } } }),
+}));
+
 const addToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
   useUIStore: (selector: (s: { addToast: typeof addToast }) => unknown) => selector({ addToast }),
@@ -129,7 +135,10 @@ function renderPersistence(
   opts: { allDocs?: EditorDocument[]; currentDocumentId?: string } = {}
 ) {
   const allDocs = opts.allDocs ?? [doc];
-  useEditorStore.getState().hydrate({ documents: Object.fromEntries(allDocs.map((d) => [d.id, d])) });
+  useEditorStore.getState().hydrate({
+    ownerUserId: useEditorStore.getState().ownerUserId,
+    documents: Object.fromEntries(allDocs.map((d) => [d.id, d])),
+  });
 
   return renderHook(() =>
     useEditorPersistence({
@@ -147,7 +156,11 @@ describe('useEditorPersistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fileChangedHandler = null;
-    useEditorStore.getState().hydrate({ documents: {} });
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: {},
+    });
+    externalChangeSetting = 'autoReload';
     vi.mocked(EditorGetFileInfo).mockResolvedValue({
       exists: true,
       isDir: false,
@@ -365,8 +378,10 @@ describe('useEditorPersistence', () => {
   });
 
   it('não sobrescreve conteúdo local divergente no recheck de foco', async () => {
-    const doc = makeDoc({ markdown: 'edicao local ainda nao salva', isDirty: false });
+    const doc = makeDoc({ markdown: 'edicao local ainda nao salva', isDirty: true });
     const merge = makeMerge('edicao local ainda nao salva', makeDiskInfo(5, 1000));
+    merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('baseline anterior');
+    merge.diskStateByTabRef.current['tab-1'].baselineContent = 'baseline anterior';
     vi.mocked(EditorReadFile).mockResolvedValue('mudanca externa no disco' as never);
 
     renderPersistence(doc, merge);
@@ -636,5 +651,41 @@ describe('useEditorPersistence', () => {
 
     expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('mudanca externa');
     expect(addToast).toHaveBeenCalledWith('editor.toast.externalReloaded', 'info');
+  });
+
+  it('setting prompt pergunta mesmo para mudança externa em aba limpa', async () => {
+    externalChangeSetting = 'prompt';
+    const doc = makeDoc({ markdown: 'conteudo original', isDirty: false });
+    const merge = makeMerge('conteudo original', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('mudanca externa' as never);
+
+    renderPersistence(doc, merge);
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md' });
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('conteudo original');
+    expect(promptResolveExternalChangeForTab).toHaveBeenCalled();
+  });
+
+  it('setting prompt não impede reload assistido seguro', async () => {
+    externalChangeSetting = 'prompt';
+    const doc = makeDoc({ markdown: 'antes da tool', isDirty: true });
+    const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(doc, merge);
+
+    await act(async () => {
+      await fileChangedHandler?.({
+        path: 'C:/tmp/doc.md',
+        origin: 'assistant_tool',
+        assisted: true,
+      });
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
+    expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
   });
 });

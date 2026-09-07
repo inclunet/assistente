@@ -765,14 +765,14 @@ describe('chatStore validation', () => {
       tabType: 'editor',
       activeFilePath: '/tmp/readme.md',
       surfaceStateJson: '{"filePath":"/tmp/readme.md"}',
-      surfaceContextJson: '{"selectedText":"hello"}',
+      surfaceContextJson: '{"surfaceType":"editor","surfaceId":"tab-1","snapshotVersion":"editor:tab-1:1","selection":{"kind":"text","text":"hello"}}',
     });
 
     expect(mockSendMessage).toHaveBeenCalledWith("01926b90-7a5a-7c4e-8d3f-000000000007", 'hello', '', expect.objectContaining({
       tabType: 'editor',
       activeFilePath: '/tmp/readme.md',
       surfaceStateJson: '{"filePath":"/tmp/readme.md"}',
-      surfaceContextJson: '{"selectedText":"hello"}',
+      surfaceContextJson: '{"surfaceType":"editor","surfaceId":"tab-1","snapshotVersion":"editor:tab-1:1","selection":{"kind":"text","text":"hello"}}',
     }));
   });
 

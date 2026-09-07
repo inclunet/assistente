@@ -27,6 +27,19 @@ Implementado no repositório (não-exaustivo):
 Adiado (por decisão de escopo agora):
 - [ ] Persistência via SQLite (`editor_documents`) e gestão de arquivos do editor.
 
+### Compatibilidade de dados publicados
+
+A release 0.1.9 chegou a persistir sessão e drafts nas tabelas SQLite
+`editor_session_states` e `editor_documents`. A partir da 0.2.0, o estado local
+passou a `editor/state.json` + `editor/drafts/`; o storage atual é isolado em
+`users/<user_id>/editor/`.
+
+O primeiro usuário elegível adota uma única vez os dados legados de qualquer
+dos dois layouts. Markdown, preferência de modo e sessões de merge são
+preservados, sem apagar a origem. Metadados da sessão 0.1.9 que pertenciam ao
+antigo sistema de abas não são recriados, pois abas agora pertencem ao
+workspace (AEP-0034).
+
 ---
 
 ## Escopo (MVP)
@@ -136,6 +149,12 @@ Observação: `Ctrl+I` já aparece na ajuda como “Perfis de interação”. Me
 ### Comportamento
 - Um toggle na Toolbar: **Rico** / **Markdown**.
 - A aba mantém um estado `mode` e um campo `markdown` (fonte de verdade).
+- O modo de exibição (`markdown`, `rich` ou `view`) pertence à identidade da
+  aba e é persistido em `WorkspaceTab.state.displayMode`. Enquanto a aba
+  existir, a escolha sobrevive à troca de abas e à reinicialização do
+  aplicativo; fechar/remover a aba encerra esse estado.
+- A preferência histórica por caminho de arquivo é usada apenas como fallback
+  para abas legadas ou recém-criadas que ainda não tenham `displayMode`.
 
 ### Regras de sincronização
 - Ao entrar no modo rico: `markdown` → parse → setContent no TipTap.

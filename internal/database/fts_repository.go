@@ -137,12 +137,24 @@ func SearchMessageContentWithContext(ctx context.Context, query string, limit in
 }
 
 func (r *FTSRepository) SearchMessageContentWithContext(ctx context.Context, query string, limit int) ([]MessageSearchResult, error) {
+	return r.SearchMessageContentInConversationWithContext(ctx, query, "", limit)
+}
+
+// SearchMessageContentInConversationWithContext aplica opcionalmente o escopo
+// de uma conversa à busca FTS. conversationID vazio preserva a busca global
+// (sempre limitada ao usuário do contexto).
+func SearchMessageContentInConversationWithContext(ctx context.Context, query, conversationID string, limit int) ([]MessageSearchResult, error) {
+	return NewFTSRepository(db).SearchMessageContentInConversationWithContext(ctx, query, conversationID, limit)
+}
+
+func (r *FTSRepository) SearchMessageContentInConversationWithContext(ctx context.Context, query, conversationID string, limit int) ([]MessageSearchResult, error) {
 	db := r.db
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	query = strings.TrimSpace(query)
+	conversationID = strings.TrimSpace(conversationID)
 	if query == "" {
 		return nil, nil
 	}
@@ -168,6 +180,10 @@ func (r *FTSRepository) SearchMessageContentWithContext(ctx context.Context, que
 		  AND c.user_id = ?
 	`
 	args := []interface{}{query, userID}
+	if conversationID != "" {
+		baseSQL += ` AND m.conversation_id = ?`
+		args = append(args, conversationID)
+	}
 	baseSQL += `
 		ORDER BY bm25(chat_messages_fts)
 		LIMIT ?

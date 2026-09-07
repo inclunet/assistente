@@ -22,6 +22,15 @@ describe('parseToolSource', () => {
     expect(parseToolSource('mcp_broken')).toEqual({ type: 'local' });
   });
 
+  it('não confunde a tool nativa mcp_server com uma MCP', () => {
+    expect(parseToolSource('mcp_server')).toEqual({ type: 'local' });
+  });
+
+  it('exige slug e nome ao redor do separador canônico', () => {
+    expect(parseToolSource('mcp___search')).toEqual({ type: 'local' });
+    expect(parseToolSource('mcp_atlassian__')).toEqual({ type: 'local' });
+  });
+
   it('retorna local para string vazia', () => {
     expect(parseToolSource('')).toEqual({ type: 'local' });
   });

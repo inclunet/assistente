@@ -28,12 +28,13 @@ var fsScopeOptions = []fsScopeOption{
 }
 
 const (
-	fsActionDenyPrefix = "deny"
-	fsActionDirPrefix  = "dir-"
+	fsActionDenyPrefix         = "deny"
+	fsActionDenyRememberPrefix = "deny-"
+	fsActionDirPrefix          = "dir-"
 )
 
 func fsDecisionActions() []questionnaire.DecisionAction {
-	out := make([]questionnaire.DecisionAction, 0, len(fsScopeOptions)*2+1)
+	out := make([]questionnaire.DecisionAction, 0, len(fsScopeOptions)*3)
 	for i, o := range fsScopeOptions {
 		out = append(out, questionnaire.DecisionAction{
 			ID:      string(o.scope),
@@ -56,12 +57,38 @@ func fsDecisionActions() []questionnaire.DecisionAction {
 			Variant: "secondary",
 		})
 	}
+	// Negar e lembrar usa os mesmos escopos duráveis do trust compartilhado.
+	// "once" permanece a ação Negar final; session também é lembrado, mas só em
+	// memória e isolado por conversa.
+	for _, o := range fsScopeOptions[1:] {
+		out = append(out, questionnaire.DecisionAction{
+			ID: fsActionDenyRememberPrefix + string(o.scope),
+			Label: questionnaire.Keyed(
+				"app.questionnaire.fstrust.deny."+string(o.scope),
+				fmt.Sprintf("Negar — %s", o.label),
+			),
+			Variant: "danger",
+		})
+	}
 	out = append(out, questionnaire.DecisionAction{
 		ID:      fsActionDenyPrefix,
 		Label:   questionnaire.Keyed("app.questionnaire.fstrust.cancel", "Negar"),
 		Variant: "outline",
 	})
 	return out
+}
+
+func fsDenyScopeFromActionID(actionID string) (fstrust.Scope, bool) {
+	value := strings.TrimPrefix(strings.TrimSpace(actionID), fsActionDenyRememberPrefix)
+	if value == actionID || value == string(fstrust.ScopeOnce) {
+		return "", false
+	}
+	for _, o := range fsScopeOptions[1:] {
+		if string(o.scope) == value {
+			return o.scope, true
+		}
+	}
+	return "", false
 }
 
 func fsScopeFromActionID(actionID string) (scope fstrust.Scope, kind fstrust.Kind, ok bool) {
@@ -106,7 +133,7 @@ func pathConfirmationPayload(req fstrust.PromptRequest) questionnaire.RequestPay
 		Description: questionnaire.KeyedWith(
 			"app.questionnaire.fstrust.description",
 			map[string]any{"operation": req.Operation},
-			fmt.Sprintf("O assistente pediu a operação \"%s\" em um caminho fora do workspace ativo e de ~/.assistente. Autorize apenas o path exato desta tentativa, ou escolha explicitamente liberar a pasta pai.", req.Operation),
+			fmt.Sprintf("O assistente pediu a operação \"%s\" em um caminho fora do workspace ativo e de ~/.assistente. Permita o path ou a pasta pai, negue esta tentativa ou lembre a negação no escopo escolhido.", req.Operation),
 		),
 		Body:        details.String(),
 		AllowCancel: true,
@@ -133,7 +160,20 @@ func (p *appFSPrompter) PromptPathAuthorization(ctx context.Context, req fstrust
 	}
 	actionID = strings.TrimSpace(actionID)
 	if actionID == fsActionDenyPrefix {
-		return fstrust.PromptDecision{Approve: false}, nil
+		return fstrust.PromptDecision{
+			Approve: false,
+			Scope:   fstrust.ScopeOnce,
+			Kind:    fstrust.KindFile,
+			Effect:  fstrust.EffectDeny,
+		}, nil
+	}
+	if scope, ok := fsDenyScopeFromActionID(actionID); ok {
+		return fstrust.PromptDecision{
+			Approve: false,
+			Scope:   scope,
+			Kind:    fstrust.KindFile,
+			Effect:  fstrust.EffectDeny,
+		}, nil
 	}
 
 	scope, kind, ok := fsScopeFromActionID(actionID)
@@ -141,5 +181,10 @@ func (p *appFSPrompter) PromptPathAuthorization(ctx context.Context, req fstrust
 		return fstrust.PromptDecision{}, fmt.Errorf("ação de autorização de path inválida: %q", actionID)
 	}
 
-	return fstrust.PromptDecision{Approve: true, Scope: scope, Kind: kind}, nil
+	return fstrust.PromptDecision{
+		Approve: true,
+		Scope:   scope,
+		Kind:    kind,
+		Effect:  fstrust.EffectAllow,
+	}, nil
 }

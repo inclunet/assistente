@@ -11,6 +11,7 @@ vi.mock('./useAnnouncer', () => ({
 interface HarnessProps {
   isActive: boolean;
   onClose?: () => void;
+  handleEscapeOutside?: boolean;
 }
 
 const labels = {
@@ -86,13 +87,18 @@ function MissingCustomContentHarness({ isActive, onClose = () => {} }: HarnessPr
   );
 }
 
-function ScopedHarness({ isActive, onClose = () => {} }: HarnessProps) {
+function ScopedHarness({
+  isActive,
+  onClose = () => {},
+  handleEscapeOutside = false,
+}: HarnessProps) {
   const ref = useRef<HTMLDivElement>(null);
   useRenderedContentNavigation({
     elementRef: ref,
     isActive,
     profile: 'scoped',
     contentSelector: '[data-testid="scoped-content"]',
+    handleEscapeOutside,
     onEscape: onClose,
   });
   return (
@@ -270,6 +276,30 @@ describe('useVirtualModal', () => {
 
     expect(onEscape).not.toHaveBeenCalled();
     expect(screen.getByTestId('scoped-destination')).toHaveFocus();
+  });
+
+  it('captura Escape fora da região scoped somente com opt-in ativo', async () => {
+    const onEscape = vi.fn();
+    const { rerender } = render(
+      <ScopedHarness
+        isActive={false}
+        onClose={onEscape}
+        handleEscapeOutside={true}
+      />,
+    );
+    rerender(
+      <ScopedHarness
+        isActive={true}
+        onClose={onEscape}
+        handleEscapeOutside={true}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('scoped-content')).toHaveFocus());
+
+    screen.getByTestId('scoped-destination').focus();
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(false);
+
+    expect(onEscape).toHaveBeenCalledOnce();
   });
 
   it('ignora controles com tabindex -1 ao calcular a contenção', () => {

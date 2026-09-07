@@ -11,7 +11,10 @@ type TemplateData struct {
 	ToolCallingEnabled bool
 	EnabledTools       []string
 	EnabledToolCount   int
-	ConversationID     string
+	// ImplicitToolSelectionUnavailable distingue falha fechada por ausência do
+	// catálogo de uma desativação intencional ou seleção explícita vazia.
+	ImplicitToolSelectionUnavailable bool
+	ConversationID                   string
 
 	// Workspace context
 	WorkspaceID      string

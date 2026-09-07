@@ -62,9 +62,13 @@ type BuildRequest struct {
 	DisableOnDemand     bool
 	ToolCallingEnabled  bool
 	EnabledTools        []string
-	ProviderBudgets     map[string]int
-	ProviderEnabled     map[string]bool
-	ProviderSettings    map[string]map[string]any
+	// ImplicitToolSelectionUnavailable vem da resolução tipada da policy. Não
+	// deve ser inferido de EnabledTools vazio, que também representa escolhas
+	// intencionais do usuário.
+	ImplicitToolSelectionUnavailable bool
+	ProviderBudgets                  map[string]int
+	ProviderEnabled                  map[string]bool
+	ProviderSettings                 map[string]map[string]any
 
 	// TaskListContextEnabled carries the chat skill policy decision into the
 	// tasklist provider. It should only be true when tasklist-manager is enabled

@@ -71,6 +71,10 @@ Tools não listadas usam `on_demand`, exceto opt-ins. Assim, o primeiro turno j�
 consegue explorar, editar, validar e delegar código, enquanto operações
 destrutivas, automação, web e MCP permanecem progressivas.
 
+O perfil declara também `mcp/*: on_demand`. A regra explícita mantém todas as
+tools MCP atuais e futuras fora do payload inicial, mas descobríveis e
+carregáveis sem configuração manual por servidor.
+
 ### D3 — Baseline do perfil Padrão
 
 O perfil `Padrão` pré-carrega capabilities gerais de baixo risco:
@@ -86,6 +90,10 @@ O perfil `Padrão` pré-carrega capabilities gerais de baixo risco:
 
 Tools não listadas usam `on_demand`, exceto opt-ins. Edição e shell ficam
 disponíveis mediante carregamento, sem inflar o payload de toda conversa.
+
+O perfil declara também `mcp/*: on_demand`, com a mesma semântica progressiva:
+nenhuma MCP nasce no payload, e novas tools MCP passam a ser descobríveis assim
+que entram no registry.
 
 ### D4 — Profiles restritos falham fechados
 
@@ -118,6 +126,12 @@ Esta AEP reserva fases próprias para:
 
 Essas mudanças não entram no baseline inicial porque alteram contratos de
 execução e interação além da seleção de tools.
+
+A adoção experimental do catálogo da issue #630 complementa, sem ampliar, o
+baseline: no primeiro turno somente candidatas `on_demand` de risco `read`
+podem ser pré-carregadas por relevância. Escrita, shell, rede, destrutivas e
+opt-ins continuam exigindo autorização/carregamento explícitos. Pacotes
+preferenciais influenciam ranking, mas nunca mudam o estado tri-state.
 
 ## Fases
 
@@ -158,7 +172,8 @@ execução e interação além da seleção de tools.
 - **Schemas demais:** os baselines são pequenos; o ToolPlanner e o budget da
   AEP-0077 continuam aplicáveis.
 - **MCP aberto demais:** `on_demand` apenas torna a tool descobrível. Não ignora
-  disponibilidade, allowlist, confiança de rede nem confirmação.
+  disponibilidade, allowlist, risco, confiança de rede nem confirmação. O
+  wildcard também não eleva tools opt-in.
 
 ## Critérios de aceitação
 
@@ -168,6 +183,8 @@ execução e interação além da seleção de tools.
 - [x] Default `on_demand` não eleva tools opt-in não listadas.
 - [x] `Programação` inicia com leitura, busca, edição e shell.
 - [x] `Padrão` inicia com leitura, busca, web e questionário.
+- [x] `Padrão` e `Programação` declaram `mcp/*: on_demand`, cobrindo MCPs
+  futuras sem colocá-las no payload inicial.
 - [x] `Editor de Texto` e `Canais de comunicação` permanecem fail-closed.
 - [x] Profiles builtin deixam de depender de `enabled_tools: null`.
 - [x] UI representa corretamente o estado efetivo de tools não listadas.

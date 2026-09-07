@@ -2,7 +2,11 @@ import { logger } from '../../utils/logger';
 import { useEffect, useRef } from 'react';
 import { EditorReadFile } from '@wailsjs/go/wailsapi/Editor';
 import i18next from 'i18next';
-import { useEditorStore, DEFAULT_MD } from '../../store/editorStore';
+import {
+  useEditorStore,
+  DEFAULT_MD,
+  resolveEditorDisplayMode,
+} from '../../store/editorStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 import { basenameFromPath } from '../../utils/path';
 import { normalizeEditorDocumentResult } from '../../lib/editorContent';
@@ -109,10 +113,14 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
         id: tabId,
         title,
         markdown,
-        mode: projection?.readOnly || loadError ? 'view' : 'markdown',
+        mode: resolveEditorDisplayMode(
+          tab.state?.displayMode,
+          'markdown',
+          (projection?.readOnly ?? false) || loadError,
+        ),
         filePath: filePath || null,
         draftId: draftId || (filePath ? null : tabId),
-        readOnly: projection?.readOnly ?? loadError,
+        readOnly: (projection?.readOnly ?? false) || loadError,
         projection: projection?.projected
           ? {
               format: projection.format,
@@ -122,6 +130,7 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
             }
           : null,
         loadError,
+        sessionHydrated: false,
       });
     } catch (error) {
       logger.error('[EditorSurfaceController] Erro ao criar documento:', error);

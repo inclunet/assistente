@@ -1,6 +1,4 @@
-# AEP-0022 — Welcome Wizard
-
-**Status:** Done
+# Welcome Wizard - Assistente de Configuração Inicial
 
 ## Visão Geral
 
@@ -44,9 +42,8 @@ Solicita chave de autenticação:
 Lista modelos disponíveis e permite escolha:
 - Consulta API do servidor para listar modelos reais
 - Se falhar, permite entrada manual com sugestões
-- Marca o provider e o modelo escolhidos como defaults globais
-- Não reescreve todos os perfis: cópias que usam o sentinela `$default` passam
-  a resolver o novo default em runtime; seleções explícitas permanecem intactas
+- Atualiza automaticamente TODOS os perfis com o modelo escolhido
+- Define como modelo padrão na configuração global
 
 ### 3. Integração com Sistema de Questionários
 
@@ -56,42 +53,42 @@ Utiliza o sistema de questionários existente (`questionnaire.Manager`):
 - Validação de campos obrigatórios
 - Feedback visual de progresso
 
-### 4. Proteção do Auto-Update
+### 4. Auto-Update Independente de Provedor
 
-Auto-update agora só funciona com LLM configurado:
-- Evita verificar atualizações em sistema não configurado
-- Previne uso desnecessário de recursos de rede
-- Melhor experiência para usuários novos
+A verificação de atualização é uma responsabilidade da instância e não depende
+de configuração de LLM:
+- funciona mesmo com zero providers cadastrados;
+- usa o scheduler único do updater, cancelável no shutdown;
+- mantém o guard de desenvolvimento (`AppVersion == "dev"`).
 
 ### 5. Verificação de Updates Após Wizard
 
-Após completar o wizard, o sistema automaticamente:
-- Aguarda 2 segundos para finalizar configuração
-- Verifica se há atualizações disponíveis
-- Oferece ao usuário a oportunidade de atualizar se houver nova versão
-- Usa o mesmo fluxo de questionário para confirmação
+Após completar o wizard, o sistema sinaliza o scheduler único para antecipar a
+primeira verificação. O mesmo fluxo atende startup, pós-wizard e periodicidade,
+evitando fetches e prompts concorrentes. Se houver nova versão, a decisão usa
+`Questionnaire KindDecision` conforme o AEP-0091.
 
 ## Arquivos Modificados
 
 ### Backend (Go)
 
-- **`internal/wailsapi/welcome.go`** — binding Wails `Welcome`, avaliação
-  pré/pós-login e delegação de `NeedsWelcomeWizard`/`RunWelcomeWizard`.
-- **`controllers/welcome_controller.go`** — fluxo do wizard, validação de
-  conexão/URL, criação do provider e verificação de update.
-- **`internal/app/app_welcome.go`** — wiring de runtime, compatibilidade da CLI
-  e thin wrappers usados pelos testes. O arquivo citado em revisões antigas
-  como `internal/app/app_wizard.go` não existe no HEAD; o nome vigente é
-  `app_welcome.go`.
-- **`internal/app/app_wire.go`** — construção e conexão do controller/binding.
+1. **app.go**
+   - `NeedsWelcomeWizard()` - Verifica se precisa do wizard
+   - `RunWelcomeWizard()` - Executa o fluxo completo do wizard
+   - `getWizardProviderInfo()` - Mapeia escolha do wizard para tipo/ID/nome do provedor
+   - `createWizardProvider()` - Cria provedor no registry + credential manager + SQLite
+   - `saveWelcomeConfig()` - Salva configuração legada (config.json)
+   - `updateAllProfilesProviderAndModel()` - Atualiza provedor e modelo em todos os perfis
+   - `checkForUpdatesOnStartup()` - Executa o scheduler cancelável do updater
+   - `RequestUpdateCheck()` - Antecipa o check ao concluir o wizard
 
 ### Frontend (TypeScript/React)
 
-- **`frontend/src/App.tsx`** — consumidor enxuto do binding
-  `@wailsjs/go/wailsapi/Welcome`; inicia o wizard quando solicitado pelo
-  backend. A lógica de domínio não reside no componente.
-- **Questionnaire global** — renderiza os passos tipados emitidos pelo
-  controller, com strings traduzíveis.
+1. **App.tsx**
+   - Importa novas funções: `NeedsWelcomeWizard`, `RunWelcomeWizard`
+   - Adiciona verificação no `useEffect` de carregamento
+   - Executa wizard antes de carregar configuração se necessário
+   - Feedback visual via toasts
 
 ## Fluxo de Execução
 
@@ -106,7 +103,7 @@ Após completar o wizard, o sistema automaticamente:
    ├── Executa RunWelcomeWizard()
    ├── Usuário completa 4 etapas
    ├── Salva configuração
-   ├── Marca provider/modelo como default
+   ├── Atualiza perfis
    ├── Reinicializa LLM client
    └── Verifica atualizações disponíveis
    ↓
@@ -153,19 +150,16 @@ Após completar o wizard, o sistema automaticamente:
    - Breve tour após configuração
    - Demonstração de funcionalidades principais
 
-## Cobertura verificada
+## Testes Recomendados
 
-- [x] Providers, formatos de API, URL customizada, persistência SQLite,
-  provider/modelo default e resolução runtime de cópias com `$default`:
-  `internal/app/app_wizard_test.go`.
-- [x] URLs inválidas, autenticação, indisponibilidade, erros HTTP e listagem de
-  modelos: `internal/app/app_wizard_test.go`.
-- [x] Binding não conectado, avaliação pré/pós-login e delegação ao runtime:
-  `internal/wailsapi/welcome_test.go`.
-- [x] Payloads e mensagens traduzíveis do questionário:
-  `controllers/welcome_dialogs_i18n_test.go`.
-- [x] Chaves de questionário disponíveis nos locales:
-  `frontend/src/locales/agentQuestionnaireKeys.test.ts`.
+- [ ] Primeiro uso com OpenAI
+- [ ] Primeiro uso com Ollama
+- [ ] Primeiro uso com URL personalizada
+- [ ] Cancelamento em diferentes etapas
+- [ ] Erro na listagem de modelos
+- [ ] Entrada manual de modelo
+- [ ] Verificar se perfis foram atualizados
+- [ ] Verificar se auto-update roda mesmo sem provider configurado
 
 ## Notas de Implementação
 

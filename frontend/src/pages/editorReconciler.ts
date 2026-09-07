@@ -39,7 +39,7 @@ export type ReconcileTrigger =
   | 'file_changed'
   /** Checagem de metadados antes do autosave gravar no disco. */
   | 'pre_save'
-  /** Re-checagem ao focar/mostrar a janela (sem auto-reload). */
+  /** Re-checagem ao focar/mostrar a janela (auto-reload só quando explicitamente permitido e seguro). */
   | 'focus_recheck';
 
 /**
@@ -80,7 +80,7 @@ export interface ReconcileInput {
   /** Baseline de conteúdo conhecido do disco (`TabDiskState.baselineHash`), null se nunca visto. */
   lastKnownDiskHash?: number | null;
 
-  /** Aba limpa (ou assistida convergente) pode recarregar do disco sem prompt. */
+  /** A preferência permite recarregar do disco quando as demais evidências provam que é seguro. */
   allowAutoReload?: boolean;
 }
 
@@ -164,8 +164,9 @@ export function decideExternalChange(input: ReconcileInput): ReconcileAction {
     return { action: 'update_baseline', scope: 'info_only' };
   }
 
-  // Aba limpa (ou assistida cujo local ainda é o baseline conhecido) pode
-  // acompanhar a escrita externa sem intervenção.
+  // Aba limpa pode acompanhar o disco. Escrita assistida em aba dirty só pode
+  // recarregar quando o conteúdo local ainda é exatamente o baseline conhecido;
+  // divergência local real nunca é descartada sem decisão explícita.
   const localMatchesKnownDisk =
     hasKnownBaseline && typeof input.localHash === 'number' && input.lastKnownDiskHash === input.localHash;
   if (input.allowAutoReload && (!input.tabIsDirty || (input.assisted && localMatchesKnownDisk))) {

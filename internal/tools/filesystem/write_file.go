@@ -57,7 +57,7 @@ func (t *WriteFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *WriteFile) Description() string {
-	return "Creates or overwrites a text file with full content (no partial edits). Creates intermediate directories. Refuses binary documents (PDF, DOCX/XLSX/PPTX, ODT/ODS/ODP, EPUB) — read them with read_file, which returns a Markdown projection; CSV and RTF remain writable as text. For small edits, use edit_file."
+	return "Create a text file or replace its entire contents, creating parent directories as needed. Use for new files or intentional full rewrites up to 5 MiB. Do not use for a small change to an existing file (use edit_file), several exact changes in one file (use apply_patch), or binary/opaque documents. Overwriting discards all previous content and may require user confirmation for the active editor file. Risk: write."
 }
 
 func (t *WriteFile) Parameters() json.RawMessage {
@@ -66,11 +66,11 @@ func (t *WriteFile) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do arquivo a criar/sobrescrever (absoluto ou relativo ao diretório de trabalho)"
+				"description": "Text file to create or fully overwrite, absolute or relative to the working directory; missing parent directories are created."
 			},
 			"content": {
 				"type": "string",
-				"description": "Conteúdo completo do arquivo"
+				"description": "Complete final file content, not a patch or fragment; maximum encoded size is 5 MiB."
 			}
 		},
 		"required": ["path", "content"],

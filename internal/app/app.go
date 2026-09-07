@@ -13,7 +13,6 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
-	"assistente/internal/wakelock"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/apidto"
@@ -50,6 +49,7 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/wailsapi"
+	"assistente/internal/wakelock"
 	"assistente/internal/workspace"
 )
 
@@ -95,7 +95,7 @@ type App struct {
 	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
-	wakeLock         wakelock.Manager             // Previne bloqueio/suspensão quando a janela está em foco
+	wakeLock         wakelock.Manager            // Previne bloqueio/suspensão quando a janela está em foco
 
 	credMgr           *credentials.Manager
 	credStore         credentials.Store
@@ -326,9 +326,8 @@ type App struct {
 	// refresh e cancel de streaming. Criado em main; streamMgr permanece no *App.
 	llmModelsAPI *wailsapi.LLMModels
 
-	// chatAPI é o bind Wails do domínio chat/envio (AEP-0088): SendMessage,
-	// RetryMessage e SendMessageSync (probe de acessibilidade). Criado em main
-	// e wired após NewChatController + wireSettings (sync via settingsCtrl).
+	// chatAPI é o bind Wails do domínio chat/envio (AEP-0040, AEP-0088):
+	// SendMessage e RetryMessage. Criado em main e wired após NewChatController.
 	// sendMessageFromChannel permanece no *App.
 	chatAPI *wailsapi.Chat
 
@@ -883,9 +882,11 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	if err := InitDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
-	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
-		logging.Errorf(ctx, "app.app", "Erro ao limpar drafts órfãos do editor no startup: %v", err)
-	}
+	// Drafts não são mais varridos por idade no boot pré-login. O cleanup
+	// legado apagava qualquer arquivo >24h sem consultar abas/merges e podia
+	// destruir recuperação de crash. Fechamento explícito da aba continua
+	// removendo seu draft; uma retenção automática futura precisa ser
+	// user-scoped e provar ausência de referências antes de excluir.
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
 	a.installBuiltinProfiles()
@@ -978,9 +979,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o gerenciador de skills
 	a.initSkills()
-
-	// Garante que o diretório de memória existe no home
-	a.initMemoryDir()
 
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()

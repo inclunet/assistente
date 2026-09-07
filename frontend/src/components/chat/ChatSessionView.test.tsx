@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MediaCategory, type MediaFile } from '../../services/mediaService';
 
 const updateMessageMock = vi.fn();
+const updateMessagePinnedMock = vi.fn();
 const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
@@ -28,6 +29,21 @@ const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
 const handleErrorMock = vi.hoisted(() => vi.fn());
+const requestConfirmMock = vi.hoisted(() => vi.fn());
+const executeDeepLinkMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigateMock,
+}));
+
+vi.mock('../../store/confirmStore', () => ({
+  requestConfirm: (...args: unknown[]) => requestConfirmMock(...args),
+}));
+
+vi.mock('../../lib/deepLinks', () => ({
+  executeDeepLink: (...args: unknown[]) => executeDeepLinkMock(...args),
+}));
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -70,6 +86,7 @@ const chatStoreState = {
   loadMessageChildren: vi.fn(),
   loadConversationSession: vi.fn(),
   updateConversationMessage: updateMessageMock,
+  updateConversationMessagePinned: updateMessagePinnedMock,
   toggleConversationReasoningExpanded: vi.fn(),
   isConversationReasoningExpanded: () => false,
   startConversationEditing: vi.fn(),
@@ -130,6 +147,7 @@ vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   DeleteMessage: vi.fn(),
+  ToggleMessagePin: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
@@ -171,6 +189,7 @@ vi.mock('./MessageList', async () => {
       onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void;
       threadedMessages?: Array<{ id?: string; message?: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string } }>;
       shouldShowContinue?: (message: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string }) => boolean;
+      onSpeak?: (message: { id: string; role: string; content: string }) => void;
       onJumpToStart?: () => Promise<void> | void;
       onJumpToEnd?: () => Promise<void> | void;
       onLoadNewer?: (trigger: 'scroll' | 'navigation') => Promise<void> | void;
@@ -182,6 +201,7 @@ vi.mock('./MessageList', async () => {
       onJumpToStart,
       onJumpToEnd,
       onLoadNewer,
+      onSpeak,
     },
     ref: React.Ref<HTMLDivElement>,
   ) => (
@@ -208,6 +228,12 @@ vi.mock('./MessageList', async () => {
       </button>
       <button type="button" onClick={() => void Promise.resolve(onLoadNewer?.('scroll'))}>
         load-newer-scroll
+      </button>
+      <button
+        type="button"
+        onClick={() => onSpeak?.({ id: 'message-1', role: 'assistant', content: 'Olá' })}
+      >
+        speak-message
       </button>
       {threadedMessages.map((message) => (
         <div
@@ -330,6 +356,11 @@ describe('ChatSessionView', () => {
     modalState.open = false;
     contextMenuState.visible = true;
     runtimeEventHandlers.clear();
+    requestConfirmMock.mockReset();
+    requestConfirmMock.mockResolvedValue(false);
+    executeDeepLinkMock.mockReset();
+    executeDeepLinkMock.mockResolvedValue(undefined);
+    navigateMock.mockReset();
     useShortcutsHelpStore.setState({ isOpen: false });
   });
 
@@ -508,6 +539,109 @@ describe('ChatSessionView', () => {
 
     expect(showMenuMock).toHaveBeenCalled();
     expect(screen.getByText('Copiar')).toBeInTheDocument();
+  });
+
+  it('oferece configurar voz e preserva a origem ao confirmar', async () => {
+    requestConfirmMock.mockResolvedValueOnce(true);
+    const chatSurface = surface({ surfaceType: 'page', tabId: 'chat-tab' });
+    renderWithPanel(
+      <ChatSessionView
+        surface={chatSurface}
+        onSend={vi.fn()}
+        showShortcutsHelp={false}
+        profileSlug="programacao"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'speak-message' }));
+
+    await waitFor(() => {
+      expect(requestConfirmMock).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'chat.voiceSetup.title',
+      }));
+    });
+    expect(executeDeepLinkMock).toHaveBeenCalledWith(
+      {
+        type: 'resource:edit',
+        resource: 'profiles',
+        resourceId: 'programacao',
+        tab: 'voice',
+      },
+      {
+        navigate: navigateMock,
+        caller: {
+          kind: 'workspace',
+          tabId: 'chat-tab',
+          surfaceId: chatSurface.surfaceId,
+          surfaceType: chatSurface.surfaceType,
+          conversationId,
+        },
+      },
+    );
+    expect(speakMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('preserva caller ao configurar voz em superfície embedded', async () => {
+    requestConfirmMock.mockResolvedValueOnce(true);
+    const chatSurface = surface({
+      surfaceId: 'embedded:editor:chat-tab',
+      surfaceType: 'embedded',
+      tabId: 'chat-tab',
+    });
+    renderWithPanel(
+      <ChatSessionView
+        variant="embedded"
+        surface={chatSurface}
+        onSend={vi.fn()}
+        showShortcutsHelp={false}
+        profileSlug="programacao"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'speak-message' }));
+
+    await waitFor(() => {
+      expect(executeDeepLinkMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'resource:edit', tab: 'voice' }),
+        {
+          navigate: navigateMock,
+          caller: {
+            kind: 'workspace',
+            tabId: 'chat-tab',
+            surfaceId: 'embedded:editor:chat-tab',
+            surfaceType: 'embedded',
+            conversationId,
+          },
+        },
+      );
+    });
+  });
+
+  it('informa erro quando não consegue abrir a configuração de voz', async () => {
+    requestConfirmMock.mockResolvedValueOnce(true);
+    executeDeepLinkMock.mockRejectedValueOnce(new Error('falha de navegação'));
+    const chatSurface = surface({ surfaceType: 'page', tabId: 'chat-tab' });
+    renderWithPanel(
+      <ChatSessionView
+        surface={chatSurface}
+        onSend={vi.fn()}
+        showShortcutsHelp={false}
+        profileSlug="programacao"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'speak-message' }));
+
+    await waitFor(() => {
+      expect(handleErrorMock).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          source: 'ChatSessionView.voiceSetup',
+          userMessage: 'chat.voiceSetup.error',
+          severity: 'recoverable',
+        }),
+      );
+    });
   });
 
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {

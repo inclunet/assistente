@@ -18,15 +18,19 @@ import "strings"
 //
 //   - `bypassPermissions` (Claude Code): responde sozinho a todo pedido.
 //   - `dontAsk` (Claude Code): idem.
+//   - `agent-full-access` (Codex ACP): configura `approvalPolicy: never` e
+//     `sandboxPolicy: dangerFullAccess`.
 //
 // Fica de fora tudo de que não se tem certeza, inclusive o `acceptEdits` do
-// mesmo agente: ele dispensa a pergunta só para edição e continua perguntando
-// pelo resto, então o aviso diria que a barreira caiu inteira, o que seria
-// falso. Errar para o lado do silêncio é o certo aqui — aviso que não
-// corresponde ao que o agente faz ensina a ignorar os avisos.
+// Claude Code e o `agent` do Codex: o primeiro dispensa a pergunta só para
+// edição, e o segundo mantém `approvalPolicy: on-request` com revisão
+// automática. Nenhum dos dois prova que a barreira caiu inteira. Errar para o
+// lado do silêncio é o certo aqui — aviso que não corresponde ao que o agente
+// faz ensina a ignorar os avisos.
 var modesWithoutPermissionPrompt = map[string]bool{
 	"bypasspermissions": true,
 	"dontask":           true,
+	"agent-full-access": true,
 }
 
 // ModeSkipsPermissionPrompt diz se este é um dos modos conhecidos por dispensar

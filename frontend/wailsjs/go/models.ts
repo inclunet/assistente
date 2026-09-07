@@ -1444,6 +1444,7 @@ export namespace apidto {
 	    description: string;
 	    source_type: string;
 	    source_label: string;
+	    package?: string;
 	    opt_in: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -1457,6 +1458,7 @@ export namespace apidto {
 	        this.description = source["description"];
 	        this.source_type = source["source_type"];
 	        this.source_label = source["source_label"];
+	        this.package = source["package"];
 	        this.opt_in = source["opt_in"];
 	    }
 	}
@@ -1859,6 +1861,7 @@ export namespace chat {
 	    cacheMissTokens?: number;
 	    model?: string;
 	    source?: string;
+	    pinned: boolean;
 	    // Go type: time
 	    createdAt: any;
 	    timestamp: number;
@@ -1890,6 +1893,7 @@ export namespace chat {
 	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.model = source["model"];
 	        this.source = source["source"];
+	        this.pinned = source["pinned"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.timestamp = source["timestamp"];
 	        this.isStreaming = source["isStreaming"];
@@ -2234,6 +2238,7 @@ export namespace database {
 	    cacheMissTokens?: number;
 	    model?: string;
 	    source?: string;
+	    pinned: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -2263,6 +2268,7 @@ export namespace database {
 	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.model = source["model"];
 	        this.source = source["source"];
+	        this.pinned = source["pinned"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3624,20 +3630,6 @@ export namespace llm {
 	        this.TurnID = source["TurnID"];
 	    }
 	}
-	export class FunctionCall {
-	    name: string;
-	    arguments: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new FunctionCall(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.arguments = source["arguments"];
-	    }
-	}
 	export class FunctionDefinition {
 	    name: string;
 	    description: string;
@@ -3653,80 +3645,6 @@ export namespace llm {
 	        this.description = source["description"];
 	        this.parameters = source["parameters"];
 	    }
-	}
-	export class ToolCall {
-	    id: string;
-	    type: string;
-	    function: FunctionCall;
-	
-	    static createFrom(source: any = {}) {
-	        return new ToolCall(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.type = source["type"];
-	        this.function = this.convertValues(source["function"], FunctionCall);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class Message {
-	    role: string;
-	    content?: any;
-	    thinking?: string;
-	    reasoning_content?: string;
-	    tool_calls?: ToolCall[];
-	    tool_call_id?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Message(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.role = source["role"];
-	        this.content = source["content"];
-	        this.thinking = source["thinking"];
-	        this.reasoning_content = source["reasoning_content"];
-	        this.tool_calls = this.convertValues(source["tool_calls"], ToolCall);
-	        this.tool_call_id = source["tool_call_id"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class ModelOption {
 	    value: string;
@@ -3849,6 +3767,7 @@ export namespace llm {
 	    default_model?: string;
 	    is_default?: boolean;
 	    timeout?: number;
+	    stream_idle_timeout_seconds?: number;
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
 	    auth_mode?: string;
@@ -3874,6 +3793,7 @@ export namespace llm {
 	        this.default_model = source["default_model"];
 	        this.is_default = source["is_default"];
 	        this.timeout = source["timeout"];
+	        this.stream_idle_timeout_seconds = source["stream_idle_timeout_seconds"];
 	        this.headers = source["headers"];
 	        this.credential_pattern = source["credential_pattern"];
 	        this.auth_mode = source["auth_mode"];
@@ -3885,12 +3805,33 @@ export namespace llm {
 	        this.acp_agent_id = source["acp_agent_id"];
 	    }
 	}
-	
 
 }
 
 export namespace mcp {
 	
+	export class DiscoveryResponseHint {
+	    statusCode: number;
+	    classification: string;
+	    wwwAuthenticate?: string;
+	    location?: string;
+	    jsonError?: string;
+	    bodyTruncated?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveryResponseHint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statusCode = source["statusCode"];
+	        this.classification = source["classification"];
+	        this.wwwAuthenticate = source["wwwAuthenticate"];
+	        this.location = source["location"];
+	        this.jsonError = source["jsonError"];
+	        this.bodyTruncated = source["bodyTruncated"];
+	    }
+	}
 	export class MCPPromptArgument {
 	    name: string;
 	    description: string;
@@ -4031,6 +3972,11 @@ export namespace mcp {
 	}
 	export class OAuthDiscoveryResult {
 	    found: boolean;
+	    status: string;
+	    protectedResourceFound: boolean;
+	    authorizationServerFound: boolean;
+	    metadataType?: string;
+	    manualCompletionRequired: boolean;
 	    authType: string;
 	    authUrl: string;
 	    tokenUrl: string;
@@ -4039,6 +3985,7 @@ export namespace mcp {
 	    registrationUrl?: string;
 	    resourceName?: string;
 	    supportsPkce: boolean;
+	    responseHints?: DiscoveryResponseHint[];
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -4048,6 +3995,11 @@ export namespace mcp {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.found = source["found"];
+	        this.status = source["status"];
+	        this.protectedResourceFound = source["protectedResourceFound"];
+	        this.authorizationServerFound = source["authorizationServerFound"];
+	        this.metadataType = source["metadataType"];
+	        this.manualCompletionRequired = source["manualCompletionRequired"];
 	        this.authType = source["authType"];
 	        this.authUrl = source["authUrl"];
 	        this.tokenUrl = source["tokenUrl"];
@@ -4056,8 +4008,27 @@ export namespace mcp {
 	        this.registrationUrl = source["registrationUrl"];
 	        this.resourceName = source["resourceName"];
 	        this.supportsPkce = source["supportsPkce"];
+	        this.responseHints = this.convertValues(source["responseHints"], DiscoveryResponseHint);
 	        this.error = source["error"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Root {
 	    uri: string;
@@ -5054,6 +5025,7 @@ export namespace profiles {
 	    description: string;
 	    icon: string;
 	    source: string;
+	    builtin: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProfileInfo(source);
@@ -5066,6 +5038,7 @@ export namespace profiles {
 	        this.description = source["description"];
 	        this.icon = source["icon"];
 	        this.source = source["source"];
+	        this.builtin = source["builtin"];
 	    }
 	}
 	

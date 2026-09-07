@@ -106,6 +106,9 @@ type RunParams struct {
 	// sub-agente em goroutine; o aviso de conclusão é entregue ao pai
 	// (auto-wake). Quando false, o run é síncrono (Fase 1).
 	Background bool
+	// PreserveResponse mantém a resposta integral no RunResult síncrono para o
+	// consumidor raw. O modo compatível deixa false e retém apenas o resumo.
+	PreserveResponse bool
 
 	// Timeout limita a espera do run. <=0 usa o default POR MODO:
 	// DefaultSyncTimeout (síncrono) ou DefaultBackgroundTimeout (background).
@@ -223,6 +226,13 @@ type RunResult struct {
 	ResultSummary      string `json:"result_summary,omitempty"`
 	AssistantMessageID string `json:"assistant_message_id,omitempty"`
 	Error              string `json:"error,omitempty"`
+	// Response preserva em memória a resposta integral recebida do callback.
+	// Não é serializada no envelope nem persistida; a tool `subagent` a usa
+	// somente no retorno raw de runs síncronos. ResultSummary continua limitado
+	// para persistência e para o contrato compatível do envelope/status.
+	Response string `json:"-"`
+
+	preserveResponse bool
 }
 
 // Repository persiste runs de sub-agente (tabela sub_agent_runs, AEP-0068).

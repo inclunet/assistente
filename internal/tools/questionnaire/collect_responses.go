@@ -46,36 +46,37 @@ func (t *CollectResponsesTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *CollectResponsesTool) Description() string {
-	return "Collects structured answers via an in-app questionnaire. Prefer this whenever you need to ask the user questions, clarify requirements, compare alternatives, run quizzes/tests/simulations, or validate a plan before acting. Supports multiple questions and formats (text, long_text, number, boolean, single_choice, multiple_choice, scale, date); returns machine-readable answers."
+	return "Collect structured answers from the user in one accessible in-app questionnaire. Use when missing requirements, preferences, approval criteria, or a choice between explicit alternatives would materially change the result; batch related questions in one call. Do not use for rhetorical questions, facts available from context or tools, or status updates that need no answer. This pauses work for user input, so keep it concise and allow cancellation unless an answer is essential. Example: ask for target audience, output format, and deadline before drafting a plan. Returns machine-readable answers keyed by question id."
 }
 
 func (t *CollectResponsesTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"title": {"type": "string", "description": "Título do questionário (ex: 'Dúvidas para o planejamento')"},
-			"description": {"type": "string", "description": "Texto de apoio/introdução para contextualizar as perguntas"},
-			"allow_cancel": {"type": "boolean", "description": "Se o usuário pode cancelar o questionário (padrão: true)"},
-			"submit_label": {"type": "string", "description": "Texto do botão de envio"},
-			"cancel_label": {"type": "string", "description": "Texto do botão de cancelar"},
+			"title": {"type": "string", "description": "Optional short heading in the user's language that tells them why answers are needed. Omit it when the questions need no shared heading."},
+			"description": {"type": "string", "description": "Optional brief context in the user's language shared by all questions. Do not repeat each prompt or include hidden instructions."},
+			"allow_cancel": {"type": "boolean", "description": "Whether the user may cancel instead of answering. Defaults to true; set false only when proceeding without answers is unsafe or impossible."},
+			"submit_label": {"type": "string", "description": "Optional concise submit-button label in the user's language."},
+			"cancel_label": {"type": "string", "description": "Optional concise cancel-button label in the user's language."},
 			"questions": {
 				"type": "array",
 				"minItems": 1,
+				"description": "Related questions to present together. Keep the set small and include only answers that can affect the next action.",
 				"items": {
 					"type": "object",
 					"properties": {
-						"id": {"type": "string", "description": "Identificador único da pergunta"},
-						"type": {"type": "string", "enum": ["text", "long_text", "number", "boolean", "single_choice", "multiple_choice", "scale", "date", "readonly_code"], "description": "Tipo da pergunta (texto curto/long, número, sim/não, escolha, escala, data, readonly_code)"},
-						"prompt": {"type": "string", "description": "Enunciado/pergunta principal"},
-						"description": {"type": "string", "description": "Descrição adicional/explicação"},
-						"content": {"type": "string", "description": "Conteúdo somente-leitura (para readonly_code)"},
-						"required": {"type": "boolean", "description": "Se a resposta é obrigatória"},
-						"options": {"type": "array", "items": {"type": "string"}, "description": "Opções para perguntas de escolha (single/multiple_choice)"},
-						"min": {"type": "number", "description": "Valor mínimo (number)"},
-						"max": {"type": "number", "description": "Valor máximo (number)"},
-						"step": {"type": "number", "description": "Passo (number)"},
-						"placeholder": {"type": "string", "description": "Placeholder para text"},
-						"default": {"description": "Valor inicial da resposta"}
+						"id": {"type": "string", "description": "Stable unique key used in the returned answers object, for example 'output_format'. Never reuse an id within the questionnaire."},
+						"type": {"type": "string", "enum": ["text", "long_text", "number", "boolean", "single_choice", "multiple_choice", "scale", "date", "readonly_code"], "description": "Input format. Use single_choice for one explicit option, multiple_choice for several, long_text for prose, and readonly_code only to display non-editable reference content."},
+						"prompt": {"type": "string", "description": "Direct, neutral question in the user's language that can be understood without relying on option order or visual cues."},
+						"description": {"type": "string", "description": "Optional clarification, constraints, or consequence in the user's language. Do not hide required information here."},
+						"content": {"type": "string", "description": "Non-editable reference content shown only with type=readonly_code; it does not produce an answer."},
+						"required": {"type": "boolean", "description": "Whether this answer is mandatory before submission. Use sparingly when omission would block or invalidate the next action."},
+						"options": {"type": "array", "items": {"type": "string"}, "description": "Distinct choices in the user's language, required by single_choice and multiple_choice. Include all meaningful alternatives and a localized open-ended option when the list is not exhaustive."},
+						"min": {"type": "number", "description": "Minimum accepted value for type=number."},
+						"max": {"type": "number", "description": "Maximum accepted value for type=number; must not be less than min."},
+						"step": {"type": "number", "description": "Increment between accepted numeric values."},
+						"placeholder": {"type": "string", "description": "Optional example or format hint in the user's language for text input; never use it as the only label or instruction."},
+						"default": {"description": "Optional initial answer. If textual, use the user's language; provide it only when a safe, clearly implied default exists."}
 					},
 					"required": ["id", "type", "prompt"]
 				}

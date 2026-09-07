@@ -46,7 +46,7 @@ func (t *GrepSearch) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *GrepSearch) Description() string {
-	return "Searches file contents by pattern (Go regex or literal). Text is searched as stored; opaque documents (PDF, DOCX, XLSX, PPTX, ODT/ODS/ODP, EPUB) are searched through an in-memory Markdown projection. Set document_mode=\"markdown\" to also project textual formats such as CSV/RTF. Extraction failures skip only that document and are reported as warnings. OCR is not available (AEP-0093, issue #565). Returns matching lines with line numbers and context."
+	return "Search file contents recursively with a Go regular expression, returning matching lines and context. Use to locate symbols, phrases, or patterns when the containing file is unknown; narrow path and include to reduce scanning. Do not use to find paths by filename (use search_files) or read a known file in full (use read_file). Directory searches may scan up to 10,000 files; ordinary text files over 5 MiB are skipped, while supported opaque documents are projected to Markdown at higher extraction cost (32 MiB input limit, no OCR). Risk: read-only."
 }
 
 func (t *GrepSearch) Parameters() json.RawMessage {
@@ -55,32 +55,32 @@ func (t *GrepSearch) Parameters() json.RawMessage {
 		"properties": {
 			"pattern": {
 				"type": "string",
-				"description": "Padrão de busca. Texto literal ou expressão regular (Go regex syntax)."
+				"description": "Go regular expression to match in file contents. Invalid regular expressions fall back to literal text matching."
 			},
 			"path": {
 				"type": "string",
-				"description": "Diretório ou arquivo para buscar (padrão: diretório de trabalho)."
+				"description": "File or directory to search, absolute or relative to the working directory; defaults to the working directory. Directories are searched recursively."
 			},
 			"include": {
 				"type": "string",
-				"description": "Glob para filtrar arquivos. Exemplos: '*.go', '*.{ts,tsx}', '*.py'."
+				"description": "Optional filename glob that limits searched files, for example '*.go' or '*.{ts,tsx}'. Prefer this on large trees."
 			},
 			"case_sensitive": {
 				"type": "boolean",
-				"description": "Se false, busca é case-insensitive. Padrão: true."
+				"description": "Whether matching is case-sensitive; defaults to true."
 			},
 			"max_results": {
 				"type": "integer",
-				"description": "Número máximo de correspondências totais. Padrão: 100."
+				"description": "Maximum total matches to return; defaults to 100. Lower values reduce output, but not necessarily all traversal cost."
 			},
 			"context_lines": {
 				"type": "integer",
-				"description": "Linhas de contexto antes e depois de cada match. Padrão: 2."
+				"description": "Number of surrounding lines returned before and after each match; defaults to 2. Use 0 for the smallest output."
 			},
 			"document_mode": {
 				"type": "string",
 				"enum": ["auto", "markdown"],
-				"description": "auto (padrão): texto é pesquisado como está e só documentos opacos viram Markdown. markdown: também projeta formatos textuais com extrator, como CSV/RTF."
+				"description": "Projection mode. auto (default) searches text verbatim and projects only opaque supported documents; markdown also projects supported textual formats such as CSV and RTF."
 			}
 		},
 		"required": ["pattern"],

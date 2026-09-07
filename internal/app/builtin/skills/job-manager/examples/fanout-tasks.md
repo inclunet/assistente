@@ -52,3 +52,33 @@ issues fans out into one task per issue.
 - If `for_each` does not resolve to an array, the producer emits a **single** event instead of fanning out.
 - Each fan-out event carries `_fan_out_index` / `_fan_out_total` for ordering/aggregation.
 - A webhook trigger (`{ "type": "webhook", "path": "/fsd" }`) works the same way as the cron producer above.
+
+## Producer from an existing task-list backlog
+
+The builtin `task_list` tool can serve a bounded page directly to `for_each`
+without loading the whole board:
+
+```json
+{
+  "name": "Oldest Untriaged Tasks",
+  "pipeline": "triage",
+  "tool": "task_list",
+  "triggers": [{ "type": "cron", "expression": "*/10 * * * *" }],
+  "inputs": {
+    "task_list_slug": "news",
+    "status_id": 1,
+    "limit": 20,
+    "sort": "created_at:asc"
+  },
+  "events": {
+    "on_success": "triage.task.found",
+    "for_each": "tasks",
+    "payload_template": "{ \"task_id\": {{ json .output.id }}, \"title\": {{ json .output.title }} }"
+  }
+}
+```
+
+If the consumer moves each processed task out of status 1, the next producer
+run should query the first page again; processed items have left the filtered
+set. For read-only traversal, continue with the opaque `next_cursor` while
+`has_more` is true, always preserving the same list, `status_id`, and `sort`.

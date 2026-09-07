@@ -18,6 +18,7 @@ import { useConnectionStatusListener } from './hooks/useConnectionStatusListener
 import { useWakeLock } from './hooks/useWakeLock';
 import { usePartialRuntimeInitListener } from './hooks/usePartialRuntimeInitListener';
 import { useSubAgentRunEvents } from './hooks/useSubAgentRunEvents';
+import { useUpdateCheckListener } from './hooks/useUpdateCheckListener';
 import { ToastHost } from './components/ui/ToastHost';
 import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
@@ -95,6 +96,7 @@ function App() {
     // anúncios de queda/restauração via announcer global + toast.
     useConnectionStatusListener();
     useWakeLock();
+    useUpdateCheckListener();
 
     // Aviso não-bloqueante de runtime parcialmente inicializado pós-login
     // (issue #250): toast + announce com ação "Tentar novamente".

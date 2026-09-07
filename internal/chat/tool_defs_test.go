@@ -119,26 +119,11 @@ func TestBuildLLMToolDefs_EmptyRegistry(t *testing.T) {
 	}
 }
 
-func TestBuildLLMToolDefs_AllTools(t *testing.T) {
+func TestBuildLLMToolDefs_NilSelectionFailsClosed(t *testing.T) {
 	r := registryWith("alpha", "beta", "gamma")
 	got := BuildLLMToolDefs(r, nil, false)
-	if len(got) != 3 {
-		t.Fatalf("esperava 3 defs, obteve %d", len(got))
-	}
-	names := map[string]bool{}
-	for _, d := range got {
-		if d.Type != "function" {
-			t.Errorf("Type incorreto: %q", d.Type)
-		}
-		if d.Function.Description == "" {
-			t.Errorf("Description vazia para %q", d.Function.Name)
-		}
-		names[d.Function.Name] = true
-	}
-	for _, want := range []string{"alpha", "beta", "gamma"} {
-		if !names[want] {
-			t.Errorf("tool %q ausente no resultado", want)
-		}
+	if len(got) != 0 {
+		t.Fatalf("seleção nil não deve expor o registry, obteve %v", got)
 	}
 }
 
@@ -165,7 +150,7 @@ func TestBuildLLMToolDefs_ParametersPreserved(t *testing.T) {
 	r := tools.NewRegistry()
 	params := json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`)
 	r.MustRegister(&mockToolDef{name: "read_file", descr: "reads", params: params})
-	got := BuildLLMToolDefs(r, nil, false)
+	got := BuildLLMToolDefs(r, []string{"read_file"}, false)
 	if len(got) != 1 {
 		t.Fatalf("esperava 1 def, obteve %d", len(got))
 	}
@@ -230,15 +215,23 @@ func TestResolveInitialEnabledToolsWithRuntime_AppendsToExplicitTools(t *testing
 	}
 }
 
-func TestResolveInitialEnabledTools_FallsBackToAllWithoutCatalog(t *testing.T) {
+func TestResolveInitialEnabledTools_FailsClosedWithoutCatalog(t *testing.T) {
 	r := registryWith("read_file", "grep_search")
 	got := ResolveInitialEnabledTools(r, nil, false)
-	if got != nil {
-		t.Fatalf("expected nil to preserve legacy all-tools fallback without catalog, got %#v", got)
+	if got == nil || len(got) != 0 {
+		t.Fatalf("expected explicit fail-closed selection without catalog, got %#v", got)
 	}
 	defs := BuildLLMToolDefs(r, got, false)
-	if len(defs) != 2 {
-		t.Fatalf("expected all tools without catalog, got %#v", defs)
+	if len(defs) != 0 {
+		t.Fatalf("expected no tools without catalog, got %#v", defs)
+	}
+}
+
+func TestResolveInitialEnabledToolsWithRuntime_FailsClosedWithoutCatalog(t *testing.T) {
+	r := registryWith(tools.LoadSkillName, "read_file")
+	got := ResolveInitialEnabledToolsWithRuntime(r, nil, false, []string{tools.LoadSkillName})
+	if got == nil || len(got) != 0 {
+		t.Fatalf("runtime tools não devem abrir perfil implícito sem catálogo, got %#v", got)
 	}
 }
 

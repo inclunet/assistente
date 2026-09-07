@@ -26,4 +26,8 @@ durante a navegação, e a opção ativa é anunciada pelo leitor de telas.
 
 ## Gestão
 
-Em **Skills**: grid com nome/descrição/modo (Auto/Manual) e origem; crie, edite, duplique ou remova skills. Built-ins incluem `coding`, `job-manager` e outras já sem templates.
+Em **Skills**: grid com nome/descrição/modo (Auto/Manual) e origem; crie, edite, duplique ou remova skills. `Ctrl+N` cria um skill quando essa aba de Configurações está ativa.
+
+Toda skill salva pela interface possui uma versão semântica no formato `X.Y.Z`. Novas skills começam em `1.0.0`; ao editar, a versão existente é preservada. Skills legadas sem `version` recebem `1.0.0` no formulário e passam a persistir esse valor quando forem salvas.
+
+Built-ins incluem `coding`, `job-manager` e outras já sem templates.

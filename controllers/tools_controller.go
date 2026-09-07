@@ -54,6 +54,7 @@ func (c *ToolsController) GetAvailableTools() []ToolInfo {
 			Description: t.Description(),
 			SourceType:  "local",
 			SourceLabel: "Local",
+			Package:     tools.CatalogMetadataForTool(t).Package,
 			OptIn:       c.toolRegistry.IsOptIn(name),
 		}
 
@@ -61,6 +62,7 @@ func (c *ToolsController) GetAvailableTools() []ToolInfo {
 			info.DisplayName = originalName
 			info.SourceType = "mcp"
 			info.SourceLabel = slug
+			info.Package = ""
 			if c.mcpMgr != nil {
 				if cfg, err := c.mcpMgr.GetConfig(slug); err == nil && cfg.Name != "" {
 					info.SourceLabel = cfg.Name

@@ -414,6 +414,42 @@ func fullAutoMigrate(t *testing.T, database *gorm.DB) {
 	}
 }
 
+func TestMessagePinMigrationAddsColumnAndListingIndex(t *testing.T) {
+	database := newMigratorTestDB(t)
+	if err := database.AutoMigrate(&Conversation{}, &ChatMessage{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+	if !database.Migrator().HasColumn(&ChatMessage{}, "Pinned") {
+		t.Fatal("AutoMigrate não criou chat_messages.pinned")
+	}
+
+	var pinMigration *migration
+	for index := range schemaMigrations {
+		if schemaMigrations[index].Version == 13 && schemaMigrations[index].Name == "chat_message_pinned_index" {
+			pinMigration = &schemaMigrations[index]
+			break
+		}
+	}
+	if pinMigration == nil {
+		t.Fatal("migração de pin não encontrada")
+	}
+	if err := pinMigration.Run(database); err != nil {
+		t.Fatalf("aplicar migração de pin: %v", err)
+	}
+	if !database.Migrator().HasIndex(&ChatMessage{}, "idx_chat_messages_conversation_pinned_created") {
+		t.Fatal("índice de mensagens fixadas não foi criado")
+	}
+	if err := pinMigration.Run(database); err != nil {
+		t.Fatalf("migração de pin não é idempotente: %v", err)
+	}
+	if err := database.Migrator().DropTable(&ChatMessage{}); err != nil {
+		t.Fatalf("remover tabela para simular falha: %v", err)
+	}
+	if err := pinMigration.Run(database); !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("falha do índice deveria adiar migração, recebeu: %v", err)
+	}
+}
+
 // TestRealRegistry_FreshDBAppliesAllAndIsIdempotent exercita o registro real
 // (schemaMigrations) no fluxo de Init() sobre um banco novo: pré-AutoMigrate,
 // AutoMigrate, pós-AutoMigrate. Verifica que todas as versões são aplicadas e

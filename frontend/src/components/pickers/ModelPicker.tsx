@@ -20,6 +20,7 @@ export interface ModelPickerProps {
     value: string;
     onChange: (value: string) => void;
     label?: string;
+    description?: string;
     icon?: ReactNode;
     placeholder?: string;
     disabled?: boolean;
@@ -28,6 +29,8 @@ export interface ModelPickerProps {
     helpText?: string;
     onAnnounce?: (message: string) => void;
     providerID?: string; // ID do provedor para filtrar modelos
+    includeDefaultOption?: boolean;
+    defaultOptionLabel?: string;
 }
 
 export interface ModelPickerRef {
@@ -59,6 +62,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   value,
   onChange,
   label = 'Modelo',
+  description,
   icon = <RobotOutlined />,
   placeholder = 'Filtrar modelos...',
   disabled = false,
@@ -67,6 +71,8 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   helpText = '',
   onAnnounce,
   providerID = '', // Provedor específico (se vazio, usa GetModels do ativo)
+  includeDefaultOption = false,
+  defaultOptionLabel,
 }, ref) => {
   const { t } = useTranslation();
   const [models, setModels] = useState<ModelItem[]>([]);
@@ -205,13 +211,13 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     reload: () => { void loadModels(true); }
   }));
 
-  const defaultModelLabel = t('pickers.model.default', 'Padrão do provedor');
+  const defaultModelLabel = defaultOptionLabel || t('pickers.model.default');
   const defaultModelOption: ComboboxItem = { value: DEFAULT_MODEL_SENTINEL, label: defaultModelLabel };
   const modelItems: ComboboxItem[] = models.map(({ value: id, label: name }) => ({
     value: id,
     label: name,
   }));
-  const items: ComboboxItem[] = variant === 'form'
+  const items: ComboboxItem[] = variant === 'form' || includeDefaultOption
     ? [defaultModelOption, ...modelItems]
     : modelItems;
 
@@ -244,6 +250,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       selected={value}
       onSelect={handleSelect}
       label={label}
+      description={description}
       icon={icon}
       placeholder={endpointNotSupported ? t('pickers.model.typePlaceholder') : placeholder}
       disabled={disabled}

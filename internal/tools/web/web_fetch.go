@@ -63,7 +63,7 @@ func (t *WebFetch) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *WebFetch) Description() string {
-	return "Fetches a URL (http/https) and extracts readable content. Strips HTML/scripts/styles and returns text (or raw/markdown). Blocks local/private hosts. Use after finding a specific link."
+	return `Fetches a known HTTP(S) page with GET and extracts readable text, raw HTML, or basic Markdown. Use when you already have a page URL and need its content; for example {"url":"https://example.com/guide","extract_mode":"markdown"}. Do not use to discover URLs (use web_search), control methods/headers/body for an API (use http_request), or obtain structured items from a feed (use feed_read). It strips scripts and styles in readable modes and applies credentials registered for the domain automatically. Risk: makes an external network request; local/private destinations and redirects are guarded by the network policy. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *WebFetch) Parameters() json.RawMessage {

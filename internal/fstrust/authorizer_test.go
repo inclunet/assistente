@@ -143,6 +143,69 @@ func TestAuthorizer_PromptDeny(t *testing.T) {
 	if !strings.Contains(err.Error(), "write") {
 		t.Fatalf("erro deveria mencionar a operação, got %v", err)
 	}
+	if m.MatchDeny(ctx, file, "write").Matched {
+		t.Fatal("cancelamento/deny simples não deve criar regra persistente")
+	}
+	if err := auth.Authorize(ctx, file, "write"); err == nil {
+		t.Fatal("nova tentativa também deve ser negada pelo prompt")
+	}
+	if prompt.called != 2 {
+		t.Fatalf("deny simples deve perguntar novamente, got %d prompts", prompt.called)
+	}
+}
+
+func TestAuthorizer_PromptDenyRememberPersists(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	file := filepath.Join(dir, "a.txt")
+	prompt := &spyPrompter{decision: PromptDecision{
+		Approve: false,
+		Scope:   ScopeGlobal,
+		Kind:    KindFile,
+		Effect:  EffectDeny,
+	}}
+	auth := NewAuthorizer(m, prompt)
+
+	if err := auth.Authorize(ctx, file, "write"); err == nil {
+		t.Fatal("negar e lembrar deve bloquear a tentativa atual")
+	}
+	if match := m.MatchDeny(ctx, file, "write"); !match.Matched || match.Scope != ScopeGlobal {
+		t.Fatalf("deny global não foi lembrado: %+v", match)
+	}
+	if err := auth.Authorize(ctx, file, "write"); err == nil {
+		t.Fatal("deny lembrado deve bloquear tentativas futuras")
+	}
+	if prompt.called != 1 {
+		t.Fatalf("deny persistido não deve abrir novo prompt: %d chamadas", prompt.called)
+	}
+	if m.MatchDeny(ctx, file, "read").Matched {
+		t.Fatal("deny de write não pode vazar para read")
+	}
+}
+
+func TestAuthorizer_PromptDenySessionIsIsolatedByConversation(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	file := filepath.Join(dir, "a.txt")
+	ctxA := ctxWith("conversa-a", "")
+	ctxB := ctxWith("conversa-b", "")
+	auth := NewAuthorizer(m, &spyPrompter{decision: PromptDecision{
+		Approve: false,
+		Scope:   ScopeSession,
+		Kind:    KindFile,
+		Effect:  EffectDeny,
+	}})
+
+	if err := auth.Authorize(ctxA, file, "read"); err == nil {
+		t.Fatal("deny de sessão deve bloquear a tentativa atual")
+	}
+	if !m.MatchDeny(ctxA, file, "read").Matched {
+		t.Fatal("deny deveria valer na conversa de origem")
+	}
+	if m.MatchDeny(ctxB, file, "read").Matched {
+		t.Fatal("deny de sessão não pode vazar para outra conversa")
+	}
 }
 
 func TestAuthorizer_ApproveDirPersistsParent(t *testing.T) {

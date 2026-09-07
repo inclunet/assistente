@@ -46,16 +46,16 @@ export function RetryUserRuntimeInit() {
   return window['go']['app']['App']['RetryUserRuntimeInit']();
 }
 
+export function SetWakeLock(arg1) {
+  return window['go']['app']['App']['SetWakeLock'](arg1);
+}
+
 export function SetupMasterPassword(arg1) {
   return window['go']['app']['App']['SetupMasterPassword'](arg1);
 }
 
 export function SetupVault(arg1) {
   return window['go']['app']['App']['SetupVault'](arg1);
-}
-
-export function SetWakeLock(arg1) {
-  return window['go']['app']['App']['SetWakeLock'](arg1);
 }
 
 export function ShowWindow() {

@@ -104,12 +104,6 @@
   padding: 10px;
 }
 
-.editor-page__preview-hint {
-  font-size: 12px;
-  opacity: 0.75;
-  margin-bottom: 8px;
-}
-
 .editor-page__empty {
   padding: 16px;
   opacity: 0.8;

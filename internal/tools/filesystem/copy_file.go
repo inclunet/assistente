@@ -27,16 +27,16 @@ func (t *CopyFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *CopyFile) Description() string {
-	return "Copies a file on disk. Validates paths, respects skill filesystem scope, and blocks sensitive files. Fails if destination exists unless overwrite=true."
+	return "Copy one existing file to a second path while preserving the source. Use for file duplication or backup. Do not use for directories, renaming or relocating the source (use move_file), or changing file contents. The destination must not exist unless overwrite is explicitly true; copying large files incurs proportional I/O and overwriting can destroy a file. Risk: write."
 }
 
 func (t *CopyFile) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"from": {"type": "string", "description": "Path de origem (absoluto ou relativo ao diretório de trabalho)"},
-			"to": {"type": "string", "description": "Path de destino (absoluto ou relativo ao diretório de trabalho)"},
-			"overwrite": {"type": "boolean", "description": "Se true, sobrescreve o destino se existir. Padrão: false"}
+			"from": {"type": "string", "description": "Existing source file to copy, absolute or relative to the working directory."},
+			"to": {"type": "string", "description": "Destination file path, absolute or relative to the working directory; this tool does not copy directories."},
+			"overwrite": {"type": "boolean", "description": "Whether to replace an existing destination file; defaults to false. Set true only when replacement is intentional."}
 		},
 		"required": ["from", "to"],
 		"additionalProperties": false

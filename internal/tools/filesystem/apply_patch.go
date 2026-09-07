@@ -60,10 +60,7 @@ func (t *ApplyPatch) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *ApplyPatch) Description() string {
-	return "Atomically applies multiple exact replacements (hunks) to one existing text file. " +
-		"Every old_string must be non-empty and unique in the same original snapshot; hunks must not overlap. " +
-		"If any hunk fails, nothing is written and the structured result identifies that hunk. " +
-		"Use write_file to create or fully replace a file, and edit_file for replace_all."
+	return "Apply several distinct exact replacements atomically to one existing text file. Use after reading the file when multiple non-overlapping edits must succeed or fail together; each old_string must be unique in the same original snapshot. Do not use for one simple replacement or replace-all (use edit_file), creating or fully rewriting a file (use write_file), or editing multiple files. Up to 100 hunks and 5 MiB of hunk text are accepted; the active editor file may require user confirmation. Risk: write."
 }
 
 func (t *ApplyPatch) Parameters() json.RawMessage {
@@ -72,11 +69,11 @@ func (t *ApplyPatch) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do arquivo de texto existente (absoluto ou relativo ao diretório de trabalho)"
+				"description": "Single existing text file to patch, absolute or relative to the working directory."
 			},
 			"hunks": {
 				"type": "array",
-				"description": "Substituições exatas, todas resolvidas sobre o mesmo conteúdo original",
+				"description": "Between 1 and 100 exact, non-overlapping replacements resolved against the same original file snapshot; all apply or none apply.",
 				"minItems": 1,
 				"maxItems": 100,
 				"items": {
@@ -84,11 +81,11 @@ func (t *ApplyPatch) Parameters() json.RawMessage {
 					"properties": {
 						"old_string": {
 							"type": "string",
-							"description": "Texto exato, não vazio e único no snapshot original"
+							"description": "Exact non-empty text from the original snapshot, including whitespace; add unchanged context until it occurs exactly once."
 						},
 						"new_string": {
 							"type": "string",
-							"description": "Texto final que substituirá old_string; pode ser vazio para remover"
+							"description": "Exact final text replacing old_string; may be empty to remove the matched text."
 						}
 					},
 					"required": ["old_string", "new_string"],

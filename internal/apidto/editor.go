@@ -9,7 +9,8 @@ type EditorMergeSession struct {
 	CreatedAt       int64  `json:"createdAt"`
 }
 
-// EditorState é o estado global do editor persistido em ~/.assistente/editor/state.json.
+// EditorState é o estado do editor persistido por usuário autenticado em
+// ~/.assistente/users/<userID>/editor/state.json.
 // Não inclui lista de abas (fica no workspace YAML) nem conteúdo de documentos (fica em arquivos).
 type EditorState struct {
 	FileModeByPath       map[string]string             `json:"fileModeByPath,omitempty"`

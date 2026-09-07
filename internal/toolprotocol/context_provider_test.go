@@ -35,9 +35,40 @@ func TestContextProviderBuildsCatalogFirstProtocol(t *testing.T) {
 	}
 }
 
+func TestContextProviderBuildsFailClosedStatusFromTypedSignal(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ToolCallingEnabled:               false,
+		EnabledTools:                     []string{},
+		ImplicitToolSelectionUnavailable: true,
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+	}
+	block := blocks[0]
+	if block.Provider != "tool_protocol" || block.Name != "tool_selection_status" {
+		t.Fatalf("unexpected block identity: %+v", block)
+	}
+	if block.Volatility != contextprovider.VolatilityStable || block.Priority != 8 {
+		t.Fatalf("unexpected block ordering metadata: %+v", block)
+	}
+	for _, want := range []string{
+		"Dynamic tool discovery is unavailable",
+		"No implicit tools were exposed",
+		"explicitly select tools in the profile editor",
+	} {
+		if !strings.Contains(block.Content, want) {
+			t.Fatalf("status missing %q: %q", want, block.Content)
+		}
+	}
+}
+
 func TestContextProviderOmitsProtocolWhenCatalogFirstInactive(t *testing.T) {
 	cases := []contextprovider.BuildRequest{
 		{ToolCallingEnabled: false, EnabledTools: []string{tools.ToolCatalogName}},
+		{ToolCallingEnabled: false, EnabledTools: []string{}},
 		{ToolCallingEnabled: true, EnabledTools: []string{"read_file"}},
 		{ToolCallingEnabled: true, EnabledTools: []string{tools.ToolCatalogName, "read_file"}},
 	}

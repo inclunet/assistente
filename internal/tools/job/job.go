@@ -75,7 +75,12 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates, or creates that stable job_id when not found and required create fields are present. Without job_id plus name/tool/triggers creates using a generated id. delete, run, dry_run, list_runs, list_events and run_id (get one run with timeline+domain events) are mutually exclusive actions. list_runs accepts status/started_after/started_before/include_dry_run filters; list_events accepts date or start_at/end_at, event_type, event_name, optional job_id."
+	return `Manage persistent event-driven jobs. One job invokes one configured tool per trigger; jobs form workflows by emitting and listening for events.
+Use when: creating or changing scheduled/reactive automation, enabling it, running it now, or inspecting jobs, runs, failures, and events. No parameters lists jobs; job_id reads one.
+Do not use: call the underlying tool directly for a one-off action. Use job_pipeline only to group and collectively enable/disable related jobs; a pipeline does not execute tools or define step order.
+Persistence, risk, and cost: definitions, runs, and events persist in the database. Enabled cron/interval/event jobs may run repeatedly, invoke write/network tools, emit chained events, and consume external quotas. run executes now. dry_run suppresses emitted events but, without mock_output, still executes the configured tool and may have side effects. Prefer filtered list_runs/list_events before fetching one full run timeline.
+Actions delete, run, dry_run, list_runs, list_events, and run_id are mutually exclusive. Creating requires name, tool, and triggers; job_id plus write fields updates or creates that stable ID.
+Examples: inspect {"job_id":"daily-report"}; run history {"job_id":"daily-report","list_runs":true,"status":["failed"]}; create {"name":"Daily report","tool":"web_fetch","triggers":[{"type":"cron","expression":"0 9 * * 1-5"}]}.`
 }
 
 func (t *Tool) Parameters() json.RawMessage {

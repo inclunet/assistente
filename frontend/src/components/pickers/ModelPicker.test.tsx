@@ -37,6 +37,7 @@ vi.mock('./BasePicker', () => ({
     allowFreeInput?: boolean;
     error?: string | null;
     helpText?: string;
+    description?: string;
   }) => (
     <div
       data-testid="base-picker"
@@ -45,6 +46,7 @@ vi.mock('./BasePicker', () => ({
       data-allowfree={props.allowFreeInput ? 'yes' : 'no'}
       data-error={props.error ?? ''}
       data-help={props.helpText ?? ''}
+      data-description={props.description ?? ''}
     />
   ),
 }));
@@ -282,5 +284,29 @@ describe('ModelPicker', () => {
 
     await waitFor(() => expect(getModelsSpy).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: 'pickers.model.refreshLabel' })).toBeNull();
+  });
+
+  it('oferece retorno acessível ao padrão no uso por aba', async () => {
+    getModelsSpy.mockResolvedValueOnce(catalogo(['m1']));
+
+    render(
+      <ModelPicker
+        value="$default"
+        onChange={() => {}}
+        providerID="p1"
+        variant="toolbar"
+        includeDefaultOption
+        defaultOptionLabel="Modelo do perfil"
+        description="Escolhe o modelo desta aba"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('base-picker')).toHaveAttribute('data-labels', 'Modelo do perfil|m1');
+    });
+    expect(screen.getByTestId('base-picker')).toHaveAttribute(
+      'data-description',
+      'Escolhe o modelo desta aba',
+    );
   });
 });

@@ -266,6 +266,9 @@ describe('TerminalPage', () => {
     });
     const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
 
+    expect(surfaceContext.surfaceType).toBe('terminal');
+    expect(surfaceContext.surfaceId).toBe('terminal-tab');
+    expect(surfaceContext.snapshotVersion).toMatch(/^terminal:terminal-tab:/);
     expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
     expect(surfaceContext.content.recentOutput).toContain('cmd-6');
     expect(surfaceContext.content.recentOutput).toContain('cmd-45');

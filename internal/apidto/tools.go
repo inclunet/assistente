@@ -12,6 +12,7 @@ type ToolInfo struct {
 	Description string `json:"description"`
 	SourceType  string `json:"source_type"`
 	SourceLabel string `json:"source_label"`
+	Package     string `json:"package,omitempty"`
 	OptIn       bool   `json:"opt_in"`
 }
 

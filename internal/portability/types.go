@@ -52,6 +52,7 @@ type MessageExport struct {
 	TotalTokens      int       `json:"totalTokens,omitempty"`
 	Model            string    `json:"model,omitempty"`
 	Source           string    `json:"source,omitempty"`
+	Pinned           bool      `json:"pinned,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
 	ParentID         string    `json:"parentId,omitempty"`
 	TurnID           string    `json:"turnId,omitempty"`

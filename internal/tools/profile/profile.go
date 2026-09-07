@@ -52,7 +52,7 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Discover interaction profiles and request a persistent profile change. Use action='list' (default) to inspect installed profile slugs, names, descriptions, current status, and availability before choosing a profile for the subagent tool. Use action='switch' only when the main conversation should keep using another profile in future turns; it always asks the user for confirmation and takes effect on the next turn. For immediate specialized work, prefer subagent with the selected profile."
+	return "Lists installed interaction profiles or requests a persistent profile change. Use action='list' (default) when you need to discover an appropriate profile or its exact slug before delegating specialized work or proposing a change. Use action='switch' only when another profile should handle future turns of this main conversation; every real change requires user authorization and applies on the next turn. Do not switch when the current profile is suitable, for one-off or immediately needed specialization (use subagent with the selected profile instead), or merely to gain tools or privileges."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -62,15 +62,15 @@ func (t *Tool) Parameters() json.RawMessage {
 			"action": {
 				"type": "string",
 				"enum": ["list", "switch"],
-				"description": "Operation. Defaults to list."
+				"description": "Operation: list discovers installed profiles without changing state; switch requests an authorized persistent change for future turns. Defaults to list."
 			},
 			"slug": {
 				"type": "string",
-				"description": "Target profile slug. Required for switch."
+				"description": "Exact target profile slug, preferably obtained from action=list. Required only for switch; it does not grant tools or privileges to the current profile."
 			},
 			"reason": {
 				"type": "string",
-				"description": "Short user-facing reason for changing the main conversation profile. Required for switch."
+				"description": "Short user-facing reason why the target profile should handle future turns. Required for switch and shown during the authorization decision."
 			}
 		},
 		"additionalProperties": false

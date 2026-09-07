@@ -13,6 +13,13 @@ import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAcce
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
+import {
+  cancelWorkspacePanelFocus,
+  hasWorkspacePanelFocusHandler,
+  pruneWorkspacePanelFocus,
+  queueWorkspacePanelFocus,
+  requestWorkspacePanelFocus,
+} from './workspacePanelFocusRegistry';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
@@ -41,8 +48,10 @@ export function WorkspaceLayout() {
 
   const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
   const restoreFocusToTablistRef = useRef<string | null>(null);
+  const lastTabShortcutTargetRef = useRef<string | null>(null);
   const markTabShortcutNavigation = useCallback((tabId: string) => {
     restoreFocusAfterTabShortcutRef.current = tabId;
+    lastTabShortcutTargetRef.current = tabId;
   }, []);
 
   useWorkspaceKeyboardShortcuts({
@@ -54,6 +63,10 @@ export function WorkspaceLayout() {
   useVoiceAccessibilityWorkspaceResolver();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
+
+  useEffect(() => {
+    pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));
+  }, [workspace?.tabs]);
 
   useEffect(() => {
     if (!isWorkspaceRoute) {
@@ -289,6 +302,27 @@ export function WorkspaceLayout() {
   const prevActiveTabIdRef = useRef(activeTabId);
 
   useEffect(() => {
+    const handleActivationRollback = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        failedTabId?: string;
+        rollbackTabId?: string | null;
+      }>).detail;
+      const failedTabId = detail?.failedTabId;
+      const rollbackTabId = detail?.rollbackTabId;
+      if (
+        !failedTabId
+        || !rollbackTabId
+        || lastTabShortcutTargetRef.current !== failedTabId
+      ) return;
+      cancelWorkspacePanelFocus(failedTabId);
+      lastTabShortcutTargetRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = rollbackTabId;
+    };
+    window.addEventListener('workspace:tab-activation-rollback', handleActivationRollback);
+    return () => window.removeEventListener('workspace:tab-activation-rollback', handleActivationRollback);
+  }, []);
+
+  useEffect(() => {
     if (!isWorkspaceRoute || !activeTabId) return;
     if (activeTabId === prevActiveTabIdRef.current) return;
     prevActiveTabIdRef.current = activeTabId;
@@ -312,8 +346,17 @@ export function WorkspaceLayout() {
     }
 
     restoreFocusAfterTabShortcutRef.current = null;
-    requestAnimationFrame(() => restoreDefaultFocus());
-  }, [activeTabId, isWorkspaceRoute]);
+    const activeTabType = workspace?.tabs.find((tab) => tab.id === activeTabId)?.type;
+    requestAnimationFrame(() => {
+      if (hasWorkspacePanelFocusHandler(activeTabId)) {
+        requestWorkspacePanelFocus(activeTabId);
+      } else if (activeTabType === 'editor') {
+        queueWorkspacePanelFocus(activeTabId);
+      } else {
+        restoreDefaultFocus();
+      }
+    });
+  }, [activeTabId, isWorkspaceRoute, workspace?.tabs]);
 
   useEffect(() => {
     ensureModalCleanup();

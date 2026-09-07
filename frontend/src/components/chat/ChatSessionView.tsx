@@ -1,6 +1,7 @@
 import { logger } from '../../utils/logger';
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Alert, Button } from 'antd';
 import { useEditorStore } from '../../store/editorStore';
 import { useChatStore } from '../../store/chatStore';
@@ -23,13 +24,15 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage } from '@wailsjs/go/wailsapi/Conversations';
+import { DeleteMessage, ToggleMessagePin } from '@wailsjs/go/wailsapi/Conversations';
 import { EditorGetDraftPath } from '@wailsjs/go/wailsapi/Editor';
 import { GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce, useAnnouncer } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import { requestConfirm } from '../../store/confirmStore';
+import { executeDeepLink } from '../../lib/deepLinks';
 import {
   useChatSurfaceController,
   type ChatSurfaceController,
@@ -117,6 +120,7 @@ function ChatSessionViewContent({
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { announceRequest } = useAnnouncer();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -132,6 +136,7 @@ function ChatSessionViewContent({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
+  const voiceSetupPromptPendingRef = useRef(false);
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
     trigger: MessageWindowLoadTrigger;
@@ -163,6 +168,7 @@ function ChatSessionViewContent({
     loadConversationSession,
     retryMessageToConversation,
     updateConversationMessage,
+    updateConversationMessagePinned,
     toggleConversationReasoningExpanded,
     isConversationReasoningExpanded,
     startConversationEditing,
@@ -404,6 +410,74 @@ function ChatSessionViewContent({
     onAnnounce: announce,
   });
 
+  const handleSpeakRequest = useCallback(
+    async (message: Parameters<typeof speakMessage>[0]) => {
+      if (ttsService.hasVoiceConfig()) {
+        await speakMessage(message);
+        return;
+      }
+      if (voiceSetupPromptPendingRef.current) return;
+
+      voiceSetupPromptPendingRef.current = true;
+      try {
+        const shouldConfigure = await requestConfirm({
+          title: t('chat.voiceSetup.title'),
+          message: t('chat.voiceSetup.description'),
+          confirmText: t('chat.voiceSetup.configure'),
+          cancelText: t('common.cancel'),
+          variant: 'info',
+        });
+        if (!shouldConfigure) return;
+
+        const targetProfileSlug = profileSlug || activeProfileSlug || await GetActiveProfileSlug();
+        if (!targetProfileSlug) {
+          announce(t('chat.voiceSetup.profileUnavailable'));
+          return;
+        }
+
+        await executeDeepLink(
+          {
+            type: 'resource:edit',
+            resource: 'profiles',
+            resourceId: targetProfileSlug,
+            tab: 'voice',
+          },
+          {
+            navigate,
+            ...(origin.tabId && (
+              origin.surfaceType === 'page'
+              || origin.surfaceType === 'embedded'
+              || origin.surfaceType === 'modal'
+            )
+              ? {
+                  caller: {
+                    kind: 'workspace' as const,
+                    tabId: origin.tabId,
+                    surfaceId: origin.surfaceId,
+                    surfaceType: origin.surfaceType,
+                    conversationId: origin.conversationId,
+                  },
+                }
+              : {}),
+          },
+        );
+      } catch (error) {
+        handleError(error, {
+          source: 'ChatSessionView.voiceSetup',
+          userMessage: t('chat.voiceSetup.error'),
+          severity: ErrorSeverity.RECOVERABLE,
+          metadata: {
+            profileSlug: profileSlug || activeProfileSlug || undefined,
+            surfaceId: origin.surfaceId,
+          },
+        });
+      } finally {
+        voiceSetupPromptPendingRef.current = false;
+      }
+    },
+    [activeProfileSlug, navigate, origin, profileSlug, speakMessage, t],
+  );
+
   const handleDeleteMessage = useCallback(
     async (message: { id: string | number }) => {
       const messageId = String(message.id);
@@ -548,8 +622,19 @@ function ChatSessionViewContent({
     },
     onSendToEditor: sendToEditor,
     editorTargets,
-    onPin: (_message) => {
-      announce(t('chat.announce.pinComingSoon'));
+    onPin: async (message) => {
+      if (!isBackendId(message.id)) return;
+      try {
+        const result = await ToggleMessagePin(message.id);
+        announce(result.pinned ? t('chat.announce.messagePinned') : t('chat.announce.messageUnpinned'));
+      } catch (error) {
+        handleError(error, {
+          source: 'ChatSessionView.onPin',
+          userMessage: t('chat.pins.toggleError'),
+          severity: ErrorSeverity.RECOVERABLE,
+          metadata: { messageId: message.id },
+        });
+      }
     },
     onToggleReasoning: (message) => {
       const targetConversationId = conversation?.id;
@@ -702,6 +787,23 @@ function ChatSessionViewContent({
       if (unsubscribe) unsubscribe();
     };
   }, [conversationId, updateConversationMessage]);
+
+  useEffect(() => {
+    const handleMessagePinChanged = (data: unknown) => {
+      const eventData = data as { conversationId?: string; messageId?: string; pinned?: boolean };
+      if (
+        eventData.conversationId !== conversationId
+        || !eventData.messageId
+        || typeof eventData.pinned !== 'boolean'
+      ) return;
+      updateConversationMessagePinned(conversationId, eventData.messageId, eventData.pinned);
+    };
+
+    const unsubscribe = EventsOn('message:pin_changed', handleMessagePinChanged);
+    return () => {
+      unsubscribe();
+    };
+  }, [conversationId, updateConversationMessagePinned]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -955,7 +1057,7 @@ function ChatSessionViewContent({
           onJumpToEnd={handleJumpToEnd}
           ref={messagesContainerRef}
           onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
-          onSpeak={hasVoiceConfig ? speakMessage : undefined}
+          onSpeak={handleSpeakRequest}
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}
           onSendToEditor={sendToEditor}

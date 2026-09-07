@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -85,7 +86,7 @@ func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (rc *RunCommand) Description() string {
-	return `Runs a shell command. By default it runs as a single ephemeral execution without leaving a persistent terminal tab; pass persistent=true to keep a terminal section alive for interactive use. Pass terminal_id to use exactly one live terminal returned by terminal_session; omit it to create a new execution. working_directory applies only to a new execution and cannot be combined with terminal_id. Results include a deep link for inspection when persistent or terminal_id is used (ephemeral executions have no terminal link). Respects allowlist and may require user confirmation. timeout_seconds max is 300.`
+	return `Executes a shell command in a PTY. Use when a task requires a process, such as building, testing, Git, or a CLI; for example {"command":"go test ./...","timeout_seconds":120}. Do not use when a dedicated file/search tool can perform the operation, or merely to list, create, interrupt, or close terminals—use terminal_session for that lifecycle. By default each call is ephemeral and leaves no terminal tab. For a persistent or interactive workflow, set persistent=true, take terminalId from the result metadata, and pass it as terminal_id to later run_command calls. working_directory applies only when starting a new execution and cannot be combined with terminal_id. Risk: runs local commands, respects the command allowlist, and may require user confirmation; timeout_seconds is capped at 300. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {
@@ -198,11 +199,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
-	if decision == allowlist.DecisionApprove {
-		logging.Infof(ctx, "tools.shell.run-command", "[RunCommand] Comando: %s, decisão: %s", commandSummary, decision)
-	} else {
-		logging.Infof(ctx, "tools.shell.run-command", "[RunCommand] Comando: %s, decisão: %s, motivos: %s", commandSummary, decision, summarizePolicyReasons(policyResult))
-	}
+	logPolicyDecision(ctx, logging.Logger(ctx, "tools.shell.run-command"), commandSummary, policyResult)
 
 	switch decision {
 	case allowlist.DecisionDeny:
@@ -388,6 +385,36 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func logPolicyDecision(
+	ctx context.Context,
+	logger *slog.Logger,
+	commandSummary string,
+	result commandpolicy.EvaluationResult,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if logger == nil {
+		logger = logging.Logger(ctx, "tools.shell.run-command")
+	}
+	if !logger.Enabled(ctx, slog.LevelInfo) {
+		return
+	}
+	decision := result.Decision
+	decisionText := decision.String()
+	attrs := []any{
+		slog.String("command_summary", commandSummary),
+		slog.String("decision", decisionText),
+	}
+	message := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decisionText)
+	if decision != allowlist.DecisionApprove {
+		reasons := summarizePolicyReasons(result)
+		message += fmt.Sprintf(", motivos: %s", reasons)
+		attrs = append(attrs, slog.String("reasons", reasons))
+	}
+	logger.Log(ctx, slog.LevelInfo, message, attrs...)
 }
 
 // evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:

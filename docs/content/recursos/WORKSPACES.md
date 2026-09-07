@@ -45,6 +45,21 @@ Cada workspace mantém seu próprio conjunto de abas **self-contained**: cada ab
 
 O tipo de cada aba é identificado automaticamente e restaurado ao reabrir o workspace.
 
+### Modelo por aba de chat
+
+Quando o perfil usa um provider HTTP nativo, a barra do chat oferece **Modelo
+desta aba**. A primeira opção, **Modelo do perfil**, mantém o comportamento do
+perfil; escolher outro item substitui o modelo apenas naquela aba e nos próximos
+turnos.
+
+A escolha é salva no workspace e sobrevive ao fechamento do aplicativo. Ela
+não altera o perfil e não segue a conversa: se a mesma conversa for aberta em
+outra aba, a outra aba usa a própria escolha. Ao trocar de perfil, o app remove
+automaticamente um modelo que pertença a outro provider.
+
+Agentes ACP têm controles próprios de modelo e modo da sessão. Para eles, use
+os seletores **Modelo do agente** e **Modo do agente** na barra do chat.
+
 ## Perfil por Workspace
 
 Cada workspace pode ter um perfil de interação override, que define:

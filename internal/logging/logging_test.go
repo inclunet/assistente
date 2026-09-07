@@ -55,9 +55,14 @@ func TestWithAttrsKeepsExistingAttributes(t *testing.T) {
 }
 
 func TestNormalizeLegacyMessageRemovesPrefixAndSymbols(t *testing.T) {
-	got := normalizeLegacyMessage("[Updater] ✅ Atualização aplicada com sucesso")
-	if got != "Atualização aplicada com sucesso" {
-		t.Fatalf("normalizeLegacyMessage() = %q", got)
+	cases := map[string]string{
+		"[Updater] ✅ Atualização aplicada com sucesso":       "Atualização aplicada com sucesso",
+		"[RunCommand] Comando: git status, decisão: approve": "Comando: git status, decisão: approve",
+	}
+	for input, want := range cases {
+		if got := normalizeLegacyMessage(input); got != want {
+			t.Errorf("normalizeLegacyMessage(%q) = %q, want %q", input, got, want)
+		}
 	}
 }
 

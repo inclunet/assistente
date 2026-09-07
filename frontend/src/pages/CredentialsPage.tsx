@@ -6,7 +6,7 @@ import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button, Input, Select } from '../components';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { DialogActions } from '../components/ui/DialogActions';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -14,6 +14,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './CredentialsPage.css';
 
 interface CredentialRow {
@@ -172,24 +173,7 @@ export default function CredentialsPage() {
     ready: !crud.loading && crud.items.length > 0,
   });
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.key !== 'n' && event.key !== 'N') return;
-      const target = event.target as HTMLElement | null;
-      const isInput =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
-      if (isInput) return;
-      event.preventDefault();
-      crud.openNew();
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [crud]);
+  useActivePanelNewShortcut(crud.openNew);
 
   const isRefValue = (value?: string): boolean =>
     Boolean(value && (value.startsWith('keyring://') || value.startsWith('env://')));

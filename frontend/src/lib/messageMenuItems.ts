@@ -497,13 +497,13 @@ export function getMessageMenuItems(
   }
 
   // 5. Fixar/Desafixar
-  if (onPin) {
+  if (onPin && isBackendId(message.id)) {
     const isPinned = messageFlags.pinned || false;
     items.push({
       id: 'pin',
-      label: isPinned ? 'Desafixar mensagem' : 'Fixar mensagem',
+      label: isPinned ? i18next.t('chat.unpinMessage') : i18next.t('chat.pinMessage'),
       icon: isPinned ? '📍' : '📌',
-      ariaLabel: isPinned ? 'Desafixar mensagem' : 'Fixar mensagem',
+      ariaLabel: isPinned ? i18next.t('chat.unpinMessage') : i18next.t('chat.pinMessage'),
       action: () => onPin(message),
     });
   }

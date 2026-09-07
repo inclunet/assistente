@@ -137,6 +137,17 @@ describe('ProfileEditorTabs', () => {
     expect(screen.getByTestId('chat-section')).not.toBeVisible();
   });
 
+  it('abre diretamente a aba de voz solicitada pela navegação', () => {
+    render(<ProfileEditorTabs {...propsCom()} initialTab="voice" />);
+
+    const audioTab = screen.getAllByRole('tab').find(
+      (tab) => tab.getAttribute('data-tab-value') === 'audio',
+    );
+    expect(audioTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('audio-tab')).toBeVisible();
+    expect(screen.getByTestId('general-section')).not.toBeVisible();
+  });
+
   it('troca para aba Modelos ao clicar', async () => {
     const user = userEvent.setup();
     renderTabs();

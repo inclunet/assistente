@@ -1,6 +1,6 @@
 # Sistema de Auto-Update
 
-Status: In Progress — runtime/workflow entregues; fixture estática legada ainda precisa ser removida
+Status: Atualizado para a implementação real em `internal/updater/updater.go` e `.github/workflows/release.yml`.
 
 ## Resumo
 
@@ -15,6 +15,16 @@ A arquitetura original previa publicar um manifest estático em GitHub Pages. A 
 ## Decisões
 
 - A fonte de atualização é a API de GitHub Releases, via `GitHubAPIURL`.
+- A verificação é independente de providers LLM e roda no startup e a cada
+  `CheckInterval` (6 horas), sob o contexto raiz cancelável do aplicativo.
+- Startup, pós-wizard e periodicidade compartilham o mesmo scheduler. Sinais
+  simultâneos são agregados e uma versão já apresentada não gera novo prompt
+  durante a mesma execução.
+- Falhas de rede/fetch geram um único aviso não bloqueante e acessível até que
+  uma verificação volte a ter sucesso; detalhes internos permanecem apenas no
+  log. O scheduler tenta novamente no próximo intervalo.
+- Builds de desenvolvimento (`AppVersion == "dev"`) não fazem checks
+  automáticos.
 - O workflow `.github/workflows/release.yml` é acionado por `release.created`, executa testes/builds, consolida assets e anexa os arquivos ao release existente.
 - `fetchManifest()` adapta `tag_name`, `published_at`, `body` e `assets` da API para o `Manifest` interno usado por `CheckForUpdates()` e `ApplyUpdate()`.
 - A comparação de versão normaliza o prefixo `v` apenas para comparação, permitindo tag `v1.0.1` e `AppVersion` `1.0.1` sem falso positivo de update.
@@ -50,16 +60,12 @@ flowchart TD
 
 ## Critérios de Aceite
 
-- [x] A documentação operacional não orienta criar `update-manifest.json`.
-- [x] O quickstart vigente usa GitHub Release, não GitHub Pages; os apêndices
-  0029 antigos estão explicitamente rotulados como históricos.
-- [ ] Remover a fixture morta `docs/static/json/update-manifest-example.json`,
-  que não possui consumidor no repositório.
-- [x] Runtime, workflow e AEP descrevem GitHub Releases como fonte canônica.
-
-Evidências: `internal/updater/updater_test.go` cobre API de releases, versões,
-assets, plataformas e erros; `.github/workflows/release.yml` cobre
-testes/builds/checksums e upload dos assets.
+- A documentação não deve orientar criação de `update-manifest.json` para auto-update.
+- O quickstart de release deve orientar criação/publicação de GitHub Release, não deploy em GitHub Pages.
+- Fixtures mortas de manifest estático devem ser removidas para evitar falsa fonte de verdade.
+- Mudanças futuras no updater devem manter `internal/updater/updater.go`, `.github/workflows/release.yml` e esta AEP alinhados.
+- A checagem automática deve funcionar com zero providers, encerrar no shutdown
+  e não repetir o mesmo prompt ou aviso de erro a cada tick.
 
 ## Riscos
 

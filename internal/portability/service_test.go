@@ -83,7 +83,7 @@ func TestExportConversationPreservesStableIDs(t *testing.T) {
 		Title: "Teste",
 		Messages: []database.ChatMessage{
 			{UUIDModel: database.UUIDModel{ID: parentID, CreatedAt: time.Unix(100, 0)}, Role: "user", Content: "Oi"},
-			{UUIDModel: database.UUIDModel{ID: assistantID, CreatedAt: time.Unix(101, 0)}, Role: "assistant", Content: "Ola", ParentID: &parentID, TurnID: &turnID},
+			{UUIDModel: database.UUIDModel{ID: assistantID, CreatedAt: time.Unix(101, 0)}, Role: "assistant", Content: "Ola", ParentID: &parentID, TurnID: &turnID, Pinned: true},
 		},
 	}
 
@@ -99,6 +99,9 @@ func TestExportConversationPreservesStableIDs(t *testing.T) {
 	}
 	if exported.Messages[1].TurnID != turnID {
 		t.Fatalf("assistant TurnID = %q, want %q", exported.Messages[1].TurnID, turnID)
+	}
+	if !exported.Messages[1].Pinned {
+		t.Fatal("assistant Pinned = false, want true")
 	}
 }
 

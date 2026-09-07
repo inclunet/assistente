@@ -164,9 +164,6 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 	writeStructuredFocus(&body, normalized)
 	writeStructuredContent(&body, normalized)
 	writeStructuredMetadata(&body, normalized)
-	if strings.TrimSpace(body.String()) == "" && normalized.Incomplete {
-		body.WriteString("<notice>surface context is incomplete and must not be used as a trusted mutation target</notice>\n")
-	}
 	bodyContent := strings.TrimRight(body.String(), "\n")
 	if strings.TrimSpace(bodyContent) == "" {
 		return ""
@@ -232,7 +229,6 @@ type normalizedSurfaceContext struct {
 	SnapshotVersion string
 	CapturedAt      string
 	StaleAfterMs    string
-	Incomplete      bool
 }
 
 func normalizeSurfaceContext(surface *contextprovider.Surface) *normalizedSurfaceContext {
@@ -240,31 +236,17 @@ func normalizeSurfaceContext(surface *contextprovider.Surface) *normalizedSurfac
 		return nil
 	}
 	ctx := surface.Context
-	surfaceType := firstNonEmpty(stringFromMap(ctx, "surfaceType"), surface.Type)
+	surfaceType := stringFromMap(ctx, "surfaceType")
 	surfaceID := stringFromMap(ctx, "surfaceId")
 	snapshotVersion := stringFromMap(ctx, "snapshotVersion")
-	incomplete := surfaceType == "" || surfaceID == "" || snapshotVersion == ""
-
-	if surfaceType == "" {
+	if surfaceType == "" || surfaceID == "" || snapshotVersion == "" {
 		return nil
 	}
-	if surfaceID == "" {
-		surfaceID = firstNonEmpty(
-			stringFromMap(surface.State, "sessionId"),
-			stringFromMap(surface.State, "tasklistId"),
-			stringFromMap(surface.State, "draftId"),
-			stringFromMap(surface.State, "filePath"),
-			surfaceType,
-		)
-	}
-	if snapshotVersion == "" {
-		snapshotVersion = "legacy:" + surfaceType + ":" + surfaceID
-	}
 
-	normalized := &normalizedSurfaceContext{
+	return &normalizedSurfaceContext{
 		SurfaceType:     surfaceType,
 		SurfaceID:       surfaceID,
-		Title:           firstNonEmpty(stringFromMap(ctx, "title"), surface.Title),
+		Title:           stringFromMap(ctx, "title"),
 		Mode:            stringFromMap(ctx, "mode"),
 		Selection:       mapFromMap(ctx, "selection"),
 		Focus:           mapFromMap(ctx, "focus"),
@@ -273,66 +255,7 @@ func normalizeSurfaceContext(surface *contextprovider.Surface) *normalizedSurfac
 		SnapshotVersion: snapshotVersion,
 		CapturedAt:      stringFromMap(ctx, "capturedAt"),
 		StaleAfterMs:    numberStringFromMap(ctx, "staleAfterMs"),
-		Incomplete:      incomplete,
 	}
-
-	if incomplete {
-		adaptLegacySurfaceContext(surface, normalized)
-	}
-	return normalized
-}
-
-func adaptLegacySurfaceContext(surface *contextprovider.Surface, normalized *normalizedSurfaceContext) {
-	if normalized == nil || surface == nil {
-		return
-	}
-	if normalized.Mode == "" {
-		normalized.Mode = stringFromMap(surface.Context, "mode")
-	}
-	if normalized.Selection == nil {
-		if selectedText := stringFromMap(surface.Context, "selectedText"); selectedText != "" {
-			normalized.Selection = map[string]any{
-				"kind":     "text",
-				"text":     selectedText,
-				"explicit": true,
-			}
-		}
-	}
-	if normalized.Focus == nil {
-		if cursorContext := stringFromMap(surface.Context, "cursorContext"); cursorContext != "" {
-			normalized.Focus = map[string]any{
-				"kind": "cursor",
-				"text": cursorContext,
-			}
-		}
-	}
-	if normalized.Content == nil {
-		switch {
-		case stringFromMap(surface.Context, "historyPreview") != "":
-			normalized.Content = map[string]any{
-				"kind":         "terminal_output",
-				"recentOutput": stringFromMap(surface.Context, "historyPreview"),
-			}
-		case stringFromMap(surface.Context, "tasksPreview") != "":
-			normalized.Content = map[string]any{
-				"kind":    "tasklist_summary",
-				"summary": stringFromMap(surface.Context, "tasksPreview"),
-			}
-		}
-	}
-	if normalized.Metadata == nil {
-		normalized.Metadata = map[string]any{}
-	}
-	for _, key := range []string{"filePath", "draftId", "tasklistId", "sessionId"} {
-		if value := stringFromMap(surface.State, key); value != "" {
-			metadataKey := key
-			if key == "tasklistId" {
-				metadataKey = "taskListId"
-			}
-			normalized.Metadata[metadataKey] = value
-		}
-	}
-	normalized.Metadata["legacySurfaceContext"] = true
 }
 
 func buildSurfaceOpenTag(surface *normalizedSurfaceContext) string {
@@ -352,9 +275,6 @@ func buildSurfaceOpenTag(surface *normalizedSurfaceContext) string {
 	}
 	if surface.StaleAfterMs != "" {
 		attrs = append(attrs, xmlAttr("stale_after_ms", surface.StaleAfterMs))
-	}
-	if surface.Incomplete {
-		attrs = append(attrs, `incomplete="true"`)
 	}
 	return "<surface_context\n  " + strings.Join(attrs, "\n  ") + "\n>"
 }
@@ -823,13 +743,13 @@ func surfaceTextLimit(surfaceType string) int {
 func metadataAllowlist(surfaceType string) []string {
 	switch strings.TrimSpace(surfaceType) {
 	case "editor":
-		return []string{"documentId", "filePath", "draftId", "language", "presentationDetection", "slideCount", "currentSlideIndex", "currentSlideLabel", "projectId", "legacySurfaceContext"}
+		return []string{"documentId", "filePath", "draftId", "language", "presentationDetection", "slideCount", "currentSlideIndex", "currentSlideLabel", "projectId"}
 	case "tasklist":
-		return []string{"taskListId", "slug", "taskCount", "statuses", "projectId", "legacySurfaceContext"}
+		return []string{"taskListId", "slug", "taskCount", "statuses", "projectId"}
 	case "terminal":
-		return []string{"sessionId", "cwd", "shell", "historyEntryCount", "lastExitCode", "projectId", "legacySurfaceContext"}
+		return []string{"sessionId", "cwd", "shell", "historyEntryCount", "lastExitCode", "projectId"}
 	default:
-		return []string{"projectId", "legacySurfaceContext"}
+		return []string{"projectId"}
 	}
 }
 

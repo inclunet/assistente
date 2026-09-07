@@ -5,13 +5,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
-	"assistente/internal/updater"
 )
 
 // ============================================================================
@@ -110,7 +108,6 @@ type WelcomeControllerConfig struct {
 	CredMgr          *credentials.Manager
 	ProviderSvc      *providers.Service
 	LLMRegistry      *llm.ProviderRegistry
-	Updater          *updater.Updater
 	UpdaterCtrl      *UpdaterController
 
 	// Callbacks para operações que pertencem à camada App (infra).
@@ -125,7 +122,6 @@ type WelcomeController struct {
 	credMgr                    *credentials.Manager
 	providerSvc                *providers.Service
 	llmRegistry                *llm.ProviderRegistry
-	updater                    *updater.Updater
 	updaterCtrl                *UpdaterController
 	configureCredentialManager func(dek []byte, persist bool)
 	initLLMClient              func()
@@ -139,7 +135,6 @@ func NewWelcomeController(cfg WelcomeControllerConfig) *WelcomeController {
 		credMgr:                    cfg.CredMgr,
 		providerSvc:                cfg.ProviderSvc,
 		llmRegistry:                cfg.LLMRegistry,
-		updater:                    cfg.Updater,
 		updaterCtrl:                cfg.UpdaterCtrl,
 		configureCredentialManager: cfg.ConfigureCredentialManager,
 		initLLMClient:              cfg.InitLLMClient,
@@ -406,7 +401,11 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 				}
 			}
 
-			go c.checkForUpdatesAfterWizard()
+			if c.updaterCtrl != nil {
+				// Reusa o mesmo scheduler cancelável do startup. O sinal
+				// antecipa a primeira checagem sem criar goroutine órfã.
+				c.updaterCtrl.RequestUpdateCheck()
+			}
 			return true, nil
 		}
 	}
@@ -484,36 +483,4 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 
 	logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
 	return info.ID, nil
-}
-
-// checkForUpdatesAfterWizard verifica atualizações após o wizard de configuração.
-func (c *WelcomeController) checkForUpdatesAfterWizard() {
-	time.Sleep(2 * time.Second)
-
-	if c.updater == nil {
-		logging.Warnf(context.Background(), "controllers.welcome-controller", "[Wizard] Updater não inicializado, pulando verificação de atualizações")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	logging.Infof(context.Background(), "controllers.welcome-controller", "[Wizard] Verificando atualizações disponíveis...")
-
-	info, err := c.updater.CheckForUpdates(ctx)
-	if err != nil {
-		logging.Errorf(context.Background(), "controllers.welcome-controller", "[Wizard] Erro ao verificar atualizações: %v", err)
-		return
-	}
-
-	if !info.Available {
-		logging.Infof(context.Background(), "controllers.welcome-controller", "[Wizard] Aplicativo está atualizado (v%s)", info.CurrentVersion)
-		return
-	}
-
-	logging.Infof(context.Background(), "controllers.welcome-controller", "[Wizard] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
-
-	if c.updaterCtrl != nil {
-		c.updaterCtrl.PromptForUpdate(ctx, info)
-	}
 }

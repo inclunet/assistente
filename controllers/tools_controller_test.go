@@ -18,6 +18,10 @@ func (t testRegistryTool) Description() string { return t.name }
 
 func (t testRegistryTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 
+func (t testRegistryTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Package: "test-package"}
+}
+
 func (t testRegistryTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "ok"}, nil
 }
@@ -45,6 +49,9 @@ func TestGetAvailableToolsIncludesDiscoverableOptIn(t *testing.T) {
 	}
 	if got["read_file"].OptIn {
 		t.Fatal("regular tool should not be marked opt-in")
+	}
+	if got["read_file"].Package != "test-package" {
+		t.Fatalf("package do catálogo não propagado: %#v", got["read_file"])
 	}
 	if !got["job"].OptIn {
 		t.Fatal("discoverable opt-in should be marked for policy editors")

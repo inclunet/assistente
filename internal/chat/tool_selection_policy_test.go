@@ -89,6 +89,9 @@ func TestToolSelectionPolicy_InitialEnabledToolNames_NilRegistrySafe(t *testing.
 	if got := policy.InitialToolDefs(ProfileToolConfig{}); got != nil {
 		t.Fatalf("registry nil deveria devolver nil defs, got %#v", got)
 	}
+	if got := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{}).SelectionStatus(); got != ToolSelectionRegistryUnavailable {
+		t.Fatalf("status = %s, esperado registry_unavailable", got)
+	}
 }
 
 func TestToolSelectionPolicy_InitialEnabledToolNames_MatchesResolution(t *testing.T) {
@@ -283,10 +286,45 @@ func TestToolSelectionPolicy_ToolForaDoRegistryMantemCatalogoCarregado(t *testin
 		t.Fatalf("tool_catalog deveria continuar preloaded para a tool voltar a ser descoberta, got %s",
 			effective.State(tools.ToolCatalogName))
 	}
-	if effective.State("mcp_temporariamente_indisponivel") != ToolPolicyDisabled {
-		t.Fatalf("tool ausente não pode ganhar capability, got %s",
+	if effective.State("mcp_temporariamente_indisponivel") != ToolPolicyOnDemand {
+		t.Fatalf("State deve resolver política mesmo antes da tool entrar no registry, got %s",
 			effective.State("mcp_temporariamente_indisponivel"))
 	}
+}
+
+func TestToolSelectionPolicy_WildcardsSaoAplicadosLazyARegistroMCPPosterior(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicyDefault: string(ToolPolicyDisabled),
+		ToolPolicy: map[string]string{
+			"mcp/*":                 string(ToolPolicyOnDemand),
+			"mcp/atlassian/*":       string(ToolPolicyPreloaded),
+			"mcp_atlassian__delete": string(ToolPolicyDisabled),
+		},
+	})
+
+	if got := effective.State("mcp_atlassian__search"); got != ToolPolicyPreloaded {
+		t.Fatalf("wildcard futuro específico = %s, esperado preloaded", got)
+	}
+	if got := effective.State("mcp_slack__send"); got != ToolPolicyOnDemand {
+		t.Fatalf("wildcard futuro geral = %s, esperado on_demand", got)
+	}
+	if got := effective.State("mcp_atlassian__delete"); got != ToolPolicyDisabled {
+		t.Fatalf("negação literal = %s, esperado disabled", got)
+	}
+
+	r.MustRegister(newToolDef("mcp_atlassian__search"))
+	r.MustRegister(newToolDef("mcp_atlassian__delete"))
+	r.MustRegister(newToolDef("mcp_slack__send"))
+
+	assertNames(t, "preloaded lazy", effective.PreloadedNames(), []string{tools.ToolCatalogName, "mcp_atlassian__search"})
+	assertNames(t, "visible lazy", effective.CatalogVisibleNames(), []string{
+		tools.ToolCatalogName,
+		"mcp_atlassian__search",
+		"mcp_slack__send",
+		"mcp_srv__do",
+	})
 }
 
 func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandCatalog(t *testing.T) {
@@ -321,6 +359,17 @@ func TestToolSelectionPolicy_ToolPolicyDoesNotElevateDisabledCatalog(t *testing.
 		t.Fatalf("read_file deveria permanecer on_demand, got %s", effective.State("read_file"))
 	}
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{})
+	assertNames(t, "visíveis", effective.CatalogVisibleNames(), []string{})
+	if effective.AllowsRuntimeLoad("read_file") || effective.IsVisibleInCatalog("read_file") {
+		t.Fatal("catálogo desabilitado não pode carregar nem revelar read_file")
+	}
+	got := policy.ResolveExpandedToolDefs(nil, nil, nil, []string{"read_file"}, ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			tools.ToolCatalogName: string(ToolPolicyDisabled),
+			"read_file":           string(ToolPolicyOnDemand),
+		},
+	})
+	assertNames(t, "expansão", defNames(got), []string{})
 }
 
 func TestToolSelectionPolicy_ToolPolicyRespeitaChaveComEspacos(t *testing.T) {
@@ -375,7 +424,7 @@ func TestToolSelectionPolicy_MapaSoDeChavesVaziasNaoViraPolitica(t *testing.T) {
 	}
 }
 
-func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandWhenCatalogUnavailable(t *testing.T) {
+func TestToolSelectionPolicy_ToolPolicyKeepsOnDemandWhenCatalogUnavailable(t *testing.T) {
 	r := charRegistryNoCatalog(t)
 	policy := NewToolSelectionPolicy(r)
 	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
@@ -384,10 +433,95 @@ func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandWhenCatalogUnavailable(t 
 		},
 	})
 
-	if effective.State("read_file") != ToolPolicyPreloaded {
-		t.Fatalf("read_file deveria degradar para preloaded sem tool_catalog, got %s", effective.State("read_file"))
+	if effective.State("read_file") != ToolPolicyOnDemand {
+		t.Fatalf("read_file deve continuar on_demand sem tool_catalog, got %s", effective.State("read_file"))
 	}
-	assertNames(t, "preloaded", effective.PreloadedNames(), []string{"read_file"})
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{})
+	assertNames(t, "catálogo indisponível", effective.CatalogVisibleNames(), []string{})
+	if effective.AllowsRuntimeLoad("read_file") {
+		t.Fatal("on_demand não pode ser carregada sem tool_catalog")
+	}
+	if effective.SelectionStatus() != ToolSelectionCatalogUnavailable {
+		t.Fatalf("status = %s, esperado catalog_unavailable", effective.SelectionStatus())
+	}
+	got := policy.ResolveExpandedToolDefs(nil, nil, nil, []string{"read_file"}, ProfileToolConfig{
+		ToolPolicy: map[string]string{"read_file": string(ToolPolicyOnDemand)},
+	})
+	assertNames(t, "expansão sem catálogo", defNames(got), []string{})
+}
+
+func TestToolSelectionPolicy_FailClosedWithoutCatalogDistinguishesReasons(t *testing.T) {
+	r := charRegistryNoCatalog(t)
+	policy := NewToolSelectionPolicy(r)
+
+	legacy := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{})
+	assertNames(t, "legacy sem catálogo", legacy.PreloadedNames(), []string{})
+	if legacy.SelectionStatus() != ToolSelectionCatalogUnavailable {
+		t.Fatalf("legacy status = %s", legacy.SelectionStatus())
+	}
+
+	empty := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{EnabledTools: []string{}})
+	assertNames(t, "seleção vazia", empty.PreloadedNames(), []string{})
+	if empty.SelectionStatus() != ToolSelectionExplicitEmpty {
+		t.Fatalf("empty status = %s", empty.SelectionStatus())
+	}
+
+	disabled := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{DisableTools: true})
+	assertNames(t, "tools desabilitadas", disabled.PreloadedNames(), []string{})
+	if disabled.SelectionStatus() != ToolSelectionDisabled {
+		t.Fatalf("disabled status = %s", disabled.SelectionStatus())
+	}
+
+	explicit := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		EnabledTools: []string{"read_file"},
+	})
+	assertNames(t, "allowlist explícita", explicit.PreloadedNames(), []string{"read_file"})
+	if explicit.SelectionStatus() != ToolSelectionReady {
+		t.Fatalf("allowlist status = %s", explicit.SelectionStatus())
+	}
+
+	structured := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"read_file":   string(ToolPolicyPreloaded),
+			"grep_search": string(ToolPolicyOnDemand),
+		},
+	})
+	assertNames(t, "preloaded explícita estruturada", structured.PreloadedNames(), []string{"read_file"})
+	if structured.State("grep_search") != ToolPolicyOnDemand {
+		t.Fatalf("on_demand não deve ser promovida, got %s", structured.State("grep_search"))
+	}
+}
+
+func TestToolSelectionPolicy_WithoutCatalogDoesNotAppendRuntimeTools(t *testing.T) {
+	r := charRegistryNoCatalog(t)
+	r.MustRegister(newToolDef(tools.LoadSkillName))
+	policy := NewToolSelectionPolicy(r)
+
+	legacyExplicit := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		EnabledTools: []string{"read_file"},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+	assertNames(t, "allowlist explícita", legacyExplicit.PreloadedNames(), []string{"read_file"})
+
+	structured := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy:   map[string]string{"read_file": string(ToolPolicyPreloaded)},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+	assertNames(t, "policy explícita", structured.PreloadedNames(), []string{"read_file"})
+}
+
+func TestToolSelectionPolicy_InvalidLegacyAllowlistDoesNotAuthorizeRuntimeTools(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		EnabledTools: []string{"  ", "missing_tool"},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+
+	assertNames(t, "allowlist sem autorização válida", effective.PreloadedNames(), []string{})
+	if effective.State(tools.LoadSkillName) != ToolPolicyDisabled {
+		t.Fatalf("runtime tool não pode ser liberada por entrada inválida, got %s", effective.State(tools.LoadSkillName))
+	}
 }
 
 func TestToolSelectionPolicy_ToolPolicyRuntimeDoesNotElevateDisabledLoadSkill(t *testing.T) {
@@ -423,6 +557,24 @@ func TestToolSelectionPolicy_ToolPolicyRuntimePreloadsUnspecifiedLoadSkill(t *te
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.LoadSkillName, "read_file"})
 }
 
+func TestToolSelectionPolicy_RuntimeControlPlaneNaoTransformaWildcardEmAutorizacaoOptIn(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"*": string(ToolPolicyPreloaded),
+		},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+
+	if effective.State(tools.LoadSkillName) != ToolPolicyPreloaded {
+		t.Fatalf("load_skill autorizada pelo runtime deveria ser preloaded, got %s", effective.State(tools.LoadSkillName))
+	}
+	if effective.State("text_edit") != ToolPolicyDisabled {
+		t.Fatalf("wildcard permissivo não deveria autorizar outro opt-in, got %s", effective.State("text_edit"))
+	}
+}
+
 func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)
@@ -437,7 +589,7 @@ func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) 
 	}
 
 	explicit := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{EnabledTools: []string{"read_file"}})
-	assertNames(t, "visible explicit", explicit.CatalogVisibleNames(), []string{"read_file"})
+	assertNames(t, "allowlist sem catálogo ativo", explicit.CatalogVisibleNames(), []string{})
 }
 
 func TestToolSelectionPolicy_NativeMCPUsesPreloadedAllowlist(t *testing.T) {
@@ -466,6 +618,26 @@ func TestToolSelectionPolicy_NativeMCPUsesPreloadedAllowlist(t *testing.T) {
 	if len(nativeDefs) != 0 {
 		t.Fatalf("bridge explicitamente preloaded deveria ser removida no caminho nativo, got %#v", nativeDefs)
 	}
+}
+
+func TestToolSelectionPolicy_NativeMCPDoesNotOpenLegacyProfileWithoutCatalog(t *testing.T) {
+	r := charRegistryNoCatalog(t)
+	policy := NewToolSelectionPolicy(r)
+	capable := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"read_file"}},
+	}}
+
+	streamer, nativeDefs, adapterDefs := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{})
+	result, ok := streamer.(*mockChatProvider)
+	if !ok {
+		t.Fatalf("esperava mock provider, got %#v", streamer)
+	}
+	if len(result.calledWith) != 0 {
+		t.Fatalf("MCP nativo não deve receber autorização implícita: %+v", result.calledWith)
+	}
+	assertNames(t, "native defs", defNames(nativeDefs), []string{})
+	assertNames(t, "adapter defs", defNames(adapterDefs), []string{})
 }
 
 func TestToolSelectionPolicy_OnDemandMCPBridgeIsNotRemovedBeforeLoad(t *testing.T) {

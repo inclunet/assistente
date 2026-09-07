@@ -239,7 +239,7 @@ pass-throughs 1:1 daquele domínio sumiram ou são só o thin bind.
 - [x] **editor** (drafts/state/files/dialogs/watch → `wailsapi.Editor`; DTOs em `apidto`; watcher/`editor:fileChanged`/assisted writes permanecem no `*App` via hooks)
 - [x] **export_import** (export/import conversas e dados portáteis → `wailsapi.ExportImport`; tipos de `portability`, sem apidto novo; CLI via `ExportImportAPI`)
 - [x] **llm_models** (catálogo/lista/refresh de modelos + `CancelStreamingForConversation` → `wailsapi.LLMModels`; tipos de `llm.ModelCatalog`; `streamMgr` permanece no `*App` via hook; CRUD de providers fica em `LLMProviders`)
-- [x] **chat** (SendMessage + RetryMessage + `SendMessageSync` → `wailsapi.Chat`; `SendMessageSync` é probe de acessibilidade/testes — fora do pipeline AEP-0040, lógica em `SettingsController` via `SyncChatSender`; `sendMessageFromChannel` permanece no `*App`; ChatController/streamMgr/eventos/gateway fora do escopo)
+- [x] **chat** (SendMessage + RetryMessage → `wailsapi.Chat`; o probe sem consumidor `SendMessageSync`, migrado originalmente, foi removido na #548 para preservar o contrato único do AEP-0040; `sendMessageFromChannel` permanece no `*App`; ChatController/streamMgr/eventos/gateway fora do escopo)
 
 ### Fase N — `App` enxuto (concluída)
 
@@ -340,7 +340,7 @@ final está na tabela da Fase N (17 métodos).
 | updater | 4 | version, check, apply |
 | app (ciclo de vida) | 4 | Context, Startup, ShowWindow, Shutdown |
 | tools | 2 | available tools, runtime catalog |
-| chat | 0 (migrado) | SendMessage, RetryMessage, SendMessageSync → `wailsapi.Chat` |
+| chat | 0 (migrado) | SendMessage, RetryMessage → `wailsapi.Chat` |
 | nettrust | 2 | network allowlist |
 | welcome | 2 | wizard |
 | + ACP options/providers/registry/trust/workdir, hotkeys, media, speech_events, channels_legacy_cleanup, acp_commands | 1–2 cada | ver arquivos `app_*.go` |

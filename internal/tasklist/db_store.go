@@ -221,6 +221,13 @@ func (s *DBStore) GetTasksByStatus(ctx context.Context, taskListID string, statu
 	return database.GetTasksByStatusWithContext(ctx, taskListID, statusID)
 }
 
+func (s *DBStore) ListTasksPage(ctx context.Context, query database.TaskPageQuery) (database.TaskPage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return database.TaskPage{}, err
+	}
+	return database.ListTasksPageWithContext(ctx, query)
+}
+
 func (s *DBStore) FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
@@ -340,6 +347,13 @@ func (s *DBStore) UpsertTaskNoteByExternal(ctx context.Context, p database.Upser
 		return nil, false, err
 	}
 	return database.UpsertTaskNoteByExternalWithContext(ctx, p)
+}
+
+func (s *DBStore) ListTaskNotesPage(ctx context.Context, query database.TaskNotePageQuery) (database.TaskNotePage, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return database.TaskNotePage{}, err
+	}
+	return database.ListTaskNotesPageWithContext(ctx, query)
 }
 
 func (s *DBStore) GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error) {

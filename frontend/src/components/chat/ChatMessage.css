@@ -132,6 +132,15 @@
   letter-spacing: 0.3px;
 }
 
+.chat-message__pinned-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
 .chat-message__source-name {
   text-transform: capitalize;
 }

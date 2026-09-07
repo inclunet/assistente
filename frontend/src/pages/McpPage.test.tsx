@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ReactNode } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, type ReactNode } from 'react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockSave = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
 const mockDuplicate = vi.fn();
+const mockDiscover = vi.hoisted(() =>
+  vi.fn(async (_url?: string): Promise<Record<string, unknown>> => ({ found: false }))
+);
 let mockServers: Array<Record<string, unknown>> = [];
 
 vi.mock('react-i18next', () => ({
@@ -41,7 +44,7 @@ vi.mock('@wailsjs/go/wailsapi/MCP', () => ({
   SaveMCPServerAuth: vi.fn(() => Promise.resolve()),
   DeleteMCPServerAuth: vi.fn(() => Promise.resolve()),
   GetMCPServerAuthInfo: vi.fn(() => Promise.resolve({ hasAuth: false })),
-  DiscoverMCPServerAuth: vi.fn(() => Promise.resolve({ found: false })),
+  DiscoverMCPServerAuth: mockDiscover,
   DuplicateMCPServer: (slug: string) => mockDuplicate(slug),
 }));
 
@@ -145,15 +148,32 @@ vi.mock('../components/mcp/McpGeneralSection', () => ({
 
 vi.mock('../components/mcp/McpConnectionSection', () => ({
   McpConnectionSection: (props: {
+    url: string;
+    oauth2AuthUrl: string;
+    oauth2TokenUrl: string;
+    oauth2Scopes: string;
+    discoveryStatus: string;
+    discoveryRegistrationUrl: string;
     oauth2CallbackHost: string;
     oauth2CallbackPort: string;
     authType: string;
+    onUrlChange: (value: string) => void;
     onAuthTypeChange: (value: string) => void;
+    onOAuth2AuthUrlChange: (value: string) => void;
+    onOAuth2TokenUrlChange: (value: string) => void;
+    onOAuth2ScopesChange: (value: string) => void;
     onOAuth2CallbackHostChange: (value: string) => void;
     onOAuth2CallbackPortChange: (value: string) => void;
+    onUrlBlur: () => void;
     onManualOverride: () => void;
   }) => (
     <div data-testid="connection-section">
+      <input aria-label="Server URL" value={props.url} onChange={(e) => props.onUrlChange(e.target.value)} />
+      <input aria-label="Authorization URL" value={props.oauth2AuthUrl} onChange={(e) => props.onOAuth2AuthUrlChange(e.target.value)} />
+      <input aria-label="Token URL" value={props.oauth2TokenUrl} onChange={(e) => props.onOAuth2TokenUrlChange(e.target.value)} />
+      <input aria-label="OAuth Scopes" value={props.oauth2Scopes} onChange={(e) => props.onOAuth2ScopesChange(e.target.value)} />
+      <span data-testid="discovery-status-value">{props.discoveryStatus}</span>
+      <span data-testid="registration-url-value">{props.discoveryRegistrationUrl}</span>
       <span data-testid="callback-host-value">{props.oauth2CallbackHost}</span>
       <span data-testid="callback-port-value">{props.oauth2CallbackPort}</span>
       <label>
@@ -188,6 +208,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
           onChange={(e) => props.onOAuth2CallbackPortChange(e.target.value)}
         />
       </label>
+      <button type="button" onClick={props.onUrlBlur}>Descobrir OAuth</button>
       <button type="button" onClick={props.onManualOverride}>Configurar manualmente</button>
     </div>
   ),
@@ -200,6 +221,7 @@ describe('McpPage — oauth2_callback_host', () => {
     vi.clearAllMocks();
     mockSave.mockResolvedValue(undefined);
     mockLoadServers.mockResolvedValue(undefined);
+    mockDiscover.mockResolvedValue({ found: false });
     mockServers = [];
   });
 
@@ -316,5 +338,293 @@ describe('McpPage — oauth2_callback_host', () => {
 
     const [, config] = mockSave.mock.calls[0];
     expect(config.oauth2_callback_host).toBeUndefined();
+  });
+
+  it('preserva endpoints OAuth preenchidos manualmente durante discovery', async () => {
+    mockDiscover.mockResolvedValue({
+      found: true,
+      status: 'complete',
+      authType: 'oauth2_pkce',
+      authUrl: 'https://descoberto.example/authorize',
+      tokenUrl: 'https://descoberto.example/token',
+      scopes: ['openid'],
+      registrationUrl: '',
+    });
+    await openNewServerForm();
+
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
+    await userEvent.type(screen.getByLabelText('Authorization URL'), 'https://manual.example/authorize');
+    await userEvent.type(screen.getByLabelText('Token URL'), 'https://manual.example/token');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalled());
+    expect(screen.getByLabelText('Authorization URL')).toHaveValue('https://manual.example/authorize');
+    expect(screen.getByLabelText('Token URL')).toHaveValue('https://manual.example/token');
+  });
+
+  it('aproveita scopes do PRM em discovery parcial sem bloquear configuração manual', async () => {
+    mockDiscover.mockResolvedValue({
+      found: false,
+      status: 'partial',
+      protectedResourceFound: true,
+      resourceName: 'Recurso parcial',
+      scopes: ['files:read', 'files:write'],
+    });
+    await openNewServerForm();
+
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('OAuth Scopes')).toHaveValue('files:read files:write');
+    });
+    await userEvent.type(screen.getByLabelText('OAuth Scopes'), ' custom');
+    expect(screen.getByLabelText('OAuth Scopes')).toHaveValue('files:read files:write custom');
+  });
+
+  it('permite repetir discovery da mesma URL após escolher configuração manual', async () => {
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByText('Configurar manualmente'));
+    expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('manual');
+    await userEvent.type(screen.getByLabelText('OAuth Scopes'), 'manual:scope');
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+    expect(mockDiscover).toHaveBeenLastCalledWith('https://mcp.example/caminho');
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['partial', { found: false, status: 'partial', protectedResourceFound: true }],
+    ['not_found', { found: false, status: 'not_found' }],
+  ])('permite retry explícito da mesma URL após resultado %s', async (status, result) => {
+    mockDiscover.mockResolvedValue(result);
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/retry');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => {
+      expect(screen.getByTestId('discovery-status-value')).toHaveTextContent(status);
+    });
+
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+  });
+
+  it('permite retry explícito da mesma URL após erro', async () => {
+    mockDiscover
+      .mockRejectedValueOnce(new Error('falha transitória'))
+      .mockResolvedValue({ found: false, status: 'not_found' });
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/retry');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => {
+      expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('not_found');
+    });
+
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+  });
+
+  it('não duplica discovery durante loading nem após resultado completo', async () => {
+    let resolveDiscovery: (value: Record<string, unknown>) => void = () => {};
+    mockDiscover.mockImplementation(() => new Promise((resolve) => {
+      resolveDiscovery = resolve;
+    }));
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/complete');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveDiscovery({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://auth.example/authorize',
+        tokenUrl: 'https://auth.example/token',
+        scopes: [],
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('found');
+    });
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+  });
+
+  it('aceita scheme HTTPS sem depender de caixa', async () => {
+    await openNewServerForm();
+    await userEvent.type(screen.getByLabelText('Server URL'), 'HTTPS://mcp.example/caminho');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+
+    await waitFor(() => {
+      expect(mockDiscover).toHaveBeenCalledWith('HTTPS://mcp.example/caminho');
+    });
+  });
+
+  it('não dispara discovery a cada alteração da URL no modo HTTP', async () => {
+    await openNewServerForm();
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await userEvent.type(screen.getByLabelText('Server URL'), 'https://mcp.example/caminho');
+
+    expect(mockDiscover).not.toHaveBeenCalled();
+    expect(screen.getByTestId('discovery-status-value')).toHaveTextContent('idle');
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+  });
+
+  it('limpa registration URL descoberto ao descobrir outro servidor sem DCR', async () => {
+    mockDiscover
+      .mockResolvedValueOnce({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://auth.example/authorize',
+        tokenUrl: 'https://auth.example/token',
+        scopes: [],
+        registrationUrl: 'https://auth.example/register',
+      })
+      .mockResolvedValue({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://other.example/authorize',
+        tokenUrl: 'https://other.example/token',
+        scopes: [],
+        registrationUrl: '',
+      });
+    await openNewServerForm();
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://first.example/mcp' },
+    });
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    await waitFor(() => {
+      expect(screen.getByTestId('registration-url-value')).toHaveTextContent(
+        'https://auth.example/register'
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://second.example/mcp' },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('registration-url-value')).toBeEmptyDOMElement();
+    });
+  });
+
+  it('ignora resposta atrasada de discovery para URL anterior', async () => {
+    let resolveFirst: (value: Record<string, unknown>) => void = () => {};
+    let resolveSecond: (value: Record<string, unknown>) => void = () => {};
+    const first = new Promise<Record<string, unknown>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const second = new Promise<Record<string, unknown>>((resolve) => {
+      resolveSecond = resolve;
+    });
+    mockDiscover.mockImplementation((url?: string) =>
+      url?.includes('first.example') ? first : second
+    );
+    await openNewServerForm();
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://first.example/mcp' },
+    });
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => {
+      expect(mockDiscover).toHaveBeenCalledWith('https://first.example/mcp');
+    });
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://second.example/mcp' },
+    });
+    await userEvent.click(screen.getByText('Descobrir OAuth'));
+    await waitFor(() => {
+      expect(mockDiscover).toHaveBeenCalledWith('https://second.example/mcp');
+    });
+
+    await act(async () => {
+      resolveSecond({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://second.example/authorize',
+        tokenUrl: 'https://second.example/token',
+        scopes: [],
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Token URL')).toHaveValue('https://second.example/token');
+    });
+
+    await act(async () => {
+      resolveFirst({
+        found: true,
+        status: 'complete',
+        authType: 'oauth2_pkce',
+        authUrl: 'https://first.example/authorize',
+        tokenUrl: 'https://first.example/token',
+        scopes: [],
+      });
+    });
+    expect(screen.getByLabelText('Token URL')).toHaveValue('https://second.example/token');
+  });
+
+  it('não aplica registration URL manual de um servidor após trocar sua URL', async () => {
+    mockServers = [{
+      slug: 'remote',
+      name: 'Remote',
+      description: '',
+      transport: 'streamable',
+      status: 'disconnected',
+      toolCount: 0,
+      enabled: true,
+      autoConnect: false,
+      url: 'https://old.example/mcp',
+    }];
+    mockGetConfig.mockResolvedValue({
+      name: 'Remote',
+      transport: 'streamable',
+      url: 'https://old.example/mcp',
+      auth_type: 'oauth2_pkce',
+      oauth2_registration_url: 'https://old.example/register',
+      enabled: true,
+      auto_connect: false,
+    });
+
+    render(<McpPage />);
+    const editButtons = await screen.findAllByRole('button', { name: 'mcp.actions.edit' });
+    await userEvent.click(editButtons[editButtons.length - 1]);
+    await waitFor(() => {
+      expect(screen.getByTestId('registration-url-value')).toHaveTextContent(
+        'https://old.example/register'
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://old.example/mcp/?view=config#oauth' },
+    });
+    expect(screen.getByTestId('registration-url-value')).toHaveTextContent(
+      'https://old.example/register'
+    );
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://new.example/mcp' },
+    });
+    expect(screen.getByTestId('registration-url-value')).toBeEmptyDOMElement();
+
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    const [, config] = mockSave.mock.calls[mockSave.mock.calls.length - 1];
+    expect(config.oauth2_registration_url).toBeUndefined();
   });
 });

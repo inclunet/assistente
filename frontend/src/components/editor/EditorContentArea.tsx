@@ -84,6 +84,10 @@ interface RichMermaidRequestContext {
   remove: () => void;
 }
 
+export interface RenderedReadingRequest {
+  nonce: number;
+}
+
 export interface EditorContentAreaProps {
   activeTab: EditorDocument | null;
   isPanelActive?: boolean;
@@ -97,6 +101,9 @@ export interface EditorContentAreaProps {
   revealAppendNonce?: number;
   revealSlideNavigationRequest?: { index: number; nonce: number } | null;
   revealFullscreenRequestNonce?: number;
+  renderedReadingRequest?: RenderedReadingRequest | null;
+  onRenderedReadingRequestConsumed?: (nonce: number) => void;
+  isEditorMenuOpen?: boolean;
   richEditorHandleRef: RefObject<RichTextEditorHandle | null>;
   onRequestEditMermaid: (ctx: RichMermaidRequestContext) => void;
   onOpenMermaid: (index: number, opts?: { insertText?: string }) => void;
@@ -122,6 +129,9 @@ export function EditorContentArea({
   revealAppendNonce = 0,
   revealSlideNavigationRequest = null,
   revealFullscreenRequestNonce = 0,
+  renderedReadingRequest = null,
+  onRenderedReadingRequestConsumed,
+  isEditorMenuOpen = false,
   richEditorHandleRef,
   onRequestEditMermaid,
   onOpenMermaid,
@@ -136,8 +146,12 @@ export function EditorContentArea({
   const richEditorInstanceRef = useRef<TipTapEditor | null>(null);
   const pendingRevealSlideFocusRef = useRef(false);
   const renderedPaneRef = useRef<HTMLDivElement>(null);
+  const renderedAnchorRef = useRef<HTMLDivElement>(null);
   const renderedDocumentRef = useRef<HTMLDivElement>(null);
+  const consumedRenderedReadingRequestRef = useRef(0);
+  const onRenderedReadingRequestConsumedRef = useRef(onRenderedReadingRequestConsumed);
   const [readingDocumentKey, setReadingDocumentKey] = useState<string | null>(null);
+  onRenderedReadingRequestConsumedRef.current = onRenderedReadingRequestConsumed;
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
@@ -178,17 +192,18 @@ export function EditorContentArea({
   );
 
   useRenderedContentNavigation({
-    elementRef: renderedPaneRef,
+    elementRef: renderedAnchorRef,
     isActive: renderedReadingActive,
     profile: 'scoped',
     contentSelector: '[data-editor-rendered-document="true"]',
+    handleEscapeOutside: true,
     onEscape: () => renderedDocumentRef.current?.focus(),
     openAnnouncement: t('editor.documentView.readingOpened'),
     shouldHandleEscape: () => (
       !isModalOpen()
       && document.querySelector('[role="menu"]') === null
     ),
-    manageDocumentSemantics: false,
+    manageDocumentSemantics: true,
   });
 
   const getLatestMarkdown = () => {
@@ -218,6 +233,102 @@ export function EditorContentArea({
     activeTab?.mode,
     isPanelActive,
   ]);
+
+  useEffect(() => {
+    if (
+      !renderedReadingRequest
+      || renderedReadingRequest.nonce === consumedRenderedReadingRequestRef.current
+      || !isPanelActive
+      || activeTab?.mode !== 'view'
+      || !renderedDocumentKey
+      || isEditorMenuOpen
+      || isModalOpen()
+    ) return;
+
+    const requestNonce = renderedReadingRequest.nonce;
+    const requestDocumentKey = renderedDocumentKey;
+    const scheduledFrames = new Set<number>();
+    let cancelled = false;
+
+    const scheduleFrame = (callback: () => void) => {
+      const frameId = window.requestAnimationFrame(() => {
+        scheduledFrames.delete(frameId);
+        if (!cancelled) callback();
+      });
+      scheduledFrames.add(frameId);
+    };
+    const canContinue = () => (
+      !cancelled
+      && renderedReadingRequest.nonce === requestNonce
+      && isPanelActive
+      && activeTab?.mode === 'view'
+      && !isEditorMenuOpen
+      && !isModalOpen()
+      && renderedAnchorRef.current?.isConnected === true
+      && renderedDocumentRef.current?.isConnected === true
+    );
+    const consumeAfterEffectiveFocus = () => {
+      const renderedDocument = renderedDocumentRef.current;
+      if (
+        !canContinue()
+        || !renderedDocument
+        || consumedRenderedReadingRequestRef.current === requestNonce
+        || document.activeElement !== renderedDocument
+      ) return;
+      consumedRenderedReadingRequestRef.current = requestNonce;
+      onRenderedReadingRequestConsumedRef.current?.(requestNonce);
+    };
+
+    if (renderedReadingActive) {
+      scheduleFrame(() => {
+        if (!canContinue()) return;
+        renderedDocumentRef.current?.focus();
+        consumeAfterEffectiveFocus();
+      });
+    } else {
+      // O WebView2/NVDA precisa observar a superfície já montada, o foco na
+      // âncora externa e, só depois, a criação/focalização da ilha documental.
+      scheduleFrame(() => {
+        if (!canContinue()) return;
+        scheduleFrame(() => {
+          if (!canContinue()) return;
+          renderedAnchorRef.current?.focus();
+          if (document.activeElement !== renderedAnchorRef.current) return;
+          scheduleFrame(() => {
+            if (!canContinue()) return;
+            setReadingDocumentKey(requestDocumentKey);
+          });
+        });
+      });
+    }
+
+    return () => {
+      cancelled = true;
+      scheduledFrames.forEach((frameId) => window.cancelAnimationFrame(frameId));
+      scheduledFrames.clear();
+    };
+  }, [
+    activeTab?.draftId,
+    activeTab?.filePath,
+    activeTab?.id,
+    activeTab?.mode,
+    isEditorMenuOpen,
+    isPanelActive,
+    renderedDocumentKey,
+    renderedReadingActive,
+    renderedReadingRequest?.nonce,
+  ]);
+
+  useEffect(() => {
+    if (
+      !renderedReadingActive
+      || !renderedReadingRequest
+      || renderedReadingRequest.nonce === consumedRenderedReadingRequestRef.current
+      || document.activeElement !== renderedDocumentRef.current
+    ) return;
+    consumedRenderedReadingRequestRef.current = renderedReadingRequest.nonce;
+    onRenderedReadingRequestConsumedRef.current?.(renderedReadingRequest.nonce);
+  }, [renderedReadingActive, renderedReadingRequest]);
 
   useEffect(() => {
     if (activeTab?.loadError) {
@@ -465,16 +576,12 @@ export function EditorContentArea({
             <div className="editor-page__pane-title">{t('editor.panes.preview')}</div>
             <div className="editor-page__preview">
               <div
-                ref={renderedDocumentRef}
-                data-editor-rendered-document="true"
+                ref={renderedAnchorRef}
+                data-editor-rendered-anchor="true"
                 data-reading-active={renderedReadingActive ? 'true' : 'false'}
-                role={renderedReadingActive ? 'document' : 'group'}
-                aria-label={t(
-                  renderedReadingActive
-                    ? 'editor.documentView.readingDocumentLabel'
-                    : 'editor.documentView.readingRegionLabel',
-                )}
-                tabIndex={0}
+                role="group"
+                aria-label={t('editor.documentView.readingRegionLabel')}
+                tabIndex={renderedReadingActive ? -1 : 0}
                 onKeyDown={(event) => {
                   if (
                     !renderedReadingActive
@@ -487,25 +594,26 @@ export function EditorContentArea({
                   }
                 }}
               >
-                {isRevealPreviewDocument ? (
-                  <RevealRenderer
-                    markdown={debouncedMarkdownForPreview}
-                    documentTitle={activeTab.title}
-                    fullscreenRequestNonce={revealFullscreenRequestNonce}
-                    tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
-                  />
-                ) : (
-                  <>
-                    {!activeTab.readOnly ? (
-                      <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
-                    ) : null}
+                <div
+                  ref={renderedDocumentRef}
+                  data-editor-rendered-document="true"
+                  aria-label={t('editor.documentView.readingDocumentLabel')}
+                >
+                  {isRevealPreviewDocument ? (
+                    <RevealRenderer
+                      markdown={debouncedMarkdownForPreview}
+                      documentTitle={activeTab.title}
+                      fullscreenRequestNonce={revealFullscreenRequestNonce}
+                      tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
+                    />
+                  ) : (
                     <MarkdownRenderer
                       content={debouncedMarkdownForPreview}
                       interactiveButtons={false}
                       tabNavigation={renderedReadingActive ? 'enabled' : 'disabled'}
                     />
-                  </>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>

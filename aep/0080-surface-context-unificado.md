@@ -1,6 +1,6 @@
 # AEP-0080: SurfaceContext Unificado
 
-## Status: In Progress
+## Status: Draft
 
 Criado em: 2026-06-27
 Relacionado: AEP-0034, AEP-0040, AEP-0042, AEP-0057, AEP-0058, AEP-0074-A, AEP-0074-B, AEP-0075, AEP-0079
@@ -11,7 +11,7 @@ Esta AEP define um contrato unificado de `SurfaceContext` para todas as surfaces
 
 O objetivo é substituir payloads parciais, ambíguos ou específicos demais por um envelope comum, versionado e seguro, mantendo especializações por tipo de surface. O contrato se aplica inicialmente a editor, tasklists e terminal, sem criar fluxos paralelos de mensagem e sem mudar a decisão da AEP-0040: novas mensagens continuam passando por `SendMessage` e retries por `RetryMessage`.
 
-A AEP-0042 continua sendo a base histórica do `surfaceContextJson`; esta AEP evolui esse campo para um contrato estruturado e mais explícito. Durante a migração, `surfaceContextJson` pode continuar existindo como transporte compatível, desde que carregue o novo formato ou seja adaptado para ele antes da renderização.
+A AEP-0042 continua sendo a base histórica do `surfaceContextJson`; esta AEP evolui esse campo para um contrato estruturado e mais explícito. `surfaceContextJson` permanece como transporte, mas deve carregar o envelope canônico completo. Payload incompleto é descartado, não adaptado.
 
 ## Motivação
 
@@ -131,7 +131,7 @@ Regras de segurança:
 - registrar quando campos foram omitidos ou truncados, de forma visível ao modelo;
 - classificar o bloco como contexto dinâmico do turno, não como instrução estável.
 
-`surfaceContextJson` pode continuar como campo de transporte durante a migração, mas o renderer backend deve normalizar para `SurfaceContext` antes de montar o prompt. Payloads legados sem `surfaceType`, `surfaceId` ou `snapshotVersion` devem ser tratados como contexto incompleto e não como alvo confiável para tools.
+`surfaceContextJson` permanece como campo de transporte. O backend só aceita o payload como `SurfaceContext` quando `surfaceType`, `surfaceId` e `snapshotVersion` são strings não vazias; caso contrário, descarta o contexto inteiro antes do prompt e das tools.
 
 ### 4. Especialização do editor
 
@@ -217,10 +217,16 @@ Não há obrigação de preservar bugs de contexto ambíguo. Se uma ação antes
 
 Compatibilidade permitida:
 
-- manter `surfaceContextJson` como transporte temporário;
-- adaptar payloads legados para o novo envelope quando houver dados suficientes;
+- manter `surfaceContextJson` como transporte do envelope canônico;
 - manter campos especializados existentes, como `activeFilePath`, enquanto tools de arquivo dependerem deles;
-- aceitar ausência de especializações em surfaces ainda não migradas, desde que não sejam tratadas como alvos confiáveis para mutação.
+- omitir `surfaceContextJson` quando a surface não tiver contexto transitório.
+
+Retirada do adapter:
+
+- a aplicação é autocontida e não possui consumidores externos antigos do payload;
+- os emissores internos de editor, tasklist e terminal produzem o envelope canônico completo;
+- por decisão explícita do mantenedor, a adaptação de campos antigos e payload incompleto foi retirada imediatamente, sem fase de observabilidade;
+- não se sintetizam `surfaceId`, `snapshotVersion`, seleção, foco, conteúdo ou metadata a partir de `WorkspaceTab` ou campos legados.
 
 Compatibilidade não permitida:
 
@@ -229,67 +235,44 @@ Compatibilidade não permitida:
 - inferir `surfaceId` a partir de aba ativa quando a origem real do envio foi outra;
 - permitir tool mutável operar sobre alvo ambíguo sem validação.
 
-## Estado implementado e pendências
-
-Entregue:
-
-- [x] Normalização do envelope e adaptação de payloads legados em
-  `internal/workspace/context_provider.go`.
-- [x] Renderização allowlisted de `<surface_context>`, escaping, limites por
-  campo/bloco e avisos de truncamento no mesmo provider.
-- [x] Fallback seguro: payload incompleto recebe identidade legada e aviso de que
-  não é alvo confiável para mutação; blocos malformados ou sem atributos
-  obrigatórios são omitidos.
-- [x] Testes de renderização, allowlist, legado, orçamento, truncamento,
-  seleção mínima e fallback em `internal/workspace/context_provider_test.go`.
-
-Pendente:
-
-- [ ] Provider completo de tasklists com card/coluna/seleção e target mutável.
-- [ ] Provider completo de terminal com input, seleção, output recente e limites
-  próprios de dados sensíveis.
-- [ ] Validação efetiva de `snapshotVersion`/staleness nas tools.
-- [ ] Migração das mutações de editor, tasklist e terminal para targets
-  estruturados, com erro recuperável e transparência acessível.
-
 ## Fases
 
-### Fase 1 — AEP e contrato ✅
+### Fase 1 — AEP e contrato
 
 - Revisar e aceitar esta AEP.
 - Definir tipos conceituais de `SurfaceContext`, `SurfaceSelection`, `SurfaceFocus` e `SurfaceContent`.
-- Mapear payloads legados de `surfaceContextJson` para o envelope novo.
+- Atualizar todos os emissores internos para o envelope novo e descartar payloads incompletos.
 - Não alterar comportamento funcional neste PR de AEP.
 
-### Fase 2 — Renderer backend genérico ✅
+### Fase 2 — Renderer backend genérico
 
 - Criar normalização backend para `SurfaceContext`.
 - Renderizar `<surface_context>` por allowlist, escaping e truncamento.
 - Adicionar testes de renderização, truncamento e payload malformado.
 - Classificar o bloco como contexto dinâmico do turno.
 
-### Fase 3 — Editor 🚧
+### Fase 3 — Editor
 
 - Implementar provider do editor.
 - Cobrir seleção, cursor, arquivo, Markdown e modo Reveal.
 - Validar staleness antes de ações de edição/aplicação de patch.
 - Garantir transparência do alvo em UI e anúncios quando relevante.
 
-### Fase 4 — Tasklists ⏳
+### Fase 4 — Tasklists
 
 - Implementar provider de tasklists.
 - Cobrir lista, card, status/coluna, seleção e modos list/kanban.
 - Exigir target explícito para tools mutáveis de cards/status/notas.
 - Validar versionamento de lista/workflow antes de mutações.
 
-### Fase 5 — Terminal ⏳
+### Fase 5 — Terminal
 
 - Implementar provider do terminal.
 - Cobrir input, seleção de output, output recente, cwd e shell.
 - Aplicar limites conservadores e indicação de truncamento.
 - Distinguir seleção explícita de janela recente.
 
-### Fase 6 — Tools com alvo explícito ⏳
+### Fase 6 — Tools com alvo explícito
 
 - Atualizar tools afetadas para receber target estruturado.
 - Padronizar erro recuperável para snapshot stale.
@@ -301,15 +284,15 @@ Pendente:
 - O envelope comum pode ficar genérico demais e esconder diferenças importantes entre surfaces. Mitigação: manter campos comuns pequenos e especializações por allowlist.
 - Truncamento agressivo pode remover contexto útil. Mitigação: limites por campo, sinalização explícita de truncamento e tools de leitura sob demanda.
 - Versionamento/staleness pode bloquear ações legítimas em flows rápidos. Mitigação: política diferenciada entre leitura, edição reversível e mutação destrutiva.
-- Durante a migração, payloads legados podem parecer confiáveis. Mitigação: normalizador marca contexto incompleto e tools mutáveis exigem `surfaceType`, `surfaceId` e `snapshotVersion`.
+- Payloads incompletos podem perder contexto útil. Mitigação: tipagem e testes dos emissores internos; o backend descarta o envelope inteiro em vez de inferir um alvo ambíguo.
 - Terminal pode vazar dados sensíveis. Mitigação: limites conservadores, preferência por seleção explícita e allowlist rigorosa.
 - A UI pode não deixar claro o alvo usado pelo assistente. Mitigação: critérios de acessibilidade/transparência como requisito de aceite, não refinamento opcional.
 
 ## Critérios de aceitação
 
-- [x] Existe contrato documentado de `SurfaceContext` com campos comuns e semântica de staleness.
-- [x] O backend normaliza `surfaceContextJson` para `SurfaceContext` ou marca payload legado como incompleto.
-- [x] O prompt renderiza `<surface_context>` com allowlist, escaping, truncamento e indicação de campos omitidos/truncados.
+- [ ] Existe contrato documentado de `SurfaceContext` com campos comuns e semântica de staleness.
+- [x] O backend aceita `surfaceContextJson` somente com `surfaceType`, `surfaceId` e `snapshotVersion`; payload incompleto é descartado.
+- [ ] O prompt renderiza `<surface_context>` com allowlist, escaping, truncamento e indicação de campos omitidos/truncados.
 - [ ] Editor envia seleção, foco/cursor, arquivo, modo Markdown e modo Reveal sem criar fluxo paralelo de mensagens.
 - [ ] Tasklists enviam lista, card, status/coluna, seleção e modo de visualização com alvo explícito para mutações.
 - [ ] Terminal envia cwd, shell, input, seleção de output e output recente com limites conservadores.
@@ -317,4 +300,4 @@ Pendente:
 - [ ] Contexto stale gera erro recuperável, recaptura ou confirmação, conforme criticidade da ação.
 - [ ] A UI comunica o alvo selecionado/focado de forma acessível quando ele influencia a ação.
 - [ ] Não há novo fluxo de envio de mensagem nem mensagens locais no frontend.
-- [ ] Compatibilidade com `surfaceContextJson` existe apenas como transporte/migração, não como justificativa para manter contexto ambíguo.
+- [x] `surfaceContextJson` é apenas transporte do envelope canônico e não adapta contexto ambíguo.

@@ -1,8 +1,8 @@
 # AEP-0081 — Política de Tools por Perfil e Carregamento sob Demanda
 
-Status: In Progress — política tri-state, catálogo, control-plane e UI entregues; TTL, `schema_hash` e invalidações da store permanecem abertos
+Status: Accepted
 Criado em: 2026-07-01
-Relacionado: AEP-0021, AEP-0049, AEP-0050, AEP-0063, AEP-0071, AEP-0072, AEP-0075, AEP-0077, AEP-0080
+Relacionado: AEP-0021, AEP-0049, AEP-0050, AEP-0063, AEP-0071, AEP-0072, AEP-0075, AEP-0077, AEP-0080, issue #674
 
 ## Resumo
 
@@ -17,6 +17,20 @@ Estados:
 O `tool_catalog` passa a ser a única interface de control-plane para descoberta e gestão de tools sob demanda. Ele recebe um campo opcional `action`; quando `action` for omitido, o comportamento padrão continua sendo busca/listagem para compatibilidade. Ações iniciais: `search`, `load`, `unload` e `list_loaded`.
 
 Tools carregadas por `tool_catalog action=load` podem persistir por conversa/sessão em turnos futuros, até restart, TTL, mudança de `schema_hash`, estouro de budget ou `unload`, sempre respeitando allowlist/estado do perfil.
+
+A ausência de `tool_catalog` no registry é uma degradação operacional
+suportada, mas nunca uma autorização implícita. Sem o control-plane, perfis
+default/legados com `enabled_tools` ausente ou `null` falham fechados e não
+expõem tools. Autorizações explícitas continuam válidas somente para as tools
+selecionadas, e estados `on_demand` nunca são promovidos a `preloaded` por
+causa dessa ausência.
+
+> **Evolução experimental (#630).** O contrato deixa de exigir que todo
+> primeiro turno faça dois saltos manuais. Uma busca interna, read-only e
+> limitada pode pré-carregar até 3 candidatas `on_demand` de risco `read` quando
+> houver correspondência textual útil. O catálogo continua sendo o único
+> control-plane; esse preload não muda política nem contorna opt-in,
+> disponibilidade, allowlist ou budget.
 
 ## Motivação
 
@@ -63,11 +77,25 @@ Regras:
 
 ### D3. Compatibilidade com `enabled_tools`
 
-Enquanto o schema persistido ainda for `enabled_tools`, a migração semântica deve ser determinística e sem perda:
+`enabled_tools` continua sendo um contrato de importação retrocompatível. Sua
+interpretação deve ser determinística e segura:
 
 - `enabled_tools` ausente ou `null`: perfil legado aberto. O runtime usa defaults do ToolPlanner; tools elegíveis entram como `on_demand`, e apenas o conjunto mínimo/control-plane entra como `preloaded`.
 - `enabled_tools: []`: seleção explícita vazia. Todas as tools ficam `disabled`, exceto bootstrap/control-plane obrigatório quando permitido pela política.
 - `enabled_tools: ["a", "b"]`: allowlist explícita. As tools listadas ficam inicialmente `preloaded` para preservar comportamento anterior; tools ausentes ficam `disabled`.
+
+Na ausência de `tool_catalog`, a primeira regra não pode materializar seus
+estados `on_demand`: a seleção inicial fica vazia e o motivo deve permanecer
+distinguível de `disable_tools=true` e de uma seleção explícita vazia. A
+segunda regra continua sem tools. A terceira continua expondo somente itens
+registrados da allowlist, pois eles representam autorização consciente. Em
+todos os casos `disable_tools=true` vence.
+
+Perfis sem `enabled_tools`, com `null`, com `[]` ou com allowlist continuam
+aceitos pelo decoder corrente. `_builtin_version` versiona o conteúdo builtin
+e não é versão de schema do perfil. Uma futura persistência de `tool_policy`
+pode armazenar a representação tri-state, mas não pode converter ausência do
+catálogo em permissão para carregar o registry inteiro.
 
 Quando houver novo schema de perfil, a representação recomendada é um mapa por tool:
 
@@ -117,6 +145,18 @@ Semântica das ações:
 
 Nomes alternativos como `activate`/`deactivate` foram considerados, mas `load`/`unload` refletem melhor o efeito real: disponibilizar ou remover schema/capacidade do conjunto efetivo, não executar a tool de domínio.
 
+Busca e ranking seguem uma ordem total: relevância textual decrescente, posição
+do pacote em `PreferredToolPackages`, recência da conversa e, como fallback,
+origem e nome. A busca explícita com `query` ranqueia todo o conjunto autorizado
+e pagina a saída em até 50 resultados. A listagem sem `query` mantém paginação
+no repositório e reranqueia somente a página corrente, evitando carregar o
+catálogo inteiro; somente o auto-search interno avalia no máximo 200 candidatas.
+`load` aceita os mesmos seletores canônicos de
+`tool_policy` definidos pela #629 (`*`, `mcp/*`, `mcp/<servidor>/*`,
+`package/*` e `package/<pacote>/*`), reutilizando o mesmo parser/matcher. Cada
+wildcard expande no máximo 20 candidatas autorizadas; o ToolPlanner aplica
+depois o budget acumulado de schema.
+
 ### D5. Persistência por conversa/sessão
 
 Tools carregadas por `tool_catalog action=load` podem permanecer disponíveis em turnos seguintes da mesma conversa/sessão.
@@ -132,6 +172,12 @@ Escopo inicial:
 - replanejamento quando o budget de schema for excedido.
 
 A persistência de loaded tools não substitui o `tool_catalog`. Ela é um cache de disponibilidade efetiva para o agentic loop, derivado da política do perfil e do catálogo.
+
+A recência usada no ranking compartilha esse armazenamento in-memory por
+conversa/perfil. É uma LRU limitada às 64 tools usadas com sucesso mais
+recentemente, reiniciada com o app e invalidada quando o perfil efetivo muda.
+Não se cria nova persistência: `tool_invocations` permanece o histórico
+auditável, enquanto essa LRU é somente um sinal efêmero de ordenação.
 
 ### D6. Budget, schema hash e governança
 
@@ -161,11 +207,26 @@ Regras:
 `tool_catalog` e `load_skill` são capacidades de bootstrap/control-plane. Para não quebrar descoberta:
 
 - `tool_catalog` deve permanecer disponível como control-plane quando tool calling estiver habilitado e o perfil permitir descoberta de tools;
+- se o catálogo persistido ou seu backing store não estiver disponível, o
+  runtime falha fechado para seleção implícita: não registra catálogo
+  sintético, não promove `on_demand` e não expõe todas as tools;
+- uma allowlist ou estado `preloaded` explícito pode continuar expondo somente
+  as tools escolhidas, sem implicar que o catálogo foi restaurado;
+- o Context Provider `tool_protocol` deve informar de forma curta e estável
+  quando um perfil default/legado ficou sem tools por essa ausência, usando
+  estado tipado da policy e não inferência por lista vazia;
 - `load_skill` ou mecanismo equivalente de autoativação de skill pelo modelo segue a política da AEP-0072: não deve ser exposto ao modelo, e skills `on_demand` não podem ser autoativadas pelo modelo;
 - a UI pode mostrar essas capacidades como sistema/read-only ou sempre disponíveis conforme a política final;
 - o usuário não deve precisar habilitar manualmente `tool_catalog` para conseguir descobrir tools em um perfil que permite tools sob demanda.
 
 Se `disable_tools=true`, o runtime pode remover até mesmo `tool_catalog` do modelo. Nesse modo, `/skill` explícito do usuário continua sendo carregamento backend-driven, conforme AEP-0072, mas autoativação por modelo não ocorre.
+
+No primeiro turno de uma conversa, o backend pode executar auto-search usando o
+texto já persistido do usuário. A operação consulta no máximo 200 entradas,
+registra em log candidatas/preload/rejeições e pré-carrega no máximo 3 tools.
+Somente `on_demand` + `available` + risco `read` é elegível. Riscos `network`,
+`write`, `shell` e `destructive`, tools `disabled`, opt-ins não autorizadas e
+itens fora da visibilidade do perfil nunca entram automaticamente.
 
 ### D9. Relação com Context Providers e SurfaceContext
 
@@ -173,38 +234,99 @@ Context Providers podem registrar tools de ação/consulta, mas a exposição de
 
 SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas não pode elevar uma tool `disabled`. Actions sobre surface continuam exigindo alvo estruturado e validação de staleness quando aplicável.
 
+### D10. Seletores wildcard na política
+
+`tool_policy` aceita literais e seletores para que perfis governem integrações
+que ainda não entraram no registry:
+
+- `mcp/*`: todas as tools MCP;
+- `mcp/<slug>/*`: tools de um servidor MCP;
+- `mcp:<slug>/*`: alias de `mcp/<slug>/*`;
+- `package/<pacote>/*`: builtins cujo `CatalogMetadata.Package` coincide;
+- `<pacote>/*`: forma curta do seletor de pacote;
+- `*`: todas as tools nativas;
+- formas canônicas internas `mcp_<slug>__*` e `mcp_*__*`.
+
+A resolução segue `literal > wildcard específico > wildcard geral > default`.
+Quando dois seletores de mesma especificidade coincidem, vence o estado mais
+restritivo (`disabled`, depois `on_demand`, depois `preloaded`). Assim, uma
+negação literal como `mcp_atlassian__create_issue=disabled` sempre vence
+`mcp/atlassian/*=on_demand`.
+
+O matcher é aplicado de forma lazy por `State`: defaults e wildcards também
+resolvem nomes ainda ausentes, e as listas efetivas são expandidas novamente
+quando uma MCP registra suas tools. Isso não torna uma tool ausente executável;
+o registry continua sendo a fonte de execução. Tools opt-in não podem ser
+elevadas por default ou wildcard permissivo. Elas exigem uma entrada literal,
+salvo capacidades de control-plane autorizadas explicitamente pelo runtime
+conforme D8 (`RuntimeTools`, como `load_skill` enquanto há skill sob demanda).
+
+### D11. Inventário de construção e degradação
+
+O contrato considera todos os construtores e consumidores que podem observar
+um registry parcial:
+
+- `App.initToolRegistry` cria o registry executável e registra as builtins
+  antes da inicialização do MCP;
+- `App.initMCP` registra `tool_catalog` somente quando `database.DB()` existe;
+  indisponibilidade do banco deixa o registry válido, porém sem catálogo;
+- o envio (`internal/core/usecases/send_message.go`) e a construção do prompt
+  (`internal/prompt/builder.go`) instanciam `ToolSelectionPolicy` sobre esse
+  mesmo registry;
+- os wrappers de compatibilidade em `internal/chat/tool_defs.go` também criam
+  a mesma policy e não definem uma semântica paralela;
+- registries mínimos criados por testes e subsistemas isolados só entram no
+  contrato de seleção de chat quando forem explicitamente fornecidos à
+  policy.
+
+Matriz de degradação:
+
+| Estado de entrada | Resultado |
+|---|---|
+| Registry `nil` | nenhuma tool; operação nil-safe |
+| Registry vazio | nenhuma tool |
+| Registry sem `tool_catalog` + `enabled_tools` ausente/`null` | nenhuma tool; falha fechada distinguível |
+| Registry sem `tool_catalog` + `enabled_tools: []` | nenhuma tool |
+| Registry sem `tool_catalog` + allowlist | somente itens registrados da allowlist são preloaded |
+| Registry sem `tool_catalog` + `tool_policy` com `on_demand` | permanece `on_demand`, indisponível para descoberta/carga |
+| Registry sem `tool_catalog` + `tool_policy` com `preloaded` | somente itens `preloaded` registrados entram no payload inicial |
+| `disable_tools=true` | nenhuma tool, independentemente do registry e do perfil |
+
+Essa matriz é contrato executável. Adicionar um novo construtor de registry ou
+um novo consumidor de seleção exige reutilizar `ToolSelectionPolicy` e cobrir
+explicitamente o caso sem catálogo.
+
 ## Fases
 
-### Fase 1 — AEP e contrato ✅
+### Fase 1 — AEP e contrato
 
-- Aprovar esta AEP e atualizar referências em AEPs relacionadas.
+- Registrar a aprovação desta AEP e atualizar referências em AEPs relacionadas.
 - Definir nomes finais dos estados (`disabled`, `on_demand`, `preloaded`) e labels localizadas para UI.
 - Definir schema de request/response de `tool_catalog` com `action` opcional.
-- Nenhuma mudança funcional no runtime neste PR documental.
+- Registrar o fail-closed sem `tool_catalog` e o status contextual da
+  degradação (#674).
 
-### Fase 2 — Política efetiva no backend ✅
+### Fase 2 — Política efetiva no backend
 
 - Criar resolver de política tri-state a partir de `enabled_tools` legado.
 - Integrar a política ao `ToolSelectionPolicy`/ToolPlanner sem mudar comportamento legado além do necessário.
 - Garantir que `disabled` bloqueia search, load, MCP native allowlist e expansão dinâmica.
 - Cobrir `nil`, `[]`, lista explícita e `disable_tools=true` por testes.
 
-### Fase 3 — `tool_catalog` com ações ✅
+### Fase 3 — `tool_catalog` com ações
 
 - Estender schema da tool com `action`.
 - Implementar `search` como default quando `action` estiver ausente.
 - Implementar `load`, `unload` e `list_loaded` com respostas estruturadas e motivos de rejeição.
 - Manter compatibilidade com callers antigos de listagem.
 
-### Fase 4 — Persistência por conversa/sessão 🚧
+### Fase 4 — Persistência por conversa/sessão
 
-- [x] Criar store in-memory de loaded tools por conversa/sessão
-  (`internal/tools/loaded_tool_store.go`).
-- [ ] Aplicar TTL e invalidação por `schema_hash`; restart reset e troca de perfil já
-  ocorrem, mas availability/budget ainda não satisfazem todo o contrato.
-- [ ] Registrar eventos/telemetria de load/unload para auditoria de turno.
+- Criar store in-memory de loaded tools por conversa/sessão.
+- Aplicar TTL, restart reset, invalidação por `schema_hash`, availability, perfil e budget.
+- Registrar eventos/telemetria de load/unload para auditoria de turno.
 
-### Fase 5 — UI do Profile Manager ✅
+### Fase 5 — UI do Profile Manager
 
 - Manter grid único de tools.
 - Trocar checkbox/binário por controle tri-state acessível.
@@ -212,13 +334,11 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 - Anunciar mudanças de estado via announcer.
 - Adicionar textos i18n nos três idiomas e usar apenas tokens de tema.
 
-### Fase 6 — Governança MCP e risco 🚧
+### Fase 6 — Governança MCP e risco
 
-- [x] MCP native/bridge usa visibilidade derivada do tri-state.
-- [x] `executeLoad` rejeita tools invisíveis ou indisponíveis.
-- [ ] Aplicar budget no momento de `load` e retornar `budget_exceeded`.
-- [ ] Aplicar política de risco no `load` e retornar `risk_blocked`.
-- [ ] Invalidar carga por mudança de schema e retornar `schema_changed`.
+- Validar servidores MCP com muitas tools sob budget finito.
+- Garantir que tools destrutivas/write/shell continuam bloqueadas por allowlist/confirmação.
+- Testar MCP native/bridge com allowlist derivada do tri-state.
 
 ## Riscos
 
@@ -229,28 +349,34 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 | Budget descarregar tool necessária | Médio | Resposta estruturada com motivo, ranking determinístico e possibilidade de recarregar. |
 | MCP bridge com centenas de tools inflar contexto | Alto | `on_demand` como default para catálogo amplo, schema budget e omissão explícita. |
 | UX tri-state confundir usuários | Médio | Grid único, labels textuais, ajuda curta e anúncio de estado. |
-| Bootstrap quebrar descoberta | Alto | `tool_catalog` tratado como control-plane sempre disponível quando tools sob demanda forem permitidas. |
+| Bootstrap quebrar descoberta | Alto | Falhar fechado, preservar somente autorizações explícitas e informar a indisponibilidade via `tool_protocol`. |
 | Tool carregada ficar obsoleta após schema change | Médio | Invalidação por `schema_hash` e availability. |
 
 ## Critérios de aceitação
 
-- [x] Política tri-state usa `disabled`, `on_demand` e `preloaded`.
-- [x] Profile Manager usa grid único e controle tri-state acessível.
-- [x] `enabled_tools` legado tem compatibilidade testada.
-- [x] `tool_catalog` assume `search` quando `action` é omitida.
-- [x] `search`, `load`, `unload` e `list_loaded` usam a mesma meta-tool.
-- [x] `search` não revela tools `disabled`.
-- [x] `load` respeita visibilidade/disponibilidade e retorna rejeições
-  estruturadas para esses casos.
-- [ ] Persistência carregada já funciona por conversa/sessão até restart,
-  `unload` e troca de perfil; TTL, `schema_hash`, indisponibilidade, budget e
-  telemetria de load/unload permanecem pendentes.
-- [x] `tool_catalog` funciona como control-plane e respeita o gating de skills.
-- [ ] MCP bridge/native já compartilha visibilidade; enforcement de budget,
-  risco e mudança de schema no `executeLoad` permanece pendente.
-- [x] Nenhum fluxo alternativo de envio foi criado.
-
-Evidências entregues: `internal/chat/tool_selection_policy_test.go`,
-`internal/tools/catalog_tool_test.go`,
-`internal/core/usecases/send_message_loaded_tools_test.go` e
-`frontend/src/components/profiles/ProfileToolsSection.test.tsx`.
+- Existe uma política tri-state por tool no perfil: `disabled`, `on_demand`, `preloaded`.
+- O Profile Manager usa um único grid/lista de tools, com controle tri-state acessível e alternância por `Space`.
+- `enabled_tools` legado tem migração/compatibilidade documentada e testada.
+- Perfis com `enabled_tools` ausente, `null`, `[]` ou allowlist permanecem
+  aceitos; sem catálogo, `nil` falha fechado e autorizações explícitas não se
+  ampliam.
+- A ausência de `tool_catalog` é distinguível de `disable_tools=true` e de
+  seleção vazia, sem inferência baseada somente no payload de tools.
+- O `tool_protocol` informa a indisponibilidade de descoberta e orienta a
+  seleção explícita no editor sem afirmar que isso restaura o catálogo.
+- `tool_catalog` aceita `action` opcional e assume `search` quando omitida.
+- `tool_catalog` implementa `search`, `load`, `unload` e `list_loaded` sem criar meta-tools paralelas.
+- `search` não revela tools `disabled` para o perfil.
+- `load` não carrega tools fora da allowlist/estado do perfil e retorna motivos estruturados de rejeição.
+- Tools carregadas sob demanda persistem por conversa/sessão até restart, TTL, `unload`, mudança de `schema_hash`, indisponibilidade, mudança de perfil ou budget.
+- `tool_catalog` é tratado como bootstrap/control-plane conforme a política de tool calling, e `load_skill`/autoativação de skills pelo modelo permanece indisponível conforme AEP-0072.
+- MCP bridge/native, tools destrutivas e budgets de schema respeitam a mesma política central.
+- Wildcards MCP e de pacote obedecem à precedência documentada, resolvem tools
+  registradas posteriormente e não elevam opt-ins.
+- Search ranqueia deterministicamente por relevância, pacote preferido,
+  recência por conversa e fallback estável.
+- Wildcard em `load` reutiliza o matcher de política, expande no máximo 20
+  candidatas visíveis e não altera autorização.
+- Auto-search do primeiro turno é read-only, limitado, observável e nunca
+  pré-carrega risco de escrita, shell, rede ou destrutivo.
+- Nenhum fluxo alternativo de envio de mensagens é criado.

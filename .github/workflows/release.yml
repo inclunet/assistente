@@ -13,6 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verificar ldflags de versão
+        run: .github/scripts/verificar-ldflags-release.teste.sh
+
       - name: Install system dependencies
         timeout-minutes: 10
         run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
@@ -288,7 +291,7 @@ jobs:
           echo "📌 Version: $VERSION"
           
           # Prepara ldflags para injetar a versão
-          LDFLAGS="-X main.AppVersion=$VERSION"
+          LDFLAGS="-X assistente/internal/app.AppVersion=$VERSION"
           echo "🔧 Using ldflags: $LDFLAGS"
           
           if [ "${{ matrix.goos }}" = "linux" ]; then
@@ -316,7 +319,7 @@ jobs:
           VERSION=${VERSION#v}
           
           # Prepara ldflags para injetar a versão
-          LDFLAGS="-X main.AppVersion=$VERSION"
+          LDFLAGS="-X assistente/internal/app.AppVersion=$VERSION"
           
           # Não usa -clean para não apagar o executável já gerado
           wails build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -nsis

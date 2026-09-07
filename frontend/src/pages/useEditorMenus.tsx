@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { MutableRefObject, RefObject } from 'react';
+import { useRef, type MutableRefObject, type RefObject } from 'react';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
 import { type MenuItem } from '../components/menu';
 import { useAnchoredContextMenu } from '../hooks/useAnchoredContextMenu';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
+import type { RenderedReadingRequest } from '../components/editor/EditorContentArea';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import { useEditorStore, type EditorDocument, type EditorInsertRequest, type EditorMode } from '../store/editorStore';
-import type { WorkspaceTab } from '../store/workspaceStore';
+import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { normalizePathKey } from '../utils/path';
 import { isModalOpen } from '../components/ui/Modal';
 import {
@@ -97,6 +98,16 @@ export function useEditorMenus({
   const [revealSlideNavigationRequest, setRevealSlideNavigationRequest] = useState<{ index: number; nonce: number } | null>(null);
   const [revealFullscreenRequestNonce, setRevealFullscreenRequestNonce] = useState(0);
   const [revealAppendNonce, setRevealAppendNonce] = useState(0);
+  const renderedReadingRequestNonceRef = useRef(0);
+  const [renderedReadingRequest, setRenderedReadingRequest] = useState<RenderedReadingRequest | null>(null);
+  const updateWorkspaceTab = useWorkspaceStore((state) => state.updateTab);
+  const consumeRenderedReadingRequest = useCallback((nonce: number) => {
+    setRenderedReadingRequest((current) => current?.nonce === nonce ? null : current);
+  }, []);
+  const requestRenderedReadingFocus = useCallback(() => {
+    renderedReadingRequestNonceRef.current += 1;
+    setRenderedReadingRequest({ nonce: renderedReadingRequestNonceRef.current });
+  }, []);
 
   const fileMenuItems = useMemo(() => {
     // "Salvar" funciona em qualquer aba ativa: grava o arquivo quando há
@@ -232,6 +243,7 @@ export function useEditorMenus({
     openForTrigger: openToolbarMenu,
     closeMenu: closeToolbarMenu,
     onSelectItem: handleToolbarMenuSelect,
+    triggerElementRef: toolbarMenuTriggerRef,
   } = useAnchoredContextMenu();
 
   const openToolbarMenuFromShortcut = useCallback(
@@ -245,7 +257,7 @@ export function useEditorMenus({
   );
 
   const setActiveTabMode = useCallback(
-    (nextMode: EditorMode) => {
+    (nextMode: EditorMode, source: 'shortcut' | 'menu' = 'shortcut') => {
       if (!activeTab) return;
 
       if (activeTab.mode === 'rich' && nextMode !== 'rich') {
@@ -253,15 +265,34 @@ export function useEditorMenus({
       }
 
       useEditorStore.getState().setDocMode(activeTab.id, nextMode);
+      const effectiveMode: EditorMode = activeTab.readOnly ? 'view' : nextMode;
+
+      // Dispara cada atualização imediatamente: manter a última mudança atrás
+      // de uma Promise local permitiria que o app encerrasse antes mesmo de a
+      // chamada final chegar ao backend.
+      void updateWorkspaceTab(activeTab.id, {
+          state: { displayMode: effectiveMode },
+        })
+        .catch(() => {
+          addToast(t('editor.modePersistenceFailed'), 'error');
+        });
 
       // Se for arquivo real, memoriza preferência apenas de modos de edição.
-      if (activeTab.filePath && (nextMode === 'markdown' || nextMode === 'rich')) {
-        fileModeByPathRef.current[normalizePathKey(String(activeTab.filePath))] = nextMode;
+      if (activeTab.filePath && (effectiveMode === 'markdown' || effectiveMode === 'rich')) {
+        fileModeByPathRef.current[normalizePathKey(String(activeTab.filePath))] = effectiveMode;
+      }
+
+      if (effectiveMode === 'view') {
+        // Ao escolher o modo pelo menu, evita que o fechamento restaure o
+        // gatilho depois de a ilha documental receber foco.
+        if (source === 'menu') toolbarMenuTriggerRef.current = null;
+        requestRenderedReadingFocus();
+        return;
       }
 
       focusEditorSoon();
     },
-    [activeTab]
+    [activeTab, addToast, requestRenderedReadingFocus, t, updateWorkspaceTab]
   );
 
   const fileMenuItemsForContextMenu = useMemo((): MenuItem[] => {
@@ -305,7 +336,7 @@ export function useEditorMenus({
       ctx: {
         activeTab,
         isAsking,
-        setActiveTabMode,
+        setActiveTabMode: (nextMode) => setActiveTabMode(nextMode, 'menu'),
       },
     });
   }, [activeTab, isAsking, setActiveTabMode]);
@@ -340,6 +371,10 @@ export function useEditorMenus({
 
     const onKeyDown = async (e: KeyboardEvent) => {
       if (isModalOpen()) return;
+      if (
+        toolbarMenu.visible
+        || (e.target instanceof Element && e.target.closest('[role="menu"]'))
+      ) return;
 
       if (
         e.key === 'F5' &&
@@ -358,8 +393,8 @@ export function useEditorMenus({
       }
 
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        if (activeTab.readOnly) return;
         const key = e.key.toLowerCase();
+        if (activeTab.readOnly && key !== '3') return;
 
         if (!e.shiftKey) {
           const modesByShortcut: Record<string, EditorMode> = {
@@ -441,12 +476,16 @@ export function useEditorMenus({
     showRevealSlidePicker,
     revealSlideMenuItemsForShortcut,
     t,
+    toolbarMenu.visible,
   ]);
 
   return {
     revealSlideNavigationRequest,
     revealFullscreenRequestNonce,
     revealAppendNonce,
+    renderedReadingRequest,
+    consumeRenderedReadingRequest,
+    requestRenderedReadingFocus,
     requestRevealSlideNavigation,
     createRevealSlideFromToolbar,
     requestRevealFullscreen,

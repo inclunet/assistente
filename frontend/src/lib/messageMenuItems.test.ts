@@ -38,6 +38,30 @@ vi.mock('../services/tts', () => ({
 }));
 
 describe('messageMenuItems', () => {
+  it('oferece fixar ou desafixar apenas para mensagens persistidas', () => {
+    const onPin = vi.fn();
+    const persisted = new chat.EnrichedMessage({
+      id: '01926b90-7a5a-7c4e-8d3f-000000000002',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
+      role: 'assistant',
+      content: 'Resposta',
+      pinned: true,
+      createdAt: new Date().toISOString(),
+    }) as Message;
+    const pinItem = getMessageMenuItems(persisted, { onPin }).find((item) => item.id === 'pin');
+
+    expect(pinItem?.label).toBe('chat.unpinMessage');
+    pinItem?.action?.();
+    expect(onPin).toHaveBeenCalledWith(persisted);
+
+    const synthetic = new chat.EnrichedMessage({
+      ...persisted,
+      id: 'streaming-conversation',
+      pinned: false,
+    }) as Message;
+    expect(getMessageMenuItems(synthetic, { onPin }).some((item) => item.id === 'pin')).toBe(false);
+  });
+
   it('inclui itens basicos e markdown', () => {
     i18nTMock.mockClear();
     const assistantMessage = new chat.EnrichedMessage({

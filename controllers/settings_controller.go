@@ -13,19 +13,16 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-	"assistente/internal/llm"
 	"assistente/internal/profiles"
-	"assistente/internal/providers"
 	"assistente/internal/skills"
 )
 
 // SettingsControllerConfig agrupa as dependências do SettingsController.
 type SettingsControllerConfig struct {
-	CredMgr     *credentials.Manager
-	ProfileMgr  *profiles.Manager
-	SkillMgr    *skills.Manager
-	Emitter     ports.Emitter
-	ProviderSvc *providers.Service
+	CredMgr    *credentials.Manager
+	ProfileMgr *profiles.Manager
+	SkillMgr   *skills.Manager
+	Emitter    ports.Emitter
 	// Callbacks cross-domain
 	RestartChannel func(channelName string) error
 	GetModels      func() ([]string, error)
@@ -37,7 +34,6 @@ type SettingsController struct {
 	profileMgr     *profiles.Manager
 	skillMgr       *skills.Manager
 	emitter        ports.Emitter
-	providerSvc    *providers.Service
 	restartChannel func(string) error
 	getModels      func() ([]string, error)
 }
@@ -49,7 +45,6 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 		profileMgr:     cfg.ProfileMgr,
 		skillMgr:       cfg.SkillMgr,
 		emitter:        cfg.Emitter,
-		providerSvc:    cfg.ProviderSvc,
 		restartChannel: cfg.RestartChannel,
 		getModels:      cfg.GetModels,
 	}
@@ -88,36 +83,6 @@ func (c *SettingsController) RunDatabaseMaintenance(ctx context.Context, force b
 		maint = config.DefaultMaintenanceSettings()
 	}
 	return database.Compact(ctx, force, maint.VacuumMinFreeBytes)
-}
-
-// SendMessageSync envia uma mensagem sem streaming (para acessibilidade e testes).
-func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm.Message, params llm.ChatParams) (string, error) {
-	if c.profileMgr == nil {
-		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
-	}
-	active, _ := c.profileMgr.GetActiveAndSlug()
-	if active == nil {
-		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
-	}
-	activeProfile := active.Profile
-	if c.providerSvc != nil {
-		activeProfile = c.providerSvc.ResolveProfileDefaults(ctx, activeProfile)
-	}
-	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
-		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
-	}
-	if c.providerSvc == nil {
-		return "", fmt.Errorf("provider service not initialized")
-	}
-	cp, err := c.providerSvc.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
-	if err != nil {
-		return "", err
-	}
-	params.ProfileSlug = active.Slug
-	params.RateLimitEnabled = activeProfile.Chat.RateLimitEnabled
-	params.RateLimitRPM = activeProfile.GetLLMRateLimitRPM()
-	params.RateLimitBurst = activeProfile.GetLLMRateLimitBurst()
-	return cp.SendChat(ctx, messages, params)
 }
 
 // GetNativeTTSProviders retorna os IDs de provedores TTS nativos

@@ -54,6 +54,8 @@ export function GetMessages(arg1:string,arg2:any):Promise<Array<chat.MessageNode
 
 export function GetMessagesBefore(arg1:string,arg2:string,arg3:number):Promise<Array<chat.MessageNode>>;
 
+export function GetPinnedMessages(arg1:string):Promise<Array<database.ChatMessage>>;
+
 export function GetRecentMessages(arg1:string,arg2:number):Promise<Array<chat.MessageNode>>;
 
 export function RebuildSearchIndex():Promise<void>;
@@ -63,6 +65,8 @@ export function RenameConversation(arg1:string,arg2:string):Promise<void>;
 export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array<database.MessageSearchResult>>;
 
 export function SetConversationModel(arg1:string,arg2:string):Promise<void>;
+
+export function ToggleMessagePin(arg1:string):Promise<database.ChatMessage>;
 
 export function UpdateConversation(arg1:string,arg2:string,arg3:string):Promise<void>;
 

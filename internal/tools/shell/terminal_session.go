@@ -30,7 +30,7 @@ func NewTerminalSession(manager TerminalSessionManager, workDir string) *Termina
 func (t *TerminalSession) Name() string { return "terminal_session" }
 
 func (t *TerminalSession) Description() string {
-	return `Lists and manages live terminal sessions. Use action=list to inspect available terminal IDs, create to start a new terminal, interrupt to send Ctrl+C, and close to terminate the PTY. Closing is permanent; a dead terminal cannot be reopened.`
+	return `Manages the lifecycle of persistent terminal sessions. Use when you need to list live terminal IDs, create an empty terminal, interrupt its current process with Ctrl+C, or close it; for example {"action":"list"} or {"action":"interrupt","terminal_id":"term-1"}. Do not use to execute commands or retrieve command output—use run_command, passing terminal_id to continue in a live session. Created sessions remain available for later run_command calls; close permanently terminates the PTY, while interrupt keeps the session alive. Risk: interrupt and close affect local processes. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *TerminalSession) CatalogMetadata() tools.CatalogMetadata {

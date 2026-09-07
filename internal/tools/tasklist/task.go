@@ -48,7 +48,12 @@ func (t *TaskTool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *TaskTool) Description() string {
-	return `Full CRUD for tasks. Read/delete/duplicate source: task_id and/or (task_list_id/task_list_slug + code). With task_id and code only (no new title semantics): code must match that task. With list+code only: finds the task in that list. With task_id only, list ref is not used to locate the task — on update/duplicate, task_list_id/slug is the destination list for move/copy. Create: task_list_id and/or task_list_slug + title; optional code (dedup updates existing task with that code). Update by task_id + title: code field is the new task code, not for resolution. Duplicate by task_id: optional code sets the new copy's code. Use task_list for status IDs.`
+	return `Manage one task/card inside an existing task list: read, create, update, move, duplicate, link to a conversation, or permanently delete it (including subtasks).
+Use when: the target is an individual task and you know its task_id, or its list plus code. Read task_list first when you need valid workflow status IDs.
+Do not use: use task_list for list metadata, workflow, summaries, or creating the container; task_note for comments/history; update_plan for the current conversation's execution plan.
+Persistence, risk, and cost: writes persist in the database and may emit tasklist domain events that trigger jobs. delete is destructive; code-based create can update an existing matching task. Reads include the task's notes, so use a direct identifier and avoid repeated broad lookups.
+Resolution: task_id identifies the source; with task_id, a list reference is a move/copy destination and code is the updated/new code. Without task_id, task_list_id/task_list_slug + code identifies the task. If both ID and slug are supplied they must agree.
+Examples: read {"task_id":"<id>"}; create {"task_list_slug":"release","title":"Validate build","code":"REL-12"}; update status {"task_id":"<id>","title":"Validate build","status_id":2}.`
 }
 
 func (t *TaskTool) Parameters() json.RawMessage {
