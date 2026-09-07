@@ -24,7 +24,8 @@ os apaga automaticamente.
 
 ## Diagnóstico local
 
-O log de inicialização inclui uma linha `UpgradeDiagnostic` com:
+O log de inicialização inclui uma linha do componente
+`database.upgrade-diagnostic` com:
 
 - versão atual do schema;
 - versão mais recente conhecida pelo executável;
