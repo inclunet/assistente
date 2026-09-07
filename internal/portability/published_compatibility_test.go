@@ -3,6 +3,7 @@ package portability
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"assistente/internal/database"
@@ -50,6 +51,9 @@ func TestPublishedExport019ImportsDirectlyAndIdempotently(t *testing.T) {
 	conversation := file.Resources.Conversations[0]
 	if conversation.ID == "" || len(conversation.Messages) != 2 {
 		t.Fatalf("adaptação incompleta: %#v", conversation)
+	}
+	if file.AppVersion != "0.1.9" {
+		t.Fatalf("appVersion legado = %q, esperado 0.1.9", file.AppVersion)
 	}
 	for _, id := range []string{
 		conversation.ID,
@@ -138,6 +142,62 @@ func TestPublishedPortableV2RejectsFutureVersionWithoutPartialImport(t *testing.
 	}
 	if conversations != 0 {
 		t.Fatalf("rejeição deixou import parcial: conversas=%d", conversations)
+	}
+}
+
+func TestLegacyExportConversationIDDoesNotDependOnEditableTitle(t *testing.T) {
+	raw, err := os.ReadFile("testdata/published/0.1.9-conversations.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, _, err := parseExportFile(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	editedJSON := strings.Replace(
+		string(raw),
+		"Fixture sem dados pessoais",
+		"Título editado antes do import",
+		1,
+	)
+	edited, _, err := parseExportFile(editedJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if original.Resources.Conversations[0].ID != edited.Resources.Conversations[0].ID {
+		t.Fatal("editar o título alterou o ID determinístico da conversa")
+	}
+}
+
+func TestLegacyExportRejectsDanglingMessageLinks(t *testing.T) {
+	raw, err := os.ReadFile("testdata/published/0.1.9-conversations.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupted := strings.Replace(string(raw), `"parentId": 41`, `"parentId": 999`, 1)
+	if _, _, err := parseExportFile(corrupted); err == nil ||
+		!strings.Contains(err.Error(), "parentId inexistente 999") {
+		t.Fatalf("referência órfã deveria falhar claramente, recebeu: %v", err)
+	}
+}
+
+func TestLegacyExportRequiresArrayAndExportTimestamp(t *testing.T) {
+	for name, conversations := range map[string]string{
+		"null":   "null",
+		"object": `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw := `{"metadata":{"version":"2.0","type":"conversations","exported_at":"2026-03-18T12:00:00Z"},"conversations":` + conversations + `}`
+			if _, matched, err := parseLegacyConversationsExport([]byte(raw)); !matched || err == nil {
+				t.Fatalf("envelope inválido deveria ser reconhecido e rejeitado: matched=%v err=%v", matched, err)
+			}
+		})
+	}
+
+	raw := `{"metadata":{"version":"2.0","type":"conversations"},"conversations":[]}`
+	if _, matched, err := parseLegacyConversationsExport([]byte(raw)); !matched ||
+		err == nil || !strings.Contains(err.Error(), "metadata.exported_at") {
+		t.Fatalf("timestamp ausente deveria falhar: matched=%v err=%v", matched, err)
 	}
 }
 
