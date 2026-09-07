@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	expectedLegacyFormatCount  = 781
-	expectedLegacyFormatDigest = "d0ddcfc7f2b7a5843d6074ff287361ce619cfe0cf63ef290cf92ec846934f846"
+	expectedLegacyFormatCount  = 776
+	expectedLegacyFormatDigest = "a5b10f0de755236674e2a3aec1a55376aee299b6239933ab0682eb1e5c4a644d"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
@@ -86,6 +86,27 @@ func TestInventoryFileDetectsPrintfInLoggingPackage(t *testing.T) {
 	}
 }
 
+func TestInventoryFileIgnoresLocalPrintfWithDotImport(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	source := `package sample
+import . "assistente/internal/logging"
+func Printf(string) {}
+func sample() { Printf("local") }
+`
+	if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+		t.Fatalf("criar fonte temporária: %v", err)
+	}
+
+	var printfSites []string
+	var legacyFormats []string
+	inventoryFile(t, root, path, &printfSites, &legacyFormats)
+
+	if len(printfSites) != 0 {
+		t.Fatalf("call local foi atribuída ao dot-import: %v", printfSites)
+	}
+}
+
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 	current, err := os.Getwd()
@@ -132,7 +153,11 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 		return
 	}
 
-	file, err = parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	parseMode := parser.SkipObjectResolution
+	if dotImport {
+		parseMode = 0
+	}
+	file, err = parser.ParseFile(fset, path, nil, parseMode)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
@@ -147,7 +172,7 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 		if !ok {
 			return true
 		}
-		method, ok := loggingMethod(call.Fun, aliases, dotImport || ownPackage)
+		method, ok := loggingMethod(call.Fun, aliases, dotImport, ownPackage)
 		if !ok {
 			return true
 		}
@@ -181,9 +206,20 @@ func inventoryFile(t *testing.T, root, path string, printfSites, legacyFormats *
 	})
 }
 
-func loggingMethod(fun ast.Expr, aliases map[string]struct{}, dotImport bool) (string, bool) {
-	if ident, ok := fun.(*ast.Ident); ok && dotImport {
-		return ident.Name, true
+func loggingMethod(
+	fun ast.Expr,
+	aliases map[string]struct{},
+	dotImport bool,
+	ownPackage bool,
+) (string, bool) {
+	if ident, ok := fun.(*ast.Ident); ok {
+		isLoggingMethod := ident.Name == "Printf"
+		if !isLoggingMethod {
+			_, isLoggingMethod = legacyFormatIndex(ident.Name)
+		}
+		if isLoggingMethod && (ownPackage || dotImport && ident.Obj == nil) {
+			return ident.Name, true
+		}
 	}
 	selector, ok := fun.(*ast.SelectorExpr)
 	if !ok {

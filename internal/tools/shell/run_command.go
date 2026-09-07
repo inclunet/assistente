@@ -199,7 +199,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// log quando a decisao for diferente de approve, e mesmo assim usam
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
-	logPolicyDecision(ctx, commandSummary, policyResult)
+	logPolicyDecision(ctx, logging.Logger(ctx, "tools.shell.run-command"), commandSummary, policyResult)
 
 	switch decision {
 	case allowlist.DecisionDeny:
@@ -387,11 +387,18 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-func logPolicyDecision(ctx context.Context, commandSummary string, result commandpolicy.EvaluationResult) {
+func logPolicyDecision(
+	ctx context.Context,
+	logger *slog.Logger,
+	commandSummary string,
+	result commandpolicy.EvaluationResult,
+) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	logger := logging.Logger(ctx, "tools.shell.run-command")
+	if logger == nil {
+		logger = logging.Logger(ctx, "tools.shell.run-command")
+	}
 	if !logger.Enabled(ctx, slog.LevelInfo) {
 		return
 	}
