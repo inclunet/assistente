@@ -162,12 +162,12 @@ func Init() error {
 		return fmt.Errorf("erro nas migrações pós-AutoMigrate: %w", err)
 	}
 	if diagnostic, err := GetUpgradeDiagnostic(); err != nil {
-		logging.Warnf(context.Background(), "database.database", "[UpgradeDiagnostic] falha ao inspecionar migrações: %v", err)
+		logging.Warnf(context.Background(), "database.upgrade-diagnostic", "falha ao inspecionar migrações: %v", err)
 	} else {
 		logging.Infof(
 			context.Background(),
-			"database.database",
-			"[UpgradeDiagnostic] schema=%d latest=%d applied=%d pending=%v",
+			"database.upgrade-diagnostic",
+			"schema=%d latest=%d applied=%d pending=%v",
 			diagnostic.SchemaVersion,
 			diagnostic.LatestVersion,
 			diagnostic.AppliedCount,
