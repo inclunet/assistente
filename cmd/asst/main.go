@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -54,6 +55,10 @@ var rootCmd = &cobra.Command{
 			}
 		}()
 
+		if verbose {
+			enableVerboseLogs(os.Stderr)
+		}
+
 		rootApp = app.NewApp()
 
 		cliEmitter = cliadapter.NewEmitterAdapter(
@@ -83,7 +88,7 @@ var rootCmd = &cobra.Command{
 		// Silencia logs padrão após startup bem-sucedido
 		// para manter visíveis eventuais erros de inicialização.
 		if !verbose {
-			log.SetOutput(io.Discard)
+			silenceDefaultLogs()
 		}
 
 		return nil
@@ -116,6 +121,18 @@ func init() {
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(dataCmd)
 	rootCmd.AddCommand(toolsCmd)
+}
+
+func silenceDefaultLogs() {
+	log.SetOutput(io.Discard)
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func enableVerboseLogs(w io.Writer) {
+	if w == nil {
+		w = os.Stderr
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})))
 }
 
 var versionCmd = &cobra.Command{

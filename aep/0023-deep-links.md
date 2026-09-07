@@ -1,5 +1,7 @@
 # Deep Links Internos (`assistente://`)
 
+**Status:** Done — contrato implementado e coberto por regressões de navegação
+
 **Data**: 16 de março de 2026
 **Atualizado**: 23 de março de 2026
 
@@ -54,23 +56,36 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 |-----|------|
 | `assistente://{recurso}/new` | Abre formulário de criação do recurso |
 | `assistente://{recurso}/edit/{id}` | Abre formulário de edição do recurso |
+| `assistente://profiles/edit/{slug}?tab=voice` | Edita o perfil diretamente na seção de voz |
 
-Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `tasklists`
+Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `memories`, `tasklists`
 
 ### Rotas Válidas para `navigate`
+
+As telas de configuração são **abas** de `settings` (`settings/:tab?` no
+roteador), então a rota inclui o prefixo: `settings/allowlists`, e não
+`allowlists`. `VALID_ROUTES` em `frontend/src/lib/deepLinks.ts` é a fonte de
+verdade — rota fora dela faz o parser devolver `null`.
 
 | Rota | Página |
 |------|--------|
 | *(vazio)* | Chat (workspace) |
-| `allowlists` | Allowlists |
-| `skills` | Skills |
-| `mcp` | Servidores MCP |
-| `channels` | Canais |
-| `credentials` | Credenciais |
-| `providers` | Provedores |
 | `settings` | Configurações |
+| `settings/providers` | Provedores |
+| `settings/mcp` | Servidores MCP |
+| `settings/skills` | Skills |
+| `settings/channels` | Canais |
+| `settings/contacts` | Contatos |
+| `settings/credentials` | Credenciais |
+| `settings/allowlists` | Allowlists de comandos |
+| `settings/network-allowlist` | Allowlist de rede (hosts autorizados apesar do anti-SSRF) |
+| `settings/path-allowlist` | Allowlist de paths (paths fora do sandbox autorizados) |
+| `settings/appearance` | Aparência |
+| `settings/data` | Dados |
+| `settings/restore-defaults` | Restaurar padrões |
 | `profiles` | Perfis |
 | `history` | Histórico |
+| `memories` | Memórias |
 | `tasklists` | Listas de Tarefas |
 | `help` | Ajuda |
 | `about` | Sobre |
@@ -150,6 +165,9 @@ parseDeepLink('assistente://editor/open?file=/tmp/test.md');
 parseDeepLink('assistente://profiles/edit/programacao');
 // → { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' }
 
+parseDeepLink('assistente://profiles/edit/programacao?tab=voice');
+// → { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao', tab: 'voice' }
+
 parseDeepLink('https://google.com');
 // → null
 ```
@@ -187,11 +205,11 @@ Retorna a classe CSS específica do tipo (ex: `deep-link--conversation`).
 type TabType = 'tasklist' | 'editor' | 'terminal';
 
 type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: number; title?: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string }
   | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: number; message: string }
+  | { type: 'conversation:send'; conversationId: string; message: string }
   | { type: 'navigate'; route: string }
-  | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
+  | { type: 'resource:edit'; resource: EditableResource; resourceId: string; tab?: 'voice' }
   | { type: 'resource:new'; resource: EditableResource }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
   | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
@@ -244,7 +262,7 @@ Mensagem Markdown
 | `frontend/src/store/navigationStore.ts` | Store de pending edit/new para recursos editáveis |
 | `frontend/src/hooks/useResourceEditRequest.ts` | Hook consumido pelas páginas de recurso |
 | `internal/tools/deeplink/open_deep_link.go` | Tool Go para o agente emitir deep links |
-| `builtin/skills/workspace/SKILL.md` | Documentação de deep links para o agente |
+| Context provider/tooling de workspace | Documentação operacional de deep links para o agente. Historicamente ficava em `builtin/skills/workspace/SKILL.md`, removido pela migração de workspace para Context Provider. |
 
 ### Testes
 
@@ -287,4 +305,4 @@ O sistema foi projetado para ser facilmente extensível. Para adicionar um novo 
 6. Adicionar a classe CSS em `getDeepLinkTypeClass()` e os estilos em `MarkdownRenderer.css`
 7. Adicionar as chaves i18n nos 3 locales
 8. Atualizar a `Description()` em `internal/tools/deeplink/open_deep_link.go`
-9. Atualizar `builtin/skills/workspace/SKILL.md`
+9. Atualizar a documentação operacional do provider/tooling de workspace, quando houver impacto para o agente

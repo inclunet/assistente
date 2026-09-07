@@ -1,6 +1,10 @@
 import type { ToolCallStatus } from '../types/chat';
 import type { MessageNode, TurnSegment } from '../lib/chatMessageTree';
 import type { MediaFile } from './mediaService';
+import {
+  MAX_MESSAGE_WINDOW_NODES,
+  MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW,
+} from './messageWindowLimits';
 
 export interface ActiveConversation {
   id: string;
@@ -28,6 +32,17 @@ export interface ChatSurfaceIdentity {
   sessionKey: ChatSessionKey;
   conversationId: string | null;
   tabId?: string;
+}
+
+export interface MessageWindowState {
+  scope: 'conversation' | 'thread';
+  conversationId: string;
+  threadParentId?: string;
+  totalCount: number;
+  startIndex: number;
+  endIndex: number;
+  hasBefore: boolean;
+  hasAfter: boolean;
 }
 
 export interface ChatSurfaceDescriptor {
@@ -111,7 +126,18 @@ export interface ChatSurfaceSession {
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
+  isLoadingMessageWindow: boolean;
+  visibleThreadedMessages?: MessageNode[];
+  messageWindow?: MessageWindowState;
   streamingMessageId: string | null;
+  sendFailureMessage: string | null;
+  sendFailureAnnounced: boolean;
+  sendFailureRetryable: boolean;
+  sendFailureRetryContent: string | null;
+  sendFailureRetryMediaFiles: MediaFile[];
+  // lastInterruptedMessageId aponta para a mensagem assistant (sintética) cuja geração
+  // foi interrompida (erro/cancelamento) e é elegível para "Continuar resposta".
+  lastInterruptedMessageId: string | null;
   streamingReasoning: string | null;
   isThinking: boolean;
   activeToolCalls: ToolCallStatus[];
@@ -149,7 +175,14 @@ export const createEmptyChatSurfaceSession = (
   isLoading: false,
   hasOlderMessages: false,
   isLoadingOlderMessages: false,
+  isLoadingMessageWindow: false,
   streamingMessageId: null,
+  sendFailureMessage: null,
+  sendFailureAnnounced: false,
+  sendFailureRetryable: false,
+  sendFailureRetryContent: null,
+  sendFailureRetryMediaFiles: [],
+  lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
   activeToolCalls: [],
@@ -187,7 +220,180 @@ const toSurfaceSession = (
     ...surface,
     sessionKey,
     conversationId,
+    visibleThreadedMessages: surface.visibleThreadedMessages ?? (session.conversation
+      ? capVisibleSurfaceMessages(
+        session.conversation.threadedMessages,
+        surface.messageWindow?.startIndex === 0 && surface.messageWindow?.hasBefore === false ? 'start' : 'end',
+      )
+      : undefined),
+    messageWindow: surface.messageWindow,
   };
+};
+
+export const getMessageNodeOrder = (node: MessageNode): number => {
+  const timestamp = Number(node.message.timestamp ?? Date.parse(String(node.message.createdAt ?? '')));
+  return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
+};
+
+export const getTimelineNodeKey = (node: MessageNode): string => {
+  // Keep this rule in sync with backend messageTimelineItemKey.
+  const turnId = String(node.message.turnId ?? '').trim();
+  if (turnId !== '' && node.message.role !== 'user') {
+    return `turn:${turnId}`;
+  }
+  return `message:${String(node.message.id)}`;
+};
+
+export const mergeMessageNode = (existing: MessageNode, incoming: MessageNode): MessageNode => {
+  const incomingChildCount = incoming.childCount ?? 0;
+  const existingChildCount = existing.childCount ?? 0;
+  const shouldPreserveLoadedChildren = existing.children?.length
+    && !incoming.children?.length
+    && incomingChildCount >= existingChildCount;
+
+  return {
+    ...existing,
+    ...incoming,
+    children: incoming.children?.length
+      ? incoming.children
+      : shouldPreserveLoadedChildren
+        ? existing.children
+        : incoming.children,
+    childCount: incoming.childCount ?? existing.childCount,
+    originalIndex: incoming.originalIndex ?? existing.originalIndex,
+    isExpanded: existing.isExpanded ?? incoming.isExpanded,
+  } as MessageNode;
+};
+
+export const sortMessageNodes = (nodes: MessageNode[]): MessageNode[] => (
+  [...nodes].sort((a, b) => {
+    const order = getMessageNodeOrder(a) - getMessageNodeOrder(b);
+    return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
+  })
+);
+
+export const sortTimelineNodes = (nodes: MessageNode[]): MessageNode[] => (
+  [...nodes].sort((a, b) => {
+    // OriginalIndex is the backend canonical order; transient/unindexed nodes fall back to creation time.
+    if (a.originalIndex !== undefined && b.originalIndex !== undefined && a.originalIndex !== b.originalIndex) {
+      return a.originalIndex - b.originalIndex;
+    }
+    const order = getMessageNodeOrder(a) - getMessageNodeOrder(b);
+    return order !== 0 ? order : String(a.message.id).localeCompare(String(b.message.id));
+  })
+);
+
+/**
+ * Local-only timeline IDs that must not enter the shared conversation cache.
+ * Before adding a prefix here, ensure no backend-persisted message can use it
+ * and add registry/store tests that prove it stays scoped to the active surface.
+ */
+export const TRANSIENT_TIMELINE_NODE_ID_PREFIXES = [
+  'streaming-',
+  'tool-',
+  'displaced-',
+  'reasoning-event-',
+  'queued-',
+  'internal-',
+];
+
+export const isPersistedTimelineNode = (node: MessageNode): boolean => {
+  const id = String(node.message.id ?? '');
+  return !node.message.isStreaming
+    && id !== ''
+    && !TRANSIENT_TIMELINE_NODE_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
+};
+
+const toTimelineCacheConversation = (conversation: ConversationTimeline): ConversationTimeline => {
+  const threadedMessages = conversation.threadedMessages.filter(isPersistedTimelineNode);
+  if (threadedMessages.length === conversation.threadedMessages.length) return conversation;
+  return {
+    ...conversation,
+    threadedMessages,
+  };
+};
+
+const reconcileWindowForVisibleMessages = (
+  window: MessageWindowState | undefined,
+  nodes: MessageNode[],
+  totalCountHint: number,
+): MessageWindowState | undefined => {
+  if (!window) return window;
+  if (nodes.length === 0) {
+    return {
+      ...window,
+      totalCount: 0,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: false,
+      hasAfter: false,
+    };
+  }
+  const explicitIndexes = nodes
+    .map((node) => node.originalIndex)
+    .filter((index): index is number => index !== undefined);
+  const startIndex = explicitIndexes.length ? Math.min(...explicitIndexes) : Math.min(window.startIndex, totalCountHint - 1);
+  const endIndex = explicitIndexes.length ? Math.max(...explicitIndexes) : startIndex + nodes.length - 1;
+  const totalCount = Math.max(window.totalCount, totalCountHint, endIndex + 1);
+
+  return {
+    ...window,
+    totalCount,
+    startIndex,
+    endIndex,
+    hasBefore: startIndex > 0,
+    hasAfter: totalCount > 0 && endIndex < totalCount - 1,
+  };
+};
+
+const mergeTimelineConversation = (
+  current: ConversationTimeline | null,
+  incoming: ConversationTimeline,
+): ConversationTimeline => {
+  const incomingCache = toTimelineCacheConversation(incoming);
+  if (!current) return incomingCache;
+  const currentCache = toTimelineCacheConversation(current);
+  const byKey = new Map<string, MessageNode>();
+  for (const node of currentCache.threadedMessages) {
+    byKey.set(getTimelineNodeKey(node), node);
+  }
+  for (const node of incomingCache.threadedMessages) {
+    const key = getTimelineNodeKey(node);
+    const existing = byKey.get(key);
+    byKey.set(key, existing
+      ? mergeMessageNode(existing, node)
+      : node);
+  }
+  return {
+    ...currentCache,
+    ...incomingCache,
+    threadedMessages: sortTimelineNodes(Array.from(byKey.values())),
+  };
+};
+
+const capVisibleSurfaceMessages = (nodes: MessageNode[], keep: 'start' | 'end' = 'end'): MessageNode[] => {
+  if (nodes.length <= MAX_MESSAGE_WINDOW_NODES) return nodes;
+  if (keep === 'start') {
+    let endIndex = MAX_MESSAGE_WINDOW_NODES;
+    const boundaryTurnId = nodes[endIndex - 1]?.message.turnId;
+    while (boundaryTurnId && endIndex < nodes.length && nodes[endIndex]?.message.turnId === boundaryTurnId) {
+      endIndex += 1;
+    }
+    if (endIndex > MAX_MESSAGE_WINDOW_NODES + MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW) {
+      endIndex = MAX_MESSAGE_WINDOW_NODES;
+    }
+    return nodes.slice(0, endIndex);
+  }
+  const minStartIndex = nodes.length - MAX_MESSAGE_WINDOW_NODES;
+  let startIndex = minStartIndex;
+  const boundaryTurnId = nodes[startIndex]?.message.turnId;
+  while (boundaryTurnId && startIndex > 0 && nodes[startIndex - 1]?.message.turnId === boundaryTurnId) {
+    startIndex -= 1;
+  }
+  if (nodes.length - startIndex > MAX_MESSAGE_WINDOW_NODES + MAX_MESSAGE_WINDOW_TURN_BOUNDARY_OVERFLOW) {
+    startIndex = minStartIndex;
+  }
+  return nodes.slice(startIndex);
 };
 
 export function getChatSession(
@@ -207,7 +413,12 @@ export function getChatSession(
 
   return {
     ...surfaceSession,
-    conversation: timeline,
+    conversation: timeline
+      ? {
+        ...timeline,
+        threadedMessages: surfaceSession.visibleThreadedMessages ?? toTimelineCacheConversation(timeline).threadedMessages,
+      }
+      : null,
   };
 }
 
@@ -245,28 +456,44 @@ export function patchChatSession<TState extends ChatSessionRegistryState>(
   const nextSession = typeof patch === 'function'
     ? patch(currentSession)
     : { ...currentSession, ...patch };
-  const nextSurfaceSession = toSurfaceSession(nextSession, conversationId, sessionKey);
+  let nextSurfaceSession = toSurfaceSession(nextSession, conversationId, sessionKey);
   const defaultSessionKey = getDefaultChatSessionKey(conversationId);
   const isDefaultSession = sessionKey === defaultSessionKey;
 
-  const shouldPatchTimeline = typeof patch === 'function'
+  const patchCarriesConversation = typeof patch === 'function'
     || Object.prototype.hasOwnProperty.call(patch, 'conversation');
+  const shouldPatchTimeline = patchCarriesConversation;
+  const shouldMirrorConversationIntoSurface = patchCarriesConversation
+    && nextSession.conversation
+    && (typeof patch === 'function' || !Object.prototype.hasOwnProperty.call(patch, 'visibleThreadedMessages'));
+  if (shouldMirrorConversationIntoSurface) {
+    const nextConversation = nextSession.conversation as ConversationTimeline;
+    nextSurfaceSession = {
+      ...nextSurfaceSession,
+      visibleThreadedMessages: capVisibleSurfaceMessages(nextConversation.threadedMessages),
+    };
+  }
+  const defaultSession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
   const currentTimelinesByConversationId = state.timelinesByConversationId ?? {};
   let timelinesByConversationId = currentTimelinesByConversationId;
   if (shouldPatchTimeline) {
     timelinesByConversationId = { ...currentTimelinesByConversationId };
     if (nextSession.conversation) {
-      timelinesByConversationId[conversationId] = nextSession.conversation;
+      timelinesByConversationId[conversationId] = isDefaultSession
+        ? nextSession.conversation
+        : mergeTimelineConversation(
+          currentTimelinesByConversationId[conversationId] ?? defaultSession?.conversation ?? null,
+          nextSession.conversation,
+        );
     } else {
       delete timelinesByConversationId[conversationId];
     }
   }
-  const defaultSession = state.sessionsByConversationId[conversationId] ?? createEmptyChatSession(conversationId);
   const nextDefaultSession = isDefaultSession
     ? nextSession
     : {
       ...defaultSession,
-      conversation: nextSession.conversation,
+      conversation: timelinesByConversationId[conversationId] ?? defaultSession.conversation,
     };
 
   return {
@@ -291,6 +518,34 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
   if (!timeline) return state;
   const conversation = updater(timeline);
   const currentSession = getChatSession(state, conversationId);
+  const surfaceSessionsByKey = { ...(state.surfaceSessionsByKey ?? {}) };
+  for (const [sessionKey, surfaceSession] of Object.entries(surfaceSessionsByKey)) {
+    if (surfaceSession.conversationId !== conversationId || !surfaceSession.visibleThreadedMessages) {
+      continue;
+    }
+    const surfaceConversation = updater({
+      ...timeline,
+      threadedMessages: surfaceSession.visibleThreadedMessages,
+    });
+    const keepVisibleBoundary = surfaceSession.messageWindow?.startIndex === 0
+      && surfaceSession.messageWindow?.hasBefore === false
+      ? 'start'
+      : 'end';
+    surfaceSessionsByKey[sessionKey] = {
+      ...surfaceSession,
+      visibleThreadedMessages: capVisibleSurfaceMessages(surfaceConversation.threadedMessages, keepVisibleBoundary),
+    };
+    const messageWindow = reconcileWindowForVisibleMessages(
+      surfaceSession.messageWindow,
+      surfaceSessionsByKey[sessionKey].visibleThreadedMessages ?? [],
+      conversation.threadedMessages.length,
+    );
+    surfaceSessionsByKey[sessionKey] = {
+      ...surfaceSessionsByKey[sessionKey],
+      messageWindow,
+      hasOlderMessages: messageWindow?.hasBefore ?? surfaceSession.hasOlderMessages,
+    };
+  }
   return {
     sessionsByConversationId: {
       ...state.sessionsByConversationId,
@@ -303,7 +558,7 @@ export function patchChatConversation<TState extends ChatSessionRegistryState>(
       ...(state.timelinesByConversationId ?? {}),
       [conversationId]: conversation,
     },
-    surfaceSessionsByKey: state.surfaceSessionsByKey ?? {},
+    surfaceSessionsByKey,
   } as Partial<TState>;
 }
 

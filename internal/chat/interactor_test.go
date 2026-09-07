@@ -3,14 +3,22 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"assistente/internal/configdir"
+	"assistente/internal/contextprovider"
+	"assistente/internal/conversation"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/skills"
+	"assistente/internal/slashskill"
+	"assistente/internal/tasklist"
+	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
 
@@ -39,14 +47,27 @@ func (s *spyEmitter) findError() *ports.ErrorEvent {
 	return nil
 }
 
+func (s *spyEmitter) findSkillLoaded() *ports.SkillLoadedEvent {
+	for _, e := range s.emitted {
+		if e.name == "chat:skill_loaded" {
+			if ev, ok := e.data.(ports.SkillLoadedEvent); ok {
+				return &ev
+			}
+		}
+	}
+	return nil
+}
+
 var _ events.Emitter = (*spyEmitter)(nil)
 
 // noopConvRepo is a minimal ConversationRepository for tests.
 type noopConvRepo struct{}
 
-func (noopConvRepo) GetConversationInfo(_ string) (*Conversation, error) { return nil, nil }
-func (noopConvRepo) UpdateConversation(_ string, _, _ string) error      { return nil }
-func (noopConvRepo) UpdateConversationChannel(_ string, _, _ string) error {
+func (noopConvRepo) GetConversationInfo(_ context.Context, _ string) (*Conversation, error) {
+	return nil, nil
+}
+func (noopConvRepo) UpdateConversation(_ context.Context, _ string, _, _ string) error { return nil }
+func (noopConvRepo) UpdateConversationChannel(_ context.Context, _ string, _, _ string) error {
 	return nil
 }
 
@@ -57,54 +78,179 @@ func newTestInteractor(em events.Emitter) *Interactor {
 	})
 }
 
+type buildRequestCaptureProvider struct {
+	req contextprovider.BuildRequest
+}
+
+func (p *buildRequestCaptureProvider) Name() string { return "capture" }
+
+func (p *buildRequestCaptureProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
+	p.req = req
+	return nil, nil
+}
+
+func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
+	capture := &buildRequestCaptureProvider{}
+	interactor := NewInteractor(InteractorConfig{
+		ContextProviders: contextprovider.NewRegistry(capture),
+	})
+
+	interactor.buildDynamicContext(
+		context.Background(),
+		TemplateData{ImplicitToolSelectionUnavailable: true},
+		"oi",
+		"",
+		"",
+		nil,
+		false,
+		&profiles.Profile{},
+	)
+
+	if !capture.req.ImplicitToolSelectionUnavailable {
+		t.Fatal("BuildRequest não recebeu o estado tipado de fail-closed")
+	}
+}
+
 type retryMessageRepoStub struct {
 	getMessage func(messageID string) (*database.ChatMessage, error)
 }
 
-func (r *retryMessageRepoStub) CreateMessage(_ MessageOptions) (*Message, error) {
+type staticWorkspaceProvider struct {
+	ws *workspace.Workspace
+}
+
+func (s staticWorkspaceProvider) Active() *workspace.Workspace {
+	return s.ws
+}
+
+type staticSkillRuntimeManager struct {
+	skills map[string]*skills.Skill
+	files  []string
+}
+
+func (m staticSkillRuntimeManager) Get(slug string) (*skills.Skill, error) {
+	if s, ok := m.skills[slug]; ok {
+		return s, nil
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (m staticSkillRuntimeManager) GetSkillFiles(slug string) ([]string, error) {
+	return m.files, nil
+}
+
+func (m staticSkillRuntimeManager) GetAllSkillsFull() ([]skills.Skill, error) {
+	result := make([]skills.Skill, 0, len(m.skills))
+	for _, s := range m.skills {
+		result = append(result, *s)
+	}
+	return result, nil
+}
+
+type failingSkillRuntimeManager struct{}
+
+func (failingSkillRuntimeManager) Get(slug string) (*skills.Skill, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (failingSkillRuntimeManager) GetSkillFiles(slug string) ([]string, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessage(messageID string) (*Message, error) {
+func (failingSkillRuntimeManager) GetAllSkillsFull() ([]skills.Skill, error) {
+	return nil, errors.New("skills indisponíveis")
+}
+
+type capturingPromptBuilder struct {
+	contextBlocks []contextprovider.Block
+	messages      []llm.Message
+}
+
+func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ bool, _ any, _ string, _ string, _ ...string) []llm.Message {
+	return messages
+}
+
+func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, blocks []contextprovider.Block) []llm.Message {
+	b.messages = append([]llm.Message{}, messages...)
+	b.contextBlocks = append([]contextprovider.Block{}, blocks...)
+	return messages
+}
+
+func (b *capturingPromptBuilder) BuildTemplateData(_ *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
+	data := TemplateData{ConversationID: conversationID}
+	surfaceState := DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[test] surface state json")
+	surfaceContext := DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[test] surface context json")
+	if strings.TrimSpace(params.TabType) != "" || surfaceState != nil || surfaceContext != nil {
+		data.Surface = &SurfaceInfo{
+			Type:    params.TabType,
+			State:   surfaceState,
+			Context: surfaceContext,
+		}
+	}
+	return data
+}
+
+func (b *capturingPromptBuilder) slashSkillContent() string {
+	for _, block := range b.contextBlocks {
+		if block.Provider == "slash_skill" && block.Name == "slash_skill" {
+			return block.Content
+		}
+	}
+	return ""
+}
+
+func (r *retryMessageRepoStub) CreateMessage(_ context.Context, _ MessageOptions) (*Message, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
+	return nil
+}
+
+func (r *retryMessageRepoStub) GetMessage(_ context.Context, messageID string) (*Message, error) {
 	if r.getMessage != nil {
 		return r.getMessage(messageID)
 	}
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetMessages(_ string, _ *string) ([]Message, error) {
+func (r *retryMessageRepoStub) GetMessages(_ context.Context, _ string, _ *string) ([]Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetConversationSummary(_ string) (string, string, error) {
+func (r *retryMessageRepoStub) GetMessagesByTurnID(_ context.Context, _ string, _ *string, _ string, _ int) ([]Message, error) {
+	return nil, nil
+}
+
+func (r *retryMessageRepoStub) GetConversationSummary(_ context.Context, _ string) (string, string, error) {
 	return "", "", nil
 }
 
-func (r *retryMessageRepoStub) GetDetailedTokenStats(_ string, _ string) (*DetailedTokenStats, error) {
+func (r *retryMessageRepoStub) GetDetailedTokenStats(_ context.Context, _ string, _ string) (*DetailedTokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) GetContextWindowUsage(_ string, _ int) (float64, int, error) {
+func (r *retryMessageRepoStub) GetContextWindowUsage(_ context.Context, _ string, _ int) (float64, int, error) {
 	return 0, 0, nil
 }
 
-func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ string, _ int) (int, error) {
+func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ context.Context, _ string, _ int) (int, error) {
 	return 0, nil
 }
 
-func (r *retryMessageRepoStub) GetTurnTokenStats(_ string, _ string) (*database.TokenStats, error) {
+func (r *retryMessageRepoStub) GetTurnTokenStats(_ context.Context, _ string, _ string) (*database.TokenStats, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddAssistantToolMessage(_ string, _ string, _, _, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddAssistantToolMessage(_ context.Context, _ string, _ string, _, _, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) AddToolResultMessage(_ string, _ string, _, _ string) (*Message, error) {
+func (r *retryMessageRepoStub) AddToolResultMessage(_ context.Context, _ string, _ string, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
-func (r *retryMessageRepoStub) SearchMessages(_ string, _ int) ([]MessageSearchResult, error) {
+func (r *retryMessageRepoStub) SearchMessages(_ context.Context, _ string, _ int) ([]MessageSearchResult, error) {
 	return nil, nil
 }
 
@@ -224,7 +370,7 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 		},
 	})
 
-	msg, err := interactor.GetRetryableUserMessage("7", "42")
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}
@@ -239,7 +385,7 @@ func TestGetRetryableUserMessage_ReturnsDomainErrorWhenMessageNotFound(t *testin
 func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *testing.T) {
 	interactor := NewInteractor(InteractorConfig{})
 
-	msg, err := interactor.GetRetryableUserMessage("7", "42")
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "7", "42")
 	if msg != nil {
 		t.Fatalf("expected nil message, got %+v", msg)
 	}
@@ -251,7 +397,20 @@ func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *test
 	}
 }
 
-func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *testing.T) {
+// TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile
+// é o teste de regressão do bug "selecionei perfil Y mas o app usa X
+// do perfil global". A versão antiga do interactor chamava
+// `inheritProfileRoutingFields(panel, globalActive)` e qualquer campo
+// de routing vazio em `panel` virava silenciosamente o do global,
+// produzindo um Active profile híbrido — o perfil escolhido herdando
+// provider/model de OUTRO perfil sem nenhum sinal pra UI ou pro user.
+//
+// O comportamento correto é: cada profile vive sozinho. Profiles
+// legacy com campos vazios são normalizados na carga (`Manager.Get`)
+// para `$default`, o sentinela explícito que `ResolveProfileDefaults`
+// já sabe resolver para o provider default do user. NUNCA o valor
+// concreto de OUTRO profile.
+func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *testing.T) {
 	spy := &spyEmitter{}
 	profileMgr := setupProfileTestEnv(t)
 
@@ -270,6 +429,9 @@ func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *
 		t.Fatalf("set active profile: %v", err)
 	}
 
+	// Panel legacy: salvo no disco com campos de routing VAZIOS.
+	// Manager.Get vai normalizar para `$default` na leitura — esse é o
+	// valor que o interactor deve devolver, NÃO os concretos do global.
 	panel := profiles.DefaultProfile()
 	panel.Name = "Perfil do Editor"
 	panel.Active = false
@@ -307,19 +469,1027 @@ func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *
 	if resp == nil || resp.ActiveProfile == nil {
 		t.Fatal("expected activeProfile in response")
 	}
-	if resp.ActiveProfile.Chat.LLMProvider != "provider-global" {
-		t.Fatalf("LLMProvider = %q, want provider-global", resp.ActiveProfile.Chat.LLMProvider)
+
+	// CONTRATO: o profile escolhido NÃO herda nada do global ativo.
+	// Campos de routing legacy vazios viram `$default` (sentinela
+	// resolvido por providers.Service.ResolveProfileDefaults), que é
+	// o valor explícito de "use o default do user", não o valor
+	// concreto de outro profile.
+	if resp.ActiveProfile.Chat.LLMProvider != profiles.DefaultProviderSentinel {
+		t.Fatalf("LLMProvider = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Chat.LLMProvider, profiles.DefaultProviderSentinel)
 	}
-	if resp.ActiveProfile.Chat.Model != "model-global" {
-		t.Fatalf("Model = %q, want model-global", resp.ActiveProfile.Chat.Model)
+	if resp.ActiveProfile.Chat.Model != profiles.DefaultProviderSentinel {
+		t.Fatalf("Model = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Chat.Model, profiles.DefaultProviderSentinel)
 	}
-	if resp.ActiveProfile.Voice.Assistant.LLMProviderID != "voice-global" {
-		t.Fatalf("Voice.Assistant.LLMProviderID = %q, want voice-global", resp.ActiveProfile.Voice.Assistant.LLMProviderID)
+	if resp.ActiveProfile.Voice.Assistant.LLMProviderID != profiles.DefaultProviderSentinel {
+		t.Fatalf("Voice.Assistant.LLMProviderID = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Voice.Assistant.LLMProviderID, profiles.DefaultProviderSentinel)
 	}
-	if resp.ActiveProfile.Input.LLMProviderID != "stt-global" {
-		t.Fatalf("Input.LLMProviderID = %q, want stt-global", resp.ActiveProfile.Input.LLMProviderID)
+	if resp.ActiveProfile.Input.LLMProviderID != profiles.DefaultProviderSentinel {
+		t.Fatalf("Input.LLMProviderID = %q, want %q (cross-profile leak detected)", resp.ActiveProfile.Input.LLMProviderID, profiles.DefaultProviderSentinel)
 	}
+
+	// E os campos não-routing do panel preservados intactos.
 	if resp.ActiveProfile.Chat.Temperature != 0.2 {
 		t.Fatalf("Temperature = %v, want 0.2", resp.ActiveProfile.Chat.Temperature)
+	}
+	if resp.ActiveProfile.Name != "Perfil do Editor" {
+		t.Fatalf("Name = %q, want %q", resp.ActiveProfile.Name, "Perfil do Editor")
+	}
+}
+
+func TestPrepareContext_ExplicitMissingProfileFailsClosed(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	active := profiles.DefaultProfile()
+	active.Name = "Ativo"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+
+	for _, source := range []string{"subagent", "wails"} {
+		t.Run(source, func(t *testing.T) {
+			prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+				ConversationID: "conversation-1",
+				Source:         source,
+				Params: ChatParams{
+					ProfileSlug: "profile-removido",
+				},
+			})
+			if err == nil || prepared != nil {
+				t.Fatalf("profile explícito não deve cair no global: prepared=%#v err=%v", prepared, err)
+			}
+		})
+	}
+}
+
+func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	active := profiles.DefaultProfile()
+	active.Name = "Padrão"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatalf("create active profile: %v", err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatalf("set active profile: %v", err)
+	}
+
+	qwen := profiles.DefaultProfile()
+	qwen.Name = "Qwen4"
+	qwen.Active = false
+	qwen.Chat.LLMProvider = "localai-provider"
+	qwenSlug, err := profileMgr.Create(qwen)
+	if err != nil {
+		t.Fatalf("create qwen profile: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    spy,
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID:      "ws-1",
+			Name:    "Workspace",
+			Profile: activeSlug,
+			Tabs: workspace.TabsState{
+				Active: "tab-chat",
+				Items: []workspace.Tab{
+					{
+						ID:             "tab-chat",
+						Type:           workspace.TabTypeChat,
+						ConversationID: "conv-1",
+						ProfileOverride: map[string]any{
+							"slug": qwenSlug,
+						},
+					},
+				},
+			},
+		}},
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		Params: ChatParams{
+			SurfaceTabID: "tab-chat",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp == nil || resp.ActiveProfile == nil {
+		t.Fatal("expected activeProfile in response")
+	}
+	if resp.Params.ProfileSlug != qwenSlug {
+		t.Fatalf("ProfileSlug = %q, want %q", resp.Params.ProfileSlug, qwenSlug)
+	}
+	if resp.ActiveProfile.Name != "Qwen4" {
+		t.Fatalf("active profile = %q, want Qwen4", resp.ActiveProfile.Name)
+	}
+	if resp.ActiveProfile.Chat.LLMProvider != "localai-provider" {
+		t.Fatalf("LLMProvider = %q, want localai-provider", resp.ActiveProfile.Chat.LLMProvider)
+	}
+}
+
+func TestPrepareContext_WorkspaceOverrideMissingFailsClosed(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	active := profiles.DefaultProfile()
+	active.Name = "Ativo"
+	active.Active = true
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID: "ws-1",
+			Tabs: workspace.TabsState{
+				Active: "tab-chat",
+				Items: []workspace.Tab{{
+					ID:              "tab-chat",
+					Type:            workspace.TabTypeChat,
+					ConversationID:  "conv-1",
+					ProfileOverride: map[string]any{"slug": "profile-removido"},
+				}},
+			},
+		}},
+	})
+
+	prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		Params:         ChatParams{SurfaceTabID: "tab-chat"},
+	})
+	if err == nil || prepared != nil {
+		t.Fatalf("override inválido não deve cair no global: prepared=%#v err=%v", prepared, err)
+	}
+}
+
+func TestPrepareContext_ModeloDaAbaRespeitaPrecedencia(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	profile := profiles.DefaultProfile()
+	profile.Name = "Perfil"
+	profile.Chat.Model = "modelo-perfil"
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID: "ws-1",
+			Tabs: workspace.TabsState{Items: []workspace.Tab{{
+				ID:              "tab-chat",
+				Type:            workspace.TabTypeChat,
+				ConversationID:  "conv-1",
+				ProfileOverride: map[string]any{"slug": slug, "model": "modelo-aba"},
+			}}},
+		}},
+	})
+
+	tests := []struct {
+		name          string
+		explicitModel string
+		defaultModel  string
+		want          string
+	}{
+		{name: "aba antes do perfil", want: "modelo-aba"},
+		{name: "requisição antes da aba", explicitModel: "modelo-explicito", want: "modelo-explicito"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+				ConversationID: "conv-1",
+				Source:         "wails",
+				DefaultModel:   tt.defaultModel,
+				Params: ChatParams{
+					Model:        tt.explicitModel,
+					ProfileSlug:  slug,
+					SurfaceTabID: "tab-chat",
+				},
+			})
+			if err != nil {
+				t.Fatalf("PrepareContext: %v", err)
+			}
+			if resp.Params.Model != tt.want {
+				t.Fatalf("Model = %q, want %q", resp.Params.Model, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareContext_ModeloDaAbaExigeWailsTabExplicitaEVinculoValido(t *testing.T) {
+	ws := &workspace.Workspace{
+		ID: "ws-1",
+		Tabs: workspace.TabsState{Items: []workspace.Tab{
+			{
+				ID:              "tab-dona",
+				Type:            workspace.TabTypeChat,
+				ConversationID:  "conv-1",
+				ProfileOverride: map[string]any{"model": "modelo-aba"},
+			},
+			{
+				ID:             "tab-outra",
+				Type:           workspace.TabTypeChat,
+				ConversationID: "conv-2",
+			},
+		}},
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:   &spyEmitter{},
+		ConvRepo:  noopConvRepo{},
+		Workspace: staticWorkspaceProvider{ws: ws},
+	})
+
+	tests := []struct {
+		name   string
+		source string
+		tabID  string
+	}{
+		{name: "canal", source: "telegram", tabID: "tab-dona"},
+		{name: "sem tab explicita", source: "wails"},
+		{name: "vinculo divergente", source: "wails", tabID: "tab-outra"},
+		{name: "tab inexistente", source: "wails", tabID: "tab-ausente"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+				ConversationID: "conv-1",
+				Source:         tt.source,
+				DefaultModel:   "modelo-global",
+				Params:         ChatParams{SurfaceTabID: tt.tabID},
+			})
+			if err != nil {
+				t.Fatalf("PrepareContext: %v", err)
+			}
+			if resp.Params.Model != "modelo-global" {
+				t.Fatalf("Model = %q, want modelo-global", resp.Params.Model)
+			}
+		})
+	}
+}
+
+func TestPrepareContext_NaoProcuraModeloPorConversationID(t *testing.T) {
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:  &spyEmitter{},
+		ConvRepo: noopConvRepo{},
+		Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{
+			ID: "ws-1",
+			Tabs: workspace.TabsState{Items: []workspace.Tab{
+				{
+					ID:              "tab-com-modelo",
+					Type:            workspace.TabTypeChat,
+					ConversationID:  "conv-1",
+					ProfileOverride: map[string]any{"model": "modelo-aba"},
+				},
+				{
+					ID:             "tab-sem-modelo",
+					Type:           workspace.TabTypeChat,
+					ConversationID: "conv-1",
+				},
+			}},
+		}},
+	})
+	resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		DefaultModel:   "modelo-global",
+		Params:         ChatParams{SurfaceTabID: "tab-sem-modelo"},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp.Params.Model != "modelo-global" {
+		t.Fatalf("Model = %q, want modelo-global", resp.Params.Model)
+	}
+}
+
+func TestPrepareContext_ModeloDoPerfilPrecedeDefaultGlobal(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	profile := profiles.DefaultProfile()
+	profile.Name = "Perfil"
+	profile.Chat.Model = "modelo-perfil"
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:    &spyEmitter{},
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+	resp, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		Source:         "wails",
+		DefaultModel:   "modelo-global",
+		Params:         ChatParams{ProfileSlug: slug},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp.Params.Model != "modelo-perfil" {
+		t.Fatalf("Model = %q, want modelo-perfil", resp.Params.Model)
+	}
+}
+
+func TestPrepareMessagesEmitsSkillLoadedForOnDemandSkill(t *testing.T) {
+	em := &spyEmitter{}
+	promptBuilder := &capturingPromptBuilder{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	baseSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "base", DisplayName: "Base", Description: "Base"},
+		Slug:          "base",
+		Content:       "base instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:          em,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"base": baseSkill, "helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	loaded := em.findSkillLoaded()
+	if loaded == nil {
+		t.Fatal("expected chat:skill_loaded event")
+	}
+	if loaded.ConversationID != "conv-1" || loaded.TurnID != "turn-1" || loaded.Slug != "helper" || loaded.Mode != string(skills.SkillModeOnDemand) {
+		t.Fatalf("unexpected skill_loaded event: %+v", loaded)
+	}
+	if result.InvokedSkillSlug != "helper" {
+		t.Fatalf("expected invoked skill helper, got %q", result.InvokedSkillSlug)
+	}
+	if !strings.Contains(promptBuilder.slashSkillContent(), "<invoked_skill>") {
+		t.Fatalf("expected slash skill block to be injected, got %q", promptBuilder.slashSkillContent())
+	}
+}
+
+func TestPrepareMessagesPreservesSlashSkillExecutionContext(t *testing.T) {
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	skill.Filesystem = &skills.FilesystemPermissions{Read: []string{"src/**"}, Write: []string{"tmp/**"}, Deny: []string{".env"}}
+	skill.Tools = &skills.ToolPermissions{
+		Allowed: []string{"web_fetch"},
+		Denied:  []string{"danger_tool"},
+		BashCommands: &skills.BashCommands{
+			Allowed: []string{"go test ./..."},
+			Denied:  []string{"rm -rf /"},
+		},
+	}
+	skill.Network = &skills.NetworkPermissions{
+		AllowedHosts: []string{"api.example.com"},
+		DeniedHosts:  []string{"metadata.google.internal"},
+	}
+	baseSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "base", DisplayName: "Base", Description: "Base"},
+		Slug:          "base",
+		Content:       "base instructions",
+	}
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"base": baseSkill, "helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedExecutionContext == nil {
+		t.Fatal("expected full execution context for slash skill")
+	}
+	ec := result.InvokedExecutionContext
+	if ec.Filesystem == nil || len(ec.Filesystem.Read) != 1 || ec.Filesystem.Read[0] != "src/**" {
+		t.Fatalf("filesystem scope not preserved: %+v", ec.Filesystem)
+	}
+	if len(ec.AllowedTools) != 1 || ec.AllowedTools[0] != "web_fetch" ||
+		len(ec.DeniedTools) != 1 || ec.DeniedTools[0] != "danger_tool" ||
+		len(ec.AllowedBash) != 1 || ec.AllowedBash[0] != "go test ./..." ||
+		len(ec.DeniedBash) != 1 || ec.DeniedBash[0] != "rm -rf /" ||
+		len(ec.NetworkAllowedHost) != 1 || ec.NetworkAllowedHost[0] != "api.example.com" ||
+		len(ec.NetworkDeniedHost) != 1 || ec.NetworkDeniedHost[0] != "metadata.google.internal" {
+		t.Fatalf("non-filesystem permissions not preserved: %+v", ec)
+	}
+}
+
+func TestPrepareMessagesDoesNotAbortNormalMessageWhenSkillPolicyFails(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		SkillMgr:      failingSkillRuntimeManager{},
+	})
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "mensagem normal"}},
+		UserContent:    "mensagem normal",
+		ConversationID: "conv-1",
+		ActiveProfile:  &profiles.Profile{},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("normal message should not fail when skill policy is unavailable: %v", result.Err)
+	}
+	if result.ModelOnDemandSkillAvailable {
+		t.Fatal("model on-demand skills should be disabled when policy cannot be loaded")
+	}
+}
+
+func TestPrepareMessagesDoesNotDuplicateBaseSkillOnSlashInvocation(t *testing.T) {
+	em := &spyEmitter{}
+	baseSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "base", DisplayName: "Base", Description: "Base"},
+		Slug:          "base",
+		Content:       "base instructions",
+	}
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:       em,
+		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+		),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"base": baseSkill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/base"}},
+		UserContent:    "/base",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedSkillSlug != "base" {
+		t.Fatalf("expected invoked base skill, got %q", result.InvokedSkillSlug)
+	}
+	if content := promptBuilder.slashSkillContent(); content != "" {
+		t.Fatalf("base skill should not be appended again as slash content: %q", content)
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("base skill without arguments should not emit skill_loaded")
+	}
+}
+
+func TestPrepareMessagesPreservesBaseSkillSlashArguments(t *testing.T) {
+	baseSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "base", DisplayName: "Base", Description: "Base"},
+		Slug:          "base",
+		Content:       "base instructions with $ARGUMENTS",
+	}
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+		),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"base": baseSkill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/base revisar login"}},
+		UserContent:    "/base revisar login",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	slashSkillContent := promptBuilder.slashSkillContent()
+	if !strings.Contains(slashSkillContent, "<invoked_skill_arguments>") ||
+		!strings.Contains(slashSkillContent, "revisar login") ||
+		!strings.Contains(slashSkillContent, "$ARGUMENTS") {
+		t.Fatalf("base skill arguments should be appended as a lightweight argument block: %q", slashSkillContent)
+	}
+	if strings.Contains(slashSkillContent, "base instructions") {
+		t.Fatalf("base skill body should not be duplicated: %q", slashSkillContent)
+	}
+}
+
+func TestPrepareMessagesDoesNotReportSlashSkillLoadedWhenProviderDisabled(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"web_fetch"}}
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:          em,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	disabled := false
+	profile := &profiles.Profile{
+		ContextProviders: map[string]profiles.ContextProviderProfileConfig{
+			"slash_skill": {Enabled: &disabled},
+		},
+	}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedSkillSlug != "" || result.InvokedExecutionContext != nil || result.InvokedScope != nil {
+		t.Fatalf("slash skill should not be reported/applied without provider block: slug=%q ec=%+v scope=%+v", result.InvokedSkillSlug, result.InvokedExecutionContext, result.InvokedScope)
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("skill_loaded should not be emitted when slash_skill provider omits the block")
+	}
+	if content := promptBuilder.slashSkillContent(); content != "" {
+		t.Fatalf("slash skill block should be omitted when provider is disabled: %q", content)
+	}
+}
+
+func TestPrepareMessagesDoesNotReportSlashSkillLoadedWithoutPromptBuilder(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"web_fetch"}}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:          em,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedSkillSlug != "" || result.InvokedExecutionContext != nil || result.InvokedScope != nil {
+		t.Fatalf("slash skill should not be reported/applied without prompt builder: slug=%q ec=%+v scope=%+v", result.InvokedSkillSlug, result.InvokedExecutionContext, result.InvokedScope)
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("skill_loaded should not be emitted when prompt builder cannot inject slash_skill")
+	}
+}
+
+func TestPrepareMessagesMarksTurnContextTargetByTurnID(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+	})
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages: []llm.Message{
+			{Role: "user", MessageID: "retry-target", Content: "retry this"},
+			{Role: "assistant", Content: "old answer"},
+			{Role: "user", MessageID: "later", Content: "newer message"},
+		},
+		UserContent:    "retry this",
+		ConversationID: "conv-1",
+		TurnID:         "retry-target",
+		ActiveProfile:  &profiles.Profile{},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.messages) != 3 {
+		t.Fatalf("len(messages) = %d, want 3", len(promptBuilder.messages))
+	}
+	if !promptBuilder.messages[0].TurnContextTarget {
+		t.Fatalf("retry target should be marked: %+v", promptBuilder.messages[0])
+	}
+	if promptBuilder.messages[2].TurnContextTarget {
+		t.Fatalf("later user message should not be marked: %+v", promptBuilder.messages[2])
+	}
+}
+
+func TestPrepareMessagesBuildsSurfaceContextFromChatParams(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(workspace.NewSurfaceContextProvider()),
+	})
+
+	selectedText := "texto selecionado que deve chegar ao backend"
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "explique isto", MessageID: "turn-1"}},
+		UserContent:    "explique isto",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		Params: llm.ChatParams{
+			TabType: "editor",
+			SurfaceContextJSON: `{
+				"surfaceType": "editor",
+				"surfaceId": "tab-editor",
+				"snapshotVersion": "editor:tab-editor:1",
+				"selection": {
+					"kind": "text",
+					"text": "` + selectedText + `",
+					"explicit": true
+				}
+			}`,
+		},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 1 {
+		t.Fatalf("contextBlocks = %+v, want only surface context", promptBuilder.contextBlocks)
+	}
+	block := promptBuilder.contextBlocks[0]
+	if block.Provider != "surface_context" || block.Name != "surface_context" {
+		t.Fatalf("unexpected surface context block: %+v", block)
+	}
+	if !strings.Contains(block.Content, `<selection kind="text" explicit="true">`+selectedText+`</selection>`) {
+		t.Fatalf("surface context should contain selected text, got %q", block.Content)
+	}
+}
+
+func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, conversationID string) []contextprovider.LinkedTaskList {
+			if conversationID != "conv-1" {
+				t.Fatalf("conversationID = %q, want conv-1", conversationID)
+			}
+			return []contextprovider.LinkedTaskList{{
+				ID:          "list-1",
+				Title:       "Sprint",
+				Description: "Current sprint",
+				Tasks: []contextprovider.LinkedTask{{
+					ID:         "task-1",
+					Title:      "Fix login",
+					Status:     "Doing",
+					StatusIcon: "*",
+				}},
+			}}
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"tasklist-manager"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 1 {
+		t.Fatalf("expected one tasklist context block, got %#v", promptBuilder.contextBlocks)
+	}
+	block := promptBuilder.contextBlocks[0]
+	if block.Provider != "tasklist" || block.Name != "linked_task_lists" {
+		t.Fatalf("unexpected context block: %+v", block)
+	}
+	if !strings.Contains(block.Content, "<linked_task_lists>") ||
+		!strings.Contains(block.Content, "Sprint (ID: list-1)") ||
+		!strings.Contains(block.Content, "| * Doing | Fix login | task-1 |") {
+		t.Fatalf("linked task list context missing expected content: %q", block.Content)
+	}
+}
+
+func TestPrepareMessagesInjectsConversationSummaryContextProvider(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(conversation.NewContextProvider()),
+	})
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:            []llm.Message{{Role: "user", Content: "continue"}},
+		UserContent:         "continue",
+		ConversationID:      "conv-1",
+		ConversationSummary: "O usuário quer migrar conversation_summary para provider.",
+		ActiveProfile:       &profiles.Profile{},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 1 {
+		t.Fatalf("expected one conversation context block, got %#v", promptBuilder.contextBlocks)
+	}
+	block := promptBuilder.contextBlocks[0]
+	if block.Provider != "conversation" || block.Name != "conversation_summary" {
+		t.Fatalf("unexpected context block: %+v", block)
+	}
+	if block.Volatility != contextprovider.VolatilityRolling {
+		t.Fatalf("block volatility = %q, want %q", block.Volatility, contextprovider.VolatilityRolling)
+	}
+	if !strings.Contains(block.Content, "migrar conversation_summary") {
+		t.Fatalf("summary content missing from block: %q", block.Content)
+	}
+}
+
+func TestPrepareMessagesOmitsProfileDisabledContextProvider(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			return []contextprovider.LinkedTaskList{{ID: "list-1", Title: "Sprint"}}
+		},
+	})
+	disabled := false
+	profile := &profiles.Profile{
+		ContextProviders: map[string]profiles.ContextProviderProfileConfig{
+			"tasklist": {Enabled: &disabled},
+		},
+	}
+	profile.Chat.EnabledSkills = []string{"tasklist-manager"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 0 {
+		t.Fatalf("expected no context blocks when provider is disabled, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
+func TestPrepareMessagesOmitsLinkedTaskListsWhenSkillsDisabled(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved when skills are disabled")
+			return nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.DisableSkills = true
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 0 {
+		t.Fatalf("expected no tasklist context when skills are disabled, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
+func TestPrepareMessagesOmitsLinkedTaskListsWhenTasklistSkillDisabled(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved when tasklist-manager is disabled")
+			return nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"other-skill"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 0 {
+		t.Fatalf("expected no tasklist context when tasklist-manager is disabled, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
+func TestPrepareMessagesOmitsLinkedTaskListsWithoutContextProviders(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved without ContextProviders")
+			return nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"tasklist-manager"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 0 {
+		t.Fatalf("expected no tasklist context without ContextProviders, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
+func TestPrepareMessagesOmitsLinkedTaskListsWithoutPromptBuilder(t *testing.T) {
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved without PromptBuilder")
+			return nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"tasklist-manager"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if got := len(result.Messages); got != 1 {
+		t.Fatalf("len(result.Messages) = %d, want original message only", got)
+	}
+}
+
+func TestPrepareMessagesRejectsDisabledSkill(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "disabled", DisplayName: "Disabled", Description: "Disabled"},
+		Slug:          "disabled",
+		Content:       "disabled instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter: em,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"disabled": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"other"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/disabled"}},
+		UserContent:    "/disabled",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err == nil {
+		t.Fatal("expected disabled skill error")
+	}
+	if em.findError() == nil {
+		t.Fatal("expected chat:error event")
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("disabled skill must not emit skill_loaded")
 	}
 }

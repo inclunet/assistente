@@ -1,0 +1,25 @@
+# Configuração explícita do golangci-lint (formato v2).
+# Compatível com golangci-lint v2.11.x usado pela golangci/golangci-lint-action@v9.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # Não herda os defaults da action; habilita explicitamente o conjunto desejado.
+  default: none
+  # Formatters (gofmt, gofumpt, goimports) foram deliberadamente deixados de fora:
+  # habilitá-los exigiria reformatar arquivos legados em massa, o que está fora do
+  # escopo do endurecimento de CI (#266 / PR #284). Podem ser adicionados num PR
+  # dedicado de formatação, isolado das demais mudanças.
+  enable:
+    - errcheck      # detecta erros não tratados
+    - govet         # análises estáticas do toolchain Go
+    - ineffassign   # atribuições inúteis (sem uso posterior)
+    - staticcheck   # conjunto amplo de checagens estáticas
+    - unused        # código não utilizado (vars, funções, tipos)
+  exclusions:
+    generated: lax
+    paths:
+      - frontend/dist
+      - build

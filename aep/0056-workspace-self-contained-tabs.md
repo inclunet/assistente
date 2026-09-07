@@ -1,6 +1,6 @@
 # AEP-0056: Workspace com Abas Autocontidas
 
-## Status: Draft
+## Status: Done — contrato consolidado nos PRs #110–#113 e regressões posteriores
 
 ## Resumo
 
@@ -14,7 +14,7 @@ Esta AEP é a fundação arquitetural do trabalho de abas autocontidas. Ela defi
 - AEP-0058: arbitragem global de announcer, TTS e STT;
 - AEP-0059: performance de conversas longas.
 
-Esta AEP usa o número 0056 porque as AEPs 0053, 0054 e 0055 já estavam reservadas ou sendo tratadas em PRs próprios.
+Esta AEP usa o número 0056 porque as AEPs 0053, 0054 e 0055 estão sendo tratadas em outros PRs.
 
 ## Motivação
 
@@ -35,7 +35,8 @@ O workspace passa a ser responsável por:
 - foco e aba ativa;
 - estado ativo/inativo dos painéis;
 - keep-alive lazy de abas já visitadas;
-- persistência mínima e opaca de `tab.state`.
+- persistência mínima e opaca de `tab.state` e dos overrides de perfil
+  pertencentes à aba.
 
 O workspace não deve criar ou sincronizar diretamente conversas, documentos, sessões de terminal ou listas de tarefas. Essa lógica pertence aos controllers de domínio.
 
@@ -45,16 +46,29 @@ Cada tipo de aba deve controlar seu conteúdo:
 
 - chat controla sua conversa por `conversationId`;
 - editor controla seu documento por `documentId`/`tabId`;
-- terminal controla sua sessão por `sessionId`;
+- terminal controla sua referência explícita a uma sessão viva por `sessionId`,
+  conforme a AEP-0089;
 - tasklist controla sua lista por `tasklistId`.
 
 Estados visuais como loading, scroll, streaming, expansão de threads, tool calls, seleção e edição devem ser escopados ao controller da aba ou ao conteúdo persistido, não a um singleton global que represente toda a aplicação.
+
+No editor, o modo de exibição é estado da superfície: `markdown`, `rich` ou
+`view` fica em `WorkspaceTab.state.displayMode`, associado ao `tabId`. A
+escolha permanece enquanto a aba existir, inclusive após reiniciar o
+aplicativo. Uma aba nova pode usar a preferência legada do arquivo como valor
+inicial, mas depois disso cada aba evolui seu próprio `displayMode`.
 
 ### 3. Keep-alive lazy por aba visitada
 
 Abas não visitadas permanecem inativas e não carregam conteúdo pesado. Ao visitar uma aba pela primeira vez, seu painel é montado. Depois disso, enquanto a aba continuar aberta e dentro da política de cache, o painel permanece vivo e apenas alterna entre ativo e inativo.
 
 Painéis inativos devem ficar fora da navegação por teclado e da árvore de leitores de tela. Eles não podem capturar foco, atalhos locais, microfone ou ações de UI que pertençam à aba ativa.
+
+Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp ou Ctrl+PageDown, o
+shell solicita foco ao controller da superfície ativada. O controller é
+responsável por escolher o alvo correto e só atende depois de seu painel estar
+ativo. No editor, isso significa Monaco em `markdown`, TipTap em `rich` e a
+ilha documental da AEP-0094 em `view`.
 
 ### 4. Chat por controller de conversa/aba
 
@@ -117,7 +131,35 @@ Quando uma ação parte de um painel, a identidade deve ser capturada no ponto d
 - handlers globais validam `isActive` apenas para permissão de captura/foco, não para descobrir o alvo de dados;
 - fechamento, retry, envio, interrupção e persistência sempre operam sobre IDs explícitos.
 
+Para terminal, fechar a aba significa apenas desconectar a visualização.
+Interromper um comando e encerrar o PTY são operações de domínio distintas; a
+sessão só termina por ação explícita ou pela saída do processo, conforme a
+AEP-0089.
+
 O uso de um singleton global para orquestrar um modal é aceitável como passo intermediário, desde que o singleton seja apenas transporte de estado já vinculado a uma superfície. A evolução preferida é migrar modais e painéis embutidos para controllers por superfície, preservando estado por `tabId`/`surfaceId` quando isso for necessário para UX.
+
+### 10. Override de modelo pertence à aba
+
+Providers HTTP nativos podem ter seu modelo substituído na `ChatToolbar`. Essa
+escolha vive em `Tab.ProfileOverride.model`, no workspace, e portanto:
+
+- sobrevive ao reload do workspace;
+- não altera o perfil;
+- não acompanha a conversa quando ela é aberta em outra aba;
+- só vale para um turno Wails que carregue `SurfaceTabID` explícito e cujo
+  vínculo `tabId + conversationId` ainda seja válido;
+- jamais é recuperada procurando uma aba por `conversationId`.
+
+O patch de `ProfileOverride` preserva chaves irmãs, remove uma chave quando seu
+valor é `nil` e restaura o estado em memória se a persistência falhar. Ao trocar
+de perfil, um modelo de aba incompatível com o provider do novo perfil é
+removido.
+
+No interactor, a precedência é: modelo explícito da requisição, modelo da aba,
+modelo do perfil e default global. O modelo da aba não é aplicado a providers
+ACP: modelo e modo ACP continuam exclusivamente em `AgentOptionsPickers`,
+porque são opções da sessão do agente (AEP-0084 D6), não parâmetros do provider
+HTTP.
 
 ## Fases
 
@@ -207,6 +249,16 @@ O PR #112 não altera o alvo arquitetural nem entra na AEP-0059. Ele endurece a 
 - Efeitos globais de feedback ignoram origens vinculadas a abas do workspace que já foram removidas.
 - Documentação antiga de contexto de superfície passa a apontar explicitamente para o contrato vigente das AEPs 0056, 0057 e 0058.
 
+#### Consolidação no PR #113 e próximo contrato
+
+O PR #113 avançou a parte de performance prevista na Fase 6 sem reabrir a separação de painéis:
+
+- Chat, editor, terminal e tasklist continuam donos de sua identidade e estado visual por painel/superfície.
+- A janela de mensagens do chat passou a ser estado de `ChatSurfaceSession`, não estado global compartilhado pelo workspace.
+- Carregar histórico em uma superfície de chat não altera a janela visual de outra superfície, inclusive quando chat aparece embutido em editor, terminal ou tasklist.
+
+O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canônica de itens de timeline para contagem, posição e agrupamento acessível. Essa mudança não cria novo acoplamento com o workspace e não altera o ownership dos painéis definido por esta AEP.
+
 ## Riscos
 
 - Keep-alive pode aumentar uso de memória se muitas abas pesadas permanecerem montadas.
@@ -232,3 +284,8 @@ O PR #112 não altera o alvo arquitetural nem entra na AEP-0059. Ele endurece a 
 - Estado visual/interativo divergente entre painéis é sempre chaveado por `tabId`, `surfaceId`, `sessionKey` ou ID explícito de domínio.
 - Ações de painel não dependem de `activeTabId` para descobrir o alvo de dados.
 - Modais e adapters globais, quando existirem, são vinculados a uma superfície explícita antes de executar preparação, envio ou persistência.
+- O modelo escolhido na toolbar de provider HTTP é persistido por aba, não
+  segue a conversa para outra aba e respeita a precedência definida na decisão
+  10.
+- Providers ACP continuam usando somente os pickers de opções da sessão do
+  agente.

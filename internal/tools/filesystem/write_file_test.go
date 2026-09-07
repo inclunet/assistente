@@ -68,6 +68,28 @@ func TestWriteFile_Overwrite(t *testing.T) {
 	}
 }
 
+func TestWriteFile_NotifiesWriteObserver(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "observed.txt")
+
+	var observedPath string
+	tool := NewWriteFile(dir, WithWriteFileWriteObserver(func(path string) func(bool) {
+		observedPath = path
+		return nil
+	}))
+	args := `{"path": "observed.txt", "content": "content"}`
+	result, err := tool.Execute(context.Background(), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if observedPath != filePath {
+		t.Fatalf("observer path = %q, want %q", observedPath, filePath)
+	}
+}
+
 func TestWriteFile_CreatesDirs(t *testing.T) {
 	dir := t.TempDir()
 	tool := NewWriteFile(dir)

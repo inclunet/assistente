@@ -1,4 +1,5 @@
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
+import type { ToolOrigin } from '../types/chat';
 
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
@@ -8,17 +9,35 @@ export interface TurnSegment {
     type: string;
     function: { name: string; arguments: string };
     result?: string;
+    origin?: ToolOrigin;
   }>;
 }
 
-export type MessageNode = main.MessageNode & {
+export type MessageNode = chat.MessageNode & {
   originalIndex?: number;
   isExpanded?: boolean;
 };
 
-export type Message = main.EnrichedMessage & {
+// Issue #150: o backend agora envia segmentos canônicos via `turnSegments`
+// (campo gerado pelo Wails). `_turnSegments` permanece como override
+// transitório usado pelo controlador de streaming até o turno ser persistido.
+export type Message = chat.EnrichedMessage & {
   _turnSegments?: TurnSegment[];
 };
+
+// getMessageTurnSegments retorna os segmentos cronológicos do turno preferindo
+// o override transitório (`_turnSegments`, populado durante o streaming
+// agentic) e caindo para os segmentos canônicos enviados pelo backend
+// (`turnSegments`). Issue #150 garante que ambas as fontes existam para que
+// recarregar o histórico mantenha a cadeia de raciocínio em UMA única entrada.
+export function getMessageTurnSegments(message: Message): TurnSegment[] | undefined {
+  if (message._turnSegments && message._turnSegments.length > 0) {
+    return message._turnSegments as TurnSegment[];
+  }
+  const canonical = (message as Message & { turnSegments?: TurnSegment[] }).turnSegments;
+  if (canonical && canonical.length > 0) return canonical;
+  return undefined;
+}
 
 export interface ChatTreeConversation {
   id: string;
@@ -29,19 +48,33 @@ export interface ChatTreeConversation {
 }
 
 function cloneMessage(message: Message, overrides: Partial<Message> = {}): Message {
-  return new main.EnrichedMessage({
+  const cloned = new chat.EnrichedMessage({
     ...message,
     ...overrides,
   }) as Message;
+  // Omitting _turnSegments in overrides preserves existing segments; pass [] to clear explicitly.
+  const turnSegments = overrides._turnSegments ?? message._turnSegments;
+  if (turnSegments) cloned._turnSegments = turnSegments;
+  return cloned;
 }
 
 function createNode(input: Partial<MessageNode> & { message: Message }): MessageNode {
-  return new main.MessageNode({
+  const node = new chat.MessageNode({
     children: [],
     childCount: 0,
     level: 0,
     ...input,
   }) as MessageNode;
+  if (!Object.prototype.hasOwnProperty.call(input.message, 'turnId')) {
+    delete (node.message as Message & { turnId?: string }).turnId;
+  }
+  if ((input.message as Message)._turnSegments) {
+    (node.message as Message)._turnSegments = (input.message as Message)._turnSegments;
+  }
+  if (input.children) {
+    node.children = [...input.children];
+  }
+  return node;
 }
 
 function cloneNode(node: MessageNode, overrides: Partial<MessageNode> = {}): MessageNode {
@@ -70,7 +103,7 @@ export function flattenThreadedMessages(nodes: MessageNode[] | undefined): Messa
   return flat;
 }
 
-export function withOriginalIndex(node: main.MessageNode, index: number): MessageNode {
+export function withOriginalIndex(node: chat.MessageNode, index: number): MessageNode {
   const typed = node as MessageNode;
   typed.originalIndex = index;
   return typed;
@@ -94,8 +127,10 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
   conversation: TConversation,
   syntheticId: string,
   finalId?: string | null,
+  finalTurnId?: string | null,
 ): TConversation {
   const collidesWithExistingRealId = !!finalId && hasMessageId(conversation.threadedMessages, finalId, syntheticId);
+  const finalMessagePatch: Partial<Message> = finalTurnId ? { turnId: finalTurnId } : {};
   const markDone = (nodes: MessageNode[]): MessageNode[] => nodes.flatMap((node) => {
     const id = String(node.message.id);
     if (id === syntheticId) {
@@ -106,12 +141,13 @@ export function finalizeStreamingNode<TConversation extends ChatTreeConversation
         message: cloneMessage(node.message, {
           id: finalId ?? node.message.id,
           isStreaming: false,
+          ...finalMessagePatch,
         }),
         children: node.children?.length ? markDone(node.children) : node.children,
       })];
     } else if (collidesWithExistingRealId && finalId && id === finalId) {
       return [cloneNode(node, {
-        message: cloneMessage(node.message, { isStreaming: false }),
+        message: cloneMessage(node.message, { isStreaming: false, ...finalMessagePatch }),
         children: node.children?.length ? markDone(node.children) : node.children,
       })];
     }
@@ -145,87 +181,26 @@ export function updateMessageContentInTree(nodes: MessageNode[], messageId: stri
   });
 }
 
+export function updateMessagePinnedInTree(nodes: MessageNode[], messageId: string, pinned: boolean): MessageNode[] {
+  return mapMessageTree(nodes, (node) => {
+    if (String(node.message.id) !== messageId) return node;
+    return cloneNode(node, { message: cloneMessage(node.message, { pinned }) });
+  });
+}
+
+export function markMessageStreamingInTree(nodes: MessageNode[], messageId: string, turnId?: string | null): MessageNode[] {
+  const turnPatch: Partial<Message> = turnId ? { turnId } : {};
+  return mapMessageTree(nodes, (node) => {
+    if (String(node.message.id) !== messageId) return node;
+    return cloneNode(node, { message: cloneMessage(node.message, { isStreaming: true, ...turnPatch }) });
+  });
+}
+
 export function updateMessageReasoningInTree(nodes: MessageNode[], messageId: string, reasoning: string): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;
     return cloneNode(node, { message: cloneMessage(node.message, { reasoning }) });
   });
-}
-
-function addChildToTree(
-  nodes: MessageNode[],
-  targetParentId: string,
-  message: Message,
-  level: number,
-): { nodes: MessageNode[]; found: boolean } {
-  let found = false;
-  const updatedNodes = nodes.map((node) => {
-    if (String(node.message.id) === targetParentId) {
-      found = true;
-      const existsInChildren = (node.children || []).some((child) => String(child.message.id) === String(message.id));
-      if (existsInChildren) return node;
-      const newChildNode = createNode({
-        message,
-        children: [],
-        level: level + 1,
-        childCount: 0,
-      });
-      return cloneNode(node, {
-        children: [...(node.children || []), newChildNode],
-        childCount: (node.childCount || 0) + 1,
-      });
-    }
-
-    if (node.children && node.children.length > 0) {
-      const result = addChildToTree(node.children, targetParentId, message, level + 1);
-      if (result.found) {
-        found = true;
-        return cloneNode(node, { children: result.nodes });
-      }
-    }
-
-    return node;
-  });
-
-  return { nodes: updatedNodes, found };
-}
-
-function findLastUserMessage(nodes: MessageNode[]): MessageNode | null {
-  for (let i = nodes.length - 1; i >= 0; i -= 1) {
-    if (nodes[i].message.role === 'user') return nodes[i];
-  }
-  return null;
-}
-
-export function appendInternalMessageToTree(nodes: MessageNode[], message: Message): MessageNode[] {
-  const parentId = message.parentId?.toString();
-
-  if (!parentId) {
-    const newNode = createNode({
-      message,
-      children: [],
-      level: 0,
-      childCount: 0,
-    });
-    return [...nodes, newNode];
-  }
-
-  const directResult = addChildToTree(nodes, parentId, message, 0);
-  if (directResult.found) return directResult.nodes;
-
-  const lastUserMessage = findLastUserMessage(nodes);
-  if (lastUserMessage) {
-    const fallbackResult = addChildToTree(nodes, String(lastUserMessage.message.id), message, 0);
-    if (fallbackResult.found) return fallbackResult.nodes;
-  }
-
-  const newNode = createNode({
-    message,
-    children: [],
-    level: message.parentId ? 1 : 0,
-    childCount: 0,
-  });
-  return [...nodes, newNode];
 }
 
 export function attachChildrenToMessage(

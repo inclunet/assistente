@@ -1,7 +1,8 @@
 package agent
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"strconv"
 	"unicode/utf8"
 
@@ -38,7 +39,11 @@ func estimateTokens(text string) int {
 }
 
 // estimateMessageTokens estima o total de tokens de uma slice de llm.Message.
-func estimateMessageTokens(messages []llm.Message) int {
+//
+// countReasoning acompanha a serialização: reasoning_content só vai no wire para
+// quem exige o replay, então contá-lo fora disso encolheria o budget de tools
+// por causa de texto que nunca é enviado.
+func estimateMessageTokens(messages []llm.Message, countReasoning bool) int {
 	total := 0
 	for _, m := range messages {
 		switch c := m.Content.(type) {
@@ -70,6 +75,11 @@ func estimateMessageTokens(messages []llm.Message) int {
 			total += estimateTokens(tc.Function.Arguments)
 			total += estimateTokens(tc.Function.Name)
 		}
+		// Providers com replay_with_tools enviam reasoning_content; ele ocupa a
+		// mesma janela de contexto e precisa entrar no pre-check.
+		if countReasoning {
+			total += estimateTokens(m.ReasoningContent)
+		}
 		// overhead per message (~4 tokens for role/formatting)
 		total += 4
 	}
@@ -95,14 +105,15 @@ type ContextPreCheckResult struct {
 // maxResponseTokens: tokens reservados para a resposta do LLM.
 // existingMessages: mensagens já no histórico (incluindo system prompt).
 // toolResults: conteúdos dos resultados das tools (serão truncados in-place se necessário).
+// replaysReasoning: se o provider reenvia reasoning_content no histórico.
 //
 // Retorna informações sobre o pre-check. Se contextLimit <= 0, retorna sem truncar.
-func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages []llm.Message, toolResults []string) ContextPreCheckResult {
+func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages []llm.Message, toolResults []string, replaysReasoning bool) ContextPreCheckResult {
 	if contextLimit <= 0 {
 		return ContextPreCheckResult{}
 	}
 
-	existingTokens := estimateMessageTokens(existingMessages)
+	existingTokens := estimateMessageTokens(existingMessages, replaysReasoning)
 	if maxResponseTokens <= 0 {
 		maxResponseTokens = 4096 // fallback conservador
 	}
@@ -138,7 +149,7 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	}
 
 	// Precisa truncar. Calcula budget proporcional por resultado.
-	log.Printf("[Agent] context pre-check: %d tokens de tools excede budget de %d (contexto=%d, existente=%d, resposta=%d)",
+	logging.Infof(context.Background(), "agent.context", "[Agent] context pre-check: %d tokens de tools excede budget de %d (contexto=%d, existente=%d, resposta=%d)",
 		resultTokens, availableTokens, contextLimit, existingTokens, maxResponseTokens)
 
 	// Distribui o budget proporcionalmente ao tamanho de cada resultado
@@ -165,7 +176,7 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 		}
 		result.FinalTokens = 0
 		if result.Truncated {
-			log.Printf("[Agent] context pre-check: budget zero, %d resultados removidos", nResults)
+			logging.Infof(context.Background(), "agent.context", "[Agent] context pre-check: budget zero, %d resultados removidos", nResults)
 		}
 		return result
 	}
@@ -246,7 +257,7 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 
 	result.FinalTokens = truncatedTokens
 	if result.Truncated {
-		log.Printf("[Agent] context pre-check: truncou %d → %d tokens estimados", resultTokens, truncatedTokens)
+		logging.Infof(context.Background(), "agent.context", "[Agent] context pre-check: truncou %d → %d tokens estimados", resultTokens, truncatedTokens)
 	}
 	return result
 }

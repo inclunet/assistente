@@ -1,5 +1,10 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Combobox, ComboboxItem } from './Combobox';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 
 type Variant = 'toolbar' | 'form';
 
@@ -107,9 +112,9 @@ export const BasePicker = ({
   emptyState,
   loadingState,
   errorState,
-  loadingLabel = 'Carregando...',
+  loadingLabel,
   errorLabel,
-  emptyLabel = 'Nenhuma opção disponível',
+  emptyLabel,
   errorIcon,
   loadingLabelVisuallyHidden = false,
   errorLabelVisuallyHidden = false,
@@ -119,7 +124,7 @@ export const BasePicker = ({
   showErrorState = true,
   showEmptyState = true,
   onRetry,
-  retryLabel = 'Tentar novamente',
+  retryLabel,
   formClassName,
   toolbarClassName,
   formLabelClassName,
@@ -135,12 +140,21 @@ export const BasePicker = ({
   allowFreeInput = false,
   onAfterSelect,
 }: BasePickerProps) => {
-  const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? 'Carregando...';
-  const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? 'Erro ao carregar';
-  const resolvedEmptyLabel = resolveVariantValue(emptyLabel, variant) ?? 'Nenhuma opção disponível';
+  const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
+  const workspacePanel = useOptionalWorkspacePanel();
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const previousErrorRef = useRef<string | null | undefined>(null);
+  const previousLoadingAnnouncementRef = useRef<string | null>(null);
+  const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? t('pickers.base.loading', 'Carregando...');
+  const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? t('pickers.base.loadError', 'Erro ao carregar');
+  const resolvedEmptyLabel = resolveVariantValue(emptyLabel, variant) ?? t('pickers.base.empty', 'Nenhuma opção disponível');
   const resolvedErrorIcon = resolveVariantValue(errorIcon, variant);
   const resolvedLoadingHidden = resolveVariantValue(loadingLabelVisuallyHidden, variant) ?? false;
   const resolvedErrorHidden = resolveVariantValue(errorLabelVisuallyHidden, variant) ?? false;
+  const accessibilityOrigin = useMemo(() => (
+    workspacePanel ? buildVoiceAccessibilityOriginFromTab(workspacePanel.tab, workspace) : undefined
+  ), [workspace, workspacePanel]);
 
   const effectiveLoadingClassName = resolveVariantClassName(
     loadingClassName,
@@ -157,6 +171,45 @@ export const BasePicker = ({
     variant,
     toolbarClassName || formClassName
   );
+
+  useEffect(() => {
+    if (showErrorState && error && error !== previousErrorRef.current) {
+      announceRequest({
+        message: resolvedErrorLabel,
+        origin: accessibilityOrigin,
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
+    }
+    previousErrorRef.current = error;
+  }, [accessibilityOrigin, announceRequest, error, resolvedErrorLabel, showErrorState]);
+
+  useEffect(() => {
+    const loadingAnnouncementKey = [
+      resolvedLoadingLabel,
+      accessibilityOrigin?.surfaceId ?? '',
+      accessibilityOrigin?.sessionKey ?? '',
+      accessibilityOrigin?.tabId ?? '',
+    ].join('|');
+    if (
+      showLoadingState
+      && loading
+      && previousLoadingAnnouncementRef.current !== loadingAnnouncementKey
+    ) {
+      const didAnnounce = announceRequest({
+        message: resolvedLoadingLabel,
+        origin: accessibilityOrigin,
+        eventType: 'progress',
+      });
+      if (didAnnounce) {
+        previousLoadingAnnouncementRef.current = loadingAnnouncementKey;
+      }
+      return;
+    }
+    if (!loading) {
+      previousLoadingAnnouncementRef.current = null;
+    }
+  }, [accessibilityOrigin, announceRequest, loading, resolvedLoadingLabel, showLoadingState]);
 
   if (showLoadingState && loading) {
     if (loadingState) {
@@ -175,12 +228,12 @@ export const BasePicker = ({
       return <>{errorState}</>;
     }
     return (
-      <div className={effectiveErrorClassName} role="alert">
+      <div className={effectiveErrorClassName}>
         {resolvedErrorIcon && <span className="error-icon">{resolvedErrorIcon}</span>}
         {renderLabelText(resolvedErrorLabel, resolvedErrorHidden)}
         {onRetry && (
           <button type="button" className={retryClassName} onClick={onRetry}>
-            {retryLabel}
+            {retryLabel ?? t('pickers.base.retry', 'Tentar novamente')}
           </button>
         )}
       </div>

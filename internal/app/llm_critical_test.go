@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"assistente/internal/chat"
+	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/messaging"
@@ -61,10 +62,14 @@ type mockMessageRepo struct {
 	err      error
 }
 
-func (r *mockMessageRepo) CreateMessage(opts database.MessageOptions) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) CreateMessage(_ context.Context, opts database.MessageOptions) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) GetMessage(messageID string) (*database.ChatMessage, error) {
+
+func (r *mockMessageRepo) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
+	return nil
+}
+func (r *mockMessageRepo) GetMessage(_ context.Context, messageID string) (*database.ChatMessage, error) {
 	for i := range r.messages {
 		if r.messages[i].ID == messageID {
 			msg := r.messages[i]
@@ -73,34 +78,41 @@ func (r *mockMessageRepo) GetMessage(messageID string) (*database.ChatMessage, e
 	}
 	return nil, nil
 }
-func (r *mockMessageRepo) GetMessages(conversationID string, parentID *string) ([]database.ChatMessage, error) {
+func (r *mockMessageRepo) GetMessages(_ context.Context, conversationID string, parentID *string) ([]database.ChatMessage, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
 	return r.messages, nil
 }
-func (r *mockMessageRepo) GetConversationSummary(conversationID string) (string, string, error) {
+
+func (r *mockMessageRepo) GetMessagesByTurnID(_ context.Context, _ string, _ *string, _ string, _ int) ([]database.ChatMessage, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.messages, nil
+}
+func (r *mockMessageRepo) GetConversationSummary(_ context.Context, conversationID string) (string, string, error) {
 	return r.summary, r.upToID, nil
 }
-func (r *mockMessageRepo) GetDetailedTokenStats(conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
+func (r *mockMessageRepo) GetDetailedTokenStats(_ context.Context, conversationID string, summaryUpToMessageID string) (*database.DetailedTokenStats, error) {
 	return &database.DetailedTokenStats{}, nil
 }
-func (r *mockMessageRepo) GetContextWindowUsage(conversationID string, contextLimit int) (float64, int, error) {
+func (r *mockMessageRepo) GetContextWindowUsage(_ context.Context, conversationID string, contextLimit int) (float64, int, error) {
 	return 0, 0, nil
 }
-func (r *mockMessageRepo) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
+func (r *mockMessageRepo) GetRecentMessagesTokenCount(_ context.Context, conversationID string, messageLimit int) (int, error) {
 	return 0, nil
 }
-func (r *mockMessageRepo) GetTurnTokenStats(conversationID string, turnID string) (*database.TokenStats, error) {
+func (r *mockMessageRepo) GetTurnTokenStats(_ context.Context, conversationID string, turnID string) (*database.TokenStats, error) {
 	return &database.TokenStats{}, nil
 }
-func (r *mockMessageRepo) AddAssistantToolMessage(conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) AddToolResultMessage(conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
+func (r *mockMessageRepo) AddToolResultMessage(_ context.Context, conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
 	return nil, nil
 }
-func (r *mockMessageRepo) SearchMessages(query string, limit int) ([]database.MessageSearchResult, error) {
+func (r *mockMessageRepo) SearchMessages(_ context.Context, query string, limit int) ([]database.MessageSearchResult, error) {
 	return nil, nil
 }
 
@@ -112,6 +124,7 @@ func newMinimalApp() *App {
 		emitter:          &testEmitter{},
 		responseNotifier: notifier,
 		streamMgr:        chat.NewStreamingManager(notifier),
+		currentUserID:    "test-user",
 	}
 }
 
@@ -236,8 +249,8 @@ func TestRecoverFromPanic_EmitsStreamEventWithError(t *testing.T) {
 	if !ev.Done {
 		t.Error("StreamEvent.Done deveria ser true")
 	}
-	if ev.Error == "" {
-		t.Error("StreamEvent.Error não deveria ser vazio")
+	if ev.Error != ports.ChatErrorInternal {
+		t.Errorf("esperava código de erro interno, obteve %q", ev.Error)
 	}
 	if ev.ConversationId != "42" {
 		t.Errorf("esperava ConversationId=42, obteve %s", ev.ConversationId)
@@ -363,7 +376,7 @@ func TestCancelStreaming_CancelsContextAndRemovesEntry(t *testing.T) {
 	app := newMinimalApp()
 	ctx, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("30", cancel)
-	app.CancelStreamingForConversation("30")
+	CancelStreamingForConversation(app, "30")
 
 	select {
 	case <-ctx.Done():
@@ -395,7 +408,7 @@ func TestCancelStreaming_NotifiesResponseNotifier(t *testing.T) {
 
 	_, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("30", cancel)
-	app.CancelStreamingForConversation("30")
+	CancelStreamingForConversation(app, "30")
 
 	if notifier.PendingCount() != 0 {
 		t.Errorf("esperava 0 pending após cancel, obteve %d", notifier.PendingCount())
@@ -405,7 +418,7 @@ func TestCancelStreaming_NotifiesResponseNotifier(t *testing.T) {
 func TestCancelStreaming_NonExistent_DoesNotNotify(t *testing.T) {
 	// Cancela conversa que nunca teve streaming registrado — PendingCount deve permanecer 0.
 	app := newMinimalApp()
-	app.CancelStreamingForConversation("999")
+	CancelStreamingForConversation(app, "999")
 	if app.responseNotifier.PendingCount() != 0 {
 		t.Errorf("pendingCount deveria ser 0, obteve %d", app.responseNotifier.PendingCount())
 	}
@@ -415,8 +428,8 @@ func TestCancelStreaming_Idempotent_DoesNotPanic(t *testing.T) {
 	app := newMinimalApp()
 	_, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("40", cancel)
-	app.CancelStreamingForConversation("40")
-	app.CancelStreamingForConversation("40") // segunda chamada não deve panicar
+	CancelStreamingForConversation(app, "40")
+	CancelStreamingForConversation(app, "40") // segunda chamada não deve panicar
 }
 
 func TestCancelStreaming_NilNotifier_DoesNotPanic(t *testing.T) {
@@ -424,7 +437,7 @@ func TestCancelStreaming_NilNotifier_DoesNotPanic(t *testing.T) {
 	app.responseNotifier = nil
 	_, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext("5", cancel)
-	app.CancelStreamingForConversation("5")
+	CancelStreamingForConversation(app, "5")
 }
 
 // ==================== loadConversationHistory ====================
@@ -730,7 +743,7 @@ func TestCancelStreaming_ConcurrentCancels_DoNotPanic(t *testing.T) {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			app.CancelStreamingForConversation(id)
+			CancelStreamingForConversation(app, id)
 		}(fmt.Sprintf("%d", i))
 	}
 	wg.Wait()

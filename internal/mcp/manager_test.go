@@ -12,6 +12,8 @@ import (
 
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
+	"assistente/internal/portability"
 	"assistente/internal/tools"
 )
 
@@ -312,6 +314,9 @@ func newTestManagerWithTempDir(t *testing.T) *Manager {
 	t.Helper()
 	m := newTestManager()
 	m.resolver = configdir.NewResolverWithBase(t.TempDir())
+	repo, userA, _ := setupRepositoryTest(t)
+	m.SetRepository(repo)
+	m.SetAuthContextProvider(func() context.Context { return userA })
 	return m
 }
 
@@ -873,12 +878,126 @@ func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	}
 }
 
+func TestImportFromMCPJSONRequiresRepositoryBeforeImport(t *testing.T) {
+	_, userA, _ := setupRepositoryTest(t)
+	m := NewManager(nil, nil, nil)
+	m.SetAuthContextProvider(func() context.Context { return userA })
+
+	count, err := m.ImportFromMCPJSON([]byte(`{"mcpServers":{"github":{"url":"https://github.example/mcp"}}}`))
+	if err == nil {
+		t.Fatal("expected repository error")
+	}
+	if !strings.Contains(err.Error(), "repository MCP não configurado") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+	var rows int64
+	if err := database.DB().Model(&database.MCPServer{}).Count(&rows).Error; err != nil {
+		t.Fatalf("count mcp servers: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("ImportFromMCPJSON should not write without repository, rows=%d", rows)
+	}
+}
+
+func TestLegacyImportImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+
+	data := []byte(`{
+		"url": "https://api.githubcopilot.com/mcp/",
+		"requestInit": {
+			"headers": {
+				"Authorization": "Bearer ghp_test_token"
+			}
+		}
+	}`)
+	if err := m.resolver.Write("github.json", data); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	if _, err := portability.ImportLegacyMCPServersWithContext(ctx, m.LegacyConfigSource(), m.credMgr); err != nil {
+		t.Fatalf("ImportLegacyMCPServersWithContext failed: %v", err)
+	}
+
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatalf("LoadConfigs failed: %v", err)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_test_token" {
+		t.Fatalf("imported token: got %#v, want ghp_test_token", auth)
+	}
+}
+
+func TestImportFromMCPJSONImportsRequestInitBearerAuth(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	m.SetAuthContextProvider(func() context.Context { return ctx })
+
+	mcpJSON := []byte(`{
+		"mcpServers": {
+			"github": {
+				"url": "https://api.githubcopilot.com/mcp/",
+				"requestInit": {
+					"headers": {
+						"Authorization": "Bearer ghp_imported"
+					}
+				}
+			}
+		}
+	}`)
+
+	count, err := m.ImportFromMCPJSON(mcpJSON)
+	if err != nil {
+		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("import count: got %d, want 1", count)
+	}
+
+	m.mu.RLock()
+	cfg := m.servers["github"].Config
+	m.mu.RUnlock()
+	if cfg.AuthType != AuthBearer {
+		t.Fatalf("auth type: got %q, want %q", cfg.AuthType, AuthBearer)
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, "api.githubcopilot.com")
+	if err != nil {
+		t.Fatalf("GetByPattern failed: %v", err)
+	}
+	if auth == nil || auth.Token != "ghp_imported" {
+		t.Fatalf("imported token: got %#v, want ghp_imported", auth)
+	}
+}
+
 func TestImportFromMCPJSON_SkipsExisting(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
-	m.servers["existing-server"] = &ServerStatus{
-		Slug:   "existing-server",
-		Config: ServerConfig{Name: "Existing"},
-		Status: StatusDisconnected,
+	existing := &ServerConfig{
+		Slug:        "existing-server",
+		Name:        "Existing",
+		Transport:   TransportStdio,
+		Command:     "node",
+		Args:        []string{"existing.js"},
+		Enabled:     true,
+		AutoConnect: true,
+	}
+	if err := m.repository().SaveServer(m.credentialContext(), existing); err != nil {
+		t.Fatalf("SaveServer existing: %v", err)
 	}
 
 	mcpJSON := []byte(`{
@@ -907,8 +1026,8 @@ func TestImportFromMCPJSON_EmptyInput(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
 
 	count, err := m.ImportFromMCPJSON([]byte(`{}`))
-	if err != nil {
-		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	if err == nil {
+		t.Fatal("expected empty object to be rejected as non-MCP JSON")
 	}
 	if count != 0 {
 		t.Errorf("expected 0 imported for empty input, got %d", count)
@@ -922,6 +1041,122 @@ func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
+}
+
+func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
+	var gotAuth string
+	rt := &bearerRoundTripper{
+		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       http.NoBody,
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}),
+		token: "Bearer already-prefixed",
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer already-prefixed" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer already-prefixed")
+	}
+}
+
+// TestBuildAuthHTTPClient_LogoutMidFlightDegrades cobre o vetor descrito no
+// Major H do re-review do AEP-0052: o AuthContextProvider devolve ctx
+// avaliado em runtime (não na hora do startup); se o usuário fizer logout
+// enquanto um servidor MCP está ativo, a próxima resolução de credencial
+// chega com ctx sem userID. O comportamento esperado é degradação limpa
+// (cliente sem auth, sem panic, sem corrupção de estado), nunca
+// reaproveitamento de credencial de outro usuário.
+func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	loggedInOut := userCtx
+	m.SetAuthContextProvider(func() context.Context { return loggedInOut })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	clientLoggedIn := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedIn == nil {
+		t.Fatal("expected authenticated client while logged in")
+	}
+
+	loggedInOut = context.Background()
+
+	clientLoggedOut := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if clientLoggedOut != nil {
+		t.Fatalf("logout-mid-flight should not return an authenticated client (got %T)", clientLoggedOut)
+	}
+}
+
+func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newTestManager()
+	userCtx := database.WithUserID(context.Background(), "user-1")
+	m.SetAuthContextProvider(func() context.Context { return userCtx })
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "user-token",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext failed: %v", err)
+	}
+
+	client := m.buildAuthHTTPClient("github", ServerConfig{
+		URL:      srv.URL,
+		AuthType: AuthBearer,
+	})
+	if client == nil {
+		t.Fatal("expected authenticated HTTP client")
+	}
+
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if gotAuth != "Bearer user-token" {
+		t.Fatalf("Authorization header: got %q, want %q", gotAuth, "Bearer user-token")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func TestIsNativeMCPEligibleURL(t *testing.T) {
@@ -989,22 +1224,39 @@ func TestGetEligibleNativeMCPServers_URLFiltering(t *testing.T) {
 	}
 }
 
-func TestSanitizeSlug(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"My Server", "my-server"},
-		{"my_server", "my-server"},
-		{"server-123", "server-123"},
-		{"Server With Spaces", "server-with-spaces"},
-		{"UPPERCASE", "uppercase"},
-		{"special!@#chars", "specialchars"},
+func TestGetEligibleNativeMCPServersSortsServersAndTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	credMgr := credentials.NewManager(nil)
+	m := NewManager(registry, credMgr, func(string, any) {})
+
+	m.servers["zeta"] = &ServerStatus{
+		Status: StatusConnected,
+		Config: ServerConfig{Transport: TransportSSE, URL: "https://zeta.example.com/sse", Name: "Zeta"},
+		Tools: []MCPToolInfo{
+			{Name: "z", FullName: "mcp_zeta__z"},
+			{Name: "a", FullName: "mcp_zeta__a"},
+		},
 	}
-	for _, tc := range tests {
-		got := sanitizeSlug(tc.input)
-		if got != tc.want {
-			t.Errorf("sanitizeSlug(%q): got %q, want %q", tc.input, got, tc.want)
-		}
+	m.servers["alpha"] = &ServerStatus{
+		Status: StatusConnected,
+		Config: ServerConfig{Transport: TransportSSE, URL: "https://alpha.example.com/sse", Name: "Alpha"},
+		Tools: []MCPToolInfo{
+			{Name: "z", FullName: "mcp_alpha__z"},
+			{Name: "a", FullName: "mcp_alpha__a"},
+		},
+	}
+
+	result := m.GetEligibleNativeMCPServers()
+	if len(result) != 2 {
+		t.Fatalf("len(result) = %d, want 2: %#v", len(result), result)
+	}
+	if result[0].Slug != "alpha" || result[1].Slug != "zeta" {
+		t.Fatalf("servers out of order: %#v", result)
+	}
+	if got := result[0].ToolNames; len(got) != 2 || got[0] != "mcp_alpha__a" || got[1] != "mcp_alpha__z" {
+		t.Fatalf("alpha tools out of order: %#v", got)
+	}
+	if got := result[1].ToolNames; len(got) != 2 || got[0] != "mcp_zeta__a" || got[1] != "mcp_zeta__z" {
+		t.Fatalf("zeta tools out of order: %#v", got)
 	}
 }

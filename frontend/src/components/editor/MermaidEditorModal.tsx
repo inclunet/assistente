@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
+import { DialogActions } from '../ui/DialogActions';
 import { CodeEditor } from '../ui/CodeEditor';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import './MermaidEditorModal.css';
@@ -172,7 +173,11 @@ export function MermaidEditorModal({
           <div className="mermaid-editor-modal__pane" role="region" aria-label={t('editor.mermaid.preview')}>
             <div className="mermaid-editor-modal__pane-title">{t('editor.mermaid.preview')}</div>
             <div className="mermaid-editor-modal__preview">
-              <MarkdownRenderer content={previewMarkdown} interactiveButtons={false} focusableMermaid={false} />
+              <MarkdownRenderer
+                content={previewMarkdown}
+                interactiveButtons={false}
+                tabNavigation="disabled"
+              />
             </div>
           </div>
         </div>
@@ -184,14 +189,19 @@ export function MermaidEditorModal({
             </button>
           )}
 
-          <div className="mermaid-editor-modal__actions-right">
-            <button type="button" className="mermaid-editor-modal__secondary" onClick={onCancel}>
-              {t('common.cancel')}
-            </button>
-            <button type="button" className="mermaid-editor-modal__primary" onClick={() => onApply(code)}>
-              {t('editor.mermaid.applyShortcut')}
-            </button>
-          </div>
+          <DialogActions
+            className="mermaid-editor-modal__actions-right"
+            primary={
+              <button type="button" className="mermaid-editor-modal__primary" onClick={() => onApply(code)}>
+                {t('editor.mermaid.applyShortcut')}
+              </button>
+            }
+            secondary={
+              <button type="button" className="mermaid-editor-modal__secondary" onClick={onCancel}>
+                {t('common.cancel')}
+              </button>
+            }
+          />
         </div>
       </div>
     </Modal>

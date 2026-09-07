@@ -8,20 +8,23 @@ import (
 	"text/tabwriter"
 
 	"assistente/internal/app"
+	"assistente/internal/database"
 	"assistente/internal/llm"
+	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/portability"
 
 	"github.com/spf13/cobra"
 )
 
 type dataBackend interface {
-	ExportData(req app.ExportRequest) (string, error)
-	ExportDataToFile(req app.ExportRequest, path string) (string, error)
-	AnalyzeImportData(jsonData string, credentialExportPassword string) (*app.ImportAnalysis, error)
-	ImportData(jsonData string, credentialExportPassword string) (*app.ImportResult, error)
+	ExportData(req portability.ExportRequest) (string, error)
+	ExportDataToFile(req portability.ExportRequest, path string) (string, error)
+	AnalyzeImportData(jsonData string, credentialExportPassword string) (*portability.ImportAnalysis, error)
+	ImportData(jsonData string, credentialExportPassword string) (*portability.ImportResult, error)
 	GetConversations() ([]app.Conversation, error)
 	GetLLMProviders() []*llm.ProviderConfig
-	GetAllTaskLists() ([]app.TaskList, error)
+	GetAllTaskLists() ([]database.TaskList, error)
+	ListMCPServers() ([]mcpmgr.ServerInfo, error)
 }
 
 var dataCmd = &cobra.Command{
@@ -36,12 +39,14 @@ var (
 	dataExportAll                bool
 	dataExportConversationIDs    []string
 	dataExportProviderIDs        []string
+	dataExportMCPServerSlugs     []string
 	dataExportTaskListIDs        []string
 	dataExportIncludeCredentials bool
 	dataExportCredentialPassword string
 	dataExportIncludeAudio       bool
 	dataExportConversations      bool
 	dataExportProviders          bool
+	dataExportMCPServers         bool
 	dataExportTaskLists          bool
 	dataExportCredentialsOnly    bool
 
@@ -64,32 +69,35 @@ Exemplos:
   asst data export --conversation-id 12 --format pdf --out conversa.pdf
   asst data export --all --include-credentials --credential-password "senha" --out backup.json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		req := app.ExportRequest{
+		req := portability.ExportRequest{
 			OutputFormat:             strings.ToLower(strings.TrimSpace(dataExportFormat)),
 			All:                      dataExportAll,
 			ConversationIDs:          append([]string(nil), dataExportConversationIDs...),
 			ProviderIDs:              append([]string(nil), dataExportProviderIDs...),
+			MCPServerSlugs:           append([]string(nil), dataExportMCPServerSlugs...),
 			TaskListIDs:              append([]string(nil), dataExportTaskListIDs...),
 			IncludeCredentials:       dataExportIncludeCredentials,
 			CredentialExportPassword: dataExportCredentialPassword,
 			IncludeAudio:             dataExportIncludeAudio,
 		}
-		req, err := prepareDataExportRequest(rootApp, req, dataExportSelection{
+		req, err := prepareDataExportRequest(asCLI(rootApp), req, dataExportSelection{
 			Conversations:   dataExportConversations,
 			Providers:       dataExportProviders,
+			MCPServers:      dataExportMCPServers,
 			TaskLists:       dataExportTaskLists,
 			CredentialsOnly: dataExportCredentialsOnly,
 		})
 		if err != nil {
 			return err
 		}
-		return runDataExport(rootApp, os.Stdout, req, dataExportOut)
+		return runDataExport(asCLI(rootApp), os.Stdout, req, dataExportOut)
 	},
 }
 
 type dataExportSelection struct {
 	Conversations   bool
 	Providers       bool
+	MCPServers      bool
 	TaskLists       bool
 	CredentialsOnly bool
 }
@@ -99,7 +107,7 @@ var dataAnalyzeCmd = &cobra.Command{
 	Short: "Analisa um arquivo de importação",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runDataAnalyze(rootApp, os.Stdout, os.ReadFile, args[0], dataAnalyzeCredentialPassword)
+		return runDataAnalyze(asCLI(rootApp), os.Stdout, os.ReadFile, args[0], dataAnalyzeCredentialPassword)
 	},
 }
 
@@ -109,11 +117,11 @@ var dataImportCmd = &cobra.Command{
 	Long:  "Importa um arquivo portátil do assistente no modelo UUID versionado.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runDataImport(rootApp, os.Stdout, os.ReadFile, args[0], dataImportCredentialPassword)
+		return runDataImport(asCLI(rootApp), os.Stdout, os.ReadFile, args[0], dataImportCredentialPassword)
 	},
 }
 
-func runDataExport(svc dataBackend, out io.Writer, req app.ExportRequest, outPath string) error {
+func runDataExport(svc dataBackend, out io.Writer, req portability.ExportRequest, outPath string) error {
 	if strings.TrimSpace(req.OutputFormat) == "" {
 		req.OutputFormat = portability.FormatJSON
 	}
@@ -140,9 +148,9 @@ func runDataExport(svc dataBackend, out io.Writer, req app.ExportRequest, outPat
 	return err
 }
 
-func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection dataExportSelection) (app.ExportRequest, error) {
-	hasSpecificIDs := len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0
-	hasTypeSelection := selection.Conversations || selection.Providers || selection.TaskLists
+func prepareDataExportRequest(svc dataBackend, req portability.ExportRequest, selection dataExportSelection) (portability.ExportRequest, error) {
+	hasSpecificIDs := len(req.ConversationIDs) > 0 || len(req.ProviderIDs) > 0 || len(req.MCPServerSlugs) > 0 || len(req.TaskListIDs) > 0
+	hasTypeSelection := selection.Conversations || selection.Providers || selection.MCPServers || selection.TaskLists
 
 	if req.All && (hasSpecificIDs || hasTypeSelection || selection.CredentialsOnly) {
 		return req, fmt.Errorf("--all não pode ser combinado com seleções específicas")
@@ -189,6 +197,18 @@ func prepareDataExportRequest(svc dataBackend, req app.ExportRequest, selection 
 			ids = append(ids, id)
 		}
 		req.ProviderIDs = mergeUniqueStrings(req.ProviderIDs, ids)
+	}
+
+	if selection.MCPServers {
+		servers, err := svc.ListMCPServers()
+		if err != nil {
+			return req, fmt.Errorf("erro ao listar servidores MCP para exportação: %w", err)
+		}
+		slugs := make([]string, 0, len(servers))
+		for _, server := range servers {
+			slugs = append(slugs, strings.TrimSpace(server.Slug))
+		}
+		req.MCPServerSlugs = mergeUniqueStrings(req.MCPServerSlugs, slugs)
 	}
 
 	if selection.TaskLists {
@@ -365,15 +385,17 @@ func mergeUniqueStrings(existing []string, incoming []string) []string {
 }
 
 func init() {
-	dataExportCmd.Flags().StringVar(&dataExportFormat, "format", portability.FormatJSON, "Formato de saída: json, html ou pdf")
+	dataExportCmd.Flags().StringVar(&dataExportFormat, "format", portability.FormatJSON, "Formato de saída: json, html, pdf ou mcp-json")
 	dataExportCmd.Flags().StringVarP(&dataExportOut, "out", "o", "", "Arquivo de saída (obrigatório para PDF)")
-	dataExportCmd.Flags().BoolVar(&dataExportAll, "all", false, "Exporta todas as conversas, providers e task lists persistidos")
+	dataExportCmd.Flags().BoolVar(&dataExportAll, "all", false, "Exporta todas as conversas, providers, servidores MCP e task lists persistidos")
 	dataExportCmd.Flags().BoolVar(&dataExportConversations, "conversations", false, "Exporta todas as conversas")
 	dataExportCmd.Flags().BoolVar(&dataExportProviders, "providers", false, "Exporta todos os providers persistidos")
+	dataExportCmd.Flags().BoolVar(&dataExportMCPServers, "mcp-servers", false, "Exporta todos os servidores MCP")
 	dataExportCmd.Flags().BoolVar(&dataExportTaskLists, "tasklists", false, "Exporta todas as task lists persistidas")
 	dataExportCmd.Flags().BoolVar(&dataExportCredentialsOnly, "only-credentials", false, "Exporta apenas o bloco portátil de credenciais")
 	dataExportCmd.Flags().StringSliceVar(&dataExportConversationIDs, "conversation-id", nil, "ID de conversa para exportar (repetível)")
 	dataExportCmd.Flags().StringSliceVar(&dataExportProviderIDs, "provider-id", nil, "ID de provider para exportar (repetível)")
+	dataExportCmd.Flags().StringSliceVar(&dataExportMCPServerSlugs, "mcp-server", nil, "Slug de servidor MCP para exportar (repetível)")
 	dataExportCmd.Flags().StringSliceVar(&dataExportTaskListIDs, "tasklist-id", nil, "ID de task list para exportar (repetível)")
 	dataExportCmd.Flags().BoolVar(&dataExportIncludeCredentials, "include-credentials", false, "Inclui credenciais exportáveis")
 	dataExportCmd.Flags().StringVar(&dataExportCredentialPassword, "credential-password", "", "Senha para exportar/descriptografar credenciais")

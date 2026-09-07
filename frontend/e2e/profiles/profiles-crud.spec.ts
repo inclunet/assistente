@@ -144,14 +144,9 @@ test.describe('Perfis — exclusão', () => {
     // Aguarda o perfil custom aparecer no grid
     await page.waitForSelector('[role="gridcell"]', { timeout: 5_000 });
 
-    // Navega via teclado no grid, respeitando o foco lazy e o roving tabindex.
-    const grid = page.locator('[role="grid"]');
-    await grid.focus();
-    await page.keyboard.press('ArrowDown');
-    await page.waitForFunction(() => {
-      const currentGrid = document.querySelector('[role="grid"]');
-      return currentGrid?.contains(document.activeElement) ?? false;
-    }, { timeout: 5_000 });
+    // Seleciona diretamente o perfil inativo. O teste de navegação por teclado
+    // já cobre o roving tabindex; aqui o foco é a ação de exclusão.
+    await page.getByRole('gridcell', { name: 'Programador' }).click({ force: true });
     await page.keyboard.press('ArrowDown');
 
     // Aguarda o botão Delete ficar habilitado (seleção ativa perfil inativo)
@@ -159,9 +154,6 @@ test.describe('Perfis — exclusão', () => {
       const button = document.querySelector('button[aria-label="Delete"]') as HTMLButtonElement | null;
       return !!button && !button.disabled;
     }, { timeout: 5_000 });
-
-    // Monta handler de diálogo nativo (window.confirm)
-    page.on('dialog', dialog => dialog.accept());
 
     // Clica no botão Delete
     await page.evaluate(() => {
@@ -171,6 +163,12 @@ test.describe('Perfis — exclusão', () => {
       }
       button.click();
     });
+
+    // Confirma exclusão no DecisionDialog (AEP-0091), não no window.confirm nativo
+    const confirmDialog = page.locator('.confirm-dialog-modal');
+    await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
+    await confirmDialog.getByRole('button', { name: /delete|excluir/i }).click();
+    await expect(confirmDialog).not.toBeVisible({ timeout: 3_000 });
 
     // Aguarda o processamento
     await page.waitForFunction(() => {

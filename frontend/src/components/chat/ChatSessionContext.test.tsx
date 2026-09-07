@@ -10,16 +10,29 @@ const retryMessageToConversationMock = vi.fn().mockResolvedValue(undefined);
 const setConversationDraftMessageMock = vi.fn();
 const setConversationDraftMediaFilesMock = vi.fn();
 
+type TestMessageNode = {
+  message: { id: string };
+  children: TestMessageNode[];
+  childCount: number;
+};
+
+const testMessageNode = (id: string): TestMessageNode => ({
+  message: { id },
+  children: [],
+  childCount: 0,
+});
+
 const chatStoreState = {
   sessionsByConversationId: {
     [currentConversationId]: {
-      conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] },
+      conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
       isLoading: false,
       hasOlderMessages: true,
       isLoadingOlderMessages: false,
       queuedTurnCount: 0,
       draftMessage: '',
       draftMediaFiles: [],
+      visibleThreadedMessages: undefined as TestMessageNode[] | undefined,
     },
   },
   timelinesByConversationId: {},
@@ -91,6 +104,11 @@ function DraftProbe() {
   );
 }
 
+function ThreadedMessagesProbe() {
+  const { threadedMessages } = useChatSession();
+  return <span>{threadedMessages.map((node) => node.message.id).join(',')}</span>;
+}
+
 function NamedDraftProbe({ nextDraft }: { nextDraft: string }) {
   const { draftMessage, setDraftMessage } = useChatSession();
   return (
@@ -110,6 +128,11 @@ describe('ChatSessionProvider', () => {
     retryMessageToConversationMock.mockClear();
     setConversationDraftMessageMock.mockClear();
     setConversationDraftMediaFilesMock.mockClear();
+    chatStoreState.sessionsByConversationId[currentConversationId] = {
+      ...chatStoreState.sessionsByConversationId[currentConversationId],
+      conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
+      visibleThreadedMessages: undefined,
+    };
     chatStoreState.surfaceSessionsByKey = {};
   });
 
@@ -164,6 +187,32 @@ describe('ChatSessionProvider', () => {
     expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
   });
 
+  it('usa janela visível padrão antes da superfície ser materializada', () => {
+    chatStoreState.sessionsByConversationId[currentConversationId] = {
+      ...chatStoreState.sessionsByConversationId[currentConversationId],
+      conversation: {
+        id: currentConversationId,
+        title: 'Conversa',
+        threadedMessages: [
+          testMessageNode('full-1'),
+          testMessageNode('full-2'),
+        ],
+      },
+      visibleThreadedMessages: [
+        testMessageNode('window-1'),
+      ],
+    };
+
+    render(
+      <ChatSessionProvider surface={embeddedSurface()}>
+        <ThreadedMessagesProbe />
+      </ChatSessionProvider>,
+    );
+
+    expect(screen.getByText('window-1')).toBeInTheDocument();
+    expect(screen.queryByText('full-1,full-2')).not.toBeInTheDocument();
+  });
+
   it('rematerializa superfície quando ela desaparece da store enquanto provider segue montado', async () => {
     const { rerender } = render(
       <ChatSessionProvider surface={embeddedSurface()}>
@@ -183,6 +232,10 @@ describe('ChatSessionProvider', () => {
         hasOlderMessages: false,
         isLoadingOlderMessages: false,
         streamingMessageId: null,
+        sendFailureMessage: null,
+        sendFailureRetryable: false,
+        sendFailureRetryContent: null,
+        sendFailureRetryMediaFiles: [],
         streamingReasoning: null,
         isThinking: false,
         activeToolCalls: [],
@@ -278,6 +331,10 @@ describe('ChatSessionProvider', () => {
         hasOlderMessages: false,
         isLoadingOlderMessages: false,
         streamingMessageId: null,
+        sendFailureMessage: null,
+        sendFailureRetryable: false,
+        sendFailureRetryContent: null,
+        sendFailureRetryMediaFiles: [],
         streamingReasoning: null,
         isThinking: false,
         activeToolCalls: [],
@@ -317,6 +374,10 @@ describe('ChatSessionProvider', () => {
         hasOlderMessages: false,
         isLoadingOlderMessages: false,
         streamingMessageId: null,
+        sendFailureMessage: null,
+        sendFailureRetryable: false,
+        sendFailureRetryContent: null,
+        sendFailureRetryMediaFiles: [],
         streamingReasoning: null,
         isThinking: false,
         activeToolCalls: [],
@@ -336,6 +397,10 @@ describe('ChatSessionProvider', () => {
         hasOlderMessages: false,
         isLoadingOlderMessages: false,
         streamingMessageId: null,
+        sendFailureMessage: null,
+        sendFailureRetryable: false,
+        sendFailureRetryContent: null,
+        sendFailureRetryMediaFiles: [],
         streamingReasoning: null,
         isThinking: false,
         activeToolCalls: [],

@@ -3,19 +3,36 @@
  * Suporta WebSpeech API e OpenAI TTS (SAPI5 foi unificado via backend_audio)
  */
 
+import { logger } from '../../utils/logger';
 import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
+import type { TTSModel } from './types';
 import { ttsFactory } from './factory';
+import { getStreamPlayer } from './streamPlayer';
 import { calcTTSTimeoutMs } from '../../lib/audioUtils';
+
+type WailsSpeech = {
+  GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
+  GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
+  SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string) => Promise<void>;
+};
 
 type WailsApp = {
   go?: {
+    wailsapi?: {
+      Speech?: WailsSpeech;
+    };
+    app?: {
+      App?: WailsSpeech;
+    };
     main?: {
-      App?: {
-        GetTTSVoices?: (profileId: string, providerId: string) => Promise<BackendVoice[]>;
-        SpeakPreview?: (providerId: string, voiceId: string, model: string, rate: number, volume: number, text: string, sessionId: string) => Promise<void>;
-      };
+      App?: WailsSpeech;
     };
   };
+};
+
+const getWailsSpeech = () => {
+  const go = (window as unknown as WailsApp).go;
+  return go?.wailsapi?.Speech ?? go?.app?.App ?? go?.main?.App;
 };
 
 type BackendVoice = {
@@ -23,12 +40,28 @@ type BackendVoice = {
   name: string;
   gender?: string;
   description?: string;
+  provider?: string;
+  model_id?: string;
 };
 
-const getTTSVoices = async (profileId: string, providerId: string): Promise<BackendVoice[]> => {
-  const app = (window as unknown as WailsApp).go?.main?.App;
-  if (!app?.GetTTSVoices) return [];
-  return app.GetTTSVoices(profileId, providerId);
+type BackendModel = {
+  id: string;
+  name: string;
+  provider?: string;
+  selection_mode: 'model_and_voice' | 'model_only';
+  description?: string;
+};
+
+const getTTSModels = async (providerId: string): Promise<BackendModel[]> => {
+  const speech = getWailsSpeech();
+  if (!speech?.GetTTSModels) return [];
+  return speech.GetTTSModels(providerId);
+};
+
+const getTTSVoices = async (providerId: string, modelId: string): Promise<BackendVoice[]> => {
+  const speech = getWailsSpeech();
+  if (!speech?.GetTTSVoices) return [];
+  return speech.GetTTSVoices(providerId, modelId);
 };
 
 /** Configuração de voz por role (assistant, user, system) */
@@ -36,6 +69,7 @@ export interface RoleVoiceConfig {
   providerId: string;   // "webspeech" ou LLM provider ID ("sapi5" delega ao backend)
   voiceId: string;      // ID da voz
   model: string;        // modelo TTS (ex: "tts-1")
+  selectionMode?: 'model_and_voice' | 'model_only';
   rate: number;
   pitch: number;        // 0.5–2.0 (tom da voz)
   volume: number;
@@ -89,7 +123,7 @@ class TTSService {
     this.currentProvider = ttsFactory.getProviderWithFallback(type);
     
     if (!this.currentProvider) {
-      console.error('[TTSService] No provider available');
+      logger.error('[TTSService] No provider available');
       return;
     }
     
@@ -391,7 +425,7 @@ class TTSService {
    * Para "webspeech", usa o provider frontend.
    * Para "sapi5" e providers LLM, delega ao backend via SpeakPreview.
    */
-  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string }): Promise<void> {
+  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string; language?: string }): Promise<void> {
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
     // Resolve o tipo de provider: webspeech ou LLM/sapi5 (backend)
@@ -402,10 +436,11 @@ class TTSService {
       await this.speakWithBackendPreview(
         text,
         options.providerId || '',
-        voiceId || '',
         options.ttsModel || '',
+        voiceId || '',
         options.rate ?? 1.0,
         options.volume ?? 1.0,
+        options.language ?? '',
       );
       return;
     }
@@ -496,18 +531,19 @@ class TTSService {
   private async speakWithBackendPreview(
     text: string,
     providerId: string,
-    voiceId: string,
     model: string,
+    voiceId: string,
     rate: number,
     volume: number,
+    language: string,
   ): Promise<void> {
-    const app = (window as unknown as WailsApp).go?.main?.App;
-    const speakPreview = app?.SpeakPreview as ((
-      providerId: string, voiceId: string, model: string, rate: number, volume: number, text: string, sessionId: string,
+    const speech = getWailsSpeech();
+    const speakPreview = speech?.SpeakPreview as ((
+      providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string,
     ) => Promise<void>) | undefined;
 
     if (!speakPreview) {
-      console.error('[TTSService] SpeakPreview não disponível no backend');
+      logger.error('[TTSService] SpeakPreview não disponível no backend');
       return;
     }
 
@@ -517,7 +553,6 @@ class TTSService {
     const openaiProvider = ttsFactory.getProvider(TTSProvider.OPENAI);
     if (openaiProvider && 'streamPlayer' in openaiProvider) {
       // Reutiliza a infraestrutura de streaming do OpenAI provider
-      const { getStreamPlayer } = await import('./streamPlayer');
       const streamPlayer = getStreamPlayer();
       this.activeStreamPlayer = streamPlayer;
 
@@ -557,7 +592,7 @@ class TTSService {
       });
 
       try {
-        await speakPreview(providerId, voiceId, model, rate, volume, text, sessionId);
+        await speakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
         await streamPromise;
       } catch (error) {
         streamPlayer.stop();
@@ -572,7 +607,7 @@ class TTSService {
       }
     } else {
       // Fallback simples: só chama o backend (sem aguardar)
-      await speakPreview(providerId, voiceId, model, rate, volume, text, sessionId);
+      await speakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
     }
   }
 
@@ -610,9 +645,34 @@ class TTSService {
   }
   
   /**
-   * Retorna lista de vozes disponíveis de um provedor e perfil específicos
+   * Retorna lista de modelos TTS disponíveis de um provedor.
    */
-  async getVoicesForProvider(providerId: string, profileId: string): Promise<TTSVoice[]> {
+  async getModelsForProvider(providerId: string): Promise<TTSModel[]> {
+    await ttsFactory.initialize();
+
+    if (!providerId || providerId === 'webspeech' || providerId === 'sapi5') {
+      return [];
+    }
+
+    try {
+      const models = await getTTSModels(providerId);
+      return (models || []).map((m) => ({
+        id: m.id,
+        name: m.name,
+        provider: m.provider || providerId,
+        selectionMode: m.selection_mode,
+        description: m.description || m.name,
+      }));
+    } catch (error) {
+      logger.error(`[TTSService] Erro ao buscar modelos TTS para ${providerId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Retorna lista de vozes disponíveis para um provedor e modelo.
+   */
+  async getVoicesForProvider(providerId: string, modelId: string = ''): Promise<TTSVoice[]> {
     await ttsFactory.initialize();
 
     if (providerId === 'webspeech') {
@@ -621,7 +681,7 @@ class TTSService {
     }
     if (providerId === 'sapi5') {
       try {
-        const voices = await getTTSVoices(profileId, providerId);
+        const voices = await getTTSVoices(providerId, '');
         return (voices || []).map((v) => ({
           id: v.id,
           name: v.name,
@@ -633,26 +693,28 @@ class TTSService {
           description: v.description || v.name
         }));
       } catch (error) {
-        console.error('[TTSService] Erro ao buscar vozes SAPI5:', error);
+        logger.error('[TTSService] Erro ao buscar vozes SAPI5:', error);
         return [];
       }
     }
 
     // Se for um provedor LLM registrado, busca via backend
+    if (!modelId) return [];
     try {
-      const voices = await getTTSVoices(profileId, providerId);
+      const voices = await getTTSVoices(providerId, modelId);
       return (voices || []).map((v) => ({
         id: v.id,
         name: v.name,
         language: 'multilingual',
         provider: providerId,
+        modelId: v.model_id || modelId,
         gender: (v.gender || 'neutral').toLowerCase() as 'neutral' | 'male' | 'female',
         premium: true,
         localService: false,
         description: v.description || v.name
       }));
     } catch (error) {
-      console.error(`[TTSService] Erro ao buscar vozes para ${providerId}:`, error);
+      logger.error(`[TTSService] Erro ao buscar vozes para ${providerId}:`, error);
       return [];
     }
   }
@@ -672,7 +734,7 @@ class TTSService {
           const voices = await provider.getVoices();
           allVoices.push(...voices);
         } catch (error) {
-          console.error(`[TTSService] Error getting voices from ${providerType}:`, error);
+          logger.error(`[TTSService] Error getting voices from ${providerType}:`, error);
         }
       }
     }

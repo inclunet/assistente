@@ -1,6 +1,6 @@
 # AEP 0043 — Evolução TTS/STT: Vozes (Assistant + User)
 
-Estado: Draft
+Status: Superseded — contrato de duas vozes substituído pelo modelo de três roles da AEP-0038
 Autor: Leonardo
 Owner: Leonardo
 Idioma: en-US

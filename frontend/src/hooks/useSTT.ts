@@ -36,6 +36,7 @@
  * ```
  */
 
+import { logger } from '../utils/logger';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   STTService,
@@ -299,7 +300,7 @@ export function useSTT(options: UseSTTOptions = {}): UseSTTReturn {
       setError(errorMessage);
       isInitializingRef.current = false;
       setIsInitializing(false);
-      console.error('[useSTT] Erro:', err);
+      logger.error('[useSTT] Erro:', err);
       return false;
     }
   }, [configOptions]);
@@ -307,7 +308,7 @@ export function useSTT(options: UseSTTOptions = {}): UseSTTReturn {
   // Inicia gravação
   const startRecording = useCallback(async (): Promise<boolean> => {
     if (!sttRef.current || !isInitializedRef.current) {
-      console.warn('[useSTT] STT não inicializado');
+      logger.warn('[useSTT] STT não inicializado');
       return false;
     }
     return sttRef.current.startRecording();

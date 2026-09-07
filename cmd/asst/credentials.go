@@ -7,15 +7,15 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"assistente/controllers"
+	"assistente/internal/apidto"
 
 	"github.com/spf13/cobra"
 )
 
 // credentialsBackend abstracts the app methods used by credentials commands.
 type credentialsBackend interface {
-	ListCredentials() ([]controllers.CredentialSummary, error)
-	UpsertCredential(input controllers.CredentialInput) error
+	ListCredentials() ([]apidto.CredentialSummary, error)
+	UpsertCredential(input apidto.CredentialInput) error
 	DeleteCredential(pattern string) error
 }
 
@@ -31,7 +31,7 @@ var credentialsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista credenciais registradas (sem exibir secrets)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runCredentialsList(rootApp, os.Stdout)
+		return runCredentialsList(asCLI(rootApp), os.Stdout)
 	},
 }
 
@@ -73,7 +73,7 @@ Exemplos:
   asst credentials set api.anthropic.com --type bearer --value "sk-ant-..."`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runCredentialsSet(rootApp, os.Stdout, args[0], credSetValue, credSetType, readPassword)
+		return runCredentialsSet(asCLI(rootApp), os.Stdout, args[0], credSetValue, credSetType, readPassword)
 	},
 }
 
@@ -108,7 +108,7 @@ func runCredentialsSet(svc credentialsBackend, out io.Writer, pattern, value, cr
 		credType = "bearer"
 	}
 
-	input := controllers.CredentialInput{
+	input := apidto.CredentialInput{
 		Pattern: pattern,
 		Type:    credType,
 		Token:   value,
@@ -129,7 +129,7 @@ var credentialsRemoveCmd = &cobra.Command{
 	Short: "Remove uma credencial",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runCredentialsRemove(rootApp, os.Stdout, args[0])
+		return runCredentialsRemove(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 

@@ -1,9 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { VOICE_DISABLED } from '../pickers/VoicePicker';
-import { COMPOSITE_VOICE_SEPARATOR } from '../../config/providers';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -22,13 +21,42 @@ vi.mock('../pickers/VoicePicker', () => ({
       <button onClick={() => onChange('test-voice')} data-testid="voice-picker-select">
         {value || VOICE_DISABLED}
       </button>
-      {voiceOverrides && voiceOverrides.length > 0 && (
-        <button onClick={() => onChange(`nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`)} data-testid="voice-picker-select-hd">
-          HD
-        </button>
-      )}
+      {voiceOverrides && voiceOverrides.length > 0 && <span data-testid="voice-overrides-present" />}
     </div>
   ),
+}));
+
+vi.mock('../../services/tts', () => ({
+  ttsService: {
+    getConfig: vi.fn(() => ({
+      enabled: false,
+      autoRead: false,
+      enabledForUser: false,
+      provider: 'webspeech',
+      rate: 1,
+      pitch: 1,
+      volume: 1,
+    })),
+    hasVoiceConfig: vi.fn(() => false),
+    getVoices: vi.fn().mockResolvedValue([]),
+    getModelsForProvider: vi.fn().mockResolvedValue([
+      { id: 'voice-pt_BR-cadu-medium', name: 'voice-pt_BR-cadu-medium', provider: 'localai', selectionMode: 'model_only' },
+      { id: 'qwen3-tts-0.6b-custom-voice', name: 'qwen3-tts-0.6b-custom-voice', provider: 'localai', selectionMode: 'model_and_voice' },
+    ]),
+    on: vi.fn(),
+    off: vi.fn(),
+    stop: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    speakWithOverride: vi.fn().mockResolvedValue(undefined),
+    setEnabled: vi.fn(),
+    setAutoRead: vi.fn(),
+    setRate: vi.fn().mockResolvedValue(undefined),
+    setPitch: vi.fn(),
+    setVolume: vi.fn().mockResolvedValue(undefined),
+    setVoice: vi.fn().mockResolvedValue(undefined),
+    isSupported: vi.fn(() => true),
+  },
 }));
 
 describe('ProfileVoiceSection', () => {
@@ -167,7 +195,7 @@ describe('ProfileVoiceSection', () => {
     expect(volumeInput.step).toBe('0.05');
   });
 
-  it('NÃO mostra seletor de modelo TTS para OpenAI (modelo embutido na voz)', () => {
+  it('mostra seletor de modelo TTS para OpenAI e mantém voz separada', () => {
     render(
       <ProfileVoiceSection
         {...defaultProps}
@@ -177,9 +205,8 @@ describe('ProfileVoiceSection', () => {
       />
     );
 
-    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
-    // Verifica que voiceOverrides foi passado (botão HD presente)
-    expect(screen.getByTestId('voice-picker-select-hd')).toBeInTheDocument();
+    expect(screen.getByText('profiles.voiceSection.modelLabel')).toBeInTheDocument();
+    expect(screen.getByTestId('voice-overrides-present')).toBeInTheDocument();
   });
 
   it('NÃO mostra seletor de modelo TTS para webspeech', () => {
@@ -191,7 +218,7 @@ describe('ProfileVoiceSection', () => {
       />
     );
 
-    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+    expect(screen.queryByText('profiles.voiceSection.modelLabel')).not.toBeInTheDocument();
   });
 
   it('NÃO mostra seletor de modelo TTS para sapi5', () => {
@@ -203,12 +230,11 @@ describe('ProfileVoiceSection', () => {
       />
     );
 
-    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+    expect(screen.queryByText('profiles.voiceSection.modelLabel')).not.toBeInTheDocument();
   });
 
-  it('passa valor composto voice::model via onChange ao selecionar voz HD no picker', async () => {
+  it('atualiza modelo e selectionMode ao selecionar modelo OpenAI', () => {
     const handleChange = vi.fn();
-    const user = userEvent.setup();
     render(
       <ProfileVoiceSection
         {...defaultProps}
@@ -219,12 +245,47 @@ describe('ProfileVoiceSection', () => {
       />
     );
 
-    // Clica no botão HD do mock — emite "nova::tts-1-hd"
-    const hdButton = screen.getByTestId('voice-picker-select-hd');
-    await user.click(hdButton);
+    const modelSelect = screen.getByDisplayValue('tts-1');
+    fireEvent.change(modelSelect, { target: { value: 'tts-1-hd' } });
 
-    // Valor composto passado direto para o parent fazer o parse
-    expect(handleChange).toHaveBeenCalledWith('voice', `nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`);
+    expect(handleChange).toHaveBeenCalledWith('model', 'tts-1-hd');
+    expect(handleChange).toHaveBeenCalledWith('selectionMode', 'model_and_voice');
+  });
+
+  it('limpa modelo, selectionMode e voz ao limpar o seletor de modelo', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        providerType="openai"
+        ttsModel="tts-1"
+        voice="nova"
+        onChange={handleChange}
+      />
+    );
+
+    const modelSelect = screen.getByDisplayValue('tts-1');
+    fireEvent.change(modelSelect, { target: { value: '' } });
+
+    expect(handleChange).toHaveBeenCalledWith('model', '');
+    expect(handleChange).toHaveBeenCalledWith('selectionMode', '');
+    expect(handleChange).toHaveBeenCalledWith('voice', '');
+  });
+
+  it('não permite escolher voz HTTP antes do modelo TTS', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        providerType="openai"
+        ttsModel=""
+        voice=""
+      />
+    );
+
+    expect(screen.getByText('profiles.voiceSection.modelLabel')).toBeInTheDocument();
+    expect(screen.queryByTestId('voice-picker-mock')).not.toBeInTheDocument();
   });
 
   it('NÃO mostra voiceOverrides quando providerType não é fornecido', () => {
@@ -238,10 +299,51 @@ describe('ProfileVoiceSection', () => {
 
     // Sem providerType, getTTSCapabilities retorna DYNAMIC_TTS (sem staticVoices)
     // Portanto o botão HD (voiceOverrides) NÃO deve existir
-    expect(screen.queryByTestId('voice-picker-select-hd')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('voice-overrides-present')).not.toBeInTheDocument();
   });
 
-  it('NÃO mostra seletor de modelo para provider com apenas vozes dinâmicas (LocalAI/Piper)', () => {
+  it('oculta o seletor de voz quando o modelo selecionado é model_only', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="localai-default"
+        providerType="localai"
+        ttsModel="voice-pt_BR-cadu-medium"
+        selectionMode="model_only"
+      />
+    );
+
+    expect(screen.getByText('profiles.voiceSection.modelLabel')).toBeInTheDocument();
+    expect(screen.queryByTestId('voice-picker-mock')).not.toBeInTheDocument();
+  });
+
+  it('gera ids únicos para seletores de modelo no mesmo perfil', () => {
+    render(
+      <>
+        <ProfileVoiceSection
+          {...defaultProps}
+          providerId="localai-default"
+          providerType="localai"
+          profileId="profile-1"
+          label="Assistant voice"
+        />
+        <ProfileVoiceSection
+          {...defaultProps}
+          providerId="localai-default"
+          providerType="localai"
+          profileId="profile-1"
+          label="User voice"
+        />
+      </>
+    );
+
+    const modelSelects = screen.getAllByLabelText('profiles.voiceSection.modelLabel');
+    expect(modelSelects[0].id).toMatch(/^tts-model-profile-1-assistant-voice-/);
+    expect(modelSelects[1].id).toMatch(/^tts-model-profile-1-user-voice-/);
+    expect(modelSelects[0].id).not.toBe(modelSelects[1].id);
+  });
+
+  it('infere model_only para modelos voice-* antes da listagem dinâmica carregar', () => {
     render(
       <ProfileVoiceSection
         {...defaultProps}
@@ -251,6 +353,43 @@ describe('ProfileVoiceSection', () => {
       />
     );
 
-    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('voice-picker-mock')).not.toBeInTheDocument();
+  });
+
+  it('mantém o modelo selecionado e mostra vozes quando updates dependentes são aplicados em lote', async () => {
+    function StatefulSection() {
+      const [state, setState] = useState({
+        model: '',
+        voice: '',
+        selectionMode: undefined as 'model_and_voice' | 'model_only' | undefined,
+      });
+      return (
+        <ProfileVoiceSection
+          {...defaultProps}
+          providerId="localai-default"
+          providerType="localai"
+          ttsModel={state.model}
+          voice={state.voice}
+          selectionMode={state.selectionMode}
+          onChange={(field, value) => setState((prev) => ({ ...prev, [field === 'selectionMode' ? 'selectionMode' : field]: value as string }))}
+          onChangeMany={(updates) => setState((prev) => ({
+            ...prev,
+            ...(updates.model !== undefined ? { model: String(updates.model) } : {}),
+            ...(updates.voice !== undefined ? { voice: String(updates.voice) } : {}),
+            ...(updates.selectionMode !== undefined ? { selectionMode: updates.selectionMode as 'model_and_voice' | 'model_only' } : {}),
+          }))}
+        />
+      );
+    }
+
+    render(<StatefulSection />);
+
+    const modelSelect = await screen.findByLabelText('profiles.voiceSection.modelLabel') as HTMLSelectElement;
+    await waitFor(() => expect(modelSelect.options.length).toBeGreaterThan(1));
+
+    fireEvent.change(modelSelect, { target: { value: 'qwen3-tts-0.6b-custom-voice' } });
+
+    await waitFor(() => expect(modelSelect.value).toBe('qwen3-tts-0.6b-custom-voice'));
+    expect(screen.getByTestId('voice-picker-mock')).toBeInTheDocument();
   });
 });

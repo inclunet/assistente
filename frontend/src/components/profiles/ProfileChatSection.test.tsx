@@ -11,6 +11,10 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.groupProvider': 'Provedor e Modelo',
         'profiles.chatSection.groupGeneration': 'Parâmetros de Geração',
         'profiles.chatSection.groupContext': 'Contexto e Limites',
+        'profiles.chatSection.groupRecovery': 'Recuperação de Streaming',
+        'profiles.chatSection.groupRateLimit': 'Limite Local de Chamadas',
+        'profiles.chatSection.groupPromptCache': 'Prompt Cache',
+        'profiles.chatSection.groupDebug': 'Debug LLM',
         'profiles.chatSection.provider': 'Provedor LLM',
         'profiles.chatSection.model': 'Modelo',
         'profiles.chatSection.temperature': 'Temperatura',
@@ -36,6 +40,30 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.reasoningHigh': 'Alto (high)',
         'profiles.chatSection.reasoningMax': 'Máximo (max)',
         'profiles.chatSection.reasoningHint': 'Define como o modelo usa tokens de raciocínio interno.',
+        'profiles.chatSection.promptCacheEnabled': 'Habilitar mecanismos ativos de cache',
+        'profiles.chatSection.promptCacheEnabledHint': 'Mantém o layout cache-friendly sempre ativo; controla apenas hints e cache control.',
+        'profiles.chatSection.promptCacheProviderHints': 'Enviar provider hints',
+        'profiles.chatSection.promptCacheProviderHintsHint': 'Permite hints neutros como prompt_cache_key quando suportado.',
+        'profiles.chatSection.promptCacheExplicitCacheControl': 'Usar cache control explícito',
+        'profiles.chatSection.promptCacheExplicitCacheControlHint': 'Permite marcação explícita de blocos para providers compatíveis.',
+        'profiles.chatSection.debugDumpsEnabled': 'Salvar dumps OpenAI Responses para debug',
+        'profiles.chatSection.debugDumpsEnabledHint': 'Grava dados do caminho OpenAI Responses localmente em ~/.assistente/debug/llm-dumps com campos sensíveis redigidos.',
+        'profiles.chatSection.debugDumpRequests': 'Salvar requests completas',
+        'profiles.chatSection.debugDumpResponses': 'Salvar responses finais',
+        'profiles.chatSection.debugMaxFiles': 'Máximo de dumps por conversa',
+        'profiles.chatSection.debugMaxFilesHint': 'Limita snapshots retidos por conversa.',
+        'profiles.chatSection.streamingRecoveryEnabled': 'Tentar recuperar respostas interrompidas automaticamente',
+        'profiles.chatSection.streamingRecoveryEnabledHint': 'Quando uma resposta falha ou é interrompida, tenta retomar automaticamente antes de marcar como falha.',
+        'profiles.chatSection.streamingRecoveryMaxAttempts': 'Máximo de tentativas de recuperação',
+        'profiles.chatSection.streamingRecoveryMaxAttemptsHint': 'Número máximo de tentativas automáticas antes de exigir uma ação manual.',
+        'profiles.chatSection.streamingRecoveryShowContinue': 'Mostrar ação “Continuar resposta” quando falhar',
+        'profiles.chatSection.streamingRecoveryShowContinueHint': 'Exibe a opção manual de continuação quando houver conteúdo parcial e o modelo suportar.',
+        'profiles.chatSection.rateLimitEnabled': 'Limitar chamadas ao provedor neste perfil',
+        'profiles.chatSection.rateLimitEnabledHint': 'Protege contra rajadas inesperadas.',
+        'profiles.chatSection.rateLimitRpm': 'Requisições por minuto',
+        'profiles.chatSection.rateLimitRpmHint': 'Taxa sustentada máxima.',
+        'profiles.chatSection.rateLimitBurst': 'Rajada máxima',
+        'profiles.chatSection.rateLimitBurstHint': 'Chamadas consecutivas permitidas.',
       };
       return translations[key] ?? key;
     },
@@ -76,7 +104,24 @@ describe('ProfileChatSection', () => {
     minContextMessages: 0,
     topP: 1.0,
     responseTimeout: 180,
+    rateLimitEnabled: true,
+    rateLimitRpm: 60,
+    rateLimitBurst: 30,
     reasoningEffort: '',
+    promptCache: {
+      enabled: false,
+      provider_hints: false,
+      explicit_cache_control: false,
+    },
+    debug: {
+      enabled: false,
+      dump_requests: true,
+      dump_responses: true,
+      max_files: 200,
+    },
+    streamingRecoveryEnabled: true,
+    streamingRecoveryMaxAttempts: 3,
+    streamingRecoveryShowContinue: true,
     onChange: vi.fn(),
   };
 
@@ -198,6 +243,155 @@ describe('ProfileChatSection', () => {
     expect(handleChange).toHaveBeenCalledWith('reasoning_effort', 'medium');
   });
 
+  it('chama onChange ao habilitar prompt cache', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const checkbox = screen.getByLabelText('Habilitar mecanismos ativos de cache');
+    fireEvent.click(checkbox);
+
+    expect(handleChange).toHaveBeenCalledWith('prompt_cache.enabled', true);
+  });
+
+  it('desabilita controles dependentes quando prompt cache está desligado', () => {
+    render(<ProfileChatSection {...defaultProps} />);
+
+    expect(screen.getByLabelText('Enviar provider hints')).toBeDisabled();
+    expect(screen.getByLabelText('Usar cache control explícito')).toBeDisabled();
+  });
+
+  it('chama onChange ao alternar controles dependentes de prompt cache', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        promptCache={{ enabled: true, provider_hints: false, explicit_cache_control: false }}
+        onChange={handleChange}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Enviar provider hints'));
+    fireEvent.click(screen.getByLabelText('Usar cache control explícito'));
+
+    expect(handleChange).toHaveBeenCalledWith('prompt_cache.provider_hints', true);
+    expect(handleChange).toHaveBeenCalledWith('prompt_cache.explicit_cache_control', true);
+  });
+
+  it('limpa controles dependentes ao desabilitar prompt cache com onMultiChange', () => {
+    const handleChange = vi.fn();
+    const handleMultiChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        promptCache={{ enabled: true, provider_hints: true, explicit_cache_control: true }}
+        onChange={handleChange}
+        onMultiChange={handleMultiChange}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Habilitar mecanismos ativos de cache'));
+
+    expect(handleMultiChange).toHaveBeenCalledWith({
+      'prompt_cache.enabled': false,
+      'prompt_cache.provider_hints': false,
+      'prompt_cache.explicit_cache_control': false,
+    });
+    expect(handleChange).not.toHaveBeenCalled();
+  });
+
+  it('habilita dumps LLM sem sobrescrever preferências de requests/responses', () => {
+    const handleChange = vi.fn();
+    const handleMultiChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        debug={{ enabled: false, dump_requests: false, dump_responses: true, max_files: 200 }}
+        onChange={handleChange}
+        onMultiChange={handleMultiChange}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Salvar dumps OpenAI Responses para debug'));
+
+    expect(handleMultiChange).toHaveBeenCalledWith({
+      'debug.enabled': true,
+      'debug.max_files': 200,
+    });
+    expect(handleChange).not.toHaveBeenCalled();
+  });
+
+  it('desabilita controles dependentes quando debug LLM está desligado', () => {
+    render(<ProfileChatSection {...defaultProps} />);
+
+    expect(screen.getByLabelText('Salvar requests completas')).toBeDisabled();
+    expect(screen.getByLabelText('Salvar responses finais')).toBeDisabled();
+    expect(screen.getByLabelText('Máximo de dumps por conversa')).toBeDisabled();
+  });
+
+  it('preserva zero no máximo de dumps para usar o default do backend', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        debug={{ enabled: true, dump_requests: true, dump_responses: true, max_files: 200 }}
+        onChange={handleChange}
+      />
+    );
+
+    const input = screen.getByLabelText('Máximo de dumps por conversa');
+    fireEvent.change(input, { target: { value: '0' } });
+
+    expect(handleChange).toHaveBeenCalledWith('debug.max_files', 0);
+  });
+
+  it('limita máximo de dumps ao intervalo aceito pelo backend', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        debug={{ enabled: true, dump_requests: true, dump_responses: true, max_files: 200 }}
+        onChange={handleChange}
+      />
+    );
+
+    const input = screen.getByLabelText('Máximo de dumps por conversa');
+    fireEvent.change(input, { target: { value: '-1' } });
+    fireEvent.change(input, { target: { value: '10001' } });
+
+    expect(handleChange).toHaveBeenCalledWith('debug.max_files', 0);
+    expect(handleChange).toHaveBeenCalledWith('debug.max_files', 10000);
+  });
+
+  it('chama onChange ao alternar auto-recuperação de streaming', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const checkbox = screen.getByLabelText('Tentar recuperar respostas interrompidas automaticamente');
+    fireEvent.click(checkbox);
+
+    expect(handleChange).toHaveBeenCalledWith('streaming_recovery_enabled', false);
+  });
+
+  it('chama onChange ao alterar máximo de tentativas de recuperação', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const input = screen.getByLabelText('Máximo de tentativas de recuperação');
+    fireEvent.change(input, { target: { value: '5' } });
+
+    expect(handleChange).toHaveBeenCalledWith('streaming_recovery_max_attempts', 5);
+  });
+
+  it('chama onChange ao alternar ação continuar resposta', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const checkbox = screen.getByLabelText('Mostrar ação “Continuar resposta” quando falhar');
+    fireEvent.click(checkbox);
+
+    expect(handleChange).toHaveBeenCalledWith('streaming_recovery_show_continue', false);
+  });
+
   it('envia string vazia quando reasoning for off', async () => {
     const handleChange = vi.fn();
     const user = userEvent.setup();
@@ -226,8 +420,126 @@ describe('ProfileChatSection', () => {
     expect(screen.getByLabelText('Mín. Mensagens Preservadas')).toBeDisabled();
     expect(screen.getByLabelText('Timeout (segundos)')).toBeDisabled();
     expect(screen.getByLabelText('Raciocínio (Reasoning)')).toBeDisabled();
+    expect(screen.getByLabelText('Habilitar mecanismos ativos de cache')).toBeDisabled();
+    expect(screen.getByLabelText('Enviar provider hints')).toBeDisabled();
+    expect(screen.getByLabelText('Usar cache control explícito')).toBeDisabled();
+    expect(screen.getByLabelText('Salvar dumps OpenAI Responses para debug')).toBeDisabled();
+    expect(screen.getByLabelText('Salvar requests completas')).toBeDisabled();
 
     const modelPickerButton = screen.getByTestId('model-picker-mock').querySelector('button');
     expect(modelPickerButton).toBeDisabled();
+  });
+
+  it('edita a política local de rate limit', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    expect(screen.getByLabelText('Requisições por minuto')).toHaveValue(60);
+    expect(screen.getByLabelText('Rajada máxima')).toHaveValue(30);
+
+    await user.click(screen.getByLabelText('Limitar chamadas ao provedor neste perfil'));
+    expect(onChange).toHaveBeenCalledWith('rate_limit_enabled', false);
+  });
+
+  // O campo numérico aceita digitação fora de min/max, então o clamp precisa
+  // acontecer antes de o valor entrar no perfil — senão a recusa só apareceria
+  // na validação do backend, ao salvar.
+  it('mantém o rate limit digitado dentro da faixa aceita pelo backend', () => {
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
+      target: { value: '-5' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 0);
+
+    fireEvent.change(screen.getByLabelText('Rajada máxima'), {
+      target: { value: '99999' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_burst', 10000);
+  });
+
+  it('preserva o sentinela de padrão quando o campo de rate limit fica vazio', () => {
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('Requisições por minuto'), {
+      target: { value: '' },
+    });
+    expect(onChange).toHaveBeenLastCalledWith('rate_limit_rpm', 0);
+  });
+
+  it('exibe o sentinela zero sem convertê-lo no default efetivo', () => {
+    render(<ProfileChatSection {...defaultProps} rateLimitRpm={0} rateLimitBurst={0} />);
+
+    expect(screen.getByLabelText('Requisições por minuto')).toHaveValue(0);
+    expect(screen.getByLabelText('Rajada máxima')).toHaveValue(0);
+  });
+
+  it('desabilita os valores do rate limit quando a proteção está desligada', () => {
+    render(<ProfileChatSection {...defaultProps} rateLimitEnabled={false} />);
+
+    expect(screen.getByLabelText('Requisições por minuto')).toBeDisabled();
+    expect(screen.getByLabelText('Rajada máxima')).toBeDisabled();
+  });
+
+  // Num perfil com agente o turno lê só o modelo entre os parâmetros do
+  // provider. O rate limit permanece visível porque protege a chamada externa
+  // independentemente de o provider ser HTTP ou ACP.
+  describe('com provedor de agente', () => {
+    const comAgente = { ...defaultProps, llmProvider: 'cursor', agentProvider: true };
+
+    it('mantém a escolha de provedor e modelo', () => {
+      render(<ProfileChatSection {...comAgente} />);
+
+      expect(screen.getByTestId('llm-provider-picker-mock')).toBeInTheDocument();
+      expect(screen.getByTestId('model-picker-mock')).toBeInTheDocument();
+    });
+
+    it('esconde os ajustes que o turno do agente ignora', () => {
+      render(<ProfileChatSection {...comAgente} />);
+
+      expect(screen.queryByLabelText('Temperatura')).toBeNull();
+      expect(screen.queryByLabelText('Top P')).toBeNull();
+      expect(screen.queryByLabelText('Max Tokens')).toBeNull();
+      expect(screen.queryByLabelText('Raciocínio (Reasoning)')).toBeNull();
+      expect(screen.queryByLabelText('Janela de Contexto (tokens)')).toBeNull();
+      expect(screen.queryByLabelText('Timeout (segundos)')).toBeNull();
+      expect(screen.queryByLabelText('Habilitar mecanismos ativos de cache')).toBeNull();
+      expect(screen.queryByLabelText('Salvar dumps OpenAI Responses para debug')).toBeNull();
+      expect(
+        screen.queryByLabelText('Tentar recuperar respostas interrompidas automaticamente'),
+      ).toBeNull();
+      expect(screen.getByLabelText('Limitar chamadas ao provedor neste perfil')).toBeInTheDocument();
+    });
+
+    it('diz por que a guia é curta', () => {
+      render(<ProfileChatSection {...comAgente} />);
+
+      expect(screen.getByTestId('profile-chat-agent-hint')).toBeInTheDocument();
+    });
+
+    it('esconder campo não mexe no perfil', () => {
+      const handleChange = vi.fn();
+      const handleMultiChange = vi.fn();
+      render(
+        <ProfileChatSection
+          {...comAgente}
+          onChange={handleChange}
+          onMultiChange={handleMultiChange}
+        />,
+      );
+
+      expect(handleChange).not.toHaveBeenCalled();
+      expect(handleMultiChange).not.toHaveBeenCalled();
+    });
+
+    it('provedor comum continua com tudo', () => {
+      render(<ProfileChatSection {...defaultProps} />);
+
+      expect(screen.getByLabelText('Temperatura')).toBeInTheDocument();
+      expect(screen.queryByTestId('profile-chat-agent-hint')).toBeNull();
+    });
   });
 });

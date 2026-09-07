@@ -23,8 +23,13 @@ func NewSearchFiles(workDir string) *SearchFiles {
 
 func (t *SearchFiles) Name() string { return "search_files" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *SearchFiles) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
+}
+
 func (t *SearchFiles) Description() string {
-	return "Finds files by glob pattern. Use **/ for recursive search (e.g., '**/test_*.py'). Without **/, it searches only the base directory."
+	return "Find file paths by glob pattern without reading their contents; non-recursive patterns can also match directories. Use when a path is unknown or you need files by name or extension; use **/ for recursive file matching (for example, **/*_test.go). Do not use to search text inside files (use grep_search), read a known file (use read_file), or browse one directory level (use list_directory). Recursive searches walk the tree and cost more; narrow path and max_results when possible. Risk: read-only."
 }
 
 func (t *SearchFiles) Parameters() json.RawMessage {
@@ -33,15 +38,15 @@ func (t *SearchFiles) Parameters() json.RawMessage {
 		"properties": {
 			"pattern": {
 				"type": "string",
-				"description": "Padrão glob para busca. Exemplos: '*.go', '**/*.ts', 'internal/**/*.go', 'README*'"
+				"description": "Glob matched against path names, for example '*.go' in one directory or '**/*.go' recursively. Recursive patterns return files only; non-recursive patterns may also match directories. This does not search file contents."
 			},
 			"path": {
 				"type": "string",
-				"description": "Diretório base para busca (padrão: diretório de trabalho)"
+				"description": "Base directory to search, absolute or relative to the working directory; defaults to the working directory."
 			},
 			"max_results": {
 				"type": "integer",
-				"description": "Número máximo de resultados (padrão: 100)"
+				"description": "Maximum number of matching paths to return; defaults to 100. Lower values reduce output and traversal cost."
 			}
 		},
 		"required": ["pattern"],
@@ -124,6 +129,14 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 				return filepath.SkipDir
 			}
 
+			// Link apontando para fora do sandbox: não vazar nomes externos.
+			// Vem antes do skill para a entrada não ser contada em
+			// skippedBySkill e anunciada no cabeçalho — omissão por sandbox é
+			// silenciosa (AEP-0092 D-Q7).
+			if walkEntryEscapesSandbox(path, d.Type(), t.workDir) {
+				return nil
+			}
+
 			// Enforcement por skill: não vazar nomes fora do escopo
 			if err := validateSkillFilesystemAllowlist(ctx, path, t.workDir, "search"); err != nil {
 				skippedBySkill++
@@ -138,7 +151,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}
 
 			// Toolcalling: não vazar nomes de arquivos sensíveis
-			if ToolPolicy().BlockSensitive && isSensitiveFile(path) {
+			if ToolPolicy().BlockSensitive && isSensitiveEntry(path, d.Type()) {
 				return nil
 			}
 
@@ -191,8 +204,13 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 				break
 			}
 
+			// Link apontando para fora do sandbox: não vazar nomes externos
+			if pathEscapesSandbox(match, t.workDir) {
+				continue
+			}
+
 			// Toolcalling: não vazar nomes de arquivos sensíveis
-			if ToolPolicy().BlockSensitive && isSensitiveFile(match) {
+			if ToolPolicy().BlockSensitive && isSensitiveFileResolved(match) {
 				continue
 			}
 			if err := validateSkillFilesystemAllowlist(ctx, match, t.workDir, "search"); err != nil {

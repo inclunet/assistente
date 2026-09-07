@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -25,16 +26,24 @@ type workflowArg struct {
 }
 
 type taskListArgs struct {
-	TaskListID         *string         `json:"task_list_id,omitempty"`
-	TaskListSlug       string          `json:"task_list_slug,omitempty"`
-	Slug               *string         `json:"slug,omitempty"`
-	Duplicate          bool            `json:"duplicate,omitempty"`
-	SummaryOnly        bool            `json:"summary_only,omitempty"`
-	Title              string          `json:"title,omitempty"`
-	Description        string          `json:"description,omitempty"`
-	PreferredViewMode  string          `json:"preferred_view_mode,omitempty"`
-	Workflow           *workflowArg    `json:"workflow,omitempty"`
-	ValidationPolicy   json.RawMessage `json:"validation_policy,omitempty"`
+	TaskListID        *string         `json:"task_list_id,omitempty"`
+	TaskListSlug      string          `json:"task_list_slug,omitempty"`
+	Slug              *string         `json:"slug,omitempty"`
+	Duplicate         bool            `json:"duplicate,omitempty"`
+	SummaryOnly       bool            `json:"summary_only,omitempty"`
+	StatusID          *int            `json:"status_id,omitempty"`
+	Limit             *int            `json:"limit,omitempty"`
+	Cursor            *string         `json:"cursor,omitempty"`
+	Sort              *string         `json:"sort,omitempty"`
+	Title             string          `json:"title,omitempty"`
+	Description       string          `json:"description,omitempty"`
+	PreferredViewMode string          `json:"preferred_view_mode,omitempty"`
+	Workflow          *workflowArg    `json:"workflow,omitempty"`
+	ValidationPolicy  json.RawMessage `json:"validation_policy,omitempty"`
+	CustomActions     json.RawMessage `json:"custom_actions,omitempty"`
+	// ConversationID vincula a lista inteira a uma conversa. nil = não altera;
+	// "" = limpa; valor = vincula. Use get_conversation_info para obter o id.
+	ConversationID *string `json:"conversation_id,omitempty"`
 }
 
 type TaskListTool struct {
@@ -47,8 +56,18 @@ func NewTaskList(mgr TaskListManager) *TaskListTool {
 
 func (t *TaskListTool) Name() string { return "task_list" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *TaskListTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"}
+}
+
 func (t *TaskListTool) Description() string {
-	return `Full CRUD for task lists. Without params → lists all. Identify a list by task_list_id and/or task_list_slug (at least one for read/update/duplicate/summary); if both are sent, they must refer to the same list. With id or slug only → full details. With summary_only → lightweight status counts. Optional slug (create/duplicate: initial slug for the new list; update: set or clear — use empty string to remove slug). With title and no existing list reference → create. With id or slug → update (title may be omitted to keep current). With duplicate + title → copy (tasks NOT copied). validation_policy: task_code_regex, allowed_note_sources, note_external_id_regex, note_external_parent_id_regex; {} clears. Workflow updates with removed statuses need status_migration.`
+	return `Manage persistent task-list containers and their workflow: list, read, filter/page tasks, summarize, create, update, duplicate, configure validation/custom actions, or link a whole list to a conversation. This tool does not delete lists.
+Use when: you need the board/list itself, workflow status IDs, list-level policy, lightweight status counts, or a bounded task page. With no parameters it lists lists; task_list_id/task_list_slug reads legacy full details; summary_only avoids returning tasks. For automation, use status_id plus limit and sort, then continue with next_cursor while has_more is true.
+Do not use: use task for one card, task_note for a card's comments/history, or update_plan for the current conversation's simple execution plan. A job_pipeline groups automations, not tasks.
+Persistence, risk, and cost: writes persist in the database. Workflow changes can affect every task and removed statuses require status_migration; custom actions can later publish events or open links. Legacy full details may be large. Paged reads are flat (subtasks carry parent_id), database-backed, and capped at 100.
+Resolution: if both task_list_id and task_list_slug are supplied they must identify the same list. Paging cursors are opaque and bound to the list, status filter, and sort. created_at plus id is the stable ordering key. duplicate copies configuration but not tasks. Omitted policy/action fields are preserved; validation_policy {} and custom_actions [] clear them.
+Examples: list {}; summarize {"task_list_slug":"release","summary_only":true}; oldest open page {"task_list_slug":"release","status_id":1,"limit":20,"sort":"created_at:asc"}; continue {"task_list_slug":"release","status_id":1,"limit":20,"sort":"created_at:asc","cursor":"<next_cursor>"}; create {"title":"Release","slug":"release"}.`
 }
 
 func (t *TaskListTool) Parameters() json.RawMessage {
@@ -56,8 +75,8 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 		"type": "object",
 		"properties": {
 			"task_list_id": {
-				"type": "integer",
-				"description": "ID of the task list. Omit to list all (read) or create (write). With task_list_slug, both must match the same list. With only id or slug → read details; with title → update; with duplicate → copy"
+				"type": "string",
+				"description": "UUID of the task list. Omit to list all (read) or create (write). With task_list_slug, both must match the same list. With only id or slug → read details; with title → update; with duplicate → copy"
 			},
 			"task_list_slug": {
 				"type": "string",
@@ -70,6 +89,26 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 			"summary_only": {
 				"type": "boolean",
 				"description": "When true, returns only task counts per status (lightweight). Requires task_list_id or task_list_slug"
+			},
+			"status_id": {
+				"type": "integer",
+				"minimum": 1,
+				"description": "Optional workflow status filter for a paged read. Requires task_list_id or task_list_slug and cannot be combined with summary_only or writes"
+			},
+			"limit": {
+				"type": "integer",
+				"minimum": 1,
+				"maximum": 100,
+				"description": "Maximum tasks in a paged read (1-100). Supplying a non-null status_id, limit, cursor, or sort enables paged mode; null is treated as omitted, and limit defaults to 100 when omitted"
+			},
+			"cursor": {
+				"type": ["string", "null"],
+				"description": "Opaque next_cursor from a previous response. It is bound to the same task list, status_id, and sort; do not construct or modify it"
+			},
+			"sort": {
+				"type": ["string", "null"],
+				"enum": ["created_at:asc", "created_at:desc", null],
+				"description": "Explicit stable order for paged reads. created_at is ordered with task id as a deterministic tie-breaker"
 			},
 			"duplicate": {
 				"type": "boolean",
@@ -88,6 +127,10 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 				"enum": ["list", "kanban"],
 				"description": "View mode: 'list' or 'kanban'. Defaults to 'list' for new lists"
 			},
+			"conversation_id": {
+				"type": "string",
+				"description": "Links the WHOLE list to a conversation (1 conversation : N lists). Use the id from get_conversation_info (e.g. the current chat) to bind the list to that conversation. Set to empty string to clear. Omit to leave unchanged. Independent from the per-task conversation_id of the 'task' tool"
+			},
 			"validation_policy": {
 				"type": "object",
 				"description": "Optional per-list validation rules (JSON). Omit to leave unchanged on update. Use {} to clear. task_code_regex: Go regexp for task code when non-empty. allowed_note_sources: non-empty array restricts external note source (case-insensitive). note_external_id_regex / note_external_parent_id_regex: optional Go regexes for synced notes",
@@ -101,6 +144,61 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 					"note_external_parent_id_regex": {"type": "string"}
 				},
 				"additionalProperties": false
+			},
+			"custom_actions": {
+				"type": "array",
+				"description": "Optional per-list custom actions (context-menu items / buttons). Omit to leave unchanged on update. Send [] to clear all. Each action publishes a domain event and/or opens a link. Templating: link, payload_template and when are Go templates rendered with the card as root '.task' (e.g. .task.code, .task.title, .task.link, .task.task_list_id, .task.task_list_slug) plus .now; use the json function for safe values, e.g. {\"code\": {{ json .task.code }}}",
+				"items": {
+					"type": "object",
+					"properties": {
+						"id": {
+							"type": "string",
+							"description": "Stable slug identifying the action. No spaces/whitespace or path separators (/ \\). Must be unique within the list"
+						},
+						"label": {
+							"type": "string",
+							"description": "Text shown on the menu item / button"
+						},
+						"icon": {
+							"type": "string",
+							"description": "Optional emoji/icon, e.g. '🔄'"
+						},
+						"surfaces": {
+							"type": "array",
+							"description": "Where the action appears. Defaults to card_menu when omitted",
+							"items": {
+								"type": "string",
+								"enum": ["card_menu", "card_detail", "board_menu"]
+							}
+						},
+						"event": {
+							"type": "string",
+							"description": "Domain event name to publish when triggered (no whitespace). Required unless 'link' is set"
+						},
+						"payload_template": {
+							"type": "string",
+							"description": "Go template rendered to a JSON object used as the event payload. Only applies when 'event' is set"
+						},
+						"link": {
+							"type": "string",
+							"description": "Go template rendered to a deep link (assistente://...) or external URL (http/https) to open. Required unless 'event' is set"
+						},
+						"when": {
+							"type": "string",
+							"description": "Optional Go template controlling visibility; the action only shows when it renders to a truthy value"
+						},
+						"confirm": {
+							"type": "string",
+							"description": "Optional confirmation text shown before running the action"
+						},
+						"danger": {
+							"type": "boolean",
+							"description": "When true, renders the action with a destructive/danger style"
+						}
+					},
+					"required": ["id", "label"],
+					"additionalProperties": false
+				}
 			},
 			"workflow": {
 				"type": "object",
@@ -163,15 +261,43 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
 	}
 
-	hasValPolicy := len(params.ValidationPolicy) > 0 && strings.TrimSpace(string(params.ValidationPolicy)) != "" && strings.TrimSpace(string(params.ValidationPolicy)) != "null"
-	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || params.Slug != nil || strings.TrimSpace(params.TaskListSlug) != ""
+	hasValPolicy := rawJSONPresent(params.ValidationPolicy)
+	hasCustomActions := rawJSONPresent(params.CustomActions)
+	// task_list_slug e task_list_id são referências puras (modo leitura), nunca
+	// gatilho de escrita: passar só a referência deve retornar os detalhes da
+	// lista, não cair no update (que sobrescreveria description/view_mode com
+	// vazio). A escrita é disparada por campos reais (title, description, slug
+	// a definir, workflow, validation_policy, custom_actions, duplicate, ...).
+	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || hasCustomActions || params.Slug != nil || params.ConversationID != nil
 
 	idPtr := taskListIDPtrForResolve(params.TaskListID)
 	slugRef := strings.TrimSpace(params.TaskListSlug)
 	hasListRef := idPtr != nil || slugRef != ""
+	hasPageQuery := params.StatusID != nil || params.Limit != nil || params.Cursor != nil || params.Sort != nil
 
+	if params.TaskListID != nil && strings.TrimSpace(*params.TaskListID) == "" && slugRef == "" {
+		return tools.ToolResult{Content: "task_list_id must be a non-empty string or null", IsError: true}, nil
+	}
 	if params.SummaryOnly && !hasListRef {
 		return tools.ToolResult{Content: "summary_only requires task_list_id or task_list_slug", IsError: true}, nil
+	}
+	if hasPageQuery && !hasListRef {
+		return tools.ToolResult{Content: "status_id, limit, cursor, and sort require task_list_id or task_list_slug", IsError: true}, nil
+	}
+	if hasPageQuery && params.SummaryOnly {
+		return tools.ToolResult{Content: "summary_only cannot be combined with status_id, limit, cursor, or sort", IsError: true}, nil
+	}
+	if hasPageQuery && isWrite {
+		return tools.ToolResult{Content: "status_id, limit, cursor, and sort are read-only parameters and cannot be combined with writes", IsError: true}, nil
+	}
+	if params.Limit != nil && (*params.Limit < 1 || *params.Limit > database.MaxTaskPageLimit) {
+		return tools.ToolResult{Content: fmt.Sprintf("limit must be between 1 and %d", database.MaxTaskPageLimit), IsError: true}, nil
+	}
+	if params.Cursor != nil && strings.TrimSpace(*params.Cursor) == "" {
+		return tools.ToolResult{Content: "cursor must be a non-empty next_cursor or null", IsError: true}, nil
+	}
+	if params.Sort != nil && strings.TrimSpace(*params.Sort) == "" {
+		return tools.ToolResult{Content: "sort must be created_at:asc, created_at:desc, or null", IsError: true}, nil
 	}
 
 	if params.Duplicate && !hasListRef {
@@ -184,21 +310,46 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 			return tools.ToolResult{Content: "task_list_id must be a non-empty string", IsError: true}, nil
 		}
 		if !hasListRef {
-			return t.listAll()
+			return t.listAll(ctx)
 		}
-		resolved, err := t.mgr.ResolveTaskListRef(idPtr, slugRef)
+		resolved, err := t.mgr.ResolveTaskListRef(ctx, idPtr, slugRef)
 		if err != nil {
 			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 		}
 		if params.SummaryOnly {
-			return t.statusSummary(resolved)
+			return t.statusSummary(ctx, resolved)
 		}
-		return t.fullDetails(resolved)
+		if hasPageQuery {
+			return t.pagedDetails(ctx, resolved, params)
+		}
+		return t.fullDetails(ctx, resolved)
+	}
+
+	// Caso especial: o único campo de escrita é conversation_id. Vincular/
+	// desvincular a lista a uma conversa não deve sobrescrever description/
+	// view_mode com vazio (efeito colateral do update completo), nem exigir
+	// title. Requer referência à lista (não dá para criar lista só com vínculo).
+	convListOnly := params.ConversationID != nil &&
+		strings.TrimSpace(params.Title) == "" && params.Workflow == nil && !params.Duplicate &&
+		strings.TrimSpace(params.Description) == "" && params.PreferredViewMode == "" &&
+		!hasValPolicy && !hasCustomActions && params.Slug == nil
+	if convListOnly {
+		if !hasListRef {
+			return tools.ToolResult{Content: "conversation_id requires task_list_id or task_list_slug to identify the list", IsError: true}, nil
+		}
+		resolved, err := t.mgr.ResolveTaskListRef(ctx, idPtr, slugRef)
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+		if err := t.applyTaskListConversation(ctx, resolved, params.ConversationID); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Error linking list %s to conversation: %v", resolved, err), IsError: true}, nil
+		}
+		return t.fullDetails(ctx, resolved)
 	}
 
 	// WRITE modes
 	if hasListRef {
-		resolved, err := t.mgr.ResolveTaskListRef(idPtr, slugRef)
+		resolved, err := t.mgr.ResolveTaskListRef(ctx, idPtr, slugRef)
 		if err != nil {
 			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 		}
@@ -211,11 +362,11 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 			if params.Slug != nil {
 				newSlug = *params.Slug
 			}
-			return t.duplicateTaskList(resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, newSlug)
+			return t.duplicateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, newSlug, params.ConversationID)
 		}
 		title := strings.TrimSpace(params.Title)
 		if title == "" {
-			ex, err := t.mgr.GetTaskList(resolved)
+			ex, err := t.mgr.GetTaskList(ctx, resolved)
 			if err != nil {
 				return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", resolved, err), IsError: true}, nil
 			}
@@ -224,7 +375,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		if title == "" {
 			return tools.ToolResult{Content: "title is required for create; for update the list must have a stored title", IsError: true}, nil
 		}
-		return t.updateTaskList(resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.Slug)
+		return t.updateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, params.Slug, params.ConversationID)
 	}
 
 	title := strings.TrimSpace(params.Title)
@@ -235,13 +386,13 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if params.Slug != nil {
 		initialSlug = *params.Slug
 	}
-	return t.createTaskList(title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, initialSlug)
+	return t.createTaskList(ctx, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, initialSlug, params.ConversationID)
 }
 
 // ==================== Read Operations ====================
 
-func (t *TaskListTool) listAll() (tools.ToolResult, error) {
-	taskLists, err := t.mgr.GetAllTaskLists()
+func (t *TaskListTool) listAll(ctx context.Context) (tools.ToolResult, error) {
+	taskLists, err := t.mgr.GetAllTaskLists(ctx)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error listing task lists: %v", err), IsError: true}, nil
 	}
@@ -274,13 +425,13 @@ func (t *TaskListTool) listAll() (tools.ToolResult, error) {
 	}, nil
 }
 
-func (t *TaskListTool) statusSummary(taskListID string) (tools.ToolResult, error) {
-	taskList, err := t.mgr.GetTaskList(taskListID)
+func (t *TaskListTool) statusSummary(ctx context.Context, taskListID string) (tools.ToolResult, error) {
+	taskList, err := t.mgr.GetTaskList(ctx, taskListID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", taskListID, err), IsError: true}, nil
 	}
 
-	stats, err := t.mgr.GetTaskListStats(taskListID)
+	stats, err := t.mgr.GetTaskListStats(ctx, taskListID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error getting stats: %v", err), IsError: true}, nil
 	}
@@ -313,13 +464,14 @@ func (t *TaskListTool) statusSummary(taskListID string) (tools.ToolResult, error
 
 	resultJSON, _ := json.Marshal(response)
 	return tools.ToolResult{
-		Content:  string(resultJSON),
-		Metadata: map[string]any{"task_list_id": taskListID},
+		Content:    string(resultJSON),
+		Metadata:   map[string]any{"task_list_id": taskListID},
+		Structured: true,
 	}, nil
 }
 
-func (t *TaskListTool) fullDetails(taskListID string) (tools.ToolResult, error) {
-	taskList, err := t.mgr.GetTaskList(taskListID)
+func (t *TaskListTool) fullDetails(ctx context.Context, taskListID string) (tools.ToolResult, error) {
+	taskList, err := t.mgr.GetTaskList(ctx, taskListID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", taskListID, err), IsError: true}, nil
 	}
@@ -363,8 +515,14 @@ func (t *TaskListTool) fullDetails(taskListID string) (tools.ToolResult, error) 
 	if taskList.Slug != "" {
 		response["slug"] = taskList.Slug
 	}
+	if taskList.ConversationID != nil && *taskList.ConversationID != "" {
+		response["conversation_id"] = *taskList.ConversationID
+	}
 	if vp := validationPolicyToMap(taskList.ValidationPolicy); vp != nil {
 		response["validation_policy"] = vp
+	}
+	if ca := customActionsToList(taskList.CustomActions); ca != nil {
+		response["custom_actions"] = ca
 	}
 
 	if taskList.Workflow != nil {
@@ -377,7 +535,7 @@ func (t *TaskListTool) fullDetails(taskListID string) (tools.ToolResult, error) 
 			response["workflow_statuses"] = statusList
 			response["initial_status_id"] = taskList.Workflow.InitialStatusID
 
-			stats, statsErr := t.mgr.GetTaskListStats(taskListID)
+			stats, statsErr := t.mgr.GetTaskListStats(ctx, taskListID)
 			if statsErr == nil {
 				byStatus, _ := stats["byStatus"].(map[string]int64)
 				statusCounts := make([]map[string]any, 0, len(statuses))
@@ -402,14 +560,121 @@ func (t *TaskListTool) fullDetails(taskListID string) (tools.ToolResult, error) 
 
 	resultJSON, _ := json.Marshal(response)
 	return tools.ToolResult{
-		Content:  string(resultJSON),
-		Metadata: map[string]any{"task_list_id": taskList.ID},
+		Content:    string(resultJSON),
+		Metadata:   map[string]any{"task_list_id": taskList.ID},
+		Structured: true,
 	}, nil
+}
+
+func (t *TaskListTool) pagedDetails(ctx context.Context, taskListID string, params taskListArgs) (tools.ToolResult, error) {
+	if params.StatusID != nil {
+		workflow, err := t.mgr.GetWorkflow(ctx, taskListID)
+		if err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("cannot load workflow to validate status_id: %v", err), IsError: true}, nil
+		}
+		statuses, parseErr := parseWorkflowStatuses(workflow)
+		if parseErr != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("cannot validate status_id: %v", parseErr), IsError: true}, nil
+		}
+		valid := false
+		for _, status := range statuses {
+			if status.ID == *params.StatusID {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return tools.ToolResult{Content: fmt.Sprintf("status_id %d does not exist in the task list workflow", *params.StatusID), IsError: true}, nil
+		}
+	}
+
+	limit := database.DefaultTaskPageLimit
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = strings.TrimSpace(*params.Cursor)
+	}
+	sort := ""
+	if params.Sort != nil {
+		sort = strings.TrimSpace(*params.Sort)
+	}
+	if sort == "" {
+		sort = database.TaskSortCreatedAtAsc
+	}
+	page, err := t.mgr.ListTasksPage(ctx, database.TaskPageQuery{
+		TaskListID: taskListID,
+		StatusID:   params.StatusID,
+		Limit:      limit,
+		Cursor:     cursor,
+		Sort:       sort,
+	})
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error listing task page (task_list_id=%s): %v", taskListID, err), IsError: true}, nil
+	}
+	taskList := page.TaskList
+
+	type pagedTaskInfo struct {
+		ID          string  `json:"id"`
+		Title       string  `json:"title"`
+		Description string  `json:"description,omitempty"`
+		StatusID    int     `json:"status_id"`
+		ParentID    *string `json:"parent_id,omitempty"`
+		CreatedAt   string  `json:"created_at"`
+	}
+	tasks := make([]pagedTaskInfo, len(page.Tasks))
+	for i, task := range page.Tasks {
+		tasks[i] = pagedTaskInfo{
+			ID:          task.ID,
+			Title:       task.Title,
+			Description: task.Description,
+			StatusID:    task.StatusID,
+			ParentID:    task.ParentID,
+			CreatedAt:   task.CreatedAt.UTC().Format(time.RFC3339Nano),
+		}
+	}
+	response := map[string]any{
+		"id":          taskList.ID,
+		"title":       taskList.Title,
+		"tasks":       tasks,
+		"limit":       limit,
+		"sort":        sort,
+		"has_more":    page.HasMore,
+		"next_cursor": nil,
+	}
+	if taskList.Slug != "" {
+		response["slug"] = taskList.Slug
+	}
+	if params.StatusID != nil {
+		response["status_id"] = *params.StatusID
+	}
+	if page.NextCursor != "" {
+		response["next_cursor"] = page.NextCursor
+	}
+	resultJSON, err := json.Marshal(response)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error encoding task page: %v", err), IsError: true}, nil
+	}
+	metadata := map[string]any{
+		"task_list_id": taskList.ID,
+		"count":        len(tasks),
+		"limit":        limit,
+		"sort":         sort,
+		"has_more":     page.HasMore,
+	}
+	if params.StatusID != nil {
+		metadata["status_id"] = *params.StatusID
+	}
+	if page.NextCursor != "" {
+		metadata["next_cursor"] = page.NextCursor
+	}
+	return tools.ToolResult{Content: string(resultJSON), Metadata: metadata, Structured: true}, nil
 }
 
 // ==================== Write Operations ====================
 
-func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage, initialSlug string) (tools.ToolResult, error) {
+func (t *TaskListTool) createTaskList(ctx context.Context, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, initialSlug string, conversationID *string) (tools.ToolResult, error) {
 	var template *database.TaskListWorkflow
 	if wf != nil {
 		tpl, err := t.buildWorkflowTemplate(wf)
@@ -419,20 +684,28 @@ func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *w
 		template = tpl
 	}
 
-	taskList, err := t.mgr.CreateTaskList(title, description, template, initialSlug)
+	taskList, err := t.mgr.CreateTaskList(ctx, title, description, template, initialSlug)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating task list: %v", err), IsError: true}, nil
 	}
 
 	if viewMode == "kanban" || viewMode == "list" {
-		_ = t.mgr.UpdateTaskListFull(taskList.ID, title, description, viewMode, nil)
+		_ = t.mgr.UpdateTaskListFull(ctx, taskList.ID, title, description, viewMode, nil)
 	}
 
-	if msg, err := t.applyValidationPolicy(taskList.ID, policyRaw); err != nil {
+	if msg, err := t.applyValidationPolicy(ctx, taskList.ID, policyRaw); err != nil {
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
-	updated, err := t.mgr.GetTaskList(taskList.ID)
+	if msg, err := t.applyCustomActions(ctx, taskList.ID, customActionsRaw); err != nil {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
+	if err := t.applyTaskListConversation(ctx, taskList.ID, conversationID); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list created (id=%s) but conversation link failed: %v", taskList.ID, err), IsError: true}, nil
+	}
+
+	updated, err := t.mgr.GetTaskList(ctx, taskList.ID)
 	if err != nil {
 		updated = taskList
 	}
@@ -444,8 +717,8 @@ func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *w
 	}, nil
 }
 
-func (t *TaskListTool) duplicateTaskList(sourceID string, title, description, viewMode string, wfOverride *workflowArg, policyRaw json.RawMessage, newListSlug string) (tools.ToolResult, error) {
-	source, err := t.mgr.GetTaskList(sourceID)
+func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, title, description, viewMode string, wfOverride *workflowArg, policyRaw, customActionsRaw json.RawMessage, newListSlug string, conversationID *string) (tools.ToolResult, error) {
+	source, err := t.mgr.GetTaskList(ctx, sourceID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Source task list not found (id=%s): %v", sourceID, err), IsError: true}, nil
 	}
@@ -469,7 +742,7 @@ func (t *TaskListTool) duplicateTaskList(sourceID string, title, description, vi
 		}
 	}
 
-	newList, err := t.mgr.CreateTaskList(title, description, template, newListSlug)
+	newList, err := t.mgr.CreateTaskList(ctx, title, description, template, newListSlug)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error duplicating task list: %v", err), IsError: true}, nil
 	}
@@ -479,20 +752,40 @@ func (t *TaskListTool) duplicateTaskList(sourceID string, title, description, vi
 		effectiveViewMode = source.PreferredViewMode
 	}
 	if effectiveViewMode == "kanban" || effectiveViewMode == "list" {
-		_ = t.mgr.UpdateTaskListFull(newList.ID, title, description, effectiveViewMode, nil)
+		_ = t.mgr.UpdateTaskListFull(ctx, newList.ID, title, description, effectiveViewMode, nil)
 	}
 
 	if len(policyRaw) > 0 && strings.TrimSpace(string(policyRaw)) != "" && strings.TrimSpace(string(policyRaw)) != "null" {
-		if msg, err := t.applyValidationPolicy(newList.ID, policyRaw); err != nil {
+		if msg, err := t.applyValidationPolicy(ctx, newList.ID, policyRaw); err != nil {
 			return tools.ToolResult{Content: msg, IsError: true}, nil
 		}
 	} else if strings.TrimSpace(source.ValidationPolicy) != "" {
-		if err := t.mgr.SetTaskListValidationPolicy(newList.ID, source.ValidationPolicy); err != nil {
+		if err := t.mgr.SetTaskListValidationPolicy(ctx, newList.ID, source.ValidationPolicy); err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Error copying validation policy: %v", err), IsError: true}, nil
 		}
 	}
 
-	updated, err := t.mgr.GetTaskList(newList.ID)
+	if rawJSONPresent(customActionsRaw) {
+		if msg, err := t.applyCustomActions(ctx, newList.ID, customActionsRaw); err != nil {
+			return tools.ToolResult{Content: msg, IsError: true}, nil
+		}
+	} else if strings.TrimSpace(source.CustomActions) != "" {
+		if err := t.mgr.SetTaskListCustomActions(ctx, newList.ID, source.CustomActions); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Error copying custom actions: %v", err), IsError: true}, nil
+		}
+	}
+
+	// Por padrão a cópia herda a conversa da origem; conversation_id explícito
+	// sobrescreve (inclusive "" para não vincular a nova lista).
+	effectiveConv := conversationID
+	if effectiveConv == nil {
+		effectiveConv = source.ConversationID
+	}
+	if err := t.applyTaskListConversation(ctx, newList.ID, effectiveConv); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list duplicated (id=%s) but conversation link failed: %v", newList.ID, err), IsError: true}, nil
+	}
+
+	updated, err := t.mgr.GetTaskList(ctx, newList.ID)
 	if err != nil {
 		updated = newList
 	}
@@ -506,17 +799,21 @@ func (t *TaskListTool) duplicateTaskList(sourceID string, title, description, vi
 	}, nil
 }
 
-func (t *TaskListTool) updateTaskList(id string, title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage, slugUpdate *string) (tools.ToolResult, error) {
-	existing, err := t.mgr.GetTaskList(id)
+func (t *TaskListTool) updateTaskList(ctx context.Context, id string, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, slugUpdate *string, conversationID *string) (tools.ToolResult, error) {
+	existing, err := t.mgr.GetTaskList(ctx, id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", id, err), IsError: true}, nil
 	}
 
-	if err := t.mgr.UpdateTaskListFull(id, title, description, viewMode, slugUpdate); err != nil {
+	if err := t.mgr.UpdateTaskListFull(ctx, id, title, description, viewMode, slugUpdate); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error updating task list: %v", err), IsError: true}, nil
 	}
 
-	if msg, err := t.applyValidationPolicy(id, policyRaw); err != nil {
+	if msg, err := t.applyValidationPolicy(ctx, id, policyRaw); err != nil {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
+	if msg, err := t.applyCustomActions(ctx, id, customActionsRaw); err != nil {
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
@@ -539,12 +836,16 @@ func (t *TaskListTool) updateTaskList(id string, title, description, viewMode st
 			migration = wf.StatusMigration
 		}
 
-		if err := t.mgr.UpdateWorkflowFull(id, statuses, transitions, wf.InitialStatusID, migration); err != nil {
+		if err := t.mgr.UpdateWorkflowFull(ctx, id, statuses, transitions, wf.InitialStatusID, migration); err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Task list metadata updated but workflow update failed: %v", err), IsError: true}, nil
 		}
 	}
 
-	updated, err := t.mgr.GetTaskList(id)
+	if err := t.applyTaskListConversation(ctx, id, conversationID); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list updated but conversation link failed: %v", err), IsError: true}, nil
+	}
+
+	updated, err := t.mgr.GetTaskList(ctx, id)
 	if err != nil {
 		updated = existing
 	}
@@ -608,6 +909,20 @@ func (t *TaskListTool) buildWorkflowTemplate(wf *workflowArg) (*database.TaskLis
 	}, nil
 }
 
+// applyTaskListConversation aplica o vínculo da lista com conversa quando
+// conversation_id foi enviado. nil = não altera; "" = limpa; valor = vincula.
+func (t *TaskListTool) applyTaskListConversation(ctx context.Context, taskListID string, conversationID *string) error {
+	if conversationID == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*conversationID)
+	var ptr *string
+	if trimmed != "" {
+		ptr = &trimmed
+	}
+	return t.mgr.SetTaskListConversation(ctx, taskListID, ptr)
+}
+
 func (t *TaskListTool) buildResult(tl *database.TaskList, action string) map[string]any {
 	result := map[string]any{
 		"id":     tl.ID,
@@ -617,8 +932,14 @@ func (t *TaskListTool) buildResult(tl *database.TaskList, action string) map[str
 	if tl.Slug != "" {
 		result["slug"] = tl.Slug
 	}
+	if tl.ConversationID != nil && *tl.ConversationID != "" {
+		result["conversation_id"] = *tl.ConversationID
+	}
 	if vp := validationPolicyToMap(tl.ValidationPolicy); vp != nil {
 		result["validation_policy"] = vp
+	}
+	if ca := customActionsToList(tl.CustomActions); ca != nil {
+		result["custom_actions"] = ca
 	}
 	if tl.Workflow != nil {
 		statuses, err := parseWorkflowStatuses(tl.Workflow)
@@ -656,17 +977,43 @@ func validationPolicyToMap(raw string) map[string]any {
 	return m
 }
 
+// customActionsToList interpreta o JSON armazenado em custom_actions e devolve
+// a lista de ações como []map[string]any para echo nas respostas. Retorna nil
+// quando não há ações configuradas (campo vazio ou lista vazia válida), de modo
+// que o campo seja omitido. Se o JSON armazenado for inválido (config corrompida
+// ou legada), em vez de sumir silenciosamente com o campo, expõe um marcador de
+// erro — coerente com validationPolicyToMap — para não atrapalhar diagnóstico.
+func customActionsToList(raw string) []map[string]any {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil
+	}
+	ca, err := database.ParseTaskListCustomActionsJSON(raw)
+	if err != nil || ca == nil {
+		return []map[string]any{{"_parse_error": true, "raw": s}}
+	}
+	if len(ca.Actions) == 0 {
+		return nil
+	}
+	actionsJSON, err := json.Marshal(ca.Actions)
+	if err != nil {
+		return []map[string]any{{"_parse_error": true, "raw": s}}
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(actionsJSON, &out); err != nil {
+		return []map[string]any{{"_parse_error": true, "raw": s}}
+	}
+	return out
+}
+
 // applyValidationPolicy aplica validation_policy quando o JSON foi enviado (inclui {} para limpar).
-func (t *TaskListTool) applyValidationPolicy(taskListID string, policyRaw json.RawMessage) (errMsg string, err error) {
-	if len(policyRaw) == 0 {
+func (t *TaskListTool) applyValidationPolicy(ctx context.Context, taskListID string, policyRaw json.RawMessage) (errMsg string, err error) {
+	if !rawJSONPresent(policyRaw) {
 		return "", nil
 	}
 	s := strings.TrimSpace(string(policyRaw))
-	if s == "" || s == "null" {
-		return "", nil
-	}
 	if s == "{}" {
-		if e := t.mgr.SetTaskListValidationPolicy(taskListID, ""); e != nil {
+		if e := t.mgr.SetTaskListValidationPolicy(ctx, taskListID, ""); e != nil {
 			return fmt.Sprintf("Error clearing validation_policy: %v", e), e
 		}
 		return "", nil
@@ -674,16 +1021,63 @@ func (t *TaskListTool) applyValidationPolicy(taskListID string, policyRaw json.R
 	if _, e := database.ParseTaskListValidationPolicyJSON(s); e != nil {
 		return e.Error(), e
 	}
-	if e := t.mgr.SetTaskListValidationPolicy(taskListID, s); e != nil {
+	if e := t.mgr.SetTaskListValidationPolicy(ctx, taskListID, s); e != nil {
 		return fmt.Sprintf("Error saving validation_policy: %v", e), e
 	}
 	return "", nil
 }
 
+// rawJSONPresent reporta se um campo json.RawMessage opcional foi efetivamente
+// enviado (não vazio e diferente de "null"). Usado para distinguir "omitido"
+// (mantém valor atual) de "enviado" (aplica/limpa).
+func rawJSONPresent(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	s := strings.TrimSpace(string(raw))
+	return s != "" && s != "null"
+}
+
+// applyCustomActions aplica custom_actions quando enviado. custom_actions é um
+// ARRAY de ações (forma do schema do tool): um array vazio ([]) limpa todas as
+// ações. Qualquer outro tipo JSON (objeto, inclusive {}, ou escalar) é rejeitado
+// explicitamente — assim um tipo errado vira erro claro em vez de data-loss
+// silencioso e mantém coerência com a descrição do tool ("[] clears").
+func (t *TaskListTool) applyCustomActions(ctx context.Context, taskListID string, raw json.RawMessage) (errMsg string, err error) {
+	if !rawJSONPresent(raw) {
+		return "", nil
+	}
+	s := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(s, "[") {
+		msg := "custom_actions deve ser um array de ações (use [] para limpar todas)"
+		return msg, fmt.Errorf("%s", msg)
+	}
+	// Embrulha o array no formato armazenado {"actions":[...]} e valida.
+	normalized := `{"actions":` + s + `}`
+	parsed, e := database.ParseTaskListCustomActionsJSON(normalized)
+	if e != nil {
+		return e.Error(), e
+	}
+	// Array vazio ([] ou [ ]) limpa tudo.
+	if len(parsed.Actions) == 0 {
+		if e := t.mgr.SetTaskListCustomActions(ctx, taskListID, ""); e != nil {
+			return fmt.Sprintf("Error clearing custom_actions: %v", e), e
+		}
+		return "", nil
+	}
+	if e := t.mgr.SetTaskListCustomActions(ctx, taskListID, normalized); e != nil {
+		return fmt.Sprintf("Error saving custom_actions: %v", e), e
+	}
+	return "", nil
+}
+
 func taskListIDPtrForResolve(p *string) *string {
-	if p == nil || *p == "" {
+	if p == nil {
 		return nil
 	}
-	v := *p
+	v := strings.TrimSpace(*p)
+	if v == "" {
+		return nil
+	}
 	return &v
 }

@@ -1,14 +1,20 @@
 # 0053 — Degradação graciosa de MCP nativo no chat
 
+Status: In Progress — política compartilhada e OpenAI entregues; classificação no adapter Anthropic e matriz de regressões permanecem parciais
+
 Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-23
-Status: rascunho
 
 ## Resumo executivo
 
 Hoje, um único servidor MCP nativo que falha durante autenticação, listagem de tools ou execução server-side pode abortar a resposta inteira do chat. Isso acontece mesmo quando os demais servidores MCP da mesma request continuam válidos e mesmo quando a falha parece recuperável.
 
-Esta AEP propõe uma política de degradação graciosa por tentativa: o servidor que falhou é removido apenas da request atual, a chamada ao provider é refeita sem ele e o `MCP Manager` dispara uma recuperação best-effort para restaurá-lo em chamadas futuras. A política é compartilhada entre providers; OpenAI e Anthropic implementam apenas adaptadores para converter seus eventos/erros específicos em uma classificação comum.
+Esta AEP define uma política de degradação graciosa por tentativa: o servidor
+que falhou é removido apenas da request atual, a chamada ao provider é refeita
+sem ele e o `MCP Manager` dispara uma recuperação best-effort para restaurá-lo
+em chamadas futuras. A política compartilhada e a tradução OpenAI estão
+implementadas. O Anthropic já reutiliza a orquestração, mas a classificação de
+`mcp_tool_result.IsError` no stream real ainda está pendente.
 
 O retry é deliberadamente limitado e só acontece dentro de uma janela segura: antes de qualquer saída visível da tentativa atual. Se já houve texto emitido ao usuário, o erro continua fatal para evitar duplicação ou corrupção do streaming.
 
@@ -194,44 +200,62 @@ Cobertura mínima:
 
 ### OpenAI
 
-1. Falha em `response.mcp_list_tools.failed` remove o servidor e a resposta continua sem ele.
-2. Falha de autenticação MCP dispara `RecoverServerBestEffort()` e retry sem o servidor.
-3. `response.failed` não-MCP continua fatal.
-4. Se já houve output visível, não faz retry de degradação.
+1. [x] Falha MCP identificável remove o servidor e a resposta continua sem ele.
+2. [ ] Cobrir explicitamente falha de autenticação MCP disparando
+   `RecoverServerBestEffort()` e retry sem o servidor.
+3. [ ] Cobrir explicitamente `response.failed` não-MCP permanecendo fatal.
+4. [ ] Cobrir explicitamente ausência de retry após output visível.
 
 ### Anthropic
 
-1. Falha atribuída a servidor MCP gera retry sem o servidor.
-2. Falha não atribuível a um slug continua fatal.
-3. Resposta pode concluir normalmente após remover o servidor problemático.
+1. [x] A orquestração compartilhada do provider gera retry sem o servidor
+   quando `betaAttemptFn` injeta uma falha já normalizada.
+2. [ ] Cobrir no adapter Anthropic falha não atribuível a slug permanecendo
+   fatal.
+3. [x] O teste de orquestração conclui a resposta após remover o servidor.
+4. [ ] Fazer `doStreamBeta` classificar `mcp_tool_result` com `IsError` via
+   `inferMCPFailure` antes de considerar o adapter Anthropic completo.
 
 ### MCP Manager
 
-1. `RecoverServerBestEffort()` tenta refresh OAuth quando aplicável.
-2. `RecoverServerBestEffort()` tenta reconnect/refresh de forma idempotente.
-3. Timeout e erros são retornados sem travar o chat.
+1. [x] `RecoverServerBestEffort()` tenta refresh OAuth quando aplicável.
+2. [x] `RecoverServerBestEffort()` tenta reconnect/refresh de forma
+   idempotente.
+3. [x] Erros são retornados e a chamada feita pelo planner usa timeout sem
+   travar o chat.
 
 ## Fases sugeridas
 
-### Fase 1 — Política compartilhada
+### Fase 1 — Política compartilhada ✅
 
-- Criar tipos normalizados de falha MCP.
-- Implementar a decisão compartilhada de retry/degradação.
+- [x] Criar tipos normalizados de falha MCP.
+- [x] Implementar a decisão compartilhada de retry/degradação.
 
-### Fase 2 — Hook de recuperação
+### Fase 2 — Hook de recuperação ✅
 
-- Expor `RecoverServerBestEffort()` no `MCP Manager`.
-- Adicionar testes unitários do helper.
+- [x] Expor `RecoverServerBestEffort()` no `MCP Manager`.
+- [x] Adicionar testes unitários do helper.
 
-### Fase 3 — OpenAI
+### Fase 3 — OpenAI ✅
 
-- Adaptar eventos/erros do Responses API para a estrutura comum.
-- Cobrir cenários de falha de listagem/auth/servidor.
+- [x] Adaptar eventos/erros do Responses API para a estrutura comum.
+- [x] Cobrir o caminho integrado de degradação e conclusão sem o servidor.
 
-### Fase 4 — Anthropic
+### Fase 4 — Anthropic 🚧
 
-- Adaptar o stream beta/MCP connector para a mesma política.
-- Cobrir cenários equivalentes no provider Anthropic.
+- [x] Integrar o loop de retry compartilhado ao provider Anthropic.
+- [x] Cobrir a orquestração com `betaAttemptFn` retornando falha normalizada e
+  a conclusão sem o servidor.
+- [ ] Classificar no adapter real `doStreamBeta` o
+  `mcp_tool_result.IsError` via `inferMCPFailure`; hoje ele apenas emite
+  `MCPToolEvent` com erro.
+- [ ] Cobrir a classificação real do stream beta sem depender da injeção de
+  `mcpStreamAttemptResult` pelo teste.
+
+### Fase 5 — Matriz de regressões 🚧
+
+- [ ] Completar os casos pendentes listados em **Testes**, sobretudo o gate
+  após output visível e falhas fatais/não atribuíveis em cada adapter.
 
 ## Arquivos afetados
 
@@ -279,12 +303,39 @@ As PRs abertas já reservam as AEPs `0046` a `0052`. Por isso, esta proposta usa
 
 ## Critérios de aceitação
 
-1. Um servidor MCP nativo com falha degradável não aborta a resposta inteira quando a falha acontece antes de output visível.
-2. O retry refaz a request sem o servidor problemático.
-3. O servidor degradado dispara recuperação best-effort por slug.
-4. O retry é limitado e não entra em loop infinito.
-5. Falhas não classificáveis, não degradáveis ou fora da janela segura continuam fatais.
-6. OpenAI e Anthropic possuem testes cobrindo o comportamento esperado.
+1. [x] A política compartilhada e o adapter OpenAI permitem que um servidor
+   MCP nativo com falha degradável não aborte a resposta inteira antes de
+   output visível.
+2. [x] O retry refaz a request sem o servidor problemático.
+3. [x] O servidor degradado dispara recuperação best-effort por slug.
+4. [x] O retry é limitado e não entra em loop infinito.
+5. [x] Falhas já classificadas como não degradáveis ou fora da janela segura
+   continuam fatais no código vigente.
+6. [ ] OpenAI e Anthropic possuem a matriz mínima completa de testes descrita
+   nesta AEP.
+7. [ ] O adapter Anthropic real classifica `mcp_tool_result.IsError` como
+   candidato à política compartilhada antes de output visível.
+
+## Evidências da implementação
+
+- política compartilhada, remoção por slug e limite de retries:
+  `internal/llm/mcp_degradation.go` e
+  `internal/llm/mcp_degradation_test.go`;
+- OpenAI Responses e gate anterior a output visível:
+  `internal/llm/openai_responses.go` e
+  `internal/llm/openai_responses_test.go`;
+- Anthropic — apenas wiring e orquestração com resultado normalizado injetado:
+  `internal/llm/anthropic_provider.go` e
+  `internal/llm/chat_provider_test.go`; o teste não prova a classificação de
+  `mcp_tool_result.IsError` por `doStreamBeta`;
+- recuperação OAuth/reconnect:
+  `internal/mcp/manager.go` e `internal/mcp/manager_test.go`;
+- wiring do callback de recuperação:
+  `internal/chat/tool_selection_policy.go`.
+
+O helper do Manager é síncrono, mas o planner o chama em goroutine com timeout
+de cinco segundos. Assim, a recuperação permanece best-effort para chamadas
+futuras sem bloquear o retry do chat.
 
 ## Referências
 

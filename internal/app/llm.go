@@ -23,30 +23,19 @@ type Model = llm.Model
 type ModelsResponse = llm.ModelsResponse
 type ChatParams = llm.ChatParams
 
-// Re-exporta funções utilitárias
-
-// ==================== Wails Bindings ====================
-
-// GetModels retorna a lista de modelos disponíveis na API do provedor ativo.
-func (a *App) GetModels() ([]string, error) {
-	activeProfile, _ := a.profileManager.GetActive()
-	return a.providerSvc.GetModels(a.ctx, activeProfile)
-}
-
-// GetModelsByProvider retorna a lista de modelos de um provedor específico.
-func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
-	return a.providerSvc.GetModelsByProvider(a.ctx, providerID)
-}
-
 // Constantes de validação de input — re-exportadas de internal/chat para uso no pacote main.
 const (
 	MaxMessageContentSize = chat.MaxMessageContentSize
 	MaxMediaSize          = chat.MaxMediaSize
 )
 
-// CancelStreamingForConversation cancela o streaming LLM em andamento para uma conversa.
-// Usado pelo pipeline SIP para barge-in.
-func (a *App) CancelStreamingForConversation(conversationID string) {
+// CancelStreamingForConversation cancela o streaming LLM em andamento para uma
+// conversa. Helper de pacote para CLI/testes (não entra no Bind Wails — a
+// superfície Wails vive em wailsapi.LLMModels).
+func CancelStreamingForConversation(a *App, conversationID string) {
+	if a == nil || a.streamMgr == nil {
+		return
+	}
 	a.streamMgr.Cancel(conversationID)
 }
 

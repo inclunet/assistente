@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "version": "2.0",
+    "exported_at": "2026-03-18T12:00:00Z",
+    "type": "conversations",
+    "count": 1
+  },
+  "conversations": [
+    {
+      "id": 7,
+      "title": "Fixture sem dados pessoais",
+      "created_at": "2026-03-18T11:59:00Z",
+      "updated_at": "2026-03-18T12:00:00Z",
+      "messages": [
+        {
+          "id": 41,
+          "conversationId": 7,
+          "role": "user",
+          "content": "mensagem de teste",
+          "createdAt": "2026-03-18T11:59:01Z"
+        },
+        {
+          "id": 42,
+          "conversationId": 7,
+          "parentId": 41,
+          "turnId": 41,
+          "role": "assistant",
+          "content": "resposta de teste",
+          "model": "fixture-model",
+          "createdAt": "2026-03-18T11:59:02Z"
+        }
+      ]
+    }
+  ]
+}

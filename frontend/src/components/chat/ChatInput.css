@@ -144,6 +144,27 @@
   text-align: center;
 }
 
+/* Indicador discreto de rascunho salvo (auto-save por aba/conversa) */
+.chat-input__draft-status {
+  min-height: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-input__draft-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-muted);
+}
+
+.chat-input__draft-indicator .anticon {
+  color: var(--color-success);
+  font-size: 12px;
+}
+
 /* Scrollbar for textarea */
 .chat-input__textarea::-webkit-scrollbar {
   width: 6px;

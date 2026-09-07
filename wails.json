@@ -17,5 +17,5 @@
     "copyright": "© 2026 Inclunet. Todos os direitos reservados.",
     "comments": "Assistente com IA"
   },
-  "wailsjsdir": "./frontend/wailsjs"
+  "wailsjsdir": "./frontend"
 }

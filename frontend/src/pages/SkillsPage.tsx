@@ -9,14 +9,15 @@ import {
   DeleteSkill,
   GetSkillSearchPaths,
   DuplicateSkill,
-} from '@wailsjs/go/app/App';
-import { skills, main } from '../../wailsjs/go/models';
+} from '@wailsjs/go/wailsapi/Skills';
+import { skills, apidto } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button, PageLoading } from '../components';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
+import { DialogActions } from '../components/ui/DialogActions';
 import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
 import { SkillContentSection } from '../components/skills/SkillContentSection';
 import { SkillToolsSection } from '../components/skills/SkillToolsSection';
@@ -27,14 +28,18 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './SkillsPage.css';
 
 type SkillInfo = skills.SkillInfo;
+const DEFAULT_SKILL_VERSION = '1.0.0';
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 
 interface SkillRow {
   id: string;
   slug: string;
   name: string;
+  version: string;
   description: string;
   auto: boolean;
   source: string;
@@ -47,6 +52,7 @@ interface SkillRow {
 
 interface SkillFormData {
   name: string;
+  version: string;
   description: string;
   auto: boolean;
   disableModelInvocation?: boolean;
@@ -81,6 +87,7 @@ export default function SkillsPage() {
           id: s.slug,
           slug: s.slug,
           name: s.name,
+          version: s.version || DEFAULT_SKILL_VERSION,
           description: s.description || '',
           auto: !s.disableModelInvocation,
           source: s.source,
@@ -93,6 +100,7 @@ export default function SkillsPage() {
           id: skill.slug,
           slug: skill.slug,
           name: skill.name,
+          version: skill.version || DEFAULT_SKILL_VERSION,
           description: skill.description,
           auto: !skill.disableModelInvocation,
           source: skill.source,
@@ -103,8 +111,9 @@ export default function SkillsPage() {
       },
       createItem: async (data) => {
         const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = main.SkillCreateRequest.createFrom({
+        const req = apidto.SkillCreateRequest.createFrom({
           name: data.name.trim(),
+          version: data.version.trim(),
           description: data.description.trim(),
           disableModelInvocation: !data.auto,
           tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
@@ -114,8 +123,9 @@ export default function SkillsPage() {
       },
       updateItem: async (id, data) => {
         const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = main.SkillCreateRequest.createFrom({
+        const req = apidto.SkillCreateRequest.createFrom({
           name: data.name.trim(),
+          version: data.version.trim(),
           description: data.description.trim(),
           disableModelInvocation: !data.auto,
           tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
@@ -154,6 +164,9 @@ export default function SkillsPage() {
         if (!item.name.trim()) {
           return t('skills.nameRequired', 'Nome é obrigatório');
         }
+        if (!SEMVER_PATTERN.test(item.version.trim())) {
+          return t('skills.versionInvalid', 'Versão deve seguir o formato semântico X.Y.Z');
+        }
         if (!item.description.trim()) {
           return t('skills.descriptionRequired', 'Descrição é obrigatória');
         }
@@ -163,6 +176,7 @@ export default function SkillsPage() {
         id: '',
         slug: '',
         name: '',
+        version: DEFAULT_SKILL_VERSION,
         description: '',
         auto: false,
         source: 'workdir',
@@ -184,24 +198,7 @@ export default function SkillsPage() {
     ready: !crud.loading && crud.items.length > 0,
   });
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.key !== 'n' && event.key !== 'N') return;
-      const target = event.target as HTMLElement | null;
-      const isInput =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
-      if (isInput) return;
-      event.preventDefault();
-      crud.openNew();
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [crud]);
+  useActivePanelNewShortcut(crud.openNew);
 
   // --- Grid columns ---
 
@@ -290,7 +287,7 @@ export default function SkillsPage() {
     try {
       const newSlug = await DuplicateSkill(row.slug);
       const successMessage = t('skills.duplicated', 'Skill duplicado!');
-      addToast(successMessage, 'success');
+      addToast(successMessage, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(successMessage);
       await crud.loadItems();
       await crud.openEdit({ id: newSlug, slug: newSlug, name: row.name } as SkillRow);
@@ -439,16 +436,22 @@ export default function SkillsPage() {
                   {t('skills.deleteBtn', 'Excluir')}
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                onClick={crud.closeEditor}
-                aria-label={t('skills.closeBtnLabel', 'Fechar editor, Escape')}
-              >
-                {t('skills.closeBtn', 'Fechar')}
-              </Button>
-              <Button onClick={crud.save} loading={crud.saving}>
-                {t('skills.saveBtn', 'Salvar')}
-              </Button>
+              <DialogActions
+                primary={
+                  <Button onClick={crud.save} loading={crud.saving}>
+                    {t('skills.saveBtn', 'Salvar')}
+                  </Button>
+                }
+                secondary={
+                  <Button
+                    variant="ghost"
+                    onClick={crud.closeEditor}
+                    aria-label={t('skills.closeBtnLabel', 'Fechar editor, Escape')}
+                  >
+                    {t('skills.closeBtn', 'Fechar')}
+                  </Button>
+                }
+              />
             </EditorPanelFooter>
           </div>
         )}
@@ -456,7 +459,7 @@ export default function SkillsPage() {
 
       {/* Empty state when no skill is being edited */}
       {!crud.editingItem && crud.items.length > 0 && (
-        <div className="skills-empty" role="status">
+        <div className="skills-empty">
           <p>
             <Trans
               i18nKey="skills.selectHint"
@@ -469,7 +472,7 @@ export default function SkillsPage() {
 
       {/* Empty state when no skills exist */}
       {!crud.editingItem && crud.items.length === 0 && (
-        <div className="skills-empty" role="status">
+        <div className="skills-empty">
           <p>
             {t(
               'skills.noSkills',

@@ -1,5 +1,7 @@
 # Plano — Editor Rico + Edição Inline com Chat
 
+**Status:** In Progress — MVP funcional; persistência SQLite e gestão de arquivos permanecem pendentes
+
 ## Objetivo
 Adicionar uma nova área no app (uma **Editor Page** com **abas**, como Chat e Terminal) que permita:
 
@@ -11,7 +13,7 @@ Adicionar uma nova área no app (uma **Editor Page** com **abas**, como Chat e T
 
 Este documento é um plano “maduro para implementação”: decisões técnicas propostas, fluxos de UX, contrato de patch e backlog inicial.
 
-## Status (código atual)
+## Estado da implementação
 
 Implementado no repositório (não-exaustivo):
 - [x] `EditorPage` com abas, atalhos e modo duplo (Rico ⇄ Markdown).
@@ -20,9 +22,23 @@ Implementado no repositório (não-exaustivo):
 - [x] Mermaid no modo rico com modal de edição e preview.
 - [x] Tratamento de erro de Mermaid no renderer (ações como “Copiar erro” e “Re-renderizar”).
 - [x] Identificação estável de blocos Mermaid no modo rico via `mermaidBlockId` (para aplicar/remover o bloco correto).
+- [x] Refatoração modular da `EditorPage` (issue #258): lógica extraída para hooks (`useEditorMerge`, `useEditorPersistence`, `useEditorDocument`), componentes filhos (`EditorToolbar`, `EditorContentArea`) e utilitários puros (`lib/editorMergeUtils`, `lib/editorContent`); integrações Monaco/TipTap tipadas e regra ESLint `@typescript-eslint/no-explicit-any` reativada (sem `any`). Sem mudança de comportamento.
 
 Adiado (por decisão de escopo agora):
 - [ ] Persistência via SQLite (`editor_documents`) e gestão de arquivos do editor.
+
+### Compatibilidade de dados publicados
+
+A release 0.1.9 chegou a persistir sessão e drafts nas tabelas SQLite
+`editor_session_states` e `editor_documents`. A partir da 0.2.0, o estado local
+passou a `editor/state.json` + `editor/drafts/`; o storage atual é isolado em
+`users/<user_id>/editor/`.
+
+O primeiro usuário elegível adota uma única vez os dados legados de qualquer
+dos dois layouts. Markdown, preferência de modo e sessões de merge são
+preservados, sem apagar a origem. Metadados da sessão 0.1.9 que pertenciam ao
+antigo sistema de abas não são recriados, pois abas agora pertencem ao
+workspace (AEP-0034).
 
 ---
 
@@ -133,6 +149,12 @@ Observação: `Ctrl+I` já aparece na ajuda como “Perfis de interação”. Me
 ### Comportamento
 - Um toggle na Toolbar: **Rico** / **Markdown**.
 - A aba mantém um estado `mode` e um campo `markdown` (fonte de verdade).
+- O modo de exibição (`markdown`, `rich` ou `view`) pertence à identidade da
+  aba e é persistido em `WorkspaceTab.state.displayMode`. Enquanto a aba
+  existir, a escolha sobrevive à troca de abas e à reinicialização do
+  aplicativo; fechar/remover a aba encerra esse estado.
+- A preferência histórica por caminho de arquivo é usada apenas como fallback
+  para abas legadas ou recém-criadas que ainda não tenham `displayMode`.
 
 ### Regras de sincronização
 - Ao entrar no modo rico: `markdown` → parse → setContent no TipTap.
@@ -215,7 +237,7 @@ Objetivo: manter a experiência “Docs-like” no modo rico, mas garantindo que
 
 **Como abre**
 - No modo rico, o bloco Mermaid aparece como “card”: preview + ações.
-- A ação “Editar código” abre um `SimpleModal` (ou um “painel” dockado, se preferir) com:
+- A ação “Editar código” abre um `Modal` (ou um “painel” dockado, se preferir) com:
   - editor (Monaco) para o conteúdo do bloco ` ```mermaid ... ``` ` (somente o conteúdo interno);
   - preview renderizado ao lado/abaixo.
 

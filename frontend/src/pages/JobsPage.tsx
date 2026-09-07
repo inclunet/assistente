@@ -9,11 +9,12 @@ import { RunLogViewer } from '../components/jobs/RunLogViewer';
 import { EventTimeline } from '../components/jobs/EventTimeline';
 import { JobBuilder } from '../components/jobs/builder';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useConfirm } from '../hooks/useConfirm';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useUIStore } from '../store/uiStore';
 import { jobs } from '@wailsjs/go/models';
-import { ReplayRun, RunJob as WailsRunJob } from '@wailsjs/go/app/App';
+import { ReplayRun, RunJob as WailsRunJob } from '@wailsjs/go/wailsapi/Jobs';
 import './JobsPage.css';
 
 function formatTriggers(triggers: jobs.Trigger[] | undefined, t: (key: string) => string): string {
@@ -42,10 +43,31 @@ function statusBadge(status: string, t: (key: string) => string): { label: strin
   }
 }
 
+function isJobEffectivelyEnabled(job: jobs.JobInfo): boolean {
+  return job.effective_enabled ?? (job.enabled && job.pipeline_enabled !== false);
+}
+
+function jobToggleActionLabel(job: jobs.JobInfo, labels: { enable: string; disable: string }): string {
+  return job.enabled ? labels.disable : labels.enable;
+}
+
+function jobToggleAriaLabel(job: jobs.JobInfo, labels: { enable: string; disable: string; pipelineDisabled: string }): string {
+  const action = jobToggleActionLabel(job, labels);
+  if (job.enabled && !isJobEffectivelyEnabled(job)) {
+    return `${labels.pipelineDisabled}. ${action}`;
+  }
+  return action;
+}
+
+function jobToggleTitle(job: jobs.JobInfo, labels: { enable: string; disable: string; pipelineDisabled: string }): string {
+  return jobToggleAriaLabel(job, labels);
+}
+
 export default function JobsPage() {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
+  const confirm = useConfirm();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'jobs-page' });
 
@@ -93,7 +115,7 @@ export default function JobsPage() {
     async (job: jobs.JobInfo) => {
       try {
         await toggleJob(job.id, !job.enabled);
-        addToast(t('jobs.toggleSuccess'), 'success');
+        addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
       } catch {
         addToast(t('common.error', 'Error'), 'error');
@@ -108,10 +130,10 @@ export default function JobsPage() {
       try {
         const result = await runJob(job.id);
         if (result && result.status === 'completed') {
-          addToast(t('jobs.runSuccess'), 'success');
+          addToast(t('jobs.runSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
           announce(t('jobs.runSuccess'));
         } else {
-          addToast(t('jobs.runFailed'), 'error');
+          addToast(t('jobs.runFailed'), 'error', undefined, undefined, { suppressAnnounce: true });
           announce(t('jobs.runFailed'));
         }
       } catch {
@@ -181,55 +203,68 @@ export default function JobsPage() {
   }, [fetchJobDetail, addToast, t]);
 
   const handleDeleteJob = useCallback(async (job: jobs.JobInfo) => {
-    if (!window.confirm(t('jobs.builder.deleteConfirm', { name: job.name || job.id }))) return;
+    const ok = await confirm({
+      title: t('jobs.builder.deleteConfirmTitle', 'Excluir job'),
+      message: t('jobs.builder.deleteConfirm', { name: job.name || job.id }),
+      confirmText: t('common.delete', 'Excluir'),
+      cancelText: t('common.cancel', 'Cancelar'),
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteJob(job.id);
-      addToast(t('jobs.builder.deleteSuccess'), 'success');
+      addToast(t('jobs.builder.deleteSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('jobs.builder.deleteSuccess'));
     } catch {
       addToast(t('common.error'), 'error');
     }
-  }, [deleteJob, addToast, announce, t]);
+  }, [confirm, deleteJob, addToast, announce, t]);
 
   const getJobRowActions = useCallback(
-    (job: jobs.JobInfo) => [
-      {
-        id: 'run',
-        label: runningJobId === job.id ? t('jobs.running') : t('jobs.run'),
-        icon: '▶',
-        onClick: () => handleRun(job),
-      },
-      {
-        id: 'toggle',
-        label: job.enabled ? t('jobs.disable') : t('jobs.enable'),
-        icon: job.enabled ? '⏸' : '⏵',
-        onClick: () => handleToggle(job),
-      },
-      {
-        id: 'logs',
-        label: t('jobs.viewLogs'),
-        icon: '📋',
-        onClick: () => handleViewLogs(job.id),
-      },
-      {
-        id: 'edit',
-        label: t('common.edit'),
-        icon: '✏️',
-        onClick: () => handleEditJob(job.id),
-      },
-      {
-        id: 'events',
-        label: t('jobs.viewEvents'),
-        icon: '📡',
-        onClick: () => handleViewEvents(),
-      },
-      {
-        id: 'delete',
-        label: t('common.delete'),
-        icon: '🗑',
-        onClick: () => handleDeleteJob(job),
-      },
-    ],
+    (job: jobs.JobInfo) => {
+      const toggleLabel = jobToggleActionLabel(job, {
+        enable: t('jobs.enable'),
+        disable: t('jobs.disable'),
+      });
+      return [
+        {
+          id: 'run',
+          label: runningJobId === job.id ? t('jobs.running') : t('jobs.run'),
+          icon: '▶',
+          onClick: () => handleRun(job),
+        },
+        {
+          id: 'toggle',
+          label: toggleLabel,
+          icon: job.enabled ? '⏸' : '⏵',
+          onClick: () => handleToggle(job),
+        },
+        {
+          id: 'logs',
+          label: t('jobs.viewLogs'),
+          icon: '📋',
+          onClick: () => handleViewLogs(job.id),
+        },
+        {
+          id: 'edit',
+          label: t('common.edit'),
+          icon: '✏️',
+          onClick: () => handleEditJob(job.id),
+        },
+        {
+          id: 'events',
+          label: t('jobs.viewEvents'),
+          icon: '📡',
+          onClick: () => handleViewEvents(),
+        },
+        {
+          id: 'delete',
+          label: t('common.delete'),
+          icon: '🗑',
+          onClick: () => handleDeleteJob(job),
+        },
+      ];
+    },
     [t, handleRun, handleToggle, handleViewLogs, handleEditJob, handleViewEvents, handleDeleteJob, runningJobId]
   );
 
@@ -239,16 +274,26 @@ export default function JobsPage() {
         key: 'enabled' as keyof jobs.JobInfo,
         label: '',
         width: '36px',
-        format: (_value, item) => (
-          <button
-            className={`job-toggle ${(item as jobs.JobInfo).enabled ? 'job-toggle--on' : 'job-toggle--off'}`}
-            onClick={(e) => { e.stopPropagation(); handleToggle(item as jobs.JobInfo); }}
-            aria-label={(item as jobs.JobInfo).enabled ? t('jobs.disable') : t('jobs.enable')}
-            title={(item as jobs.JobInfo).enabled ? t('jobs.disable') : t('jobs.enable')}
-          >
-            {(item as jobs.JobInfo).enabled ? '●' : '○'}
-          </button>
-        ),
+        format: (_value, item) => {
+          const job = item as jobs.JobInfo;
+          const labels = {
+            enable: t('jobs.enable'),
+            disable: t('jobs.disable'),
+            pipelineDisabled: t('jobs.pipelineDisabled'),
+          };
+          const ariaLabel = jobToggleAriaLabel(job, labels);
+          const title = jobToggleTitle(job, labels);
+          return (
+            <button
+              className={`job-toggle ${isJobEffectivelyEnabled(job) ? 'job-toggle--on' : 'job-toggle--off'}`}
+              onClick={(e) => { e.stopPropagation(); handleToggle(job); }}
+              aria-label={ariaLabel}
+              title={title}
+            >
+              {isJobEffectivelyEnabled(job) ? '●' : '○'}
+            </button>
+          );
+        },
       },
       {
         key: 'name' as keyof jobs.JobInfo,
@@ -300,7 +345,8 @@ export default function JobsPage() {
     [t, handleToggle, getJobRowActions]
   );
 
-  const hasJobs = filteredJobs.length > 0;
+  const hasJobs = jobsList.length > 0;
+  const hasFilteredJobs = filteredJobs.length > 0;
 
   const homeActions = [
     {
@@ -345,7 +391,7 @@ export default function JobsPage() {
 
       {isLoading && jobsList.length === 0 ? (
         <div className="jobs-loading">{t('common.loading', 'Loading...')}</div>
-      ) : hasJobs ? (
+      ) : hasFilteredJobs ? (
         <div ref={gridRef}>
           <DataGrid
             items={filteredJobs}
@@ -357,6 +403,11 @@ export default function JobsPage() {
             onGridReady={handleGridReady}
             label={t('jobs.gridLabel')}
           />
+        </div>
+      ) : hasJobs ? (
+        <div className="jobs-empty-state">
+          <p className="jobs-empty-message">{t('jobs.noSearchResults')}</p>
+          <p className="jobs-empty-hint">{t('common.noResults')}</p>
         </div>
       ) : (
         <div className="jobs-empty-state">

@@ -19,6 +19,7 @@ type Args = {
 
 export function useRichMarkdownSync({ markdown, onMarkdownChange, debounceMs = 300 }: Args) {
   const refs = useRef(createRichMarkdownSyncRefs(markdown));
+  const disposeOnMarkdownChangeRef = useRef(onMarkdownChange);
 
   const isApplyingExternalMarkdownRef = refs.current.isApplyingExternalMarkdownRef;
   const lastMarkdownRef = refs.current.lastMarkdownRef;
@@ -41,16 +42,17 @@ export function useRichMarkdownSync({ markdown, onMarkdownChange, debounceMs = 3
     [debounceMs, onMarkdownChange]
   );
 
-  const syncFromExternal = useCallback(
-    (editor: EditorLike | null, nextMarkdown: string) => {
-      syncFromExternalPure({ refs: refs.current, editor, nextMarkdown });
-    },
-    []
-  );
+  const syncFromExternal = useCallback((editor: EditorLike | null, nextMarkdown: string) => {
+    syncFromExternalPure({ refs: refs.current, editor, nextMarkdown });
+  }, []);
+
+  useEffect(() => {
+    disposeOnMarkdownChangeRef.current = onMarkdownChange;
+  }, [onMarkdownChange]);
 
   useEffect(() => {
     return () => {
-      disposeRichMarkdownSync(refs.current);
+      disposeRichMarkdownSync(refs.current, undefined, disposeOnMarkdownChangeRef.current);
     };
   }, []);
 

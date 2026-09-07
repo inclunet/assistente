@@ -1,7 +1,8 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { GetAuthorizedContacts, RemoveAuthorizedContact } from '@wailsjs/go/app/App';
+import { GetAuthorizedContacts, RemoveAuthorizedContact } from '@wailsjs/go/wailsapi/Messaging';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -9,6 +10,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
+import { PageLoading } from '../components/ui/PageLoading';
 import { useConfirm } from '../hooks/useConfirm';
 import './ContactsPage.css';
 
@@ -64,7 +66,7 @@ export default function ContactsPage() {
       }
       setContactRows(rows);
     } catch (error) {
-      console.error('Erro ao carregar contatos:', error);
+      logger.error('Erro ao carregar contatos:', error);
       addToast(t('contacts.error.loadFailed', 'Erro ao carregar contatos'), 'error');
       setContactRows([]);
     } finally {
@@ -90,7 +92,7 @@ export default function ContactsPage() {
 
     try {
       await RemoveAuthorizedContact(row.channel, row.contactId);
-      addToast(t('channels.toast.contactRemoved'), 'success');
+      addToast(t('channels.toast.contactRemoved'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('channels.announce.contactRemoved'));
       await loadContacts();
     } catch (error: unknown) {
@@ -151,9 +153,7 @@ export default function ContactsPage() {
   if (loading) {
     return (
       <div className="contacts-page">
-        <div className="contacts-page__loading" role="status">
-          {t('contacts.loading', 'Carregando contatos...')}
-        </div>
+        <PageLoading className="contacts-page__loading" message={t('contacts.loading', 'Carregando contatos...')} />
       </div>
     );
   }
@@ -181,7 +181,7 @@ export default function ContactsPage() {
             onFocusChange={handleContactFocusChange}
           />
         ) : (
-          <p className="contacts-page__empty" role="status">
+          <p className="contacts-page__empty">
             {t('contacts.empty', 'Nenhum contato autorizado.')}
           </p>
         )}

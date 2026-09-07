@@ -6,20 +6,36 @@ import userEvent from '@testing-library/user-event';
 const mockGetProviders = vi.fn();
 const mockCreateProvider = vi.fn();
 const mockDeleteProvider = vi.fn();
+const mockCanRemoveAgent = vi.fn();
+const mockRemoveAgent = vi.fn();
+const mockAgentInstallPlan = vi.fn();
+const mockUpdateAgent = vi.fn();
+const mockConfirm = vi.fn();
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
+const mockAnnounceRequest = vi.fn();
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (key: string, fallback?: string | Record<string, unknown>) =>
+      typeof fallback === 'string' ? fallback : key,
+    i18n: { language: 'pt-BR' },
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/ACPInstall', () => ({
+  ACPAgentInstallPlan: (agentID: string) => mockAgentInstallPlan(agentID),
+  CanRemoveACPAgent: (agentID: string) => mockCanRemoveAgent(agentID),
+  RemoveACPAgent: (agentID: string) => mockRemoveAgent(agentID),
+  UpdateACPAgent: (agentID: string, confirmation: unknown) => mockUpdateAgent(agentID, confirmation),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => mockGetProviders(),
   CreateLLMProvider: (payload: unknown) => mockCreateProvider(payload),
-  DeleteLLMProvider: (_ctx: unknown, id: string) => mockDeleteProvider(id),
+  DeleteLLMProvider: (id: string) => mockDeleteProvider(id),
+  SetDefaultProvider: vi.fn(),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -31,6 +47,7 @@ vi.mock('../hooks/useGridFocus', () => ({
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
     announce: mockAnnounce,
+    announceRequest: mockAnnounceRequest,
   }),
 }));
 
@@ -42,7 +59,7 @@ vi.mock('../store/uiStore', () => ({
 }));
 
 vi.mock('../hooks/useConfirm', () => ({
-  useConfirm: () => vi.fn(() => Promise.resolve(true)),
+  useConfirm: () => mockConfirm,
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
@@ -71,7 +88,7 @@ vi.mock('../components/ui/DataGrid', () => ({
   }: {
     items?: Array<{ id: string; name: string; type: string; base_url: string }>;
     onFocusChange?: (item: { id: string; name: string; type: string; base_url: string } | null) => void;
-    getRowActions?: (item: { id: string; name: string; type: string; base_url: string }) => Array<{ id: string; label?: string; onClick?: () => void }>;
+    getRowActions?: (item: { id: string; name: string; type: string; base_url: string }) => Array<{ id: string; label?: string; disabled?: boolean; onClick?: () => void }>;
   }) => (
     <div>
       <button type="button" onClick={() => onFocusChange?.(items?.[0] ?? null)}>
@@ -81,7 +98,7 @@ vi.mock('../components/ui/DataGrid', () => ({
         <div key={item.id}>
           <span>{item.name}</span>
           {getRowActions?.(item)?.map((action) => (
-            <button key={action.id} type="button" onClick={action.onClick}>
+            <button key={action.id} type="button" onClick={action.onClick} disabled={action.disabled}>
               {action.label}
             </button>
           ))}
@@ -94,11 +111,24 @@ vi.mock('../components/ui/DataGrid', () => ({
 vi.mock('../components/ui/Modal', () => ({
   Modal: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) => (isOpen ? <div>{children}</div> : null),
   isModalOpen: () => false,
+  useModalIsTopmost: () => () => true,
 }));
 
+// O dublê mostra o que recebeu: é a única forma de um teste de página provar que
+// a configuração salva chega ao formulário, em vez de ser montada à mão nele.
 vi.mock('../components/settings/ProviderForm', () => ({
-  ProviderForm: ({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) => (
+  ProviderForm: ({
+    provider,
+    onSave,
+    onCancel,
+  }: {
+    provider?: { acp_command?: string; acp_args?: string[] };
+    onSave: () => void;
+    onCancel: () => void;
+  }) => (
     <div>
+      <span data-testid="form-acp-command">{provider?.acp_command ?? ''}</span>
+      <span data-testid="form-acp-args">{JSON.stringify(provider?.acp_args ?? [])}</span>
       <button type="button" onClick={onSave}>Salvar</button>
       <button type="button" onClick={onCancel}>Cancelar</button>
     </div>
@@ -122,10 +152,22 @@ describe('ProvidersPage', () => {
         credential_status: 'configured',
       },
     ]);
+    mockCreateProvider.mockReset();
+    mockDeleteProvider.mockReset();
+    mockCanRemoveAgent.mockReset();
+    mockRemoveAgent.mockReset();
+    mockAgentInstallPlan.mockReset();
+    mockUpdateAgent.mockReset();
+    mockConfirm.mockReset();
     mockCreateProvider.mockResolvedValue(undefined);
     mockDeleteProvider.mockResolvedValue(undefined);
+    mockCanRemoveAgent.mockResolvedValue(false);
+    mockRemoveAgent.mockResolvedValue(undefined);
+    mockUpdateAgent.mockResolvedValue({ version: '2.0.0' });
+    mockConfirm.mockResolvedValue(true);
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
+    mockAnnounceRequest.mockReset();
     nowSpy.mockReturnValue(123);
   });
 
@@ -156,6 +198,77 @@ describe('ProvidersPage', () => {
     });
   });
 
+  it('leva o comando salvo do agente ao formulario de edicao', async () => {
+    // Um provedor de agente é endereçado pelo comando, e não por URL: sem ele o
+    // formulário mostraria menos do que está salvo e a validação barraria até
+    // quem só queria renomear.
+    mockGetProviders.mockResolvedValue([
+      {
+        id: 'cursor-1',
+        name: 'Cursor local',
+        type: 'cursor',
+        api_format: 'acp',
+        base_url: '',
+        credential_required: false,
+        credential_status: 'none',
+        acp_command: '/opt/cursor/agente',
+        acp_args: ['acp', '--forcar'],
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Cursor local')).toBeInTheDocument();
+    });
+
+    const editButtons = screen.getAllByRole('button', { name: 'Editar' });
+    const rowEdit = editButtons.find((button) => !button.hasAttribute('disabled'));
+    expect(rowEdit).toBeTruthy();
+    await user.click(rowEdit!);
+
+    expect(await screen.findByTestId('form-acp-command')).toHaveTextContent('/opt/cursor/agente');
+    expect(screen.getByTestId('form-acp-args')).toHaveTextContent('["acp","--forcar"]');
+  });
+
+  it('duplica provedor de agente com o comando que o sobe', async () => {
+    mockGetProviders.mockResolvedValue([
+      {
+        id: 'cursor-1',
+        name: 'Cursor local',
+        type: 'cursor',
+        api_format: 'acp',
+        base_url: '',
+        credential_required: false,
+        credential_status: 'none',
+        acp_command: '/opt/cursor/agente',
+        acp_args: ['acp'],
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Cursor local')).toBeInTheDocument();
+    });
+
+    const duplicateButtons = screen.getAllByRole('button', { name: 'Duplicar' });
+    const rowDuplicate = duplicateButtons.find((button) => !button.hasAttribute('disabled'));
+    await user.click(rowDuplicate!);
+
+    await waitFor(() => {
+      expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'cursor',
+        api_format: 'acp',
+        acp_command: '/opt/cursor/agente',
+        acp_args: ['acp'],
+      }));
+    });
+    // Sem erro: o backend recusa o formato acp sem comando, e a cópia sem ele
+    // morreria em toast de erro.
+    expect(mockAddToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
+  });
+
   it('habilita acao de excluir na toolbar apos foco', async () => {
     const user = userEvent.setup();
     render(<ProvidersPage />);
@@ -173,5 +286,170 @@ describe('ProvidersPage', () => {
     await waitFor(() => {
       expect(mockDeleteProvider).toHaveBeenCalledWith('openai-1');
     });
+  });
+
+  it('mantem Atualizar agente desabilitado para provedor que nao e ACP', async () => {
+    render(<ProvidersPage />);
+
+    await screen.findByText('OpenAI');
+
+    expect(screen.getByRole('button', { name: 'Atualizar agente' })).toBeDisabled();
+    expect(mockAgentInstallPlan).not.toHaveBeenCalled();
+  });
+
+  it('mantem Atualizar agente desabilitado quando o catalogo nao tem versao nova', async () => {
+    mockGetProviders.mockResolvedValue([{
+      id: 'cursor-1',
+      name: 'Cursor local',
+      type: 'acp',
+      api_format: 'acp',
+      base_url: '',
+      credential_required: false,
+      credential_status: 'none',
+      acp_agent_id: 'cursor',
+    }]);
+    mockAgentInstallPlan.mockResolvedValue({
+      agent_id: 'cursor',
+      installed: { version: '1.0.0' },
+      version: '1.0.0',
+      update: false,
+      can_update: false,
+    });
+
+    render(<ProvidersPage />);
+
+    await waitFor(() => {
+      expect(mockAgentInstallPlan).toHaveBeenCalledWith('cursor');
+    });
+    expect(screen.getByRole('button', { name: 'Atualizar agente' })).toBeDisabled();
+  });
+
+  it('atualiza agente ACP pelo fluxo Wails existente e anuncia sucesso', async () => {
+    mockGetProviders.mockResolvedValue([{
+      id: 'cursor-1',
+      name: 'Cursor local',
+      type: 'acp',
+      api_format: 'acp',
+      base_url: '',
+      credential_required: false,
+      credential_status: 'none',
+      acp_agent_id: 'cursor',
+    }]);
+    mockAgentInstallPlan.mockResolvedValue({
+      agent_id: 'cursor',
+      name: 'Cursor',
+      installed: { version: '1.0.0' },
+      version: '2.0.0',
+      distribution: 'binary',
+      origin: 'https://example.test/cursor.zip',
+      sha256: 'abc123',
+      update: true,
+      can_update: true,
+      unverified: false,
+    });
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    const update = await screen.findByRole('button', { name: 'Atualizar agente' });
+    await waitFor(() => expect(update).toBeEnabled());
+    await user.click(update);
+    await user.click(await screen.findByRole('button', {
+      name: 'providerForm.agent.catalog.confirm.confirmUpdateBtn',
+    }));
+
+    await waitFor(() => {
+      expect(mockUpdateAgent).toHaveBeenCalledWith('cursor', {
+        distribution: 'binary',
+        origin: 'https://example.test/cursor.zip',
+        sha256: 'abc123',
+        accept_unverified: false,
+      });
+      expect(mockAnnounce).toHaveBeenCalledWith('providers.toast.agentUpdated');
+    });
+  });
+
+  it('anuncia de forma assertiva quando a atualização do agente falha', async () => {
+    mockGetProviders.mockResolvedValue([{
+      id: 'cursor-1',
+      name: 'Cursor local',
+      type: 'acp',
+      api_format: 'acp',
+      base_url: '',
+      credential_required: false,
+      credential_status: 'none',
+      acp_agent_id: 'cursor',
+    }]);
+    mockAgentInstallPlan.mockResolvedValue({
+      agent_id: 'cursor',
+      name: 'Cursor',
+      installed: { version: '1.0.0' },
+      version: '2.0.0',
+      distribution: 'binary',
+      origin: 'https://example.test/cursor.zip',
+      sha256: 'abc123',
+      update: true,
+      can_update: true,
+    });
+    mockUpdateAgent.mockRejectedValue(new Error('turno em andamento'));
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    const update = await screen.findByRole('button', { name: 'Atualizar agente' });
+    await waitFor(() => expect(update).toBeEnabled());
+    await user.click(update);
+    await user.click(await screen.findByRole('button', {
+      name: 'providerForm.agent.catalog.confirm.confirmUpdateBtn',
+    }));
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        'providers.error.updateAgentFailed',
+        'assertive',
+      );
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'providers.error.updateAgentFailed',
+        'error',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+    });
+  });
+
+  it('oferece desinstalar depois de remover o ultimo provedor do agente', async () => {
+    mockGetProviders.mockResolvedValue([
+      {
+        id: 'cursor-1',
+        name: 'Cursor local',
+        type: 'acp',
+        api_format: 'acp',
+        base_url: '',
+        credential_required: false,
+        credential_status: 'none',
+        acp_agent_id: 'cursor',
+        acp_command: 'cursor-agent',
+        acp_args: ['acp'],
+      },
+    ]);
+    mockCanRemoveAgent.mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    await screen.findByText('Cursor local');
+    const deleteButtons = screen.getAllByRole('button', { name: 'Excluir' });
+    const rowDelete = deleteButtons.find((button) => !button.hasAttribute('disabled'));
+    await user.click(rowDelete!);
+
+    await waitFor(() => {
+      expect(mockDeleteProvider).toHaveBeenCalledWith('cursor-1');
+      expect(mockCanRemoveAgent).toHaveBeenCalledWith('cursor');
+      expect(mockRemoveAgent).toHaveBeenCalledWith('cursor');
+    });
+    expect(mockConfirm).toHaveBeenCalledTimes(2);
+    expect(mockConfirm.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      title: 'providers.confirm.removeUnusedAgentTitle',
+      confirmText: 'providers.confirm.removeUnusedAgentConfirm',
+      cancelText: 'providers.confirm.keepAgent',
+    }));
   });
 });

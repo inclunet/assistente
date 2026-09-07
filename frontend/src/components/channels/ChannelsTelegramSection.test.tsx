@@ -12,13 +12,16 @@ vi.mock('react-i18next', () => ({
         'channels.telegram.botToken': 'Bot Token',
         'channels.telegram.botTokenPlaceholder': '123456789:ABCDEFG_xyz',
         'channels.telegram.saveVault': 'Salvar token no cofre de credenciais',
-        'channels.telegram.vaultHint': 'Quando habilitado, o token fica criptografado e não é salvo no arquivo do canal.',
+        'channels.telegram.vaultHint':
+          'Quando habilitado, o token fica criptografado e não é salvo no arquivo do canal.',
         'channels.telegram.botFatherHint': 'Crie um bot no @BotFather e use seu token.',
         'channels.telegram.maxHistory': 'Máximo de Histórico',
         'channels.telegram.maxContacts': 'Máximo de Contatos',
-        'channels.telegram.maxContactsHint': 'Ao atingir o limite, novos contatos são ignorados silenciosamente.',
+        'channels.telegram.maxContactsHint':
+          'Ao atingir o limite, novos contatos são ignorados silenciosamente.',
         'channels.telegram.channelProfile': 'Perfil do Canal',
-        'channels.telegram.channelProfileHint': 'Perfil usado para conversas deste canal. Define modelo, voz, STT e comportamento. Vazio usa o perfil ativo global.',
+        'channels.telegram.channelProfileHint':
+          'Perfil usado para conversas deste canal. Define modelo, voz, STT e comportamento. Vazio usa o perfil ativo global.',
       };
       return translations[key] ?? key;
     },
@@ -26,14 +29,18 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../pickers/ProfilePicker', () => ({
-  ProfilePicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
+  ProfilePicker: ({
+    value,
+    onChange,
+    label,
+  }: {
+    value: string;
+    onChange: (value: string) => void;
+    label: string;
+  }) => (
     <div>
       <label htmlFor="profile-picker">{label}</label>
-      <select
-        id="profile-picker"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
+      <select id="profile-picker" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Nenhum</option>
         <option value="default">Default</option>
       </select>

@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react';
 import { createHashRouter } from 'react-router-dom';
 import App from '../App';
 import { WorkspaceLayout } from '../components/workspace';
+import { AppErrorBoundary, RouteErrorScreen } from '../components/errors';
 import { PageLoading } from '../components/ui/PageLoading';
 
 const SettingsPage = lazy(() => import('../pages/SettingsPage'));
@@ -12,6 +13,7 @@ const AboutPage = lazy(() => import('../pages/AboutPage'));
 const UpdatePage = lazy(() => import('../pages/UpdatePage'));
 const TaskListsPage = lazy(() => import('../pages/TaskListsPage'));
 const JobsPage = lazy(() => import('../pages/JobsPage'));
+const MemoriesPage = lazy(() => import('../pages/MemoriesPage'));
 
 const withSuspense = (element: JSX.Element) => (
   <Suspense fallback={<PageLoading />}>
@@ -27,7 +29,12 @@ function WorkspaceIndexRoute() {
 export const router = createHashRouter([
   {
     path: '/',
-    element: <App />,
+    element: (
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
+    ),
+    errorElement: <RouteErrorScreen />,
     children: [
       {
         element: <WorkspaceLayout />,
@@ -67,6 +74,10 @@ export const router = createHashRouter([
           {
             path: 'jobs',
             element: withSuspense(<JobsPage />),
+          },
+          {
+            path: 'memories',
+            element: withSuspense(<MemoriesPage />),
           },
         ],
       },

@@ -36,7 +36,7 @@ Os workspaces são armazenados em:
 
 ## Abas por Workspace
 
-Cada workspace mantém seu próprio conjunto de abas, com estado (ativa + lista) preservado ao alternar:
+Cada workspace mantém seu próprio conjunto de abas **self-contained**: cada aba tem seu estado isolado e é preservado ao alternar workspaces, com suporte a **split view** para ver duas abas lado a lado:
 
 - **Chat** — conversas com o assistente
 - **Editor** — arquivos para edição
@@ -44,6 +44,21 @@ Cada workspace mantém seu próprio conjunto de abas, com estado (ativa + lista)
 - **Task List** — listas de tarefas
 
 O tipo de cada aba é identificado automaticamente e restaurado ao reabrir o workspace.
+
+### Modelo por aba de chat
+
+Quando o perfil usa um provider HTTP nativo, a barra do chat oferece **Modelo
+desta aba**. A primeira opção, **Modelo do perfil**, mantém o comportamento do
+perfil; escolher outro item substitui o modelo apenas naquela aba e nos próximos
+turnos.
+
+A escolha é salva no workspace e sobrevive ao fechamento do aplicativo. Ela
+não altera o perfil e não segue a conversa: se a mesma conversa for aberta em
+outra aba, a outra aba usa a própria escolha. Ao trocar de perfil, o app remove
+automaticamente um modelo que pertença a outro provider.
+
+Agentes ACP têm controles próprios de modelo e modo da sessão. Para eles, use
+os seletores **Modelo do agente** e **Modo do agente** na barra do chat.
 
 ## Perfil por Workspace
 

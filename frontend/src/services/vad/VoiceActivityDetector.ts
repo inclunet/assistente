@@ -5,6 +5,7 @@
  * Usa Web Audio API para analisar o stream de áudio do microfone.
  */
 
+import { logger } from '../../utils/logger';
 import { VADConfig, VADCallbacks, VADOptions, DEFAULT_VAD_CONFIG } from './types';
 
 export class VoiceActivityDetector {
@@ -96,7 +97,7 @@ export class VoiceActivityDetector {
       
       return true;
     } catch (error) {
-      console.error('[VAD] Erro ao inicializar:', error);
+      logger.error('[VAD] Erro ao inicializar:', error);
       throw error;
     }
   }
@@ -108,7 +109,7 @@ export class VoiceActivityDetector {
     if (this._isActive) return;
     
     if (!this.analyser) {
-      console.error('[VAD] Não inicializado. Chame init() primeiro.');
+      logger.error('[VAD] Não inicializado. Chame init() primeiro.');
       return;
     }
 

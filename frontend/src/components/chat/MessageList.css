@@ -13,6 +13,15 @@
   min-height: 100%;
 }
 
+.message-list__list {
+  width: 100%;
+}
+
+/* Wrapper de item virtualizado: posicionado pelo @tanstack/react-virtual. */
+.message-list__virtual-item {
+  contain: layout style;
+}
+
 .message-list__load-older {
   display: flex;
   justify-content: center;

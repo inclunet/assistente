@@ -6,7 +6,7 @@ import { Checkbox } from '../../ui/Checkbox';
 import { Textarea } from '../../ui/Textarea';
 import { FormField } from '../../ui/FormField';
 import { Combobox, type ComboboxItem } from '../../pickers/Combobox';
-import { GetAllTaskLists } from '@wailsjs/go/app/App';
+import { GetAllTaskLists } from '@wailsjs/go/wailsapi/Tasklist';
 import { TemplateEditor, type TemplateEditorContext } from './TemplateEditor';
 import './SchemaForm.css';
 
@@ -62,8 +62,8 @@ function TaskListField({ value, onChange }: { value: unknown; onChange: (val: un
       if (!lists) return;
       setItems(lists.map((tl) => ({
         value: tl.id.toString(),
-        label: tl.title || t('tasklist.noTitle', 'Sem título'),
-        sublabel: `${tl.tasks?.length ?? 0} ${t('tasklist.totalTasks', 'tarefas')}`,
+        label: tl.title || t('tasklist.noTitle'),
+        sublabel: `${tl.tasks?.length ?? 0} ${t('tasklist.kanban.tasks')}`,
       })));
     } catch { /* ignore */ }
   }, [t]);
@@ -78,7 +78,7 @@ function TaskListField({ value, onChange }: { value: unknown; onChange: (val: un
       items={items}
       selected={selected}
       onSelect={(v) => onChange(parseInt(v, 10))}
-      placeholder={t('jobs.builder.selectTaskList', 'Buscar task list...')}
+      placeholder={t('jobs.builder.selectTaskList')}
       maxWidth="100%"
       onOpen={load}
     />
@@ -245,7 +245,7 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
 
   if (!schema || !schema.properties || fields.length === 0) {
     return (
-      <div className="schema-form__empty" role="status">
+      <div className="schema-form__empty">
         {t('jobs.builder.noInputs')}
       </div>
     );

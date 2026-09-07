@@ -13,16 +13,19 @@ import {
 
 const mockWsSetActiveTab = vi.fn().mockResolvedValue(undefined);
 const mockWsAddTab = vi.fn().mockResolvedValue(undefined);
+const mockWsUpdateTab = vi.fn().mockResolvedValue(undefined);
 const mockSendMessageToConversation = vi.fn().mockResolvedValue(undefined);
 
-let mockWsTabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown> }> = [];
+let mockWsProfile: string | undefined;
+let mockWsTabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; profileOverride?: Record<string, unknown> }> = [];
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: {
     getState: () => ({
-      workspace: { tabs: mockWsTabs },
+      workspace: { tabs: mockWsTabs, profile: mockWsProfile },
       setActiveTab: mockWsSetActiveTab,
       addTab: mockWsAddTab,
+      updateTab: mockWsUpdateTab,
     }),
   },
 }));
@@ -36,6 +39,20 @@ vi.mock('../store/chatStore', () => ({
       sendMessageToConversation: mockSendMessageToConversation,
       loadConversationSession: mockLoadConversation,
       createConversation: mockCreateConversation,
+    }),
+  },
+}));
+
+const mockLoadTerminalSessions = vi.fn().mockResolvedValue(true);
+const mockCreateTerminalSession = vi.fn().mockResolvedValue('term-created');
+let mockTerminalSessions: Array<{ id: string }> = [];
+
+vi.mock('../store/terminalStore', () => ({
+  useTerminalStore: {
+    getState: () => ({
+      sessions: mockTerminalSessions,
+      loadSessions: mockLoadTerminalSessions,
+      createSession: mockCreateTerminalSession,
     }),
   },
 }));
@@ -82,10 +99,27 @@ vi.mock('./i18n', () => ({
 
 const mockEditorReadFile = vi.fn().mockResolvedValue('file content');
 const mockRunTerminalCommand = vi.fn().mockResolvedValue(undefined);
+const mockGetProfile = vi.fn().mockResolvedValue({ slug: 'programacao' });
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
   EditorReadFile: (...args: unknown[]) => mockEditorReadFile(...args),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Terminal', () => ({
   RunTerminalCommand: (...args: unknown[]) => mockRunTerminalCommand(...args),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
+  GetProfile: (...args: unknown[]) => mockGetProfile(...args),
+}));
+
+const mockAddToast = vi.fn();
+vi.mock('../store/uiStore', () => ({
+  useUIStore: {
+    getState: () => ({
+      addToast: mockAddToast,
+    }),
+  },
 }));
 
 const mockCreateDocument = vi.fn().mockReturnValue('doc-new-id');
@@ -147,6 +181,15 @@ describe('parseDeepLink', () => {
     it('rejeita ID float', () => {
       expect(parseDeepLink('assistente://conversation/3.14')).toBeNull();
     });
+
+    it('faz parse com profile', () => {
+      const result = parseDeepLink('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a?profile=programacao');
+      expect(result).toEqual({
+        type: 'conversation:open',
+        conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+        profile: 'programacao',
+      });
+    });
   });
 
   describe('conversation:new', () => {
@@ -185,6 +228,16 @@ describe('parseDeepLink', () => {
         title: undefined,
       });
     });
+
+    it('faz parse com message e profile', () => {
+      const result = parseDeepLink('assistente://conversation/new?message=oi&profile=techsupport');
+      expect(result).toEqual({
+        type: 'conversation:new',
+        message: 'oi',
+        title: undefined,
+        profile: 'techsupport',
+      });
+    });
   });
 
   describe('conversation:send', () => {
@@ -206,6 +259,18 @@ describe('parseDeepLink', () => {
     it('rejeita send com ID não-UUID', () => {
       expect(parseDeepLink('assistente://conversation/abc/send?message=oi')).toBeNull();
     });
+
+    it('faz parse de send com message e profile', () => {
+      const result = parseDeepLink(
+        'assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000000a/send?message=continue&profile=techsupport',
+      );
+      expect(result).toEqual({
+        type: 'conversation:send',
+        conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        message: 'continue',
+        profile: 'techsupport',
+      });
+    });
   });
 
   describe('navigate', () => {
@@ -213,8 +278,10 @@ describe('parseDeepLink', () => {
       const validRoutes = [
         'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
         'settings/channels', 'settings/contacts', 'settings/credentials',
-        'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
-        'profiles', 'history', 'tasklists', 'help', 'about', 'update',
+        'settings/allowlists', 'settings/network-allowlist', 'settings/path-allowlist',
+        'settings/appearance', 'settings/restore-defaults',
+        'settings/data',
+        'profiles', 'history', 'memories', 'tasklists', 'help', 'about', 'update',
       ];
 
       for (const route of validRoutes) {
@@ -254,6 +321,9 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://mcp/edit/my-server')).toEqual({
         type: 'resource:edit', resource: 'mcp', resourceId: 'my-server',
       });
+      expect(parseDeepLink('assistente://memories/edit/mem-1')).toEqual({
+        type: 'resource:edit', resource: 'memories', resourceId: 'mem-1',
+      });
     });
 
     it('rejeita recurso não editável', () => {
@@ -265,6 +335,19 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://profiles/edit')).toBeNull();
       expect(parseDeepLink('assistente://profiles/edit/')).toBeNull();
     });
+
+    it('aceita somente a aba de voz em edição de perfil', () => {
+      expect(parseDeepLink('assistente://profiles/edit/programacao?tab=voice')).toEqual({
+        type: 'resource:edit',
+        resource: 'profiles',
+        resourceId: 'programacao',
+        tab: 'voice',
+      });
+      expect(parseDeepLink('assistente://profiles/edit/programacao?tab=tools')).toBeNull();
+      expect(parseDeepLink('assistente://profiles/edit/programacao?tab=')).toBeNull();
+      expect(parseDeepLink('assistente://providers/edit/openai?tab=voice')).toBeNull();
+    });
+
   });
 
   describe('resource:new', () => {
@@ -281,11 +364,15 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://tasklists/new')).toEqual({
         type: 'resource:new', resource: 'tasklists',
       });
+      expect(parseDeepLink('assistente://memories/new')).toEqual({
+        type: 'resource:new', resource: 'memories',
+      });
     });
 
     it('rejeita new para recurso não editável', () => {
       expect(parseDeepLink('assistente://help/new')).toBeNull();
     });
+
   });
 
   describe('resource:edit tasklists', () => {
@@ -442,6 +529,32 @@ describe('buildDeepLink', () => {
     expect(uri).toContain('message=continue+aqui');
   });
 
+  it('constrói conversation:open com profile', () => {
+    const uri = buildDeepLink({
+      type: 'conversation:open',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+      profile: 'programacao',
+    });
+    expect(uri).toBe('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a?profile=programacao');
+  });
+
+  it('constrói conversation:new com profile', () => {
+    const uri = buildDeepLink({ type: 'conversation:new', message: 'oi', profile: 'techsupport' });
+    expect(uri).toContain('message=oi');
+    expect(uri).toContain('profile=techsupport');
+  });
+
+  it('constrói conversation:send com profile', () => {
+    const uri = buildDeepLink({
+      type: 'conversation:send',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+      message: 'continue',
+      profile: 'techsupport',
+    });
+    expect(uri).toContain('message=continue');
+    expect(uri).toContain('profile=techsupport');
+  });
+
   it('constrói navigate', () => {
     const uri = buildDeepLink({ type: 'navigate', route: 'history' });
     expect(uri).toBe('assistente://navigate/history');
@@ -460,6 +573,25 @@ describe('buildDeepLink', () => {
   it('constrói resource:edit com caracteres especiais no ID', () => {
     const uri = buildDeepLink({ type: 'resource:edit', resource: 'credentials', resourceId: 'llm://*' });
     expect(uri).toBe('assistente://credentials/edit/llm%3A%2F%2F*');
+  });
+
+  it('constrói resource:edit de perfil com aba de voz', () => {
+    const uri = buildDeepLink({
+      type: 'resource:edit',
+      resource: 'profiles',
+      resourceId: 'programacao',
+      tab: 'voice',
+    });
+    expect(uri).toBe('assistente://profiles/edit/programacao?tab=voice');
+  });
+
+  it('rejeita aba de perfil aplicada programaticamente a outro recurso', () => {
+    expect(() => buildDeepLink({
+      type: 'resource:edit',
+      resource: 'providers',
+      resourceId: 'openai',
+      tab: 'voice',
+    })).toThrow('Invalid resource editor tab');
   });
 
   it('constrói resource:new', () => {
@@ -521,13 +653,17 @@ describe('buildDeepLink', () => {
 describe('roundtrip build → parse', () => {
   const actions: DeepLinkAction[] = [
     { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007' },
+    { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007', profile: 'programacao' },
     { type: 'conversation:new', message: 'olá mundo', title: 'Test' },
+    { type: 'conversation:new', message: 'olá mundo', title: 'Test', profile: 'techsupport' },
     { type: 'conversation:new' },
     { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000003', message: 'continue' },
+    { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000003', message: 'continue', profile: 'techsupport' },
     { type: 'navigate', route: 'history' },
     { type: 'navigate', route: 'tasklists' },
     { type: 'navigate', route: '' },
     { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' },
+    { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao', tab: 'voice' },
     { type: 'resource:edit', resource: 'credentials', resourceId: 'llm://*' },
     { type: 'resource:edit', resource: 'tasklists', resourceId: '42' },
     { type: 'resource:new', resource: 'skills' },
@@ -600,7 +736,12 @@ describe('executeDeepLink', () => {
     vi.clearAllMocks();
     vi.useRealTimers();
     mockWsTabs = [];
+    mockWsProfile = undefined;
+    mockTerminalSessions = [];
+    mockLoadTerminalSessions.mockResolvedValue(true);
+    mockCreateTerminalSession.mockResolvedValue('term-created');
     mockWsAddTab.mockResolvedValue('tab-created');
+    mockGetProfile.mockResolvedValue({ slug: 'programacao' });
   });
 
   describe('conversation:open — dedup', () => {
@@ -751,6 +892,107 @@ describe('executeDeepLink', () => {
     });
   });
 
+  describe('profile override', () => {
+    it('conversation:new aplica profile como override da aba e usa no envio', async () => {
+      await executeDeepLink(
+        { type: 'conversation:new', message: 'analise o ticket', profile: 'techsupport' },
+        deps,
+      );
+
+      expect(mockGetProfile).toHaveBeenCalledWith('techsupport');
+      expect(mockWsUpdateTab).toHaveBeenCalledWith('tab-created', { profile_override: { slug: 'techsupport' } });
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'analise o ticket',
+        undefined,
+        expect.objectContaining({ profileSlug: 'techsupport' }),
+        expect.anything(),
+      );
+    });
+
+    it('conversation:open aplica profile como override da aba existente', async () => {
+      mockWsTabs = [{ id: 'tab-1', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' }];
+
+      await executeDeepLink(
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a', profile: 'programacao' },
+        deps,
+      );
+
+      expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-1');
+      expect(mockGetProfile).toHaveBeenCalledWith('programacao');
+      expect(mockWsUpdateTab).toHaveBeenCalledWith('tab-1', { profile_override: { slug: 'programacao' } });
+    });
+
+    it('conversation:send aplica profile e o usa nos params do envio', async () => {
+      mockWsTabs = [{ id: 'tab-5', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' }];
+
+      await executeDeepLink(
+        { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a', message: 'oi', profile: 'techsupport' },
+        deps,
+      );
+
+      expect(mockWsUpdateTab).toHaveBeenCalledWith('tab-5', { profile_override: { slug: 'techsupport' } });
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        'oi',
+        undefined,
+        expect.objectContaining({ profileSlug: 'techsupport' }),
+        expect.anything(),
+      );
+    });
+
+    it('perfil inexistente: não aplica override, avisa via toast "warning" e cai no padrão', async () => {
+      mockGetProfile.mockRejectedValueOnce(new Error('profile not found'));
+
+      await executeDeepLink(
+        { type: 'conversation:new', message: 'oi', profile: 'inexistente' },
+        deps,
+      );
+
+      expect(mockGetProfile).toHaveBeenCalledWith('inexistente');
+      expect(mockWsUpdateTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.invalidProfile', 'warning', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'oi',
+        undefined,
+        expect.objectContaining({ profileSlug: undefined }),
+        expect.anything(),
+      );
+    });
+
+    it('falha inesperada ao carregar perfil: toast "error" genérico e cai no padrão', async () => {
+      mockGetProfile.mockRejectedValueOnce(new Error('unexpected: failed to parse profile json'));
+
+      await executeDeepLink(
+        { type: 'conversation:new', message: 'oi', profile: 'quebrado' },
+        deps,
+      );
+
+      expect(mockGetProfile).toHaveBeenCalledWith('quebrado');
+      expect(mockWsUpdateTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.profileLoadError', 'error', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'oi',
+        undefined,
+        expect.objectContaining({ profileSlug: undefined }),
+        expect.anything(),
+      );
+    });
+
+    it('sem profile no deeplink: não chama GetProfile nem updateTab', async () => {
+      await executeDeepLink({ type: 'conversation:new', message: 'oi' }, deps);
+
+      expect(mockGetProfile).not.toHaveBeenCalled();
+      expect(mockWsUpdateTab).not.toHaveBeenCalled();
+    });
+  });
+
   describe('navigate', () => {
     it('navega para a rota informada', async () => {
       await executeDeepLink({ type: 'navigate', route: 'history' }, deps);
@@ -774,6 +1016,44 @@ describe('executeDeepLink', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/profiles');
       expect(mockAnnounce).toHaveBeenCalled();
     });
+
+    it('propaga aba validada e caller da superfície para o editor', async () => {
+      const caller = {
+        kind: 'workspace' as const,
+        tabId: 'chat-tab',
+        surfaceId: 'page:tab:chat-tab',
+        surfaceType: 'page' as const,
+        conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+      };
+
+      await executeDeepLink(
+        {
+          type: 'resource:edit',
+          resource: 'profiles',
+          resourceId: 'programacao',
+          tab: 'voice',
+        },
+        { ...deps, caller },
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith(
+        'profiles',
+        'programacao',
+        'edit',
+        { tab: 'voice', caller },
+      );
+    });
+
+    it('navega para memories como página first-level', async () => {
+      await executeDeepLink(
+        { type: 'resource:edit', resource: 'memories', resourceId: 'mem-1' },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith('memories', 'mem-1', 'edit');
+      expect(mockNavigate).toHaveBeenCalledWith('/memories');
+      expect(mockAnnounce).toHaveBeenCalled();
+    });
   });
 
   describe('resource:new', () => {
@@ -785,6 +1065,17 @@ describe('executeDeepLink', () => {
 
       expect(mockRequestResourceEdit).toHaveBeenCalledWith('skills', '', 'new');
       expect(mockNavigate).toHaveBeenCalledWith('/settings/skills');
+      expect(mockAnnounce).toHaveBeenCalled();
+    });
+
+    it('navega para memories como página first-level', async () => {
+      await executeDeepLink(
+        { type: 'resource:new', resource: 'memories' },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith('memories', '', 'new');
+      expect(mockNavigate).toHaveBeenCalledWith('/memories');
       expect(mockAnnounce).toHaveBeenCalled();
     });
   });
@@ -831,6 +1122,57 @@ describe('executeDeepLink', () => {
       expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', 'tasklist 5', { tasklistId: '5' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
+
+    it('abre exatamente o terminal vivo solicitado', async () => {
+      mockTerminalSessions = [{ id: 'terminal-live' }];
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'terminal', contentId: 'terminal-live' },
+        deps,
+      );
+
+      expect(mockLoadTerminalSessions).toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith(
+        'terminal',
+        'terminal terminal-live',
+        { sessionId: 'terminal-live' },
+      );
+    });
+
+    it('não substitui silenciosamente um terminal encerrado', async () => {
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'terminal', contentId: 'terminal-dead' },
+        deps,
+      );
+
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockWsSetActiveTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'deepLink.terminalUnavailable',
+        'warning',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+    });
+
+    it('diferencia falha de listagem de terminal encerrado', async () => {
+      mockLoadTerminalSessions.mockResolvedValueOnce(false);
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'terminal', contentId: 'terminal-unknown' },
+        deps,
+      );
+
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'deepLink.terminalListFailed',
+        'error',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+    });
   });
 
   describe('tab:new', () => {
@@ -867,9 +1209,58 @@ describe('executeDeepLink', () => {
         id: 'tab-new-editor',
         title: 'test.md',
         markdown: 'file content',
+        mode: 'markdown',
         filePath: '/tmp/test.md',
+        readOnly: false,
+        projection: null,
       });
       expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('avisa de forma localizada quando o arquivo do editor não abre', async () => {
+      mockEditorReadFile.mockRejectedValueOnce(new Error('falha técnica do backend'));
+
+      await executeDeepLink(
+        { type: 'tab:new', tabType: 'editor', file: '/tmp/invalido.pdf' },
+        deps,
+      );
+
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockCreateDocument).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'editor.toast.openFailed',
+        'error',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
+      );
+      expect(mockAnnounce).toHaveBeenCalledWith('editor.toast.openFailed');
+    });
+
+    it('abre documento projetado do deep link em visualização somente leitura', async () => {
+      mockWsAddTab.mockResolvedValueOnce('tab-docx');
+      mockEditorReadFile.mockResolvedValueOnce({
+        path: '/tmp/manual.docx',
+        content: '# Manual',
+        projected: true,
+        format: 'docx',
+        readOnly: true,
+        pages: 2,
+        warnings: [],
+      });
+
+      await executeDeepLink(
+        { type: 'tab:new', tabType: 'editor', file: '/tmp/manual.docx' },
+        deps,
+      );
+
+      expect(mockCreateDocument).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'tab-docx',
+        markdown: '# Manual',
+        mode: 'view',
+        readOnly: true,
+        projection: { format: 'docx', pages: 2, warnings: [], warningCode: '' },
+      }));
     });
 
     it('cria nova aba de terminal', async () => {
@@ -879,9 +1270,21 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', 'Terminal');
+      expect(mockCreateTerminalSession).toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', 'Terminal', { sessionId: 'term-created' });
       expect(mockRunTerminalCommand).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('cria terminal antes de executar cmd do deep link', async () => {
+      await executeDeepLink(
+        { type: 'tab:new', tabType: 'terminal', title: 'Build', cmd: 'go test ./...' },
+        deps,
+      );
+
+      expect(mockCreateTerminalSession).toHaveBeenCalledWith('Build');
+      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', 'Build', { sessionId: 'term-created' });
+      expect(mockRunTerminalCommand).toHaveBeenCalledWith('term-created', 'go test ./...');
     });
   });
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -134,5 +135,52 @@ func TestSkillFilesystemAllowlist_ListAndSearch_DoNotLeakDeniedChildren(t *testi
 	}
 	if strings.Contains(res.Content, "secret") || strings.Contains(res.Content, "b.txt") {
 		t.Fatalf("expected denied file to be omitted from search results")
+	}
+}
+
+func TestSkillFilesystemAllowlist_SymlinkUsesResolvedTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("fora"), 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+
+	link := filepath.Join(workDir, "allowed-link")
+	if err := os.Symlink(outsideDir, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	viaLink := filepath.Join(link, "outside.txt")
+
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug: "test-skill",
+		Filesystem: &tools.FilesystemScope{
+			// Pelo nome literal, viaLink ficaria dentro desta allowlist. O alvo
+			// real está fora e portanto não deve casar.
+			Read: []string{filepath.Join(workDir, "**")},
+		},
+	})
+
+	prev := pathAuthorizer
+	t.Cleanup(func() { pathAuthorizer = prev })
+	pathAuthorizer = stubPathAuthorizer{allow: true}
+
+	if err := validatePathWithPolicy(ctx, viaLink, workDir, ToolPolicy(), "read"); err == nil {
+		t.Fatal("allowlist do skill não deve permitir alvo real fora via symlink")
+	}
+
+	// Quando o skill autoriza explicitamente o destino real, a validação passa.
+	ctxResolved := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug: "test-skill",
+		Filesystem: &tools.FilesystemScope{
+			Read: []string{filepath.Join(outsideDir, "**")},
+		},
+	})
+	if err := validatePathWithPolicy(ctxResolved, viaLink, workDir, ToolPolicy(), "read"); err != nil {
+		t.Fatalf("destino real explicitamente permitido pelo skill deveria passar: %v", err)
 	}
 }

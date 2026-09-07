@@ -2,6 +2,7 @@ package profiles
 
 import (
 	"assistente/internal/configdir"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -56,6 +57,358 @@ func TestManagerGetActiveSlug(t *testing.T) {
 
 	if got := manager.GetActiveSlug(); got != slug2 {
 		t.Fatalf("GetActiveSlug: got %s, want %s", got, slug2)
+	}
+}
+
+func TestManagerListIdentificaBuiltinSemConfundirCustomizado(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	builtin := DefaultProfile()
+	builtin.Name = "Builtin"
+	builtin.BuiltinVersion = "1.0.0"
+	builtinSlug, err := manager.Create(builtin)
+	if err != nil {
+		t.Fatalf("criar builtin: %v", err)
+	}
+	custom := DefaultProfile()
+	custom.Name = "Custom"
+	custom.BuiltinVersion = ""
+	customSlug, err := manager.Create(custom)
+	if err != nil {
+		t.Fatalf("criar customizado: %v", err)
+	}
+
+	infos, err := manager.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySlug := make(map[string]ProfileInfo, len(infos))
+	for _, info := range infos {
+		bySlug[info.Slug] = info
+	}
+	if !bySlug[builtinSlug].Builtin {
+		t.Fatalf("profile builtin não foi identificado: %#v", bySlug[builtinSlug])
+	}
+	if bySlug[customSlug].Builtin {
+		t.Fatalf("profile customizado foi marcado como builtin: %#v", bySlug[customSlug])
+	}
+}
+
+// TestManagerNativeMCPPersistsTriState garante que o override tri-state de MCP
+// nativo (Chat.NativeMCP) sobrevive ao Create/Get (persistência JSON). Cobre o
+// caminho de sub-agentes também: eles carregam o mesmo Profile por slug, então
+// o override precisa persistir para ser aplicado no run do sub-agente.
+func TestManagerNativeMCPPersistsTriState(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	cases := []struct {
+		name string
+		val  *bool
+	}{
+		{"auto-nil", nil},
+		{"forca-true", boolPtr(true)},
+		{"forca-false", boolPtr(false)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := DefaultProfile()
+			p.Name = "Perfil " + tc.name
+			p.Active = false
+			p.Chat.NativeMCP = tc.val
+			slug, err := manager.Create(p)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			got, err := manager.Get(slug)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			switch {
+			case tc.val == nil && got.Chat.NativeMCP != nil:
+				t.Errorf("esperava NativeMCP nil (auto), obteve %v", *got.Chat.NativeMCP)
+			case tc.val != nil && got.Chat.NativeMCP == nil:
+				t.Errorf("esperava NativeMCP=%v, obteve nil", *tc.val)
+			case tc.val != nil && *got.Chat.NativeMCP != *tc.val:
+				t.Errorf("esperava NativeMCP=%v, obteve %v", *tc.val, *got.Chat.NativeMCP)
+			}
+		})
+	}
+}
+
+func TestManagerContextProvidersPersistProfileOverrides(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	enabled := false
+	p := DefaultProfile()
+	p.Name = "Perfil Context Providers"
+	p.ContextProviders = map[string]ContextProviderProfileConfig{
+		"memory": {
+			Enabled:  &enabled,
+			Budget:   900,
+			Settings: map[string]any{"mode": "pinned_plus_auto"},
+		},
+	}
+	slug, err := manager.Create(p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := manager.Get(slug)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	cfg := got.ContextProviders["memory"]
+	if cfg.Enabled == nil || *cfg.Enabled {
+		t.Fatalf("Enabled = %v, want false", cfg.Enabled)
+	}
+	if cfg.Budget != 900 {
+		t.Fatalf("Budget = %d, want 900", cfg.Budget)
+	}
+	if cfg.Settings["mode"] != "pinned_plus_auto" {
+		t.Fatalf("Settings[mode] = %v, want pinned_plus_auto", cfg.Settings["mode"])
+	}
+}
+
+func TestManagerPromptCachePersistsProfileConfig(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	p := DefaultProfile()
+	p.Name = "Perfil Prompt Cache"
+	p.Chat.PromptCache = PromptCacheConfig{
+		Enabled:              true,
+		ProviderHints:        true,
+		ExplicitCacheControl: false,
+	}
+	slug, err := manager.Create(p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := manager.Get(slug)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.Chat.PromptCache.Enabled {
+		t.Fatal("PromptCache.Enabled = false, want true")
+	}
+	if !got.Chat.PromptCache.ProviderHints {
+		t.Fatal("PromptCache.ProviderHints = false, want true")
+	}
+	if got.Chat.PromptCache.ExplicitCacheControl {
+		t.Fatal("PromptCache.ExplicitCacheControl = true, want false")
+	}
+}
+
+func TestManagerLLMDebugPersistsProfileConfig(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	p := DefaultProfile()
+	p.Name = "Perfil Debug"
+	p.Chat.Debug = &ChatDebugConfig{
+		Enabled:       true,
+		DumpRequests:  false,
+		DumpResponses: false,
+		MaxFiles:      25,
+	}
+	slug, err := manager.Create(p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := manager.Get(slug)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Chat.Debug == nil {
+		t.Fatal("Debug = nil, want persisted config")
+	}
+	if !got.Chat.Debug.Enabled {
+		t.Fatal("Debug.Enabled = false, want true")
+	}
+	if got.Chat.Debug.DumpRequests {
+		t.Fatal("Debug.DumpRequests = true, want false")
+	}
+	if got.Chat.Debug.DumpResponses {
+		t.Fatal("Debug.DumpResponses = true, want false")
+	}
+	if got.Chat.Debug.MaxFiles != 25 {
+		t.Fatalf("Debug.MaxFiles = %d, want 25", got.Chat.Debug.MaxFiles)
+	}
+}
+
+func TestChatConfigEffectiveDebugUsesDefaultsWhenLegacyMissing(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Legacy",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal legacy profile: %v", err)
+	}
+	if profile.Chat.Debug != nil {
+		t.Fatalf("Debug = %#v, want nil before effective default", profile.Chat.Debug)
+	}
+	got := profile.Chat.EffectiveDebug()
+	if got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = true, want false")
+	}
+	if !got.DumpRequests || !got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want request/response defaults enabled", got)
+	}
+	if got.MaxFiles != 200 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want 200", got.MaxFiles)
+	}
+}
+
+func TestChatConfigEffectiveDebugMergesPartialDebugBlock(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Partial Debug",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180,
+			"debug": { "enabled": true }
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal partial debug profile: %v", err)
+	}
+
+	got := profile.Chat.EffectiveDebug()
+	if !got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = false, want true")
+	}
+	if !got.DumpRequests || !got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want request/response defaults merged", got)
+	}
+	if got.MaxFiles != 200 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want 200", got.MaxFiles)
+	}
+
+	encoded, err := json.Marshal(profile.Chat.Debug)
+	if err != nil {
+		t.Fatalf("marshal debug config: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatalf("unmarshal persisted debug config: %v", err)
+	}
+	if persisted["dump_requests"] != true || persisted["dump_responses"] != true {
+		t.Fatalf("persisted partial debug config = %s, want default true dump toggles", string(encoded))
+	}
+}
+
+func TestChatConfigEffectiveDebugPreservesExplicitDebugFalseValues(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Explicit Debug",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180,
+			"debug": {
+				"enabled": true,
+				"dump_requests": false,
+				"dump_responses": false,
+				"max_files": 0
+			}
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal explicit debug profile: %v", err)
+	}
+
+	got := profile.Chat.EffectiveDebug()
+	if !got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = false, want true")
+	}
+	if got.DumpRequests || got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want explicit request/response false preserved", got)
+	}
+	if got.MaxFiles != 0 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want explicit 0 preserved", got.MaxFiles)
+	}
+
+	encoded, err := json.Marshal(profile.Chat.Debug)
+	if err != nil {
+		t.Fatalf("marshal debug config: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatalf("unmarshal persisted debug config: %v", err)
+	}
+	if persisted["max_files"] != float64(0) {
+		t.Fatalf("persisted explicit max_files = %s, want max_files:0", string(encoded))
+	}
+}
+
+func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
+	p := DefaultProfile()
+	p.ContextProviders = map[string]ContextProviderProfileConfig{
+		"memory": {Budget: -1},
+	}
+
+	if err := p.Validate(); err == nil {
+		t.Fatal("Validate succeeded, want negative context provider budget error")
+	}
+}
+
+func TestProfileValidateRejectsDebugMaxFilesOutOfRange(t *testing.T) {
+	cases := []struct {
+		name     string
+		maxFiles int
+	}{
+		{name: "negative", maxFiles: -1},
+		{name: "above limit", maxFiles: ChatDebugMaxFilesLimit + 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := DefaultProfile()
+			p.Chat.Debug = &ChatDebugConfig{MaxFiles: tc.maxFiles}
+
+			if err := p.Validate(); err == nil {
+				t.Fatal("Validate succeeded, want debug.max_files range error")
+			}
+		})
+	}
+}
+
+func TestProfileValidateRejectsPromptCacheControlsWhenDisabled(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  PromptCacheConfig
+	}{
+		{
+			name: "provider-hints",
+			cfg:  PromptCacheConfig{ProviderHints: true},
+		},
+		{
+			name: "explicit-cache-control",
+			cfg:  PromptCacheConfig{ExplicitCacheControl: true},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := DefaultProfile()
+			p.Chat.PromptCache = tc.cfg
+
+			if err := p.Validate(); err == nil {
+				t.Fatal("Validate succeeded, want prompt cache dependency error")
+			}
+		})
 	}
 }
 

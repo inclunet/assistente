@@ -12,19 +12,52 @@ import (
 
 // WriteFile cria ou sobrescreve um arquivo no disco.
 // Cria diretórios intermediários automaticamente se necessário.
+// Quando invocada de uma aba de editor com o arquivo ativo, exibe confirmação
+// com previews Antes/Depois antes de gravar (mesma política do edit_file).
 type WriteFile struct {
-	workDir string
+	workDir  string
+	questMgr QuestionnaireRequester
+	onWrite  FileWriteObserver
+}
+
+// WriteFileOption configura integrações opcionais da tool.
+type WriteFileOption func(*WriteFile)
+
+// WithWriteFileWriteObserver registra um observador para escritas feitas pela tool.
+func WithWriteFileWriteObserver(observer FileWriteObserver) WriteFileOption {
+	return func(t *WriteFile) {
+		t.onWrite = observer
+	}
+}
+
+// WithWriteFileQuestionnaire registra o gerenciador de questionários usado para
+// pedir confirmação quando a tool sobrescreve o arquivo ativo de uma aba de editor.
+func WithWriteFileQuestionnaire(questMgr QuestionnaireRequester) WriteFileOption {
+	return func(t *WriteFile) {
+		t.questMgr = questMgr
+	}
 }
 
 // NewWriteFile cria uma nova instância de WriteFile.
-func NewWriteFile(workDir string) *WriteFile {
-	return &WriteFile{workDir: workDir}
+func NewWriteFile(workDir string, opts ...WriteFileOption) *WriteFile {
+	t := &WriteFile{workDir: workDir}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(t)
+		}
+	}
+	return t
 }
 
 func (t *WriteFile) Name() string { return "write_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *WriteFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *WriteFile) Description() string {
-	return "Creates or overwrites a file with full content (no partial edits). Creates intermediate directories. Use for new files or full rewrites; for small edits, use edit_file."
+	return "Create a text file or replace its entire contents, creating parent directories as needed. Use for new files or intentional full rewrites up to 5 MiB. Do not use for a small change to an existing file (use edit_file), several exact changes in one file (use apply_patch), or binary/opaque documents. Overwriting discards all previous content and may require user confirmation for the active editor file. Risk: write."
 }
 
 func (t *WriteFile) Parameters() json.RawMessage {
@@ -33,11 +66,11 @@ func (t *WriteFile) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do arquivo a criar/sobrescrever (absoluto ou relativo ao diretório de trabalho)"
+				"description": "Text file to create or fully overwrite, absolute or relative to the working directory; missing parent directories are created."
 			},
 			"content": {
 				"type": "string",
-				"description": "Conteúdo completo do arquivo"
+				"description": "Complete final file content, not a patch or fragment; maximum encoded size is 5 MiB."
 			}
 		},
 		"required": ["path", "content"],
@@ -98,12 +131,54 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		}, nil
 	}
 
+	// AEP-0093: escrita só em texto — rejeita documento existente ou conteúdo de documento
+	if existed {
+		if msg, ok := rejectExistingDocument(fullPath, a.Path); ok {
+			return tools.ToolResult{Content: msg, IsError: true}, nil
+		}
+	}
+	if msg, ok := rejectDocumentWriteString(a.Content, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
+	// Resolve política de confirmação baseada no contexto de invocação (AEP-0032:
+	// sobrescrever o arquivo ativo do editor exige revisão humana).
+	if resolveEditPolicy(ctx, fullPath) == policyConfirmWithDiff {
+		before := ""
+		if existed {
+			prefix, err := readFilePrefixForPreview(fullPath)
+			if err != nil {
+				// Sem o conteúdo atual não dá para o usuário revisar o que será
+				// perdido — aborta em vez de mostrar um "Antes" vazio.
+				return tools.ToolResult{
+					Content: fmt.Sprintf("Erro ao ler conteúdo atual para confirmação: %v", err),
+					IsError: true,
+				}, nil
+			}
+			before = prefix
+		}
+		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, overwriteConfirmTitle(),
+			a.Path, truncateForPreview(before), truncateForPreview(a.Content)); !confirmed {
+			return toolResult, nil
+		}
+	}
+
 	// Escreve o arquivo (criando diretórios intermediários se necessário)
+	var cancelWriteMarker func(bool)
+	if t.onWrite != nil {
+		cancelWriteMarker = t.onWrite(fullPath)
+	}
 	if err := WriteFileBytes(fullPath, []byte(a.Content), 0644); err != nil {
+		if cancelWriteMarker != nil {
+			cancelWriteMarker(false)
+		}
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Erro ao escrever arquivo: %v", err),
 			IsError: true,
 		}, nil
+	}
+	if cancelWriteMarker != nil {
+		cancelWriteMarker(true)
 	}
 
 	// Conta linhas

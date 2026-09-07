@@ -4,8 +4,9 @@
 package speech
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -240,7 +241,7 @@ func (m *SAPI5Manager) GetVoices() []Voice {
 
 	if !m.initialized {
 		if err := m.initialize(); err != nil {
-			log.Printf("[SAPI5] falha ao inicializar COM: %v", err)
+			logging.Errorf(context.Background(), "speech.sapi5-windows", "[SAPI5] falha ao inicializar COM: %v", err)
 			return []Voice{}
 		}
 	}
@@ -263,7 +264,7 @@ func (m *SAPI5Manager) Speak(text string, voiceName string) error {
 	if voiceName != "" {
 		if err := m.selectVoice(voiceName); err != nil {
 			// Se falhar ao selecionar, continua com a voz padrão
-			log.Printf("Warning: failed to select voice '%s': %v", voiceName, err)
+			logging.Warnf(context.Background(), "speech.sapi5-windows", "Warning: failed to select voice '%s': %v", voiceName, err)
 		}
 	}
 
@@ -296,21 +297,21 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 
 	if voiceName != "" {
 		if err := m.selectVoice(voiceName); err != nil {
-			log.Printf("[SAPI5] Warning: failed to select voice '%s': %v", voiceName, err)
+			logging.Warnf(context.Background(), "speech.sapi5-windows", "[SAPI5] Warning: failed to select voice '%s': %v", voiceName, err)
 		}
 	}
 
 	// Configura rate e volume (best-effort: loga erro mas continua)
 	if rate >= -10 && rate <= 10 {
 		if v, err := oleutil.PutProperty(m.spVoice, "Rate", rate); err != nil {
-			log.Printf("[SAPI5] Warning: failed to set Rate: %v", err)
+			logging.Warnf(context.Background(), "speech.sapi5-windows", "[SAPI5] Warning: failed to set Rate: %v", err)
 		} else if v != nil {
 			_ = v.Clear()
 		}
 	}
 	if volume >= 0 && volume <= 100 {
 		if v, err := oleutil.PutProperty(m.spVoice, "Volume", volume); err != nil {
-			log.Printf("[SAPI5] Warning: failed to set Volume: %v", err)
+			logging.Warnf(context.Background(), "speech.sapi5-windows", "[SAPI5] Warning: failed to set Volume: %v", err)
 		} else if v != nil {
 			_ = v.Clear()
 		}
@@ -351,7 +352,7 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 		if redirected {
 			if defaultOutput != nil {
 				if v, err := oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput); err != nil {
-					log.Printf("[SAPI5] Warning: failed to restore AudioOutputStream: %v", err)
+					logging.Warnf(context.Background(), "speech.sapi5-windows", "[SAPI5] Warning: failed to restore AudioOutputStream: %v", err)
 				} else if v != nil {
 					_ = v.Clear()
 				}
@@ -430,7 +431,7 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 // faz o SpVoice voltar a usar o dispositivo de áudio padrão do sistema.
 func (m *SAPI5Manager) restoreDefaultOutput() {
 	if v, err := oleutil.PutProperty(m.spVoice, "AudioOutputStream", nil); err != nil {
-		log.Printf("[SAPI5] Warning: failed to restore default output: %v", err)
+		logging.Warnf(context.Background(), "speech.sapi5-windows", "[SAPI5] Warning: failed to restore default output: %v", err)
 	} else if v != nil {
 		_ = v.Clear()
 	}

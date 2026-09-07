@@ -1,13 +1,13 @@
 package signal
 
 import (
+	"assistente/internal/logging"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -50,7 +50,7 @@ func Register(apiURL, number, mode, captcha, apiToken string) error {
 	}
 
 	reqURL := fmt.Sprintf("%s/v1/register/%s", apiURL, url.PathEscape(number))
-	log.Printf("[Signal] Register: POST %s (number=%s, mode=%s, use_voice=%v, has_captcha=%v)",
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Register: POST %s (number=%s, mode=%s, use_voice=%v, has_captcha=%v)",
 		reqURL, maskIdentifier(number), mode, payload.UseVoice, captcha != "")
 
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
@@ -61,13 +61,13 @@ func Register(apiURL, number, mode, captcha, apiToken string) error {
 
 	resp, err := client.Do(ctx, req)
 	if err != nil {
-		log.Printf("[Signal] Register: erro de rede: %v", err)
+		logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Register: erro de rede: %v", err)
 		return fmt.Errorf("erro ao registrar número %s: %w", number, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Printf("[Signal] Register: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Register: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var apiErr apiError
@@ -77,7 +77,7 @@ func Register(apiURL, number, mode, captcha, apiToken string) error {
 		return fmt.Errorf("erro %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("[Signal] Register: sucesso para %s", maskIdentifier(number))
+	logging.Infof(context.Background(), "messaging.signal.register", "[Signal] Register: sucesso para %s", maskIdentifier(number))
 	return nil
 }
 
@@ -89,7 +89,7 @@ func Verify(apiURL, number, code, apiToken string) error {
 
 	reqURL := fmt.Sprintf("%s/v1/register/%s/verify/%s",
 		apiURL, url.PathEscape(number), url.PathEscape(code))
-	log.Printf("[Signal] Verify: POST %s (number=%s)", reqURL, maskIdentifier(number))
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Verify: POST %s (number=%s)", reqURL, maskIdentifier(number))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
 	if err != nil {
@@ -99,13 +99,13 @@ func Verify(apiURL, number, code, apiToken string) error {
 
 	resp, err := client.Do(ctx, req)
 	if err != nil {
-		log.Printf("[Signal] Verify: erro de rede: %v", err)
+		logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Verify: erro de rede: %v", err)
 		return fmt.Errorf("erro ao verificar número %s: %w", number, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Printf("[Signal] Verify: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Verify: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var apiErr apiError
@@ -115,7 +115,7 @@ func Verify(apiURL, number, code, apiToken string) error {
 		return fmt.Errorf("erro %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("[Signal] Verify: número %s verificado com sucesso", maskIdentifier(number))
+	logging.Infof(context.Background(), "messaging.signal.register", "[Signal] Verify: número %s verificado com sucesso", maskIdentifier(number))
 	return nil
 }
 
@@ -128,7 +128,7 @@ func Unregister(apiURL, number string, deleteLocalData bool, apiToken string) er
 
 	// POST /v1/unregister/{number}
 	reqURL := fmt.Sprintf("%s/v1/unregister/%s", apiURL, url.PathEscape(number))
-	log.Printf("[Signal] Unregister: POST %s (number=%s, deleteLocalData=%v)", reqURL, maskIdentifier(number), deleteLocalData)
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Unregister: POST %s (number=%s, deleteLocalData=%v)", reqURL, maskIdentifier(number), deleteLocalData)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
 	if err != nil {
@@ -138,13 +138,13 @@ func Unregister(apiURL, number string, deleteLocalData bool, apiToken string) er
 
 	resp, err := client.Do(ctx, req)
 	if err != nil {
-		log.Printf("[Signal] Unregister: erro de rede: %v", err)
+		logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Unregister: erro de rede: %v", err)
 		return fmt.Errorf("erro ao descadastrar %s: %w", number, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Printf("[Signal] Unregister: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Unregister: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
 
 	if resp.StatusCode >= 300 {
 		var apiErr apiError
@@ -157,7 +157,7 @@ func Unregister(apiURL, number string, deleteLocalData bool, apiToken string) er
 	// Apaga dados locais se solicitado
 	if deleteLocalData {
 		delURL := fmt.Sprintf("%s/v1/devices/%s/local-data", apiURL, url.PathEscape(number))
-		log.Printf("[Signal] Unregister: DELETE %s", delURL)
+		logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] Unregister: DELETE %s", delURL)
 
 		delReq, err := http.NewRequestWithContext(ctx, "DELETE", delURL, nil)
 		if err != nil {
@@ -171,10 +171,10 @@ func Unregister(apiURL, number string, deleteLocalData bool, apiToken string) er
 		defer func() { _ = delResp.Body.Close() }()
 
 		delBody, _ := io.ReadAll(delResp.Body)
-		log.Printf("[Signal] Unregister: delete local-data status=%d, body=%s", delResp.StatusCode, truncateStr(string(delBody), 300))
+		logging.Infof(context.Background(), "messaging.signal.register", "[Signal] Unregister: delete local-data status=%d, body=%s", delResp.StatusCode, truncateStr(string(delBody), 300))
 	}
 
-	log.Printf("[Signal] Unregister: %s removido com sucesso", maskIdentifier(number))
+	logging.Infof(context.Background(), "messaging.signal.register", "[Signal] Unregister: %s removido com sucesso", maskIdentifier(number))
 	return nil
 }
 
@@ -188,7 +188,7 @@ func GetLinkQRCode(apiURL, deviceName, apiToken string) (string, error) {
 
 	reqURL := fmt.Sprintf("%s/v1/qrcodelink?device_name=%s",
 		apiURL, url.QueryEscape(deviceName))
-	log.Printf("[Signal] GetLinkQRCode: GET %s", reqURL)
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] GetLinkQRCode: GET %s", reqURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
@@ -197,13 +197,13 @@ func GetLinkQRCode(apiURL, deviceName, apiToken string) (string, error) {
 
 	resp, err := client.Do(ctx, req)
 	if err != nil {
-		log.Printf("[Signal] GetLinkQRCode: erro: %v", err)
+		logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] GetLinkQRCode: erro: %v", err)
 		return "", fmt.Errorf("erro ao gerar QR code: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	imgBytes, _ := io.ReadAll(resp.Body)
-	log.Printf("[Signal] GetLinkQRCode: status=%d, content-type=%s, body_len=%d",
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] GetLinkQRCode: status=%d, content-type=%s, body_len=%d",
 		resp.StatusCode, resp.Header.Get("Content-Type"), len(imgBytes))
 
 	if resp.StatusCode != http.StatusOK {
@@ -236,7 +236,7 @@ func GetLinkRawURI(apiURL, deviceName, apiToken string) (string, error) {
 
 	reqURL := fmt.Sprintf("%s/v1/qrcodelink/raw?device_name=%s",
 		apiURL, url.QueryEscape(deviceName))
-	log.Printf("[Signal] GetLinkRawURI: GET %s", reqURL)
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] GetLinkRawURI: GET %s", reqURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
@@ -250,7 +250,7 @@ func GetLinkRawURI(apiURL, deviceName, apiToken string) (string, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Printf("[Signal] GetLinkRawURI: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 300))
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] GetLinkRawURI: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 300))
 
 	if resp.StatusCode != http.StatusOK {
 		var apiErr apiError
@@ -279,7 +279,7 @@ func ListAccounts(apiURL, apiToken string) ([]string, error) {
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	reqURL := apiURL + "/v1/accounts"
-	log.Printf("[Signal] ListAccounts: GET %s", reqURL)
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] ListAccounts: GET %s", reqURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
@@ -293,7 +293,7 @@ func ListAccounts(apiURL, apiToken string) ([]string, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Printf("[Signal] ListAccounts: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 300))
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] ListAccounts: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 300))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("erro %d: %s", resp.StatusCode, string(respBody))
@@ -315,7 +315,7 @@ func CheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
 
 	// Tenta primeiro /v1/about (signal-cli-rest-api padrão)
 	reqURL := apiURL + "/v1/about"
-	log.Printf("[Signal] CheckAPI: tentando GET %s", reqURL)
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] CheckAPI: tentando GET %s", reqURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
@@ -325,7 +325,7 @@ func CheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
 	resp, err := client.Do(ctx, req)
 	if err != nil {
 		// Se /v1/about falhar, tenta /api/v1/about (caso haja um prefixo)
-		log.Printf("[Signal] CheckAPI: GET %s falhou: %v", reqURL, err)
+		logging.Infof(context.Background(), "messaging.signal.register", "[Signal] CheckAPI: GET %s falhou: %v", reqURL, err)
 
 		// Tenta também a raiz para diagnóstico
 		rootReq, rootErr := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
@@ -334,10 +334,10 @@ func CheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
 			if rootRespErr == nil {
 				rootBody, _ := io.ReadAll(rootResp.Body)
 				_ = rootResp.Body.Close()
-				log.Printf("[Signal] CheckAPI: GET %s retornou status %d, body=%s",
+				logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] CheckAPI: GET %s retornou status %d, body=%s",
 					apiURL, rootResp.StatusCode, truncateStr(string(rootBody), 500))
 			} else {
-				log.Printf("[Signal] CheckAPI: GET %s também falhou: %v", apiURL, rootRespErr)
+				logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] CheckAPI: GET %s também falhou: %v", apiURL, rootRespErr)
 			}
 		}
 
@@ -346,7 +346,7 @@ func CheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	log.Printf("[Signal] CheckAPI: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
+	logging.Errorf(context.Background(), "messaging.signal.register", "[Signal] CheckAPI: status=%d, body=%s", resp.StatusCode, truncateStr(string(respBody), 500))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("signal-cli-rest-api retornou status %d: %s", resp.StatusCode, string(respBody))

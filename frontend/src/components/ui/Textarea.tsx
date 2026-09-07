@@ -1,4 +1,5 @@
-import { forwardRef, TextareaHTMLAttributes, useId } from 'react';
+import { forwardRef, TextareaHTMLAttributes, useEffect, useId, useRef } from 'react';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './Textarea.css';
 
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -11,16 +12,25 @@ export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ label, error, hint, fullWidth, resize = 'vertical', className = '', id: externalId, ...props }, ref) => {
+    const { announce } = useAnnouncer();
     const autoId = useId();
     const textareaId = externalId || autoId;
     const errorId = error ? `${textareaId}-error` : undefined;
     const hintId = hint ? `${textareaId}-hint` : undefined;
+    const previousErrorRef = useRef<string | undefined>();
 
     const describedBy = [
       props['aria-describedby'],
       errorId,
       hintId,
     ].filter(Boolean).join(' ') || undefined;
+
+    useEffect(() => {
+      if (error && error !== previousErrorRef.current) {
+        announce(error, 'assertive');
+      }
+      previousErrorRef.current = error;
+    }, [announce, error]);
 
     return (
       <div className={`textarea-wrapper ${fullWidth ? 'textarea-wrapper--full' : ''}`}>
@@ -39,7 +49,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           {...props}
         />
         {hint && <span id={hintId} className="textarea-hint">{hint}</span>}
-        {error && <span id={errorId} className="textarea-error" role="alert">{error}</span>}
+        {error && <span id={errorId} className="textarea-error">{error}</span>}
       </div>
     );
   }

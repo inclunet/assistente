@@ -1,0 +1,376 @@
+package fstrust
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+type spyPrompter struct {
+	called   int
+	decision PromptDecision
+	err      error
+	lastReq  PromptRequest
+}
+
+func (s *spyPrompter) PromptPathAuthorization(_ context.Context, req PromptRequest) (PromptDecision, error) {
+	s.called++
+	s.lastReq = req
+	return s.decision, s.err
+}
+
+func TestResolvePath_CleansDotDot(t *testing.T) {
+	dir := t.TempDir()
+	got, err := ResolvePath(filepath.Join(dir, "sub", "..", "alvo.txt"))
+	if err != nil {
+		t.Fatalf("ResolvePath: %v", err)
+	}
+	want := NormalizePath(filepath.Join(dir, "alvo.txt"))
+	if got != want {
+		t.Fatalf("ResolvePath = %q, quer %q", got, want)
+	}
+	if _, err := ResolvePath("   "); err == nil {
+		t.Fatal("path vazio deveria falhar")
+	}
+}
+
+// Deny persistido pelo destino real bloqueia o acesso feito via alias/symlink:
+// o Manager casa pelo path resolvido, então gravar o alias cru burlaria a regra.
+func TestAuthorizer_DenyByResolvedPathBlocksAlias(t *testing.T) {
+	dir := t.TempDir()
+	realFile := filepath.Join(dir, "segredo.txt")
+	if err := os.WriteFile(realFile, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	alias := filepath.Join(dir, "atalho.txt")
+	if err := os.Symlink(realFile, alias); err != nil {
+		t.Skipf("symlink indisponível neste ambiente: %v", err)
+	}
+
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	// Deny gravado no destino real (como o controller passa a fazer).
+	resolved, err := ResolvePath(realFile)
+	if err != nil {
+		t.Fatalf("ResolvePath: %v", err)
+	}
+	if err := m.Add(ctx, AllowlistEntry{Path: resolved, Kind: KindFile, Operation: "read", Effect: EffectDeny, Scope: ScopeGlobal}); err != nil {
+		t.Fatalf("Add deny: %v", err)
+	}
+
+	auth := NewAuthorizer(m, &spyPrompter{decision: PromptDecision{Approve: true}})
+	// Acesso pelo alias deve ser bloqueado pelo deny do destino real.
+	err = auth.Authorize(ctx, alias, "read")
+	if err == nil {
+		t.Fatal("deny pelo destino real deveria bloquear o acesso via alias")
+	}
+	var denied *DeniedPathError
+	if !errors.As(err, &denied) {
+		t.Fatal("erro deveria ser DeniedPathError")
+	}
+	if strings.Contains(err.Error(), "diálogo de consentimento") {
+		t.Fatalf("deny por denylist não deveria sugerir o diálogo: %v", err)
+	}
+	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
+		t.Fatalf("deny deveria linkar a tela de gestão: %v", err)
+	}
+}
+
+func TestAuthorizer_MatchSkipsPrompt(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	file := filepath.Join(dir, "a.txt")
+	_ = m.Add(ctx, AllowlistEntry{Path: file, Kind: KindFile, Operation: "read", Scope: ScopeGlobal})
+
+	prompt := &spyPrompter{}
+	auth := NewAuthorizer(m, prompt)
+
+	if err := auth.Authorize(ctx, file, "read"); err != nil {
+		t.Fatalf("esperado permitido por allowlist: %v", err)
+	}
+	if prompt.called != 0 {
+		t.Fatal("não deveria pedir consentimento quando já está na allowlist")
+	}
+}
+
+func TestAuthorizer_PromptApproveOnce(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	file := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeOnce, Kind: KindFile}}
+	auth := NewAuthorizer(m, prompt)
+
+	if err := auth.Authorize(ctx, file, "read"); err != nil {
+		t.Fatalf("esperado permitido após once: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("esperado 1 prompt, got %d", prompt.called)
+	}
+	if d := m.Match(ctx, file, "read"); d.Allowed {
+		t.Fatal("escopo once não deve persistir")
+	}
+}
+
+func TestAuthorizer_PromptDeny(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	file := filepath.Join(dir, "a.txt")
+
+	prompt := &spyPrompter{decision: PromptDecision{Approve: false}}
+	auth := NewAuthorizer(m, prompt)
+
+	err := auth.Authorize(ctx, file, "write")
+	if err == nil {
+		t.Fatal("deny deveria retornar erro")
+	}
+	if !strings.Contains(err.Error(), file) && !strings.Contains(err.Error(), NormalizePath(file)) {
+		// NormalizePath pode alterar o path; aceite menção à operação ao menos.
+		if !strings.Contains(err.Error(), "write") {
+			t.Fatalf("erro deveria mencionar path/operação, got %v", err)
+		}
+	}
+	if !strings.Contains(err.Error(), "write") {
+		t.Fatalf("erro deveria mencionar a operação, got %v", err)
+	}
+	if m.MatchDeny(ctx, file, "write").Matched {
+		t.Fatal("cancelamento/deny simples não deve criar regra persistente")
+	}
+	if err := auth.Authorize(ctx, file, "write"); err == nil {
+		t.Fatal("nova tentativa também deve ser negada pelo prompt")
+	}
+	if prompt.called != 2 {
+		t.Fatalf("deny simples deve perguntar novamente, got %d prompts", prompt.called)
+	}
+}
+
+func TestAuthorizer_PromptDenyRememberPersists(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	file := filepath.Join(dir, "a.txt")
+	prompt := &spyPrompter{decision: PromptDecision{
+		Approve: false,
+		Scope:   ScopeGlobal,
+		Kind:    KindFile,
+		Effect:  EffectDeny,
+	}}
+	auth := NewAuthorizer(m, prompt)
+
+	if err := auth.Authorize(ctx, file, "write"); err == nil {
+		t.Fatal("negar e lembrar deve bloquear a tentativa atual")
+	}
+	if match := m.MatchDeny(ctx, file, "write"); !match.Matched || match.Scope != ScopeGlobal {
+		t.Fatalf("deny global não foi lembrado: %+v", match)
+	}
+	if err := auth.Authorize(ctx, file, "write"); err == nil {
+		t.Fatal("deny lembrado deve bloquear tentativas futuras")
+	}
+	if prompt.called != 1 {
+		t.Fatalf("deny persistido não deve abrir novo prompt: %d chamadas", prompt.called)
+	}
+	if m.MatchDeny(ctx, file, "read").Matched {
+		t.Fatal("deny de write não pode vazar para read")
+	}
+}
+
+func TestAuthorizer_PromptDenySessionIsIsolatedByConversation(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	file := filepath.Join(dir, "a.txt")
+	ctxA := ctxWith("conversa-a", "")
+	ctxB := ctxWith("conversa-b", "")
+	auth := NewAuthorizer(m, &spyPrompter{decision: PromptDecision{
+		Approve: false,
+		Scope:   ScopeSession,
+		Kind:    KindFile,
+		Effect:  EffectDeny,
+	}})
+
+	if err := auth.Authorize(ctxA, file, "read"); err == nil {
+		t.Fatal("deny de sessão deve bloquear a tentativa atual")
+	}
+	if !m.MatchDeny(ctxA, file, "read").Matched {
+		t.Fatal("deny deveria valer na conversa de origem")
+	}
+	if m.MatchDeny(ctxB, file, "read").Matched {
+		t.Fatal("deny de sessão não pode vazar para outra conversa")
+	}
+}
+
+func TestAuthorizer_ApproveDirPersistsParent(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	docs := filepath.Join(dir, "docs")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(docs, "a.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Kind: KindDir}}
+	auth := NewAuthorizer(m, prompt)
+
+	if err := auth.Authorize(ctx, file, "read"); err != nil {
+		t.Fatalf("esperado permitido: %v", err)
+	}
+
+	sibling := filepath.Join(docs, "b.txt")
+	d := m.Match(ctx, sibling, "read")
+	if !d.Allowed || d.Entry == nil || d.Entry.Kind != KindDir {
+		t.Fatalf("grant dir deveria casar sibling, got %+v", d)
+	}
+	if NormalizePath(d.Entry.Path) != NormalizePath(docs) {
+		t.Fatalf("path persistido deveria ser o dir pai %q, got %q", docs, d.Entry.Path)
+	}
+}
+
+func TestAuthorizer_NoPrompter(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	auth := NewAuthorizer(m, nil)
+	file := filepath.Join(dir, "a.txt")
+
+	err := auth.Authorize(context.Background(), file, "read")
+	if err == nil {
+		t.Fatal("sem prompter deveria falhar")
+	}
+	var denied *DeniedPathError
+	if !errors.As(err, &denied) {
+		t.Fatalf("want *DeniedPathError, got %T: %v", err, err)
+	}
+	if denied.Reason != "sem prompter de consentimento" {
+		t.Fatalf("motivo inesperado: %q", denied.Reason)
+	}
+	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
+		t.Fatalf("erro deveria linkar a tela de gestão: %v", err)
+	}
+	if strings.Contains(err.Error(), "diálogo de consentimento") {
+		t.Fatalf("sem prompter não deveria sugerir diálogo: %v", err)
+	}
+}
+
+func TestAuthorizer_DenyLinksManagementUI(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	auth := NewAuthorizer(m, &spyPrompter{
+		decision: PromptDecision{Approve: false},
+	})
+	file := filepath.Join(dir, "a.txt")
+
+	err := auth.Authorize(context.Background(), file, "read")
+	if err == nil {
+		t.Fatal("negação deveria falhar")
+	}
+	var denied *DeniedPathError
+	if !errors.As(err, &denied) {
+		t.Fatalf("want *DeniedPathError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), PathAllowlistDeepLink) {
+		t.Fatalf("erro deveria linkar a tela de gestão: %v", err)
+	}
+	if !strings.Contains(err.Error(), "gestão de paths") {
+		t.Fatalf("erro deveria mencionar a tela de gestão de paths: %v", err)
+	}
+}
+
+func TestAuthorizer_NewFileThroughSymlinkKeepsPersistentMatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	home := t.TempDir()
+	linkParent := t.TempDir()
+	realParent := t.TempDir()
+	link := filepath.Join(linkParent, "external")
+	if err := os.Symlink(realParent, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	requested := filepath.Join(link, "new.txt")
+	resolved := filepath.Join(realParent, "new.txt")
+
+	m := NewManagerWithDirs(home, home)
+	prompt := &spyPrompter{
+		decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Kind: KindFile},
+	}
+	auth := NewAuthorizer(m, prompt)
+	ctx := context.Background()
+
+	// Primeira tentativa: o arquivo ainda não existe. A autorização deve ser
+	// persistida pelo ancestral resolvido (realParent/new.txt), não pelo link.
+	if err := auth.Authorize(ctx, requested, "write"); err != nil {
+		t.Fatalf("primeira autorização: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("esperado 1 prompt, got %d", prompt.called)
+	}
+	if NormalizePath(prompt.lastReq.ResolvedPath) != NormalizePath(resolved) {
+		t.Fatalf("resolved path inesperado: got %q, want %q", prompt.lastReq.ResolvedPath, resolved)
+	}
+
+	if err := os.WriteFile(resolved, []byte("criado"), 0o644); err != nil {
+		t.Fatalf("criar arquivo após autorização: %v", err)
+	}
+
+	// Segunda tentativa: agora EvalSymlinks resolve o path inteiro. A entrada
+	// persistida deve casar e impedir um novo prompt.
+	if err := auth.Authorize(ctx, requested, "write"); err != nil {
+		t.Fatalf("match após criação: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("autorização persistida deveria evitar novo prompt, got %d prompts", prompt.called)
+	}
+}
+
+func TestAuthorizer_DanglingFinalSymlinkPersistsRealTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks podem requerer privilégios elevados no Windows")
+	}
+
+	home := t.TempDir()
+	linkParent := t.TempDir()
+	realParent := t.TempDir()
+	target := filepath.Join(realParent, "ainda-inexistente.txt")
+	link := filepath.Join(linkParent, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink pendurado: %v", err)
+	}
+
+	m := NewManagerWithDirs(home, home)
+	prompt := &spyPrompter{
+		decision: PromptDecision{Approve: true, Scope: ScopeGlobal, Kind: KindFile},
+	}
+	auth := NewAuthorizer(m, prompt)
+	ctx := context.Background()
+
+	if err := auth.Authorize(ctx, link, "write"); err != nil {
+		t.Fatalf("autorizar symlink pendurado: %v", err)
+	}
+	if NormalizePath(prompt.lastReq.ResolvedPath) != NormalizePath(target) {
+		t.Fatalf("alvo real inesperado: got %q, want %q", prompt.lastReq.ResolvedPath, target)
+	}
+
+	if err := os.WriteFile(target, []byte("criado"), 0o644); err != nil {
+		t.Fatalf("criar alvo: %v", err)
+	}
+	if err := auth.Authorize(ctx, link, "write"); err != nil {
+		t.Fatalf("match após criação do alvo: %v", err)
+	}
+	if prompt.called != 1 {
+		t.Fatalf("entrada do alvo real deveria evitar novo prompt, got %d prompts", prompt.called)
+	}
+}

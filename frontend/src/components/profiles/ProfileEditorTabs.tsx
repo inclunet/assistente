@@ -1,45 +1,197 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { profiles } from '@wailsjs/go/models';
-import { main, allowlist, skills } from '@wailsjs/go/models';
+import type { profiles, apidto, allowlist, contextprovider, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { announce } from '../../hooks/useAnnouncer';
+import { useAgentProvider } from '../../hooks/useAgentProvider';
 import { ProfileGeneralSection } from './ProfileGeneralSection';
 import { ProfileChatSection } from './ProfileChatSection';
 import { ProfileSkillsSection } from './ProfileSkillsSection';
+import { ProfileContextProvidersSection } from './ProfileContextProvidersSection';
 import { ProfileToolsSection } from './ProfileToolsSection';
 import { ProfileAudioTab } from './ProfileAudioTab';
+import type { ProfileEditSection } from '../../store/navigationStore';
 import './ProfileEditorTabs.css';
 
-const EDITOR_TABS = ['general', 'models', 'skills', 'tools', 'audio'] as const;
+const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
 type EditorTabId = (typeof EDITOR_TABS)[number];
+
+/**
+ * AGENT_HIDDEN_TABS são as guias que um perfil com agente de código não usa: o
+ * turno passa por cima delas, e o agente tem recurso próprio para o que elas
+ * configuram (AEP-0084, Fase 8). Elas somem da tela em vez de aparecerem
+ * desabilitadas — as duas formas informam o mesmo, mas o formulário
+ * desabilitado ainda pede atenção de quem navega guia por guia.
+ *
+ * Esconder não apaga: o que está no perfil continua lá, e volta inteiro se o
+ * provedor voltar a ser HTTP.
+ */
+const AGENT_HIDDEN_TABS: readonly EditorTabId[] = ['skills', 'contextProviders', 'tools'];
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const PRIMARY_FOCUSABLE_SELECTOR =
+  'button[aria-haspopup="listbox"]:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable]';
+
+function isVisibleFocusTarget(element: HTMLElement): boolean {
+  return !element.closest('[hidden], [aria-hidden="true"]');
+}
 
 export interface ProfileEditorTabsProps {
   editingProfile: profiles.Profile & { id?: string; source?: string; isActive?: boolean };
-  availableTools: main.ToolInfo[];
+  availableTools: apidto.ToolInfo[];
   availableSkills: Array<
     | skills.SkillInfo
-    | { slug: string; name: string; description?: string; version?: string; source?: string }
+    | {
+      slug: string;
+      name: string;
+      description?: string;
+      version?: string;
+      source?: string;
+      autoLoad?: boolean;
+      disableModelInvocation?: boolean;
+    }
   >;
+  availableContextProviders: contextprovider.ProviderMetadata[];
   availableAllowlists: allowlist.AllowlistInfo[];
   updateField: (path: string, value: unknown) => void;
   updateFields: (updates: Record<string, unknown>) => void;
+  initialTab?: ProfileEditSection;
 }
 
 export function ProfileEditorTabs({
   editingProfile,
   availableTools,
   availableSkills,
+  availableContextProviders,
   availableAllowlists,
   updateField,
   updateFields,
+  initialTab,
 }: ProfileEditorTabsProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<EditorTabId>('general');
+  const [activeTab, setActiveTab] = useState<EditorTabId>(
+    initialTab === 'voice' ? 'audio' : 'general',
+  );
   const containerRef = useRef<HTMLDivElement>(null);
+  const pendingShortcutFocusRef = useRef<EditorTabId | null>(null);
+  const { isAgent: agentProvider, resolved: agentProviderResolved } = useAgentProvider(
+    editingProfile.chat?.llm_provider || '',
+  );
+  const visibleTabs = agentProvider
+    ? EDITOR_TABS.filter((id) => !AGENT_HIDDEN_TABS.includes(id))
+    : EDITOR_TABS;
+  const hasOnDemandSkills = hasModelOnDemandSkill(
+    availableSkills,
+    editingProfile.chat?.enabled_skills,
+    editingProfile.chat?.disable_skills ?? false,
+    editingProfile.chat?.disable_on_demand_skills ?? false,
+  );
+
+  useLayoutEffect(() => {
+    if (initialTab === 'voice') {
+      setActiveTab('audio');
+    }
+  }, [initialTab]);
 
   const handleTabChange = useCallback((v: string) => {
+    pendingShortcutFocusRef.current = null;
     setActiveTab(v as EditorTabId);
   }, []);
+
+  const focusProfileContent = useCallback(
+    (tabId: EditorTabId = activeTab): boolean => {
+      const el = containerRef.current;
+      if (!el) return false;
+
+      const targetPanel = document.getElementById(`profile-editor-tabpanel-${tabId}`) as HTMLElement | null;
+      const panel =
+        targetPanel && !targetPanel.hidden
+          ? targetPanel
+          : (el.querySelector('[role="tabpanel"]:not([hidden])') as HTMLElement | null);
+      if (!panel) return false;
+
+      const grid = panel.querySelector('[role="grid"]') as HTMLElement | null;
+      if (grid && isVisibleFocusTarget(grid)) {
+        const cell = panel.querySelector(
+          '.datagrid-container [role="gridcell"][tabindex="0"], .datagrid-container [role="gridcell"]',
+        ) as HTMLElement | null;
+        if (cell && isVisibleFocusTarget(cell)) {
+          cell.focus();
+          return true;
+        }
+        grid.focus();
+        return true;
+      }
+
+      const primary = Array.from(panel.querySelectorAll(PRIMARY_FOCUSABLE_SELECTOR)).find((candidate) =>
+        isVisibleFocusTarget(candidate as HTMLElement),
+      ) as HTMLElement | undefined;
+      if (primary) {
+        primary.focus();
+        return true;
+      }
+
+      const focusable = Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR)).find(
+        (candidate) =>
+          candidate.getAttribute('aria-expanded') === null &&
+          isVisibleFocusTarget(candidate as HTMLElement),
+      ) as HTMLElement | undefined;
+      if (focusable) {
+        focusable.focus();
+        return true;
+      }
+
+      const collapsibleToggle = Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR)).find((candidate) =>
+        isVisibleFocusTarget(candidate as HTMLElement),
+      ) as HTMLElement | undefined;
+      if (collapsibleToggle) {
+        collapsibleToggle.focus();
+        return true;
+      }
+
+      panel.setAttribute('tabindex', '-1');
+      panel.focus();
+      return true;
+    },
+    [activeTab],
+  );
+
+  useLayoutEffect(() => {
+    if (pendingShortcutFocusRef.current !== activeTab) return;
+    pendingShortcutFocusRef.current = null;
+
+    if (!focusProfileContent(activeTab)) {
+      restoreDefaultFocus();
+    }
+  }, [activeTab, focusProfileContent]);
+
+  // A troca de provedor muda a contagem de guias debaixo de quem navega. Quem
+  // está numa guia que some precisa ir para lugar previsível, e ouvir o que
+  // passou a valer (AEP-0084, Fase 8).
+  //
+  // Corre antes da pintura: a guia ativa que some é trocada no mesmo quadro, sem
+  // um instante de editor sem guia selecionada.
+  //
+  // Descobrir que o perfil já era de um agente não anuncia nada: aí ninguém
+  // trocou de provedor, o editor está abrindo como o perfil já era. O anúncio é
+  // para quem trocou, e só existe troca depois que a consulta respondeu uma vez.
+  const agentProviderRef = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    if (!agentProviderResolved) return;
+    const anterior = agentProviderRef.current;
+    agentProviderRef.current = agentProvider;
+
+    if (agentProvider && AGENT_HIDDEN_TABS.includes(activeTab)) {
+      setActiveTab('models');
+    }
+    if (anterior === null || anterior === agentProvider) return;
+    announce(
+      agentProvider
+        ? t('profiles.agentProfile.tabsHidden')
+        : t('profiles.agentProfile.tabsBack'),
+    );
+  }, [agentProvider, agentProviderResolved, activeTab, t]);
 
   // Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+PageDown / Ctrl+PageUp
   useEffect(() => {
@@ -59,37 +211,22 @@ export function ProfileEditorTabs({
       e.preventDefault();
       e.stopPropagation();
 
-      const currentIndex = EDITOR_TABS.indexOf(activeTab);
+      const currentIndex = visibleTabs.indexOf(activeTab);
       let nextIndex = currentIndex + direction;
-      if (nextIndex >= EDITOR_TABS.length) nextIndex = 0;
-      if (nextIndex < 0) nextIndex = EDITOR_TABS.length - 1;
+      if (nextIndex >= visibleTabs.length) nextIndex = 0;
+      if (nextIndex < 0) nextIndex = visibleTabs.length - 1;
 
-      const nextTabId = EDITOR_TABS[nextIndex];
+      const nextTabId = visibleTabs[nextIndex];
 
       // Update React state first.
-      handleTabChange(nextTabId);
-
-      // Now sync DOM immediately before the event loop processes the keyup/focus fully.
-      // This pattern ensures the SR sees the 'aria-selected' change as part of the focus movement.
-      const prevBtn = el.querySelector('button[role="tab"][aria-selected="true"]') as HTMLElement | null;
-      const nextBtn = el.querySelector(
-        `button[role="tab"][data-tab-value="${nextTabId}"]`,
-      ) as HTMLButtonElement | null;
-
-      if (prevBtn) {
-        prevBtn.setAttribute('aria-selected', 'false');
-        prevBtn.tabIndex = -1;
-      }
-      if (nextBtn) {
-        nextBtn.setAttribute('aria-selected', 'true');
-        nextBtn.tabIndex = 0;
-        nextBtn.focus();
-      }
+      pendingShortcutFocusRef.current = nextTabId;
+      setActiveTab(nextTabId);
+      announce(t(`profiles.editorTabs.${nextTabId}`));
     };
 
     el.addEventListener('keydown', handleKeyDown);
     return () => el.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, handleTabChange]);
+  }, [activeTab, t, visibleTabs]);
 
   return (
     <div ref={containerRef} className="profile-editor-tabs" data-tab-scope>
@@ -98,9 +235,12 @@ export function ProfileEditorTabs({
         onValueChange={handleTabChange}
         activationMode="auto"
         idBase="profile-editor"
+        onActivate={() => {
+          return focusProfileContent();
+        }}
       >
         <TabList className="profile-editor-tabs__list" ariaLabel={t('profiles.editorTabsLabel', 'Seções do perfil')}>
-          {EDITOR_TABS.map((id) => (
+          {visibleTabs.map((id) => (
             <Tab
               key={id}
               value={id}
@@ -135,7 +275,16 @@ export function ProfileEditorTabs({
             minContextMessages={editingProfile.chat?.min_context_messages ?? 0}
             topP={editingProfile.chat?.top_p ?? 1.0}
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
+            rateLimitEnabled={editingProfile.chat?.rate_limit_enabled ?? true}
+            rateLimitRpm={editingProfile.chat?.rate_limit_rpm ?? 60}
+            rateLimitBurst={editingProfile.chat?.rate_limit_burst ?? 30}
             reasoningEffort={editingProfile.chat?.reasoning_effort || ''}
+            promptCache={editingProfile.chat?.prompt_cache}
+            debug={editingProfile.chat?.debug}
+            streamingRecoveryEnabled={editingProfile.chat?.streaming_recovery_enabled ?? true}
+            streamingRecoveryMaxAttempts={editingProfile.chat?.streaming_recovery_max_attempts ?? 3}
+            streamingRecoveryShowContinue={editingProfile.chat?.streaming_recovery_show_continue ?? true}
+            agentProvider={agentProvider}
             onChange={(field, value) => updateField(`chat.${field}`, value)}
             onMultiChange={(updates) => {
               const prefixedUpdates = Object.fromEntries(
@@ -146,30 +295,56 @@ export function ProfileEditorTabs({
           />
         </TabPanel>
 
-        {/* Skills */}
-        <TabPanel value="skills" className="profile-editor-tabs__panel">
-          <ProfileSkillsSection
-            availableSkills={availableSkills}
-            enabledSkills={editingProfile.chat?.enabled_skills || []}
-            disableOnDemand={editingProfile.chat?.disable_on_demand_skills ?? false}
-            skillsDisabled={editingProfile.chat?.disable_skills ?? false}
-            onChange={(field, value) => updateField(`chat.${field}`, value)}
-          />
-        </TabPanel>
+        {/* Skills, Provedores de contexto e Ferramentas: só num perfil sem
+            agente. Com agente, o turno passa por cima deles (D7, D14) e o
+            editor não os mostra (Fase 8). */}
+        {!agentProvider && (
+          <TabPanel value="skills" className="profile-editor-tabs__panel">
+            <ProfileSkillsSection
+              availableSkills={availableSkills}
+              enabledSkills={editingProfile.chat?.enabled_skills ?? undefined}
+              disableOnDemand={editingProfile.chat?.disable_on_demand_skills ?? false}
+              skillsDisabled={editingProfile.chat?.disable_skills ?? false}
+              onChange={(field, value) => updateField(`chat.${field}`, value)}
+            />
+          </TabPanel>
+        )}
 
-        {/* Ferramentas & MCP */}
-        <TabPanel value="tools" className="profile-editor-tabs__panel">
-          <ProfileToolsSection
-            availableTools={availableTools}
-            enabledTools={editingProfile.chat?.enabled_tools ?? null}
-            toolsDisabled={editingProfile.chat?.disable_tools ?? false}
-            commandAllowlist={editingProfile.chat?.command_allowlist || ''}
-            availableAllowlists={availableAllowlists}
-            maxAgenticIterations={editingProfile.chat?.max_agentic_iterations ?? 0}
-            responseTimeout={editingProfile.chat?.response_timeout ?? 180}
-            onChange={(field, value) => updateField(`chat.${field}`, value)}
-          />
-        </TabPanel>
+        {!agentProvider && (
+          <TabPanel value="contextProviders" className="profile-editor-tabs__panel">
+            <ProfileContextProvidersSection
+              providers={availableContextProviders}
+              value={editingProfile.context_providers ?? undefined}
+              onChange={(value) => updateField('context_providers', value)}
+            />
+          </TabPanel>
+        )}
+
+        {!agentProvider && (
+          <TabPanel value="tools" className="profile-editor-tabs__panel">
+            <ProfileToolsSection
+              availableTools={availableTools}
+              enabledTools={editingProfile.chat?.enabled_tools ?? null}
+              toolPolicy={editingProfile.chat?.tool_policy ?? null}
+              toolPolicyDefault={editingProfile.chat?.tool_policy_default ?? null}
+              runtimeTools={hasOnDemandSkills ? ['load_skill'] : []}
+              toolsDisabled={editingProfile.chat?.disable_tools ?? false}
+              commandAllowlist={editingProfile.chat?.command_allowlist || ''}
+              availableAllowlists={availableAllowlists}
+              maxAgenticIterations={editingProfile.chat?.max_agentic_iterations ?? 0}
+              responseTimeout={editingProfile.chat?.response_timeout ?? 180}
+              nativeMcp={editingProfile.chat?.native_mcp ?? null}
+              onChange={(field, value) => updateField(`chat.${field}`, value)}
+              onPolicyChange={(policy, extras) => updateFields({
+                'chat.tool_policy': policy,
+                'chat.enabled_tools': null,
+                ...(extras?.toolPolicyDefault !== undefined
+                  ? { 'chat.tool_policy_default': extras.toolPolicyDefault }
+                  : {}),
+              })}
+            />
+          </TabPanel>
+        )}
 
         {/* Áudio */}
         <TabPanel value="audio" className="profile-editor-tabs__panel">
@@ -183,4 +358,38 @@ export function ProfileEditorTabs({
       </Tabs>
     </div>
   );
+}
+
+function hasModelOnDemandSkill(
+  availableSkills: ProfileEditorTabsProps['availableSkills'],
+  enabledSkills: string[] | null | undefined,
+  disableSkills: boolean,
+  disableOnDemand: boolean,
+): boolean {
+  if (disableSkills || disableOnDemand) return false;
+
+  if (enabledSkills == null) {
+    // Espelha resolveLegacyAutoLoadPolicy, que elege a base por IsAutoLoad():
+    // auto_load só vale como base quando a invocação pelo modelo está ativa.
+    let baseSelected = false;
+    for (const skill of availableSkills) {
+      const modelInvocable = !skill.disableModelInvocation;
+      if (skill.autoLoad && modelInvocable && !baseSelected) {
+        baseSelected = true;
+        continue;
+      }
+      if (modelInvocable) return true;
+    }
+    return false;
+  }
+
+  const byIdentifier = new Map<string, ProfileEditorTabsProps['availableSkills'][number]>();
+  for (const skill of availableSkills) {
+    byIdentifier.set(skill.slug, skill);
+    byIdentifier.set(skill.name, skill);
+  }
+  const ordered = enabledSkills
+    .map(identifier => byIdentifier.get(identifier))
+    .filter((skill): skill is ProfileEditorTabsProps['availableSkills'][number] => skill != null);
+  return ordered.slice(1).some(skill => !skill.disableModelInvocation);
 }

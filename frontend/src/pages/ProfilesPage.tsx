@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   CheckOutlined,
   CopyOutlined,
@@ -17,7 +18,7 @@ import {
   DeleteProfile,
   DuplicateProfile,
   GetProfileSearchPaths,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Profiles';
 import { profiles } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
@@ -33,6 +34,14 @@ import { useUIStore } from '../store/uiStore';
 import { useEditableList } from '../hooks/useEditableList';
 import { useProfileDependencies } from '../hooks/useProfileDependencies';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import type { ResourceEditRequest } from '../store/navigationStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import {
+  buildTabChatSurfaceId,
+  buildWorkspaceModalChatSurfaceId,
+} from '../services/chatSessionRegistry';
+import { profileDisplayDescription } from '../lib/profileDescription';
 import './ProfilesPage.css';
 
 type ProfileInfo = profiles.ProfileInfo;
@@ -42,12 +51,14 @@ interface ProfileRow extends Profile {
   id: string; // slug as id
   slug: string;
   source?: string;
+  builtin?: boolean;
   isActive?: boolean;
   [key: string]: unknown;
 }
 
 export default function ProfilesPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
@@ -62,8 +73,32 @@ export default function ProfilesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
   const [focusedRow, setFocusedRow] = useState<ProfileRow | null>(null);
+  const [editorRequest, setEditorRequest] = useState<ResourceEditRequest | null>(null);
 
-  const { tools: availableTools, skills: availableSkills, allowlists: availableAllowlists, loading: depsLoading } =
+  const returnToCaller = useCallback((request: ResourceEditRequest | null) => {
+    const caller = request?.caller;
+    if (!caller) return;
+
+    const workspaceState = useWorkspaceStore.getState();
+    const callerTab = workspaceState.workspace?.tabs.find((tab) => tab.id === caller.tabId);
+    const surfaceMatches = caller.surfaceType === 'modal'
+      ? caller.surfaceId === buildWorkspaceModalChatSurfaceId(caller.tabId)
+      : caller.surfaceType === 'page'
+        ? caller.surfaceId === buildTabChatSurfaceId(caller.tabId, 'page')
+        : caller.surfaceId.trim().length > 0;
+    const conversationMatches = (callerTab?.conversationId ?? null) === caller.conversationId;
+    if (!callerTab || !surfaceMatches || !conversationMatches) return;
+
+    navigate('/');
+    requestAnimationFrame(() => {
+      workspaceState.setActiveTab(caller.tabId);
+      if (caller.surfaceType === 'modal') {
+        void useWorkspaceChatModalStore.getState().requestOpen(caller.tabId);
+      }
+    });
+  }, [navigate]);
+
+  const { tools: availableTools, skills: availableSkills, allowlists: availableAllowlists, contextProviders: availableContextProviders, loading: depsLoading } =
     useProfileDependencies();
 
   const crud = useEditableList<ProfileRow, Profile, Profile>(
@@ -83,6 +118,7 @@ export default function ProfilesPage() {
           description: p.description || '',
           icon: p.icon || '',
           source: p.source,
+          builtin: p.builtin,
           isActive: p.slug === resolvedSlug,
         })) as ProfileRow[];
       },
@@ -136,7 +172,24 @@ export default function ProfilesPage() {
             max_tokens: 4096,
             top_p: 1.0,
             response_timeout: 180,
+            rate_limit_enabled: true,
+            rate_limit_rpm: 60,
+            rate_limit_burst: 30,
             reasoning_effort: '',
+            prompt_cache: {
+              enabled: false,
+              provider_hints: false,
+              explicit_cache_control: false,
+            },
+            debug: {
+              enabled: false,
+              dump_requests: true,
+              dump_responses: true,
+              max_files: 200,
+            },
+            streaming_recovery_enabled: true,
+            streaming_recovery_max_attempts: 3,
+            streaming_recovery_show_continue: true,
             system_prompt: '',
             system_prompt_position: 'after',
           },
@@ -174,11 +227,16 @@ export default function ProfilesPage() {
           channels: {
             response_mode: 'mirror',
           },
+          context_providers: {},
         }) as ProfileRow;
         defaultProfile.id = '';
         defaultProfile.isActive = false;
         defaultProfile.source = 'workdir';
         return defaultProfile;
+      },
+      onSuccess: () => {
+        returnToCaller(editorRequest);
+        setEditorRequest(null);
       },
     }
   );
@@ -189,14 +247,21 @@ export default function ProfilesPage() {
   }, []);
 
   useResourceEditRequest('profiles', {
-    onEdit: (slug) => crud.openEdit({ id: slug, slug } as ProfileRow),
-    onNew: () => crud.openNew(),
+    onEdit: (slug, request) => {
+      setEditorRequest(request);
+      void crud.openEdit({ id: slug, slug } as ProfileRow);
+    },
+    onNew: (request) => {
+      setEditorRequest(request);
+      crud.openNew();
+    },
     ready: !crud.loading && crud.items.length > 0,
   });
 
   // --- Grid actions ---
 
   const handleEditProfile = useCallback(async (row: ProfileRow) => {
+    setEditorRequest(null);
     await crud.openEdit(row);
   }, [crud]);
 
@@ -204,9 +269,10 @@ export default function ProfilesPage() {
     try {
       const newSlug = await DuplicateProfile(row.slug);
       const successMessage = t('profiles.duplicated', 'Perfil duplicado!');
-      addToast(successMessage, 'success');
+      addToast(successMessage, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(successMessage);
       await crud.loadItems();
+      setEditorRequest(null);
       await crud.openEdit({ id: newSlug, slug: newSlug, name: row.name } as ProfileRow);
     } catch (error: unknown) {
       addToast(
@@ -219,7 +285,9 @@ export default function ProfilesPage() {
   const handleActivateProfile = async (row: ProfileRow) => {
     try {
       await SetActiveProfile(row.slug);
-      addToast(t('profiles.activated', `Perfil "${row.name}" ativado!`), 'success');
+      addToast(t('profiles.activated', `Perfil "${row.name}" ativado!`), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('profiles.activatedAnnounce', `Perfil ${row.name} ativado`));
       await crud.loadItems();
     } catch (error: unknown) {
@@ -228,6 +296,7 @@ export default function ProfilesPage() {
   };
 
   const handleNewProfile = () => {
+    setEditorRequest(null);
     crud.openNew();
   };
 
@@ -255,7 +324,11 @@ export default function ProfilesPage() {
   };
 
   const handleCloseEditor = () => {
+    if (saving) return;
+    const request = editorRequest;
     crud.closeEditor();
+    setEditorRequest(null);
+    returnToCaller(request);
   };
 
   const updateFields = (updates: Record<string, unknown>) => {
@@ -305,6 +378,7 @@ export default function ProfilesPage() {
       label: t('profiles.colDescription', 'Descrição'),
       width: '28%',
       truncate: true,
+      format: (_value, row) => profileDisplayDescription(t, row),
     },
     {
       key: 'source',
@@ -406,9 +480,9 @@ export default function ProfilesPage() {
       crud.items.filter(
         (row) =>
           row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (row.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+          profileDisplayDescription(t, row).toLowerCase().includes(searchTerm.toLowerCase())
       ),
-    [crud.items, searchTerm]
+    [crud.items, searchTerm, t]
   );
 
   const getItemId = useCallback((item: ProfileRow) => item.id, []);
@@ -518,6 +592,8 @@ export default function ProfilesPage() {
         onClose={handleCloseEditor}
         title={editorTitle}
         size="xl"
+        allowClose={!saving}
+        initialFocusSelector={editorRequest?.tab ? '[role="tab"][aria-selected="true"]' : undefined}
       >
         {editingProfile && (
           <div className="profiles-editor">
@@ -525,15 +601,14 @@ export default function ProfilesPage() {
               editingProfile={editingProfile}
               availableTools={availableTools}
               availableSkills={availableSkills}
+              availableContextProviders={availableContextProviders}
               availableAllowlists={availableAllowlists}
               updateField={updateField}
               updateFields={updateFields}
+              initialTab={editorRequest?.tab}
             />
 
             <EditorPanelFooter className="profiles-editor__footer">
-              <Button onClick={handleSave} loading={saving}>
-                {t('profiles.saveBtn', 'Salvar')}
-              </Button>
               {editingSlug && activeSlug !== editingSlug && (
                 <Button
                   variant="secondary"
@@ -543,6 +618,12 @@ export default function ProfilesPage() {
                   {t('profiles.activateBtn', 'Ativar')}
                 </Button>
               )}
+              <Button onClick={handleSave} loading={saving}>
+                {t('profiles.saveBtn', 'Salvar')}
+              </Button>
+              <Button variant="secondary" onClick={handleCloseEditor} disabled={saving}>
+                {t('common.cancel', 'Cancelar')}
+              </Button>
               <div className="profiles-editor__footer-spacer" />
               {editingSlug && activeSlug !== editingSlug && (
                 <Button
@@ -567,7 +648,7 @@ export default function ProfilesPage() {
 
       {/* Empty state when no profile is being edited */}
       {!editingProfile && crud.items.length > 0 && (
-        <div className="profiles-empty" role="status">
+        <div className="profiles-empty">
           <p>
             {t('profiles.selectHint', 'Pressione Enter ou clique para editar.')}
             {' '}

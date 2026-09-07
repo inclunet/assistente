@@ -21,24 +21,14 @@ go run .
 
 ### Build com Versão Específica
 
-Use o script PowerShell:
-
 ```powershell
-# Build com versão personalizada
-.\build-release.ps1 1.0.1
-
-# Build sem versão (usa "dev")
-wails build
+wails build -ldflags "-X assistente/internal/app.AppVersion=1.0.1"
 ```
 
-### Build Manual com Versão
+Para uma plataforma específica:
 
 ```bash
-# Windows
-wails build -ldflags "-X main.AppVersion=1.0.1"
-
-# Linux
-wails build -platform linux/amd64 -ldflags "-X main.AppVersion=1.0.1"
+wails build -platform linux/amd64 -ldflags "-X assistente/internal/app.AppVersion=1.0.1"
 ```
 
 ### GitHub Actions
@@ -46,18 +36,16 @@ wails build -platform linux/amd64 -ldflags "-X main.AppVersion=1.0.1"
 A versão é **automaticamente** extraída da tag do release:
 
 ```bash
-# Criar release (a versão vem da tag)
-git tag v1.0.1
-git push origin v1.0.1
-
-# Criar release no GitHub
-gh release create v1.0.1
+gh release create v1.0.1 --target main --title "v1.0.1" --notes "Notas da versão"
 ```
 
 O workflow automaticamente:
 1. Extrai a versão da tag (remove 'v' se existir)
-2. Injeta via ldflags: `-X main.AppVersion=1.0.1`
+2. Injeta no app desktop: `-X assistente/internal/app.AppVersion=1.0.1`
 3. Gera binários com versão correta
+
+A CLI possui sua própria variável em `cmd/asst/main.go`; somente o build da
+CLI usa `-X main.AppVersion=1.0.1`.
 
 ## Verificação de Checksum
 
@@ -77,22 +65,34 @@ Para adicionar verificação de checksums ao workflow:
 
 ## Como Funciona
 
-### Backend (app.go)
+### Backend desktop (`internal/app/app_updater.go`)
 
 ```go
-const (
-    // AppVersion é sobrescrito em build time
-    AppVersion = "dev"
-)
+// AppVersion é sobrescrita em build time.
+var AppVersion = "dev"
 ```
 
 ### Build Time
 
 ```bash
-go build -ldflags "-X main.AppVersion=1.0.1" .
+wails build -ldflags "-X assistente/internal/app.AppVersion=1.0.1"
 ```
 
 Isso substitui o valor de `AppVersion` no binário compilado.
+
+## Verificação automática de atualizações
+
+Em builds de release, o aplicativo consulta o GitHub Releases no startup e a
+cada 6 horas. Essa verificação funciona mesmo quando nenhum provedor de LLM foi
+configurado. Ao concluir o assistente de boas-vindas, a primeira consulta pode
+ser antecipada pelo mesmo agendador.
+
+Se a consulta falhar, o aplicativo mostra um aviso acessível e não bloqueante,
+sem detalhes internos, e tenta novamente no próximo intervalo. A mesma versão
+não volta a abrir o convite de atualização durante a execução atual.
+
+O guard de desenvolvimento permanece: quando `AppVersion` é `"dev"`, checks
+automáticos não são executados.
 
 ### GitHub Actions (.github/workflows/release.yml)
 
@@ -101,27 +101,21 @@ Isso substitui o valor de `AppVersion` no binário compilado.
   run: |
     VERSION=${GITHUB_REF#refs/tags/}
     VERSION=${VERSION#v}
-    LDFLAGS="-X main.AppVersion=$VERSION"
+    LDFLAGS="-X assistente/internal/app.AppVersion=$VERSION"
     wails build -ldflags "$LDFLAGS"
 ```
 
 ## Exemplo Completo
 
 ```powershell
-# 1. Atualizar versão no código (opcional, será sobrescrito)
-# app.go: const AppVersion = "dev"
+# 1. Garanta que as mudanças já estejam na main
+git checkout main
+git pull
 
-# 2. Commit e tag
-git add .
-git commit -m "Prepare release v1.0.1"
-git tag v1.0.1
-git push origin main
-git push origin v1.0.1
+# 2. Crie o GitHub Release
+gh release create v1.0.1 --target main --generate-notes
 
-# 3. Criar release no GitHub
-gh release create v1.0.1 --generate-notes
-
-# 4. GitHub Actions automaticamente:
+# 3. GitHub Actions automaticamente:
 #    - Faz build com versão 1.0.1
 #    - Faz upload dos binários
 #    - Updater detectará a nova versão
@@ -133,12 +127,12 @@ gh release create v1.0.1 --generate-notes
 
 Menu → Sobre → Ver versão instalada
 
-### Via API
+### No backend
 
 ```go
-import "assistente/main"
+import "assistente/internal/app"
 
-version := main.AppVersion
+version := app.AppVersion
 // Em dev: "dev"
 // Em release: "1.0.1"
 ```
@@ -146,8 +140,7 @@ version := main.AppVersion
 ### No Frontend
 
 ```typescript
-import { GetAppVersion } from '../../wailsjs/go/main/App';
+import { GetAppVersion } from '../../wailsjs/go/app/App';
 
 const version = await GetAppVersion();
-console.log('Versão:', version);
 ```

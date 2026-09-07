@@ -37,7 +37,7 @@ func TestGetChatProviderForProvider_ReturnsProviderForRegistered(t *testing.T) {
 	credMgr := credentials.NewManager(testKey)
 	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	cp, err := svc.GetChatProvider("litellm-test")
+	cp, err := svc.GetChatProvider(context.Background(), "litellm-test")
 	if err != nil {
 		t.Fatalf("GetChatProvider returned error: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestGetChatProviderForProvider_ErrorForUnknownProvider(t *testing.T) {
 	credMgr := credentials.NewManager(testKey)
 	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	cp, err := svc.GetChatProvider("nonexistent-provider")
+	cp, err := svc.GetChatProvider(context.Background(), "nonexistent-provider")
 	if err == nil {
 		t.Fatal("Expected error for unknown provider, got nil")
 	}
@@ -92,11 +92,11 @@ func TestGetChatProviderForProvider_DifferentProvidersReturnDifferentInstances(t
 	credMgr := credentials.NewManager(testKey)
 	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	cp1, err := svc.GetChatProvider("google-test")
+	cp1, err := svc.GetChatProvider(context.Background(), "google-test")
 	if err != nil {
 		t.Fatalf("GetChatProvider google: %v", err)
 	}
-	cp2, err := svc.GetChatProvider("litellm-test")
+	cp2, err := svc.GetChatProvider(context.Background(), "litellm-test")
 	if err != nil {
 		t.Fatalf("GetChatProvider litellm: %v", err)
 	}
@@ -135,10 +135,10 @@ func TestProviderRouting_ChatProviderHitsCorrectEndpoint(t *testing.T) {
 
 	googleCP := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "google", Name: "Google", Type: llm.ProviderCustom, BaseURL: googleServer.URL,
-	}, credMgr)
+	}, credMgr, nil)
 	litellmCP := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "litellm", Name: "LiteLLM", Type: llm.ProviderCustom, BaseURL: litellmServer.URL,
-	}, credMgr)
+	}, credMgr, nil)
 
 	_, err := googleCP.GetModels(t.Context())
 	if err != nil {
@@ -190,11 +190,11 @@ func TestProviderRouting_StreamChatHitsCorrectEndpoint(t *testing.T) {
 	cpA := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "provider-a", Name: "Provider A", Type: llm.ProviderCustom,
 		BaseURL: serverA.URL, Model: "model-a",
-	}, credMgr)
+	}, credMgr, nil)
 	cpB := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "provider-b", Name: "Provider B", Type: llm.ProviderCustom,
 		BaseURL: serverB.URL, Model: "model-b",
-	}, credMgr)
+	}, credMgr, nil)
 
 	handler := &testStreamHandler{done: make(chan struct{})}
 
@@ -313,7 +313,7 @@ func TestProviderRouting_ChannelProfileUsesOwnProvider(t *testing.T) {
 		},
 	}
 
-	globalCP, err := svc.GetChatProvider(globalProfile.Chat.LLMProvider)
+	globalCP, err := svc.GetChatProvider(context.Background(), globalProfile.Chat.LLMProvider)
 	if err != nil {
 		t.Fatalf("GetChatProvider (global): %v", err)
 	}
@@ -326,7 +326,7 @@ func TestProviderRouting_ChannelProfileUsesOwnProvider(t *testing.T) {
 			googleHits.Load(), litellmHits.Load())
 	}
 
-	channelCP, err := svc.GetChatProvider(channelProfile.Chat.LLMProvider)
+	channelCP, err := svc.GetChatProvider(context.Background(), channelProfile.Chat.LLMProvider)
 	if err != nil {
 		t.Fatalf("GetChatProvider (channel): %v", err)
 	}
@@ -364,7 +364,7 @@ func TestProviderRouting_RequestContainsCorrectModel(t *testing.T) {
 	credMgr := credentials.NewManager(testKey)
 	cp := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "test-provider", Name: "Test", Type: llm.ProviderCustom, BaseURL: server.URL,
-	}, credMgr)
+	}, credMgr, nil)
 
 	messages := []llm.Message{{Role: "user", Content: "test"}}
 	params := llm.ChatParams{Model: "gpt-4o-mini"}
@@ -392,13 +392,13 @@ func TestProviderRouting_ErrorWhenProfileProviderMissing(t *testing.T) {
 	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
 	// Provedor do perfil não existe no registry
-	_, err := svc.GetChatProvider("deleted-provider")
+	_, err := svc.GetChatProvider(context.Background(), "deleted-provider")
 	if err == nil {
 		t.Fatal("Expected error for missing provider, got nil")
 	}
 
 	// Provedor válido funciona
-	cp, err := svc.GetChatProvider("google")
+	cp, err := svc.GetChatProvider(context.Background(), "google")
 	if err != nil {
 		t.Fatalf("GetChatProvider (google): %v", err)
 	}
@@ -415,7 +415,7 @@ func TestNonexistentProviderReturnsError(t *testing.T) {
 	credMgr := credentials.NewManager(testKey)
 	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	_, err := svc.GetChatProvider("nonexistent-provider")
+	_, err := svc.GetChatProvider(context.Background(), "nonexistent-provider")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent provider")
 	}
@@ -505,7 +505,7 @@ func TestGetChatProviderForProvider_NilRegistryReturnsError(t *testing.T) {
 		CredMgr:  credMgr,
 	})
 
-	cp, err := svc.GetChatProvider("any-provider")
+	cp, err := svc.GetChatProvider(context.Background(), "any-provider")
 	if err == nil {
 		t.Fatal("Expected error for unknown provider, got nil")
 	}
@@ -554,21 +554,6 @@ func TestProfileManagerNilDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestSendMessageSync_NoProfileReturnsError verifica que SendMessageSync
-// retorna erro quando não há perfil/provedor configurado.
-func TestSendMessageSync_NoProfileReturnsError(t *testing.T) {
-	setupRoutingTestDB(t)
-
-	app := &App{
-		profileManager: profiles.NewManager(),
-	}
-
-	_, err := app.SendMessageSync(nil, ChatParams{})
-	if err == nil {
-		t.Fatal("Expected error when no profile/provider configured")
-	}
-}
-
 // setupRoutingTestDB creates an in-memory SQLite for routing integration tests.
 func setupRoutingTestDB(t *testing.T) {
 	t.Helper()
@@ -582,6 +567,50 @@ func setupRoutingTestDB(t *testing.T) {
 	database.SetDB(db)
 }
 
+// TestResolveProfileDefaults_NoSessionReturnsProfileUnchanged cobre Q1 do
+// re-review do AEP-0052: pré-login, resolveProfileDefaults não pode panicar
+// nem vazar dados. Como providerSvc.ResolveProfileDefaults agora exige
+// userID via store.GetDefault, sem sessão devolvemos o profile original
+// inalterado (sentinelas $default permanecem).
+func TestResolveProfileDefaults_NoSessionReturnsProfileUnchanged(t *testing.T) {
+	setupRoutingTestDB(t)
+
+	registry := llm.NewProviderRegistry()
+	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: registry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
+	app := &App{
+		ctx:         context.Background(),
+		llmRegistry: registry,
+		credMgr:     credMgr,
+		providerSvc: svc,
+	}
+
+	profile := &profiles.Profile{
+		Name: "No-Session Profile",
+		Chat: profiles.ChatConfig{
+			LLMProvider: profiles.DefaultProviderSentinel,
+			Model:       profiles.DefaultProviderSentinel,
+		},
+	}
+
+	resolved := app.resolveProfileDefaults(profile)
+	if resolved == nil {
+		t.Fatal("resolved is nil — esperava profile inalterado, não nil")
+	}
+	if resolved.Chat.LLMProvider != profiles.DefaultProviderSentinel {
+		t.Fatalf("Chat.LLMProvider mudou pré-login: got %q, want %q",
+			resolved.Chat.LLMProvider, profiles.DefaultProviderSentinel)
+	}
+	if resolved.Chat.Model != profiles.DefaultProviderSentinel {
+		t.Fatalf("Chat.Model mudou pré-login: got %q, want %q",
+			resolved.Chat.Model, profiles.DefaultProviderSentinel)
+	}
+}
+
 // newSentinelTestApp cria um App com providerSvc inicializado via DBStore.
 // Necessário nos testes que precisam que resolveProfileDefaults resolva $default.
 func newSentinelTestApp(registry *llm.ProviderRegistry, credMgr *credentials.Manager) *App {
@@ -591,10 +620,11 @@ func newSentinelTestApp(registry *llm.ProviderRegistry, credMgr *credentials.Man
 		Store:    providers.NewDBStore(),
 	})
 	return &App{
-		ctx:         context.Background(),
-		llmRegistry: registry,
-		credMgr:     credMgr,
-		providerSvc: svc,
+		ctx:           context.Background(),
+		llmRegistry:   registry,
+		credMgr:       credMgr,
+		providerSvc:   svc,
+		currentUserID: "test-user",
 	}
 }
 
@@ -633,15 +663,16 @@ func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
 		BaseURL: otherServer.URL,
 	})
 
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "default-prov", Name: "Default Provider", Type: "custom",
 		BaseURL: defaultServer.URL, DefaultModel: "default-model", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "other-prov", Name: "Other Provider", Type: "custom",
 		BaseURL: otherServer.URL,
 	})
-	_ = database.SetDefaultProvider("default-prov")
+	_ = database.SetDefaultProviderWithContext(testCtx, "default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -710,11 +741,12 @@ func TestDefaultSentinel_ModelSentInRequest(t *testing.T) {
 		ID: "my-provider", Name: "My Provider", Type: llm.ProviderCustom,
 		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "my-provider", Name: "My Provider", Type: "custom",
 		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
 	})
-	_ = database.SetDefaultProvider("my-provider")
+	_ = database.SetDefaultProviderWithContext(testCtx, "my-provider")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -775,15 +807,16 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 		ID: "prov-b", Name: "Provider B", Type: llm.ProviderCustom,
 		BaseURL: serverB.URL, DefaultModel: "model-b",
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "prov-a", Name: "Provider A", Type: "custom",
 		BaseURL: serverA.URL, DefaultModel: "model-a", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "prov-b", Name: "Provider B", Type: "custom",
 		BaseURL: serverB.URL, DefaultModel: "model-b",
 	})
-	_ = database.SetDefaultProvider("prov-a")
+	_ = database.SetDefaultProviderWithContext(testCtx, "prov-a")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -803,7 +836,7 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 	}
 
 	// Switch default to Provider B
-	_ = database.SetDefaultProvider("prov-b")
+	_ = database.SetDefaultProviderWithContext(testCtx, "prov-b")
 
 	// Round 2: same $default profile → now routes to Provider B
 	resolved2 := app.resolveProfileDefaults(profile)
@@ -858,15 +891,16 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 		ID: "concrete-prov", Name: "Concrete", Type: llm.ProviderCustom,
 		BaseURL: concreteServer.URL,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	testCtx := database.WithUserID(context.Background(), "test-user")
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "default-prov", Name: "Default", Type: "custom",
 		BaseURL: defaultServer.URL, DefaultModel: "dm", IsDefault: true,
 	})
-	_ = database.SaveLLMProvider(&database.LLMProvider{
+	_ = database.SaveLLMProviderWithContext(testCtx, &database.LLMProvider{
 		ID: "concrete-prov", Name: "Concrete", Type: "custom",
 		BaseURL: concreteServer.URL,
 	})
-	_ = database.SetDefaultProvider("default-prov")
+	_ = database.SetDefaultProviderWithContext(testCtx, "default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
 	app := newSentinelTestApp(registry, credMgr)
@@ -952,7 +986,7 @@ func TestGetChatProvider_NoAPIFormat(t *testing.T) {
 		ID: "legacy-test", Name: "Legacy Provider", Type: llm.ProviderCustom,
 		BaseURL: "https://api.example.com/v1",
 	})
-	cp, err := svc.GetChatProvider("legacy-test")
+	cp, err := svc.GetChatProvider(context.Background(), "legacy-test")
 	if err != nil {
 		t.Fatalf("GetChatProvider error: %v", err)
 	}
@@ -967,7 +1001,7 @@ func TestGetChatProvider_OpenAIFormat(t *testing.T) {
 		ID: "sdk-openai", Name: "SDK OpenAI", Type: llm.ProviderOpenAI,
 		BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAI,
 	})
-	cp, err := svc.GetChatProvider("sdk-openai")
+	cp, err := svc.GetChatProvider(context.Background(), "sdk-openai")
 	if err != nil {
 		t.Fatalf("GetChatProvider error: %v", err)
 	}
@@ -982,7 +1016,7 @@ func TestGetChatProvider_AnthropicFormat(t *testing.T) {
 		ID: "sdk-anthropic", Name: "SDK Anthropic", Type: llm.ProviderClaude,
 		BaseURL: "https://api.anthropic.com/v1", APIFormat: llm.APIFormatAnthropic,
 	})
-	cp, err := svc.GetChatProvider("sdk-anthropic")
+	cp, err := svc.GetChatProvider(context.Background(), "sdk-anthropic")
 	if err != nil {
 		t.Fatalf("GetChatProvider error: %v", err)
 	}
@@ -997,7 +1031,7 @@ func TestGetChatProvider_GoogleFormat(t *testing.T) {
 		ID: "sdk-google", Name: "SDK Google", Type: llm.ProviderType("gemini"),
 		BaseURL: "https://generativelanguage.googleapis.com", APIFormat: llm.APIFormatGoogle,
 	})
-	cp, err := svc.GetChatProvider("sdk-google")
+	cp, err := svc.GetChatProvider(context.Background(), "sdk-google")
 	if err != nil {
 		t.Fatalf("GetChatProvider error: %v", err)
 	}
@@ -1025,7 +1059,7 @@ func TestGetChatProvider_UnknownProvider(t *testing.T) {
 		Registry: llm.NewProviderRegistry(),
 		CredMgr:  credentials.NewManager([]byte("test-key-32-bytes-long-key!!")),
 	})
-	cp, err := svc.GetChatProvider("nonexistent")
+	cp, err := svc.GetChatProvider(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("Expected error for unknown provider")
 	}

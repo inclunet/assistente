@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -8,37 +9,33 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import {
-  GetChannelConfig,
+  GetAllChannelConfigs,
   SaveChannelConfig,
   GetMessagingStatus,
-  SignalCheckAPI,
-  SignalListAccounts,
-  SignalRegister,
-  SignalVerify,
-  SignalLink,
-  SignalUnregister,
   RestartChannel,
   GetChannelTemplates,
-  ListCredentials,
-  UpsertCredential,
-  DeleteCredential,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Messaging';
+import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { DataGrid, type DataGridColumn } from '../components/ui/DataGrid';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { EditorPanelFields, EditorPanelFooter } from '../components/ui/EditorPanel';
+import { DialogActions } from '../components/ui/DialogActions';
 import { ContextMenu, MenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import CreateChannelModal from '../components/modals/CreateChannelModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useSignalChannelController } from '../hooks/useSignalChannelController';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
+import type { SignalForm, SlackForm, TelegramForm } from '../components/channels';
 import './ChannelsPage.css';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -56,35 +53,6 @@ interface CredentialSummary {
   type: string;
   masked: string;
 }
-
-interface TelegramForm {
-  enabled: boolean;
-  botToken: string;
-  profile: string;
-  maxHistory: number;
-  maxContacts: number;
-}
-
-interface SignalForm {
-  enabled: boolean;
-  apiURL: string;
-  account: string;
-  apiToken: string;
-  profile: string;
-  maxHistory: number;
-  maxContacts: number;
-}
-
-interface SlackForm {
-  enabled: boolean;
-  botToken: string;
-  appToken: string;
-  profile: string;
-  maxHistory: number;
-  maxContacts: number;
-}
-
-type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying' | 'done';
 
 // ─── Component ───────────────────────────────────────────────────────
 
@@ -127,21 +95,48 @@ export default function ChannelsPage() {
   const [signalUseVault, setSignalUseVault] = useState(true);
   const [slackUseVault, setSlackUseVault] = useState(true);
 
-  // ── Signal registration ──────────────────────────────────────────
-  const [signalRegStep, setSignalRegStep] = useState<SignalRegisterStep>('idle');
-  const [signalRegCode, setSignalRegCode] = useState('');
-  const [signalRegCaptcha, setSignalRegCaptcha] = useState('');
-  const [signalRegError, setSignalRegError] = useState('');
-  const [signalSmsSent, setSignalSmsSent] = useState(false);
-  const [signalCheckingAPI, setSignalCheckingAPI] = useState(false);
-  const [signalAPIInfo, setSignalAPIInfo] = useState('');
-  const [signalAPIReady, setSignalAPIReady] = useState(false);
-  const [signalAccounts, setSignalAccounts] = useState<string[]>([]);
-  const [signalConnectionMode, setSignalConnectionMode] = useState<'register' | 'link'>('register');
-  const [signalLinkQR, setSignalLinkQR] = useState('');
-  const [signalLinking, setSignalLinking] = useState(false);
-  const [signalUnregistering, setSignalUnregistering] = useState<string | null>(null);
-  const linkPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signalController = useSignalChannelController({
+    signalForm,
+    setSignalForm,
+    addToast,
+    announce,
+    requestConfirm,
+    t,
+    getErrorMessage,
+  });
+
+  const {
+    signalRegStep,
+    signalRegCode,
+    signalRegCaptcha,
+    signalRegError,
+    signalSmsSent,
+    signalCheckingAPI,
+    signalAPIInfo,
+    signalAPIReady,
+    signalAccounts,
+    signalConnectionMode,
+    signalLinkQR,
+    signalLinking,
+    signalUnregistering,
+    setSignalRegStep,
+    setSignalRegCode,
+    setSignalRegCaptcha,
+    setSignalRegError,
+    setSignalSmsSent,
+    setSignalAPIInfo,
+    setSignalAPIReady,
+    setSignalAccounts,
+    setSignalConnectionMode,
+    setSignalLinkQR,
+    setSignalLinking,
+    stopLinkPolling,
+    handleSignalCheckAPI,
+    handleSignalRegister,
+    handleSignalVerify,
+    handleSignalLink,
+    handleSignalUnregister,
+  } = signalController;
 
   // ── Create Channel Modal ─────────────────────────────────────────
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
@@ -158,20 +153,23 @@ export default function ChannelsPage() {
       const result = await GetChannelTemplates();
       setChannelTemplates(result || []);
     } catch (error) {
-      console.error('Erro ao carregar templates de canal:', error);
+      logger.error('Erro ao carregar templates de canal:', error);
     }
   }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [telegramCfg, signalCfg, slackCfg, status, credentialsList] = await Promise.all([
-        GetChannelConfig('telegram'),
-        GetChannelConfig('signal'),
-        GetChannelConfig('slack'),
+      const [allConfigs, status, credentialsList] = await Promise.all([
+        GetAllChannelConfigs(),
         GetMessagingStatus(),
         ListCredentials().catch(() => [] as CredentialSummary[]),
       ]);
+
+      const configs = allConfigs || {};
+      const telegramCfg = configs.telegram;
+      const signalCfg = configs.signal;
+      const slackCfg = configs.slack;
 
       const tgEnabled = telegramCfg?.enabled || false;
       const sigEnabled = signalCfg?.enabled || false;
@@ -231,32 +229,21 @@ export default function ChannelsPage() {
       setSignalUseVault(signalStored || !signalCfg?.api_token);
       setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
 
-      setChannelRows([
-        {
-          id: 'telegram',
-          name: 'telegram',
-          label: 'Telegram',
-          enabled: tgEnabled,
-          status: status['telegram'] || t('channels.status.disconnected'),
-        },
-        {
-          id: 'signal',
-          name: 'signal',
-          label: 'Signal',
-          enabled: sigEnabled,
-          status: status['signal'] || t('channels.status.disconnected'),
-        },
-        {
-          id: 'slack',
-          name: 'slack',
-          label: 'Slack',
-          enabled: slackEnabled,
-          status: status['slack'] || t('channels.status.disconnected'),
-        },
-      ]);
+      const labelFor = (slug: string, cfg: { display_name?: string; type?: string } | undefined) =>
+        cfg?.display_name || cfg?.type || slug;
 
+      const rows: ChannelRow[] = Object.entries(configs).map(([slug, cfg]) => ({
+        id: slug,
+        name: slug,
+        label: labelFor(slug, cfg as { display_name?: string; type?: string }),
+        enabled: Boolean(cfg?.enabled),
+        status: status[slug] || t('channels.status.disconnected'),
+      }));
+      rows.sort((a, b) => a.label.localeCompare(b.label));
+      setChannelRows(rows);
+      setFocusedChannel((prev) => (prev && rows.some((r) => r.id === prev.id) ? prev : null));
     } catch (error) {
-      console.error('Erro ao carregar canais:', error);
+      logger.error('Erro ao carregar canais:', error);
       addToast(t('channels.error.loadFailed'), 'error');
     } finally {
       setLoading(false);
@@ -268,23 +255,18 @@ export default function ChannelsPage() {
     loadTemplates();
   }, [loadAll, loadTemplates]);
 
-  useEffect(() => {
-    return () => {
-      if (linkPollRef.current) clearTimeout(linkPollRef.current);
-    };
-  }, []);
-
   // ── Create Channel Handler ───────────────────────────────────────
 
   const handleChannelCreated = () => {
-    addToast(t('channels.toast.channelCreated'), 'success');
+    // suppressAnnounce: o announce() abaixo já fala (evita anúncio duplicado).
+    addToast(t('channels.toast.channelCreated'), 'success', undefined, undefined, { suppressAnnounce: true });
     announce(t('channels.announce.channelCreated'));
     setCreateModalTemplateType(null);
     setShowCreateChannelModal(false);
     loadAll();
   };
 
-  const openCreateMenu = () => {
+  const openCreateMenu = useCallback(() => {
     if (createMenuVisible) {
       setCreateMenuVisible(false);
       return;
@@ -296,50 +278,45 @@ export default function ChannelsPage() {
       setCreateMenuPosition({ x: rect.left, y: rect.bottom + 6 });
     }
     setCreateMenuVisible(true);
-  };
+  }, [createMenuVisible]);
 
   const closeCreateMenu = () => {
     setCreateMenuVisible(false);
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
-        e.preventDefault();
-        openCreateMenu();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [openCreateMenu]);
+  useActivePanelNewShortcut(openCreateMenu);
 
 
   const handleQuickCreate = async (template: channels.ChannelTemplate) => {
     setCreateMenuVisible(false);
 
-    if (template.type === 'telegram' || template.type === 'signal') {
+    if (template.type === 'telegram' || template.type === 'signal' || template.type === 'slack') {
       try {
-        const existing = await GetChannelConfig(template.type);
-        if (!existing) {
+        const existing = await GetAllChannelConfigs();
+        if (!existing?.[template.type]) {
           const defaultConfig = channels.ChannelConfig.createFrom({
             enabled: false,
             bot_token: '',
+            app_token: '',
             api_url: '',
             account: '',
-            profile: '',
+            profile: defaultChannelProfile,
             max_history: 50,
             max_contacts: 1,
+            type: template.type,
+            display_name: template.display_name || template.type,
           });
           await SaveChannelConfig(template.type, defaultConfig);
         }
 
         await loadAll();
         setEditingChannel(template.type);
+        announce(t('channels.announce.editorOpened', {
+          label: template.display_name || template.type,
+        }));
       } catch (error: unknown) {
-        console.error('Erro ao criar canal:', error);
-        addToast(getErrorMessage(error) || 'Erro ao criar canal', 'error');
+        logger.error('Erro ao criar canal:', error);
+        addToast(getErrorMessage(error) || t('channels.error.createFailed'), 'error');
       }
       return;
     }
@@ -381,10 +358,27 @@ export default function ChannelsPage() {
       } else if (channelName === 'signal') {
         const effectiveAccount = (signalForm.account || signalAccounts[0] || '').trim();
         const effectiveApiURL = signalForm.apiURL?.trim() || '';
+        const apiPattern = channelCredentialPattern('signal', 'api_token');
+        const apiToken = signalForm.apiToken.trim();
+        const storedApi = credentialSummaries[apiPattern];
+
+        if (signalUseVault && apiToken) {
+          await UpsertCredential({
+            pattern: apiPattern,
+            type: 'secret',
+            token: apiToken,
+          });
+        }
+
+        // Token da API Signal é opcional; com vault grava ref quando há token
+        // novo ou já persistido (mesmo caminho de resolve de Telegram/Slack).
+        const signalApiRef = signalUseVault && (apiToken || storedApi) ? apiPattern : '';
         await SaveChannelConfig('signal', channels.ChannelConfig.createFrom({
           enabled: signalForm.enabled,
           api_url: effectiveApiURL,
           account: effectiveAccount,
+          api_token: signalUseVault ? '' : apiToken,
+          api_token_ref: signalApiRef,
           profile: signalForm.profile,
           max_history: signalForm.maxHistory,
           max_contacts: signalForm.maxContacts,
@@ -429,12 +423,14 @@ export default function ChannelsPage() {
           max_contacts: slackForm.maxContacts,
         }));
       }
-      addToast(t('channels.toast.channelSaved', { name: channelName }), 'success');
+      addToast(t('channels.toast.channelSaved', { name: channelName }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('channels.toast.channelSaved', { name: channelName }));
       await loadAll();
       setEditingChannel(null);
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || `Erro ao salvar canal ${channelName}`, 'error');
+      addToast(getErrorMessage(error) || t('channels.error.saveFailed', { name: channelName }), 'error');
     } finally {
       setSaving(false);
     }
@@ -464,198 +460,24 @@ export default function ChannelsPage() {
     setReconnecting(true);
     try {
       await RestartChannel(channelName);
-      addToast(t('channels.toast.channelReconnected', { name: channelName }), 'success');
+      addToast(t('channels.toast.channelReconnected', { name: channelName }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('channels.toast.channelReconnected', { name: channelName }));
       await loadAll();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || `Erro ao reconectar ${channelName}`, 'error');
+      addToast(getErrorMessage(error) || t('channels.error.reconnectFailed', { name: channelName }), 'error');
     } finally {
       setReconnecting(false);
-    }
-  };
-
-  // ── Signal helpers ───────────────────────────────────────────────
-
-  const handleSignalCheckAPI = async () => {
-    if (!signalForm.apiURL) {
-      addToast(t('channels.error.signalApiUrlRequired'), 'error');
-      return;
-    }
-    const apiToken = signalForm.apiToken.trim();
-    setSignalCheckingAPI(true);
-    setSignalAPIInfo('');
-    setSignalAPIReady(false);
-    setSignalRegError('');
-    setSignalAccounts([]);
-    try {
-      const [info, accounts] = await Promise.all([
-        SignalCheckAPI(signalForm.apiURL, apiToken),
-        SignalListAccounts(signalForm.apiURL, apiToken).catch(() => [] as string[]),
-      ]);
-      setSignalAccounts(accounts || []);
-      let infoText = `API acessível (v${info['version'] || '?'}, build ${info['build'] || '?'}).`;
-      if (accounts && accounts.length > 0) {
-        infoText += ` Contas registradas: ${accounts.join(', ')}`;
-        if (!signalForm.account) {
-          setSignalForm((prev) => ({ ...prev, account: accounts[0] }));
-        }
-      } else {
-        infoText += ' Nenhuma conta registrada — registre ou vincule abaixo.';
-      }
-      setSignalAPIInfo(infoText);
-      setSignalAPIReady(true);
-      addToast('Signal API acessível!', 'success');
-      announce(infoText);
-    } catch (error: unknown) {
-      setSignalAPIInfo('');
-      const msg = getErrorMessage(error) || 'Não foi possível conectar à API Signal';
-      setSignalRegError(msg);
-      setSignalAPIReady(false);
-      addToast(msg, 'error');
-    } finally {
-      setSignalCheckingAPI(false);
-    }
-  };
-
-  const handleSignalRegister = async (mode: 'sms' | 'voice' = 'sms') => {
-    if (!signalForm.account || !signalForm.apiURL) {
-      const msg = 'Informe a URL da API e o número de telefone no campo Conta';
-      setSignalRegError(msg);
-      addToast(msg, 'error');
-      return;
-    }
-    const apiToken = signalForm.apiToken.trim();
-    setSignalRegStep('registering');
-    setSignalRegError('');
-    try {
-      await SignalRegister(signalForm.apiURL, signalForm.account, mode, signalRegCaptcha, apiToken);
-      setSignalRegStep('awaiting_code');
-      setSignalRegCaptcha('');
-      if (mode === 'sms') setSignalSmsSent(true);
-      const modeLabel = mode === 'voice' ? 'ligação' : 'SMS';
-      addToast(`Código enviado por ${modeLabel} para ${signalForm.account}`, 'success');
-      announce(`Código enviado por ${modeLabel}`);
-    } catch (error: unknown) {
-      setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
-      const msg = getErrorMessage(error) || 'Erro ao registrar número';
-      setSignalRegError(msg);
-      addToast(msg, 'error');
-    }
-  };
-
-  const handleSignalVerify = async () => {
-    if (!signalRegCode) {
-      setSignalRegError('Informe o código de verificação');
-      return;
-    }
-    const apiToken = signalForm.apiToken.trim();
-    setSignalRegStep('verifying');
-    setSignalRegError('');
-    try {
-      await SignalVerify(signalForm.apiURL, signalForm.account, signalRegCode, apiToken);
-      setSignalRegStep('done');
-      setSignalSmsSent(false);
-      addToast(`Número ${signalForm.account} verificado com sucesso`, 'success');
-      announce('Número verificado com sucesso');
-    } catch (error: unknown) {
-      setSignalRegStep('awaiting_code');
-      const msg = getErrorMessage(error) || 'Erro ao verificar código';
-      setSignalRegError(msg);
-      addToast(msg, 'error');
-    }
-  };
-
-  const stopLinkPolling = () => {
-    if (linkPollRef.current) {
-      clearTimeout(linkPollRef.current);
-      linkPollRef.current = null;
-    }
-  };
-
-  const startLinkPolling = (startTime: number) => {
-    const POLL_TIMEOUT_MS = 2 * 60 * 1000;
-    linkPollRef.current = setTimeout(async () => {
-      if (Date.now() - startTime > POLL_TIMEOUT_MS) {
-        setSignalLinking(false);
-        setSignalRegError('Tempo esgotado. Verifique os logs do container signal-cli-rest-api.');
-        addToast('Tempo esgotado na vinculação', 'error');
-        announce('Tempo esgotado na vinculação');
-        return;
-      }
-      try {
-        const apiToken = signalForm.apiToken.trim();
-        const accounts = await SignalListAccounts(signalForm.apiURL, apiToken);
-        if (accounts && accounts.length > 0) {
-          setSignalAccounts(accounts);
-          if (!signalForm.account) {
-            setSignalForm((prev) => ({ ...prev, account: accounts[0] }));
-          }
-          setSignalLinking(false);
-          setSignalLinkQR('');
-          addToast(`Dispositivo vinculado! Conta: ${accounts[0]}`, 'success');
-          announce(`Dispositivo vinculado. Conta: ${accounts[0]}`);
-          return;
-        }
-      } catch { /* polling */ }
-      startLinkPolling(startTime);
-    }, 5000);
-  };
-
-  const handleSignalLink = async () => {
-    if (!signalForm.apiURL) {
-      setSignalRegError(t('channels.error.signalApiUrlRequired'));
-      return;
-    }
-    const apiToken = signalForm.apiToken.trim();
-    setSignalLinkQR('');
-    setSignalRegError('');
-    setSignalLinking(true);
-    stopLinkPolling();
-    try {
-      const qr = await SignalLink(signalForm.apiURL, 'Assistente', apiToken);
-      setSignalLinkQR(qr);
-      announce('QR Code gerado. Escaneie com o Signal no celular.');
-      startLinkPolling(Date.now());
-    } catch (error: unknown) {
-      setSignalRegError(getErrorMessage(error) || 'Erro ao gerar QR de vinculação');
-      addToast(getErrorMessage(error) || 'Erro ao gerar QR', 'error');
-      setSignalLinking(false);
-    }
-  };
-
-  const handleSignalUnregister = async (account: string) => {
-    const shouldRemove = await requestConfirm({
-      title: t('channels.confirm.removeSignalAccountTitle'),
-      message: `Remover a conta ${account} do servidor Signal?\n\nIsto irá desregistrar e apagar os dados locais.`,
-      confirmText: 'Remover',
-      cancelText: 'Cancelar',
-      variant: 'danger',
-    });
-    if (!shouldRemove) return;
-    setSignalUnregistering(account);
-    try {
-      const apiToken = signalForm.apiToken.trim();
-      await SignalUnregister(signalForm.apiURL, account, true, apiToken);
-      const accounts = await SignalListAccounts(signalForm.apiURL, apiToken).catch(() => [] as string[]);
-      setSignalAccounts(accounts || []);
-      if (signalForm.account === account) {
-        setSignalForm((prev) => ({ ...prev, account: accounts?.[0] || '' }));
-      }
-      addToast(`Conta ${account} removida`, 'success');
-      announce(`Conta ${account} removida`);
-    } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao remover conta', 'error');
-    } finally {
-      setSignalUnregistering(null);
     }
   };
 
   const handleRemoveCredential = useCallback(async (pattern: string, label: string) => {
     const shouldRemove = await requestConfirm({
       title: t('channels.confirm.removeCredentialTitle'),
-      message: `Remover a credencial ${label}?`,
-      confirmText: 'Remover',
-      cancelText: 'Cancelar',
+      message: t('channels.confirm.removeCredentialMessage', { label }),
+      confirmText: t('channels.confirm.removeCredentialConfirm'),
+      cancelText: t('common.cancel'),
       variant: 'danger',
     });
 
@@ -663,11 +485,11 @@ export default function ChannelsPage() {
 
     try {
       await DeleteCredential(pattern);
-      addToast(t('channels.toast.credentialRemoved'), 'success');
+      addToast(t('channels.toast.credentialRemoved'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('channels.announce.credentialRemoved'));
       await loadAll();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao remover credencial', 'error');
+      addToast(getErrorMessage(error) || t('channels.error.removeCredentialFailed'), 'error');
     }
   }, [addToast, announce, loadAll, requestConfirm, t]);
 
@@ -719,7 +541,7 @@ export default function ChannelsPage() {
       id: `create-${template.type}`,
       label: template.display_name,
       icon: template.icon,
-      ariaLabel: `Criar canal ${template.display_name}`,
+      ariaLabel: t('channels.aria.createChannel', { name: template.display_name }),
       action: () => handleQuickCreate(template),
     }))
     : [{
@@ -732,13 +554,9 @@ export default function ChannelsPage() {
 
   // ── Editor title ─────────────────────────────────────────────────
 
-  const editorTitle = editingChannel === 'telegram'
-    ? 'Telegram'
-    : editingChannel === 'signal'
-      ? 'Signal'
-      : editingChannel === 'slack'
-        ? 'Slack'
-        : '';
+  const editorTitle = channelRows.find((r) => r.name === editingChannel)?.label
+    || editingChannel
+    || '';
 
   const toolbarActions = [
     {
@@ -776,7 +594,7 @@ export default function ChannelsPage() {
       onToggleVault={setTelegramUseVault}
       credentialStored={Boolean(credentialSummaries[channelCredentialPattern('telegram', 'bot_token')])}
       credentialMasked={credentialSummaries[channelCredentialPattern('telegram', 'bot_token')]?.masked || ''}
-      onRemoveCredential={() => handleRemoveCredential(channelCredentialPattern('telegram', 'bot_token'), 'Telegram Bot Token')}
+      onRemoveCredential={() => handleRemoveCredential(channelCredentialPattern('telegram', 'bot_token'), t('channels.telegram.botToken'))}
     />
   );
 
@@ -791,7 +609,7 @@ export default function ChannelsPage() {
       onToggleVault={setSignalUseVault}
       tokenStored={Boolean(credentialSummaries[channelCredentialPattern('signal', 'api_token')])}
       tokenMasked={credentialSummaries[channelCredentialPattern('signal', 'api_token')]?.masked || ''}
-      onRemoveToken={() => handleRemoveCredential(channelCredentialPattern('signal', 'api_token'), 'Signal API Token')}
+      onRemoveToken={() => handleRemoveCredential(channelCredentialPattern('signal', 'api_token'), t('channels.signal.apiToken'))}
       apiReady={signalAPIReady}
       apiInfo={signalAPIInfo}
       regError={signalRegError}
@@ -838,8 +656,8 @@ export default function ChannelsPage() {
       botTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'bot_token')]?.masked || ''}
       appTokenStored={Boolean(credentialSummaries[channelCredentialPattern('slack', 'app_token')])}
       appTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'app_token')]?.masked || ''}
-      onRemoveBotToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'bot_token'), 'Slack Bot Token')}
-      onRemoveAppToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'app_token'), 'Slack App Token')}
+      onRemoveBotToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'bot_token'), t('channels.slack.botToken'))}
+      onRemoveAppToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'app_token'), t('channels.slack.appToken'))}
     />
   );
 
@@ -848,7 +666,7 @@ export default function ChannelsPage() {
   if (loading) {
     return (
       <div className="channels-page">
-        <div className="channels-page__loading" role="status">{t('channels.loading', 'Carregando canais...')}</div>
+        <PageLoading className="channels-page__loading" message={t('channels.loading', 'Carregando canais...')} />
       </div>
     );
   }
@@ -860,7 +678,7 @@ export default function ChannelsPage() {
         right={
           <ToolbarButton
             ref={createMenuButtonRef}
-            label="Novo"
+            label={t('channels.buttons.new')}
             icon={<PlusOutlined aria-hidden="true" />}
             endIcon={<DownOutlined aria-hidden="true" />}
             shortcut="Ctrl+N"
@@ -868,32 +686,38 @@ export default function ChannelsPage() {
             onClick={openCreateMenu}
             aria-haspopup="menu"
             aria-expanded={createMenuVisible}
-            aria-label="Novo canal"
+            aria-label={t('channels.aria.newChannel')}
           />
         }
         actions={toolbarActions}
-        ariaLabel="Barra de ferramentas de canais"
+        ariaLabel={t('channels.aria.toolbar')}
       />
 
       <div className="channels-page__content">
-        <DataGrid
-          items={channelRows}
-          columns={channelColumns}
-          label="Canais de comunicação"
-          autoFocusOnMount={false}
-          getItemId={getChannelRowId}
-          onActivate={handleActivateChannelRow}
-          onGridReady={channelsHandleGridReady}
-          getRowActions={getChannelRowActions}
-          onFocusChange={handleChannelFocusChange}
-        />
+        {channelRows.length === 0 ? (
+          <p className="channels-page__empty">
+            {t('channels.empty.noChannels')}
+          </p>
+        ) : (
+          <DataGrid
+            items={channelRows}
+            columns={channelColumns}
+            label={t('channels.aria.gridLabel')}
+            autoFocusOnMount={false}
+            getItemId={getChannelRowId}
+            onActivate={handleActivateChannelRow}
+            onGridReady={channelsHandleGridReady}
+            getRowActions={getChannelRowActions}
+            onFocusChange={handleChannelFocusChange}
+          />
+        )}
       </div>
 
       {/* Editor Modal */}
       <Modal
         isOpen={!!editingChannel}
         onClose={handleCloseEditor}
-        title={`Editor de canal: ${editorTitle}`}
+        title={t('channels.modal.editorTitle', { title: editorTitle })}
         size="lg"
       >
         <EditorPanelFields className="channels-page__fields">
@@ -908,17 +732,23 @@ export default function ChannelsPage() {
               onClick={() => handleReconnectChannel(editingChannel)}
               loading={reconnecting}
             >
-              Reconectar
+              {t('channels.buttons.reconnect')}
             </Button>
           )}
-          <Button variant="ghost" onClick={handleCloseEditor}>
-            Cancelar
-          </Button>
-          {editingChannel && (
-            <Button onClick={() => handleSaveChannel(editingChannel)} loading={saving}>
-              Salvar
-            </Button>
-          )}
+          <DialogActions
+            primary={
+              editingChannel ? (
+                <Button onClick={() => handleSaveChannel(editingChannel)} loading={saving}>
+                  {t('common.save')}
+                </Button>
+              ) : null
+            }
+            secondary={
+              <Button variant="ghost" onClick={handleCloseEditor}>
+                {t('common.cancel')}
+              </Button>
+            }
+          />
         </EditorPanelFooter>
       </Modal>
 
@@ -927,7 +757,7 @@ export default function ChannelsPage() {
         x={createMenuPosition.x}
         y={createMenuPosition.y}
         visible={createMenuVisible}
-        ariaLabel="Menu de criação de canais"
+        ariaLabel={t('channels.aria.createMenu')}
         onClose={closeCreateMenu}
       />
 

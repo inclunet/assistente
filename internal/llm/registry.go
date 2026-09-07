@@ -71,6 +71,16 @@ func (r *ProviderRegistry) List() []*ProviderConfig {
 	return list
 }
 
+// Clear remove todos os provedores registrados em memória.
+func (r *ProviderRegistry) Clear() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.providers = make(map[string]*ProviderConfig)
+}
+
 // Remove remove um provider pelo ID
 func (r *ProviderRegistry) Remove(id string) error {
 	if r == nil {

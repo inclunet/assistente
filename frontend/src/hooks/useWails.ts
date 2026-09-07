@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useEffect, useCallback, useRef } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 
@@ -41,7 +42,7 @@ export function useWailsAPI<TArgs extends unknown[], TResult>(
         const result = await apiFunction(...args);
         return result;
       } catch (error) {
-        console.error('Erro ao chamar API Wails:', error);
+        logger.error('Erro ao chamar API Wails:', error);
         throw error;
       }
     },

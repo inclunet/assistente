@@ -1,43 +1,31 @@
 package controllers
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-	"assistente/internal/llm"
 	"assistente/internal/profiles"
-	"assistente/internal/providers"
 	"assistente/internal/skills"
 )
 
-// SettingsInput é o payload de SaveSettings (mantém compatibilidade com o frontend).
-type SettingsInput struct {
-	APIKey          string             `json:"apiKey"`
-	APIBaseURL      string             `json:"apiBaseUrl"`
-	ResponseTimeout int                `json:"responseTimeout"`
-	ChatParams      config.ModelParams `json:"chatParams"`
-	STTParams       config.STTParams   `json:"sttParams"`
-}
-
 // SettingsControllerConfig agrupa as dependências do SettingsController.
 type SettingsControllerConfig struct {
-	CredMgr     *credentials.Manager
-	ProfileMgr  *profiles.Manager
-	SkillMgr    *skills.Manager
-	Emitter     ports.Emitter
-	ProviderSvc *providers.Service
+	CredMgr    *credentials.Manager
+	ProfileMgr *profiles.Manager
+	SkillMgr   *skills.Manager
+	Emitter    ports.Emitter
 	// Callbacks cross-domain
 	RestartChannel func(channelName string) error
 	GetModels      func() ([]string, error)
-	InitLLMClient  func()
 }
 
 // SettingsController é o adapter primário (Inbound) para operações de configurações globais e reset.
@@ -46,10 +34,8 @@ type SettingsController struct {
 	profileMgr     *profiles.Manager
 	skillMgr       *skills.Manager
 	emitter        ports.Emitter
-	providerSvc    *providers.Service
 	restartChannel func(string) error
 	getModels      func() ([]string, error)
-	initLLMClient  func()
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
@@ -59,86 +45,54 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 		profileMgr:     cfg.ProfileMgr,
 		skillMgr:       cfg.SkillMgr,
 		emitter:        cfg.Emitter,
-		providerSvc:    cfg.ProviderSvc,
 		restartChannel: cfg.RestartChannel,
 		getModels:      cfg.GetModels,
-		initLLMClient:  cfg.InitLLMClient,
 	}
 }
 
-func (c *SettingsController) GetConfig() (*config.Config, error) {
-	return config.Load()
-}
-
-// SendMessageSync envia uma mensagem sem streaming (para acessibilidade e testes).
-func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm.Message, params llm.ChatParams) (string, error) {
-	if c.profileMgr == nil {
-		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
-	}
-	activeProfile, _ := c.profileMgr.GetActive()
-	if c.providerSvc != nil {
-		activeProfile = c.providerSvc.ResolveProfileDefaults(activeProfile)
-	}
-	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
-		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
-	}
-	if c.providerSvc == nil {
-		return "", fmt.Errorf("provider service not initialized")
-	}
-	cp, err := c.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
+// GetMaintenanceSettings retorna a política de retenção/compactação do banco
+// (AEP-0074). Em caso de falha ao ler o config.json, devolve os defaults sem
+// erro — coerente com o uso em background (retenção/compactação usam defaults),
+// permitindo que a UI edite e salve a política (recriando o arquivo).
+func (c *SettingsController) GetMaintenanceSettings() (config.MaintenanceSettings, error) {
+	settings, err := config.GetMaintenance()
 	if err != nil {
-		return "", err
+		logging.Errorf(context.Background(), "controllers.settings-controller", "[Settings] falha ao ler manutenção do config.json; usando defaults: %v", err)
+		return config.DefaultMaintenanceSettings(), nil
 	}
-	return cp.SendChat(ctx, messages, params)
+	return settings, nil
 }
 
-// SetChatModel atualiza apenas o modelo de chat na configuração e recarrega o cliente LLM.
-func (c *SettingsController) SetChatModel(model string) error {
-	err := config.Update(func(existing *config.Config) *config.Config {
-		existing.DefaultModel = model
-		existing.ChatParams.Model = model
-		return existing
-	})
+// SaveMaintenanceSettings persiste a política de manutenção no config.json.
+func (c *SettingsController) SaveMaintenanceSettings(settings config.MaintenanceSettings) error {
+	return config.SaveMaintenance(settings)
+}
+
+// GetDatabaseStats retorna o estado físico atual do banco (tamanho, freelist,
+// modo de auto_vacuum) para exibir na tela de configurações.
+func (c *SettingsController) GetDatabaseStats(ctx context.Context) (database.DatabaseStats, error) {
+	return database.DatabaseStatsSnapshot(ctx)
+}
+
+// RunDatabaseMaintenance dispara a compactação física do banco sob demanda
+// ("limpar agora"). force=true ignora o limiar de freelist. O limiar padrão vem
+// do config.json (AEP-0074).
+func (c *SettingsController) RunDatabaseMaintenance(ctx context.Context, force bool) (database.CompactionResult, error) {
+	maint, err := config.GetMaintenance()
 	if err != nil {
-		return err
+		maint = config.DefaultMaintenanceSettings()
 	}
-	if c.initLLMClient != nil {
-		c.initLLMClient()
-	}
-	log.Printf("[SetChatModel] Modelo atualizado para: %s", model)
-	return nil
+	return database.Compact(ctx, force, maint.VacuumMinFreeBytes)
 }
 
-func (c *SettingsController) SaveSettings(input SettingsInput) error {
-	responseTimeout := input.ResponseTimeout
-	if responseTimeout <= 0 {
-		responseTimeout = 180
+// GetNativeTTSProviders retorna os IDs de provedores TTS nativos
+// disponíveis na plataforma atual (ex.: webspeech sempre, sapi5 apenas no Windows).
+func (c *SettingsController) GetNativeTTSProviders() []string {
+	providers := []string{"webspeech"}
+	if runtime.GOOS == "windows" {
+		providers = append(providers, "sapi5")
 	}
-	return config.Update(func(existing *config.Config) *config.Config {
-		return &config.Config{
-			APIKey:          input.APIKey,
-			APIBaseURL:      input.APIBaseURL,
-			DefaultModel:    input.ChatParams.Model,
-			ResponseTimeout: responseTimeout,
-			ChatParams: config.ModelParams{
-				Model:       input.ChatParams.Model,
-				Temperature: input.ChatParams.Temperature,
-				MaxTokens:   input.ChatParams.MaxTokens,
-				TopP:        input.ChatParams.TopP,
-			},
-			STTParams: config.STTParams{
-				Provider:      input.STTParams.Provider,
-				RecordingMode: input.STTParams.RecordingMode,
-			},
-		}
-	})
-}
-
-func (c *SettingsController) SetDefaultModel(model string) error {
-	return config.Update(func(cfg *config.Config) *config.Config {
-		cfg.DefaultModel = model
-		return cfg
-	})
+	return providers
 }
 
 func (c *SettingsController) TestConnection() (bool, error) {
@@ -182,14 +136,32 @@ func (c *SettingsController) ResetConfig() error {
 	return nil
 }
 
-func (c *SettingsController) ClearAllCredentials() error {
+// ClearAllCredentials apaga todas as credenciais visíveis ao usuário
+// do contexto, iterando pattern por pattern (ListVisible já filtra
+// instance secrets e cross-user). Exige `userID` no `ctx`.
+func (c *SettingsController) ClearAllCredentials(ctx context.Context) error {
 	if c.credMgr == nil {
 		return fmt.Errorf("gerenciador de credenciais não disponível")
 	}
-	if err := c.credMgr.DeletePattern(context.Background(), ""); err != nil {
-		return fmt.Errorf("erro ao limpar credenciais: %v", err)
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return fmt.Errorf("ClearAllCredentials requer usuário autenticado: %w", err)
 	}
-	log.Println("[ClearAllCredentials] Credenciais apagadas")
+
+	creds, err := c.credMgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao listar credenciais: %w", err)
+	}
+	deleted := 0
+	for _, cred := range creds {
+		if cred.Pattern == "" {
+			continue
+		}
+		if err := c.credMgr.DeletePattern(ctx, cred.Pattern); err != nil {
+			return fmt.Errorf("erro ao apagar credencial %q: %w", cred.Pattern, err)
+		}
+		deleted++
+	}
+	logging.Infof(ctx, "controllers.settings-controller", "[ClearAllCredentials] %d credenciais apagadas (escopo do usuário autenticado)", deleted)
 	c.emitter.Emit("credentials:cleared", nil)
 	return nil
 }
@@ -204,10 +176,10 @@ func (c *SettingsController) ClearAllProfiles() error {
 	}
 	for _, p := range list {
 		if err := c.profileMgr.Delete(p.Slug); err != nil {
-			log.Printf("[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, err)
+			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, err)
 		}
 	}
-	log.Println("[ClearAllProfiles] Perfis apagados")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Perfis apagados")
 	c.emitter.Emit("profiles:cleared", nil)
 	return nil
 }
@@ -222,10 +194,10 @@ func (c *SettingsController) ClearAllSkills() error {
 	}
 	for _, s := range list {
 		if err := c.skillMgr.Delete(s.Slug); err != nil {
-			log.Printf("[ClearAllSkills] Erro ao deletar skill %s: %v", s.Slug, err)
+			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllSkills] Erro ao deletar skill %s: %v", s.Slug, err)
 		}
 	}
-	log.Println("[ClearAllSkills] Skills apagados")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllSkills] Skills apagados")
 	c.emitter.Emit("skills:cleared", nil)
 	return nil
 }
@@ -236,7 +208,7 @@ func (c *SettingsController) ClearAllChannels() error {
 	}
 	// sem acesso direto ao gateway — usa callback injetado
 	c.emitter.Emit("channels:cleared", nil)
-	log.Println("[ClearAllChannels] Evento channels:cleared emitido")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllChannels] Evento channels:cleared emitido")
 	return nil
 }
 
@@ -264,17 +236,20 @@ func (c *SettingsController) ResetDatabase() error {
 	if err := database.Init(); err != nil {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
-	log.Println("[ResetDatabase] Banco resetado com sucesso")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ResetDatabase] Banco resetado com sucesso")
 	c.emitter.Emit("database:reset", nil)
 	return nil
 }
 
-// ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco.
-func (c *SettingsController) ClearMessages() error {
-	if err := database.ClearAllConversations(); err != nil {
+// ClearMessages apaga as mensagens e conversas pertencentes ao usuário do
+// contexto. Usa ClearAllConversationsWithContext, que respeita o escopo do
+// usuário; o caller (Wails binding) é responsável por validar autenticação
+// antes de chamar.
+func (c *SettingsController) ClearMessages(ctx context.Context) error {
+	if err := database.ClearAllConversationsWithContext(ctx); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
-	log.Println("[ClearMessages] Mensagens e conversas apagadas")
+	logging.Println(ctx, "controllers.settings-controller", "[ClearMessages] Mensagens e conversas apagadas")
 	c.emitter.Emit("messages:cleared", nil)
 	return nil
 }

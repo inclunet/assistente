@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { AllowlistRulesSection } from './AllowlistRulesSection';
 import { allowlist } from '../../../wailsjs/go/models';
 
-const buildItem = (overrides: Partial<allowlist.Allowlist> = {}): allowlist.Allowlist => ({
+const buildItem = (overrides: Partial<allowlist.Allowlist> = {}): allowlist.Allowlist => new allowlist.Allowlist({
   name: '',
   description: '',
   auto_approve: [],

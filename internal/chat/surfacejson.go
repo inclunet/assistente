@@ -1,15 +1,36 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
-	"log"
 	"strings"
+
+	"assistente/internal/logging"
 )
 
 // DecodeSurfaceJSONMap decodifica um JSON de objeto usado para surface state/context.
 // Retorna nil para vazio, whitespace, objeto vazio ou payload inválido.
 func DecodeSurfaceJSONMap(raw string, logPrefix string) map[string]any {
-	return DecodeSurfaceJSONMapWithLogger(raw, logPrefix, log.Printf)
+	return DecodeSurfaceJSONMapWithLogger(raw, logPrefix, func(format string, args ...any) {
+		logging.Warnf(context.Background(), "chat.surfacejson", format, args...)
+	})
+}
+
+// DecodeCanonicalSurfaceContextJSON aceita somente o envelope completo
+// definido pela AEP-0080. Payloads antigos ou incompletos são ignorados.
+func DecodeCanonicalSurfaceContextJSON(raw string, logPrefix string) map[string]any {
+	decoded := DecodeSurfaceJSONMap(raw, logPrefix)
+	if !hasNonEmptySurfaceString(decoded, "surfaceType") ||
+		!hasNonEmptySurfaceString(decoded, "surfaceId") ||
+		!hasNonEmptySurfaceString(decoded, "snapshotVersion") {
+		return nil
+	}
+	return decoded
+}
+
+func hasNonEmptySurfaceString(values map[string]any, key string) bool {
+	value, ok := values[key].(string)
+	return ok && strings.TrimSpace(value) != ""
 }
 
 // DecodeSurfaceJSONMapWithLogger permite injetar o logger em testes sem tocar no logger global.

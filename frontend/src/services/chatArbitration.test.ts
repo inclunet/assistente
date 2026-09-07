@@ -6,6 +6,7 @@ import {
   getChatConversationVoiceOrigin,
   isChatConversationActive,
   playChatReceiveSoundIfActive,
+  playChatErrorSoundIfActive,
 } from './chatArbitration';
 
 const hoisted = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ const hoisted = vi.hoisted(() => ({
   },
   announceWithOrigin: vi.fn(),
   playReceiveSound: vi.fn(),
+  playErrorSound: vi.fn(),
 }));
 
 vi.mock('../store/workspaceStore', () => ({
@@ -37,6 +39,7 @@ vi.mock('./voiceAccessibility/announcerBroker', () => ({
 
 vi.mock('./audioFeedback', () => ({
   playReceiveSound: (...args: unknown[]) => hoisted.playReceiveSound(...args),
+  playErrorSound: (...args: unknown[]) => hoisted.playErrorSound(...args),
 }));
 
 vi.mock('i18next', () => ({
@@ -53,6 +56,7 @@ describe('chatArbitration', () => {
   beforeEach(() => {
     hoisted.announceWithOrigin.mockClear();
     hoisted.playReceiveSound.mockClear();
+    hoisted.playErrorSound.mockClear();
     hoisted.workspaceState.workspace.activeTabId = 'tab-1';
     hoisted.workspaceState.getActiveTab = () => ({
       id: 'tab-1',
@@ -137,9 +141,11 @@ describe('chatArbitration', () => {
     announceForActiveChatConversation('conversation-2', 'não deve anunciar', 'polite', closedOrigin);
     announceChatBackgroundResponseDone('conversation-2', 'Fechada', closedOrigin);
     playChatReceiveSoundIfActive('conversation-2', closedOrigin);
+    playChatErrorSoundIfActive('conversation-2', closedOrigin);
 
     expect(hoisted.announceWithOrigin).not.toHaveBeenCalled();
     expect(hoisted.playReceiveSound).not.toHaveBeenCalled();
+    expect(hoisted.playErrorSound).not.toHaveBeenCalled();
   });
 
   it('toca som de recebimento somente para conversa ativa', () => {
@@ -153,5 +159,18 @@ describe('chatArbitration', () => {
     playChatReceiveSoundIfActive('conversation-1');
 
     expect(hoisted.playReceiveSound).toHaveBeenCalledTimes(1);
+  });
+
+  it('toca som de erro somente para conversa ativa', () => {
+    playChatErrorSoundIfActive('conversation-2', {
+      conversationId: 'conversation-2',
+      sessionKey: 'surface-tab-2:conversation-2',
+      surfaceId: 'surface-tab-2',
+      surfaceType: 'page',
+      tabId: 'tab-2',
+    });
+    playChatErrorSoundIfActive('conversation-1');
+
+    expect(hoisted.playErrorSound).toHaveBeenCalledTimes(1);
   });
 });

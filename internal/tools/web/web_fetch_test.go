@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"assistente/internal/credentials"
+	"assistente/internal/tools"
 )
 
 // newTestWebFetch cria um WebFetch que permite hosts privados (para httptest)
@@ -37,6 +38,32 @@ func TestWebFetch_Parameters(t *testing.T) {
 	}
 	if schema["type"] != "object" {
 		t.Error("schema deve ter type=object")
+	}
+}
+
+func TestWebFetch_BlocksNetworkDeniedHost(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = fmt.Fprint(w, "should not be reached")
+	}))
+	defer server.Close()
+
+	tool := newTestWebFetch()
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug:  "net-skill",
+		NetworkDeniedHost: []string{"127.0.0.1"},
+	})
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := tool.Execute(ctx, json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("esperado erro por denylist de rede, got: %s", result.Content)
+	}
+	if called {
+		t.Fatal("servidor não deveria receber requisição quando host está na denylist de rede")
 	}
 }
 
@@ -225,27 +252,21 @@ func TestWebFetch_BlocksLocalhost(t *testing.T) {
 	}
 }
 
-func TestIsPrivateHost(t *testing.T) {
-	tests := []struct {
-		host     string
-		expected bool
-	}{
-		{"localhost", true},
-		{"127.0.0.1", true},
-		{"192.168.1.1", true},
-		{"10.0.0.1", true},
-		{"172.16.0.1", true},
-		{"::1", true},
-		{"google.com", false},
-		{"example.org", false},
-		{"8.8.8.8", false},
-	}
+func TestWebFetch_BlocksRedirectToInvalidScheme(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "ftp://example.com/x")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
 
-	for _, tt := range tests {
-		result := isPrivateHost(tt.host)
-		if result != tt.expected {
-			t.Errorf("isPrivateHost(%q) = %v, want %v", tt.host, result, tt.expected)
-		}
+	tool := newTestWebFetch() // allowPrivateHosts=true; o alvo é o destino do redirect
+	args, _ := json.Marshal(map[string]string{"url": srv.URL})
+	res, err := tool.Execute(context.Background(), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.IsError {
+		t.Error("esperado IsError ao bloquear redirect para scheme inválido")
 	}
 }
 

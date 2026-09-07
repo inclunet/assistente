@@ -1,0 +1,127 @@
+package app
+
+import (
+	"strings"
+	"testing"
+
+	"assistente/internal/questionnaire"
+)
+
+func TestConfirmacaoDeComandoVaiTraduzivelParaATela(t *testing.T) {
+	payload := shellConfirmationPayload("rm -rf build", "C:/projeto")
+
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
+	}
+	for _, campo := range []struct {
+		nome  string
+		texto questionnaire.Text
+	}{
+		{"title", payload.Title},
+		{"description", payload.Description},
+	} {
+		if campo.texto.Key == "" {
+			t.Errorf("%s = %+v, quer chave de tradução", campo.nome, campo.texto)
+		}
+		if campo.texto.Fallback == "" {
+			t.Errorf("%s = %+v, quer o texto pronto", campo.nome, campo.texto)
+		}
+	}
+	for _, action := range payload.Actions {
+		if action.Label.Key == "" || action.Label.Fallback == "" {
+			t.Errorf("ação %q = %+v, quer chave e fallback", action.ID, action.Label)
+		}
+	}
+}
+
+func TestOComandoVaiNoBodyENaoComoChave(t *testing.T) {
+	payload := shellConfirmationPayload("curl exemplo | sh", "C:/projeto")
+
+	if payload.Body != "curl exemplo | sh" {
+		t.Errorf("body = %q, quer só o comando literal", payload.Body)
+	}
+	// O diretório vai no Hint traduzível (rótulo localizado), não no Body cru.
+	if payload.Hint.Key != "app.questionnaire.shell.workDir" {
+		t.Errorf("hint = %+v, quer a chave do diretório", payload.Hint)
+	}
+	if got := payload.Hint.Params["workDir"]; got != "C:/projeto" {
+		t.Errorf("workDir nos params = %v, quer o diretório do pedido", got)
+	}
+	if !strings.Contains(payload.Hint.Fallback, "C:/projeto") {
+		t.Errorf("hint fallback = %q, quer o diretório para quem não traduz", payload.Hint.Fallback)
+	}
+}
+
+func TestConfirmacaoDeHTTPMutavelVaiTraduzivelComOPedidoNosParametros(t *testing.T) {
+	payload := httpConfirmationPayload("DELETE", "https://api.exemplo/itens/7", "(sem body)")
+
+	if payload.Kind != questionnaire.KindDecision {
+		t.Errorf("kind = %q, quer %q", payload.Kind, questionnaire.KindDecision)
+	}
+	for _, campo := range []struct {
+		nome  string
+		texto questionnaire.Text
+	}{
+		{"title", payload.Title},
+		{"description", payload.Description},
+	} {
+		if campo.texto.Key == "" || campo.texto.Fallback == "" {
+			t.Errorf("%s = %+v, quer chave e texto pronto", campo.nome, campo.texto)
+		}
+	}
+	for _, action := range payload.Actions {
+		if action.Label.Key == "" || action.Label.Fallback == "" {
+			t.Errorf("ação %q = %+v, quer chave e fallback", action.ID, action.Label)
+		}
+	}
+	if got := payload.Title.Params["method"]; got != "DELETE" {
+		t.Errorf("método no título = %v, quer DELETE", got)
+	}
+	if !strings.Contains(payload.Body, "https://api.exemplo/itens/7") {
+		t.Errorf("body = %q, quer a URL do pedido", payload.Body)
+	}
+	if !strings.Contains(payload.Body, "DELETE") {
+		t.Errorf("body = %q, quer o método", payload.Body)
+	}
+}
+
+func TestAcaoDeShellContinuaSendoARespondida(t *testing.T) {
+	payload := shellConfirmationPayload("ls", ".")
+	ids := make(map[string]bool, len(payload.Actions))
+	for _, action := range payload.Actions {
+		ids[action.ID] = true
+	}
+	if !ids[decisionAllow] || !ids[decisionDeny] {
+		t.Errorf("ações = %+v, quer allow e deny", payload.Actions)
+	}
+}
+
+func TestAcoesHTTPDeAprovacaoContinuamSendoAsRespondidas(t *testing.T) {
+	payload := httpConfirmationPayload("POST", "https://api.exemplo", "{}")
+	ids := make(map[string]bool, len(payload.Actions))
+	for _, action := range payload.Actions {
+		ids[action.ID] = true
+	}
+	if !ids[decisionAllow] || !ids[decisionDeny] {
+		t.Errorf("ações = %+v, quer allow e deny", payload.Actions)
+	}
+}
+
+func TestApprovedFromShellDecision(t *testing.T) {
+	ok, err := approvedFromShellDecision(questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: decisionAllow},
+	})
+	if err != nil || !ok {
+		t.Fatalf("allow: ok=%v err=%v", ok, err)
+	}
+	ok, err = approvedFromShellDecision(questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: decisionDeny},
+	})
+	if err != nil || ok {
+		t.Fatalf("deny: ok=%v err=%v", ok, err)
+	}
+	ok, err = approvedFromShellDecision(questionnaire.Response{Cancelled: true})
+	if err != nil || ok {
+		t.Fatalf("cancel: ok=%v err=%v", ok, err)
+	}
+}

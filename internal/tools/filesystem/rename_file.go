@@ -28,7 +28,7 @@ func MoveFileWithPolicy(oldPath string, newPath string, overwrite bool, policy P
 
 	// Bloqueia manipulação de arquivos sensíveis (toolcalling)
 	if policy.BlockSensitive {
-		if isSensitiveFile(src) || isSensitiveFile(dst) {
+		if isSensitiveFileResolved(src) || isSensitiveFileResolved(dst) {
 			return fmt.Errorf("não é permitido mover/renomear arquivos sensíveis")
 		}
 	}

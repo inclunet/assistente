@@ -10,6 +10,7 @@ import (
 	"assistente/adapters/noop"
 	"assistente/controllers"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/providers"
 )
@@ -23,10 +24,11 @@ func setupTestApp() *App {
 		Store:    providers.NewMemoryStore(),
 	})
 	a := &App{
-		ctx:         context.Background(),
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-		providerSvc: svc,
+		ctx:           context.Background(),
+		credMgr:       credMgr,
+		llmRegistry:   llmRegistry,
+		providerSvc:   svc,
+		currentUserID: "test-user",
 	}
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
 		LLMRegistry: llmRegistry,
@@ -46,7 +48,7 @@ func TestTestLLMProviderValidatesEmptyUrl(t *testing.T) {
 		APIKey:  "sk-test",
 	}
 
-	_, err := app.TestLLMProvider(req)
+	_, err := app.testLLMProvider(req)
 	if err == nil {
 		t.Error("Expected error for empty URL, got nil")
 	}
@@ -71,7 +73,7 @@ func TestTestLLMProviderValidatesInvalidUrl(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := TestLLMProviderRequest{Type: "openai", BaseURL: tt.baseURL, APIKey: "sk-test"}
-			_, err := app.TestLLMProvider(req)
+			_, err := app.testLLMProvider(req)
 			if err == nil {
 				t.Errorf("Expected error for %q, got nil", tt.baseURL)
 			}
@@ -95,7 +97,7 @@ func TestTestLLMProviderSuccessfulConnection(t *testing.T) {
 		APIKey:  "",
 	}
 
-	result, err := app.TestLLMProvider(req)
+	result, err := app.testLLMProvider(req)
 	if err != nil {
 		t.Errorf("Expected success, got error: %v", err)
 	}
@@ -115,7 +117,7 @@ func TestTestLLMProviderHitsModelsEndpoint(t *testing.T) {
 	defer server.Close()
 
 	app := setupTestApp()
-	_, _ = app.TestLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "sk-test"})
+	_, _ = app.testLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "sk-test"})
 
 	if requestedPath != "/models" {
 		t.Errorf("expected request to /models, got %s", requestedPath)
@@ -143,7 +145,7 @@ func TestTestLLMProviderWithBearerToken(t *testing.T) {
 		APIKey:  "sk-test123",
 	}
 
-	result, err := app.TestLLMProvider(req)
+	result, err := app.testLLMProvider(req)
 	if err != nil {
 		t.Errorf("Expected success with valid token, got error: %v", err)
 	}
@@ -172,7 +174,7 @@ func TestTestLLMProviderWithoutApiKey(t *testing.T) {
 		APIKey:  "",
 	}
 
-	result, err := app.TestLLMProvider(req)
+	result, err := app.testLLMProvider(req)
 	if err != nil {
 		t.Errorf("Expected success without API key, got error: %v", err)
 	}
@@ -197,7 +199,7 @@ func TestTestLLMProviderUnauthorized(t *testing.T) {
 		APIKey:  "invalid-key",
 	}
 
-	_, err := app.TestLLMProvider(req)
+	_, err := app.testLLMProvider(req)
 	if err == nil {
 		t.Error("Expected error for 401, got nil")
 	}
@@ -214,7 +216,7 @@ func TestTestLLMProviderForbidden(t *testing.T) {
 	defer server.Close()
 
 	app := setupTestApp()
-	_, err := app.TestLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "key"})
+	_, err := app.testLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "key"})
 	if err == nil {
 		t.Error("Expected error for 403, got nil")
 	}
@@ -239,7 +241,7 @@ func TestTestLLMProviderServerError(t *testing.T) {
 		APIKey:  "sk-test",
 	}
 
-	_, err := app.TestLLMProvider(req)
+	_, err := app.testLLMProvider(req)
 	if err == nil {
 		t.Error("Expected error for 500, got nil")
 	}
@@ -264,7 +266,7 @@ func TestTestLLMProviderNotFound(t *testing.T) {
 		APIKey:  "",
 	}
 
-	result, err := app.TestLLMProvider(req)
+	result, err := app.testLLMProvider(req)
 	if err != nil {
 		t.Errorf("404 should be success (server responded), got error: %v", err)
 	}
@@ -283,7 +285,7 @@ func TestTestLLMProviderConnectionRefused(t *testing.T) {
 		APIKey:  "",
 	}
 
-	_, err := app.TestLLMProvider(req)
+	_, err := app.testLLMProvider(req)
 	if err == nil {
 		t.Error("Expected error for connection refused, got nil")
 	}
@@ -305,7 +307,7 @@ func TestTestLLMProviderURLTrailingSlash(t *testing.T) {
 		APIKey:  "",
 	}
 
-	result, err := app.TestLLMProvider(req)
+	result, err := app.testLLMProvider(req)
 	if err != nil {
 		t.Errorf("Expected success, got error: %v", err)
 	}
@@ -340,13 +342,14 @@ func TestTestLLMProviderUsesExistingCredential(t *testing.T) {
 		CredentialPattern: hostname,
 	}
 	_ = app.llmRegistry.Register(provider)
-	_ = app.credMgr.RegisterPatternWithContext(context.Background(), hostname, &credentials.AuthConfig{
+	credCtx := database.WithUserID(context.Background(), "test-user")
+	_ = app.credMgr.RegisterPatternWithContext(credCtx, hostname, &credentials.AuthConfig{
 		Type:  "bearer",
 		Token: "sk-existing-secret",
 	})
 
 	// Testar SEM api_key mas COM provider_id — deve usar a credencial existente
-	result, err := app.TestLLMProvider(TestLLMProviderRequest{
+	result, err := app.testLLMProvider(TestLLMProviderRequest{
 		Type:       "openai",
 		BaseURL:    server.URL,
 		APIKey:     "",
@@ -377,7 +380,7 @@ func TestTestLLMProviderWithoutProviderID_NoAuth(t *testing.T) {
 	app := setupTestApp()
 
 	// Sem provider_id e sem api_key → não deve enviar auth
-	_, _ = app.TestLLMProvider(TestLLMProviderRequest{
+	_, _ = app.testLLMProvider(TestLLMProviderRequest{
 		Type:    "ollama",
 		BaseURL: server.URL,
 		APIKey:  "",

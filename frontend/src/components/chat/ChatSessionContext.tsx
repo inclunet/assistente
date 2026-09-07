@@ -32,11 +32,20 @@ const composeChatSession = (
   surfaceSession: ChatSurfaceSession | null,
 ): ChatConversationSession => {
   const session = surfaceSession ?? createEmptyChatSession(conversationId, sessionKey);
+  const baseConversation = timeline ?? defaultSession?.conversation ?? null;
+  const visibleThreadedMessages = session.visibleThreadedMessages
+    ?? defaultSession?.visibleThreadedMessages
+    ?? baseConversation?.threadedMessages;
   return {
     ...session,
     sessionKey: session.sessionKey ?? sessionKey,
     conversationId: session.conversationId ?? conversationId,
-    conversation: timeline ?? defaultSession?.conversation ?? null,
+    conversation: baseConversation
+      ? {
+        ...baseConversation,
+        threadedMessages: visibleThreadedMessages ?? EMPTY_MESSAGES,
+      }
+      : null,
   };
 };
 
@@ -50,6 +59,8 @@ export interface ChatSessionContextValue {
   isLoading: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
+  isLoadingMessageWindow: boolean;
+  hasNewerMessages: boolean;
   draftMessage: string;
   draftMediaFiles: MediaFile[];
   scrollTop: number;
@@ -59,10 +70,14 @@ export interface ChatSessionContextValue {
   clearDraft: () => void;
   setScrollState: (scrollState: { scrollTop: number; scrollAnchorMessageId: string | null }) => void;
   loadOlderMessages: () => Promise<void>;
-  loadConversationSession: (conversationId: string) => Promise<void>;
+  loadNewerMessages: () => Promise<void>;
+  loadStartMessages: () => Promise<void>;
+  loadEndMessages: () => Promise<void>;
+  loadConversationSession: ReturnType<typeof useChatStore.getState>['loadConversationSession'];
   loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
   retryMessageToConversation: ReturnType<typeof useChatStore.getState>['retryMessageToConversation'];
   updateConversationMessage: ReturnType<typeof useChatStore.getState>['updateConversationMessage'];
+  updateConversationMessagePinned: ReturnType<typeof useChatStore.getState>['updateConversationMessagePinned'];
   clearConversationMessages: ReturnType<typeof useChatStore.getState>['clearConversationMessages'];
   startConversationEditing: (conversationId: string, id: string) => void;
   startConversationReading: (conversationId: string, id: string) => void;
@@ -108,18 +123,23 @@ export function ChatSessionProvider({
   const isLoading = session?.isLoading ?? false;
   const hasOlderMessages = session?.hasOlderMessages ?? false;
   const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
+  const isLoadingMessageWindow = session?.isLoadingMessageWindow ?? false;
+  const hasNewerMessages = session?.messageWindow?.hasAfter ?? false;
   const draftMessage = session?.draftMessage ?? '';
   const draftMediaFiles = session?.draftMediaFiles ?? [];
   const scrollTop = session?.scrollTop ?? 0;
   const scrollAnchorMessageId = session?.scrollAnchorMessageId ?? null;
 
   const loadOlderMessagesForConversation = useChatStore((state) => state.loadOlderMessagesForConversation);
+  const loadNewerMessagesForConversation = useChatStore((state) => state.loadNewerMessagesForConversation);
+  const loadBoundaryMessagesForConversation = useChatStore((state) => state.loadBoundaryMessagesForConversation);
   const loadMessageChildren = useChatStore((state) => state.loadMessageChildren);
   const loadConversationSession = useChatStore((state) => state.loadConversationSession);
   const retryMessageToConversationBase = useChatStore((state) => state.retryMessageToConversation);
   const ensureConversationSurfaceSession = useChatStore((state) => state.ensureConversationSurfaceSession);
   const removeConversationSurfaceSession = useChatStore((state) => state.removeConversationSurfaceSession);
   const updateConversationMessage = useChatStore((state) => state.updateConversationMessage);
+  const updateConversationMessagePinned = useChatStore((state) => state.updateConversationMessagePinned);
   const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
   const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
   const startConversationReadingBase = useChatStore((state) => state.startConversationReading);
@@ -138,6 +158,24 @@ export function ChatSessionProvider({
       await loadOlderMessagesForConversation(normalizedConversationId, sessionKey);
     }
   }, [loadOlderMessagesForConversation, normalizedConversationId, sessionKey]);
+
+  const loadNewerMessages = useCallback(async () => {
+    if (normalizedConversationId) {
+      await loadNewerMessagesForConversation(normalizedConversationId, sessionKey);
+    }
+  }, [loadNewerMessagesForConversation, normalizedConversationId, sessionKey]);
+
+  const loadStartMessages = useCallback(async () => {
+    if (normalizedConversationId) {
+      await loadBoundaryMessagesForConversation(normalizedConversationId, sessionKey, 'start');
+    }
+  }, [loadBoundaryMessagesForConversation, normalizedConversationId, sessionKey]);
+
+  const loadEndMessages = useCallback(async () => {
+    if (normalizedConversationId) {
+      await loadBoundaryMessagesForConversation(normalizedConversationId, sessionKey, 'end');
+    }
+  }, [loadBoundaryMessagesForConversation, normalizedConversationId, sessionKey]);
 
   const setDraftMessage = useCallback((message: string) => {
     if (!normalizedConversationId) return;
@@ -256,6 +294,8 @@ export function ChatSessionProvider({
     isLoading,
     hasOlderMessages,
     isLoadingOlderMessages,
+    isLoadingMessageWindow,
+    hasNewerMessages,
     draftMessage,
     draftMediaFiles,
     scrollTop,
@@ -265,10 +305,14 @@ export function ChatSessionProvider({
     clearDraft,
     setScrollState,
     loadOlderMessages,
+    loadNewerMessages,
+    loadStartMessages,
+    loadEndMessages,
     loadConversationSession,
     loadMessageChildren,
     retryMessageToConversation,
     updateConversationMessage,
+    updateConversationMessagePinned,
     clearConversationMessages,
     startConversationEditing,
     startConversationReading,
@@ -284,12 +328,17 @@ export function ChatSessionProvider({
     draftMediaFiles,
     draftMessage,
     hasOlderMessages,
+    hasNewerMessages,
     isConversationReasoningExpanded,
     isLoading,
     isLoadingOlderMessages,
+    isLoadingMessageWindow,
     loadConversationSession,
+    loadEndMessages,
     loadMessageChildren,
+    loadNewerMessages,
     loadOlderMessages,
+    loadStartMessages,
     normalizedConversationId,
     retryMessageToConversation,
     session,
@@ -309,6 +358,7 @@ export function ChatSessionProvider({
     toggleConversationReasoningExpanded,
     toggleConversationThreadExpanded,
     updateConversationMessage,
+    updateConversationMessagePinned,
   ]);
 
   return (

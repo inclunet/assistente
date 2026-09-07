@@ -1,6 +1,6 @@
 # AEP-0058: Arbitragem Global de Acessibilidade e Voz
 
-## Status: Draft
+## Status: Done — arbitragem global implementada e consolidada nos PRs #111/#112
 
 ## Relação com a AEP-0056
 
@@ -38,6 +38,8 @@ Deve existir uma live region global única para toda a aplicação.
 
 Controllers de chat, editor, terminal e tasklist não devem criar live regions próprias para progresso geral. Eles devem solicitar anúncios a um serviço central, informando origem e prioridade.
 
+Há uma única exceção, registrada na AEP-0087: a tela de erro do `AppErrorBoundary`. Ela entra em cena substituindo a árvore inteira do app — o `ScreenReaderAnnouncer` global não está mais montado —, então usa uma live region local. A regra continua valendo no que ela protege: em nenhum momento existem duas live regions disputando o leitor de telas.
+
 ### 2. Política de anúncios por aba ativa/inativa
 
 A aba ativa pode anunciar:
@@ -56,6 +58,55 @@ Abas inativas só podem anunciar eventos relevantes e resumidos:
 - evento crítico configurado pelo usuário.
 
 Anúncios de abas inativas devem incluir contexto de aba ou conversa, por exemplo: "Aba Terminal terminou de responder".
+
+### 2.1 A leitura do conteúdo do assistente não pode ser atropelada
+
+A live region é única, então todo anúncio novo substitui o texto anterior e o
+leitor de telas abandona o que estava lendo. Quando a fala do assistente é
+verbalizada por anúncio (TTS desabilitado, AEP-0041 §4.1), essa substituição
+significa perder a resposta no meio — o oposto do que a pessoa está esperando.
+
+A requisição de anúncio marca a fala do conteúdo do assistente com
+`protectsReading`. Enquanto a leitura estiver em curso, o broker aplica:
+
+- **passa na hora**: erro, resposta direta a uma ação da pessoa (`user-action`)
+  e um novo conteúdo do assistente, que substitui o anterior de propósito;
+- **espera a leitura terminar**: conclusão de resposta e os avisos automáticos
+  que declaram continuar verdadeiros depois da espera, como o intervalo
+  carregado da janela de mensagens;
+- **é descartado**: o resto dos avisos automáticos de estado.
+
+Esperar é exceção, não o padrão, porque a maior parte do que a interface anuncia
+sozinha descreve uma atividade em curso — "carregando", "ouvindo". Quando
+chegasse a vez desses avisos, a atividade já teria terminado e eles descreveriam
+o passado; por isso quem quer esperar precisa declarar que o aviso continua
+verdadeiro depois, e o silêncio é a escolha correta para o restante. Conclusão
+de resposta espera sem precisar declarar nada: é evento, não estado, e a aba
+inativa perderia o anúncio que a seção 2 exige.
+
+O que espera é falado quando a leitura termina, um de cada vez, para que um
+anúncio não substitua o outro na live region. Um aviso de estado ainda é
+descartado se a conversa andar nesse meio tempo — mais conteúdo, um erro, uma
+ação da pessoa. Não há prazo além disso: como só entra na fila quem continua
+verdadeiro depois, expirar por tempo descartaria justamente o que ainda vale, e
+uma resposta longa não é motivo para perder o aviso. A regra de aba inativa da
+seção 2 é reavaliada na hora de falar, não na de produzir: a pessoa pode ter
+trocado de aba durante a espera.
+
+A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
+restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
+leitura já não é utilizável e cai na regra de ruído da seção 2.
+
+A duração da leitura é estimada pelo tamanho do texto, porque não existe API que
+avise quando o leitor de telas termina. Superestimar só atrasa um aviso
+secundário; subestimar corta o conteúdo — por isso a estimativa é generosa.
+
+Entre os avisos de estado que esperam, só o último é guardado: o mais recente é
+o que descreve a situação atual (um intervalo carregado substitui o anterior).
+
+Quem dispara o anúncio precisa classificar o evento com honestidade. Paginação
+por scroll é `progress` porque acontece sozinha, inclusive no instante em que uma
+resposta termina; paginação por navegação explícita é `user-action`.
 
 ### 3. TTS globalmente exclusivo
 
@@ -99,34 +150,34 @@ O arbitrador não deve inferir perfil a partir de "aba ativa" quando a origem j�
 
 ## Fases
 
-### Fase 1 — Contrato de origem
+### Fase 1 — Contrato de origem ✅
 
 - Definir tipo de origem para recursos globais: `sessionKey`, `tabId`, `conversationId`, `surfaceType`, `profileSlug` e prioridade.
 - Adaptar solicitações de announcer/TTS/STT para carregar essa origem.
 - Cobrir origem por testes unitários.
 
-### Fase 2 — Announcer broker
+### Fase 2 — Announcer broker ✅
 
 - Criar broker central de anúncios.
 - Remover chamadas diretas que ignorem origem quando forem de contexto de aba.
 - Implementar política ativa/inativa.
 - Garantir uma live region global única.
 
-### Fase 3 — TTS broker frontend
+### Fase 3 — TTS broker frontend ✅
 
 - Introduzir lock/fila de TTS no frontend.
 - Integrar `chat:speak` e fala manual ao mesmo broker.
 - Aplicar prioridade entre fala manual, automática da aba ativa e automática de aba inativa.
 - Garantir cancelamento/cleanup ao fechar aba ou trocar perfil.
 
-### Fase 4 — STT gate
+### Fase 4 — STT gate ✅
 
 - Introduzir gate global para captura local.
 - Permitir start de STT apenas se a origem for a aba ativa.
 - Cancelar captura quando a aba perde ativação ou é fechada.
 - Garantir que canais externos não dependam desse gate.
 
-### Fase 5 — Integração com AEP-0057
+### Fase 5 — Integração com AEP-0057 ✅
 
 - Usar `sessionKey` como origem primária quando disponível.
 - Evitar lookup por conversa ativa global.
@@ -150,11 +201,20 @@ O PR #112 adiciona hardening de lifecycle para a política global:
 - Efeitos globais não são emitidos quando a origem pertence a uma aba do workspace que já foi fechada.
 - Canais externos continuam válidos sem `tabId`, porque não dependem da aba ativa nem do lifecycle do workspace.
 
+#### Relação com AEP-0059 Fase 2.1
+
+A AEP-0059 Fase 2.1 corrige a unidade acessível da lista de mensagens. A política global desta AEP permanece a mesma: há uma live region global e anúncios são arbitrados por origem de superfície. O que muda é a fonte dos números anunciados dentro da lista de chat:
+
+- `aria-posinset` e `aria-setsize` devem refletir itens de timeline, não linhas internas de ferramenta.
+- Um turno consolidado com tool calls deve ser anunciado como um único item quando é renderizado como um único item.
+- Durante streaming, o item transitório deve ser reconciliável por `turnId` para não produzir saltos artificiais de posição quando a janela persistida é recarregada.
+
 ## Riscos
 
 - Política agressiva de interrupção de TTS pode frustrar usuários que esperam ouvir tudo.
 - Enfileirar fala automática pode criar áudio atrasado e fora de contexto.
 - Anúncios de abas inativas podem virar ruído se forem muito frequentes.
+- A leitura protegida usa estimativa de duração: o aviso adiado pode chegar depois do momento em que era mais útil, ou ser descartado quando a conversa segue.
 - Cancelar STT ao trocar de aba pode descartar fala do usuário se não houver feedback claro.
 - Eventos legados sem `surfaceOrigin` podem cair na resolução por `conversationId`; novos fluxos devem carregar origem explícita.
 - Efeitos globais precisam distinguir origem de workspace fechada de origem externa sem aba.
@@ -162,14 +222,20 @@ O PR #112 adiciona hardening de lifecycle para a política global:
 
 ## Critérios de aceitação
 
-- Existe apenas uma live region global para anúncios.
-- Abas inativas não anunciam progresso comum.
-- Resposta concluída em aba inativa pode ser anunciada com contexto.
-- TTS nunca reproduz duas falas simultâneas.
-- Fala respeita o perfil efetivo da origem.
-- STT local só inicia na aba ativa.
-- STT local é cancelado ao desativar ou fechar a aba.
-- Canais externos continuam independentes da aba ativa.
-- Testes cobrem active/inactive, prioridade de TTS e gate de STT.
-- Eventos de chat com origem de superfície produzem anúncios e origem de voz associados à superfície correta.
-- Origem vinculada a aba fechada não dispara anúncio ou som global.
+Evidências: PRs #111/#112 e testes em
+`frontend/src/services/voiceAccessibility/`,
+`frontend/src/services/chatArbitration.test.ts` e
+`chatEventController.test.ts`.
+
+- [x] Existe uma única live region global na árvore normal.
+- [x] Aviso de estado não substitui leitura protegida.
+- [x] Aba inativa não anuncia progresso comum.
+- [x] Conclusão em aba inativa pode anunciar com contexto.
+- [x] TTS não reproduz falas simultâneas.
+- [x] Fala respeita perfil/origem efetivos.
+- [x] STT local inicia somente na aba ativa.
+- [x] STT cancela ao desativar ou fechar a aba.
+- [x] Canais externos independem da aba ativa.
+- [x] Testes cobrem active/inactive, prioridade TTS e gate STT.
+- [x] Eventos propagam origem correta até anúncio e voz.
+- [x] Origem de aba fechada não emite anúncio ou som.

@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { logger } from '../../utils/logger';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
@@ -10,22 +11,30 @@ import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
 import {
+  createMermaidErrorContent,
+  loadMermaid,
+  renderAccessibleMermaid,
+  type AccessibleMermaidResult,
+} from '../../lib/accessibleMermaid';
+import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
+import {
   buildEditorDestinationSubmenu,
   type EditorSendTargetOption,
   type SendToEditorPayload,
 } from '../../lib/editorSendMenu';
 import './MarkdownRenderer.css';
 
-type MermaidModule = typeof import('mermaid');
-type MermaidApi = MermaidModule['default'];
 type MonacoModule = typeof import('monaco-editor');
 type MonacoEditor = MonacoEditorNamespace.IStandaloneCodeEditor;
+
+export type RenderedContentTabNavigation = 'disabled' | 'enabled';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
   interactiveButtons?: boolean;
-  focusableMermaid?: boolean;
+  /** Habilita a ordem natural de Tab somente em regiões de leitura explícitas. */
+  tabNavigation?: RenderedContentTabNavigation;
   enableSendToEditorButtons?: boolean;
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
@@ -84,14 +93,14 @@ DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
   if (node.tagName === 'A') {
     const href = node.getAttribute('href') || '';
     if (isDeepLink(href)) {
-      node.setAttribute('tabindex', '0');
       node.removeAttribute('target');
       node.removeAttribute('rel');
     } else {
-      node.setAttribute('tabindex', '-1');
       node.setAttribute('target', '_blank');
       node.setAttribute('rel', 'noopener noreferrer');
     }
+    // A instância decide depois da sanitização se está numa região de leitura.
+    node.setAttribute('tabindex', '-1');
   }
 });
 
@@ -99,18 +108,23 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   content,
   className = '',
   interactiveButtons = false,
-  focusableMermaid: _focusableMermaid = false,
+  tabNavigation = 'disabled',
   enableSendToEditorButtons = false,
   editorTargets = [],
   onSendToEditor,
 }: MarkdownRendererProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
-  const mermaidInitializedRef = useRef(false);
+  const [imageViewer, setImageViewer] = useState<{
+    open: boolean;
+    images: ImageViewerImage[];
+    index: number;
+  }>({ open: false, images: [], index: 0 });
   const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
-  const mermaidApiRef = useRef<MermaidApi | null>(null);
   const monacoApiRef = useRef<MonacoModule | null>(null);
+  const mermaidRenderRunRef = useRef(0);
   const navigate = useNavigate();
+  const tabStopsEnabled = tabNavigation === 'enabled';
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
   const sendToEditorActionLabel = t('editor.sendToEditor.action');
@@ -122,6 +136,22 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const htmlTableTitle = t('editor.sendToEditor.title.htmlTable');
   const linkTitle = t('editor.sendToEditor.title.link');
   const mermaidTitle = t('editor.sendToEditor.title.mermaid');
+  const mermaidDiagramLabel = t('editor.presentation.mermaidDiagramLabel');
+  const mermaidErrorLabel = t('editor.presentation.mermaidErrorLabel');
+  const mermaidRenderError = t('editor.presentation.mermaidRenderError');
+  const mermaidRenderErrorMessage = t('editor.presentation.mermaidRenderErrorMessage');
+  const mermaidErrorDetails = t('editor.presentation.mermaidErrorDetails');
+  const mermaidUnknownError = t('editor.presentation.mermaidUnknownError');
+  const mermaidTruncatedError = t('editor.presentation.mermaidTruncatedError');
+  const mermaidCopyCode = t('editor.presentation.mermaidCopyCode');
+  const mermaidCopyError = t('editor.presentation.mermaidCopyError');
+  const mermaidRerender = t('editor.presentation.mermaidRerender');
+  const mermaidViewDiagram = t('editor.presentation.mermaidViewDiagram');
+  const mermaidViewCode = t('editor.presentation.mermaidViewCode');
+  const mermaidHideEditor = t('editor.presentation.mermaidHideEditor');
+  const mermaidOpenEditor = t('editor.presentation.mermaidOpenEditor');
+  const mermaidActionsLabel = t('editor.presentation.mermaidActionsLabel');
+  const mermaidErrorActionsLabel = t('editor.presentation.mermaidErrorActionsLabel');
   const codeTitle = useCallback((language: string) => t('editor.sendToEditor.title.code', { language }), [t]);
 
   const {
@@ -212,16 +242,6 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     },
     [loadMonaco]
   );
-
-  const initMermaid = useCallback(async (): Promise<MermaidApi> => {
-    if (mermaidInitializedRef.current && mermaidApiRef.current) return mermaidApiRef.current;
-    const mod = await import('mermaid');
-    const api = (mod.default ?? mod) as MermaidApi;
-    api.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
-    mermaidApiRef.current = api;
-    mermaidInitializedRef.current = true;
-    return api;
-  }, []);
 
   const addContextMenus = useCallback(
     (cleanups: Array<() => void>) => {
@@ -511,18 +531,133 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     ]
   );
 
+  const setupImages = useCallback(
+    (cleanups: Array<() => void>) => {
+      if (!containerRef.current) return;
+      const root = containerRef.current;
+
+      const imageElements = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+      if (imageElements.length === 0) return;
+
+      // Constrói a lista apenas com imagens válidas (com src não vazio) e
+      // mapeia o índice do elemento no DOM para o índice na lista filtrada,
+      // garantindo que a navegação prev/next nunca caia numa imagem quebrada.
+      const viewerEntries = imageElements
+        .filter((img) => {
+          const src = img.getAttribute('src') || '';
+          const parentLink = img.closest<HTMLAnchorElement>('a[href]');
+          return !!src && (!parentLink || !root.contains(parentLink));
+        })
+        .map((img) => ({
+          element: img,
+          image: {
+            src: img.getAttribute('src')!,
+            alt: img.getAttribute('alt') || undefined,
+          },
+        }));
+      const viewerImages = viewerEntries.map(({ image }) => image);
+      const viewerIndexByElement = new Map(
+        viewerEntries.map(({ element }, index) => [element, index]),
+      );
+
+      imageElements.forEach((img) => {
+        const src = img.getAttribute('src') || '';
+        if (!src) return;
+
+        const alt = img.getAttribute('alt') || undefined;
+        const parentLink = img.closest<HTMLAnchorElement>('a[href]');
+        if (parentLink && root.contains(parentLink)) {
+          // Imagem envolvida por link preserva a ação e a semântica nativas do
+          // link. O wrapper é a única parada de Tab; a imagem não abre viewer.
+          parentLink.removeAttribute('role');
+          parentLink.removeAttribute('aria-label');
+          parentLink.classList.remove('markdown-image-link--interactive');
+          img.classList.remove('markdown-image--interactive');
+          img.removeAttribute('role');
+          img.removeAttribute('tabindex');
+          img.removeAttribute('aria-label');
+          return;
+        }
+
+        const viewerIndex = viewerIndexByElement.get(img);
+        if (viewerIndex === undefined) return;
+        img.classList.add('markdown-image--interactive');
+        const altText = alt?.trim();
+        const imageAriaLabel = altText
+          ? `${altText} — ${t('ui.imageViewer.openHint')}`
+          : t('ui.imageViewer.openHint');
+        img.setAttribute('role', 'button');
+        img.setAttribute('tabindex', tabStopsEnabled ? '0' : '-1');
+        img.setAttribute('aria-label', imageAriaLabel);
+
+        const open = () => {
+          setImageViewer({ open: true, images: viewerImages, index: viewerIndex });
+        };
+
+        const onClick = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          open();
+        };
+
+        const onKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            open();
+          }
+        };
+
+        img.addEventListener('click', onClick);
+        img.addEventListener('keydown', onKeyDown);
+        cleanups.push(() => {
+          img.removeEventListener('click', onClick);
+          img.removeEventListener('keydown', onKeyDown);
+        });
+      });
+    },
+    [t, tabStopsEnabled],
+  );
+
+  const configureLinkTabStops = useCallback(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
+      anchor.tabIndex = tabStopsEnabled ? 0 : -1;
+    });
+  }, [tabStopsEnabled]);
+
   const renderMermaidDiagrams = useCallback(
     async (cleanups: Array<() => void>) => {
       if (!containerRef.current) return;
       const mermaidBlocks = containerRef.current.querySelectorAll('code.language-mermaid');
       if (mermaidBlocks.length === 0) return;
 
-      const mermaid = await initMermaid();
-      if (!mermaid) return;
+      const runId = String(++mermaidRenderRunRef.current);
+      const pendingBlocks = Array.from(mermaidBlocks).flatMap((codeBlock, index) => {
+        const pre = codeBlock.parentElement as HTMLPreElement | null;
+        if (!pre || pre.dataset.mermaidRendered === 'true') return [];
+
+        pre.dataset.mermaidRendered = 'pending';
+        pre.dataset.mermaidRenderRun = runId;
+        cleanups.push(() => {
+          if (pre.dataset.mermaidRendered === 'pending' && pre.dataset.mermaidRenderRun === runId) {
+            pre.removeAttribute('data-mermaid-rendered');
+            pre.removeAttribute('data-mermaid-render-run');
+          }
+        });
+
+        return [{ codeBlock: codeBlock as HTMLElement, pre, index }];
+      });
+      if (pendingBlocks.length === 0) return;
 
       const getErrorText = (err: unknown) => {
-        if (!err) return 'Erro desconhecido';
-        if (err instanceof Error) return String(err.stack || err.message || 'Erro');
+        if (!err) return mermaidUnknownError;
+        if (err instanceof Error) return String(err.message || mermaidUnknownError);
+        if (typeof err === 'object' && err) {
+          const maybeMessage = (err as { message?: unknown; str?: unknown }).message ?? (err as { str?: unknown }).str;
+          if (maybeMessage) return String(maybeMessage);
+        }
         try {
           return typeof err === 'string' ? err : JSON.stringify(err, null, 2);
         } catch {
@@ -533,34 +668,49 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       const truncate = (text: string, maxChars = 8000) => {
         const s = String(text || '');
         if (s.length <= maxChars) return s;
-        return s.slice(0, maxChars) + `\n… (truncado; ${s.length} chars)`;
+        return s.slice(0, maxChars) + `\n${t('editor.presentation.mermaidTruncatedError', {
+          count: s.length,
+          defaultValue: mermaidTruncatedError,
+        })}`;
       };
 
-      for (let i = 0; i < mermaidBlocks.length; i++) {
-        const codeBlock = mermaidBlocks[i] as HTMLElement;
-        const pre = codeBlock.parentElement as HTMLPreElement;
-        if (!pre || pre.dataset.mermaidRendered) continue;
-
+      for (const { codeBlock, pre, index: i } of pendingBlocks) {
         const mermaidCode = codeBlock.textContent || '';
 
         try {
-          const id = `mermaid-${Date.now()}-${i}`;
-          const { svg } = await mermaid.render(id, mermaidCode);
-
           const diagramWrapper = document.createElement('div');
           diagramWrapper.className = 'mermaid-diagram';
-          diagramWrapper.setAttribute('role', 'group');
-          diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid');
           diagramWrapper.dataset.mermaidIndex = String(i);
           diagramWrapper.dataset.mermaidCode = mermaidCode;
-          diagramWrapper.innerHTML = svg;
-          diagramWrapper.tabIndex = -1;
+          const mermaid = await loadMermaid();
+          const accessibleResult: AccessibleMermaidResult = await renderAccessibleMermaid({
+            chart: mermaidCode,
+            container: diagramWrapper,
+            mermaid,
+            locale: i18n.resolvedLanguage ?? i18n.language,
+            navigationEnabled: tabStopsEnabled,
+            ariaLabel: mermaidDiagramLabel,
+          });
+          if (pre.dataset.mermaidRenderRun !== runId || !pre.isConnected || !pre.parentNode) {
+            accessibleResult.cleanup();
+            return;
+          }
+          cleanups.push(accessibleResult.cleanup);
 
           pre.parentNode!.insertBefore(diagramWrapper, pre);
           pre.style.display = 'none';
           pre.dataset.mermaidRendered = 'true';
+          pre.dataset.mermaidRenderRun = runId;
+          cleanups.push(() => {
+            diagramWrapper.remove();
+            if (pre.dataset.mermaidRenderRun === runId) {
+              pre.style.display = '';
+              pre.removeAttribute('data-mermaid-rendered');
+              pre.removeAttribute('data-mermaid-render-run');
+            }
+          });
 
-          const svgElement = diagramWrapper.querySelector('svg') as SVGElement | null;
+          const svgElement = accessibleResult.svg;
           const editorKey = interactiveButtons ? `mermaid-${i}` : null;
           const monacoContainer = interactiveButtons
             ? (() => {
@@ -581,7 +731,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             const items: MenuItem[] = [
               {
                 id: `mermaid-${i}-copy`,
-                label: 'Copiar código',
+                label: mermaidCopyCode,
                 action: () => void copyToClipboard(mermaidCode),
               },
             ];
@@ -613,7 +763,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               items.push({ separator: true, id: `mermaid-${i}-sep-1` });
               items.push({
                 id: `mermaid-${i}-toggle`,
-                label: isEditorMode ? 'Ver diagrama' : 'Ver código',
+                label: isEditorMode ? mermaidViewDiagram : mermaidViewCode,
                 action: () => {
                   isEditorMode = !isEditorMode;
                   if (isEditorMode) {
@@ -635,38 +785,29 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               });
             }
 
-            openMenu(e.clientX, e.clientY, 'Ações: Mermaid', items);
+            openMenu(e.clientX, e.clientY, mermaidActionsLabel, items);
           };
 
           diagramWrapper.addEventListener('contextmenu', onContextMenu);
           cleanups.push(() => diagramWrapper.removeEventListener('contextmenu', onContextMenu));
         } catch (err) {
-          console.error('Erro ao renderizar Mermaid:', err);
+          if (pre.dataset.mermaidRenderRun !== runId || !pre.isConnected || !pre.parentNode) return;
+          logger.error('Erro ao renderizar Mermaid:', err);
           const errorText = truncate(getErrorText(err));
 
           const diagramWrapper = document.createElement('div');
-          diagramWrapper.className = 'mermaid-diagram mermaid-diagram--error';
-          diagramWrapper.setAttribute('role', 'group');
-          diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid (erro)');
+          diagramWrapper.className = 'mermaid-diagram';
           diagramWrapper.dataset.mermaidIndex = String(i);
           diagramWrapper.dataset.mermaidCode = mermaidCode;
-          diagramWrapper.tabIndex = -1;
-
-          const titleEl = document.createElement('div');
-          titleEl.className = 'mermaid-diagram__error-title';
-          titleEl.textContent = 'Erro ao renderizar Mermaid';
-
-          const msgEl = document.createElement('div');
-          msgEl.className = 'mermaid-diagram__error-message';
-          msgEl.textContent = 'O preview não pôde ser gerado. Você ainda pode copiar/enviar o código.';
-
-          const preEl = document.createElement('pre');
-          preEl.className = 'mermaid-diagram__error-pre';
-          preEl.textContent = errorText;
-
-          diagramWrapper.appendChild(titleEl);
-          diagramWrapper.appendChild(msgEl);
-          diagramWrapper.appendChild(preEl);
+          const { details: detailsEl } = createMermaidErrorContent({
+            container: diagramWrapper,
+            ariaLabel: mermaidErrorLabel,
+            title: mermaidRenderError,
+            message: mermaidRenderErrorMessage,
+            detailsLabel: mermaidErrorDetails,
+            errorText,
+            detailsTabbable: tabStopsEnabled,
+          });
 
           const editorKey = interactiveButtons ? `mermaid-${i}` : null;
           const monacoContainer = interactiveButtons
@@ -687,20 +828,21 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
             const items: MenuItem[] = [
               {
                 id: `mermaid-${i}-err-copy-code`,
-                label: 'Copiar código',
+                label: mermaidCopyCode,
                 action: () => void copyToClipboard(mermaidCode),
               },
               {
                 id: `mermaid-${i}-err-copy-error`,
-                label: 'Copiar erro',
+                label: mermaidCopyError,
                 action: () => void copyToClipboard(errorText),
               },
               {
                 id: `mermaid-${i}-err-rerender`,
-                label: 'Re-renderizar',
+                label: mermaidRerender,
                 action: () => {
                   pre.style.display = '';
                   pre.removeAttribute('data-mermaid-rendered');
+                  pre.removeAttribute('data-mermaid-render-run');
                   diagramWrapper.remove();
                   void renderMermaidDiagrams(cleanups);
                 },
@@ -735,11 +877,11 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
               items.push({ separator: true, id: `mermaid-${i}-err-sep-2` });
               items.push({
                 id: `mermaid-${i}-err-toggle`,
-                label: isEditorMode ? 'Ocultar editor' : 'Abrir no editor',
+                label: isEditorMode ? mermaidHideEditor : mermaidOpenEditor,
                 action: () => {
                   isEditorMode = !isEditorMode;
                   if (isEditorMode) {
-                    preEl.style.display = 'none';
+                    detailsEl.style.display = 'none';
                     monacoContainer.style.display = 'block';
                     void ensureMonacoEditor(
                       editorKey,
@@ -750,14 +892,14 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
                       setTimeout(() => editor.focus(), 30);
                     });
                   } else {
-                    preEl.style.display = '';
+                    detailsEl.style.display = '';
                     monacoContainer.style.display = 'none';
                   }
                 },
               });
             }
 
-            openMenu(e.clientX, e.clientY, 'Ações: Mermaid (erro)', items);
+            openMenu(e.clientX, e.clientY, mermaidErrorActionsLabel, items);
           };
 
           diagramWrapper.addEventListener('contextmenu', onContextMenu);
@@ -766,6 +908,15 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           pre.parentNode!.insertBefore(diagramWrapper, pre);
           pre.style.display = 'none';
           pre.dataset.mermaidRendered = 'true';
+          pre.dataset.mermaidRenderRun = runId;
+          cleanups.push(() => {
+            diagramWrapper.remove();
+            if (pre.dataset.mermaidRenderRun === runId) {
+              pre.style.display = '';
+              pre.removeAttribute('data-mermaid-rendered');
+              pre.removeAttribute('data-mermaid-render-run');
+            }
+          });
         }
       }
     },
@@ -776,14 +927,33 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       ensureMonacoEditor,
       fallbackDocumentTitle,
       fencedCode,
-      initMermaid,
+      i18n.language,
+      i18n.resolvedLanguage,
       interactiveButtons,
       markdownFormatLabel,
+      mermaidActionsLabel,
+      mermaidCopyCode,
+      mermaidCopyError,
+      mermaidDiagramLabel,
+      mermaidErrorActionsLabel,
+      mermaidErrorDetails,
+      mermaidErrorLabel,
+      mermaidHideEditor,
+      mermaidOpenEditor,
+      mermaidRenderError,
+      mermaidRenderErrorMessage,
+      mermaidRerender,
       mermaidTitle,
+      mermaidTruncatedError,
+      mermaidUnknownError,
+      mermaidViewCode,
+      mermaidViewDiagram,
       newDocumentLabel,
       onSendToEditor,
       openMenu,
       sendToEditorActionLabel,
+      t,
+      tabStopsEnabled,
     ]
   );
 
@@ -837,6 +1007,8 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
     }
 
     addContextMenus(cleanups);
+    configureLinkTabStops();
+    setupImages(cleanups);
     void renderMermaidDiagrams(cleanups);
 
     const container = containerRef.current;
@@ -860,7 +1032,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       });
       editorsRef.current.clear();
     };
-  }, [addContextMenus, closeMenu, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams]);
+  }, [addContextMenus, closeMenu, configureLinkTabStops, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams, setupImages]);
 
   return (
     <>
@@ -877,6 +1049,12 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
         ariaLabel={menuState.ariaLabel}
         onClose={closeMenu}
         onSelect={onSelectMenuItem}
+      />
+      <ImageViewerModal
+        isOpen={imageViewer.open}
+        images={imageViewer.images}
+        initialIndex={imageViewer.index}
+        onClose={() => setImageViewer((prev) => ({ ...prev, open: false }))}
       />
     </>
   );

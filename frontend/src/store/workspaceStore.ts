@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/shallow';
 import {
@@ -16,12 +17,12 @@ import {
   MoveWorkspaceTabTo,
   ExportWorkspace,
   ImportWorkspace,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Workspace';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { workspace } from '../../wailsjs/go/models';
 import i18next from 'i18next';
 import { announce } from '../hooks/useAnnouncer';
-import { isModalOpen } from '../components/ui/Modal';
+import { isModalOpen } from '../lib/modalRegistry';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
@@ -56,19 +57,45 @@ export interface WorkspaceData {
   activeTabId: string | null;
 }
 
-function backendTabToFrontend(bt: workspace.Tab): WorkspaceTab {
+interface BackendWorkspaceTabPayload {
+  id: string;
+  type: string;
+  conversation_id?: string;
+  title?: string;
+  position: number;
+  profile_override?: unknown;
+  state?: unknown;
+}
+
+interface BackendWorkspacePayload {
+  id: string;
+  name: string;
+  profile?: string;
+  tabs?: {
+    items?: BackendWorkspaceTabPayload[];
+    active?: string;
+  };
+}
+
+export interface WorkspaceTabUpdatedEvent {
+  workspace: BackendWorkspacePayload;
+  tabId: string;
+  profileSlug: string;
+}
+
+function backendTabToFrontend(bt: BackendWorkspaceTabPayload): WorkspaceTab {
   return {
     id: bt.id,
     type: bt.type as TabType,
     conversationId: bt.conversation_id || undefined,
-    title: bt.title,
+    title: bt.title || (bt.type === 'chat' ? i18next.t('chat.newConversation') : ''),
     position: bt.position,
-    profileOverride: bt.profile_override,
-    state: bt.state,
+    profileOverride: bt.profile_override as Record<string, unknown> | undefined,
+    state: bt.state as Record<string, unknown> | undefined,
   };
 }
 
-function backendWorkspaceToFrontend(bws: workspace.Workspace): WorkspaceData {
+function backendWorkspaceToFrontend(bws: BackendWorkspacePayload): WorkspaceData {
   const tabs = (bws.tabs?.items || []).map(backendTabToFrontend);
   return {
     id: bws.id,
@@ -162,6 +189,22 @@ function mergeTabState(
   return { ...(existing ?? {}), ...patch };
 }
 
+function mergeProfileOverride(
+  existing: Record<string, unknown> | undefined,
+  patch: Record<string, unknown> | null,
+): Record<string, unknown> | undefined {
+  if (patch === null) return undefined;
+  const merged = { ...(existing ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      delete merged[key];
+    } else if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   workspace: null,
   workspaces: [],
@@ -186,7 +229,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
             const tab: WorkspaceTab = {
               id: generateTabId(),
               type: 'chat',
-              title: 'Nova conversa',
+              title: i18next.t('chat.newConversation'),
               position: 0,
             };
             const backendTab = frontendTabToBackend(tab);
@@ -211,7 +254,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         }
       } catch (error) {
         if (isWailsBridgeTimeoutError(error)) {
-          console.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
+          logger.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
           if (initializeRetryTimer === null) {
             initializeRetryTimer = setTimeout(() => {
               initializeRetryTimer = null;
@@ -220,7 +263,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
           }
           return;
         }
-        console.error('[Workspace] Error initializing:', error);
+        logger.error('[Workspace] Error initializing:', error);
         set({ isInitialized: true });
       } finally {
         initializingPromise = null;
@@ -259,6 +302,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       set({ workspace: backendWorkspaceToFrontend(bws) });
     }));
 
+    unsubs.push(EventsOn('workspace:tab_updated', (event: WorkspaceTabUpdatedEvent) => {
+      set({ workspace: backendWorkspaceToFrontend(event.workspace) });
+      const profileSlug = event.profileSlug.trim();
+      announce(profileSlug
+        ? `${i18next.t('workspace.profileChanged')}: ${profileSlug}`
+        : i18next.t('workspace.profileChanged'));
+    }));
+
     unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
       if (get().workspace?.activeTabId === tabId) return;
       set(state => ({
@@ -290,14 +341,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
   createWorkspace: async (name) => {
     const bws = await CreateWorkspace(name);
-    announce(`Workspace criado: ${name}`);
+    announce(i18next.t('workspace.announce.workspaceCreated', { name }));
     return bws.id;
   },
 
   switchWorkspace: async (workspaceId) => {
     const bws = await SwitchWorkspace(workspaceId);
     set({ workspace: backendWorkspaceToFrontend(bws) });
-    announce(`Workspace: ${bws.name}`);
+    announce(i18next.t('workspace.announce.workspaceSwitched', { name: bws.name }));
   },
 
   renameWorkspace: async (newName) => {
@@ -305,13 +356,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     set(state => ({
       workspace: state.workspace ? { ...state.workspace, name: newName } : null,
     }));
-    announce(`Workspace renomeado: ${newName}`);
+    announce(i18next.t('workspace.announce.workspaceRenamed', { name: newName }));
   },
 
   deleteWorkspace: async (workspaceId) => {
     await DeleteWorkspace(workspaceId);
     await get().refreshWorkspaceList();
-    announce('Workspace removido');
+    announce(i18next.t('workspace.announce.workspaceRemoved'));
   },
 
   setProfile: async (profileSlug) => {
@@ -326,7 +377,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       const list = await ListWorkspaces();
       set({ workspaces: list || [] });
     } catch (error) {
-      console.error('[Workspace] Error refreshing list:', error);
+      logger.error('[Workspace] Error refreshing list:', error);
     }
   },
 
@@ -358,7 +409,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     if (updatedWs) {
       set({ workspace: backendWorkspaceToFrontend(updatedWs) });
     }
-    announce(`Aba criada: ${title}`);
+    announce(i18next.t('workspace.announce.tabCreated', { title }));
     return tabId;
   },
 
@@ -372,7 +423,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       const newTab = frontendTabToBackend({
         id: newTabId,
         type: 'chat',
-        title: 'Nova conversa',
+        title: i18next.t('chat.newConversation'),
         position: 0,
       });
       await AddWorkspaceTab(newTab);
@@ -382,7 +433,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     if (updatedWs) {
       set({ workspace: backendWorkspaceToFrontend(updatedWs) });
     }
-    announce('Aba fechada');
+    announce(i18next.t('workspace.announce.tabClosed'));
   },
 
   setActiveTab: (tabId) => {
@@ -405,7 +456,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     // Fire-and-forget: UI já atualizada; rollback em caso de falha.
     // A persistência no backend é assíncrona e não bloqueia callers.
     void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
-      console.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
+      logger.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
       // Só faz rollback se nenhuma ativação mais recente ocorreu desde esta
       // e o workspace não mudou (evita alterar activeTabId de outro workspace).
       if (activationSeqId === mySeq && get().workspace?.id === currentWorkspaceId) {
@@ -417,6 +468,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
           workspace: state.workspace
             ? { ...state.workspace, activeTabId: rollbackId }
             : null,
+        }));
+        window.dispatchEvent(new CustomEvent('workspace:tab-activation-rollback', {
+          detail: {
+            failedTabId: tabId,
+            rollbackTabId: rollbackId,
+          },
         }));
         announce(i18next.t('workspace.tabSwitchFailed'));
       }
@@ -437,7 +494,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
                   ...(updates.title !== undefined ? { title: updates.title as string } : {}),
                   ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as string } : {}),
                   ...(updates.state !== undefined ? { state: mergeTabState(t.state, updates.state as Record<string, unknown>) } : {}),
-                  ...(updates.profile_override !== undefined ? { profileOverride: updates.profile_override as Record<string, unknown> } : {}),
+                  ...(updates.profile_override !== undefined
+                    ? {
+                        profileOverride: mergeProfileOverride(
+                          t.profileOverride,
+                          updates.profile_override as Record<string, unknown> | null,
+                        ),
+                      }
+                    : {}),
                 }
               : t
           ),
@@ -479,7 +543,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   importWorkspace: async (yamlData) => {
     const bws = await ImportWorkspace(yamlData);
     await get().refreshWorkspaceList();
-    announce(`Workspace importado: ${bws.name}`);
+    announce(i18next.t('workspace.announce.workspaceImported', { name: bws.name }));
     return bws.id;
   },
 
@@ -534,6 +598,21 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     return ws.tabs.filter(t => t.type === type);
   },
 }));
+
+/**
+ * Lista vazia compartilhada para quando ainda não há workspace carregado.
+ *
+ * O zustand 5 usa o seletor como `getSnapshot` do `useSyncExternalStore`, sem
+ * memoizar o resultado. Um `[]` literal dentro do seletor seria um valor novo a
+ * cada chamada, o React concluiria que o snapshot mudou em todo commit e
+ * reagendaria render até estourar em "Maximum update depth exceeded".
+ */
+const NO_TABS: readonly WorkspaceTab[] = Object.freeze([]);
+
+/** Abas do workspace ativo; lista estável enquanto o workspace não carregou. */
+export function useWorkspaceTabs(): readonly WorkspaceTab[] {
+  return useWorkspaceStore((s) => s.workspace?.tabs ?? NO_TABS);
+}
 
 /**
  * Hook estável para obter a aba ativa sem causar re-render desnecessário.

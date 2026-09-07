@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"assistente/controllers"
+	"assistente/internal/apidto"
 )
 
 // ---------------------------------------------------------------------------
@@ -14,21 +14,21 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockCredentialsBackend struct {
-	credentials []controllers.CredentialSummary
+	credentials []apidto.CredentialSummary
 	listErr     error
 	upsertErr   error
 	deleteErr   error
 
 	// Capture calls
-	upsertedInput controllers.CredentialInput
+	upsertedInput  apidto.CredentialInput
 	deletedPattern string
 }
 
-func (m *mockCredentialsBackend) ListCredentials() ([]controllers.CredentialSummary, error) {
+func (m *mockCredentialsBackend) ListCredentials() ([]apidto.CredentialSummary, error) {
 	return m.credentials, m.listErr
 }
 
-func (m *mockCredentialsBackend) UpsertCredential(input controllers.CredentialInput) error {
+func (m *mockCredentialsBackend) UpsertCredential(input apidto.CredentialInput) error {
 	m.upsertedInput = input
 	return m.upsertErr
 }
@@ -44,7 +44,7 @@ func (m *mockCredentialsBackend) DeleteCredential(pattern string) error {
 
 func TestCredentialsList_Success(t *testing.T) {
 	mock := &mockCredentialsBackend{
-		credentials: []controllers.CredentialSummary{
+		credentials: []apidto.CredentialSummary{
 			{Pattern: "api.openai.com", Type: "bearer", Masked: "sk-...abc", Managed: true},
 			{Pattern: "api.anthropic.com", Type: "bearer", Masked: "sk-...xyz"},
 		},
@@ -73,7 +73,7 @@ func TestCredentialsList_Success(t *testing.T) {
 
 func TestCredentialsList_Empty(t *testing.T) {
 	mock := &mockCredentialsBackend{
-		credentials: []controllers.CredentialSummary{},
+		credentials: []apidto.CredentialSummary{},
 	}
 
 	var out bytes.Buffer

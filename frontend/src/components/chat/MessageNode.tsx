@@ -1,10 +1,11 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType, Message } from '../../store/chatStore';
 import { useChatNodeSessionState } from './ChatSessionContext';
 import { playBumpSound } from '../../services/audioFeedback';
-import { UpdateMessage } from '@wailsjs/go/app/App';
+import { UpdateMessage } from '@wailsjs/go/wailsapi/Conversations';
 import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import { handleError, ErrorSeverity } from '../../utils/errorHandler';
@@ -13,13 +14,26 @@ import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/edit
 import { ttsService } from '../../services/tts';
 import './MessageNode.css';
 
+const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
+
 export interface MessageNodeProps {
   node: MessageNodeType;
   level?: number;
   siblingIndex?: number;
   siblingCount?: number;
+  ariaPosition?: number;
+  ariaSetSize?: number;
   onLoadChildren?: (messageId: string) => Promise<MessageNodeType[]>;
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
+  onReachStart?: () => void | Promise<void>;
+  /**
+   * Quando a lista de nível 0 está virtualizada, a navegação por irmãos não pode
+   * depender de `parentElement.children` (apenas itens visíveis existem no DOM).
+   * A MessageList fornece este callback para rolar o índice até a viewport e focá-lo.
+   */
+  onFocusSiblingIndex?: (index: number) => void;
+  onJumpToStart?: () => void | Promise<void>;
+  onJumpToEnd?: () => void | Promise<void>;
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
@@ -32,13 +46,19 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   level = 0,
   siblingIndex = 0,
   siblingCount = 1,
+  ariaPosition,
+  ariaSetSize,
   onLoadChildren,
   onReachEnd,
+  onReachStart,
+  onJumpToStart,
+  onJumpToEnd,
   onContextMenu,
   onSpeak,
   onDelete,
   editorTargets,
   onSendToEditor,
+  onFocusSiblingIndex,
 }) => {
   const { t } = useTranslation();
   const nodeRef = React.useRef<HTMLDivElement>(null);
@@ -73,6 +93,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     elementRef: nodeRef,
     isActive: isReading,
     onClose: () => setIsReading(false),
+    openAnnouncement: t('chat.readingOpen'),
+    closeAnnouncement: t('chat.readingClose'),
+    dialogLabel: t('chat.readingDialog'),
   });
   
   // SIMPLIFICADO: Usa apenas node.children da store
@@ -151,7 +174,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         // onLoadChildren atualiza node.children na store, causando re-render automático
         await onLoadChildren(node.message.id);
       } catch (error) {
-        console.error('[MessageNode] Error loading children:', error);
+        logger.error('[MessageNode] Error loading children:', error);
       } finally {
         setIsLoading(false);
       }
@@ -159,6 +182,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   }, [conversationId, hasChildren, isExpanded, toggleConversationThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
 
   const isInternal = node.message.internal || level > 0;
+  const isToolOnlyTurnPlaceholder = node.message.source === TOOL_ONLY_TURN_PLACEHOLDER_SOURCE;
 
   // Handlers de edição
   const handleSaveEdit = async () => {
@@ -196,6 +220,13 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   // Funções de navegação por DOM (como no Svelte)
   const focusSibling = (idx: number) => {
+    // Em listas virtualizadas (nível 0), delega para a MessageList rolar o índice
+    // até a viewport antes de focar — nem todos os irmãos existem no DOM.
+    if (onFocusSiblingIndex) {
+      onFocusSiblingIndex(idx);
+      return;
+    }
+
     if (!nodeRef.current) return;
     
     const parent = nodeRef.current.parentElement;
@@ -266,6 +297,14 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
 
+    // Durante a leitura isolada, a árvore deixa de funcionar como item da
+    // lista: links, botões e o role=document precisam receber suas teclas
+    // nativamente. Escape continua sob responsabilidade do useVirtualModal.
+    if (isReading) {
+      e.stopPropagation();
+      return;
+    }
+
     // Espaço: reproduz TTS da mensagem
     if (key === ' ' && !node.message.isStreaming) {
       e.preventDefault();
@@ -295,7 +334,13 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     }
 
     // Delete: deleta mensagem
-    if (key === 'Delete' && !node.message.internal && !node.message.isStreaming && onDelete) {
+    if (
+      key === 'Delete'
+      && !node.message.internal
+      && !node.message.isStreaming
+      && !isToolOnlyTurnPlaceholder
+      && onDelete
+    ) {
       e.preventDefault();
       e.stopPropagation();
       onDelete(node.message);
@@ -349,8 +394,9 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       e.stopPropagation();
       if (siblingIndex > 0) {
         focusSibling(siblingIndex - 1);
+      } else if (level === 0 && onReachStart) {
+        await onReachStart();
       } else {
-        // Bateu no primeiro irmão
         playBumpSound();
       }
       return;
@@ -398,6 +444,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
     
+    if (key === 'Home' && e.ctrlKey && level === 0 && onJumpToStart) {
+      e.preventDefault();
+      e.stopPropagation();
+      await onJumpToStart();
+      return;
+    }
+
+    if (key === 'End' && e.ctrlKey && level === 0 && onJumpToEnd) {
+      e.preventDefault();
+      e.stopPropagation();
+      await onJumpToEnd();
+      return;
+    }
+
     // Home: foca no primeiro irmão
     if (key === 'Home' && !e.ctrlKey) {
       e.preventDefault();
@@ -421,8 +481,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const targetIndex = Math.min(siblingIndex + 10, siblingCount - 1);
       focusSibling(targetIndex);
       if (targetIndex === siblingCount - 1 && siblingIndex === targetIndex) {
-        // Já estava no último, toca som
-        playBumpSound();
+        if (level === 0 && onReachEnd) {
+          onReachEnd();
+        } else {
+          playBumpSound();
+        }
       }
       return;
     }
@@ -434,8 +497,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       const targetIndex = Math.max(siblingIndex - 10, 0);
       focusSibling(targetIndex);
       if (targetIndex === 0 && siblingIndex === 0) {
-        // Já estava no primeiro, toca som
-        playBumpSound();
+        if (level === 0 && onReachStart) {
+          await onReachStart();
+        } else {
+          playBumpSound();
+        }
       }
       return;
     }
@@ -474,6 +540,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       onKeyUp={handleKeyUp}
       tabIndex={-1}
       role="listitem"
+      aria-posinset={ariaPosition}
+      aria-setsize={ariaSetSize}
       aria-expanded={hasChildren ? isExpanded : undefined}
     >
       <div className="message-node__content">

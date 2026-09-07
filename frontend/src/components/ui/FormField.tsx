@@ -1,4 +1,5 @@
-import { ReactNode, useId, cloneElement, isValidElement } from 'react';
+import { ReactNode, useEffect, useId, useRef, cloneElement, isValidElement } from 'react';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './FormField.css';
 
 export interface FormFieldProps {
@@ -20,10 +21,23 @@ export const FormField = ({
   visuallyHidden = false,
   children,
 }: FormFieldProps) => {
+  const { announce } = useAnnouncer();
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   const descId = description ? `${fieldId}-desc` : undefined;
   const errorId = error ? `${fieldId}-error` : undefined;
+  const previousErrorRef = useRef<string | null | undefined>();
+  const childError = isValidElement<{ error?: string | null }>(children)
+    ? children.props.error
+    : undefined;
+  const childAnnouncesSameError = !!error && childError === error;
+
+  useEffect(() => {
+    if (error && !childAnnouncesSameError && error !== previousErrorRef.current) {
+      announce(error, 'assertive');
+    }
+    previousErrorRef.current = error;
+  }, [announce, childAnnouncesSameError, error]);
 
   const childrenWithId = isValidElement(children)
     ? cloneElement(children as React.ReactElement<{ id?: string; 'aria-describedby'?: string }>, {
@@ -50,7 +64,7 @@ export const FormField = ({
       {description && !error && (
         <p id={descId} className="form-field-group__description">{description}</p>
       )}
-      {error && <p id={errorId} className="form-field-group__error" role="alert">{error}</p>}
+      {error && <p id={errorId} className="form-field-group__error">{error}</p>}
     </div>
   );
 };

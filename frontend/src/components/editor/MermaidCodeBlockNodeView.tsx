@@ -114,9 +114,9 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
       || 'mermaid-unknown';
 
     return (
-      <NodeViewWrapper className="rich-mermaid-block" role="group" aria-label="Bloco Mermaid">
+      <NodeViewWrapper className="rich-mermaid-block" role="group" aria-label={t('editor.mermaid.blockLabel', 'Bloco Mermaid')}>
         <div className="rich-mermaid-block__header">
-          <div className="rich-mermaid-block__title">Mermaid</div>
+          <div className="rich-mermaid-block__title">{t('editor.mermaid.title', 'Mermaid')}</div>
           <div className="rich-mermaid-block__actions">
             <button
               type="button"
@@ -181,7 +181,11 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
           tabIndex={0}
           aria-label={t('editor.mermaid.previewLabel')}
         >
-          <MarkdownRenderer content={previewMarkdown} interactiveButtons={false} focusableMermaid={false} />
+          <MarkdownRenderer
+            content={previewMarkdown}
+            interactiveButtons={false}
+            tabNavigation="disabled"
+          />
         </div>
 
         <pre className="rich-mermaid-block__code" aria-label={t('editor.mermaid.codeLabel')}>

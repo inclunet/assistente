@@ -1,0 +1,251 @@
+package app
+
+import (
+	"encoding/json"
+	"io/fs"
+	"slices"
+	"strings"
+	"testing"
+
+	"assistente/internal/profiles"
+	"assistente/internal/skills"
+)
+
+func TestBuiltinProfilesDoNotEnableLegacyContextProviderSkills(t *testing.T) {
+	entries, err := fs.ReadDir(builtinProfilesFS, "builtin/profiles")
+	if err != nil {
+		t.Fatalf("read builtin profiles: %v", err)
+	}
+	legacy := map[string]bool{}
+	for _, slug := range legacyContextProviderSkillSlugs {
+		legacy[slug] = true
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+entry.Name())
+		if err != nil {
+			t.Fatalf("read profile %s: %v", entry.Name(), err)
+		}
+		var profile struct {
+			Chat struct {
+				EnabledSkills []string `json:"enabled_skills"`
+			} `json:"chat"`
+		}
+		if err := json.Unmarshal(data, &profile); err != nil {
+			t.Fatalf("parse profile %s: %v", entry.Name(), err)
+		}
+		for _, skill := range profile.Chat.EnabledSkills {
+			if legacy[skill] {
+				t.Fatalf("builtin profile %s enables legacy context provider skill %q", entry.Name(), skill)
+			}
+		}
+	}
+}
+
+func TestBuiltinSlidesRevealMarkdownSkillParses(t *testing.T) {
+	data, err := fs.ReadFile(builtinSkillsFS, "builtin/skills/slides-reveal-markdown/SKILL.md")
+	if err != nil {
+		t.Fatalf("read slides-reveal-markdown skill: %v", err)
+	}
+
+	meta, content, err := skills.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse slides-reveal-markdown skill: %v", err)
+	}
+	if meta.Name != "slides-reveal-markdown" {
+		t.Fatalf("unexpected skill name: %q", meta.Name)
+	}
+	if meta.Version != "1.0.0" {
+		t.Fatalf("unexpected skill version: %q", meta.Version)
+	}
+	if meta.Category != "editor" {
+		t.Fatalf("unexpected skill category: %q", meta.Category)
+	}
+	if tools := meta.GetToolsAllowed(); len(tools) != 1 || tools[0] != "text_edit" {
+		t.Fatalf("unexpected allowed tools: %#v", meta.GetToolsAllowed())
+	}
+	for _, required := range []string{
+		"surface_context",
+		"<selection",
+		`<content kind="reveal_slide">`,
+		`<metadata key="current_slide_index">`,
+		"Criação de deck completo",
+		"objetivo, audiência, duração",
+		"título, agenda ou contexto",
+		"Note:",
+		"----",
+		"texto alternativo",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("skill content should mention %q", required)
+		}
+	}
+	for _, forbidden := range []string{"currentSlideIndex", "currentSlideMarkdown"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("skill content should not mention legacy surface_context key %q", forbidden)
+		}
+	}
+}
+
+func TestBuiltinCodingSkillPrefersAtomicMultiHunkPatch(t *testing.T) {
+	data, err := fs.ReadFile(builtinSkillsFS, "builtin/skills/coding/SKILL.md")
+	if err != nil {
+		t.Fatalf("read coding skill: %v", err)
+	}
+
+	meta, content, err := skills.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse coding skill: %v", err)
+	}
+	if meta.Name != "coding" || meta.Version != "1.4.0" {
+		t.Fatalf("coding skill inesperada: name=%q version=%q", meta.Name, meta.Version)
+	}
+	allowed := meta.GetToolsAllowed()
+	if !slices.Contains(allowed, "apply_patch") {
+		t.Fatalf("apply_patch ausente da allowlist: %#v", allowed)
+	}
+	if !slices.Contains(allowed, "update_plan") {
+		t.Fatalf("update_plan ausente da allowlist: %#v", allowed)
+	}
+	for _, required := range []string{
+		"`apply_patch`",
+		"atomic",
+		"multiple surgical edits",
+		"`read_file` before `apply_patch`",
+		"`update_plan`",
+		"complete ordered plan",
+		"at most one plan item `in_progress`",
+		"trivial one-step request",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("coding skill deve mencionar %q", required)
+		}
+	}
+}
+
+func TestBuiltinTaskListSkillUsesUnifiedPlanCapability(t *testing.T) {
+	data, err := fs.ReadFile(builtinSkillsFS, "builtin/skills/tasklist-manager/SKILL.md")
+	if err != nil {
+		t.Fatalf("read tasklist-manager skill: %v", err)
+	}
+	meta, content, err := skills.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse tasklist-manager skill: %v", err)
+	}
+	if meta.Name != "tasklist-manager" || meta.Version != "2.1.0" {
+		t.Fatalf("tasklist-manager skill inesperada: name=%q version=%q", meta.Name, meta.Version)
+	}
+	for _, required := range []string{
+		"`update_plan`",
+		"assistant's own multi-step execution progress",
+		"complete snapshot",
+		"not use `update_plan` as a replacement for user-managed boards",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("tasklist-manager skill deve mencionar %q", required)
+		}
+	}
+}
+
+func TestBuiltinEditorTextoSkillUsesSurfaceSelection(t *testing.T) {
+	data, err := fs.ReadFile(builtinSkillsFS, "builtin/skills/editor-texto/SKILL.md")
+	if err != nil {
+		t.Fatalf("read editor-texto skill: %v", err)
+	}
+
+	meta, content, err := skills.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse editor-texto skill: %v", err)
+	}
+	if meta.Name != "editor-texto" {
+		t.Fatalf("unexpected skill name: %q", meta.Name)
+	}
+	if meta.Version != "2.3.0" {
+		t.Fatalf("unexpected skill version: %q", meta.Version)
+	}
+	allowedTools := meta.GetToolsAllowed()
+	if len(allowedTools) != 2 || allowedTools[0] != "text_edit" || allowedTools[1] != "edit_file" {
+		t.Fatalf("unexpected allowed tools: %#v", allowedTools)
+	}
+	for _, required := range []string{
+		"<surface_context>",
+		`<selection explicit="true">`,
+		"alvo principal",
+		"não procure um caminho paralelo de contexto",
+		`<metadata key="file_path">`,
+		"`text_edit`",
+		"`edit_file`",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("editor-texto skill content should mention %q", required)
+		}
+	}
+}
+
+func TestEditorTextoProfileEnablesSlidesRevealMarkdownOnDemand(t *testing.T) {
+	data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/editor-texto.json")
+	if err != nil {
+		t.Fatalf("read editor-texto profile: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("parse raw editor-texto profile: %v", err)
+	}
+	var profile struct {
+		BuiltinVersion string `json:"_builtin_version"`
+		Chat           struct {
+			LLMProvider       string            `json:"llm_provider"`
+			Model             string            `json:"model"`
+			EnabledTools      []string          `json:"enabled_tools"`
+			EnabledSkills     []string          `json:"enabled_skills"`
+			ToolPolicy        map[string]string `json:"tool_policy"`
+			ToolPolicyDefault string            `json:"tool_policy_default"`
+		} `json:"chat"`
+	}
+	if err := json.Unmarshal(data, &profile); err != nil {
+		t.Fatalf("parse editor-texto profile: %v", err)
+	}
+	if profile.BuiltinVersion != "4.3.0" {
+		t.Fatalf("unexpected builtin version: %q", profile.BuiltinVersion)
+	}
+	if profile.Chat.LLMProvider != profiles.DefaultProviderSentinel {
+		t.Fatalf("chat.llm_provider should use default sentinel, got %q", profile.Chat.LLMProvider)
+	}
+	if profile.Chat.Model != profiles.DefaultProviderSentinel {
+		t.Fatalf("chat.model should use default sentinel, got %q", profile.Chat.Model)
+	}
+	chatRaw, ok := raw["chat"].(map[string]any)
+	if !ok {
+		t.Fatalf("editor-texto chat should be an object, got %#v", raw["chat"])
+	}
+	if _, hasLegacyEnabledTools := chatRaw["enabled_tools"]; hasLegacyEnabledTools {
+		t.Fatalf("editor-texto should use tool_policy instead of legacy enabled_tools")
+	}
+	if profile.Chat.ToolPolicyDefault != "disabled" {
+		t.Fatalf("editor-texto should fail closed, got default %q", profile.Chat.ToolPolicyDefault)
+	}
+	wantPolicy := map[string]string{
+		"text_edit": "preloaded",
+		"edit_file": "preloaded",
+	}
+	if len(profile.Chat.ToolPolicy) != len(wantPolicy) {
+		t.Fatalf("unexpected tool_policy: %#v", profile.Chat.ToolPolicy)
+	}
+	for tool, want := range wantPolicy {
+		if got := profile.Chat.ToolPolicy[tool]; got != want {
+			t.Fatalf("tool_policy[%s] = %q, want %q", tool, got, want)
+		}
+	}
+	if len(profile.Chat.EnabledSkills) < 2 {
+		t.Fatalf("expected at least base and on-demand skills, got %#v", profile.Chat.EnabledSkills)
+	}
+	if profile.Chat.EnabledSkills[0] != "editor-texto" {
+		t.Fatalf("first skill should remain editor-texto base, got %#v", profile.Chat.EnabledSkills)
+	}
+	if profile.Chat.EnabledSkills[1] != "slides-reveal-markdown" {
+		t.Fatalf("second skill should be slides-reveal-markdown on-demand, got %#v", profile.Chat.EnabledSkills)
+	}
+}

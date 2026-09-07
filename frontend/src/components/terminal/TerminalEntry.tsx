@@ -6,11 +6,18 @@
  * screen readers (NVDA, JAWS, etc.) ao navegar com setas.
  */
 
-import { forwardRef, useCallback } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { playBumpSound } from '../../services/audioFeedback';
 import { formatDuration } from '../../utils/format';
+import { useVirtualModal } from '../../hooks/useVirtualModal';
 import './TerminalEntry.css';
 
 // ─── Shared helpers ────────────────────────────────────────────
@@ -31,9 +38,20 @@ interface NavigationProps {
   onReachEnd?: () => void;
 }
 
-function useNodeKeyboard(nav: NavigationProps) {
+function useNodeKeyboard(
+  nav: NavigationProps,
+  isReading: boolean,
+  onStartReading: () => void,
+) {
   return useCallback((e: React.KeyboardEvent) => {
+    if (isReading) return;
+
     switch (e.key) {
+      case 'Enter':
+        e.preventDefault();
+        e.stopPropagation();
+        onStartReading();
+        break;
       case 'ArrowUp':
         e.preventDefault();
         nav.onNavigatePrev ? nav.onNavigatePrev() : playBumpSound();
@@ -63,7 +81,34 @@ function useNodeKeyboard(nav: NavigationProps) {
         if (nav.onReachEnd) nav.onReachEnd();
         break;
     }
-  }, [nav.onNavigatePrev, nav.onNavigateNext, nav.onNavigateFirst, nav.onNavigateLast, nav.onReachEnd]);
+  }, [
+    isReading,
+    nav.onNavigatePrev,
+    nav.onNavigateNext,
+    nav.onNavigateFirst,
+    nav.onNavigateLast,
+    nav.onReachEnd,
+    onStartReading,
+  ]);
+}
+
+function useTerminalReadingMode(
+  forwardedRef: React.ForwardedRef<HTMLDivElement>,
+  labels: { dialog: string; open: string; close: string },
+) {
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const [isReading, setIsReading] = useState(false);
+  useImperativeHandle(forwardedRef, () => nodeRef.current!, []);
+  useVirtualModal({
+    elementRef: nodeRef,
+    isActive: isReading,
+    onClose: () => setIsReading(false),
+    openAnnouncement: labels.open,
+    closeAnnouncement: labels.close,
+    contentSelector: '.terminal-node__content',
+    dialogLabel: labels.dialog,
+  });
+  return { nodeRef, isReading, startReading: () => setIsReading(true) };
 }
 
 // ─── Command Node ──────────────────────────────────────────────
@@ -75,30 +120,40 @@ export interface TerminalCommandNodeProps extends NavigationProps {
 export const TerminalCommandNode = forwardRef<HTMLDivElement, TerminalCommandNodeProps>(
   function TerminalCommandNode({ entry, ...nav }, ref) {
     const { t } = useTranslation();
-    const handleKeyDown = useNodeKeyboard(nav);
+    const { nodeRef, isReading, startReading } = useTerminalReadingMode(ref, {
+      dialog: t('terminal.entry.readingDialog'),
+      open: t('terminal.entry.readingOpen'),
+      close: t('terminal.entry.readingClose'),
+    });
+    const handleKeyDown = useNodeKeyboard(nav, isReading, startReading);
 
     const sourceLabel = entry.source === 'llm' ? t('terminal.entry.llmCommand') : t('terminal.entry.command');
     const ariaLabel = `${sourceLabel}: ${truncateForAria(entry.command, 500, t('terminal.entry.truncated'))}`;
 
     return (
       <div
-        ref={ref}
-        className="terminal-node terminal-node--command"
+        ref={nodeRef}
+        className={`terminal-node terminal-node--command ${isReading ? 'terminal-node--reading' : ''}`}
         tabIndex={-1}
         role="listitem"
         aria-label={ariaLabel}
         onKeyDown={handleKeyDown}
       >
-        <div className="terminal-node__header">
-          <span className="terminal-node__icon" aria-hidden="true">&gt;_</span>
-          <span className="terminal-node__label">
-            {entry.source === 'llm' ? t('terminal.entry.commandLLM') : t('terminal.entry.command')}
-          </span>
-          {entry.source === 'llm' && (
-            <span className="terminal-node__source-badge">{t('terminal.entry.llm')}</span>
+        <div className="terminal-node__content">
+          {isReading && (
+            <div className="terminal-node__reading-badge">{t('terminal.entry.reading')}</div>
           )}
+          <div className="terminal-node__header">
+            <span className="terminal-node__icon" aria-hidden="true">&gt;_</span>
+            <span className="terminal-node__label">
+              {entry.source === 'llm' ? t('terminal.entry.commandLLM') : t('terminal.entry.command')}
+            </span>
+            {entry.source === 'llm' && (
+              <span className="terminal-node__source-badge">{t('terminal.entry.llm')}</span>
+            )}
+          </div>
+          <pre className="terminal-node__text"><code>{entry.command}</code></pre>
         </div>
-        <pre className="terminal-node__text"><code>{entry.command}</code></pre>
       </div>
     );
   }
@@ -113,7 +168,12 @@ export interface TerminalOutputNodeProps extends NavigationProps {
 export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeProps>(
   function TerminalOutputNode({ entry, ...nav }, ref) {
     const { t } = useTranslation();
-    const handleKeyDown = useNodeKeyboard(nav);
+    const { nodeRef, isReading, startReading } = useTerminalReadingMode(ref, {
+      dialog: t('terminal.entry.readingDialog'),
+      open: t('terminal.entry.readingOpen'),
+      close: t('terminal.entry.readingClose'),
+    });
+    const handleKeyDown = useNodeKeyboard(nav, isReading, startReading);
 
     const isRaw = entry.source === 'user-raw';
     const hasExitCode = !isRaw && entry.exitCode !== -999;
@@ -149,34 +209,39 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
 
     return (
       <div
-        ref={ref}
-        className={`terminal-node terminal-node--output ${isRunning ? 'terminal-node--running' : ''}`}
+        ref={nodeRef}
+        className={`terminal-node terminal-node--output ${isRunning ? 'terminal-node--running' : ''} ${isReading ? 'terminal-node--reading' : ''}`}
         tabIndex={-1}
         role="listitem"
         aria-label={ariaLabel}
         onKeyDown={handleKeyDown}
       >
-        <div className="terminal-node__header">
-          <span className="terminal-node__icon" aria-hidden="true">&#9638;</span>
-          <span className="terminal-node__label">{outputLabel}</span>
-          {hasExitCode && (
-            <span className={`terminal-node__exit-badge ${exitBadgeClass}`}>
-              {t('terminal.entry.exit')} {entry.exitCode}
-            </span>
+        <div className="terminal-node__content">
+          {isReading && (
+            <div className="terminal-node__reading-badge">{t('terminal.entry.reading')}</div>
           )}
-          {duration && (
-            <span className="terminal-node__duration">{duration}</span>
-          )}
-          {isRunning && (
-            <span className="terminal-node__running-indicator" aria-hidden="true">
-              <span className="terminal-node__pulse" />
-              {t('terminal.entry.executing')}
-            </span>
+          <div className="terminal-node__header">
+            <span className="terminal-node__icon" aria-hidden="true">&#9638;</span>
+            <span className="terminal-node__label">{outputLabel}</span>
+            {hasExitCode && (
+              <span className={`terminal-node__exit-badge ${exitBadgeClass}`}>
+                {t('terminal.entry.exit')} {entry.exitCode}
+              </span>
+            )}
+            {duration && (
+              <span className="terminal-node__duration">{duration}</span>
+            )}
+            {isRunning && (
+              <span className="terminal-node__running-indicator" aria-hidden="true">
+                <span className="terminal-node__pulse" />
+                {t('terminal.entry.executing')}
+              </span>
+            )}
+          </div>
+          {entry.output && (
+            <pre className="terminal-node__text">{entry.output}</pre>
           )}
         </div>
-        {entry.output && (
-          <pre className="terminal-node__text">{entry.output}</pre>
-        )}
       </div>
     );
   }

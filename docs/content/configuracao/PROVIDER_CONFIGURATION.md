@@ -5,6 +5,8 @@ weight: 1
 
 # Configuração de Provedores LLM
 
+> **Em 2 linhas:** o Assistente não vem com IA própria. Você escolhe um serviço de IA (como OpenAI, Groq ou Ollama local), cola uma chave como quem cola uma senha, e o chat passa a responder com aquele serviço. Sem provedor, o app funciona offline como workspace.
+
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar a chave de API quando necessário.
 
 ## Provedores Suportados
@@ -55,6 +57,19 @@ O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quan
 5. Informe a **API Key** (se necessário)
 6. O sistema testa a conexão automaticamente
 7. Clique em **Salvar**
+
+## Atualizando agentes de código ACP
+
+Quando um provedor usa um agente ACP instalado pelo Assistente e o catálogo
+publica uma versão mais nova, a ação **Atualizar agente** fica disponível no
+menu de contexto da linha do provedor. Abra o menu com o botão direito do mouse
+ou, pelo teclado, foque uma célula e pressione `Shift + F10`.
+
+Use as setas para percorrer as ações, `Enter` para escolher e `Esc` para fechar.
+Antes do download, o Assistente mostra a versão instalada, a nova versão e a
+origem do artefato para confirmação. Ao fechar o menu ou a confirmação, o foco
+volta para a célula do provedor. A ação permanece desabilitada para provedores
+que não são ACP e quando não há atualização disponível.
 
 ## Credenciais
 

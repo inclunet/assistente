@@ -27,6 +27,15 @@ if (typeof HTMLElement !== 'undefined' && !HTMLElement.prototype.scrollIntoView)
 	HTMLElement.prototype.scrollIntoView = () => {};
 }
 
+// jsdom não implementa ResizeObserver, usado pela virtualização (@tanstack/react-virtual).
+if (typeof globalThis !== 'undefined' && typeof globalThis.ResizeObserver === 'undefined') {
+	globalThis.ResizeObserver = class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	};
+}
+
 vi.mock('monaco-editor', () => ({}));
 
 // @ant-design/icons is stubbed via the antDesignIconsStub plugin in vitest.config.ts

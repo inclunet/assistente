@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Messaging', () => ({
   GetAuthorizedContacts: vi.fn(() => new Promise(() => {})),
   RemoveAuthorizedContact: vi.fn(),
 }));
@@ -28,7 +28,7 @@ vi.mock('../store/uiStore', () => ({
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn(() => true) }),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -61,7 +61,7 @@ describe('ContactsPage', () => {
   it('renderiza loading state inicialmente', () => {
     render(<ContactsPage />);
     expect(screen.getByText('Carregando contatos...')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('possui a classe CSS principal', () => {

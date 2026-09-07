@@ -30,4 +30,20 @@ describe('ReasoningSection', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(onToggle).toHaveBeenCalled();
   });
+
+  it('torna o controle focável somente durante a leitura', () => {
+    const { rerender } = render(
+      <ReasoningSection reasoning="texto" isExpanded={false} />,
+    );
+    expect(screen.getByRole('button')).toHaveAttribute('tabindex', '-1');
+
+    rerender(
+      <ReasoningSection
+        reasoning="texto"
+        isExpanded={false}
+        tabNavigationEnabled
+      />,
+    );
+    expect(screen.getByRole('button')).toHaveAttribute('tabindex', '0');
+  });
 });

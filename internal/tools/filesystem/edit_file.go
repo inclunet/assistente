@@ -7,22 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
-	"assistente/internal/tools/invocationctx"
-)
-
-// QuestionnaireRequester abstrai o gerenciador de questionários para injeção de dependência.
-type QuestionnaireRequester interface {
-	RequestQuestionnaire(ctx context.Context, payload questionnaire.RequestPayload) (questionnaire.Response, error)
-}
-
-// editPolicy descreve o comportamento de confirmação da tool.
-type editPolicy int
-
-const (
-	policyDirect          editPolicy = iota // edita direto, sem confirmação
-	policyConfirmWithDiff                   // mostra diff e pede confirmação antes de editar
 )
 
 // EditFile realiza edições cirúrgicas em arquivos existentes usando substituição de texto.
@@ -31,17 +16,43 @@ const (
 type EditFile struct {
 	workDir  string
 	questMgr QuestionnaireRequester
+	onWrite  FileWriteObserver
+}
+
+// FileWriteObserver é chamado imediatamente antes de uma tool escrever no disco.
+// Retorna uma função opcional que recebe se a escrita foi concluída com sucesso.
+type FileWriteObserver func(path string) func(committed bool)
+
+// EditFileOption configura integrações opcionais da tool.
+type EditFileOption func(*EditFile)
+
+// WithEditFileWriteObserver registra um observador para escritas feitas pela tool.
+func WithEditFileWriteObserver(observer FileWriteObserver) EditFileOption {
+	return func(t *EditFile) {
+		t.onWrite = observer
+	}
 }
 
 // NewEditFile cria uma nova instância de EditFile.
-func NewEditFile(workDir string, questMgr QuestionnaireRequester) *EditFile {
-	return &EditFile{workDir: workDir, questMgr: questMgr}
+func NewEditFile(workDir string, questMgr QuestionnaireRequester, opts ...EditFileOption) *EditFile {
+	t := &EditFile{workDir: workDir, questMgr: questMgr}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(t)
+		}
+	}
+	return t
 }
 
 func (t *EditFile) Name() string { return "edit_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *EditFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *EditFile) Description() string {
-	return "Edits an existing file by replacing an exact string (old_string) with another (new_string). old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
+	return "Make one exact text replacement in an existing file. Use for a focused edit after reading the current file; include enough unchanged context in old_string to make it unique. Use replace_all only when every exact occurrence should change. Do not use to create or fully rewrite a file (use write_file), apply multiple distinct edits atomically (use apply_patch), or edit opaque/binary documents. The active editor file may require user confirmation. Risk: write."
 }
 
 func (t *EditFile) Parameters() json.RawMessage {
@@ -50,19 +61,19 @@ func (t *EditFile) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do arquivo a editar (absoluto ou relativo ao diretório de trabalho)"
+				"description": "Existing text file to edit, absolute or relative to the working directory."
 			},
 			"old_string": {
 				"type": "string",
-				"description": "Texto exato a ser encontrado e substituído. Deve incluir contexto suficiente para ser único no arquivo."
+				"description": "Exact non-empty text currently in the file, including whitespace and indentation. Include surrounding unchanged context so it occurs once unless replace_all is intentional."
 			},
 			"new_string": {
 				"type": "string",
-				"description": "Texto que substituirá old_string."
+				"description": "Exact final text that replaces old_string; may be empty to remove the matched text."
 			},
 			"replace_all": {
 				"type": "boolean",
-				"description": "Se true, substitui TODAS as ocorrências de old_string. Padrão: false (substitui apenas a primeira ocorrência, falhando se houver mais de uma)."
+				"description": "When true, replace every exact occurrence of old_string. Defaults to false, which requires old_string to be unique."
 			}
 		},
 		"required": ["path", "old_string", "new_string"],
@@ -121,6 +132,10 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("'%s' é um diretório, não um arquivo", a.Path), IsError: true}, nil
 	}
 
+	if msg, ok := rejectExistingDocument(fullPath, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Lê conteúdo atual
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
@@ -157,10 +172,10 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Resolve política de confirmação baseada no contexto de invocação
-	policy := t.resolvePolicy(ctx, fullPath)
+	policy := resolveEditPolicy(ctx, fullPath)
 
 	if policy == policyConfirmWithDiff {
-		if confirmed, toolResult := t.confirmWithDiff(ctx, a.Path, a.OldString, a.NewString); !confirmed {
+		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, editConfirmTitle(), a.Path, a.OldString, a.NewString); !confirmed {
 			return toolResult, nil
 		}
 	}
@@ -176,9 +191,26 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		replacements = 1
 	}
 
+	// O arquivo de origem já foi classificado, mas o resultado da substituição é
+	// conteúdo novo: sem conferi-lo, new_string entraria como porta para gravar
+	// bytes não-texto num arquivo que passou no guard (AEP-0093).
+	if msg, ok := rejectDocumentWriteString(newContent, a.Path); ok {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
 	// Escreve o arquivo modificado
+	var cancelWriteMarker func(bool)
+	if t.onWrite != nil {
+		cancelWriteMarker = t.onWrite(fullPath)
+	}
 	if err := WriteFileBytes(fullPath, []byte(newContent), info.Mode()); err != nil {
+		if cancelWriteMarker != nil {
+			cancelWriteMarker(false)
+		}
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao escrever arquivo: %v", err), IsError: true}, nil
+	}
+	if cancelWriteMarker != nil {
+		cancelWriteMarker(true)
 	}
 
 	// Calcula diff resumido
@@ -205,46 +237,6 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			"total_lines":  totalLines,
 		},
 	}, nil
-}
-
-// resolvePolicy determina o comportamento de confirmação com base no contexto de invocação.
-func (t *EditFile) resolvePolicy(ctx context.Context, fullPath string) editPolicy {
-	inv, ok := invocationctx.Get(ctx)
-	if !ok {
-		return policyDirect
-	}
-	if inv.TabType == "editor" && inv.ActiveFilePath == fullPath {
-		return policyConfirmWithDiff
-	}
-	return policyDirect
-}
-
-// confirmWithDiff exibe um questionário com o diff antes/depois e aguarda confirmação do usuário.
-// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou gerenciador indisponível.
-func (t *EditFile) confirmWithDiff(ctx context.Context, displayPath, oldString, newString string) (bool, tools.ToolResult) {
-	if t.questMgr == nil {
-		// Sem gerenciador de questionários: edita direto (seguro para contextos não-UI)
-		return true, tools.ToolResult{}
-	}
-
-	resp, err := t.questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "Confirmar edição",
-		Description: fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", displayPath),
-		Questions: []questionnaire.Question{
-			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: oldString},
-			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: newString},
-		},
-		AllowCancel: true,
-		SubmitLabel: "Aplicar",
-		CancelLabel: "Rejeitar",
-	})
-	if err != nil {
-		return false, tools.ToolResult{Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err), IsError: true}
-	}
-	if resp.Cancelled {
-		return false, tools.ToolResult{Content: "Alteração rejeitada pelo usuário", IsError: true}
-	}
-	return true, tools.ToolResult{}
 }
 
 func (t *EditFile) resolvePath(path string) (string, error) {

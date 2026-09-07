@@ -1,28 +1,18 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"os"
-	"strings"
 
-	"assistente/controllers"
 	"assistente/internal/credentials"
-	"assistente/internal/providers"
+	"assistente/internal/database"
 )
 
 // ============================================================================
-// Credential Management
+// Credential Management — vault pré-sessão permanece no App (AEP-0088).
+// CRUD Wails: wailsapi.Credentials (List/Upsert/Delete/ListExternalSources).
 // ============================================================================
-
-// CredentialSummary é alias de controllers.CredentialSummary para o frontend Wails.
-type CredentialSummary = controllers.CredentialSummary
-
-// CredentialInput é alias de controllers.CredentialInput para o frontend Wails.
-type CredentialInput = controllers.CredentialInput
-
-// ExternalSourceSuggestion é alias de controllers.ExternalSourceSuggestion para o frontend Wails.
-type ExternalSourceSuggestion = controllers.ExternalSourceSuggestion
 
 // initCredentialManager inicializa o gerenciador de credenciais com persistência
 func (a *App) initCredentialManager() {
@@ -33,7 +23,7 @@ func (a *App) initCredentialManager() {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Credentials] Panic ao acessar keychain (go-keyring): %v", r)
+				logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Panic ao acessar keychain (go-keyring): %v", r)
 				persist = false
 				dek = nil
 			}
@@ -42,7 +32,7 @@ func (a *App) initCredentialManager() {
 		dek, err = credentials.LoadDEKFromKeychain()
 		if err != nil {
 			if !credentials.IsKeychainNotFound(err) {
-				log.Printf("[Credentials] Erro ao acessar keychain: %v", err)
+				logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao acessar keychain: %v", err)
 			}
 			persist = false
 			dek = nil
@@ -50,97 +40,77 @@ func (a *App) initCredentialManager() {
 	}()
 
 	a.credMgr = credentials.NewManagerWithStore(dek, a.credStore, persist)
-	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
-		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
+	// initCredentialManager roda em OnStartup, antes de qualquer login.
+	// Sem sessão, só instance secrets (refresh-token-pepper, signing
+	// key, etc.) precisam estar em memória. As credenciais user-scoped
+	// entram pós-Login via adoptLegacyDataForUser → LoadUserCredentials.
+	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
+		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao carregar instance secrets: %v", err)
 	}
-	a.registerEnvCredentials(a.credMgr)
+	a.handleVaultIntegrityOnBoot()
+	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 }
 
-// migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema
-// Migração:
-// 1. Se APIKey existir → registra como credencial no credentials.Manager
-// 2. Se APIKey existir → garante que provider default está usando as credenciais
-// 3. Limpa campos legados do config.json
-func (a *App) migrateLegacyConfig() {
-	cfg, err := a.settingsSvc.GetConfig()
-	if err != nil {
-		// Sem config, sem migração necessária
+// handleVaultIntegrityOnBoot reage ao status de integridade do vault
+// que foi calculado em LoadInstanceSecrets. Política atual (AEP-0061):
+//
+//   - Se há credenciais ilegíveis (cifradas com DEK que não bate com
+//     a do keychain), faz purge automático após log explícito. Decisão
+//     arquitetural: o usuário escolheu a política `auto_purge` quando
+//     adotamos o AEP — manter creds ilegíveis no banco só causa
+//     confusão e ainda esbarra em validações user-scope. A UI mostra
+//     o histórico via `App.GetVaultIntegrityStatus`.
+//   - Se há divergência DEK_keychain ↔ DEK_wraps (não só órfãs, mas
+//     wrap embrulhando outra DEK), apenas LOGA e mantém o estado
+//     bloqueado para escritas; recovery exige ação explícita do
+//     usuário (UnlockOverwriteKeychain ou setup nova senha).
+func (a *App) handleVaultIntegrityOnBoot() {
+	if a.credMgr == nil {
 		return
 	}
-
-	needsMigration := false
-	migratedFields := []string{}
-
-	// Verificar se tem APIKey (campo principal legado)
-	if cfg.APIKey != "" {
-		needsMigration = true
-		migratedFields = append(migratedFields, "APIKey")
-
-		// Extrair domínio do BaseURL
-		baseURL := cfg.APIBaseURL
-		if baseURL == "" {
-			baseURL = "https://api.openai.com/v1"
-		}
-
-		// Determinar pattern baseado no baseURL
-		pattern := ""
-		if extractedHost, hostErr := providers.ExtractHostname(baseURL); hostErr == nil && extractedHost != "" {
-			pattern = extractedHost
-		} else if strings.Contains(baseURL, "anthropic") {
-			pattern = "api.anthropic.com"
-		} else if strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
-			pattern = "" // local, sem pattern
-		} else {
-			pattern = "api.openai.com" // fallback para OpenAI
-		}
-
-		// Registrar credencial no credentials.Manager
-		if pattern != "" {
-			authCfg := &credentials.AuthConfig{
-				Type:  "bearer",
-				Token: cfg.APIKey,
-			}
-			if err := a.credMgr.RegisterPatternWithContext(a.ctx, pattern, authCfg); err != nil {
-				log.Printf("[Migration] Erro ao registrar credencial do config.json: %v", err)
-			} else {
-				log.Printf("[Migration] ✓ APIKey migrado para credentials.Manager (pattern: %s)", pattern)
-			}
-		}
+	status := a.credMgr.IntegrityStatus()
+	if !status.OK {
+		logging.Infof(context.Background(), "app.app-credentials", "[Credentials] vault integrity: NOT OK — %s (keychain=%s wraps=%s)", status.Reason, status.KeychainDekID, status.WrapsDekID)
 	}
-
-	// Verificar outros campos legados
-	if cfg.APIBaseURL != "" && cfg.APIBaseURL != "https://api.openai.com/v1" {
-		migratedFields = append(migratedFields, "APIBaseURL")
+	if len(status.UnreadableCredentialIDs) == 0 {
+		return
 	}
-	if cfg.DefaultModel != "" && cfg.DefaultModel != "gpt-4o-mini" {
-		migratedFields = append(migratedFields, "DefaultModel")
+	logging.Infof(context.Background(), "app.app-credentials", "[Credentials] %d credenciais ilegíveis encontradas (cifradas com DEK divergente da atual): %v — removendo automaticamente", len(status.UnreadableCredentialIDs), status.UnreadableCredentialIDs)
+	removed, err := a.credMgr.PurgeUnreadableCredentials(a.internalBootstrapCtx())
+	if err != nil {
+		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] erro ao purgar credenciais ilegíveis: %v", err)
+		return
 	}
-	if cfg.ResponseTimeout != 0 && cfg.ResponseTimeout != 180 {
-		migratedFields = append(migratedFields, "ResponseTimeout")
-	}
-	if cfg.ActiveProfile != "" && cfg.ActiveProfile != "padrao" {
-		migratedFields = append(migratedFields, "ActiveProfile")
-	}
-
-	if needsMigration {
-		log.Printf("[Migration] Config.json legado detectado — campos migrados: %v", migratedFields)
-		log.Printf("[Migration] Novas configurações devem ser feitas via Perfis e Provider Registry")
-		log.Printf("[Migration] Os campos legados em config.json não serão mais usados")
-	}
+	logging.Infof(context.Background(), "app.app-credentials", "[Credentials] %d credenciais ilegíveis removidas. Reemita as credenciais correspondentes via UI/wizard.", removed)
 }
 
-func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
+// GetVaultIntegrityStatus expõe o status de integridade do vault
+// (DEK_keychain ↔ DEK_wraps) para a UI. Frontend usa para mostrar
+// banner quando há divergência ou credenciais ilegíveis recém
+// purgadas.
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
+func (a *App) GetVaultIntegrityStatus() credentials.VaultIntegrityStatus {
+	if a.credMgr == nil {
+		return credentials.VaultIntegrityStatus{}
+	}
+	return a.credMgr.IntegrityStatus()
+}
+
+func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.Manager) {
 	if credMgr == nil {
+		return
+	}
+	if _, ok := database.UserIDFromContext(ctx); !ok {
 		return
 	}
 
 	// GITHUB_TOKEN -> *.github.com, github.com
 	if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
-		_ = credMgr.RegisterPattern("*.github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.github.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: ghToken,
 		})
-		_ = credMgr.RegisterPattern("github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "github.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: ghToken,
 		})
@@ -148,11 +118,11 @@ func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
 
 	// GITLAB_TOKEN -> *.gitlab.com, gitlab.com
 	if glToken := os.Getenv("GITLAB_TOKEN"); glToken != "" {
-		_ = credMgr.RegisterPattern("*.gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.gitlab.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: glToken,
 		})
-		_ = credMgr.RegisterPattern("gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "gitlab.com", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: glToken,
 		})
@@ -160,11 +130,11 @@ func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
 
 	// BITBUCKET_TOKEN -> *.bitbucket.org, bitbucket.org
 	if bbToken := os.Getenv("BITBUCKET_TOKEN"); bbToken != "" {
-		_ = credMgr.RegisterPattern("*.bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.bitbucket.org", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: bbToken,
 		})
-		_ = credMgr.RegisterPattern("bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "bitbucket.org", &credentials.AuthConfig{
 			Type:  "bearer",
 			Token: bbToken,
 		})
@@ -172,7 +142,7 @@ func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
 
 	// API genérica - GENERIC_API_KEY para qualquer host (fallback)
 	if apiKey := os.Getenv("GENERIC_API_KEY"); apiKey != "" {
-		_ = credMgr.RegisterPattern("*", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*", &credentials.AuthConfig{
 			Type: "custom",
 			Headers: map[string]string{
 				"X-API-Key": apiKey,
@@ -191,16 +161,21 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 		a.credMgr.Reset(dek, persist)
 	}
 
-	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
-		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
+	// configureCredentialManager pode rodar pré-login (carrega DEK do
+	// keychain antes de qualquer sessão). Só instance secrets entram em
+	// memória aqui; user-scoped vem depois via LoadUserCredentials.
+	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
+		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao carregar instance secrets: %v", err)
 	}
-	a.registerEnvCredentials(a.credMgr)
+	a.handleVaultIntegrityOnBoot()
+	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) HasMasterKey() bool {
 	store := credentials.NewDBStore()
-	has, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
+	has, err := store.HasKeyWrap(a.appContext(), credentials.KeyWrapKindMaster)
 	if err != nil {
 		return false
 	}
@@ -210,9 +185,10 @@ func (a *App) HasMasterKey() bool {
 // SetupMasterPassword configura a senha mestre pela primeira vez.
 // Retorna a recovery key gerada (que o usuário deve guardar).
 // Após sucesso, o credential manager é reconfigurado com persistência ativada.
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) SetupMasterPassword(password string) (string, error) {
 	store := credentials.NewDBStore()
-	result, err := credentials.SetupMasterKey(store, password)
+	result, err := credentials.SetupMasterKeyAdoptingKeychain(store, password)
 	if err != nil {
 		return "", err
 	}
@@ -222,33 +198,10 @@ func (a *App) SetupMasterPassword(password string) (string, error) {
 
 // CanPersistCredentials retorna true se o credential manager está configurado
 // com persistência ativada (ou seja, a DEK foi carregada ou configurada).
+// Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) CanPersistCredentials() bool {
 	if a.credMgr == nil {
 		return false
 	}
 	return a.credMgr.CanPersist()
-}
-
-// ============================================================================
-// Credential UI API
-// ============================================================================
-
-// ListCredentials retorna credenciais registradas (sem valores sensíveis).
-func (a *App) ListCredentials() ([]CredentialSummary, error) {
-	return a.credentialsCtrl.ListCredentials()
-}
-
-// UpsertCredential cria ou atualiza uma credencial no credential manager.
-func (a *App) UpsertCredential(input CredentialInput) error {
-	return a.credentialsCtrl.UpsertCredential(input)
-}
-
-// DeleteCredential remove uma credencial pelo padrão.
-func (a *App) DeleteCredential(pattern string) error {
-	return a.credentialsCtrl.DeleteCredential(pattern)
-}
-
-// ListExternalSources lista fontes externas disponíveis para autocomplete.
-func (a *App) ListExternalSources(prefix string) ([]ExternalSourceSuggestion, error) {
-	return a.credentialsCtrl.ListExternalSources(prefix)
 }

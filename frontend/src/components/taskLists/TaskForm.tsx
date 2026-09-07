@@ -5,8 +5,12 @@ import { Button } from '../ui/Button';
 import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
+import { HistoryPicker } from '../pickers/HistoryPicker';
 import type { Task } from '../../types/tasklist';
 import './TaskForm.css';
+
+// Valor sentinela do item "Nenhuma" no HistoryPicker (não colide com ID de conversa).
+const CONVERSATION_NONE = '__none__';
 
 interface TaskFormProps {
   taskListId: string;
@@ -22,7 +26,7 @@ export default function TaskForm({
   onCancel,
 }: TaskFormProps) {
   const { t } = useTranslation();
-  const { createTask, updateTaskFull } = useTaskListStore();
+  const { createTask, updateTaskFull, setTaskConversation } = useTaskListStore();
 
   const [formData, setFormData] = useState({
     title: task?.title || '',
@@ -34,6 +38,7 @@ export default function TaskForm({
     creatorName: task?.creatorName || '',
     creatorId: task?.creatorId || '',
     dueDate: task?.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
+    conversationId: task?.conversationId || '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -62,6 +67,9 @@ export default function TaskForm({
           formData.creatorName || undefined,
           formData.creatorId || undefined,
         );
+        if ((formData.conversationId || '') !== (task.conversationId || '')) {
+          await setTaskConversation(task.id, formData.conversationId || null);
+        }
         onSuccess?.(task);
       } else {
         const newTask = await createTask(
@@ -72,6 +80,9 @@ export default function TaskForm({
           formData.link || undefined,
         );
         if (newTask) {
+          if (formData.conversationId) {
+            await setTaskConversation(newTask.id, formData.conversationId);
+          }
           onSuccess?.(newTask);
         }
       }
@@ -145,6 +156,23 @@ export default function TaskForm({
           placeholder={t('tasklist.linkPlaceholder', 'Ex: assistente://conversation/open?id=123')}
           disabled={isLoading}
           maxLength={512}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.conversation', 'Conversa vinculada')}
+        description={t('tasklist.conversationDescription', 'Associe esta tarefa a uma conversa (opcional)')}
+      >
+        <HistoryPicker
+          value={formData.conversationId || undefined}
+          onChange={(id) => setFormData({ ...formData, conversationId: id })}
+          onSelectExtra={() => setFormData({ ...formData, conversationId: '' })}
+          extraItems={formData.conversationId
+            ? [{ value: CONVERSATION_NONE, label: t('tasklist.conversationNone', 'Nenhuma') }]
+            : undefined}
+          label={t('tasklist.linkConversation', 'Vincular conversa')}
+          disabled={isLoading}
+          maxWidth="100%"
         />
       </FormField>
 

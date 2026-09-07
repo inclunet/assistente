@@ -17,8 +17,8 @@ type registryMockTool struct {
 }
 
 func (m *registryMockTool) Name() string                { return m.name }
-func (m *registryMockTool) Description() string          { return m.description }
-func (m *registryMockTool) Parameters() json.RawMessage  { return m.params }
+func (m *registryMockTool) Description() string         { return m.description }
+func (m *registryMockTool) Parameters() json.RawMessage { return m.params }
 func (m *registryMockTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 	if m.executeFn != nil {
 		return m.executeFn(ctx, args)
@@ -32,6 +32,14 @@ func newRegistryMockTool(name string) *registryMockTool {
 		description: "Mock tool: " + name,
 		params:      json.RawMessage(`{"type":"object","properties":{}}`),
 	}
+}
+
+func toolNamesForTest(tools []Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Name())
+	}
+	return names
 }
 
 // ==================== Registry Tests ====================
@@ -148,11 +156,37 @@ func TestRegistryFilterByNames(t *testing.T) {
 	if len(defs) != 2 {
 		t.Fatalf("FilterByNames esperado 2, obtido %d", len(defs))
 	}
+	if defs[0].Function.Name != "grep_search" || defs[1].Function.Name != "read_file" {
+		t.Fatalf("FilterByNames deve ordenar por nome de forma estável, obtido %#v", defs)
+	}
 
 	// Tool inexistente é ignorada silenciosamente
 	defs = r.FilterByNames([]string{"read_file", "inexistente"})
 	if len(defs) != 1 {
 		t.Fatalf("FilterByNames com inexistente esperado 1, obtido %d", len(defs))
+	}
+}
+
+func TestRegistryDefinitionsKeepRuntimeControlToolsFirst(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newRegistryMockTool("write_file"))
+	r.MustRegister(newRegistryMockTool(LoadSkillName))
+	r.MustRegister(newRegistryMockTool(ToolCatalogName))
+	r.MustRegister(newRegistryMockTool("read_file"))
+
+	defs := r.FilterByNames([]string{"write_file", LoadSkillName, "read_file", ToolCatalogName})
+	got := []string{}
+	for _, def := range defs {
+		got = append(got, def.Function.Name)
+	}
+	want := []string{ToolCatalogName, LoadSkillName, "read_file", "write_file"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
 	}
 }
 
@@ -200,6 +234,44 @@ func TestRegistryOptIn_IncludedInFilterByNames(t *testing.T) {
 	}
 	if defs[0].Function.Name != "text_edit" {
 		t.Errorf("esperado text_edit, obtido %s", defs[0].Function.Name)
+	}
+}
+
+func TestRegistryOptIn_FilterOutOptInNames(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("job"))
+
+	got := r.FilterOutOptInNames([]string{"job", "read_file", "missing"})
+	want := []string{"read_file", "missing"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestRegistryDiscoverableOptIn_AppearsOnlyInDiscovery(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newRegistryMockTool("read_file"))
+	r.MustRegisterOptIn(newRegistryMockTool("text_edit"))
+	r.MustRegisterDiscoverableOptIn(newRegistryMockTool("job"))
+
+	all := r.All()
+	if len(all) != 1 || all[0].Name() != "read_file" {
+		t.Fatalf("All should exclude opt-in tools, got %#v", toolNamesForTest(all))
+	}
+	discoverable := r.Discoverable()
+	want := []string{"job", "read_file"}
+	if got := toolNamesForTest(discoverable); len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("Discoverable got %#v, want %#v", got, want)
+	}
+	filtered := r.FilterOutOptInNames([]string{"job", "read_file"})
+	if len(filtered) != 1 || filtered[0] != "read_file" {
+		t.Fatalf("discoverable opt-in should still be filtered from dynamic expansion: %#v", filtered)
 	}
 }
 

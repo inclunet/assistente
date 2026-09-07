@@ -3,21 +3,54 @@ name: CI
 on:
   push:
     branches: [main]
+  # Sem filtro de base: PR empilhado (aquele cuja base é a branch de outro PR)
+  # também precisa de CI. Sem isso, o par pai+filho só era conferido no merge,
+  # tarde demais para quem já tinha revisado os dois.
   pull_request:
-    branches: [main]
+  # O detector de corrida (job backend-race) roda em push/PR com -short, então
+  # não há gatilho `schedule`: ele só geraria runs noturnos vazios. workflow_dispatch
+  # cobre execução manual sob demanda.
+  workflow_dispatch:
+
+# Um run por PR. O push que atualiza um PR torna o run anterior obsoleto, e
+# manter os dois só disputa runner. A chave é o número do PR, não o nome da
+# branch: nome se repete entre forks, e duas pessoas com `feature/x` acabariam
+# cancelando o run uma da outra. Fora de PR (push na main, execução manual) nada
+# é cancelado — cada commit publicado merece o seu próprio veredito.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: shellcheck .github/scripts/*.sh
+
+      - name: Teste do atualizador de PRs
+        run: .github/scripts/atualizar-prs-com-main.teste.sh
+
+      - name: Teste dos ldflags de release
+        run: .github/scripts/verificar-ldflags-release.teste.sh
+
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
+        timeout-minutes: 10
+        run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          # Fonte única de versão do Go: go.mod.
+          go-version-file: go.mod
 
       - name: Go vet
         run: go vet ./...
@@ -27,14 +60,148 @@ jobs:
         with:
           version: v2.11.4
 
-      - name: Go tests
+      - name: Go build
+        run: go build ./...
+
+      - name: Cross-compile da CLI para macOS sem cgo
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o /tmp/asst-darwin-amd64 ./cmd/asst/
+          GOOS=darwin GOARCH=arm64 go build -o /tmp/asst-darwin-arm64 ./cmd/asst/
+
+      - name: Go tests (com cobertura)
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          go test ./...
+          go test -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Relatório de cobertura (informativo)
+        run: |
+          set -euo pipefail
+          if [ ! -s coverage.out ]; then
+            echo "::warning::coverage.out ausente ou vazio; pulando relatório de cobertura."
+            exit 0
+          fi
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')
+          COVERAGE_NUM=${COVERAGE%\%}
+          THRESHOLD=50
+          echo "Cobertura total do backend: ${COVERAGE}"
+          {
+            echo "## Cobertura do backend"
+            echo ""
+            echo "- Cobertura total: **${COVERAGE}**"
+            echo "- Threshold informativo: ${THRESHOLD}%"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if awk "BEGIN { exit !(${COVERAGE_NUM:-0} < ${THRESHOLD}) }"; then
+            echo "::warning::Cobertura ${COVERAGE} abaixo do threshold informativo de ${THRESHOLD}% (não bloqueante)."
+          fi
+
+      - name: Upload do perfil de cobertura
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: backend-coverage
+          path: coverage.out
+          retention-days: 7
+
+  backend-race:
+    # Detector de corrida: roda em push/PR (e manualmente) com -short para podar
+    # testes mais lentos, garantindo cobertura de -race sobre o código da branch.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        timeout-minutes: 10
+        run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Go tests (-race -short)
+        run: |
+          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          export DISPLAY=:99.0
+          go test -race -short ./...
+
+  bindings:
+    # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos
+    # métodos do App e ficam versionados no repositório. Isso abre uma fresta: o
+    # `tsc` do job frontend lê o arquivo que está no git, nunca o que o gerador
+    # produziria, e um tipo escrito à mão ali deixa o CI verde enquanto o
+    # `wails build` de quem for compilar falha — foi o que aconteceu com o
+    # payload de um evento, que o gerador não escreve porque ele não aparece em
+    # assinatura de método nenhuma.
+    #
+    # Aqui os bindings são gerados do zero e o frontend é conferido contra eles.
+    # O veredito é do TypeScript, e não da igualdade byte a byte do arquivo:
+    # ordem e formatação mudam entre versões do gerador, e reprovar por isso
+    # seria barulho. Defasagem sem quebra vira aviso.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Dependências de sistema do Wails
+        timeout-minutes: 15
+        run: |
+          bash .github/scripts/instalar-pacotes-apt.sh build-essential pkg-config libgtk-3-dev xvfb
+          # O nome do pacote do webkit muda com a versão do Ubuntu. Perguntar ao
+          # índice qual existe evita gastar tentativas instalando o que não há.
+          pacote=libwebkit2gtk-4.1-dev
+          if ! apt-cache show "${pacote}" > /dev/null 2>&1; then
+            pacote=libwebkit2gtk-4.0-dev
+          fi
+          bash .github/scripts/instalar-pacotes-apt.sh "${pacote}"
+
+      - name: Instalar o Wails CLI
+        # A versão vem do go.mod: um CLI mais novo que a biblioteca gera um
+        # arquivo que não é o que a aplicação compila.
+        run: |
+          set -euo pipefail
+          VERSAO=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)
+          echo "Wails do go.mod: ${VERSAO}"
+          go install "github.com/wailsapp/wails/v2/cmd/wails@${VERSAO}"
+
+      - name: Gerar os bindings
+        run: xvfb-run wails generate module
+
+      - name: Avisar se os bindings versionados estão defasados
+        # `core.fileMode=false` porque o bit de execução muda conforme o sistema
+        # de quem gerou o arquivo, e permissão não é defasagem de tipo.
+        run: |
+          set -euo pipefail
+          if git -c core.fileMode=false diff --quiet -- frontend/wailsjs; then
+            echo "Bindings versionados em dia com o gerador."
+            exit 0
+          fi
+          echo "::warning::Os bindings versionados divergem do gerador. Rode 'wails generate module' e commite o resultado."
+          git -c core.fileMode=false diff --stat -- frontend/wailsjs
+
+      - name: Instalar dependências do frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript sobre os bindings recém-gerados
+        working-directory: frontend
+        run: npx tsc --noEmit
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -42,9 +209,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          # Fonte única de versão do Node: .nvmrc.
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -60,11 +228,18 @@ jobs:
       - name: Stylelint (design tokens)
         run: npm run lint:css
 
+      - name: Validação de tokens CSS (var() × theme.css)
+        run: npm run lint:tokens
+
       - name: Tests (includes axe-core a11y)
         run: npm run test
 
+      - name: Build (Vite) — falha se dist ficar vazio
+        run: npm run build
+
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -72,17 +247,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
+      # O Playwright chama apt por conta própria e não tem prazo nem retentativa;
+      # quando o espelho do runner não responde, o passo dele fica pendurado até
+      # o timeout do job. Preparar o índice aqui corrige o espelho antes disso.
+      - name: Preparar o apt do runner
+        timeout-minutes: 8
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/instalar-pacotes-apt.sh
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
         run: npx playwright install chromium --with-deps
+
+      - name: Install Playwright system deps (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        timeout-minutes: 10
+        run: npx playwright install-deps chromium
 
       - name: Run e2e tests
         run: npm run test:e2e

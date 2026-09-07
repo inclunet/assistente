@@ -81,6 +81,24 @@ func TestHTTPRequest_GET(t *testing.T) {
 	}
 }
 
+func TestHTTPRequest_BlocksRedirectToInvalidScheme(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "ftp://example.com/x")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer ts.Close()
+
+	tool := newTestHTTPRequest() // allowPrivateHosts=true; o alvo é o destino do redirect
+	argsJSON, _ := json.Marshal(map[string]any{"url": ts.URL})
+	result, err := tool.Execute(context.Background(), argsJSON)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if !result.IsError {
+		t.Error("esperado IsError ao bloquear redirect para scheme inválido")
+	}
+}
+
 func TestHTTPRequest_POST_JSON(t *testing.T) {
 	// Server que espera POST com JSON
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

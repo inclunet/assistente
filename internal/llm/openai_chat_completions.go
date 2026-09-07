@@ -1,0 +1,367 @@
+package llm
+
+import (
+	"assistente/internal/logging"
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/shared"
+)
+
+// sendChatCompletions envia uma mensagem (não-streaming) via Chat Completions API.
+func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
+	if !params.AllowAssistantPrefill {
+		messages = removeTrailingAssistantPrefill(messages)
+	}
+	sdkParams := openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel(model),
+		Messages: convertMessages(messages),
+	}
+	if params.Temperature > 0 {
+		sdkParams.Temperature = param.NewOpt(params.Temperature)
+	}
+	if params.MaxTokensMode == "completion_tokens" {
+		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
+	} else if params.MaxTokens > 0 {
+		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
+	}
+	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
+
+	completion, err := p.client.Chat.Completions.New(ctx, sdkParams)
+	if err != nil {
+		if effectivePromptCacheKey(params) != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
+			params.PromptCacheHintFallback.Disable()
+			if params.OnPromptCacheHintUnsupported != nil {
+				params.OnPromptCacheHintUnsupported()
+			}
+			params.PromptCacheKey = ""
+			return p.sendChatCompletions(ctx, model, messages, params)
+		}
+		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+	}
+	if len(completion.Choices) == 0 {
+		return "", fmt.Errorf("nenhuma resposta recebida")
+	}
+	return completion.Choices[0].Message.Content, nil
+}
+
+// streamChatCompletions faz streaming via Chat Completions API (path
+// OpenAI-compatible legado: OpenRouter, Ollama, Groq, Together, etc.).
+func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
+	if !params.AllowAssistantPrefill {
+		messages = removeTrailingAssistantPrefill(messages)
+	}
+	sdkParams := openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel(model),
+		Messages: convertMessagesWithReasoningContent(messages, p.ReplaysReasoningContent() && len(tools) > 0),
+		StreamOptions: openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: param.NewOpt(true),
+		},
+	}
+
+	if params.Temperature > 0 {
+		sdkParams.Temperature = param.NewOpt(params.Temperature)
+	}
+
+	if params.MaxTokensMode == "completion_tokens" {
+		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
+	} else if params.MaxTokens > 0 {
+		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
+	}
+	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
+
+	if params.TopP > 0 && params.TopP != 1.0 {
+		sdkParams.TopP = param.NewOpt(params.TopP)
+	}
+
+	switch params.ReasoningEffort {
+	case "low", "medium", "high":
+		sdkParams.ReasoningEffort = shared.ReasoningEffort(params.ReasoningEffort)
+	}
+
+	if len(tools) > 0 {
+		sdkParams.Tools = convertTools(tools)
+		toolChoice := "auto"
+		if choice, ok := toolChoiceFromContext(ctx); ok {
+			if s, ok := choice.(string); ok {
+				toolChoice = s
+			}
+		}
+		sdkParams.ToolChoice = makeToolChoice(toolChoice)
+	}
+
+	const maxAttempts = 10
+	bk := 500 * time.Millisecond
+	maxBk := 8 * time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return
+		default:
+		}
+
+		res := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
+		if res.done {
+			return
+		}
+
+		if attempt < maxAttempts {
+			if res.plainRetry {
+				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
+				// Só para falha transitória real; auto-ajustes de parâmetro
+				// (tool_choice, prompt_cache_key) não são "conexão falhou".
+				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
+			}
+			sleepWithJitter(ctx, bk)
+			bk = nextBackoff(bk, maxBk)
+			continue
+		}
+
+		handler.OnError("Máximo de tentativas de streaming excedido")
+	}
+}
+
+// chatStreamAttempt classifica o desfecho de uma tentativa de streaming
+// Chat Completions. done=true encerra o turno (sucesso ou erro terminal).
+// plainRetry marca falha transitória de rede/servidor: retenta com backoff
+// e avisa quem assiste. Nem done nem plainRetry = auto-ajuste de parâmetros,
+// que retenta sem aviso de falha.
+type chatStreamAttempt struct {
+	done       bool
+	plainRetry bool
+}
+
+// doStream executa uma tentativa de streaming.
+func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) chatStreamAttempt {
+	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
+	// conexão, cancela a leitura e transforma em erro retryable (quando nada
+	// visível foi emitido). Cada evento recebido reinicia a contagem.
+	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
+	defer wd.Stop()
+
+	stream := p.streamClient.Chat.Completions.NewStreaming(watchCtx, params)
+	acc := openai.ChatCompletionAccumulator{}
+	var promptTokensDetails openai.CompletionUsagePromptTokensDetails
+	var usageRawJSON string
+
+	var fullResponse strings.Builder
+	var fullReasoning strings.Builder
+	var isThinking bool
+	var thinkingBuffer strings.Builder
+	var emittedVisibleContent bool
+	captureReasoningContent := p.ReplaysReasoningContent()
+
+	// Coletar tool calls finalizadas durante streaming
+	var finishedToolCalls []ToolCall
+
+	for stream.Next() {
+		wd.Kick()
+		chunk := stream.Current()
+		acc.AddChunk(chunk)
+		accumulateChatCompletionStreamUsageExtras(&promptTokensDetails, chunk, &usageRawJSON)
+
+		if tool, ok := acc.JustFinishedToolCall(); ok {
+			finishedToolCalls = append(finishedToolCalls, ToolCall{
+				ID:   tool.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      tool.Name,
+					Arguments: tool.Arguments,
+				},
+			})
+		}
+
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+
+		delta := chunk.Choices[0].Delta
+
+		if captureReasoningContent {
+			if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
+				fullReasoning.WriteString(reasoning)
+				// Thinking não bloqueia retry: o caminho por tags segue o mesmo
+				// contrato. Só conteúdo visível entregue por OnChunk torna uma
+				// nova tentativa insegura por poder duplicar a resposta.
+				handler.OnThinking(reasoning)
+			}
+		}
+
+		if delta.Content != "" {
+			content := delta.Content
+
+			content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+
+			if content != "" {
+				fullResponse.WriteString(content)
+				emittedVisibleContent = true
+				handler.OnChunk(content)
+			}
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		errStr := err.Error()
+		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
+
+		// Cancelamento do usuário (contexto pai): nunca retentar.
+		if ctx.Err() != nil {
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return chatStreamAttempt{done: true}
+		}
+
+		// Watchdog de ociosidade estourou. Sem conteúdo visível, a tentativa
+		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		if wd.TimedOut() {
+			if !emittedVisibleContent {
+				return chatStreamAttempt{plainRetry: true}
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return chatStreamAttempt{done: true}
+		}
+
+		if !emittedVisibleContent {
+			// tool_choice downgrade
+			if origParams.ToolChoice.OfAuto.Valid() && origParams.ToolChoice.OfAuto.Value == "required" {
+				if strings.Contains(strings.ToLower(errStr), "tool_choice") || strings.Contains(strings.ToLower(errStr), "tool choice") {
+					origParams.ToolChoice = makeToolChoice("auto")
+					return chatStreamAttempt{}
+				}
+			}
+
+			if origParams.PromptCacheKey.Valid() && looksLikePromptCacheHintUnsupported(errStr) {
+				promptCacheFallback.Disable()
+				if onPromptCacheHintUnsupported != nil {
+					onPromptCacheHintUnsupported()
+				}
+				origParams.PromptCacheKey = param.Opt[string]{}
+				return chatStreamAttempt{}
+			}
+
+			if isRetryableError(errStr) {
+				return chatStreamAttempt{plainRetry: true}
+			}
+		}
+
+		handler.OnError(errStr)
+		return chatStreamAttempt{done: true}
+	}
+
+	// Guarda de corrida: o watchdog pode estourar exatamente quando o
+	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
+	// truncada. Nesse caso não há conclusão válida a entregar.
+	if wd.TimedOut() {
+		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		if !emittedVisibleContent {
+			return chatStreamAttempt{plainRetry: true}
+		}
+		handler.OnError(streamIdleErrorMessage)
+		return chatStreamAttempt{done: true}
+	}
+
+	if fullReasoning.Len() > 0 {
+		handler.OnThinkingDone(fullReasoning.String())
+	}
+
+	usage := Usage{}
+	if acc.Usage.TotalTokens > 0 {
+		cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
+		if cachedTokens == 0 {
+			cachedTokens = promptTokensDetails.CachedTokens
+		}
+		usage = UsageFromOpenAICompletion(
+			int(acc.Usage.PromptTokens),
+			int(acc.Usage.CompletionTokens),
+			int(acc.Usage.TotalTokens),
+			int(cachedTokens),
+			usageRawJSON,
+		)
+	}
+
+	model := acc.Model
+	finish := FinishInfo{}
+	if len(acc.Choices) > 0 {
+		finish = normalizeOpenAIChatFinishReason(string(acc.Choices[0].FinishReason))
+	}
+	if finish.Reason == FinishReasonMaxTokens && len(acc.Choices) > 0 && len(acc.Choices[0].Message.ToolCalls) > 0 {
+		// JustFinishedToolCall só entrega blocos fechados. Em "length", o
+		// acumulador ainda preserva a chamada parcial; ela precisa chegar ao loop
+		// para ser bloqueada e reformulada, nunca executada como JSON completo.
+		finishedToolCalls = make([]ToolCall, 0, len(acc.Choices[0].Message.ToolCalls))
+		for _, call := range acc.Choices[0].Message.ToolCalls {
+			finishedToolCalls = append(finishedToolCalls, ToolCall{
+				ID:   call.ID,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      call.Function.Name,
+					Arguments: call.Function.Arguments,
+				},
+			})
+		}
+	}
+	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	ReportFinishReason(handler, finish)
+
+	if len(finishedToolCalls) > 0 {
+		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), usage, model)
+		return chatStreamAttempt{done: true}
+	}
+
+	handler.OnDone(fullResponse.String(), usage, model)
+	return chatStreamAttempt{done: true}
+}
+
+// chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.
+// O SDK OpenAI não a tipa. Capturar e reenviar são coisas separadas: a captura
+// só ocorre quando reasoning_content_mode habilita a extensão e alimenta o
+// thinking na UI; o replay no histórico do turno só ocorre quando a requisição
+// carrega tools, onde preservar os fragmentos exatos vira parte do protocolo.
+func chatCompletionReasoningContent(delta openai.ChatCompletionChunkChoiceDelta) string {
+	var raw struct {
+		ReasoningContent string `json:"reasoning_content"`
+	}
+	if err := json.Unmarshal([]byte(delta.RawJSON()), &raw); err != nil {
+		return ""
+	}
+	return raw.ReasoningContent
+}
+
+func accumulateChatCompletionStreamUsageExtras(promptTokensDetails *openai.CompletionUsagePromptTokensDetails, chunk openai.ChatCompletionChunk, usageRawJSON *string) {
+	// openai.ChatCompletionAccumulator.AddChunk currently accumulates only the
+	// top-level usage counters. Preserve the detailed usage fields needed for
+	// prompt-cache stats in the UI.
+	if promptTokensDetails != nil {
+		promptTokensDetails.AudioTokens += chunk.Usage.PromptTokensDetails.AudioTokens
+		promptTokensDetails.CachedTokens += chunk.Usage.PromptTokensDetails.CachedTokens
+	}
+
+	if usageRawJSON == nil {
+		return
+	}
+	raw := strings.TrimSpace(chunk.Usage.RawJSON())
+	if raw == "" || raw == "null" {
+		return
+	}
+	*usageRawJSON = raw
+}
+
+func makeToolChoice(choice string) openai.ChatCompletionToolChoiceOptionUnionParam {
+	return openai.ChatCompletionToolChoiceOptionUnionParam{
+		OfAuto: param.NewOpt(choice),
+	}
+}
+
+func applyPromptCacheKeyToChatCompletions(sdkParams *openai.ChatCompletionNewParams, params ChatParams) {
+	key := effectivePromptCacheKey(params)
+	if sdkParams == nil || key == "" {
+		return
+	}
+	sdkParams.PromptCacheKey = param.NewOpt(key)
+}

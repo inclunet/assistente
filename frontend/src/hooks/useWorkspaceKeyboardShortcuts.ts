@@ -18,22 +18,40 @@ import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
 import { useShallow } from 'zustand/shallow';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import { useEditorStore } from '../store/editorStore';
+import { useShortcutsHelpStore } from '../store/shortcutsHelpStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
+import { createWorkspaceTab } from '../lib/createWorkspaceTab';
+import { useUIStore } from '../store/uiStore';
+import { logger } from '../utils/logger';
 
 const CHORD_TIMEOUT_MS = 1500;
 
-const CHORD_MAP: Record<string, { type: TabType; title: string }> = {
-  c: { type: 'chat', title: 'Nova conversa' },
-  e: { type: 'editor', title: 'Novo documento' },
-  r: { type: 'terminal', title: 'Terminal' },
-  t: { type: 'tasklist', title: 'Tarefas' },
+function reportTabCreationError(error: unknown) {
+  logger.error('[WorkspaceShortcuts] Erro ao criar aba:', error);
+  useUIStore.getState().addToast(i18next.t('workspace.tabCreateFailed'), 'error');
+}
+
+// Títulos resolvidos via i18next.t(titleKey) no momento do uso (CHORD_MAP é
+// const de módulo, avaliada uma vez): assim a aba criada respeita o idioma
+// corrente, inclusive após troca em runtime. Reutiliza chaves existentes.
+const CHORD_MAP: Record<string, { type: TabType; titleKey: string }> = {
+  c: { type: 'chat', titleKey: 'chat.newConversation' },
+  e: { type: 'editor', titleKey: 'editor.fallback.newDoc' },
+  r: { type: 'terminal', titleKey: 'workspace.newTerminal' },
+  t: { type: 'tasklist', titleKey: 'workspace.newTasklist' },
 };
 
-export function useWorkspaceKeyboardShortcuts() {
-  const { workspace, addTab, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, addTab: s.addTab, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
+export interface UseWorkspaceKeyboardShortcutsOptions {
+  onTabShortcutNavigation?: (tabId: string) => void;
+}
+
+export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShortcutsOptions = {}) {
+  const { onTabShortcutNavigation } = options;
+  const { workspace, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
   );
   const { announce } = useAnnouncer();
 
@@ -52,6 +70,24 @@ export function useWorkspaceKeyboardShortcuts() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
+
+      // Ctrl+? (Ctrl+Shift+/): alterna o painel global de atalhos.
+      // Trata variações de layout: alguns teclados emitem `?` direto (o caractere
+      // já reflete o Shift), outros exigem Shift sobre `/` (`code === 'Slash'`
+      // cobre a tecla física em layouts US). Quando a tecla base é `/`/`Slash`,
+      // o Shift é obrigatório — assim `Ctrl+/` puro NÃO é interceptado.
+      if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        (event.key === '?' ||
+          (event.shiftKey && (event.key === '/' || event.code === 'Slash')))
+      ) {
+        event.preventDefault();
+        useShortcutsHelpStore.getState().toggle();
+        return;
+      }
+
       // Ctrl+Shift+I: chat modal do painel (adaptador registado pela aba ativa)
       if (
         event.ctrlKey &&
@@ -59,8 +95,19 @@ export function useWorkspaceKeyboardShortcuts() {
         (event.code === 'KeyI' || event.key === 'i' || event.key === 'I') &&
         !event.altKey
       ) {
-        if (!activeTabId) return;
+        // Sempre previne o default (DevTools do navegador), mesmo com um modal
+        // aberto; mas não aciona o chat modal enquanto isModalOpen() for true
+        // (não agir na UI de fundo / não empilhar modais).
         event.preventDefault();
+        if (isModalOpen()) return;
+        if (!activeTabId) return;
+        const activeWorkspaceTab = tabs.find((tab) => tab.id === activeTabId);
+        if (
+          activeWorkspaceTab?.type === 'editor' &&
+          useEditorStore.getState().documents[activeTabId]?.readOnly
+        ) {
+          return;
+        }
         void useWorkspaceChatModalStore.getState().requestOpen(activeTabId);
         return;
       }
@@ -70,13 +117,24 @@ export function useWorkspaceKeyboardShortcuts() {
 
       // Chord mode: aguardando segunda tecla após Ctrl+N
       if (chordPendingRef.current && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        // Se um modal (ex.: o painel de atalhos) abriu durante o chord, cancela
+        // sem agir na UI de fundo.
+        if (isModalOpen()) {
+          chordPendingRef.current = false;
+          if (chordTimerRef.current) {
+            clearTimeout(chordTimerRef.current);
+            chordTimerRef.current = null;
+          }
+          return;
+        }
         const key = event.key.toLowerCase();
         const match = CHORD_MAP[key];
         if (match) {
           event.preventDefault();
           event.stopPropagation();
-          void addTab(match.type, match.title);
-          announce(`Nova aba: ${match.title}`);
+          const title = i18next.t(match.titleKey);
+          void createWorkspaceTab(match.type, title)
+            .catch(reportTabCreationError);
         }
         chordPendingRef.current = false;
         if (chordTimerRef.current) {
@@ -89,13 +147,15 @@ export function useWorkspaceKeyboardShortcuts() {
       // Ctrl+Shift+N: Novo workspace
       if (event.ctrlKey && event.shiftKey && event.key === 'N') {
         event.preventDefault();
-        createWorkspace(`Workspace ${Date.now().toString(36)}`);
+        if (isModalOpen()) return;
+        void createWorkspace(`Workspace ${Date.now().toString(36)}`);
         return;
       }
 
       // Ctrl+N: Abre chord para criar aba por tipo + abre menu visual
       if (event.ctrlKey && event.key === 'n' && !event.shiftKey && !event.altKey) {
         event.preventDefault();
+        if (isModalOpen()) return;
         chordPendingRef.current = true;
         if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
         chordTimerRef.current = setTimeout(() => {
@@ -103,7 +163,7 @@ export function useWorkspaceKeyboardShortcuts() {
           chordTimerRef.current = null;
         }, CHORD_TIMEOUT_MS);
         window.dispatchEvent(new CustomEvent('workspace:open-new-tab-menu'));
-        announce('Criar aba: C chat, E editor, R terminal, T tarefas');
+        announce(i18next.t('workspace.createTabChordHint'));
         return;
       }
 
@@ -112,14 +172,16 @@ export function useWorkspaceKeyboardShortcuts() {
         const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
         if (isInput) return;
         event.preventDefault();
-        addTab('chat', 'Nova conversa');
-        announce('Nova aba criada');
+        if (isModalOpen()) return;
+        void createWorkspaceTab('chat', i18next.t('chat.newConversation'))
+          .catch(reportTabCreationError);
         return;
       }
 
       // Ctrl+W: Fechar aba ativa
       if (event.ctrlKey && event.key === 'w' && !event.shiftKey && !event.altKey && activeTabId) {
         event.preventDefault();
+        if (isModalOpen()) return;
         void removeTab(activeTabId).then(() => requestAnimationFrame(() => restoreDefaultFocus()));
         return;
       }
@@ -127,6 +189,7 @@ export function useWorkspaceKeyboardShortcuts() {
       // Ctrl+F4: Fechar aba ativa (alternativo)
       if (event.ctrlKey && event.key === 'F4' && activeTabId) {
         event.preventDefault();
+        if (isModalOpen()) return;
         void removeTab(activeTabId).then(() => requestAnimationFrame(() => restoreDefaultFocus()));
         return;
       }
@@ -178,7 +241,7 @@ export function useWorkspaceKeyboardShortcuts() {
           const targetTab = tabs[num - 1];
           if (targetTab) {
             setActiveTab(targetTab.id);
-            announce(`${targetTab.title}, ${num} de ${tabs.length}`);
+            announce(i18next.t('workspace.announce.tabPosition', { title: targetTab.title, position: num, total: tabs.length }));
           }
         }
       }
@@ -200,11 +263,16 @@ export function useWorkspaceKeyboardShortcuts() {
       const nextTab = tabs[nextIndex];
       if (nextTab) {
         setActiveTab(nextTab.id);
-        announce(`${nextTab.title}, ${nextIndex + 1} de ${tabs.length}`);
+        if (onTabShortcutNavigation) {
+          onTabShortcutNavigation(nextTab.id);
+        } else {
+          requestAnimationFrame(() => restoreDefaultFocus());
+        }
+        announce(i18next.t('workspace.announce.tabPosition', { title: nextTab.title, position: nextIndex + 1, total: tabs.length }));
       }
     }
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, createWorkspace, announce]);
+  }, [tabs, activeTabId, removeTab, setActiveTab, createWorkspace, announce, onTabShortcutNavigation]);
 }

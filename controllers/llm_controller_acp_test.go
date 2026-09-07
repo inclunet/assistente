@@ -1,0 +1,325 @@
+package controllers
+
+import (
+	"context"
+	"testing"
+
+	"assistente/internal/credentials"
+	"assistente/internal/llm"
+	"assistente/internal/providers"
+)
+
+// cofreDeMentira registra o que passaria pelo cofre de credenciais. Para um
+// agente de código a resposta certa é "nada": o login dele é feito no CLI.
+type cofreDeMentira struct {
+	registrados []string
+	apagados    []string
+	guardados   map[string]*credentials.AuthConfig
+}
+
+func (c *cofreDeMentira) RegisterPatternWithContext(_ context.Context, pattern string, auth *credentials.AuthConfig) error {
+	c.registrados = append(c.registrados, pattern)
+	if c.guardados == nil {
+		c.guardados = map[string]*credentials.AuthConfig{}
+	}
+	c.guardados[pattern] = auth
+	return nil
+}
+
+func (c *cofreDeMentira) GetByPattern(pattern string) (*credentials.AuthConfig, error) {
+	return c.guardados[pattern], nil
+}
+
+func (c *cofreDeMentira) GetByPatternWithContext(_ context.Context, pattern string) (*credentials.AuthConfig, error) {
+	return c.guardados[pattern], nil
+}
+
+func (c *cofreDeMentira) DeletePattern(_ context.Context, pattern string) error {
+	c.apagados = append(c.apagados, pattern)
+	delete(c.guardados, pattern)
+	return nil
+}
+
+func controladorDeProvedores(t *testing.T) (*LLMController, *llm.ProviderRegistry, *cofreDeMentira) {
+	t.Helper()
+	registry := llm.NewProviderRegistry()
+	cofre := &cofreDeMentira{}
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: registry,
+		CredMgr:  cofre,
+		Store:    providers.NewMemoryStore(),
+	})
+	return NewLLMController(LLMControllerConfig{LLMRegistry: registry, ProviderSvc: svc}), registry, cofre
+}
+
+// O formulário do agente manda `base_url` vazia de propósito: um agente não tem
+// endereço, e é o comando que o endereça (AEP-0084 D12). Este teste fixa que a
+// fronteira aceita esse payload como ele sai da tela e que o que fica salvo é o
+// comando — sem URL exigida e sem credencial guardada.
+func TestCriarAgentePelaFronteiraGuardaOComandoESemURL(t *testing.T) {
+	ctrl, registry, cofre := controladorDeProvedores(t)
+
+	res, err := ctrl.CreateLLMProvider(context.Background(), CreateLLMProviderRequest{
+		ID:         "cursor-1",
+		Name:       "Cursor local",
+		Type:       "cursor",
+		APIFormat:  "acp",
+		BaseURL:    "",
+		ACPCommand: "/usr/local/bin/cursor-agent",
+		ACPArgs:    []string{"acp"},
+	})
+	if err != nil {
+		t.Fatalf("a fronteira recusou o payload do formulário de agente: %v", err)
+	}
+
+	if res["api_format"] != "acp" {
+		t.Errorf("api_format = %v, queria acp", res["api_format"])
+	}
+	if res["base_url"] != "" {
+		t.Errorf("base_url = %v, queria vazia", res["base_url"])
+	}
+	if res["acp_command"] != "/usr/local/bin/cursor-agent" {
+		t.Errorf("acp_command = %v", res["acp_command"])
+	}
+
+	salvo := registry.Get("cursor-1")
+	if salvo == nil {
+		t.Fatal("provedor de agente não ficou salvo")
+	}
+	if !salvo.IsACP() || salvo.ACPCommand != "/usr/local/bin/cursor-agent" {
+		t.Errorf("o que ficou salvo não sobe o agente: %+v", salvo)
+	}
+	if len(salvo.ACPArgs) != 1 || salvo.ACPArgs[0] != "acp" {
+		t.Errorf("argumentos salvos = %#v", salvo.ACPArgs)
+	}
+	if len(cofre.registrados) != 0 {
+		t.Errorf("um agente não tem credencial, e algo foi para o cofre: %v", cofre.registrados)
+	}
+}
+
+// Trocar o tipo de um provedor salvo para um agente é caminho de tela — o
+// formulário de edição deixa —, e o que sai daqui não pode continuar descrevendo
+// o provedor antigo: URL que não endereça nada, e pior, um ponteiro para
+// credencial que faria a lista mostrar o agente com chave configurada, contra o
+// D12 do AEP-0084.
+func TestVirarAgentePelaFronteiraLargaURLECredencial(t *testing.T) {
+	ctrl, registry, cofre := controladorDeProvedores(t)
+	ctx := context.Background()
+
+	if _, err := ctrl.CreateLLMProvider(ctx, CreateLLMProviderRequest{
+		ID: "prov", Name: "OpenAI", Type: "openai",
+		BaseURL: "https://api.openai.com/v1", APIKey: "sk-secreta",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	res, err := ctrl.UpdateLLMProvider(ctx, "prov", UpdateLLMProviderRequest{
+		Type: "cursor", APIFormat: "acp",
+		ACPCommand: "/usr/local/bin/cursor-agent",
+		ACPArgs:    &[]string{"acp"},
+	})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+
+	if res["base_url"] != "" {
+		t.Errorf("base_url = %v, queria vazia: o agente é endereçado pelo comando", res["base_url"])
+	}
+	if res["credential_pattern"] != "" {
+		t.Errorf("credential_pattern = %v, queria vazio", res["credential_pattern"])
+	}
+	if res["credential_configured"] != false {
+		t.Error("a lista mostraria o agente com chave configurada")
+	}
+	if res["auth_mode"] != "none" {
+		t.Errorf("auth_mode = %v, queria none", res["auth_mode"])
+	}
+	if res["acp_command"] != "/usr/local/bin/cursor-agent" {
+		t.Errorf("acp_command = %v", res["acp_command"])
+	}
+
+	salvo := registry.Get("prov")
+	if salvo == nil {
+		t.Fatal("o provedor sumiu na edição")
+	}
+	if salvo.BaseURL != "" || salvo.CredentialPattern != "" {
+		t.Errorf("o que ficou salvo herdou endereço ou credencial do provedor antigo: %+v", salvo)
+	}
+	// O ponteiro para a credencial sai; o segredo fica. O padrão é por hostname e
+	// outro provedor da mesma casa pode estar usando o mesmo — apagar aqui
+	// derrubaria a autenticação dele sem ninguém pedir.
+	if len(cofre.apagados) != 0 {
+		t.Errorf("a edição apagou credencial do cofre: %v", cofre.apagados)
+	}
+	if cofre.guardados["api.openai.com"] == nil {
+		t.Error("o segredo do cofre, que pode ser de outro provedor, foi perdido")
+	}
+}
+
+// O caminho de volta pela mesma fronteira: o agente que vira provedor HTTP larga
+// o comando e ganha endereço e credencial.
+func TestVoltarAProvedorHTTPPelaFronteiraLargaOComando(t *testing.T) {
+	ctrl, registry, _ := controladorDeProvedores(t)
+	ctx := context.Background()
+
+	if _, err := ctrl.CreateLLMProvider(ctx, CreateLLMProviderRequest{
+		ID: "prov", Name: "Cursor local", Type: "cursor", APIFormat: "acp",
+		ACPCommand: "/usr/local/bin/cursor-agent", ACPArgs: []string{"acp"},
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	res, err := ctrl.UpdateLLMProvider(ctx, "prov", UpdateLLMProviderRequest{
+		Type: "openai", APIFormat: "openai",
+		BaseURL: "https://api.openai.com/v1", APIKey: "sk-nova",
+	})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+
+	if res["acp_command"] != "" {
+		t.Errorf("acp_command = %v, queria vazio", res["acp_command"])
+	}
+	if args, ok := res["acp_args"].([]string); !ok || len(args) != 0 {
+		t.Errorf("acp_args = %#v, queria lista vazia", res["acp_args"])
+	}
+	if res["credential_pattern"] != "api.openai.com" {
+		t.Errorf("credential_pattern = %v, queria o hostname novo", res["credential_pattern"])
+	}
+	if res["credential_configured"] != true {
+		t.Error("a chave nova não apareceu como configurada")
+	}
+	// O "sem autenticação" era decisão de quando não havia para onde mandar
+	// credencial: mantê-lo faria a API responder 401 sem explicar por quê.
+	if res["auth_mode"] == "none" {
+		t.Error("o provedor HTTP herdou o 'sem autenticação' do agente")
+	}
+
+	salvo := registry.Get("prov")
+	if salvo == nil {
+		t.Fatal("o provedor sumiu na edição")
+	}
+	if salvo.ACPCommand != "" || len(salvo.ACPArgs) != 0 {
+		t.Errorf("sobrou configuração de agente no que ficou salvo: %+v", salvo)
+	}
+}
+
+// O par variável/entrada do cofre atravessa a fronteira nos dois sentidos: vai
+// no que a tela salva e volta no que ela lê para editar (AEP-0086 D12). O que
+// não atravessa é o valor — ele sai do cofre só na hora de subir o agente.
+func TestOParDoCofreAtravessaAFronteiraSemOSegredo(t *testing.T) {
+	ctrl, registry, cofre := controladorDeProvedores(t)
+
+	res, err := ctrl.CreateLLMProvider(context.Background(), CreateLLMProviderRequest{
+		ID:               "codex-1",
+		Name:             "Codex",
+		Type:             "acp",
+		APIFormat:        "acp",
+		ACPCommand:       "codex-acp",
+		ACPAgentID:       "codex",
+		ACPCredentialEnv: map[string]string{"OPENAI_API_KEY": "api.openai.com"},
+	})
+	if err != nil {
+		t.Fatalf("a fronteira recusou o par do cofre: %v", err)
+	}
+
+	pares, ok := res["acp_credential_env"].(map[string]string)
+	if !ok || pares["OPENAI_API_KEY"] != "api.openai.com" {
+		t.Fatalf("acp_credential_env = %#v", res["acp_credential_env"])
+	}
+	salvo := registry.Get("codex-1")
+	if salvo == nil || salvo.ACPCredentialEnv["OPENAI_API_KEY"] != "api.openai.com" {
+		t.Fatalf("o par não ficou salvo: %+v", salvo)
+	}
+	// Ligar a passagem é apontar para uma entrada que já existe; não é cadastrar
+	// credencial. Escrever no cofre daqui criaria entrada vazia com nome de host.
+	if len(cofre.registrados) != 0 {
+		t.Errorf("ligar a passagem escreveu no cofre: %v", cofre.registrados)
+	}
+
+	// Mapa vazio é o que desliga a passagem, e é a única forma de desligá-la:
+	// tratá-lo como "não mexer" deixaria a credencial indo para o agente depois
+	// de a pessoa ter tirado o último par da tela.
+	vazio := map[string]string{}
+	res, err = ctrl.UpdateLLMProvider(context.Background(), "codex-1", UpdateLLMProviderRequest{
+		ACPCredentialEnv: &vazio,
+	})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+	if pares, ok := res["acp_credential_env"].(map[string]string); !ok || len(pares) != 0 {
+		t.Errorf("acp_credential_env = %#v, queria vazio", res["acp_credential_env"])
+	}
+	if len(registry.Get("codex-1").ACPCredentialEnv) != 0 {
+		t.Errorf("o par continuou salvo depois de desligado: %+v", registry.Get("codex-1"))
+	}
+}
+
+// ACPEnv pode ter token colado (caminho legado do AEP-0086). A leitura pela
+// fronteira não o devolve — igual à exportação — para o frontend não ver segredo.
+func TestLeituraPelaFronteiraNaoDevolveACPEnv(t *testing.T) {
+	ctrl, registry, _ := controladorDeProvedores(t)
+	ctx := context.Background()
+
+	if _, err := ctrl.CreateLLMProvider(ctx, CreateLLMProviderRequest{
+		ID: "vtcode-1", Name: "VT Code", Type: "acp", APIFormat: "acp",
+		ACPCommand: "vtcode", ACPAgentID: "vtcode",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+	salvo := registry.Get("vtcode-1")
+	if salvo == nil {
+		t.Fatal("provedor não ficou salvo")
+	}
+	salvo.ACPEnv = map[string]string{
+		"VT_ACP_ENABLED": "true",
+		"CODEX_API_KEY":  "sk-secreta",
+	}
+
+	lista := ctrl.GetLLMProvidersWithStatus(ctx)
+	var lido map[string]interface{}
+	for _, item := range lista {
+		if item["id"] == "vtcode-1" {
+			lido = item
+			break
+		}
+	}
+	if lido == nil {
+		t.Fatal("provedor não apareceu na lista com status")
+	}
+	env, ok := lido["acp_env"].(map[string]string)
+	if !ok {
+		t.Fatalf("acp_env = %#v, queria mapa", lido["acp_env"])
+	}
+	if len(env) != 0 {
+		t.Errorf("acp_env vazou para a tela: %#v", env)
+	}
+	if registry.Get("vtcode-1").ACPEnv["CODEX_API_KEY"] != "sk-secreta" {
+		t.Error("o valor sumiu do provedor; só a serialização para a tela deve omitir")
+	}
+}
+
+// A tela nunca manda chave para um agente, mas a fronteira é pública: recusar é
+// o que impede um segredo inútil de entrar no cofre por outro caminho.
+func TestCriarAgentePelaFronteiraRecusaChaveDeAPI(t *testing.T) {
+	ctrl, registry, cofre := controladorDeProvedores(t)
+
+	_, err := ctrl.CreateLLMProvider(context.Background(), CreateLLMProviderRequest{
+		ID:         "cursor-1",
+		Name:       "Cursor local",
+		Type:       "cursor",
+		APIFormat:  "acp",
+		APIKey:     "sk-secreta",
+		ACPCommand: "/usr/local/bin/cursor-agent",
+	})
+
+	if err == nil {
+		t.Fatal("a fronteira aceitou credencial para um provedor que não tem onde usá-la")
+	}
+	if registry.Get("cursor-1") != nil {
+		t.Error("o provedor foi criado apesar da recusa")
+	}
+	if len(cofre.registrados) != 0 {
+		t.Errorf("a chave recusada chegou ao cofre: %v", cofre.registrados)
+	}
+}

@@ -6,9 +6,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
-	mcplib "assistente/internal/mcp"
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/openai/openai-go/responses"
 	"google.golang.org/genai"
 )
 
@@ -99,7 +97,7 @@ func TestNewChatProvider_Factory(t *testing.T) {
 				BaseURL:   "https://api.test.com/v1",
 				APIFormat: tt.format,
 			}
-			provider := NewChatProvider(p, credMgr)
+			provider := NewChatProvider(p, credMgr, nil)
 			if provider == nil {
 				t.Fatal("NewChatProvider returned nil")
 			}
@@ -122,181 +120,76 @@ func TestNewChatProvider_Factory(t *testing.T) {
 	}
 }
 
-func TestOpenAIProvider_ChatCompletions_NoNativeMCP(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{
-		ID:      "test",
-		Name:    "Test",
-		BaseURL: "https://api.openai.com/v1",
-	}
-	provider := NewOpenAIProvider(p, credMgr)
-	if provider.SupportsNativeMCP() {
-		t.Error("Chat Completions provider should NOT support native MCP")
-	}
-}
-
-func TestOpenAIResponsesProvider_SupportsNativeMCP(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{
-		ID:      "test",
-		Name:    "Test",
-		BaseURL: "https://api.openai.com/v1",
-	}
-	provider := NewOpenAIResponsesProvider(p, credMgr)
-	if !provider.SupportsNativeMCP() {
-		t.Error("Responses provider should support native MCP")
-	}
-}
-
-func TestOpenAIResponsesProvider_WithMCPServers_StoresServers(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{
-		ID:      "test",
-		Name:    "Test",
-		BaseURL: "https://api.openai.com/v1",
-	}
-	provider := NewOpenAIResponsesProvider(p, credMgr)
-	servers := []MCPServerConfig{
-		{Name: "weather-mcp", URL: "https://mcp.weather.com/sse", AuthToken: "tok123"},
-	}
-	result := provider.WithMCPServers(servers)
-	if result == nil {
-		t.Fatal("WithMCPServers returned nil")
-	}
-
-	openaiP, ok := result.(*OpenAIProvider)
-	if !ok {
-		t.Fatal("WithMCPServers should return *OpenAIProvider")
-	}
-	if len(openaiP.mcpServers) != 1 {
-		t.Fatalf("Expected 1 MCP server, got %d", len(openaiP.mcpServers))
-	}
-	if openaiP.mcpServers[0].Name != "weather-mcp" {
-		t.Errorf("MCP server name = %q, want %q", openaiP.mcpServers[0].Name, "weather-mcp")
-	}
-	if !openaiP.useResponses {
-		t.Error("WithMCPServers should preserve useResponses=true")
-	}
-}
-
-func TestOpenAICompatible_WithMCPServers_NoOp(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{
-		ID:      "test",
-		Name:    "Test",
-		BaseURL: "https://api.openrouter.ai/v1",
-	}
-	provider := NewOpenAIProvider(p, credMgr)
-	servers := []MCPServerConfig{
-		{Name: "test-mcp", URL: "https://mcp.test.com"},
-	}
-	result := provider.WithMCPServers(servers)
-	if result != provider {
-		t.Error("Chat Completions provider.WithMCPServers should return same provider (no-op)")
-	}
-}
-
-func TestOpenAIResponsesProvider_WithMCPServers_EmptyReturnsOriginal(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{
-		ID:      "test",
-		Name:    "Test",
-		BaseURL: "https://api.openai.com/v1",
-	}
-	provider := NewOpenAIResponsesProvider(p, credMgr)
-	result := provider.WithMCPServers(nil)
-	if result != provider {
-		t.Error("WithMCPServers(nil) should return same provider")
-	}
-	result = provider.WithMCPServers([]MCPServerConfig{})
-	if result != provider {
-		t.Error("WithMCPServers([]) should return same provider")
-	}
-}
-
-func TestConvertMessages_Basic(t *testing.T) {
-	msgs := []Message{
-		{Role: "system", Content: "You are a helper"},
-		{Role: "user", Content: "Hello"},
-		{Role: "assistant", Content: "Hi there!"},
-		{Role: "tool", Content: `{"result": "ok"}`, ToolCallID: "call_123"},
-	}
-
-	result := convertMessages(msgs)
-	if len(result) != 4 {
-		t.Fatalf("convertMessages returned %d messages, want 4", len(result))
-	}
-
-	if result[0].OfSystem == nil {
-		t.Error("Expected system message at index 0")
-	}
-	if result[1].OfUser == nil {
-		t.Error("Expected user message at index 1")
-	}
-	if result[2].OfAssistant == nil {
-		t.Error("Expected assistant message at index 2")
-	}
-	if result[3].OfTool == nil {
-		t.Error("Expected tool message at index 3")
-	}
-}
-
-func TestConvertMessages_AssistantWithToolCalls(t *testing.T) {
-	msgs := []Message{
+// TestPrefillCapability_ThreeCases documenta o mapeamento explícito de
+// capacidades de assistant prefill por provider (Issue #124): suporta com
+// thinking / só sem thinking / não suporta.
+func TestPrefillCapability_ThreeCases(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *ProviderConfig
+		want AssistantPrefillCapability
+	}{
 		{
-			Role:    "assistant",
-			Content: "",
-			ToolCalls: []ToolCall{
-				{
-					ID:   "call_abc",
-					Type: "function",
-					Function: FunctionCall{
-						Name:      "get_weather",
-						Arguments: `{"city": "SP"}`,
-					},
-				},
-			},
+			name: "nil provider",
+			cfg:  nil,
+			want: PrefillUnsupported,
+		},
+		{
+			name: "openai real responses suporta com thinking",
+			cfg:  &ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAIResponses, BaseURL: "https://api.openai.com/v1"},
+			want: PrefillWithThinking,
+		},
+		{
+			name: "openai compatible (chat completions) nao suporta",
+			cfg:  &ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAI, BaseURL: "https://example.com/v1"},
+			want: PrefillUnsupported,
+		},
+		{
+			name: "localai (qwen) so sem thinking",
+			cfg:  &ProviderConfig{Type: ProviderLocalAI, BaseURL: "http://localhost:8080/v1"},
+			want: PrefillWithoutThinking,
+		},
+		{
+			name: "ollama so sem thinking",
+			cfg:  &ProviderConfig{Type: ProviderOllama, BaseURL: "http://localhost:11434/v1"},
+			want: PrefillWithoutThinking,
+		},
+		{
+			name: "llamacpp so sem thinking",
+			cfg:  &ProviderConfig{Type: ProviderLlamaCPP, BaseURL: "http://localhost:8080/v1"},
+			want: PrefillWithoutThinking,
+		},
+		{
+			name: "deepseek nao suporta",
+			cfg:  &ProviderConfig{Type: ProviderDeepSeek, BaseURL: "https://api.deepseek.com/v1"},
+			want: PrefillUnsupported,
 		},
 	}
-
-	result := convertMessages(msgs)
-	if len(result) != 1 {
-		t.Fatalf("convertMessages returned %d messages, want 1", len(result))
-	}
-
-	assistant := result[0].OfAssistant
-	if assistant == nil {
-		t.Fatal("Expected assistant message")
-	}
-	if len(assistant.ToolCalls) != 1 {
-		t.Fatalf("Expected 1 tool call, got %d", len(assistant.ToolCalls))
-	}
-	if assistant.ToolCalls[0].ID != "call_abc" {
-		t.Errorf("ToolCall ID = %q, want %q", assistant.ToolCalls[0].ID, "call_abc")
-	}
-	if assistant.ToolCalls[0].Function.Name != "get_weather" {
-		t.Errorf("ToolCall Function.Name = %q, want %q", assistant.ToolCalls[0].Function.Name, "get_weather")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PrefillCapability(tc.cfg); got != tc.want {
+				t.Fatalf("PrefillCapability = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestConvertTools(t *testing.T) {
-	tools := []ToolDefinition{
-		{
-			Type: "function",
-			Function: FunctionDefinition{
-				Name:        "get_time",
-				Description: "Returns current time",
-				Parameters:  []byte(`{"type":"object","properties":{}}`),
-			},
-		},
+// TestSupportsAssistantPrefill_OnlyWithThinking garante que o atalho booleano
+// permanece conservador: só é verdadeiro para providers que aceitam prefill com
+// thinking ativo (OpenAI real). Qwen/LocalAI (só sem thinking) devem usar o
+// fallback por mensagem de usuário, logo retornam false aqui.
+func TestSupportsAssistantPrefill_OnlyWithThinking(t *testing.T) {
+	if !SupportsAssistantPrefill(&ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAIResponses, BaseURL: "https://api.openai.com/v1"}) {
+		t.Fatal("openai real responses deveria suportar prefill")
 	}
-
-	result := convertTools(tools)
-	if len(result) != 1 {
-		t.Fatalf("convertTools returned %d tools, want 1", len(result))
+	if SupportsAssistantPrefill(&ProviderConfig{Type: ProviderLocalAI, BaseURL: "http://localhost:8080/v1"}) {
+		t.Fatal("localai não deveria reportar suporte incondicional a prefill")
 	}
-	if result[0].Function.Name != "get_time" {
-		t.Errorf("Tool name = %q, want %q", result[0].Function.Name, "get_time")
+	if SupportsAssistantPrefill(&ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAI, BaseURL: "https://example.com/v1"}) {
+		t.Fatal("openai compatible não deveria suportar prefill")
+	}
+	if SupportsAssistantPrefill(nil) {
+		t.Fatal("nil provider não suporta prefill")
 	}
 }
 
@@ -326,7 +219,7 @@ func TestCredentialTransport_NilCredMgr(t *testing.T) {
 	}
 }
 
-func TestAnthropicProvider_SupportsNativeMCP(t *testing.T) {
+func TestAnthropicProvider_NativeMCPCapable(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:      "test",
@@ -334,8 +227,8 @@ func TestAnthropicProvider_SupportsNativeMCP(t *testing.T) {
 		BaseURL: "https://api.anthropic.com",
 	}
 	provider := NewAnthropicProvider(p, credMgr)
-	if !provider.SupportsNativeMCP() {
-		t.Error("AnthropicProvider.SupportsNativeMCP() = false, want true")
+	if !provider.NativeMCPCapable() {
+		t.Error("AnthropicProvider.NativeMCPCapable() = false, want true")
 	}
 }
 
@@ -346,7 +239,7 @@ func TestConvertToAnthropicMessages_SystemExtraction(t *testing.T) {
 		{Role: "assistant", Content: "Hi!"},
 	}
 
-	system, result := convertToAnthropicMessages(msgs)
+	system, result := convertToAnthropicMessages(msgs, false)
 
 	if len(system) != 1 {
 		t.Fatalf("Expected 1 system block, got %d", len(system))
@@ -356,6 +249,60 @@ func TestConvertToAnthropicMessages_SystemExtraction(t *testing.T) {
 	}
 	if len(result) != 2 {
 		t.Fatalf("Expected 2 messages (user+assistant), got %d", len(result))
+	}
+}
+
+func TestConvertToAnthropicMessages_ExplicitCacheControlSplitsStableSystemPrefix(t *testing.T) {
+	const stable = "stable instructions"
+	const dynamic = "\n\n<conversation_summary>\ndynamic summary\n</conversation_summary>"
+	msgs := []Message{
+		{
+			Role:                        "system",
+			Content:                     stable + dynamic,
+			SystemCacheControlPrefixLen: len(stable),
+		},
+		{Role: "user", Content: "Hello"},
+	}
+
+	system, result := convertToAnthropicMessages(msgs, true)
+
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 non-system message, got %d", len(result))
+	}
+	if len(system) != 2 {
+		t.Fatalf("Expected 2 system blocks, got %d", len(system))
+	}
+	if system[0].Text != stable {
+		t.Fatalf("stable system block = %q, want %q", system[0].Text, stable)
+	}
+	if system[0].CacheControl.Type == "" {
+		t.Fatal("expected cache_control on stable system block")
+	}
+	if system[1].Text != dynamic {
+		t.Fatalf("dynamic system block = %q, want %q", system[1].Text, dynamic)
+	}
+	if system[1].CacheControl.Type != "" {
+		t.Fatal("dynamic system block should not have cache_control")
+	}
+}
+
+func TestConvertToAnthropicMessages_ExplicitCacheControlDisabledOmitsMarker(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:                        "system",
+			Content:                     "stable\n\ndynamic",
+			SystemCacheControlPrefixLen: len("stable"),
+		},
+		{Role: "user", Content: "Hello"},
+	}
+
+	system, _ := convertToAnthropicMessages(msgs, false)
+
+	if len(system) != 1 {
+		t.Fatalf("Expected 1 system block, got %d", len(system))
+	}
+	if system[0].CacheControl.Type != "" {
+		t.Fatal("cache_control should be omitted when explicit cache control is disabled")
 	}
 }
 
@@ -372,7 +319,7 @@ func TestConvertToAnthropicMessages_ToolResults(t *testing.T) {
 		{Role: "tool", Content: `{"temp": 25}`, ToolCallID: "call_1"},
 	}
 
-	system, result := convertToAnthropicMessages(msgs)
+	system, result := convertToAnthropicMessages(msgs, false)
 
 	if len(system) != 0 {
 		t.Fatalf("Expected 0 system blocks, got %d", len(system))
@@ -410,7 +357,7 @@ func TestConvertToAnthropicMessages_MultipleToolResults(t *testing.T) {
 		{Role: "tool", Content: "result_b", ToolCallID: "call_b"},
 	}
 
-	_, result := convertToAnthropicMessages(msgs)
+	_, result := convertToAnthropicMessages(msgs, false)
 
 	// user + assistant + user(2 tool_results merged)
 	if len(result) != 3 {
@@ -435,7 +382,7 @@ func TestConvertAnthropicTools(t *testing.T) {
 		},
 	}
 
-	result := convertAnthropicTools(tools)
+	result := convertAnthropicTools(tools, false)
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 tool, got %d", len(result))
 	}
@@ -444,6 +391,25 @@ func TestConvertAnthropicTools(t *testing.T) {
 	}
 	if result[0].OfTool.Name != "get_time" {
 		t.Errorf("Tool name = %q, want %q", result[0].OfTool.Name, "get_time")
+	}
+}
+
+func TestConvertAnthropicTools_ExplicitCacheControlMarksLastTool(t *testing.T) {
+	tools := []ToolDefinition{
+		{Function: FunctionDefinition{Name: "first", Description: "First", Parameters: []byte(`{"type":"object"}`)}},
+		{Function: FunctionDefinition{Name: "last", Description: "Last", Parameters: []byte(`{"type":"object"}`)}},
+	}
+
+	result := convertAnthropicTools(tools, true)
+
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 tools, got %d", len(result))
+	}
+	if result[0].OfTool.CacheControl.Type != "" {
+		t.Fatal("first tool should not have cache_control")
+	}
+	if result[1].OfTool.CacheControl.Type == "" {
+		t.Fatal("last tool should have cache_control")
 	}
 }
 
@@ -467,13 +433,13 @@ func TestAPIFormatConstants(t *testing.T) {
 
 // --- GoogleProvider tests ---
 
-func TestGoogleProvider_SupportsNativeMCP_False(t *testing.T) {
+func TestGoogleProvider_NativeMCPCapable_False(t *testing.T) {
 	p := NewGoogleProvider(&ProviderConfig{
 		ID:   "gp",
 		Name: "Google",
 	}, nil)
-	if p.SupportsNativeMCP() {
-		t.Error("GoogleProvider should NOT support native MCP (not implemented)")
+	if p.NativeMCPCapable() {
+		t.Error("GoogleProvider should NOT be native MCP capable (not implemented)")
 	}
 }
 
@@ -669,7 +635,7 @@ func TestAnthropicProvider_WithMCPServers_EmptyReturnsOriginal(t *testing.T) {
 	}
 }
 
-func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
+func TestNativeMCPCapable_ReflectsRealImplementation(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 
 	openaiCompat := NewOpenAIProvider(&ProviderConfig{ID: "oc", Name: "OC", BaseURL: "https://api.openrouter.ai/v1"}, credMgr)
@@ -677,86 +643,17 @@ func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
 	anthropic := NewAnthropicProvider(&ProviderConfig{ID: "a", Name: "A", BaseURL: "https://api.anthropic.com"}, credMgr)
 	google := NewGoogleProvider(&ProviderConfig{ID: "g", Name: "G"}, credMgr)
 
-	if openaiCompat.SupportsNativeMCP() {
-		t.Error("OpenAI-compatible should NOT support native MCP (Chat Completions only)")
+	if openaiCompat.NativeMCPCapable() {
+		t.Error("OpenAI-compatible (Chat Completions) should NOT be native MCP capable")
 	}
-	if !openaiReal.SupportsNativeMCP() {
-		t.Error("OpenAI Responses should support native MCP")
+	if !openaiReal.NativeMCPCapable() {
+		t.Error("OpenAI Responses should be native MCP capable")
 	}
-	if !anthropic.SupportsNativeMCP() {
-		t.Error("Anthropic should support native MCP (Beta Messages API)")
+	if !anthropic.NativeMCPCapable() {
+		t.Error("Anthropic should be native MCP capable (Beta Messages API)")
 	}
-	if google.SupportsNativeMCP() {
-		t.Error("Google should NOT support native MCP (not implemented)")
-	}
-}
-
-func TestWithMCPServers_ImmutableOriginal(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	provider := NewOpenAIResponsesProvider(&ProviderConfig{ID: "o", Name: "O", BaseURL: "https://api.openai.com/v1"}, credMgr)
-
-	servers := []MCPServerConfig{{Name: "test", URL: "http://test"}}
-	modified := provider.WithMCPServers(servers)
-
-	if len(provider.mcpServers) != 0 {
-		t.Error("Original provider should not be modified")
-	}
-	modP := modified.(*OpenAIProvider)
-	if len(modP.mcpServers) != 1 {
-		t.Error("Modified provider should have 1 MCP server")
-	}
-	if !modP.useResponses {
-		t.Error("Modified provider should preserve useResponses=true")
-	}
-}
-
-func TestConvertToResponsesInput_Basic(t *testing.T) {
-	msgs := []Message{
-		{Role: "system", Content: "Be helpful"},
-		{Role: "user", Content: "Hello"},
-		{Role: "assistant", Content: "Hi!"},
-		{
-			Role: "assistant",
-			ToolCalls: []ToolCall{
-				{ID: "call_1", Type: "function", Function: FunctionCall{Name: "get_time", Arguments: `{}`}},
-			},
-		},
-		{Role: "tool", Content: `{"time":"12:00"}`, ToolCallID: "call_1"},
-	}
-
-	input := convertToResponsesInput(msgs)
-	if len(input) != 5 {
-		t.Fatalf("Expected 5 input items, got %d", len(input))
-	}
-
-	// system
-	if input[0].OfMessage == nil {
-		t.Error("Item 0 should be a message")
-	}
-	// user
-	if input[1].OfMessage == nil {
-		t.Error("Item 1 should be a message")
-	}
-	// assistant text
-	if input[2].OfMessage == nil {
-		t.Error("Item 2 should be a message")
-	}
-	// function call
-	if input[3].OfFunctionCall == nil {
-		t.Error("Item 3 should be a function call")
-	}
-	if input[3].OfFunctionCall.Name != "get_time" {
-		t.Errorf("FunctionCall name = %q, want get_time", input[3].OfFunctionCall.Name)
-	}
-	if input[3].OfFunctionCall.CallID != "call_1" {
-		t.Errorf("FunctionCall callID = %q, want call_1", input[3].OfFunctionCall.CallID)
-	}
-	// function output
-	if input[4].OfFunctionCallOutput == nil {
-		t.Error("Item 4 should be a function call output")
-	}
-	if input[4].OfFunctionCallOutput.CallID != "call_1" {
-		t.Errorf("FunctionCallOutput callID = %q, want call_1", input[4].OfFunctionCallOutput.CallID)
+	if google.NativeMCPCapable() {
+		t.Error("Google should NOT be native MCP capable (not implemented)")
 	}
 }
 
@@ -765,7 +662,7 @@ func TestConvertToBetaMessages_PreservesStructure(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 		{Role: "assistant", Content: "Hi!"},
 	}
-	_, anthropicMsgs := convertToAnthropicMessages(msgs)
+	_, anthropicMsgs := convertToAnthropicMessages(msgs, false)
 	betaMsgs := convertToBetaMessages(anthropicMsgs)
 
 	if len(betaMsgs) != 2 {
@@ -779,131 +676,50 @@ func TestConvertToBetaMessages_PreservesStructure(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesProvider_UsesResponsesWithoutMCP(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{
-		ID:      "openai-real",
-		Name:    "OpenAI",
-		BaseURL: "https://api.openai.com/v1",
+func TestAnthropicProvider_BetaMCPParams_ExplicitCacheControlMarksLastTool(t *testing.T) {
+	provider := &AnthropicProvider{}
+	tools := []ToolDefinition{
+		{Function: FunctionDefinition{Name: "local_tool", Description: "Local tool", Parameters: []byte(`{"type":"object"}`)}},
 	}
-	provider := NewOpenAIResponsesProvider(p, credMgr)
+	params := provider.buildBetaMCPParams(
+		context.Background(),
+		"claude-sonnet",
+		1024,
+		nil,
+		nil,
+		ChatParams{ExplicitCacheControl: true},
+		[]MCPServerConfig{{Name: "remote", URL: "https://mcp.example.com"}},
+		tools...,
+	)
 
-	if !provider.useResponses {
-		t.Error("Responses provider should have useResponses=true")
+	if len(params.Tools) != 2 {
+		t.Fatalf("Tools len = %d, want 2", len(params.Tools))
 	}
-	if len(provider.mcpServers) != 0 {
-		t.Error("Fresh provider should have no MCP servers")
+	if params.Tools[0].GetCacheControl().Type != "" {
+		t.Fatal("MCP toolset should not be marked when a later local tool exists")
 	}
-	if !provider.SupportsNativeMCP() {
-		t.Error("Responses provider should support native MCP")
+	if params.Tools[1].GetCacheControl().Type == "" {
+		t.Fatal("last beta tool should have cache_control")
 	}
 }
 
-func TestOpenAICompatProvider_UsesChatCompletions(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{
-		ID:      "ollama",
-		Name:    "Ollama",
-		BaseURL: "http://localhost:11434/v1",
-	}
-	provider := NewOpenAIProvider(p, credMgr)
+func TestAnthropicProvider_BetaMCPParams_ExplicitCacheControlMarksMCPToolsetWhenLast(t *testing.T) {
+	provider := &AnthropicProvider{}
+	params := provider.buildBetaMCPParams(
+		context.Background(),
+		"claude-sonnet",
+		1024,
+		nil,
+		nil,
+		ChatParams{ExplicitCacheControl: true},
+		[]MCPServerConfig{{Name: "remote", URL: "https://mcp.example.com"}},
+	)
 
-	if provider.useResponses {
-		t.Error("Compatible provider should NOT use Responses API")
+	if len(params.Tools) != 1 {
+		t.Fatalf("Tools len = %d, want 1", len(params.Tools))
 	}
-	if provider.SupportsNativeMCP() {
-		t.Error("Compatible provider should NOT support native MCP")
-	}
-}
-
-// --- Testes de paridade e robustez Responses vs Chat Completions ---
-
-func TestConvertToResponsesInput_AssistantWithContentAndToolCalls(t *testing.T) {
-	msgs := []Message{
-		{Role: "user", Content: "What's the weather?"},
-		{
-			Role:    "assistant",
-			Content: "Let me check.",
-			ToolCalls: []ToolCall{
-				{ID: "call_w", Type: "function", Function: FunctionCall{Name: "get_weather", Arguments: `{"city":"SP"}`}},
-			},
-		},
-		{Role: "tool", Content: `{"temp":28}`, ToolCallID: "call_w"},
-	}
-
-	input := convertToResponsesInput(msgs)
-
-	// user + assistant_text + function_call + function_call_output = 4 items
-	if len(input) != 4 {
-		t.Fatalf("Expected 4 input items, got %d", len(input))
-	}
-	if input[0].OfMessage == nil {
-		t.Error("Item 0 should be user message")
-	}
-	if input[1].OfMessage == nil {
-		t.Error("Item 1 should be assistant text message")
-	}
-	if input[2].OfFunctionCall == nil {
-		t.Error("Item 2 should be function call")
-	}
-	if input[2].OfFunctionCall.Name != "get_weather" {
-		t.Errorf("FunctionCall name = %q, want get_weather", input[2].OfFunctionCall.Name)
-	}
-	if input[3].OfFunctionCallOutput == nil {
-		t.Error("Item 3 should be function call output")
-	}
-}
-
-func TestConvertToResponsesInput_NoToolCalls(t *testing.T) {
-	msgs := []Message{
-		{Role: "system", Content: "You are helpful"},
-		{Role: "user", Content: "Hello"},
-		{Role: "assistant", Content: "Hi!"},
-		{Role: "user", Content: "How are you?"},
-	}
-
-	input := convertToResponsesInput(msgs)
-	if len(input) != 4 {
-		t.Fatalf("Expected 4 input items, got %d", len(input))
-	}
-	for i, item := range input {
-		if item.OfMessage == nil {
-			t.Errorf("Item %d should be a message", i)
-		}
-	}
-}
-
-func TestConvertToResponsesInput_EmptyAssistantWithToolCalls(t *testing.T) {
-	msgs := []Message{
-		{
-			Role:    "assistant",
-			Content: "",
-			ToolCalls: []ToolCall{
-				{ID: "call_1", Type: "function", Function: FunctionCall{Name: "fn_a", Arguments: `{}`}},
-				{ID: "call_2", Type: "function", Function: FunctionCall{Name: "fn_b", Arguments: `{"x":1}`}},
-			},
-		},
-		{Role: "tool", Content: "result_a", ToolCallID: "call_1"},
-		{Role: "tool", Content: "result_b", ToolCallID: "call_2"},
-	}
-
-	input := convertToResponsesInput(msgs)
-
-	// Empty content → no assistant message item. 2 function_calls + 2 outputs = 4.
-	if len(input) != 4 {
-		t.Fatalf("Expected 4 input items (no empty assistant msg), got %d", len(input))
-	}
-	if input[0].OfFunctionCall == nil || input[0].OfFunctionCall.Name != "fn_a" {
-		t.Error("Item 0 should be function call fn_a")
-	}
-	if input[1].OfFunctionCall == nil || input[1].OfFunctionCall.Name != "fn_b" {
-		t.Error("Item 1 should be function call fn_b")
-	}
-	if input[2].OfFunctionCallOutput == nil {
-		t.Error("Item 2 should be function call output")
-	}
-	if input[3].OfFunctionCallOutput == nil {
-		t.Error("Item 3 should be function call output")
+	if params.Tools[0].GetCacheControl().Type == "" {
+		t.Fatal("MCP toolset should have cache_control when it is the last stable tool")
 	}
 }
 
@@ -959,172 +775,13 @@ func TestNewChatProvider_Factory_InfersResponses(t *testing.T) {
 		Name:    "OpenAI Real",
 		BaseURL: "https://api.openai.com/v1",
 	}
-	provider := NewChatProvider(p, credMgr)
+	provider := NewChatProvider(p, credMgr, nil)
 	openaiP, ok := provider.(*OpenAIProvider)
 	if !ok {
 		t.Fatal("Expected *OpenAIProvider")
 	}
 	if !openaiP.useResponses {
 		t.Error("Provider for api.openai.com without explicit format should use Responses API")
-	}
-}
-
-func TestConvertMessages_MultimodalUser_PreservesImages(t *testing.T) {
-	msgs := []Message{
-		{
-			Role: "user",
-			Content: []interface{}{
-				map[string]interface{}{"type": "text", "text": "What's in this image?"},
-				map[string]interface{}{
-					"type":      "image_url",
-					"image_url": map[string]interface{}{"url": "https://example.com/cat.png"},
-				},
-			},
-		},
-	}
-
-	result := convertMessages(msgs)
-	if len(result) != 1 {
-		t.Fatalf("Expected 1 message, got %d", len(result))
-	}
-	if result[0].OfUser == nil {
-		t.Fatal("Expected user message")
-	}
-	// Chat Completions path: extractImageParts detects image_url parts and
-	// converts to proper multimodal content (text + image_url parts).
-	// This path preserves image data correctly.
-}
-
-// TestConvertToResponsesInput_MultimodalLosesImageData is an INTENTIONAL limitation test.
-//
-// KNOWN LIMITATION (documented):
-// The Responses API path (convertToResponsesInput) does NOT support multimodal
-// image_url parts. When a user message contains text + image_url, only the text
-// portions are preserved — the image data is silently lost.
-//
-// This is because convertToResponsesInput uses GetContentAsString(), which
-// concatenates only text parts from multimodal content.
-//
-// The Chat Completions path (convertMessages + extractImageParts) DOES preserve
-// images correctly.
-//
-// This test exists to:
-//  1. Document this as a KNOWN limitation, not a silent regression.
-//  2. Freeze the current behavior so any future change is intentional.
-//  3. Serve as a guide for when multimodal support is added to Responses path.
-//
-// When Responses API multimodal support is implemented, this test should be
-// updated to verify images ARE preserved (and the limitation comment removed).
-func TestConvertToResponsesInput_MultimodalLosesImageData(t *testing.T) {
-	multimodalMsg := Message{
-		Role: "user",
-		Content: []interface{}{
-			map[string]interface{}{"type": "text", "text": "What's in this image?"},
-			map[string]interface{}{
-				"type":      "image_url",
-				"image_url": map[string]interface{}{"url": "https://example.com/cat.png"},
-			},
-		},
-	}
-
-	// Verify the raw content has both text and image parts
-	parts, ok := multimodalMsg.Content.([]interface{})
-	if !ok || len(parts) != 2 {
-		t.Fatal("Test setup: expected 2 content parts (text + image_url)")
-	}
-
-	// GetContentAsString extracts only text, losing the image
-	textOnly := multimodalMsg.GetContentAsString()
-	if textOnly != "What's in this image?" {
-		t.Errorf("GetContentAsString() = %q, want only the text portion", textOnly)
-	}
-
-	// convertToResponsesInput produces a single text message — image is lost
-	input := convertToResponsesInput([]Message{multimodalMsg})
-	if len(input) != 1 {
-		t.Fatalf("Expected 1 input item, got %d", len(input))
-	}
-	if input[0].OfMessage == nil {
-		t.Fatal("Expected message item (text-only fallback)")
-	}
-
-	// Compare with Chat Completions path, which DOES preserve the image
-	ccMsgs := convertMessages([]Message{multimodalMsg})
-	if len(ccMsgs) != 1 {
-		t.Fatalf("Expected 1 CC message, got %d", len(ccMsgs))
-	}
-	if ccMsgs[0].OfUser == nil {
-		t.Fatal("Expected user message in Chat Completions path")
-	}
-	// Chat Completions path uses extractImageParts, which detects image_url
-	// and creates proper multimodal content parts. This is the reference behavior.
-}
-
-func TestNativeMCP_ToolDeduplication(t *testing.T) {
-	// Simula cenário: tools do bridge incluem MCP tools + tools internas.
-	// Quando MCP nativo está ativo, bridge tools dos servidores nativos devem ser removidas.
-	allTools := []ToolDefinition{
-		{Function: FunctionDefinition{Name: "internal_search"}},
-		{Function: FunctionDefinition{Name: "mcp__github__list_repos"}},
-		{Function: FunctionDefinition{Name: "mcp__github__create_issue"}},
-		{Function: FunctionDefinition{Name: "mcp__slack__send_message"}},
-		{Function: FunctionDefinition{Name: "internal_calc"}},
-	}
-
-	nativeToolNames := map[string]bool{
-		"mcp__github__list_repos":   true,
-		"mcp__github__create_issue": true,
-	}
-
-	var filtered []ToolDefinition
-	for _, td := range allTools {
-		if !nativeToolNames[td.Function.Name] {
-			filtered = append(filtered, td)
-		}
-	}
-
-	if len(filtered) != 3 {
-		t.Fatalf("Expected 3 tools after dedup, got %d", len(filtered))
-	}
-	expectedNames := []string{"internal_search", "mcp__slack__send_message", "internal_calc"}
-	for i, name := range expectedNames {
-		if filtered[i].Function.Name != name {
-			t.Errorf("filtered[%d] = %q, want %q", i, filtered[i].Function.Name, name)
-		}
-	}
-}
-
-func TestMCPServerConfig_AllowedToolsPreserved(t *testing.T) {
-	credMgr := credentials.NewManager(nil)
-	p := &ProviderConfig{ID: "o", Name: "O", BaseURL: "https://api.openai.com/v1"}
-	provider := NewOpenAIResponsesProvider(p, credMgr)
-
-	servers := []MCPServerConfig{
-		{
-			Name:         "github-mcp",
-			URL:          "https://mcp.github.com/sse",
-			ToolNames:    []string{"mcp_github__create_issue"},
-			AllowedTools: []string{"create_issue"},
-		},
-	}
-	result := provider.WithMCPServers(servers)
-	openaiP := result.(*OpenAIProvider)
-	if len(openaiP.mcpServers[0].AllowedTools) != 1 {
-		t.Fatalf("Expected 1 AllowedTools, got %d", len(openaiP.mcpServers[0].AllowedTools))
-	}
-	if openaiP.mcpServers[0].AllowedTools[0] != "create_issue" {
-		t.Errorf("AllowedTools[0] = %q, want %q", openaiP.mcpServers[0].AllowedTools[0], "create_issue")
-	}
-}
-
-func TestMCPServerConfig_EmptyAllowedToolsMeansAll(t *testing.T) {
-	cfg := MCPServerConfig{
-		Name:      "test-mcp",
-		URL:       "https://test.com/mcp",
-		ToolNames: []string{"mcp_test__tool_a", "mcp_test__tool_b"},
-	}
-	if len(cfg.AllowedTools) != 0 {
-		t.Error("Empty AllowedTools should mean all tools are allowed")
 	}
 }
 
@@ -1150,311 +807,6 @@ func TestAnthropicProvider_AllowedToolsPreserved(t *testing.T) {
 	}
 }
 
-// filterNativeMCPByProfile replica a lógica de filtragem do chat loop (llm.go)
-// usando mcplib.ParseToolName como fonte canônica de naming.
-func filterNativeMCPByProfile(enabledTools []string, servers []struct {
-	slug      string
-	toolNames []string
-}) (configs []MCPServerConfig, nativeToolNames map[string]bool) {
-	var enabledSet map[string]bool
-	if enabledTools != nil {
-		enabledSet = make(map[string]bool, len(enabledTools))
-		for _, n := range enabledTools {
-			enabledSet[n] = true
-		}
-	}
-
-	nativeToolNames = make(map[string]bool)
-	for _, srv := range servers {
-		cfg := MCPServerConfig{
-			Name:      srv.slug + "-mcp",
-			URL:       "https://" + srv.slug + ".com/mcp",
-			ToolNames: srv.toolNames,
-		}
-		if enabledSet != nil {
-			var allowed []string
-			var allowedFull []string
-			for _, fullName := range srv.toolNames {
-				if enabledSet[fullName] {
-					if _, originalName, ok := mcplib.ParseToolName(fullName); ok {
-						allowed = append(allowed, originalName)
-					}
-					allowedFull = append(allowedFull, fullName)
-				}
-			}
-			if len(allowed) == 0 {
-				continue
-			}
-			cfg.AllowedTools = allowed
-			cfg.ToolNames = allowedFull
-		}
-		configs = append(configs, cfg)
-		for _, tn := range cfg.ToolNames {
-			nativeToolNames[tn] = true
-		}
-	}
-	return
-}
-
-func TestProfileEnabledTools_FilterNativeMCPServers(t *testing.T) {
-	type serverInput struct {
-		slug      string
-		toolNames []string
-	}
-	type testCase struct {
-		name         string
-		enabledTools []string
-		servers      []serverInput
-		wantConfigs  int
-		wantAllowed  map[string][]string
-	}
-
-	tests := []testCase{
-		{
-			name:         "nil EnabledTools passes all servers",
-			enabledTools: nil,
-			servers: []serverInput{
-				{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
-			},
-			wantConfigs: 1,
-			wantAllowed: map[string][]string{"github": nil},
-		},
-		{
-			name:         "filter keeps only enabled tools",
-			enabledTools: []string{"mcp_github__create_issue", "internal_search"},
-			servers: []serverInput{
-				{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
-			},
-			wantConfigs: 1,
-			wantAllowed: map[string][]string{"github": {"create_issue"}},
-		},
-		{
-			name:         "server excluded when no tools match",
-			enabledTools: []string{"internal_search"},
-			servers: []serverInput{
-				{slug: "github", toolNames: []string{"mcp_github__create_issue"}},
-			},
-			wantConfigs: 0,
-		},
-		{
-			name:         "multiple servers with partial match",
-			enabledTools: []string{"mcp_github__create_issue", "mcp_slack__send_message"},
-			servers: []serverInput{
-				{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
-				{slug: "slack", toolNames: []string{"mcp_slack__send_message"}},
-				{slug: "jira", toolNames: []string{"mcp_jira__create_ticket"}},
-			},
-			wantConfigs: 2,
-			wantAllowed: map[string][]string{
-				"github": {"create_issue"},
-				"slack":  {"send_message"},
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			srvInputs := make([]struct {
-				slug      string
-				toolNames []string
-			}, len(tc.servers))
-			for i, s := range tc.servers {
-				srvInputs[i].slug = s.slug
-				srvInputs[i].toolNames = s.toolNames
-			}
-			configs, _ := filterNativeMCPByProfile(tc.enabledTools, srvInputs)
-
-			if len(configs) != tc.wantConfigs {
-				t.Fatalf("got %d configs, want %d", len(configs), tc.wantConfigs)
-			}
-			for slug, wantAllowed := range tc.wantAllowed {
-				found := false
-				for _, cfg := range configs {
-					if cfg.Name == slug+"-mcp" {
-						found = true
-						if wantAllowed == nil {
-							if len(cfg.AllowedTools) != 0 {
-								t.Errorf("server %q: want nil AllowedTools, got %v", slug, cfg.AllowedTools)
-							}
-						} else {
-							if len(cfg.AllowedTools) != len(wantAllowed) {
-								t.Errorf("server %q: got %d AllowedTools, want %d", slug, len(cfg.AllowedTools), len(wantAllowed))
-							}
-							for i, want := range wantAllowed {
-								if i < len(cfg.AllowedTools) && cfg.AllowedTools[i] != want {
-									t.Errorf("server %q AllowedTools[%d] = %q, want %q", slug, i, cfg.AllowedTools[i], want)
-								}
-							}
-						}
-					}
-				}
-				if !found {
-					t.Errorf("server %q not found in configs", slug)
-				}
-			}
-		})
-	}
-}
-
-func TestNativeMCP_NoDuplicateWithBridge(t *testing.T) {
-	bridgeToolDefs := []ToolDefinition{
-		{Function: FunctionDefinition{Name: "internal_search"}},
-		{Function: FunctionDefinition{Name: "mcp_github__create_issue"}},
-		{Function: FunctionDefinition{Name: "mcp_github__list_repos"}},
-		{Function: FunctionDefinition{Name: "mcp_slack__send_message"}},
-	}
-
-	servers := []struct {
-		slug      string
-		toolNames []string
-	}{
-		{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
-	}
-
-	_, nativeToolNames := filterNativeMCPByProfile(nil, servers)
-
-	var afterDedup []ToolDefinition
-	for _, td := range bridgeToolDefs {
-		if !nativeToolNames[td.Function.Name] {
-			afterDedup = append(afterDedup, td)
-		}
-	}
-
-	nativeNames := make(map[string]bool)
-	for name := range nativeToolNames {
-		nativeNames[name] = true
-	}
-	bridgeNames := make(map[string]bool)
-	for _, td := range afterDedup {
-		bridgeNames[td.Function.Name] = true
-	}
-
-	for name := range nativeNames {
-		if bridgeNames[name] {
-			t.Errorf("tool %q presente tanto em native quanto em bridge (duplicata!)", name)
-		}
-	}
-
-	if len(afterDedup) != 2 {
-		t.Fatalf("após dedup, esperado 2 tools restantes, obtido %d", len(afterDedup))
-	}
-	if afterDedup[0].Function.Name != "internal_search" {
-		t.Errorf("afterDedup[0] = %q, esperado internal_search", afterDedup[0].Function.Name)
-	}
-	if afterDedup[1].Function.Name != "mcp_slack__send_message" {
-		t.Errorf("afterDedup[1] = %q, esperado mcp_slack__send_message", afterDedup[1].Function.Name)
-	}
-}
-
-// mcpTrackingHandler captura MCPToolEvents para validação em testes.
-type mcpTrackingHandler struct {
-	captureHandler
-	events []MCPToolEvent
-}
-
-func (h *mcpTrackingHandler) OnMCPToolEvent(event MCPToolEvent) {
-	h.events = append(h.events, event)
-}
-
-func TestMCPToolEvent_StreamHandlerInterface(t *testing.T) {
-	var handler StreamHandler = &mcpTrackingHandler{}
-
-	handler.OnMCPToolEvent(MCPToolEvent{
-		ID:          "call_001",
-		Name:        "jira_search",
-		ServerLabel: "Atlassian",
-		IsCompleted: false,
-	})
-
-	handler.OnMCPToolEvent(MCPToolEvent{
-		ID:          "call_001",
-		Name:        "jira_search",
-		ServerLabel: "Atlassian",
-		Arguments:   `{"query":"project=FSD"}`,
-		Output:      `{"issues":[{"key":"FSD-123"}]}`,
-		IsCompleted: true,
-	})
-
-	h := handler.(*mcpTrackingHandler)
-	if len(h.events) != 2 {
-		t.Fatalf("esperado 2 eventos, obtido %d", len(h.events))
-	}
-
-	start := h.events[0]
-	if start.Name != "jira_search" || start.ServerLabel != "Atlassian" || start.IsCompleted {
-		t.Errorf("evento start incorreto: %+v", start)
-	}
-
-	end := h.events[1]
-	if end.Name != "jira_search" || !end.IsCompleted || end.Output == "" {
-		t.Errorf("evento end incorreto: %+v", end)
-	}
-	if end.Arguments != `{"query":"project=FSD"}` {
-		t.Errorf("Arguments = %q, esperado query JQL", end.Arguments)
-	}
-}
-
-func TestMCPToolEvent_ErrorTracking(t *testing.T) {
-	handler := &mcpTrackingHandler{}
-
-	handler.OnMCPToolEvent(MCPToolEvent{
-		ID:          "call_err",
-		Name:        "search",
-		ServerLabel: "Slack",
-		Error:       "unauthorized",
-		IsCompleted: true,
-	})
-
-	if len(handler.events) != 1 {
-		t.Fatalf("esperado 1 evento, obtido %d", len(handler.events))
-	}
-	ev := handler.events[0]
-	if ev.Error != "unauthorized" || !ev.IsCompleted {
-		t.Errorf("evento de erro incorreto: %+v", ev)
-	}
-}
-
-func TestMCPToolEvent_MultipleServers(t *testing.T) {
-	handler := &mcpTrackingHandler{}
-
-	handler.OnMCPToolEvent(MCPToolEvent{
-		ID: "mc1", Name: "search", ServerLabel: "Atlassian", IsCompleted: false,
-	})
-	handler.OnMCPToolEvent(MCPToolEvent{
-		ID: "mc2", Name: "read_channel", ServerLabel: "Slack", IsCompleted: false,
-	})
-	handler.OnMCPToolEvent(MCPToolEvent{
-		ID: "mc1", Name: "search", ServerLabel: "Atlassian",
-		Output: `[{"key":"FSD-1"}]`, IsCompleted: true,
-	})
-	handler.OnMCPToolEvent(MCPToolEvent{
-		ID: "mc2", Name: "read_channel", ServerLabel: "Slack",
-		Output: "messages...", IsCompleted: true,
-	})
-
-	if len(handler.events) != 4 {
-		t.Fatalf("esperado 4 eventos, obtido %d", len(handler.events))
-	}
-
-	starts := 0
-	ends := 0
-	servers := map[string]bool{}
-	for _, ev := range handler.events {
-		if ev.IsCompleted {
-			ends++
-		} else {
-			starts++
-		}
-		servers[ev.ServerLabel] = true
-	}
-	if starts != 2 || ends != 2 {
-		t.Errorf("esperado 2 starts + 2 ends, obtido %d starts + %d ends", starts, ends)
-	}
-	if !servers["Atlassian"] || !servers["Slack"] {
-		t.Errorf("servidores rastreados: %v", servers)
-	}
-}
-
 type providerRetryHandler struct {
 	captureHandler
 	errors []string
@@ -1467,75 +819,6 @@ func (h *providerRetryHandler) OnError(err string) {
 
 func (h *providerRetryHandler) OnDone(fullResponse string, usage Usage, model string) {
 	h.done++
-}
-
-func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T) {
-	recovered := make(chan struct{}, 1)
-	seen := make([][]string, 0, 2)
-	attempts := 0
-
-	provider := &OpenAIProvider{
-		provider:     &ProviderConfig{ID: "o", Name: "OpenAI", BaseURL: "https://api.openai.com/v1"},
-		useResponses: true,
-		mcpServers: []MCPServerConfig{
-			{
-				Name: "Atlassian",
-				Slug: "atlassian",
-				URL:  "https://mcp.atlassian.com/v1/sse",
-				Recover: func(context.Context) error {
-					recovered <- struct{}{}
-					return nil
-				},
-			},
-			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
-		},
-	}
-	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
-		attempts++
-		slugs := make([]string, 0, len(servers))
-		for _, srv := range servers {
-			slugs = append(slugs, srv.Slug)
-		}
-		seen = append(seen, slugs)
-		if attempts == 1 {
-			return mcpStreamAttemptResult{
-				mcpFailure: &MCPAttemptFailure{
-					ServerName: "Atlassian",
-					ServerSlug: "atlassian",
-					Stage:      MCPFailureStageListTools,
-					Message:    "Falha no Atlassian",
-					Degradable: true,
-				},
-			}
-		}
-		handler.OnChunk("ok")
-		handler.OnDone("ok", Usage{}, "gpt-test")
-		return mcpStreamAttemptResult{done: true}
-	}
-
-	handler := &providerRetryHandler{}
-	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, ChatParams{}, handler)
-
-	if attempts != 2 {
-		t.Fatalf("attempts = %d, want 2", attempts)
-	}
-	if len(seen) != 2 || len(seen[0]) != 2 || len(seen[1]) != 1 || seen[1][0] != "slack" {
-		t.Fatalf("servers por tentativa = %#v", seen)
-	}
-	select {
-	case <-recovered:
-	case <-time.After(1 * time.Second):
-		t.Fatal("esperava callback de recovery assíncrono")
-	}
-	if got := handler.chunks.String(); got != "ok" {
-		t.Fatalf("chunk final = %q, want %q", got, "ok")
-	}
-	if len(handler.errors) != 0 {
-		t.Fatalf("erros inesperados: %v", handler.errors)
-	}
-	if handler.done != 1 {
-		t.Fatalf("OnDone = %d, want 1", handler.done)
-	}
 }
 
 func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.T) {
@@ -1603,53 +886,5 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 	}
 	if handler.done != 1 {
 		t.Fatalf("OnDone = %d, want 1", handler.done)
-	}
-}
-
-func TestNativeMCP_NoDuplicateWithProfile(t *testing.T) {
-	bridgeToolDefs := []ToolDefinition{
-		{Function: FunctionDefinition{Name: "internal_search"}},
-		{Function: FunctionDefinition{Name: "mcp_github__create_issue"}},
-	}
-
-	servers := []struct {
-		slug      string
-		toolNames []string
-	}{
-		{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
-	}
-
-	enabledTools := []string{"mcp_github__create_issue", "internal_search"}
-	configs, nativeToolNames := filterNativeMCPByProfile(enabledTools, servers)
-
-	if len(configs) != 1 {
-		t.Fatalf("esperado 1 config, obtido %d", len(configs))
-	}
-	if len(configs[0].AllowedTools) != 1 || configs[0].AllowedTools[0] != "create_issue" {
-		t.Errorf("AllowedTools = %v, esperado [create_issue]", configs[0].AllowedTools)
-	}
-
-	var afterDedup []ToolDefinition
-	for _, td := range bridgeToolDefs {
-		if !nativeToolNames[td.Function.Name] {
-			afterDedup = append(afterDedup, td)
-		}
-	}
-
-	for _, td := range afterDedup {
-		if nativeToolNames[td.Function.Name] {
-			t.Errorf("tool %q duplicada: aparece em bridge E native", td.Function.Name)
-		}
-	}
-
-	if len(afterDedup) != 1 || afterDedup[0].Function.Name != "internal_search" {
-		t.Errorf("após dedup com perfil, esperado apenas [internal_search], obtido %v",
-			func() []string {
-				var names []string
-				for _, td := range afterDedup {
-					names = append(names, td.Function.Name)
-				}
-				return names
-			}())
 	}
 }

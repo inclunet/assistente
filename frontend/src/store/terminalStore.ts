@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
 import {
   ListTerminalSessions,
@@ -6,17 +7,23 @@ import {
   SendTerminalInput,
   InterruptTerminalCommand,
   GetTerminalHistory,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Terminal';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { announce } from '../hooks/useAnnouncer';
+import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
 let announceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingOutput = '';
 let terminalEventListenerRefCount = 0;
 let terminalEventListenerCleanup: (() => void) | null = null;
+let legacyCommandSequence = 0;
+
+export function resolveTerminalCommandId(sessionId: string, commandId?: string): string {
+  return commandId || `legacy-${sessionId}-${Date.now()}-${legacyCommandSequence++}`;
+}
 
 function scheduleOutputAnnounce(chunk: string) {
   pendingOutput += chunk;
@@ -26,9 +33,9 @@ function scheduleOutputAnnounce(chunk: string) {
     if (text) {
       playReceiveSound();
       const truncated = text.length > 300
-        ? text.slice(0, 300) + '… truncado'
+        ? text.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix')
         : text;
-      announce(`Saída: ${truncated}`);
+      announce(i18next.t('terminal.announce.output', { output: truncated }));
     }
     pendingOutput = '';
     announceTimer = null;
@@ -48,9 +55,9 @@ interface TerminalState {
   loadingHistoryBySession: Record<string, boolean>;
 
   // Actions
-  loadSessions: () => Promise<void>;
+  loadSessions: () => Promise<boolean>;
   createSession: (name?: string) => Promise<string | null>;
-  closeSession: (id: string) => Promise<void>;
+  closeSession: (id: string) => Promise<boolean>;
   sendInput: (sessionId: string, input: string) => Promise<void>;
   interrupt: (sessionId: string) => Promise<void>;
   loadHistory: (sessionId: string) => Promise<void>;
@@ -69,8 +76,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     try {
       const sessions = await ListTerminalSessions();
       set({ sessions: sessions || [] });
+      return true;
     } catch (err) {
-      console.error('[Terminal] Erro ao carregar sessões:', err);
+      logger.error('[Terminal] Erro ao carregar sessões:', err);
+      return false;
     } finally {
       set({ isLoadingSessions: false });
     }
@@ -84,7 +93,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       }
       return null;
     } catch (err) {
-      console.error('[Terminal] Erro ao criar sessão:', err);
+      logger.error('[Terminal] Erro ao criar sessão:', err);
       return null;
     }
   },
@@ -92,8 +101,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   closeSession: async (id: string) => {
     try {
       await CloseTerminalSession(id);
+      return true;
     } catch (err) {
-      console.error('[Terminal] Erro ao fechar sessão:', err);
+      logger.error('[Terminal] Erro ao fechar sessão:', err);
+      return false;
     }
   },
 
@@ -104,7 +115,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       playSendSound();
       await SendTerminalInput(sessionId, input);
     } catch (err) {
-      console.error('[Terminal] Erro ao enviar input:', err);
+      logger.error('[Terminal] Erro ao enviar input:', err);
     }
   },
 
@@ -114,7 +125,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     try {
       await InterruptTerminalCommand(sessionId);
     } catch (err) {
-      console.error('[Terminal] Erro ao interromper:', err);
+      logger.error('[Terminal] Erro ao interromper:', err);
     }
   },
 
@@ -139,7 +150,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         };
       });
     } catch (err) {
-      console.error('[Terminal] Erro ao carregar histórico:', err);
+      logger.error('[Terminal] Erro ao carregar histórico:', err);
     } finally {
       set(state => {
         const nextLoading = { ...state.loadingHistoryBySession };
@@ -180,31 +191,35 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     }));
 
     // Sessão fechada
-    unsubs.push(EventsOn('terminal:session_closed', (data: { sessionId: string }) => {
+    const removeExitedSession = (data: { sessionId?: string; terminalId?: string }) => {
+      const sessionId = data.terminalId || data.sessionId;
+      if (!sessionId) return;
       set(state => {
         const newHistory = { ...state.historyBySession };
-        delete newHistory[data.sessionId];
+        delete newHistory[sessionId];
         const newActiveEntry = { ...state.activeEntryBySession };
-        delete newActiveEntry[data.sessionId];
+        delete newActiveEntry[sessionId];
         const newLoadingHistory = { ...state.loadingHistoryBySession };
-        delete newLoadingHistory[data.sessionId];
+        delete newLoadingHistory[sessionId];
         return {
-          sessions: state.sessions.filter(s => s.id !== data.sessionId),
+          sessions: state.sessions.filter(s => s.id !== sessionId),
           historyBySession: newHistory,
           activeEntryBySession: newActiveEntry,
           loadingHistoryBySession: newLoadingHistory,
         };
       });
-    }));
+    };
+    unsubs.push(EventsOn('terminal:session_closed', removeExitedSession));
+    unsubs.push(EventsOn('terminal:exited', removeExitedSession));
 
     // Comando iniciado (raw mode — cria entry para receber output)
-    unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; command: string; source: string }) => {
+    unsubs.push(EventsOn('terminal:command_start', (data: { sessionId: string; commandId?: string; command: string; source: string }) => {
       // Limpa pending output do comando anterior
       pendingOutput = '';
       if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
 
       const tempEntry: HistoryEntry = terminal.HistoryEntry.createFrom({
-        id: `raw-${Date.now()}`,
+        id: resolveTerminalCommandId(data.sessionId, data.commandId),
         command: data.command,
         output: '',
         exitCode: -999, // sentinel para "em execução / raw"
@@ -224,6 +239,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
             ...state.activeEntryBySession,
             [data.sessionId]: tempEntry.id,
           },
+          sessions: data.source === 'user-raw'
+            ? state.sessions
+            : state.sessions.map(session => (
+              session.id === data.sessionId
+                ? terminal.SessionInfo.createFrom({ ...session, state: 'running' })
+                : session
+            )),
         };
       });
     }));
@@ -285,9 +307,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
       playReceiveSound();
       const outputPreview = data.output
-        ? (data.output.length > 300 ? data.output.slice(0, 300) + '… truncado' : data.output)
-        : 'vazia';
-      announce(`Saída: ${outputPreview}. Código de saída: ${data.exitCode}`);
+        ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
+        : i18next.t('terminal.announce.emptyOutput');
+      announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {
@@ -312,6 +334,10 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           sessions: state.sessions.map(s =>
             s.id === data.sessionId ? terminal.SessionInfo.createFrom({ ...s, state: 'idle' }) : s
           ),
+          activeEntryBySession: {
+            ...state.activeEntryBySession,
+            [data.sessionId]: null,
+          },
         };
       });
     }));

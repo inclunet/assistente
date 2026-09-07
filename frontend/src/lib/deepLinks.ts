@@ -2,10 +2,19 @@ import type { NavigateFunction } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
-import { useNavigationStore, type EditableResource } from '../store/navigationStore';
+import {
+  useNavigationStore,
+  type EditableResource,
+  type ProfileEditSection,
+  type WorkspaceNavigationCaller,
+} from '../store/navigationStore';
+import { useUIStore } from '../store/uiStore';
+import { useTerminalStore } from '../store/terminalStore';
 import { announce } from '../hooks/useAnnouncer';
-import { EditorReadFile } from '@wailsjs/go/app/App';
-import { RunTerminalCommand } from '@wailsjs/go/app/App';
+import { EditorReadFile } from '@wailsjs/go/wailsapi/Editor';
+import { normalizeEditorDocumentResult } from './editorContent';
+import { RunTerminalCommand } from '@wailsjs/go/wailsapi/Terminal';
+import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import { isBackendId } from './idUtils';
 import i18n from './i18n';
@@ -20,11 +29,16 @@ export const DEEP_LINK_PREFIX = `${DEEP_LINK_PROTOCOL}://`;
 export type TabType = 'tasklist' | 'editor' | 'terminal';
 
 export type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: string; title?: string }
-  | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: string; message: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string; profile?: string }
+  | { type: 'conversation:new'; message?: string; title?: string; profile?: string }
+  | { type: 'conversation:send'; conversationId: string; message: string; profile?: string }
   | { type: 'navigate'; route: string }
-  | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
+  | {
+      type: 'resource:edit';
+      resource: EditableResource;
+      resourceId: string;
+      tab?: ProfileEditSection;
+    }
   | { type: 'resource:new'; resource: EditableResource }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
   | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
@@ -33,16 +47,27 @@ export type DeepLinkAction =
 const VALID_ROUTES = new Set([
   '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
   'settings/channels', 'settings/contacts', 'settings/credentials',
-  'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
-  'profiles', 'history', 'tasklists', 'help', 'about', 'update',
+  'settings/allowlists', 'settings/network-allowlist', 'settings/path-allowlist',
+  'settings/appearance', 'settings/restore-defaults',
+  'settings/data',
+  'profiles', 'history', 'memories', 'tasklists', 'help', 'about', 'update',
 ]);
 
 const EDITABLE_RESOURCES = new Set<EditableResource>([
   'profiles', 'providers', 'credentials', 'allowlists',
-  'skills', 'mcp', 'channels', 'tasklists',
+  'skills', 'mcp', 'channels', 'memories', 'tasklists',
 ]);
 
 const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
+const PROFILE_EDIT_SECTIONS = new Set<ProfileEditSection>(['voice']);
+
+function isValidResourceTab(
+  resource: EditableResource,
+  tab: string | undefined,
+): tab is ProfileEditSection | undefined {
+  if (!tab) return true;
+  return resource === 'profiles' && PROFILE_EDIT_SECTIONS.has(tab as ProfileEditSection);
+}
 
 function defaultTitleForNewTab(tabType: TabType): string {
   const typeLabel = i18n.t(`workspace.tabType.${tabType}`);
@@ -60,10 +85,14 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   'settings/contacts': 'settingsPage.tabs.contacts',
   'settings/credentials': 'menu.credentials',
   'settings/allowlists': 'menu.allowlists',
+  'settings/network-allowlist': 'settingsPage.tabs.network-allowlist',
+  'settings/path-allowlist': 'settingsPage.tabs.path-allowlist',
   'settings/appearance': 'appearance.pageTitle',
   'settings/restore-defaults': 'menu.restoreDefaults',
+  'settings/data': 'settingsPage.tabs.data',
   profiles: 'menu.profiles',
   history: 'menu.history',
+  memories: 'menu.memories',
   tasklists: 'menu.tasklists',
   help: 'menu.help',
   about: 'menu.about',
@@ -93,27 +122,32 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
     const resource = segments[0];
 
     if (resource === 'conversation') {
-      // assistente://conversation/new?message=...&title=...
+      // Parâmetro opcional para forçar o perfil da conversa-alvo
+      // (ex.: ?profile=programacao). Vazio = mantém cascata aba/workspace/global.
+      const profile = params.get('profile') || undefined;
+
+      // assistente://conversation/new?message=...&title=...&profile=...
       if (segments[1] === 'new') {
         return {
           type: 'conversation:new',
           message: params.get('message') || undefined,
           title: params.get('title') || undefined,
+          profile,
         };
       }
 
       const id = segments[1] || '';
       if (!isBackendId(id)) return null;
 
-      // assistente://conversation/{id}/send?message=...
+      // assistente://conversation/{id}/send?message=...&profile=...
       if (segments[2] === 'send') {
         const message = params.get('message');
         if (!message) return null;
-        return { type: 'conversation:send', conversationId: id, message };
+        return { type: 'conversation:send', conversationId: id, message, profile };
       }
 
-      // assistente://conversation/{id}
-      return { type: 'conversation:open', conversationId: id };
+      // assistente://conversation/{id}?profile=...
+      return { type: 'conversation:open', conversationId: id, profile };
     }
 
     if (resource === 'navigate') {
@@ -151,7 +185,15 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
       }
       if (action === 'edit' && segments[2]) {
         const resourceId = decodeURIComponent(segments.slice(2).join('/'));
-        return { type: 'resource:edit', resource: resource as EditableResource, resourceId };
+        const tabParam = params.get('tab');
+        if (params.has('tab') && !tabParam) return null;
+        if (!isValidResourceTab(resource as EditableResource, tabParam || undefined)) return null;
+        return {
+          type: 'resource:edit',
+          resource: resource as EditableResource,
+          resourceId,
+          ...(tabParam ? { tab: tabParam as ProfileEditSection } : {}),
+        };
       }
     }
 
@@ -165,13 +207,18 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
 
 export function buildDeepLink(action: DeepLinkAction): string {
   switch (action.type) {
-    case 'conversation:open':
-      return `${DEEP_LINK_PREFIX}conversation/${action.conversationId}`;
+    case 'conversation:open': {
+      const params = new URLSearchParams();
+      if (action.profile) params.set('profile', action.profile);
+      const qs = params.toString();
+      return `${DEEP_LINK_PREFIX}conversation/${action.conversationId}${qs ? `?${qs}` : ''}`;
+    }
 
     case 'conversation:new': {
       const params = new URLSearchParams();
       if (action.message) params.set('message', action.message);
       if (action.title) params.set('title', action.title);
+      if (action.profile) params.set('profile', action.profile);
       const qs = params.toString();
       return `${DEEP_LINK_PREFIX}conversation/new${qs ? `?${qs}` : ''}`;
     }
@@ -179,14 +226,22 @@ export function buildDeepLink(action: DeepLinkAction): string {
     case 'conversation:send': {
       const params = new URLSearchParams();
       params.set('message', action.message);
+      if (action.profile) params.set('profile', action.profile);
       return `${DEEP_LINK_PREFIX}conversation/${action.conversationId}/send?${params}`;
     }
 
     case 'navigate':
       return `${DEEP_LINK_PREFIX}navigate/${action.route}`;
 
-    case 'resource:edit':
-      return `${DEEP_LINK_PREFIX}${action.resource}/edit/${encodeURIComponent(action.resourceId)}`;
+    case 'resource:edit': {
+      if (!isValidResourceTab(action.resource, action.tab)) {
+        throw new Error('Invalid resource editor tab');
+      }
+      const params = new URLSearchParams();
+      if (action.tab) params.set('tab', action.tab);
+      const qs = params.toString();
+      return `${DEEP_LINK_PREFIX}${action.resource}/edit/${encodeURIComponent(action.resourceId)}${qs ? `?${qs}` : ''}`;
+    }
 
     case 'resource:new':
       return `${DEEP_LINK_PREFIX}${action.resource}/new`;
@@ -262,6 +317,7 @@ export function getDeepLinkTypeClass(action: DeepLinkAction): string {
 
 export interface DeepLinkDeps {
   navigate: NavigateFunction;
+  caller?: WorkspaceNavigationCaller;
 }
 
 export async function executeDeepLink(
@@ -291,8 +347,13 @@ export async function executeDeepLink(
     }
   };
 
-  const buildChatTabSendContext = (tab: WorkspaceTab, conversationId: string) => {
-    const profileSlug = (tab.profileOverride?.slug as string | undefined)
+  const buildChatTabSendContext = (
+    tab: WorkspaceTab,
+    conversationId: string,
+    profileSlugOverride?: string,
+  ) => {
+    const profileSlug = profileSlugOverride
+      || (tab.profileOverride?.slug as string | undefined)
       || wsStore.workspace?.profile
       || undefined;
     const identity = createChatSurfaceIdentity({
@@ -306,9 +367,38 @@ export async function executeDeepLink(
     };
   };
 
+  // Aplica o perfil informado no deeplink como override da aba-alvo (mesmo
+  // mecanismo do seletor de perfil da toolbar). Valida o slug antes de
+  // persistir; se inválido, avisa e segue sem override (o backend cai no
+  // perfil ativo). Retorna o slug efetivamente aplicado, ou undefined.
+  const applyProfileOverride = async (
+    tabId: string,
+    profile: string | undefined,
+  ): Promise<string | undefined> => {
+    if (!profile) return undefined;
+    try {
+      await GetProfile(profile);
+    } catch (err) {
+      // Distingue "perfil inexistente" de falhas inesperadas (ex.: erro ao
+      // ler/parsear o JSON do perfil) para não exibir um aviso enganoso. Em
+      // ambos os casos seguimos sem override — o backend cai no perfil ativo.
+      const message = err instanceof Error ? err.message : String(err);
+      const notFound = /not found/i.test(message);
+      const msgKey = notFound ? 'deepLink.invalidProfile' : 'deepLink.profileLoadError';
+      useUIStore.getState().addToast(t(msgKey, { profile }), notFound ? 'warning' : 'error', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+      announce(t(msgKey, { profile }));
+      return undefined;
+    }
+    await wsStore.updateTab(tabId, { profile_override: { slug: profile } });
+    return profile;
+  };
+
   switch (action.type) {
     case 'conversation:open': {
-      await openOrCreateChatTab(action.conversationId, action.title);
+      const tab = await openOrCreateChatTab(action.conversationId, action.title);
+      await applyProfileOverride(tab.id, action.profile);
       deps.navigate('/');
       announce(t('deepLink.announcedOpen', { id: action.conversationId }));
       break;
@@ -318,6 +408,7 @@ export async function executeDeepLink(
       const title = action.title || t('chat.newConversation');
       const conversationId = await useChatStore.getState().createConversation(title);
       const tabId = await wsStore.addTab('chat', title, { conversationId });
+      const appliedProfile = await applyProfileOverride(tabId, action.profile);
       deps.navigate('/');
       if (action.message) {
         const tab: WorkspaceTab = {
@@ -326,8 +417,9 @@ export async function executeDeepLink(
           title,
           position: 0,
           conversationId,
+          ...(appliedProfile ? { profileOverride: { slug: appliedProfile } } : {}),
         };
-        const { origin, params } = buildChatTabSendContext(tab, conversationId);
+        const { origin, params } = buildChatTabSendContext(tab, conversationId, appliedProfile);
         await useChatStore.getState().sendMessageToConversation(conversationId, action.message, undefined, params, { origin });
       }
       announce(title);
@@ -336,9 +428,10 @@ export async function executeDeepLink(
 
     case 'conversation:send': {
       const tab = await openOrCreateChatTab(action.conversationId);
+      const appliedProfile = await applyProfileOverride(tab.id, action.profile);
       deps.navigate('/');
       await useChatStore.getState().loadConversationSession(action.conversationId);
-      const { origin, params } = buildChatTabSendContext(tab, action.conversationId);
+      const { origin, params } = buildChatTabSendContext(tab, action.conversationId, appliedProfile);
       await useChatStore.getState().sendMessageToConversation(action.conversationId, action.message, undefined, params, { origin });
       announce(t('deepLink.announcedSent', { id: action.conversationId }));
       break;
@@ -354,8 +447,18 @@ export async function executeDeepLink(
     }
 
     case 'resource:edit': {
+      if (!isValidResourceTab(action.resource, action.tab)) {
+        throw new Error('Invalid resource editor tab');
+      }
       const navStore = useNavigationStore.getState();
-      navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
+      if (action.tab || deps.caller) {
+        navStore.requestResourceEdit(action.resource, action.resourceId, 'edit', {
+          ...(action.tab ? { tab: action.tab } : {}),
+          ...(deps.caller ? { caller: deps.caller } : {}),
+        });
+      } else {
+        navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
+      }
       const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
       const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);
@@ -374,6 +477,28 @@ export async function executeDeepLink(
     }
 
     case 'tab:open': {
+      if (action.tabType === 'terminal') {
+        const sessionsLoaded = await useTerminalStore.getState().loadSessions();
+        if (!sessionsLoaded) {
+          const message = t('deepLink.terminalListFailed');
+          useUIStore.getState().addToast(message, 'error', undefined, undefined, {
+            suppressAnnounce: true,
+          });
+          announce(message);
+          break;
+        }
+        const isLive = useTerminalStore.getState().sessions.some(
+          (session) => session.id === action.contentId,
+        );
+        if (!isLive) {
+          const message = t('deepLink.terminalUnavailable', { id: action.contentId });
+          useUIStore.getState().addToast(message, 'warning', undefined, undefined, {
+            suppressAnnounce: true,
+          });
+          announce(message);
+          break;
+        }
+      }
       const tabs = wsStore.workspace?.tabs || [];
       // Find existing tab by type-specific content identifier
       const existing = tabs.find((tab) => {
@@ -401,26 +526,45 @@ export async function executeDeepLink(
 
     case 'tab:new': {
       if (action.file && action.tabType === 'editor') {
-        const content = String(await EditorReadFile(action.file) || '');
+        let loaded: ReturnType<typeof normalizeEditorDocumentResult>;
+        try {
+          loaded = normalizeEditorDocumentResult(await EditorReadFile(action.file), action.file);
+        } catch {
+          const message = t('editor.toast.openFailed');
+          useUIStore.getState().addToast(message, 'error', undefined, undefined, {
+            suppressAnnounce: true,
+          });
+          announce(message);
+          break;
+        }
         const fileName = action.file.split(/[/\\]/).pop() || i18n.t('editor.prompts.file');
         const title = action.title || fileName;
         const tabId = await wsStore.addTab('editor', title, { filePath: action.file });
-        useEditorStore.getState().createDocument({ id: tabId, title, markdown: content, filePath: action.file });
+        useEditorStore.getState().createDocument({
+          id: tabId,
+          title,
+          markdown: loaded.content,
+          mode: loaded.readOnly ? 'view' : 'markdown',
+          filePath: action.file,
+          readOnly: loaded.readOnly,
+          projection: loaded.projected
+            ? { format: loaded.format, pages: loaded.pages, warnings: loaded.warnings, warningCode: loaded.warningCode }
+            : null,
+        });
       } else if (action.tabType === 'terminal') {
-        const tabId = await wsStore.addTab('terminal', action.title || i18n.t('terminal.pageTitle'));
+        const sessionId = await useTerminalStore.getState().createSession(action.title);
+        if (!sessionId) {
+          const message = t('terminal.announce.createFailed');
+          useUIStore.getState().addToast(message, 'error');
+          announce(message);
+          break;
+        }
+        await wsStore.addTab(
+          'terminal',
+          action.title || i18n.t('terminal.pageTitle'),
+          { sessionId },
+        );
         if (action.cmd) {
-          const waitForSessionId = (): Promise<string> => new Promise((resolve) => {
-            const check = () => {
-              const tab = (useWorkspaceStore.getState().workspace?.tabs || []).find(
-                (t) => t.id === tabId,
-              );
-              const sid = tab?.state?.sessionId as string | undefined;
-              if (sid) { resolve(sid); return; }
-              setTimeout(check, 50);
-            };
-            check();
-          });
-          const sessionId = await waitForSessionId();
           await RunTerminalCommand(sessionId, action.cmd);
         }
       } else {

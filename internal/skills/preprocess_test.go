@@ -1,12 +1,9 @@
 package skills
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestPreprocessCommands_BasicEcho(t *testing.T) {
@@ -17,7 +14,7 @@ func TestPreprocessCommands_BasicEcho(t *testing.T) {
 		content = "Before\n!echo hello\nAfter"
 	}
 
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "hello") {
 		t.Errorf("expected output to contain 'hello', got: %q", result)
@@ -47,9 +44,20 @@ func TestPreprocessCommands_EmptyContent(t *testing.T) {
 
 func TestPreprocessCommands_FailedCommand(t *testing.T) {
 	content := "!thiscommanddoesnotexist12345"
-	result := PreprocessCommands(content, nil)
-	if !strings.Contains(result, "<!-- command failed:") {
+	result := PreprocessCommands(content, []string{"thiscommanddoesnotexist12345"})
+	if !strings.Contains(result, "<!-- command failed") {
 		t.Errorf("expected error comment, got: %q", result)
+	}
+}
+
+func TestPreprocessCommands_FailedCommandDoesNotEchoCommand(t *testing.T) {
+	content := "!thiscommanddoesnotexist12345 --token secret-value"
+	result := PreprocessCommands(content, []string{"thiscommanddoesnotexist12345"})
+	if !strings.Contains(result, "<!-- command failed") {
+		t.Errorf("expected failure comment, got: %q", result)
+	}
+	if strings.Contains(result, "thiscommanddoesnotexist12345") || strings.Contains(result, "secret-value") {
+		t.Errorf("failure comment must not echo command line or secrets, got: %q", result)
 	}
 }
 
@@ -99,7 +107,7 @@ func TestPreprocessCommands_MultipleCommands(t *testing.T) {
 		content = "!echo first\nMiddle\n!echo second"
 	}
 
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "first") {
 		t.Errorf("expected 'first' in output, got: %q", result)
@@ -115,7 +123,7 @@ func TestPreprocessCommands_MultipleCommands(t *testing.T) {
 func TestPreprocessCommands_BacktickSyntax(t *testing.T) {
 	// Formato oficial Claude Code: !`command`
 	content := "PR diff:\n!`echo backtick-works`\nDone"
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "backtick-works") {
 		t.Errorf("expected backtick command output, got: %q", result)
@@ -133,7 +141,7 @@ func TestPreprocessCommands_BacktickAndPlain(t *testing.T) {
 	} else {
 		content = "!echo plain\n!`echo backtick`"
 	}
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "plain") {
 		t.Errorf("expected plain command output, got: %q", result)
@@ -164,168 +172,137 @@ func TestStripBackticks(t *testing.T) {
 	}
 }
 
-func TestIsCommandAllowed_NilAllowsAll(t *testing.T) {
-	if !isCommandAllowed("anything --flag", nil) {
-		t.Error("nil allowedCommands should allow everything")
+// --- Default-deny e integração com commandpolicy (issue #235) ---
+
+func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
+	content := "!echo should-not-run"
+	result := PreprocessCommands(content, nil)
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("nil allowlist must block all commands (default-deny), got: %q", result)
+	}
+	// A linha inteira deve virar o comentário de bloqueio (sem output do echo).
+	if !strings.HasPrefix(strings.TrimSpace(result), "<!--") {
+		t.Errorf("command must not execute with nil allowlist, got: %q", result)
 	}
 }
 
-func TestIsCommandAllowed_EmptyBlocksAll(t *testing.T) {
-	if isCommandAllowed("echo hello", []string{}) {
-		t.Error("empty allowedCommands should block everything")
+func TestPreprocessCommands_EmptyAllowlistBlocksAll(t *testing.T) {
+	content := "!echo should-not-run"
+	result := PreprocessCommands(content, []string{})
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("empty allowlist must block all commands (default-deny), got: %q", result)
 	}
 }
 
-func TestIsCommandAllowed_CaseInsensitive(t *testing.T) {
-	if !isCommandAllowed("ECHO hello", []string{"echo"}) {
-		t.Error("should match case-insensitively")
+func TestPreprocessCommands_CompositeWithDisallowedPartBlocked(t *testing.T) {
+	// "echo" está na allowlist, mas "rm" não: a linha composta inteira deve
+	// ser bloqueada (cada átomo precisa ser aprovado pela política).
+	content := "!echo hello; rm -rf x"
+	result := PreprocessCommands(content, []string{"echo"})
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("composite command with disallowed part must be blocked, got: %q", result)
+	}
+	if strings.Contains(result, "<!-- command failed") {
+		t.Errorf("command must be blocked before execution, got: %q", result)
 	}
 }
 
-func TestIsCommandAllowed_MatchesExecutable(t *testing.T) {
-	if !isCommandAllowed("git log --oneline -5", []string{"git", "echo"}) {
-		t.Error("should match by executable name")
+func TestPreprocessCommands_BlockedCommentDoesNotEchoCommand(t *testing.T) {
+	content := "!echo token=secret-value; rm -rf x"
+	result := PreprocessCommands(content, []string{"echo"})
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("expected blocked comment, got: %q", result)
 	}
-	if isCommandAllowed("rm -rf /", []string{"git", "echo"}) {
-		t.Error("should not match non-allowed executable")
-	}
-}
-
-// --- ProcessTemplate tests ---
-
-func TestProcessTemplate_NoTemplates(t *testing.T) {
-	content := "This is plain content\nNo templates here"
-	result := ProcessTemplate(content, nil)
-	if result != content {
-		t.Errorf("expected unchanged content, got: %q", result)
+	if strings.Contains(result, "secret-value") || strings.Contains(result, "rm -rf") {
+		t.Errorf("blocked comment must not echo the command line or secrets, got: %q", result)
 	}
 }
 
-func TestProcessTemplate_EmptyContent(t *testing.T) {
-	result := ProcessTemplate("", nil)
-	if result != "" {
-		t.Errorf("expected empty string, got: %q", result)
+func TestPreprocessCommands_CompositeAllAllowedExecutes(t *testing.T) {
+	// Composição com && onde todos os átomos são permitidos deve executar.
+	content := "!echo first && echo second"
+	result := PreprocessCommands(content, []string{"echo"})
+	if strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("composite command with all parts allowed should execute, got: %q", result)
+	}
+	if !strings.Contains(result, "first") || !strings.Contains(result, "second") {
+		t.Errorf("expected output of both commands, got: %q", result)
 	}
 }
 
-func TestProcessTemplate_MalformedTemplate(t *testing.T) {
-	content := "Before {{ malformed After"
-	result := ProcessTemplate(content, nil)
-	if result != content {
-		t.Errorf("malformed template should return original content, got: %q", result)
+func TestPreprocessCommands_ShellFeaturesBlocked(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		allowed []string
+	}{
+		{"pipe", "!echo a | sort", []string{"echo", "sort"}},
+		{"redirect output", "!echo a > out.txt", []string{"echo"}},
+		{"redirect append", "!echo a >> out.txt", []string{"echo"}},
+		{"command substitution", "!echo $(whoami)", []string{"echo"}},
+		{"env assignment", "!FOO=bar echo x", []string{"echo"}},
+		{"background", "!echo a &", []string{"echo"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := PreprocessCommands(tc.content, tc.allowed)
+			if !strings.Contains(result, "<!-- command blocked:") {
+				t.Errorf("unsupported shell feature must be blocked, got: %q", result)
+			}
+		})
 	}
 }
 
-func TestProcessTemplate_IncludeNonexistent(t *testing.T) {
-	content := `Before
-{{ include "nonexistent/file-that-does-not-exist-xyz.md" }}
-After`
-	result := ProcessTemplate(content, nil)
-	if !strings.Contains(result, "Before") {
-		t.Errorf("expected 'Before' preserved, got: %q", result)
+func TestEvaluateSkillCommand_NilPolicyDenies(t *testing.T) {
+	allowed, reason := evaluateSkillCommand("echo hello", nil)
+	if allowed {
+		t.Error("nil policy must deny everything (default-deny)")
 	}
-	if !strings.Contains(result, "After") {
-		t.Errorf("expected 'After' preserved, got: %q", result)
+	if reason == "" {
+		t.Error("expected a non-empty block reason")
 	}
 }
 
-func TestProcessTemplate_IncludeInvalidPath(t *testing.T) {
-	content := `{{ include "no-slash" }}`
-	result := ProcessTemplate(content, nil)
-	if strings.Contains(result, "no-slash") {
-		t.Errorf("invalid path should return empty, got: %q", result)
+func TestEvaluateSkillCommand_CaseInsensitive(t *testing.T) {
+	policy := buildSkillPolicy([]string{"echo"})
+	if allowed, _ := evaluateSkillCommand("ECHO hello", policy); !allowed {
+		t.Error("executable matching should be case-insensitive")
 	}
 }
 
-func TestProcessTemplate_IncludeEmptyParts(t *testing.T) {
-	content := `{{ include "/file.md" }}`
-	result := ProcessTemplate(content, nil)
-	if result != "" && strings.TrimSpace(result) != "" {
-		t.Logf("include with empty namespace returned: %q", result)
+func TestEvaluateSkillCommand_MatchesExecutable(t *testing.T) {
+	policy := buildSkillPolicy([]string{"git", "echo"})
+	if allowed, _ := evaluateSkillCommand("git log --oneline -5", policy); !allowed {
+		t.Error("allowed executable with args should be approved")
+	}
+	if allowed, _ := evaluateSkillCommand("rm -rf /", policy); allowed {
+		t.Error("non-allowed executable must be denied")
 	}
 }
 
-func TestProcessTemplate_PreservesNonTemplateBraces(t *testing.T) {
-	content := "JSON: {\"key\": \"value\"}\nNormal text"
-	result := ProcessTemplate(content, nil)
-	if result != content {
-		t.Errorf("non-template braces should be preserved, got: %q", result)
+func TestSanitizeHTMLCommentText(t *testing.T) {
+	result := sanitizeHTMLCommentText("program --flag closed --> visible")
+	if strings.Contains(result, "--") || strings.Contains(result, ">") {
+		t.Fatalf("sanitized text must not contain HTML comment delimiters, got: %q", result)
+	}
+	if !strings.Contains(result, "&gt;") {
+		t.Fatalf("expected greater-than signs to be escaped, got: %q", result)
+	}
+
+	result = sanitizeHTMLCommentText("---->")
+	if strings.Contains(result, "--") || strings.Contains(result, ">") {
+		t.Fatalf("runs of hyphens must not leave HTML comment delimiters, got: %q", result)
 	}
 }
 
-func TestProcessTemplate_Now(t *testing.T) {
-	content := "Timestamp: {{ now }}"
-	result := ProcessTemplate(content, nil)
-
-	year := time.Now().Format("2006")
-	if !strings.Contains(result, year) {
-		t.Errorf("expected current year %s in output, got: %q", year, result)
+func TestBuildSkillPolicy_NilOrEmptyReturnsNil(t *testing.T) {
+	if buildSkillPolicy(nil) != nil {
+		t.Error("nil allowedCommands should produce nil policy")
 	}
-	if strings.Contains(result, "{{") {
-		t.Errorf("template should be resolved, got: %q", result)
+	if buildSkillPolicy([]string{}) != nil {
+		t.Error("empty allowedCommands should produce nil policy")
 	}
-}
-
-func TestProcessTemplate_IncludeRealMemory(t *testing.T) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("cannot determine home directory")
-	}
-	memoryPath := filepath.Join(homeDir, ".assistente", "memory", "memory.md")
-	if _, err := os.Stat(memoryPath); os.IsNotExist(err) {
-		t.Skipf("memory.md not found at %s (skip on CI)", memoryPath)
-	}
-
-	content := `<user_memory>
-Current date/time: {{ now }}
-
-{{ include "memory/memory.md" }}
-</user_memory>`
-	result := ProcessTemplate(content, nil)
-
-	if strings.Contains(result, "{{") {
-		t.Errorf("templates should be resolved, got: %q", result)
-	}
-	if !strings.Contains(result, "<user_memory>") {
-		t.Errorf("expected <user_memory> wrapper, got: %q", result)
-	}
-	year := time.Now().Format("2006")
-	if !strings.Contains(result, year) {
-		t.Errorf("expected current year in now output, got: %q", result)
-	}
-	if len(result) < 100 {
-		t.Errorf("expected substantial content from memory.md, got only %d chars: %q", len(result), result)
-	}
-	t.Logf("Include result (%d bytes):\n%s", len(result), result[:min(500, len(result))])
-}
-
-func TestProcessTemplate_ExecWithData(t *testing.T) {
-	content := `{{ if .ToolCallingEnabled }}tools on{{ else }}tools off{{ end }}`
-	data := struct {
-		ToolCallingEnabled bool
-	}{ToolCallingEnabled: true}
-
-	result := ProcessTemplate(content, data)
-	if strings.TrimSpace(result) != "tools on" {
-		t.Errorf("expected template to render using data, got: %q", result)
-	}
-}
-
-func TestProcessTemplate_SurfaceStateAndContext(t *testing.T) {
-	content := `tipo={{ .Surface.Type }}; arquivo={{ index .Surface.State "filePath" }}; seleção={{ index .Surface.Context "selectedText" }}`
-	data := struct {
-		Surface struct {
-			Type    string
-			State   map[string]any
-			Context map[string]any
-		}
-	}{}
-	data.Surface.Type = "editor"
-	data.Surface.State = map[string]any{"filePath": "/tmp/readme.md"}
-	data.Surface.Context = map[string]any{"selectedText": "hello"}
-
-	result := ProcessTemplate(content, data)
-	if strings.TrimSpace(result) != "tipo=editor; arquivo=/tmp/readme.md; seleção=hello" {
-		t.Errorf("expected surface data rendered, got: %q", result)
+	if buildSkillPolicy([]string{"  ", ""}) != nil {
+		t.Error("whitespace-only entries should produce nil policy")
 	}
 }

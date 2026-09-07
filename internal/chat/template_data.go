@@ -11,9 +11,14 @@ type TemplateData struct {
 	ToolCallingEnabled bool
 	EnabledTools       []string
 	EnabledToolCount   int
-	ConversationID string
+	// ImplicitToolSelectionUnavailable distingue falha fechada por ausência do
+	// catálogo de uma desativação intencional ou seleção explícita vazia.
+	ImplicitToolSelectionUnavailable bool
+	ConversationID                   string
 
 	// Workspace context
+	WorkspaceID      string
+	ProjectID        string
 	WorkspaceName    string
 	WorkspaceProfile string
 	ActiveTabTitle   string
@@ -31,6 +36,7 @@ type TabInfo struct {
 	Type      string
 	ContentID string
 	IsActive  bool
+	State     map[string]any
 }
 
 // SurfaceInfo contém o contexto estruturado da superfície ativa para skills/templates.

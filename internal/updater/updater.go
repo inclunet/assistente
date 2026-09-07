@@ -1,13 +1,13 @@
 package updater
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -114,8 +114,9 @@ func (u *Updater) CheckForUpdates(ctx context.Context) (*UpdateInfo, error) {
 		ReleaseDate:    manifest.Released,
 	}
 
-	// Verifica se há nova versão
-	if manifest.Version != u.currentVersion {
+	// Verifica se há nova versão. Releases GitHub costumam usar tags "vX.Y.Z",
+	// enquanto o workflow injeta AppVersion sem o prefixo "v".
+	if !sameVersion(manifest.Version, u.currentVersion) {
 		info.Available = true
 
 		// Obtém informações do build para a plataforma atual
@@ -136,24 +137,24 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	}
 
 	// Verifica se há nova versão
-	if manifest.Version == u.currentVersion {
+	if sameVersion(manifest.Version, u.currentVersion) {
 		return fmt.Errorf("já está na versão mais recente (%s)", u.currentVersion)
 	}
 
 	// No Windows, detecta se é versão instalada ou portátil
 	if runtime.GOOS == "windows" {
 		if u.isInstalledVersion() {
-			log.Printf("[Updater] 📦 Versão instalada detectada - usando instalador NSIS...")
+			logging.Infof(ctx, "updater.updater", "[Updater] 📦 Versão instalada detectada - usando instalador NSIS...")
 			return u.applyUpdateWindowsInstaller(ctx, manifest)
 		} else {
-			log.Printf("[Updater] 📦 Versão portátil detectada - substituindo executável...")
+			logging.Infof(ctx, "updater.updater", "[Updater] 📦 Versão portátil detectada - substituindo executável...")
 			return u.applyUpdateWindowsPortable(ctx, manifest)
 		}
 	}
 
 	// Linux: sempre atualização in-place
 	// macOS: pode usar .app bundle ou .dmg dependendo do caso
-	log.Printf("[Updater] Aplicando atualização in-place...")
+	logging.Infof(ctx, "updater.updater", "[Updater] Aplicando atualização in-place...")
 	return u.applyUpdateInPlace(ctx, manifest)
 }
 
@@ -165,22 +166,22 @@ func (u *Updater) isInstalledVersion() bool {
 
 	exePath, err := os.Executable()
 	if err != nil {
-		log.Printf("[Updater] ⚠️ Não foi possível obter caminho do executável: %v", err)
+		logging.Errorf(context.Background(), "updater.updater", "[Updater] ⚠️ Não foi possível obter caminho do executável: %v", err)
 		return false // Em caso de erro, assume portátil (mais seguro)
 	}
 
 	// Normaliza o caminho para lowercase para comparação
 	exePath = strings.ToLower(filepath.Clean(exePath))
-	log.Printf("[Updater] Caminho do executável: %s", exePath)
+	logging.Infof(context.Background(), "updater.updater", "[Updater] Caminho do executável: %s", exePath)
 
 	// Verifica se está em Program Files ou Program Files (x86)
 	isInProgramFiles := strings.Contains(exePath, "program files") ||
 		strings.Contains(exePath, "program files (x86)")
 
 	if isInProgramFiles {
-		log.Printf("[Updater] ✓ Executável em Program Files - versão instalada")
+		logging.Infof(context.Background(), "updater.updater", "[Updater] ✓ Executável em Program Files - versão instalada")
 	} else {
-		log.Printf("[Updater] ✓ Executável fora de Program Files - versão portátil")
+		logging.Infof(context.Background(), "updater.updater", "[Updater] ✓ Executável fora de Program Files - versão portátil")
 	}
 
 	return isInProgramFiles
@@ -256,17 +257,19 @@ Remove-Item -Path $PSCommandPath -Force
 	psCommand := fmt.Sprintf(`Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList '-ExecutionPolicy','Bypass','-File','%s'`, scriptPath)
 
 	cmd := exec.Command("powershell", "-Command", psCommand)
+	// Se este código for reativado, chamar osutil.HideConsoleWindow(cmd) para
+	// evitar que a janela do PowerShell roube o foco (ver internal/osutil).
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("falha ao solicitar elevação: %w", err)
 	}
 
-	log.Printf("[Updater] ✅ Processo de atualização elevado iniciado")
+	logging.Infof(ctx, "updater.updater", "[Updater] ✅ Processo de atualização elevado iniciado")
 
 	// Importante: aguarda um pouco para garantir que o UAC foi mostrado
 	time.Sleep(500 * time.Millisecond)
 
 	// Encerra o aplicativo atual para permitir a substituição
-	log.Printf("[Updater] 🔄 Encerrando aplicativo para permitir atualização...")
+	logging.Infof(ctx, "updater.updater", "[Updater] 🔄 Encerrando aplicativo para permitir atualização...")
 	os.Exit(0)
 
 	return nil
@@ -308,24 +311,18 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 		return fmt.Errorf("falha ao decodificar release: %w", err)
 	}
 
-	log.Printf("[Updater] Buscando instalador entre %d assets...", len(ghRelease.Assets))
+	logging.Infof(ctx, "updater.updater", "[Updater] Buscando instalador entre %d assets...", len(ghRelease.Assets))
 
 	// Procura o instalador - aceita vários padrões de nomes
 	for _, asset := range ghRelease.Assets {
-		log.Printf("[Updater] Asset encontrado: %s", asset.Name)
+		logging.Infof(ctx, "updater.updater", "[Updater] Asset encontrado: %s", asset.Name)
 
 		assetLower := strings.ToLower(asset.Name)
 
-		// Aceita: *installer*.exe, *windows*.exe, *setup*.exe
-		isInstaller := (strings.Contains(assetLower, "installer") ||
-			strings.Contains(assetLower, "setup") ||
-			strings.Contains(assetLower, "windows")) &&
-			strings.HasSuffix(assetLower, ".exe")
-
-		if isInstaller {
+		if isWindowsInstallerAsset(assetLower) {
 			installerURL = asset.BrowserDownloadURL
 			installerSize = asset.Size
-			log.Printf("[Updater] ✓ Instalador selecionado: %s (%d bytes)", asset.Name, asset.Size)
+			logging.Infof(ctx, "updater.updater", "[Updater] ✓ Instalador selecionado: %s (%d bytes)", asset.Name, asset.Size)
 			break
 		}
 	}
@@ -334,7 +331,7 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 		return fmt.Errorf("instalador do Windows não encontrado no release (encontrados %d assets)", len(ghRelease.Assets))
 	}
 
-	log.Printf("[Updater] Baixando instalador: %s", installerURL)
+	logging.Errorf(ctx, "updater.updater", "[Updater] Baixando instalador: %s", installerURL)
 
 	// Baixa o instalador
 	installerFile, err := u.downloadInstaller(ctx, installerURL, installerSize)
@@ -349,14 +346,14 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 		u.progressCallback(0, 100, "installing")
 	}
 
-	log.Printf("[Updater] Executando instalador: %s", installerFile)
+	logging.Errorf(ctx, "updater.updater", "[Updater] Executando instalador: %s", installerFile)
 
 	// Verifica se o arquivo existe e tem tamanho adequado
 	fileInfo, err := os.Stat(installerFile)
 	if err != nil {
 		return fmt.Errorf("arquivo do instalador não encontrado: %w", err)
 	}
-	log.Printf("[Updater] Tamanho do instalador: %d bytes", fileInfo.Size())
+	logging.Errorf(ctx, "updater.updater", "[Updater] Tamanho do instalador: %d bytes", fileInfo.Size())
 	if fileInfo.Size() < 1000 {
 		return fmt.Errorf("arquivo do instalador muito pequeno: %d bytes (possível erro no download)", fileInfo.Size())
 	}
@@ -364,7 +361,7 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 	// Executa o instalador de forma silenciosa em background
 	// /S = silent mode no NSIS
 	// O instalador irá aguardar o app fechar e então substituir o executável
-	log.Printf("[Updater] Iniciando processo do instalador com flag /S...")
+	logging.Errorf(ctx, "updater.updater", "[Updater] Iniciando processo do instalador com flag /S...")
 
 	// No Windows, usa ShellExecute com "runas" para solicitar elevação
 	// Isso mostrará o diálogo UAC automaticamente
@@ -372,8 +369,8 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 		return fmt.Errorf("falha ao executar instalador: %w", err)
 	}
 
-	log.Printf("[Updater] ✅ Instalador iniciado em modo silencioso com elevação")
-	log.Printf("[Updater] 🔄 Fechando aplicativo para permitir atualização...")
+	logging.Infof(ctx, "updater.updater", "[Updater] ✅ Instalador iniciado em modo silencioso com elevação")
+	logging.Infof(ctx, "updater.updater", "[Updater] 🔄 Fechando aplicativo para permitir atualização...")
 
 	// Aguarda 1 segundo para garantir que o instalador iniciou
 	time.Sleep(1 * time.Second)
@@ -418,25 +415,18 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 		return fmt.Errorf("falha ao decodificar release: %w", err)
 	}
 
-	log.Printf("[Updater] Buscando versão portátil entre %d assets...", len(ghRelease.Assets))
+	logging.Infof(ctx, "updater.updater", "[Updater] Buscando versão portátil entre %d assets...", len(ghRelease.Assets))
 
 	// Procura a versão portátil - aceita vários padrões
 	for _, asset := range ghRelease.Assets {
-		log.Printf("[Updater] Asset encontrado: %s", asset.Name)
+		logging.Infof(ctx, "updater.updater", "[Updater] Asset encontrado: %s", asset.Name)
 
 		assetLower := strings.ToLower(asset.Name)
 
-		// Aceita: *portable*.exe, *windows*.exe (mas não installer/setup)
-		isPortable := (strings.Contains(assetLower, "portable") ||
-			(strings.Contains(assetLower, "windows") &&
-				!strings.Contains(assetLower, "installer") &&
-				!strings.Contains(assetLower, "setup"))) &&
-			strings.HasSuffix(assetLower, ".exe")
-
-		if isPortable {
+		if isWindowsPortableAsset(assetLower) {
 			portableURL = asset.BrowserDownloadURL
 			portableSize = asset.Size
-			log.Printf("[Updater] ✓ Versão portátil selecionada: %s (%d bytes)", asset.Name, asset.Size)
+			logging.Infof(ctx, "updater.updater", "[Updater] ✓ Versão portátil selecionada: %s (%d bytes)", asset.Name, asset.Size)
 			break
 		}
 	}
@@ -498,7 +488,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 		return fmt.Errorf("falha ao fechar arquivo temporário: %w", err)
 	}
 
-	log.Printf("[Updater] Executável portátil baixado: %s", tmpPath)
+	logging.Infof(ctx, "updater.updater", "[Updater] Executável portátil baixado: %s", tmpPath)
 
 	// Reporta instalação
 	if u.progressCallback != nil {
@@ -515,14 +505,14 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 	// Aplica a atualização usando go-update
 	err = update.Apply(binaryFile, update.Options{})
 	if err != nil {
-		log.Printf("[Updater] ❌ Erro ao aplicar atualização: %v", err)
+		logging.Errorf(ctx, "updater.updater", "[Updater] ❌ Erro ao aplicar atualização: %v", err)
 		if rerr := update.RollbackError(err); rerr != nil {
 			return fmt.Errorf("falha ao aplicar update e rollback: %v (rollback error: %v)", err, rerr)
 		}
 		return fmt.Errorf("falha ao aplicar update (rollback realizado): %w", err)
 	}
 
-	log.Printf("[Updater] ✅ Atualização portátil aplicada com sucesso")
+	logging.Infof(ctx, "updater.updater", "[Updater] ✅ Atualização portátil aplicada com sucesso")
 	return nil
 }
 
@@ -553,7 +543,7 @@ func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) er
 			return fmt.Errorf("falha na verificação de checksum: %w", err)
 		}
 	} else {
-		log.Printf("[Updater] ⚠️ Checksum não fornecido, pulando verificação")
+		logging.Infof(ctx, "updater.updater", "[Updater] ⚠️ Checksum não fornecido, pulando verificação")
 	}
 
 	// Reseta para o início do arquivo após verificar checksum
@@ -569,7 +559,7 @@ func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) er
 	// Aplica a atualização
 	err = update.Apply(binary, update.Options{})
 	if err != nil {
-		log.Printf("[Updater] ❌ Erro ao aplicar atualização: %v", err)
+		logging.Errorf(ctx, "updater.updater", "[Updater] ❌ Erro ao aplicar atualização: %v", err)
 		if rerr := update.RollbackError(err); rerr != nil {
 			return fmt.Errorf("falha ao aplicar update e rollback: %v (rollback error: %v)", err, rerr)
 		}
@@ -577,7 +567,7 @@ func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) er
 		return fmt.Errorf("falha ao aplicar update (rollback realizado): %w", err)
 	}
 
-	log.Printf("[Updater] ✅ Atualização aplicada com sucesso")
+	logging.Infof(ctx, "updater.updater", "[Updater] ✅ Atualização aplicada com sucesso")
 	return nil
 }
 
@@ -603,9 +593,9 @@ func isPermissionError(err error) bool {
 		strings.Contains(errMsg, "cannot create")
 
 	if isPerm {
-		log.Printf("[Updater] ✓ Detectado erro de permissão na mensagem: %s", errMsg)
+		logging.Infof(context.Background(), "updater.updater", "[Updater] ✓ Detectado erro de permissão na mensagem: %s", errMsg)
 	} else {
-		log.Printf("[Updater] ✗ Não é erro de permissão: %s", errMsg)
+		logging.Errorf(context.Background(), "updater.updater", "[Updater] ✗ Não é erro de permissão: %s", errMsg)
 	}
 
 	return isPerm
@@ -640,7 +630,7 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 		return "", fmt.Errorf("falha ao criar arquivo temporário: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	log.Printf("[Updater] Arquivo temporário criado: %s", tmpPath)
+	logging.Infof(ctx, "updater.updater", "[Updater] Arquivo temporário criado: %s", tmpPath)
 
 	// Reporta progresso durante download
 	if u.progressCallback != nil {
@@ -674,14 +664,14 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 
 	// Sincroniza e fecha o arquivo antes de retornar
 	if err := tmpFile.Sync(); err != nil {
-		log.Printf("[Updater] Aviso: falha ao sincronizar arquivo: %v", err)
+		logging.Warnf(ctx, "updater.updater", "[Updater] Aviso: falha ao sincronizar arquivo: %v", err)
 	}
 	if err := tmpFile.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("falha ao fechar arquivo: %w", err)
 	}
 
-	log.Printf("[Updater] Download completo: %d bytes", bytesDownloaded)
+	logging.Errorf(ctx, "updater.updater", "[Updater] Download completo: %d bytes", bytesDownloaded)
 	return tmpPath, nil
 }
 func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
@@ -731,25 +721,27 @@ func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 
 	// Mapeia assets para builds
 	for _, asset := range ghRelease.Assets {
+		assetLower := strings.ToLower(asset.Name)
+		if !isDesktopUpdateAsset(assetLower) {
+			continue
+		}
+
 		// Extrai plataforma do nome do asset
 		// Exemplo: assistente-windows-amd64.exe -> windows-amd64
 		var buildKey string
 		switch {
-		case contains(asset.Name, "windows-amd64"):
+		case contains(assetLower, "windows-amd64"):
 			buildKey = "windows-amd64"
-		case contains(asset.Name, "darwin-amd64"):
+		case contains(assetLower, "darwin-amd64"):
 			buildKey = "darwin-amd64"
-		case contains(asset.Name, "darwin-arm64"):
+		case contains(assetLower, "darwin-arm64"):
 			buildKey = "darwin-arm64"
-		case contains(asset.Name, "linux-amd64"):
+		case contains(assetLower, "linux-amd64"):
 			buildKey = "linux-amd64"
+		case contains(assetLower, "linux-arm64"):
+			buildKey = "linux-arm64"
 		default:
 			continue // Skip instaladores e outros arquivos
-		}
-
-		// Ignora instaladores (queremos apenas executáveis)
-		if contains(asset.Name, "installer") || contains(asset.Name, ".dmg") || contains(asset.Name, ".AppImage") {
-			continue
 		}
 
 		manifest.Builds[buildKey] = Build{
@@ -760,6 +752,53 @@ func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 	}
 
 	return manifest, nil
+}
+
+func sameVersion(left, right string) bool {
+	return normalizeVersionForCompare(left) == normalizeVersionForCompare(right)
+}
+
+func normalizeVersionForCompare(version string) string {
+	version = strings.TrimSpace(version)
+	if len(version) > 1 && (version[0] == 'v' || version[0] == 'V') {
+		return version[1:]
+	}
+	return version
+}
+
+func hasAssistenteAssetPrefix(assetNameLower string) bool {
+	return strings.HasPrefix(assetNameLower, "assistente-")
+}
+
+func isDesktopUpdateAsset(assetNameLower string) bool {
+	if !hasAssistenteAssetPrefix(assetNameLower) {
+		return false
+	}
+	return !contains(assetNameLower, "installer") &&
+		!contains(assetNameLower, "setup") &&
+		!strings.HasSuffix(assetNameLower, ".dmg") &&
+		!strings.HasSuffix(assetNameLower, ".appimage") &&
+		!strings.HasSuffix(assetNameLower, ".deb") &&
+		!strings.HasSuffix(assetNameLower, ".rpm") &&
+		!strings.HasSuffix(assetNameLower, ".msi") &&
+		!strings.HasSuffix(assetNameLower, ".pkg") &&
+		!strings.HasSuffix(assetNameLower, ".zip") &&
+		!strings.HasSuffix(assetNameLower, ".tar.gz") &&
+		!strings.HasSuffix(assetNameLower, ".sha256") &&
+		!strings.HasSuffix(assetNameLower, "checksums.txt")
+}
+
+func isWindowsInstallerAsset(assetNameLower string) bool {
+	return hasAssistenteAssetPrefix(assetNameLower) &&
+		strings.HasSuffix(assetNameLower, ".exe") &&
+		strings.Contains(assetNameLower, "windows") &&
+		(strings.Contains(assetNameLower, "installer") || strings.Contains(assetNameLower, "setup"))
+}
+
+func isWindowsPortableAsset(assetNameLower string) bool {
+	return isDesktopUpdateAsset(assetNameLower) &&
+		strings.HasSuffix(assetNameLower, ".exe") &&
+		strings.Contains(assetNameLower, "windows")
 }
 
 // contains verifica se uma string contém outra (helper)

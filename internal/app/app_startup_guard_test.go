@@ -1,27 +1,89 @@
 package app
 
 import (
-	"strings"
+	"errors"
 	"testing"
+
+	"assistente/internal/llm"
+	"assistente/internal/portability"
+	"assistente/internal/wailsapi"
 )
 
 func TestWorkspaceBindingsAreSafeBeforeStartup(t *testing.T) {
-	a := &App{}
+	api := wailsapi.NewWorkspace()
 
-	if got := a.GetActiveWorkspace(); got != nil {
-		t.Fatalf("GetActiveWorkspace() = %+v, want nil before startup", got)
+	if _, err := api.GetActiveWorkspace(); !errors.Is(err, wailsapi.ErrWorkspaceNotWired) {
+		t.Fatalf("GetActiveWorkspace() error = %v, want ErrWorkspaceNotWired", err)
 	}
+	if _, err := api.ListWorkspaces(); !errors.Is(err, wailsapi.ErrWorkspaceNotWired) {
+		t.Fatalf("ListWorkspaces() error = %v, want ErrWorkspaceNotWired", err)
+	}
+}
 
-	if _, err := a.ListWorkspaces(); err == nil || !strings.Contains(err.Error(), "workspace controller not initialized") {
-		t.Fatalf("ListWorkspaces() error = %v, want initialization error", err)
+func TestMessagingBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewMessaging()
+
+	if _, err := api.GetMessagingStatus(); !errors.Is(err, wailsapi.ErrMessagingNotWired) {
+		t.Fatalf("GetMessagingStatus() error = %v, want ErrMessagingNotWired", err)
+	}
+	if _, err := api.GetAllChannelConfigs(); !errors.Is(err, wailsapi.ErrMessagingNotWired) {
+		t.Fatalf("GetAllChannelConfigs() error = %v, want ErrMessagingNotWired", err)
+	}
+}
+
+func TestEditorBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewEditor()
+
+	if _, err := api.EditorLoadState(); !errors.Is(err, wailsapi.ErrEditorNotWired) {
+		t.Fatalf("EditorLoadState() error = %v, want ErrEditorNotWired", err)
+	}
+	if err := api.EditorWriteFile("x", ""); !errors.Is(err, wailsapi.ErrEditorNotWired) {
+		t.Fatalf("EditorWriteFile() error = %v, want ErrEditorNotWired", err)
+	}
+}
+
+func TestExportImportBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewExportImport()
+
+	if _, err := api.ExportData(portability.ExportRequest{}); !errors.Is(err, wailsapi.ErrExportImportNotWired) {
+		t.Fatalf("ExportData() error = %v, want ErrExportImportNotWired", err)
+	}
+	if _, err := api.ImportData("", ""); !errors.Is(err, wailsapi.ErrExportImportNotWired) {
+		t.Fatalf("ImportData() error = %v, want ErrExportImportNotWired", err)
+	}
+}
+
+func TestLLMModelsBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewLLMModels()
+
+	if _, err := api.GetModels(); !errors.Is(err, wailsapi.ErrLLMModelsNotWired) {
+		t.Fatalf("GetModels() error = %v, want ErrLLMModelsNotWired", err)
+	}
+	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, wailsapi.ErrLLMModelsNotWired) {
+		t.Fatalf("CancelStreamingForConversation() error = %v, want ErrLLMModelsNotWired", err)
+	}
+}
+
+func TestChatBindingsAreSafeBeforeStartup(t *testing.T) {
+	api := wailsapi.NewChat()
+
+	if _, err := api.SendMessage("c1", "hi", "", llm.ChatParams{}); !errors.Is(err, wailsapi.ErrChatNotWired) {
+		t.Fatalf("SendMessage() error = %v, want ErrChatNotWired", err)
+	}
+	if _, err := api.RetryMessage("c1", "m1", llm.ChatParams{}); !errors.Is(err, wailsapi.ErrChatNotWired) {
+		t.Fatalf("RetryMessage() error = %v, want ErrChatNotWired", err)
 	}
 }
 
 func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 	a := &App{}
+	api := wailsapi.NewWelcome()
 
-	if !a.NeedsWelcomeWizard() {
+	if !api.NeedsWelcomeWizard() {
 		t.Fatal("NeedsWelcomeWizard() = false before startup, want conservative true")
+	}
+	if !NeedsWelcomeWizard(a) {
+		t.Fatal("NeedsWelcomeWizard(a) = false before startup, want conservative true")
 	}
 
 	result := a.validateWizardConnection("https://example.com", "")
@@ -29,7 +91,7 @@ func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 		t.Fatalf("validateWizardConnection() ErrorType = %q, want app_initializing", result.ErrorType)
 	}
 
-	if _, err := a.RunWelcomeWizard(); err == nil || !strings.Contains(err.Error(), "welcome controller not initialized") {
-		t.Fatalf("RunWelcomeWizard() error = %v, want initialization error", err)
+	if _, err := api.RunWelcomeWizard(); !errors.Is(err, wailsapi.ErrWelcomeNotWired) {
+		t.Fatalf("RunWelcomeWizard() error = %v, want ErrWelcomeNotWired", err)
 	}
 }

@@ -1,11 +1,17 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
 
 const openCreateModalMock = vi.fn();
+const registerWorkspaceChatAdapterMock = vi.hoisted(() => vi.fn());
+const chatModalState = vi.hoisted(() => ({
+  isOpen: false,
+  boundTabId: null as string | null,
+  boundConversationId: null as string | null,
+}));
 const workspacePanelState = vi.hoisted(() => ({
   isActive: false,
   tab: {
@@ -26,6 +32,13 @@ const taskListStoreState = vi.hoisted(() => ({
   deleteTaskList: vi.fn(),
   updateWorkflowFull: vi.fn(),
   getTaskCountsByStatus: vi.fn(),
+  listBoardCustomActions: vi.fn(),
+  triggerCustomAction: vi.fn(),
+  setTaskListConversation: vi.fn(),
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -51,11 +64,13 @@ vi.mock('../../store/taskListStore', () => ({
   ),
 }));
 
-vi.mock('../../store/workspaceChatModalStore', () => ({
-  useWorkspaceChatModalStore: {
-    getState: () => ({ requestOpen: vi.fn() }),
-  },
-}));
+vi.mock('../../store/workspaceChatModalStore', () => {
+  const useStore = (selector?: (s: typeof chatModalState) => unknown) => (
+    typeof selector === 'function' ? selector(chatModalState) : chatModalState
+  );
+  (useStore as unknown as { getState: () => unknown }).getState = () => ({ requestOpen: vi.fn() });
+  return { useWorkspaceChatModalStore: useStore };
+});
 
 vi.mock('../../store/uiStore', () => ({
   useUIStore: (selector: (state: { addToast: ReturnType<typeof vi.fn> }) => unknown) => selector({
@@ -77,7 +92,7 @@ vi.mock('../../hooks/useDefaultFocus', () => ({
 }));
 
 vi.mock('../../hooks/useRegisterWorkspaceChatAdapter', () => ({
-  useRegisterWorkspaceChatAdapter: vi.fn(),
+  useRegisterWorkspaceChatAdapter: registerWorkspaceChatAdapterMock,
 }));
 
 vi.mock('../ui/Modal', () => ({
@@ -115,11 +130,23 @@ vi.mock('./KanbanBoard', () => ({
   }),
 }));
 
+vi.mock('./useCustomActions', () => ({
+  useCustomActions: () => ({ runCustomAction: vi.fn() }),
+}));
+
 describe('TaskListView', () => {
   beforeEach(() => {
     workspacePanelState.isActive = false;
+    chatModalState.isOpen = false;
+    chatModalState.boundTabId = null;
+    chatModalState.boundConversationId = null;
     openCreateModalMock.mockReset();
+    registerWorkspaceChatAdapterMock.mockReset();
     taskListStoreState.loadTaskList.mockReset();
+    taskListStoreState.listBoardCustomActions.mockReset();
+    taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
+    taskListStoreState.setTaskListConversation.mockReset();
+    taskListStoreState.setTaskListConversation.mockResolvedValue(undefined);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
@@ -140,6 +167,22 @@ describe('TaskListView', () => {
     expect(openCreateModalMock).not.toHaveBeenCalled();
   });
 
+  it('emite SurfaceContext canônico para o chat da tasklist', async () => {
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await waitFor(() => expect(registerWorkspaceChatAdapterMock).toHaveBeenCalled());
+    const calls = registerWorkspaceChatAdapterMock.mock.calls;
+    const adapter = calls[calls.length - 1]?.[1] as {
+      send: (instruction: string) => Promise<{ paramsOverride?: { surfaceContextJson?: string } }>;
+    };
+    const plan = await adapter.send('Resuma a lista');
+    const surfaceContext = JSON.parse(String(plan.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.surfaceType).toBe('tasklist');
+    expect(surfaceContext.surfaceId).toBe('tasklist-tab');
+    expect(surfaceContext.snapshotVersion).toMatch(/^tasklist:tasklist-tab:/);
+  });
+
   it('responde a atalhos globais quando o painel está ativo', async () => {
     const user = userEvent.setup();
     workspacePanelState.isActive = true;
@@ -148,5 +191,46 @@ describe('TaskListView', () => {
     await user.keyboard('n');
 
     expect(openCreateModalMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('auto-vincula a lista à conversa do chat embutido quando o modal abre nesta aba', async () => {
+    chatModalState.isOpen = true;
+    chatModalState.boundTabId = 'tasklist-tab';
+    chatModalState.boundConversationId = '9';
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await waitFor(() =>
+      expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', '9'),
+    );
+  });
+
+  it('não auto-vincula quando o chat embutido está atrelado a outra aba', async () => {
+    chatModalState.isOpen = true;
+    chatModalState.boundTabId = 'outra-aba';
+    chatModalState.boundConversationId = '9';
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await Promise.resolve();
+    expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
+  });
+
+  it('não re-vincula quando a lista já aponta para a conversa do chat', async () => {
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista',
+        preferredViewMode: 'list',
+        conversationId: '9',
+        tasks: [],
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      }],
+    ]);
+    chatModalState.isOpen = true;
+    chatModalState.boundTabId = 'tasklist-tab';
+    chatModalState.boundConversationId = '9';
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await Promise.resolve();
+    expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
   });
 });

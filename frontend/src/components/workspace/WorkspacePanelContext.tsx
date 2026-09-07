@@ -10,6 +10,10 @@ const WorkspacePanelContext = createContext<WorkspacePanelContextValue | null>(n
 
 export const WorkspacePanelProvider = WorkspacePanelContext.Provider;
 
+export function useOptionalWorkspacePanel() {
+  return useContext(WorkspacePanelContext);
+}
+
 export function useWorkspacePanel() {
   const panel = useContext(WorkspacePanelContext);
   if (!panel) {

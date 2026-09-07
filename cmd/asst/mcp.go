@@ -14,11 +14,11 @@ import (
 
 // mcpBackend abstracts the app methods used by mcp commands.
 type mcpBackend interface {
-	ListMCPServers() []mcpmgr.ServerInfo
+	ListMCPServers() ([]mcpmgr.ServerInfo, error)
 	SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error
 	ConnectMCPServer(slug string) error
 	DisconnectMCPServer(slug string) error
-	GetMCPServerTools(slug string) []mcpmgr.MCPToolInfo
+	GetMCPServerTools(slug string) ([]mcpmgr.MCPToolInfo, error)
 	DeleteMCPServer(slug string) error
 }
 
@@ -34,12 +34,15 @@ var mcpListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista servidores MCP e status",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMCPList(rootApp, os.Stdout)
+		return runMCPList(asCLI(rootApp), os.Stdout)
 	},
 }
 
 func runMCPList(svc mcpBackend, out io.Writer) error {
-	servers := svc.ListMCPServers()
+	servers, err := svc.ListMCPServers()
+	if err != nil {
+		return err
+	}
 	if len(servers) == 0 {
 		_, err := fmt.Fprintln(out, "Nenhum servidor MCP configurado.")
 		return err
@@ -76,7 +79,7 @@ Exemplos:
   assistente mcp add remote-api --url https://mcp.example.com/sse --transport sse`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMCPAdd(rootApp, os.Stdout, args[0], mcpAddCommand, mcpAddArgs, mcpAddEnv, mcpAddURL, mcpAddTransport)
+		return runMCPAdd(asCLI(rootApp), os.Stdout, args[0], mcpAddCommand, mcpAddArgs, mcpAddEnv, mcpAddURL, mcpAddTransport)
 	},
 }
 
@@ -123,7 +126,7 @@ var mcpConnectCmd = &cobra.Command{
 	Short: "Conecta a um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMCPConnect(rootApp, os.Stdout, args[0])
+		return runMCPConnect(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -142,7 +145,7 @@ var mcpDisconnectCmd = &cobra.Command{
 	Short: "Desconecta de um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMCPDisconnect(rootApp, os.Stdout, args[0])
+		return runMCPDisconnect(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -161,12 +164,15 @@ var mcpToolsCmd = &cobra.Command{
 	Short: "Lista tools de um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMCPTools(rootApp, os.Stdout, args[0])
+		return runMCPTools(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
 func runMCPTools(svc mcpBackend, out io.Writer, slug string) error {
-	tools := svc.GetMCPServerTools(slug)
+	tools, err := svc.GetMCPServerTools(slug)
+	if err != nil {
+		return err
+	}
 	if len(tools) == 0 {
 		_, err := fmt.Fprintf(out, "Nenhuma tool no servidor '%s'.\n", slug)
 		return err
@@ -191,7 +197,7 @@ var mcpRemoveCmd = &cobra.Command{
 	Short: "Remove um servidor MCP",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMCPRemove(rootApp, os.Stdout, args[0])
+		return runMCPRemove(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 

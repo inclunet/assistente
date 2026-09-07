@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
@@ -13,11 +13,19 @@ import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAcce
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
+import {
+  cancelWorkspacePanelFocus,
+  hasWorkspacePanelFocusHandler,
+  pruneWorkspacePanelFocus,
+  queueWorkspacePanelFocus,
+  requestWorkspacePanelFocus,
+} from './workspacePanelFocusRegistry';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
 import { useWorkspacePanelRenameHandlers } from './useWorkspacePanelRenameHandlers';
 import { useWorkspacePanelLifecycleCleanup } from './useWorkspacePanelLifecycleCleanup';
+import { WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT } from './workspaceFocusEvents';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -38,13 +46,45 @@ export function WorkspaceLayout() {
     return cleanup;
   }, [setupEventListeners]);
 
-  useWorkspaceKeyboardShortcuts();
+  const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
+  const restoreFocusToTablistRef = useRef<string | null>(null);
+  const lastTabShortcutTargetRef = useRef<string | null>(null);
+  const markTabShortcutNavigation = useCallback((tabId: string) => {
+    restoreFocusAfterTabShortcutRef.current = tabId;
+    lastTabShortcutTargetRef.current = tabId;
+  }, []);
+
+  useWorkspaceKeyboardShortcuts({
+    onTabShortcutNavigation: markTabShortcutNavigation,
+  });
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
   useVoiceAccessibilityWorkspaceResolver();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
+
+  useEffect(() => {
+    pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));
+  }, [workspace?.tabs]);
+
+  useEffect(() => {
+    if (!isWorkspaceRoute) {
+      restoreFocusToTablistRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = null;
+      return;
+    }
+
+    const handleTablistActivation = (event: Event) => {
+      const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      if (tabId) {
+        restoreFocusToTablistRef.current = tabId;
+      }
+    };
+
+    window.addEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
+    return () => window.removeEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
+  }, [isWorkspaceRoute]);
 
   const landmarks = useMemo((): Landmark[] => {
     const focusTopbar = () => {
@@ -224,7 +264,13 @@ export function WorkspaceLayout() {
           const textarea = area.querySelector('.chat-input textarea') as HTMLElement | null;
           if (textarea) { textarea.focus(); return true; }
 
-          // Editor: foca na superfície de edição
+          // Editor renderizado: a unidade de leitura é sempre a área default.
+          const renderedDocument = area.querySelector(
+            '[data-editor-rendered-document="true"]',
+          ) as HTMLElement | null;
+          if (renderedDocument) { renderedDocument.focus(); return true; }
+
+          // Editor editável: foca na superfície de edição.
           const monaco = area.querySelector('.monaco-editor textarea') as HTMLElement | null;
           if (monaco) { monaco.focus(); return true; }
           const rich = area.querySelector('.rich-text-editor__content [contenteditable]') as HTMLElement | null;
@@ -256,12 +302,61 @@ export function WorkspaceLayout() {
   const prevActiveTabIdRef = useRef(activeTabId);
 
   useEffect(() => {
+    const handleActivationRollback = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        failedTabId?: string;
+        rollbackTabId?: string | null;
+      }>).detail;
+      const failedTabId = detail?.failedTabId;
+      const rollbackTabId = detail?.rollbackTabId;
+      if (
+        !failedTabId
+        || !rollbackTabId
+        || lastTabShortcutTargetRef.current !== failedTabId
+      ) return;
+      cancelWorkspacePanelFocus(failedTabId);
+      lastTabShortcutTargetRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = rollbackTabId;
+    };
+    window.addEventListener('workspace:tab-activation-rollback', handleActivationRollback);
+    return () => window.removeEventListener('workspace:tab-activation-rollback', handleActivationRollback);
+  }, []);
+
+  useEffect(() => {
     if (!isWorkspaceRoute || !activeTabId) return;
     if (activeTabId === prevActiveTabIdRef.current) return;
     prevActiveTabIdRef.current = activeTabId;
 
-    requestAnimationFrame(() => restoreDefaultFocus());
-  }, [activeTabId, isWorkspaceRoute]);
+    if (restoreFocusToTablistRef.current === activeTabId) {
+      restoreFocusToTablistRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = null;
+      requestAnimationFrame(() => {
+        const tab = Array.from(document.querySelectorAll<HTMLElement>('.ws-tabs [role="tab"]'))
+          .find((element) => element.getAttribute('data-tab-value') === activeTabId);
+        tab?.focus();
+      });
+      return;
+    }
+
+    restoreFocusToTablistRef.current = null;
+
+    if (restoreFocusAfterTabShortcutRef.current !== activeTabId) {
+      restoreFocusAfterTabShortcutRef.current = null;
+      return;
+    }
+
+    restoreFocusAfterTabShortcutRef.current = null;
+    const activeTabType = workspace?.tabs.find((tab) => tab.id === activeTabId)?.type;
+    requestAnimationFrame(() => {
+      if (hasWorkspacePanelFocusHandler(activeTabId)) {
+        requestWorkspacePanelFocus(activeTabId);
+      } else if (activeTabType === 'editor') {
+        queueWorkspacePanelFocus(activeTabId);
+      } else {
+        restoreDefaultFocus();
+      }
+    });
+  }, [activeTabId, isWorkspaceRoute, workspace?.tabs]);
 
   useEffect(() => {
     ensureModalCleanup();

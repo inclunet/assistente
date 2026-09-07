@@ -53,6 +53,34 @@
   font-size: 0.875rem;
 }
 
+.toast__action {
+  flex-shrink: 0;
+  /* Par de contraste válido: --text-primary sobre --bg-elevated (superfície
+     sólida), em vez de --text-inverse sobre --bg-overlay (proibido pelo
+     contrato em frontend/src/test/a11yHelpers.tsx). Botão "claro" legível
+     em qualquer tema sobre o fundo colorido do toast. */
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+  transition: opacity var(--duration-fast) var(--ease-default);
+}
+
+.toast__action:hover {
+  opacity: 0.85;
+}
+
+.toast__action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .toast__close {
   background: none;
   border: none;
@@ -67,4 +95,9 @@
 
 .toast__close:hover {
   opacity: 1;
+}
+
+.toast__close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }

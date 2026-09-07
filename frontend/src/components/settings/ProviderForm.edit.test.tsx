@@ -48,21 +48,18 @@ vi.mock('react-i18next', () => ({
       };
       return translations[key] ?? key;
     },
+    i18n: { language: 'pt-BR' },
   }),
 }));
 
 // Mock Wails API
-vi.mock("@wailsjs/go/app/App", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wailsjs/go/app/App")>();
-  return {
-    ...actual,
-    ListModelsRaw: vi.fn(() => Promise.resolve(["gpt-4o", "gpt-4o-mini"])),
-    CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
-    UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
-  };
-});
+vi.mock("@wailsjs/go/wailsapi/LLMProviders", () => ({
+  ListModelsRaw: vi.fn(() => Promise.resolve(["gpt-4o", "gpt-4o-mini"])),
+  CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
+  UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
+}));
 
-import * as App from "@wailsjs/go/app/App";
+import * as App from "@wailsjs/go/wailsapi/LLMProviders";
 
 describe("ProviderForm - Edição de API Key", () => {
   beforeEach(() => {
@@ -372,10 +369,56 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     const typeSelect = screen.getByLabelText(/tipo/i);
     await user.selectOptions(typeSelect, "openai");
 
-    // URL agora deve estar bloqueada, mas valor ainda é o antigo (não muda automaticamente em edição)
+    // URL agora bloqueada e valendo o padrão do tipo escolhido: para um provedor
+    // de URL fixa, é essa a que seria gravada de qualquer jeito.
     urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
     expect(urlInput).toBeDisabled();
-    // Em modo edição, URL não muda automaticamente quando tipo muda
-    // (para evitar perda acidental de dados)
+    expect(urlInput.value).toBe("https://api.openai.com/v1");
+  });
+});
+
+describe("ProviderForm - Ida e volta no tipo do provedor", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(App.ListModelsRaw).mockResolvedValue(["model-1", "model-2"]);
+  });
+
+  // Trocar o tipo e desistir não pode trocar a configuração em silêncio: aqui
+  // nada barraria o save, e a pessoa gravaria a URL do preset acreditando que
+  // não mexeu em nada.
+  it("voltar ao tipo salvo devolve a URL salva, não a do preset", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderForm
+        provider={{
+          id: "ollama-123",
+          name: "Ollama Remoto",
+          type: "ollama",
+          base_url: "http://192.168.1.100:11434",
+          api_key: "",
+        }}
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+    await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalled());
+
+    const typeSelect = screen.getByLabelText(/tipo/i);
+    await user.selectOptions(typeSelect, "openai");
+    expect((screen.getByLabelText(/base url/i) as HTMLInputElement).value).toBe("https://api.openai.com/v1");
+
+    await user.selectOptions(typeSelect, "ollama");
+
+    const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
+    expect(urlInput.value).toBe("http://192.168.1.100:11434");
+
+    await user.click(screen.getByText(/📡 Carregar Modelos/i));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await waitFor(() => expect(App.UpdateLLMProvider).toHaveBeenCalled());
+    const [id, payload] = vi.mocked(App.UpdateLLMProvider).mock.calls[0];
+    expect(id).toBe("ollama-123");
+    expect(payload).toMatchObject({ type: "ollama", base_url: "http://192.168.1.100:11434" });
   });
 });

@@ -1,18 +1,21 @@
 package workspace
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
 	"fmt"
-	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"assistente/internal/configdir"
 	"assistente/internal/database"
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -476,6 +479,7 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	if tab == nil {
 		return fmt.Errorf("tab not found: %s", tabID)
 	}
+	previousTab := cloneTab(*tab)
 
 	if title, ok := updates["title"].(string); ok {
 		tab.Title = title
@@ -504,10 +508,99 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 		}
 	}
 	if override, ok := updates["profile_override"].(map[string]any); ok {
-		tab.ProfileOverride = override
+		if tab.ProfileOverride == nil {
+			tab.ProfileOverride = make(map[string]any)
+		}
+		for k, v := range override {
+			if v == nil {
+				delete(tab.ProfileOverride, k)
+			} else {
+				tab.ProfileOverride[k] = v
+			}
+		}
+		if len(tab.ProfileOverride) == 0 {
+			tab.ProfileOverride = nil
+		}
+	} else if override, exists := updates["profile_override"]; exists && override == nil {
+		tab.ProfileOverride = nil
 	}
 
-	return m.saveWorkspace(m.active, m.activePath)
+	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
+		*tab = previousTab
+		return err
+	}
+	return nil
+}
+
+func cloneTab(tab Tab) Tab {
+	if tab.ProfileOverride != nil {
+		tab.ProfileOverride = maps.Clone(tab.ProfileOverride)
+	}
+	if tab.State != nil {
+		tab.State = maps.Clone(tab.State)
+	}
+	return tab
+}
+
+// ValidateTabConversation confirma o alvo antes de abrir uma decisão. A
+// atualização revalida sob lock próprio depois da resposta.
+func (m *Manager) ValidateTabConversation(tabID, conversationID string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.active == nil {
+		return fmt.Errorf("no active workspace")
+	}
+	tabID = strings.TrimSpace(tabID)
+	conversationID = strings.TrimSpace(conversationID)
+	tab := m.active.FindTab(tabID)
+	if tab == nil {
+		return fmt.Errorf("tab not found: %s", tabID)
+	}
+	if strings.TrimSpace(tab.ConversationID) != conversationID {
+		return fmt.Errorf("tab %s não pertence à conversa %s", tabID, conversationID)
+	}
+	return nil
+}
+
+// UpdateTabProfileForConversation atualiza o override de profile somente se a
+// aba ainda estiver vinculada à conversa que originou a decisão. Validação e
+// persistência ocorrem sob o mesmo lock para impedir troca na aba errada caso a
+// UI seja alterada enquanto o DecisionDialog está aberto (AEP-0101).
+func (m *Manager) UpdateTabProfileForConversation(tabID, conversationID, profileSlug string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.active == nil {
+		return fmt.Errorf("no active workspace")
+	}
+	tabID = strings.TrimSpace(tabID)
+	conversationID = strings.TrimSpace(conversationID)
+	profileSlug = strings.TrimSpace(profileSlug)
+	tab := m.active.FindTab(tabID)
+	if tab == nil {
+		return fmt.Errorf("tab not found: %s", tabID)
+	}
+	if strings.TrimSpace(tab.ConversationID) != conversationID {
+		return fmt.Errorf("tab %s não pertence à conversa %s", tabID, conversationID)
+	}
+	if profileSlug == "" {
+		return fmt.Errorf("profile slug is required")
+	}
+	previousOverride := maps.Clone(tab.ProfileOverride)
+	tab.ProfileOverride = maps.Clone(tab.ProfileOverride)
+	if tab.ProfileOverride == nil {
+		tab.ProfileOverride = make(map[string]any)
+	}
+	previousSlug, _ := tab.ProfileOverride["slug"].(string)
+	if strings.TrimSpace(previousSlug) != profileSlug {
+		delete(tab.ProfileOverride, "model")
+	}
+	tab.ProfileOverride["slug"] = profileSlug
+	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
+		tab.ProfileOverride = previousOverride
+		return err
+	}
+	return nil
 }
 
 // MoveTabToWorkspace move uma aba do workspace ativo para outro workspace.
@@ -668,7 +761,7 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 	}
 
 	// Gera novos IDs
-	ws := m.newWorkspace(imported.Name)
+	ws := m.newWorkspaceBase(imported.Name)
 	ws.Profile = imported.Profile
 
 	for _, tab := range imported.Tabs.Items {
@@ -681,7 +774,11 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 		ws.Tabs.Items = append(ws.Tabs.Items, newTab)
 	}
 
-	if len(ws.Tabs.Items) > 0 {
+	if len(ws.Tabs.Items) == 0 {
+		defaultTab := newDefaultChatTab()
+		ws.Tabs.Items = []Tab{defaultTab}
+		ws.Tabs.Active = defaultTab.ID
+	} else {
 		ws.Tabs.Active = ws.Tabs.Items[0].ID
 	}
 
@@ -697,15 +794,31 @@ func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
 // === Persistência YAML ===
 
 func (m *Manager) newWorkspace(name string) *Workspace {
+	ws := m.newWorkspaceBase(name)
+	defaultTab := newDefaultChatTab()
+	ws.Tabs = TabsState{
+		Active: defaultTab.ID,
+		Items:  []Tab{defaultTab},
+	}
+	return ws
+}
+
+func (m *Manager) newWorkspaceBase(name string) *Workspace {
 	now := time.Now()
 	return &Workspace{
 		ID:        fmt.Sprintf("ws-%s", generateID()),
 		Name:      name,
 		CreatedAt: now,
 		LastUsed:  now,
-		Tabs: TabsState{
-			Items: []Tab{},
-		},
+		Tabs:      TabsState{Items: []Tab{}},
+	}
+}
+
+func newDefaultChatTab() Tab {
+	return Tab{
+		ID:       fmt.Sprintf("tab-%s", generateID()),
+		Type:     TabTypeChat,
+		Position: 0,
 	}
 }
 
@@ -748,9 +861,9 @@ func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
 				if _, err := m.loadWorkspaceFile(wsPath); err != nil {
 					if errors.Is(err, ErrMigrationSaveFailed) {
 						allSaved = false
-						log.Printf("[Workspace] Aviso: migração do workspace %s não foi persistida: %v", entry.ID, err)
+						logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Aviso: migração do workspace %s não foi persistida: %v", entry.ID, err)
 					} else {
-						log.Printf("[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
+						logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
 					}
 				}
 			}
@@ -758,7 +871,7 @@ func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
 	}
 
 	if !allSaved || m.activeMigrationFailed {
-		log.Printf("[Workspace] Remap preservado: nem todos os workspaces foram migrados com sucesso")
+		logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Remap preservado: nem todos os workspaces foram migrados com sucesso")
 		return
 	}
 
@@ -877,12 +990,25 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		return ws.Tabs.Items[i].Position < ws.Tabs.Items[j].Position
 	})
 
+	// Workspaces criados por versões anteriores podiam persistir sem abas ou
+	// com uma referência ativa ausente. Restaura a invariável da AEP-0034 para
+	// que a interface sempre tenha uma superfície utilizável ao reabrir o app.
+	if len(ws.Tabs.Items) == 0 {
+		defaultTab := newDefaultChatTab()
+		ws.Tabs.Items = []Tab{defaultTab}
+		ws.Tabs.Active = defaultTab.ID
+		needsSave = true
+	} else if ws.FindTab(ws.Tabs.Active) == nil {
+		ws.Tabs.Active = ws.Tabs.Items[0].ID
+		needsSave = true
+	}
+
 	// Persiste migração imediatamente para não repetir no próximo load.
 	// O remap NÃO é apagado aqui — Initialize() cuida de processar todos os
 	// workspaces conhecidos antes de remover o arquivo de remap.
 	if needsSave {
 		if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
-			log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
+			logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
 			return &ws, fmt.Errorf("%w: %v", ErrMigrationSaveFailed, err)
 		}
 	}

@@ -6,6 +6,7 @@
  * Funciona com qualquer provedor de TTS que suporte streaming.
  */
 
+import { logger } from '../../utils/logger';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { base64ToBytes } from '../../lib/audioUtils';
 import { TTS_STREAM_START, TTS_STREAM_CHUNK, TTS_STREAM_DONE, TTS_STREAM_ERROR } from '../../lib/speechEvents';
@@ -81,6 +82,11 @@ export class TTSStreamPlayer {
     this.callbacks = callbacks;
     this.state = 'buffering';
     this.firstChunkLogged = false;
+    if (this.useFallback) {
+      this.fallbackChunks = [];
+    } else {
+      this.setupMediaSource();
+    }
     
     // Registra listeners de eventos Wails
     this.unsubscribeStart = EventsOn(TTS_STREAM_START, (event: TTSStreamEvent) => {
@@ -114,7 +120,7 @@ export class TTSStreamPlayer {
   private handleStart(): void {
     if (this.useFallback) {
       this.fallbackChunks = [];
-    } else {
+    } else if (!this.mediaSource) {
       this.setupMediaSource();
     }
   }
@@ -155,7 +161,7 @@ export class TTSStreamPlayer {
    * Handler para erro
    */
   private handleError(event: TTSStreamEvent): void {
-    console.error('[TTSStream] Error:', event.error);
+    logger.error('[TTSStream] Error:', event.error);
     this.state = 'error';
     this.callbacks.onError?.(new Error(event.error || 'Unknown streaming error'));
     this.cleanup();
@@ -181,13 +187,13 @@ export class TTSStreamPlayer {
         });
         
         this.sourceBuffer.addEventListener('error', (e) => {
-          console.error('[TTSStream] SourceBuffer error:', e);
+          logger.error('[TTSStream] SourceBuffer error:', e);
         });
         
         this.processPendingChunks();
         
       } catch (e) {
-        console.error('[TTSStream] Error adding source buffer:', e);
+        logger.error('[TTSStream] Error adding source buffer:', e);
         // Fallback para modo sem streaming
         this.useFallback = true;
         this.fallbackChunks = [...this.pendingChunks];
@@ -222,6 +228,12 @@ export class TTSStreamPlayer {
       this.state = 'error';
       this.callbacks.onError?.(new Error('Audio playback error'));
     });
+
+    // Must be initiated while still in the click handler call stack; otherwise
+    // WebView/browser autoplay policy can reject playback when chunks arrive.
+    this.audioElement.play().catch(() => {
+      // tryStartPlayback retries after the first buffered chunk.
+    });
   }
 
   /**
@@ -247,7 +259,7 @@ export class TTSStreamPlayer {
         // Inicia com 0.1s de buffer para menor latência
         if (bufferedSeconds > 0.1) {
           this.audioElement.play().catch(e => {
-            console.error('[TTSStream] Play error:', e);
+            logger.error('[TTSStream] Play error:', e);
           });
         }
       }
@@ -274,7 +286,7 @@ export class TTSStreamPlayer {
     try {
       this.sourceBuffer.appendBuffer(chunk.buffer as ArrayBuffer);
     } catch (e) {
-      console.error('[TTSStream] Error appending chunk:', e);
+      logger.error('[TTSStream] Error appending chunk:', e);
       this.isUpdating = false;
     }
   }
@@ -335,7 +347,7 @@ export class TTSStreamPlayer {
     });
     
     this.audioElement.play().catch(e => {
-      console.error('[TTSStream] Fallback play error:', e);
+      logger.error('[TTSStream] Fallback play error:', e);
       this.callbacks.onError?.(e);
       this.cleanup();
     });

@@ -1,24 +1,127 @@
 import type { llm } from '../../wailsjs/go/models';
 
 type WorkspaceSurfaceTab = {
+  id?: string;
   type: string;
   title?: string;
+  contentId?: string;
   state?: Record<string, unknown>;
 };
 
-export type ChatSurfaceContext = Record<string, unknown>;
+export type SurfaceType = 'editor' | 'tasklist' | 'terminal' | (string & {});
 
-function serializeRecord(value: Record<string, unknown> | undefined): string | undefined {
+export type SurfaceRange = {
+  startLine?: number;
+  startColumn?: number;
+  endLine?: number;
+  endColumn?: number;
+  startOffset?: number;
+  endOffset?: number;
+};
+
+export type SurfaceSelection = {
+  kind: string;
+  text?: string;
+  markdown?: string;
+  range?: SurfaceRange;
+  isEmpty?: boolean;
+  explicit?: boolean;
+  items?: Array<Record<string, unknown>>;
+};
+
+export type SurfaceFocus = {
+  kind: string;
+  label?: string;
+  text?: string;
+  range?: SurfaceRange;
+  cursor?: {
+    line?: number;
+    column?: number;
+    offset?: number;
+  };
+  entity?: Record<string, unknown>;
+};
+
+export type SurfaceContent = {
+  kind: string;
+  text?: string;
+  markdown?: string;
+  summary?: string;
+  recentOutput?: string;
+  currentInput?: string;
+  truncated?: boolean;
+};
+
+export type SurfaceContext = {
+  surfaceType: SurfaceType;
+  surfaceId: string;
+  title?: string;
+  mode?: string;
+  selection?: SurfaceSelection;
+  focus?: SurfaceFocus;
+  content?: SurfaceContent;
+  metadata?: Record<string, unknown>;
+  snapshotVersion: string;
+  capturedAt?: string;
+  staleAfterMs?: number;
+};
+
+function serializeRecord(value: Record<string, unknown> | undefined): string | undefined;
+function serializeRecord(value: SurfaceContext | undefined): string | undefined;
+function serializeRecord(value: Record<string, unknown> | SurfaceContext | undefined): string | undefined {
   if (!value) return undefined;
   if (Object.keys(value).length === 0) return undefined;
   return JSON.stringify(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+export function hashSurfaceValue(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+export function boundedSurfaceSnapshotValue(value: string, maxLength = 512): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}:len=${value.length}`;
+}
+
+export function createSurfaceSnapshotVersion(
+  surfaceType: string,
+  surfaceId: string,
+  value: string,
+): string {
+  return `${surfaceType}:${surfaceId}:${hashSurfaceValue(value)}`;
+}
+
+function hasSurfaceEnvelope(value: Record<string, unknown>): value is SurfaceContext {
+  return !!(
+    stringValue(value.surfaceType) &&
+    stringValue(value.surfaceId) &&
+    stringValue(value.snapshotVersion)
+  );
+}
+
+function canonicalSurfaceContext(context: SurfaceContext | undefined): SurfaceContext | undefined {
+  if (!context || !isRecord(context) || Object.keys(context).length === 0) return undefined;
+  return hasSurfaceEnvelope(context) ? context : undefined;
 }
 
 export function buildChatSurfaceParams(
   tab: WorkspaceSurfaceTab | null | undefined,
   opts?: {
     profileSlug?: string;
-    context?: ChatSurfaceContext;
+    context?: SurfaceContext;
   },
 ): Partial<llm.ChatParams> {
   const state = tab?.state;
@@ -31,6 +134,6 @@ export function buildChatSurfaceParams(
     tabType: tab?.type || undefined,
     activeFilePath,
     surfaceStateJson: serializeRecord(state),
-    surfaceContextJson: serializeRecord(opts?.context),
+    surfaceContextJson: serializeRecord(canonicalSurfaceContext(opts?.context)),
   };
 }

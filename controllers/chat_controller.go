@@ -1,20 +1,22 @@
 package controllers
 
 import (
-	"context"
-	"log"
-
 	"assistente/internal/agent"
+	"assistente/internal/channels"
 	"assistente/internal/chat"
-	"assistente/internal/config"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
+	"assistente/internal/subagent"
 	"assistente/internal/tools"
+	"context"
+
+	"github.com/google/uuid"
 )
 
 // ChatControllerConfig agrupa todas as dependências do ChatController.
@@ -27,7 +29,6 @@ type ChatControllerConfig struct {
 	AgentSvc         *agent.Service
 	StreamMgr        *chat.StreamingManager
 	SpeechSvc        *speech.Service
-	SettingsSvc      *config.SettingsService
 	ConvRepo         chat.ConversationRepository
 	MsgGateway       *messaging.Gateway
 	ResponseNotifier *messaging.ResponseNotifier
@@ -44,25 +45,28 @@ type ChatController struct {
 	msgGateway       *messaging.Gateway
 	responseNotifier *messaging.ResponseNotifier
 	sendMsgUC        *usecases.SendMessageUseCase
+	loadedToolStore  *tools.LoadedToolStore
 }
 
 // NewChatController cria um ChatController com todas as suas dependências.
 func NewChatController(cfg ChatControllerConfig) *ChatController {
+	loadedToolStore := tools.NewLoadedToolStore()
 	return &ChatController{
 		emitter:          cfg.Emitter,
 		streamMgr:        cfg.StreamMgr,
 		convRepo:         cfg.ConvRepo,
 		msgGateway:       cfg.MsgGateway,
 		responseNotifier: cfg.ResponseNotifier,
+		loadedToolStore:  loadedToolStore,
 		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
 			ChatInteractor:  cfg.ChatInteractor,
 			ToolRegistry:    cfg.ToolRegistry,
+			LoadedToolStore: loadedToolStore,
 			ProviderSvc:     cfg.ProviderSvc,
 			MCPMgr:          cfg.MCPMgr,
 			AgentSvc:        cfg.AgentSvc,
 			StreamMgr:       cfg.StreamMgr,
 			SpeechSvc:       cfg.SpeechSvc,
-			SettingsSvc:     cfg.SettingsSvc,
 			Emitter:         cfg.Emitter,
 			OnSpeechRequest: cfg.OnSpeechRequest,
 			OpenEditorPaths: cfg.OpenEditorPaths,
@@ -73,10 +77,11 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 // SendMessage é o ponto de entrada para mensagens originadas pelo frontend Wails.
 // Registra o bridge canal↔Wails antes de delegar para o Use Case.
 func (c *ChatController) SendMessage(ctx context.Context, conversationID string, userContent, userMedia string, params llm.ChatParams) (string, error) {
+	bridgeTrace := ""
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
-		c.registerChannelBridge(conversationID)
+		bridgeTrace = c.registerChannelBridge(ctx, conversationID)
 	}
-	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+	msgID, err := c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
 		ConversationID: conversationID,
 		UserContent:    userContent,
@@ -84,20 +89,30 @@ func (c *ChatController) SendMessage(ctx context.Context, conversationID string,
 		Params:         params,
 		Source:         "wails",
 	})
+	if err != nil && bridgeTrace != "" && c.responseNotifier != nil {
+		// Erro síncrono antes do Notify: remove só este bridge (não o gateway).
+		c.responseNotifier.CancelTrace(conversationID, bridgeTrace)
+	}
+	return msgID, err
 }
 
 // RetryMessage reexecuta o turno a partir de uma mensagem já persistida, sem duplicar a mensagem do usuário.
 func (c *ChatController) RetryMessage(ctx context.Context, conversationID string, messageID string, params llm.ChatParams) (string, error) {
+	bridgeTrace := ""
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
-		c.registerChannelBridge(conversationID)
+		bridgeTrace = c.registerChannelBridge(ctx, conversationID)
 	}
-	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+	msgID, err := c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
 		ConversationID: conversationID,
 		RetryMessageID: messageID,
 		Params:         params,
 		Source:         "wails",
 	})
+	if err != nil && bridgeTrace != "" && c.responseNotifier != nil {
+		c.responseNotifier.CancelTrace(conversationID, bridgeTrace)
+	}
+	return msgID, err
 }
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria (Telegram, Signal, etc.).
@@ -112,39 +127,76 @@ func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversatio
 	})
 }
 
+// SendForSubagent dispara um envio de sub-agente (AEP-0068) pela MESMA
+// SendMessageUseCase usada pelo chat e canais — sem fluxo alternativo de envio
+// (AEP-0040). A conversa (sub-conversa) deve já existir; o Manager de
+// sub-agentes a cria antes de chamar este método.
+func (c *ChatController) SendForSubagent(ctx context.Context, conversationID, prompt, media, profileSlug, model string) (string, error) {
+	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		UserContent:    prompt,
+		UserMedia:      media,
+		Params:         llm.ChatParams{ProfileSlug: profileSlug, Model: model},
+		Source:         subagent.Source,
+	})
+}
+
 // CancelStreamingForConversation cancela um streaming LLM em andamento (barge-in).
 func (c *ChatController) CancelStreamingForConversation(conversationID string) {
 	c.streamMgr.Cancel(conversationID)
 }
 
+// ResetLoadedToolsForConversation descarta tools carregadas sob demanda para uma
+// conversa que foi recriada, reciclada ou removida logicamente.
+func (c *ChatController) ResetLoadedToolsForConversation(conversationID string) {
+	if c == nil || c.loadedToolStore == nil {
+		return
+	}
+	c.loadedToolStore.ResetConversation(conversationID)
+}
+
 // registerChannelBridge registra um callback para reenviar a resposta do assistente
 // ao canal de mensageria de origem (bridge Wails → canal externo).
-func (c *ChatController) registerChannelBridge(conversationID string) {
-	conv, err := c.convRepo.GetConversationInfo(conversationID)
+// Retorna o TraceID do bridge (vazio se não registrou) para CancelTrace em erro síncrono.
+func (c *ChatController) registerChannelBridge(ctx context.Context, conversationID string) string {
+	conv, err := c.convRepo.GetConversationInfo(ctx, conversationID)
 	if err != nil || conv == nil || conv.Channel == "" || conv.ContactID == "" {
-		return // Conversa local do Wails, não precisa de bridge.
+		return "" // Conversa local do Wails, não precisa de bridge.
 	}
 
 	messenger, ok := c.msgGateway.GetMessenger(conv.Channel)
 	if !ok {
-		return // Messenger não registrado.
+		return "" // Messenger não registrado.
 	}
 
-	log.Printf("[Bridge] Registrando bridge Wails→%s para conversa %s (contato: %s)", conv.Channel, conversationID, conv.ContactID)
+	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contact=%s)", conv.Channel, conversationID, conv.ContactID)
 
+	channelName := conv.Channel
+	contactID := conv.ContactID
+	// Snapshot do destino no Register (igual ao gateway). Re-resolver no
+	// Callback via GetReplyChatID permitiria que outra mensagem Slack do
+	// mesmo user em outro channel sobrescrevesse o destino mid-flight.
+	replyChatID := channels.GetReplyChatID(channelName, contactID)
+	traceID := uuid.NewString()
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
-		Channel: conv.Channel,
-		ChatID:  conv.ContactID,
+		Channel:     channelName,
+		ChatID:      replyChatID,
+		OwnerUserID: conv.UserID,
+		TraceID:     traceID,
+		// SkipPersist: persistência M14 fica no Register do gateway.
+		SkipPersist: true,
 		Callback: func(response string, assistantMsgID string) {
 			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
-				ChatID: conv.ContactID,
+				ChatID: replyChatID,
 				Text:   response,
 			})
 			if err != nil {
-				log.Printf("[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, conv.ContactID, err)
+				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s contact=%s replyChat=%s: %v", channelName, contactID, replyChatID, err)
 			} else {
-				log.Printf("[Bridge] Resposta reenviada para %s/%s", conv.Channel, conv.ContactID)
+				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s contact=%s replyChat=%s", channelName, contactID, replyChatID)
 			}
 		},
 	})
+	return traceID
 }

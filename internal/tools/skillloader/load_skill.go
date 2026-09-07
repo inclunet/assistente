@@ -1,0 +1,175 @@
+package skillloader
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"assistente/internal/profiles"
+	"assistente/internal/skills"
+	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
+)
+
+const ToolName = tools.LoadSkillName
+
+type SkillManager interface {
+	GetAllSkillsFull() ([]skills.Skill, error)
+}
+
+type ProfileManager interface {
+	Get(slug string) (*profiles.Profile, error)
+	GetActive() (*profiles.Profile, error)
+}
+
+type Tool struct {
+	skills   SkillManager
+	profiles ProfileManager
+}
+
+type request struct {
+	Skill  string `json:"skill"`
+	Reason string `json:"reason,omitempty"`
+}
+
+func New(skillMgr SkillManager, profileMgr ProfileManager) *Tool {
+	return &Tool{skills: skillMgr, profiles: profileMgr}
+}
+
+func (t *Tool) Name() string { return ToolName }
+
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "skills", Class: "runtime_control", Package: "skills", Risk: "read"}
+}
+
+func (t *Tool) Description() string {
+	return "Load one model-invocable, on-demand skill from the prompt's skill catalog into the current turn. Use before acting when the task matches a catalog entry and its full workflow or permissions are needed; give the exact catalog slug and, optionally, a brief task-specific reason. Do not use for the profile's base skill, disabled or unlisted skills, supporting files, or general tool discovery. Loading consumes context and may narrow tool, filesystem, command, or network permissions, so load only a relevant skill. If other tool calls need those permissions now, include load_skill in the same batch: the runtime executes it first while preserving result order. Example: {\"skill\":\"code-review\",\"reason\":\"review the current changes for regressions\"}."
+}
+
+func (t *Tool) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "skill": {"type": "string", "description": "Exact slug or canonical name of a model-invocable on-demand skill shown in the current prompt catalog. Do not guess names or request a base, disabled, or unlisted skill."},
+    "reason": {"type": "string", "description": "Optional brief task-specific reason the skill's full workflow is needed now, for example 'review the current changes for regressions'. Do not paste the user request or generic justification. When subsequent calls need the skill's permissions in this turn, send them in the same batch; load_skill runs first."}
+  },
+  "required": ["skill"]
+}`)
+}
+
+func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+	if t.skills == nil || t.profiles == nil {
+		return tools.ToolResult{Content: "runtime de skills não configurado", IsError: true}, nil
+	}
+	var req request
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &req); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("argumentos inválidos para load_skill: %v", err), IsError: true}, nil
+		}
+	}
+	name := strings.TrimSpace(req.Skill)
+	if name == "" {
+		return tools.ToolResult{Content: "skill é obrigatória", IsError: true}, nil
+	}
+
+	profile, err := t.resolveProfile(ctx)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("não foi possível resolver o perfil para carregar skill: %v", err), IsError: true}, nil
+	}
+	if profile != nil && (profile.Chat.DisableSkills || profile.Chat.DisableOnDemandSkills) {
+		return tools.ToolResult{Content: "carregamento sob demanda de skills está desativado neste perfil", IsError: true}, nil
+	}
+
+	allSkills, err := t.skills.GetAllSkillsFull()
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("erro ao listar skills: %v", err), IsError: true}, nil
+	}
+	var enabledSkills []string
+	var disableSkills bool
+	var disableOnDemand bool
+	if profile != nil {
+		enabledSkills = profile.Chat.EnabledSkills
+		disableSkills = profile.Chat.DisableSkills
+		disableOnDemand = profile.Chat.DisableOnDemandSkills
+	}
+	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
+	if policy.ModeFor(name) != skills.SkillModeOnDemand {
+		return tools.ToolResult{Content: fmt.Sprintf("skill %q não está disponível como on_demand neste perfil", name), IsError: true}, nil
+	}
+
+	loaded, ok := findSkill(policy.OnDemand, name)
+	if !ok {
+		return tools.ToolResult{Content: fmt.Sprintf("skill %q não encontrada", name), IsError: true}, nil
+	}
+	if !loaded.IsModelInvocable() {
+		return tools.ToolResult{Content: fmt.Sprintf("skill %q não permite autoativação pelo modelo", loaded.Slug), IsError: true}, nil
+	}
+
+	content := formatLoadedSkill(loaded, strings.TrimSpace(req.Reason))
+	metadata := map[string]any{
+		"skill_slug": loaded.Slug,
+		"skill_name": loaded.GetDisplayName(),
+		"mode":       string(skills.SkillModeOnDemand),
+	}
+	if reason := strings.TrimSpace(req.Reason); reason != "" {
+		metadata["reason"] = reason
+	}
+	if loaded.Filesystem != nil {
+		metadata["filesystem_read"] = append([]string{}, loaded.Filesystem.Read...)
+		metadata["filesystem_write"] = append([]string{}, loaded.Filesystem.Write...)
+		metadata["filesystem_deny"] = append([]string{}, loaded.Filesystem.Deny...)
+	}
+	if loaded.Tools != nil {
+		metadata["tools_allowed"] = append([]string{}, loaded.Tools.Allowed...)
+		metadata["tools_denied"] = append([]string{}, loaded.Tools.Denied...)
+		if loaded.Tools.BashCommands != nil {
+			metadata["bash_commands_allowed"] = append([]string{}, loaded.Tools.BashCommands.Allowed...)
+			metadata["bash_commands_denied"] = append([]string{}, loaded.Tools.BashCommands.Denied...)
+		}
+	}
+	if loaded.Network != nil {
+		metadata["network_allowed_hosts"] = append([]string{}, loaded.Network.AllowedHosts...)
+		metadata["network_denied_hosts"] = append([]string{}, loaded.Network.DeniedHosts...)
+	}
+	return tools.ToolResult{Content: content, Metadata: metadata}, nil
+}
+
+func (t *Tool) resolveProfile(ctx context.Context) (*profiles.Profile, error) {
+	if inv, ok := invocationctx.Get(ctx); ok {
+		if slug := strings.TrimSpace(inv.ProfileSlug); slug != "" {
+			if profile, err := t.profiles.Get(slug); err == nil {
+				return profile, nil
+			}
+		}
+	}
+	return t.profiles.GetActive()
+}
+
+func findSkill(input []skills.Skill, name string) (skills.Skill, bool) {
+	name = strings.TrimSpace(name)
+	for _, skill := range input {
+		if skill.Slug == name || skill.Name == name {
+			return skill, true
+		}
+	}
+	return skills.Skill{}, false
+}
+
+func formatLoadedSkill(skill skills.Skill, reason string) string {
+	var sb strings.Builder
+	sb.WriteString("<loaded_skill>\n")
+	sb.WriteString("slug: ")
+	sb.WriteString(skill.Slug)
+	sb.WriteString("\nname: ")
+	sb.WriteString(skill.Name)
+	if reason != "" {
+		sb.WriteString("\nreason: ")
+		sb.WriteString(reason)
+	}
+	sb.WriteString("\n\n")
+	sb.WriteString(strings.TrimSpace(skill.Content))
+	sb.WriteString("\n</loaded_skill>")
+	return sb.String()
+}

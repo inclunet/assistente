@@ -23,7 +23,7 @@
 }
 
 .event-entry:hover {
-  background: var(--hover-bg, rgba(128, 128, 128, 0.06));
+  background: var(--bg-hover);
 }
 
 .event-entry__icon {
@@ -53,10 +53,10 @@
   padding: 1px 6px;
   border-radius: 3px;
   font-size: var(--font-size-xs, 11px);
-  background: var(--color-info-bg, rgba(0, 120, 200, 0.1));
-  color: var(--color-info, #07a);
+  background: var(--color-info-dim);
+  color: var(--color-info);
 }
 
 .event-entry--failed .event-entry__message {
-  color: var(--color-error, #c00);
+  color: var(--color-danger);
 }

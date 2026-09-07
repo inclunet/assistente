@@ -7,33 +7,19 @@ import (
 	"sort"
 	"strings"
 
+	"assistente/internal/apidto"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 )
 
-// CredentialSummary descreve uma credencial para exibição (sem dados sensíveis).
-type CredentialSummary struct {
-	Pattern string `json:"pattern"`
-	Type    string `json:"type"`
-	Masked  string `json:"masked"`
-	Managed bool   `json:"managed"`
-}
+// CredentialSummary — alias estável durante a migração Strangler (AEP-0088 D5).
+type CredentialSummary = apidto.CredentialSummary
 
-// CredentialInput descreve a entrada para criar/atualizar credenciais.
-type CredentialInput struct {
-	Pattern     string `json:"pattern"`
-	Type        string `json:"type"`
-	Token       string `json:"token,omitempty"`
-	Username    string `json:"username,omitempty"`
-	Password    string `json:"password,omitempty"`
-	HeaderName  string `json:"headerName,omitempty"`
-	HeaderValue string `json:"headerValue,omitempty"`
-}
+// CredentialInput — alias estável durante a migração Strangler (AEP-0088 D5).
+type CredentialInput = apidto.CredentialInput
 
-// ExternalSourceSuggestion representa uma sugestão de fonte externa para autocomplete.
-type ExternalSourceSuggestion struct {
-	Value string `json:"value"`
-	Label string `json:"label"`
-}
+// ExternalSourceSuggestion — alias estável durante a migração Strangler (AEP-0088 D5).
+type ExternalSourceSuggestion = apidto.ExternalSourceSuggestion
 
 // CredentialsControllerConfig agrupa dependências do CredentialsController.
 type CredentialsControllerConfig struct {
@@ -53,12 +39,19 @@ func NewCredentialsController(cfg CredentialsControllerConfig) *CredentialsContr
 }
 
 // ListCredentials retorna credenciais registradas (sem valores sensíveis).
-func (c *CredentialsController) ListCredentials() ([]CredentialSummary, error) {
+func (c *CredentialsController) ListCredentials(ctx context.Context) ([]CredentialSummary, error) {
+	return c.ListCredentialsWithContext(ctx)
+}
+
+func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) ([]CredentialSummary, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	if c.credMgr == nil {
 		return []CredentialSummary{}, nil
 	}
 
-	list, err := c.credMgr.ListCredentials()
+	list, err := c.credMgr.ListVisibleCredentialsWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -68,10 +61,14 @@ func (c *CredentialsController) ListCredentials() ([]CredentialSummary, error) {
 		if entry.Auth == nil {
 			continue
 		}
+		masked := credentials.SummarizeAuth(entry.Auth)
+		if entry.Unreadable {
+			masked = "ilegível - redigite para substituir"
+		}
 		result = append(result, CredentialSummary{
 			Pattern: entry.Pattern,
 			Type:    entry.Auth.Type,
-			Masked:  credentials.SummarizeAuth(entry.Auth),
+			Masked:  masked,
 			Managed: credentials.IsManagedPattern(entry.Pattern),
 		})
 	}
@@ -79,7 +76,14 @@ func (c *CredentialsController) ListCredentials() ([]CredentialSummary, error) {
 }
 
 // UpsertCredential cria ou atualiza uma credencial no credential manager.
-func (c *CredentialsController) UpsertCredential(input CredentialInput) error {
+func (c *CredentialsController) UpsertCredential(ctx context.Context, input CredentialInput) error {
+	return c.UpsertCredentialWithContext(ctx, input)
+}
+
+func (c *CredentialsController) UpsertCredentialWithContext(ctx context.Context, input CredentialInput) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
 	if c.credMgr == nil {
 		return fmt.Errorf("credential manager não inicializado")
 	}
@@ -118,18 +122,25 @@ func (c *CredentialsController) UpsertCredential(input CredentialInput) error {
 		return fmt.Errorf("tipo de credencial inválido")
 	}
 
-	return c.credMgr.RegisterPatternWithContext(context.Background(), pattern, auth)
+	return c.credMgr.RegisterPatternWithContext(ctx, pattern, auth)
 }
 
 // DeleteCredential remove uma credencial pelo padrão.
-func (c *CredentialsController) DeleteCredential(pattern string) error {
+func (c *CredentialsController) DeleteCredential(ctx context.Context, pattern string) error {
+	return c.DeleteCredentialWithContext(ctx, pattern)
+}
+
+func (c *CredentialsController) DeleteCredentialWithContext(ctx context.Context, pattern string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
 	if c.credMgr == nil {
 		return fmt.Errorf("credential manager não inicializado")
 	}
 	if credentials.IsManagedPattern(pattern) {
 		return fmt.Errorf("credencial '%s' é gerenciada pelo sistema e não pode ser removida manualmente", pattern)
 	}
-	return c.credMgr.DeletePattern(context.Background(), pattern)
+	return c.credMgr.DeletePattern(ctx, pattern)
 }
 
 // ListExternalSources lista fontes externas disponíveis para autocomplete.

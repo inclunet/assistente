@@ -4,6 +4,7 @@ import { jobs } from '@wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Button } from '../ui/Button';
 import { OutputExplorer } from './builder/OutputExplorer';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './RunLogViewer.css';
 
 interface RunLogViewerProps {
@@ -64,6 +65,7 @@ function RunDetail({
   onRerun?: (jobId: string) => void;
 }) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const [replaying, setReplaying] = useState(false);
   const [replayResult, setReplayResult] = useState<jobs.TestToolResult | null>(null);
 
@@ -74,15 +76,21 @@ function RunDetail({
     try {
       const result = await onReplay(run);
       setReplayResult(result);
+      if (result) {
+        announce(
+          result.success ? t('jobs.replaySuccess') : t('jobs.replayFailed'),
+          result.success ? 'polite' : 'assertive',
+        );
+      }
     } finally {
       setReplaying(false);
     }
-  }, [onReplay, run]);
+  }, [announce, onReplay, run, t]);
 
-  const canReplay = Boolean(run.tool_name && run.resolved_inputs && onReplay);
+  const canReplay = Boolean(run.replayable && run.tool_name && run.resolved_inputs && onReplay);
 
   return (
-    <section className="run-detail" aria-label={t('jobs.runDetailLabel', 'Detalhes da execução')}>
+    <section className="run-detail" aria-label={t('jobs.runDetailLabel')}>
       {run.tool_name && (
         <div className="run-detail__row">
           <h4 className="run-detail__label">{t('jobs.logTool')}</h4>
@@ -120,8 +128,6 @@ function RunDetail({
       {replayResult && (
         <div
           className={`run-detail__replay-result ${replayResult.success ? 'run-detail__replay-result--ok' : 'run-detail__replay-result--err'}`}
-          role="status"
-          aria-live="polite"
         >
           <h4 className="run-detail__label">
             {replayResult.success ? t('jobs.replaySuccess') : t('jobs.replayFailed')}
@@ -198,11 +204,11 @@ export function RunLogViewer({ logs, isLoading, onReplay, onRerun }: RunLogViewe
   }, []);
 
   if (isLoading) {
-    return <div className="run-log-viewer run-log-viewer--loading" role="status">{t('common.loading', 'Loading...')}</div>;
+    return <div className="run-log-viewer run-log-viewer--loading">{t('common.loading')}</div>;
   }
 
   if (!logs || logs.length === 0) {
-    return <div className="run-log-viewer run-log-viewer--empty" role="status">{t('jobs.logsEmpty')}</div>;
+    return <div className="run-log-viewer run-log-viewer--empty">{t('jobs.logsEmpty')}</div>;
   }
 
   return (

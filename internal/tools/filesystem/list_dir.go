@@ -24,8 +24,13 @@ func NewListDirectory(workDir string) *ListDirectory {
 
 func (t *ListDirectory) Name() string { return "list_directory" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *ListDirectory) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
+}
+
 func (t *ListDirectory) Description() string {
-	return "Lists files and directories for a path (default: working directory). Returns name, type, and size. Not recursive by default; use recursive=true and max_depth."
+	return "List the entries of a known directory with file types and sizes. Use for a quick directory overview, normally one level at a time. Do not use to read file contents (use read_file), find paths by glob (use search_files), or search text (use grep_search). Recursive listing can return up to 1,000 entries and costs more; prefer non-recursive calls or a narrow max_depth. Risk: read-only."
 }
 
 func (t *ListDirectory) Parameters() json.RawMessage {
@@ -34,15 +39,15 @@ func (t *ListDirectory) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do diretório (absoluto ou relativo ao diretório de trabalho). Padrão: diretório de trabalho."
+				"description": "Directory to list, absolute or relative to the working directory; defaults to the working directory. This must be a directory, not a file."
 			},
 			"recursive": {
 				"type": "boolean",
-				"description": "Se true, lista recursivamente todos os subdiretórios. Padrão: false."
+				"description": "Whether to descend into subdirectories; defaults to false. Recursive output is capped at 1,000 entries."
 			},
 			"max_depth": {
 				"type": "integer",
-				"description": "Profundidade máxima da recursão (somente com recursive=true). Padrão: 3."
+				"description": "Maximum depth when recursive is true; defaults to 3 and is ignored for a non-recursive listing."
 			}
 		},
 		"additionalProperties": false
@@ -122,11 +127,17 @@ func (t *ListDirectory) listFlat(ctx context.Context, fullPath, displayPath stri
 
 	for _, entry := range entries {
 		entryPath := filepath.Join(fullPath, entry.Name())
+		// Omissão por sandbox é silenciosa (AEP-0092 D-Q7), então vem antes do
+		// skill: senão a entrada entraria na conta de skippedBySkill e o
+		// cabeçalho atribuiria ao skill uma omissão que é do sandbox.
+		if walkEntryEscapesSandbox(entryPath, entry.Type(), t.workDir) {
+			continue
+		}
 		if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
 			skippedBySkill++
 			continue
 		}
-		if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+		if ToolPolicy().BlockSensitive && isSensitiveEntry(entryPath, entry.Type()) {
 			skippedSensitive++
 			continue
 		}
@@ -205,6 +216,9 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 			}
 
 			entryPath := filepath.Join(dir, entry.Name())
+			if walkEntryEscapesSandbox(entryPath, entry.Type(), t.workDir) {
+				continue
+			}
 			if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
 				if entry.IsDir() {
 					// Não desce em diretórios fora do escopo do skill.
@@ -229,7 +243,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 					return err
 				}
 			} else {
-				if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+				if ToolPolicy().BlockSensitive && isSensitiveEntry(entryPath, entry.Type()) {
 					skippedSensitive++
 					continue
 				}

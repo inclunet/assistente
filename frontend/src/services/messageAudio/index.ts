@@ -8,7 +8,8 @@
  * Fallback quando backend não tem TTS: frontend usa speakAsRole (WebSpeech/SAPI5)
  */
 
-import { SpeakMessage } from '@wailsjs/go/app/App';
+import { logger } from '../../utils/logger';
+import { SpeakMessage } from '@wailsjs/go/wailsapi/Speech';
 import { base64ToBlob } from '../../lib/audioUtils';
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,13 @@ export interface TTSProviderParams {
   voiceId: string;
   model: string;
   rate: number;
+  /** Idioma do perfil que pediu a fala; define os rótulos falados no backend. */
+  language?: string;
+}
+
+function canUseBackendTTS(provider?: TTSProviderParams): boolean {
+  const providerId = provider?.providerId ?? '';
+  return providerId !== '' && providerId !== 'webspeech' && !providerId.startsWith('ref_');
 }
 
 /**
@@ -147,15 +155,19 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
     await playAudioBlob(cached, volume, messageId);
     return true;
   }
+  if (!canUseBackendTTS(provider)) {
+    return false;
+  }
 
   // 2. Backend (DB cache ou TTS) → armazena em memória
   try {
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
+      provider?.language ?? '',
     );
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
@@ -165,7 +177,7 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
     }
     return false;
   } catch (err) {
-    console.warn('[messageAudio] speakMessage failed:', err);
+    logger.warn('[messageAudio] speakMessage failed:', err);
     return false;
   }
 }
@@ -178,14 +190,18 @@ async function getMessageAudioBlob(messageId: string, provider?: TTSProviderPara
   // Checa memória primeiro
   const cached = memoryCacheGet(messageId);
   if (cached) return cached;
+  if (!canUseBackendTTS(provider)) {
+    return null;
+  }
 
   try {
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
+      provider?.language ?? '',
     );
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
@@ -194,7 +210,7 @@ async function getMessageAudioBlob(messageId: string, provider?: TTSProviderPara
     }
     return null;
   } catch (err) {
-    console.warn('[messageAudio] getMessageAudioBlob failed:', err);
+    logger.warn('[messageAudio] getMessageAudioBlob failed:', err);
     return null;
   }
 }

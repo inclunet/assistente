@@ -13,6 +13,7 @@ export type EditorMenuBaseContext = {
 
 export type InsertMenuContext = EditorMenuBaseContext & {
   applyInsertRequest: (req: EditorInsertRequest) => Promise<boolean>;
+  appendMarkdownToDocument: (content: string) => void;
   focusEditorSoon: () => void;
   addToast: AddToastFn;
 };

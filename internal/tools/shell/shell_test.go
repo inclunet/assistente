@@ -3,8 +3,11 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
@@ -177,10 +180,15 @@ func TestParameters(t *testing.T) {
 
 // MockSessionManager implementa SessionManager para testes
 type MockSessionManager struct {
-	acquireCalls   int
-	releaseCalls   int
-	runCommandCalls int
-	
+	acquireCalls       int
+	releaseCalls       int
+	closeCalls         int
+	runCommandCalls    int
+	runEphemeralCalls  int
+	runSessionID       string
+	liveSessions       map[string]bool
+	sessionCWD         map[string]string
+
 	// Controladores de behavior
 	fakeSession *terminal.Session
 	fakeSessErr error
@@ -190,7 +198,13 @@ type MockSessionManager struct {
 
 // createMockSession cria uma Session para testes
 func createMockSession(sessionID string) *terminal.Session {
-	return &terminal.Session{}
+	s := &terminal.Session{}
+	// Define o campo privado `id` via reflection/unsafe para que Session.ID() retorne o valor esperado.
+	v := reflect.ValueOf(s).Elem().FieldByName("id")
+	if v.CanAddr() {
+		reflect.NewAt(v.Type(), unsafe.Pointer(v.UnsafeAddr())).Elem().SetString(sessionID)
+	}
+	return s
 }
 
 func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*terminal.Session, error) {
@@ -206,6 +220,7 @@ func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*term
 
 func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error) {
 	m.runCommandCalls++
+	m.runSessionID = sessionID
 	if m.fakeRunErr != nil {
 		return m.fakeEntry, m.fakeRunErr
 	}
@@ -220,8 +235,37 @@ func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, c
 	return m.fakeEntry, nil
 }
 
+func (m *MockSessionManager) Info(sessionID string) (terminal.SessionInfo, bool) {
+	if !m.liveSessions[sessionID] {
+		return terminal.SessionInfo{}, false
+	}
+	return terminal.SessionInfo{ID: sessionID, CWD: m.sessionCWD[sessionID]}, true
+}
+
 func (m *MockSessionManager) Release(sessionID string) {
 	m.releaseCalls++
+}
+
+func (m *MockSessionManager) Close(sessionID string) error {
+	m.closeCalls++
+	return nil
+}
+
+func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
+	m.runEphemeralCalls++
+	if m.fakeRunErr != nil {
+		// Se há entry configurado, devolve junto do erro (caso timeout com output parcial);
+		// senão, devolve só o erro — espelha o Manager real que sempre retorna entry preenchida no sucesso.
+		if m.fakeEntry != nil {
+			return m.fakeEntry, m.fakeRunErr
+		}
+		return nil, m.fakeRunErr
+	}
+	if m.fakeEntry != nil {
+		return m.fakeEntry, nil
+	}
+	// Por padrão, devolve entry preenchida para não causar panic em testes que esqueceram de configurar fakeEntry.
+	return &terminal.HistoryEntry{ID: "mock-cmd", Output: "mock output", ExitCode: 0}, nil
 }
 
 // TestSuccessfulExecution valida execução bem-sucedida
@@ -252,11 +296,170 @@ func TestSuccessfulExecution(t *testing.T) {
 	if !contains(result.Content, "hello") {
 		t.Errorf("esperado output contém 'hello', got %q", result.Content)
 	}
+	if mgr.runEphemeralCalls != 1 {
+		t.Errorf("esperado 1 RunEphemeral call (efêmero por padrão), got %d", mgr.runEphemeralCalls)
+	}
+	if mgr.runCommandCalls != 0 {
+		t.Errorf("não esperado RunCommand em modo efêmero, got %d", mgr.runCommandCalls)
+	}
+	if mgr.acquireCalls != 0 {
+		t.Errorf("não esperado Acquire em modo efêmero, got %d", mgr.acquireCalls)
+	}
+}
+
+func TestPersistentFlagKeepsSession(t *testing.T) {
+	mgr := &MockSessionManager{
+		fakeEntry: &terminal.HistoryEntry{ID: "cmd-1", Output: "ok\n", ExitCode: 0},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"echo ok","persistent":true}`))
+	if err != nil || result.IsError {
+		t.Fatalf("Execute persistent: result=%#v err=%v", result, err)
+	}
+	if mgr.acquireCalls != 1 {
+		t.Errorf("esperado 1 Acquire com persistent=true, got %d", mgr.acquireCalls)
+	}
 	if mgr.runCommandCalls != 1 {
-		t.Errorf("esperado 1 RunCommand call, got %d", mgr.runCommandCalls)
+		t.Errorf("esperado 1 RunCommand com persistent=true, got %d", mgr.runCommandCalls)
+	}
+	if mgr.runEphemeralCalls != 0 {
+		t.Errorf("não esperado RunEphemeral com persistent=true, got %d", mgr.runEphemeralCalls)
+	}
+	if mgr.closeCalls != 0 {
+		t.Errorf("não esperado Close com persistent=true, got %d", mgr.closeCalls)
 	}
 	if mgr.releaseCalls != 1 {
-		t.Errorf("esperado 1 Release call, got %d", mgr.releaseCalls)
+		t.Errorf("esperado 1 Release com persistent=true, got %d", mgr.releaseCalls)
+	}
+}
+
+func TestExecutionUsesExplicitTerminalWithoutAcquire(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+		sessionCWD:   map[string]string{"term-explicit": "/workspace/repo"},
+		fakeEntry: &terminal.HistoryEntry{
+			ID:       "cmd-explicit",
+			Output:   "ok",
+			ExitCode: 0,
+		},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit"}`,
+	))
+	if err != nil || result.IsError {
+		t.Fatalf("Execute: result=%#v err=%v", result, err)
+	}
+	if mgr.acquireCalls != 0 {
+		t.Fatalf("Acquire chamado %d vez(es)", mgr.acquireCalls)
+	}
+	if mgr.runSessionID != "term-explicit" {
+		t.Fatalf("RunCommand recebeu %q", mgr.runSessionID)
+	}
+	if result.Metadata["deepLink"] != "assistente://terminal/term-explicit" {
+		t.Fatalf("deepLink = %#v", result.Metadata["deepLink"])
+	}
+}
+
+func TestExecutionRejectsWorkingDirectoryWithExplicitTerminal(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit","working_directory":"outro"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.runCommandCalls != 0 {
+		t.Fatalf("resultado=%#v runCalls=%d", result, mgr.runCommandCalls)
+	}
+}
+
+func TestExecutionRejectsWorkingDirectoryOutsideProject(t *testing.T) {
+	mgr := &MockSessionManager{}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, t.TempDir())
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","working_directory":"../../outside"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.acquireCalls != 0 {
+		t.Fatalf("resultado=%#v acquireCalls=%d", result, mgr.acquireCalls)
+	}
+}
+
+func TestExplicitTerminalConfirmationUsesSessionCWD(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+		sessionCWD:   map[string]string{"term-explicit": "/workspace/repo"},
+	}
+	al := &allowlist.Allowlist{DefaultAction: "confirm"}
+	confirmedCWD := ""
+	confirmFn := func(_ context.Context, _, workDir string) (bool, error) {
+		confirmedCWD = workDir
+		return false, nil
+	}
+	rc := NewRunCommand(mgr, confirmFn, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || confirmedCWD != "/workspace/repo" {
+		t.Fatalf("resultado=%#v cwd=%q", result, confirmedCWD)
+	}
+}
+
+func TestExecutionRejectsDeadExplicitTerminal(t *testing.T) {
+	mgr := &MockSessionManager{liveSessions: map[string]bool{}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-dead"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.runCommandCalls != 0 {
+		t.Fatalf("resultado=%#v runCalls=%d", result, mgr.runCommandCalls)
+	}
+}
+
+func TestExecutionDoesNotReleaseExplicitTerminalAfterFailure(t *testing.T) {
+	mgr := &MockSessionManager{
+		liveSessions: map[string]bool{"term-explicit": true},
+		sessionCWD:   map[string]string{"term-explicit": "/workspace/repo"},
+		fakeRunErr:   errors.New("sessão ocupada"),
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"echo *"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(
+		`{"command":"echo ok","terminal_id":"term-explicit"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || mgr.acquireCalls != 0 || mgr.releaseCalls != 0 {
+		t.Fatalf(
+			"resultado=%#v acquireCalls=%d releaseCalls=%d",
+			result,
+			mgr.acquireCalls,
+			mgr.releaseCalls,
+		)
 	}
 }
 
@@ -367,7 +570,7 @@ func TestAcquireSessionError(t *testing.T) {
 	}
 
 	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
-	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"test"}`))
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"test","persistent":true}`))
 
 	if err != nil {
 		t.Fatalf("esperado nil error, got %v", err)
@@ -462,7 +665,7 @@ func TestTimeoutExceedsMaxTimeout(t *testing.T) {
 	}
 
 	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
-	
+
 	// Req timeout: 600 segundos (máximo é 300s / 5min)
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"long-task", "timeout_seconds":600}`))
 
@@ -472,11 +675,11 @@ func TestTimeoutExceedsMaxTimeout(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("esperado sucesso, got: %s", result.Content)
 	}
-	
+
 	// Validar que timeout foi clipped (não há forma de confirmar diretamente,
 	// mas o Manager foi chamado, logo timeout foi calculado e respeitado)
-	if mgr.runCommandCalls != 1 {
-		t.Errorf("esperado 1 RunCommand call, got %d", mgr.runCommandCalls)
+	if mgr.runEphemeralCalls != 1 {
+		t.Errorf("esperado 1 RunEphemeral call (efêmero), got %d", mgr.runEphemeralCalls)
 	}
 }
 
@@ -507,8 +710,8 @@ func TestConfirmDecisionWithNilCallback(t *testing.T) {
 		t.Fatalf("esperado sucesso com confirmFn=nil, got: %s", result.Content)
 	}
 	// Deve ter executado mesmo sem callback
-	if mgr.runCommandCalls != 1 {
-		t.Errorf("esperado execução mesmo sem confirmFn, got %d calls", mgr.runCommandCalls)
+	if mgr.runEphemeralCalls != 1 {
+		t.Errorf("esperado execução mesmo sem confirmFn, got %d calls", mgr.runEphemeralCalls)
 	}
 }
 
@@ -565,7 +768,8 @@ func TestMetadataCompleto(t *testing.T) {
 	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, "/mydir")
 	result, err := rc.Execute(context.Background(), json.RawMessage(`{
 		"command":"echo test",
-		"working_directory":"subdir"
+		"working_directory":"subdir",
+		"persistent":true
 	}`))
 
 	if err != nil {
@@ -628,10 +832,13 @@ func TestMetadataTimeoutWithoutOutput(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("esperado error quando timeout sem output")
 	}
-	
+
 	// Validar que metadata contém exitCode=-1
 	if exitCode, ok := result.Metadata["exitCode"].(int); !ok || exitCode != -1 {
 		t.Errorf("esperado exitCode=-1 em metadata, got %v", result.Metadata["exitCode"])
+	}
+	if commandID, ok := result.Metadata["commandId"].(string); !ok || commandID != "cmd-132" {
+		t.Errorf("esperado commandId=cmd-132 em metadata, got %v", result.Metadata["commandId"])
 	}
 }
 
@@ -664,13 +871,12 @@ func TestMultipleExecutionsReleaseSession(t *testing.T) {
 		}
 	}
 
-	// Release deve ser chamado 3 vezes (uma por execução)
-	if mgr.releaseCalls != 3 {
-		t.Errorf("esperado 3 Release calls, got %d", mgr.releaseCalls)
+	// RunEphemeral deve ser chamado 3 vezes (efêmero por padrão, sem aba)
+	if mgr.runEphemeralCalls != 3 {
+		t.Errorf("esperado 3 RunEphemeral calls, got %d", mgr.runEphemeralCalls)
 	}
-	// RunCommand deve ser chamado 3 vezes
-	if mgr.runCommandCalls != 3 {
-		t.Errorf("esperado 3 RunCommand calls, got %d", mgr.runCommandCalls)
+	if mgr.runCommandCalls != 0 {
+		t.Errorf("não esperado RunCommand em modo efêmero, got %d", mgr.runCommandCalls)
 	}
 }
 

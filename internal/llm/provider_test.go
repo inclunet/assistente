@@ -53,6 +53,16 @@ func TestProviderConfigValidate_Valid(t *testing.T) {
 				Timeout: 300, // 5 min
 			},
 		},
+		{
+			"with_reasoning_content_capability",
+			&ProviderConfig{
+				ID:                   "reasoning-proxy",
+				Name:                 "Reasoning Proxy",
+				Type:                 ProviderCustom,
+				BaseURL:              "https://proxy.example/v1",
+				ReasoningContentMode: ReasoningContentReplayWithTools,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -103,6 +113,16 @@ func TestProviderConfigValidate_Invalid(t *testing.T) {
 				BaseURL: "   ",
 			},
 			"provider base_url vazio",
+		},
+		{
+			"invalid_reasoning_content_mode",
+			&ProviderConfig{
+				ID:                   "test-provider",
+				Name:                 "Test",
+				BaseURL:              "https://api.test.com",
+				ReasoningContentMode: "detectar_por_url",
+			},
+			"reasoning_content_mode inválido",
 		},
 		{
 			"all_empty",
@@ -384,6 +404,39 @@ func TestProviderConfig_SupportsSTT(t *testing.T) {
 			p := &ProviderConfig{APIFormat: tt.apiFormat, BaseURL: "https://example.com"}
 			if got := p.SupportsSTT(); got != tt.want {
 				t.Errorf("SupportsSTT() = %v, want %v (apiFormat=%q)", got, tt.want, tt.apiFormat)
+			}
+		})
+	}
+}
+
+func TestProviderConfig_SupportsExplicitCacheControl(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *ProviderConfig
+		want bool
+	}{
+		{
+			name: "anthropic official",
+			cfg:  &ProviderConfig{APIFormat: APIFormatAnthropic, BaseURL: "https://api.anthropic.com/v1"},
+			want: true,
+		},
+		{
+			name: "anthropic proxy no capability",
+			cfg:  &ProviderConfig{APIFormat: APIFormatAnthropic, BaseURL: "https://litellm.example.com/anthropic"},
+		},
+		{
+			name: "openai compatible uses provider hints instead",
+			cfg:  &ProviderConfig{APIFormat: APIFormatOpenAI, BaseURL: "https://api.openai.com/v1"},
+		},
+		{
+			name: "google cachedContent needs lifecycle",
+			cfg:  &ProviderConfig{APIFormat: APIFormatGoogle, BaseURL: "https://generativelanguage.googleapis.com/v1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SupportsExplicitCacheControl(tt.cfg); got != tt.want {
+				t.Fatalf("SupportsExplicitCacheControl() = %v, want %v", got, tt.want)
 			}
 		})
 	}

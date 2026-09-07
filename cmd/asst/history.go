@@ -39,7 +39,7 @@ var historyListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista conversas recentes",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runHistoryList(rootApp, os.Stdout, historyListSearch, historyListLimit)
+		return runHistoryList(asCLI(rootApp), os.Stdout, historyListSearch, historyListLimit)
 	},
 }
 
@@ -99,7 +99,7 @@ var historyShowCmd = &cobra.Command{
 	Short: "Exibe mensagens de uma conversa",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runHistoryShow(rootApp, os.Stdout, args[0])
+		return runHistoryShow(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -144,7 +144,7 @@ var historyDeleteCmd = &cobra.Command{
 	Short: "Remove uma conversa",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runHistoryDelete(rootApp, os.Stdout, args[0])
+		return runHistoryDelete(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 

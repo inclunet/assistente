@@ -1,0 +1,202 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"os"
+	"strings"
+
+	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
+	"assistente/internal/acptrust"
+	"assistente/internal/core/ports"
+	"assistente/internal/credentials"
+	"assistente/internal/database"
+	"assistente/internal/logging"
+	"assistente/internal/questionnaire"
+)
+
+// initACP cria o serviço que é dono dos processos e das sessões dos agentes de
+// código (AEP-0084 D3). Nada sobe aqui: o processo de um provider ACP só nasce
+// no primeiro uso — um turno, uma consulta de modelos, um health check.
+func (a *App) initACP() {
+	// O handler pergunta ao serviço quem espera o turno, e o serviço precisa
+	// do handler para nascer. Ele é preenchido logo abaixo: nenhum pedido do
+	// agente chega antes disso, porque o primeiro processo só sobe no primeiro
+	// turno.
+	if a.acpTrust == nil {
+		a.acpTrust = acptrust.NewStore()
+	}
+	handler := &acpRequestHandler{
+		questions: func() *questionnaire.Manager { return a.questionnaireMgr },
+		surfaces:  a.questionnaireRouter(),
+		origin:    a.acpConversationSurface,
+		notices:   func() ports.Emitter { return a.emitter },
+		trust:     func() *acptrust.Store { return a.acpTrust },
+		activeProfile: func() string {
+			if a.profileManager == nil {
+				return ""
+			}
+			return a.profileManager.GetActiveSlug()
+		},
+	}
+	a.acpMgr = acp.NewManager(acp.ManagerConfig{
+		// O banco é buscado a cada uso, não guardado: resetá-lo fecha a conexão
+		// e abre outra, e uma conexão guardada aqui ficaria apontando para a
+		// fechada até o app reiniciar.
+		Store:   acp.NewDBSessionStore(database.DB),
+		Handler: handler,
+		WorkDir: a.acpWorkDir,
+		// Conversa que escolheu diretório fica nele mesmo quando o app troca de
+		// workspace: o alcance do agente é o que aquela conversa autorizou
+		// (AEP-0084 D5).
+		ConversationDir: a.agentConversationDir,
+		// O agente troca de modelo sozinho e avisa. A tela precisa refletir isso,
+		// e quem usa leitor de telas precisa ouvi-lo (AEP-0084 D6).
+		OnSessionOptions: a.agentSessionOptionsChanged,
+		// Os comandos do agente aparecem no menu da barra, e ele conta quais
+		// existem assim que a sessão abre (AEP-0084 D8).
+		OnSessionCommands: a.agentSessionCommandsChanged,
+		// O provedor que pediu para entregar uma credencial do cofre ao agente
+		// é atendido aqui, no momento de subir o processo (AEP-0086 D12).
+		ResolveCredential: a.acpCredentialFromVault,
+		ClientName:        "assistente",
+		ClientVersion:     AppVersion,
+	})
+	handler.owner = a.acpMgr.TurnOwnerOf
+
+	// O catálogo do registro nasce junto, e também sem tocar na rede: o serviço
+	// só lê o cache do disco na primeira consulta, e quem consulta é a tela de
+	// provedores (AEP-0086 D2). Montá-lo aqui é o que faz a tela abrir sem
+	// esperar por nada.
+	if a.acpRegistry == nil {
+		a.acpRegistry = acpregistry.New(acpregistry.Config{})
+	}
+}
+
+// acpCredentialFromVault lê no cofre o valor de uma entrada, para a variável de
+// ambiente que o provedor pediu (AEP-0086 D12).
+//
+// O contexto é o de quem está subindo o agente, e isso importa: o cofre é
+// escopado por usuário (AEP-0052), e ler com o contexto errado devolveria a
+// credencial de outra pessoa — ou nenhuma.
+//
+// O valor sai daqui e vai direto para o ambiente do processo. Ele não é
+// guardado, não volta para a tela e não entra em log: o que se registra deste
+// caminho é o nome da variável e o padrão do cofre.
+func (a *App) acpCredentialFromVault(ctx context.Context, pattern string) (string, error) {
+	if a == nil || a.credMgr == nil {
+		return "", errors.New("o cofre de credenciais não está disponível")
+	}
+	auth, err := a.credMgr.GetByPatternWithContext(ctx, pattern)
+	if err != nil {
+		return "", err
+	}
+	if auth == nil {
+		return "", nil
+	}
+	// A decifragem já resolveu referência externa (keyring://, env://), então o
+	// que chega aqui é o valor final — inclusive para quem prefere manter o
+	// segredo no cofre do sistema e deixar no app só o apontamento.
+	return credentials.ResolveSecretFromAuth(auth), nil
+}
+
+// questionnaireRouter é por onde qualquer diálogo do backend chega a quem
+// decide: a tela, quando há alguém nela, ou o canal de onde a conversa veio
+// (AEP-0084 Fase 5). As duas pontas são resolvidas na hora do uso, e não agora:
+// o questionário e o gateway de mensageria nascem depois deste ponto, e um valor
+// guardado aqui congelaria um nulo.
+func (a *App) questionnaireRouter() *questionnaire.Router {
+	return questionnaire.NewRouter(
+		func() *questionnaire.Manager { return a.questionnaireMgr },
+		func() questionnaire.ChannelAsker {
+			if a == nil || a.msgGateway == nil {
+				return nil
+			}
+			return a.msgGateway.ChannelQuestions()
+		},
+	)
+}
+
+// acpConversationSurface descobre de onde veio a conversa de um turno sem tela.
+// Conversa de canal pergunta pelo próprio canal; o que não veio de canal — job
+// agendado, subagente, CLI — não tem a quem perguntar.
+//
+// O contexto é montado aqui com o dono do turno porque o pedido do agente chega
+// pelo contexto do transporte, sem escopo de usuário: sem ele a consulta falha
+// (fail-closed do AEP-0052), e com o dono errado leria a conversa de outra
+// pessoa.
+func (a *App) acpConversationSurface(owner acp.TurnOwner) questionnaire.Surface {
+	return conversationSurface(owner, database.GetConversationInfoWithContext)
+}
+
+// conversationSurface é a regra de descoberta, separada de onde a conversa é
+// lida para poder ser exercitada sem banco.
+func conversationSurface(owner acp.TurnOwner, lookup func(context.Context, string) (*database.Conversation, error)) questionnaire.Surface {
+	conversationID := strings.TrimSpace(owner.ConversationID)
+	userID := strings.TrimSpace(owner.UserID)
+	if conversationID == "" || userID == "" || lookup == nil {
+		return questionnaire.NoSurface(conversationID)
+	}
+	ctx := database.WithUserID(context.Background(), userID)
+	conv, err := lookup(ctx, conversationID)
+	if err != nil || conv == nil {
+		logging.Warnf(ctx, "app.app-acp",
+			"[ACP] não foi possível descobrir a origem da conversa %s para perguntar: %v", conversationID, err)
+		return questionnaire.NoSurface(conversationID)
+	}
+	// ChannelSurface recusa o que não estiver completo: conversa local, ou de
+	// canal sem contato, cai em superfície nenhuma.
+	return questionnaire.ChannelSurface(conversationID, conv.Channel, conv.ContactID)
+}
+
+// acpWorkDir é o diretório sobre o qual o agente age (AEP-0084 D5): o workspace
+// ativo, o mesmo que o terminal e a allowlist de rede seguem. Ele muda em
+// runtime sem mexer no cwd do processo, e usar o cwd cru faria o agente editar
+// arquivos de uma árvore enquanto o terminal roda comandos em outra. Sem
+// workspace ativo sobra o cwd, que é de onde o app foi iniciado.
+func (a *App) acpWorkDir() (string, error) {
+	if a != nil && a.workspaceMgr != nil {
+		if base := strings.TrimSpace(a.workspaceMgr.ActivePath()); base != "" {
+			return base, nil
+		}
+	}
+	return os.Getwd()
+}
+
+// closeACPSession encerra a sessão que o agente mantém para esta conversa. É o
+// que limpar ou excluir a conversa precisa fazer: a memória do agente deixou de
+// corresponder ao que a pessoa vê na tela, e uma sessão sem dono fica aberta no
+// processo dele (AEP-0084 D4).
+func (a *App) closeACPSession(ctx context.Context, conversationID string) {
+	if a == nil || a.acpMgr == nil {
+		return
+	}
+	if err := a.acpMgr.CloseConversation(ctx, conversationID); err != nil {
+		logging.Warnf(ctx, "app.app-acp", "[ACP] erro ao encerrar a sessão da conversa %s: %v", conversationID, err)
+	}
+}
+
+// closeAllACPSessions é o mesmo para o "limpar tudo": nenhuma das conversas que
+// as sessões descrevem existe mais. Sem isso o agente segue respondendo com base
+// em mensagens apagadas e os vínculos ficam no banco sem conversa que os
+// reencontre.
+func (a *App) closeAllACPSessions(ctx context.Context) {
+	if a == nil || a.acpMgr == nil {
+		return
+	}
+	if err := a.acpMgr.CloseAllConversations(ctx); err != nil {
+		logging.Warnf(ctx, "app.app-acp", "[ACP] erro ao encerrar as sessões das conversas apagadas: %v", err)
+	}
+}
+
+// resetACPRuntime derruba processos e sessões sem tocar no banco. É o que o
+// reset do banco precisa: o arquivo inteiro foi recriado, então não há registro
+// para apagar, e o que sobrou em memória descreve conversas de um banco que já
+// não existe.
+func (a *App) resetACPRuntime() {
+	if a == nil || a.acpMgr == nil {
+		return
+	}
+	a.acpMgr.DisconnectAll()
+}

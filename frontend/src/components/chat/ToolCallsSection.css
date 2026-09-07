@@ -245,6 +245,11 @@
   color: var(--color-success);
 }
 
+.tool-calls-section__origin-badge--acp_agent {
+  background-color: var(--color-warning-dim);
+  color: var(--color-warning);
+}
+
 .tool-calls-section__server-label {
   font-size: 0.75em;
   color: var(--text-muted);

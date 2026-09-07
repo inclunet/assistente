@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
@@ -13,12 +14,15 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
-import { buildChatSurfaceParams } from '../../lib/chatSurface';
+import { openTaskLink } from '../../lib/deepLinks';
+import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
-import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
+import { useCustomActions } from './useCustomActions';
+import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions, CustomActionView } from '../../types/tasklist';
 
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
+const CustomActionsEditor = lazy(() => import('./CustomActionsEditor'));
 
 interface TaskListViewProps {
   taskListId: string;
@@ -30,6 +34,7 @@ interface TaskListViewProps {
  */
 export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
@@ -42,11 +47,34 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
+  const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
   const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
+  const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
+  const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
+
+  // Conversa atualmente vinculada ao chat embutido desta aba (quando o modal de
+  // chat está aberto). Usada para auto-vincular a lista à conversa do chat.
+  const chatBoundConversationId = useWorkspaceChatModalStore(
+    (s) => (s.isOpen && s.boundTabId === panelTab?.id ? s.boundConversationId : null),
+  );
+
+  const boardActionsReqRef = useRef(0);
+  const reloadBoardActions = useCallback(() => {
+    // Guard por request-id: se taskListId mudar enquanto a Promise anterior ainda
+    // está pendente, a resposta antiga não deve sobrescrever a lista mais recente.
+    const reqId = ++boardActionsReqRef.current;
+    listBoardCustomActions(taskListId)
+      .then((res) => { if (boardActionsReqRef.current === reqId) setBoardActions(res); })
+      .catch(() => { if (boardActionsReqRef.current === reqId) setBoardActions([]); });
+  }, [listBoardCustomActions, taskListId]);
+
+  useEffect(() => {
+    reloadBoardActions();
+  }, [reloadBoardActions]);
 
   useEffect(() => {
     if (!taskList) {
@@ -89,7 +117,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     try {
       await setViewMode(taskListId, newMode);
       announce(
-        t('tasklist.viewModeChanged', `Alterado para visualização ${newMode === 'list' ? 'Lista' : 'Kanban'}`)
+        t('tasklist.viewModeChanged', 'Alterado para visualização {{mode}}', {
+          mode: t(newMode === 'list' ? 'tasklist.viewModeList' : 'tasklist.viewModeKanban'),
+        }),
       );
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -116,7 +146,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     try {
       await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
       setIsWorkflowEditorOpen(false);
-      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success');
+      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -129,7 +161,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     try {
       const cloned = await cloneTaskList(taskListId, newTitle);
       if (cloned) {
-        addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success');
+        addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success', undefined, undefined, {
+          suppressAnnounce: true,
+        });
         announce(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'));
       }
     } catch (error) {
@@ -150,7 +184,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
     try {
       await clearTaskList(taskListId);
-      addToast(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'), 'success');
+      addToast(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -207,26 +243,58 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       send: async (instruction, media) => {
         const taskLabel = t('tasklist.chatModalContext.taskCount', { count: tasks.length });
         const header = `${taskList.title}\n${taskLabel}\n`;
-        const body = tasks
-          .slice(0, 40)
+        const previewTasks = tasks.slice(0, 40);
+        const body = previewTasks
           .map((x) => `- ${String(x.title || '').trim()}`)
           .join('\n');
+        const taskSnapshotSeed = previewTasks
+          .map((task) => `${task.id}:${task.updatedAt}:${task.statusId}`)
+          .join('|');
+        const statuses = [...(taskList.workflow?.statuses ?? [])].sort((a, b) => a.order - b.order);
+        const surfaceContext: SurfaceContext = {
+          surfaceType: 'tasklist',
+          surfaceId: panelTab.id,
+          title: taskList.title,
+          mode: currentViewMode,
+          focus: {
+            kind: 'tasklist',
+            label: taskList.title,
+            entity: { taskListId },
+          },
+          content: {
+            kind: 'tasklist_summary',
+            summary: `${header}${body || t('tasklist.chatModalContext.noTasks')}`,
+            truncated: tasks.length > previewTasks.length,
+          },
+          metadata: {
+            taskListId,
+            slug: taskList.slug,
+            taskCount: tasks.length,
+            statuses: statuses.map((status) => ({
+              id: status.id,
+              label: status.label,
+              order: status.order,
+            })),
+          },
+          snapshotVersion: createSurfaceSnapshotVersion(
+            'tasklist',
+            panelTab.id,
+            `${taskList.updatedAt}:${taskList.workflow?.updatedAt}:${tasks.length}:${taskSnapshotSeed}`,
+          ),
+          capturedAt: new Date().toISOString(),
+          staleAfterMs: 60000,
+        };
         return {
           content: instruction,
           mediaFiles: media,
           paramsOverride: buildChatSurfaceParams(panelTab, {
             profileSlug: effectiveProfileSlug || undefined,
-            context: {
-              taskListId,
-              taskListTitle: taskList.title,
-              taskCount: tasks.length,
-              tasksPreview: `${header}${body || t('tasklist.chatModalContext.noTasks')}`,
-            },
+            context: surfaceContext,
           }),
         };
       },
     };
-  }, [panelTab, taskList, tasks, effectiveProfileSlug, t]);
+  }, [panelTab, taskList, tasks, currentViewMode, effectiveProfileSlug, taskListId, t]);
 
   useRegisterWorkspaceChatAdapter(panelTab?.id, tasklistChatModalAdapter);
 
@@ -242,13 +310,38 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
     try {
       await deleteTaskList(taskListId);
-      addToast(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'), 'success');
+      addToast(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       addToast(msg || t('common.error', 'Erro ao deletar'), 'error');
     }
   }, [taskList?.title, taskListId, requestConfirm, deleteTaskList, addToast, announce, t]);
+
+  const handleOpenLinkedConversation = useCallback(() => {
+    if (!taskList?.conversationId) return;
+    openTaskLink(`assistente://conversation/${taskList.conversationId}`, { navigate });
+  }, [taskList?.conversationId, navigate]);
+
+  // Auto-vínculo: quando o chat embutido desta aba abre com uma conversa, a lista
+  // passa a apontar para ela (inclusive ao iniciar uma conversa nova pelo chat).
+  // Sem feedback visual extra — é um efeito implícito do uso do chat.
+  useEffect(() => {
+    // Só auto-vincula com a lista já carregada no store: evita escrever no backend
+    // antes de confirmar que a lista existe e impede chamadas espúrias ao alternar
+    // rapidamente de aba/lista (quando taskList ainda é undefined).
+    if (!taskList) return;
+    if (!chatBoundConversationId) return;
+    if (taskList.conversationId === chatBoundConversationId) return;
+    void setTaskListConversation(taskListId, chatBoundConversationId).then(() => {
+      announce(t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado'));
+    }).catch((error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    });
+  }, [chatBoundConversationId, taskList, taskListId, setTaskListConversation, announce, addToast, t]);
 
   if (!taskList) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;
@@ -269,6 +362,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               shortcut: 'Ctrl+Shift+I',
               onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id),
             },
+            ...(taskList.conversationId
+              ? [{
+                  key: 'open-conversation',
+                  label: t('tasklist.openConversation', 'Abrir conversa'),
+                  icon: <MessageOutlined />,
+                  onClick: handleOpenLinkedConversation,
+                  variant: 'secondary' as const,
+                }]
+              : []),
             {
               key: 'new-task',
               label: t('tasklist.createTask', 'Nova Tarefa'),
@@ -281,13 +383,27 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               ? [
                   {
                     key: 'toggle-view',
-                    label: currentViewMode === 'list' ? 'Kanban' : 'Lista',
+                    label: t(currentViewMode === 'list' ? 'tasklist.viewModeKanban' : 'tasklist.viewModeList'),
                     icon: currentViewMode === 'list' ? <AppstoreOutlined /> : <UnorderedListOutlined />,
                     onClick: handleToggleViewMode,
                     variant: 'secondary' as const,
                   },
                 ]
               : []),
+            ...boardActions.map((ca) => ({
+              key: `custom-${ca.id}`,
+              label: ca.label,
+              icon: ca.icon ? ca.icon : <ThunderboltOutlined />,
+              onClick: () => void runCustomAction(ca, taskListId, ''),
+              variant: (ca.danger ? 'danger' : 'secondary') as 'danger' | 'secondary',
+            })),
+            {
+              key: 'custom-actions',
+              label: t('tasklist.customActions.configure', 'Ações customizadas'),
+              icon: <ThunderboltOutlined />,
+              onClick: () => setIsCustomActionsEditorOpen(true),
+              variant: 'secondary' as const,
+            },
             {
               key: 'edit-workflow',
               label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
@@ -346,6 +462,23 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           />
         )}
       </div>
+
+      {isCustomActionsEditorOpen && (
+        <Modal
+          isOpen={isCustomActionsEditorOpen}
+          onClose={() => setIsCustomActionsEditorOpen(false)}
+          title={t('tasklist.customActions.configure', 'Ações customizadas')}
+          size="lg"
+        >
+          <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
+            <CustomActionsEditor
+              taskListId={taskListId}
+              onClose={() => setIsCustomActionsEditorOpen(false)}
+              onSaved={reloadBoardActions}
+            />
+          </Suspense>
+        </Modal>
+      )}
 
       {isWorkflowEditorOpen && taskList.workflow && (
         <Modal

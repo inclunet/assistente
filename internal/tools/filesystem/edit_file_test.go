@@ -44,6 +44,29 @@ func main() {
 	}
 }
 
+func TestEditFile_NotifiesWriteObserver(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "test.txt")
+	_ = os.WriteFile(filePath, []byte("antes"), 0644)
+
+	var observedPath string
+	tool := NewEditFile(dir, nil, WithEditFileWriteObserver(func(path string) func(bool) {
+		observedPath = path
+		return nil
+	}))
+	args := `{"path": "test.txt", "old_string": "antes", "new_string": "depois"}`
+	result, err := tool.Execute(context.Background(), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if observedPath != filePath {
+		t.Fatalf("observer path = %q, want %q", observedPath, filePath)
+	}
+}
+
 func TestEditFile_MultilineReplace(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "multi.go")

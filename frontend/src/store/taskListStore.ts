@@ -18,6 +18,8 @@ import {
   UpdateTask,
   UpdateTaskFull,
   UpdateTaskAssignee,
+  SetTaskConversation,
+  SetTaskListConversation,
   DeleteTask,
   UpdateTaskStatus,
   PromoteTask,
@@ -30,7 +32,14 @@ import {
   GetTaskNotes,
   UpdateTaskNote,
   DeleteTaskNote,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/Tasklist';
+import {
+  GetTaskListCustomActions,
+  SetTaskListCustomActions,
+  ListCardCustomActions,
+  ListBoardCustomActions,
+  TriggerCustomAction,
+} from '@wailsjs/go/wailsapi/TasklistActions';
 import type {
   Task,
   TaskNote,
@@ -41,6 +50,9 @@ import type {
   TaskListWorkflow,
   TaskListWorkflowStatus,
   WorkflowTransitions,
+  TaskListCustomActions,
+  CustomActionView,
+  CustomActionSurface,
 } from '../types/tasklist';
 import type { database } from '@wailsjs/go/models';
 
@@ -67,6 +79,7 @@ function normalizeTask(raw: unknown): Task {
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
     completedAt: (r.completedAt ?? r.completed_at) as string | undefined,
+    conversationId: (r.conversationId ?? r.conversation_id ?? '') as string || undefined,
     subtasks: Array.isArray(r.subtasks)
       ? r.subtasks.map(normalizeTask)
       : undefined,
@@ -154,6 +167,7 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
     validationPolicy,
+    conversationId: (r.conversationId ?? r.conversation_id ?? '') as string || undefined,
     workflow: normalizedWorkflow,
     tasks: normalizedTasks,
   };
@@ -183,6 +197,13 @@ interface TaskListStoreState {
   cloneTaskList: (taskListId: string, newTitle: string) => Promise<TaskListWithWorkflow | null>;
   fetchAllTaskLists: () => Promise<database.TaskList[]>;
 
+  // Custom actions (AEP-0067)
+  getTaskListCustomActions: (taskListId: string) => Promise<TaskListCustomActions>;
+  setTaskListCustomActions: (taskListId: string, actionsJSON: string) => Promise<void>;
+  listCardCustomActions: (taskId: string, surface: CustomActionSurface) => Promise<CustomActionView[]>;
+  listBoardCustomActions: (taskListId: string) => Promise<CustomActionView[]>;
+  triggerCustomAction: (taskListId: string, taskId: string, actionId: string) => Promise<string>;
+
   // View mode
   setViewMode: (taskListId: string, viewMode: ViewMode) => Promise<void>;
 
@@ -197,6 +218,8 @@ interface TaskListStoreState {
   createTask: (taskListId: string, title: string, description?: string, code?: string, link?: string, parentId?: string) => Promise<Task | null>;
   updateTask: (taskId: string, title: string, description?: string, code?: string, link?: string) => Promise<void>;
   updateTaskFull: (taskId: string, title: string, description?: string, code?: string, link?: string, assigneeName?: string, assigneeId?: string, creatorName?: string, creatorId?: string) => Promise<void>;
+  setTaskConversation: (taskId: string, conversationId: string | null) => Promise<void>;
+  setTaskListConversation: (taskListId: string, conversationId: string | null) => Promise<void>;
   updateTaskAssignee: (taskId: string, assigneeName: string, assigneeId?: string) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   updateTaskStatus: (taskId: string, statusId: number) => Promise<void>;
@@ -422,6 +445,30 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
+    // ── Custom actions (AEP-0067) ──────────────────────────────────────────
+    getTaskListCustomActions: async (taskListId: string) => {
+      const res = await GetTaskListCustomActions(taskListId);
+      return (res as unknown as TaskListCustomActions) || { actions: [] };
+    },
+
+    setTaskListCustomActions: async (taskListId: string, actionsJSON: string) => {
+      await SetTaskListCustomActions(taskListId, actionsJSON);
+    },
+
+    listCardCustomActions: async (taskId: string, surface: CustomActionSurface) => {
+      const res = await ListCardCustomActions(taskId, surface);
+      return (res as unknown as CustomActionView[]) || [];
+    },
+
+    listBoardCustomActions: async (taskListId: string) => {
+      const res = await ListBoardCustomActions(taskListId);
+      return (res as unknown as CustomActionView[]) || [];
+    },
+
+    triggerCustomAction: async (taskListId: string, taskId: string, actionId: string) => {
+      return (await TriggerCustomAction(taskListId, taskId, actionId)) || '';
+    },
+
     // View mode
     setViewMode: async (taskListId: string, viewMode: ViewMode) => {
       try {
@@ -586,6 +633,61 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
+    setTaskConversation: async (taskId: string, conversationId: string | null) => {
+      const normalized = conversationId && conversationId.trim() ? conversationId.trim() : undefined;
+      let affectedTaskListId: string | undefined;
+      set((state) => {
+        const newCache = new Map(state.taskLists);
+        for (const [tlId, taskList] of newCache.entries()) {
+          const tasks = taskList.tasks;
+          if (tasks) {
+            const idx = tasks.findIndex((t) => t.id === taskId);
+            if (idx >= 0) {
+              affectedTaskListId = tlId;
+              const updatedTasks = [...tasks];
+              updatedTasks[idx] = { ...updatedTasks[idx], conversationId: normalized };
+              newCache.set(tlId, { ...taskList, tasks: updatedTasks });
+              return { taskLists: newCache };
+            }
+          }
+        }
+        return {};
+      });
+      try {
+        await SetTaskConversation(taskId, normalized ?? null);
+      } catch (error) {
+        get().setError('setTaskConversation', String(error));
+        // Update otimista divergiu do backend: recarrega a lista para restaurar
+        // o estado real e repropaga para o caller (TaskForm) poder dar feedback.
+        if (affectedTaskListId) {
+          await get().loadTaskList(affectedTaskListId);
+        }
+        throw error;
+      }
+    },
+
+    setTaskListConversation: async (taskListId: string, conversationId: string | null) => {
+      const normalized = conversationId && conversationId.trim() ? conversationId.trim() : undefined;
+      set((state) => {
+        const newCache = new Map(state.taskLists);
+        const taskList = newCache.get(taskListId);
+        if (taskList) {
+          newCache.set(taskListId, { ...taskList, conversationId: normalized });
+          return { taskLists: newCache };
+        }
+        return {};
+      });
+      try {
+        await SetTaskListConversation(taskListId, normalized ?? null);
+      } catch (error) {
+        get().setError('setTaskListConversation', String(error));
+        // Update otimista divergiu do backend: recarrega a lista para restaurar
+        // o estado real e repropaga para o caller (TaskListView) dar feedback.
+        await get().loadTaskList(taskListId);
+        throw error;
+      }
+    },
+
     updateTaskAssignee: async (taskId: string, assigneeName: string, assigneeId?: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
@@ -715,7 +817,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
 
     createTaskNote: async (taskId: string, type: TaskNoteType, content: string, authorName?: string, authorId?: string) => {
       try {
-        const rawNote = await CreateTaskNote(taskId, String(type), content, authorName || '', authorId || '');
+        const rawNote = await CreateTaskNote(taskId, type, content, authorName || '', authorId || '');
         if (rawNote) {
           return normalizeTaskNote(rawNote);
         }

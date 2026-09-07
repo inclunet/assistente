@@ -111,7 +111,7 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
 
     if (isLoading) {
       return (
-        <div className="terminal-history terminal-history--loading" role="log" aria-label={t('terminal.history.label')}>
+        <div className="terminal-history terminal-history--loading" role="region" aria-label={t('terminal.history.label')}>
           <p className="terminal-history__loading-text">{t('terminal.history.loading')}</p>
         </div>
       );
@@ -119,7 +119,7 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
 
     if (entries.length === 0) {
       return (
-        <div ref={containerRef} className="terminal-history terminal-history--empty" role="log" aria-label={t('terminal.history.label')}>
+        <div ref={containerRef} className="terminal-history terminal-history--empty" role="region" aria-label={t('terminal.history.label')}>
           <div className="terminal-history__empty-state">
             <span className="terminal-history__empty-icon" aria-hidden="true">&gt;_</span>
             <p className="terminal-history__empty-text">

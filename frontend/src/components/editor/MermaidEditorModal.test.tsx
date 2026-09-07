@@ -38,4 +38,22 @@ describe('MermaidEditorModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
     expect(onCancel).toHaveBeenCalled();
   });
+
+  it('coloca Aplicar antes de Cancelar no DOM (AEP-0090)', () => {
+    render(
+      <MermaidEditorModal
+        isOpen={true}
+        initialCode="graph TD;"
+        onApply={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const actions = document.querySelector('[data-dialog-actions]');
+    expect(actions).not.toBeNull();
+    expect(Array.from(actions!.querySelectorAll('button')).map((b) => b.textContent)).toEqual([
+      'editor.mermaid.applyShortcut',
+      'common.cancel',
+    ]);
+  });
 });

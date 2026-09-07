@@ -31,6 +31,27 @@ func TestEventBus_SubscribeAndPublish(t *testing.T) {
 	}
 }
 
+// TestEventBus_PublishNilPayload garante que publicar com payload nil não causa
+// panic no guard de clip de _chain_history. Regressão do review #170.
+func TestEventBus_PublishNilPayload(t *testing.T) {
+	eb := NewEventBus()
+	done := make(chan map[string]any, 1)
+	eb.Subscribe("nil.event", "sub-1", func(_ context.Context, _ string, payload map[string]any) {
+		done <- payload
+	})
+
+	eb.Publish(context.Background(), "nil.event", nil)
+
+	select {
+	case payload := <-done:
+		if payload != nil {
+			t.Fatalf("payload = %v, want nil (preservado)", payload)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for event")
+	}
+}
+
 func TestEventBus_MultipleSubscribers(t *testing.T) {
 	eb := NewEventBus()
 	var count atomic.Int32
@@ -181,6 +202,32 @@ func TestEventBus_SubscriberCount(t *testing.T) {
 
 	if got := eb.SubscriberCount("other.event"); got != 0 {
 		t.Errorf("expected 0 for unknown event, got %d", got)
+	}
+}
+
+// TestEventBus_CloseDrainsInFlightHandlers garante que Close() bloqueia até as
+// goroutines de fan-out em voo terminarem (shutdown gracioso). É a barreira que
+// impede um handler (ex.: execução de job) de sobreviver ao Stop e escrever no
+// estado global depois — em testes, no DB de outro teste após o swap do
+// singleton database.DB(), causando o flake de isolamento entre pacotes.
+func TestEventBus_CloseDrainsInFlightHandlers(t *testing.T) {
+	eb := NewEventBus()
+	started := make(chan struct{})
+	var finished atomic.Bool
+
+	eb.Subscribe("evt", "sub", func(_ context.Context, _ string, _ map[string]any) {
+		close(started)
+		time.Sleep(80 * time.Millisecond)
+		finished.Store(true)
+	})
+
+	eb.Publish(context.Background(), "evt", nil)
+	<-started // garante que o handler começou antes de fechar
+
+	eb.Close() // deve bloquear até o handler em voo terminar
+
+	if !finished.Load() {
+		t.Fatal("Close retornou antes do handler em voo terminar (não drenou o fan-out)")
 	}
 }
 

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -22,7 +23,7 @@ func NewMemoryStore() *MemoryStore {
 	}
 }
 
-func (s *MemoryStore) Save(providers []*llm.ProviderConfig) error {
+func (s *MemoryStore) Save(_ context.Context, providers []*llm.ProviderConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, p := range providers {
@@ -32,7 +33,7 @@ func (s *MemoryStore) Save(providers []*llm.ProviderConfig) error {
 	return nil
 }
 
-func (s *MemoryStore) Load() ([]*llm.ProviderConfig, error) {
+func (s *MemoryStore) Load(_ context.Context) ([]*llm.ProviderConfig, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]*llm.ProviderConfig, 0, len(s.providers))
@@ -43,7 +44,7 @@ func (s *MemoryStore) Load() ([]*llm.ProviderConfig, error) {
 	return result, nil
 }
 
-func (s *MemoryStore) SetDefault(id string) error {
+func (s *MemoryStore) SetDefault(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.providers[id]; !ok {
@@ -56,7 +57,7 @@ func (s *MemoryStore) SetDefault(id string) error {
 	return nil
 }
 
-func (s *MemoryStore) GetDefault() (*llm.ProviderConfig, error) {
+func (s *MemoryStore) GetDefault(_ context.Context) (*llm.ProviderConfig, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.defaultID == "" {
@@ -70,7 +71,7 @@ func (s *MemoryStore) GetDefault() (*llm.ProviderConfig, error) {
 	return &clone, nil
 }
 
-func (s *MemoryStore) Get(id string) (*llm.ProviderConfig, error) {
+func (s *MemoryStore) Get(_ context.Context, id string) (*llm.ProviderConfig, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	p, ok := s.providers[id]
@@ -81,7 +82,7 @@ func (s *MemoryStore) Get(id string) (*llm.ProviderConfig, error) {
 	return &clone, nil
 }
 
-func (s *MemoryStore) Count() (int, error) {
+func (s *MemoryStore) Count(_ context.Context) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.providers), nil

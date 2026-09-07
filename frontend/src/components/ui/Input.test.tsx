@@ -17,8 +17,9 @@ describe('Input', () => {
     expect(input).toHaveAttribute('aria-invalid', 'true');
 
     const hint = screen.getByText('Digite seu nome');
-    const error = screen.getByRole('alert');
+    const error = screen.getByText('Obrigatorio');
     expect(error).toHaveTextContent('Obrigatorio');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     const describedBy = input.getAttribute('aria-describedby') || '';
     expect(describedBy).toContain(hint.getAttribute('id') || '');

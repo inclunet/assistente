@@ -18,7 +18,7 @@ interface QuestionnaireUIState {
 
   request: (data: QuestionnairePayload) => Promise<QuestionnaireUIResult>;
   submit: (answers: Record<string, unknown>) => void;
-  cancel: () => void;
+  cancel: (answers?: Record<string, unknown>) => void;
 }
 
 export const useQuestionnaireUIStore = create<QuestionnaireUIState>((set, get) => ({
@@ -54,10 +54,10 @@ export const useQuestionnaireUIStore = create<QuestionnaireUIState>((set, get) =
     }
   },
 
-  cancel: () => {
+  cancel: (answers) => {
     const state = get();
     const resolve = state._activeResolve;
-    if (resolve) resolve({ answers: {}, cancelled: true });
+    if (resolve) resolve({ answers: answers ?? {}, cancelled: true });
 
     const next = state.queue[0];
     const rest = state.queue.slice(1);

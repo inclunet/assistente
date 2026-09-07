@@ -11,15 +11,15 @@ import (
 
 // mockTool implements Tool for testing.
 type mockTool struct {
-	name    string
-	exec    func(ctx context.Context, args json.RawMessage) (ToolResult, error)
-	panics  bool
-	panicV  any
+	name   string
+	exec   func(ctx context.Context, args json.RawMessage) (ToolResult, error)
+	panics bool
+	panicV any
 }
 
 func (m *mockTool) Name() string                { return m.name }
-func (m *mockTool) Description() string          { return "mock tool" }
-func (m *mockTool) Parameters() json.RawMessage  { return json.RawMessage(`{"type":"object"}`) }
+func (m *mockTool) Description() string         { return "mock tool" }
+func (m *mockTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 func (m *mockTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
 	if m.panics {
 		panic(m.panicV)
@@ -301,6 +301,43 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	}
 	if !strings.Contains(res.Result.Content, "[TRUNCADO:") {
 		t.Fatal("expected truncation notice in content")
+	}
+}
+
+func TestStructuredResultNotTruncated(t *testing.T) {
+	// Saída estruturada acima do limite deve virar erro explícito, nunca JSON
+	// truncado (que corromperia consumidores que fazem json.Unmarshal).
+	tool := &mockTool{
+		name: "structured",
+		exec: func(_ context.Context, _ json.RawMessage) (ToolResult, error) {
+			return ToolResult{Content: strings.Repeat("x", 4096), Structured: true}, nil
+		},
+	}
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 1024
+	e := NewExecutor(newRegistry(tool), cfg)
+
+	res := e.ExecuteOne(context.Background(), ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "structured", Arguments: `{}`},
+	})
+
+	if !res.Result.IsError {
+		t.Fatalf("esperado IsError para saída estruturada acima do limite, got %d bytes", len(res.Result.Content))
+	}
+	if strings.Contains(res.Result.Content, "[TRUNCADO:") {
+		t.Error("saída estruturada não deveria ser truncada")
+	}
+	if res.Result.Metadata["truncated"] == true {
+		t.Error("saída estruturada não deveria ser marcada como truncada")
+	}
+	// Falha classificada: precisa de ErrorKind != "" e Error != nil para que
+	// agent/service.go emita tool_failure e persista o error_kind (AEP-0039).
+	if res.ErrorKind != ErrorKindUnknown {
+		t.Errorf("esperado ErrorKind=%q, got %q", ErrorKindUnknown, res.ErrorKind)
+	}
+	if res.Error == nil {
+		t.Error("esperado Error não-nil para oversize estruturado")
 	}
 }
 

@@ -1,7 +1,8 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { CloseCircleOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetLLMProvidersWithStatus } from '@wailsjs/go/app/App';
+import { GetLLMProvidersWithStatus } from '@wailsjs/go/wailsapi/LLMProviders';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './LLMProviderPicker.css';
@@ -67,7 +68,7 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : t('pickers.llmProvider.loadError');
         setError(errorMsg);
-        console.error('[LLMProviderPicker] Falha ao carregar provedores:', err);
+        logger.error('[LLMProviderPicker] Falha ao carregar provedores:', err);
       } finally {
         setLoading(false);
       }

@@ -1,0 +1,863 @@
+import { type Ref, forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { useEditorStore, type EditorDocument } from '../../store/editorStore';
+import { EditorContentArea } from './EditorContentArea';
+import type { RichTextEditorHandle } from './RichTextEditor';
+
+const richEditorHandle = {
+  flushMarkdown: vi.fn(),
+  getMarkdown: vi.fn(),
+  openLinkDialog: vi.fn(),
+  applyMermaidById: vi.fn(),
+  removeMermaidById: vi.fn(),
+};
+const announceMock = vi.hoisted(() => vi.fn());
+const isModalOpenMock = vi.hoisted(() => vi.fn(() => false));
+const fakeRichEditorInstance = vi.hoisted(() => ({
+  commands: {
+    focus: vi.fn(),
+  },
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, number>) => {
+      if (key === 'editor.presentation.slideLabel') {
+        return `Slide ${values?.current} de ${values?.total}`;
+      }
+      return key;
+    },
+  }),
+}));
+
+vi.mock('../ui/CodeEditor', () => ({
+  CodeEditor: () => <div data-testid="code-editor" />,
+}));
+
+vi.mock('../ui/MarkdownRenderer', () => ({
+  MarkdownRenderer: (props: { content?: string; tabNavigation?: string }) => (
+    <div
+      data-testid="markdown-renderer"
+      data-tab-navigation={props.tabNavigation}
+    >
+      <a href="https://example.com" tabIndex={props.tabNavigation === 'enabled' ? 0 : -1}>
+        Link do documento
+      </a>
+      {props.content?.includes('```mermaid') ? (
+        <div
+          className="mermaid-diagram"
+          data-mermaid-index="0"
+          role="img"
+          aria-label="editor.presentation.mermaidDiagramLabel"
+          tabIndex={props.tabNavigation === 'enabled' ? 0 : -1}
+        />
+      ) : null}
+    </div>
+  ),
+}));
+
+vi.mock('./RevealRenderer', () => ({
+  RevealRenderer: (props: { tabNavigation?: string }) => (
+    <div data-testid="reveal-renderer" data-tab-navigation={props.tabNavigation} />
+  ),
+}));
+
+vi.mock('./RichTextEditor', () => ({
+  RichTextEditor: forwardRef(
+    (
+      props: { markdown: string; readOnly?: boolean; onEditorReady?: (editor: unknown) => void },
+      ref: Ref<RichTextEditorHandle>
+    ) => {
+      useImperativeHandle(ref, () => richEditorHandle);
+      const onEditorReadyRef = useRef(props.onEditorReady);
+      onEditorReadyRef.current = props.onEditorReady;
+      // Espelha o RichTextEditor real: notifica a instância na montagem e null na desmontagem,
+      // permitindo detectar remontagens indevidas nos testes.
+      useEffect(() => {
+        onEditorReadyRef.current?.(fakeRichEditorInstance);
+        return () => onEditorReadyRef.current?.(null);
+      }, []);
+      return <div data-testid="rich-text-editor" data-readonly={props.readOnly ? 'true' : 'false'}>{props.markdown}</div>;
+    }
+  ),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: announceMock,
+  useAnnouncer: () => ({
+    announce: announceMock,
+  }),
+}));
+
+vi.mock('../ui/Modal', () => ({
+  isModalOpen: isModalOpenMock,
+}));
+
+const clearRichEditorHistoryMock = vi.hoisted(() => vi.fn());
+vi.mock('./richEditorHistory', () => ({
+  clearRichEditorHistory: clearRichEditorHistoryMock,
+}));
+
+function contentAreaElement(
+  activeTab: EditorDocument,
+  props: Partial<Parameters<typeof EditorContentArea>[0]> = {}
+) {
+  return (
+    <EditorContentArea
+      activeTab={activeTab}
+      isAsking={false}
+      debouncedMarkdownForPreview={activeTab.markdown}
+      onMarkdownChange={vi.fn()}
+      onMonacoMount={vi.fn()}
+      onRichMarkdownChange={vi.fn()}
+      onRichEditorReady={vi.fn()}
+      revealAppendNonce={0}
+      revealSlideNavigationRequest={null}
+      revealFullscreenRequestNonce={0}
+      richEditorHandleRef={{ current: richEditorHandle }}
+      onRequestEditMermaid={vi.fn()}
+      onOpenMermaid={vi.fn()}
+      onRemoveMermaid={vi.fn()}
+      {...props}
+    />
+  );
+}
+
+function renderContentArea(
+  activeTab: EditorDocument,
+  props: Partial<Parameters<typeof EditorContentArea>[0]> = {}
+) {
+  return render(contentAreaElement(activeTab, props));
+}
+
+function installControlledAnimationFrames() {
+  let nextFrameId = 1;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const requestSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    const frameId = nextFrameId++;
+    callbacks.set(frameId, callback);
+    return frameId;
+  });
+  const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => {
+    callbacks.delete(frameId);
+  });
+
+  return {
+    flushFrame() {
+      const currentCallbacks = [...callbacks.values()];
+      callbacks.clear();
+      act(() => currentCallbacks.forEach((callback) => callback(performance.now())));
+    },
+    flushAll() {
+      while (callbacks.size > 0) this.flushFrame();
+    },
+    restore() {
+      requestSpy.mockRestore();
+      cancelSpy.mockRestore();
+    },
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('EditorContentArea Reveal rich mode', () => {
+  beforeEach(() => {
+    richEditorHandle.flushMarkdown.mockReset();
+    richEditorHandle.getMarkdown.mockReset();
+    richEditorHandle.openLinkDialog.mockReset();
+    richEditorHandle.applyMermaidById.mockReset();
+    richEditorHandle.removeMermaidById.mockReset();
+    announceMock.mockReset();
+    fakeRichEditorInstance.commands.focus.mockReset();
+    clearRichEditorHistoryMock.mockReset();
+    isModalOpenMock.mockReturnValue(false);
+    useEditorStore.setState({ documents: {} });
+  });
+
+  it('troca de slide sem remontar o editor, aplica o novo conteúdo e foca o início', async () => {
+    // Formato byte-idêntico ao round-trip de replaceRevealSlide (sem linha em
+    // branco antes do separador), para poder afirmar zero emissões na troca.
+    const markdown = `<!-- .slide: class="title-slide" -->
+
+# Slide 1
+---
+
+## Slide 2`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    const onRichEditorReady = vi.fn();
+    const onRichMarkdownChange = vi.fn();
+    // Conteúdo do slide atual sem edições pendentes: a troca não deve emitir nada.
+    richEditorHandle.getMarkdown.mockReturnValue('# Slide 1');
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
+
+    const { rerender, getByTestId } = renderContentArea(activeTab, { onRichEditorReady, onRichMarkdownChange });
+
+    expect(onRichEditorReady).toHaveBeenCalledTimes(1);
+    expect(onRichEditorReady).toHaveBeenCalledWith(fakeRichEditorInstance);
+    expect(getByTestId('rich-text-editor').textContent).toBe('# Slide 1');
+
+    rerender(
+      <EditorContentArea
+        activeTab={activeTab}
+        isAsking={false}
+        debouncedMarkdownForPreview={markdown}
+        onMarkdownChange={vi.fn()}
+        onMonacoMount={vi.fn()}
+        onRichMarkdownChange={onRichMarkdownChange}
+        onRichEditorReady={onRichEditorReady}
+        revealAppendNonce={0}
+        revealSlideNavigationRequest={{ index: 1, nonce: 1 }}
+        revealFullscreenRequestNonce={0}
+        richEditorHandleRef={{ current: richEditorHandle }}
+        onRequestEditMermaid={vi.fn()}
+        onOpenMermaid={vi.fn()}
+        onRemoveMermaid={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getByTestId('rich-text-editor').textContent).toBe('## Slide 2');
+    });
+
+    // Sem remontagem: onEditorReady não é chamado de novo nem recebe null.
+    expect(onRichEditorReady).toHaveBeenCalledTimes(1);
+    expect(onRichEditorReady).not.toHaveBeenCalledWith(null);
+    // Cursor no início do novo slide, foco mantido no editor.
+    expect(fakeRichEditorInstance.commands.focus).toHaveBeenCalledWith('start');
+    // Histórico de undo limpo na troca: Ctrl+Z não pode restaurar o slide anterior.
+    expect(clearRichEditorHistoryMock).toHaveBeenCalledWith(fakeRichEditorInstance);
+    // Slide anterior sem edições: nenhuma emissão espúria de markdown na troca.
+    expect(onRichMarkdownChange).not.toHaveBeenCalled();
+  });
+
+  it('mescla edições pendentes ao navegar para outro slide', async () => {
+    const markdown = `<!-- .slide: class="title-slide" -->
+
+# Slide 1
+
+---
+
+## Slide 2`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    const onRichMarkdownChange = vi.fn();
+    richEditorHandle.getMarkdown.mockReturnValue('# Slide 1 editado');
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
+
+    const { rerender } = renderContentArea(activeTab, { onRichMarkdownChange });
+
+    rerender(
+      <EditorContentArea
+        activeTab={activeTab}
+        isAsking={false}
+        debouncedMarkdownForPreview={markdown}
+        onMarkdownChange={vi.fn()}
+        onMonacoMount={vi.fn()}
+        onRichMarkdownChange={onRichMarkdownChange}
+        onRichEditorReady={vi.fn()}
+        revealAppendNonce={0}
+        revealSlideNavigationRequest={{ index: 1, nonce: 1 }}
+        revealFullscreenRequestNonce={0}
+        richEditorHandleRef={{ current: richEditorHandle }}
+        onRequestEditMermaid={vi.fn()}
+        onOpenMermaid={vi.fn()}
+        onRemoveMermaid={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onRichMarkdownChange).toHaveBeenCalled();
+    });
+
+    const nextMarkdown = onRichMarkdownChange.mock.calls[onRichMarkdownChange.mock.calls.length - 1]?.[0] as string;
+    expect(richEditorHandle.flushMarkdown).toHaveBeenCalled();
+    expect(nextMarkdown).toContain('<!-- .slide: class="title-slide" -->\n\n# Slide 1 editado');
+    expect(nextMarkdown).toContain('## Slide 2');
+    expect(announceMock).toHaveBeenCalledWith('Slide 2 de 2');
+  });
+
+  it('não normaliza separadores dentro de blocos fenced', async () => {
+    const markdown = `<!-- .slide: class="content-slide" -->
+
+# Slide 1
+
+---
+
+## Slide 2`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    const onRichMarkdownChange = vi.fn();
+    richEditorHandle.getMarkdown.mockReturnValue(`\`\`\`yaml
+---
+key: value
+---
+\`\`\`
+
+---
+
+Texto depois`);
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
+
+    const { rerender } = renderContentArea(activeTab, { onRichMarkdownChange });
+
+    rerender(
+      <EditorContentArea
+        activeTab={activeTab}
+        isAsking={false}
+        debouncedMarkdownForPreview={markdown}
+        onMarkdownChange={vi.fn()}
+        onMonacoMount={vi.fn()}
+        onRichMarkdownChange={onRichMarkdownChange}
+        onRichEditorReady={vi.fn()}
+        revealAppendNonce={0}
+        revealSlideNavigationRequest={{ index: 1, nonce: 1 }}
+        revealFullscreenRequestNonce={0}
+        richEditorHandleRef={{ current: richEditorHandle }}
+        onRequestEditMermaid={vi.fn()}
+        onOpenMermaid={vi.fn()}
+        onRemoveMermaid={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onRichMarkdownChange).toHaveBeenCalled();
+    });
+
+    const nextMarkdown = onRichMarkdownChange.mock.calls[onRichMarkdownChange.mock.calls.length - 1]?.[0] as string;
+    expect(nextMarkdown).toContain('```yaml\n---\nkey: value\n---\n```');
+    expect(nextMarkdown).toContain('\n___\n\nTexto depois');
+  });
+
+  it('não trata autolinks Markdown como HTML cru em slides Reveal', () => {
+    const markdown = `<!-- .slide: class="content-slide" -->
+
+Veja <https://example.com>`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
+
+    const { getByTestId } = renderContentArea(activeTab);
+
+    expect(getByTestId('rich-text-editor')).toHaveAttribute('data-readonly', 'false');
+  });
+
+  it('mantém slides com HTML cru em modo somente leitura', () => {
+    const markdown = `<!-- .slide: class="content-slide" -->
+
+<div>HTML bruto</div>`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    useEditorStore.getState().hydrate({
+      ownerUserId: useEditorStore.getState().ownerUserId,
+      documents: { [activeTab.id]: activeTab },
+    });
+
+    const { getByTestId } = renderContentArea(activeTab);
+
+    expect(getByTestId('rich-text-editor')).toHaveAttribute('data-readonly', 'true');
+  });
+});
+
+describe('EditorContentArea document view', () => {
+  beforeEach(() => {
+    announceMock.mockReset();
+    isModalOpenMock.mockReturnValue(false);
+  });
+
+  it('renderiza projeção somente para leitura e anuncia o formato', () => {
+    renderContentArea({
+      id: 'docx-view',
+      title: 'manual.docx',
+      markdown: '# Manual',
+      mode: 'view',
+      filePath: 'C:/tmp/manual.docx',
+      readOnly: true,
+      projection: {
+        format: 'docx',
+        pages: 3,
+        warnings: ['Conversão parcial'],
+      },
+    });
+
+    expect(screen.getByText('editor.documentView.readOnlyBanner')).toBeInTheDocument();
+    expect(screen.getByText('editor.documentView.partialExtraction')).toBeInTheDocument();
+    expect(screen.queryByText('editor.hints.previewMermaid')).not.toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('editor.documentView.openedAnnouncement');
+  });
+
+  it('omite o aviso global e mantém Mermaid editável pelo mouse e teclado', async () => {
+    const user = userEvent.setup();
+    const onOpenMermaid = vi.fn();
+    const { container } = renderContentArea({
+      id: 'mermaid-view',
+      title: 'diagrama.md',
+      markdown: '```mermaid\ngraph TD\nA --> B\n```',
+      mode: 'view',
+      readOnly: false,
+    }, { onOpenMermaid });
+
+    expect(screen.queryByText('editor.hints.previewMermaid')).not.toBeInTheDocument();
+    const diagram = screen.getByRole('img', {
+      name: 'editor.presentation.mermaidDiagramLabel',
+    });
+
+    fireEvent.doubleClick(diagram);
+    const readingAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    expect(readingAnchor).not.toBeNull();
+    readingAnchor?.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(diagram).toHaveAttribute('tabindex', '0'));
+    diagram.focus();
+    await user.keyboard('{Enter}');
+
+    expect(onOpenMermaid).toHaveBeenCalledTimes(2);
+    expect(onOpenMermaid).toHaveBeenNthCalledWith(1, 0);
+    expect(onOpenMermaid).toHaveBeenNthCalledWith(2, 0);
+  });
+
+  it('entra numa ilha documental distinta sem prender Tab, Shift+Tab ou F6', async () => {
+    const user = userEvent.setup();
+    const before = document.createElement('button');
+    before.textContent = 'Antes do documento';
+    document.body.append(before);
+    const { container } = renderContentArea({
+      id: 'markdown-view',
+      title: 'leitura.md',
+      markdown: '# Leitura\n\n[Link](https://example.com)',
+      mode: 'view',
+      filePath: 'C:/tmp/leitura.md',
+      readOnly: false,
+      projection: null,
+    });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+    expect(renderedAnchor).not.toBe(renderedDocument);
+    expect(renderedAnchor).toHaveAttribute('role', 'group');
+    expect(renderedAnchor).toHaveAttribute('tabindex', '0');
+    expect(renderedDocument).not.toBeNull();
+    expect(renderedDocument).not.toHaveAttribute('role');
+    expect(renderedDocument).not.toHaveAttribute('tabindex');
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'disabled',
+    );
+
+    const rolesObservedOnFocus: Array<string | null> = [];
+    renderedDocument!.addEventListener('focus', () => {
+      rolesObservedOnFocus.push(renderedDocument!.getAttribute('role'));
+    });
+    renderedAnchor!.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
+
+    expect(renderedAnchor).toHaveAttribute('tabindex', '-1');
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(renderedDocument).toHaveAttribute('tabindex', '0');
+    expect(renderedDocument).toHaveFocus();
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'enabled',
+    );
+    expect(rolesObservedOnFocus).toEqual(['document']);
+    expect(announceMock).toHaveBeenCalledTimes(1);
+    expect(announceMock).toHaveBeenCalledWith('editor.documentView.readingOpened');
+
+    const outside = document.createElement('button');
+    outside.textContent = 'Depois do documento';
+    document.body.append(outside);
+    const link = screen.getByRole('link', { name: 'Link do documento' });
+
+    // O documento é a área padrão ativa; Escape nela é consumido como no-op.
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(false);
+    expect(renderedDocument).toHaveFocus();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+
+    // Shift+Tab e Tab ultrapassam as bordas sem incluir a âncora desativada.
+    await user.tab({ shift: true });
+    expect(before).toHaveFocus();
+    renderedDocument!.focus();
+    await user.tab();
+    expect(link).toHaveFocus();
+
+    link.focus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(renderedDocument).toHaveFocus();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+
+    link.focus();
+    await user.tab();
+    expect(outside).toHaveFocus();
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'enabled',
+    );
+
+    // O perfil scoped não captura F6: a landmark global pode processá-lo.
+    expect(fireEvent.keyDown(window, { key: 'F6' })).toBe(true);
+    expect(outside).toHaveFocus();
+
+    isModalOpenMock.mockReturnValue(true);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(outside).toHaveFocus();
+
+    isModalOpenMock.mockReturnValue(false);
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    document.body.append(menu);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(outside).toHaveFocus();
+    menu.remove();
+
+    // Com a superfície ativa, Escape fora da ilha retorna ao documento.
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(false);
+    expect(renderedDocument).toHaveFocus();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+    before.remove();
+    outside.remove();
+  });
+
+  it('só consome o pedido após a sequência observável âncora → documento', () => {
+    const animationFrames = installControlledAnimationFrames();
+    const onConsumed = vi.fn();
+    const activeTab: EditorDocument = {
+      id: 'requested-reading',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    };
+    const { container, rerender } = renderContentArea(activeTab, {
+      renderedReadingRequest: { nonce: 7 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: true,
+    });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(renderedAnchor).toHaveAttribute('tabindex', '0');
+    expect(renderedDocument).not.toHaveAttribute('role');
+
+    const focusSequence: string[] = [];
+    const handleFocusIn = (event: FocusEvent) => {
+      if (event.target === renderedAnchor) focusSequence.push('anchor');
+      if (event.target === renderedDocument) focusSequence.push('document');
+    };
+    window.document.addEventListener('focusin', handleFocusIn);
+    rerender(contentAreaElement(activeTab, {
+      renderedReadingRequest: { nonce: 7 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: false,
+    }));
+
+    animationFrames.flushFrame();
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(focusSequence).toEqual([]);
+
+    animationFrames.flushFrame();
+    expect(renderedAnchor).toHaveFocus();
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(focusSequence).toEqual(['anchor']);
+    expect(renderedDocument).not.toHaveAttribute('role');
+
+    animationFrames.flushFrame();
+    expect(onConsumed).toHaveBeenCalledOnce();
+    expect(onConsumed).toHaveBeenCalledWith(7);
+    expect(renderedAnchor).toHaveAttribute('tabindex', '-1');
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(renderedDocument).toHaveFocus();
+    expect(focusSequence).toEqual(['anchor', 'document']);
+    window.document.removeEventListener('focusin', handleFocusIn);
+    animationFrames.restore();
+  });
+
+  it('refoca a ilha ativa a cada novo pedido sem recriar a semântica', () => {
+    const animationFrames = installControlledAnimationFrames();
+    const activeTab: EditorDocument = {
+      id: 'requested-reading-again',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    };
+    const onConsumed = vi.fn();
+    const { container, rerender } = renderContentArea(activeTab, {
+      renderedReadingRequest: { nonce: 1 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+    const outside = document.createElement('button');
+    document.body.append(outside);
+
+    animationFrames.flushAll();
+    expect(renderedDocument).toHaveFocus();
+    expect(onConsumed).toHaveBeenLastCalledWith(1);
+
+    outside.focus();
+    rerender(contentAreaElement(activeTab, {
+      renderedReadingRequest: { nonce: 2 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+
+    expect(outside).toHaveFocus();
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    animationFrames.flushFrame();
+    expect(onConsumed).toHaveBeenLastCalledWith(2);
+    expect(renderedDocument).toHaveFocus();
+    expect(renderedAnchor).not.toHaveFocus();
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    outside.remove();
+    animationFrames.restore();
+  });
+
+  it('cancela frames pendentes quando contexto ou pedido mudam', () => {
+    const animationFrames = installControlledAnimationFrames();
+    const onConsumed = vi.fn();
+    const viewTab: EditorDocument = {
+      id: 'cancelled-reading',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    };
+    const { container, rerender } = renderContentArea(viewTab, {
+      renderedReadingRequest: { nonce: 1 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    });
+
+    animationFrames.flushFrame();
+    rerender(contentAreaElement({ ...viewTab, mode: 'markdown' }, {
+      renderedReadingRequest: { nonce: 1 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushAll();
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-editor-rendered-document="true"]')).toBeNull();
+
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 2 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushFrame();
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 3 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushAll();
+    expect(onConsumed.mock.calls).toEqual([[3]]);
+
+    rerender(contentAreaElement({ ...viewTab, mode: 'markdown' }, {
+      renderedReadingRequest: { nonce: 4 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 4 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    }));
+    animationFrames.flushFrame();
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 4 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: true,
+    }));
+    animationFrames.flushAll();
+    expect(onConsumed).not.toHaveBeenCalledWith(4);
+
+    rerender(contentAreaElement(viewTab, {
+      renderedReadingRequest: { nonce: 5 },
+      onRenderedReadingRequestConsumed: onConsumed,
+      isEditorMenuOpen: false,
+    }));
+    animationFrames.flushFrame();
+    isModalOpenMock.mockReturnValue(true);
+    animationFrames.flushAll();
+    expect(onConsumed).not.toHaveBeenCalledWith(5);
+    animationFrames.restore();
+  });
+
+  it('não consome pedido de leitura enquanto o painel está inativo', () => {
+    const onConsumed = vi.fn();
+    const { container } = renderContentArea({
+      id: 'inactive-reading',
+      title: 'leitura.md',
+      markdown: '# Leitura',
+      mode: 'view',
+    }, {
+      isPanelActive: false,
+      renderedReadingRequest: { nonce: 3 },
+      onRenderedReadingRequestConsumed: onConsumed,
+    });
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+
+    expect(onConsumed).not.toHaveBeenCalled();
+    expect(renderedDocument).not.toHaveAttribute('role');
+    expect(renderedDocument).not.toHaveFocus();
+  });
+
+  it('oferece o mesmo documento focável para projeções somente leitura', () => {
+    const { container } = renderContentArea({
+      id: 'pdf-reading',
+      title: 'manual.pdf',
+      markdown: '# Manual',
+      mode: 'view',
+      filePath: 'C:/tmp/manual.pdf',
+      readOnly: true,
+      projection: { format: 'pdf', warnings: [] },
+    });
+
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
+
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(renderedDocument).toHaveFocus();
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'enabled',
+    );
+  });
+
+  it('habilita a ordem de Tab também no preview Reveal', () => {
+    const { container } = renderContentArea({
+      id: 'reveal-reading',
+      title: 'slides.md',
+      markdown: '<!-- .slide: class="title-slide" -->\n\n# Slide 1\n\n---\n\n# Slide 2\n\n---\n\n# Slide 3',
+      mode: 'view',
+    });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    expect(screen.getByTestId('reveal-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'disabled',
+    );
+
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
+
+    expect(screen.getByTestId('reveal-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'enabled',
+    );
+  });
+
+  it('preserva role document em rerenders e desativa a leitura ao ocultar o painel', async () => {
+    const activeTab: EditorDocument = {
+      id: 'preview-lifecycle',
+      title: 'preview.md',
+      markdown: '# Preview',
+      mode: 'view',
+      filePath: 'C:/tmp/preview.md',
+    };
+    const { container, rerender } = renderContentArea(activeTab, { isPanelActive: true });
+    const renderedAnchor = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-anchor="true"]',
+    );
+    const renderedDocument = container.querySelector<HTMLElement>(
+      '[data-editor-rendered-document="true"]',
+    );
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(renderedDocument).toHaveFocus();
+
+    rerender(contentAreaElement(activeTab, {
+      isPanelActive: true,
+      debouncedMarkdownForPreview: '# Preview atualizado',
+    }));
+    expect(container.querySelector('[data-editor-rendered-document="true"]')).toBe(
+      renderedDocument,
+    );
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+
+    const replacementTab = {
+      ...activeTab,
+      title: 'outro.md',
+      filePath: 'C:/tmp/outro.md',
+      markdown: '# Outro arquivo',
+    };
+    rerender(contentAreaElement(replacementTab, { isPanelActive: true }));
+    await waitFor(() => expect(renderedDocument).not.toHaveAttribute('role'));
+    expect(renderedAnchor).toHaveAttribute('tabindex', '0');
+    expect(screen.getByTestId('markdown-renderer')).toHaveAttribute(
+      'data-tab-navigation',
+      'disabled',
+    );
+
+    renderedAnchor?.focus();
+    fireEvent.keyDown(renderedAnchor!, { key: 'Enter' });
+    expect(container.querySelector('[data-editor-rendered-document="true"]')).toBe(
+      renderedDocument,
+    );
+    expect(renderedDocument).toHaveAttribute('role', 'document');
+    expect(renderedDocument).toHaveFocus();
+
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    rerender(contentAreaElement(replacementTab, { isPanelActive: false }));
+    await waitFor(() => expect(renderedDocument).not.toHaveAttribute('role'));
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(outside).toHaveFocus();
+    outside.remove();
+  });
+});

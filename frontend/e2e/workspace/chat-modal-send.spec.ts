@@ -69,7 +69,7 @@ test('chat modal do terminal cria conversa e envia mensagem', async ({ page, wai
   const chatModal = page.getByRole('dialog', { name: /chat/i });
   await expect(chatModal).toBeVisible();
 
-  const textarea = chatModal.getByRole('textbox', { name: /message/i });
+  const textarea = chatModal.getByRole('combobox', { name: /message/i });
   await textarea.fill('teste terminal');
   await textarea.press('Enter');
 

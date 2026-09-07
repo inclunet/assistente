@@ -1,12 +1,13 @@
 package controllers
 
 import (
-	"fmt"
-	"log"
-
+	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
 	"assistente/internal/jobs"
+	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
+	"context"
+	"fmt"
 )
 
 // MCPController é o adapter primário (Inbound) para operações de MCP.
@@ -149,22 +150,29 @@ func (c *MCPController) DeleteMCPServerAuth(slug string) error {
 	return c.mcpMgr.DeleteServerAuth(slug)
 }
 
-func (c *MCPController) GetMCPServerAuthInfo(slug string) (map[string]any, error) {
+func (c *MCPController) GetMCPServerAuthInfo(slug string) (apidto.MCPServerAuthInfo, error) {
 	if err := c.guardMgr(); err != nil {
-		return nil, err
+		return apidto.MCPServerAuthInfo{}, err
 	}
 	authType, hasAuth, err := c.mcpMgr.GetServerAuthInfo(slug)
 	if err != nil {
-		return nil, err
+		return apidto.MCPServerAuthInfo{}, err
 	}
-	return map[string]any{
-		"hasAuth":  hasAuth,
-		"authType": authType,
+	return apidto.MCPServerAuthInfo{
+		HasAuth:  hasAuth,
+		AuthType: authType,
 	}, nil
 }
 
 func (c *MCPController) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResult {
 	return mcpmgr.DiscoverOAuth(serverURL)
+}
+
+func (c *MCPController) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error) {
+	if err := c.guardMgr(); err != nil {
+		return nil, err
+	}
+	return c.mcpMgr.GetLogs(slug, limit)
 }
 
 // NewMCPEventEmitter retorna a função de emit usada internamente pelo mcpmgr.
@@ -175,9 +183,9 @@ func (c *MCPController) NewMCPEventEmitter() func(event string, data any) {
 		if event == "mcp:tools_changed" && c.jobMgr != nil {
 			go func() {
 				if err := c.jobMgr.RegenerateCatalog(); err != nil {
-					log.Printf("[Jobs] Catalog regeneration on MCP change failed: %v", err)
+					logging.Errorf(context.Background(), "controllers.mcp-controller", "[Jobs] Catalog regeneration on MCP change failed: %v", err)
 				} else {
-					log.Printf("[Jobs] Catalog regenerated after MCP tools change")
+					logging.Infof(context.Background(), "controllers.mcp-controller", "[Jobs] Catalog regenerated after MCP tools change")
 				}
 			}()
 		}

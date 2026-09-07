@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/Button';
+import { DialogActions } from '../../ui/DialogActions';
 import { Input } from '../../ui/Input';
 import { Textarea } from '../../ui/Textarea';
 import { Select } from '../../ui/Select';
@@ -15,7 +16,8 @@ import { OutputExplorer } from './OutputExplorer';
 import { TemplateEditor } from './TemplateEditor';
 import { YAMLPreview } from './YAMLPreview';
 import { useJobStore } from '../../../store/jobStore';
-import { ListKnownEvents, InferEventSchema } from '@wailsjs/go/app/App';
+import { useAnnouncer } from '../../../hooks/useAnnouncer';
+import { ListKnownEvents, InferEventSchema } from '@wailsjs/go/wailsapi/Jobs';
 import { jobs } from '@wailsjs/go/models';
 import './JobBuilder.css';
 
@@ -157,6 +159,7 @@ function hasArraysInData(data: Record<string, unknown> | null): boolean {
 
 export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const { saveJob, testTool, fetchToolCatalog } = useJobStore();
 
   const isEditing = Boolean(editJob);
@@ -188,6 +191,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [testDuration, setTestDuration] = useState<string | null>(null);
   const [testJustFinished, setTestJustFinished] = useState(false);
   const testResultRef = useRef<HTMLDivElement>(null);
+  const announcedFanoutWarningRef = useRef<Record<string, unknown> | null>(null);
 
   const [eventSchema, setEventSchema] = useState<Record<string, unknown> | null>(null);
   const [knownEvents, setKnownEvents] = useState<ComboboxItem[]>([]);
@@ -206,6 +210,24 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [yamlOpen, setYamlOpen] = useState(false);
 
   const outputHasArrays = useMemo(() => hasArraysInData(testOutput), [testOutput]);
+  const shouldAnnounceFanoutNoArraysWarning = Boolean(
+    testOutput && draft.events.emit_success && draft.events.mode === 'fanout' && !outputHasArrays
+  );
+
+  const showError = useCallback((message: string) => {
+    setError(message);
+    announce(message, 'assertive');
+  }, [announce]);
+
+  useEffect(() => {
+    if (shouldAnnounceFanoutNoArraysWarning && testOutput && announcedFanoutWarningRef.current !== testOutput) {
+      announcedFanoutWarningRef.current = testOutput;
+      announce(t('jobs.builder.noArraysWarning'), 'assertive');
+    }
+    if (!shouldAnnounceFanoutNoArraysWarning) {
+      announcedFanoutWarningRef.current = null;
+    }
+  }, [announce, shouldAnnounceFanoutNoArraysWarning, t, testOutput]);
 
   const templateContext = useMemo(() => {
     const ctx: { output?: Record<string, unknown>; event?: Record<string, unknown> } = {};
@@ -311,18 +333,19 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         setTestOutput(result.output ?? {});
         setTestDuration(result.duration ?? null);
         setTestJustFinished(true);
+        announce(t('jobs.builder.testSuccess', 'Tool test completed successfully'));
         requestAnimationFrame(() => {
           testResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
       } else if (result?.error) {
-        setError(result.error);
+        showError(result.error);
       }
     } catch (err) {
-      setError(String(err));
+      showError(String(err));
     } finally {
       setTesting(false);
     }
-  }, [draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger]);
+  }, [announce, draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger, showError, t]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -355,11 +378,11 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       onSaved?.();
       onClose();
     } catch (err) {
-      setError(String(err));
+      showError(String(err));
     } finally {
       setSaving(false);
     }
-  }, [draft, saveJob, onClose, onSaved]);
+  }, [draft, saveJob, onClose, onSaved, showError, testOutput]);
 
   const handleFanoutSelect = useCallback((path: string) => {
     updateEvents('for_each', path);
@@ -369,7 +392,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     <div className="job-builder">
       <div className="job-builder__content">
         {error && (
-          <div className="job-builder__error" role="alert" aria-live="assertive">
+          <div className="job-builder__error">
             <span>{error}</span>
             <button
               className="job-builder__error-close"
@@ -444,7 +467,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
               knownEvents={knownEvents}
             />
             {eventSchema && (
-              <div className="job-builder__event-schema-badge" role="status" aria-live="polite">
+              <div className="job-builder__event-schema-badge">
                 {t('jobs.builder.eventSchemaFound', { count: Object.keys(eventSchema).length })}
               </div>
             )}
@@ -472,7 +495,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
             {draft.tool && (
               <>
-                <div className="job-builder__tool-selected" role="status" aria-live="polite">
+                <div className="job-builder__tool-selected">
                   {t('jobs.builder.selectedTool')}: <code>{draft.tool}</code>
                 </div>
 
@@ -501,7 +524,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                   )}
                 </div>
 
-                <div aria-live="polite" aria-atomic="true">
+                <div>
                   {testOutput && (
                     <div ref={testResultRef} className="job-builder__test-result" role="region" aria-label={t('jobs.builder.testResult')}>
                       <h4 className="job-builder__test-result-title">{t('jobs.builder.testResult')}</h4>
@@ -602,7 +625,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                       onSelectPath={handleFanoutSelect}
                     />
                     {!outputHasArrays && (
-                      <p className="job-builder__warning" role="alert">
+                      <p className="job-builder__warning">
                         {t('jobs.builder.noArraysWarning')}
                       </p>
                     )}
@@ -740,14 +763,20 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         </CollapsibleSection>
       </div>
 
-      {/* Footer */}
+      {/* Footer — AEP-0090: primária antes de cancelar */}
       <div className="job-builder__footer">
-        <Button variant="ghost" onClick={onClose}>
-          {t('common.cancel')}
-        </Button>
-        <Button variant="primary" onClick={handleSave} loading={saving} disabled={saving || !canSave}>
-          {isEditing ? t('common.save') : t('jobs.builder.createJob')}
-        </Button>
+        <DialogActions
+          primary={
+            <Button variant="primary" onClick={handleSave} loading={saving} disabled={saving || !canSave}>
+              {isEditing ? t('common.save') : t('jobs.builder.createJob')}
+            </Button>
+          }
+          secondary={
+            <Button variant="ghost" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+          }
+        />
       </div>
     </div>
   );

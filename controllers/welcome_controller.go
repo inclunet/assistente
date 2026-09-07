@@ -1,18 +1,15 @@
 package controllers
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"strings"
-	"time"
 
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
-	"assistente/internal/updater"
 )
 
 // ============================================================================
@@ -21,11 +18,12 @@ import (
 
 // WizardProviderInfo mapeia a escolha do wizard para configuração do provedor.
 type WizardProviderInfo struct {
-	ID           string
-	Name         string
-	Type         llm.ProviderType
-	APIFormat    llm.APIFormat
-	DefaultModel string
+	ID                   string
+	Name                 string
+	Type                 llm.ProviderType
+	APIFormat            llm.APIFormat
+	DefaultModel         string
+	ReasoningContentMode llm.ReasoningContentMode
 }
 
 // WizardLabelToProviderType mapeia o rótulo exibido no wizard para o type ID
@@ -83,7 +81,10 @@ func GetWizardProviderInfo(providerChoice string) WizardProviderInfo {
 	case "Perplexity":
 		return WizardProviderInfo{ID: "perplexity-default", Name: "Perplexity", Type: llm.ProviderPerplexity, DefaultModel: "sonar"}
 	case "DeepSeek":
-		return WizardProviderInfo{ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek, DefaultModel: "deepseek-chat"}
+		return WizardProviderInfo{
+			ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek,
+			DefaultModel: "deepseek-chat", ReasoningContentMode: llm.ReasoningContentReplayWithTools,
+		}
 	case "xAI (Grok)":
 		return WizardProviderInfo{ID: "xai-grok", Name: "xAI (Grok)", Type: llm.ProviderGrok, DefaultModel: "grok-3-mini"}
 	case "Azure OpenAI":
@@ -107,8 +108,6 @@ type WelcomeControllerConfig struct {
 	CredMgr          *credentials.Manager
 	ProviderSvc      *providers.Service
 	LLMRegistry      *llm.ProviderRegistry
-	SettingsSvc      *config.SettingsService
-	Updater          *updater.Updater
 	UpdaterCtrl      *UpdaterController
 
 	// Callbacks para operações que pertencem à camada App (infra).
@@ -123,8 +122,6 @@ type WelcomeController struct {
 	credMgr                    *credentials.Manager
 	providerSvc                *providers.Service
 	llmRegistry                *llm.ProviderRegistry
-	settingsSvc                *config.SettingsService
-	updater                    *updater.Updater
 	updaterCtrl                *UpdaterController
 	configureCredentialManager func(dek []byte, persist bool)
 	initLLMClient              func()
@@ -138,8 +135,6 @@ func NewWelcomeController(cfg WelcomeControllerConfig) *WelcomeController {
 		credMgr:                    cfg.CredMgr,
 		providerSvc:                cfg.ProviderSvc,
 		llmRegistry:                cfg.LLMRegistry,
-		settingsSvc:                cfg.SettingsSvc,
-		updater:                    cfg.Updater,
 		updaterCtrl:                cfg.UpdaterCtrl,
 		configureCredentialManager: cfg.ConfigureCredentialManager,
 		initLLMClient:              cfg.InitLLMClient,
@@ -149,7 +144,7 @@ func NewWelcomeController(cfg WelcomeControllerConfig) *WelcomeController {
 
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas.
 // Retorna true se não houver chave mestra ou provedor configurado.
-func (c *WelcomeController) NeedsWelcomeWizard() bool {
+func (c *WelcomeController) NeedsWelcomeWizard(ctx context.Context) bool {
 	store := credentials.NewDBStore()
 	hasMasterKey, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
 	if err != nil {
@@ -158,7 +153,7 @@ func (c *WelcomeController) NeedsWelcomeWizard() bool {
 
 	hasProviders := false
 	if c.providerSvc != nil {
-		count, _ := c.providerSvc.Count()
+		count, _ := c.providerSvc.Count(ctx)
 		hasProviders = count > 0
 	}
 
@@ -173,9 +168,11 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 	var apiKey string
 	var defaultModel string
 	var recoveryKey string
-	var passwordError string
-	var urlError string
-	var keyError string
+	// Os avisos de erro ocupam o lugar da descrição da etapa e também se
+	// traduzem: o texto vazio significa "nenhum erro pendente".
+	var passwordError questionnaire.Text
+	var urlError questionnaire.Text
+	var keyError questionnaire.Text
 	var validatedModels []string
 
 	store := credentials.NewDBStore()
@@ -189,34 +186,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 	for currentStep >= 0 {
 		switch currentStep {
 		case 0: // Etapa 0: Senha mestre
-			description := "Defina uma senha mestre para criptografar credenciais locais. Guarde com cuidado."
-			if passwordError != "" {
-				description = passwordError
-			}
-
-			passwordResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Segurança: senha mestre",
-				Description: description,
-				Questions: []questionnaire.Question{
-					{
-						ID:          "masterPassword",
-						Type:        "password",
-						Prompt:      "Senha mestre",
-						Required:    true,
-						Placeholder: "Digite uma senha forte",
-					},
-					{
-						ID:          "confirmPassword",
-						Type:        "password",
-						Prompt:      "Confirmar senha mestre",
-						Required:    true,
-						Placeholder: "Repita a senha",
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: "Continuar",
-				CancelLabel: "Cancelar",
-			})
+			passwordResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeMasterPasswordPayload(passwordError))
 
 			if err != nil || passwordResp.Cancelled {
 				return false, err
@@ -225,12 +195,12 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			masterPassword, _ := passwordResp.Answers["masterPassword"].(string)
 			confirmPassword, _ := passwordResp.Answers["confirmPassword"].(string)
 			if strings.TrimSpace(masterPassword) == "" || masterPassword != confirmPassword {
-				passwordError = "As senhas não conferem. Tente novamente."
+				passwordError = welcomePasswordMismatch()
 				currentStep = 0
 				continue
 			}
 
-			setupResult, err := credentials.SetupMasterKey(store, masterPassword)
+			setupResult, err := credentials.SetupMasterKeyAdoptingKeychain(store, masterPassword)
 			if err != nil {
 				return false, err
 			}
@@ -239,69 +209,18 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			if c.configureCredentialManager != nil {
 				c.configureCredentialManager(setupResult.DEK, true)
 			}
-			passwordError = ""
+			passwordError = questionnaire.Text{}
 			currentStep = 1
 
 		case 1: // Etapa 1: Código de recuperação
-			_, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Código de recuperação",
-				Description: "Guarde este código em local seguro. Ele permite recuperar suas credenciais se você esquecer a senha mestre.",
-				Questions: []questionnaire.Question{
-					{
-						ID:      "recoveryCode",
-						Type:    "readonly_code",
-						Prompt:  "Código de recuperação",
-						Content: recoveryKey,
-					},
-					{
-						ID:       "confirmed",
-						Type:     "boolean",
-						Prompt:   "Eu salvei o código de recuperação em local seguro",
-						Required: true,
-					},
-				},
-				AllowCancel: false,
-				SubmitLabel: "Continuar",
-			})
+			_, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeRecoveryCodePayload(recoveryKey))
 			if err != nil {
 				return false, err
 			}
 			currentStep = 2
 
 		case 2: // Etapa 2: Escolher provedor
-			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Bem-vindo ao Assistente!",
-				Description: "Vamos configurar seu assistente em alguns passos simples.",
-				Questions: []questionnaire.Question{
-					{
-						ID:       "provider",
-						Type:     "single_choice",
-						Prompt:   "Qual provedor de IA você deseja usar?",
-						Required: true,
-						Options: []string{
-							"OpenAI",
-							"Anthropic (Claude)",
-							"Google (Gemini)",
-							"DeepSeek",
-							"xAI (Grok)",
-							"OpenRouter",
-							"Mistral AI",
-							"Groq",
-							"Together AI",
-							"Fireworks AI",
-							"Perplexity",
-							"Azure OpenAI",
-							"Ollama (Local)",
-							"LiteLLM",
-							"Outro (URL personalizada)",
-						},
-						Default: provider,
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: "Próximo",
-				CancelLabel: "Cancelar",
-			})
+			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeProviderPayload(provider))
 
 			if err != nil || providerResp.Cancelled {
 				return false, err
@@ -318,43 +237,20 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			currentStep = 3
 
 		case 3: // Etapa 3: URL personalizada (se necessário)
-			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
-
-			if !needsCustomURL {
+			if !wizardNeedsCustomURL(provider) {
 				currentStep = 4
 				continue
 			}
 
 			placeholderURL := "http://localhost:11434/v1"
 			switch provider {
-			case "LiteLLM":
+			case wizardProviderLiteLLM:
 				placeholderURL = "http://localhost:4000"
-			case "Azure OpenAI":
+			case wizardProviderAzure:
 				placeholderURL = "https://your-resource.openai.azure.com"
 			}
 
-			urlDescription := "Informe a URL do servidor OpenAI-compatible."
-			if urlError != "" {
-				urlDescription = urlError
-			}
-
-			urlResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Configuração do Servidor",
-				Description: urlDescription,
-				Questions: []questionnaire.Question{
-					{
-						ID:          "baseURL",
-						Type:        "text",
-						Prompt:      "URL do servidor",
-						Required:    true,
-						Placeholder: placeholderURL,
-						Default:     baseURL,
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: "Próximo",
-				CancelLabel: "Voltar",
-			})
+			urlResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeServerURLPayload(placeholderURL, baseURL, urlError))
 
 			if err != nil {
 				return false, err
@@ -366,10 +262,10 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 
 			baseURL = urlResp.Answers["baseURL"].(string)
-			urlError = ""
+			urlError = questionnaire.Text{}
 
 			if err := c.ValidateWizardURL(ctx, baseURL); err != nil {
-				urlError = fmt.Sprintf("⚠️ %v\n\nCorreija a URL e tente novamente.", err)
+				urlError = welcomeInvalidURL(err)
 				currentStep = 3
 				continue
 			}
@@ -377,40 +273,15 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			currentStep = 4
 
 		case 4: // Etapa 4: API Key + validação de conexão
-			keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
-			if provider == "Ollama (Local)" {
-				keyDescription = "Ollama local geralmente não precisa de chave. Você pode deixar em branco."
-			}
-			if keyError != "" {
-				keyDescription = keyError
-			}
-
-			keyResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Chave de API",
-				Description: keyDescription,
-				Questions: []questionnaire.Question{
-					{
-						ID:          "apiKey",
-						Type:        "text",
-						Prompt:      "Chave de API (opcional)",
-						Required:    false,
-						Placeholder: "sk-...",
-						Default:     apiKey,
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: "Próximo",
-				CancelLabel: "Voltar",
-			})
+			keyResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeAPIKeyPayload(provider, apiKey, keyError))
 
 			if err != nil {
 				return false, err
 			}
 
 			if keyResp.Cancelled {
-				keyError = ""
-				needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
-				if needsCustomURL {
+				keyError = questionnaire.Text{}
+				if wizardNeedsCustomURL(provider) {
 					currentStep = 3
 				} else {
 					currentStep = 2
@@ -421,42 +292,40 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			if keyResp.Answers["apiKey"] != nil {
 				apiKey = keyResp.Answers["apiKey"].(string)
 			}
-			keyError = ""
+			keyError = questionnaire.Text{}
 
-			log.Printf("[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
+			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
 			validation := c.ValidateWizardConnection(ctx, baseURL, apiKey)
-
-			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
 
 			switch validation.ErrorType {
 			case "url_invalid", "url_unreachable":
-				if needsCustomURL {
-					urlError = fmt.Sprintf("⚠️ %s", validation.ErrorDetail)
+				if wizardNeedsCustomURL(provider) {
+					urlError = welcomeURLUnreachable(validation.ErrorDetail)
 					currentStep = 3
 				} else {
-					keyError = fmt.Sprintf("⚠️ Não foi possível conectar ao servidor do %s (%s).\n\n%s\n\nClique \"Próximo\" para tentar novamente ou \"Voltar\" para escolher outro provedor.", provider, baseURL, validation.ErrorDetail)
+					keyError = welcomeConnectionFailed(provider, baseURL, validation.ErrorDetail)
 					currentStep = 4
 				}
 				continue
 
 			case "auth_required":
-				keyError = fmt.Sprintf("⚠️ %s\n\nInforme uma API Key válida para continuar.", validation.ErrorDetail)
+				keyError = welcomeAuthRequired(validation.ErrorDetail)
 				currentStep = 4
 				continue
 
 			case "auth_invalid":
-				keyError = fmt.Sprintf("⚠️ %s\n\nVerifique sua chave e tente novamente.", validation.ErrorDetail)
+				keyError = welcomeAuthInvalid(validation.ErrorDetail)
 				currentStep = 4
 				continue
 
 			case "server_error":
-				keyError = fmt.Sprintf("⚠️ %s\n\nClique \"Próximo\" para tentar novamente ou \"Voltar\" para alterar configurações.", validation.ErrorDetail)
+				keyError = welcomeServerError(validation.ErrorDetail)
 				currentStep = 4
 				continue
 			}
 
 			validatedModels = validation.Models
-			log.Printf("[Wizard] Conexão validada com sucesso. Modelos disponíveis: %d", len(validatedModels))
+			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Conexão validada com sucesso. Modelos disponíveis: %d", len(validatedModels))
 			currentStep = 5
 
 		case 5: // Etapa 5: Escolher modelo (conexão já validada)
@@ -466,23 +335,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 					modelDefault = validatedModels[0]
 				}
 
-				modelResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-					Title:       "Escolha o Modelo Padrão",
-					Description: fmt.Sprintf("Conexão validada com sucesso! %d modelo(s) disponível(is).\n\nSelecione o modelo padrão. Você pode alterar depois nas configurações.", len(validatedModels)),
-					Questions: []questionnaire.Question{
-						{
-							ID:       "model",
-							Type:     "single_choice",
-							Prompt:   "Modelo padrão:",
-							Required: true,
-							Options:  validatedModels,
-							Default:  modelDefault,
-						},
-					},
-					AllowCancel: true,
-					SubmitLabel: "Finalizar",
-					CancelLabel: "Voltar",
-				})
+				modelResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeModelChoicePayload(validatedModels, modelDefault))
 
 				if err != nil {
 					return false, err
@@ -495,23 +348,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 
 				defaultModel = modelResp.Answers["model"].(string)
 			} else {
-				manualResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-					Title:       "Configurar Modelo",
-					Description: "Conexão validada! O servidor não suporta listagem automática de modelos.\n\nInforme o nome do modelo que deseja usar.",
-					Questions: []questionnaire.Question{
-						{
-							ID:          "defaultModel",
-							Type:        "text",
-							Prompt:      "Nome do modelo",
-							Required:    true,
-							Placeholder: "gpt-4o-mini",
-							Default:     defaultModel,
-						},
-					},
-					AllowCancel: true,
-					SubmitLabel: "Finalizar",
-					CancelLabel: "Voltar",
-				})
+				manualResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeManualModelPayload(defaultModel))
 
 				if err != nil {
 					return false, err
@@ -533,17 +370,13 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 					Token: apiKey,
 				}
 				if err := c.credMgr.RegisterPatternWithContext(ctx, wizardHostname, wizardAuth); err != nil {
-					log.Printf("[Wizard] Erro ao registrar credencial temporária: %v", err)
+					logging.Errorf(ctx, "controllers.welcome-controller", "[Wizard] Erro ao registrar credencial temporária: %v", err)
 				}
 			}
 
 			providerID, err := c.CreateWizardProvider(ctx, provider, baseURL, apiKey, defaultModel)
 			if err != nil {
 				return false, fmt.Errorf("erro ao criar provedor: %w", err)
-			}
-
-			if err := c.SaveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
-				return false, err
 			}
 
 			if c.initLLMClient != nil {
@@ -553,9 +386,9 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			// Verificação final: confirma que o provider funciona com o modelo escolhido
 			finalModels, finalErr := c.providerSvc.GetModelsByProvider(ctx, providerID)
 			if finalErr != nil {
-				log.Printf("[Wizard] Verificação final: %v (provider pode não suportar /models)", finalErr)
+				logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Verificação final: %v (provider pode não suportar /models)", finalErr)
 			} else {
-				log.Printf("[Wizard] Verificação final OK: %d modelos via provider '%s'", len(finalModels), providerID)
+				logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Verificação final OK: %d modelos via provider '%s'", len(finalModels), providerID)
 				modelFound := false
 				for _, m := range finalModels {
 					if m == defaultModel {
@@ -564,11 +397,15 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 					}
 				}
 				if !modelFound && len(finalModels) > 0 {
-					log.Printf("[Wizard] Aviso: modelo '%s' não encontrado na lista do provider (%d modelos)", defaultModel, len(finalModels))
+					logging.Warnf(ctx, "controllers.welcome-controller", "[Wizard] Aviso: modelo '%s' não encontrado na lista do provider (%d modelos)", defaultModel, len(finalModels))
 				}
 			}
 
-			go c.checkForUpdatesAfterWizard()
+			if c.updaterCtrl != nil {
+				// Reusa o mesmo scheduler cancelável do startup. O sinal
+				// antecipa a primeira checagem sem criar goroutine órfã.
+				c.updaterCtrl.RequestUpdateCheck()
+			}
 			return true, nil
 		}
 	}
@@ -607,16 +444,17 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 	}
 
 	provider := &llm.ProviderConfig{
-		ID:                info.ID,
-		Name:              info.Name,
-		Type:              info.Type,
-		APIFormat:         info.APIFormat,
-		BaseURL:           baseURL,
-		Model:             model,
-		DefaultModel:      defaultModel,
-		IsDefault:         true,
-		Timeout:           timeout,
-		CredentialPattern: hostname,
+		ID:                   info.ID,
+		Name:                 info.Name,
+		Type:                 info.Type,
+		APIFormat:            info.APIFormat,
+		BaseURL:              baseURL,
+		Model:                model,
+		DefaultModel:         defaultModel,
+		IsDefault:            true,
+		Timeout:              timeout,
+		CredentialPattern:    hostname,
+		ReasoningContentMode: info.ReasoningContentMode,
 	}
 
 	if err := c.llmRegistry.Register(provider); err != nil {
@@ -639,56 +477,10 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 		}
 	}
 
-	if err := c.providerSvc.SetDefault(info.ID); err != nil {
-		log.Printf("[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
+	if err := c.providerSvc.SetDefault(ctx, info.ID); err != nil {
+		logging.Warnf(ctx, "controllers.welcome-controller", "[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
 	}
 
-	log.Printf("[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
+	logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
 	return info.ID, nil
-}
-
-// SaveWelcomeConfig salva a configuração do wizard via settingsSvc.
-func (c *WelcomeController) SaveWelcomeConfig(baseURL, apiKey, defaultModel string) error {
-	if c.settingsSvc == nil {
-		return nil
-	}
-	return c.settingsSvc.SaveSettings(config.SettingsInput{
-		APIKey:     apiKey,
-		APIBaseURL: baseURL,
-		ChatParams: config.SettingsModelParams{
-			Model: defaultModel,
-		},
-	})
-}
-
-// checkForUpdatesAfterWizard verifica atualizações após o wizard de configuração.
-func (c *WelcomeController) checkForUpdatesAfterWizard() {
-	time.Sleep(2 * time.Second)
-
-	if c.updater == nil {
-		log.Printf("[Wizard] Updater não inicializado, pulando verificação de atualizações")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	log.Printf("[Wizard] Verificando atualizações disponíveis...")
-
-	info, err := c.updater.CheckForUpdates(ctx)
-	if err != nil {
-		log.Printf("[Wizard] Erro ao verificar atualizações: %v", err)
-		return
-	}
-
-	if !info.Available {
-		log.Printf("[Wizard] Aplicativo está atualizado (v%s)", info.CurrentVersion)
-		return
-	}
-
-	log.Printf("[Wizard] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
-
-	if c.updaterCtrl != nil {
-		c.updaterCtrl.PromptForUpdate(ctx, info)
-	}
 }

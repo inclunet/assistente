@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"assistente/controllers"
+	"assistente/internal/apidto"
+	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -20,11 +22,12 @@ type setupBackend interface {
 	NeedsWelcomeWizard() bool
 	HasMasterKey() bool
 	SetupMasterPassword(password string) (string, error)
-	TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error)
-	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
+	TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error)
+	ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error)
 	CreateDefaultLLMProvider(providerType, apiKey string) error
 	SetDefaultProvider(id string) error
-	SetChatModel(model string) error
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
+	UpdateProfile(slug string, p profiles.Profile) error
 }
 
 // passwordReader abstracts password reading for testing.
@@ -59,7 +62,7 @@ Configura:
   - Provedor LLM (OpenAI, Claude, Ollama, etc.)
   - API key e modelo padrão`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runSetup(rootApp, readPassword, os.Stdout)
+		return runSetup(asCLI(rootApp), readPassword, os.Stdout)
 	},
 }
 
@@ -151,7 +154,7 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprint(out, "Testando conexão... ")
 
-	ok, testErr := svc.TestLLMProvider(controllers.TestLLMProviderRequest{
+	ok, testErr := svc.TestLLMProvider(apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	})
@@ -173,7 +176,7 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 	// === Passo 5: Escolher modelo ===
 	model := info.DefaultModel
 
-	models, modelsErr := svc.ListModelsRaw(controllers.TestLLMProviderRequest{
+	models, modelsErr := svc.ListModelsRaw(apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	})
@@ -231,15 +234,23 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 		_ = svc.SetDefaultProvider(info.ID)
 	}
 
-	// Aplicar modelo selecionado
+	// Aplicar modelo selecionado ao perfil ativo
+	modelApplied := model != ""
 	if model != "" {
-		_ = svc.SetChatModel(model)
+		if mErr := setActiveProfileChatModel(svc, model); mErr != nil {
+			modelApplied = false
+			_, _ = fmt.Fprintln(out)
+			_, _ = fmt.Fprintf(out, "Aviso: provedor criado, mas não foi possível aplicar o modelo %q ao perfil ativo: %v\n", model, mErr)
+			_, _ = fmt.Fprintln(out, "Defina o modelo depois com: asst config model <modelo>")
+		}
 	}
 
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintf(out, "Assistente configurado com sucesso!\n")
 	_, _ = fmt.Fprintf(out, "  Provedor: %s\n", providerChoice)
-	_, _ = fmt.Fprintf(out, "  Modelo:   %s\n", model)
+	if modelApplied {
+		_, _ = fmt.Fprintf(out, "  Modelo:   %s\n", model)
+	}
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Use 'asst chat' para começar a conversar.")
 

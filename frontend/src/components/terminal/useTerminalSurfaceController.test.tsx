@@ -63,41 +63,23 @@ describe('useTerminalSurfaceController', () => {
     workspaceMocks.activeTabId = 'terminal-tab';
   });
 
-  it('cria sessão para aba ativa sem sessionId', async () => {
-    terminalMocks.createSession.mockResolvedValue('session-1');
-
+  it('não cria sessão implicitamente para aba ativa sem sessionId', () => {
     renderHook(() => useTerminalSurfaceController(terminalTab, true));
 
-    await waitFor(() => {
-      expect(terminalMocks.createSession).toHaveBeenCalled();
-      expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
-        state: { sessionId: 'session-1' },
-      });
-    });
+    expect(terminalMocks.createSession).not.toHaveBeenCalled();
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
   });
 
-  it('recarrega sessões após criar sessionId antes do evento popular o store', async () => {
-    terminalMocks.createSession.mockResolvedValue('session-1');
-    const { rerender } = renderHook(({ tab }) => useTerminalSurfaceController(tab, true), {
-      initialProps: { tab: terminalTab },
-    });
-
-    await waitFor(() => {
-      expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
-        state: { sessionId: 'session-1' },
-      });
-    });
-
-    rerender({
-      tab: {
-        ...terminalTab,
-        state: { sessionId: 'session-1' },
-      },
-    });
+  it('recarrega a lista para resolver um sessionId ainda ausente do store', async () => {
+    renderHook(() => useTerminalSurfaceController({
+      ...terminalTab,
+      state: { sessionId: 'session-1' },
+    }, true));
 
     await waitFor(() => {
       expect(terminalMocks.loadSessions).toHaveBeenCalled();
     });
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
   });
 
   it('carrega histórico de sessão existente por sessionId explícito', async () => {
@@ -132,7 +114,7 @@ describe('useTerminalSurfaceController', () => {
     expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-2');
   });
 
-  it('recupera sessão quando loadSessions falha', async () => {
+  it('informa falha sem substituir a sessão referenciada', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     terminalMocks.loadSessions.mockRejectedValue(new Error('load failed'));
     terminalMocks.createSession.mockResolvedValue('session-recovered');
@@ -147,10 +129,9 @@ describe('useTerminalSurfaceController', () => {
         '[TerminalSurfaceController] Erro ao carregar sessões:',
         expect.any(Error),
       );
-      expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
-        state: { sessionId: 'session-recovered' },
-      });
     });
+    expect(terminalMocks.createSession).not.toHaveBeenCalled();
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
   });
@@ -187,19 +168,14 @@ describe('useTerminalSurfaceController', () => {
     expect(terminalMocks.closeSession).not.toHaveBeenCalled();
   });
 
-  it('não fecha sessão no unmount porque o cleanup é centralizado no workspace', async () => {
-    terminalMocks.createSession.mockResolvedValue('session-created');
+  it('não cria nem fecha sessão ao desmontar uma aba vazia', () => {
     const { unmount } = renderHook(() => useTerminalSurfaceController(terminalTab, true));
-
-    await waitFor(() => {
-      expect(workspaceMocks.updateTab).toHaveBeenCalledWith('terminal-tab', {
-        state: { sessionId: 'session-created' },
-      });
-    });
 
     workspaceMocks.tabs = [];
     unmount();
 
+    expect(terminalMocks.createSession).not.toHaveBeenCalled();
+    expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
     expect(terminalMocks.closeSession).not.toHaveBeenCalled();
   });
 });

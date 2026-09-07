@@ -1,14 +1,17 @@
-// Package prompt constrói o system prompt completo para o pipeline de chat.
+// Package prompt ordena blocos de prompt e constrói o system prompt final.
 // É puro — sem dependência de Wails, sem acesso a banco, sem I/O direto.
-// As dependências externas (skills, workspace) são injetadas via interfaces.
+// Fontes de conteúdo estável/dinâmico entram por Context Providers.
 package prompt
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"reflect"
+	"sort"
 	"strings"
 
 	"assistente/internal/chat"
+	"assistente/internal/contextprovider"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
@@ -19,8 +22,6 @@ import (
 // SkillReader é o subconjunto de skills.Manager que o Builder precisa.
 // Permite mockar em testes sem instanciar o manager completo.
 type SkillReader interface {
-	GetAutoSkills() ([]skills.Skill, error)
-	GetAvailableSkills() ([]skills.Skill, error)
 	GetAllSkillsFull() ([]skills.Skill, error)
 	GetSkillFiles(slug string) ([]string, error)
 }
@@ -45,16 +46,11 @@ func workspaceReaderIsUsable(r WorkspaceReader) bool {
 	}
 }
 
-// Builder monta o system prompt final a partir de skills, resumo e contexto de workspace.
+// Builder monta o system prompt final a partir dos blocos já resolvidos.
 type Builder struct {
 	Skills    SkillReader
 	Workspace WorkspaceReader
 	Tools     *tools.Registry
-
-	// OpenEditorPaths retorna os caminhos absolutos de arquivos abertos em abas de editor.
-	// Se definido e não-vazio, o Build() adiciona uma seção ao system prompt
-	// informando ao modelo que esses arquivos podem ser lidos/editados via tools.
-	OpenEditorPaths func() []string
 }
 
 // TemplateData é um alias para chat.TemplateData — a definição canônica vive em internal/chat
@@ -66,19 +62,21 @@ type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
 func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
-	enabledToolNames := b.ComputeEnabledToolNames(activeProfile)
+	enabledToolNames, implicitToolSelectionUnavailable := b.resolveToolSelection(activeProfile)
 	data := TemplateData{
-		Profile:            activeProfile,
-		ProfileSlug:        params.ProfileSlug,
-		ToolCallingEnabled: len(enabledToolNames) > 0,
-		EnabledTools:       enabledToolNames,
-		EnabledToolCount:   len(enabledToolNames),
-		ConversationID:     conversationID,
+		Profile:                          activeProfile,
+		ProfileSlug:                      params.ProfileSlug,
+		ToolCallingEnabled:               len(enabledToolNames) > 0,
+		EnabledTools:                     enabledToolNames,
+		EnabledToolCount:                 len(enabledToolNames),
+		ImplicitToolSelectionUnavailable: implicitToolSelectionUnavailable,
+		ConversationID:                   conversationID,
 	}
 
 	var activeTab *workspace.Tab
 	if workspaceReaderIsUsable(b.Workspace) {
 		if ws := b.Workspace.Active(); ws != nil {
+			data.WorkspaceID = ws.ID
 			data.WorkspaceName = ws.Name
 			data.WorkspaceProfile = ws.Profile
 			data.TabCount = len(ws.Tabs.Items)
@@ -89,8 +87,9 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 				info := TabInfo{
 					Title:     tab.Title,
 					Type:      string(tab.Type),
-					ContentID: tab.ContentID,
+					ContentID: tabContentReference(tab),
 					IsActive:  isActive,
+					State:     cloneStringAnyMap(tab.State),
 				}
 				data.Tabs = append(data.Tabs, info)
 				if isActive {
@@ -115,7 +114,11 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 	if surfaceState == nil && activeTabMatchesSurface && len(activeTab.State) > 0 {
 		surfaceState = activeTab.State
 	}
-	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface context json")
+	surfaceContext := chat.DecodeCanonicalSurfaceContextJSON(params.SurfaceContextJSON, "[prompt] surface context json")
+	data.ProjectID = firstNonEmpty(
+		stringFromNestedMap(surfaceContext, "metadata", "projectId"),
+		stringFromMap(surfaceState, "projectId"),
+	)
 
 	if surfaceType != "" || surfaceTitle != "" || surfaceState != nil || surfaceContext != nil {
 		data.Surface = &chat.SurfaceInfo{
@@ -129,234 +132,300 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 	return data
 }
 
-// Build compõe o system prompt completo e o injeta na lista de mensagens.
-//
-//   - enabledSkills: nil = todos os auto_load, [] = skills desabilitados, ["slug1"] = lista explícita
-//   - disableOnDemand: quando true, omite a seção <available_skills>
-//   - tplData: contexto disponível nos templates dos skills
-//   - slashSkillContent: conteúdo de um skill invocado via /slash (pode ser "")
-//   - conversationSummary: resumo de mensagens antigas (rolling context)
-func (b *Builder) Build(
-	messages []llm.Message,
-	enabledSkills []string,
-	disableOnDemand bool,
-	tplData any,
-	slashSkillContent string,
-	conversationSummary string,
-) []llm.Message {
-	var parts []string
-
-	// 1. Base prompt — só inclui se há skills ou slash skill
-	if len(enabledSkills) > 0 || slashSkillContent != "" {
-		parts = append(parts, chat.DefaultSystemPrompt)
+func cloneStringAnyMap(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
 	}
-
-	// 2. Seção de skills (auto_load + disponíveis)
-	skillsSection := b.BuildSkillsSection(enabledSkills, disableOnDemand, tplData)
-	if skillsSection != "" {
-		parts = append(parts, "\n\n"+skillsSection)
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
 	}
-
-	// 3. Skill invocado via /slash
-	if slashSkillContent != "" {
-		parts = append(parts, "\n\n"+slashSkillContent)
-	}
-
-	// 4. Resumo da conversa (rolling context)
-	if conversationSummary != "" {
-		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
-	}
-
-	// 5. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
-	if b.OpenEditorPaths != nil {
-		if paths := b.OpenEditorPaths(); len(paths) > 0 {
-			var sb strings.Builder
-			sb.WriteString("\n\n<open_editor_files>\n")
-			sb.WriteString("The following files are currently open in the user's editor tabs. ")
-			sb.WriteString("You MAY use read_file, write_file, edit_file, and grep_search on ONLY these exact file paths, ")
-			sb.WriteString("even if one of the listed files is outside the working directory. ")
-			sb.WriteString("This exception applies ONLY to the exact full paths listed below — not to their parent directories, sibling files, or any other related paths. ")
-			sb.WriteString("Structural operations (move_file, copy_file, delete_file, list_directory) are NOT allowed on these files outside the workspace. ")
-			sb.WriteString("Normal tool policies still apply: denylisted or sensitive files (e.g. .env) may still be blocked even if listed here. ")
-			sb.WriteString("If the active skill restricts filesystem access, those restrictions still apply on top of this exception. ")
-			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
-			for _, p := range paths {
-				// Sanitize to prevent prompt injection via filenames while keeping
-				// the path usable by filesystem tools (which need the real path).
-				// Strip chars that could break XML-like prompt structure or confuse
-				// LLM markdown parsing; do NOT use html.EscapeString which corrupts
-				// chars like & and " making the path unusable for tool calls.
-				safe := strings.NewReplacer(
-					"<", "", ">", "", "`", "",
-					"\n", "_", "\r", "_",
-				).Replace(p)
-				sb.WriteString("- ")
-				sb.WriteString(safe)
-				sb.WriteString("\n")
-			}
-			sb.WriteString("</open_editor_files>")
-			parts = append(parts, sb.String())
-		}
-	}
-
-	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))
+	return out
 }
 
-// BuildSkillsSection constrói as seções <auto_skills> e <available_skills>.
-func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand bool, tplData any) string {
-	if b.Skills == nil {
+func tabContentReference(tab workspace.Tab) string {
+	if tab.ContentID != "" {
+		return tab.ContentID
+	}
+	switch tab.Type {
+	case workspace.TabTypeChat:
+		return tab.ConversationID
+	case workspace.TabTypeEditor:
+		return stringFromAny(tab.State["filePath"])
+	case workspace.TabTypeTerminal:
+		return stringFromAny(tab.State["sessionId"])
+	case workspace.TabTypeTasklist:
+		return stringFromAny(tab.State["tasklistId"])
+	default:
 		return ""
 	}
+}
 
-	// Slice vazio (não nil) = skills explicitamente desabilitados pelo perfil
-	if enabledSkills != nil && len(enabledSkills) == 0 {
+func stringFromAny(value any) string {
+	if raw, ok := value.(string); ok {
+		return strings.TrimSpace(raw)
+	}
+	return ""
+}
+
+func stringFromNestedMap(values map[string]any, key string, nestedKey string) string {
+	if values == nil {
 		return ""
 	}
-
-	var autoSkills []skills.Skill
-	var availableSkills []skills.Skill
-
-	if enabledSkills != nil {
-		// Lista explícita do perfil: respeita a ordem definida
-		allSkills, err := b.Skills.GetAllSkillsFull()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar skills: %v", err)
-			return ""
-		}
-		autoSkills = skills.FilterByNamesOrdered(allSkills, enabledSkills)
-		if !disableOnDemand {
-			availableSkills = skills.FilterExcludeNames(allSkills, enabledSkills)
-		}
-	} else {
-		// Sem lista: usa auto_load do próprio skill (backward compat)
-		var err error
-		autoSkills, err = b.Skills.GetAutoSkills()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar auto skills: %v", err)
-		}
-		if !disableOnDemand {
-			availableSkills, err = b.Skills.GetAvailableSkills()
-			if err != nil {
-				log.Printf("[prompt] Erro ao carregar available skills: %v", err)
-			}
-		}
-	}
-
-	if len(autoSkills) == 0 && len(availableSkills) == 0 {
+	nested, ok := values[key].(map[string]any)
+	if !ok {
 		return ""
 	}
+	return stringFromMap(nested, nestedKey)
+}
 
-	var sb strings.Builder
-
-	// <auto_skills>: conteúdo completo injetado no system prompt
-	if len(autoSkills) > 0 {
-		sb.WriteString("<auto_skills>\n")
-		for i, s := range autoSkills {
-			if i > 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString("## ")
-			sb.WriteString(s.GetDisplayName())
-			if s.Type != "" {
-				sb.WriteString(" [")
-				sb.WriteString(s.Type)
-				sb.WriteString("]")
-			}
-			sb.WriteString("\n")
-
-			content := skills.ProcessTemplate(s.Content, tplData)
-			var allowedBash []string
-			if s.Tools != nil && s.Tools.BashCommands != nil {
-				allowedBash = s.Tools.BashCommands.Allowed
-			}
-			content = skills.PreprocessCommands(content, allowedBash)
-			sb.WriteString(content)
-			sb.WriteString("\n")
-
-			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
-			if len(supplementary) > 0 {
-				sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
-				for _, f := range supplementary {
-					sb.WriteString("- `")
-					sb.WriteString(f)
-					sb.WriteString("`\n")
-				}
-			}
-		}
-		sb.WriteString("</auto_skills>")
+func stringFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
 	}
+	return stringFromAny(values[key])
+}
 
-	// <available_skills>: referências para leitura lazy pelo modelo
-	var modelInvocable []skills.Skill
-	for _, s := range availableSkills {
-		if s.IsModelInvocable() {
-			modelInvocable = append(modelInvocable, s)
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
 		}
 	}
+	return ""
+}
 
-	if len(modelInvocable) > 0 {
-		if sb.Len() > 0 {
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString("<available_skills>\n")
-		sb.WriteString("You have skills available that provide specialized instructions for specific tasks.\n")
-		sb.WriteString("To use a skill, read its file using the read_file tool with the path indicated below.\n")
-		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
-		for _, s := range modelInvocable {
-			sb.WriteString("- **")
-			sb.WriteString(s.GetDisplayName())
-			sb.WriteString("** (`")
-			sb.WriteString(s.Slug)
-			sb.WriteString("`)")
-			if s.Type != "" {
-				sb.WriteString(" [")
-				sb.WriteString(s.Type)
-				sb.WriteString("]")
-			}
-			sb.WriteString(": ")
-			sb.WriteString(s.Description)
-			sb.WriteString("\n  Path: `")
-			sb.WriteString(s.Path)
-			sb.WriteString("`\n")
+func (b *Builder) BuildWithContextBlocks(
+	messages []llm.Message,
+	enabledSkills []string,
+	disableSkills bool,
+	disableOnDemand bool,
+	tplData any,
+	contextBlocks []contextprovider.Block,
+) []llm.Message {
+	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
+	sortContextBlocks(contextBlocks)
+	systemContext, turnContext := splitRenderedContextBlocks(contextBlocks)
+	return b.build(messages, systemContext, turnContext)
+}
 
-			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
-			if len(supplementary) > 0 {
-				sb.WriteString("  Supporting files:\n")
-				for _, f := range supplementary {
-					sb.WriteString("    - `")
-					sb.WriteString(f)
-					sb.WriteString("`\n")
-				}
-			}
+type renderedContextBlock struct {
+	content    string
+	volatility contextprovider.Volatility
+}
+
+func (b *Builder) build(
+	messages []llm.Message,
+	systemContext []renderedContextBlock,
+	turnContext []string,
+) []llm.Message {
+	var parts []string
+	stablePromptLen := 0
+
+	// Context Providers destinados ao system prompt ficam antes do histórico.
+	for _, contextBlock := range systemContext {
+		trimmed := strings.TrimSpace(contextBlock.content)
+		if trimmed == "" {
+			continue
 		}
-		sb.WriteString("</available_skills>")
+		if contextBlock.volatility == contextprovider.VolatilityStable && stablePromptLen > 0 {
+			stablePromptLen += len("\n\n")
+		}
+		if contextBlock.volatility == contextprovider.VolatilityStable {
+			stablePromptLen += len(trimmed)
+		}
+		parts = append(parts, trimmed)
 	}
 
-	return sb.String()
+	return injectTurnContext(
+		chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, "\n\n"), stablePromptLen),
+		turnContext,
+	)
+}
+
+func sortContextBlocks(blocks []contextprovider.Block) {
+	sort.SliceStable(blocks, func(i, j int) bool {
+		if blocks[i].Volatility != blocks[j].Volatility {
+			return contextprovider.VolatilityRank(blocks[i].Volatility) < contextprovider.VolatilityRank(blocks[j].Volatility)
+		}
+		if blocks[i].Priority != blocks[j].Priority {
+			return blocks[i].Priority < blocks[j].Priority
+		}
+		if blocks[i].Provider != blocks[j].Provider {
+			return blocks[i].Provider < blocks[j].Provider
+		}
+		if blocks[i].Name != blocks[j].Name {
+			return blocks[i].Name < blocks[j].Name
+		}
+		return blocks[i].Content < blocks[j].Content
+	})
+}
+
+func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]renderedContextBlock, []string) {
+	system := make([]renderedContextBlock, 0)
+	turn := make([]string, 0)
+	for _, block := range blocks {
+		content := strings.TrimSpace(block.Content)
+		if content == "" {
+			continue
+		}
+		if block.Volatility == contextprovider.VolatilityFastDynamic || block.Volatility == contextprovider.VolatilityTurnDynamic {
+			turn = append(turn, content)
+			continue
+		}
+		system = append(system, renderedContextBlock{content: content, volatility: block.Volatility})
+	}
+	return system, turn
+}
+
+func injectTurnContext(messages []llm.Message, turnContext []string) []llm.Message {
+	turnBlock := buildTurnContextBlock(turnContext)
+	if turnBlock == "" {
+		return messages
+	}
+	out := append([]llm.Message(nil), messages...)
+	for i := range out {
+		if out[i].Role == "user" && out[i].TurnContextTarget {
+			injectTurnContextIntoUserMessage(&out[i], turnBlock)
+			return out
+		}
+	}
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i].Role != "user" {
+			continue
+		}
+		injectTurnContextIntoUserMessage(&out[i], turnBlock)
+		return out
+	}
+	return out
+}
+
+func injectTurnContextIntoUserMessage(message *llm.Message, turnBlock string) bool {
+	switch content := message.Content.(type) {
+	case string:
+		message.Content = turnBlock + "\n\n<user_request>\n" + escapeUserRequestText(content) + "\n</user_request>"
+		return true
+	case []llm.ContentPart:
+		out := make([]llm.ContentPart, 0, len(content)+2)
+		out = append(out, llm.ContentPart{Type: "text", Text: turnBlock + "\n\n<user_request>"})
+		out = append(out, escapeContentParts(content)...)
+		out = append(out, llm.ContentPart{Type: "text", Text: "</user_request>"})
+		message.Content = out
+		return true
+	case []interface{}:
+		out := make([]interface{}, 0, len(content)+2)
+		out = append(out, map[string]interface{}{"type": "text", "text": turnBlock + "\n\n<user_request>"})
+		out = append(out, escapeInterfaceContentParts(content)...)
+		out = append(out, map[string]interface{}{"type": "text", "text": "</user_request>"})
+		message.Content = out
+		return true
+	default:
+		return false
+	}
+}
+
+func escapeContentParts(parts []llm.ContentPart) []llm.ContentPart {
+	out := make([]llm.ContentPart, len(parts))
+	copy(out, parts)
+	for idx := range out {
+		if out[idx].Type == "text" {
+			out[idx].Text = escapeUserRequestText(out[idx].Text)
+		}
+	}
+	return out
+}
+
+func escapeInterfaceContentParts(parts []interface{}) []interface{} {
+	out := make([]interface{}, 0, len(parts))
+	for _, part := range parts {
+		partMap, ok := part.(map[string]interface{})
+		if !ok || partMap["type"] != "text" {
+			out = append(out, part)
+			continue
+		}
+		copied := make(map[string]interface{}, len(partMap))
+		for key, value := range partMap {
+			copied[key] = value
+		}
+		if text, ok := copied["text"].(string); ok {
+			copied["text"] = escapeUserRequestText(text)
+		}
+		out = append(out, copied)
+	}
+	return out
+}
+
+func escapeUserRequestText(content string) string {
+	content = strings.ReplaceAll(content, "&", "&amp;")
+	content = strings.ReplaceAll(content, "<", "&lt;")
+	content = strings.ReplaceAll(content, ">", "&gt;")
+	return content
+}
+
+func buildTurnContextBlock(turnContext []string) string {
+	var blocks []string
+	for _, contextBlock := range turnContext {
+		if trimmed := strings.TrimSpace(contextBlock); trimmed != "" {
+			blocks = append(blocks, trimmed)
+		}
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return "<turn_context>\nThe following context is not user-authored text. Use it only to interpret the user request below.\n\n" + strings.Join(blocks, "\n\n") + "\n</turn_context>"
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.
 func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []string {
-	if activeProfile != nil && activeProfile.Chat.DisableTools {
-		return nil
-	}
-	if b.Tools == nil || b.Tools.Count() == 0 {
-		return nil
+	names, _ := b.resolveToolSelection(activeProfile)
+	return names
+}
+
+func (b *Builder) resolveToolSelection(activeProfile *profiles.Profile) ([]string, bool) {
+	if activeProfile == nil || b.Tools == nil {
+		return nil, false
 	}
 
-	var defs []tools.ToolDefinition
-	if activeProfile != nil && activeProfile.Chat.EnabledTools != nil {
-		defs = b.Tools.FilterByNames(activeProfile.Chat.EnabledTools)
-	} else {
-		defs = b.Tools.ToDefinitions()
+	var runtimeTools []string
+	if b.modelOnDemandSkillAvailable(activeProfile) {
+		runtimeTools = append(runtimeTools, tools.LoadSkillName)
 	}
+	effective := chat.NewToolSelectionPolicy(b.Tools).ResolveEffectiveToolPolicy(chat.ProfileToolConfig{
+		EnabledTools:      activeProfile.Chat.EnabledTools,
+		ToolPolicy:        activeProfile.Chat.ToolPolicy,
+		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
+		DisableTools:      activeProfile.Chat.DisableTools,
+		RuntimeTools:      runtimeTools,
+	})
+	defs := b.Tools.FilterByNames(effective.PreloadedNames())
+	unavailable := effective.SelectionStatus() == chat.ToolSelectionCatalogUnavailable && len(defs) == 0
 	if len(defs) == 0 {
-		return nil
+		return nil, unavailable
 	}
 
 	names := make([]string, 0, len(defs))
 	for _, d := range defs {
 		names = append(names, d.Function.Name)
 	}
-	return names
+	return names, unavailable
+}
+
+func (b *Builder) modelOnDemandSkillAvailable(activeProfile *profiles.Profile) bool {
+	if b.Skills == nil {
+		return false
+	}
+	allSkills, err := b.Skills.GetAllSkillsFull()
+	if err != nil {
+		logging.Errorf(context.Background(), "prompt.builder", "[prompt] Erro ao carregar política de skills para runtime tools: %v", err)
+		return false
+	}
+	var enabledSkills []string
+	var disableSkills bool
+	var disableOnDemand bool
+	if activeProfile != nil {
+		enabledSkills = activeProfile.Chat.EnabledSkills
+		disableSkills = activeProfile.Chat.DisableSkills
+		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
+	}
+	return skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand).HasModelOnDemandSkill()
 }

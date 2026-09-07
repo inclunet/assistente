@@ -51,6 +51,18 @@ type IncomingMessage struct {
 
 	// Channel identifica a plataforma de origem ("telegram", "signal", etc.).
 	Channel string
+
+	// ReplyChatID é o destino de outbound quando diferente de From.ID
+	// (ex.: Slack: From.ID = user, ReplyChatID = channel). Vazio = usar From.ID.
+	ReplyChatID string
+}
+
+// OutboundChatID retorna o chatID a usar ao responder esta mensagem.
+func (m IncomingMessage) OutboundChatID() string {
+	if reply := strings.TrimSpace(m.ReplyChatID); reply != "" {
+		return reply
+	}
+	return m.From.ID
 }
 
 // OutgoingMessage representa uma mensagem a ser enviada via mensageiro.
@@ -66,6 +78,11 @@ type OutgoingMessage struct {
 
 	// ReplyToMessageID é opcional — ID da mensagem a ser respondida.
 	ReplyToMessageID string
+
+	// IdempotencyKey é opcional — chave estável do turno (ex.: TraceID do
+	// pending) para deduplicar reenvios na plataforma quando ela expõe
+	// suporte nativo (Slack: client_msg_id). Vazio = sem dedup no adapter.
+	IdempotencyKey string
 }
 
 // Attachment representa um anexo de mensagem (áudio, imagem, documento, etc.).

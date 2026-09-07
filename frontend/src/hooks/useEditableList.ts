@@ -1,5 +1,8 @@
+import { logger } from '../utils/logger';
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAnnouncer } from './useAnnouncer';
+import { useConfirm } from './useConfirm';
 import { useUIStore } from '../store/uiStore';
 
 export interface EditableItem {
@@ -72,7 +75,7 @@ export interface EditableListOptions<T extends EditableItem> {
    */
   canDelete?: (item: T) => boolean | string | Promise<boolean | string>;
   /**
-   * Quando true, não chama window.confirm após canDelete (ex.: confirmação já feita em canDelete).
+   * Quando true, não chama o DecisionDialog após canDelete (ex.: confirmação já feita em canDelete).
    */
   skipBuiltInDeleteConfirm?: boolean;
 }
@@ -107,6 +110,8 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
 ): UseEditableListResult<T> {
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
+  const { t } = useTranslation();
+  const confirm = useConfirm();
 
   // Estado da lista
   const [items, setItems] = useState<T[]>([]);
@@ -130,15 +135,15 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       const list = await operations.loadItems();
       setItems(list);
     } catch (error) {
-      console.error(`Erro ao carregar ${options.entityName}:`, error);
+      logger.error(`Erro ao carregar ${options.entityName}:`, error);
       addToast(
-        messages.loadError || `Erro ao carregar ${options.entityName}`,
+        messages.loadError || t('editableList.loadError', { name: options.entityName }),
         'error'
       );
     } finally {
       setLoading(false);
     }
-  }, [operations, options.entityName, messages.loadError, addToast]);
+  }, [operations, options.entityName, messages.loadError, addToast, t]);
 
   // --- Editor ---
 
@@ -147,8 +152,8 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
     setEditingItem(defaultItem);
     setEditingId(null);
     setIsNew(true);
-    announce(`Editor aberto para novo ${options.entityName}`);
-  }, [options, announce]);
+    announce(t('a11y.announce.editorOpenedNew', { name: options.entityName }));
+  }, [options, announce, t]);
 
   const openEdit = useCallback(async (item: T) => {
     try {
@@ -160,22 +165,22 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       setEditingItem(fullItem);
       setEditingId(item.id);
       setIsNew(false);
-      announce(`Editor aberto para ${getName(item)}`);
+      announce(t('a11y.announce.editorOpened', { name: getName(item) }));
     } catch (error) {
-      console.error(`Erro ao carregar ${options.entityName}:`, error);
+      logger.error(`Erro ao carregar ${options.entityName}:`, error);
       addToast(
-        messages.loadError || `Erro ao carregar ${options.entityName}`,
+        messages.loadError || t('editableList.loadError', { name: options.entityName }),
         'error'
       );
     }
-  }, [operations, options.entityName, messages.loadError, addToast, announce]);
+  }, [operations, options.entityName, messages.loadError, addToast, announce, t]);
 
   const closeEditor = useCallback(() => {
     setEditingItem(null);
     setEditingId(null);
     setIsNew(false);
-    announce('Editor fechado');
-  }, [announce]);
+    announce(t('a11y.announce.editorClosed'));
+  }, [announce, t]);
 
   const updateField = useCallback(<K extends keyof T>(field: K, value: T[K]) => {
     setEditingItem(prev => {
@@ -201,29 +206,35 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       if (isNew) {
         const newId = await operations.createItem(editingItem as unknown as TCreate);
         addToast(
-          messages.createSuccess || `${options.entityName} criado com sucesso!`,
-          'success'
+          messages.createSuccess || t('editableList.createSuccess', { name: options.entityName }),
+          'success',
+          undefined,
+          undefined,
+          { suppressAnnounce: true },
         );
-        announce(`${getName(editingItem)} criado`);
+        announce(t('a11y.announce.itemCreated', { name: getName(editingItem) }));
         setIsNew(false);
         setEditingId(newId);
       } else if (editingId !== null) {
         await operations.updateItem(editingId, editingItem as unknown as TUpdate);
         addToast(
-          messages.updateSuccess || `${options.entityName} atualizado com sucesso!`,
-          'success'
+          messages.updateSuccess || t('editableList.updateSuccess', { name: options.entityName }),
+          'success',
+          undefined,
+          undefined,
+          { suppressAnnounce: true },
         );
-        announce(`${getName(editingItem)} atualizado`);
+        announce(t('a11y.announce.itemUpdated', { name: getName(editingItem) }));
       }
 
       await loadItems();
       closeEditor();
       options.onSuccess?.();
     } catch (error: unknown) {
-      console.error(`Erro ao salvar ${options.entityName}:`, error);
+      logger.error(`Erro ao salvar ${options.entityName}:`, error);
       const errorMessage = isNew
-        ? messages.createError || `Erro ao criar ${options.entityName}`
-        : messages.updateError || `Erro ao atualizar ${options.entityName}`;
+        ? messages.createError || t('editableList.createError', { name: options.entityName })
+        : messages.updateError || t('editableList.updateError', { name: options.entityName });
       addToast(getErrorMessage(error) || errorMessage, 'error');
     } finally {
       setSaving(false);
@@ -237,6 +248,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
     messages,
     addToast,
     announce,
+    t,
     loadItems,
     closeEditor,
   ]);
@@ -250,27 +262,44 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         return;
       }
       if (!canDelete) {
-        addToast(`Não é possível excluir este ${options.entityName}`, 'error');
+        addToast(t('editableList.cannotDelete', { name: options.entityName }), 'error');
         return;
       }
     }
 
-    // Confirmação nativa (omitida quando a página usa confirmação própria, ex. useConfirm em canDelete)
+    // Confirmação acessível via DecisionDialog (omitida quando a página usa
+    // confirmação própria, ex. useConfirm em canDelete).
     if (!options.skipBuiltInDeleteConfirm) {
       const confirmMessage =
         typeof messages.deleteConfirm === 'function'
           ? messages.deleteConfirm(item)
-          : messages.deleteConfirm || `Tem certeza que deseja excluir "${getName(item)}"?`;
-      if (!confirm(confirmMessage)) return;
+          : messages.deleteConfirm || t('editableList.deleteConfirm', {
+              name: getName(item),
+              defaultValue: `Tem certeza que deseja excluir "${getName(item)}"?`,
+            });
+      const ok = await confirm({
+        title: t('editableList.deleteConfirmTitle', {
+          name: options.entityName,
+          defaultValue: `Excluir ${options.entityName}`,
+        }),
+        message: confirmMessage,
+        confirmText: t('common.delete', 'Excluir'),
+        cancelText: t('common.cancel', 'Cancelar'),
+        variant: 'danger',
+      });
+      if (!ok) return;
     }
 
     try {
       await operations.deleteItem(item.id);
       addToast(
-        messages.deleteSuccess || `${options.entityName} excluído com sucesso!`,
-        'success'
+        messages.deleteSuccess || t('editableList.deleteSuccess', { name: options.entityName }),
+        'success',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
       );
-      announce(`${options.entityName} excluído`);
+      announce(t('a11y.announce.itemDeleted', { name: options.entityName }));
 
       // Fecha editor se estava editando este item
       if (editingId === item.id) {
@@ -280,13 +309,13 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       await loadItems();
       options.onDeleteSuccess?.();
     } catch (error: unknown) {
-      console.error(`Erro ao excluir ${options.entityName}:`, error);
+      logger.error(`Erro ao excluir ${options.entityName}:`, error);
       addToast(
-        getErrorMessage(error) || messages.deleteError || `Erro ao excluir ${options.entityName}`,
+        getErrorMessage(error) || messages.deleteError || t('editableList.deleteError', { name: options.entityName }),
         'error'
       );
     }
-  }, [operations, options, messages, addToast, announce, editingId, closeEditor, loadItems]);
+  }, [operations, options, messages, addToast, announce, t, confirm, editingId, closeEditor, loadItems]);
 
   return {
     // Lista

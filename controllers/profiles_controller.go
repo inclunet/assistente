@@ -1,11 +1,12 @@
 package controllers
 
 import (
-	"fmt"
-	"log"
-
+	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
+	"assistente/internal/logging"
 	"assistente/internal/profiles"
+	"context"
+	"fmt"
 )
 
 // ProfilesController é o adapter primário (Inbound) para operações de perfis.
@@ -13,6 +14,7 @@ import (
 type ProfilesController struct {
 	profileMgr       *profiles.Manager
 	emitter          ports.Emitter
+	contextProviders *contextprovider.Registry
 	onProfileChanged func(slug string) // callback para reinicializar LLM/Speech/Hotkeys
 }
 
@@ -20,6 +22,7 @@ type ProfilesController struct {
 type ProfilesControllerConfig struct {
 	ProfileMgr       *profiles.Manager
 	Emitter          ports.Emitter
+	ContextProviders *contextprovider.Registry
 	OnProfileChanged func(slug string)
 }
 
@@ -28,6 +31,7 @@ func NewProfilesController(cfg ProfilesControllerConfig) *ProfilesController {
 	return &ProfilesController{
 		profileMgr:       cfg.ProfileMgr,
 		emitter:          cfg.Emitter,
+		contextProviders: cfg.ContextProviders,
 		onProfileChanged: cfg.OnProfileChanged,
 	}
 }
@@ -46,6 +50,12 @@ func (c *ProfilesController) GetActiveProfile() (*profiles.Profile, error) {
 
 func (c *ProfilesController) GetActiveProfileSlug() string {
 	return c.profileMgr.GetActiveSlug()
+}
+
+// GetActiveProfileAndSlug resolve perfil ativo e slug numa única passada. Usado
+// por operações de escrita (ex.: CLI fixando o modelo no perfil ativo).
+func (c *ProfilesController) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
+	return c.profileMgr.GetActiveAndSlug()
 }
 
 func (c *ProfilesController) SetActiveProfile(slug string) error {
@@ -84,7 +94,7 @@ func (c *ProfilesController) UpdateProfile(slug string, profile profiles.Profile
 		return err
 	}
 	if slug == c.profileMgr.GetActiveSlug() && c.onProfileChanged != nil {
-		log.Printf("[Profile] Perfil ativo atualizado, disparando onProfileChanged")
+		logging.Infof(context.Background(), "controllers.profiles-controller", "[Profile] Perfil ativo atualizado, disparando onProfileChanged")
 		c.onProfileChanged(slug)
 	}
 	c.emitter.Emit("profile:updated", map[string]interface{}{"slug": slug, "name": profile.Name})
@@ -104,6 +114,14 @@ func (c *ProfilesController) DeleteProfile(slug string) error {
 
 func (c *ProfilesController) GetProfileSearchPaths() []string {
 	return c.profileMgr.GetSearchPaths()
+}
+
+// GetContextProviders retorna os metadados dos context providers registrados.
+func (c *ProfilesController) GetContextProviders() []contextprovider.ProviderMetadata {
+	if c.contextProviders == nil {
+		return []contextprovider.ProviderMetadata{}
+	}
+	return c.contextProviders.Metadata()
 }
 
 // UpdateProfileMediaSupport atualiza o MediaSupport de um perfil e salva.
@@ -134,8 +152,8 @@ func (c *ProfilesController) UpdateProfileMediaSupport(mediaType string, support
 		return
 	}
 	if err := c.profileMgr.Update(slug, profile); err != nil {
-		log.Printf("[MediaSupport] Erro ao salvar perfil: %v", err)
+		logging.Errorf(context.Background(), "controllers.profiles-controller", "[MediaSupport] Erro ao salvar perfil: %v", err)
 	} else {
-		log.Printf("[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
+		logging.Infof(context.Background(), "controllers.profiles-controller", "[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
 	}
 }

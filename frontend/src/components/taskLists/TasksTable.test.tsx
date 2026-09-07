@@ -20,6 +20,11 @@ vi.mock('react-i18next', async (importOriginal) => {
 const mockDeleteTask = vi.fn();
 const mockPromoteTask = vi.fn();
 const mockDemoteTask = vi.fn();
+const mockConfirm = vi.fn();
+
+vi.mock('../../hooks/useConfirm', () => ({
+  useConfirm: () => mockConfirm,
+}));
 
 vi.mock('../../store/taskListStore', () => ({
   useTaskListStore: () => ({
@@ -127,8 +132,8 @@ describe('TasksTable', () => {
     mockDeleteTask.mockReset();
     mockPromoteTask.mockReset();
     mockDemoteTask.mockReset();
-    // confirm nativo
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(true);
   });
 
   async function renderTable(
@@ -204,7 +209,7 @@ describe('TasksTable', () => {
   });
 
   it('não chama deleteTask se cancelar confirm', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    mockConfirm.mockResolvedValue(false);
     const user = userEvent.setup();
     await renderTable();
 

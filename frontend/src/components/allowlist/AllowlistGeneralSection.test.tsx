@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { AllowlistGeneralSection } from './AllowlistGeneralSection';
 import { allowlist } from '../../../wailsjs/go/models';
 
-const buildItem = (overrides: Partial<allowlist.Allowlist> = {}): allowlist.Allowlist => ({
+const buildItem = (overrides: Partial<allowlist.Allowlist> = {}): allowlist.Allowlist => new allowlist.Allowlist({
   name: '',
   description: '',
   auto_approve: [],

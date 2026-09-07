@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   announceWithOrigin,
+  estimateAnnouncementReadingMs,
   registerAnnouncerSink,
   unregisterAnnouncerSink,
   type AnnouncePriority,
@@ -68,9 +69,9 @@ export function useAnnouncerState() {
     };
 
     const handleAnnounce = (message: string, priority: AnnouncePriority = 'polite') => {
-      // Timeout scales with message length so screen readers have time to capture it.
-      // Minimum 3s for short messages, ~50ms per char for longer text.
-      const timeoutMs = Math.max(3000, message.length * 50);
+      // Mesma estimativa que o broker usa para proteger a leitura: a região só
+      // é limpa depois do tempo em que o leitor de telas ainda pode estar lendo.
+      const timeoutMs = estimateAnnouncementReadingMs(message);
 
       if (priority === 'assertive') {
         setAssertiveMessage('');

@@ -1,8 +1,8 @@
 package chat
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"sync"
 
 	"assistente/internal/messaging"
@@ -61,7 +61,7 @@ func (m *StreamingManager) Cancel(conversationID string) {
 		if m.responseNotifier != nil {
 			m.responseNotifier.Cancel(conversationID)
 		}
-		log.Printf("[LLM] Streaming cancelado para conversa %s (barge-in)", conversationID)
+		logging.Infof(context.Background(), "chat.streaming-manager", "[LLM] Streaming cancelado para conversa %s (barge-in)", conversationID)
 	}
 }
 

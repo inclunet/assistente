@@ -3,6 +3,7 @@
  * Usa a SpeechSynthesis API nativa do navegador
  */
 
+import { logger } from '../../../utils/logger';
 import { BaseTTSProvider } from './base';
 import { TTSProvider, TTSVoice } from '../types';
 
@@ -29,7 +30,7 @@ export class WebSpeechProvider extends BaseTTSProvider {
         await this.loadVoices();
       }
     } catch (error) {
-      console.error('[WebSpeech] Initialization error:', error);
+      logger.error('[WebSpeech] Initialization error:', error);
       this._isAvailable = false;
     }
   }
@@ -82,7 +83,7 @@ export class WebSpeechProvider extends BaseTTSProvider {
     if (voice) {
       this.voice = voice;
     } else {
-      console.warn('[WebSpeech] Voz não encontrada:', voiceName);
+      logger.warn('[WebSpeech] Voz não encontrada:', voiceName);
       // Tenta novamente após carregar vozes
       if (voices.length === 0) {
         await this.loadVoices();

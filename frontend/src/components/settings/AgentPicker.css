@@ -1,0 +1,16 @@
+.agent-picker {
+  width: 100%;
+}
+
+.agent-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.agent-picker__help {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}

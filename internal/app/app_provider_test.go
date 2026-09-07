@@ -179,7 +179,7 @@ func TestChatProviderUsesProviderConfig(t *testing.T) {
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 
-	cp := llm.NewChatProvider(provider, credMgr)
+	cp := llm.NewChatProvider(provider, credMgr, nil)
 	if cp == nil {
 		t.Fatal("ChatProvider não foi criado")
 	}

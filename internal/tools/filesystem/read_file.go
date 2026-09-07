@@ -7,26 +7,41 @@ import (
 	"os"
 	"strings"
 
+	"assistente/internal/docextract"
 	"assistente/internal/tools"
 )
 
 // ReadFile lê o conteúdo de um arquivo no disco.
 // Suporta offset e limit para ler arquivos grandes parcialmente.
+// Documentos V1 (AEP-0093) são projetados para Markdown.
 type ReadFile struct {
 	// workDir é o diretório base para caminhos relativos
 	workDir string
+	cache   *docextract.ProjectionCache
 }
 
 // NewReadFile cria uma nova instância de ReadFile.
 // workDir define o diretório base para resolução de caminhos relativos.
-func NewReadFile(workDir string) *ReadFile {
-	return &ReadFile{workDir: workDir}
+func NewReadFile(workDir string, caches ...*docextract.ProjectionCache) *ReadFile {
+	var cache *docextract.ProjectionCache
+	if len(caches) > 0 {
+		cache = caches[0]
+	}
+	if cache == nil {
+		cache = docextract.NewProjectionCache(docextract.DefaultCacheConfig())
+	}
+	return &ReadFile{workDir: workDir, cache: cache}
 }
 
 func (t *ReadFile) Name() string { return "read_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *ReadFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
+}
+
 func (t *ReadFile) Description() string {
-	return "Reads a file and returns line-numbered content. Use offset (1-indexed; negative counts from end) and limit (number of lines). Without offset/limit, returns the whole file."
+	return "Read the contents of one known file with line numbers. Use when you already know the path and need to inspect text or a supported document; use offset and limit for large text files. Do not use to discover paths (use search_files), search across file contents (use grep_search), or inspect a directory (use list_directory). Text is returned verbatim by default; opaque documents such as PDF, DOCX, XLSX, PPTX, ODF, and EPUB are projected to Markdown and may cost more to extract (32 MiB input limit, no OCR). Risk: read-only."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
@@ -35,15 +50,20 @@ func (t *ReadFile) Parameters() json.RawMessage {
 		"properties": {
 			"path": {
 				"type": "string",
-				"description": "Caminho do arquivo (absoluto ou relativo ao diretório de trabalho)"
+				"description": "Absolute path or path relative to the working directory of the single file to read; use list_directory or search_files first if the path is unknown."
 			},
 			"offset": {
 				"type": "integer",
-				"description": "Linha inicial (1-indexed). Se negativo, conta do final do arquivo."
+				"description": "First line to return: positive values are 1-indexed; negative values count backward from the end."
 			},
 			"limit": {
 				"type": "integer",
-				"description": "Número máximo de linhas a retornar. Sem limit, retorna tudo a partir do offset."
+				"description": "Maximum number of lines to return from offset; omit to return the remainder of the file."
+			},
+			"document_mode": {
+				"type": "string",
+				"enum": ["auto", "markdown"],
+				"description": "Projection mode. auto (default) returns text verbatim and projects only opaque supported documents to Markdown; markdown also projects supported textual formats, such as CSV to a table. OCR is unavailable."
 			}
 		},
 		"required": ["path"],
@@ -53,9 +73,31 @@ func (t *ReadFile) Parameters() json.RawMessage {
 
 // readFileArgs são os argumentos parseados de read_file
 type readFileArgs struct {
-	Path   string `json:"path"`
-	Offset *int   `json:"offset,omitempty"`
-	Limit  *int   `json:"limit,omitempty"`
+	Path         string `json:"path"`
+	Offset       *int   `json:"offset,omitempty"`
+	Limit        *int   `json:"limit,omitempty"`
+	DocumentMode string `json:"document_mode,omitempty"`
+}
+
+// parseDocumentMode valida o modo pedido. Modo desconhecido é erro em vez de
+// virar auto: silenciar o engano faria o chamador achar que pediu conversão e
+// receber o texto cru sem aviso.
+//
+// "ocr" fica fora do enum do schema: o modo não existe neste recorte
+// (AEP-0093, issue #565). Anunciar um valor que sempre falha só convidaria o
+// modelo a escolhê-lo. O caso continua tratado aqui para quem não valida pelo
+// schema receber a razão certa em vez de um "valor inválido" genérico.
+func parseDocumentMode(raw string) (docextract.Mode, error) {
+	switch raw {
+	case "", string(docextract.ModeAuto):
+		return docextract.ModeAuto, nil
+	case string(docextract.ModeMarkdown):
+		return docextract.ModeMarkdown, nil
+	case "ocr":
+		return "", fmt.Errorf("document_mode %q não está disponível (OCR adiado, AEP-0093, issue #565)", raw)
+	default:
+		return "", fmt.Errorf("document_mode inválido: %q (use \"auto\" ou \"markdown\")", raw)
+	}
 }
 
 func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
@@ -66,6 +108,11 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 
 	if a.Path == "" {
 		return tools.ToolResult{Content: "Parâmetro 'path' é obrigatório", IsError: true}, nil
+	}
+
+	mode, err := parseDocumentMode(a.DocumentMode)
+	if err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
 	// Resolve caminho
@@ -91,13 +138,85 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("'%s' é um diretório, não um arquivo. Use list_directory.", a.Path), IsError: true}, nil
 	}
 
+	if msg, rejected := rejectOversizedDocument(fullPath, a.Path, info.Size(), mode); rejected {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
+	if res, handled := readTextSliceStreaming(fullPath, a.Path, info.Size(), a.Offset, a.Limit, mode); handled {
+		return res, nil
+	}
+
 	// Lê o arquivo
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
 	}
 
-	content := string(data)
+	kind := docextract.Detect(data, a.Path)
+	var extracted *docextract.Result
+	origin := docextract.OriginLoaded
+	if willProject(kind, mode) {
+		identity := docextract.FileIdentityFromStat(info.Size(), info.ModTime().UnixNano())
+		cacheKey := fullPath + "\x00" + string(mode)
+		extracted, origin, err = t.cache.GetOrLoad(ctx, cacheKey, identity, func(ctx context.Context) (*docextract.Result, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			result, err := docextract.ExtractModeContext(ctx, data, a.Path, mode)
+			if err != nil {
+				return nil, err
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return result, nil
+		})
+	} else {
+		extracted, err = docextract.ExtractMode(data, a.Path, mode)
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return tools.ToolResult{Content: "Leitura cancelada pelo usuário", IsError: true}, nil
+		}
+		return tools.ToolResult{Content: documentReadError(err), IsError: true}, nil
+	}
+	// Source pertence à chamada, não à projeção cacheada: o mesmo arquivo pode
+	// ser aberto por paths relativos diferentes.
+	extracted.Source = a.Path
+
+	var content string
+	var meta map[string]any
+	var annotations *tools.ResultAnnotations
+	if extracted.Projected {
+		content = extracted.Markdown
+		meta = map[string]any{
+			"projection": true,
+			"format":     string(extracted.Kind),
+			"size_bytes": int64(len(data)),
+			// cache_hit é só a entrada já pronta; cache_origin distingue quem
+			// extraiu de quem pegou carona em uma extração concorrente.
+			"cache_hit":    origin == docextract.OriginCached,
+			"cache_origin": origin.String(),
+		}
+		if extracted.Pages > 0 {
+			meta["pages"] = extracted.Pages
+		}
+		annotations = &tools.ResultAnnotations{
+			DocumentProjection: &tools.DocumentProjectionAnnotation{
+				Source:   a.Path,
+				Format:   string(extracted.Kind),
+				ReadOnly: true,
+				Pages:    extracted.Pages,
+				Warnings: append([]string(nil), extracted.Warnings...),
+			},
+		}
+	} else {
+		content = extracted.Markdown
+		meta = map[string]any{
+			"size_bytes": int64(len(data)),
+		}
+	}
+
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 
@@ -141,13 +260,13 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		}
 
 		header := fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n", a.Path, offset+1, end, totalLines)
+		meta["total_lines"] = totalLines
+		meta["offset"] = offset + 1
+		meta["limit"] = end - offset
 		return tools.ToolResult{
-			Content: header + strings.Join(numbered, "\n"),
-			Metadata: map[string]any{
-				"total_lines": totalLines,
-				"offset":      offset + 1,
-				"limit":       end - offset,
-			},
+			Content:     header + strings.Join(numbered, "\n"),
+			Metadata:    meta,
+			Annotations: annotations,
 		}, nil
 	}
 
@@ -158,12 +277,11 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	header := fmt.Sprintf("Arquivo: %s (%d linhas, %d bytes)\n", a.Path, totalLines, len(data))
+	meta["total_lines"] = totalLines
 	return tools.ToolResult{
-		Content: header + strings.Join(numbered, "\n"),
-		Metadata: map[string]any{
-			"total_lines": totalLines,
-			"size_bytes":  len(data),
-		},
+		Content:     header + strings.Join(numbered, "\n"),
+		Metadata:    meta,
+		Annotations: annotations,
 	}, nil
 }
 

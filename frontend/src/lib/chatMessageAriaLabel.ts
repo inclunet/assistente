@@ -15,6 +15,9 @@ export type ChatMessageAriaLabelArgs = {
 
   toolCallsRaw?: string | null;
   toolCallsHasTextEdit?: boolean;
+
+  /** Rótulo i18n falado no lugar de blocos de código. */
+  codeBlockLabel?: string;
 };
 
 const parseToolNames = (raw?: string | null): string[] => {
@@ -37,7 +40,8 @@ const parseToolNames = (raw?: string | null): string[] => {
 };
 
 export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): string {
-  const preview = args.displayContent ? stripMarkdown(args.displayContent).trim() : '';
+  const stripOptions = args.codeBlockLabel ? { codeBlockLabel: args.codeBlockLabel } : undefined;
+  const preview = args.displayContent ? stripMarkdown(args.displayContent, stripOptions).trim() : '';
 
   let contentPreview = preview;
   if (!contentPreview) {
@@ -57,7 +61,7 @@ export function buildChatMessageAriaLabel(args: ChatMessageAriaLabelArgs): strin
 
   const reasoningText = (args.reasoning || args.streamingReasoning || '').trim();
   const reasoningLabel = args.isReasoningExpanded && reasoningText
-    ? ` Raciocínio: ${stripMarkdown(reasoningText)}.`
+    ? ` Raciocínio: ${stripMarkdown(reasoningText, stripOptions)}.`
     : '';
 
   const playHint = args.role === 'assistant' && !args.isStreaming

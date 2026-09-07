@@ -14,6 +14,49 @@
   padding: 16px 24px 0;
 }
 
+/* Custom actions (AEP-0067) */
+.task-detail__custom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 24px;
+}
+
+.task-detail__custom-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.task-detail__custom-action:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.task-detail__custom-action:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.task-detail__custom-action--danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.task-detail__custom-action--danger:hover {
+  background: var(--color-danger);
+  color: var(--text-inverse);
+}
+
 .task-detail__badge {
   display: inline-flex;
   align-items: center;
@@ -30,7 +73,7 @@
 }
 
 .task-detail__badge--code {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
@@ -45,14 +88,26 @@
   text-decoration: underline;
 }
 
+.task-detail__badge--link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Conversation link editor */
+.task-detail__conversation {
+  padding: 0 24px;
+  margin-bottom: 8px;
+}
+
 .task-detail__badge--assignee {
   color: var(--text-secondary);
-  border-color: var(--border-color);
+  border-color: var(--border-default);
 }
 
 .task-detail__badge--creator {
-  color: var(--text-tertiary);
-  border-color: var(--border-color);
+  color: var(--text-muted);
+  border-color: var(--border-default);
   font-style: italic;
 }
 
@@ -120,7 +175,7 @@
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 0.8rem;
   cursor: pointer;
@@ -128,7 +183,7 @@
 }
 
 .task-detail__add-note-btn:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-hover);
 }
 
 /* Notes list */
@@ -151,7 +206,7 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 10px 12px;
-  background: var(--bg-default);
+  background: var(--bg-surface);
 }
 
 .task-detail__note-header {
@@ -166,13 +221,13 @@
   align-items: center;
   gap: 3px;
   padding: 1px 6px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-weight: 600;
 }
 
 .task-detail__note-type--internal {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-secondary);
 }
 
@@ -215,11 +270,11 @@
   font-size: 0.75rem;
   cursor: pointer;
   padding: 1px 4px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
 }
 
 .task-detail__note-action:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -239,10 +294,10 @@
 
 /* Note form (inline) */
 .task-detail__note-form {
-  border: 1px solid var(--border-focus);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 12px;
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -258,7 +313,7 @@
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.8rem;
   min-width: 150px;
@@ -269,7 +324,7 @@
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.8rem;
 }
@@ -280,7 +335,7 @@
   padding: 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.85rem;
   font-family: inherit;
@@ -298,19 +353,19 @@
   padding: 4px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .task-detail__note-form-actions button:hover {
-  background: var(--bg-subtle);
+  background: var(--bg-hover);
 }
 
 .task-detail__note-form-actions button[data-primary] {
   background: var(--accent);
-  color: var(--text-on-accent);
+  color: var(--text-inverse);
   border-color: var(--accent);
 }
 

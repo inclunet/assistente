@@ -11,7 +11,7 @@ const stopTTSMock = vi.fn();
 const getVolumeMock = vi.fn().mockReturnValue(0.7);
 const speakWithOverrideMock = vi.fn();
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Speech', () => ({
   DispatchSpeech: (...args: unknown[]) => dispatchSpeechMock(...args),
 }));
 
@@ -76,6 +76,7 @@ describe('chatSpeak service', () => {
       message: 'chat.system: Processando',
       origin: undefined,
       eventType: 'system',
+      protectsReading: false,
     });
     expect(speakWithOverrideMock).not.toHaveBeenCalled();
     expect(speakMessageMock).not.toHaveBeenCalled();
@@ -122,6 +123,7 @@ describe('chatSpeak service', () => {
       model: 'tts-1',
       rate: 1.3,
       volume: 0.5,
+      speechLanguage: 'pt-BR',
     });
 
     expect(announceWithOriginMock).not.toHaveBeenCalled();
@@ -130,6 +132,7 @@ describe('chatSpeak service', () => {
       voiceId: 'nova',
       model: 'tts-1',
       rate: 1.3,
+      language: 'pt-BR',
     });
   });
 
@@ -149,6 +152,24 @@ describe('chatSpeak service', () => {
       message: 'chat.assistant: Fallback',
       origin: undefined,
       eventType: 'system',
+      protectsReading: false,
+    });
+  });
+
+  it('protege a leitura do conteúdo do assistente na live region', async () => {
+    await handleChatSpeak({
+      role: 'assistant',
+      text: 'Resposta final',
+      strategy: 'announce',
+      autoRead: true,
+      origin: 'assistant_message',
+    });
+
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'chat.assistant: Resposta final',
+      origin: undefined,
+      eventType: 'completion',
+      protectsReading: true,
     });
   });
 
@@ -160,13 +181,41 @@ describe('chatSpeak service', () => {
       fallbackStrategy: 'announce',
       autoRead: true,
       origin: 'segment',
+      interrupt: false,
     });
 
     expect(speakMessageMock).not.toHaveBeenCalled();
+    // Segmento não interrompe: o áudio em curso segue até o fim.
+    expect(stopCurrentAudioMock).not.toHaveBeenCalled();
+    expect(stopTTSMock).not.toHaveBeenCalled();
     expect(announceWithOriginMock).toHaveBeenCalledWith({
       message: 'chat.assistant: Segmento parcial',
       origin: undefined,
       eventType: 'progress',
+      protectsReading: true,
+    });
+  });
+
+  it('backend_audio sem messageId fala avisos do sistema pelo fallback', async () => {
+    await handleChatSpeak({
+      role: 'system',
+      text: 'Limite de iterações do agente atingido.',
+      strategy: 'backend_audio',
+      fallbackStrategy: 'announce',
+      autoRead: true,
+      origin: 'system_message',
+    });
+
+    expect(speakMessageMock).not.toHaveBeenCalled();
+    // O aviso interrompe: o áudio do segmento anterior não pode continuar
+    // tocando por cima do anúncio.
+    expect(stopCurrentAudioMock).toHaveBeenCalled();
+    expect(stopTTSMock).toHaveBeenCalled();
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'chat.system: Limite de iterações do agente atingido.',
+      origin: undefined,
+      eventType: 'system',
+      protectsReading: false,
     });
   });
 

@@ -14,18 +14,14 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('../../store/workspaceStore', () => ({
   useActiveTab: () => workspaceState.tabs.find((tab) => tab.id === workspaceState.activeTabId) ?? null,
-  useWorkspaceStore: (selector: (state: { workspace: { tabs: WorkspaceTab[]; activeTabId: string | null } }) => unknown) => selector({
-    workspace: {
-      tabs: workspaceState.tabs,
-      activeTabId: workspaceState.activeTabId,
-    },
-  }),
+  useWorkspaceTabs: () => workspaceState.tabs,
 }));
 
 vi.mock('./workspacePanelRegistry', () => ({
   WorkspaceDomainPanel: (props: { tab: WorkspaceTab; tabId: string; isActive: boolean; state: Record<string, unknown> }) => (
     <div>
       panel:{props.tabId}:{String(props.isActive)}:{String(props.state.sessionId ?? props.state.filePath ?? props.state.tasklistId ?? '')}
+      <button type="button">focus-{props.tabId}</button>
     </div>
   ),
 }));
@@ -61,5 +57,17 @@ describe('WorkspaceContent', () => {
 
     expect(screen.getByText('panel:editor-1:false:a.md')).toBeInTheDocument();
     expect(screen.getByText('panel:terminal-1:true:session-1')).toBeInTheDocument();
+  });
+
+  it('remove o foco do painel que se torna inativo', () => {
+    const { rerender } = render(<WorkspaceContent />);
+    const editorButton = screen.getByRole('button', { name: 'focus-editor-1' });
+    editorButton.focus();
+
+    workspaceState.activeTabId = 'terminal-1';
+    rerender(<WorkspaceContent />);
+
+    expect(editorButton).not.toHaveFocus();
+    expect(document.body).toHaveFocus();
   });
 });

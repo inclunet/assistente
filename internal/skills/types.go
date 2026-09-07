@@ -27,14 +27,14 @@ type SkillMetadata struct {
 	// === Categorization Fields ===
 	Category    string   `yaml:"category,omitempty" json:"category,omitempty"`
 	Subcategory string   `yaml:"subcategory,omitempty" json:"subcategory,omitempty"`
-	Type        string   `yaml:"type,omitempty" json:"type,omitempty"`           // command, agent, hook, mcp
+	Type        string   `yaml:"type,omitempty" json:"type,omitempty"`             // command, agent, hook, mcp
 	Difficulty  string   `yaml:"difficulty,omitempty" json:"difficulty,omitempty"` // beginner, intermediate, advanced
 	Audience    []string `yaml:"audience,omitempty" json:"audience,omitempty"`
 
 	// === Compatibility Fields ===
 	MinVersion string   `yaml:"minVersion,omitempty" json:"minVersion,omitempty"` // versão mínima do host (spec: minClaudeVersion)
 	MaxVersion string   `yaml:"maxVersion,omitempty" json:"maxVersion,omitempty"` // versão máxima do host (spec: maxClaudeVersion)
-	Platforms  []string `yaml:"platforms,omitempty" json:"platforms,omitempty"`    // macos, linux, windows
+	Platforms  []string `yaml:"platforms,omitempty" json:"platforms,omitempty"`   // macos, linux, windows
 	Languages  []string `yaml:"languages,omitempty" json:"languages,omitempty"`
 	Frameworks []string `yaml:"frameworks,omitempty" json:"frameworks,omitempty"`
 
@@ -49,9 +49,9 @@ type SkillMetadata struct {
 	// === Permission Fields ===
 	Filesystem   *FilesystemPermissions `yaml:"filesystem,omitempty" json:"filesystem,omitempty"`
 	Network      *NetworkPermissions    `yaml:"network,omitempty" json:"network,omitempty"`
-	Tools        *ToolPermissions       `yaml:"-" json:"tools,omitempty"`             // parsed via ResolveToolsRaw
-	ToolsRaw     any                    `yaml:"tools,omitempty" json:"-"`             // captura o valor bruto do YAML
-	AllowedTools string                 `yaml:"allowed-tools,omitempty" json:"-"`     // formato simples: "Read, Grep, Glob"
+	Tools        *ToolPermissions       `yaml:"-" json:"tools,omitempty"`         // parsed via ResolveToolsRaw
+	ToolsRaw     any                    `yaml:"tools,omitempty" json:"-"`         // captura o valor bruto do YAML
+	AllowedTools string                 `yaml:"allowed-tools,omitempty" json:"-"` // formato simples: "Read, Grep, Glob"
 
 	// === Input/Output Fields ===
 	Input  *InputConfig  `yaml:"input,omitempty" json:"input,omitempty"`
@@ -110,18 +110,18 @@ type InputConfig struct {
 
 // ArgumentDef define um argumento individual.
 type ArgumentDef struct {
-	Name        string `yaml:"name" json:"name"`
-	Type        string `yaml:"type" json:"type"` // string, boolean, number, string[]
-	Description string `yaml:"description,omitempty" json:"description,omitempty"`
-	Required    bool   `yaml:"required,omitempty" json:"required,omitempty"`
-	Default     any    `yaml:"default,omitempty" json:"default,omitempty"`
+	Name        string   `yaml:"name" json:"name"`
+	Type        string   `yaml:"type" json:"type"` // string, boolean, number, string[]
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Required    bool     `yaml:"required,omitempty" json:"required,omitempty"`
+	Default     any      `yaml:"default,omitempty" json:"default,omitempty"`
 	Enum        []string `yaml:"enum,omitempty" json:"enum,omitempty"`
 }
 
 // ContextReq define requisitos de contexto do skill.
 type ContextReq struct {
-	RequiresProject    bool `yaml:"requiresProject,omitempty" json:"requiresProject,omitempty"`
-	RequiresGit        bool `yaml:"requiresGit,omitempty" json:"requiresGit,omitempty"`
+	RequiresProject     bool `yaml:"requiresProject,omitempty" json:"requiresProject,omitempty"`
+	RequiresGit         bool `yaml:"requiresGit,omitempty" json:"requiresGit,omitempty"`
 	RequiresPackageJSON bool `yaml:"requiresPackageJson,omitempty" json:"requiresPackageJson,omitempty"`
 }
 
@@ -219,8 +219,9 @@ type Skill struct {
 // SkillInfo é um resumo leve de um skill para listagem (sem conteúdo).
 type SkillInfo struct {
 	SkillMetadata
-	Slug   string `json:"slug"`
-	Source string `json:"source"`
+	Slug     string `json:"slug"`
+	Source   string `json:"source"`
+	AutoLoad bool   `json:"autoLoad,omitempty"`
 }
 
 // ResolveToolsRaw converte os campos de tools em ToolPermissions.

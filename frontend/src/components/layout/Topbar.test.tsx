@@ -5,6 +5,12 @@ import { Topbar } from './Topbar';
 const navigateSpy = vi.fn();
 const toggleMenuSpy = vi.fn();
 const announceSpy = vi.fn();
+const modalState = vi.hoisted(() => ({ open: false }));
+
+vi.mock('../ui/Modal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/Modal')>();
+  return { ...actual, isModalOpen: () => modalState.open };
+});
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -83,7 +89,10 @@ describe('Topbar', () => {
     expect(screen.getByTestId('current-item')).toHaveTextContent('history');
 
     const items = screen.getByTestId('menu-items').textContent || '';
+    expect(items).toContain('memories');
     expect(items).toContain('settings');
+    expect(items).not.toContain('export-data');
+    expect(items).not.toContain('import-data');
     expect(items).not.toContain('theme');
     expect(items).not.toContain('language');
   });
@@ -91,11 +100,25 @@ describe('Topbar', () => {
   it('mostra botão voltar em sub-rota', () => {
     render(<Topbar />);
 
-    const backButton = screen.getByRole('button', { name: 'menu.backToWorkspace' });
+    const backButton = screen.getByRole('button', { name: 'menu.backToWorkspaceWithShortcut' });
     expect(backButton).toBeInTheDocument();
 
     fireEvent.click(backButton);
     expect(navigateSpy).toHaveBeenCalledWith('/');
+  });
+
+  it('não navega com Alt+Backspace quando o foco está em campo editável', () => {
+    render(<Topbar />);
+    navigateSpy.mockClear();
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    fireEvent.keyDown(input, { key: 'Backspace', altKey: true });
+    expect(navigateSpy).not.toHaveBeenCalled();
+
+    document.body.removeChild(input);
   });
 
   it('abre menu com Alt+M', () => {
@@ -107,13 +130,32 @@ describe('Topbar', () => {
 
   it.each([
     ['h', '/history'],
+    ['e', '/settings/data?action=export'],
+    ['i', '/settings/data?action=import'],
     ['p', '/profiles'],
+    ['w', '/'],
+    ['c', '/settings'],
+    ['l', '/memories'],
+    ['t', '/tasklists'],
+    ['j', '/jobs'],
   ])('navega com Alt+%s para %s', (key, route) => {
     render(<Topbar />);
     navigateSpy.mockClear();
+    announceSpy.mockClear();
 
     fireEvent.keyDown(window, { key, altKey: true });
     expect(navigateSpy).toHaveBeenCalledWith(route);
+    expect(announceSpy).toHaveBeenCalledWith('deepLink.announcedNavigate');
+  });
+
+  it('navega para workspace com Alt+Backspace', () => {
+    render(<Topbar />);
+    navigateSpy.mockClear();
+    announceSpy.mockClear();
+
+    fireEvent.keyDown(window, { key: 'Backspace', altKey: true });
+    expect(navigateSpy).toHaveBeenCalledWith('/');
+    expect(announceSpy).toHaveBeenCalledWith('deepLink.announcedNavigate');
   });
 
   it('não navega se Ctrl também está pressionado', () => {
@@ -130,5 +172,51 @@ describe('Topbar', () => {
 
     fireEvent.keyDown(window, { key: 'F1' });
     expect(navigateSpy).toHaveBeenCalledWith('/help');
+  });
+
+  it('F1 chama preventDefault e abre ajuda mesmo com um modal aberto', () => {
+    modalState.open = true;
+    try {
+      render(<Topbar />);
+      navigateSpy.mockClear();
+
+      const event = new KeyboardEvent('keydown', { key: 'F1', bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(navigateSpy).toHaveBeenCalledWith('/help');
+    } finally {
+      modalState.open = false;
+    }
+  });
+
+  it('Alt+Backspace previne o default mas não navega com um modal aberto', () => {
+    modalState.open = true;
+    try {
+      render(<Topbar />);
+      navigateSpy.mockClear();
+
+      const event = new KeyboardEvent('keydown', { key: 'Backspace', altKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(navigateSpy).not.toHaveBeenCalled();
+    } finally {
+      modalState.open = false;
+    }
+  });
+
+  it('Alt+M não age quando um modal está aberto', () => {
+    modalState.open = true;
+    try {
+      render(<Topbar />);
+      toggleMenuSpy.mockClear();
+
+      fireEvent.keyDown(window, { key: 'm', altKey: true });
+
+      expect(toggleMenuSpy).not.toHaveBeenCalled();
+    } finally {
+      modalState.open = false;
+    }
   });
 });

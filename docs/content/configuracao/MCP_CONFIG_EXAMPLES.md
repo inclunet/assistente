@@ -5,19 +5,38 @@ weight: 3
 
 # Exemplos de Configuração de Servidores MCP
 
+> **Em 2 linhas:** MCP conecta ferramentas externas (arquivos, GitHub, Slack) ao assistente. Você descreve onde está o servidor e o assistente passa a oferecer aquelas ferramentas nas conversas.
+
 Este arquivo contém exemplos práticos de configuração de servidores MCP para o Assistente.
 
 ## Transporte e MCP Nativo
 
-A forma como o Assistente consome um servidor MCP depende de dois fatores: o **transporte** do servidor e a **capacidade do provider LLM**.
+A forma como o Assistente consome um servidor MCP depende de três dimensões: o
+**transporte** do servidor, a **capacidade física do provider LLM** e a
+**política tri-state do perfil**. Para transportes HTTP, a URL ainda precisa
+passar pela regra de elegibilidade de segurança.
 
 | Transporte | Caminho | Quando |
 |------------|---------|--------|
 | `stdio` | Sempre **adapter/bridge local** | Servidor roda como processo local; não pode ser acessado remotamente |
-| `sse` / `streamable` | **MCP nativo** | Provider suporta (`openai_responses` ou `anthropic`) **e** URL é `https://`, ou `http://` apenas em localhost/loopback |
-| `sse` / `streamable` | **Adapter/bridge local** | Provider sem suporte nativo, ou URL `http://` com host remoto |
+| `sse` / `streamable` | **MCP nativo** | Provider capaz, `native_mcp` permite, URL elegível, `prefer_bridge=false` e ao menos uma tool do servidor está `preloaded` pela política efetiva |
+| `sse` / `streamable` | **Adapter/bridge local** | Qualquer gate nativo falha, a tool está apenas `on_demand`, ou ocorre fallback automático |
 
-A decisão é automática — baseada em `SupportsNativeMCP()` do provider e na elegibilidade da URL, não em configuração manual. URLs `http://` com host remoto são excluídas do caminho nativo por segurança (auth tokens seriam transmitidos sem encriptação).
+A capacidade física vem de `NativeMCPCapable()`. A política vem de
+`Profile.Chat.NativeMCP *bool`: `nil` tenta nativo automaticamente quando
+possível, `true` força a tentativa nativa e `false` força adapter. Se o modelo
+ou endpoint rejeitar MCP nativo no modo automático, o Assistente refaz o mesmo
+turno com bridge tools e persiste `nil` → `false` no perfil. URLs `http://` com
+host remoto continuam excluídas por segurança.
+
+Em **perfil legado sem `tool_policy` e sem `tool_policy_default`**,
+`enabled_tools: null` com `tool_catalog` disponível pré-carrega inicialmente
+apenas o catálogo; portanto tools MCP permanecem `on_demand` e o servidor não
+entra no caminho nativo no início do turno. Quando uma tool MCP é carregada sob
+demanda, ela permanece bridge/function nesse turno. Um `tool_policy` explícito
+ou `tool_policy_default` não vazio pode ativar a política nova mesmo com
+`enabled_tools: null`; entradas efetivamente `preloaded` podem então satisfazer
+o gate nativo.
 
 ## 📁 Localização
 
@@ -113,7 +132,10 @@ Arquivos de configuração ficam em:
 - Permite deployar servidor MCP em container/cloud
 - Suporte a múltiplos clientes simultaneamente
 - Facilita load balancing
-- **Elegível para MCP nativo** quando o provider suportar (OpenAI Responses API, Anthropic) e URL for `https://`, ou `http://` apenas em localhost/loopback
+- **Candidato a MCP nativo** quando conectado, com tools disponíveis e URL
+  `https://` (ou `http://` apenas em localhost/loopback); o caminho final ainda
+  exige provider capaz, `native_mcp` permitindo, `prefer_bridge=false` e ao
+  menos uma tool preloaded no turno
 
 ---
 
@@ -239,6 +261,35 @@ Arquivos de configuração ficam em:
 
 ---
 
+## OAuth em servidores MCP remotos
+
+Ao informar uma URL `https://` com transporte SSE ou Streamable HTTP, o
+Assistente procura automaticamente metadados de recurso protegido e do servidor
+OAuth/OIDC. A busca considera o caminho completo da URL, seus diretórios
+ancestrais e a origem. Isso permite descobrir instalações atrás de gateways com
+caminhos como `https://host/api/2.0/mcp`, sem regras específicas de fornecedor.
+
+O resultado mostrado no formulário pode ser:
+
+- **OAuth configurado automaticamente**: endpoints obrigatórios foram
+  encontrados. Se o servidor publicar registro dinâmico, o Client ID poderá ser
+  registrado durante a conexão.
+- **OAuth detectado sem registro dinâmico**: informe o Client ID do aplicativo.
+- **Descoberta parcial**: o recurso protegido foi reconhecido, mas o servidor de
+  autorização não foi localizado; complete os endpoints manualmente.
+- **Não detectado**: use a configuração manual, se o servidor exigir
+  autenticação.
+
+O discovery nunca substitui valores OAuth que você já preencheu. Falha parcial
+ou total também não impede salvar o servidor. Desafios HTTP e erros de discovery
+são tratados com limites e saneamento; tokens, cookies e credenciais não são
+copiados para o resultado exibido. O ciclo completo tem duração limitada e pode
+ser tentado novamente para a mesma URL depois de resultado parcial ou falha.
+Escolher **Configurar manualmente** apenas abre os campos completos; isso não
+transforma uma descoberta bem-sucedida em mensagem de falha.
+
+---
+
 ## Exemplo 8: Servidor Multi-tenancy
 
 ### Workspace-Specific Server
@@ -316,6 +367,12 @@ curl http://localhost:3000/mcp/health
 ...
 ```
 
+Esses nomes canônicos podem ser usados literalmente em `tool_policy`. Para
+governar um servidor inteiro, use `mcp/filesystem/*` (ou
+`mcp:filesystem/*`); para todas as MCPs, use `mcp/*`. Uma entrada literal
+`disabled` sempre vence o wildcard do servidor. Veja
+[MCP — Configuração](MCP_PROFILE_CONFIG.md#política-mcp-no-perfil).
+
 ---
 
 ## Troubleshooting
@@ -379,7 +436,9 @@ servers.forEach(srv => {
 ## Resumo
 
 - **Stdio**: Para servidores locais (Node, Python, Go, Rust) — sempre via adapter/bridge
-- **SSE / Streamable HTTP**: Para servidores remotos/locais — elegíveis para MCP nativo com providers que suportam e URL segura (`https://`, ou `http://` apenas em localhost/loopback)
+- **SSE / Streamable HTTP**: Para servidores remotos/locais — candidatos ao
+  caminho nativo com URL segura; a decisão final também aplica capacidade do
+  provider, tri-state do perfil, `prefer_bridge` e preload efetivo por turno
 - **Auth**: Tokens via env vars, nunca hardcoded no JSON
 - **Docker**: Servidores containerizados via stdio
 - **Auto-reconnect**: Health checks + exponential backoff automático

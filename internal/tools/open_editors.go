@@ -11,8 +11,8 @@ import (
 type openEditorPathsKey struct{}
 
 // WithOpenEditorPaths injeta os caminhos de arquivos abertos em abas de editor no ctx.
-// Esses caminhos são usados como exceção na validação de paths de filesystem tools:
-// arquivos abertos no editor podem ser lidos/editados mesmo fora do workDir.
+// Usado para UX (confirmação de diff no documento aberto, etc.). Desde o AEP-0092
+// NÃO libera path fora do sandbox — isso passa por fstrust / DecisionDialog.
 func WithOpenEditorPaths(ctx context.Context, paths []string) context.Context {
 	// Copia o slice para evitar aliasing se o caller mutar o original.
 	cp := make([]string, len(paths))

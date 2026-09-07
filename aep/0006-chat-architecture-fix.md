@@ -1,5 +1,7 @@
 # Plano de Reestruturação da Arquitetura de Chat
 
+**Status:** Superseded — plano Svelte substituído pela arquitetura React e pelos contratos das AEPs 0037/0040
+
 ## Problema Atual
 
 A arquitetura híbrida (chat simples → tabs) criou uma incompatibilidade fundamental entre MessageService e Svelte:

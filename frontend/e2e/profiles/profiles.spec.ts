@@ -1,6 +1,40 @@
 import { test, expect } from '../fixtures';
 
 test.describe('Perfis — página e listagem', () => {
+  test('deep link abre a voz e cancelar volta à lista de perfis', async ({ page, wails }) => {
+    const profile = {
+      slug: 'default',
+      name: 'Padrão',
+      description: 'Perfil padrão',
+      source: 'workdir',
+      chat: { llm_provider: '', model: '' },
+      voice: {
+        assistant: { enabled: false, provider: 'disabled', voice_id: '', rate: 1, pitch: 1, volume: 1 },
+        user: { enabled: false, provider: 'disabled', voice_id: '', rate: 1, pitch: 1, volume: 1 },
+        system: { enabled: false, provider: 'disabled', voice_id: '', rate: 1, pitch: 1, volume: 1 },
+      },
+      input: { enabled: true, stt_provider: 'webspeech', language: 'pt-BR', feedback_sounds: true, triggers: [] },
+      channels: { response_mode: 'mirror' },
+      context_providers: {},
+    };
+    await wails.setResponse('GetProfiles', [profile]);
+    await wails.setResponse('GetProfile', profile);
+    await wails.setResponse('GetActiveProfileSlug', 'default');
+    await wails.waitForApp();
+
+    await wails.emit('deeplink:execute', 'assistente://profiles/edit/default?tab=voice');
+
+    await expect(page).toHaveURL(/#\/profiles$/);
+    const voiceTab = page.locator('[role="tab"][data-tab-value="audio"]');
+    await expect(voiceTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.profiles-editor')).toBeVisible();
+
+    await page.getByRole('button', { name: /cancelar|cancel/i }).click();
+
+    await expect(page.locator('.profiles-editor')).toBeHidden();
+    await expect(page).toHaveURL(/#\/profiles$/);
+  });
+
   test('página de perfis carrega com grid', async ({ page, wails }) => {
     await wails.setResponse('GetProfiles', [
       {

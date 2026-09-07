@@ -1,9 +1,9 @@
 package controllers
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -75,7 +75,7 @@ func (c *TerminalController) RunTerminalCommand(sessionID string, command string
 		defer cancel()
 		_, err := c.terminalMgr.RunCommand(ctx, sessionID, command, 0, "user")
 		if err != nil {
-			log.Printf("[Terminal] Erro ao executar comando: %v", err)
+			logging.Errorf(context.Background(), "controllers.terminal-controller", "[Terminal] Erro ao executar comando: %v", err)
 		}
 	}()
 	return nil
@@ -88,7 +88,7 @@ func (c *TerminalController) SendTerminalInput(sessionID string, input string) e
 	}
 	_, err := c.terminalMgr.SendInput(sessionID, input)
 	if err != nil {
-		log.Printf("[Terminal] Erro ao enviar input: %v", err)
+		logging.Errorf(context.Background(), "controllers.terminal-controller", "[Terminal] Erro ao enviar input: %v", err)
 		return err
 	}
 	return nil

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
+	"assistente/internal/llm"
 )
 
 // --- Mocks ---
@@ -38,36 +40,54 @@ func (m *mockEmitter) getEvents() []emittedEvent {
 }
 
 type mockMsgRepo struct {
-	nextID int
+	nextID                int
+	lastCreateMessageOpts *chat.MessageOptions
 }
 
-func (m *mockMsgRepo) CreateMessage(opts chat.MessageOptions) (*chat.Message, error) {
+func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
 	m.nextID++
+	m.lastCreateMessageOpts = &opts
 	id := fmt.Sprintf("%d", m.nextID)
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: id}, Role: opts.Role, Content: opts.Content}, nil
 }
-func (m *mockMsgRepo) GetMessage(messageID string) (*chat.Message, error) {
+
+func (m *mockMsgRepo) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
+	return nil
+}
+func (m *mockMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}}, nil
 }
-func (m *mockMsgRepo) GetMessages(string, *string) ([]chat.Message, error)   { return nil, nil }
-func (m *mockMsgRepo) GetConversationSummary(string) (string, string, error) { return "", "", nil }
-func (m *mockMsgRepo) GetDetailedTokenStats(string, string) (*chat.DetailedTokenStats, error) {
+func (m *mockMsgRepo) GetMessages(context.Context, string, *string) ([]chat.Message, error) {
 	return nil, nil
 }
-func (m *mockMsgRepo) GetContextWindowUsage(string, int) (float64, int, error) { return 0, 0, nil }
-func (m *mockMsgRepo) GetRecentMessagesTokenCount(string, int) (int, error)    { return 0, nil }
-func (m *mockMsgRepo) GetTurnTokenStats(string, string) (*database.TokenStats, error) {
+
+func (m *mockMsgRepo) GetMessagesByTurnID(context.Context, string, *string, string, int) ([]chat.Message, error) {
 	return nil, nil
 }
-func (m *mockMsgRepo) AddAssistantToolMessage(conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
+func (m *mockMsgRepo) GetConversationSummary(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+func (m *mockMsgRepo) GetDetailedTokenStats(context.Context, string, string) (*chat.DetailedTokenStats, error) {
+	return nil, nil
+}
+func (m *mockMsgRepo) GetContextWindowUsage(context.Context, string, int) (float64, int, error) {
+	return 0, 0, nil
+}
+func (m *mockMsgRepo) GetRecentMessagesTokenCount(context.Context, string, int) (int, error) {
+	return 0, nil
+}
+func (m *mockMsgRepo) GetTurnTokenStats(context.Context, string, string) (*database.TokenStats, error) {
+	return nil, nil
+}
+func (m *mockMsgRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
 	m.nextID++
 	id := fmt.Sprintf("%d", m.nextID)
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: id}, Role: "assistant", Content: content}, nil
 }
-func (m *mockMsgRepo) AddToolResultMessage(string, string, string, string) (*chat.Message, error) {
+func (m *mockMsgRepo) AddToolResultMessage(context.Context, string, string, string, string) (*chat.Message, error) {
 	return nil, nil
 }
-func (m *mockMsgRepo) SearchMessages(string, int) ([]chat.MessageSearchResult, error) {
+func (m *mockMsgRepo) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {
 	return nil, nil
 }
 
@@ -88,7 +108,7 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 		},
 	})
 
-	svc.SaveAndFinish("1", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "", "", AgenticResult{
 		FullResponse: "Olá, mundo!",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -145,7 +165,7 @@ func TestSaveAndFinish_NilOnSpeechRequest_NoPanic(t *testing.T) {
 	})
 
 	// Não deve dar panic
-	svc.SaveAndFinish("1", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "", "", AgenticResult{
 		FullResponse: "Sem TTS",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -175,7 +195,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 		},
 	})
 
-	svc.SaveAndFinish("1", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "1", "", "", AgenticResult{
 		FullResponse: "",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -198,7 +218,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 		},
 	})
 
-	svc.SaveAndFinish("42", "", AgenticResult{
+	svc.SaveAndFinish(context.Background(), "42", "", "", AgenticResult{
 		FullResponse: "Resposta com ID",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -219,6 +239,39 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestSimpleStreamHandler_PersistsAssistantWithTurnID(t *testing.T) {
+	emitter := &mockEmitter{}
+	repo := &mockMsgRepo{}
+	svc := NewService(ServiceConfig{
+		Emitter: emitter,
+		MsgRepo: repo,
+	})
+
+	handler, err := svc.NewSimpleStreamHandler(context.Background(), "conversation-1", "user-1", "profile", nil)
+	if err != nil {
+		t.Fatalf("NewSimpleStreamHandler: %v", err)
+	}
+	handler.OnDone("Resposta simples", llm.Usage{}, "test-model")
+
+	if repo.lastCreateMessageOpts == nil {
+		t.Fatal("expected assistant message to be saved")
+	}
+	if repo.lastCreateMessageOpts.TurnID == nil || *repo.lastCreateMessageOpts.TurnID != "user-1" {
+		t.Fatalf("expected assistant turnID=user-1, got %v", repo.lastCreateMessageOpts.TurnID)
+	}
+
+	for _, event := range emitter.getEvents() {
+		if event.name == "chat:done" {
+			done := event.data.(ports.DoneEvent)
+			if done.TurnID != "user-1" {
+				t.Fatalf("expected chat:done turnID=user-1, got %q", done.TurnID)
+			}
+			return
+		}
+	}
+	t.Fatal("chat:done não emitido")
 }
 
 func TestSurfacePayloadPrefixesIdentifyField(t *testing.T) {

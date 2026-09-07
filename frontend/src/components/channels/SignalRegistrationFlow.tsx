@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input, Button } from '../index';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying' | 'done';
 
@@ -33,11 +35,40 @@ export function SignalRegistrationFlow({
   onReset,
 }: SignalRegistrationFlowProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const previousAnnouncementRef = useRef('');
+  const previousErrorAnnouncementRef = useRef('');
+
+  useEffect(() => {
+    const message = (regStep === 'registering' ? t('channels.signalRegistration.sending') : '')
+      || (regStep === 'done'
+        ? `${account} ${t('channels.signalRegistration.registeredSuccess')}`
+        : '');
+    if (!message) {
+      previousAnnouncementRef.current = '';
+      return;
+    }
+    if (message === previousAnnouncementRef.current) return;
+    announce(message);
+    previousAnnouncementRef.current = message;
+  }, [account, announce, regStep, t]);
+
+  useEffect(() => {
+    if (!regError) {
+      previousErrorAnnouncementRef.current = '';
+      return;
+    }
+    if (regError === previousErrorAnnouncementRef.current) return;
+
+    announce(`${t('channels.signalRegistration.error')} ${regError}`, 'assertive');
+    previousErrorAnnouncementRef.current = regError;
+  }, [announce, regError, t]);
+
   return (
     <>
-      <div aria-live="assertive" aria-atomic="true">
+      <div>
         {regError && (
-          <div className="channels-page__alert" role="alert">
+          <div className="channels-page__alert">
             <strong>{t('channels.signalRegistration.error')}</strong> {regError}
           </div>
         )}
@@ -78,8 +109,8 @@ export function SignalRegistrationFlow({
       {regStep === 'registering' && (
         <p
           className="channels-page__hint"
-          role="status"
-          aria-live="polite"
+
+
         >
           {t('channels.signalRegistration.sending')}
         </p>
@@ -121,8 +152,8 @@ export function SignalRegistrationFlow({
         <div className="channels-page__fields">
           <div
             className="channels-page__success"
-            role="status"
-            aria-live="polite"
+
+
           >
             {account} {t('channels.signalRegistration.registeredSuccess')}
           </div>

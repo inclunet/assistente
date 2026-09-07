@@ -1,15 +1,21 @@
 # AEP-0047 — Importação e Exportação de Conteúdo
 
+**Status:** In Progress — escopo DB-only e upgrades entregues; cobertura explícita de acessibilidade do fluxo inline permanece pendente
+
 ## Dependências
 
-- **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Esta AEP agora assume que a migração para UUIDv7 já aconteceu e passa a usar esses IDs estáveis como contrato portável. O formato legado sem IDs deixa de ser suportado.
-- **AEP-0048**, **AEP-0050**, **AEP-0051** e **AEP-0052**: recursos que hoje ainda vivem fora do banco ou dependem de migrações estruturais complementares ficam para etapas posteriores, depois que essas AEPs forem implementadas.
+- **AEP-0046** (Migração de IDs sequenciais para UUIDv7): o formato canônico
+  usa IDs estáveis. O export publicado pela 0.1.9, com IDs numéricos, permanece
+  aceito por um adaptador de entrada para cumprir a política de upgrade
+  universal; novas exportações nunca voltam a produzi-lo.
+- **AEP-0052** (Sistema de Contas de Usuário): etapa posterior que adiciona `user_id` aos recursos DB-only atuais. A partir dela, export/import deve operar no escopo do usuário autenticado e não mais no namespace global da instância.
+- **AEP-0048**, **AEP-0050** e **AEP-0051**: recursos que hoje ainda vivem fora do banco ou dependem de migrações estruturais complementares ficam para etapas posteriores, já nascendo com `user_id` após a AEP-0052.
 
 ## Resumo
 
-Sistema de importação e exportação em formato JSON portável com **IDs UUID estáveis**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação desta etapa continua restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens, providers, tasklists e no bloco portátil de credenciais. O export passa a carregar os IDs persistidos como contrato canônico, permitindo importação idempotente, deduplicação determinística e sobrescrita direta por `id`. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
+Sistema de importação e exportação em formato JSON portável com **IDs UUID estáveis**. O desenho desta AEP cobre a evolução do mecanismo para diferentes tipos de recurso, mas **a implementação desta etapa continua restrita ao que já está persistido no banco hoje**, com foco em conversas, mensagens, providers, servidores MCP, tasklists e no bloco portátil de credenciais. O export passa a carregar os IDs persistidos como contrato canônico, permitindo importação idempotente, deduplicação determinística e sobrescrita direta por `id` quando aplicável. O JSON é o formato canônico para importação; HTML e PDF são formatos derivados apenas para exportação rica de conversas. Servidores MCP também podem ser exportados no formato `mcpServers` compatível com Cursor/Claude. Credenciais sensíveis continuam excluídas por padrão, mas podem ser incluídas opcionalmente em um bloco criptografado com senha de exportação.
 
-Recursos que ainda dependem de migração para o banco ou de ajustes estruturais adicionais permanecem fora do escopo imediato e serão tratados após as migrações propostas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.
+Recursos que ainda dependem de migração para o banco ou de ajustes estruturais adicionais permanecem fora do escopo imediato e serão tratados após as migrações propostas nas AEP-0052, AEP-0048, AEP-0050 e AEP-0051.
 
 ## Motivação
 
@@ -34,11 +40,16 @@ Escopo implementado nesta fase:
 - conversas
 - mensagens
 - providers persistidos
+- servidores MCP persistidos
 - tasklists persistidas
 - bloco portátil de credenciais criptografadas
 - exportação derivada em HTML/PDF para conversas
 
-Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052.
+Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arquivo, os que dependem de migração para o banco e os que exigem reestruturações previstas nas AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052. Servidores MCP entram no escopo quando migrados para banco pela AEP-0049.
+
+O pacote `internal/portability` também é responsável por orquestrar importações legadas de arquivos quando um recurso passa a ser persistido no banco. Cada recurso fornece apenas source/parser/importer específicos; o loop de descoberta, leitura read-only, idempotência e relatório de resultado permanece compartilhado para ser reaproveitado por recursos futuros, como skills. O gatilho dessas importações fica em uma fase global pós-login no app, antes dos managers carregarem seus runtimes do banco.
+
+A AEP-0048 usa esse mecanismo para importar definições de jobs, tags, pipelines implícitas e triggers do filesystem para o banco. Logs legados de runs e eventos são descartados e não entram na migração. Tags passam a ser recurso compartilhado do app e podem ser exportadas/importadas como catálogo + associações por recurso. A AEP-0063 não exporta `tool_invocations` como histórico permanente por padrão: são logs técnicos efêmeros, sujeitos a retenção.
 
 ### D1 — Formato: JSON versionado com IDs estáveis
 
@@ -227,6 +238,20 @@ Consequências:
 - HTML/PDF não precisam conter todos os campos necessários para roundtrip
 - O pipeline recomendado é: montar modelo canônico → gerar JSON → renderizar representação HTML → opcionalmente converter HTML para PDF
 
+### D5.2 — Markdown e toggles de conteúdo na exportação rica
+
+Além de HTML e PDF, a exportação rica de conversas passa a oferecer **Markdown (`.md`)** como formato derivado adicional, gerado a partir do mesmo modelo canônico de conversas. Markdown continua sendo apenas saída (não é aceito na importação, como HTML/PDF).
+
+Os três formatos derivados (HTML, PDF, Markdown) respeitam **toggles de conteúdo** opcionais, expostos em `ExportOptions`:
+
+- `includeTimestamps`: datas/horários de geração, criação da conversa e de cada mensagem
+- `includeReasoning`: bloco de raciocínio (`reasoning`) das mensagens
+- `includeMetadata`: metadados como modelo, origem/provider e contagem de tokens
+
+No contrato de requisição (`ExportRequest`), esses toggles são opcionais (ponteiros) e, quando ausentes, assumem o comportamento histórico de **incluir tudo**, preservando compatibilidade. A UI do Histórico apresenta esses toggles como checkboxes acessíveis antes de confirmar a exportação.
+
+Adicionalmente, o HTML exportado passa a aplicar **syntax highlighting real** nos blocos de código (Chroma via goldmark-highlighting, com classes CSS e stylesheet embutida), mantendo o documento autocontido. As cores do tema de highlighting são intrínsecas ao artefato exportado (documento standalone), não à UI temada do app.
+
 ### D6 — Seleção múltipla de recursos
 
 O export suporta três modos:
@@ -322,9 +347,17 @@ Na UI de export, ao detectar que recursos selecionados contêm campos potencialm
 O campo `version: 2` no export identifica o novo contrato baseado em IDs estáveis:
 
 - Importação sempre verifica a versão antes de processar
-- O formato legado `version: 1` deixa de ser suportado
+- O envelope legado publicado até 0.1.9
+  (`metadata.version: "2.0"`, conversas no topo e IDs numéricos) é adaptado
+  para `version: 2` antes da análise/importação. IDs determinísticos preservam
+  idempotência e as referências `parentId`/`turnId`.
+- Nenhum formato efetivamente publicado deixa de ser suportado. Formatos
+  experimentais nunca publicados não entram nessa garantia.
 - Versões futuras podem adicionar campos sem quebrar compatibilidade (campos desconhecidos são ignorados)
 - Se uma versão futura fizer mudanças incompatíveis, incrementa o número e o importador antigo rejeita com mensagem clara
+
+Não existe versão intermediária obrigatória: arquivos gerados por qualquer
+release publicada são importados diretamente pela release atual.
 
 ### D11 — Interface: menu principal
 
@@ -372,6 +405,32 @@ Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas r
 
 Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052 sejam concluídas, esta extensibilidade permanece como direção de evolução, não como requisito de implementação imediata desta PR.
 
+### D14 — Avisos e erros da importação viajam como código, não como texto
+
+O backend não sabe em que idioma a tela está, e o arquivo importado tampouco.
+Por isso aviso, erro e motivo de conflito saem de `ImportResult`,
+`ImportAnalysis` e `ImportConflict` como `LocalizedMessage`:
+
+```go
+type LocalizedMessage struct {
+    Code    string            `json:"code"`   // ex.: "acp.commandNotFound"
+    Params  map[string]string `json:"params,omitempty"`
+    Message string            `json:"message"` // texto pt-BR de reserva
+}
+```
+
+1. O **código** é o contrato. A UI traduz por `portability.messages.<código>`
+   nos três locales, e a CLI, que fala português, usa o texto de reserva.
+2. Os **parâmetros** vêm do arquivo importado (id de provider, caminho de
+   binário, pattern de credencial) e são interpolados como texto puro — a UI
+   nunca os trata como HTML.
+3. O **texto de reserva** existe para código desconhecido: um app cuja tradução
+   ainda não conhece o código mostra o texto do backend em vez de lista vazia.
+4. Erro que o pacote não previu (falha de banco, JSON quebrado) entra sem
+   código, e a UI mostra o texto como veio.
+5. Erro de validação é `CodedError`, que carrega o mesmo par e continua sendo um
+   `error` comum: embrulhar com contexto não apaga o código.
+
 ## Fases
 
 ### Fase 1 — Backend DB-only
@@ -410,6 +469,8 @@ Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051
 
 21. Testes Go: export/import roundtrip para conversas, providers, tasklists e credenciais.
 22. Testes Go: versionamento (`version: 2` aceito; versões incompatíveis rejeitadas) e campos desconhecidos ignorados quando inofensivos.
+22a. Fixture publicada 0.1.9 adaptada e importada de forma idempotente; fixture
+     v2 parametrizada para 0.2.0–0.5.0.
 23. Testes Go: recursos fora do escopo no import geram warning; recursos fora do escopo no export são rejeitados.
 24. Testes frontend: modais de export/import, seleção DB-only, senha de credenciais, preview e warnings.
 
@@ -438,8 +499,11 @@ DB-only descrito em D0.
 7. **Credenciais** ficam excluídas por padrão e, quando incluídas, aparecem apenas em bloco criptografado por senha de exportação; `CredentialKeyWrap` nunca é exportado.
 8. **Bloco de credenciais obrigatório**: se `includeCredentials: true`, `resources.credentials` deve existir e ser válido.
 9. **Áudio** é excluído por padrão; `audioMimeType` é preservado. Quando `includeAudio` for usado, o comportamento deve ser explícito na UI/CLI.
-10. **Versionamento**: import aceita `version: 2` e rejeita versões incompatíveis com mensagem clara.
+10. **Versionamento**: import aceita `version: 2`, adapta diretamente o
+    envelope publicado pela 0.1.9 e rejeita somente versões desconhecidas/não
+    publicadas com mensagem clara.
 11. **Importação** aceita apenas o formato JSON canônico; HTML/PDF são apenas formatos derivados de exportação.
 12. **HTML/PDF** são gerados a partir do mesmo modelo canônico de conversas do export JSON.
 13. **i18n**: todas as strings de UI novas existem nos 3 locales.
 14. **Acessibilidade**: modais de export/import são navegáveis por teclado, com foco gerenciado e feedback via announcer/toast.
+15. **Avisos e erros traduzíveis**: a lista de avisos, erros e motivos de conflito sai do backend com código e parâmetros (D14), aparece na tela e no announcer no idioma escolhido e cai no texto de reserva quando o código é desconhecido.

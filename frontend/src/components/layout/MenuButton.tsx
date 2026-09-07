@@ -12,6 +12,8 @@ export interface MenuItem {
   icon?: ReactNode;
   shortcut?: string;
   separator?: boolean;
+  disabled?: boolean;
+  danger?: boolean;
   onClick?: () => void;
   submenu?: MenuItem[];
 }
@@ -55,6 +57,8 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
         icon: item.icon,
         shortcut: item.shortcut,
         checked: currentItemId === item.id,
+        disabled: item.disabled,
+        danger: item.danger,
         ariaLabel: item.label,
         action: item.onClick,
         submenu: item.submenu ? mapItems(item.submenu) : undefined,

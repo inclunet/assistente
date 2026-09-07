@@ -1,7 +1,8 @@
 # Plano de Excelência em Componentisação Frontend
 
+**Status:** In Progress — componentização avançou, mas o plano e seus critérios amplos não estão encerrados
+
 **Data**: 5 de março de 2026  
-**Status**: Estratégia Detalhada  
 **Objetivo**: Eliminar duplicação de código, aumentar reusabilidade, melhorar testabilidade e reduzir risk de erros
 
 ---
@@ -1014,5 +1015,5 @@ Este plano é **vivo e iterativo**. Ajustamos conforme aprendemos:
 
 **Autor**: GitHub Copilot  
 **Data de Criação**: 5 de março de 2026  
-**Status**: Pronto para Execução  
+**Estado histórico**: plano pronto para execução; implementação parcial em andamento
 **Próxima Revisão**: Após conclusão da Fase 1

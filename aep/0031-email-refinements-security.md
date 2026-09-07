@@ -1,5 +1,7 @@
 # Refinamento: Email como Chat + Segurança
 
+**Status:** Open
+
 ## 1. Segurança: Validação de Autenticação (Usuário Real vs Contatos)
 
 ### Problema

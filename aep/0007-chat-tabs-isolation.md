@@ -1,5 +1,7 @@
 # Plano: Isolamento de Abas e Conversas (Backend-Driven)
 
+**Status:** Superseded — implementação Svelte substituída pelos contratos de superfícies das AEPs 0056/0057
+
 Este documento define a arquitetura alvo e o plano de migração para separar completamente a gestão de Abas da gestão de Conversas, com fluxo 100% dirigido pelo backend e eventos escopados por conversa. O objetivo é eliminar vazamentos entre abas, estabilizar a reatividade após F5 e simplificar responsabilidades.
 
 ## Objetivos

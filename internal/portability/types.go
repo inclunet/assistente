@@ -3,15 +3,29 @@ package portability
 import "time"
 
 const (
-	FormatJSON = "json"
-	FormatHTML = "html"
-	FormatPDF  = "pdf"
-	ExportVersion = 2
+	FormatJSON     = "json"
+	FormatHTML     = "html"
+	FormatPDF      = "pdf"
+	FormatMarkdown = "md"
+	FormatMCPJSON  = "mcp-json"
+	ExportVersion  = 2
 )
 
 type ExportOptions struct {
 	IncludeAudio       bool `json:"includeAudio"`
 	IncludeCredentials bool `json:"includeCredentials"`
+	IncludeTimestamps  bool `json:"includeTimestamps"`
+	IncludeReasoning   bool `json:"includeReasoning"`
+	IncludeMetadata    bool `json:"includeMetadata"`
+}
+
+// ContentExportOptions controla quais blocos de conteúdo entram nas
+// exportações ricas (HTML, PDF e Markdown). É o contrato usado pela UI ao
+// escolher os toggles de exportação por conversa.
+type ContentExportOptions struct {
+	IncludeTimestamps bool `json:"includeTimestamps"`
+	IncludeReasoning  bool `json:"includeReasoning"`
+	IncludeMetadata   bool `json:"includeMetadata"`
 }
 
 type CredentialCipher struct {
@@ -38,6 +52,7 @@ type MessageExport struct {
 	TotalTokens      int       `json:"totalTokens,omitempty"`
 	Model            string    `json:"model,omitempty"`
 	Source           string    `json:"source,omitempty"`
+	Pinned           bool      `json:"pinned,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
 	ParentID         string    `json:"parentId,omitempty"`
 	TurnID           string    `json:"turnId,omitempty"`
@@ -67,6 +82,57 @@ type ProviderExport struct {
 	Timeout           int       `json:"timeout,omitempty"`
 	CredentialPattern string    `json:"credentialPattern,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`
+	// ACPCommand e ACPArgs endereçam o agente de código quando o provider é
+	// ACP (AEP-0084): é o que substitui a URL. Caminho de binário é da
+	// máquina, então a importação avisa quando o comando não existe aqui.
+	ACPCommand string   `json:"acpCommand,omitempty"`
+	ACPArgs    []string `json:"acpArgs,omitempty"`
+	// ACPEnv é aceito na importação e NÃO sai na exportação, pelo mesmo motivo
+	// que `MCPServerExport.Env`: variável de ambiente de processo é onde token
+	// costuma parar, e arquivo de export viaja entre máquinas.
+	ACPEnv map[string]string `json:"acpEnv,omitempty"`
+	// ACPCredentialEnv viaja nos dois sentidos, ao contrário do ACPEnv acima, e
+	// a diferença é o que cada um guarda: aqui só há o nome da variável e o
+	// padrão do cofre que a preenche, e nenhum dos dois é segredo (AEP-0086
+	// D12). O segredo fica no cofre da máquina de origem e não entra no
+	// arquivo.
+	//
+	// Importar numa máquina onde aquela entrada do cofre não existe entra com
+	// aviso, como o comando que não existe ali já entra: a configuração é
+	// legítima, e o que falta é local.
+	ACPCredentialEnv map[string]string `json:"acpCredentialEnv,omitempty"`
+	// ACPAgentID diz qual agente do registro é o provider (AEP-0086 D11). Ele
+	// viaja porque é a única coisa no arquivo que o liga ao catálogo: sem ele,
+	// um provider importado num computador onde o agente não está instalado
+	// não teria como oferecer instalar.
+	ACPAgentID string `json:"acpAgentId,omitempty"`
+}
+
+type MCPServerExport struct {
+	ID                    string            `json:"id,omitempty"`
+	Slug                  string            `json:"slug"`
+	Name                  string            `json:"name"`
+	Description           string            `json:"description,omitempty"`
+	Transport             string            `json:"transport"`
+	Command               string            `json:"command,omitempty"`
+	Args                  []string          `json:"args,omitempty"`
+	Env                   map[string]string `json:"env,omitempty"`
+	URL                   string            `json:"url,omitempty"`
+	AuthType              string            `json:"authType,omitempty"`
+	OAuth2ClientID        string            `json:"oauth2ClientId,omitempty"`
+	OAuth2AuthURL         string            `json:"oauth2AuthUrl,omitempty"`
+	OAuth2TokenURL        string            `json:"oauth2TokenUrl,omitempty"`
+	OAuth2Scopes          []string          `json:"oauth2Scopes,omitempty"`
+	OAuth2CallbackPort    int               `json:"oauth2CallbackPort,omitempty"`
+	OAuth2CallbackHost    string            `json:"oauth2CallbackHost,omitempty"`
+	OAuth2RegistrationURL string            `json:"oauth2RegistrationUrl,omitempty"`
+	OAuth2DeviceAuthURL   string            `json:"oauth2DeviceAuthUrl,omitempty"`
+	DisableSSE            bool              `json:"disableSse,omitempty"`
+	PreferBridge          bool              `json:"preferBridge,omitempty"`
+	Enabled               bool              `json:"enabled"`
+	AutoConnect           bool              `json:"autoConnect"`
+	CreatedAt             time.Time         `json:"createdAt,omitempty"`
+	BearerToken           string            `json:"-"`
 }
 
 type TaskListWorkflowStatusExport struct {
@@ -78,8 +144,8 @@ type TaskListWorkflowStatusExport struct {
 }
 
 type TaskListWorkflowExport struct {
-	ID                 string                           `json:"id,omitempty"`
-	TaskListID         string                           `json:"taskListId,omitempty"`
+	ID                 string                         `json:"id,omitempty"`
+	TaskListID         string                         `json:"taskListId,omitempty"`
 	Statuses           []TaskListWorkflowStatusExport `json:"statuses"`
 	AllowedTransitions map[int][]int                  `json:"allowedTransitions"`
 	InitialStatusID    int                            `json:"initialStatusId"`
@@ -132,6 +198,25 @@ type TaskListExport struct {
 	Tasks             []TaskExport           `json:"tasks,omitempty"`
 }
 
+type MemoryRecordExport struct {
+	ID                 string     `json:"id"`
+	Content            string     `json:"content"`
+	Summary            string     `json:"summary,omitempty"`
+	LoadPolicy         string     `json:"loadPolicy"`
+	ArchivedFromPolicy string     `json:"archivedFromPolicy,omitempty"`
+	Kind               string     `json:"kind"`
+	Scope              string     `json:"scope"`
+	ScopeRef           string     `json:"scopeRef,omitempty"`
+	Tags               string     `json:"tags,omitempty"`
+	Importance         int        `json:"importance"`
+	Confidence         int        `json:"confidence"`
+	SourceType         string     `json:"sourceType,omitempty"`
+	SourceID           string     `json:"sourceId,omitempty"`
+	LastUsedAt         *time.Time `json:"lastUsedAt,omitempty"`
+	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+}
+
 type CredentialExport struct {
 	ID           string            `json:"id,omitempty"`
 	Pattern      string            `json:"pattern"`
@@ -149,7 +234,9 @@ type CredentialExport struct {
 type ExportResources struct {
 	Conversations []ConversationExport `json:"conversations,omitempty"`
 	Providers     []ProviderExport     `json:"providers,omitempty"`
+	MCPServers    []MCPServerExport    `json:"mcpServers,omitempty"`
 	TaskLists     []TaskListExport     `json:"taskLists,omitempty"`
+	MemoryRecords []MemoryRecordExport `json:"memoryRecords,omitempty"`
 	Credentials   *CredentialCipher    `json:"credentials,omitempty"`
 }
 
@@ -172,6 +259,7 @@ type ExportRequest struct {
 	MCPServerSlugs           []string `json:"mcpServerSlugs,omitempty"`
 	JobIDs                   []string `json:"jobIds,omitempty"`
 	TaskListIDs              []string `json:"taskListIds,omitempty"`
+	MemoryRecordIDs          []string `json:"memoryRecordIds,omitempty"`
 	ChannelNames             []string `json:"channelNames,omitempty"`
 	IncludeContacts          bool     `json:"includeContacts"`
 	IncludeWorkspace         bool     `json:"includeWorkspace"`
@@ -179,6 +267,18 @@ type ExportRequest struct {
 	IncludeCredentials       bool     `json:"includeCredentials"`
 	CredentialExportPassword string   `json:"credentialExportPassword,omitempty"`
 	OutputFormat             string   `json:"outputFormat,omitempty"`
+	// Toggles de conteúdo para exportações ricas. Quando nil, assumem o
+	// comportamento padrão (incluído) para não quebrar exports existentes.
+	IncludeTimestamps *bool `json:"includeTimestamps,omitempty"`
+	IncludeReasoning  *bool `json:"includeReasoning,omitempty"`
+	IncludeMetadata   *bool `json:"includeMetadata,omitempty"`
+}
+
+// ResolveContentToggle interpreta um toggle opcional de conteúdo. Quando não
+// especificado (nil) o padrão é incluir o bloco, preservando o comportamento
+// histórico das exportações ricas.
+func ResolveContentToggle(v *bool) bool {
+	return v == nil || *v
 }
 
 type ConflictResolutionStrategy string
@@ -203,47 +303,51 @@ type ImportRequest struct {
 }
 
 type ImportResult struct {
-	Success                     bool     `json:"success"`
-	Imported                    int      `json:"imported"`
-	Skipped                     int      `json:"skipped"`
-	Failed                      int      `json:"failed"`
-	SkippedEmptyConversations   int      `json:"skippedEmptyConversations"`
-	SkippedConversationConflict int      `json:"skippedConversationConflict"`
-	SkippedProviderConflict     int      `json:"skippedProviderConflict"`
-	SkippedTaskListConflict     int      `json:"skippedTaskListConflict"`
-	SkippedCredentialConflict   int      `json:"skippedCredentialConflict"`
-	SkippedOther                int      `json:"skippedOther"`
-	UnsupportedResourceTypes    []string `json:"unsupportedResourceTypes,omitempty"`
-	Warnings                    []string `json:"warnings,omitempty"`
-	Errors                      []string `json:"errors,omitempty"`
-	Message                     string   `json:"message"`
+	Success                     bool               `json:"success"`
+	Imported                    int                `json:"imported"`
+	Skipped                     int                `json:"skipped"`
+	Failed                      int                `json:"failed"`
+	SkippedEmptyConversations   int                `json:"skippedEmptyConversations"`
+	SkippedConversationConflict int                `json:"skippedConversationConflict"`
+	SkippedProviderConflict     int                `json:"skippedProviderConflict"`
+	SkippedMCPServerConflict    int                `json:"skippedMcpServerConflict"`
+	SkippedTaskListConflict     int                `json:"skippedTaskListConflict"`
+	SkippedCredentialConflict   int                `json:"skippedCredentialConflict"`
+	SkippedOther                int                `json:"skippedOther"`
+	UnsupportedResourceTypes    []string           `json:"unsupportedResourceTypes,omitempty"`
+	Warnings                    []LocalizedMessage `json:"warnings,omitempty"`
+	Errors                      []LocalizedMessage `json:"errors,omitempty"`
+	Message                     string             `json:"message"`
 }
 
 type ImportConflict struct {
 	ResourceType        string                       `json:"resourceType"`
 	Identifier          string                       `json:"identifier"`
-	Reason              string                       `json:"reason"`
+	Reason              LocalizedMessage             `json:"reason"`
 	SupportedStrategies []ConflictResolutionStrategy `json:"supportedStrategies,omitempty"`
 }
 
 type ImportAnalysis struct {
-	Version                    int              `json:"version"`
-	AppVersion                 string           `json:"appVersion,omitempty"`
-	ConversationCount          int              `json:"conversationCount"`
-	MessageCount               int              `json:"messageCount"`
-	ProviderCount              int              `json:"providerCount"`
-	TaskListCount              int              `json:"taskListCount"`
-	TaskCount                  int              `json:"taskCount"`
-	TaskNoteCount              int              `json:"taskNoteCount"`
-	IncludesCredentials        bool             `json:"includesCredentials"`
-	RequiresCredentialPassword bool             `json:"requiresCredentialPassword"`
-	CredentialCount            int              `json:"credentialCount"`
-	ConflictCount              int              `json:"conflictCount"`
-	ConversationConflicts      []ImportConflict `json:"conversationConflicts,omitempty"`
-	ProviderConflicts          []ImportConflict `json:"providerConflicts,omitempty"`
-	TaskListConflicts          []ImportConflict `json:"taskListConflicts,omitempty"`
-	CredentialConflicts        []ImportConflict `json:"credentialConflicts,omitempty"`
-	UnsupportedResourceTypes   []string         `json:"unsupportedResourceTypes,omitempty"`
-	Warnings                   []string         `json:"warnings,omitempty"`
-	CredentialAnalysisError    string           `json:"credentialAnalysisError,omitempty"`
+	Version                    int                `json:"version"`
+	AppVersion                 string             `json:"appVersion,omitempty"`
+	ConversationCount          int                `json:"conversationCount"`
+	MessageCount               int                `json:"messageCount"`
+	ProviderCount              int                `json:"providerCount"`
+	MCPServerCount             int                `json:"mcpServerCount"`
+	TaskListCount              int                `json:"taskListCount"`
+	TaskCount                  int                `json:"taskCount"`
+	TaskNoteCount              int                `json:"taskNoteCount"`
+	MemoryRecordCount          int                `json:"memoryRecordCount"`
+	IncludesCredentials        bool               `json:"includesCredentials"`
+	RequiresCredentialPassword bool               `json:"requiresCredentialPassword"`
+	CredentialCount            int                `json:"credentialCount"`
+	ConflictCount              int                `json:"conflictCount"`
+	ConversationConflicts      []ImportConflict   `json:"conversationConflicts,omitempty"`
+	ProviderConflicts          []ImportConflict   `json:"providerConflicts,omitempty"`
+	MCPServerConflicts         []ImportConflict   `json:"mcpServerConflicts,omitempty"`
+	TaskListConflicts          []ImportConflict   `json:"taskListConflicts,omitempty"`
+	CredentialConflicts        []ImportConflict   `json:"credentialConflicts,omitempty"`
+	UnsupportedResourceTypes   []string           `json:"unsupportedResourceTypes,omitempty"`
+	Warnings                   []LocalizedMessage `json:"warnings,omitempty"`
+	CredentialAnalysisError    string             `json:"credentialAnalysisError,omitempty"`
 }

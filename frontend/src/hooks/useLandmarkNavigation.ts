@@ -29,6 +29,10 @@ export interface UseLandmarkNavigationOptions {
   landmarks: Landmark[];
   /** Whether the hook is active. Defaults to true. */
   enabled?: boolean;
+  /** Allows a topmost modal to own F6/Escape while background landmarks stay blocked. */
+  allowWhenModalOpen?: boolean;
+  /** Extra runtime guard for scoped owners such as the topmost modal. */
+  shouldHandleKey?: () => boolean;
   /**
    * Id of the landmark that acts as the page's default focus area.
    * Pressing Escape from any other landmark sends focus here.
@@ -50,6 +54,8 @@ export interface UseLandmarkNavigationOptions {
 export function useLandmarkNavigation({
   landmarks,
   enabled = true,
+  allowWhenModalOpen = false,
+  shouldHandleKey,
   defaultLandmarkId,
 }: UseLandmarkNavigationOptions) {
   const landmarksRef = useRef(landmarks);
@@ -79,6 +85,12 @@ export function useLandmarkNavigation({
     return lm.focus();
   }, []);
 
+  const shouldSkipKeyboardEvent = useCallback((): boolean => {
+    if (isModalOpen() && !allowWhenModalOpen) return true;
+    if (shouldHandleKey && !shouldHandleKey()) return true;
+    return false;
+  }, [allowWhenModalOpen, shouldHandleKey]);
+
   // Register the default focus function globally so Modal/Menu/etc. can use it
   useEffect(() => {
     if (!enabled || !defaultLandmarkId) return;
@@ -92,7 +104,7 @@ export function useLandmarkNavigation({
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'F6') return;
-      if (isModalOpen()) return;
+      if (shouldSkipKeyboardEvent()) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -122,7 +134,7 @@ export function useLandmarkNavigation({
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [enabled, getCurrentIndex, getAvailable]);
+  }, [enabled, getCurrentIndex, getAvailable, shouldSkipKeyboardEvent]);
 
   // Escape: return to default landmark (bubbling phase — runs after
   // component-level handlers like MessageNode that may stopPropagation)
@@ -131,7 +143,8 @@ export function useLandmarkNavigation({
 
     const onEscape = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (isModalOpen()) return;
+      if (e.defaultPrevented) return;
+      if (shouldSkipKeyboardEvent()) return;
 
       const defaultLm = landmarksRef.current.find((l) => l.id === defaultIdRef.current);
       if (!defaultLm) return;
@@ -149,8 +162,8 @@ export function useLandmarkNavigation({
       defaultLm.focus();
     };
 
-    // Bubbling phase on window — fires after React handlers and document handlers
+    // Bubbling phase on window — fires after React handlers and document handlers.
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
-  }, [enabled, defaultLandmarkId, getCurrentIndex]);
+  }, [enabled, defaultLandmarkId, getCurrentIndex, shouldSkipKeyboardEvent]);
 }

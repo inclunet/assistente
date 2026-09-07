@@ -13,7 +13,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-md);
-  padding: var(--spacing-xl);
+  padding: var(--spacing-lg);
   min-height: 300px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -114,7 +114,7 @@
 
 .task-creator {
   font-size: 13px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

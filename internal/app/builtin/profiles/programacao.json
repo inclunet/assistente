@@ -1,9 +1,8 @@
 {
-  "_builtin_version": "4.0.0",
+  "_builtin_version": "4.6.0",
   "name": "Programação",
-  "description": "Otimizado para programação e código.",
+  "description": "Agente de desenvolvimento de software para explorar repositórios, planejar mudanças, editar código, executar comandos e validar resultados. Use quando precisar implementar funcionalidades, corrigir bugs, depurar, refatorar, escrever testes ou fazer revisão técnica. Não use para pesquisa, redação ou planejamento geral sem trabalho relevante em código; nesses casos, escolha Padrão. Exemplos: corrigir um teste com falha; adicionar uma API; revisar um diff; executar build e lint.",
   "icon": "code-slash-outline",
-  "active": true,
   "chat": {
     "llm_provider": "$default",
     "model": "$default",
@@ -14,11 +13,23 @@
     "min_context_messages": 20,
     "top_p": 0,
     "response_timeout": 180,
-    "enabled_tools": null,
+    "tool_policy_default": "on_demand",
+    "tool_policy": {
+      "read_file": "preloaded",
+      "search_files": "preloaded",
+      "grep_search": "preloaded",
+      "apply_patch": "preloaded",
+      "edit_file": "preloaded",
+      "write_file": "preloaded",
+      "run_command": "preloaded",
+      "update_plan": "preloaded",
+      "profile": "preloaded",
+      "subagent": "preloaded",
+      "mcp/*": "on_demand",
+      "text_edit": "disabled"
+    },
     "enabled_skills": [
-      "workspace",
       "coding",
-      "memory",
       "prometheus"
     ]
   },

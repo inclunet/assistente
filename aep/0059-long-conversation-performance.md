@@ -1,6 +1,6 @@
 # AEP-0059: Performance de Conversas Longas
 
-## Status: Draft
+## Status: In Progress — janela incremental e timeline canônica entregues; virtualização e conteúdo pesado seguem pendentes
 
 ## Relação com a AEP-0056
 
@@ -14,7 +14,9 @@ O objetivo é que painéis de chat sejam independentes também sob carga: uma co
 
 Definir a estratégia para carregar, renderizar e navegar conversas longas sem degradar a troca de abas ou a interação do chat.
 
-O objetivo é combinar carregamento incremental, janela de mensagens, virtualização progressiva e memoização por mensagem. A separação por sessão definida na AEP-0057 deve garantir que cada aba mantenha sua própria janela visual, enquanto os dados persistidos continuam associados ao `conversationId`.
+O objetivo é combinar carregamento incremental, janela visual por sessão, virtualização progressiva e memoização por item renderizado. A separação por sessão definida na AEP-0057 deve garantir que cada aba mantenha sua própria janela visual, enquanto os dados persistidos continuam associados ao `conversationId`.
+
+Importante: a unidade semântica da lista não é uma linha bruta de `chat_messages`. A unidade acessível e navegável é um **item de timeline**. Mensagens normais podem ocupar um item; um turno com chamadas de ferramenta pode ser consolidado em um único item, mesmo que internamente tenha múltiplas mensagens persistidas.
 
 Esta AEP detalha a fase de otimizações específicas prevista na AEP-0056.
 
@@ -46,6 +48,47 @@ A conversa deve suportar carregamento incremental para trás, a partir da mensag
 
 O estado de paginação pertence à sessão visual (`sessionKey`) porque duas abas podem estar em pontos diferentes da mesma conversa.
 
+### 2.1. Janela canônica por item de timeline
+
+Esta fase é uma evolução dedicada e posterior à primeira entrega de janela incremental. A entrega inicial pode paginar mensagens raiz persistidas para reduzir payload, separar janelas por sessão e habilitar navegação incremental. Ela não deve ser tratada como a implementação final da semântica de timeline items.
+
+Desde a Fase 2.1, `GetConversationMessageWindow` é uma API de janela de
+timeline, não uma API de linhas cruas do banco.
+
+Cada item de timeline representa exatamente uma entrada navegável na lista:
+
+- uma mensagem raiz normal sem consolidação;
+- um turno consolidado identificado por `turnId`;
+- no futuro, outro tipo explícito de item, se houver uma decisão arquitetural para isso.
+
+Na Fase 2.1 entregue, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e
+`hasAfter` passaram a ser calculados sobre itens de timeline. Mensagens internas
+de tool calling não são contadas separadamente quando a UI renderiza esse
+conjunto como um único item.
+
+O backend será responsável por montar essa unidade canônica. O frontend deve consumir a janela pronta e usar os índices retornados para acessibilidade, sem recalcular posições absolutas a partir de mensagens brutas.
+
+### 2.2. Agrupamento por turno
+
+O identificador de turno (`turnId`) é a chave lógica para consolidar mensagens de um ciclo de resposta.
+
+A convenção atual deve ser preservada: `turnId` aponta para o ID da mensagem do usuário que iniciou o turno. A mensagem do usuário em si pode existir como item próprio, e as mensagens subsequentes do assistente/tool que carregam esse `turnId` formam o item consolidado de resposta.
+
+Durante streaming, o backend deve tornar essa relação explícita nos eventos do turno. Eventos como `chat:messages_ready`, `chat:stream`, `chat:tool_start`, `chat:tool_end` e `chat:done` devem carregar ou permitir derivar de forma inequívoca o `turnId`. O frontend pode manter um item transitório local durante streaming, mas esse item precisa ser reconciliável pelo mesmo `turnId` quando a janela persistida for recarregada.
+
+### 2.3. Consulta em lote, sem N+1
+
+Montar itens de timeline no backend não deve significar carregar a conversa inteira nem executar uma consulta por item.
+
+A estratégia esperada é:
+
+- paginar primeiro os identificadores dos itens de timeline da janela;
+- contar o total de itens pela mesma unidade lógica;
+- buscar em lote as mensagens internas dos turnos presentes na janela (`id IN (...)` e/ou `turn_id IN (...)`);
+- montar os segmentos em memória preservando ordenação por `created_at, id`.
+
+Para uma janela de N itens, o número de consultas deve ser pequeno e previsível. O contrato não deve depender de pós-processamento frágil no frontend para corrigir contagem, posição ou grouping.
+
 ### 3. Cache persistido separado da janela visual
 
 Dados carregados do backend podem ser cacheados por `conversationId`, mas a janela renderizada pertence à sessão de aba.
@@ -69,6 +112,8 @@ A virtualização deve preservar:
 Atualizações de streaming devem afetar apenas a mensagem em construção.
 
 Transformações de árvore, consolidação de turnos e renderização de Markdown não devem recalcular toda a lista a cada token.
+
+Após a fase 2.1, o item de streaming deve seguir a mesma unidade semântica da janela persistida: um item transitório por `turnId`. Tool calls, resultados e texto parcial entram como segmentos desse item, não como múltiplos itens navegáveis independentes.
 
 ### 6. Mensagens pesadas sob demanda
 
@@ -95,34 +140,85 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 
 ## Fases
 
-### Fase 1 — Medição e limites
+### Fase 1 — Medição e limites 🚧
 
 - Medir tempo de carregamento, transformação e renderização em conversas sintéticas de 100, 500 e 1000 mensagens.
 - Definir limites internos para janela inicial, paginação e ativação de virtualização.
 - Criar fixture/testes de performance funcional para conversa longa.
 
-### Fase 2 — Janela por sessão
+### Fase 2 — Janela por sessão ✅
 
 - Mover estado de janela para a sessão `tabId + conversationId`.
 - Separar cache por conversa da lista renderizada.
 - Garantir que carregar mensagens antigas em uma aba não altere a janela de outra aba.
 - Preservar âncora de scroll ao prepender mensagens.
+- Nesta fase, a janela ainda pode usar mensagens raiz persistidas como unidade de paginação. Se houver consolidação local de turnos, a UI deve preferir uma contagem visual honesta na janela renderizada em vez de expor índices absolutos crus incorretos.
 
-### Fase 3 — Memoização e atualização granular
+### Fase 2.1 — Timeline items canônicos ✅
+
+Registro histórico: esta fase foi entregue após o PR #113. O contrato vigente
+está implementado em `GetConversationMessageWindow` e na montagem canônica de
+timeline; os itens abaixo descrevem o trabalho concluído, não uma proposta
+futura.
+
+- [x] `GetConversationMessageWindow` pagina itens de timeline.
+- [x] Backend agrupa turnos por `turnId` em nós/segmentos navegáveis.
+- [x] Contagens e limites são calculados sobre itens renderizáveis.
+- [x] Streaming é reconciliável pelo mesmo `turnId`.
+- [x] Posições acessíveis não dependem de consolidação local.
+
+Evidências: `internal/app/db_message_window_test.go`,
+`internal/chat/timeline_test.go` e
+`frontend/src/components/chat/MessageList.test.tsx`.
+
+#### Consolidação no PR #113
+
+O PR #113 concluiu a primeira entrega de janela incremental por sessão:
+
+- `GetConversationMessageWindow` passou a ser a API única de carregamento incremental de conversa e thread.
+- Janelas visuais passaram a pertencer à `ChatSurfaceSession`, preservando independência entre superfícies.
+- O carregamento inicial e a paginação deixaram de depender de carregar a conversa inteira.
+- A UI passou a usar contagem local honesta quando a consolidação visual de turnos ainda era feita no frontend, evitando anunciar posições absolutas cruas incorretas.
+- A expansão de fronteiras de turno foi mantida apenas como mitigação temporária, não como contrato final de timeline item.
+
+#### Contrato entregue no PR de Fase 2.1
+
+O PR de Fase 2.1 concluiu a semântica canônica de itens de timeline:
+
+- A unidade de paginação, contagem e acessibilidade é o item de timeline.
+- Um item normal representa uma mensagem navegável sem consolidação.
+- Um item de turno representa as mensagens não-usuário persistidas com o mesmo `turnId`, como respostas de assistant, chamadas de tool e registros técnicos associados ao turno.
+- `turnId` continua apontando para o ID da mensagem de usuário que iniciou o turno.
+- `anchorMessageId` pode apontar para a mensagem representante ou para uma mensagem interna de um turno; o backend normaliza isso para o item de timeline correspondente.
+- `originalIndex`, `totalCount`, `startIndex`, `endIndex`, `hasBefore` e `hasAfter` são calculados pelo backend sobre itens de timeline.
+- O frontend consome esses índices como canônicos e não corrige posições absolutas com agrupamento local.
+- O backend monta os itens em lote, com número pequeno e previsível de consultas por janela (contagem, normalização opcional de âncora e busca em lote das mensagens internas), sem uma consulta por item.
+
+#### Decisão pós-Fase 2.1 sobre virtualização
+
+Após a Fase 2.1, a próxima decisão de performance deve ser baseada em medição com a nova unidade canônica. Virtualização acessível continua pertencendo às Fases 4 e 5, mas não deve entrar no mesmo PR da Fase 2.1 salvo se os testes de conversa longa ainda mostrarem renderização perceptivelmente bloqueante com a janela já limitada.
+
+Critério prático:
+
+- Se a janela canônica limitada mantiver a UI responsiva em conversas sintéticas de 500+ mensagens, virtualização fica em PR separado.
+- Se a renderização da própria janela continuar pesada, o próximo PR deve implementar virtualização acessível antes de expandir features que aumentem conteúdo renderizado.
+- A decisão deve preservar `aria-posinset`/`aria-setsize` canônicos e navegação por teclado independente do DOM completo.
+
+### Fase 3 — Memoização e atualização granular 🚧
 
 - Garantir que `MessageNode` renderize novamente apenas quando sua mensagem ou estado visual local mudar.
 - Separar estado de streaming da lista consolidada sempre que possível.
 - Evitar recriar arrays e callbacks globais em cada token.
 - Cobrir regressões com testes de render ou contadores em ambiente de teste.
 
-### Fase 4 — Virtualização acessível
+### Fase 4 — Virtualização acessível ⏳
 
 - Introduzir virtualização em `MessageList` atrás de um limite.
 - Implementar navegação por teclado independente de todos os elementos estarem montados.
 - Garantir foco e leitura virtual para itens materializados sob demanda.
 - Validar com e2e de teclado e acessibilidade.
 
-### Fase 5 — Conteúdo pesado sob demanda
+### Fase 5 — Conteúdo pesado sob demanda ⏳
 
 - Carregar filhos de thread apenas quando expandidos.
 - Manter tool calls e reasoning colapsados sem render caro inicial.
@@ -136,14 +232,25 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 - Prepender mensagens antigas pode deslocar scroll se a âncora não for preservada.
 - Memoização incorreta pode deixar streaming ou edição visualmente stale.
 - Cache por conversa pode crescer demais em sessões longas se não houver política de descarte.
+- Contar linhas brutas do banco enquanto a UI navega itens consolidados causa anúncios incorretos como saltos de posição (`1 de 100`, `5 de 100`, `18 de 100`).
+- Agrupar turnos apenas no frontend é frágil em paginação parcial, streaming, retries e janelas que começam ou terminam no meio de um turno.
 
 ## Critérios de aceitação
 
-- Abrir conversa longa não bloqueia a UI de forma perceptível.
-- Trocar entre abas visitadas não força rerender pesado da conversa inteira.
-- Carregar mensagens antigas preserva posição de leitura.
-- Streaming em conversa longa atualiza apenas a mensagem relevante.
-- Navegação por teclado continua passando nos e2e existentes.
-- Leitores de tela recebem anúncios de carregamento e posição de forma consistente.
-- Duas abas da mesma conversa podem ter janelas visuais diferentes.
-- Testes cobrem conversas com pelo menos 500 mensagens sintéticas.
+- [ ] Abrir conversa longa não bloqueia perceptivelmente — falta benchmark
+  funcional reproduzível.
+- [x] Abas visitadas mantêm janelas independentes sem recarregar a conversa
+  inteira.
+- [x] Carregar mensagens antigas preserva âncora/posição da janela.
+- [ ] Atualização granular de streaming ainda pertence à Fase 3.
+- [ ] Virtualização com navegação por teclado permanece na Fase 4.
+- [x] Leitores de tela recebem posição canônica dos itens materializados.
+- [x] Duas abas da mesma conversa mantêm janelas visuais diferentes.
+- [ ] Não há fixture focada comprovada de 500 mensagens sintéticas.
+- [x] `aria-posinset`/`aria-setsize` usam posição e total de itens de timeline.
+- [x] Turnos com tool calls são um único item acessível.
+
+Evidências entregues: `internal/app/db_message_window_test.go`,
+`internal/chat/timeline_test.go`,
+`frontend/src/components/chat/MessageList.test.tsx`,
+`ChatSessionContext.test.tsx` e `ChatSessionView.test.tsx`.

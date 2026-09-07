@@ -1,0 +1,91 @@
+---
+title: "Ferramentas"
+weight: 12
+---
+
+# Ferramentas
+
+O assistente expõe 15 famílias de tools ao LLM: filesystem, shell, web, feed, http, memory, tasklist, mcpserver, history, job, questionnaire, skillloader, subagent e outras. Cada tool tem baseline operacional por perfil e é auditável no histórico do turno.
+
+## Descoberta e carregamento
+
+Tools fora do baseline do perfil ficam disponíveis pelo `tool_catalog`. A busca
+aceita uma descrição da tarefa e filtros de origem, categoria, classe, pacote,
+risco e disponibilidade. Os resultados priorizam relevância, pacotes
+preferenciais do perfil e tools usadas recentemente na mesma conversa.
+
+No primeiro turno, o assistente pode antecipar uma busca pequena e carregar até
+três tools de leitura relevantes. Esse mecanismo nunca carrega automaticamente
+tools de escrita, shell, rede ou operações destrutivas, nem habilita tools
+desativadas ou opt-in.
+
+O carregamento aceita nomes exatos e seletores como `mcp/atlassian/*` e
+`package/history/*`. Cada seletor é limitado a 20 tools e continua sujeito à
+política do perfil, disponibilidade, allowlists, confirmações e orçamento de
+schemas. Para operações sensíveis, o carregamento apenas disponibiliza a
+capacidade; ele não aprova sua execução.
+
+## MCP nos perfis padrão
+
+Os perfis **Padrão** e **Programação** deixam todas as tools MCP disponíveis
+sob demanda. Elas não entram no payload inicial: o agente as descobre e carrega
+quando necessário. A regra cobre automaticamente tools de servidores MCP
+conectados no futuro, sem exigir edição manual do perfil.
+
+Disponibilidade sob demanda não concede aprovação de execução. Allowlists,
+classificação de risco, confiança de rede e confirmações continuam sendo
+aplicadas normalmente. Tools opt-in também permanecem bloqueadas até uma
+autorização explícita.
+
+## Sub-agentes
+
+A tool `subagent` delega trabalho especializado, paralelizável, longo ou que se
+beneficie de contexto isolado. Para tarefas curtas que uma tool direta resolve,
+delegar adiciona latência, consumo de contexto e ocupa uma das vagas limitadas
+de concorrência.
+
+Por padrão, o modo síncrono espera e retorna um envelope JSON com status e IDs,
+preservando a compatibilidade das chamadas existentes. Em envios síncronos,
+`raw:true` devolve diretamente a resposta integral do sub-agente como conteúdo
+da tool; os IDs continuam disponíveis nos metadados. O limite geral de saída do
+executor ainda se aplica.
+
+`background:true` retorna os IDs imediatamente, mantém a execução em segundo
+plano e entrega o resultado posteriormente à conversa pai. A combinação
+`raw:true` com background é rejeitada, pois o modo assíncrono precisa preservar
+o handle e o contrato de entrega. `raw` também não se aplica a consultas de
+status nem a cancelamentos.
+
+## Histórico
+
+As tools de histórico permitem localizar e recuperar contexto de conversas anteriores:
+
+- `search_conversations` pesquisa mensagens e retorna trechos com seus IDs;
+- `get_conversation_info` consulta os metadados e o resumo de uma conversa;
+- `get_messages` recupera o conteúdo textual integral de até 20 mensagens pelos IDs. O parâmetro opcional `include_tool_results` inclui também os resultados de tools dos mesmos turnos.
+
+`get_messages` respeita a conta autenticada: mensagens de outro usuário não são retornadas. Áudio e mídias binárias em base64 são omitidos para evitar payloads excessivos; `content`, `tool_calls` e `tool_call_id` permanecem disponíveis.
+
+### Busca no histórico
+
+A tool `search_conversations` faz busca textual nas mensagens do usuário. O
+parâmetro `query` é obrigatório e aceita palavras, frases exatas entre aspas,
+prefixos com `*` e os operadores `OR`, `AND` e `NOT`.
+
+Por padrão, a busca é global: omitir `conversation_id` pesquisa todas as
+conversas do usuário, preservando o comportamento das chamadas existentes.
+Para limitar os resultados, informe o ID de uma conversa em
+`conversation_id`. Dentro de um chat, também é possível usar o valor especial
+`current`; nesse caso, a tool obtém com segurança a conversa corrente do
+contexto da chamada. Se não houver uma conversa corrente disponível, a chamada
+é rejeitada em vez de executar uma busca global.
+
+Exemplos:
+
+- `{"query": "autenticação JWT"}` — busca global.
+- `{"query": "decisão final", "conversation_id": "019...", "limit": 10}` —
+  busca apenas na conversa informada.
+- `{"query": "próximos passos", "conversation_id": "current"}` — busca apenas
+  na conversa em andamento.
+
+Em todos os casos, os resultados permanecem restritos à conta autenticada.

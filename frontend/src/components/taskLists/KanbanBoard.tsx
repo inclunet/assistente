@@ -12,13 +12,15 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { openTaskLink } from '../../lib/deepLinks';
+import { formatRelativeTime } from '../../lib/dateUtils';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
-import { ContextMenu } from '../menu';
+import { ContextMenu, type MenuItem } from '../menu';
 import { Modal } from '../ui/Modal';
 import { playBumpSound } from '../../services/audioFeedback';
 import TaskForm from './TaskForm';
 import TaskDetailModal from './TaskDetailModal';
+import { useCustomActions } from './useCustomActions';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
 import './KanbanBoard.css';
 
@@ -42,6 +44,14 @@ interface FocusPos {
   row: number;
 }
 
+// Para onde reposicionar o foco depois que um card muda de coluna (issue #177).
+// `sourceNext`: vai para o próximo card da coluna de ORIGEM (comportamento
+// preferido). `followTask`: o foco acompanha o card movido (usado no modo grab
+// e como fallback quando a coluna de origem fica vazia).
+type PendingFocus =
+  | { kind: 'sourceNext'; sourceCol: number; sourceRow: number; taskId: string }
+  | { kind: 'followTask'; taskId: string };
+
 /* ── Componente ────────────────────────────────────────────────── */
 
 const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function KanbanBoard(
@@ -51,7 +61,8 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { announce } = useAnnouncer();
-  const { updateTaskStatus, reorderTasks, deleteTask } = useTaskListStore();
+  const { updateTaskStatus, reorderTasks, deleteTask, listCardCustomActions } = useTaskListStore();
+  const { runCustomAction } = useCustomActions();
 
   // ── Estado ─────────────────────────────────────────────────
   const [focusPos, setFocusPos] = useState<FocusPos>({ col: 0, row: 0 });
@@ -66,6 +77,16 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   // ── Refs ───────────────────────────────────────────────────
   const boardRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Foco a reaplicar depois que um movimento de card recompõe as colunas.
+  const pendingFocusRef = useRef<PendingFocus | null>(null);
+  // Id do card que detém o foco — capturado por id (não por posição), para que
+  // possamos reencontrá-lo mesmo quando uma atualização EXTERNA (ex.: um job) o
+  // move de coluna e a posição antiga passa a apontar para outro card (issue #177).
+  const focusedTaskIdRef = useRef<string | null>(null);
+  // Indica que o board detém o foco do teclado. Mantido `true` mesmo quando o
+  // foco "cai" no body por desmontagem do card focado (job/menu de contexto),
+  // para que o effect de recuperação saiba que deve reposicionar o foco.
+  const boardOwnsFocusRef = useRef(false);
 
   // ── Context menu ───────────────────────────────────────────
   const {
@@ -108,6 +129,11 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     [tasksByStatus, statuses],
   );
 
+  // Espelho síncrono das colunas atuais, para ler em effects/handlers SEM
+  // recriá-los (e sem re-capturar o id do card focado) a cada update (issue #177).
+  const columnsRef = useRef(tasksByStatus);
+  columnsRef.current = tasksByStatus;
+
   // ── Imperative handle para criar tarefa ────────────────────
   useImperativeHandle(ref, () => ({
     openCreateModal: () => {
@@ -125,10 +151,157 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     }
   }, []);
 
-  // Após alterar focusPos, mover foco real
+  // Após alterar focusPos, mover foco real e registrar (por id) qual card detém
+  // o foco. Lemos as colunas via ref para NÃO recapturar o id quando apenas as
+  // tarefas mudam (ex.: um job) — assim o id permanece o de ANTES da atualização,
+  // permitindo seguir o card até sua nova coluna (issue #177).
   useEffect(() => {
     focusCard(focusPos.col, focusPos.row);
-  }, [focusPos, focusCard]);
+    const status = statuses[focusPos.col];
+    const colTasks = status ? (columnsRef.current.get(status.id) ?? []) : [];
+    focusedTaskIdRef.current = colTasks[focusPos.row]?.id ?? null;
+  }, [focusPos, focusCard, statuses]);
+
+  // Localiza a posição (coluna/linha) atual de um card pelo id.
+  const findTaskPos = useCallback(
+    (taskId: string): FocusPos | null => {
+      for (let c = 0; c < statuses.length; c += 1) {
+        const idx = getColumnTasks(c).findIndex((tk) => tk.id === taskId);
+        if (idx >= 0) return { col: c, row: idx };
+      }
+      return null;
+    },
+    [statuses, getColumnTasks],
+  );
+
+  // Retorna o objeto Task ATUAL (do estado mais recente) a partir do id.
+  // Necessário porque `grabbedTask` é capturado no momento do grab e fica
+  // stale após o update otimista de status (issue #177).
+  const findTaskById = useCallback(
+    (taskId: string): Task | undefined => {
+      for (const arr of tasksByStatus.values()) {
+        const found = arr.find((tk) => tk.id === taskId);
+        if (found) return found;
+      }
+      return undefined;
+    },
+    [tasksByStatus],
+  );
+
+  // Resolve o Task ATUAL do card carregado no modo grab. Se o card não existe
+  // mais (ex.: foi deletado durante o grab), cancela o grab e retorna null —
+  // nunca devemos mover um card diferente do que estava carregado (issue #177).
+  const resolveGrabbedTask = useCallback((): Task | null => {
+    if (!grabbedTask) return null;
+    const live = findTaskById(grabbedTask.id);
+    if (!live) {
+      setGrabbedTask(null);
+      announce(t('tasklist.kanban.grabCancelled', 'Movimentação cancelada'), 'assertive');
+      return null;
+    }
+    return live;
+  }, [grabbedTask, findTaskById, announce, t]);
+
+  // Primeira coluna que ainda tem cards (último fallback de foco).
+  const firstNonEmptyColumnPos = useCallback((): FocusPos | null => {
+    for (let c = 0; c < statuses.length; c += 1) {
+      if (getColumnTasks(c).length > 0) return { col: c, row: 0 };
+    }
+    return null;
+  }, [statuses, getColumnTasks]);
+
+  // issue #177: ao mover um card entre colunas, o card focado é desmontado e o
+  // foco "cai" para o body, obrigando o usuário a apertar Tab. Reposicionamos o
+  // foco dentro do board assim que as colunas são recompostas:
+  //   1. Movimento iniciado pelo usuário (teclado/menu): há um `pendingFocusRef`
+  //      armado, e seguimos a regra dele (próximo card da origem ou o card movido).
+  //   2. Atualização EXTERNA (ex.: um job mudou o status de um card sem gesto do
+  //      usuário): não há foco pendente. Se o board detinha o foco e o card focado
+  //      foi desmontado (o foco escapou para o body), seguimos esse mesmo card até
+  //      a nova coluna — ou caímos num fallback — para não exigir Tab.
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (pending) {
+      pendingFocusRef.current = null;
+
+      let next: FocusPos | null = null;
+      if (pending.kind === 'followTask') {
+        // Se o card movido não for encontrado (ex.: removido/consolidado por uma
+        // atualização concorrente), mantém o foco no board indo para o primeiro
+        // card de uma coluna não vazia, em vez de deixar o foco cair no body.
+        next = findTaskPos(pending.taskId) ?? firstNonEmptyColumnPos();
+      } else {
+        const sourceTasks = getColumnTasks(pending.sourceCol);
+        if (sourceTasks.length > 0) {
+          // Próximo card da coluna de origem (o que ocupou a posição liberada);
+          // se o card movido era o último, cai no novo último da coluna.
+          next = {
+            col: pending.sourceCol,
+            row: Math.min(pending.sourceRow, sourceTasks.length - 1),
+          };
+        } else {
+          // Coluna de origem ficou vazia: o foco acompanha o card movido.
+          next = findTaskPos(pending.taskId) ?? firstNonEmptyColumnPos();
+        }
+      }
+
+      if (next) {
+        // `next` é sempre um objeto novo, então `setFocusPos` dispara o effect de
+        // `focusPos` acima, que aplica o `.focus()` uma única vez. Não chamamos
+        // `focusCard` aqui para evitar foco/anúncio duplicado.
+        setFocusPos(next);
+      }
+      return;
+    }
+
+    // Sem foco pendente: a recomposição veio de FORA (ex.: um job). Só agimos se o
+    // board detinha o foco E ele escapou do board (caiu no body) — caso contrário
+    // não roubamos o foco de onde o usuário o deixou.
+    if (!boardOwnsFocusRef.current) return;
+    const boardEl = boardRef.current;
+    const active = document.activeElement;
+    if (boardEl && active && active !== document.body && boardEl.contains(active)) {
+      return; // o foco ainda está dentro do board — nada a fazer.
+    }
+
+    // Segue o card que estava focado (capturado por id) até sua nova coluna.
+    const focusedId = focusedTaskIdRef.current;
+    let next: FocusPos | null = focusedId ? findTaskPos(focusedId) : null;
+    if (!next) {
+      // O card focado sumiu (deletado/consolidado): vai para o card que ocupou a
+      // posição antiga; se a coluna esvaziou, para a primeira coluna não vazia.
+      const colTasks = getColumnTasks(focusPos.col);
+      next =
+        colTasks.length > 0
+          ? { col: focusPos.col, row: Math.min(focusPos.row, colTasks.length - 1) }
+          : firstNonEmptyColumnPos();
+    }
+    if (next) {
+      // `next` é sempre um objeto novo, então `setFocusPos` dispara o effect de
+      // `focusPos`, que aplica o `.focus()` uma única vez (mesmo padrão do ramo
+      // de foco pendente acima).
+      setFocusPos(next);
+    }
+  }, [
+    tasksByStatus,
+    getColumnTasks,
+    findTaskPos,
+    firstNonEmptyColumnPos,
+    focusPos,
+  ]);
+
+  // Formata a data de criação no MESMO formato relativo usado nas mensagens
+  // do chat (ver `getAriaLabel` em ChatMessage.tsx e `buildChatMessageAriaLabel`).
+  // O leitor de tela passa a anunciar a "idade" do card (issue #151).
+  const formatCardCreatedAt = useCallback(
+    (task: Task): string | null => {
+      if (!task.createdAt) return null;
+      const ts = new Date(task.createdAt).getTime();
+      if (Number.isNaN(ts)) return null;
+      return `${t('tasklist.kanban.cardCreatedAt', 'criado')} ${formatRelativeTime(ts)}`;
+    },
+    [t],
+  );
 
   const announceCard = useCallback(
     (task: Task, colIdx: number, rowIdx: number) => {
@@ -139,9 +312,11 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
       if (task.creatorName) parts.push(`${t('tasklist.creator', 'Criador')}: ${task.creatorName}`);
       parts.push(status?.label ?? '');
       parts.push(`${rowIdx + 1} ${t('tasklist.kanban.of', 'de')} ${columnTasks.length}`);
+      const createdLabel = formatCardCreatedAt(task);
+      if (createdLabel) parts.push(createdLabel);
       announce(parts.join('. '), 'assertive');
     },
-    [statuses, getColumnTasks, announce, t],
+    [statuses, getColumnTasks, announce, t, formatCardCreatedAt],
   );
 
   // ── Ações de tarefa ────────────────────────────────────────
@@ -234,8 +409,8 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
 
   // ── Context menu para card ─────────────────────────────────
   const openCardContextMenu = useCallback(
-    (task: Task, _colIdx: number, trigger: HTMLElement) => {
-      const items = [
+    async (task: Task, _colIdx: number, trigger: HTMLElement) => {
+      const items: MenuItem[] = [
         {
           id: 'details',
           label: t('tasklist.details', 'Detalhes'),
@@ -263,7 +438,22 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
               label: s.label,
               action: () => {
                 const targetIdx = statuses.findIndex((st) => st.id === s.id);
-                moveTaskToColumn(task, targetIdx);
+                const liveTask = findTaskById(task.id) ?? task;
+                const targetStatus = statuses[targetIdx];
+                if (!targetStatus || liveTask.statusId === targetStatus.id) return;
+                // Mantém o foco no board após mover (issue #177): vai para o
+                // próximo card da coluna de origem, igual ao Alt+Seta. Sem isso, o
+                // card focado é desmontado e o foco cai no body (precisa de Tab).
+                const pos = findTaskPos(task.id);
+                if (pos) {
+                  pendingFocusRef.current = {
+                    kind: 'sourceNext',
+                    sourceCol: pos.col,
+                    sourceRow: pos.row,
+                    taskId: task.id,
+                  };
+                }
+                moveTaskToColumn(liveTask, targetIdx);
               },
             })),
         },
@@ -276,9 +466,32 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         },
       ];
 
+      // Custom actions (AEP-0067): when avaliado server-side; só aparecem as visíveis.
+      try {
+        const customs = await listCardCustomActions(task.id, 'card_menu');
+        if (customs.length > 0) {
+          items.push({ separator: true, id: 'sep-custom' });
+          for (const ca of customs) {
+            items.push({
+              id: `custom-${ca.id}`,
+              label: ca.label,
+              icon: ca.icon || undefined,
+              danger: ca.danger,
+              action: () => { void runCustomAction(ca, taskListId, task.id); },
+            });
+          }
+        }
+      } catch {
+        // Best-effort: ausência de custom actions não deve quebrar o menu.
+      }
+
+      // Durante o await acima o card pode ter sido removido/desmontado: abrir o
+      // menu com um trigger desconectado ancoraria errado. Aborta se for o caso.
+      if (!trigger.isConnected) return;
+
       openForTrigger(trigger, t('tasklist.kanban.cardMenu', 'Menu do card'), items);
     },
-    [statuses, moveTaskToColumn, handleDeleteTask, openForTrigger, t],
+    [statuses, moveTaskToColumn, handleDeleteTask, openForTrigger, t, listCardCustomActions, runCustomAction, taskListId, findTaskById, findTaskPos],
   );
 
   // ── Inline rename (F2) ────────────────────────────────────
@@ -332,13 +545,20 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           e.preventDefault();
           if (col > 0) {
             const newCol = col - 1;
-            const targetTasks = getColumnTasks(newCol);
-            const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
-            setFocusPos({ col: newCol, row: newRow });
-
             if (grabbedTask) {
-              moveTaskToColumn(grabbedTask, newCol);
+              // Usa o Task ATUAL do card carregado (o `grabbedTask` capturado
+              // fica stale após o update otimista). Se o card sumiu, o grab é
+              // cancelado e nada é movido (issue #177).
+              const liveTask = resolveGrabbedTask();
+              const targetStatus = statuses[newCol];
+              if (liveTask && targetStatus && liveTask.statusId !== targetStatus.id) {
+                pendingFocusRef.current = { kind: 'followTask', taskId: liveTask.id };
+                moveTaskToColumn(liveTask, newCol);
+              }
             } else {
+              const targetTasks = getColumnTasks(newCol);
+              const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
+              setFocusPos({ col: newCol, row: newRow });
               const task = targetTasks[newRow];
               if (task) announceCard(task, newCol, newRow);
               else announce(statuses[newCol]?.label ?? '', 'assertive');
@@ -352,13 +572,20 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           e.preventDefault();
           if (col < statuses.length - 1) {
             const newCol = col + 1;
-            const targetTasks = getColumnTasks(newCol);
-            const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
-            setFocusPos({ col: newCol, row: newRow });
-
             if (grabbedTask) {
-              moveTaskToColumn(grabbedTask, newCol);
+              // Usa o Task ATUAL do card carregado (o `grabbedTask` capturado
+              // fica stale após o update otimista). Se o card sumiu, o grab é
+              // cancelado e nada é movido (issue #177).
+              const liveTask = resolveGrabbedTask();
+              const targetStatus = statuses[newCol];
+              if (liveTask && targetStatus && liveTask.statusId !== targetStatus.id) {
+                pendingFocusRef.current = { kind: 'followTask', taskId: liveTask.id };
+                moveTaskToColumn(liveTask, newCol);
+              }
             } else {
+              const targetTasks = getColumnTasks(newCol);
+              const newRow = Math.min(row, Math.max(0, targetTasks.length - 1));
+              setFocusPos({ col: newCol, row: newRow });
               const task = targetTasks[newRow];
               if (task) announceCard(task, newCol, newRow);
               else announce(statuses[newCol]?.label ?? '', 'assertive');
@@ -396,6 +623,96 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           } else {
             playBumpSound();
           }
+          break;
+        }
+
+        // ── Home/End: primeiro/último card (Ctrl = board inteiro) ──
+        case 'Home': {
+          e.preventDefault();
+          if (e.ctrlKey) {
+            // Primeiro card do board inteiro (primeira coluna com cards).
+            const firstCol = statuses.findIndex((_, i) => getColumnTasks(i).length > 0);
+            if (firstCol === -1 || (firstCol === col && row === 0)) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col: firstCol, row: 0 });
+            const task = getColumnTasks(firstCol)[0];
+            if (task) announceCard(task, firstCol, 0);
+          } else {
+            // Primeiro card da coluna atual.
+            if (columnTasks.length === 0 || row === 0) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col, row: 0 });
+            const task = columnTasks[0];
+            if (task) announceCard(task, col, 0);
+          }
+          break;
+        }
+        case 'End': {
+          e.preventDefault();
+          if (e.ctrlKey) {
+            // Último card do board inteiro (última coluna com cards).
+            let lastCol = -1;
+            for (let i = statuses.length - 1; i >= 0; i--) {
+              if (getColumnTasks(i).length > 0) {
+                lastCol = i;
+                break;
+              }
+            }
+            const lastRow = lastCol === -1 ? 0 : getColumnTasks(lastCol).length - 1;
+            if (lastCol === -1 || (lastCol === col && row === lastRow)) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col: lastCol, row: lastRow });
+            const task = getColumnTasks(lastCol)[lastRow];
+            if (task) announceCard(task, lastCol, lastRow);
+          } else {
+            // Último card da coluna atual.
+            const lastRow = columnTasks.length - 1;
+            if (columnTasks.length === 0 || row === lastRow) {
+              playBumpSound();
+              break;
+            }
+            setFocusPos({ col, row: lastRow });
+            const task = columnTasks[lastRow];
+            if (task) announceCard(task, col, lastRow);
+          }
+          break;
+        }
+
+        // ── PageUp/PageDown: salta 10 cards dentro da coluna ──
+        // Não interceptamos quando ctrlKey está pressionado para não conflitar
+        // com o atalho global Ctrl+PageUp/PageDown de troca de abas
+        // (useWorkspaceKeyboardShortcuts). metaKey é ignorado apenas para deixar
+        // passar atalhos do browser/OS — não é um atalho do app.
+        case 'PageUp': {
+          if (e.ctrlKey || e.metaKey) break;
+          e.preventDefault();
+          if (columnTasks.length === 0 || row === 0) {
+            playBumpSound();
+            break;
+          }
+          const newRow = Math.max(row - 10, 0);
+          setFocusPos({ col, row: newRow });
+          const task = columnTasks[newRow];
+          if (task) announceCard(task, col, newRow);
+          break;
+        }
+        case 'PageDown': {
+          if (e.ctrlKey || e.metaKey) break;
+          e.preventDefault();
+          if (columnTasks.length === 0 || row === columnTasks.length - 1) {
+            playBumpSound();
+            break;
+          }
+          const newRow = Math.min(row + 10, columnTasks.length - 1);
+          setFocusPos({ col, row: newRow });
+          const task = columnTasks[newRow];
+          if (task) announceCard(task, col, newRow);
           break;
         }
 
@@ -483,7 +800,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
       }
     },
     [
-      focusPos, getColumnTasks, statuses, grabbedTask,
+      focusPos, getColumnTasks, statuses, grabbedTask, resolveGrabbedTask,
       moveTaskToColumn, reorderInColumn, handleDeleteTask,
       startRename, openCardContextMenu, announceCard,
       announce, t,
@@ -499,15 +816,31 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         const direction = e.key === 'ArrowLeft' ? -1 : 1;
         const targetCol = colIdx + direction;
         if (targetCol >= 0 && targetCol < statuses.length) {
-          moveTaskToColumn(task, targetCol);
-          setFocusPos((prev) => ({
-            col: targetCol,
-            row: Math.min(prev.row, Math.max(0, getColumnTasks(targetCol).length)),
-          }));
+          // Usa o status ATUAL do card (estado mais recente) e só arma o foco
+          // pendente / move quando há mudança real de status — mesma condição
+          // do `moveTaskToColumn`. Evita reposicionar o foco em uma atualização
+          // futura quando não houve movimento (ex.: card em coluna fallback ou
+          // alvo igual ao status atual). Issue #177.
+          const liveTask = findTaskById(task.id) ?? task;
+          const targetStatus = statuses[targetCol];
+          if (targetStatus && liveTask.statusId !== targetStatus.id) {
+            // Após sair da coluna, o foco vai para o próximo card da coluna de
+            // origem para que o board não perca o foco e o usuário continue
+            // processando a coluna sem precisar de Tab.
+            const sourceTasks = getColumnTasks(colIdx);
+            const sourceRow = sourceTasks.findIndex((tk) => tk.id === task.id);
+            pendingFocusRef.current = {
+              kind: 'sourceNext',
+              sourceCol: colIdx,
+              sourceRow: sourceRow < 0 ? 0 : sourceRow,
+              taskId: task.id,
+            };
+            moveTaskToColumn(liveTask, targetCol);
+          }
         }
       }
     },
-    [statuses, moveTaskToColumn, getColumnTasks],
+    [statuses, moveTaskToColumn, getColumnTasks, findTaskById],
   );
 
   // ── Drag & Drop (visual) ──────────────────────────────────
@@ -563,7 +896,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   if (!statuses.length) {
     return (
       <>
-        <div className="kanban-empty" role="status">
+        <div className="kanban-empty">
           {t('tasklist.noWorkflow', 'Sem workflow definido')}
         </div>
         <Modal
@@ -599,6 +932,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
             if (task) {
               focusCard(focusPos.col, focusPos.row);
               announceCard(task, focusPos.col, focusPos.row);
+              focusedTaskIdRef.current = task.id;
             } else {
               const status = statuses[focusPos.col];
               announce(
@@ -607,18 +941,26 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
               );
             }
           }
+          // O board passou a deter o foco do teclado (issue #177).
+          boardOwnsFocusRef.current = true;
           setBoardHasInternalFocus(true);
         }}
         onBlur={(e) => {
-          if (!boardRef.current?.contains(e.relatedTarget as Node)) {
+          const next = e.relatedTarget as Node | null;
+          if (!boardRef.current?.contains(next)) {
             setBoardHasInternalFocus(false);
+            // Só abrimos mão da POSSE do foco quando o usuário o move para um
+            // elemento real FORA do board. Se `relatedTarget` é null, o foco caiu
+            // no body — provável desmontagem do card focado por um job/menu —, e
+            // mantemos a posse para o effect de recuperação reposicionar (issue #177).
+            if (next) boardOwnsFocusRef.current = false;
           }
         }}
       >
         <div id="kanban-instructions" className="sr-only">
           {t(
             'tasklist.kanban.instructions',
-            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre detalhes. Shift+F10 abre o menu.',
+            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Início e Fim vão ao primeiro e último card da coluna; Ctrl+Início e Ctrl+Fim vão ao primeiro e último card do quadro. Page Up e Page Down saltam 10 cards na coluna. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre os detalhes do card. Shift+F10 ou a tecla Menu abrem o menu de contexto.',
           )}
         </div>
 
@@ -700,6 +1042,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                               task.creatorName && `${t('tasklist.creator', 'Criador')}: ${task.creatorName}`,
                               status?.label ?? '',
                               `${rowIdx + 1} ${t('tasklist.kanban.of', 'de')} ${columnTasks.length}`,
+                              formatCardCreatedAt(task),
                             ].filter(Boolean).join('. ')}
                           </span>
                           {renamingTaskId === task.id ? (

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +8,7 @@ import { openTaskLink } from '../../lib/deepLinks';
 import { Button } from '../ui/Button';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Modal } from '../ui/Modal';
+import { useConfirm } from '../../hooks/useConfirm';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
 import TaskForm from './TaskForm';
 import TaskDetailModal from './TaskDetailModal';
@@ -35,6 +37,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
 }, ref) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const { deleteTask, promoteTask, demoteTask } = useTaskListStore();
 
   const handleLinkClick = useCallback((e: React.MouseEvent, link: string) => {
@@ -85,15 +88,20 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!confirm(t('tasklist.confirmDeleteTask', 'Tem certeza que deseja deletar esta tarefa?'))) {
-      return;
-    }
+    const ok = await confirm({
+      title: t('tasklist.deleteTaskTitle', 'Excluir tarefa'),
+      message: t('tasklist.confirmDeleteTask', 'Tem certeza que deseja deletar esta tarefa?'),
+      confirmText: t('common.delete', 'Excluir'),
+      cancelText: t('common.cancel', 'Cancelar'),
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     try {
       await deleteTask(taskId);
       onTaskDeleted?.(taskId);
     } catch (error) {
-      console.error('Erro ao deletar tarefa:', error);
+      logger.error('Erro ao deletar tarefa:', error);
     }
   };
 

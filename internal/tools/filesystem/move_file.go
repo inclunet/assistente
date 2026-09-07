@@ -22,17 +22,22 @@ func NewMoveFile(workDir string) *MoveFileTool {
 
 func (t *MoveFileTool) Name() string { return "move_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *MoveFileTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *MoveFileTool) Description() string {
-	return "Moves or renames a file on disk. Renaming is just moving within the same directory. By default it fails if destination exists unless overwrite=true."
+	return "Move or rename one existing file. Use to change a file's path without keeping the source; renaming is a move within the same directory. Do not use for directories, to keep the source (use copy_file), or to change file contents. The destination must not exist unless overwrite is explicitly true; overwriting can destroy a file. Risk: write."
 }
 
 func (t *MoveFileTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"from": {"type": "string", "description": "Path de origem (absoluto ou relativo ao diretório de trabalho)"},
-			"to": {"type": "string", "description": "Path de destino (absoluto ou relativo ao diretório de trabalho)"},
-			"overwrite": {"type": "boolean", "description": "Se true, sobrescreve o destino se existir. Padrão: false"}
+			"from": {"type": "string", "description": "Existing source file, absolute or relative to the working directory; it is removed after a successful move."},
+			"to": {"type": "string", "description": "Destination file path, absolute or relative to the working directory; this tool does not move directories."},
+			"overwrite": {"type": "boolean", "description": "Whether to replace an existing destination file; defaults to false. Set true only when replacement is intentional."}
 		},
 		"required": ["from", "to"],
 		"additionalProperties": false
@@ -76,8 +81,8 @@ func (t *MoveFileTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	}
 
 	// Validate safety
-	// Move usa operações específicas para que isOpenEditorAllowed bloqueie corretamente
-	// (move_from/move_to não estão na allowlist de open editors).
+	// Move usa operações específicas (move_from/move_to) para que a autorização
+	// e o bloqueio de sensíveis sejam avaliados por ponta do movimento (AEP-0092).
 	if err := validatePathWithPolicy(ctx, fullFrom, t.workDir, ToolPolicy(), "move_from"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}

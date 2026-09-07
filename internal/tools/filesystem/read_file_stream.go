@@ -1,0 +1,181 @@
+package filesystem
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"assistente/internal/docextract"
+	"assistente/internal/tools"
+)
+
+// A partir deste tamanho, um recorte por linhas de arquivo de texto é lido em
+// streaming, sem materializar o conteúdo inteiro (AEP-0093, D8).
+const streamTextMinBytes = 4 << 20
+
+// Linha maior que isto significa que o arquivo não é realmente "linhas"; servir
+// o recorte exigiria carregar tudo em memória, então a leitura falha.
+const maxStreamLineBytes = 16 << 20
+
+// Tamanho do bloco lido por vez; também limita quanto uma única leitura aloca.
+const streamBufferBytes = 64 << 10
+
+var errStreamLineTooLong = errors.New("linha longa demais para leitura em streaming")
+
+// scanTextLines percorre as linhas do arquivo com a mesma semântica de
+// strings.Split(conteúdo, "\n"): arquivo terminado em nova linha tem uma última
+// linha vazia, e o "\r" de CRLF é preservado. visit devolve false para parar.
+func scanTextLines(fullPath string, visit func(idx int, line string) bool) error {
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	r := bufio.NewReaderSize(f, streamBufferBytes)
+	for idx := 0; ; idx++ {
+		line, atEOF, err := readStreamLine(r)
+		if err != nil {
+			return err
+		}
+		if atEOF {
+			visit(idx, line)
+			return nil
+		}
+		if !visit(idx, line) {
+			return nil
+		}
+	}
+}
+
+// readStreamLine lê uma linha em blocos do tamanho do buffer, abortando assim que
+// o acumulado passa do teto — assim uma "linha" gigante nunca é materializada.
+func readStreamLine(r *bufio.Reader) (line string, atEOF bool, err error) {
+	var b strings.Builder
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if b.Len()+len(chunk) > maxStreamLineBytes {
+			return "", false, errStreamLineTooLong
+		}
+		b.Write(chunk)
+		switch {
+		case err == nil:
+			return strings.TrimSuffix(b.String(), "\n"), false, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			return b.String(), true, nil
+		default:
+			return "", false, err
+		}
+	}
+}
+
+// streamFailure decide o que fazer quando o streaming não conclui. Linha longa
+// demais vira erro: cair no caminho que lê tudo reintroduziria justamente o pico
+// de memória que o streaming evita. Outras falhas devolvem o controle ao
+// chamador, que ainda pode reportar o erro de leitura como antes.
+func streamFailure(err error, size int64) (tools.ToolResult, bool) {
+	if errors.Is(err, errStreamLineTooLong) {
+		return tools.ToolResult{
+			Content: fmt.Sprintf(
+				"arquivo de %d bytes tem linha maior que %d bytes; recorte por linhas não é possível sem carregar tudo em memória",
+				size, maxStreamLineBytes,
+			),
+			IsError: true,
+		}, true
+	}
+	return tools.ToolResult{}, false
+}
+
+// readTextSliceStreaming devolve o recorte pedido de um arquivo de texto grande
+// sem carregar tudo em memória. handled=false significa que o chamador deve
+// seguir pelo caminho normal.
+func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg, limitArg *int, mode docextract.Mode) (result tools.ToolResult, handled bool) {
+	if size < streamTextMinBytes || (offsetArg == nil && limitArg == nil) {
+		return tools.ToolResult{}, false
+	}
+	prefix, err := readFilePrefix(fullPath, docextract.DetectPrefixBytes)
+	if err != nil {
+		return tools.ToolResult{}, false
+	}
+	// Só serve o recorte em streaming quem sai como texto: quando há projeção, as
+	// linhas são as do Markdown derivado, que só existe depois de extrair tudo.
+	kind := docextract.Detect(prefix, displayPath)
+	if willProject(kind, mode) || !docextract.IsWritableText(kind) {
+		return tools.ToolResult{}, false
+	}
+
+	// A classificação viu só o prefixo, mas quem lê o arquivo pequeno inteiro
+	// recusa o conteúdo ao encontrar um byte NUL em qualquer posição. A primeira
+	// passada já percorre tudo para contar linhas, então aplicar a mesma regra
+	// aqui custa pouco e evita que o mesmo arquivo passe por ser grande.
+	totalLines := 0
+	if err := scanTextLines(fullPath, func(_ int, line string) bool {
+		if strings.IndexByte(line, 0) >= 0 {
+			totalLines = -1
+			return false
+		}
+		totalLines++
+		return true
+	}); err != nil {
+		return streamFailure(err, size)
+	}
+	if totalLines < 0 {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("%s tem conteúdo binário (byte NUL) apesar da extensão; não é lido como texto", displayPath),
+			IsError: true,
+		}, true
+	}
+
+	offset := 0
+	if offsetArg != nil {
+		offset = *offsetArg
+	}
+	if offset < 0 {
+		offset = totalLines + offset
+		if offset < 0 {
+			offset = 0
+		}
+	} else if offset > 0 {
+		offset--
+	}
+	if offset >= totalLines {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Offset %d excede o número de linhas (%d)", *offsetArg, totalLines),
+			IsError: true,
+		}, true
+	}
+
+	end := totalLines
+	if limitArg != nil && *limitArg > 0 {
+		end = offset + *limitArg
+		if end > totalLines {
+			end = totalLines
+		}
+	}
+
+	numbered := make([]string, 0, end-offset)
+	if err := scanTextLines(fullPath, func(idx int, line string) bool {
+		if idx >= offset && idx < end {
+			numbered = append(numbered, fmt.Sprintf("%6d|%s", idx+1, line))
+		}
+		return idx+1 < end
+	}); err != nil {
+		return streamFailure(err, size)
+	}
+
+	header := fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n", displayPath, offset+1, end, totalLines)
+	return tools.ToolResult{
+		Content: header + strings.Join(numbered, "\n"),
+		Metadata: map[string]any{
+			"size_bytes":  size,
+			"total_lines": totalLines,
+			"offset":      offset + 1,
+			"limit":       end - offset,
+		},
+	}, true
+}

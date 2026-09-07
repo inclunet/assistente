@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"assistente/internal/database"
 )
 
 // captureTransport é um RoundTripper de teste que captura o request
@@ -88,6 +90,44 @@ func TestTransport_PlaceholderReplacedNotSent(t *testing.T) {
 	}
 }
 
+func TestTransport_UsesRequestContextUserScope(t *testing.T) {
+	mgr := newTestManager(t)
+	userCtx := database.WithUserID(t.Context(), "user-1")
+	otherCtx := database.WithUserID(t.Context(), "user-2")
+	if err := mgr.RegisterPatternWithContext(userCtx, "llm.inclunet.com.br", &AuthConfig{
+		Type:  "bearer",
+		Token: "sk-user-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RegisterPatternWithContext(otherCtx, "llm.inclunet.com.br", &AuthConfig{
+		Type:  "bearer",
+		Token: "sk-user-2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	capture := &captureTransport{}
+	transport := &CredentialTransport{
+		Base:        capture,
+		CredMgr:     mgr,
+		CredPattern: "llm.inclunet.com.br",
+	}
+
+	req := httptest.NewRequest("POST", "http://llm.inclunet.com.br/v1/responses", nil).WithContext(userCtx)
+	req.Header.Set("Authorization", "Bearer managed-by-credential-transport")
+
+	_, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := capture.captured.Header.Get("Authorization")
+	if got != "Bearer sk-user-1" {
+		t.Errorf("Authorization = %q, esperado %q", got, "Bearer sk-user-1")
+	}
+}
+
 func TestTransport_BasicAuth(t *testing.T) {
 	mgr := newTestManager(t)
 	if err := mgr.RegisterPattern("basic.example.com", &AuthConfig{
@@ -125,7 +165,7 @@ func TestTransport_CustomHeaders(t *testing.T) {
 	if err := mgr.RegisterPattern("custom.example.com", &AuthConfig{
 		Type: "custom",
 		Headers: map[string]string{
-			"X-Api-Key":    "key123",
+			"X-Api-Key":     "key123",
 			"X-Custom-Auth": "secret",
 		},
 	}); err != nil {
@@ -179,6 +219,30 @@ func TestTransport_NoCredentialFallthrough(t *testing.T) {
 	}
 }
 
+func TestTransport_NoCredentialWithManagedPlaceholderReturnsError(t *testing.T) {
+	mgr := newTestManager(t)
+	capture := &captureTransport{}
+	transport := &CredentialTransport{
+		Base:        capture,
+		CredMgr:     mgr,
+		CredPattern: "llm.inclunet.com.br",
+	}
+
+	req := httptest.NewRequest("POST", "http://llm.inclunet.com.br/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer managed-by-credential-transport")
+
+	resp, err := transport.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected unresolved managed credential error")
+	}
+	if resp != nil {
+		t.Fatalf("expected nil response, got %+v", resp)
+	}
+	if capture.captured != nil {
+		t.Fatal("request with unresolved managed credential should not reach base transport")
+	}
+}
+
 func TestTransport_NilManagerFallthrough(t *testing.T) {
 	capture := &captureTransport{}
 	transport := &CredentialTransport{
@@ -220,16 +284,15 @@ func TestTransport_EmptyTokenNotInjected(t *testing.T) {
 	req := httptest.NewRequest("GET", "https://empty.example.com/api", nil)
 	req.Header.Set("Authorization", "Bearer managed-by-credential-transport")
 
-	_, err := transport.RoundTrip(req)
-	if err != nil {
-		t.Fatal(err)
+	resp, err := transport.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected unresolved managed credential error for empty token")
 	}
-
-	// Com token vazio, o placeholder original fica (não substituído)
-	// Este é exatamente o cenário do bug: token_enc perdido na migração → token vazio → placeholder enviado
-	got := capture.captured.Header.Get("Authorization")
-	if got != "Bearer managed-by-credential-transport" {
-		t.Errorf("com token vazio, header deveria ficar inalterado, obteve %q", got)
+	if resp != nil {
+		t.Fatalf("expected nil response, got %+v", resp)
+	}
+	if capture.captured != nil {
+		t.Fatal("request with empty managed credential should not reach base transport")
 	}
 }
 

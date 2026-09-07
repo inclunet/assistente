@@ -3,6 +3,7 @@
  * Hook React para integração com o serviço de Text-to-Speech com múltiplos provedores
  */
 
+import { logger } from '../utils/logger';
 import { useEffect, useState, useCallback } from 'react';
 import { ttsService, TTSConfig } from '../services/tts';
 import { TTSVoice } from '../services/tts/types';
@@ -11,7 +12,7 @@ interface UseTTSReturn {
   stop: () => void;
   pause: () => void;
   resume: () => void;
-  speakWithOverride: (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }) => Promise<void>;
+  speakWithOverride: (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string; language?: string }) => Promise<void>;
   isSpeaking: boolean;
   isEnabled: boolean;
   isAutoReadEnabled: boolean;
@@ -41,7 +42,7 @@ export function useTTS(): UseTTSReturn {
         const allVoices = await ttsService.getVoices();
         setVoices(allVoices);
       } catch (error) {
-        console.error('[useTTS] Error loading voices:', error);
+        logger.error('[useTTS] Error loading voices:', error);
       }
     };
     
@@ -82,7 +83,7 @@ export function useTTS(): UseTTSReturn {
     ttsService.resume();
   }, []);
 
-  const speakWithOverride = useCallback(async (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }) => {
+  const speakWithOverride = useCallback(async (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string; language?: string }) => {
     await ttsService.speakWithOverride(text, options);
   }, []);
   
@@ -115,7 +116,7 @@ export function useTTS(): UseTTSReturn {
       const allVoices = await ttsService.getVoices();
       setVoices(allVoices);
     } catch (error) {
-      console.error('[useTTS] Error reloading voices:', error);
+      logger.error('[useTTS] Error reloading voices:', error);
     }
   }, []);
   

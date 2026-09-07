@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from './Modal';
+import { DialogActions } from './DialogActions';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import {
+  questionnaireOptionValue,
+  resolveQuestionnaireText,
+  type QuestionnaireText,
+} from '../../lib/questionnaireText';
 import './QuestionnaireDialog.css';
 
 export type QuestionnaireQuestionType =
@@ -14,37 +22,86 @@ export type QuestionnaireQuestionType =
   | 'date'
   | 'readonly_code';
 
+/**
+ * Os textos visíveis são QuestionnaireText: chave de tradução com o texto
+ * pronto do backend, ou só o texto quando não há o que traduzir (AEP-0085).
+ * `content` é conteúdo cru (diff, comando, caminho) e `default` aponta para o
+ * valor estável da opção, nunca para o rótulo traduzido.
+ */
 export interface QuestionnaireQuestion {
   id: string;
   type: QuestionnaireQuestionType;
-  prompt: string;
-  description?: string;
+  prompt: QuestionnaireText;
+  description?: QuestionnaireText;
   content?: string;
   required?: boolean;
-  options?: string[];
+  options?: QuestionnaireText[];
   min?: number;
   max?: number;
   step?: number;
-  placeholder?: string;
+  placeholder?: QuestionnaireText;
   default?: string | number | boolean | string[];
+  /** Recebe o foco inicial quando o diálogo abre (apenas o primeiro marcado). */
+  autoFocus?: boolean;
+}
+
+export interface QuestionnaireRejectReason {
+  id: string;
+  label: QuestionnaireText;
+  placeholder?: QuestionnaireText;
+  maxLen?: number;
 }
 
 export interface QuestionnairePayload {
   id: string;
-  title?: string;
-  description?: string;
+  /** AEP-0091: "decision" renderiza DecisionDialog em vez do formulário. */
+  kind?: string;
+  title?: QuestionnaireText;
+  description?: QuestionnaireText;
+  /** Conteúdo só leitura (comando, URL, ação ACP). */
+  body?: string;
+  /** Texto traduzível secundário (ex.: hint de skill host). */
+  hint?: QuestionnaireText;
+  actions?: QuestionnaireDecisionAction[];
   questions: QuestionnaireQuestion[];
   allowCancel?: boolean;
-  submitLabel?: string;
-  cancelLabel?: string;
+  submitLabel?: QuestionnaireText;
+  cancelLabel?: QuestionnaireText;
+  /**
+   * Motivo opcional ao rejeitar — só o DecisionDialog renderiza (confirmação
+   * de edição). O QuestionnaireDialog de formulário ignora este campo.
+   */
+  rejectReason?: QuestionnaireRejectReason;
   createdAt?: string;
+}
+
+export interface QuestionnaireDecisionAction {
+  id: string;
+  label: QuestionnaireText;
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
+  shortcut?: QuestionnaireText;
+  primary?: boolean;
+}
+
+export function isDecisionQuestionnaire(
+  data: QuestionnairePayload | null | undefined,
+): data is QuestionnairePayload & {
+  kind: 'decision';
+  actions: [QuestionnaireDecisionAction, ...QuestionnaireDecisionAction[]];
+} {
+  return (
+    !!data &&
+    data.kind === 'decision' &&
+    Array.isArray(data.actions) &&
+    data.actions.length > 0
+  );
 }
 
 export interface QuestionnaireDialogProps {
   isOpen: boolean;
   data: QuestionnairePayload | null;
   onSubmit: (answers: Record<string, unknown>) => void;
-  onCancel?: () => void;
+  onCancel?: (answers?: Record<string, unknown>) => void;
 }
 
 function isEmptyValue(value: unknown, type: QuestionnaireQuestionType): boolean {
@@ -58,16 +115,42 @@ function isEmptyValue(value: unknown, type: QuestionnaireQuestionType): boolean 
 }
 
 export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: QuestionnaireDialogProps) {
+  const { announce } = useAnnouncer();
+  const { t } = useTranslation();
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const allowCancel = data?.allowCancel !== false;
-  const title = data?.title || 'Questionário';
-  const description = data?.description || '';
-  const submitLabel = data?.submitLabel || 'Enviar';
-  const cancelLabel = data?.cancelLabel || 'Cancelar';
+  const title = resolveQuestionnaireText(t, data?.title, t('ui.questionnaire.defaultTitle', 'Questionário'));
+  const description = resolveQuestionnaireText(t, data?.description);
+  const submitLabel = resolveQuestionnaireText(t, data?.submitLabel, t('ui.questionnaire.submit', 'Enviar'));
+  const cancelLabel = resolveQuestionnaireText(t, data?.cancelLabel, t('ui.questionnaire.cancel', 'Cancelar'));
 
   const questions = useMemo(() => data?.questions || [], [data]);
+
+  // Diálogos com blocos readonly_code (confirmação de edição Antes/Depois,
+  // diff de conflito, consentimento de rede) são de leitura pesada: o Modal
+  // recebe readingMode (role="document"), fazendo o NVDA entrar em modo de
+  // navegação e permitir leitura linha a linha com as setas. Questionários
+  // só de formulário mantêm role="application" (modo de foco).
+  const hasReadonlyCode = useMemo(
+    () => questions.some((q) => q.type === 'readonly_code'),
+    [questions]
+  );
+
+  // Pergunta marcada pelo backend/UI para receber o foco inicial (ex.: bloco
+  // "Depois" no editor, ou o primeiro rádio de uma escolha).
+  // Perguntas de escolha (boolean/single_choice/multiple_choice) não têm
+  // elemento com id `question-<id>`; nelas o alvo é o primeiro input do grupo.
+  const initialFocusSelector = useMemo(() => {
+    const target = questions.find((q) => q.autoFocus);
+    if (!target) return undefined;
+    const escapedId = CSS.escape(target.id);
+    if (target.type === 'boolean' || target.type === 'single_choice' || target.type === 'multiple_choice') {
+      return `input[name="question-${escapedId}"]`;
+    }
+    return `#question-${escapedId}`;
+  }, [questions]);
 
   useEffect(() => {
     if (!isOpen || !data) return;
@@ -81,18 +164,32 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     setErrors({});
   }, [isOpen, data]);
 
+  useEffect(() => {
+    if (!isOpen || !data) return;
+    const message = [title, description].filter(Boolean).join('. ');
+    if (message) {
+      announce(message, 'assertive');
+    }
+  }, [isOpen, data, title, description, announce]);
+
   const handleSubmit = () => {
     if (!data) return;
 
     const nextErrors: Record<string, string> = {};
     for (const q of questions) {
       if (q.required && isEmptyValue(answers[q.id], q.type)) {
-        nextErrors[q.id] = 'Resposta obrigatória';
+        nextErrors[q.id] = t('ui.questionnaire.requiredAnswer', 'Resposta obrigatória');
       }
     }
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      const errorMessages = questions
+        .filter((q) => nextErrors[q.id])
+        .map((q) => `${resolveQuestionnaireText(t, q.prompt)}: ${nextErrors[q.id]}`);
+      if (errorMessages.length > 0) {
+        announce(errorMessages.join('. '), 'assertive');
+      }
       return;
     }
 
@@ -102,7 +199,8 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
 
   const handleCancel = () => {
     if (!allowCancel) return;
-    if (onCancel) onCancel();
+    if (!onCancel) return;
+    onCancel();
   };
 
   const updateAnswer = (id: string, value: unknown) => {
@@ -118,13 +216,20 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   if (!data) return null;
 
   return (
+    // key={data.id}: questionários em fila trocam o `data` sem o Modal
+    // fechar/remontar; sem a key, o efeito de foco inicial não roda de novo e
+    // o segundo diálogo abre com o foco perdido. A remontagem refaz o
+    // register/unregister na stack do modalRegistry e reaplica o foco inicial.
     <Modal
+      key={data.id}
       isOpen={isOpen}
       onClose={handleCancel}
       title={title}
       size="lg"
       returnFocusOnClose={false}
       allowClose={allowCancel}
+      readingMode={hasReadonlyCode}
+      initialFocusSelector={initialFocusSelector}
     >
       {description && <p className="questionnaire-dialog__description">{description}</p>}
 
@@ -138,6 +243,12 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           if (e.key !== 'Enter') return;
           if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
           if (e.target instanceof HTMLTextAreaElement) return;
+          // Enter com foco no bloco readonly_code (<pre>) não deve submeter:
+          // o usuário está apenas lendo/navegando pelo conteúdo.
+          if (e.target instanceof HTMLPreElement) return;
+          // Enter em botões segue a ativação nativa (ex.: "Rejeitar" deve
+          // cancelar, não submeter o formulário).
+          if (e.target instanceof HTMLButtonElement) return;
           e.preventDefault();
           handleSubmit();
         }}
@@ -153,6 +264,14 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           const answerArray = Array.isArray(answer) ? answer : [];
           const answerBoolean = typeof answer === 'boolean' ? answer : undefined;
           const scaleValue = typeof answer === 'number' ? answer : (q.min ?? 1);
+          const prompt = resolveQuestionnaireText(t, q.prompt);
+          const hint = resolveQuestionnaireText(t, q.description);
+          const placeholder = resolveQuestionnaireText(t, q.placeholder) || undefined;
+          // Rótulo traduzido para a tela; valor estável para a resposta.
+          const options = (q.options || []).map((option) => ({
+            value: questionnaireOptionValue(option),
+            label: resolveQuestionnaireText(t, option),
+          }));
 
           return (
           <div key={q.id} className="questionnaire-dialog__question">
@@ -162,9 +281,9 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 className="questionnaire-dialog__label"
                 {...(controlId ? { htmlFor: controlId } : {})}
               >
-                {index + 1}. {q.prompt}{q.required ? ' *' : ''}
+                {index + 1}. {prompt}{q.required ? ' *' : ''}
               </label>
-              {q.description && <div className="questionnaire-dialog__hint">{q.description}</div>}
+              {hint && <div className="questionnaire-dialog__hint">{hint}</div>}
             </div>
 
             {q.type === 'text' && (
@@ -172,7 +291,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 id={`question-${q.id}`}
                 type="text"
                 value={answerText}
-                placeholder={q.placeholder}
+                placeholder={placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__input"
                 autoFocus={index === 0}
@@ -184,7 +303,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 id={`question-${q.id}`}
                 type="password"
                 value={answerText}
-                placeholder={q.placeholder}
+                placeholder={placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__input"
                 autoFocus={index === 0}
@@ -195,7 +314,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <textarea
                 id={`question-${q.id}`}
                 value={answerText}
-                placeholder={q.placeholder}
+                placeholder={placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__textarea"
                 rows={4}
@@ -204,6 +323,10 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             )}
 
             {q.type === 'readonly_code' && (
+              // Conteúdo estático: com o readingMode do Modal (role="document"),
+              // o NVDA lê o bloco linha a linha em modo de navegação, sem
+              // depender de caret. O tabIndex mantém uma parada de Tab para
+              // orientação; role="region" dá nome acessível via aria-labelledby.
               <pre
                 id={`question-${q.id}`}
                 className="questionnaire-dialog__readonly"
@@ -223,7 +346,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 min={q.min}
                 max={q.max}
                 step={q.step}
-                placeholder={q.placeholder}
+                placeholder={placeholder}
                 onChange={(e) => {
                   const value = e.target.value;
                   updateAnswer(q.id, value === '' ? '' : Number(value));
@@ -259,69 +382,77 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             )}
 
             {q.type === 'boolean' && (
-              <div className="questionnaire-dialog__options" role="radiogroup" aria-label={q.prompt}>
-                {['Sim', 'Não'].map((label) => (
-                  <label key={label} className="questionnaire-dialog__option">
+              <div className="questionnaire-dialog__options" role="radiogroup" aria-label={prompt}>
+                {[
+                  { value: true, label: t('ui.questionnaire.yes', 'Sim') },
+                  { value: false, label: t('ui.questionnaire.no', 'Não') },
+                ].map((opt) => (
+                  <label key={String(opt.value)} className="questionnaire-dialog__option">
                     <input
                       type="radio"
                       name={`question-${q.id}`}
-                      checked={answerBoolean === (label === 'Sim')}
-                      onChange={() => updateAnswer(q.id, label === 'Sim')}
+                      checked={answerBoolean === opt.value}
+                      onChange={() => updateAnswer(q.id, opt.value)}
                     />
-                    <span>{label}</span>
+                    <span>{opt.label}</span>
                   </label>
                 ))}
               </div>
             )}
 
             {(q.type === 'single_choice' || q.type === 'multiple_choice') && (
-              <div className="questionnaire-dialog__options" role={q.type === 'single_choice' ? 'radiogroup' : 'group'} aria-label={q.prompt}>
-                {(q.options || []).map((opt) => {
+              <div className="questionnaire-dialog__options" role={q.type === 'single_choice' ? 'radiogroup' : 'group'} aria-label={prompt}>
+                {options.map((opt) => {
                   const selected = q.type === 'multiple_choice'
-                    ? answerArray.includes(opt)
-                    : answer === opt;
+                    ? answerArray.includes(opt.value)
+                    : answer === opt.value;
 
                   return (
-                    <label key={opt} className="questionnaire-dialog__option">
+                    <label key={opt.value} className="questionnaire-dialog__option">
                       <input
                         type={q.type === 'single_choice' ? 'radio' : 'checkbox'}
                         name={`question-${q.id}`}
                         checked={selected}
                         onChange={(e) => {
                           if (q.type === 'single_choice') {
-                            updateAnswer(q.id, opt);
+                            updateAnswer(q.id, opt.value);
                             return;
                           }
                           const current = answerArray;
                           if (e.target.checked) {
-                            updateAnswer(q.id, [...current, opt]);
+                            updateAnswer(q.id, [...current, opt.value]);
                           } else {
-                            updateAnswer(q.id, current.filter((v: string) => v !== opt));
+                            updateAnswer(q.id, current.filter((v: string) => v !== opt.value));
                           }
                         }}
                       />
-                      <span>{opt}</span>
+                      <span>{opt.label}</span>
                     </label>
                   );
                 })}
               </div>
             )}
 
-            {errors[q.id] && <div className="questionnaire-dialog__error" role="alert">{errors[q.id]}</div>}
+            {errors[q.id] && <div className="questionnaire-dialog__error">{errors[q.id]}</div>}
           </div>
           );
         })}
 
-        <div className="questionnaire-dialog__footer">
-          {allowCancel && (
-            <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
-              {cancelLabel}
+        <DialogActions
+          className="questionnaire-dialog__footer"
+          primary={
+            <button type="submit" className="questionnaire-dialog__button primary">
+              {submitLabel}
             </button>
-          )}
-          <button type="submit" className="questionnaire-dialog__button primary">
-            {submitLabel}
-          </button>
-        </div>
+          }
+          secondary={
+            allowCancel ? (
+              <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
+                {cancelLabel}
+              </button>
+            ) : undefined
+          }
+        />
       </form>
     </Modal>
   );

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"assistente/internal/contacts"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/textutil"
 )
 
 type fakeMessenger struct {
@@ -65,6 +67,8 @@ func TestMain(m *testing.M) {
 	if err := database.Init(); err != nil {
 		panic(err)
 	}
+	channels.UseDatabase(database.DB())
+	contacts.UseDatabase(database.DB())
 
 	code := m.Run()
 
@@ -85,27 +89,46 @@ func resetState(t *testing.T) {
 	if err := db.Exec("DELETE FROM conversations").Error; err != nil {
 		t.Fatalf("erro ao limpar conversations: %v", err)
 	}
+	if err := db.Exec("DELETE FROM channel_contact_conversations").Error; err != nil {
+		t.Fatalf("erro ao limpar channel_contact_conversations: %v", err)
+	}
+	if err := db.Exec("DELETE FROM channel_contacts").Error; err != nil {
+		t.Fatalf("erro ao limpar channel_contacts: %v", err)
+	}
+	if err := db.Exec("DELETE FROM channels").Error; err != nil {
+		t.Fatalf("erro ao limpar channels: %v", err)
+	}
 
+	channels.ClearOwnerCache()
 	_ = channels.Delete("telegram")
 	_ = channels.Delete("signal")
+	_ = channels.Delete("slack")
 	_ = contacts.RemoveAll("telegram")
 	_ = contacts.RemoveAll("signal")
+	_ = contacts.RemoveAll("slack")
 }
 
-func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
+func TestGateway_UnauthorizedContactSendsPairingCodeWithoutLLM(t *testing.T) {
 	resetState(t)
 
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+
 	notifier := NewResponseNotifier()
+	defer notifier.Stop()
 
 	var emitted []string
 	emitEvent := func(event string, data any) {
 		emitted = append(emitted, event)
 	}
 
-	gateway := NewGateway(notifier, func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		t.Fatalf("sendMessage não deveria ser chamado para contato não autorizado")
 		return "", nil
 	}, emitEvent, nil, nil, nil)
+	gateway.Register("telegram", fake)
 
 	incoming := IncomingMessage{
 		ID:      "msg-1",
@@ -120,15 +143,340 @@ func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 
 	gateway.handleIncoming(context.Background(), incoming)
 
-	if len(emitted) != 0 {
-		t.Fatalf("não esperava eventos, got=%v", emitted)
+	if len(emitted) != 1 || emitted[0] != "messaging:pairing_pending" {
+		t.Fatalf("esperava messaging:pairing_pending, got=%v", emitted)
+	}
+	select {
+	case msg := <-fake.sentCh:
+		if msg.ChatID != "123" || msg.Text == "" {
+			t.Fatalf("código de pareamento não enviado: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout esperando código de pareamento")
+	}
+}
+
+func TestGateway_PairingByContactReply(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	var emitted []string
+	emitEvent := func(event string, data any) {
+		emitted = append(emitted, event)
+	}
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 4)}
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		t.Fatalf("sendMessage não deveria processar o código de pareamento")
+		return "", nil
+	}, emitEvent, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-1", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text: "Oi",
+	})
+	select {
+	case <-fake.sentCh: // pairing code
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout no código inicial")
+	}
+
+	pending := contacts.GetPairingCode("telegram", "123")
+	if pending == nil {
+		t.Fatal("código pendente esperado")
+	}
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-2", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text: pending.Code,
+	})
+
+	has, allowed := contacts.IsAuthorized("telegram", 1, "123")
+	if !has || !allowed {
+		t.Fatalf("contato deveria estar autorizado após código correto")
+	}
+
+	foundAuth := false
+	for _, ev := range emitted {
+		if ev == "messaging:contact_authorized" {
+			foundAuth = true
+		}
+	}
+	if !foundAuth {
+		t.Fatalf("esperava messaging:contact_authorized, got=%v", emitted)
+	}
+}
+
+func TestGateway_PendingPairingIgnoresNonCodeWithoutConsumingAttempts(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 4)}
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		t.Fatalf("sendMessage não deveria ser chamado")
+		return "", nil
+	}, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-1", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano"},
+		Text: "Oi",
+	})
+	select {
+	case <-fake.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout no código inicial")
+	}
+
+	pending := contacts.GetPairingCode("telegram", "123")
+	if pending == nil {
+		t.Fatal("código pendente esperado")
+	}
+	if pending.Attempts != 0 {
+		t.Fatalf("attempts iniciais = %d, want 0", pending.Attempts)
+	}
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-2", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano"},
+		Text: "oi de novo",
+	})
+	select {
+	case <-fake.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout no lembrete de código")
+	}
+
+	pending = contacts.GetPairingCode("telegram", "123")
+	if pending == nil {
+		t.Fatal("código pendente deveria permanecer")
+	}
+	if pending.Attempts != 0 {
+		t.Fatalf("mensagem livre não deveria consumir tentativa; attempts=%d", pending.Attempts)
+	}
+}
+
+func TestGateway_ReplyChatIDUsedForOutbound(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("slack", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("slack", "U123", "Fulano", "U123", 1); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	fake := &fakeMessenger{name: "slack", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	sendDone := make(chan struct{})
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		go func() {
+			notifier.NotifyContext(ctx, conversationID, "resposta", "asst-1")
+			close(sendDone)
+		}()
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+	gateway.Register("slack", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-1", Channel: "slack",
+		From:        Contact{ID: "U123", DisplayName: "Fulano", Username: "U123"},
+		ReplyChatID: "C999",
+		Text:        "Oi",
+	})
+
+	select {
+	case <-sendDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout sendMessage")
+	}
+	select {
+	case msg := <-fake.sentCh:
+		if msg.ChatID != "C999" {
+			t.Fatalf("esperava ReplyChatID C999 no outbound, got %q", msg.ChatID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout outbound")
+	}
+
+	if got := channels.GetReplyChatID("slack", "U123"); got != "C999" {
+		t.Fatalf("ReplyChatID persistido = %q, want C999", got)
+	}
+}
+
+// TestGateway_LegacyChannelWithoutOwnerRejectsMessage valida que mensagens de
+// canais sem OwnerUserID (config pré-AEP-0052) são rejeitadas com log em vez
+// de criar conversas órfãs invisíveis. Sem esse fail-closed, qualquer canal
+// legado seguia recebendo mensagens silenciosamente — o usuário enxergava
+// "tudo OK" na UI mas o conteúdo nunca aparecia. Blocker D do re-review do
+// AEP-0052: o fix completo (migração de OwnerUserID em AdoptLegacyData) virá
+// depois; até lá, falhar fechado é melhor que vazar para órfão.
+func TestGateway_LegacyChannelWithoutOwnerRejectsMessage(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	called := 0
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	var emittedEvents []string
+	emitEvent := func(event string, data any) {
+		emittedEvents = append(emittedEvents, event)
+	}
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		called++
+		return conversationID, nil
+	}, emitEvent, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID:      "msg-legacy",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	})
+
+	if called != 0 {
+		t.Fatalf("sendMessage não deveria ser chamado para canal sem OwnerUserID, called=%d", called)
+	}
+
+	// M13: valida que callback NÃO foi registrado (antes era um silent
+	// failure — o handler retornava sem cancelar nada porque também não
+	// registrava. Hoje permanece sem callback, mas sem cobertura podia
+	// regredir).
+	if notifier.PendingCount() != 0 {
+		t.Fatalf("canal legado registrou callback (pending=%d) — gateway deveria rejeitar antes do Register", notifier.PendingCount())
+	}
+
+	// M8: evento legacy_channel_dropped é emitido para o frontend.
+	foundDropped := false
+	for _, ev := range emittedEvents {
+		if ev == "messaging:legacy_channel_dropped" {
+			foundDropped = true
+			break
+		}
+	}
+	if !foundDropped {
+		t.Fatalf("esperava evento messaging:legacy_channel_dropped, got=%v", emittedEvents)
+	}
+
+	// M8: aviso enviado ao remetente externo via fakeMessenger.
+	select {
+	case msg := <-fake.sentCh:
+		if msg.ChatID != "123" {
+			t.Fatalf("aviso enviado para ChatID errado: %q", msg.ChatID)
+		}
+		if msg.Text == "" {
+			t.Fatalf("aviso de canal legado vazio")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout esperando aviso de canal legado para o remetente")
+	}
+}
+
+// TestGateway_SendMessageErrorCancelsCallback cobre B7 do review da
+// Fatia 2: quando sendMessage retorna erro, o callback registrado
+// para a conversa deve ser cancelado imediatamente — antes ficava
+// pendurado para sempre, virando leak crescente.
+func TestGateway_SendMessageErrorCancelsCallback(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		return conversationID, fmt.Errorf("falha simulada")
+	}, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID:      "msg-err",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	})
+
+	// Drena o aviso enviado ao remetente para não bloquear o fakeMessenger.
+	select {
+	case <-fake.sentCh:
+	case <-time.After(time.Second):
+		t.Fatalf("aviso de erro não enviado ao remetente")
+	}
+
+	if notifier.PendingCount() != 0 {
+		t.Fatalf("callback não cancelado após erro de sendMessage — leak (pending=%d)", notifier.PendingCount())
+	}
+}
+
+// TestGateway_UnregisterCancelsPendingCallbacks cobre B7. Quando um
+// canal é desregistrado (ex.: usuário desabilitou Telegram em
+// settings), callbacks pendentes daquele canal não podem ficar
+// pendurados — Unregister deve invocar CancelByChannel.
+func TestGateway_UnregisterCancelsPendingCallbacks(t *testing.T) {
+	resetState(t)
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected}
+	gateway.Register("telegram", fake)
+
+	notifier.Register("conv-1", ResponseCallback{Channel: "telegram", TraceID: "t1", Callback: func(string, string) {}})
+	notifier.Register("conv-2", ResponseCallback{Channel: "telegram", TraceID: "t2", Callback: func(string, string) {}})
+	notifier.Register("conv-3", ResponseCallback{Channel: "signal", TraceID: "s1", Callback: func(string, string) {}})
+
+	if notifier.PendingCount() != 3 {
+		t.Fatalf("expected 3 pending, got %d", notifier.PendingCount())
+	}
+
+	gateway.Unregister("telegram")
+
+	if notifier.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending após Unregister(telegram), got %d", notifier.PendingCount())
 	}
 }
 
 func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -140,7 +488,9 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
 	var sentConversationID string
-	sendMessage := func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	var notifyCtx context.Context
+	sendMessage := func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		notifyCtx = ctx
 		sentConversationID = conversationID
 		if source != "telegram" {
 			return "", fmt.Errorf("source inesperado: %s", source)
@@ -176,7 +526,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	conv, err := database.GetConversationInfo(sentConversationID)
+	conv, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), "test-owner"), sentConversationID)
 	if err != nil {
 		t.Fatalf("erro ao buscar conversa: %v", err)
 	}
@@ -184,7 +534,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		t.Fatalf("conversa não vinculada corretamente: channel=%s contact=%s", conv.Channel, conv.ContactID)
 	}
 
-	notifier.Notify(sentConversationID, "Resposta", "42")
+	notifier.NotifyContext(notifyCtx, sentConversationID, "Resposta", "42")
 
 	select {
 	case sent := <-fake.sentCh:
@@ -202,7 +552,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -219,10 +569,12 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		mime  string
 	}
 	var sentConversationID string
+	var notifyCtx context.Context
 
 	gateway := NewGateway(
 		notifier,
-		func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+			notifyCtx = ctx
 			sentConversationID = conversationID
 			return conversationID, nil
 		},
@@ -231,7 +583,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return []byte("audio-bytes"), nil
 		},
-		func(messageID string, audioBase64 string, mimeType string) error {
+		func(_ context.Context, messageID string, audioBase64 string, mimeType string) error {
 			savedAudio.msgID = messageID
 			savedAudio.data = audioBase64
 			savedAudio.mime = mimeType
@@ -256,7 +608,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	notifier.Notify(sentConversationID, "Resposta", "99")
+	notifier.NotifyContext(notifyCtx, sentConversationID, "Resposta", "99")
 
 	select {
 	case sent := <-fake.sentCh:
@@ -281,7 +633,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "111", "Contato 1", "user1", 1); err != nil {
@@ -294,7 +646,7 @@ func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 	}
 
 	called := 0
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		called++
 		return conversationID, nil
 	}, emitEvent, nil, nil, nil)
@@ -323,7 +675,7 @@ func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -331,7 +683,7 @@ func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 	}
 
 	var capturedMedia string
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		capturedMedia = media
 		return conversationID, nil
 	}, nil, nil, nil, nil)
@@ -377,7 +729,7 @@ func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -386,7 +738,7 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
-	gateway := NewGateway(NewResponseNotifier(), func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		return conversationID, fmt.Errorf("falha de envio")
 	}, nil, nil, nil, nil)
 	gateway.Register("telegram", fake)
@@ -414,10 +766,69 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 	}
 }
 
+// TestGateway_ChannelOwnerScopesConversation valida o fix do Blocker 2 do
+// review do AEP-0052: o config do canal carrega OwnerUserID (preenchido por
+// App.SaveChannelConfig com o userID autenticado), e o gateway propaga esse
+// valor via WithUserID antes de criar/buscar a conversa. Sem isso, mensagens
+// recebidas criariam conversas órfãs (user_id="") visíveis a qualquer caller.
+func TestGateway_ChannelOwnerScopesConversation(t *testing.T) {
+	resetState(t)
+
+	const ownerID = "user-ana"
+	if err := channels.Save("telegram", &channels.ChannelConfig{
+		Enabled:     true,
+		MaxContacts: 1,
+		OwnerUserID: ownerID,
+	}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	var sentConversationID string
+	var sendCtxUserID string
+	var sendCtxHasUserID bool
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		sentConversationID = conversationID
+		sendCtxUserID, sendCtxHasUserID = database.UserIDFromContext(ctx)
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID:      "msg-owner",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	})
+
+	if sentConversationID == "" {
+		t.Fatalf("conversationID não foi criado")
+	}
+
+	if !sendCtxHasUserID || sendCtxUserID != ownerID {
+		t.Fatalf("SendMessageFunc recebeu ctx sem OwnerUserID (got userID=%q, has=%v) — gateway falhou em propagar AEP-0052",
+			sendCtxUserID, sendCtxHasUserID)
+	}
+
+	conv, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), ownerID), sentConversationID)
+	if err != nil {
+		t.Fatalf("erro ao buscar conversa com ctx do owner: %v", err)
+	}
+	if conv.UserID != ownerID {
+		t.Fatalf("conversa criada com user_id=%q, esperava %q", conv.UserID, ownerID)
+	}
+
+	// Ctx de outro usuário não deve enxergar a conversa.
+	if _, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), "user-leo"), sentConversationID); err == nil {
+		t.Fatalf("conversa do canal vazou para outro usuário")
+	}
+}
+
 func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	resetState(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
 		t.Fatalf("erro ao salvar channel config: %v", err)
 	}
 	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
@@ -428,9 +839,11 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
 	var sentConversationID string
+	var notifyCtx context.Context
 	gateway := NewGateway(
 		notifier,
-		func(conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+			notifyCtx = ctx
 			sentConversationID = conversationID
 			return conversationID, nil
 		},
@@ -457,7 +870,7 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	notifier.Notify(sentConversationID, "Resposta texto", "50")
+	notifier.NotifyContext(notifyCtx, sentConversationID, "Resposta texto", "50")
 
 	select {
 	case sent := <-fake.sentCh:
@@ -469,5 +882,93 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timeout aguardando envio de mensagem")
+	}
+}
+
+func TestGateway_CodeBlockLabelUsaIdiomaDoCanal(t *testing.T) {
+	resetState(t)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(NewResponseNotifier(), nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	var seenChannel string
+	gateway.SetSpeechLanguage(func(channel string) string {
+		seenChannel = channel
+		if channel == "telegram" {
+			return "es-ES"
+		}
+		return "en-US"
+	})
+
+	err := gateway.deliverChannelResponse(
+		context.Background(),
+		"telegram",
+		"chat-1",
+		"veja:\n```go\nfmt.Println(1)\n```",
+		"",
+		false,
+		"",
+		"trace-lang",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("deliverChannelResponse: %v", err)
+	}
+
+	if seenChannel != "telegram" {
+		t.Fatalf("resolvedor recebeu canal %q, esperava telegram", seenChannel)
+	}
+
+	select {
+	case sent := <-fake.sentCh:
+		if !strings.Contains(sent.Text, "bloque de código") {
+			t.Fatalf("esperava rótulo no idioma do canal, got=%q", sent.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout aguardando envio de mensagem")
+	}
+}
+
+func TestGateway_CodeBlockLabelSemResolvedorUsaIngles(t *testing.T) {
+	resetState(t)
+
+	gateway := NewGateway(NewResponseNotifier(), nil, nil, nil, nil, nil)
+	if got := gateway.codeBlockSpeechLabel("telegram"); got != textutil.DefaultCodeBlockSpeechLabel {
+		t.Fatalf("rótulo sem resolvedor = %q, esperava %q", got, textutil.DefaultCodeBlockSpeechLabel)
+	}
+}
+
+func TestGateway_MaxHistoryOverridesContextMessages(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{
+		Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner", MaxHistory: 17,
+	}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	var gotParams llm.ChatParams
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		gotParams = params
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected}
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-hist", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text: "Oi",
+	})
+
+	if gotParams.MaxContextMessages != 17 {
+		t.Fatalf("MaxContextMessages = %d, want 17 (max_history do canal)", gotParams.MaxContextMessages)
 	}
 }

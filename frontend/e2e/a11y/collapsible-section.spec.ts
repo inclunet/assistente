@@ -65,7 +65,7 @@ async function openProfileEditorAudioTab(
   await wails.setResponse('UpdateProfile', undefined);
   await wails.setResponse('GetSpeechProviders', []);
   await wails.setResponse('GetSTTModels', []);
-  await wails.setResponse('GetUserInvocableSkills', []);
+  await wails.setResponse('GetUserInvocableSkillsForProfile', []);
   await wails.setResponse('GetAvailableTools', []);
   await wails.setResponse('GetToolCatalog', { tools: [] });
   await wails.setResponse('ListMCPServers', []);

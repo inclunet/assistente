@@ -1,77 +1,143 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
+	"net/http"
+	"strings"
 	"sync"
+	"time"
 
 	"assistente/controllers"
+	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
+	"assistente/internal/acptrust"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
+	"assistente/internal/apidto"
+	"assistente/internal/auth"
 	"assistente/internal/chat"
-	"assistente/internal/config"
+	"assistente/internal/connstatus"
+	"assistente/internal/contextprovider"
+	"assistente/internal/conversation"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
+	"assistente/internal/deeplinkprotocol"
 	"assistente/internal/events"
+	"assistente/internal/fstrust"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/memory"
 	"assistente/internal/messaging"
+	"assistente/internal/nettrust"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
+	"assistente/internal/slashskill"
 	"assistente/internal/speech"
+	"assistente/internal/subagent"
 	"assistente/internal/summarization"
 	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
+	"assistente/internal/toolinvocations"
+	"assistente/internal/toolprotocol"
 	"assistente/internal/tools"
 	"assistente/internal/updater"
+	"assistente/internal/wailsapi"
+	"assistente/internal/wakelock"
 	"assistente/internal/workspace"
 )
 
-// Request structs for LLM Provider Management — type aliases para controllers.
+// subagentReconcileTimeout é o teto de tempo da reconciliação de runs órfãos de
+// sub-agente no startup. Operação de manutenção que roda em goroutine; o deadline
+// impede que um DB travado (lock/I/O lento) deixe a goroutine pendurada
+// indefinidamente. 30s é consistente com o teto usado em operações de jobs
+// (internal/jobs/manager.go).
+const subagentReconcileTimeout = 30 * time.Second
+
+// Request structs for LLM Provider Management — type aliases para apidto.
 // Mantém compatibilidade com código e testes existentes durante a migração.
-type CreateLLMProviderRequest = controllers.CreateLLMProviderRequest
-type TestLLMProviderRequest = controllers.TestLLMProviderRequest
-type UpdateLLMProviderRequest = controllers.UpdateLLMProviderRequest
-
-// SkillCreateRequest — type alias para controllers.
-type SkillCreateRequest = controllers.SkillCreateRequest
-
-// ChannelInfo — type alias para controllers.
-type ChannelInfo = controllers.ChannelInfo
+type CreateLLMProviderRequest = apidto.CreateLLMProviderRequest
+type TestLLMProviderRequest = apidto.TestLLMProviderRequest
+type UpdateLLMProviderRequest = apidto.UpdateLLMProviderRequest
 
 // App struct
 type App struct {
-	ctx              context.Context
-	llmRegistry      *llm.ProviderRegistry // Registro de provedores LLM
-	profileManager   *profiles.Manager
-	toolRegistry     *tools.Registry             // Registro de ferramentas disponíveis
-	toolExecutor     *tools.Executor             // Executor de ferramentas com paralelismo e timeout
-	terminalMgr      *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr     *allowlist.Manager          // Gerenciador de allowlists de comandos
-	mcpMgr           *mcpmgr.Manager             // Gerenciador de servidores MCP
-	skillMgr         *skills.Manager             // Gerenciador de skills
+	ctx               context.Context
+	cancel            context.CancelFunc    // cancela o ctx raiz no Shutdown
+	bgWG              sync.WaitGroup        // join das goroutines de background no Shutdown
+	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
+	profileManager    *profiles.Manager
+	toolRegistry      *tools.Registry          // Registro de ferramentas disponíveis
+	toolExecutor      *tools.Executor          // Executor de ferramentas com paralelismo e timeout
+	toolInvocationSvc *toolinvocations.Service // Persistência e execução comum de tool calls
+	terminalMgr       *terminal.Manager        // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr  *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr      *allowlist.Manager       // Gerenciador de allowlists de comandos
+	netTrustMgr       *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
+	fsTrustMgr        *fstrust.Manager         // Allowlist de paths fora do sandbox (AEP-0092)
+	mcpMgr            *mcpmgr.Manager          // Gerenciador de servidores MCP
+	acpMgr            *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
+	acpTrust          *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
+	acpRegistry       *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
+	skillMgr          *skills.Manager          // Gerenciador de skills
+	// acpCatalogSvc é o catálogo do registro ACP: o serviço acima e o instalador
+	// de agentes (AEP-0086). Montado na primeira chamada que precisa dele — ver
+	// acpCatalogServices em app_acp_install.go —, porque o instalador só existe
+	// para quem for instalar, e nada no startup depende dele.
+	acpCatalogSvc    *acpCatalog
+	acpCatalogOnce   sync.Once
 	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
+	wakeLock         wakelock.Manager            // Previne bloqueio/suspensão quando a janela está em foco
 
-	credMgr   *credentials.Manager
-	credStore credentials.Store
+	credMgr           *credentials.Manager
+	credStore         credentials.Store
+	vaultSvc          *auth.VaultService
+	identitySvc       *auth.IdentityService
+	sessionSvc        *auth.SessionService
+	httpAPIServer     *http.Server
+	authMu            sync.RWMutex
+	authSessionMu     sync.Mutex
+	currentUserID     string
+	currentAuthUser   *AuthUser
+	authKeyringLoad   func() (string, error)
+	authKeyringSave   func(string) error
+	authKeyringDelete func() error
 
 	// Watcher de arquivos do editor (mudanças externas)
-	editorWatchMu    sync.Mutex
-	editorDirWatches map[string]*editorDirWatch
+	editorWatchMu             sync.Mutex
+	editorDirWatches          map[string]*editorDirWatch
+	editorAssistedWriteByPath map[string][]editorAssistedWrite
+	editorAssistedWriteSeq    int64
 
 	// Workspace manager (unified tabs)
 	workspaceMgr *workspace.Manager
 
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
+
+	// Subagent manager (sub-agentes em sub-conversas — AEP-0068)
+	subagentMgr *subagent.Manager
+
+	// Contexto cancelável do runtime user-scoped (ex.: loops de auto-connect).
+	userRuntimeMu     sync.Mutex
+	userRuntimeCtx    context.Context
+	userRuntimeCancel context.CancelFunc
+
+	legacyImportSummaryMu            sync.Mutex
+	legacyImportSkippedSummaryUserID string
+
+	// Monitor de status de conexão com a API LLM (health check periódico).
+	connMu      sync.Mutex
+	connMonitor *connstatus.Monitor
+	connCancel  context.CancelFunc
 
 	// Provider service (business logic para provedores LLM)
 	providerSvc *providers.Service
@@ -81,6 +147,9 @@ type App struct {
 
 	// TaskList service (business logic para listas de tarefas)
 	taskSvc *tasklist.Service
+
+	// Memory service (Context Provider de memória)
+	memorySvc *memory.Service
 
 	// Audio repository (persistência de áudio de mensagens)
 	audioSvc speech.AudioRepository
@@ -103,8 +172,8 @@ type App struct {
 	// Prompt builder (monta system prompt — puro, sem Wails)
 	promptBuilder *prompt.Builder
 
-	// Settings service (config CRUD e reset de dados — sem Wails)
-	settingsSvc *config.SettingsService
+	// Context Providers (AEP-0075): blocos dinâmicos separados de skills.
+	contextProviders *contextprovider.Registry
 
 	// Speech service (TTS/STT business logic — sem Wails)
 	speechSvc *speech.Service
@@ -120,26 +189,186 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
-	msgCtrl         *controllers.MessagingController
-	mcpCtrl         *controllers.MCPController
-	profilesCtrl    *controllers.ProfilesController
-	llmCtrl         *controllers.LLMController
-	skillsCtrl      *controllers.SkillsController
-	settingsCtrl    *controllers.SettingsController
-	chatCtrl        *controllers.ChatController
-	taskListCtrl    *controllers.TaskListController
-	speechCtrl      *controllers.SpeechController
-	jobsCtrl        *controllers.JobsController
-	workspaceCtrl   *controllers.WorkspaceController
-	tokensCtrl      *controllers.TokensController
-	toolsCtrl       *controllers.ToolsController
-	updaterCtrl     *controllers.UpdaterController
-	credentialsCtrl *controllers.CredentialsController
-	welcomeCtrl     *controllers.WelcomeController
-	terminalCtrl    *controllers.TerminalController
-	allowlistCtrl   *controllers.AllowlistController
-	signalCtrl      *controllers.SignalController
-	hotkeyCtrl      *controllers.HotkeysController
+	msgCtrl           *controllers.MessagingController
+	mcpCtrl           *controllers.MCPController
+	profilesCtrl      *controllers.ProfilesController
+	llmCtrl           *controllers.LLMController
+	skillsCtrl        *controllers.SkillsController
+	settingsCtrl      *controllers.SettingsController
+	chatCtrl          *controllers.ChatController
+	taskListCtrl      *controllers.TaskListController
+	conversationsCtrl *controllers.ConversationsController
+	memoryCtrl        *controllers.MemoryController
+	speechCtrl        *controllers.SpeechController
+	jobsCtrl          *controllers.JobsController
+	workspaceCtrl     *controllers.WorkspaceController
+	tokensCtrl        *controllers.TokensController
+	toolsCtrl         *controllers.ToolsController
+	updaterCtrl       *controllers.UpdaterController
+	credentialsCtrl   *controllers.CredentialsController
+	welcomeCtrl       *controllers.WelcomeController
+	terminalCtrl      *controllers.TerminalController
+	allowlistCtrl     *controllers.AllowlistController
+	signalCtrl        *controllers.SignalController
+	hotkeyCtrl        *controllers.HotkeysController
+	netTrustCtrl      *controllers.NetTrustController
+	fsTrustCtrl       *controllers.FSTrustController
+
+	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
+	// wired após NewTokensController.
+	tokensAPI *wailsapi.Tokens
+
+	// allowlistsAPI é o bind Wails do domínio allowlists (AEP-0088). Criado em
+	// main e wired após NewAllowlistController.
+	allowlistsAPI *wailsapi.Allowlists
+
+	// skillsAPI é o bind Wails do domínio skills (AEP-0088). Criado em main e
+	// wired após NewSkillsController.
+	skillsAPI *wailsapi.Skills
+
+	// toolsAPI é o bind Wails do domínio tools (AEP-0088). Criado em main e
+	// wired após NewToolsController.
+	toolsAPI *wailsapi.Tools
+
+	// updaterAPI é o bind Wails do domínio updater (AEP-0088). Criado em main e
+	// wired após NewUpdaterController.
+	updaterAPI *wailsapi.Updater
+
+	// profilesAPI é o bind Wails do domínio profiles (AEP-0088). Criado em main e
+	// wired após NewProfilesController.
+	profilesAPI *wailsapi.Profiles
+
+	// hotkeysAPI é o bind Wails do domínio hotkeys (AEP-0088). Criado em main e
+	// wired após NewHotkeysController.
+	hotkeysAPI *wailsapi.Hotkeys
+
+	// netTrustAPI é o bind Wails do domínio nettrust (AEP-0088). Criado em main e
+	// wired após NewNetTrustController.
+	netTrustAPI *wailsapi.NetTrust
+
+	// fsTrustAPI é o bind Wails do domínio fstrust / path allowlist (AEP-0092).
+	// Criado em main e wired após NewFSTrustController.
+	fsTrustAPI *wailsapi.FSTrust
+
+	// credentialsAPI é o bind Wails do domínio credentials (AEP-0088). Criado em
+	// main e wired após NewCredentialsController.
+	credentialsAPI *wailsapi.Credentials
+
+	// settingsAPI é o bind Wails do domínio settings (AEP-0088). Criado em main e
+	// wired após NewSettingsController.
+	settingsAPI *wailsapi.Settings
+
+	// mcpAPI é o bind Wails do domínio MCP (AEP-0088). Criado em main e
+	// wired após NewMCPController.
+	mcpAPI *wailsapi.MCP
+
+	// signalAPI é o bind Wails do domínio Signal (AEP-0088). Criado em main e
+	// wired após NewSignalController.
+	signalAPI *wailsapi.Signal
+
+	// terminalAPI é o bind Wails do domínio terminal (AEP-0088). Criado em
+	// main e wired após NewTerminalController.
+	terminalAPI *wailsapi.Terminal
+
+	// memoryAPI é o bind Wails do domínio memory (AEP-0088). Criado em main e
+	// wired após NewMemoryController.
+	memoryAPI *wailsapi.Memory
+
+	// messagingAPI é o bind Wails do domínio messaging/canais/contatos (AEP-0088).
+	// Criado em main e wired após initMessaging.
+	messagingAPI *wailsapi.Messaging
+
+	// welcomeAPI é o bind Wails do domínio welcome (AEP-0088). Criado em main e
+	// wired após NewWelcomeController.
+	welcomeAPI *wailsapi.Welcome
+
+	// workspaceAPI é o bind Wails do domínio workspace/tabs (AEP-0088). Criado
+	// em main e wired após initWorkspace.
+	workspaceAPI *wailsapi.Workspace
+
+	// legacyCleanupAPI é o bind Wails do cleanup de JSON legado (AEP-0088).
+	// Criado em main e wired sem controller (chama channels diretamente).
+	legacyCleanupAPI *wailsapi.LegacyCleanup
+
+	// databaseAPI é o bind Wails do domínio database/manutenção (AEP-0088).
+	// Criado em main e wired após wireSettings (reusa settingsCtrl).
+	databaseAPI *wailsapi.Database
+
+	// subagentAPI é o bind Wails do domínio subagent (AEP-0088). Criado em main
+	// e wired após a criação do subagentMgr.
+	subagentAPI *wailsapi.Subagent
+
+	// tasklistActionsAPI é o bind Wails do domínio tasklist_actions / custom
+	// actions (AEP-0088). Criado em main e wired após NewTaskListController.
+	tasklistActionsAPI *wailsapi.TasklistActions
+
+	// tasklistAPI é o bind Wails do domínio tasklist CRUD (AEP-0088). Criado em
+	// main e wired após NewTaskListController.
+	tasklistAPI *wailsapi.Tasklist
+
+	// conversationsAPI é o bind Wails do domínio conversations/persistência
+	// (AEP-0088). Criado em main e wired após NewConversationsController.
+	conversationsAPI *wailsapi.Conversations
+
+	// speechAPI é o bind Wails do domínio speech/TTS/STT (AEP-0088). Criado em
+	// main e wired após NewSpeechController.
+	speechAPI *wailsapi.Speech
+
+	// jobsAPI é o bind Wails do domínio jobs (AEP-0088). Criado em main e
+	// wired após NewJobsController.
+	jobsAPI *wailsapi.Jobs
+
+	// llmProvidersAPI é o bind Wails do domínio llm_providers (AEP-0088).
+	// Criado em main e wired após NewLLMController.
+	llmProvidersAPI *wailsapi.LLMProviders
+
+	// llmModelsAPI é o bind Wails do domínio llm_models (AEP-0088): catálogo,
+	// refresh e cancel de streaming. Criado em main; streamMgr permanece no *App.
+	llmModelsAPI *wailsapi.LLMModels
+
+	// chatAPI é o bind Wails do domínio chat/envio (AEP-0040, AEP-0088):
+	// SendMessage e RetryMessage. Criado em main e wired após NewChatController.
+	// sendMessageFromChannel permanece no *App.
+	chatAPI *wailsapi.Chat
+
+	// acpCommandsAPI é o bind Wails do domínio acp_commands (AEP-0088). Criado
+	// em main e wired após initACP (reusa acpMgr).
+	acpCommandsAPI *wailsapi.ACPCommands
+
+	// acpProvidersAPI é o bind Wails de detect/test de agentes ACP (AEP-0088).
+	// Criado em main e wired após initACP.
+	acpProvidersAPI *wailsapi.ACPProviders
+
+	// acpOptionsAPI é o bind Wails do domínio acp_options (AEP-0088). Criado
+	// em main e wired após initACP (reusa acpMgr). Eventos lowercase permanecem no *App.
+	acpOptionsAPI *wailsapi.ACPOptions
+
+	// acpRegistryAPI é o bind Wails do catálogo do registro ACP (AEP-0088).
+	// Criado em main e wired após initACP. Helpers de montagem permanecem no *App.
+	acpRegistryAPI *wailsapi.ACPRegistry
+
+	// acpWorkDirAPI é o bind Wails do domínio acp_workdir (AEP-0088). Criado em
+	// main e wired após initACP. Helpers ConversationDir permanecem no *App.
+	acpWorkDirAPI *wailsapi.ACPWorkDir
+
+	// acpInstallAPI é o bind Wails de install/update/remove de agentes ACP
+	// (AEP-0088). Criado em main; helpers de handshake/progresso/repontar
+	// permanecem no *App e entram via hooks.
+	acpInstallAPI *wailsapi.ACPInstall
+
+	// acpTrustAPI é o bind Wails de autorizações permanentes ACP (AEP-0088).
+	// Criado em main e wired após initACP (reusa acpTrust). Handlers de
+	// permissão em tempo de turno permanecem no *App.
+	acpTrustAPI *wailsapi.ACPTrust
+
+	// editorAPI é o bind Wails do domínio editor (AEP-0088). Criado em main;
+	// watcher, eventos editor:fileChanged e assisted writes permanecem no *App
+	// e entram via hooks.
+	editorAPI *wailsapi.Editor
+
+	// exportImportAPI é o bind Wails de export/import (AEP-0088). Criado em
+	// main (GUI) ou lazy no wire (CLI); lógica vive no bind.
+	exportImportAPI *wailsapi.ExportImport
 }
 
 // ==================== Tipos para Threads ====================
@@ -154,15 +383,497 @@ func NewApp() *App {
 	}
 }
 
+func newRateLimitPolicyResolver(manager *profiles.Manager) llm.RateLimitPolicyResolver {
+	return func(_ context.Context, requestedSlug string) llm.ResolvedRateLimitPolicy {
+		slug := strings.TrimSpace(requestedSlug)
+		var profile *profiles.Profile
+		if manager != nil && slug != "" {
+			if resolved, err := manager.Get(slug); err == nil {
+				profile = resolved
+			}
+		}
+		if profile == nil && manager != nil {
+			if active, err := manager.GetActiveAndSlug(); err == nil && active != nil {
+				profile = active.Profile
+				slug = active.Slug
+			}
+		}
+		if profile == nil {
+			return llm.ResolvedRateLimitPolicy{
+				Config:      llm.DefaultRateLimitConfig(),
+				ProfileSlug: slug,
+			}
+		}
+		return llm.ResolvedRateLimitPolicy{
+			Config: llm.RateLimitConfig{
+				Enabled:            profile.IsLLMRateLimitEnabled(),
+				RequestsPerMinute:  profile.GetLLMRateLimitRPM(),
+				Burst:              profile.GetLLMRateLimitBurst(),
+				NearLimitThreshold: llm.DefaultNearLimitThreshold,
+			},
+			ProfileSlug: slug,
+		}
+	}
+}
+
 // Context retorna o contexto da aplicação.
 func (a *App) Context() context.Context {
 	return a.ctx
 }
 
+// SetTokensAPI registra o bind Wails de tokens antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTokensAPI(a *App, api *wailsapi.Tokens) {
+	if a == nil {
+		return
+	}
+	a.tokensAPI = api
+}
+
+// SetAllowlistsAPI registra o bind Wails de allowlists antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetAllowlistsAPI(a *App, api *wailsapi.Allowlists) {
+	if a == nil {
+		return
+	}
+	a.allowlistsAPI = api
+}
+
+// SetSkillsAPI registra o bind Wails de skills antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSkillsAPI(a *App, api *wailsapi.Skills) {
+	if a == nil {
+		return
+	}
+	a.skillsAPI = api
+}
+
+// SetToolsAPI registra o bind Wails de tools antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetToolsAPI(a *App, api *wailsapi.Tools) {
+	if a == nil {
+		return
+	}
+	a.toolsAPI = api
+}
+
+// ListAvailableTools expõe o catálogo runtime para o CLI (não entra no Bind Wails).
+func ListAvailableTools(a *App) []controllers.ToolInfo {
+	if a == nil || a.toolsCtrl == nil {
+		return nil
+	}
+	return a.toolsCtrl.GetAvailableTools()
+}
+
+// SetUpdaterAPI registra o bind Wails de updater antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetUpdaterAPI(a *App, api *wailsapi.Updater) {
+	if a == nil {
+		return
+	}
+	a.updaterAPI = api
+}
+
+// SetProfilesAPI registra o bind Wails de profiles antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetProfilesAPI(a *App, api *wailsapi.Profiles) {
+	if a == nil {
+		return
+	}
+	a.profilesAPI = api
+}
+
+// SetHotkeysAPI registra o bind Wails de hotkeys antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetHotkeysAPI(a *App, api *wailsapi.Hotkeys) {
+	if a == nil {
+		return
+	}
+	a.hotkeysAPI = api
+}
+
+// SetNetTrustAPI registra o bind Wails de nettrust antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetNetTrustAPI(a *App, api *wailsapi.NetTrust) {
+	if a == nil {
+		return
+	}
+	a.netTrustAPI = api
+}
+
+// SetFSTrustAPI registra o bind Wails de fstrust antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetFSTrustAPI(a *App, api *wailsapi.FSTrust) {
+	if a == nil {
+		return
+	}
+	a.fsTrustAPI = api
+}
+
+// SetCredentialsAPI registra o bind Wails de credentials antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetCredentialsAPI(a *App, api *wailsapi.Credentials) {
+	if a == nil {
+		return
+	}
+	a.credentialsAPI = api
+}
+
+// SetSettingsAPI registra o bind Wails de settings antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSettingsAPI(a *App, api *wailsapi.Settings) {
+	if a == nil {
+		return
+	}
+	a.settingsAPI = api
+}
+
+// SetMCPAPI registra o bind Wails de MCP antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetMCPAPI(a *App, api *wailsapi.MCP) {
+	if a == nil {
+		return
+	}
+	a.mcpAPI = api
+}
+
+// SetSignalAPI registra o bind Wails de Signal antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSignalAPI(a *App, api *wailsapi.Signal) {
+	if a == nil {
+		return
+	}
+	a.signalAPI = api
+}
+
+// SetTerminalAPI registra o bind Wails de terminal antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTerminalAPI(a *App, api *wailsapi.Terminal) {
+	if a == nil {
+		return
+	}
+	a.terminalAPI = api
+}
+
+// SetMemoryAPI registra o bind Wails de memory antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetMemoryAPI(a *App, api *wailsapi.Memory) {
+	if a == nil {
+		return
+	}
+	a.memoryAPI = api
+}
+
+// SetMessagingAPI registra o bind Wails de messaging antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetMessagingAPI(a *App, api *wailsapi.Messaging) {
+	if a == nil {
+		return
+	}
+	a.messagingAPI = api
+}
+
+// SetWelcomeAPI registra o bind Wails de welcome antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetWelcomeAPI(a *App, api *wailsapi.Welcome) {
+	if a == nil {
+		return
+	}
+	a.welcomeAPI = api
+}
+
+// SetWorkspaceAPI registra o bind Wails de workspace antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetWorkspaceAPI(a *App, api *wailsapi.Workspace) {
+	if a == nil {
+		return
+	}
+	a.workspaceAPI = api
+}
+
+// SetLegacyCleanupAPI registra o bind Wails de legacy cleanup antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetLegacyCleanupAPI(a *App, api *wailsapi.LegacyCleanup) {
+	if a == nil {
+		return
+	}
+	a.legacyCleanupAPI = api
+}
+
+// SetDatabaseAPI registra o bind Wails de database antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetDatabaseAPI(a *App, api *wailsapi.Database) {
+	if a == nil {
+		return
+	}
+	a.databaseAPI = api
+}
+
+// SetSubagentAPI registra o bind Wails de subagent antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSubagentAPI(a *App, api *wailsapi.Subagent) {
+	if a == nil {
+		return
+	}
+	a.subagentAPI = api
+}
+
+// SetTasklistActionsAPI registra o bind Wails de tasklist_actions antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTasklistActionsAPI(a *App, api *wailsapi.TasklistActions) {
+	if a == nil {
+		return
+	}
+	a.tasklistActionsAPI = api
+}
+
+// SetTasklistAPI registra o bind Wails de tasklist CRUD antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetTasklistAPI(a *App, api *wailsapi.Tasklist) {
+	if a == nil {
+		return
+	}
+	a.tasklistAPI = api
+}
+
+// SetConversationsAPI registra o bind Wails de conversations antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetConversationsAPI(a *App, api *wailsapi.Conversations) {
+	if a == nil {
+		return
+	}
+	a.conversationsAPI = api
+}
+
+// SetSpeechAPI registra o bind Wails de speech antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetSpeechAPI(a *App, api *wailsapi.Speech) {
+	if a == nil {
+		return
+	}
+	a.speechAPI = api
+}
+
+// SetJobsAPI registra o bind Wails de jobs antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetJobsAPI(a *App, api *wailsapi.Jobs) {
+	if a == nil {
+		return
+	}
+	a.jobsAPI = api
+}
+
+// SetLLMProvidersAPI registra o bind Wails de llm_providers antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetLLMProvidersAPI(a *App, api *wailsapi.LLMProviders) {
+	if a == nil {
+		return
+	}
+	a.llmProvidersAPI = api
+}
+
+// SetLLMModelsAPI registra o bind Wails de llm_models antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetLLMModelsAPI(a *App, api *wailsapi.LLMModels) {
+	if a == nil {
+		return
+	}
+	a.llmModelsAPI = api
+}
+
+// LLMModelsAPI expõe o bind de llm_models para a CLI (não entra no Bind Wails).
+func LLMModelsAPI(a *App) *wailsapi.LLMModels {
+	if a == nil {
+		return nil
+	}
+	return a.llmModelsAPI
+}
+
+// SetChatAPI registra o bind Wails de chat/envio antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetChatAPI(a *App, api *wailsapi.Chat) {
+	if a == nil {
+		return
+	}
+	a.chatAPI = api
+}
+
+// ChatAPI expõe o bind de chat para a CLI (não entra no Bind Wails).
+func ChatAPI(a *App) *wailsapi.Chat {
+	if a == nil {
+		return nil
+	}
+	return a.chatAPI
+}
+
+// SetACPCommandsAPI registra o bind Wails de acp_commands antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPCommandsAPI(a *App, api *wailsapi.ACPCommands) {
+	if a == nil {
+		return
+	}
+	a.acpCommandsAPI = api
+}
+
+// SetACPProvidersAPI registra o bind Wails de acp_providers antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPProvidersAPI(a *App, api *wailsapi.ACPProviders) {
+	if a == nil {
+		return
+	}
+	a.acpProvidersAPI = api
+}
+
+// SetACPOptionsAPI registra o bind Wails de acp_options antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPOptionsAPI(a *App, api *wailsapi.ACPOptions) {
+	if a == nil {
+		return
+	}
+	a.acpOptionsAPI = api
+}
+
+// SetACPRegistryAPI registra o bind Wails de acp_registry antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPRegistryAPI(a *App, api *wailsapi.ACPRegistry) {
+	if a == nil {
+		return
+	}
+	a.acpRegistryAPI = api
+}
+
+// SetACPWorkDirAPI registra o bind Wails de acp_workdir antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPWorkDirAPI(a *App, api *wailsapi.ACPWorkDir) {
+	if a == nil {
+		return
+	}
+	a.acpWorkDirAPI = api
+}
+
+// SetACPInstallAPI registra o bind Wails de acp_install antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPInstallAPI(a *App, api *wailsapi.ACPInstall) {
+	if a == nil {
+		return
+	}
+	a.acpInstallAPI = api
+}
+
+// SetACPTrustAPI registra o bind Wails de acp_trust antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetACPTrustAPI(a *App, api *wailsapi.ACPTrust) {
+	if a == nil {
+		return
+	}
+	a.acpTrustAPI = api
+}
+
+// SetEditorAPI registra o bind Wails de editor antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetEditorAPI(a *App, api *wailsapi.Editor) {
+	if a == nil {
+		return
+	}
+	a.editorAPI = api
+}
+
+// SetExportImportAPI registra o bind Wails de export/import antes do Run (main.go).
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetExportImportAPI(a *App, api *wailsapi.ExportImport) {
+	if a == nil {
+		return
+	}
+	a.exportImportAPI = api
+}
+
+// ExportImportAPI expõe o bind de export/import para a CLI (não entra no Bind Wails).
+func ExportImportAPI(a *App) *wailsapi.ExportImport {
+	if a == nil {
+		return nil
+	}
+	return a.exportImportAPI
+}
+
+// ProfilesCtrl expõe o ProfilesController para a CLI (não entra no Bind Wails).
+func ProfilesCtrl(a *App) *controllers.ProfilesController {
+	if a == nil {
+		return nil
+	}
+	return a.profilesCtrl
+}
+
+// LLMCtrl expõe o LLMController para a CLI (não entra no Bind Wails).
+func LLMCtrl(a *App) *controllers.LLMController {
+	if a == nil {
+		return nil
+	}
+	return a.llmCtrl
+}
+
+// ApplyInstalledBinaryEnv expõe applyInstalledBinaryEnv para a CLI (não entra no Bind Wails).
+func ApplyInstalledBinaryEnv(a *App, ctx context.Context, providerID, agentID string) {
+	if a == nil {
+		return
+	}
+	a.applyInstalledBinaryEnv(ctx, providerID, agentID)
+}
+
+// PersistLLMProviderDelete remove o provedor do store (side effect de Delete; não entra no Bind).
+func PersistLLMProviderDelete(a *App, ctx context.Context, id string) error {
+	if a == nil {
+		return fmt.Errorf("app não inicializado")
+	}
+	return database.DeleteLLMProviderWithContext(ctx, id)
+}
+
+// CredentialsCtrl expõe o CredentialsController para a CLI (não entra no Bind Wails).
+func CredentialsCtrl(a *App) *controllers.CredentialsController {
+	if a == nil {
+		return nil
+	}
+	return a.credentialsCtrl
+}
+
+// MCPCtrl expõe o MCPController para a CLI (não entra no Bind Wails).
+func MCPCtrl(a *App) *controllers.MCPController {
+	if a == nil {
+		return nil
+	}
+	return a.mcpCtrl
+}
+
+// TaskListCtrl expõe o TaskListController para a CLI (não entra no Bind Wails).
+func TaskListCtrl(a *App) *controllers.TaskListController {
+	if a == nil {
+		return nil
+	}
+	return a.taskListCtrl
+}
+
+// ConversationsCtrl expõe o ConversationsController para a CLI (não entra no Bind Wails).
+func ConversationsCtrl(a *App) *controllers.ConversationsController {
+	if a == nil {
+		return nil
+	}
+	return a.conversationsCtrl
+}
+
+// AuthenticatedContext expõe o contexto autenticado para a CLI (não entra no Bind Wails).
+func AuthenticatedContext(a *App) (context.Context, error) {
+	if a == nil {
+		return nil, database.ErrUserScopeRequired
+	}
+	return a.requireAuthenticatedContext()
+}
+
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
 // Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/asst/).
 func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) error {
-	a.ctx = ctx
+	// Deriva um contexto cancelável: Shutdown chama a.cancel() para sinalizar o
+	// encerramento às goroutines de background. WithCancel preserva os values do
+	// ctx pai (ex.: userID), então Context() continua válido para os consumidores.
+	a.ctx, a.cancel = context.WithCancel(ctx)
 	a.emitter = emitter
 	a.windowPort = window
 	a.dialogPort = dialog
@@ -171,26 +882,56 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	if err := InitDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
-	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
-		log.Printf("Erro ao limpar drafts órfãos do editor no startup: %v", err)
-	}
+	// Drafts não são mais varridos por idade no boot pré-login. O cleanup
+	// legado apagava qualquer arquivo >24h sem consultar abas/merges e podia
+	// destruir recuperação de crash. Fechamento explícito da aba continua
+	// removendo seu draft; uma retenção automática futura precisa ser
+	// user-scoped e provar ausência de referências antes de excluir.
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
 	a.installBuiltinProfiles()
 
 	// Garante que o diretório de perfis existe
 	if err := a.profileManager.EnsureDefaults(); err != nil {
-		log.Printf("Erro ao garantir diretório de perfis: %v", err)
+		logging.Errorf(ctx, "app.app", "Erro ao garantir diretório de perfis: %v", err)
 	}
 
 	// Inicializa Credential Manager PRIMEIRO (antes de qualquer uso)
 	a.initCredentialManager()
+	a.initAuthServices()
+
+	// Inicializa o rate limiter das chamadas LLM (Issue #27 / AEP-0065).
+	// A política vem do perfil; o userID do contexto e o slug formam o escopo.
+	llmRateLimiter := llm.NewRateLimiter(llm.DefaultRateLimitConfig())
+	if llmRateLimiter != nil {
+		llmRateLimiter.SetNearLimitHandler(func(key string, remaining float64) {
+			logging.Infof(ctx, "app.app", "[llm/ratelimit] chave %s próxima do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
+		})
+	}
+	// A base da chave é o userID (AEP-0052); o decorator acrescenta o slug do
+	// perfil. Chat e sumarização compartilham o mesmo bucket resultante.
+	llmRateLimitKeyFunc := func(ctx context.Context) string {
+		if userID, ok := database.UserIDFromContext(ctx); ok {
+			return userID
+		}
+		return ""
+	}
+	llmRateLimitPolicyResolver := newRateLimitPolicyResolver(a.profileManager)
+
+	// Inicializa o serviço dos agentes ACP (processos e sessões). Nada sobe
+	// aqui; ele precisa existir antes do provider service porque é dele que um
+	// provedor de agente empresta a sessão da conversa (AEP-0084 D3).
+	a.initACP()
 
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
-		Registry: a.llmRegistry,
-		CredMgr:  a.credMgr,
-		Store:    providers.NewDBStore(),
+		Registry:                a.llmRegistry,
+		CredMgr:                 a.credMgr,
+		Store:                   providers.NewDBStore(),
+		RateLimiter:             llmRateLimiter,
+		RateLimitKeyFunc:        llmRateLimitKeyFunc,
+		RateLimitPolicyResolver: llmRateLimitPolicyResolver,
+		ACPManager:              a.acpMgr,
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
@@ -198,6 +939,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o TaskList Service (business logic de listas de tarefas)
 	a.taskSvc = a.newTaskListService()
+
+	// Inicializa o Memory Service (Context Provider de memória)
+	a.memorySvc = memory.NewService(memory.NewDBStore(database.DB()))
 
 	// Inicializa repositórios de audio e conversa
 	a.audioSvc = speech.NewDBAudioStore()
@@ -215,21 +959,18 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
-		Repo:            summarization.NewDBStore(),
-		Emitter:         a.emitter,
-		LLMRegistry:     a.llmRegistry,
-		CredMgr:         a.credMgr,
-		ProfileManager:  a.profileManager,
-		ProfileResolver: a.resolveProfileDefaults,
+		Repo:           summarization.NewDBStore(),
+		Emitter:        a.emitter,
+		LLMRegistry:    a.llmRegistry,
+		CredMgr:        a.credMgr,
+		ProfileManager: a.profileManager,
+		ProfileResolver: func(ctx context.Context, p *profiles.Profile) *profiles.Profile {
+			return a.providerSvc.ResolveProfileDefaults(ctx, p)
+		},
+		RateLimiter:             llmRateLimiter,
+		RateLimitKeyFunc:        llmRateLimitKeyFunc,
+		RateLimitPolicyResolver: llmRateLimitPolicyResolver,
 	})
-	a.initLLMProviders()
-
-	// Inicializa o cliente LLM (usa credMgr + registry já populado)
-	a.initLLMClient()
-
-	// Migra config.json legado para novo sistema (se necessário)
-	a.migrateLegacyConfig()
-
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()
 
@@ -239,14 +980,16 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o gerenciador de skills
 	a.initSkills()
 
-	// Garante que o diretório de memória existe no home
-	a.initMemoryDir()
-
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
-	// Inicializa o gateway de mensageria (Telegram, etc.)
-	a.initMessaging()
+	a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor)
+
+	// Inicializa o gateway de mensageria (Telegram, etc.).
+	// Fail-closed (AEP-0083): sem DB não há fallback silencioso para filesystem.
+	if err := a.initMessaging(); err != nil {
+		return err
+	}
 
 	// Callback reutilizado pelo agent.Service e ChatController
 	speechDispatcher := func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool) {
@@ -259,7 +1002,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			Origin:         ChatSpeakOrigin(origin),
 			Interrupt:      &interrupt,
 		}); err != nil {
-			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%s msg=%s): %v", conversationID, messageID, err)
+			logging.Warnf(ctx, "app.app", "[Speech] WARN: dispatchSpeechEvent falhou (conv=%s msg=%s): %v", conversationID, messageID, err)
 		}
 	}
 
@@ -268,10 +1011,28 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Emitter:          a.emitter,
 		MsgRepo:          a.msgRepo,
 		ToolExecutor:     a.toolExecutor,
+		ToolInvocations:  a.toolInvocationSvc,
 		ResponseNotifier: a.responseNotifier,
-		GetTokenStats:    a.GetConversationTokenStats,
+		GetTokenStats: func(conversationID string) (*chat.TokenStats, error) {
+			ctx, err := a.requireAuthenticatedContext()
+			if err != nil {
+				return nil, err
+			}
+			if a.tokensCtrl == nil {
+				return nil, fmt.Errorf("controller de tokens ainda não está pronto")
+			}
+			return a.tokensCtrl.GetConversationTokenStats(ctx, conversationID)
+		},
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
 		OnSpeechRequest:  speechDispatcher,
+		// O interactor nasce depois deste ponto, então ele é resolvido na hora
+		// do uso: guardá-lo agora congelaria um nulo.
+		RenameFromAgent: func(ctx context.Context, conversationID, turnMessageID, title string) error {
+			if a.chatInteractor == nil {
+				return nil
+			}
+			return a.chatInteractor.RenameFromAgent(ctx, conversationID, turnMessageID, title)
+		},
 	})
 
 	// Workspace antes do Prompt Builder: senão Workspace fica (*Manager)(nil) numa interface (typed nil)
@@ -283,38 +1044,38 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
 	a.promptBuilder = &prompt.Builder{
-		Skills:          a.skillMgr,
-		Workspace:       a.workspaceMgr,
-		Tools:           a.toolRegistry,
-		OpenEditorPaths: a.workspaceMgr.OpenEditorFilePaths,
+		Skills:    a.skillMgr,
+		Workspace: a.workspaceMgr,
+		Tools:     a.toolRegistry,
 	}
-
-	// Inicializa o Settings Service (config CRUD e reset de dados)
-	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
-		Emitter:        a.emitter,
-		CredCleaner:    a.credMgr,
-		ProfileCleaner: profileCleanerAdapter{app: a},
-		SkillCleaner:   skillCleanerAdapter{app: a},
-		ReloadLLM:      a.initLLMClient,
-	})
+	a.contextProviders = contextprovider.NewRegistry(
+		conversation.NewContextProvider(),
+		a.memorySvc,
+		skills.NewContextProvider(a.skillMgr),
+		slashskill.NewContextProvider(),
+		tasklist.NewContextProvider(),
+		toolprotocol.NewContextProvider(),
+		deeplinkprotocol.NewContextProvider(),
+		workspace.NewContextProvider(),
+		workspace.NewSurfaceContextProvider(),
+	)
 
 	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
 	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
-		Emitter:       a.emitter,
-		Repo:          a.msgRepo,
-		ConvRepo:      a.convSvc,
-		ProviderSvc:   a.providerSvc,
-		ProfileMgr:    a.profileManager,
-		SkillMgr:      a.skillMgr,
-		PromptBuilder: a.promptBuilder,
+		Emitter:          a.emitter,
+		Repo:             a.msgRepo,
+		ConvRepo:         a.convSvc,
+		ProviderSvc:      a.providerSvc,
+		ProfileMgr:       a.profileManager,
+		Workspace:        a.workspaceMgr,
+		SkillMgr:         a.skillMgr,
+		PromptBuilder:    a.promptBuilder,
+		ContextProviders: a.contextProviders,
+		LinkedTaskLists:  a.linkedTaskListsForConversation,
 	})
 
 	// Inicializa hotkeys globais
-	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
-		ProfileMgr: a.profileManager,
-		Emitter:    a.emitter,
-		WindowPort: a.windowPort,
-	})
+	a.wireHotkeys()
 	a.initGlobalHotkeys()
 
 	// Registra hotkeys do perfil ativo
@@ -323,47 +1084,22 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
 
+	// Liga a ponte de eventos de domínio das tasklists ao EventBus de jobs (AEP-0067).
+	// O Service é criado antes do jobMgr, então o sink é injetado aqui.
+	if a.taskSvc != nil {
+		a.taskSvc.SetDomainEventSink(a.jobMgr)
+	}
+
 	// Inicializa o updater
 	a.initUpdater()
 
 	// Instancia os Controllers (Fase 2 — Inbound Adapters por domínio)
-	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
-	a.profilesCtrl = controllers.NewProfilesController(controllers.ProfilesControllerConfig{
-		ProfileMgr: a.profileManager,
-		Emitter:    a.emitter,
-		OnProfileChanged: func(slug string) {
-			a.initLLMClient()
-			if err := a.InitSpeechManagerFromProfile(); err != nil {
-				log.Printf("[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
-			}
-			a.registerActiveProfileHotkeys()
-		},
-	})
-	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
-		LLMRegistry:      a.llmRegistry,
-		ProfileMgr:       a.profileManager,
-		ProviderSvc:      a.providerSvc,
-		Emitter:          a.emitter,
-		OnProviderChange: a.initLLMClient,
-	})
-	a.skillsCtrl = controllers.NewSkillsController(controllers.SkillsControllerConfig{
-		SkillMgr: a.skillMgr,
-		Emitter:  a.emitter,
-	})
-	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
-		CredMgr:     a.credMgr,
-		ProfileMgr:  a.profileManager,
-		SkillMgr:    a.skillMgr,
-		Emitter:     a.emitter,
-		ProviderSvc: a.providerSvc,
-		RestartChannel: func(channelName string) error {
-			return a.RestartChannel(channelName)
-		},
-		GetModels: func() ([]string, error) {
-			return a.GetModels()
-		},
-		InitLLMClient: a.initLLMClient,
-	})
+	a.wireMCP()
+	a.wireProfiles()
+	a.wireLLMProviders()
+	a.wireLLMModels()
+	a.wireSettings()
+	a.wireDatabase()
 
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
 		Emitter:          a.emitter,
@@ -374,64 +1110,119 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		AgentSvc:         a.agentSvc,
 		StreamMgr:        a.streamMgr,
 		SpeechSvc:        a.speechSvc,
-		SettingsSvc:      a.settingsSvc,
 		ConvRepo:         a.convSvc,
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
 		OnSpeechRequest:  speechDispatcher,
 		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
 	})
+	a.wireChat()
+	// Conecta adapters de canal só agora — SendMessageFromChannel precisa de chatCtrl.
+	if a.msgCtrl != nil {
+		if a.msgGateway != nil {
+			a.msgGateway.SetCancelStream(a.streamMgr.Cancel)
+		}
+		a.msgCtrl.StartAdapters("")
+	}
+	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
+	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
+	a.subagentMgr = subagent.NewManager(subagent.ManagerConfig{
+		Repo:     subagent.NewDBRepository(database.DB()),
+		Notifier: a.responseNotifier,
+		Send: func(ctx context.Context, p subagent.SendParams) (string, error) {
+			return a.chatCtrl.SendForSubagent(ctx, p.ConversationID, p.Prompt, p.Media, p.ProfileSlug, p.Model)
+		},
+		Delivery:     &subagentParentDelivery{app: a},
+		CancelStream: a.streamMgr.Cancel,
+		EmitEvent: func(event string, data any) {
+			a.emitter.Emit(event, data)
+		},
+	})
+
+	// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running
+	// por um encerramento abrupto do app são marcados como failed no startup
+	// (espelha a reconciliação de jobs). Não bloqueia o startup.
+	//
+	// cutoff capturado AQUI (após criar o manager, antes de servir requests):
+	// como a reconciliação roda em goroutine enquanto o app já pode aceitar
+	// chamadas, só reconciliamos runs criados antes deste instante — um run
+	// legítimo criado em paralelo (created_at >= cutoff) não é marcado como
+	// órfão.
+	reconcileCutoff := time.Now()
+	go func() {
+		// Teto de tempo: a reconciliação roda em goroutine de startup e não pode
+		// pendurar o processo indefinidamente se o DB travar (lock/I/O lento).
+		// WithoutCancel é mantido (não deve ser cancelada por cancelamento normal
+		// do ctx do app durante uso), mas WithTimeout adiciona o deadline —
+		// consistente com o teto de operações de jobs (internal/jobs/manager.go).
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), subagentReconcileTimeout)
+		defer cancel()
+		n, err := a.subagentMgr.ReconcileOrphans(ctx, reconcileCutoff)
+		if err != nil {
+			logging.Errorf(ctx, "app.app", "[Subagent] erro ao reconciliar runs órfãos: %v", err)
+		} else if n > 0 {
+			logging.Infof(ctx, "app.app", "[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
+		}
+	}()
+
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
 	})
+	a.wireTasklist()
+	a.wireTasklistActions()
+	a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{
+		MsgRepo:               a.msgRepo,
+		Emitter:               a.emitter,
+		ResetScopedState:      a.resetConversationScopedState,
+		ConfirmDeleteMessage:  a.confirmDeleteMessageQuestionnaire,
+		GetEffectiveModelFunc: a.effectiveModelFromActiveProfile,
+	})
+	a.wireConversations()
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
 		SpeechSvc: a.speechSvc,
 	})
+	a.wireSpeech()
 	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
 		JobMgr: a.jobMgr,
 	})
-	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
-		ProfileMgr:  a.profileManager,
-		TokenSvc:    a.tokenSvc,
-		SettingsSvc: a.settingsSvc,
-	})
-	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
-		ToolRegistry: a.toolRegistry,
-		MCPMgr:       a.mcpMgr,
-	})
-	a.updaterCtrl = controllers.NewUpdaterController(controllers.UpdaterControllerConfig{
-		Updater:          a.updater,
-		Emitter:          a.emitter,
-		QuestionnaireMgr: a.questionnaireMgr,
-		ProviderSvc:      a.providerSvc,
-		AppVersion:       AppVersion,
-	})
-	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
-		CredMgr: a.credMgr,
-	})
-	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
-		QuestionnaireMgr:           a.questionnaireMgr,
-		CredMgr:                    a.credMgr,
-		ProviderSvc:                a.providerSvc,
-		LLMRegistry:                a.llmRegistry,
-		SettingsSvc:                a.settingsSvc,
-		Updater:                    a.updater,
-		UpdaterCtrl:                a.updaterCtrl,
-		ConfigureCredentialManager: a.configureCredentialManager,
-		InitLLMClient:              a.initLLMClient,
-		SaveLLMProviders:           a.saveLLMProviders,
-	})
-	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
-		TerminalMgr: a.terminalMgr,
-	})
-	a.allowlistCtrl = controllers.NewAllowlistController(controllers.AllowlistControllerConfig{
-		AllowlistMgr:     a.allowlistMgr,
-		QuestionnaireMgr: a.questionnaireMgr,
-	})
-	a.signalCtrl = controllers.NewSignalController()
+	a.wireJobs()
+	a.wireTokens()
+	a.wireSkills()
+	a.wireAllowlist()
+	a.wireTools()
+	a.wireUpdater()
+	a.wireNetTrust()
+	a.wireFSTrust()
+	a.wireCredentials()
+	a.wireMemory()
+	a.wireWelcome()
+	a.wireWorkspace()
+	a.wireMessaging()
+	a.wireEditor()
+	a.wireExportImport()
+	a.wireLegacyCleanup()
+	a.wireSubagent()
+	a.wireACPCommands()
+	a.wireACPProviders()
+	a.wireACPOptions()
+	a.wireACPRegistry()
+	a.wireACPWorkDir()
+	a.wireACPInstall()
+	a.wireACPTrust()
+	a.wireSignal()
+	a.wireTerminal()
 
-	// Verifica atualizações no startup (não bloqueante)
-	go a.checkForUpdatesOnStartup()
+	if err := a.startHTTPAPI(); err != nil {
+		return err
+	}
+
+	// Verifica atualizações no startup (não bloqueante). Rastreada em bgWG para
+	// que o Shutdown faça join e não deixe a goroutine órfã.
+	a.bgWG.Add(1)
+	go func() {
+		defer a.bgWG.Done()
+		a.checkForUpdatesOnStartup()
+	}()
 
 	return nil
 }
@@ -441,9 +1232,49 @@ func (a *App) ShowWindow() {
 	a.windowPort.Show()
 }
 
+// SetWakeLock ativa/desativa a prevenção de bloqueio/suspensão da tela
+// enquanto a janela está em foco. É cross-platform: Windows usa
+// SetThreadExecutionState, Linux/macOS são no-op por enquanto.
+func (a *App) SetWakeLock(enabled bool) {
+	a.wakeLock.SetEnabled(enabled)
+}
+
+// shutdownBackgroundTimeout é o teto de espera pelo join das goroutines de
+// background no Shutdown. Defensivo: evita travar o encerramento caso alguma
+// goroutine não respeite o cancelamento do contexto a tempo.
+const shutdownBackgroundTimeout = 10 * time.Second
+
+// waitBackground aguarda o término das goroutines rastreadas em bgWG, com
+// timeout defensivo para não bloquear o shutdown indefinidamente.
+func (a *App) waitBackground(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		a.bgWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		logging.Warnf(context.Background(), "app.app", "[App] Timeout aguardando goroutines de background no Shutdown")
+	}
+}
+
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	a.wakeLock.Release()
+	// Sinaliza o cancelamento às goroutines de background e aguarda o join
+	// antes de derrubar os managers, evitando loops órfãos no encerramento.
+	if a.cancel != nil {
+		a.cancel()
+	}
+	a.waitBackground(shutdownBackgroundTimeout)
+
 	a.stopAllEditorWatches()
+	a.stopConnectionMonitor()
+
+	if a.httpAPIServer != nil {
+		_ = a.httpAPIServer.Shutdown(context.Background())
+	}
 
 	if a.hotkeyCtrl != nil {
 		a.hotkeyCtrl.Stop()
@@ -452,6 +1283,12 @@ func (a *App) Shutdown() {
 	// Encerra todos os servidores MCP
 	if a.mcpMgr != nil {
 		a.mcpMgr.CloseAll()
+	}
+
+	// Derruba os processos dos agentes ACP. As sessões ficam registradas: o
+	// agente sobrevive ao app e, na volta, a conversa é retomada de onde parou.
+	if a.acpMgr != nil {
+		a.acpMgr.Shutdown()
 	}
 
 	// Encerra todas as sessões de terminal

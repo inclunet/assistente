@@ -1,8 +1,8 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"time"
 
 	"assistente/internal/questionnaire"
@@ -16,6 +16,41 @@ import (
 // AppVersion é a versão do aplicativo, injetada via ldflags no build.
 // Em dev, permanece como "dev".
 var AppVersion = "dev"
+
+// updateElevationTextKey é o assunto deste diálogo nas chaves de tradução
+// (AEP-0085 D7).
+func updateElevationTextKey(field string) string {
+	return "app.questionnaire.updateElevation." + field
+}
+
+// updateElevationPayload monta o pedido de privilégio de administrador para
+// substituir o executável. É decisão de segurança, e das que não se avaliam sem
+// entender: quem lê o pedido num idioma que não fala não tem como saber o que
+// está autorizando (AEP-0085).
+func updateElevationPayload() questionnaire.RequestPayload {
+	return questionnaire.RequestPayload{
+		Kind:  questionnaire.KindDecision,
+		Title: questionnaire.Keyed(updateElevationTextKey("title"), "Permissão Necessária"),
+		Description: questionnaire.Keyed(
+			updateElevationTextKey("description"),
+			"Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
+		),
+		AllowCancel: true,
+		Actions: []questionnaire.DecisionAction{
+			{
+				ID:      "allow",
+				Label:   questionnaire.Keyed(updateElevationTextKey("submit"), "Permitir"),
+				Variant: "primary",
+				Primary: true,
+			},
+			{
+				ID:      "deny",
+				Label:   questionnaire.Keyed(updateElevationTextKey("cancel"), "Cancelar"),
+				Variant: "outline",
+			},
+		},
+	}
+}
 
 // initUpdater inicializa o gerenciador de atualizações e configura seus callbacks.
 func (a *App) initUpdater() {
@@ -41,69 +76,35 @@ func (a *App) initUpdater() {
 	// Configura callback de elevação (solicita permissão ao usuário)
 	a.updater.SetElevationCallback(func() bool {
 		if a.questionnaireMgr == nil {
-			log.Printf("[Updater] Questionnaire manager não disponível para solicitar elevação")
+			logging.Warnf(context.Background(), "app.app-updater", "[Updater] Questionnaire manager não disponível para solicitar elevação")
 			return false
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Permissão Necessária",
-			Description: "Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
-			Questions: []questionnaire.Question{
-				{
-					ID:       "allow",
-					Type:     "boolean",
-					Prompt:   "Permitir atualização com privilégios de administrador?",
-					Required: true,
-					Default:  true,
-				},
-			},
-			AllowCancel: true,
-			SubmitLabel: "Permitir",
-			CancelLabel: "Cancelar",
-		})
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, updateElevationPayload())
 
 		if err != nil {
-			log.Printf("[Updater] Erro ao solicitar confirmação de elevação: %v", err)
+			logging.Errorf(context.Background(), "app.app-updater", "[Updater] Erro ao solicitar confirmação de elevação: %v", err)
 			return false
 		}
 		if resp.Cancelled {
-			log.Printf("[Updater] Usuário cancelou a solicitação de elevação")
+			logging.Infof(context.Background(), "app.app-updater", "[Updater] Usuário cancelou a solicitação de elevação")
 			return false
 		}
-		if allow, ok := resp.Answers["allow"].(bool); ok && allow {
-			log.Printf("[Updater] Usuário autorizou elevação")
-			return true
+		id, ok := questionnaire.DecisionActionID(resp)
+		if !ok || id != "allow" {
+			return false
 		}
-		return false
+		logging.Infof(context.Background(), "app.app-updater", "[Updater] Usuário autorizou elevação")
+		return true
 	})
 
-	log.Printf("[Updater] Inicializado (versão atual: %s)", AppVersion)
+	logging.Infof(context.Background(), "app.app-updater", "[Updater] Inicializado (versão atual: %s)", AppVersion)
 }
 
-// checkForUpdatesOnStartup verifica atualizações ao iniciar (não bloqueante).
+// checkForUpdatesOnStartup executa o scheduler cancelável de atualizações.
 func (a *App) checkForUpdatesOnStartup() {
-	a.updaterCtrl.CheckForUpdatesOnStartup(a.ctx)
-}
-
-// GetAppVersion retorna a versão atual do aplicativo.
-func (a *App) GetAppVersion() string {
-	return a.updaterCtrl.GetAppVersion()
-}
-
-// CheckForUpdates verifica manualmente se há atualizações disponíveis.
-func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
-	return a.updaterCtrl.CheckForUpdates()
-}
-
-// ApplyUpdate aplica a atualização (chamado pelo frontend).
-func (a *App) ApplyUpdate() error {
-	return a.updaterCtrl.ApplyUpdate(a.ctx)
-}
-
-// StartUpdate inicia o processo de atualização (navega para página e inicia).
-func (a *App) StartUpdate() error {
-	return a.updaterCtrl.StartUpdate(a.ctx)
+	a.updaterCtrl.RunUpdateChecks(a.ctx)
 }

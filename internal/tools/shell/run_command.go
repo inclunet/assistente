@@ -1,13 +1,17 @@
 package shell
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"assistente/internal/allowlist"
+	"assistente/internal/commandpolicy"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 )
@@ -36,7 +40,16 @@ type GetAllowlistFunc func() *allowlist.Allowlist
 type SessionManager interface {
 	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
 	RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
+	RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error)
 	Release(sessionID string)
+	Close(sessionID string) error
+}
+
+// sessionLookup é implementada pelo terminal.Manager e permite que o chat
+// escolha explicitamente uma sessão já conhecida sem ampliar o contrato dos
+// mocks legados de SessionManager.
+type sessionLookup interface {
+	Info(sessionID string) (terminal.SessionInfo, bool)
 }
 
 // RunCommand é a ferramenta que executa comandos shell via PTY.
@@ -67,8 +80,13 @@ func (rc *RunCommand) Name() string {
 	return "run_command"
 }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "shell", Class: "run_commands", Package: "coding_edit", Risk: "shell"}
+}
+
 func (rc *RunCommand) Description() string {
-	return `Runs a shell command in a persistent PTY session. Use for builds, tests, file inspection, git, etc. Respects allowlist and may require user confirmation. working_directory is project-relative; timeout_seconds max is 300.`
+	return `Executes a shell command in a PTY. Use when a task requires a process, such as building, testing, Git, or a CLI; for example {"command":"go test ./...","timeout_seconds":120}. Do not use when a dedicated file/search tool can perform the operation, or merely to list, create, interrupt, or close terminals—use terminal_session for that lifecycle. By default each call is ephemeral and leaves no terminal tab. For a persistent or interactive workflow, set persistent=true, take terminalId from the result metadata, and pass it as terminal_id to later run_command calls. working_directory applies only when starting a new execution and cannot be combined with terminal_id. Risk: runs local commands, respects the command allowlist, and may require user confirmation; timeout_seconds is capped at 300. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {
@@ -81,14 +99,23 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 			},
 			"working_directory": {
 				"type": "string",
-				"description": "Diretório de trabalho para execução do comando. Caminho relativo ao diretório do projeto. Se omitido, usa o diretório raiz do projeto."
+				"description": "Diretório inicial da nova sessão, relativo ao projeto. Só pode ser usado quando terminal_id é omitido; com terminal_id, o comando usa o diretório atual daquela sessão."
+			},
+			"terminal_id": {
+				"type": "string",
+				"description": "ID de um terminal vivo escolhido explicitamente. Se omitido, uma nova execução é criada; nenhuma sessão existente é reutilizada silenciosamente."
+			},
+			"persistent": {
+				"type": "boolean",
+				"description": "Se true, mantém a seção de terminal persistente após o comando (útil para sessões interativas). Padrão: false (execução única, sem lotar terminais)."
 			},
 			"timeout_seconds": {
 				"type": "integer",
 				"description": "Timeout em segundos para a execução do comando. Padrão: 30, máximo: 300."
 			}
 		},
-		"required": ["command"]
+		"required": ["command"],
+		"additionalProperties": false
 	}`)
 }
 
@@ -96,6 +123,8 @@ func (rc *RunCommand) Parameters() json.RawMessage {
 type runCommandArgs struct {
 	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory"`
+	TerminalID       string `json:"terminal_id"`
+	Persistent       bool   `json:"persistent"`
 	TimeoutSeconds   int    `json:"timeout_seconds"`
 }
 
@@ -109,17 +138,47 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}, nil
 	}
 
-	if a.Command == "" {
+	if strings.TrimSpace(a.Command) == "" {
 		return tools.ToolResult{
-			Content: "O parâmetro 'command' é obrigatório",
+			Content: "O parâmetro 'command' é obrigatório e não pode ser vazio",
 			IsError: true,
 		}, nil
 	}
+	if result, blocked := validateSkillBashCommand(ctx, a.Command); blocked {
+		return result, nil
+	}
 
-	// Resolve diretório de trabalho
+	// Resolve a sessão e o diretório exibido na confirmação antes de qualquer
+	// efeito colateral. Um terminal existente é autoritativo sobre seu CWD.
 	workDir := rc.workDir
-	if a.WorkingDirectory != "" {
-		workDir = a.WorkingDirectory
+	if a.TerminalID != "" {
+		if strings.TrimSpace(a.WorkingDirectory) != "" {
+			return tools.ToolResult{
+				Content: "working_directory não pode ser combinado com terminal_id; o terminal selecionado mantém seu próprio diretório atual",
+				IsError: true,
+			}, nil
+		}
+		lookup, ok := rc.sessionMgr.(sessionLookup)
+		if !ok {
+			return tools.ToolResult{Content: "O gerenciador não suporta seleção explícita de terminal", IsError: true}, nil
+		}
+		info, live := lookup.Info(a.TerminalID)
+		if !live {
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Terminal %q não existe ou já foi encerrado", a.TerminalID),
+				IsError: true,
+			}, nil
+		}
+		workDir = info.CWD
+	} else if a.WorkingDirectory != "" {
+		resolvedWorkDir, resolveErr := resolveProjectWorkDir(rc.workDir, a.WorkingDirectory)
+		if resolveErr != nil {
+			return tools.ToolResult{
+				Content: "working_directory inválido: " + resolveErr.Error(),
+				IsError: true,
+			}, nil
+		}
+		workDir = resolvedWorkDir
 	}
 
 	// Calcula timeout
@@ -131,19 +190,35 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	}
 
-	// Avalia allowlist
-	decision := rc.evaluateCommand(a.Command)
-	log.Printf("[RunCommand] Comando: %q, decisão: %s", a.Command, decision)
+	// Avalia o comando contra a politica (allowlist + parser conservador)
+	policyResult := rc.evaluateCommand(a.Command)
+	decision := policyResult.Decision
+	// Nunca logamos a string crua de a.Command: ela pode conter tokens em
+	// flags (-W, --token=) ou env inline. Em vez disso, derivamos um resumo
+	// seguro do parse (programas + contagem de args). Reasons so vao para o
+	// log quando a decisao for diferente de approve, e mesmo assim usam
+	// summarizePolicyReasons (sem repetir args do comando).
+	commandSummary := redactCommandForLog(a.Command, policyResult)
+	logPolicyDecision(ctx, logging.Logger(ctx, "tools.shell.run-command"), commandSummary, policyResult)
 
 	switch decision {
 	case allowlist.DecisionDeny:
+		// Nao retornamos a.Command cru: este Content e enviado ao LLM e poderia
+		// vazar tokens/senhas em flags ou env inline. Usamos o mesmo resumo
+		// redigido aplicado nos logs (programas + contagem de args). Reasons
+		// (vs DetailedReasons) e o slice "safe" do EvaluationResult — citamos
+		// apenas programa, tipo de regra e indice (rule[N]/always_deny[N]) e
+		// nunca interpolamos pattern bruto, subcommands/args/description que o
+		// usuario possa ter colocado na allowlist com dados sensiveis.
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Comando bloqueado pela allowlist: %q", a.Command),
+			Content: fmt.Sprintf("Comando bloqueado pela política de comandos: %s\nMotivos: %s", commandSummary, strings.Join(policyResult.Reasons, "; ")),
 			IsError: true,
 		}, nil
 
 	case allowlist.DecisionConfirm:
 		if rc.confirmFn != nil {
+			// confirmFn recebe o comando bruto: o usuario precisa ver tudo na
+			// UI local para decidir, e esse caminho nao vai para o LLM.
 			approved, err := rc.confirmFn(ctx, a.Command, workDir)
 			if err != nil {
 				return tools.ToolResult{
@@ -152,28 +227,41 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 				}, nil
 			}
 			if !approved {
+				// Mesmo motivo do deny acima: a string vai para o LLM, nao
+				// repetimos o comando bruto aqui.
 				return tools.ToolResult{
-					Content: fmt.Sprintf("Comando negado pelo usuário: %q", a.Command),
+					Content: fmt.Sprintf("Comando negado pelo usuário: %s", commandSummary),
 					IsError: true,
 				}, nil
 			}
 		}
 	}
 
-	// Adquire sessão PTY
-	session, err := rc.sessionMgr.Acquire(ctx, workDir)
-	if err != nil {
-		return tools.ToolResult{
-			Content: fmt.Sprintf("Erro ao obter sessão de terminal: %v", err),
-			IsError: true,
-		}, nil
+	var sessionID string
+	var entry *terminal.HistoryEntry
+	var err error
+	if a.TerminalID != "" {
+		sessionID = a.TerminalID
+		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+	} else if a.Persistent {
+		// AEP-0089: Acquire cria uma sessão nova e nunca captura uma idle.
+		session, acquireErr := rc.sessionMgr.Acquire(ctx, workDir)
+		err = acquireErr
+		if err != nil {
+			return tools.ToolResult{
+				Content: fmt.Sprintf("Erro ao criar sessão de terminal: %v", err),
+				IsError: true,
+			}, nil
+		}
+		sessionID = session.ID()
+		entry, err = rc.sessionMgr.RunCommand(ctx, sessionID, a.Command, timeout, "llm")
+		// Sessão persistente permanece viva (idle) para uso interativo.
+		rc.sessionMgr.Release(sessionID)
+	} else {
+		// Execução efêmera por padrão: não cria aba persistente nem ocupa o limite.
+		entry, err = rc.sessionMgr.RunEphemeral(ctx, workDir, a.Command, timeout, "llm")
+		// sessionID permanece vazio — sem deep link para terminal inexistente.
 	}
-
-	// Executa o comando
-	entry, err := rc.sessionMgr.RunCommand(ctx, session.ID(), a.Command, timeout, "llm")
-
-	// Libera a sessão para uso futuro (mesmo com erro)
-	rc.sessionMgr.Release(session.ID())
 
 	if err != nil {
 		// Timeout ou erro — mas se temos output parcial, retorna como sucesso
@@ -197,26 +285,43 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 			return tools.ToolResult{
 				Content: content,
-				Metadata: map[string]any{
-					"command":   a.Command,
-					"workDir":   workDir,
-					"exitCode":  -1,
-					"timeout":   true,
-					"duration":  timeout.String(),
-					"sessionId": session.ID(),
-				},
+				Metadata: func() map[string]any {
+					m := map[string]any{
+						"command":   a.Command,
+						"workDir":   workDir,
+						"exitCode":  -1,
+						"timeout":   true,
+						"duration":  timeout.String(),
+						"commandId": entry.ID,
+					}
+					if sessionID != "" {
+						m["sessionId"] = sessionID
+						m["terminalId"] = sessionID
+						m["deepLink"] = deepLinkForSession(sessionID)
+					}
+					return m
+				}(),
 			}, nil
 		}
 
 		// Erro real (sem output ou sem timeout)
+		metadata := map[string]any{
+			"command":  a.Command,
+			"workDir":  workDir,
+			"exitCode": -1,
+		}
+		if sessionID != "" {
+			metadata["sessionId"] = sessionID
+			metadata["terminalId"] = sessionID
+			metadata["deepLink"] = deepLinkForSession(sessionID)
+		}
+		if entry != nil {
+			metadata["commandId"] = entry.ID
+		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
-			IsError: true,
-			Metadata: map[string]any{
-				"command":  a.Command,
-				"workDir":  workDir,
-				"exitCode": -1,
-			},
+			Content:  fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
+			IsError:  true,
+			Metadata: metadata,
 		}, nil
 	}
 
@@ -235,22 +340,167 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	return tools.ToolResult{
 		Content: content,
-		Metadata: map[string]any{
-			"command":   a.Command,
-			"workDir":   workDir,
-			"exitCode":  entry.ExitCode,
-			"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
-			"sessionId": session.ID(),
-		},
+		Metadata: func() map[string]any {
+			m := map[string]any{
+				"command":   a.Command,
+				"workDir":   workDir,
+				"exitCode":  entry.ExitCode,
+				"duration":  entry.EndedAt.Sub(entry.StartedAt).String(),
+				"commandId": entry.ID,
+			}
+			if sessionID != "" {
+				m["sessionId"] = sessionID
+				m["terminalId"] = sessionID
+				m["deepLink"] = deepLinkForSession(sessionID)
+			}
+			return m
+		}(),
 	}, nil
 }
 
-// evaluateCommand avalia o comando contra a allowlist ativa.
-func (rc *RunCommand) evaluateCommand(command string) allowlist.Decision {
+func validateSkillBashCommand(ctx context.Context, command string) (tools.ToolResult, bool) {
+	ec, ok := tools.GetExecutionContext(ctx)
+	if !ok {
+		return tools.ToolResult{}, false
+	}
+	if containsString(ec.DeniedBash, command) {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Comando bloqueado pela denylist do skill '%s'", ec.InvokedSkillSlug),
+			IsError: true,
+		}, true
+	}
+	if len(ec.AllowedBash) > 0 && !containsString(ec.AllowedBash, command) {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Skill '%s' não permite executar este comando", ec.InvokedSkillSlug),
+			IsError: true,
+		}, true
+	}
+	return tools.ToolResult{}, false
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func logPolicyDecision(
+	ctx context.Context,
+	logger *slog.Logger,
+	commandSummary string,
+	result commandpolicy.EvaluationResult,
+) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if logger == nil {
+		logger = logging.Logger(ctx, "tools.shell.run-command")
+	}
+	if !logger.Enabled(ctx, slog.LevelInfo) {
+		return
+	}
+	decision := result.Decision
+	decisionText := decision.String()
+	attrs := []any{
+		slog.String("command_summary", commandSummary),
+		slog.String("decision", decisionText),
+	}
+	message := fmt.Sprintf("Comando: %s, decisão: %s", commandSummary, decisionText)
+	if decision != allowlist.DecisionApprove {
+		reasons := summarizePolicyReasons(result)
+		message += fmt.Sprintf(", motivos: %s", reasons)
+		attrs = append(attrs, slog.String("reasons", reasons))
+	}
+	logger.Log(ctx, slog.LevelInfo, message, attrs...)
+}
+
+// evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:
+// parsing conservador da linha (separa atomos, detecta features de shell
+// como redirecionamentos, pipes e substituicao de comando) e agregacao de
+// decisoes (deny/confirm/approve) consultando a allowlist ativa do perfil.
+// Quando nao ha allowlist configurada, o resultado e sempre confirm.
+func (rc *RunCommand) evaluateCommand(command string) commandpolicy.EvaluationResult {
 	if rc.getAllowlistFn == nil {
-		return allowlist.DecisionConfirm
+		return commandpolicy.Evaluate(command, nil)
 	}
 
 	al := rc.getAllowlistFn()
-	return al.Evaluate(command)
+	return commandpolicy.Evaluate(command, al)
+}
+
+// redactCommandForLog devolve uma representacao segura do command line
+// para log. Em vez de imprimir a.Command (que pode conter tokens, senhas
+// em flags ou env inline), exibimos:
+//   - lista de programas detectados pelo parser, separados por " | ";
+//   - contagem de env assignments (sem valores) e de args para cada atomo;
+//   - quando algum atomo nao tem programa identificado (parse vazio),
+//     fallback para "<unparsed:N bytes>" com o tamanho original.
+//
+// Evita expor args/values mas preserva diagnostico minimo (qual ferramenta
+// foi pedida e se houve env inline). Aplica defesa em profundidade via
+// redactProgramSegment para o caso raro em que o parser deixe escapar um
+// Program contendo "=" (perfis legados, configuracoes manuais).
+func redactCommandForLog(command string, result commandpolicy.EvaluationResult) string {
+	if len(result.Parse.Commands) == 0 {
+		return fmt.Sprintf("<unparsed:%d bytes>", len(command))
+	}
+	programs := make([]string, 0, len(result.Parse.Commands))
+	for _, cmd := range result.Parse.Commands {
+		program := redactProgramSegment(cmd.Program)
+		if program == "" {
+			program = "<empty>"
+		}
+		segment := fmt.Sprintf("%s(%d args)", program, len(cmd.Args))
+		if envCount := len(cmd.EnvAssignments); envCount > 0 {
+			segment = fmt.Sprintf("[env=%d]%s", envCount, segment)
+		}
+		programs = append(programs, segment)
+	}
+	return strings.Join(programs, " | ")
+}
+
+// redactProgramSegment redige qualquer "=" no nome do programa (defesa em
+// profundidade contra Programs que escaparam do parser ainda contendo
+// atribuicoes inline). Mesma logica do redactProgramForReason no evaluator.
+func redactProgramSegment(program string) string {
+	eq := strings.IndexByte(program, '=')
+	if eq < 0 {
+		return program
+	}
+	return program[:eq] + "=<redacted>"
+}
+
+// summarizePolicyReasons gera um resumo curto para log LOCAL. Como esses
+// logs podem ser anexados a bug reports ou copiados manualmente, usamos
+// EXCLUSIVAMENTE Reasons (safe, sem patterns/description) — DetailedReasons
+// fica reservado para uso ao vivo na UI do desktop, onde o usuario ja tem
+// visibilidade do conteudo da allowlist e nao ha risco de envio externo.
+func summarizePolicyReasons(result commandpolicy.EvaluationResult) string {
+	parts := make([]string, 0, 5)
+	parts = append(parts, fmt.Sprintf("atomos=%d", len(result.Parse.Commands)))
+	parts = append(parts, fmt.Sprintf("motivos=%d", len(result.Reasons)))
+	if len(result.Parse.Features) > 0 {
+		featureNames := make([]string, 0, len(result.Parse.Features))
+		for _, f := range result.Parse.Features {
+			featureNames = append(featureNames, string(f))
+		}
+		parts = append(parts, "features=["+strings.Join(featureNames, ",")+"]")
+	}
+	if len(result.Parse.Errors) > 0 {
+		parts = append(parts, "parse_errors="+strconv.Itoa(len(result.Parse.Errors)))
+	}
+	if len(result.Reasons) > 0 {
+		parts = append(parts, "reasons=["+strings.Join(result.Reasons, " | ")+"]")
+	}
+	return strings.Join(parts, " ")
+}
+
+func deepLinkForSession(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	return fmt.Sprintf("assistente://terminal/%s", sessionID)
 }

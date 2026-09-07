@@ -5,7 +5,7 @@ weight: 3
 
 # Terminal Integrado
 
-O Assistente possui um terminal integrado com sessões persistentes, permitindo executar comandos sem sair do aplicativo.
+O Assistente possui um terminal integrado com sessões **efêmeras** (AEP-0089), permitindo executar comandos sem sair do aplicativo.
 
 ## Como Funciona
 
@@ -56,6 +56,10 @@ A interface inclui:
 - **Toolbar**: Nome da sessão, diretório atual, botão de interrupção
 - **Histórico**: Lista de comandos e saídas
 - **Input**: Campo para digitar novos comandos
+
+O campo do terminal envia texto diretamente ao shell. `/` é um caractere
+normal nesse campo e não abre o menu de skills do chat. Autocomplete, quando
+disponível, é responsabilidade do shell ativo e de seus recursos nativos.
 
 ## Atalhos
 

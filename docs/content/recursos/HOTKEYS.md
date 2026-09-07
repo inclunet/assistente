@@ -5,6 +5,8 @@ weight: 6
 
 # Hotkeys Globais
 
+> **Em 2 linhas:** atalhos que funcionam mesmo com o app minimizado (STT, trazer ao foco) e atalhos de navegação por teclado dentro do app (F6, Alt+M, Ctrl+Tab).
+
 O Assistente suporta atalhos de teclado globais que funcionam mesmo quando a janela não está em foco — útil para ativar o assistente rapidamente ou controlar funcionalidades como STT.
 
 ## Como Funciona
@@ -37,6 +39,16 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 - **Ativar STT**: Pressione um atalho global para começar a ditar, mesmo com o app minimizado
 - **Trazer app ao foco**: Atalho para trazer a janela do assistente à frente
 - **Controle de TTS**: Pausar/retomar leitura por voz
+
+## Atalhos de navegação (dentro do app)
+
+| Atalho | Ação |
+|---|---|
+| `F6` / `Shift+F6` | Pular entre áreas (landmarks): sidebar, conteúdo, abas, status |
+| `ESC` | Voltar à área padrão da aba ativa |
+| `Alt + M` | Menu principal do chat |
+| `Ctrl + Tab` / `Ctrl + Shift + Tab` | Próxima/anterior aba (chat, editor, tasklist, terminal) |
+| `Ctrl + Shift + R` | Repetir pergunta em diálogos de decisão |
 
 ## Notas
 

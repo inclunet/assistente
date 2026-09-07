@@ -1,12 +1,144 @@
 package workspace
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestInitialize_NewWorkspaceHasActiveChatTab(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	ws := m.Active()
+	if ws == nil {
+		t.Fatal("expected active workspace")
+	}
+	if len(ws.Tabs.Items) != 1 {
+		t.Fatalf("expected one default tab, got %d", len(ws.Tabs.Items))
+	}
+
+	tab := ws.Tabs.Items[0]
+	if tab.Type != TabTypeChat {
+		t.Fatalf("expected default chat tab, got %q", tab.Type)
+	}
+	if tab.Title != "" {
+		t.Fatalf("expected locale-neutral default title, got %q", tab.Title)
+	}
+	if ws.Tabs.Active != tab.ID {
+		t.Fatalf("expected tab %q to be active, got %q", tab.ID, ws.Tabs.Active)
+	}
+}
+
+func TestInitialize_RepairsPersistedWorkspaceWithoutTabs(t *testing.T) {
+	homeDir := t.TempDir()
+	workDir := t.TempDir()
+	m := NewManager(homeDir)
+	if err := m.saveWorkspace(&Workspace{
+		ID:   "ws-empty",
+		Name: "Empty",
+		Tabs: TabsState{Items: []Tab{}},
+	}, workDir); err != nil {
+		t.Fatalf("saveWorkspace: %v", err)
+	}
+
+	if err := m.Initialize(workDir); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	ws := m.Active()
+	if ws == nil || len(ws.Tabs.Items) != 1 {
+		t.Fatalf("expected repaired workspace with one tab, got %#v", ws)
+	}
+	if ws.Tabs.Active != ws.Tabs.Items[0].ID {
+		t.Fatalf("expected repaired tab to be active, got %q", ws.Tabs.Active)
+	}
+
+	reloaded := NewManager(homeDir)
+	if err := reloaded.Initialize(workDir); err != nil {
+		t.Fatalf("reload Initialize: %v", err)
+	}
+	if got := reloaded.Active(); got == nil || len(got.Tabs.Items) != 1 || got.Tabs.Active == "" {
+		t.Fatalf("expected repair to persist, got %#v", got)
+	}
+}
+
+func TestInitialize_RepairsMissingActiveTab(t *testing.T) {
+	homeDir := t.TempDir()
+	workDir := t.TempDir()
+	m := NewManager(homeDir)
+	if err := m.saveWorkspace(&Workspace{
+		ID:   "ws-invalid-active",
+		Name: "Invalid active",
+		Tabs: TabsState{
+			Active: "tab-missing",
+			Items: []Tab{{
+				ID:    "tab-existing",
+				Type:  TabTypeChat,
+				Title: "Chat",
+			}},
+		},
+	}, workDir); err != nil {
+		t.Fatalf("saveWorkspace: %v", err)
+	}
+
+	if err := m.Initialize(workDir); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	if got := m.Active().Tabs.Active; got != "tab-existing" {
+		t.Fatalf("expected existing tab to become active, got %q", got)
+	}
+}
+
+func TestImportWorkspace_PreservesImportedTabCount(t *testing.T) {
+	m := NewManager(t.TempDir())
+	data, err := yaml.Marshal(&Workspace{
+		Name: "Imported",
+		Tabs: TabsState{Items: []Tab{
+			{Type: TabTypeChat, Title: "Chat", Position: 0},
+			{Type: TabTypeEditor, Title: "Editor", Position: 1},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("yaml.Marshal: %v", err)
+	}
+
+	ws, err := m.ImportWorkspace(data)
+	if err != nil {
+		t.Fatalf("ImportWorkspace: %v", err)
+	}
+	if len(ws.Tabs.Items) != 2 {
+		t.Fatalf("expected exactly two imported tabs, got %d", len(ws.Tabs.Items))
+	}
+	if ws.Tabs.Active != ws.Tabs.Items[0].ID {
+		t.Fatalf("expected first imported tab to be active, got %q", ws.Tabs.Active)
+	}
+}
+
+func TestImportWorkspace_EmptyImportGetsDefaultTab(t *testing.T) {
+	m := NewManager(t.TempDir())
+	data, err := yaml.Marshal(&Workspace{Name: "Empty import"})
+	if err != nil {
+		t.Fatalf("yaml.Marshal: %v", err)
+	}
+
+	ws, err := m.ImportWorkspace(data)
+	if err != nil {
+		t.Fatalf("ImportWorkspace: %v", err)
+	}
+	if len(ws.Tabs.Items) != 1 {
+		t.Fatalf("expected one default tab, got %d", len(ws.Tabs.Items))
+	}
+	if ws.Tabs.Items[0].Type != TabTypeChat || ws.Tabs.Active != ws.Tabs.Items[0].ID {
+		t.Fatalf("expected active default chat tab, got %#v", ws.Tabs)
+	}
+}
 
 func TestOpenEditorFilePaths_NoActiveWorkspace(t *testing.T) {
 	m := NewManager(t.TempDir())
@@ -182,6 +314,192 @@ func TestUpdateTab_MergesState(t *testing.T) {
 	}
 	if tab.State["filePath"] != "/tmp/file.go" {
 		t.Errorf("filePath not merged: got %v", tab.State["filePath"])
+	}
+}
+
+func TestUpdateTabProfileForConversationValidatesRelationship(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:             "tab-profile",
+		Type:           TabTypeChat,
+		Title:          "chat",
+		ConversationID: conversationID,
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", "outra-conversa", "custom"); err == nil {
+		t.Fatal("vínculo divergente deveria impedir a troca")
+	}
+	tab := m.active.FindTab("tab-profile")
+	if tab.ProfileOverride != nil {
+		t.Fatalf("troca inválida mutou override: %#v", tab.ProfileOverride)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, "custom"); err != nil {
+		t.Fatalf("troca válida: %v", err)
+	}
+	if tab.ProfileOverride["slug"] != "custom" {
+		t.Fatalf("override inesperado: %#v", tab.ProfileOverride)
+	}
+}
+
+func TestUpdateTabProfileForConversationLimpaModeloQuandoSlugMuda(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:             "tab-profile",
+		Type:           TabTypeChat,
+		ConversationID: conversationID,
+		ProfileOverride: map[string]any{
+			"slug":  "anterior",
+			"model": "modelo-do-provider-anterior",
+			"extra": "preservado",
+		},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, "novo"); err != nil {
+		t.Fatalf("UpdateTabProfileForConversation: %v", err)
+	}
+	override := m.active.FindTab("tab-profile").ProfileOverride
+	if _, exists := override["model"]; exists {
+		t.Fatalf("modelo incompatível deveria ser removido: %#v", override)
+	}
+	if override["slug"] != "novo" || override["extra"] != "preservado" {
+		t.Fatalf("troca não preservou demais campos: %#v", override)
+	}
+}
+
+func TestUpdateTabProfileForConversationPreservaModeloQuandoSlugNaoMuda(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:              "tab-profile",
+		Type:            TabTypeChat,
+		ConversationID:  conversationID,
+		ProfileOverride: map[string]any{"slug": "atual", "model": "modelo-atual"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, " atual "); err != nil {
+		t.Fatalf("UpdateTabProfileForConversation: %v", err)
+	}
+	if got := m.active.FindTab("tab-profile").ProfileOverride["model"]; got != "modelo-atual" {
+		t.Fatalf("modelo do mesmo perfil não deveria ser removido: %v", got)
+	}
+}
+
+func TestUpdateTabProfileForConversationRollsBackWhenSaveFails(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager(root)
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	const conversationID = "01970a9e-1234-7000-8000-abcdef123456"
+	if err := m.AddTab(Tab{
+		ID:             "tab-profile",
+		Type:           TabTypeChat,
+		ConversationID: conversationID,
+		ProfileOverride: map[string]any{
+			"slug":  "anterior",
+			"model": "modelo-anterior",
+		},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+	blocker := filepath.Join(root, "arquivo")
+	if err := os.WriteFile(blocker, []byte("não é diretório"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.activePath = filepath.Join(blocker, "workspace.yaml")
+
+	if err := m.UpdateTabProfileForConversation("tab-profile", conversationID, "novo"); err == nil {
+		t.Fatal("esperava falha de persistência")
+	}
+	tab := m.active.FindTab("tab-profile")
+	if tab.ProfileOverride["slug"] != "anterior" || tab.ProfileOverride["model"] != "modelo-anterior" {
+		t.Fatalf("override em memória não foi revertido: %#v", tab.ProfileOverride)
+	}
+}
+
+func TestUpdateTabProfileOverrideFazMergeERemoveComNil(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if err := m.AddTab(Tab{
+		ID:              "tab-model",
+		Type:            TabTypeChat,
+		ProfileOverride: map[string]any{"slug": "programacao", "model": "modelo-antigo"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+
+	if err := m.UpdateTab("tab-model", map[string]any{
+		"profile_override": map[string]any{"model": "modelo-novo"},
+	}); err != nil {
+		t.Fatalf("UpdateTab model: %v", err)
+	}
+	tab := m.active.FindTab("tab-model")
+	if tab.ProfileOverride["slug"] != "programacao" || tab.ProfileOverride["model"] != "modelo-novo" {
+		t.Fatalf("patch apagou campos irmãos: %#v", tab.ProfileOverride)
+	}
+
+	if err := m.UpdateTab("tab-model", map[string]any{
+		"profile_override": map[string]any{"model": nil},
+	}); err != nil {
+		t.Fatalf("UpdateTab remove model: %v", err)
+	}
+	if _, exists := tab.ProfileOverride["model"]; exists {
+		t.Fatalf("model deveria ter sido removido: %#v", tab.ProfileOverride)
+	}
+	if tab.ProfileOverride["slug"] != "programacao" {
+		t.Fatalf("remoção do model apagou slug: %#v", tab.ProfileOverride)
+	}
+}
+
+func TestUpdateTabProfileOverrideRollsBackWhenSaveFails(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager(root)
+	if err := m.Initialize(t.TempDir()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	if err := m.AddTab(Tab{
+		ID:              "tab-model",
+		Type:            TabTypeChat,
+		Title:           "antes",
+		ProfileOverride: map[string]any{"slug": "programacao", "model": "modelo-antigo"},
+	}); err != nil {
+		t.Fatalf("AddTab: %v", err)
+	}
+	blocker := filepath.Join(root, "arquivo")
+	if err := os.WriteFile(blocker, []byte("não é diretório"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.activePath = filepath.Join(blocker, "workspace.yaml")
+
+	if err := m.UpdateTab("tab-model", map[string]any{
+		"title":            "depois",
+		"profile_override": map[string]any{"model": "modelo-novo"},
+	}); err == nil {
+		t.Fatal("esperava falha de persistência")
+	}
+	tab := m.active.FindTab("tab-model")
+	if tab.Title != "antes" || tab.ProfileOverride["model"] != "modelo-antigo" {
+		t.Fatalf("aba em memória não sofreu rollback: %#v", tab)
 	}
 }
 

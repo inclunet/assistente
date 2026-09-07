@@ -59,15 +59,16 @@ func BuildToolName(serverSlug, toolName string) string {
 // ParseToolName extrai serverSlug e toolName de um nome namespaced.
 // Retorna ("", "", false) se o nome não for um tool MCP válido.
 func ParseToolName(fullName string) (serverSlug, toolName string, ok bool) {
+	fullName = strings.TrimSpace(fullName)
 	if !strings.HasPrefix(fullName, "mcp_") {
 		return "", "", false
 	}
 	rest := fullName[4:] // remove "mcp_"
 	parts := strings.SplitN(rest, "__", 2)
-	if len(parts) != 2 {
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
 		return "", "", false
 	}
-	return parts[0], parts[1], true
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
 }
 
 // Name retorna o nome completo (namespaced) da tool.

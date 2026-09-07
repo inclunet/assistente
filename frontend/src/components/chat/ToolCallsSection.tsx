@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import type { ToolCallStatus } from '../../types/chat';
+import { isAppToolEvent, type ToolCallStatus, type ToolOrigin } from '../../types/chat';
 import { formatDuration } from '../../utils/format';
 import './ToolCallsSection.css';
 
@@ -19,8 +19,8 @@ export interface ParsedToolCall {
   };
   /** Resultado retornado pela ferramenta (adicionado pela consolidação) */
   result?: string;
-  /** Origem da ferramenta: builtin, mcp_bridge ou mcp_native (AEP-0039) */
-  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  /** Origem da ferramenta (AEP-0039, AEP-0084) */
+  origin?: ToolOrigin;
   /** Label do servidor MCP (AEP-0039) */
   server_label?: string;
   /** Iteração do agentic loop (0-based) (AEP-0039) */
@@ -34,10 +34,60 @@ interface ToolCallsSectionProps {
   toolCallsJson?: string;
   /** Tool calls ativos durante streaming (do store) */
   activeToolCalls?: ToolCallStatus[];
+  /** Controles internos só entram na ordem de Tab no modo de leitura. */
+  tabNavigationEnabled?: boolean;
+}
+
+const ORIGIN_LABEL_KEYS: Record<ToolOrigin, string> = {
+  builtin: 'chat.toolOriginBuiltin',
+  mcp_bridge: 'chat.toolOriginMcpBridge',
+  mcp_native: 'chat.toolOriginMcpNative',
+  acp_agent: 'chat.toolOriginAcpAgent',
+};
+
+function originLabelKey(origin?: string): string {
+  return ORIGIN_LABEL_KEYS[origin as ToolOrigin] ?? ORIGIN_LABEL_KEYS.builtin;
 }
 
 /** Limite de caracteres para exibir resultado truncado */
 const RESULT_PREVIEW_LENGTH = 300;
+const LARGE_TOOL_CALLS_JSON_LENGTH = 8_000;
+
+function countTopLevelArrayItems(raw: string): number {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return 0;
+  let depth = 0;
+  let count = 0;
+  let inString = false;
+  let escaped = false;
+  for (const char of trimmed) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') {
+      if (depth === 1) count += 1;
+      depth += 1;
+      continue;
+    }
+    if (char === '}' && depth > 0) {
+      depth -= 1;
+      continue;
+    }
+    if (char === '[') depth += 1;
+    if (char === ']' && depth > 0) depth -= 1;
+  }
+  return depth === 0 && !inString && !escaped ? count : 0;
+}
 
 /**
  * ToolCallsSection renderiza indicadores de ferramentas chamadas pelo assistente.
@@ -49,14 +99,19 @@ const RESULT_PREVIEW_LENGTH = 300;
 export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolCallsSection({
   toolCallsJson,
   activeToolCalls,
+  tabNavigationEnabled = false,
 }) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
+  const shouldDeferSavedParsing = !!toolCallsJson && toolCallsJson.length > LARGE_TOOL_CALLS_JSON_LENGTH && !isExpanded;
+  const deferredToolCount = shouldDeferSavedParsing && toolCallsJson
+    ? countTopLevelArrayItems(toolCallsJson)
+    : 0;
 
   // Parseia tool calls do JSON (modo histórico)
   let parsedCalls: ParsedToolCall[] = [];
-  if (toolCallsJson) {
+  if (toolCallsJson && !shouldDeferSavedParsing) {
     try {
       parsedCalls = JSON.parse(toolCallsJson);
     } catch {
@@ -66,11 +121,11 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
 
   // Determina quais calls mostrar
   const hasActiveCalls = activeToolCalls && activeToolCalls.length > 0;
-  const hasSavedCalls = parsedCalls.length > 0;
+  const hasSavedCalls = parsedCalls.length > 0 || deferredToolCount > 0;
 
   if (!hasActiveCalls && !hasSavedCalls) return null;
 
-  const toolCount = hasActiveCalls ? activeToolCalls!.length : parsedCalls.length;
+  const toolCount = hasActiveCalls ? activeToolCalls!.length : Math.max(parsedCalls.length, deferredToolCount);
   const isRunning = hasActiveCalls && activeToolCalls!.some(tc => tc.status === 'running');
 
   const handleToggle = () => setIsExpanded(!isExpanded);
@@ -97,7 +152,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   // Nomes das tools para exibição rápida
   const toolNames = hasActiveCalls
     ? activeToolCalls!.map(tc => tc.name)
-    : parsedCalls.map(tc => tc.function.name);
+    : shouldDeferSavedParsing ? [t('chat.toolDetails')] : parsedCalls.map(tc => tc.function.name);
 
   const uniqueNames = [...new Set(toolNames)];
   const summaryText = isRunning
@@ -114,7 +169,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
         onKeyDown={handleKeyDown}
         aria-expanded={isExpanded}
         type="button"
-        tabIndex={-1}
+        tabIndex={tabNavigationEnabled ? 0 : -1}
       >
         <span className="tool-calls-section__icon" aria-hidden="true">
           {isRunning ? <SettingOutlined spin /> : <ToolOutlined />}
@@ -145,6 +200,13 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                       {tc.status === 'running' ? <LoadingOutlined spin /> : tc.status === 'done' ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
                     </span>
                     <span className="tool-calls-section__name">{tc.name}</span>
+                    {/* Ferramenta de agente externo é marcada enquanto roda: quem
+                        acompanha precisa saber que o app não é o autor (AEP-0084 D7). */}
+                    {!isAppToolEvent(tc.origin) && (
+                      <span className={`tool-calls-section__origin-badge tool-calls-section__origin-badge--${tc.origin}`}>
+                        {t(originLabelKey(tc.origin))}
+                      </span>
+                    )}
                     {tc.summary && (
                       <span className="tool-calls-section__result-summary">{tc.summary}</span>
                     )}
@@ -173,9 +235,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                       <span className="tool-calls-section__name">{tc.function.name}</span>
                       {tc.origin && (
                         <span className={`tool-calls-section__origin-badge tool-calls-section__origin-badge--${tc.origin}`}>
-                          {tc.origin === 'mcp_native' ? t('chat.toolOriginMcpNative')
-                            : tc.origin === 'mcp_bridge' ? t('chat.toolOriginMcpBridge')
-                            : t('chat.toolOriginBuiltin')}
+                          {t(originLabelKey(tc.origin))}
                         </span>
                       )}
                       {tc.server_label && (
@@ -208,7 +268,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                             className="tool-calls-section__result-toggle"
                             onClick={() => toggleResultExpanded(tc.id)}
                             type="button"
-                            tabIndex={-1}
+                            tabIndex={tabNavigationEnabled ? 0 : -1}
                           >
                             {isResultExpanded ? t('chat.showLess') : `${t('chat.showAll')} (${formatSize(tc.result!.length)})`}
                           </button>

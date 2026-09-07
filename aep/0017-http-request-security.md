@@ -1,5 +1,14 @@
 # HTTP Request - Guardrails de Segurança
 
+**Status:** In Progress — guardrails implementados; cobertura de aprovação para DELETE/PUT/PATCH pendente
+
+> **Contrato vigente:** `HTTPRequest` recebe `credentials.Manager` em
+> `NewHTTPRequest(credMgr)` e delega autenticação ao cliente central de
+> `internal/tools/http`, que resolve credenciais pela URL. Não existem
+> `SetCredential`, `credential_key`, `auth_bearer` ou `auth_basic` no contrato
+> da tool. O desenho por chave descrito abaixo é histórico e foi superseded
+> pelas AEPs 0018 e 0019.
+
 ## Problema
 
 Ao dar ao modelo LLM acesso a uma ferramenta HTTP completa, surgem dois riscos principais:
@@ -19,8 +28,8 @@ Ao dar ao modelo LLM acesso a uma ferramenta HTTP completa, surgem dois riscos p
 
 #### Implementação
 ```go
-// No app.go, ao registrar http_request:
-httpReqTool := web.NewHTTPRequest()
+// Ao registrar http_request, o manager vigente é obrigatório:
+httpReqTool := web.NewHTTPRequest(credMgr)
 httpReqTool.SetConfirmFunc(func(ctx context.Context, method, url, body string) (bool, error) {
     // Mostra dialog de confirmação ao usuário
     resp, err := questionnaireMgr.RequestQuestionnaire(ctx, ...)
@@ -48,7 +57,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 
 ---
 
-### 2. Gestão Segura de Credenciais
+### 2. Gestão segura de credenciais — design histórico superseded
 
 #### Problema
 ❌ **Modelo vê o token**:
@@ -59,7 +68,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 }
 ```
 
-#### Solução
+#### Solução originalmente proposta
 ✅ **Usar chaves de credenciais**:
 ```json
 {
@@ -71,7 +80,7 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 #### Como funciona
 1. **Armazenar credenciais** antes de registrar a tool:
    ```go
-   httpReqTool := web.NewHTTPRequest()
+   httpReqTool := web.NewHTTPRequest(credMgr)
    httpReqTool.SetCredential("github_token", os.Getenv("GITHUB_TOKEN"))
    httpReqTool.SetCredential("stripe_key", loadFromVault("stripe_secret"))
    ```
@@ -131,13 +140,67 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 
 ---
 
-## Configuração no Sistema
+### 3. Proteção anti-SSRF (validação pós-DNS)
+
+As tools de rede (`web_fetch`, `http_request`, `feed_read`) compartilham a barreira
+anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
+
+1. **Pré-dial (textual)** — `IsPrivateHost` rejeita rapidamente URLs cujo host já é
+   um IP literal local/privado (loopback, RFC 1918, CGNAT 100.64/10, link-local
+   incl. `169.254.169.254`, multicast, broadcast) ou `localhost`/`.localhost`.
+2. **Redirects** — `RedirectGuard` reaplica a política nos redirects (que o net/http
+   segue automaticamente) e remove headers sensíveis ao cruzar limite de confiança.
+3. **Pós-DNS (definitiva)** — `SetTransportGuard`/`NewGuardedTransport` instalam um
+   `net.Dialer` com hook `Control` que **valida o IP REAL no momento do connect**,
+   após a resolução de DNS.
+
+> **Validação pós-DNS (issue #237):** validar apenas o host textual não basta. Um
+> hostname público que resolve para um IP privado (DNS rebinding, CNAME para
+> `169.254.169.254`) e formas numéricas não-padrão (`http://2130706433/`,
+> `http://0x7f000001/`, `http://[::ffff:127.0.0.1]/`) burlavam a checagem textual. O
+> `GuardedTransport` usa um `net.Dialer` com `Control func(network, address string,
+> c syscall.RawConn) error`, chamado imediatamente antes de cada `connect()` com o
+> `address` já no formato IP:porta concreto. O `Control` aplica `isBlockedIP` ao IP
+> real e retorna erro (**fail-closed**) se for local/privado, abortando aquela
+> tentativa — um host que só resolve para IPs privados falha por completo. Como o IP
+> validado é exatamente o que será conectado, não há TOCTOU; e por usar o dialer
+> nativo preserva-se o **Happy Eyeballs** (tentativas IPv6/IPv4 concorrentes com
+> fallback), sem regressão de latência. Como o `http.Transport` é reusado, os
+> redirects passam pelo mesmo guard. A lista de ranges é centralizada em
+> `isBlockedIP` (`ssrf.go`), fonte única de verdade compartilhada pelas duas camadas,
+> e normaliza IPv4-mapped IPv6 via `To4()` para fechar bypass de broadcast/privado
+> em forma mapeada.
+
+> **Autorização explícita para destinos bloqueados (AEP-0082):** o hard-deny
+> anti-SSRF deixou de ser terminal. Quando o guard pós-DNS barra um destino
+> (`BlockedIPError`) e há um `NetworkAuthorizer` configurado, o `Client.Do`
+> abre um fluxo de **consentimento explícito + allowlist escopável** (sessão /
+> workspace / perfil / global) e **reexecuta** a request liberando apenas o(s)
+> **IP(s) resolvido(s)** do host autorizado (trust por-request via
+> `WithTrustedIPs`, nunca a faixa inteira). Sem authorizer ou com o usuário
+> negando, o erro passa a ser acionável (`BlockedDestinationError`: host, IP,
+> categoria, ações). Detalhes e decisões em `aep/0082-network-trust-allowlist.md`.
+
+> **Proxy desabilitado (conexão direta obrigatória):** o `GuardedTransport` define
+> `Transport.Proxy = nil`, **ignorando `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`**. Isso
+> é deliberado: com um proxy ativo, o `DialContext` validaria/dialaria o IP do
+> *proxy*, não o do destino final — o que reabriria o bypass anti-SSRF (uma URL para
+> IP privado seria alcançada através de um proxy público, sem o IP de destino ser
+> validado pós-DNS) e quebraria a garantia desta camada. A política é sempre conexão
+> direta com validação do IP real. **Implicação:** em ambientes que dependem de proxy
+> corporativo para saída à internet, estas tools (`web_fetch`, `http_request`,
+> `feed_read`) não usarão o proxy; um eventual suporte a proxy exigiria uma política
+> explícita que valide o destino final antes de delegar ao proxy (não implementado).
+
+---
+
+## Configuração por chave — exemplos históricos, não usar
 
 ### Carregar credenciais de variáveis de ambiente
 
 **`app.go`**:
 ```go
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 httpReqTool.SetConfirmFunc(confirmCallback)
 
 // Carrega credenciais de variáveis de ambiente
@@ -171,7 +234,7 @@ a.toolRegistry.MustRegister(httpReqTool)
 ```go
 // Carrega config
 cfg := loadConfig()
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 
 for key, value := range cfg.HTTPCredentials {
     httpReqTool.SetCredential(key, value)
@@ -181,7 +244,7 @@ for key, value := range cfg.HTTPCredentials {
 ### Carregar de vault/secret manager (produção)
 
 ```go
-httpReqTool := web.NewHTTPRequest()
+httpReqTool := web.NewHTTPRequest(credMgr)
 
 // Exemplo com AWS Secrets Manager
 githubToken, _ := awsSecretsManager.GetSecret("prod/github_token")
@@ -216,7 +279,7 @@ httpReqTool.SetCredential("stripe_key", stripeKey.Data["value"].(string))
 
 ---
 
-## Exemplos Práticos
+## Exemplos práticos do design histórico
 
 ### Exemplo 1: GitHub API (seguro)
 
@@ -317,3 +380,21 @@ httpReqTool.SetCredential("slack_webhook", "https://hooks.slack.com/...")
 - [ ] Histórico de operações aprovadas/negadas
 - [ ] Templates de aprovação (auto-aprovar DELETE de recursos de teste)
 - [ ] Dry-run mode (simular sem executar)
+
+## Critérios e evidências do escopo entregue
+
+- [x] `internal/tools/web/http_request.go` encaminha `DELETE`, `PUT` e `PATCH`
+  ao callback de confirmação.
+- [x] `internal/tools/web/http_request_test.go` cobre DELETE sem callback e
+  DELETE negado/cancelado pelo callback.
+- [ ] Cobrir aprovação de DELETE e adicionar regressões de aprovação/negação
+  equivalentes para PUT e PATCH.
+- [x] O modelo não recebe token, senha ou chave de credencial no schema da
+  tool.
+- [x] O `credentials.Manager` é injetado no cliente HTTP central, que resolve
+  autenticação por URL.
+- [x] Proteções anti-SSRF pré/pós-DNS e em redirects vivem em
+  `internal/tools/http` e possuem regressões próprias.
+- [x] Ausência dos métodos históricos `SetCredential` e dos argumentos
+  `credential_key`/`auth_*` está reconciliada como substituição arquitetural,
+  não como funcionalidade pendente.

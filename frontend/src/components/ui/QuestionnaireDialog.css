@@ -54,16 +54,21 @@
 }
 
 .questionnaire-dialog__readonly {
+  display: block;
   width: 100%;
+  box-sizing: border-box;
+  margin: 0;
   padding: 10px 12px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-default);
   background: var(--bg-muted);
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  white-space: pre;
-  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow-y: auto;
   max-height: 40vh;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .questionnaire-dialog__readonly:focus {
@@ -113,12 +118,6 @@
   font-size: 0.9rem;
 }
 
-.questionnaire-dialog__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 .questionnaire-dialog__button {
   padding: 8px 14px;
   border-radius: var(--radius-full);
@@ -138,8 +137,10 @@
 }
 
 @media (max-width: 640px) {
+  /* Empilha na ordem DOM (primária → cancelar), sem column-reverse que
+     mascararia a ordem de Tab/NVDA (AEP-0090 D3). */
   .questionnaire-dialog__footer {
-    flex-direction: column-reverse;
+    flex-direction: column;
     align-items: stretch;
   }
 }

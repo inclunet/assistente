@@ -1,6 +1,6 @@
 # Refatoracao do Modelo de Voz ÔÇö Separacao por Role
 
-## Status: Proposto
+## Status: Done — modelo por role implementado em `internal/profiles/types.go` e `ProfileAudioTab`
 
 ---
 
@@ -22,6 +22,61 @@ O sistema funciona parcialmente mas e fragil: editar perfil nao reinicializa spe
 ## Decisao: Modelo Limpo por Role
 
 Redesenhar `VoiceConfig` como struct hierarquica com 3 sub-configs independentes (assistant, user, system), extrair STT para `InputConfig` e canais para `ChannelsConfig`. Sem campos legacy, sem fallback.
+
+### Atualizacao 2026-05-05: contrato definitivo de modelo e voz TTS
+
+A implementacao inicial separou os campos `model` e `voice_id`, mas a UI e parte do backend continuaram tratando alguns modelos TTS dinamicos como se fossem vozes. Isso criou um contrato ambiguo:
+
+- OpenAI oficial usava IDs compostos de picker (`voiceId::model`), misturando modelo e voz em uma unica selecao.
+- Piper/LocalAI expunha modelos `voice-*` como `TTSVoiceInfo`, porque cada modelo Piper costuma representar uma voz.
+- Qwen/Kokoro/OpenAI-compatible eram empurrados para o mesmo caminho dinamico, embora normalmente tenham modelo TTS e nome de voz separados.
+- Backend aceitava `model` vazio e preenchia com `voice_id`, mascarando configuracao invalida.
+
+Essa ambiguidade fica removida. A partir desta AEP, TTS HTTP tem contrato explicito:
+
+```
+voice.<role>:
+  provider: "openai"        # familia HTTP OpenAI-compatible
+  llm_provider_id: string   # provider registrado para credenciais/base URL
+  model: string             # obrigatorio para TTS HTTP
+  voice_id: string          # obrigatorio somente quando o provider/modelo exige voz separada
+  selection_mode: string    # "model_and_voice" ou "model_only"
+```
+
+Nomenclatura:
+
+- `provider` e a familia de TTS no perfil. Para APIs HTTP OpenAI-compatible, o valor e `openai`, mesmo quando o backend real e Kokoro, Qwen, LocalAI ou outro endpoint compativel.
+- `llm_provider_id` e o ID do provider registrado que carrega credenciais, base URL e formato da API.
+- Parametros `providerID` nas APIs abaixo recebem esse mesmo ID registrado (`llm_provider_id`), nao a familia `provider`.
+
+Regras:
+
+- `model` nunca e inferido a partir de `voice_id`.
+- `voice_id` nunca carrega modelo embutido.
+- Providers/modelos como OpenAI, Kokoro e Qwen usam `selection_mode = "model_and_voice"`: o usuario escolhe modelo e voz separadamente.
+- Providers/modelos como Piper usam `selection_mode = "model_only"`: o usuario escolhe apenas o modelo; `voice_id` permanece vazio.
+- IDs compostos (`voiceId::model`) ficam proibidos.
+- Listagem de `/v1/models` alimenta seletor de modelos, nao seletor de vozes.
+- Listagem de vozes recebe `providerID` e `modelID` como entrada.
+- Sem migracao automatica, fallback, heuristica de compatibilidade ou degradacao silenciosa para perfis antigos.
+
+APIs obrigatorias:
+
+```
+GetTTSModels(providerID) []TTSModelInfo
+GetTTSVoices(providerID, modelID) []TTSVoiceInfo
+SpeakPreview(providerID, modelID, voiceID, rate, volume, text, sessionID)
+SpeakMessage(messageID, providerID, modelID, voiceID, rate)
+```
+
+Em `selection_mode = "model_only"`, o cliente chama `SpeakPreview` e `SpeakMessage` com `voiceID = ""`; a requisicao HTTP envia apenas o modelo.
+
+Validacao obrigatoria:
+
+- Para qualquer TTS HTTP OpenAI-compatible representado no perfil por `provider = "openai"`, `model` vazio e erro de configuracao.
+- Para `selection_mode = "model_and_voice"`, `voice_id` vazio e erro de configuracao.
+- Para `selection_mode = "model_only"`, `voice_id` deve ficar vazio e a sintese envia apenas o modelo.
+- Nenhum caminho pode tentar outro provider automaticamente.
 
 ### Antes (modelo atual)
 
@@ -340,13 +395,21 @@ ProfileAudioTab
 
 ---
 
-## Verificacao
+## Verificacao e evidencias
 
-1. `go test ./...` ÔÇö Todos passam
-2. `npm run lint` ÔÇö Sem erros
-3. `npm run test` ÔÇö Todos passam
-4. `npm run build` ÔÇö Compila
-5. Teste manual: editar perfil -> habilitar voz por role -> chat funciona
-6. Teste manual: trocar perfil -> voz reconfigura
-7. Teste manual: STT -> transcricao -> envio no chat
-8. Teste manual: TTS auto-read por role funciona
+- [x] O modelo hierarquico por role, `InputConfig` e `ChannelsConfig` estao em
+  `internal/profiles/types.go`.
+- [x] A UI edita `voice.assistant`, `voice.user`, `voice.system`, `input` e
+  `channels` em `frontend/src/components/profiles/ProfileAudioTab.tsx`.
+- [x] `ProfileAudioTab.test.tsx` cobre secoes por role, input, canais, referencias
+  entre roles e selecao separada de modelo/voz.
+- [x] `internal/app/app_speech_provider_test.go`,
+  `app_tts_proactive_test.go` e `internal/wailsapi/speech_test.go` cobrem
+  roteamento, APIs de modelos/vozes e chamadas de preview.
+- [x] `internal/providers/resolve_profile_defaults_test.go` e
+  `internal/profiles/provider_validation_test.go` cobrem defaults e validacao
+  do perfil.
+
+As verificacoes manuais originalmente listadas nao possuem registro reproduzivel
+no repositorio e nao sao afirmadas como executadas. Os comportamentos essenciais
+aceitos para `Done` estao cobertos pelas implementacoes e regressões acima.

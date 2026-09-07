@@ -2,7 +2,7 @@ import i18next from 'i18next';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import type { VoiceAccessibilityOrigin } from './voiceAccessibility/types';
-import { playReceiveSound } from './audioFeedback';
+import { playReceiveSound, playErrorSound } from './audioFeedback';
 import type { ChatSurfaceOrigin } from './chatSessionRegistry';
 
 function findOriginTab(origin?: ChatSurfaceOrigin | null) {
@@ -98,5 +98,13 @@ export function playChatReceiveSoundIfActive(conversationId: string, origin?: Ch
 
   if (isChatConversationActive(conversationId, origin)) {
     playReceiveSound();
+  }
+}
+
+export function playChatErrorSoundIfActive(conversationId: string, origin?: ChatSurfaceOrigin | null) {
+  if (!isMountedWorkspaceOrigin(origin)) return;
+
+  if (isChatConversationActive(conversationId, origin)) {
+    playErrorSound();
   }
 }

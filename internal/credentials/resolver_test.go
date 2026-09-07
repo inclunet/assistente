@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +66,23 @@ func TestResolveKeyringRef_NoSlash(t *testing.T) {
 	_, err := resolveKeyringRef("keyring://nonexistent-target-xyz")
 	if err == nil {
 		t.Error("esperava erro para target inexistente")
+	}
+}
+
+// Com service/user, a falha relatada é a do go-keyring — não a mensagem do
+// lookup direto sugerindo "use o formato keyring://service/user", que o usuário
+// já está usando.
+func TestResolveKeyringRef_ServiceUserErrorMentionsKeyring(t *testing.T) {
+	_, err := resolveKeyringRef("keyring://servico-inexistente-xyz/usuario-xyz")
+	if err == nil {
+		t.Fatal("esperava erro para service/user inexistente")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "keyring://servico-inexistente-xyz/usuario-xyz") {
+		t.Errorf("erro deveria citar a ref completa: %s", msg)
+	}
+	if strings.HasPrefix(msg, "erro ao buscar keyring://servico-inexistente-xyz/usuario-xyz: lookup direto") {
+		t.Errorf("erro do lookup direto não deveria mascarar o do go-keyring: %s", msg)
 	}
 }
 

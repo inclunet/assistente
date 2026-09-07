@@ -1,9 +1,15 @@
+import { logger } from '../../utils/logger';
 import { useEffect, useRef } from 'react';
-import { EditorReadFile } from '@wailsjs/go/app/App';
+import { EditorReadFile } from '@wailsjs/go/wailsapi/Editor';
 import i18next from 'i18next';
-import { useEditorStore, DEFAULT_MD } from '../../store/editorStore';
+import {
+  useEditorStore,
+  DEFAULT_MD,
+  resolveEditorDisplayMode,
+} from '../../store/editorStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../../store/workspaceStore';
 import { basenameFromPath } from '../../utils/path';
+import { normalizeEditorDocumentResult } from '../../lib/editorContent';
 
 function isWorkspaceTabActive(tabId: string): boolean {
   return useWorkspaceStore.getState().workspace?.activeTabId === tabId;
@@ -54,7 +60,7 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
 
       if (Object.keys(updates).length > 0) {
         ws.updateTab(wsTab.id, updates).catch((error: unknown) => {
-          console.warn('[EditorSurfaceController] falha ao sincronizar tab', wsTab.id, error);
+          logger.warn('[EditorSurfaceController] falha ao sincronizar tab', wsTab.id, error);
         });
       }
     };
@@ -84,29 +90,50 @@ export function useEditorSurfaceController(tab: WorkspaceTab, isActive: boolean)
     creatingRef.current = true;
     try {
       let markdown = DEFAULT_MD;
+      let projection: ReturnType<typeof normalizeEditorDocumentResult> | null = null;
+      let loadError = false;
 
       try {
         if (filePath) {
           const result = await EditorReadFile(filePath);
           if (!isWorkspaceTabActive(tabId)) return;
-          markdown = String((result as unknown as { content?: string })?.content ?? result ?? '');
+          projection = normalizeEditorDocumentResult(result, filePath);
+          markdown = projection.content;
         }
       } catch {
         if (!isWorkspaceTabActive(tabId)) return;
-        markdown = DEFAULT_MD;
+        markdown = '';
+        loadError = true;
       }
 
       if (!isWorkspaceTabActive(tabId)) return;
+      if (useEditorStore.getState().documents[tabId]) return;
       const title = filePath ? basenameFromPath(filePath) : i18next.t('editor.fallback.newDoc');
       useEditorStore.getState().createDocument({
         id: tabId,
         title,
         markdown,
+        mode: resolveEditorDisplayMode(
+          tab.state?.displayMode,
+          'markdown',
+          (projection?.readOnly ?? false) || loadError,
+        ),
         filePath: filePath || null,
         draftId: draftId || (filePath ? null : tabId),
+        readOnly: (projection?.readOnly ?? false) || loadError,
+        projection: projection?.projected
+          ? {
+              format: projection.format,
+              pages: projection.pages,
+              warnings: projection.warnings,
+              warningCode: projection.warningCode,
+            }
+          : null,
+        loadError,
+        sessionHydrated: false,
       });
     } catch (error) {
-      console.error('[EditorSurfaceController] Erro ao criar documento:', error);
+      logger.error('[EditorSurfaceController] Erro ao criar documento:', error);
     } finally {
       creatingRef.current = false;
     }

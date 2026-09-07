@@ -1,29 +1,10 @@
-import { useEffect } from 'react';
-import { useTerminalStore } from '../../store/terminalStore';
-import { useWorkspaceStore, type WorkspaceData, type WorkspaceTab } from '../../store/workspaceStore';
-
-function getTerminalSessionIds(tabs: WorkspaceTab[]): Set<string> {
-  return new Set(tabs
-    .filter((tab) => tab.type === 'terminal')
-    .map((tab) => tab.state?.sessionId)
-    .filter((sessionId): sessionId is string => typeof sessionId === 'string' && sessionId.length > 0));
-}
-
-function closeRemovedTerminalSessions(previous: WorkspaceData | null, current: WorkspaceData | null) {
-  if (!previous || (current && previous.id !== current.id)) return;
-
-  const currentSessionIds = current ? getTerminalSessionIds(current.tabs) : new Set<string>();
-  for (const sessionId of getTerminalSessionIds(previous.tabs)) {
-    if (!currentSessionIds.has(sessionId)) {
-      void useTerminalStore.getState().closeSession(sessionId);
-    }
-  }
-}
-
+/**
+ * Mantido como fronteira explícita do ciclo de vida dos painéis.
+ *
+ * Sessões PTY são recursos independentes (AEP-0089): remover uma aba ou trocar
+ * de workspace apenas desconecta a visualização. Encerramento acontece somente
+ * por uma ação explícita na toolbar ou por uma tool do chat.
+ */
 export function useWorkspacePanelLifecycleCleanup() {
-  useEffect(() => {
-    return useWorkspaceStore.subscribe((state, previousState) => {
-      closeRemovedTerminalSessions(previousState.workspace, state.workspace);
-    });
-  }, []);
+  // Sem cleanup de domínio.
 }

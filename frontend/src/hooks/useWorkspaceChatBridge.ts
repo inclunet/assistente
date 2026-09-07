@@ -1,7 +1,8 @@
+import { logger } from '../utils/logger';
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
-import { RenameConversation } from '@wailsjs/go/app/App';
+import { RenameConversation } from '@wailsjs/go/wailsapi/Conversations';
 import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
 import type { TabType } from '../store/workspaceStore';
 
@@ -52,7 +53,7 @@ export function useWorkspaceChatBridge() {
         try {
           await useChatStore.getState().loadConversationSession(conversationId);
         } catch (error) {
-          console.error('[WorkspaceChatBridge] Erro ao carregar conversa:', error);
+          logger.error('[WorkspaceChatBridge] Erro ao carregar conversa:', error);
           return;
         }
         if (syncGenerationRef.current !== gen) return;
@@ -89,7 +90,7 @@ export function useWorkspaceChatBridge() {
         if ((latestTab.conversationId || '') !== id) return;
         lastSyncedRef.current = `${snapshotTabId}:${id}`;
       } catch (error) {
-        console.error('[WorkspaceChatBridge] Erro ao garantir conversa:', error);
+        logger.error('[WorkspaceChatBridge] Erro ao garantir conversa:', error);
       }
     })();
   }, [activeTab?.id, activeTab?.type, activeTab?.conversationId, isWsInitialized]);

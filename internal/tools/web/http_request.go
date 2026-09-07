@@ -33,9 +33,20 @@ func NewHTTPRequest(credMgr *credentials.Manager) *HTTPRequest {
 	client := httpclient.New(&httpclient.Config{
 		CredentialManager: credMgr,
 	}, map[string]string{})
-	return &HTTPRequest{
+	t := &HTTPRequest{
 		client: client,
 	}
+	// net/http segue redirects automaticamente; sem isto uma URL pública poderia
+	// redirecionar para um host privado (ex.: 127.0.0.1, 169.254.169.254) e burlar
+	// o bloqueio anti-SSRF. Aplica o guard compartilhado no client desta tool.
+	if bc := client.GetBaseClient(); bc != nil {
+		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return t.allowPrivateHosts })
+		// Barreira anti-SSRF definitiva: valida o IP REAL pós-resolução de DNS no
+		// DialContext, cobrindo DNS rebinding, formas numéricas não-padrão e os
+		// redirects (que reusam este transport).
+		httpclient.SetTransportGuard(bc, func() bool { return t.allowPrivateHosts })
+	}
+	return t
 }
 
 // SetConfirmFunc define callback para confirmar operações destrutivas (DELETE/PUT/PATCH).
@@ -43,10 +54,22 @@ func (t *HTTPRequest) SetConfirmFunc(fn func(ctx context.Context, method, url, b
 	t.confirmFn = fn
 }
 
+// SetNetworkAuthorizer instala o authorizer anti-SSRF (consentimento + allowlist)
+// no cliente HTTP desta tool. Sem authorizer, hosts privados/CGNAT continuam com
+// hard-deny acionável.
+func (t *HTTPRequest) SetNetworkAuthorizer(a httpclient.NetworkAuthorizer) {
+	t.client.SetNetworkAuthorizer(a)
+}
+
 func (t *HTTPRequest) Name() string { return "http_request" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *HTTPRequest) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "http", Class: "http_api", Package: "web", Risk: "network"}
+}
+
 func (t *HTTPRequest) Description() string {
-	return "Makes complete HTTP requests supporting all methods (GET/POST/PUT/DELETE/PATCH), custom headers, request body, and authentication. Blocks local/private hosts by default. Use for API calls, REST endpoints, and data submission."
+	return `Makes an HTTP(S) request with explicit method, headers, body, response mode, and size limit. Use for APIs or endpoints that require protocol-level control; for example {"url":"https://api.example.com/items","method":"GET","extract_mode":"json"}. Do not use to search for a URL (use web_search), read a normal page with readability extraction (use web_fetch), or parse feed entries (use feed_read). Credentials registered for the domain are applied automatically; do not place secrets in arguments. Risk: performs a network operation, and mutating methods can change remote state; PUT, PATCH, and DELETE may require user confirmation. Local/private destinations and redirects are guarded by the network policy. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *HTTPRequest) Parameters() json.RawMessage {
@@ -127,10 +150,11 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		return tools.ToolResult{Content: "URL deve usar http:// ou https://", IsError: true}, nil
 	}
 
-	// Bloqueia hosts locais/privados (exceto em modo teste)
-	if !t.allowPrivateHosts && isPrivateHost(parsedURL.Hostname()) {
-		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
-	}
+	// Hosts locais/privados/CGNAT/etc. são barrados pela política anti-SSRF na
+	// barreira pós-DNS do cliente centralizado (client.Do). Quando há um authorizer
+	// configurado, esse bloqueio abre o fluxo de consentimento/allowlist e a
+	// request é reexecutada; sem authorizer, o cliente devolve um erro acionável.
+	// Por isso NÃO barramos aqui de forma seca.
 
 	// Define valores padrão
 	method := "GET"

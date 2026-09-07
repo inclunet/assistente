@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	keyringService = "assistente"
-	keyringUser    = "credential_dek"
+	keyringService          = "assistente"
+	keyringUser             = "credential_dek"
+	authRefreshTokenKeyUser = "auth_refresh_token"
 )
 
 // LoadDEKFromKeychain busca a DEK no keychain do SO.
@@ -21,10 +22,30 @@ func LoadDEKFromKeychain() ([]byte, error) {
 	return base64.StdEncoding.DecodeString(value)
 }
 
-// SaveDEKToKeychain salva a DEK no keychain do SO.
-func SaveDEKToKeychain(dek []byte) error {
+// saveDEKToKeychain é a primitiva de baixo nível que escreve a DEK no
+// keychain do SO. NÃO USE DIRETAMENTE em código de produção — a única
+// via permitida é `PersistDEKConsistent` (ou `OverwriteKeychainDEK`,
+// para o caso explícito de recovery). Toda escrita direta tem
+// histórico de causar divergência DEK_keychain ≠ DEK_wraps; o
+// `PersistDEKConsistent` é o que enforça a invariante (ver AEP-0061).
+//
+// Está lowercased para que `go vet`/code review pegue qualquer
+// tentativa de pular o helper.
+func saveDEKToKeychain(dek []byte) error {
 	encoded := base64.StdEncoding.EncodeToString(dek)
 	return keyring.Set(keyringService, keyringUser, encoded)
+}
+
+func LoadAuthRefreshTokenFromKeychain() (string, error) {
+	return keyring.Get(keyringService, authRefreshTokenKeyUser)
+}
+
+func SaveAuthRefreshTokenToKeychain(refreshToken string) error {
+	return keyring.Set(keyringService, authRefreshTokenKeyUser, refreshToken)
+}
+
+func DeleteAuthRefreshTokenFromKeychain() error {
+	return keyring.Delete(keyringService, authRefreshTokenKeyUser)
 }
 
 // IsKeychainNotFound indica se o erro é de item inexistente no keychain.

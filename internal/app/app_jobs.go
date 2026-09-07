@@ -2,8 +2,10 @@ package app
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/database"
 	"assistente/internal/jobs"
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"path/filepath"
 )
 
@@ -12,11 +14,14 @@ type credentialSecretStore struct {
 	app *App
 }
 
-func (s *credentialSecretStore) GetSecret(key string) (string, error) {
+func (s *credentialSecretStore) GetSecret(ctx context.Context, key string) (string, error) {
 	if s.app.credMgr == nil {
 		return "", nil
 	}
-	auth, err := s.app.credMgr.GetByPattern(key)
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", err
+	}
+	auth, err := s.app.credMgr.GetByPatternWithContext(ctx, key)
 	if err != nil {
 		return "", err
 	}
@@ -35,51 +40,35 @@ func (s *credentialSecretStore) GetSecret(key string) (string, error) {
 func (a *App) initJobs() {
 	baseDir := filepath.Join(configdir.GetHomeDir(), "jobs")
 
+	// Re-normaliza slugs legados (jobs/pipelines/tags) para a forma canônica de
+	// internal/slug antes de o Manager ler do banco. Idempotente; falha aqui é
+	// logada mas não aborta o boot (degradação aceitável: apenas registros
+	// legados com acentos/símbolos seguiriam não-encontráveis até a correção).
+	if err := jobs.RenormalizeLegacySlugs(database.DB()); err != nil {
+		logging.Warnf(context.Background(), "app.app-jobs", "[Jobs] AVISO: re-normalização de slugs legados falhou: %v", err)
+	}
+
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
-		BaseDir:       baseDir,
-		ToolRegistry:  a.toolRegistry,
-		HotkeyManager: a.hotkeyCtrl.Manager(),
-		MsgGateway:    a.msgGateway,
-		SecretStore:   &credentialSecretStore{app: a},
+		BaseDir:         baseDir,
+		Repository:      jobs.NewDBRepository(database.DB()),
+		ContextProvider: a.jobsAuthenticatedContext,
+		ToolRegistry:    a.toolRegistry,
+		ToolInvocations: a.toolInvocationSvc,
+		HotkeyManager:   a.hotkeyCtrl.Manager(),
+		MsgGateway:      a.msgGateway,
+		SecretStore:     &credentialSecretStore{app: a},
 		EmitEvent: func(event string, data any) {
 			a.emitter.Emit(event, data)
 		},
 	})
+}
 
-	if err := a.jobMgr.Start(); err != nil {
-		log.Printf("[Jobs] Error starting manager: %v", err)
+// jobsAuthenticatedContext alimenta o ContextProvider do jobs.Manager (runtime
+// interno). Métodos Wails usam WithUser no bind wailsapi.Jobs — não este helper.
+func (a *App) jobsAuthenticatedContext() context.Context {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil
 	}
+	return ctx
 }
-
-// --- Métodos Wails-bound para o frontend ---
-
-func (a *App) GetJobs() []jobs.JobInfo                         { return a.jobsCtrl.GetJobs() }
-func (a *App) GetJob(id string) (*jobs.Job, error)             { return a.jobsCtrl.GetJob(id) }
-func (a *App) ToggleJob(id string, enabled bool) error         { return a.jobsCtrl.ToggleJob(id, enabled) }
-func (a *App) RunJob(id string) (*jobs.RunLog, error)          { return a.jobsCtrl.RunJob(id) }
-func (a *App) DryRunJob(id string) (*jobs.DryRunResult, error) { return a.jobsCtrl.DryRunJob(id) }
-
-func (a *App) GetJobRuns(id string, limit int) ([]jobs.RunLog, error) {
-	return a.jobsCtrl.GetJobRuns(id, limit)
-}
-func (a *App) ReplayRun(jobID, runID string) (*jobs.TestToolResult, error) {
-	return a.jobsCtrl.ReplayRun(jobID, runID)
-}
-func (a *App) GetJobEvents(date string) ([]jobs.EventEntry, error) {
-	return a.jobsCtrl.GetJobEvents(date)
-}
-
-func (a *App) GetJobPipelines() []jobs.PipelineInfo         { return a.jobsCtrl.GetJobPipelines() }
-func (a *App) GetToolCatalog() ([]jobs.CatalogEntry, error) { return a.jobsCtrl.GetToolCatalog() }
-func (a *App) RegenerateJobCatalog() error                  { return a.jobsCtrl.RegenerateJobCatalog() }
-func (a *App) SaveJob(jobJSON string) error                 { return a.jobsCtrl.SaveJob(jobJSON) }
-
-func (a *App) TestTool(toolName, inputsJSON, eventJSON string) (*jobs.TestToolResult, error) {
-	return a.jobsCtrl.TestTool(toolName, inputsJSON, eventJSON)
-}
-
-func (a *App) InferEventSchema(eventName string) map[string]any {
-	return a.jobsCtrl.InferEventSchema(eventName)
-}
-func (a *App) ListKnownEvents() []string { return a.jobsCtrl.ListKnownEvents() }
-func (a *App) DeleteJob(id string) error { return a.jobsCtrl.DeleteJob(id) }

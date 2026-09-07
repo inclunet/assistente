@@ -1,46 +1,24 @@
 package controllers
 
 import (
-	"context"
-	"fmt"
-	"log"
-
+	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
+	"context"
+	"fmt"
 )
 
-// LLMProviderRequest types — movidos de app.go para o pacote controllers.
+// CreateLLMProviderRequest — alias estável durante a migração Strangler (AEP-0088 D5).
+type CreateLLMProviderRequest = apidto.CreateLLMProviderRequest
 
-// CreateLLMProviderRequest é o payload para criar um provedor LLM.
-type CreateLLMProviderRequest struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	BaseURL      string `json:"base_url"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
-}
+// TestLLMProviderRequest — alias estável durante a migração Strangler (AEP-0088 D5).
+type TestLLMProviderRequest = apidto.TestLLMProviderRequest
 
-// TestLLMProviderRequest é o payload para testar um provedor LLM.
-type TestLLMProviderRequest struct {
-	Type       string `json:"type"`
-	BaseURL    string `json:"base_url"`
-	APIKey     string `json:"api_key,omitempty"`
-	ProviderID string `json:"provider_id,omitempty"`
-}
-
-// UpdateLLMProviderRequest é o payload para atualizar um provedor LLM.
-type UpdateLLMProviderRequest struct {
-	Name         string `json:"name,omitempty"`
-	Type         string `json:"type,omitempty"`
-	BaseURL      string `json:"base_url,omitempty"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
-}
+// UpdateLLMProviderRequest — alias estável durante a migração Strangler (AEP-0088 D5).
+type UpdateLLMProviderRequest = apidto.UpdateLLMProviderRequest
 
 // LLMControllerConfig agrupa as dependências do LLMController.
 type LLMControllerConfig struct {
@@ -85,12 +63,12 @@ func (c *LLMController) GetLLMProvider(id string) *llm.ProviderConfig {
 	return c.llmRegistry.Get(id)
 }
 
-func (c *LLMController) GetActiveProviderInfo() map[string]interface{} {
+func (c *LLMController) GetActiveProviderInfo(ctx context.Context) map[string]interface{} {
 	activeProfile, err := c.profileMgr.GetActive()
 	if err != nil || activeProfile == nil {
 		return map[string]interface{}{"error": "perfil ativo não encontrado"}
 	}
-	info := c.providerSvc.GetActiveProviderInfo(activeProfile)
+	info := c.providerSvc.GetActiveProviderInfo(ctx, activeProfile)
 	if info.Error != "" {
 		return map[string]interface{}{
 			"error":      info.Error,
@@ -98,11 +76,12 @@ func (c *LLMController) GetActiveProviderInfo() map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
-		"id":       info.ID,
-		"name":     info.Name,
-		"type":     info.Type,
-		"base_url": info.BaseURL,
-		"model":    info.Model,
+		"id":                         info.ID,
+		"name":                       info.Name,
+		"type":                       info.Type,
+		"base_url":                   info.BaseURL,
+		"model":                      info.Model,
+		"supports_assistant_prefill": info.SupportsAssistantPrefill,
 	}
 }
 
@@ -122,7 +101,7 @@ func (c *LLMController) TestLLMProvider(ctx context.Context, req TestLLMProvider
 func (c *LLMController) ListModelsRaw(ctx context.Context, req TestLLMProviderRequest) (models []string, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[LLMController.ListModelsRaw] PANIC: %v", r)
+			logging.Errorf(ctx, "controllers.llm-controller", "[LLMController.ListModelsRaw] PANIC: %v", r)
 			retErr = fmt.Errorf("erro interno ao listar modelos: %v", r)
 		}
 	}()
@@ -136,30 +115,61 @@ func (c *LLMController) ListModelsRaw(ctx context.Context, req TestLLMProviderRe
 
 // providerToMap serializa um ProviderConfig para o formato esperado pelo frontend.
 func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialConfigured bool) map[string]interface{} {
+	// Lista sempre presente: `null` faria a tela distinguir "sem argumentos" de
+	// "campo ausente" antes de conseguir preencher o formulário de edição.
+	acpArgs := p.ACPArgs
+	if acpArgs == nil {
+		acpArgs = []string{}
+	}
+	// Pela mesma razão, o par variável/entrada do cofre sai sempre como objeto.
+	// Ele volta para a tela porque é referência, e é o que permite editar o que
+	// está ligado sem reconfigurar do zero; o segredo não vem junto.
+	acpCredentialEnv := p.ACPCredentialEnv
+	if acpCredentialEnv == nil {
+		acpCredentialEnv = map[string]string{}
+	}
+	// ACPEnv NÃO volta na leitura. É o mesmo motivo da exportação: a coluna pode
+	// guardar token colado à mão (AEP-0086), e a tela não edita esse mapa — o
+	// env{} do binário o app aplica a partir do installed.json. Devolver {}
+	// evita vazar segredo para o frontend sem perder o runtime.
+	acpEnv := map[string]string{}
 	return map[string]interface{}{
-		"id":                    p.ID,
-		"name":                  p.Name,
-		"type":                  string(p.Type),
-		"api_format":            string(p.APIFormat),
-		"base_url":              p.BaseURL,
-		"model":                 p.Model,
-		"default_model":         p.DefaultModel,
-		"is_default":            p.IsDefault,
-		"timeout":               p.Timeout,
-		"credential_pattern":    credentialPattern,
-		"credential_configured": credentialConfigured,
+		"id":                     p.ID,
+		"name":                   p.Name,
+		"type":                   string(p.Type),
+		"api_format":             string(p.GetAPIFormat()),
+		"base_url":               p.BaseURL,
+		"model":                  p.Model,
+		"default_model":          p.DefaultModel,
+		"is_default":             p.IsDefault,
+		"timeout":                p.Timeout,
+		"credential_pattern":     credentialPattern,
+		"credential_configured":  credentialConfigured,
+		"auth_mode":              string(p.EffectiveAuthMode()),
+		"reasoning_content_mode": string(p.EffectiveReasoningContentMode()),
+		"acp_command":            p.ACPCommand,
+		"acp_args":               acpArgs,
+		"acp_env":                acpEnv,
+		"acp_agent_id":           p.ACPAgentID,
+		"acp_credential_env":     acpCredentialEnv,
 	}
 }
 
 func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProviderRequest) (map[string]interface{}, error) {
 	res, err := c.providerSvc.Create(ctx, providers.CreateRequest{
-		ID:           req.ID,
-		Name:         req.Name,
-		Type:         req.Type,
-		APIFormat:    req.APIFormat,
-		BaseURL:      req.BaseURL,
-		APIKey:       req.APIKey,
-		DefaultModel: req.DefaultModel,
+		ID:                   req.ID,
+		Name:                 req.Name,
+		Type:                 req.Type,
+		APIFormat:            req.APIFormat,
+		BaseURL:              req.BaseURL,
+		APIKey:               req.APIKey,
+		DefaultModel:         req.DefaultModel,
+		ReasoningContentMode: req.ReasoningContentMode,
+		ACPCommand:           req.ACPCommand,
+		ACPArgs:              req.ACPArgs,
+		ACPAgentID:           req.ACPAgentID,
+
+		ACPCredentialEnv: req.ACPCredentialEnv,
 	})
 	if err != nil {
 		return nil, err
@@ -169,12 +179,18 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 
 func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req UpdateLLMProviderRequest) (map[string]interface{}, error) {
 	res, err := c.providerSvc.Update(ctx, id, providers.UpdateRequest{
-		Name:         req.Name,
-		Type:         req.Type,
-		APIFormat:    req.APIFormat,
-		BaseURL:      req.BaseURL,
-		APIKey:       req.APIKey,
-		DefaultModel: req.DefaultModel,
+		Name:                 req.Name,
+		Type:                 req.Type,
+		APIFormat:            req.APIFormat,
+		BaseURL:              req.BaseURL,
+		APIKey:               req.APIKey,
+		DefaultModel:         req.DefaultModel,
+		ReasoningContentMode: req.ReasoningContentMode,
+		ACPCommand:           req.ACPCommand,
+		ACPArgs:              req.ACPArgs,
+		ACPAgentID:           req.ACPAgentID,
+
+		ACPCredentialEnv: req.ACPCredentialEnv,
 	})
 	if err != nil {
 		return nil, err
@@ -183,8 +199,8 @@ func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req Up
 	return providerToMap(p, p.CredentialPattern, res.CredentialConfigured), nil
 }
 
-func (c *LLMController) SetDefaultProvider(id string) error {
-	if err := c.providerSvc.SetDefault(id); err != nil {
+func (c *LLMController) SetDefaultProvider(ctx context.Context, id string) error {
+	if err := c.providerSvc.SetDefault(ctx, id); err != nil {
 		return err
 	}
 	if c.onProviderChange != nil {
@@ -193,12 +209,12 @@ func (c *LLMController) SetDefaultProvider(id string) error {
 	return nil
 }
 
-func (c *LLMController) DeleteLLMProvider(id string) error {
-	return c.providerSvc.Delete(id)
+func (c *LLMController) DeleteLLMProvider(ctx context.Context, id string) error {
+	return c.providerSvc.Delete(ctx, id)
 }
 
-func (c *LLMController) GetLLMProvidersWithStatus() []map[string]interface{} {
-	statuses := c.providerSvc.ListWithStatus()
+func (c *LLMController) GetLLMProvidersWithStatus(ctx context.Context) []map[string]interface{} {
+	statuses := c.providerSvc.ListWithStatus(ctx)
 	result := make([]map[string]interface{}, 0, len(statuses))
 	for _, s := range statuses {
 		result = append(result, providerToMap(s.Provider, s.Provider.CredentialPattern, s.CredentialConfigured))

@@ -3,6 +3,7 @@ package deeplink
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,112 @@ type fakeEmitter struct {
 func (f *fakeEmitter) EmitDeepLink(uri string) {
 	f.lastURI = uri
 	f.calls++
+}
+
+func TestOpenDeepLink_DescriptionDocumentsNavigationContract(t *testing.T) {
+	description := strings.ToLower(NewOpenDeepLink(nil).Description())
+	requiredConcepts := []string{
+		"use when:",
+		"do not use:",
+		"markdown deep link",
+		"conversation/new with optional message and title",
+		"send?message=... with required message",
+		"tasklist/new",
+		"editor/new",
+		"accept optional title",
+		"editor/open?file=... requires file",
+		"focus",
+		"matching chat tab",
+		"live terminal ids",
+		"editor/{id} opens a new editor tab",
+		"editor tabs are not matched by that id",
+		"tab open:",
+		"caller-aware",
+		"no caller context",
+		"returns to the profiles list",
+		"tab=voice",
+		"interrupt",
+		"terminal/new",
+		"frontend terminal flow",
+		"rather than the run_command tool",
+		"user explicitly asks",
+		"does not itself grant content access",
+		"non-empty uri",
+		"after trimming",
+		"assistente:// prefix",
+		"unsupported navigate routes",
+		"invalid required or validated parameter combinations",
+		"tool_catalog",
+		"empty route",
+		"assistente://navigate/",
+		`{"uri":`,
+	}
+
+	for _, concept := range requiredConcepts {
+		assert.Contains(t, description, strings.ToLower(concept), "Description() deve documentar %q", concept)
+	}
+
+	validatedRoutes := []string{
+		"empty route",
+		"settings",
+		"settings/providers",
+		"settings/mcp",
+		"settings/skills",
+		"settings/channels",
+		"settings/contacts",
+		"settings/credentials",
+		"settings/allowlists",
+		"settings/network-allowlist",
+		"settings/path-allowlist",
+		"settings/appearance",
+		"settings/data",
+		"settings/restore-defaults",
+		"profiles",
+		"history",
+		"memories",
+		"tasklists",
+		"help",
+		"about",
+		"update",
+	}
+	_, routesText, found := strings.Cut(description, "the frontend accepts only:")
+	if !assert.True(t, found, "Description() deve delimitar a lista de rotas validadas") {
+		return
+	}
+	routesText, _, found = strings.Cut(routesText, ". settings tabs require")
+	if !assert.True(t, found, "Description() deve encerrar a lista antes da regra de settings") {
+		return
+	}
+	listedRoutes := strings.Split(strings.TrimSpace(routesText), ", ")
+	assert.ElementsMatch(t, validatedRoutes, listedRoutes, "Description() deve listar exatamente as rotas validadas")
+}
+
+func TestOpenDeepLink_ParametersDescribeSafeURIConstruction(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+		Required             []string `json:"required"`
+		AdditionalProperties *bool    `json:"additionalProperties"`
+	}
+	assert.NoError(t, json.Unmarshal(NewOpenDeepLink(nil).Parameters(), &schema))
+
+	uriDescription := strings.ToLower(schema.Properties["uri"].Description)
+	for _, concept := range []string{
+		"exact assistente:// uri",
+		"link=",
+		"do not invent",
+		"url-encode",
+		"unsupported navigate routes",
+		"invalid required or validated parameter combinations",
+		"frontend parser",
+	} {
+		assert.Contains(t, uriDescription, concept)
+	}
+	assert.Equal(t, []string{"uri"}, schema.Required)
+	if assert.NotNil(t, schema.AdditionalProperties, "schema deve declarar additionalProperties") {
+		assert.False(t, *schema.AdditionalProperties)
+	}
 }
 
 func TestOpenDeepLink_Execute(t *testing.T) {

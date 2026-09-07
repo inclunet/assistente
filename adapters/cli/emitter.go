@@ -22,8 +22,8 @@ type EmitterAdapter struct {
 	errOut         io.Writer // stderr por padrão
 	verbose        bool
 	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
-	lastPrinted    int    // quantidade de bytes de Content já impressos (para imprimir só o delta)
-	conversationID string // conversa ativa; "" = aceita qualquer conversa
+	lastPrinted    int           // quantidade de bytes de Content já impressos (para imprimir só o delta)
+	conversationID string        // conversa ativa; "" = aceita qualquer conversa
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -389,7 +389,8 @@ func (e *EmitterAdapter) handleDone(data any) {
 		reason = "completed"
 	}
 
-	showSummary := ev.ToolCallCount > 0 || ev.HadToolCalls || ev.Reason == "limit_reached" || ev.Reason == "error"
+	showSummary := ev.ToolCallCount > 0 || ev.HadToolCalls ||
+		ev.Reason == "limit_reached" || ev.Reason == "output_limit" || ev.Reason == "error"
 	if showSummary {
 		if ev.IterationCount > 0 || ev.ToolCallCount > 0 {
 			_, _ = fmt.Fprintf(e.errOut, "[done] %d iterações, %d tool calls, %s\n",

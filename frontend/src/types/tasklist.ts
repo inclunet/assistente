@@ -70,6 +70,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  /** Conversa vinculada (opcional). 1 conversa : N tasks. */
+  conversationId?: string;
   
   // Relações
   subtasks?: Task[];
@@ -99,6 +101,8 @@ export interface TaskList {
   updatedAt: string;
   /** Política opcional de validação (JSON); ausente = sem restrições extras */
   validationPolicy?: TaskListValidationPolicy;
+  /** Conversa vinculada (opcional). 1 conversa : N tasklists. */
+  conversationId?: string;
   
   // Relações
   workflow?: TaskListWorkflow;
@@ -108,6 +112,38 @@ export interface TaskList {
 export interface TaskListWithWorkflow extends TaskList {
   workflow: TaskListWorkflow;
   tasks: Task[];
+}
+
+// ==================== Custom Actions (AEP-0067) ====================
+
+export type CustomActionSurface = 'card_menu' | 'card_detail' | 'board_menu';
+
+export interface CustomAction {
+  id: string;
+  label: string;
+  icon?: string;
+  surfaces?: CustomActionSurface[];
+  event?: string;
+  payload_template?: string;
+  link?: string;
+  when?: string;
+  danger?: boolean;
+  confirm?: string;
+}
+
+export interface TaskListCustomActions {
+  actions?: CustomAction[];
+}
+
+// Projeção renderizável de uma custom action (when já avaliado server-side).
+export interface CustomActionView {
+  id: string;
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  confirm?: string;
+  hasEvent: boolean;
+  hasLink: boolean;
 }
 
 // ==================== UI/Store Types ====================

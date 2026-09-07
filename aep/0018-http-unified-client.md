@@ -1,6 +1,8 @@
 # Plano: Cliente HTTP Unificado com Interceptor de Autenticação
 
-## Problema Atual
+**Status:** In Progress — cliente central entregue; consumidores HTTP diretos ainda precisam ser migrados
+
+## Problema original
 
 A autenticação via credenciais (API tokens, Bearer tokens, etc.) está **duplicada** em múltiplos adapters:
 
@@ -9,7 +11,16 @@ A autenticação via credenciais (API tokens, Bearer tokens, etc.) está **dupli
 - **WebFetch**: cria cliente HTTP diretamente, sem interceptor centralizado
 - **Telegram/Slack**: podem precisar de tokens para APIs
 
-## Solução Proposta
+### Estado verificado
+
+O wrapper e seus testes existem em `internal/tools/http/client.go` e
+`client_authorize_test.go`, e WebRequest/WebFetch/Signal já usam o caminho
+central. A centralização ainda não é total: `internal/messaging/telegram/adapter.go`
+usa `http.Get` diretamente, e há clientes `net/http` próprios em providers,
+OAuth/discovery MCP e autenticação externa. Portanto o escopo amplo deste plano
+permanece parcial.
+
+## Solução e estado parcial
 
 Criar uma **camada HTTP centralizada** (`internal/tools/http/client.go`) que:
 
@@ -150,16 +161,16 @@ Testes para o cliente HTTP unificado:
 
 ## Timeline
 
-1. ✅ Documentação (este arquivo)
-2. Criar `internal/tools/http/client.go`
-3. Criar `internal/tools/http/client_test.go`
-4. Refatorar Signal (register.go + adapter.go)
-5. Refatorar HTTPRequest (http_request.go)
-6. Refatorar WebFetch (fetch.go)
-7. Remover código duplicado do `app.go`
-8. Testar Signal/HTTPRequest/WebFetch
-9. Validar com Telegram/Slack (se aplicável)
-10. Executar suite de testes completa
+- [x] Documentação (este arquivo).
+- [x] Criar `internal/tools/http/client.go`.
+- [x] Criar testes focados do cliente e autorização.
+- [x] Refatorar Signal.
+- [x] Refatorar HTTPRequest.
+- [x] Refatorar WebFetch.
+- [x] Remover o caminho duplicado original do `app.go`.
+- [x] Cobrir Signal/HTTPRequest/WebFetch com testes focados.
+- [ ] Migrar e validar Telegram/Slack; Telegram ainda usa `http.Get` direto.
+- [ ] Concluir os demais consumidores diretos e validar a suíte completa.
 
 ## Benefícios
 

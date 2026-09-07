@@ -11,6 +11,8 @@ import (
 	"text/tabwriter"
 
 	"assistente/controllers"
+	"assistente/internal/apidto"
+	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
 )
@@ -18,12 +20,13 @@ import (
 // providersBackend abstracts the app methods used by providers commands.
 type providersBackend interface {
 	GetLLMProvidersWithStatus() []map[string]interface{}
-	TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error)
-	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
+	TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error)
+	ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error)
 	CreateDefaultLLMProvider(providerType, apiKey string) error
-	CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error)
+	CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error)
 	SetDefaultProvider(id string) error
-	SetChatModel(model string) error
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
+	UpdateProfile(slug string, p profiles.Profile) error
 	DeleteLLMProvider(ctx context.Context, id string) error
 }
 
@@ -39,7 +42,7 @@ var providersListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Lista provedores LLM com status de conexão",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersList(rootApp, os.Stdout)
+		return runProvidersList(asCLI(rootApp), os.Stdout)
 	},
 }
 
@@ -81,7 +84,7 @@ var providersAddCmd = &cobra.Command{
 	Long: `Wizard interativo para configurar um novo provedor LLM.
 Solicita tipo, API key e modelo, testa a conexão e salva.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersAdd(rootApp, os.Stdout, bufio.NewReader(os.Stdin), readPassword)
+		return runProvidersAdd(asCLI(rootApp), os.Stdout, bufio.NewReader(os.Stdin), readPassword)
 	},
 }
 
@@ -137,7 +140,7 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 
 	// Passo 4: Testar conexão
 	_, _ = fmt.Fprint(out, "Testando conexão... ")
-	testReq := controllers.TestLLMProviderRequest{
+	testReq := apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	}
@@ -163,7 +166,7 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 
 	// Passo 5: Escolher modelo
 	model := info.DefaultModel
-	modelsReq := controllers.TestLLMProviderRequest{
+	modelsReq := apidto.TestLLMProviderRequest{
 		Type:   providerType,
 		APIKey: apiKey,
 	}
@@ -223,7 +226,7 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 		if apiFormat == "" {
 			apiFormat = "openai"
 		}
-		_, err = svc.CreateLLMProvider(controllers.CreateLLMProviderRequest{
+		_, err = svc.CreateLLMProvider(apidto.CreateLLMProviderRequest{
 			ID:           info.ID,
 			Name:         info.Name,
 			Type:         providerType,
@@ -236,8 +239,12 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 		// Provedor padrão — usar template
 		err = svc.CreateDefaultLLMProvider(providerType, apiKey)
 		if err == nil && model != "" && model != info.DefaultModel {
-			// Aplica o modelo selecionado (CreateDefaultLLMProvider usa o default do template)
-			_ = svc.SetChatModel(model)
+			// Aplica o modelo selecionado ao perfil ativo
+			// (CreateDefaultLLMProvider usa o default do template).
+			if mErr := setActiveProfileChatModel(svc, model); mErr != nil {
+				_, _ = fmt.Fprintf(out, "Aviso: provedor criado, mas não foi possível aplicar o modelo %q ao perfil ativo: %v\n", model, mErr)
+				_, _ = fmt.Fprintln(out, "Defina o modelo depois com: asst config model <modelo>")
+			}
 		}
 	}
 
@@ -256,14 +263,14 @@ var providersTestCmd = &cobra.Command{
 	Short: "Testa conexão com um provedor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersTest(rootApp, os.Stdout, args[0])
+		return runProvidersTest(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
 func runProvidersTest(svc providersBackend, out io.Writer, id string) error {
 	_, _ = fmt.Fprintf(out, "Testando provedor '%s'... ", id)
 
-	ok, err := svc.TestLLMProvider(controllers.TestLLMProviderRequest{
+	ok, err := svc.TestLLMProvider(apidto.TestLLMProviderRequest{
 		ProviderID: id,
 	})
 	if err != nil {
@@ -285,12 +292,12 @@ var providersModelsCmd = &cobra.Command{
 	Short: "Lista modelos disponíveis de um provedor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersModels(rootApp, os.Stdout, args[0])
+		return runProvidersModels(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
 func runProvidersModels(svc providersBackend, out io.Writer, id string) error {
-	models, err := svc.ListModelsRaw(controllers.TestLLMProviderRequest{
+	models, err := svc.ListModelsRaw(apidto.TestLLMProviderRequest{
 		ProviderID: id,
 	})
 	if err != nil {
@@ -314,7 +321,7 @@ var providersDefaultCmd = &cobra.Command{
 	Short: "Define o provedor padrão",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersDefault(rootApp, os.Stdout, args[0])
+		return runProvidersDefault(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 
@@ -333,7 +340,7 @@ var providersRemoveCmd = &cobra.Command{
 	Short: "Remove um provedor LLM",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersRemove(rootApp, os.Stdout, args[0])
+		return runProvidersRemove(asCLI(rootApp), os.Stdout, args[0])
 	},
 }
 

@@ -16,7 +16,8 @@ describe('Textarea', () => {
     expect(textarea).toHaveAttribute('aria-invalid', 'true');
 
     const hint = screen.getByText('Explique');
-    const error = screen.getByRole('alert', { name: '' });
+    const error = screen.getByText('Obrigatorio');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     const describedBy = textarea.getAttribute('aria-describedby') || '';
     expect(describedBy).toContain(hint.getAttribute('id') || '');

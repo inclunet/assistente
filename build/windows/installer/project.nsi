@@ -55,8 +55,11 @@ ManifestDPIAware true
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
-!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps!define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}" # Opção para executar o programa após instalação
-!define MUI_FINISHPAGE_RUN_TEXT "Executar ${INFO_PRODUCTNAME}" # Texto do checkbox!define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
+!define MUI_FINISHPAGE_RUN # Opção para executar o programa após instalação
+!define MUI_FINISHPAGE_RUN_FUNCTION ExecutarComoUsuario
+!define MUI_FINISHPAGE_RUN_TEXT "Executar ${INFO_PRODUCTNAME}" # Texto do checkbox
+!define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
@@ -89,10 +92,17 @@ Function .onInit
    StrCpy $SilentMode "1"
 FunctionEnd
 
+Function ExecutarComoUsuario
+   # O instalador roda elevado. Abrir o app por aqui faria dele um processo de
+   # administrador, e tudo que ele lança depois (terminais, agentes) herdaria
+   # isso. O explorer.exe roda com o token do usuário e devolve o nível normal.
+   Exec '"$WINDIR\explorer.exe" "$INSTDIR\${PRODUCT_EXECUTABLE}"'
+FunctionEnd
+
 Function .onInstSuccess
    # Se for modo silencioso (atualização automática), reabre o programa
    ${If} $SilentMode == "1"
-      Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+      Call ExecutarComoUsuario
    ${EndIf}
 FunctionEnd
 
@@ -103,32 +113,38 @@ Section
 
     SetOutPath $INSTDIR
     
-    # Se estiver em modo silencioso, aguarda o processo do app terminar
+    # Em modo silencioso (atualização automática) o app pode continuar de pé por
+    # alguns instantes: sobrescrever o executável em uso falharia no meio da
+    # cópia dos arquivos.
     ${If} $SilentMode == "1"
+    ${AndIf} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
         DetailPrint "Aguardando aplicativo fechar..."
-        Sleep 2000  # Aguarda 2 segundos
-        
-        # Loop para verificar se o processo terminou
+
+        # Versões antigas do instalador renomeavam o executável para .old e nem
+        # sempre conseguiam apagá-lo. O resto que ficava para trás bloqueava
+        # todas as atualizações seguintes, então limpe antes de esperar.
+        Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+
         StrCpy $R0 0
         ${Do}
-            # Tenta renomear o executável (só funciona se não estiver em uso)
+            # Abrir para escrita é o teste honesto de "ninguém está usando": o
+            # Windows deixa até renomear um executável em execução, mas nega
+            # escrita enquanto a imagem estiver carregada.
             ClearErrors
-            Rename "$INSTDIR\${PRODUCT_EXECUTABLE}" "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+            FileOpen $R1 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
             ${IfNot} ${Errors}
-                # Conseguiu renomear, processo não está em execução
-                Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+                FileClose $R1
                 ${ExitDo}
             ${EndIf}
-            
-            # Incrementa contador e aguarda
+
             IntOp $R0 $R0 + 1
-            ${If} $R0 > 30  # Máximo 30 tentativas (15 segundos)
-                MessageBox MB_ICONEXCLAMATION|MB_OK "O aplicativo não fechou a tempo. Por favor, feche manualmente e tente novamente."
+            ${If} $R0 > 60  # Desiste depois de ~30 s de espera
+                MessageBox MB_ICONEXCLAMATION|MB_OK "O ${INFO_PRODUCTNAME} continua em execução e o instalador não pode substituí-lo. Feche o aplicativo e execute o instalador novamente."
                 Abort
             ${EndIf}
             Sleep 500  # Aguarda meio segundo
         ${Loop}
-        
+
         DetailPrint "Aplicativo fechado, continuando instalação..."
     ${EndIf}
 

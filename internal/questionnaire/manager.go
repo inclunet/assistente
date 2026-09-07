@@ -2,6 +2,7 @@ package questionnaire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -14,34 +15,88 @@ const (
 	DefaultTimeout = 20 * time.Minute
 )
 
+// Eventos que o backend emite sobre um questionário.
+const (
+	// EventQuestionnaire abre o diálogo na tela.
+	EventQuestionnaire = "tool:questionnaire"
+	// EventQuestionnaireClosed diz que a pergunta perdeu o dono: quem
+	// esperava a resposta desistiu ou o prazo estourou. Sem ele o diálogo
+	// ficaria aberto pedindo decisão sobre algo que já não existe, e a
+	// resposta só descobriria isso ao ser recusada.
+	EventQuestionnaireClosed = "tool:questionnaire:closed"
+)
+
+// Motivos pelos quais uma pergunta se encerra sem resposta.
+const (
+	// ClosedCancelled é quem perguntou tendo desistido — turno cancelado,
+	// conversa excluída, app encerrando.
+	ClosedCancelled = "cancelled"
+	// ClosedTimeout é o prazo da pergunta estourado.
+	ClosedTimeout = "timeout"
+)
+
 // Question define um item do questionário.
+//
+// Os campos de texto são Text (chave de tradução + texto pronto); Content é
+// conteúdo cru — comando, diff, caminho, código de recuperação —, que não se
+// traduz. Default aponta para o valor estável da opção (Text.String()), e não
+// para o rótulo traduzido.
 type Question struct {
 	ID          string   `json:"id"`
 	Type        string   `json:"type"`
-	Prompt      string   `json:"prompt"`
-	Description string   `json:"description,omitempty"`
+	Prompt      Text     `json:"prompt"`
+	Description Text     `json:"description,omitzero"`
 	Content     string   `json:"content,omitempty"`
 	Required    bool     `json:"required,omitempty"`
-	Options     []string `json:"options,omitempty"`
+	Options     []Text   `json:"options,omitempty"`
 	Min         *float64 `json:"min,omitempty"`
 	Max         *float64 `json:"max,omitempty"`
 	Step        *float64 `json:"step,omitempty"`
-	Placeholder string   `json:"placeholder,omitempty"`
+	Placeholder Text     `json:"placeholder,omitzero"`
 	Default     any      `json:"default,omitempty"`
+	// AutoFocus indica que este item deve receber o foco inicial quando o
+	// diálogo abre, sobrepondo a heurística padrão do frontend (primeiro
+	// campo editável). Apenas o primeiro item marcado é considerado.
+	AutoFocus bool `json:"autoFocus,omitempty"`
 }
 
-// RequestPayload representa uma solicitação de questionário pendente.
+// RejectReasonConfig descreve um campo opcional de texto livre exibido junto
+// ao botão de cancelar, permitindo ao usuário justificar a rejeição. A resposta
+// volta em Response.Answers sob a chave ID mesmo quando Cancelled=true.
+type RejectReasonConfig struct {
+	ID          string `json:"id"`
+	Label       Text   `json:"label"`
+	Placeholder Text   `json:"placeholder,omitzero"`
+	// MaxLen limita o tamanho do texto no frontend (em caracteres); 0 = sem limite explícito.
+	MaxLen int `json:"maxLen,omitempty"`
+}
+
+// RequestPayload representa uma solicitação de questionário pendente. Os
+// textos visíveis são Text: quem monta o diálogo diz a chave de tradução e o
+// texto pronto, e quem o exibe escolhe entre os dois (AEP-0085).
+//
+// Kind=KindDecision (AEP-0091): título/descrição/body + Actions como botões.
+// Questions em geral fica vazio; pode incluir readonly_code (ex.: confirmação
+// de edição Antes/Depois) para o host renderizar no body. Resposta em
+// Answers[AnswerActionID].
 type RequestPayload struct {
-	ID          string        `json:"id"`
-	Title       string        `json:"title,omitempty"`
-	Description string        `json:"description,omitempty"`
-	Questions   []Question    `json:"questions"`
-	AllowCancel bool          `json:"allowCancel,omitempty"`
-	SubmitLabel string        `json:"submitLabel,omitempty"`
-	CancelLabel string        `json:"cancelLabel,omitempty"`
-	Timeout     time.Duration `json:"-"` // 0 = DefaultTimeout
-	CreatedAt   string        `json:"createdAt"`
-	response    chan Response
+	ID          string `json:"id"`
+	Kind        string `json:"kind,omitempty"`
+	Title       Text   `json:"title,omitzero"`
+	Description Text   `json:"description,omitzero"`
+	// Hint é texto traduzível secundário (ex.: match de host do skill),
+	// anexado à descrição no DecisionDialog sem misturar com Body cru.
+	Hint         Text                `json:"hint,omitzero"`
+	Body         string              `json:"body,omitempty"`
+	Actions      []DecisionAction    `json:"actions,omitempty"`
+	Questions    []Question          `json:"questions"`
+	AllowCancel  bool                `json:"allowCancel,omitempty"`
+	SubmitLabel  Text                `json:"submitLabel,omitzero"`
+	CancelLabel  Text                `json:"cancelLabel,omitzero"`
+	RejectReason *RejectReasonConfig `json:"rejectReason,omitempty"`
+	Timeout      time.Duration       `json:"-"` // 0 = DefaultTimeout
+	CreatedAt    string              `json:"createdAt"`
+	response     chan Response
 }
 
 // Response representa a resposta do usuário.
@@ -56,6 +111,7 @@ type Manager struct {
 	pending   map[string]*RequestPayload
 	mu        sync.Mutex
 	emitEvent func(event string, data any)
+	display   chan struct{}
 }
 
 // NewManager cria um novo gerenciador de questionários.
@@ -64,25 +120,43 @@ func NewManager(emitEvent func(event string, data any)) *Manager {
 		emitEvent = func(string, any) {}
 	}
 
-	return &Manager{
+	manager := &Manager{
 		pending:   make(map[string]*RequestPayload),
 		emitEvent: emitEvent,
+		display:   make(chan struct{}, 1),
 	}
+	manager.display <- struct{}{}
+	return manager
 }
 
 // RequestQuestionnaire solicita respostas do usuário para um questionário.
 // Bloqueia até resposta, cancelamento ou timeout.
 func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPayload) (Response, error) {
+	select {
+	case <-m.display:
+		defer func() { m.display <- struct{}{} }()
+	case <-ctx.Done():
+		return Response{}, fmt.Errorf("solicitação cancelada antes de abrir o diálogo: %w", ctx.Err())
+	}
+
 	req := &RequestPayload{
-		ID:          uuid.New().String()[:8],
-		Title:       payload.Title,
-		Description: payload.Description,
-		Questions:   payload.Questions,
-		AllowCancel: payload.AllowCancel,
-		SubmitLabel: payload.SubmitLabel,
-		CancelLabel: payload.CancelLabel,
-		CreatedAt:   time.Now().Format(time.RFC3339),
-		response:    make(chan Response, 1),
+		ID:           uuid.New().String()[:8],
+		Kind:         payload.Kind,
+		Title:        payload.Title,
+		Description:  payload.Description,
+		Hint:         payload.Hint,
+		Body:         payload.Body,
+		Actions:      payload.Actions,
+		Questions:    payload.Questions,
+		AllowCancel:  payload.AllowCancel,
+		SubmitLabel:  payload.SubmitLabel,
+		CancelLabel:  payload.CancelLabel,
+		RejectReason: payload.RejectReason,
+		CreatedAt:    time.Now().Format(time.RFC3339),
+		response:     make(chan Response, 1),
+	}
+	if req.Questions == nil {
+		req.Questions = []Question{}
 	}
 
 	m.mu.Lock()
@@ -95,7 +169,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		m.mu.Unlock()
 	}()
 
-	m.emitEvent("tool:questionnaire", map[string]any{
+	eventData := map[string]any{
 		"id":          req.ID,
 		"title":       req.Title,
 		"description": req.Description,
@@ -104,7 +178,25 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		"submitLabel": req.SubmitLabel,
 		"cancelLabel": req.CancelLabel,
 		"createdAt":   req.CreatedAt,
-	})
+	}
+	// kind/body/hint/actions só existem em kind=decision: incluí-los sempre
+	// mandaria campos vazios para todo formulário, poluindo o contrato.
+	if req.Kind != "" {
+		eventData["kind"] = req.Kind
+	}
+	if req.Body != "" {
+		eventData["body"] = req.Body
+	}
+	if !req.Hint.IsZero() {
+		eventData["hint"] = req.Hint
+	}
+	if len(req.Actions) > 0 {
+		eventData["actions"] = req.Actions
+	}
+	if req.RejectReason != nil {
+		eventData["rejectReason"] = req.RejectReason
+	}
+	m.emitEvent(EventQuestionnaire, eventData)
 
 	timeout := payload.Timeout
 	if timeout <= 0 {
@@ -118,11 +210,36 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	case resp := <-req.response:
 		return resp, nil
 	case <-timeoutCtx.Done():
-		if ctx.Err() != nil {
-			return Response{}, fmt.Errorf("solicitação cancelada")
+		// A pergunta acabou sem dono, mas o diálogo continua na tela pedindo
+		// uma decisão que não chega a lugar nenhum. Quem está lendo precisa
+		// saber disso — ainda mais quem lê por leitor de telas, que teria de
+		// percorrer o diálogo inteiro para descobrir que ele não vale mais.
+		if err := ctx.Err(); err != nil {
+			m.emitClosed(req.ID, closedReason(err))
+			// O erro leva a causa do contexto: quem chamou (e o log) precisa
+			// distinguir desistência de prazo tanto quanto a tela.
+			return Response{}, fmt.Errorf("solicitação encerrada sem resposta: %w", err)
 		}
+		m.emitClosed(req.ID, ClosedTimeout)
 		return Response{}, fmt.Errorf("timeout aguardando respostas do usuário (%s)", timeout)
 	}
+}
+
+// closedReason distingue quem desistiu de quem ficou sem tempo. O teto que
+// quem pergunta impõe (o transporte do agente tem o seu) é prazo estourado
+// para quem lê, não desistência: dizer "desistiram" aí seria mentira.
+func closedReason(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ClosedTimeout
+	}
+	return ClosedCancelled
+}
+
+func (m *Manager) emitClosed(requestID, reason string) {
+	m.emitEvent(EventQuestionnaireClosed, map[string]any{
+		"id":     requestID,
+		"reason": reason,
+	})
 }
 
 // Respond envia a resposta do usuário para um questionário pendente.

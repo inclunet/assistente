@@ -2,8 +2,14 @@ import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ContextMenu, MenuItem } from './menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
 import './DataGrid.css';
+
+// Tempo em ms para permitir nova tentativa de onNearEnd se uma carga incremental falhar.
+const NEAR_END_SIGNAL_RESET_DELAY_MS = 1000;
+// Distância em px até o fim visível do grid para iniciar carregamento incremental.
+const NEAR_END_SCROLL_THRESHOLD_PX = 160;
 
 export interface DataGridColumn<T = unknown> {
   key: string;
@@ -14,6 +20,7 @@ export interface DataGridColumn<T = unknown> {
   actionIcon?: string;
   actionLabel?: string; // Texto acessível para leitores de tela (ex: "Abrir", "Editar", "Excluir")
   editable?: boolean;
+  selectionToggle?: boolean;
   format?: (value: unknown, item: T) => string | React.ReactNode;
 }
 
@@ -34,6 +41,9 @@ export interface DataGridProps<T = unknown> {
   onGridReady?: (focusFirstCell: () => void) => void;
   onMoveItem?: (fromIndex: number, toIndex: number) => void;
   onFocusChange?: (item: T | null, rowIndex: number) => void;
+  onNearEnd?: () => void;
+  nearEndThreshold?: number;
+  onItemToggle?: (item: T, rowIndex: number) => void;
   className?: string;
   showHeader?: boolean;
   /**
@@ -60,11 +70,15 @@ export function DataGrid<T = unknown>({
   onGridReady,
   onMoveItem,
   onFocusChange,
+  onNearEnd,
+  nearEndThreshold = 8,
+  onItemToggle,
   className,
   showHeader = true,
   getRowActions,
 }: DataGridProps<T>) {
   const { t } = useTranslation();
+  const { announce: announceGlobally } = useAnnouncer();
   // Foco lazy: começa em -1 (nenhuma linha focada).
   // Só inicializa quando o grid recebe foco real do usuário.
   // Isso evita que leitores de tela leiam o conteúdo ao montar/remontar.
@@ -74,13 +88,12 @@ export function DataGrid<T = unknown>({
   const [editingCol, setEditingCol] = useState(-1);
   const [editValue, setEditValue] = useState('');
   const [localSelectedIds, setLocalSelectedIds] = useState<Set<string | number>>(new Set(selectedIds || []));
-  const [announcement, setAnnouncement] = useState('');
   
   const gridRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const instructionsId = useId().replace(/[^a-zA-Z0-9_-]/g, '') + '-instructions';
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const announceTimerRef = useRef<NodeJS.Timeout>();
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitializedRef = useRef(false);
   // Indica que o grid já recebeu foco pelo menos uma vez
@@ -88,8 +101,16 @@ export function DataGrid<T = unknown>({
   const focusedItemIdRef = useRef<string | number | null>(null);
   const onFocusChangeRef = useRef(onFocusChange);
   onFocusChangeRef.current = onFocusChange;
+  const onNearEndRef = useRef(onNearEnd);
+  onNearEndRef.current = onNearEnd;
+  const itemsLengthRef = useRef(items.length);
+  itemsLengthRef.current = items.length;
   const focusedRowRef = useRef(focusedRow);
   const focusedColRef = useRef(focusedCol);
+  const nearEndSignalRef = useRef<number | null>(null);
+  const scrollNearEndSignalRef = useRef<number | null>(null);
+  const scrollNearEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasNearEndInteractionRef = useRef(false);
 
   const isCheckboxMode = selectionMode === 'checkbox';
   const isMultiSelect = multiSelect || isCheckboxMode;
@@ -119,26 +140,50 @@ export function DataGrid<T = unknown>({
       if (focusTimerRef.current) {
         clearTimeout(focusTimerRef.current);
       }
+      if (scrollNearEndTimerRef.current) {
+        clearTimeout(scrollNearEndTimerRef.current);
+      }
     };
   }, []);
 
-  const announce = (message: string) => {
-    // Limpa o timer anterior se existir
-    if (announceTimerRef.current) {
-      clearTimeout(announceTimerRef.current);
+  const markScrollNearEndSignaled = useCallback(function markNearEndSignaled(itemCount: number) {
+    scrollNearEndSignalRef.current = itemCount;
+    if (scrollNearEndTimerRef.current) {
+      clearTimeout(scrollNearEndTimerRef.current);
     }
+    scrollNearEndTimerRef.current = setTimeout(() => {
+      if (scrollNearEndSignalRef.current === itemCount) {
+        scrollNearEndSignalRef.current = null;
+      }
+      if (nearEndSignalRef.current === itemCount) {
+        nearEndSignalRef.current = null;
+      }
+      scrollNearEndTimerRef.current = null;
+      if (
+        onNearEndRef.current &&
+        hasNearEndInteractionRef.current &&
+        itemsLengthRef.current === itemCount &&
+        bodyRef.current
+      ) {
+        const target = bodyRef.current;
+        const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+        if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
+          scrollNearEndSignalRef.current = itemCount;
+          nearEndSignalRef.current = itemCount;
+          onNearEndRef.current();
+          markNearEndSignaled(itemCount);
+        }
+      }
+    }, NEAR_END_SIGNAL_RESET_DELAY_MS);
+  }, []);
 
+  const announce = (message: string) => {
     // Só anuncia quando o grid (ou algo dentro dele) tem foco.
     // Evita anúncios indesejados quando o componente monta em
     // background (ex: troca de abas com lazy loading).
     if (!gridRef.current?.contains(document.activeElement)) return;
-    
-    setAnnouncement(message);
-    
-    // Tempo suficiente para leitores de tela processarem
-    announceTimerRef.current = setTimeout(() => {
-      setAnnouncement('');
-    }, 3000);
+
+    announceGlobally(message);
   };
 
   // Foca no grid quando montado (se houver items) - apenas uma vez
@@ -222,6 +267,7 @@ export function DataGrid<T = unknown>({
   // posiciona focusedRow/Col. Chamada no primeiro foco real do usuário.
   const activateFocus = useCallback((row: number, col: number) => {
     hasReceivedFocusRef.current = true;
+    hasNearEndInteractionRef.current = true;
     setFocusedRow(row);
     setFocusedCol(col);
     focusedRowRef.current = row;
@@ -241,11 +287,49 @@ export function DataGrid<T = unknown>({
         focusedItemIdRef.current = newId;
         onFocusChangeRef.current?.(items[focusedRow], focusedRow);
       }
+      if (onNearEndRef.current && items.length - focusedRow <= nearEndThreshold) {
+        if (nearEndSignalRef.current !== items.length) {
+          nearEndSignalRef.current = items.length;
+          markScrollNearEndSignaled(items.length);
+          onNearEndRef.current?.();
+        }
+      } else {
+        nearEndSignalRef.current = null;
+      }
     } else if (items.length === 0 && focusedItemIdRef.current !== null) {
       focusedItemIdRef.current = null;
       onFocusChangeRef.current?.(null, -1);
     }
-  }, [focusedRow, items, getItemId]);
+  }, [focusedRow, items, getItemId, nearEndThreshold, markScrollNearEndSignaled]);
+
+  const handleBodyScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    if (!onNearEndRef.current) return;
+    hasNearEndInteractionRef.current = true;
+    const target = event.currentTarget;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
+      if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
+      markScrollNearEndSignaled(items.length);
+      nearEndSignalRef.current = items.length;
+      onNearEndRef.current();
+    } else {
+      scrollNearEndSignalRef.current = null;
+    }
+  }, [items.length, markScrollNearEndSignaled]);
+
+  useEffect(() => {
+    if (!onNearEndRef.current || !bodyRef.current || items.length === 0 || !hasNearEndInteractionRef.current) return;
+    const target = bodyRef.current;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
+      if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
+      markScrollNearEndSignaled(items.length);
+      nearEndSignalRef.current = items.length;
+      onNearEndRef.current();
+    } else {
+      scrollNearEndSignalRef.current = null;
+    }
+  }, [items.length, markScrollNearEndSignaled]);
 
   // Segue o item quando a lista é reordenada
   useEffect(() => {
@@ -312,15 +396,22 @@ export function DataGrid<T = unknown>({
   };
 
   const toggleSelection = (rowIndex: number) => {
-    const itemId = getItemId(items[rowIndex]);
+    const item = items[rowIndex];
+    if (!item) return;
+
+    if (onItemToggle) {
+      onItemToggle(item, rowIndex);
+      return;
+    }
+    const itemId = getItemId(item);
     const newSelected = new Set(localSelectedIds);
     
     if (newSelected.has(itemId)) {
       newSelected.delete(itemId);
-      announce(`Desmarcado. ${newSelected.size} selecionados`);
+      announce(t('a11y.announce.gridItemDeselected', { count: newSelected.size }));
     } else {
       newSelected.add(itemId);
-      announce(`Marcado. ${newSelected.size} selecionados`);
+      announce(t('a11y.announce.gridItemSelected', { count: newSelected.size }));
     }
     
     setLocalSelectedIds(newSelected);
@@ -331,13 +422,13 @@ export function DataGrid<T = unknown>({
     const allIds = new Set(items.map(item => getItemId(item)));
     setLocalSelectedIds(allIds);
     onSelectionChange?.(allIds);
-    announce(`${allIds.size} itens selecionados`);
+    announce(t('a11y.announce.gridAllSelected', { count: allIds.size }));
   };
 
   const clearSelection = () => {
     setLocalSelectedIds(new Set());
     onSelectionChange?.(new Set());
-    announce('Seleção limpa');
+    announce(t('a11y.announce.gridSelectionCleared'));
   };
 
   const startEditing = (rowIndex: number, colIndex: number) => {
@@ -350,7 +441,7 @@ export function DataGrid<T = unknown>({
     setEditingRow(rowIndex);
     setEditingCol(colIndex);
     setEditValue(String(value || ''));
-    announce('Editando');
+    announce(t('a11y.announce.gridEditing'));
   };
 
   const saveEdit = () => {
@@ -358,14 +449,14 @@ export function DataGrid<T = unknown>({
       const item = items[editingRow];
       const column = columns[editingCol];
       onCellEdit?.(item, column, editValue, editingRow, editingCol);
-      announce('Salvo');
+      announce(t('a11y.announce.gridSaved'));
     }
     cancelEdit();
   };
 
   const cancelEdit = () => {
     if (editingRow >= 0) {
-      announce('Cancelado');
+      announce(t('a11y.announce.gridEditCancelled'));
     }
     setEditingRow(-1);
     setEditingCol(-1);
@@ -426,7 +517,7 @@ export function DataGrid<T = unknown>({
     switch (event.key) {
       case ' ':
         event.preventDefault();
-        if (isCheckboxMode) {
+        if (isCheckboxMode && columns[focusedCol]?.selectionToggle !== false) {
           toggleSelection(focusedRow);
         } else if (event.ctrlKey && isMultiSelect) {
           toggleSelection(focusedRow);
@@ -503,7 +594,7 @@ export function DataGrid<T = unknown>({
               }).join('\t');
             }).join('\n');
             navigator.clipboard.writeText(textToCopy);
-            announce(`${selectedItems.length} linhas copiadas`);
+            announce(t('a11y.announce.gridRowsCopied', { count: selectedItems.length }));
           } else {
             // Copiar apenas a célula focada
             const item = items[focusedRow];
@@ -511,7 +602,7 @@ export function DataGrid<T = unknown>({
             const value = item[col.key as keyof T];
             const textToCopy = col.format ? String(col.format(value, item)) : String(value || '');
             navigator.clipboard.writeText(textToCopy);
-            announce('Célula copiada');
+            announce(t('a11y.announce.gridCellCopied'));
           }
           return;
         }
@@ -525,7 +616,7 @@ export function DataGrid<T = unknown>({
             const movedRow = focusedRow - 1;
             setFocusedRow(movedRow);
             scheduleFocusCell(movedRow, focusedCol);
-            announce('Movido para cima');
+            announce(t('a11y.announce.gridMovedUp'));
           } else {
             playBumpSound();
           }
@@ -547,7 +638,7 @@ export function DataGrid<T = unknown>({
             const movedRow = focusedRow + 1;
             setFocusedRow(movedRow);
             scheduleFocusCell(movedRow, focusedCol);
-            announce('Movido para baixo');
+            announce(t('a11y.announce.gridMovedDown'));
           } else {
             playBumpSound();
           }
@@ -728,7 +819,7 @@ export function DataGrid<T = unknown>({
     // Foca a célula clicada
     scheduleFocusCell(rowIndex, colIndex);
 
-    if (isCheckboxMode) {
+    if (isCheckboxMode && col.selectionToggle !== false) {
       toggleSelection(rowIndex);
     } else if (event.detail === 2) {
       startEditing(rowIndex, colIndex);
@@ -790,7 +881,7 @@ export function DataGrid<T = unknown>({
 
   if (rowCount === 0) {
     return (
-      <div className="datagrid-empty" role="status">
+      <div className="datagrid-empty">
         {t('common.emptyState', 'Nenhum item para exibir')}
       </div>
     );
@@ -800,16 +891,6 @@ export function DataGrid<T = unknown>({
 
   return (
     <>
-      {announcement && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className="sr-only"
-        >
-          {announcement}
-        </div>
-      )}
       <div
         ref={gridRef}
         className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
@@ -862,7 +943,7 @@ export function DataGrid<T = unknown>({
         </div>
       )}
       
-      <div className="datagrid-body">
+      <div ref={bodyRef} className="datagrid-body" onScroll={handleBodyScroll}>
         {items.map((item, rowIndex) => {
           const itemId = getItemId(item);
           const isSelected = localSelectedIds.has(itemId);

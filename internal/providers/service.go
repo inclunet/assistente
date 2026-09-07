@@ -1,16 +1,18 @@
 package providers
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -21,6 +23,7 @@ import (
 type CredentialManager interface {
 	RegisterPatternWithContext(ctx context.Context, pattern string, auth *credentials.AuthConfig) error
 	GetByPattern(pattern string) (*credentials.AuthConfig, error)
+	GetByPatternWithContext(ctx context.Context, pattern string) (*credentials.AuthConfig, error)
 	DeletePattern(ctx context.Context, pattern string) error
 }
 
@@ -29,27 +32,49 @@ type ServiceConfig struct {
 	Registry *llm.ProviderRegistry
 	CredMgr  CredentialManager
 	Store    ProviderStore
+	// RateLimiter aplica rate limiting por usuário nas chamadas de geração ao
+	// provedor LLM (Issue #27 / AEP-0065). Opcional: nil = sem limite.
+	RateLimiter *llm.RateLimiter
+	// RateLimitKeyFunc extrai a chave de limite (tipicamente o userID) do
+	// contexto. Opcional: nil cai na chave global do limitador.
+	RateLimitKeyFunc func(context.Context) string
+	// RateLimitPolicyResolver carrega a política atual e normaliza o slug do
+	// perfil antes de cada chamada. Opcional: sem ele, usa ChatParams/defaults.
+	RateLimitPolicyResolver llm.RateLimitPolicyResolver
+	// ACPManager é o serviço dono dos processos e das sessões dos agentes de
+	// código (AEP-0084 D3). Opcional: sem ele um provedor ACP recusa o turno
+	// explicando que o serviço não está de pé, em vez de subir um agente por
+	// conta própria a cada chamada de GetChatProvider.
+	ACPManager *acp.Manager
 }
 
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
-	registry *llm.ProviderRegistry
-	credMgr  CredentialManager
-	store    ProviderStore
+	registry         *llm.ProviderRegistry
+	credMgr          CredentialManager
+	store            ProviderStore
+	rateLimiter      *llm.RateLimiter
+	rateLimitKeyFunc func(context.Context) string
+	rateLimitPolicy  llm.RateLimitPolicyResolver
+	acpMgr           *acp.Manager
 }
 
 // Count retorna o número de provedores no store.
-func (s *Service) Count() (int, error) {
-	return s.store.Count()
+func (s *Service) Count(ctx context.Context) (int, error) {
+	return s.store.Count(ctx)
 }
 
 // NewService cria um Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{
-		registry: cfg.Registry,
-		credMgr:  cfg.CredMgr,
-		store:    cfg.Store,
+		registry:         cfg.Registry,
+		credMgr:          cfg.CredMgr,
+		store:            cfg.Store,
+		rateLimiter:      cfg.RateLimiter,
+		rateLimitKeyFunc: cfg.RateLimitKeyFunc,
+		rateLimitPolicy:  cfg.RateLimitPolicyResolver,
+		acpMgr:           cfg.ACPManager,
 	}
 }
 
@@ -78,14 +103,14 @@ func ExtractHostname(baseURL string) (string, error) {
 // ============================================================================
 
 // Save persiste todos os provedores do registry no store.
-func (s *Service) Save() error {
+func (s *Service) Save(ctx context.Context) error {
 	providers := s.registry.List()
-	return s.store.Save(providers)
+	return s.store.Save(ctx, providers)
 }
 
 // Load carrega provedores do store para o registry.
-func (s *Service) Load() error {
-	providers, err := s.store.Load()
+func (s *Service) Load(ctx context.Context) error {
+	providers, err := s.store.Load(ctx)
 	if err != nil {
 		return err
 	}
@@ -101,19 +126,19 @@ func (s *Service) Load() error {
 			inferred := p.GetAPIFormat()
 			p.APIFormat = inferred
 			needsSave = true
-			log.Printf("[providers] api_format de '%s' materializado como %q", p.Name, inferred)
+			logging.Infof(ctx, "providers.service", "[providers] api_format de '%s' materializado como %q", p.Name, inferred)
 		}
 		if err := s.registry.Register(p); err != nil {
-			log.Printf("[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
+			logging.Errorf(ctx, "providers.service", "[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
 		}
 	}
-	log.Printf("[providers] %d provedor(es) carregado(s) do store", len(providers))
-	s.EnsureDefault()
+	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
+	s.EnsureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot
 	if needsSave {
-		if err := s.Save(); err != nil {
-			log.Printf("[providers] Erro ao persistir api_format materializado: %v", err)
+		if err := s.Save(ctx); err != nil {
+			logging.Errorf(ctx, "providers.service", "[providers] Erro ao persistir api_format materializado: %v", err)
 		}
 	}
 	return nil
@@ -121,8 +146,8 @@ func (s *Service) Load() error {
 
 // EnsureDefault garante que pelo menos um provedor está marcado como padrão.
 // Chamado automaticamente após Load. Seguro executar múltiplas vezes.
-func (s *Service) EnsureDefault() {
-	defaultProv, err := s.store.GetDefault()
+func (s *Service) EnsureDefault(ctx context.Context) {
+	defaultProv, err := s.store.GetDefault(ctx)
 	if err == nil && defaultProv != nil {
 		return
 	}
@@ -133,10 +158,10 @@ func (s *Service) EnsureDefault() {
 	}
 
 	first := all[0]
-	log.Printf("[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
+	logging.Warnf(ctx, "providers.service", "[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
 
-	if err := s.store.SetDefault(first.ID); err != nil {
-		log.Printf("[providers] Erro ao definir default: %v", err)
+	if err := s.store.SetDefault(ctx, first.ID); err != nil {
+		logging.Errorf(ctx, "providers.service", "[providers] Erro ao definir default: %v", err)
 		return
 	}
 	first.IsDefault = true
@@ -144,8 +169,8 @@ func (s *Service) EnsureDefault() {
 	if first.DefaultModel == "" && first.Model != "" {
 		first.DefaultModel = first.Model
 		// Persiste o DefaultModel preenchido
-		if err := s.store.Save([]*llm.ProviderConfig{first}); err != nil {
-			log.Printf("[providers] Erro ao salvar DefaultModel: %v", err)
+		if err := s.store.Save(ctx, []*llm.ProviderConfig{first}); err != nil {
+			logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar DefaultModel: %v", err)
 		}
 	}
 }
@@ -156,13 +181,26 @@ func (s *Service) EnsureDefault() {
 
 // CreateRequest contém os dados para criar um provedor.
 type CreateRequest struct {
-	ID           string
-	Name         string
-	Type         string
-	APIFormat    string
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
+	ID                   string
+	Name                 string
+	Type                 string
+	APIFormat            string
+	BaseURL              string
+	APIKey               string
+	DefaultModel         string
+	ReasoningContentMode string
+	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
+	// o agente de código é endereçado, no lugar de BaseURL e APIKey.
+	ACPCommand string
+	ACPArgs    []string
+	ACPEnv     map[string]string
+	// ACPCredentialEnv são os pares de variável de ambiente e padrão do cofre
+	// que o agente recebe ao subir (AEP-0086 D12). Vazio — o padrão — é o
+	// ambiente de sempre: o app não injeta credencial nenhuma.
+	ACPCredentialEnv map[string]string
+	// ACPAgentID diz qual agente do registro é este provedor (AEP-0086 D11).
+	// Vazio é agente configurado à mão, que continua sendo caminho válido.
+	ACPAgentID string
 }
 
 // CreateResult contém os dados retornados após criar um provedor.
@@ -172,18 +210,146 @@ type CreateResult struct {
 	CredentialConfigured bool
 }
 
+func defaultAuthModeForProviderType(providerType llm.ProviderType) llm.AuthMode {
+	switch providerType {
+	case llm.ProviderLocalAI:
+		return llm.AuthModeOptional
+	case llm.ProviderOllama, llm.ProviderLlamaCPP:
+		return llm.AuthModeNone
+	default:
+		return ""
+	}
+}
+
+func normalizeProviderAuthMode(p *llm.ProviderConfig) {
+	if p == nil || p.AuthMode != "" {
+		return
+	}
+	p.AuthMode = defaultAuthModeForProviderType(p.Type)
+}
+
+func normalizeProviderAPIFormat(p *llm.ProviderConfig) {
+	if p == nil {
+		return
+	}
+	switch p.Type {
+	case llm.ProviderLocalAI, llm.ProviderOllama, llm.ProviderLlamaCPP:
+		if p.APIFormat == "" || p.APIFormat == llm.APIFormatOpenAIResponses {
+			p.APIFormat = llm.APIFormatOpenAI
+		}
+	}
+}
+
+// normalizeProviderACP tira do provedor de agente o que só existe para
+// provedor HTTP. A URL sai junto: um agente não tem endereço, e um endereço
+// herdado de quando o provedor era HTTP viraria fantasma no banco — ninguém o
+// usa, e quem for depurar a linha vai acreditar nele. Sem URL também não há
+// hostname para casar credencial, e o login do agente é da máquina, feito fora
+// do app (AEP-0084 D12): guardar pattern aqui faria a tela pedir uma chave que
+// não vai a lugar nenhum.
+//
+// Sai o ponteiro para a credencial, não o segredo: o padrão é por hostname, e
+// outro provedor da mesma casa pode estar usando o mesmo — apagá-lo do cofre
+// derrubaria a autenticação dele sem ninguém pedir.
+//
+// É por aqui que a edição que transforma um provedor HTTP em agente perde URL e
+// credencial; o sentido oposto, largar o comando, é no próprio Update, que precisa
+// distinguir o que a requisição pediu do que o provedor já era.
+func normalizeProviderACP(p *llm.ProviderConfig) {
+	if p == nil || !p.IsACP() {
+		return
+	}
+	p.BaseURL = ""
+	p.CredentialPattern = ""
+	p.AuthMode = llm.AuthModeNone
+	p.ReasoningContentMode = llm.ReasoningContentDisabled
+
+	// Quem manda no tipo é o formato: se o provedor sobe um agente, ele é do
+	// tipo único, seja qual for o nome com que chegou aqui. O D11 vale para
+	// todos, e não só para os dois tipos que ele aposentou — provedor gravado
+	// como `custom` com formato acp, ou importado assim, também é agente, e
+	// deixá-lo passar reintroduziria pela porta dos fundos o que a decisão
+	// tirou pela frente.
+	//
+	// Dos nomes antigos ainda se aproveita uma coisa: eles diziam qual agente
+	// era. A migração v12 converte o banco no boot, mas pode ter sido adiada,
+	// e um banco pode ter chegado por cópia de arquivo. Normalizar na leitura
+	// faz o resto do app nunca precisar conhecer aqueles nomes.
+	if agentID, legado := acpregistry.LegacyProviderTypeAgentID(string(p.Type)); legado &&
+		strings.TrimSpace(p.ACPAgentID) == "" {
+		p.ACPAgentID = agentID
+	}
+	p.Type = llm.ProviderACP
+}
+
+// copyStringMap devolve uma cópia rasa, ou nil quando não há nada. Guardar o
+// mapa de quem chamou deixaria o ambiente do agente a um passo de qualquer
+// código que ainda segure a requisição.
+func copyStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		out[k] = v
+	}
+	return out
+}
+
+func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
+	normalizeProviderAuthMode(p)
+	normalizeProviderAPIFormat(p)
+	// Por último: o modo de autenticação do agente não se decide pela marca
+	// do provedor, e sim por ele não ter para onde mandar credencial.
+	normalizeProviderACP(p)
+}
+
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
-	if req.ID == "" || req.Name == "" || req.BaseURL == "" {
-		return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
+	// O formato e a URL chegam de formulário e de linha de comando, onde
+	// espaço nas pontas é acidente comum. Aparar antes de decidir evita que
+	// " acp " caia no caminho HTTP e a pessoa receba uma cobrança de URL que
+	// o provedor dela não tem.
+	apiFormat := llm.APIFormat(strings.TrimSpace(req.APIFormat))
+	baseURL := strings.TrimSpace(req.BaseURL)
+	isACP := apiFormat == llm.APIFormatACP
+	if req.ID == "" || req.Name == "" {
+		return nil, fmt.Errorf("campos obrigatórios faltando (id, name)")
+	}
+	if isACP {
+		if strings.TrimSpace(req.ACPCommand) == "" {
+			return nil, fmt.Errorf("campo obrigatório faltando (acp_command)")
+		}
+		// Recusar em vez de ignorar: quem mandou uma chave espera que ela
+		// autentique alguma coisa, e aqui ela não autenticaria nada — o login
+		// do agente é feito no CLI dele, na máquina.
+		if req.APIKey != "" {
+			return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
+		}
+	} else {
+		if baseURL == "" {
+			return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
+		}
+		// Recusar aqui, e não lá na frente: a validação do registro só roda
+		// depois de a credencial já ter ido para o cofre, e um provedor que
+		// nem chegou a existir não pode deixar segredo para trás.
+		if strings.TrimSpace(req.ACPCommand) != "" || len(req.ACPArgs) > 0 || len(req.ACPEnv) > 0 ||
+			len(req.ACPCredentialEnv) > 0 || strings.TrimSpace(req.ACPAgentID) != "" {
+			return nil, fmt.Errorf("configuração de agente exige api_format %q", llm.APIFormatACP)
+		}
 	}
 	if s.registry.Get(req.ID) != nil {
 		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
 	}
 
-	hostname, err := ExtractHostname(req.BaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
+	// O agente não tem host: o que o endereça é o comando.
+	hostname := ""
+	if !isACP {
+		extracted, err := ExtractHostname(baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
+		}
+		hostname = extracted
 	}
 
 	credConfigured := false
@@ -199,30 +365,41 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
-		ID:                req.ID,
-		Name:              req.Name,
-		Type:              llm.ProviderType(req.Type),
-		APIFormat:         llm.APIFormat(req.APIFormat),
-		BaseURL:           req.BaseURL,
-		DefaultModel:      req.DefaultModel,
-		IsDefault:         isFirst,
-		Timeout:           180,
-		CredentialPattern: hostname,
+		ID:                   req.ID,
+		Name:                 req.Name,
+		Type:                 llm.ProviderType(req.Type),
+		APIFormat:            apiFormat,
+		BaseURL:              baseURL,
+		DefaultModel:         req.DefaultModel,
+		ReasoningContentMode: llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
+		IsDefault:            isFirst,
+		Timeout:              180,
+		CredentialPattern:    hostname,
+		ACPCommand:           req.ACPCommand,
+		ACPArgs:              append([]string(nil), req.ACPArgs...),
+		ACPEnv:               copyStringMap(req.ACPEnv),
+		ACPCredentialEnv:     copyStringMap(req.ACPCredentialEnv),
+		ACPAgentID:           strings.TrimSpace(req.ACPAgentID),
 	}
+	normalizeProviderRuntimeDefaults(provider)
 
 	if err := s.registry.Register(provider); err != nil {
 		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
 	}
-	if err := s.Save(); err != nil {
-		log.Printf("[providers] Erro ao salvar após criação: %v", err)
+	if err := s.Save(ctx); err != nil {
+		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após criação: %v", err)
 	}
 	if isFirst {
-		if err := s.store.SetDefault(req.ID); err != nil {
-			log.Printf("[providers] Aviso: erro ao marcar como default: %v", err)
+		if err := s.store.SetDefault(ctx, req.ID); err != nil {
+			logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
 		}
 	}
 
-	log.Printf("[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
+	if isACP {
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (agente=%q, default=%v)", req.ID, provider.ACPCommand, isFirst)
+	} else {
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
+	}
 	return &CreateResult{
 		Provider:             provider,
 		CredentialPattern:    hostname,
@@ -232,12 +409,31 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 // UpdateRequest contém os campos opcionais para atualizar um provedor.
 type UpdateRequest struct {
-	Name         string
-	Type         string
-	APIFormat    string
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
+	Name                 string
+	Type                 string
+	APIFormat            string
+	BaseURL              string
+	APIKey               string
+	DefaultModel         string
+	ReasoningContentMode string
+	// ACPCommand segue a convenção dos demais: vazio é "não mexer".
+	ACPCommand string
+	// ACPArgs e ACPEnv são ponteiros porque, aqui, lista vazia é uma escolha
+	// legítima — tirar todos os argumentos de um agente é edição de verdade,
+	// e "vazio é não mexer" tornaria isso impossível.
+	ACPArgs *[]string
+	ACPEnv  *map[string]string
+	// ACPCredentialEnv é ponteiro pela mesma razão, e aqui ela pesa mais:
+	// desligar a passagem de credencial é mandar o mapa vazio, e é a única
+	// forma de desligá-la (AEP-0086 D12). Nulo é "não mexer".
+	ACPCredentialEnv *map[string]string
+	// ACPAgentID é ponteiro pela mesma razão que ACPArgs e ACPEnv: aqui o
+	// vazio é escolha legítima. Trocar o agente de um provedor é edição
+	// comum — quem instalou o Gemini CLI no lugar do Cursor mantém o provedor
+	// e troca o que ele sobe —, mas desvinculá-lo do catálogo mantendo o
+	// comando também é, e é o único jeito de consertar um provedor cujo `id`
+	// o registro aposentou. Nulo é "não mexer".
+	ACPAgentID *string
 }
 
 // UpdateResult contém os dados após atualização.
@@ -254,16 +450,23 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 
 	updated := &llm.ProviderConfig{
-		ID:                existing.ID,
-		Name:              existing.Name,
-		Type:              existing.Type,
-		APIFormat:         existing.APIFormat,
-		BaseURL:           existing.BaseURL,
-		Model:             existing.Model,
-		DefaultModel:      existing.DefaultModel,
-		IsDefault:         existing.IsDefault,
-		Timeout:           existing.Timeout,
-		CredentialPattern: existing.CredentialPattern,
+		ID:                   existing.ID,
+		Name:                 existing.Name,
+		Type:                 existing.Type,
+		APIFormat:            existing.APIFormat,
+		BaseURL:              existing.BaseURL,
+		Model:                existing.Model,
+		DefaultModel:         existing.DefaultModel,
+		IsDefault:            existing.IsDefault,
+		Timeout:              existing.Timeout,
+		CredentialPattern:    existing.CredentialPattern,
+		AuthMode:             existing.AuthMode,
+		ReasoningContentMode: existing.ReasoningContentMode,
+		ACPCommand:           existing.ACPCommand,
+		ACPArgs:              append([]string(nil), existing.ACPArgs...),
+		ACPEnv:               copyStringMap(existing.ACPEnv),
+		ACPCredentialEnv:     copyStringMap(existing.ACPCredentialEnv),
+		ACPAgentID:           existing.ACPAgentID,
 	}
 
 	if req.Name != "" {
@@ -271,20 +474,79 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if req.Type != "" {
 		updated.Type = llm.ProviderType(req.Type)
+		updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
 	}
-	if req.APIFormat != "" {
-		updated.APIFormat = llm.APIFormat(req.APIFormat)
+	if apiFormat := strings.TrimSpace(req.APIFormat); apiFormat != "" {
+		updated.APIFormat = llm.APIFormat(apiFormat)
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
 	}
-	if req.BaseURL != "" {
-		hostname, err := ExtractHostname(req.BaseURL)
+	if mode := strings.TrimSpace(req.ReasoningContentMode); mode != "" {
+		updated.ReasoningContentMode = llm.ReasoningContentMode(mode)
+	}
+	if baseURL := strings.TrimSpace(req.BaseURL); baseURL != "" {
+		hostname, err := ExtractHostname(baseURL)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
 		}
-		updated.BaseURL = req.BaseURL
+		updated.BaseURL = baseURL
 		updated.CredentialPattern = hostname
+	}
+	// Aparado uma vez e usado nas duas decisões — aplicar e recusar —, como no
+	// Create: um valor só de espaços não é edição, e não pode virar nem
+	// comando nem erro.
+	acpCommand := strings.TrimSpace(req.ACPCommand)
+	if acpCommand != "" {
+		updated.ACPCommand = acpCommand
+	}
+	// Nulo é "não mexer"; presente, mesmo vazio, é edição — e o vazio
+	// desvincula o provedor do catálogo sem tirar dele o comando.
+	acpAgentID := ""
+	if req.ACPAgentID != nil {
+		acpAgentID = strings.TrimSpace(*req.ACPAgentID)
+		updated.ACPAgentID = acpAgentID
+	}
+	if req.ACPArgs != nil {
+		updated.ACPArgs = append([]string(nil), (*req.ACPArgs)...)
+	}
+	if req.ACPEnv != nil {
+		updated.ACPEnv = copyStringMap(*req.ACPEnv)
+	}
+	if req.ACPCredentialEnv != nil {
+		updated.ACPCredentialEnv = copyStringMap(*req.ACPCredentialEnv)
+	}
+	if !updated.IsACP() {
+		if acpCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil ||
+			req.ACPCredentialEnv != nil || acpAgentID != "" {
+			return nil, fmt.Errorf("provider '%s' não é acp: para configurar um agente, mude o api_format para %q", id, llm.APIFormatACP)
+		}
+		// Deixar de ser agente é largar o comando junto. Guardá-lo escondido
+		// travaria a própria edição — a validação recusa comando em provedor
+		// HTTP — e ressuscitaria o processo antigo se o formato voltasse. O par
+		// deste bloco, virar agente e largar URL e credencial, está no
+		// normalizeProviderACP chamado logo abaixo.
+		updated.ACPCommand = ""
+		updated.ACPArgs = nil
+		updated.ACPEnv = nil
+		updated.ACPCredentialEnv = nil
+		updated.ACPAgentID = ""
+		if existing.IsACP() {
+			// O `none` era decisão de quando não havia para onde mandar
+			// credencial. Mantê-lo faria o provedor HTTP chamar a API sem a
+			// chave que ele acabou de ganhar, e o 401 não explicaria por quê.
+			updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
+		}
+	}
+	normalizeProviderRuntimeDefaults(updated)
+	if updated.IsACP() && req.APIKey != "" {
+		return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
+	}
+	// Conferir antes de mexer no registro: a troca é remover e registrar de
+	// novo, e uma edição inválida — virar acp sem informar o comando, por
+	// exemplo — faria o provedor sumir da lista em vez de a edição falhar.
+	if err := updated.Validate(); err != nil {
+		return nil, fmt.Errorf("provider '%s' inválido após a edição: %w", id, err)
 	}
 
 	credConfigured := false
@@ -297,48 +559,48 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		}
 		credConfigured = true
 	} else if updated.CredentialPattern != "" {
-		auth, err := s.credMgr.GetByPattern(updated.CredentialPattern)
+		auth, err := s.credMgr.GetByPatternWithContext(ctx, updated.CredentialPattern)
 		credConfigured = err == nil && auth != nil
 	}
 
 	if err := s.registry.Remove(id); err != nil {
-		log.Printf("[providers] Aviso: falha ao remover provider antigo '%s': %v", id, err)
+		logging.Warnf(ctx, "providers.service", "[providers] Aviso: falha ao remover provider antigo '%s': %v", id, err)
 	}
 	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
 	}
-	if err := s.Save(); err != nil {
-		log.Printf("[providers] Erro ao salvar após atualização: %v", err)
+	if err := s.Save(ctx); err != nil {
+		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após atualização: %v", err)
 	}
 
-	log.Printf("[providers] Provider '%s' atualizado", id)
+	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' atualizado", id)
 	return &UpdateResult{Provider: updated, CredentialConfigured: credConfigured}, nil
 }
 
 // Delete remove um provedor do registry.
-func (s *Service) Delete(id string) error {
+func (s *Service) Delete(ctx context.Context, id string) error {
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
 	if err := s.registry.Remove(id); err != nil {
 		return fmt.Errorf("erro ao remover provider: %w", err)
 	}
-	log.Printf("[providers] Provider '%s' removido", id)
+	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' removido", id)
 	return nil
 }
 
 // SetDefault marca um provedor como padrão do sistema.
-func (s *Service) SetDefault(id string) error {
+func (s *Service) SetDefault(ctx context.Context, id string) error {
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
-	if err := s.store.SetDefault(id); err != nil {
+	if err := s.store.SetDefault(ctx, id); err != nil {
 		return fmt.Errorf("erro ao definir provider default: %w", err)
 	}
 	for _, p := range s.registry.List() {
 		p.IsDefault = (p.ID == id)
 	}
-	log.Printf("[providers] Provider '%s' definido como default", id)
+	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' definido como default", id)
 	return nil
 }
 
@@ -353,13 +615,16 @@ type ProviderStatus struct {
 }
 
 // ListWithStatus retorna todos os provedores com flag de credencial configurada.
-func (s *Service) ListWithStatus() []ProviderStatus {
+func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 	providers := s.registry.List()
 	result := make([]ProviderStatus, 0, len(providers))
 	for _, p := range providers {
 		credConfigured := false
 		if p.CredentialPattern != "" {
-			auth, err := s.credMgr.GetByPattern(p.CredentialPattern)
+			auth, err := s.credMgr.GetByPatternWithContext(ctx, p.CredentialPattern)
+			if err != nil {
+				logging.Infof(ctx, "providers.service", "[providers] Credencial '%s' do provider '%s' não pode ser usada: %v", p.CredentialPattern, p.ID, err)
+			}
 			credConfigured = err == nil && auth != nil
 		}
 		result = append(result, ProviderStatus{Provider: p, CredentialConfigured: credConfigured})
@@ -371,9 +636,20 @@ func (s *Service) ListWithStatus() []ProviderStatus {
 // Profile defaults resolution
 // ============================================================================
 
-// ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo provedor/modelo
-// padrão do sistema. Retorna uma cópia modificada — não altera o perfil em disco.
-func (s *Service) ResolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
+// ResolveProfileDefaults substitui sentinelas "$default" no perfil pelo
+// provedor/modelo correspondente. Retorna uma cópia modificada — não altera
+// o perfil em disco.
+//
+// Regra do modelo: `Model == $default` significa "use o modelo padrão **do
+// provider escolhido**", não o modelo do provider default global. Se o
+// profile fixou `LLMProvider="ollama-local"` mas deixou `Model=""` (que
+// `normalizeRoutingFields` transformou em $default), o modelo resolvido
+// vem de `ollama-local.DefaultModel`. Antes esse caminho usava o
+// `defaultProvider.DefaultModel`, o que misturava providers — um profile
+// `Modelo Local` acabava enviando o modelo padrão da OpenAI para o
+// servidor local. Esse cross-provider leak gerava o sintoma "troquei o
+// perfil mas continua usando OpenAI".
+func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profile) *profiles.Profile {
 	if p == nil {
 		return nil
 	}
@@ -385,22 +661,32 @@ func (s *Service) ResolveProfileDefaults(p *profiles.Profile) *profiles.Profile 
 		return p
 	}
 
-	defaultProvider, err := s.store.GetDefault()
-	if err != nil || defaultProvider == nil {
-		log.Printf("[providers] Nenhum provedor default encontrado para resolução: %v", err)
-		return p
-	}
-
 	resolved := *p
 	resolved.Chat = p.Chat
 	resolved.Voice = p.Voice
 	resolved.Input = p.Input
 
+	// Resolve o provider default só se for realmente necessário: se algum
+	// dos campos *Provider* do profile estiver com $default, ou se Model
+	// estiver $default e Chat.LLMProvider também (caso em que precisamos
+	// herdar provider+modelo do default global).
+	var defaultProvider *llm.ProviderConfig
+	needsDefaultProvider := resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel ||
+		resolved.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel ||
+		resolved.Input.LLMProviderID == profiles.DefaultProviderSentinel ||
+		(resolved.Chat.Model == profiles.DefaultProviderSentinel && resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel)
+
+	if needsDefaultProvider {
+		dp, err := s.store.GetDefault(ctx)
+		if err != nil || dp == nil {
+			logging.Infof(ctx, "providers.service", "[providers] Nenhum provedor default encontrado para resolução: %v", err)
+			return p
+		}
+		defaultProvider = dp
+	}
+
 	if resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
 		resolved.Chat.LLMProvider = defaultProvider.ID
-	}
-	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
-		resolved.Chat.Model = defaultProvider.DefaultModel
 	}
 	if resolved.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel {
 		resolved.Voice.Assistant.LLMProviderID = defaultProvider.ID
@@ -409,7 +695,32 @@ func (s *Service) ResolveProfileDefaults(p *profiles.Profile) *profiles.Profile 
 		resolved.Input.LLMProviderID = defaultProvider.ID
 	}
 
-	log.Printf("[providers] Resolvido $default → provider=%s, model=%s", defaultProvider.ID, defaultProvider.DefaultModel)
+	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
+		// IMPORTANTE: o modelo é resolvido a partir do provider que o
+		// profile (já resolvido acima) acabou de fixar. Evita pegar o
+		// modelo do provider global quando o profile escolheu outro.
+		var modelSourceProvider *llm.ProviderConfig
+		if s.registry != nil {
+			modelSourceProvider = s.registry.Get(resolved.Chat.LLMProvider)
+		}
+		if modelSourceProvider == nil {
+			modelSourceProvider = defaultProvider
+		}
+		resolvedModel := ""
+		if modelSourceProvider != nil {
+			if modelSourceProvider.DefaultModel != "" {
+				resolvedModel = modelSourceProvider.DefaultModel
+			} else if modelSourceProvider.Model != "" {
+				resolvedModel = modelSourceProvider.Model
+			}
+		}
+		resolved.Chat.Model = resolvedModel
+		if modelSourceProvider != nil {
+			logging.Infof(ctx, "providers.service", "[providers] Resolvido $default model → provider=%s, model=%s", modelSourceProvider.ID, resolvedModel)
+		}
+	} else if defaultProvider != nil {
+		logging.Infof(ctx, "providers.service", "[providers] Resolvido $default → provider=%s", defaultProvider.ID)
+	}
 	return &resolved
 }
 
@@ -441,10 +752,10 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 		return false, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
-	apiKey := req.APIKey
+	apiKey := strings.TrimSpace(req.APIKey)
 	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
 		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 			}
 		}
@@ -494,10 +805,10 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
 
-	apiKey := req.APIKey
+	apiKey := strings.TrimSpace(req.APIKey)
 	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
 		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 			}
 		}
@@ -553,7 +864,7 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 
 // GetChatProvider returns a ready-to-use ChatProvider for the given provider ID.
 // Looks up the provider config in the registry and wraps it with the credential manager.
-func (s *Service) GetChatProvider(providerID string) (llm.ChatProvider, error) {
+func (s *Service) GetChatProvider(ctx context.Context, providerID string) (llm.ChatProvider, error) {
 	if s.registry == nil {
 		return nil, fmt.Errorf("registro de provedores não inicializado")
 	}
@@ -562,7 +873,14 @@ func (s *Service) GetChatProvider(providerID string) (llm.ChatProvider, error) {
 		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
 	cm, _ := s.credMgr.(*credentials.Manager)
-	return llm.NewChatProvider(provider, cm), nil
+	// Aplica rate limiting por usuário de forma central (Issue #27). Quando
+	// rateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
+	return llm.NewRateLimitedProviderWithResolver(
+		llm.NewChatProvider(provider, cm, s.acpMgr),
+		s.rateLimiter,
+		s.rateLimitKeyFunc,
+		s.rateLimitPolicy,
+	), nil
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
@@ -571,6 +889,30 @@ type ListModelsRawRequest struct {
 	BaseURL    string
 	APIKey     string // se vazio e ProviderID preenchido, busca credencial existente
 	ProviderID string // opcional; usado para recuperar credencial existente
+}
+
+// buildTempProviderForListModels monta o ProviderConfig efêmero usado em
+// `ListModelsRaw`. Espelha campos críticos do provider persistido (quando
+// disponível) para que a rota usada no teste de chave coincida com a rota
+// usada em produção. Sem o espelhamento de `APIFormat`, o teste cairia no
+// client default (Chat Completions) enquanto o uso real bateria em
+// Responses API — divergência que mascarava o motivo real do 400.
+//
+// Extraído como função pura para permitir teste unitário sem precisar
+// rodar o pipeline HTTP completo. Não toca `s.credMgr` nem o registry.
+func buildTempProviderForListModels(req ListModelsRawRequest, hostname string, existing *llm.ProviderConfig) *llm.ProviderConfig {
+	temp := &llm.ProviderConfig{
+		ID:                "temp-form",
+		Name:              "temp",
+		Type:              llm.ProviderType(req.Type),
+		BaseURL:           req.BaseURL,
+		CredentialPattern: hostname,
+		Timeout:           15,
+	}
+	if existing != nil {
+		temp.APIFormat = existing.APIFormat
+	}
+	return temp
 }
 
 // ListModelsRaw lista modelos de um provedor usando credenciais ad-hoc ou existentes.
@@ -590,25 +932,20 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
-	apiKey := req.APIKey
+	apiKey := strings.TrimSpace(req.APIKey)
 	// Fallback: busca credencial existente quando provider_id informado e api_key ausente
-	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
-		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := s.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
-				apiKey = auth.Token
-			}
+	var existingProvider *llm.ProviderConfig
+	if req.ProviderID != "" && s.registry != nil {
+		existingProvider = s.registry.Get(req.ProviderID)
+	}
+	if apiKey == "" && existingProvider != nil && existingProvider.CredentialPattern != "" && s.credMgr != nil {
+		if auth, err := s.credMgr.GetByPatternWithContext(ctx, existingProvider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+			apiKey = auth.Token
 		}
 	}
 
 	hostname := parsedURL.Hostname()
-	tempProvider := &llm.ProviderConfig{
-		ID:                "temp-form",
-		Name:              "temp",
-		Type:              llm.ProviderType(req.Type),
-		BaseURL:           req.BaseURL,
-		CredentialPattern: hostname,
-		Timeout:           15,
-	}
+	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
 
 	cm, _ := s.credMgr.(*credentials.Manager)
 
@@ -623,18 +960,19 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 		}
 	}
 
-	cp := llm.NewChatProvider(tempProvider, cm)
+	// Sem agente: esta rota exige base_url e só atende provedor HTTP.
+	cp := llm.NewChatProvider(tempProvider, cm, nil)
 	return cp.GetModels(ctx)
 }
 
 // GetModels retorna os modelos disponíveis para o provedor do perfil ativo.
 // Resolve sentinelas $default antes de consultar o provider.
 func (s *Service) GetModels(ctx context.Context, activeProfile *profiles.Profile) ([]string, error) {
-	activeProfile = s.ResolveProfileDefaults(activeProfile)
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	cp, err := s.GetChatProvider(activeProfile.Chat.LLMProvider)
+	cp, err := s.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -646,29 +984,100 @@ func (s *Service) GetModelsByProvider(ctx context.Context, providerID string) ([
 	if providerID == "" {
 		return []string{}, nil
 	}
-	cp, err := s.GetChatProvider(providerID)
+	cp, err := s.GetChatProvider(ctx, providerID)
 	if err != nil {
 		return nil, err
 	}
 	return cp.GetModels(ctx)
 }
 
+// RefreshModelsByProvider relista os modelos descartando o que o provedor tiver
+// guardado. É o que a pessoa pede ao recarregar a lista na tela: sem isso, um
+// agente de código serviria para sempre a lista da sua sessão de descoberta, e
+// quem instalou um modelo novo nele não o veria aparecer (AEP-0084 D6).
+func (s *Service) RefreshModelsByProvider(ctx context.Context, providerID string) ([]string, error) {
+	if providerID == "" {
+		return []string{}, nil
+	}
+	cp, err := s.GetChatProvider(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	return llm.RefreshModels(ctx, cp)
+}
+
+// GetModelCatalogByProvider lista os modelos de um provider com o nome pelo
+// qual cada um quer ser chamado, junto com a natureza de quem respondeu. É o
+// que a escolha de modelo do perfil usa: um agente de código oferece rótulo, e
+// a lista vazia dele é ele dizendo que a escolha é dele — não falta de modelo
+// (AEP-0084, Fase 8).
+func (s *Service) GetModelCatalogByProvider(ctx context.Context, providerID string) (llm.ModelCatalog, error) {
+	return s.modelCatalog(ctx, providerID, llm.ModelOptions)
+}
+
+// RefreshModelCatalogByProvider é o mesmo descartando o que o provedor tiver
+// guardado (AEP-0084 D6).
+func (s *Service) RefreshModelCatalogByProvider(ctx context.Context, providerID string) (llm.ModelCatalog, error) {
+	return s.modelCatalog(ctx, providerID, llm.RefreshModelOptions)
+}
+
+func (s *Service) modelCatalog(
+	ctx context.Context,
+	providerID string,
+	list func(context.Context, llm.ChatProvider) ([]llm.ModelOption, error),
+) (llm.ModelCatalog, error) {
+	catalog := llm.ModelCatalog{Models: []llm.ModelOption{}}
+	if providerID == "" {
+		return catalog, nil
+	}
+	catalog.Agent = s.providerIsAgent(providerID)
+	cp, err := s.GetChatProvider(ctx, providerID)
+	if err != nil {
+		return llm.ModelCatalog{}, err
+	}
+	models, err := list(ctx, cp)
+	if err != nil {
+		return llm.ModelCatalog{}, err
+	}
+	if len(models) > 0 {
+		catalog.Models = models
+	}
+	return catalog, nil
+}
+
+func (s *Service) providerIsAgent(providerID string) bool {
+	if s.registry == nil {
+		return false
+	}
+	return s.registry.Get(providerID).IsACP()
+}
+
+// RefreshModels é o mesmo para o provedor do perfil ativo.
+func (s *Service) RefreshModels(ctx context.Context, activeProfile *profiles.Profile) ([]string, error) {
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
+	}
+	return s.RefreshModelsByProvider(ctx, activeProfile.Chat.LLMProvider)
+}
+
 // ActiveProviderInfo contém campos informativos sobre o provedor ativo.
 type ActiveProviderInfo struct {
-	ID      string           `json:"id"`
-	Name    string           `json:"name"`
-	Type    llm.ProviderType `json:"type"`
-	BaseURL string           `json:"base_url"`
-	Model   string           `json:"model"`
-	Error   string           `json:"error,omitempty"`
+	ID                       string           `json:"id"`
+	Name                     string           `json:"name"`
+	Type                     llm.ProviderType `json:"type"`
+	BaseURL                  string           `json:"base_url"`
+	Model                    string           `json:"model"`
+	SupportsAssistantPrefill bool             `json:"supports_assistant_prefill"`
+	Error                    string           `json:"error,omitempty"`
 }
 
 // GetActiveProviderInfo retorna informações sobre o provedor do perfil ativo.
-func (s *Service) GetActiveProviderInfo(activeProfile *profiles.Profile) ActiveProviderInfo {
+func (s *Service) GetActiveProviderInfo(ctx context.Context, activeProfile *profiles.Profile) ActiveProviderInfo {
 	if activeProfile == nil {
 		return ActiveProviderInfo{Error: "perfil ativo não encontrado"}
 	}
-	activeProfile = s.ResolveProfileDefaults(activeProfile)
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
 
 	if s.registry == nil {
 		return ActiveProviderInfo{Error: "registro de provedores não inicializado"}
@@ -680,10 +1089,51 @@ func (s *Service) GetActiveProviderInfo(activeProfile *profiles.Profile) ActiveP
 		}
 	}
 	return ActiveProviderInfo{
-		ID:      provider.ID,
-		Name:    provider.Name,
-		Type:    provider.Type,
-		BaseURL: provider.BaseURL,
-		Model:   provider.Model,
+		ID:                       provider.ID,
+		Name:                     provider.Name,
+		Type:                     provider.Type,
+		BaseURL:                  provider.BaseURL,
+		Model:                    provider.Model,
+		SupportsAssistantPrefill: llm.SupportsAssistantPrefill(provider),
 	}
+}
+
+// SupportsAssistantPrefill aplica a mesma resolução de perfil usada em runtime
+// para decidir se a continuação explícita pode enviar assistant prefill.
+func (s *Service) SupportsAssistantPrefill(ctx context.Context, activeProfile *profiles.Profile) bool {
+	if activeProfile == nil || s.registry == nil {
+		return false
+	}
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
+	if activeProfile == nil {
+		return false
+	}
+	return llm.SupportsAssistantPrefill(s.registry.Get(activeProfile.Chat.LLMProvider))
+}
+
+// UsesAgentTurn informa se o turno do perfil é conduzido por um agente externo
+// (provider ACP). Nesse caso as ferramentas são do agente, e o app planeja o
+// turno sem oferecer as suas (AEP-0084 D7).
+func (s *Service) UsesAgentTurn(ctx context.Context, activeProfile *profiles.Profile) bool {
+	if activeProfile == nil || s.registry == nil {
+		return false
+	}
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
+	if activeProfile == nil {
+		return false
+	}
+	return s.registry.Get(activeProfile.Chat.LLMProvider).IsACP()
+}
+
+// SupportsExplicitCacheControl aplica a resolução de perfil usada em runtime
+// para decidir se o provider ativo aceita cache_control explícito no payload.
+func (s *Service) SupportsExplicitCacheControl(ctx context.Context, activeProfile *profiles.Profile) bool {
+	if activeProfile == nil || s.registry == nil {
+		return false
+	}
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
+	if activeProfile == nil {
+		return false
+	}
+	return llm.SupportsExplicitCacheControl(s.registry.Get(activeProfile.Chat.LLMProvider))
 }

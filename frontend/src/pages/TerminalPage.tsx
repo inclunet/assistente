@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
@@ -10,9 +10,30 @@ import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { TerminalPicker } from '../components/pickers/TerminalPicker';
+import { announce } from '../hooks/useAnnouncer';
 import { useTabScrollState } from '../hooks/useTabScrollState';
-import { buildChatSurfaceParams } from '../lib/chatSurface';
+import { boundedSurfaceSnapshotValue, buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import './TerminalPage.css';
+
+const TERMINAL_CHAT_HISTORY_LIMIT = 40;
+
+type TerminalHistoryEntry = {
+  command?: string;
+  output?: string;
+};
+
+function formatTerminalHistoryForChat(history: TerminalHistoryEntry[]) {
+  return history
+    .map((e) => {
+      const cmd = String(e.command || '').trim();
+      const out = String(e.output || '').trimEnd();
+      return [`$ ${cmd}`, out].filter(Boolean).join('\n');
+    })
+    .filter(Boolean)
+    .join('\n---\n');
+}
 
 interface TerminalPageProps {
   sessionId?: string;
@@ -30,12 +51,17 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
   const currentSessionId = explicitSessionId ?? panelSessionId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
+  const [isTerminateConfirmOpen, setTerminateConfirmOpen] = useState(false);
   useTabScrollState(historyContainerRef, panelTab.id);
 
   const {
     sessions,
     historyBySession,
+    activeEntryBySession = {},
     loadingHistoryBySession,
+    createSession,
+    closeSession,
+    loadSessions,
     sendInput,
     interrupt,
     setupEventListeners,
@@ -80,12 +106,53 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
   const activeSession = currentSessionId ? sessions.find(s => s.id === currentSessionId) : undefined;
   const currentHistory = currentSessionId ? (historyBySession[currentSessionId] || []) : [];
+  const currentRunningCommandId = currentSessionId
+    ? (activeEntryBySession[currentSessionId] ?? null)
+    : null;
   const isCurrentHistoryLoading = currentSessionId ? Boolean(loadingHistoryBySession[currentSessionId]) : false;
 
   const handleSendInput = useCallback(async (input: string) => {
     if (!currentSessionId) return;
     await sendInput(currentSessionId, input);
   }, [currentSessionId, sendInput]);
+
+  const bindSession = useCallback(async (sessionId: string) => {
+    await useWorkspaceStore.getState().updateTab(panelTab.id, {
+      state: { ...(panelTab.state ?? {}), sessionId },
+    });
+    const selectedSession = useTerminalStore.getState().sessions.find(
+      (session) => session.id === sessionId,
+    );
+    announce(t('terminal.announce.selected', {
+      name: selectedSession?.name || sessionId,
+    }));
+  }, [panelTab.id, panelTab.state, t]);
+
+  const handleCreateSession = useCallback(async () => {
+    const newSessionId = await createSession();
+    if (!newSessionId) {
+      announce(t('terminal.announce.createFailed'));
+      return;
+    }
+    await loadSessions();
+    await bindSession(newSessionId);
+    announce(t('terminal.announce.created'));
+  }, [bindSession, createSession, loadSessions, t]);
+
+  const handleTerminateSession = useCallback(async () => {
+    if (!currentSessionId) return;
+    const closed = await closeSession(currentSessionId);
+    if (!closed) {
+      setTerminateConfirmOpen(false);
+      announce(t('terminal.announce.terminateFailed'));
+      return;
+    }
+    await useWorkspaceStore.getState().updateTab(panelTab.id, {
+      state: { ...(panelTab.state ?? {}), sessionId: undefined },
+    });
+    setTerminateConfirmOpen(false);
+    announce(t('terminal.announce.terminated'));
+  }, [closeSession, currentSessionId, panelTab.id, panelTab.state, t]);
 
   const handleArrowUp = useCallback(() => {
     const container = historyContainerRef.current;
@@ -108,41 +175,72 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
     return {
       prepare: async () => {
-        const slice = currentHistory.slice(-40);
-        const lines = slice
-          .map((e) => {
-            const cmd = String(e.command || '').trim();
-            const out = String(e.output || '').trimEnd();
-            return [`$ ${cmd}`, out].filter(Boolean).join('\n');
-          })
-          .filter(Boolean)
-          .join('\n---\n');
+        const slice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
+        const lines = formatTerminalHistoryForChat(slice);
         const contextDisplay = lines || t('terminal.chatModal.noHistory');
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const contextDisplay = currentHistory.slice(-40)
-          .map((e) => {
-            const cmd = String(e.command || '').trim();
-            const out = String(e.output || '').trimEnd();
-            return [`$ ${cmd}`, out].filter(Boolean).join('\n');
-          })
-          .filter(Boolean)
-          .join('\n---\n') || t('terminal.chatModal.noHistory');
+        const historySlice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
+        const contextDisplay = formatTerminalHistoryForChat(historySlice) || t('terminal.chatModal.noHistory');
+        const selection = window.getSelection?.();
+        const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
+          ? selection.toString().trim()
+          : '';
+        const currentInput = inputRef.current?.value?.trim() || '';
+        const lastEntry = currentHistory[currentHistory.length - 1];
+        const surfaceContext: SurfaceContext = {
+          surfaceType: 'terminal',
+          surfaceId: panelTab.id,
+          title: activeSession?.name || t('terminal.pageTitle'),
+          mode: 'shell',
+          selection: selectedOutput
+            ? {
+                kind: 'terminal_output',
+                text: selectedOutput,
+                explicit: true,
+              }
+            : undefined,
+          focus: {
+            kind: 'terminal',
+            label: activeSession?.cwd || activeSession?.name || currentSessionId,
+            entity: {
+              sessionId: currentSessionId,
+              cwd: activeSession?.cwd,
+            },
+          },
+          content: {
+            kind: 'terminal_output',
+            recentOutput: contextDisplay,
+            currentInput,
+            truncated: currentHistory.length > historySlice.length,
+          },
+          metadata: {
+            sessionId: currentSessionId,
+            cwd: activeSession?.cwd,
+            shell: (activeSession as { shell?: string } | undefined)?.shell,
+            historyEntryCount: currentHistory.length,
+            lastExitCode: lastEntry?.exitCode,
+          },
+          snapshotVersion: createSurfaceSnapshotVersion(
+            'terminal',
+            panelTab.id,
+            `${currentSessionId}:${currentHistory.length}:${lastEntry?.id || ''}:${String(lastEntry?.output || '').length}:${boundedSurfaceSnapshotValue(currentInput, 240)}`,
+          ),
+          capturedAt: new Date().toISOString(),
+          staleAfterMs: 30000,
+        };
         return {
           content: instruction,
           mediaFiles: media,
           paramsOverride: buildChatSurfaceParams(panelTab, {
             profileSlug: effectiveProfileSlug || undefined,
-            context: {
-              historyPreview: contextDisplay,
-              historyEntryCount: currentHistory.length,
-            },
+            context: surfaceContext,
           }),
         };
       },
     };
-  }, [panelTab, currentHistory, effectiveProfileSlug, t]);
+  }, [panelTab, currentHistory, currentSessionId, activeSession, effectiveProfileSlug, t]);
 
   useRegisterWorkspaceChatAdapter(panelTab?.id, terminalChatModalAdapter);
 
@@ -152,11 +250,31 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         <Toolbar
           ariaLabel={t('terminal.aria.toolbar')}
           left={
-            <h1 className="page-toolbar__title" id="terminal-heading">
-              {activeSession?.name || t('terminal.pageTitle')}
-            </h1>
+            <>
+              <h1 className="page-toolbar__title" id="terminal-heading">
+                {activeSession?.name || t('terminal.pageTitle')}
+              </h1>
+              <TerminalPicker
+                sessions={sessions}
+                value={currentSessionId}
+                onChange={(sessionId) => { void bindSession(sessionId); }}
+                onOpen={() => { void loadSessions(); }}
+                onAnnounce={announce}
+              />
+            </>
           }
           actions={[
+            {
+              key: 'new-terminal',
+              label: t('terminal.buttons.new'),
+              onClick: () => { void handleCreateSession(); },
+            },
+            {
+              key: 'terminate-terminal',
+              label: t('terminal.buttons.terminate'),
+              disabled: !activeSession,
+              onClick: () => setTerminateConfirmOpen(true),
+            },
             {
               key: 'chat-modal',
               label: t('editor.chatModal.title'),
@@ -194,7 +312,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
       <TerminalHistory
         ref={historyContainerRef}
         entries={currentHistory}
-        runningCommandId={null}
+        runningCommandId={currentRunningCommandId}
         isLoading={isCurrentHistoryLoading}
         onReachEnd={handleReachEnd}
       />
@@ -210,10 +328,21 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
               : t('terminal.placeholders.command')
           }
           voiceEnabled={false}
+          slashMenuEnabled={false}
           onArrowUp={handleArrowUp}
         />
       </div>
       </div>
+      <ConfirmDialog
+        isOpen={isTerminateConfirmOpen}
+        title={t('terminal.terminate.title')}
+        message={t('terminal.terminate.message', { name: activeSession?.name || t('terminal.pageTitle') })}
+        confirmText={t('terminal.buttons.terminate')}
+        cancelText={t('common.cancel')}
+        variant="danger"
+        onConfirm={() => { void handleTerminateSession(); }}
+        onCancel={() => setTerminateConfirmOpen(false)}
+      />
     </div>
   );
 }

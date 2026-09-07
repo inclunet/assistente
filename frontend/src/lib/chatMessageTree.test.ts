@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 import {
-  appendInternalMessageToTree,
   attachChildrenToMessage,
   finalizeStreamingNode,
   flattenThreadedMessages,
@@ -11,7 +10,7 @@ import {
   type MessageNode,
 } from './chatMessageTree';
 
-const message = (id: string, role: string, content = id, parentId?: string): Message => new main.EnrichedMessage({
+const message = (id: string, role: string, content = id, parentId?: string): Message => new chat.EnrichedMessage({
   id,
   role,
   content,
@@ -20,7 +19,7 @@ const message = (id: string, role: string, content = id, parentId?: string): Mes
   createdAt: '2026-04-30T00:00:00.000Z',
 }) as Message;
 
-const node = (msg: Message, children: MessageNode[] = [], level = 0): MessageNode => new main.MessageNode({
+const node = (msg: Message, children: MessageNode[] = [], level = 0): MessageNode => new chat.MessageNode({
   message: msg,
   children,
   level,
@@ -50,16 +49,6 @@ describe('chatMessageTree', () => {
     expect(updated[0].children?.[0].message.content).toBe('new');
   });
 
-  it('appends internal messages below their parent', () => {
-    const nodes = [node(message('parent', 'user'))];
-    const child = message('child', 'assistant', 'reply', 'parent');
-
-    const updated = appendInternalMessageToTree(nodes, child);
-
-    expect(updated[0].children?.[0].message.id).toBe('child');
-    expect(updated[0].childCount).toBe(1);
-  });
-
   it('attaches loaded children to the requested message', () => {
     const nodes = [node(message('root', 'user'), [node(message('parent', 'assistant'), [], 1)])];
     const loadedChildren = [node(message('loaded', 'tool'), [], 2)];
@@ -80,6 +69,21 @@ describe('chatMessageTree', () => {
     const updated = finalizeStreamingNode(conversation, 'synthetic', 'backend');
 
     expect(updated.threadedMessages[0].message.id).toBe('backend');
+    expect(updated.threadedMessages[0].message.isStreaming).toBe(false);
+  });
+
+  it('preserves backend turn id when finalizing a streaming node', () => {
+    const conversation = {
+      id: 'conversation-1',
+      title: 'Conversation',
+      threadedMessages: [node(message('synthetic', 'assistant'))],
+    };
+    conversation.threadedMessages[0].message.isStreaming = true;
+
+    const updated = finalizeStreamingNode(conversation, 'synthetic', 'backend', 'turn-1');
+
+    expect(updated.threadedMessages[0].message.id).toBe('backend');
+    expect(updated.threadedMessages[0].message.turnId).toBe('turn-1');
     expect(updated.threadedMessages[0].message.isStreaming).toBe(false);
   });
 });

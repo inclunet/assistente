@@ -20,7 +20,7 @@ const hoisted = vi.hoisted(() => {
   };
 });
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   CreateConversation: (title: string, body: string) => mockCreateConversation(title, body),
 }));
 

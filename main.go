@@ -1,13 +1,14 @@
 package main
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"embed"
-	"log"
 	"time"
 
 	"assistente/adapters/wails"
 	application "assistente/internal/app"
+	"assistente/internal/wailsapi"
 
 	wailslib "github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -19,6 +20,82 @@ var assets embed.FS
 
 func main() {
 	a := application.NewApp()
+	tokensAPI := wailsapi.NewTokens()
+	application.SetTokensAPI(a, tokensAPI)
+	allowlistsAPI := wailsapi.NewAllowlists()
+	application.SetAllowlistsAPI(a, allowlistsAPI)
+	skillsAPI := wailsapi.NewSkills()
+	application.SetSkillsAPI(a, skillsAPI)
+	toolsAPI := wailsapi.NewTools()
+	application.SetToolsAPI(a, toolsAPI)
+	updaterAPI := wailsapi.NewUpdater()
+	application.SetUpdaterAPI(a, updaterAPI)
+	profilesAPI := wailsapi.NewProfiles()
+	application.SetProfilesAPI(a, profilesAPI)
+	hotkeysAPI := wailsapi.NewHotkeys()
+	application.SetHotkeysAPI(a, hotkeysAPI)
+	netTrustAPI := wailsapi.NewNetTrust()
+	application.SetNetTrustAPI(a, netTrustAPI)
+	fsTrustAPI := wailsapi.NewFSTrust()
+	application.SetFSTrustAPI(a, fsTrustAPI)
+	credentialsAPI := wailsapi.NewCredentials()
+	application.SetCredentialsAPI(a, credentialsAPI)
+	settingsAPI := wailsapi.NewSettings()
+	application.SetSettingsAPI(a, settingsAPI)
+	mcpAPI := wailsapi.NewMCP()
+	application.SetMCPAPI(a, mcpAPI)
+	signalAPI := wailsapi.NewSignal()
+	application.SetSignalAPI(a, signalAPI)
+	terminalAPI := wailsapi.NewTerminal()
+	application.SetTerminalAPI(a, terminalAPI)
+	memoryAPI := wailsapi.NewMemory()
+	application.SetMemoryAPI(a, memoryAPI)
+	messagingAPI := wailsapi.NewMessaging()
+	application.SetMessagingAPI(a, messagingAPI)
+	welcomeAPI := wailsapi.NewWelcome()
+	application.SetWelcomeAPI(a, welcomeAPI)
+	workspaceAPI := wailsapi.NewWorkspace()
+	application.SetWorkspaceAPI(a, workspaceAPI)
+	legacyCleanupAPI := wailsapi.NewLegacyCleanup()
+	application.SetLegacyCleanupAPI(a, legacyCleanupAPI)
+	databaseAPI := wailsapi.NewDatabase()
+	application.SetDatabaseAPI(a, databaseAPI)
+	subagentAPI := wailsapi.NewSubagent()
+	application.SetSubagentAPI(a, subagentAPI)
+	tasklistAPI := wailsapi.NewTasklist()
+	application.SetTasklistAPI(a, tasklistAPI)
+	tasklistActionsAPI := wailsapi.NewTasklistActions()
+	application.SetTasklistActionsAPI(a, tasklistActionsAPI)
+	conversationsAPI := wailsapi.NewConversations()
+	application.SetConversationsAPI(a, conversationsAPI)
+	speechAPI := wailsapi.NewSpeech()
+	application.SetSpeechAPI(a, speechAPI)
+	jobsAPI := wailsapi.NewJobs()
+	application.SetJobsAPI(a, jobsAPI)
+	llmProvidersAPI := wailsapi.NewLLMProviders()
+	application.SetLLMProvidersAPI(a, llmProvidersAPI)
+	llmModelsAPI := wailsapi.NewLLMModels()
+	application.SetLLMModelsAPI(a, llmModelsAPI)
+	chatAPI := wailsapi.NewChat()
+	application.SetChatAPI(a, chatAPI)
+	acpCommandsAPI := wailsapi.NewACPCommands()
+	application.SetACPCommandsAPI(a, acpCommandsAPI)
+	acpProvidersAPI := wailsapi.NewACPProviders()
+	application.SetACPProvidersAPI(a, acpProvidersAPI)
+	acpOptionsAPI := wailsapi.NewACPOptions()
+	application.SetACPOptionsAPI(a, acpOptionsAPI)
+	acpRegistryAPI := wailsapi.NewACPRegistry()
+	application.SetACPRegistryAPI(a, acpRegistryAPI)
+	acpWorkDirAPI := wailsapi.NewACPWorkDir()
+	application.SetACPWorkDirAPI(a, acpWorkDirAPI)
+	acpInstallAPI := wailsapi.NewACPInstall()
+	application.SetACPInstallAPI(a, acpInstallAPI)
+	acpTrustAPI := wailsapi.NewACPTrust()
+	application.SetACPTrustAPI(a, acpTrustAPI)
+	editorAPI := wailsapi.NewEditor()
+	application.SetEditorAPI(a, editorAPI)
+	exportImportAPI := wailsapi.NewExportImport()
+	application.SetExportImportAPI(a, exportImportAPI)
 
 	err := wailslib.Run(&options.App{
 		Title:  "assistente",
@@ -34,7 +111,7 @@ func main() {
 				wails.NewWindowAdapter(ctx),
 				wails.NewDialogAdapter(ctx),
 			); err != nil {
-				log.Fatalf("Falha ao inicializar aplicação: %v", err)
+				logging.Fatalf(ctx, "main", "Falha ao inicializar aplicação: %v", err)
 			}
 			// Restaura foco da janela (resolve bug do Wails no Windows)
 			go func() {
@@ -51,8 +128,48 @@ func main() {
 		OnShutdown: func(_ context.Context) {
 			a.Shutdown()
 		},
+		// AEP-0088: multi-bind — App + binds de domínio migrados.
 		Bind: []interface{}{
 			a,
+			wailsapi.NewProbe(),
+			tokensAPI,
+			allowlistsAPI,
+			skillsAPI,
+			toolsAPI,
+			updaterAPI,
+			profilesAPI,
+			hotkeysAPI,
+			netTrustAPI,
+			fsTrustAPI,
+			credentialsAPI,
+			conversationsAPI,
+			speechAPI,
+			settingsAPI,
+			mcpAPI,
+			signalAPI,
+			terminalAPI,
+			memoryAPI,
+			messagingAPI,
+			welcomeAPI,
+			workspaceAPI,
+			legacyCleanupAPI,
+			databaseAPI,
+			subagentAPI,
+			tasklistAPI,
+			tasklistActionsAPI,
+			jobsAPI,
+			llmProvidersAPI,
+			llmModelsAPI,
+			chatAPI,
+			acpCommandsAPI,
+			acpProvidersAPI,
+			acpOptionsAPI,
+			acpRegistryAPI,
+			acpWorkDirAPI,
+			acpInstallAPI,
+			acpTrustAPI,
+			editorAPI,
+			exportImportAPI,
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: false,

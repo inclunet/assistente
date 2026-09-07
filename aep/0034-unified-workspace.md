@@ -36,9 +36,9 @@ Cada app com suas abas →  Uma barra de abas com tipos mistos
 ### Três camadas
 
 ```
-Conteúdo (entidade persistente)
+Conteúdo (entidade independente da aba)
   │  Conversa, arquivo, terminal session, tasklist
-  │  Existe independente, tem ID único, persiste (DB ou disco)
+  │  Tem ID único; a persistência depende do domínio
   │
 Aba (view de um conteúdo dentro de um workspace)
   │  Pertence a UM workspace (morre com ele)
@@ -66,6 +66,12 @@ Workspace (container de abas)
 | Limite de abas | Ilimitado |
 | Limite de workspaces | Ilimitado |
 | Abas órfãs | Permitidas — qualquer aba pode existir sem depender de outra |
+
+Sessões de terminal são a exceção quanto à persistência: conforme a AEP-0089,
+o `terminalId` identifica um PTY vivo e não sobrevive ao processo do
+Assistente. A independência continua válida durante sua vida — fechar uma aba
+não encerra a sessão, e outra aba ou chat pode referenciá-la. Um transcript
+encerrado, quando preservado, não é uma sessão reconectável.
 
 ### Diagrama
 
@@ -263,7 +269,9 @@ Cada tipo de conteúdo que precisa de gerenciamento tem uma **página de listage
 | `ChatHistory` | Histórico de conversas — busca, listagem, acesso |
 | `TasklistLibrary` | Acervo de tasklists — listagem, criar, gerenciar |
 
-Editor e Terminal **não têm listagem** — são conteúdo efêmero ou abrem direto no workspace.
+Editor não tem listagem própria. Terminal oferece, na toolbar da aba, um
+seletor das sessões vivas definido pela AEP-0089; transcripts encerrados podem
+ganhar uma listagem de auditoria separada em evolução posterior.
 
 ### Componentes reutilizáveis
 
@@ -293,6 +301,14 @@ O componente de detalhe é o mesmo tanto no modal da listagem quanto na aba do w
 | Vinculado a pasta/projeto | `<pasta>/.assistente/workspace.yaml` |
 | Avulso (criado na UI) | `~/.assistente/workspaces/<id>/.assistente/workspace.yaml` |
 | Default (sem diretório) | `~/.assistente/workspaces/default/.assistente/workspace.yaml` |
+
+### Compatibilidade publicada
+
+Workspaces foram publicados a partir da 0.2.0; a 0.1.9 ainda não continha este
+domínio. Fixtures de 0.2.0, 0.3.0, 0.4.0 e 0.5.0 atravessam diretamente o
+loader atual e cobrem remap de conversa/tasklist, estado de editor/terminal,
+perfil base e override por aba. O remap só é removido depois que todos os
+workspaces conhecidos foram persistidos, mantendo a migração idempotente.
 
 ### Resolução ao abrir o app
 

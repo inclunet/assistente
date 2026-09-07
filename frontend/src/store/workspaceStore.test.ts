@@ -5,7 +5,7 @@ const { mockedAnnounce, mockedIsModalOpen } = vi.hoisted(() => ({
   mockedIsModalOpen: vi.fn(() => false),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Workspace', () => ({
   GetActiveWorkspace: vi.fn(),
   ListWorkspaces: vi.fn(),
   CreateWorkspace: vi.fn(),
@@ -35,7 +35,7 @@ vi.mock('../hooks/useAnnouncer', () => ({
   announce: mockedAnnounce,
 }));
 
-vi.mock('../components/ui/Modal', () => ({
+vi.mock('../lib/modalRegistry', () => ({
   isModalOpen: mockedIsModalOpen,
 }));
 
@@ -43,19 +43,26 @@ vi.mock('../lib/waitForWailsBridge', () => ({
   waitForWailsBridge: vi.fn(),
 }));
 
-import { useWorkspaceStore, registerTabRenameHandler } from './workspaceStore';
-import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/app/App';
+import {
+  useWorkspaceStore,
+  registerTabRenameHandler,
+  type WorkspaceTabUpdatedEvent,
+} from './workspaceStore';
+import { GetActiveWorkspace, ListWorkspaces, SetActiveWorkspaceTab, UpdateWorkspaceTab } from '@wailsjs/go/wailsapi/Workspace';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 import { workspace } from '../../wailsjs/go/models';
+import { EventsOn } from '@wailsjs/runtime/runtime';
+import i18next from 'i18next';
 
 const mockedGetActiveWorkspace = vi.mocked(GetActiveWorkspace);
 const mockedListWorkspaces = vi.mocked(ListWorkspaces);
 const mockedSetActiveWorkspaceTab = vi.mocked(SetActiveWorkspaceTab);
 const mockedUpdateWorkspaceTab = vi.mocked(UpdateWorkspaceTab);
 const mockedWaitForWailsBridge = vi.mocked(waitForWailsBridge);
+const mockedEventsOn = vi.mocked(EventsOn);
 
 function setStoreState(
-  tabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; title: string; position: number }>,
+  tabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; profileOverride?: Record<string, unknown>; title: string; position: number }>,
   activeTabId: string,
 ) {
   useWorkspaceStore.setState({
@@ -67,6 +74,7 @@ function setStoreState(
         type: t.type as 'chat' | 'editor' | 'terminal' | 'tasklist',
         conversationId: t.conversationId,
         state: t.state,
+        profileOverride: t.profileOverride,
         title: t.title,
         position: t.position,
       })),
@@ -76,6 +84,50 @@ function setStoreState(
     workspaces: [],
   });
 }
+
+describe('eventos de workspace', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedAnnounce.mockClear();
+    mockedEventsOn.mockClear();
+  });
+
+  it('reconcilia e anuncia o profile alterado pela tool', () => {
+    const cleanup = useWorkspaceStore.getState().setupEventListeners();
+    const registration = mockedEventsOn.mock.calls.find(([event]) => event === 'workspace:tab_updated');
+    expect(registration).toBeDefined();
+
+    const handler = registration?.[1] as (payload: WorkspaceTabUpdatedEvent) => void;
+    handler({
+      workspace: {
+        id: 'ws-1',
+        name: 'Workspace',
+        profile: 'geral',
+        tabs: {
+          active: 'tab-1',
+          items: [{
+            id: 'tab-1',
+            type: 'chat',
+            conversation_id: 'conversation-1',
+            title: 'Chat',
+            position: 0,
+            profile_override: { slug: 'custom' },
+          }],
+        },
+      },
+      tabId: 'tab-1',
+      profileSlug: 'custom',
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'custom',
+    });
+    expect(mockedAnnounce).toHaveBeenCalledWith(
+      `${i18next.t('workspace.profileChanged')}: custom`,
+    );
+    cleanup();
+  });
+});
 
 describe('handleContentRenamed', () => {
   beforeEach(() => {
@@ -268,21 +320,33 @@ describe('setActiveTab', () => {
   });
 
   it('faz rollback quando backend falha e aba ativa não mudou', async () => {
-    setStoreState([
-      { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
-    ], 'tab-1');
+    const rollbackListener = vi.fn();
+    window.addEventListener('workspace:tab-activation-rollback', rollbackListener);
+    try {
+      setStoreState([
+        { id: 'tab-1', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001", title: 'Chat 1', position: 0 },
+        { id: 'tab-2', type: 'chat', conversationId: "01926b90-7a5a-7c4e-8d3f-000000000002", title: 'Chat 2', position: 1 },
+      ], 'tab-1');
 
-    mockedSetActiveWorkspaceTab.mockRejectedValue(new Error('backend error'));
+      mockedSetActiveWorkspaceTab.mockRejectedValue(new Error('backend error'));
 
-    // setActiveTab é síncrono; o rollback ocorre no .catch assíncrono
-    useWorkspaceStore.getState().setActiveTab('tab-2');
+      // setActiveTab é síncrono; o rollback ocorre no .catch assíncrono
+      useWorkspaceStore.getState().setActiveTab('tab-2');
 
-    // Aguarda o .catch processar o rollback
-    await vi.waitFor(() => {
-      expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-1');
-    });
-    expect(mockedAnnounce).toHaveBeenCalled();
+      // Aguarda o .catch processar o rollback
+      await vi.waitFor(() => {
+        expect(useWorkspaceStore.getState().workspace?.activeTabId).toBe('tab-1');
+      });
+      expect(mockedAnnounce).toHaveBeenCalled();
+      expect(rollbackListener).toHaveBeenCalledWith(expect.objectContaining({
+        detail: expect.objectContaining({
+          failedTabId: 'tab-2',
+          rollbackTabId: 'tab-1',
+        }),
+      }));
+    } finally {
+      window.removeEventListener('workspace:tab-activation-rollback', rollbackListener);
+    }
   });
 
   it('não faz rollback quando outra troca já ocorreu antes do erro', async () => {
@@ -429,6 +493,29 @@ describe('initialize', () => {
       expect(useWorkspaceStore.getState().isInitialized).toBe(true);
     });
   });
+
+  it('apresenta titulo traduzido para aba padrao sem titulo persistido', async () => {
+    mockedWaitForWailsBridge.mockResolvedValueOnce(undefined);
+    mockedGetActiveWorkspace.mockResolvedValueOnce({
+      id: 'ws-default',
+      name: 'Default',
+      tabs: {
+        active: 'tab-default',
+        items: [{
+          id: 'tab-default',
+          type: 'chat',
+          title: '',
+          position: 0,
+        }],
+      },
+    } as workspace.Workspace);
+    mockedListWorkspaces.mockResolvedValueOnce([]);
+
+    await useWorkspaceStore.getState().initialize();
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.title)
+      .toBe(i18next.t('chat.newConversation'));
+  });
 });
 
 describe('updateTab — filePath no state', () => {
@@ -518,6 +605,89 @@ describe('updateTab — filePath no state', () => {
     });
     expect(mockedUpdateWorkspaceTab).toHaveBeenCalledWith('tab-e2-merge', {
       state: { scrollTop: 240 },
+    });
+  });
+});
+
+describe('updateTab — ProfileOverride por patch', () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
+    mockedUpdateWorkspaceTab.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('preserva slug ao trocar somente o modelo', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao' },
+    }], 'tab-chat');
+
+    await useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: 'modelo-b' },
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+      model: 'modelo-b',
+    });
+  });
+
+  it('remove modelo com nil sem apagar o slug', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao', model: 'modelo-b' },
+    }], 'tab-chat');
+
+    await useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: null },
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+    });
+  });
+
+  it('ignora undefined porque somente null remove uma chave', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao', model: 'modelo-b' },
+    }], 'tab-chat');
+
+    await useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: undefined },
+    });
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+      model: 'modelo-b',
+    });
+  });
+
+  it('não altera o store quando a persistência falha', async () => {
+    setStoreState([{
+      id: 'tab-chat',
+      type: 'chat',
+      title: 'Chat',
+      position: 0,
+      profileOverride: { slug: 'programacao', model: 'modelo-a' },
+    }], 'tab-chat');
+    mockedUpdateWorkspaceTab.mockRejectedValueOnce(new Error('falha'));
+
+    await expect(useWorkspaceStore.getState().updateTab('tab-chat', {
+      profile_override: { model: 'modelo-b' },
+    })).rejects.toThrow('falha');
+
+    expect(useWorkspaceStore.getState().workspace?.tabs[0]?.profileOverride).toEqual({
+      slug: 'programacao',
+      model: 'modelo-a',
     });
   });
 });

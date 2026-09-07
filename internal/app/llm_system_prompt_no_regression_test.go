@@ -1,14 +1,33 @@
 package app
 
 import (
+	"context"
 	"testing"
 
+	"assistente/internal/contextprovider"
 	"assistente/internal/profiles"
+	"assistente/internal/slashskill"
 )
 
-// TestBuildFullSystemPrompt_DisableSkills_NoSystemMessage valida que
-// quando skills estão desabilitados E sem slash skill, NENHUM system message é adicionado
-func TestBuildFullSystemPrompt_DisableSkills_NoSystemMessage(t *testing.T) {
+func buildFullSystemPromptForTest(app *App, messages []Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, skillTplData any, slashSkillContent string) []Message {
+	blocks := []contextprovider.Block{}
+	if slashSkillContent != "" {
+		slashBlocks, _ := slashskill.NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{SlashSkillContent: slashSkillContent})
+		blocks = append(blocks, slashBlocks...)
+	}
+	return app.effectivePromptBuilder().BuildWithContextBlocks(
+		messages,
+		enabledSkills,
+		disableSkills,
+		disableOnDemand,
+		skillTplData,
+		blocks,
+	)
+}
+
+// TestBuildFullSystemPrompt_DisableSkills_DoesNotInjectHardcodedPrompt valida que
+// o prompt base hardcoded não volta quando skills estão desabilitadas.
+func TestBuildFullSystemPrompt_DisableSkills_DoesNotInjectHardcodedPrompt(t *testing.T) {
 	messages := []Message{
 		{Role: "user", Content: "oi"},
 	}
@@ -19,29 +38,19 @@ func TestBuildFullSystemPrompt_DisableSkills_NoSystemMessage(t *testing.T) {
 	// Simular: DisableSkills=true
 	enabledSkills := []string{}
 
-	result := app.buildFullSystemPrompt(messages, enabledSkills, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
-	// Verificar: nenhum message foi adicionado
 	if len(result) != len(messages) {
-		t.Errorf("Expected same number of messages (%d), got %d", len(messages), len(result))
+		t.Fatalf("expected original messages only, got %d", len(result))
 	}
-
-	// Verificar: primeiro message ainda é user, não system
 	if result[0].Role != "user" {
-		t.Errorf("Expected first message to be 'user', got '%s'", result[0].Role)
-	}
-
-	// Nenhuma message é system
-	for i, msg := range result {
-		if msg.Role == "system" {
-			t.Errorf("Unexpected system message at index %d", i)
-		}
+		t.Fatalf("expected first message to remain user, got %s", result[0].Role)
 	}
 }
 
-// TestBuildFullSystemPrompt_WithSkills_AddsSystemMessage valida que
-// quando há skill manager com skills, um system message COM conteúdo é adicionado
-func TestBuildFullSystemPrompt_WithSkills_AddsSystemMessage(t *testing.T) {
+// TestBuildFullSystemPrompt_WithoutSkillManager_DoesNotAddDefaultSystemMessage valida
+// que a ausência do provider de skills não aciona fallback hardcoded.
+func TestBuildFullSystemPrompt_WithoutSkillManager_DoesNotAddDefaultSystemMessage(t *testing.T) {
 	messages := []Message{
 		{Role: "user", Content: "oi"},
 	}
@@ -49,31 +58,21 @@ func TestBuildFullSystemPrompt_WithSkills_AddsSystemMessage(t *testing.T) {
 	app := &App{}
 	app.skillMgr = nil // Sem skill manager = nenhum skill
 
-	// Simular: enabledSkills[:] (nil) = usa defaults, mas sem skillMgr retorna vazio
-	// Para garantir que DefaultSystemPrompt é adicionado, precisamos simular
-	// que há skills. A verdade é: se não há skillMgr, buildSkillsPromptSection
-	// retorna "", então buildFullSystemPrompt não adiciona system message.
-
-	// ESTE TESTE VALIDA O CENÁRIO REAL:
-	// Quando não há skillMgr, mesmo com enabledSkills=nil, nenhum system message é adicionado
 	enabledSkills := []string(nil)
 
-	result := app.buildFullSystemPrompt(messages, enabledSkills, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, false, false, nil, "")
 
-	// Verificação: sem skill manager E sem slash skill, nenhum system message é adicionado
-	// (mesmo que enabledSkills seja nil)
 	if len(result) != len(messages) {
-		t.Errorf("Expected %d messages (no system message added), got %d", len(messages), len(result))
+		t.Fatalf("expected original messages only, got %d", len(result))
 	}
-
-	if result[0].Role == "system" {
-		t.Error("Unexpected system message when no skill manager and no slash skill")
+	if result[0].Role != "user" {
+		t.Fatalf("expected first message to remain user, got %s", result[0].Role)
 	}
 }
 
-// TestBuildFullSystemPrompt_WithSlashSkill_AddsSystemMessage valida que
-// quando há slash skill, um system message é adicionado mesmo que skills desabilitadas
-func TestBuildFullSystemPrompt_WithSlashSkill_AddsSystemMessage(t *testing.T) {
+// TestBuildFullSystemPrompt_WithSlashSkill_AddsTurnContext valida que
+// quando há slash skill, o conteúdo entra na mensagem user do turno, não no system.
+func TestBuildFullSystemPrompt_WithSlashSkill_AddsTurnContext(t *testing.T) {
 	messages := []Message{
 		{Role: "user", Content: "oi"},
 	}
@@ -85,28 +84,27 @@ func TestBuildFullSystemPrompt_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 	enabledSkills := []string{}
 	slashSkillContent := "# Skill invocado via /slash"
 
-	result := app.buildFullSystemPrompt(messages, enabledSkills, false, nil, slashSkillContent, "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, slashSkillContent)
 
-	// Verificar: primeiro message é system (por causa do slash skill)
 	if len(result) < 1 {
 		t.Fatal("Expected at least one message")
 	}
 
-	if result[0].Role != "system" {
-		t.Errorf("Expected first message to be 'system' when slash skill invoked, got '%s'", result[0].Role)
+	if result[0].Role != "user" {
+		t.Errorf("Expected first message to remain 'user' when only slash turn context exists, got '%s'", result[0].Role)
 	}
 
-	systemContent, ok := result[0].Content.(string)
+	userContent, ok := result[0].Content.(string)
 	if !ok {
-		t.Fatal("System content should be a string")
+		t.Fatal("User content should be a string")
 	}
 
-	if systemContent == "" {
-		t.Error("System message should not be empty when slash skill is invoked")
+	if userContent == "" {
+		t.Error("User message should not be empty when slash skill is invoked")
 	}
 
-	if !contains(systemContent, "Skill invocado via /slash") {
-		t.Error("System message should contain slash skill content")
+	if !contains(userContent, "<turn_context>") || !contains(userContent, "Skill invocado via /slash") || !contains(userContent, "<user_request>") {
+		t.Errorf("User message should contain turn context and original request, got %q", userContent)
 	}
 }
 
@@ -125,7 +123,7 @@ func TestBuildFullSystemPrompt_ExistingSystemMessage_Combines(t *testing.T) {
 	// Simular: skills desabilitados
 	enabledSkills := []string{}
 
-	result := app.buildFullSystemPrompt(messages, enabledSkills, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
 	// Verificar: nenhum novo system message foi criado
 	// O system message original é mantido
@@ -137,10 +135,10 @@ func TestBuildFullSystemPrompt_ExistingSystemMessage_Combines(t *testing.T) {
 		t.Errorf("Expected first message to be 'system', got '%s'", result[0].Role)
 	}
 
-	// Conteúdo do system message original é preservado
+	// Conteúdo do system message original é preservado sem prompt hardcoded.
 	systemContent := result[0].Content.(string)
 	if systemContent != existingSystemContent {
-		t.Errorf("System message was modified. Expected: %s, Got: %s", existingSystemContent, systemContent)
+		t.Errorf("System message should be preserved unchanged, got: %s", systemContent)
 	}
 }
 
@@ -157,7 +155,7 @@ func TestBuildFullSystemPrompt_NoEmptySystemMessage(t *testing.T) {
 	// Cenário: DisableSkills=true, sem slash skill
 	enabledSkills := []string{}
 
-	result := app.buildFullSystemPrompt(messages, enabledSkills, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
 	// Validação crítica: nenhum message com role=system E content=""
 	for i, msg := range result {
@@ -177,9 +175,9 @@ func TestProfile_DisableSkills_Integration(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:   "google-gemini",
 			Model:         "gemini-2.0-flash",
-			DisableSkills: true,        // Crítico!
+			DisableSkills: true, // Crítico!
 			DisableTools:  true,
-			EnabledSkills: []string{},  // Vazio por causa de DisableSkills
+			EnabledSkills: []string{}, // Vazio por causa de DisableSkills
 		},
 	}
 
@@ -196,20 +194,16 @@ func TestProfile_DisableSkills_Integration(t *testing.T) {
 		enabledSkills = []string{}
 	}
 
-	result := app.buildFullSystemPrompt(messages, enabledSkills, profile.Chat.DisableOnDemandSkills, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, profile.Chat.DisableSkills, profile.Chat.DisableOnDemandSkills, nil, "")
 
-	// Verificações críticas:
-	// 1. Nenhum system message foi adicionado
 	if len(result) != 1 {
-		t.Errorf("Expected 1 message (user only), got %d", len(result))
+		t.Errorf("expected original user message only, got %d", len(result))
 	}
 
-	// 2. Primeira e única message é do usuário
 	if result[0].Role != "user" {
-		t.Errorf("Expected 'user' message, got '%s'", result[0].Role)
+		t.Errorf("expected user message, got %+v", result)
 	}
 
-	// 3. Nenhum message vazio
 	for i, msg := range result {
 		if content, ok := msg.Content.(string); ok {
 			if content == "" {
@@ -233,25 +227,17 @@ func TestBuildFullSystemPrompt_ConversationHistory(t *testing.T) {
 	// DisableSkills=true, sem slash skill
 	enabledSkills := []string{}
 
-	result := app.buildFullSystemPrompt(messages, enabledSkills, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
-	// Verificar: histórico preservado sem system message vazio adicionado
+	// Verificar: histórico preservado sem system prompt hardcoded.
 	if len(result) != len(messages) {
 		t.Errorf("Expected %d messages, got %d", len(messages), len(result))
 	}
 
-	// Verificar ordem: user -> assistant -> user
 	expectedRoles := []string{"user", "assistant", "user"}
 	for i, expectedRole := range expectedRoles {
 		if result[i].Role != expectedRole {
 			t.Errorf("Message %d: expected role '%s', got '%s'", i, expectedRole, result[i].Role)
-		}
-	}
-
-	// Nenhum system message foi adicionado
-	for _, msg := range result {
-		if msg.Role == "system" {
-			t.Error("System message should not be added when skills disabled")
 		}
 	}
 }

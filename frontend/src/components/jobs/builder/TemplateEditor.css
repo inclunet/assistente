@@ -7,9 +7,9 @@
 /* --- Single-line: match <Input> appearance --- */
 
 .template-editor--single-line {
-  border: 1px solid var(--border-default, #444);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md, 6px);
-  background: var(--bg-input, #1e1e1e);
+  background: var(--bg-input);
   transition: border-color 0.2s, box-shadow 0.2s, outline 0.2s;
 }
 
@@ -32,10 +32,10 @@
 }
 
 .template-editor--focused {
-  outline: 2px solid var(--accent, #007acc);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
-  border-color: var(--accent, #007acc);
-  box-shadow: 0 0 0 3px var(--focus-ring, rgba(0, 122, 204, 0.3));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 /* --- Placeholder --- */
@@ -47,7 +47,7 @@
   right: 0.75rem;
   transform: translateY(-50%);
   pointer-events: none;
-  color: var(--text-muted, #7e97b8);
+  color: var(--text-muted);
   font-size: 0.9375rem;
   font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
   white-space: nowrap;
@@ -59,7 +59,7 @@
 
 .template-editor__loading {
   height: 38px;
-  background: var(--bg-input, #1e1e1e);
+  background: var(--bg-input);
   border-radius: var(--radius-md, 6px);
-  border: 1px solid var(--border-default, #444);
+  border: 1px solid var(--border-default);
 }

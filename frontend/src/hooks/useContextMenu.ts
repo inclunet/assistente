@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Message, useChatStore } from '../store/chatStore';
 import { MenuItem } from '../components/menu';
@@ -110,7 +111,7 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
         await navigator.clipboard.writeText(text);
         onAnnounce?.('Mensagem copiada.');
       } catch (err) {
-        console.error('Erro ao copiar:', err);
+        logger.error('Erro ao copiar:', err);
         onAnnounce?.('Erro ao copiar mensagem.');
       }
     },

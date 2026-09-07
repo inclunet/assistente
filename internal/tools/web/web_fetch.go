@@ -33,15 +33,37 @@ func NewWebFetch(credMgr *credentials.Manager) *WebFetch {
 	client := httpclient.New(&httpclient.Config{
 		CredentialManager: credMgr,
 	}, map[string]string{})
-	return &WebFetch{
+	t := &WebFetch{
 		client: client,
 	}
+	// net/http segue redirects automaticamente; sem isto uma URL pública poderia
+	// redirecionar para um host privado (ex.: 127.0.0.1, 169.254.169.254) e burlar
+	// o bloqueio anti-SSRF. Aplica o guard compartilhado no client desta tool.
+	if bc := client.GetBaseClient(); bc != nil {
+		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return t.allowPrivateHosts })
+		// Barreira anti-SSRF definitiva: valida o IP REAL pós-resolução de DNS no
+		// DialContext, cobrindo DNS rebinding, formas numéricas não-padrão e os
+		// redirects (que reusam este transport).
+		httpclient.SetTransportGuard(bc, func() bool { return t.allowPrivateHosts })
+	}
+	return t
+}
+
+// SetNetworkAuthorizer instala o authorizer anti-SSRF (consentimento + allowlist)
+// no cliente HTTP desta tool.
+func (t *WebFetch) SetNetworkAuthorizer(a httpclient.NetworkAuthorizer) {
+	t.client.SetNetworkAuthorizer(a)
 }
 
 func (t *WebFetch) Name() string { return "web_fetch" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *WebFetch) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "web", Class: "web_lookup", Package: "web", Risk: "network"}
+}
+
 func (t *WebFetch) Description() string {
-	return "Fetches a URL (http/https) and extracts readable content. Strips HTML/scripts/styles and returns text (or raw/markdown). Blocks local/private hosts. Use after finding a specific link."
+	return `Fetches a known HTTP(S) page with GET and extracts readable text, raw HTML, or basic Markdown. Use when you already have a page URL and need its content; for example {"url":"https://example.com/guide","extract_mode":"markdown"}. Do not use to discover URLs (use web_search), control methods/headers/body for an API (use http_request), or obtain structured items from a feed (use feed_read). It strips scripts and styles in readable modes and applies credentials registered for the domain automatically. Risk: makes an external network request; local/private destinations and redirects are guarded by the network policy. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *WebFetch) Parameters() json.RawMessage {
@@ -99,10 +121,10 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: "URL deve usar http:// ou https://", IsError: true}, nil
 	}
 
-	// Bloqueia hosts locais/privados (exceto em modo teste)
-	if !t.allowPrivateHosts && isPrivateHost(parsedURL.Hostname()) {
-		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
-	}
+	// Hosts locais/privados/CGNAT/etc. são barrados pela política anti-SSRF na
+	// barreira pós-DNS do cliente centralizado (client.Do). Com authorizer
+	// configurado, abre o fluxo de consentimento/allowlist e reexecuta; sem
+	// authorizer, devolve um erro acionável. Não barramos aqui de forma seca.
 
 	maxLength := fetchDefaultMaxLength
 	if a.MaxLength != nil && *a.MaxLength > 0 {
@@ -419,38 +441,4 @@ func collapseWhitespace(s string) string {
 		lines[i] = strings.Join(words, " ")
 	}
 	return strings.Join(lines, "\n")
-}
-
-// isPrivateHost verifica se um host é local/privado.
-func isPrivateHost(host string) bool {
-	host = strings.ToLower(host)
-
-	private := []string{
-		"localhost",
-		"127.0.0.1",
-		"0.0.0.0",
-		"::1",
-		"[::1]",
-	}
-
-	for _, p := range private {
-		if host == p {
-			return true
-		}
-	}
-
-	// Bloqueia ranges privados comuns
-	if strings.HasPrefix(host, "10.") ||
-		strings.HasPrefix(host, "192.168.") ||
-		strings.HasPrefix(host, "172.16.") ||
-		strings.HasPrefix(host, "172.17.") ||
-		strings.HasPrefix(host, "172.18.") ||
-		strings.HasPrefix(host, "172.19.") ||
-		strings.HasPrefix(host, "172.2") ||
-		strings.HasPrefix(host, "172.30.") ||
-		strings.HasPrefix(host, "172.31.") {
-		return true
-	}
-
-	return false
 }

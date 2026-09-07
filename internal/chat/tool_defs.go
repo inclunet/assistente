@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"log"
 	"reflect"
 
 	"assistente/internal/llm"
@@ -10,8 +9,13 @@ import (
 	"assistente/internal/tools"
 )
 
+// Este arquivo expõe a API histórica de seleção de tools como WRAPPERS FINOS
+// sobre ToolSelectionPolicy (AEP-0077 Fase 3, #119). A lógica de seleção vive
+// num lugar só — tool_selection_policy.go. Estas funções permanecem para
+// compatibilidade com call sites e testes existentes.
+
 // ChatProviderIsNil reports whether c is nil or holds a nil concrete pointer (typed nil).
-// Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).SupportsNativeMCP()).
+// Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).NativeMCPCapable()).
 func ChatProviderIsNil(c llm.ChatProvider) bool {
 	if c == nil {
 		return true
@@ -47,31 +51,39 @@ type NativeMCPManager interface {
 }
 
 // BuildLLMToolDefs constrói a lista de tool definitions para o LLM.
-// Se disableTools for true, retorna nil. Se enabledTools for nil, inclui todas.
+// Se disableTools for true ou enabledTools for nil/vazio, retorna nil.
 func BuildLLMToolDefs(registry *tools.Registry, enabledTools []string, disableTools bool) []llm.ToolDefinition {
-	if disableTools || registry == nil || registry.Count() == 0 {
-		return nil
-	}
+	return NewToolSelectionPolicy(registry).buildLLMToolDefs(enabledTools, disableTools)
+}
 
-	var toolDefs []tools.ToolDefinition
-	if enabledTools != nil {
-		toolDefs = registry.FilterByNames(enabledTools)
-	} else {
-		toolDefs = registry.ToDefinitions()
-	}
+// ResolveInitialEnabledTools resolve a seleção inicial de tools do perfil.
+func ResolveInitialEnabledTools(registry *tools.Registry, enabledTools []string, disableTools bool) []string {
+	return NewToolSelectionPolicy(registry).resolveInitialEnabledTools(enabledTools, disableTools)
+}
 
-	result := make([]llm.ToolDefinition, len(toolDefs))
-	for i, td := range toolDefs {
-		result[i] = llm.ToolDefinition{
-			Type: td.Type,
-			Function: llm.FunctionDefinition{
-				Name:        td.Function.Name,
-				Description: td.Function.Description,
-				Parameters:  td.Function.Parameters,
-			},
-		}
-	}
-	return result
+// ResolveInitialEnabledToolsWithRuntime resolve a seleção inicial somando runtime tools.
+func ResolveInitialEnabledToolsWithRuntime(registry *tools.Registry, enabledTools []string, disableTools bool, runtimeTools []string) []string {
+	return NewToolSelectionPolicy(registry).resolveInitialEnabledToolsWithRuntime(enabledTools, disableTools, runtimeTools)
+}
+
+// BuildLLMToolDefsByNames monta tool definitions a partir de uma lista de nomes.
+func BuildLLMToolDefsByNames(registry *tools.Registry, names []string, disableTools bool) []llm.ToolDefinition {
+	return NewToolSelectionPolicy(registry).buildLLMToolDefsByNames(names, disableTools)
+}
+
+// FilterToolNamesByEnabledTools restringe nomes ao allowlist do perfil.
+func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disableTools bool) []string {
+	return filterToolNamesByEnabledTools(names, enabledTools, disableTools)
+}
+
+// ResolveNativeMCPEnabled resolve a política tri-state de MCP nativo (AEP-0021).
+func ResolveNativeMCPEnabled(streamer llm.ChatProvider, override *bool) bool {
+	return resolveNativeMCPEnabled(streamer, override)
+}
+
+// FilterToolNamesForNativeMCP remove nomes de bridge tools atendidas via MCP nativo.
+func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool, nativeMCPOverride *bool) []string {
+	return filterToolNamesForNativeMCP(streamer, mcpMgr, names, disableTools, nativeMCPOverride)
 }
 
 // ApplyNativeMCP configura servidores MCP HTTP nativos no ChatProvider e remove
@@ -82,87 +94,7 @@ func ApplyNativeMCP(
 	mcpMgr NativeMCPManager,
 	enabledTools []string,
 	disableTools bool,
+	nativeMCPOverride *bool,
 ) (llm.ChatProvider, []llm.ToolDefinition) {
-	if disableTools || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
-		return streamer, toolDefs
-	}
-	if !streamer.SupportsNativeMCP() {
-		return streamer, toolDefs
-	}
-
-	nativeServers := mcpMgr.GetEligibleNativeMCPServers()
-	if len(nativeServers) == 0 {
-		return streamer, toolDefs
-	}
-
-	var enabledSet map[string]bool
-	if enabledTools != nil {
-		enabledSet = make(map[string]bool, len(enabledTools))
-		for _, n := range enabledTools {
-			enabledSet[n] = true
-		}
-	}
-
-	var mcpConfigs []llm.MCPServerConfig
-	nativeToolNames := make(map[string]bool)
-
-	for _, srv := range nativeServers {
-		cfg := llm.MCPServerConfig{
-			Slug:      srv.Slug,
-			Name:      srv.Name,
-			URL:       srv.URL,
-			AuthToken: srv.AuthToken,
-			ToolNames: srv.ToolNames,
-			Recover: func(slug string) func(context.Context) error {
-				return func(ctx context.Context) error {
-					return mcpMgr.RecoverServerBestEffort(ctx, slug).Err
-				}
-			}(srv.Slug),
-		}
-
-		if enabledSet != nil {
-			var allowed []string
-			var allowedFull []string
-			for _, fullName := range srv.ToolNames {
-				if enabledSet[fullName] {
-					if _, originalName, ok := mcplib.ParseToolName(fullName); ok {
-						allowed = append(allowed, originalName)
-					}
-					allowedFull = append(allowedFull, fullName)
-				}
-			}
-			if len(allowed) == 0 {
-				log.Printf("[chat] MCP nativo: servidor %q excluído (nenhuma tool habilitada no perfil)", srv.Name)
-				continue
-			}
-			cfg.AllowedTools = allowed
-			cfg.ToolNames = allowedFull
-		}
-
-		mcpConfigs = append(mcpConfigs, cfg)
-		for _, tn := range cfg.ToolNames {
-			nativeToolNames[tn] = true
-		}
-	}
-
-	if len(mcpConfigs) > 0 {
-		streamer = streamer.WithMCPServers(mcpConfigs)
-		log.Printf("[chat] MCP nativo: %d servidores HTTP configurados", len(mcpConfigs))
-	}
-
-	if len(nativeToolNames) > 0 {
-		filtered := make([]llm.ToolDefinition, 0, len(toolDefs))
-		for _, td := range toolDefs {
-			if !nativeToolNames[td.Function.Name] {
-				filtered = append(filtered, td)
-			}
-		}
-		removed := len(toolDefs) - len(filtered)
-		if removed > 0 {
-			log.Printf("[chat] MCP nativo: %d bridge tools removidas (nativas agora)", removed)
-		}
-		toolDefs = filtered
-	}
-
-	return streamer, toolDefs
+	return applyNativeMCP(streamer, toolDefs, mcpMgr, enabledTools, disableTools, nativeMCPOverride)
 }

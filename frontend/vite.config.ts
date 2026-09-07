@@ -34,6 +34,13 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  // O React monta a árvore de componentes do erro a partir do nome das funções.
+  // Sem isto, o minificador as renomeia para `t`/`Ao`/`_n` e a tela de erro
+  // reporta uma árvore ilegível — justamente no build em que o usuário está
+  // quando precisa reportar o problema.
+  esbuild: {
+    keepNames: true,
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

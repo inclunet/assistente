@@ -1,27 +1,45 @@
 package profiles
 
 import (
+	"assistente/internal/llm"
+	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // DefaultProviderSentinel é o valor sentinela usado em profiles para indicar
 // "usar o provedor default do sistema". Resolvido em runtime por resolveProfileDefaults.
 const DefaultProviderSentinel = "$default"
 
+const (
+	DefaultLLMRateLimitRPM   = llm.DefaultRateLimitRPM
+	DefaultLLMRateLimitBurst = llm.DefaultRateLimitBurst
+	MaxLLMRateLimitValue     = 10000
+)
+
 // Profile representa um perfil de conversa unificado.
 // Combina configurações de chat (LLM), voz (TTS) e input (STT/triggers)
 // em um único arquivo JSON armazenado em .assistente/profiles/.
 type Profile struct {
-	BuiltinVersion string         `json:"_builtin_version,omitempty"` // Version for builtin profiles (used by installBuiltinProfiles)
-	Name           string         `json:"name"`
-	Description    string         `json:"description,omitempty"`
-	Icon           string         `json:"icon,omitempty"`
-	Active         bool           `json:"active,omitempty"` // Marca se este é o perfil ativo
-	Chat           ChatConfig     `json:"chat"`
-	Voice          VoiceConfig    `json:"voice"`
-	Input          InputConfig    `json:"input"`
-	Channels       ChannelsConfig `json:"channels,omitempty"`
-	MediaSupport   *MediaSupport  `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
+	BuiltinVersion   string                                  `json:"_builtin_version,omitempty"` // Version for builtin profiles (used by installBuiltinProfiles)
+	Name             string                                  `json:"name"`
+	Description      string                                  `json:"description,omitempty"`
+	Icon             string                                  `json:"icon,omitempty"`
+	Active           bool                                    `json:"active,omitempty"` // Marca se este é o perfil ativo
+	Chat             ChatConfig                              `json:"chat"`
+	Voice            VoiceConfig                             `json:"voice"`
+	Input            InputConfig                             `json:"input"`
+	Channels         ChannelsConfig                          `json:"channels,omitempty"`
+	ContextProviders map[string]ContextProviderProfileConfig `json:"context_providers,omitempty"`
+	MediaSupport     *MediaSupport                           `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
+}
+
+// ContextProviderProfileConfig controla a contribuição automática de um
+// Context Provider para um perfil. Budget é contado em caracteres/runes.
+type ContextProviderProfileConfig struct {
+	Enabled  *bool          `json:"enabled,omitempty"`
+	Budget   int            `json:"budget,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
 }
 
 // MediaSupport indica quais tipos de mídia o modelo LLM suporta nativamente.
@@ -38,23 +56,60 @@ type MediaSupport struct {
 
 // ChatConfig define as configurações do modelo LLM
 type ChatConfig struct {
-	LLMProvider           string   `json:"llm_provider"` // ID do provedor LLM a usar (ex: "openai-default")
-	Model                 string   `json:"model,omitempty"`
-	Temperature           float64  `json:"temperature"`                        // 0.0 a 2.0
-	MaxTokens             int      `json:"max_tokens"`                         // Limite de tokens na resposta
-	MaxTokensMode         string   `json:"max_tokens_mode,omitempty"`          // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	ContextWindow         int      `json:"context_window,omitempty"`           // Tamanho da janela de contexto do modelo (0 = não definido)
-	MaxContextMessages    int      `json:"max_context_messages,omitempty"`     // Máx de mensagens no contexto (0 = padrão 50)
-	MinContextMessages    int      `json:"min_context_messages,omitempty"`     // Mín de mensagens preservadas após sumarização (0 = padrão 10)
-	TopP                  float64  `json:"top_p"`                              // 0.0 a 1.0
-	ResponseTimeout       int      `json:"response_timeout"`                   // Timeout em segundos
-	ReasoningEffort       string   `json:"reasoning_effort,omitempty"`         // off, low, medium, high (vazio = off)
-	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = todas)
-	EnabledSkills         []string `json:"enabled_skills"`                     // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
+	LLMProvider        string            `json:"llm_provider"` // ID do provedor LLM a usar (ex: "openai-default")
+	Model              string            `json:"model,omitempty"`
+	Temperature        float64           `json:"temperature"`                    // 0.0 a 2.0
+	MaxTokens          int               `json:"max_tokens"`                     // Limite de tokens na resposta
+	MaxTokensMode      string            `json:"max_tokens_mode,omitempty"`      // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	ContextWindow      int               `json:"context_window,omitempty"`       // Tamanho da janela de contexto do modelo (0 = não definido)
+	MaxContextMessages int               `json:"max_context_messages,omitempty"` // Máx de mensagens no contexto (0 = padrão 50)
+	MinContextMessages int               `json:"min_context_messages,omitempty"` // Mín de mensagens preservadas após sumarização (0 = padrão 10)
+	TopP               float64           `json:"top_p"`                          // 0.0 a 1.0
+	ResponseTimeout    int               `json:"response_timeout"`               // Timeout em segundos
+	ReasoningEffort    string            `json:"reasoning_effort,omitempty"`     // off, low, medium, high (vazio = off)
+	EnabledTools       []string          `json:"enabled_tools"`                  // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
+	ToolPolicy         map[string]string `json:"tool_policy,omitempty"`          // Política tri-state por tool: disabled, on_demand, preloaded
+	ToolPolicyDefault  string            `json:"tool_policy_default,omitempty"`  // Estado de tools não listadas: disabled (default) ou on_demand
+	// EnabledSkills é tri-state:
+	//   - nil: perfil legado, usa fallback por auto_load;
+	//   - []: seleção explícita vazia, todas as skills ficam disabled;
+	//   - ["a","b"]: primeira skill é base, demais são on_demand.
+	EnabledSkills         []string `json:"enabled_skills"`
 	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
 	DisableSkills         bool     `json:"disable_skills,omitempty"`           // Desabilita injeção de skills no prompt
-	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (apenas autoload)
+	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (mantém apenas a primeira/base)
 	CommandAllowlist      string   `json:"command_allowlist,omitempty"`        // Slug da allowlist de comandos
+
+	// NativeMCP é o override tri-state de suporte a MCP nativo (tools type:"mcp"
+	// na Responses API / mcp_servers na Anthropic) para os runs deste perfil
+	// (chat normal E sub-agentes que rodam com este profile). Ponteiro para
+	// preservar compatibilidade com perfis antigos (AEP-0021):
+	//   - nil   → auto OTIMISTA: tenta MCP nativo sempre que o provider for
+	//             FISICAMENTE capaz (NativeMCPCapable), SEM heurística por
+	//             URL/endpoint. Se o modelo/endpoint rejeitar type:"mcp" (ex.: 400
+	//             "unknown variant `mcp`"), o turno degrada para adapter e o perfil
+	//             é auto-ajustado para false e persistido (nil→false), evitando
+	//             repetir o 400 nos próximos turnos.
+	//   - true  → força MCP nativo (envia type:"mcp"), desde que o provider seja
+	//             fisicamente capaz (Responses API / Anthropic). Útil para proxies
+	//             (LiteLLM/Azure) cujo MODELO selecionado suporta type:"mcp".
+	//   - false → força modo adapter (MCP como function/bridge tools, sem type:"mcp").
+	//             Útil quando o mesmo endpoint serve um modelo que NÃO suporta
+	//             type:"mcp" (ex.: deepseek-v4-flash via LiteLLM), evitando o 400
+	//             "unknown variant `mcp`, expected `function`" a cada turno.
+	NativeMCP *bool `json:"native_mcp,omitempty"`
+
+	// ToolSchemaBudgetBytes é o teto de bytes de JSON Schema de tools injetados
+	// no contexto por turno, usado pelo ToolPlanner (AEP-0077 Fase 4, #121).
+	//   - 0 (default) → ILIMITADO: o planner não corta nenhuma tool (sem
+	//     regressão para perfis cujos schemas já cabem).
+	//   - >0 → quando a seleção excede o teto, o planner corta deterministicamente
+	//     pela ordem de ranking (essenciais > perfil > pacote preferencial >
+	//     builtins > MCP), preservando essenciais (tool_catalog/load_skill).
+	ToolSchemaBudgetBytes int `json:"tool_schema_budget_bytes,omitempty"`
+	// PreferredToolPackages prioriza, no ranking do ToolPlanner, as tools cujos
+	// pacotes (ToolCatalogEntry.Package) constam aqui (ex.: "coding_readonly").
+	PreferredToolPackages []string `json:"preferred_tool_packages,omitempty"`
 
 	// MaxAgenticIterations define o limite máximo de iterações do loop de agentes
 	// Cada tool call conta como uma iteração
@@ -62,18 +117,108 @@ type ChatConfig struct {
 	// >0 = limite customizado (ex: 100 para code generation, 500 para análise profunda)
 	// Pode ser combinado com ResponseTimeout para dupla proteção
 	MaxAgenticIterations int `json:"max_agentic_iterations,omitempty"`
+
+	// RateLimitEnabled controla o limitador local de chamadas LLM deste perfil.
+	// nil preserva compatibilidade com perfis legados e equivale a true.
+	RateLimitEnabled *bool `json:"rate_limit_enabled,omitempty"`
+	// RateLimitRPM é a taxa sustentada por minuto. 0 usa o padrão.
+	RateLimitRPM int `json:"rate_limit_rpm,omitempty"`
+	// RateLimitBurst é a rajada instantânea. 0 usa o padrão.
+	RateLimitBurst int `json:"rate_limit_burst,omitempty"`
+
+	// StreamingRecoveryEnabled controla a auto-recuperação de streaming interrompido.
+	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
+	StreamingRecoveryEnabled *bool `json:"streaming_recovery_enabled,omitempty"`
+	// StreamingRecoveryMaxAttempts define o máximo de tentativas de recuperação.
+	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
+	StreamingRecoveryMaxAttempts *int `json:"streaming_recovery_max_attempts,omitempty"`
+	// StreamingRecoveryShowContinue controla a exibição da ação manual "Continuar resposta" após falha/cancelamento.
+	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
+	StreamingRecoveryShowContinue *bool `json:"streaming_recovery_show_continue,omitempty"`
+
+	PromptCache PromptCacheConfig `json:"prompt_cache,omitempty"`
+	Debug       *ChatDebugConfig  `json:"debug,omitempty"`
 }
+
+// PromptCacheConfig controla mecanismos ativos de prompt/context cache por
+// perfil. O layout cache-friendly e as métricas reportadas pelo provider
+// continuam sempre ativos independentemente destes campos.
+type PromptCacheConfig struct {
+	Enabled              bool `json:"enabled,omitempty"`
+	ProviderHints        bool `json:"provider_hints,omitempty"`
+	ExplicitCacheControl bool `json:"explicit_cache_control,omitempty"`
+}
+
+type ChatDebugConfig struct {
+	Enabled       bool `json:"enabled"`
+	DumpRequests  bool `json:"dump_requests"`
+	DumpResponses bool `json:"dump_responses"`
+	// MaxFiles retém até N dumps/runs por conversa (diretórios de snapshot), não arquivos individuais.
+	// Zero preserva o sentinel "usar default do backend".
+	MaxFiles int `json:"max_files"`
+}
+
+const ChatDebugMaxFilesLimit = 10000
+
+func DefaultChatDebugConfig() ChatDebugConfig {
+	return ChatDebugConfig{
+		Enabled:       false,
+		DumpRequests:  true,
+		DumpResponses: true,
+		MaxFiles:      200,
+	}
+}
+
+func (c ChatConfig) EffectiveDebug() ChatDebugConfig {
+	if c.Debug == nil {
+		return DefaultChatDebugConfig()
+	}
+	return *c.Debug
+}
+
+func (c *ChatDebugConfig) UnmarshalJSON(data []byte) error {
+	type debugConfigJSON struct {
+		Enabled       *bool `json:"enabled"`
+		DumpRequests  *bool `json:"dump_requests"`
+		DumpResponses *bool `json:"dump_responses"`
+		MaxFiles      *int  `json:"max_files"`
+	}
+	var decoded debugConfigJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	effective := DefaultChatDebugConfig()
+	if decoded.Enabled != nil {
+		effective.Enabled = *decoded.Enabled
+	}
+	if decoded.DumpRequests != nil {
+		effective.DumpRequests = *decoded.DumpRequests
+	}
+	if decoded.DumpResponses != nil {
+		effective.DumpResponses = *decoded.DumpResponses
+	}
+	if decoded.MaxFiles != nil {
+		effective.MaxFiles = *decoded.MaxFiles
+	}
+	*c = effective
+	return nil
+}
+
+func boolPtr(v bool) *bool                            { return &v }
+func intPtr(v int) *int                               { return &v }
+func chatDebugPtr(v ChatDebugConfig) *ChatDebugConfig { return &v }
 
 // VoiceRoleConfig configura TTS para uma role específica (assistant, user ou system).
 type VoiceRoleConfig struct {
-	Enabled       bool    `json:"enabled"`                           // Habilita TTS para esta role
-	Provider      string  `json:"provider"`                          // "disabled", "webspeech", "sapi5", "openai"
-	LLMProviderID string  `json:"llm_provider_id,omitempty"`         // ID do provedor LLM (para credenciais da API)
-	VoiceID       string  `json:"voice_id,omitempty"`                // ID da voz (ex: "nova", "alloy", "echo")
-	Model         string  `json:"model,omitempty"`                   // Modelo TTS (ex: "tts-1", "tts-1-hd")
-	Rate          float64 `json:"rate"`                              // Velocidade (0.5–2.0)
-	Pitch         float64 `json:"pitch"`                             // Tom (0.5–2.0)
-	Volume        float64 `json:"volume"`                            // Volume (0.0–1.0)
+	Enabled       bool    `json:"enabled"`                   // Habilita TTS para esta role
+	Provider      string  `json:"provider"`                  // "disabled", "webspeech", "sapi5", "openai"
+	LLMProviderID string  `json:"llm_provider_id,omitempty"` // ID do provedor LLM (para credenciais da API)
+	VoiceID       string  `json:"voice_id,omitempty"`        // ID da voz (ex: "nova", "alloy", "echo")
+	Model         string  `json:"model,omitempty"`           // Modelo TTS (ex: "tts-1", "tts-1-hd")
+	SelectionMode string  `json:"selection_mode,omitempty"`  // "model_and_voice" ou "model_only"
+	Rate          float64 `json:"rate"`                      // Velocidade (0.5–2.0)
+	Pitch         float64 `json:"pitch"`                     // Tom (0.5–2.0)
+	Volume        float64 `json:"volume"`                    // Volume (0.0–1.0)
 }
 
 // VoiceConfig configura TTS — uma sub-config independente por role.
@@ -89,13 +234,13 @@ type VoiceConfig struct {
 // InputConfig configura STT e triggers de interação por voz.
 // Substitui a antiga InteractionConfig.
 type InputConfig struct {
-	Enabled        bool            `json:"enabled"`                           // Habilita input por voz
-	STTProvider    string          `json:"stt_provider"`                      // "webspeech", "whisper_api"
-	LLMProviderID  string          `json:"llm_provider_id,omitempty"`         // ID do provedor LLM para Whisper API
-	STTModel       string          `json:"stt_model,omitempty"`               // Modelo STT (ex: "whisper-1", "whisper-large-v3")
-	Language       string          `json:"language"`                          // Idioma (ex: "pt-BR")
-	FeedbackSounds bool            `json:"feedback_sounds"`                   // Sons de início/fim de gravação
-	Triggers       []TriggerConfig `json:"triggers,omitempty"`                // Lista de triggers de ativação
+	Enabled        bool            `json:"enabled"`                   // Habilita input por voz
+	STTProvider    string          `json:"stt_provider"`              // "webspeech", "whisper_api"
+	LLMProviderID  string          `json:"llm_provider_id,omitempty"` // ID do provedor LLM para Whisper API
+	STTModel       string          `json:"stt_model,omitempty"`       // Modelo STT (ex: "whisper-1", "whisper-large-v3")
+	Language       string          `json:"language"`                  // Idioma (ex: "pt-BR")
+	FeedbackSounds bool            `json:"feedback_sounds"`           // Sons de início/fim de gravação
+	Triggers       []TriggerConfig `json:"triggers,omitempty"`        // Lista de triggers de ativação
 }
 
 // ChannelsConfig configura comportamento para canais externos (Telegram, Signal, etc.).
@@ -139,6 +284,16 @@ type TriggerConfig struct {
 	VADActivityDuration  int     `json:"vad_activity_duration,omitempty"`  // ms
 }
 
+// ActiveProfile agrega o perfil ativo e seu slug numa resolução única.
+// Existe para que a API exposta (controller/App/Wails) carregue AMBOS os campos
+// num único valor de retorno — diferente de (*Profile, string, error), cujos
+// bindings Wails só serializariam o primeiro retorno (slug ficaria inacessível
+// ao frontend). Usado por operações de escrita no perfil ativo.
+type ActiveProfile struct {
+	Profile *Profile `json:"profile"`
+	Slug    string   `json:"slug"`
+}
+
 // ProfileInfo é um resumo leve de um perfil para listagem
 type ProfileInfo struct {
 	Name        string `json:"name"`
@@ -146,6 +301,7 @@ type ProfileInfo struct {
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
 	Source      string `json:"source"` // "exe", "home", "workdir"
+	Builtin     bool   `json:"builtin"`
 }
 
 // Trigger types
@@ -156,6 +312,29 @@ const (
 	TriggerTypeWakeword     = "wakeword"
 	TriggerTypeVAD          = "vad"
 )
+
+// DefaultToolPolicyDefault e DefaultToolPolicy descrevem o baseline operacional
+// do perfil Padrão (AEP-0096). O builtin embarcado repete esses valores em
+// padrao.json, e um teste em internal/app garante que os dois não divirjam. O
+// fallback aqui existe para a instalação degradada, em que nenhum arquivo de
+// perfil pôde ser lido: mesmo ali o primeiro turno precisa nascer com leitura,
+// busca, web e questionário.
+const DefaultToolPolicyDefault = "on_demand"
+
+func DefaultToolPolicy() map[string]string {
+	return map[string]string{
+		"read_file":         "preloaded",
+		"search_files":      "preloaded",
+		"grep_search":       "preloaded",
+		"web_search":        "preloaded",
+		"web_fetch":         "preloaded",
+		"collect_responses": "preloaded",
+		"profile":           "preloaded",
+		"subagent":          "preloaded",
+		"mcp/*":             "on_demand",
+		"text_edit":         "disabled",
+	}
+}
 
 // DefaultProfile retorna um perfil com valores padrão.
 // Usa $default para provedor e modelo — resolvido em runtime pelo sistema de default provider.
@@ -169,16 +348,29 @@ func DefaultProfile() *Profile {
 	}
 	return &Profile{
 		Name:        "Padrão",
-		Description: "Configuração padrão.",
+		Description: "Assistente geral para pesquisar, analisar, escrever, organizar e resolver tarefas cotidianas. Use quando a solicitação combinar assuntos, não exigir trabalho predominante em código ou ainda estiver pouco definida. Não use para implementar, depurar, refatorar ou revisar software de forma substancial; nesses casos, escolha Programação. Exemplos: resumir documentos; comparar opções; redigir um e-mail; planejar uma viagem.",
 		Icon:        "chatbox",
 		Chat: ChatConfig{
-			LLMProvider:     DefaultProviderSentinel,
-			Model:           DefaultProviderSentinel,
-			Temperature:     0.7,
-			MaxTokens:       4096,
-			TopP:            1.0,
-			ResponseTimeout: 180,
-			ReasoningEffort: "",
+			LLMProvider:                   DefaultProviderSentinel,
+			Model:                         DefaultProviderSentinel,
+			Temperature:                   0.7,
+			MaxTokens:                     4096,
+			TopP:                          1.0,
+			ResponseTimeout:               180,
+			ReasoningEffort:               "",
+			ToolPolicyDefault:             DefaultToolPolicyDefault,
+			ToolPolicy:                    DefaultToolPolicy(),
+			RateLimitEnabled:              boolPtr(true),
+			RateLimitRPM:                  DefaultLLMRateLimitRPM,
+			RateLimitBurst:                DefaultLLMRateLimitBurst,
+			StreamingRecoveryEnabled:      boolPtr(true),
+			StreamingRecoveryMaxAttempts:  intPtr(3),
+			StreamingRecoveryShowContinue: boolPtr(true),
+			PromptCache: PromptCacheConfig{
+				Enabled:       false,
+				ProviderHints: false,
+			},
+			Debug: chatDebugPtr(DefaultChatDebugConfig()),
 		},
 		Voice: VoiceConfig{
 			Assistant: VoiceRoleConfig{
@@ -238,8 +430,36 @@ func (p *Profile) Validate() error {
 	if p.Chat.TopP < 0 || p.Chat.TopP > 1 {
 		return fmt.Errorf("chat.top_p must be between 0 and 1")
 	}
+	switch strings.TrimSpace(p.Chat.ToolPolicyDefault) {
+	case "", "disabled", "on_demand":
+	default:
+		return fmt.Errorf("chat.tool_policy_default must be disabled or on_demand")
+	}
+	if p.Chat.StreamingRecoveryMaxAttempts != nil {
+		if *p.Chat.StreamingRecoveryMaxAttempts < 1 {
+			return fmt.Errorf("chat.streaming_recovery_max_attempts must be at least 1")
+		}
+		if *p.Chat.StreamingRecoveryMaxAttempts > 10 {
+			return fmt.Errorf("chat.streaming_recovery_max_attempts must be at most 10")
+		}
+	}
+	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ProviderHints {
+		return fmt.Errorf("chat.prompt_cache.provider_hints requires chat.prompt_cache.enabled")
+	}
+	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ExplicitCacheControl {
+		return fmt.Errorf("chat.prompt_cache.explicit_cache_control requires chat.prompt_cache.enabled")
+	}
+	if p.Chat.Debug != nil && (p.Chat.Debug.MaxFiles < 0 || p.Chat.Debug.MaxFiles > ChatDebugMaxFilesLimit) {
+		return fmt.Errorf("chat.debug.max_files must be between 0 (default) and %d", ChatDebugMaxFilesLimit)
+	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")
+	}
+	if p.Chat.RateLimitRPM < 0 || p.Chat.RateLimitRPM > MaxLLMRateLimitValue {
+		return fmt.Errorf("chat.rate_limit_rpm must be between 0 (default) and %d", MaxLLMRateLimitValue)
+	}
+	if p.Chat.RateLimitBurst < 0 || p.Chat.RateLimitBurst > MaxLLMRateLimitValue {
+		return fmt.Errorf("chat.rate_limit_burst must be between 0 (default) and %d", MaxLLMRateLimitValue)
 	}
 	validReasoningEfforts := []string{"", "off", "none", "low", "medium", "high", "max", "ollama"}
 	if !containsStr(validReasoningEfforts, p.Chat.ReasoningEffort) {
@@ -257,12 +477,47 @@ func (p *Profile) Validate() error {
 		if !containsStr(validVoiceProviders, role.Provider) {
 			return fmt.Errorf("%s.provider must be one of: disabled, webspeech, sapi5, openai", name)
 		}
+		if !containsStr([]string{"", "model_and_voice", "model_only"}, role.SelectionMode) {
+			return fmt.Errorf("%s.selection_mode must be one of: model_and_voice, model_only", name)
+		}
+		if role.Enabled && role.Provider == "openai" {
+			if role.LLMProviderID == "" {
+				return fmt.Errorf("%s.llm_provider_id is required for HTTP TTS", name)
+			}
+			if role.Model == "" {
+				return fmt.Errorf("%s.model is required for HTTP TTS", name)
+			}
+			if role.SelectionMode == "" {
+				return fmt.Errorf("%s.selection_mode is required for HTTP TTS", name)
+			}
+			expectedSelectionMode := "model_and_voice"
+			if strings.HasPrefix(strings.ToLower(role.Model), "voice-") {
+				expectedSelectionMode = "model_only"
+			}
+			if role.SelectionMode != expectedSelectionMode {
+				return fmt.Errorf("%s.selection_mode must be %s for model %q", name, expectedSelectionMode, role.Model)
+			}
+			if role.SelectionMode == "model_and_voice" && role.VoiceID == "" {
+				return fmt.Errorf("%s.voice_id is required when selection_mode is model_and_voice", name)
+			}
+			if role.SelectionMode == "model_only" && role.VoiceID != "" {
+				return fmt.Errorf("%s.voice_id must be empty when selection_mode is model_only", name)
+			}
+		}
 	}
 
 	// Validação do modo de resposta para canais
 	validChannelModes := []string{"", ChannelResponseMirror, ChannelResponseAlwaysText, ChannelResponseAlwaysAudio}
 	if !containsStr(validChannelModes, p.Channels.ResponseMode) {
 		return fmt.Errorf("channels.response_mode must be one of: mirror, always_text, always_audio")
+	}
+	for provider, cfg := range p.ContextProviders {
+		if strings.TrimSpace(provider) == "" {
+			return fmt.Errorf("context_providers provider key is required")
+		}
+		if cfg.Budget < 0 {
+			return fmt.Errorf("context_providers.%s.budget must be 0 (default) or a positive number", provider)
+		}
 	}
 
 	// Validação do input (STT)
@@ -340,6 +595,24 @@ func (p *Profile) GetMinContextMessages() int {
 		return p.Chat.MinContextMessages
 	}
 	return 10
+}
+
+func (p *Profile) IsLLMRateLimitEnabled() bool {
+	return p.Chat.RateLimitEnabled == nil || *p.Chat.RateLimitEnabled
+}
+
+func (p *Profile) GetLLMRateLimitRPM() int {
+	if p.Chat.RateLimitRPM > 0 {
+		return p.Chat.RateLimitRPM
+	}
+	return DefaultLLMRateLimitRPM
+}
+
+func (p *Profile) GetLLMRateLimitBurst() int {
+	if p.Chat.RateLimitBurst > 0 {
+		return p.Chat.RateLimitBurst
+	}
+	return DefaultLLMRateLimitBurst
 }
 
 func containsStr(slice []string, item string) bool {

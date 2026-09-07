@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"assistente/controllers"
+	"assistente/internal/apidto"
+	"assistente/internal/profiles"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,29 +26,29 @@ type mockProvidersBackend struct {
 	createResult        map[string]interface{}
 	createErr           error
 	setDefaultErr       error
-	setChatModelErr     error
+	updateProfileErr    error
 	deleteErr           error
 
 	// Capture calls
-	testedReq          controllers.TestLLMProviderRequest
-	createdDefault     string
-	createdDefaultKey  string
-	createdReq         controllers.CreateLLMProviderRequest
-	defaultProviderID  string
-	chatModelSet       string
-	deletedID          string
+	testedReq         apidto.TestLLMProviderRequest
+	createdDefault    string
+	createdDefaultKey string
+	createdReq        apidto.CreateLLMProviderRequest
+	defaultProviderID string
+	chatModelSet      string
+	deletedID         string
 }
 
 func (m *mockProvidersBackend) GetLLMProvidersWithStatus() []map[string]interface{} {
 	return m.providersWithStatus
 }
 
-func (m *mockProvidersBackend) TestLLMProvider(req controllers.TestLLMProviderRequest) (bool, error) {
+func (m *mockProvidersBackend) TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error) {
 	m.testedReq = req
 	return m.testOK, m.testErr
 }
 
-func (m *mockProvidersBackend) ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error) {
+func (m *mockProvidersBackend) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error) {
 	return m.models, m.modelsErr
 }
 
@@ -57,7 +58,7 @@ func (m *mockProvidersBackend) CreateDefaultLLMProvider(providerType, apiKey str
 	return m.createDefaultErr
 }
 
-func (m *mockProvidersBackend) CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error) {
+func (m *mockProvidersBackend) CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error) {
 	m.createdReq = req
 	return m.createResult, m.createErr
 }
@@ -67,9 +68,13 @@ func (m *mockProvidersBackend) SetDefaultProvider(id string) error {
 	return m.setDefaultErr
 }
 
-func (m *mockProvidersBackend) SetChatModel(model string) error {
-	m.chatModelSet = model
-	return m.setChatModelErr
+func (m *mockProvidersBackend) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
+	return &profiles.ActiveProfile{Profile: &profiles.Profile{}, Slug: "padrao"}, nil
+}
+
+func (m *mockProvidersBackend) UpdateProfile(_ string, p profiles.Profile) error {
+	m.chatModelSet = p.Chat.Model
+	return m.updateProfileErr
 }
 
 func (m *mockProvidersBackend) DeleteLLMProvider(_ context.Context, id string) error {
@@ -459,6 +464,33 @@ func TestProvidersAdd_SelectModelByNumber(t *testing.T) {
 	// Default for OpenAI is gpt-4o-mini; user chose gpt-4o so SetChatModel should be called
 	if mock.chatModelSet != "gpt-4o" {
 		t.Errorf("expected chat model 'gpt-4o', got %q", mock.chatModelSet)
+	}
+}
+
+func TestProvidersAdd_ModelApplyFailsWarns(t *testing.T) {
+	mock := &mockProvidersBackend{
+		testOK:           true,
+		models:           []string{"gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"},
+		updateProfileErr: fmt.Errorf("perfil corrompido"),
+	}
+
+	// OpenAI (1) + model 1 (gpt-4o) difere do default gpt-4o-mini → tenta aplicar
+	input := "1\n1\n"
+	reader := bufio.NewReader(strings.NewReader(input))
+	fakePwd := func(prompt string) (string, error) { return "sk-key", nil }
+
+	var out bytes.Buffer
+	err := runProvidersAdd(mock, &out, reader, fakePwd)
+	if err != nil {
+		t.Fatalf("provedor foi criado; comando não deveria falhar, got: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "não foi possível aplicar o modelo") {
+		t.Errorf("esperava aviso de falha ao aplicar modelo, got: %s", output)
+	}
+	if !strings.Contains(output, "criado com sucesso") {
+		t.Errorf("provedor foi criado; esperava mensagem de sucesso, got: %s", output)
 	}
 }
 

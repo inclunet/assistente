@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +34,7 @@ func TestGetModelsNoAPIKey(t *testing.T) {
 		Timeout:           15,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -65,7 +66,7 @@ func TestGetModelsNilCredManager(t *testing.T) {
 	}
 
 	// credMgr nil - deve funcionar sem panic
-	cp := NewChatProvider(provider, nil)
+	cp := NewChatProvider(provider, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -92,7 +93,7 @@ func TestGetModelsServerUnavailable(t *testing.T) {
 		Timeout:           2,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -117,7 +118,7 @@ func TestGetModelsNullBody(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -145,7 +146,7 @@ func TestGetModelsEmptyObject(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -173,7 +174,7 @@ func TestGetModelsPlainText(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -201,7 +202,7 @@ func TestGetModelsHTML(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -213,6 +214,78 @@ func TestGetModelsHTML(t *testing.T) {
 
 	models, err := cp.GetModels(ctx)
 	t.Logf("models=%v err=%v", models, err)
+}
+
+// TestGetModelsHTTP_PreservaBodyDoUpstreamEm400 garante que getModelsHTTP
+// não engole o body do upstream em status >= 400 (≠ 404, que é tratado
+// como "endpoint não suportado"). Sem essa preservação, "provedor retornou
+// status 400" virava caixa preta — o usuário e os logs ficavam sem o
+// motivo real (chave revogada, team_id faltando, header customizado
+// exigido pelo gateway).
+func TestGetModelsHTTP_PreservaBodyDoUpstreamEm400(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprint(w, `{"error":{"message":"team_id missing on virtual key","type":"litellm_error"}}`)
+	}))
+	defer srv.Close()
+
+	credMgr := credentials.NewManager(nil)
+	provider := &ProviderConfig{
+		ID: "temp", Name: "temp", Type: "localai",
+		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
+	}
+
+	cp := NewChatProvider(provider, credMgr, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := cp.GetModels(ctx)
+	if err == nil {
+		t.Fatal("esperava erro para upstream 400")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "400") {
+		t.Errorf("mensagem deveria conter o status 400: %q", msg)
+	}
+	if !strings.Contains(msg, "team_id missing on virtual key") {
+		t.Errorf("mensagem deveria conter o body do upstream para diagnóstico: %q", msg)
+	}
+}
+
+// TestGetModelsHTTP_PreservaBodyDoUpstreamEm401 garante que mesmo no caso
+// 401 (que tem mensagem amigável "API Key inválida ou não autorizada") o
+// body do upstream é anexado, ajudando a distinguir entre "chave inválida",
+// "chave revogada", "chave fora da política", etc.
+func TestGetModelsHTTP_PreservaBodyDoUpstreamEm401(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = fmt.Fprint(w, `{"error":{"message":"key not found in db","type":"key_revoked"}}`)
+	}))
+	defer srv.Close()
+
+	credMgr := credentials.NewManager(nil)
+	provider := &ProviderConfig{
+		ID: "temp", Name: "temp", Type: "localai",
+		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
+	}
+
+	cp := NewChatProvider(provider, credMgr, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := cp.GetModels(ctx)
+	if err == nil {
+		t.Fatal("esperava erro para upstream 401")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "API Key inválida") {
+		t.Errorf("mensagem deveria preservar o aviso amigável: %q", msg)
+	}
+	if !strings.Contains(msg, "key not found in db") {
+		t.Errorf("mensagem deveria conter o body do upstream para diagnóstico: %q", msg)
+	}
 }
 
 // TestGetModelsNoContentType testa quando servidor não retorna Content-Type.
@@ -229,7 +302,7 @@ func TestGetModelsNoContentType(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

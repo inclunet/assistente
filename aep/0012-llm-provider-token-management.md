@@ -10,6 +10,15 @@ O sistema permite:
 - ✅ Receber alertas quando próximo do limite de contexto
 - ✅ Gerenciar proativamente o contexto antes de atingir limites
 
+## Dois conceitos distintos: ocupação da janela vs. billing acumulado
+
+O sistema trabalha com **duas grandezas diferentes** que não devem ser confundidas:
+
+- **`contextTokens` — ocupação ATUAL da janela de contexto.** É o `usage` (prompt + completion) reportado pelo provedor no **turno mais recente**, ou seja, quantos tokens a próxima requisição já carrega de contexto. É o único valor que deve ser comparado ao `contextLimit` e que alimenta `contextUsage` (%), `isNearLimit` e `isCritical`.
+- **`totalTokens` — base de CUSTO/BILLING acumulado.** É a soma de todos os tokens (prompt + completion) ao longo de toda a conversa. Serve para estimar custo, **nunca** para medir a ocupação da janela.
+
+> **Por que somar `total_tokens` por mensagem estava errado (bug da issue #197):** a contagem antiga somava o `total_tokens` de cada mensagem do assistente. Como o provedor recebe **todo o histórico reenviado a cada turno**, o `prompt_tokens` cresce a cada interação e o mesmo histórico era contado repetidamente. O resultado inflava o percentual de ocupação (podia passar de 100% facilmente) e disparava alertas falsos de `isNearLimit`/`isCritical`. A correção passa a usar o `usage` do **último turno** como ocupação real da janela (`contextTokens`), mantendo o acumulado apenas como base de billing (`totalTokens`).
+
 ## Armazenamento de Tokens
 
 Cada mensagem (`ChatMessage`) armazena automaticamente:
@@ -34,22 +43,26 @@ func (a *App) GetConversationTokenStats(conversationID uint) (*TokenStatsResult,
 **Retorna:**
 ```json
 {
-  "promptTokens": 1500,
-  "completionTokens": 800,
-  "totalTokens": 2300,
+  "promptTokens": 9500,       // Entrada ACUMULADA (inflada pelo histórico reenviado a cada turno)
+  "completionTokens": 2950,   // Saída ACUMULADA
+  "totalTokens": 12450,       // CUSTO/BILLING acumulado (= prompt+completion somados na conversa). NÃO usar para ocupação da janela
   "messageCount": 10,
   "model": "gpt-4",
-  "contextUsage": 45.5,      // Porcentagem do limite (0-100)
+  "contextTokens": 2300,      // OCUPAÇÃO ATUAL da janela: usage (prompt+completion) reportado pelo provedor no ÚLTIMO turno
+  "contextUsage": 28.1,       // Porcentagem da janela (0-100) = contextTokens / contextLimit. Base de isNearLimit/isCritical
   "contextLimit": 8192,       // Limite do modelo
-  "isNearLimit": false,       // true se >= 80%
-  "isCritical": false         // true se >= 95%
+  "isNearLimit": false,       // true se contextUsage >= 80%
+  "isCritical": false         // true se contextUsage >= 95%
 }
 ```
+
+> **Atenção:** o percentual de ocupação (`contextUsage`) deriva de `contextTokens`, **não** de `totalTokens`. Note que `totalTokens` (12450) pode ultrapassar o `contextLimit` (8192) sem que a janela esteja cheia — porque é o acumulado de billing, e não o que está carregado no contexto agora.
 
 **Uso no Frontend:**
 ```typescript
 const stats = await GetConversationTokenStats(conversationId);
-console.log(`Usando ${stats.contextUsage}% do contexto`);
+console.log(`Ocupação atual: ${stats.contextUsage}% (${stats.contextTokens}/${stats.contextLimit})`);
+console.log(`Custo acumulado (billing): ${stats.totalTokens} tokens`);
 ```
 
 ### 2. Estatísticas por Turno
@@ -131,11 +144,13 @@ O sistema emite eventos automaticamente após cada resposta do assistente:
 
 Enviado sempre após uma resposta, com estatísticas atualizadas:
 
+O payload (`TokenStatsEvent`) carrega tanto a ocupação atual (`contextTokens`) quanto o acumulado de billing (`totalTokens`):
+
 ```typescript
 EventsOn("chat:token_stats", (data) => {
   console.log(`Conversa ${data.conversationId}:`);
-  console.log(`- Total: ${data.totalTokens}/${data.contextLimit}`);
-  console.log(`- Uso: ${data.contextUsage}%`);
+  console.log(`- Ocupação da janela: ${data.contextTokens}/${data.contextLimit} (${data.contextUsage}%)`);
+  console.log(`- Custo acumulado (billing): ${data.totalTokens}`);
   console.log(`- Mensagens: ${data.messageCount}`);
 });
 ```
@@ -144,6 +159,8 @@ EventsOn("chat:token_stats", (data) => {
 
 Enviado quando o contexto atinge níveis críticos:
 
+O payload (`ContextWarningEvent`) usa `contextTokens` (ocupação atual da janela) no numerador — o mesmo valor que define `percentage`. Não há campo de billing acumulado neste evento.
+
 **Warning Level (>= 80%):**
 ```json
 {
@@ -151,7 +168,7 @@ Enviado quando o contexto atinge níveis críticos:
   "level": "warning",
   "message": "Contexto em 82.5% (6758/8192 tokens). Considere limpar a conversa em breve.",
   "percentage": 82.5,
-  "totalTokens": 6758,
+  "contextTokens": 6758,
   "contextLimit": 8192
 }
 ```
@@ -163,7 +180,7 @@ Enviado quando o contexto atinge níveis críticos:
   "level": "critical",
   "message": "Atenção: Contexto em 96.3% (7888/8192 tokens). Considere limpar a conversa ou resumir o histórico.",
   "percentage": 96.3,
-  "totalTokens": 7888,
+  "contextTokens": 7888,
   "contextLimit": 8192
 }
 ```
@@ -192,11 +209,11 @@ EventsOn("chat:context_warning", (data) => {
   }
 });
 
-// Mostrar indicador visual contínuo
+// Mostrar indicador visual contínuo (ocupação da janela)
 EventsOn("chat:token_stats", (data) => {
   updateContextIndicator({
     percentage: data.contextUsage,
-    tokens: data.totalTokens,
+    tokens: data.contextTokens, // ocupação atual da janela, não o billing acumulado
     limit: data.contextLimit,
     isNearLimit: data.isNearLimit,
     isCritical: data.isCritical
@@ -209,7 +226,7 @@ EventsOn("chat:token_stats", (data) => {
 ### 1. Interface do Usuário
 
 **Botão de Tokens na Toolbar:**
-- Exibe resumo compacto: `totalUsado/limite` (ex: 4.2K/8K)
+- Exibe resumo compacto da ocupação atual: `contextTokens/limite` (ex: 4.2K/8K)
 - Cores indicam status automático:
   - 🟢 Verde (< 80%): contexto normal
   - 🟡 Amarelo (≥ 80%): contexto alto
@@ -375,9 +392,9 @@ async function validateBeforeSend(
   // Estimar tokens da nova mensagem
   const estimatedTokens = estimateTokens(newMessage);
   
-  // Pegar contexto atual
+  // Pegar ocupação atual da janela (não o billing acumulado)
   const stats = await GetConversationTokenStats(conversationId);
-  const projectedTotal = stats.totalTokens + estimatedTokens;
+  const projectedTotal = stats.contextTokens + estimatedTokens;
   
   // Verificar contra limite
   if (projectedTotal > stats.contextLimit) {
@@ -599,7 +616,7 @@ function updateTokenDisplay(data: any) {
   document.getElementById("token-bar").style.width = `${percentage}%`;
   document.getElementById("token-bar").style.backgroundColor = color;
   document.getElementById("token-text").textContent = 
-    `${data.totalTokens}/${data.contextLimit} tokens (${percentage.toFixed(1)}%)`;
+    `${data.contextTokens}/${data.contextLimit} tokens (${percentage.toFixed(1)}%)`;
 }
 
 // Gerenciamento de alertas
@@ -630,7 +647,7 @@ Botão compacto na toolbar que exibe resumo de tokens:
 **Localização:** `frontend/src/components/chat/TokenStatsButton.tsx`
 
 **Características:**
-- Exibe `totalUsado/limite` formatado (ex: 4.2K/8K)
+- Exibe a ocupação atual `contextTokens/limite` formatado (ex: 4.2K/8K)
 - Ícone indica status: 📊 (normal), 🟡 (warning), 🔴 (critical)
 - Atualização automática via evento `chat:token_stats`
 - Aparece apenas quando há conversationId ativo
@@ -805,9 +822,9 @@ TokenStatsModal abre
 
 **Exemplos:**
 ```tsx
-// Botão com label descritivo
+// Botão com label descritivo (ocupação atual da janela)
 <button
-  aria-label={`Estatísticas de tokens: ${formatNumber(stats.totalTokens)} usado de ${formatNumber(stats.contextLimit)}`}
+  aria-label={`Estatísticas de tokens: ${formatNumber(stats.contextTokens)} de ${formatNumber(stats.contextLimit)} ocupados`}
 >
 
 // Modal com roles corretos
@@ -867,3 +884,10 @@ TokenStatsModal abre
 - [ ] Exportação de relatórios de tokens
 - [ ] Integração com billing APIs dos provedores
 - [ ] Alertas configuráveis por email/notificação
+
+## Histórico de Revisões
+
+| Versão | Mudança |
+|--------|---------|
+| 1.0 | Versão inicial: rastreio de tokens, estatísticas, alertas de contexto e estratégias de gerenciamento. |
+| 1.1 | **Distinção explícita entre ocupação da janela e billing acumulado (issue #197).** `contextTokens`/`contextUsage` passam a refletir a OCUPAÇÃO ATUAL da janela (usage do último turno reportado pelo provedor) e são a base de `isNearLimit`/`isCritical`; `totalTokens` permanece como CUSTO/BILLING acumulado e deixa de ser usado para o percentual de ocupação. O evento `chat:context_warning` passou a carregar `contextTokens` (antes `totalTokens`). Exemplos numéricos corrigidos para que a ocupação fique consistente com `contextUsage` e abaixo do `contextLimit`. |

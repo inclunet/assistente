@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ApiOutlined,
@@ -16,21 +16,23 @@ import {
   GetMCPServerAuthInfo,
   DiscoverMCPServerAuth,
   DuplicateMCPServer,
-} from '@wailsjs/go/app/App';
+} from '@wailsjs/go/wailsapi/MCP';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Button, PageLoading } from '../components';
 import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
 import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
+import { DialogActions } from '../components/ui/DialogActions';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './McpPage.css';
 
 type ServerInfo = mcp.ServerInfo;
@@ -60,6 +62,30 @@ function statusLabel(status: string, t: (key: string) => string): string {
     error: t('mcp.status.error'),
   };
   return labels[status] || status;
+}
+
+function isHTTPSDiscoveryUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function normalizeDiscoveryResourceUrl(value: string): string {
+  try {
+    const parsed = new URL(value.trim());
+    parsed.search = '';
+    parsed.hash = '';
+    parsed.pathname = parsed.pathname === '/' ? '/' : parsed.pathname.replace(/\/+$/, '');
+    return parsed.toString();
+  } catch {
+    return value.trim().replace(/\/+$/, '');
+  }
+}
+
+function isSameDiscoveryResource(first: string, second: string): boolean {
+  return normalizeDiscoveryResourceUrl(first) === normalizeDiscoveryResourceUrl(second);
 }
 
 export default function McpPage() {
@@ -125,12 +151,16 @@ export default function McpPage() {
   const [formOAuth2CallbackHost, setFormOAuth2CallbackHost] = useState('');
 
   // OAuth auto-discovery
-  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'not_found';
+  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'partial' | 'not_found' | 'manual';
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>('idle');
-  const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
   const [discoveryResourceName, setDiscoveryResourceName] = useState('');
   const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
-  const [lastDiscoveredUrl, setLastDiscoveredUrl] = useState('');
+  const [manualRegistrationUrl, setManualRegistrationUrl] = useState('');
+  const [manualRegistrationServerUrl, setManualRegistrationServerUrl] = useState('');
+  const lastDiscoveredUrlRef = useRef('');
+  const discoveryRequestRef = useRef(0);
+  const wasHTTPTransportRef = useRef(false);
+  const wasEditingRef = useRef(false);
 
   useEffect(() => {
     loadServers();
@@ -184,10 +214,14 @@ export default function McpPage() {
     setFormOAuth2CallbackHost(config?.oauth2_callback_host || '');
 
     setDiscoveryStatus('idle');
-    setDiscoveredFields(new Set());
     setDiscoveryResourceName('');
-    setDiscoveryRegistrationUrl(config?.oauth2_registration_url || '');
-    setLastDiscoveredUrl('');
+    setDiscoveryRegistrationUrl('');
+    setManualRegistrationUrl(config?.oauth2_registration_url || '');
+    setManualRegistrationServerUrl(config?.url || '');
+    lastDiscoveredUrlRef.current = '';
+    discoveryRequestRef.current += 1;
+    wasHTTPTransportRef.current = false;
+    wasEditingRef.current = false;
   };
 
   const loadAuthInfo = useCallback(async (slug: string, configAuthType?: string) => {
@@ -251,24 +285,7 @@ export default function McpPage() {
     ready: !isLoading && rows.length > 0,
   });
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.key !== 'n' && event.key !== 'N') return;
-      const target = event.target as HTMLElement | null;
-      const isInput =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
-      if (isInput) return;
-      event.preventDefault();
-      handleNew();
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [handleNew]);
+  useActivePanelNewShortcut(handleNew);
 
   const handleCloseEditor = useCallback(() => {
     setEditing(null);
@@ -278,46 +295,63 @@ export default function McpPage() {
   }, [announce, t]);
 
   const runDiscovery = useCallback(async (urlToDiscover: string) => {
-    if (!urlToDiscover || !urlToDiscover.startsWith('https://')) return;
-    if (urlToDiscover === lastDiscoveredUrl) return;
+    if (!isHTTPSDiscoveryUrl(urlToDiscover)) return;
+    if (urlToDiscover === lastDiscoveredUrlRef.current) return;
 
+    const requestID = ++discoveryRequestRef.current;
     setDiscoveryStatus('loading');
-    setLastDiscoveredUrl(urlToDiscover);
+    setDiscoveryRegistrationUrl('');
+    lastDiscoveredUrlRef.current = urlToDiscover;
 
     try {
       const result = await DiscoverMCPServerAuth(urlToDiscover);
+      if (requestID !== discoveryRequestRef.current) return;
       if (result.found) {
-        const fields = new Set<string>();
-
         if (result.authType) {
-          setFormAuthType(result.authType);
-          fields.add('authType');
+          setFormAuthType((current) => current === 'none' ? result.authType : current);
         }
         if (result.authUrl) {
-          setFormOAuth2AuthUrl(result.authUrl);
-          fields.add('oauth2AuthUrl');
+          setFormOAuth2AuthUrl((current) => current || result.authUrl);
         }
         if (result.tokenUrl) {
-          setFormOAuth2TokenUrl(result.tokenUrl);
-          fields.add('oauth2TokenUrl');
+          setFormOAuth2TokenUrl((current) => current || result.tokenUrl);
         }
         if (result.scopes?.length > 0) {
-          setFormOAuth2Scopes(result.scopes.join(' '));
-          fields.add('oauth2Scopes');
+          setFormOAuth2Scopes((current) => current || result.scopes.join(' '));
         }
-        setDiscoveredFields(fields);
         const resName = result.resourceName || '';
         setDiscoveryResourceName(resName);
         setDiscoveryRegistrationUrl(result.registrationUrl || '');
-        if (resName && !formName) setFormName(resName);
+        if (resName) setFormName((current) => current || resName);
         setDiscoveryStatus('found');
+      } else if (result.status === 'partial' || result.protectedResourceFound) {
+        if (result.scopes?.length > 0) {
+          setFormOAuth2Scopes((current) => current || result.scopes.join(' '));
+        }
+        setDiscoveryResourceName(result.resourceName || '');
+        setDiscoveryRegistrationUrl('');
+        setDiscoveryStatus('partial');
+        lastDiscoveredUrlRef.current = '';
       } else {
+        setDiscoveryRegistrationUrl('');
         setDiscoveryStatus('not_found');
+        lastDiscoveredUrlRef.current = '';
       }
     } catch {
+      if (requestID !== discoveryRequestRef.current) return;
       setDiscoveryStatus('not_found');
+      lastDiscoveredUrlRef.current = '';
     }
-  }, [lastDiscoveredUrl, formName]);
+  }, []);
+
+  const handleFormURLChange = useCallback((value: string) => {
+    discoveryRequestRef.current += 1;
+    lastDiscoveredUrlRef.current = '';
+    setDiscoveryRegistrationUrl('');
+    setDiscoveryResourceName('');
+    setDiscoveryStatus('idle');
+    setFormUrl(value);
+  }, []);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
@@ -335,14 +369,20 @@ export default function McpPage() {
   }, [formTransport, formUrl, formName, isNew, runDiscovery]);
 
   const handleManualOverride = useCallback(() => {
-    setDiscoveredFields(new Set());
-    setDiscoveryStatus('not_found');
+    discoveryRequestRef.current += 1;
+    lastDiscoveredUrlRef.current = '';
+    setDiscoveryRegistrationUrl('');
+    setDiscoveryStatus('manual');
   }, []);
 
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida
   useEffect(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
-    if (isHTTP && formUrl.trim() && formUrl.trim().startsWith('https://') && editing) {
+    const isEditing = editing !== null;
+    const enteredHTTPMode = isHTTP && (!wasHTTPTransportRef.current || !wasEditingRef.current);
+    wasHTTPTransportRef.current = isHTTP;
+    wasEditingRef.current = isEditing;
+    if (enteredHTTPMode && isEditing && isHTTPSDiscoveryUrl(formUrl.trim())) {
       runDiscovery(formUrl.trim());
     }
   }, [editing, formTransport, formUrl, runDiscovery]);
@@ -380,6 +420,8 @@ export default function McpPage() {
 
     const isOAuth2 = formAuthType === 'oauth2_client_credentials' || formAuthType === 'oauth2_pkce';
     const scopesArr = formOAuth2Scopes.trim() ? formOAuth2Scopes.trim().split(/\s+/) : undefined;
+    const applicableManualRegistrationUrl =
+      isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '';
 
     const config = new mcp.ServerConfig({
       name: formName.trim(),
@@ -397,7 +439,9 @@ export default function McpPage() {
       oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
       oauth2_auth_url: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
       oauth2_scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
-      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
+      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce'
+        ? applicableManualRegistrationUrl || discoveryRegistrationUrl || undefined
+        : undefined,
       oauth2_callback_port: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
         ? parseInt(formOAuth2CallbackPort, 10) || undefined
         : undefined,
@@ -438,7 +482,9 @@ export default function McpPage() {
         await DeleteMCPServerAuth(slug);
       }
 
-      addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success');
+      addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'));
       handleCloseEditor();
     } catch (error: unknown) {
@@ -446,7 +492,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, manualRegistrationServerUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -461,7 +507,7 @@ export default function McpPage() {
 
     try {
       await remove(slug);
-      addToast(t('mcp.toast.removed'), 'success');
+      addToast(t('mcp.toast.removed'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('mcp.announce.serverRemoved'));
       if (editingSlug === slug) {
         setEditing(null);
@@ -476,7 +522,9 @@ export default function McpPage() {
   const handleConnect = useCallback(async (row: ServerRow) => {
     try {
       await connect(row.slug);
-      addToast(t('mcp.toast.serverConnected', { name: row.name }), 'success');
+      addToast(t('mcp.toast.serverConnected', { name: row.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.announce.serverConnected', { name: row.name }));
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('mcp.error.connectFailed'), 'error');
@@ -486,7 +534,9 @@ export default function McpPage() {
   const handleDisconnect = useCallback(async (row: ServerRow) => {
     try {
       await disconnect(row.slug);
-      addToast(t('mcp.toast.serverDisconnected', { name: row.name }), 'success');
+      addToast(t('mcp.toast.serverDisconnected', { name: row.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.announce.serverDisconnected', { name: row.name }));
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('mcp.error.disconnectFailed'), 'error');
@@ -496,7 +546,9 @@ export default function McpPage() {
   const handleReconnect = useCallback(async (row: ServerRow) => {
     try {
       await reconnect(row.slug);
-      addToast(t('mcp.toast.serverReconnected', { name: row.name }), 'success');
+      addToast(t('mcp.toast.serverReconnected', { name: row.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.announce.serverReconnected', { name: row.name }));
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('mcp.error.reconnectFailed'), 'error');
@@ -506,7 +558,9 @@ export default function McpPage() {
   const handleDuplicate = useCallback(async (row: ServerRow) => {
     try {
       const newSlug = await DuplicateMCPServer(row.slug);
-      addToast(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'), 'success');
+      addToast(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'));
       await loadServers();
 
@@ -764,12 +818,14 @@ export default function McpPage() {
               oauth2AuthUrl={formOAuth2AuthUrl}
               oauth2Scopes={formOAuth2Scopes}
               discoveryStatus={discoveryStatus}
-              discoveredFields={discoveredFields}
               discoveryResourceName={discoveryResourceName}
-              discoveryRegistrationUrl={discoveryRegistrationUrl}
+              discoveryRegistrationUrl={
+                (isSameDiscoveryResource(formUrl, manualRegistrationServerUrl) ? manualRegistrationUrl : '') ||
+                discoveryRegistrationUrl
+              }
               onCommandChange={setFormCommand}
               onArgsChange={setFormArgs}
-              onUrlChange={setFormUrl}
+              onUrlChange={handleFormURLChange}
               onEnvTextChange={setFormEnvText}
               onEnabledChange={setFormEnabled}
               onAutoConnectChange={setFormAutoConnect}
@@ -803,35 +859,41 @@ export default function McpPage() {
                   {t('mcp.buttons.delete')}
                 </Button>
               )}
-              <Button variant="ghost" onClick={handleCloseEditor} aria-label={t('mcp.aria.closeEditor')}>
-                {t('mcp.buttons.close')}
-              </Button>
-              <Button
-                onClick={handleSave}
-                loading={saving}
-                aria-label={
-                  saving
-                    ? t('mcp.aria.saving')
-                    : t('mcp.aria.saveServer', {
-                        name: formName || editingSlug || t('mcp.pageTitle'),
-                      })
+              <DialogActions
+                primary={
+                  <Button
+                    onClick={handleSave}
+                    loading={saving}
+                    aria-label={
+                      saving
+                        ? t('mcp.aria.saving')
+                        : t('mcp.aria.saveServer', {
+                            name: formName || editingSlug || t('mcp.pageTitle'),
+                          })
+                    }
+                  >
+                    {t('common.save')}
+                  </Button>
                 }
-              >
-                {t('common.save')}
-              </Button>
+                secondary={
+                  <Button variant="ghost" onClick={handleCloseEditor} aria-label={t('mcp.aria.closeEditor')}>
+                    {t('mcp.buttons.close')}
+                  </Button>
+                }
+              />
             </EditorPanelFooter>
           </div>
         )}
       </Modal>
 
       {!editing && rows.length > 0 && (
-        <div className="mcp-empty" role="status">
+        <div className="mcp-empty">
           <p>{t('mcp.hint.edit', 'Pressione Enter ou clique no servidor para editar.')}</p>
         </div>
       )}
 
       {!editing && rows.length === 0 && (
-        <div className="mcp-empty" role="status">
+        <div className="mcp-empty">
           <p>{t('mcp.empty.noServers', 'Nenhum servidor MCP encontrado. Use o botão "Novo Servidor" para começar.')}</p>
         </div>
       )}

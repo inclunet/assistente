@@ -79,6 +79,40 @@ func TestSendMessageTool_Success(t *testing.T) {
 	}
 }
 
+func TestSendMessageTool_ParametersIncludeSlack(t *testing.T) {
+	tool := NewSendMessageTool(nil)
+	raw := tool.Parameters()
+	if !json.Valid(raw) {
+		t.Fatalf("parameters JSON inválido")
+	}
+
+	var schema struct {
+		Properties struct {
+			Channel struct {
+				Enum []string `json:"enum"`
+			} `json:"channel"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("unmarshal parameters: %v", err)
+	}
+
+	want := []string{"slack", "telegram", "signal"}
+	got := schema.Properties.Channel.Enum
+	if len(got) != len(want) {
+		t.Fatalf("enum de channel tamanho inesperado: got=%v want=%v", got, want)
+	}
+	seen := map[string]bool{}
+	for _, v := range got {
+		seen[v] = true
+	}
+	for _, channel := range want {
+		if !seen[channel] {
+			t.Fatalf("enum de channel deveria incluir %q; got=%v", channel, got)
+		}
+	}
+}
+
 func TestSendMessageTool_SendFailure(t *testing.T) {
 	gateway := msgpkg.NewGateway(nil, nil, nil, nil, nil, nil)
 	messenger := &fakeMessenger{name: "signal", sendErr: context.DeadlineExceeded}

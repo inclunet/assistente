@@ -1,0 +1,388 @@
+// Package subagent expõe a builtin tool `subagent` (AEP-0068), que delega
+// tarefas a sub-agentes executando em sub-conversas próprias, persistidas e
+// visíveis. A execução real é feita pelo internal/subagent.Manager, que reusa
+// o pipeline oficial de envio (SendMessageUseCase) — esta tool é só a
+// superfície exposta ao LLM.
+package subagent
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"assistente/internal/eventctx"
+	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
+	"assistente/internal/subagent"
+	"assistente/internal/toolinvocations"
+	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
+)
+
+// Runner é a porta de execução de sub-agentes. *subagent.Manager a satisfaz.
+type Runner interface {
+	Run(ctx context.Context, p subagent.RunParams) (subagent.RunResult, error)
+	Status(ctx context.Context, conversationID, runID string) (subagent.StatusResult, error)
+	Cancel(ctx context.Context, conversationID, runID string) (subagent.CancelResult, error)
+}
+
+// RunnerProvider resolve o Runner de forma tardia (lazy), pois a tool é
+// registrada antes do Manager existir no wiring do app.
+type RunnerProvider func() Runner
+
+// Tool implementa tools.Tool para a builtin `subagent`.
+type Tool struct {
+	provider   RunnerProvider
+	authorizer ProfileAuthorizer
+}
+
+type ProfileAuthorizer interface {
+	Authorize(context.Context, profileaccess.AuthorizationRequest) (bool, error)
+}
+
+// NewWithProvider cria a tool com um provider lazy do Runner. O authorizer é
+// opcional apenas para compatibilidade de construção; uma delegação
+// cross-profile falha fechada quando ele não está configurado.
+func NewWithProvider(provider RunnerProvider, authorizer ...ProfileAuthorizer) *Tool {
+	tool := &Tool{provider: provider}
+	if len(authorizer) > 0 {
+		tool.authorizer = authorizer[0]
+	}
+	return tool
+}
+
+func (t *Tool) Name() string { return "subagent" }
+
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "agents", Class: "agent_delegation", Package: "agents", Risk: "write"}
+}
+
+func (t *Tool) Description() string {
+	return "Delegate work to a sub-agent in its own persisted conversation. When to use: a specialized profile, isolated context, parallel work, or a long task that should not block this turn. Don't use: short tasks that available tools can complete directly, or work that needs the parent's full conversational context. Send with 'prompt'; omit 'conversation_id' to create or provide it to resume. Synchronous (default) waits and costs this turn's latency; use 'raw':true when the exact response must be consumed directly. Background returns IDs immediately and later delivers the result to the parent; raw+background is invalid. Both modes consume tokens and one limited concurrency slot while running. Omit 'prompt' for status, or use 'cancel':true with 'conversation_id' to cancel. Use profile action=list before choosing a different profile; cross-profile delegation requires authorization."
+}
+
+func (t *Tool) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"prompt": {
+				"type": "string",
+				"description": "Task/message for the sub-agent. Provide it to send: without conversation_id it starts a new sub-agent; with conversation_id it continues (resume) the existing sub-conversation, preserving context. Omit it (with conversation_id) for a status query."
+			},
+			"background": {
+				"type": "boolean",
+				"description": "If true, return a handle immediately and deliver the result back to this conversation when done. Default false (wait inline)."
+			},
+			"raw": {
+				"type": "boolean",
+				"description": "For synchronous send only. If true, return the sub-agent's exact response as Content instead of the JSON envelope. IDs and status remain in metadata. Cannot be combined with background=true, status, or cancel. Default false."
+			},
+			"conversation_id": {
+				"type": "string",
+				"description": "Sub-conversation handle. Omit to create a new sub-conversation; provide to resume an existing one (preserving context). Required for cancel and clear. For status it is optional when 'run_id' is provided (run_id alone resolves the run); otherwise it targets the most recent run of this conversation."
+			},
+			"clear": {
+				"type": "boolean",
+				"description": "Reset the sub-conversation history before sending. Requires conversation_id and prompt (clear is always reset + send). Mutually exclusive with cancel."
+			},
+			"run_id": {
+				"type": "string",
+				"description": "Specific run (turn) for status/cancel only; must NOT be combined with prompt (send/resume). For a status query (no prompt, no cancel) it may be used alone (the run is resolved by its id). For cancel it requires conversation_id. If omitted, acts on the most recent run of conversation_id."
+			},
+			"cancel": {
+				"type": "boolean",
+				"description": "Cancel a running sub-agent. Requires conversation_id. Mutually exclusive with prompt and clear."
+			},
+			"profile": {
+				"type": "string",
+				"description": "Slug of the interaction profile for the sub-agent (model, behavior, enabled tools). Discover valid slugs and descriptions with profile action=list. Defaults to the parent's profile; a different explicit profile requires user authorization for this invocation."
+			},
+			"title": {
+				"type": "string",
+				"description": "Optional title for the sub-conversation."
+			},
+			"model": {
+				"type": "string",
+				"description": "Optional model override for this run (overrides the model derived from the profile)."
+			}
+		},
+		"additionalProperties": false
+	}`)
+}
+
+type subagentArgs struct {
+	Prompt         string `json:"prompt"`
+	Background     bool   `json:"background,omitempty"`
+	Raw            bool   `json:"raw,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	RunID          string `json:"run_id,omitempty"`
+	Cancel         bool   `json:"cancel,omitempty"`
+	Clear          bool   `json:"clear,omitempty"`
+	Profile        string `json:"profile,omitempty"`
+	Title          string `json:"title,omitempty"`
+	Model          string `json:"model,omitempty"`
+}
+
+// originAllowsParentless informa se a origem da chamada permite rodar o
+// sub-agente SEM vínculo com um turno-pai. Apenas a origem job
+// (eventctx.Provenance.Source == "job", único valor de automação — ver
+// internal/eventctx/eventctx.go; carimbada pelo executor de jobs antes de
+// resolver a tool, ver internal/jobs/executor.go) é aceitável sem pai
+// (AEP-0068, ponto de entrada formalizado na F4). Chamadas de chat NUNCA caem
+// aqui: o agentic loop sempre fornece conversation_id/turn_id.
+func originAllowsParentless(ctx context.Context) bool {
+	prov, ok := eventctx.From(ctx)
+	return ok && prov.Source == "job"
+}
+
+func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+	var a subagentArgs
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &a); err != nil {
+			return errResult(fmt.Sprintf("argumentos inválidos: %v", err)), nil
+		}
+	}
+	prompt := strings.TrimSpace(a.Prompt)
+	conversationID := strings.TrimSpace(a.ConversationID)
+	runID := strings.TrimSpace(a.RunID)
+
+	// Validações de combinação (AEP-0068).
+	if a.Cancel && prompt != "" {
+		return errResult("'cancel' e 'prompt' são mutuamente exclusivos"), nil
+	}
+	if a.Cancel && a.Clear {
+		return errResult("'cancel' e 'clear' são mutuamente exclusivos"), nil
+	}
+	if a.Cancel && conversationID == "" {
+		return errResult("'cancel' requer 'conversation_id'"), nil
+	}
+	if a.Clear && conversationID == "" {
+		return errResult("'clear' requer 'conversation_id' (nada a resetar)"), nil
+	}
+	if a.Clear && prompt == "" {
+		return errResult("'clear' requer 'prompt': clear é sempre reset + envio na mesma chamada"), nil
+	}
+	// 'run_id' sozinho (sem 'conversation_id') é permitido APENAS no modo status
+	// (sem 'cancel', sem 'clear' e sem 'prompt'): o Manager resolve o run pelo
+	// run_id e recupera a conversa dele (ver Manager.Status/resolveRun). Para
+	// send/cancel, 'run_id' continua exigindo 'conversation_id' (AEP-0068,
+	// "Validações mínimas": run sempre pertence a uma conversa; em status o
+	// run_id basta).
+	isStatus := !a.Cancel && !a.Clear && prompt == ""
+	if a.Raw && a.Background {
+		return errResult("'raw' não pode ser combinado com 'background': use raw somente em envio síncrono"), nil
+	}
+	if a.Raw && (a.Cancel || isStatus) {
+		return errResult("'raw' requer 'prompt' e só é válido em envio síncrono"), nil
+	}
+	if runID != "" && conversationID == "" && !isStatus {
+		return errResult("'run_id' requer 'conversation_id'"), nil
+	}
+	if runID != "" && prompt != "" {
+		// run_id identifica um run específico para status/cancel; não faz sentido
+		// (e seria ignorado) ao enviar/continuar. Rejeita para não criar uma
+		// superfície ambígua (AEP-0068 — validações mínimas).
+		return errResult("'run_id' é para status/cancel e não pode ser combinado com 'prompt' (enviar/continuar)"), nil
+	}
+	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {
+		return errResult("nada a fazer: informe 'prompt' (enviar); 'conversation_id' (status do run mais recente) ou 'run_id' (status por run); ou 'cancel'"), nil
+	}
+
+	if t.provider == nil {
+		return errResult("sub-agentes indisponíveis: runner não configurado"), nil
+	}
+	runner := t.provider()
+	if runner == nil {
+		return errResult("sub-agentes indisponíveis no momento"), nil
+	}
+
+	switch {
+	case a.Cancel:
+		res, err := runner.Cancel(ctx, conversationID, runID)
+		if err != nil {
+			return errResult(fmt.Sprintf("erro ao cancelar sub-agente: %v", err)), nil
+		}
+		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status, "cancelled": res.Cancelled}), nil
+
+	case prompt != "":
+		// Enviar: cria sub-conversa nova (sem conversation_id) ou continua uma
+		// existente (resume, com conversation_id), opcionalmente resetando antes
+		// (clear). A continuidade de contexto é garantida pelo pipeline oficial,
+		// que carrega o histórico da conversa pelo conversation_id.
+		inv, _ := invocationctx.Get(ctx)
+
+		// Vínculo com o turno-pai (AEP-0068). Uma chamada vinda do chat/workspace
+		// SEMPRE tem conversa/turno pai (o agentic loop carimba o InvocationContext
+		// — ver internal/agent/service.go); se faltarem, é bug de wiring. Para
+		// origem chat o parent é OBRIGATÓRIO quando:
+		//   - CRIA sub-conversa nova (sem conversation_id): não criar órfã
+		//     (kind=subagent some da listagem principal); OU
+		//   - background:true (INCLUSIVE no resume): o aviso de conclusão (auto-wake)
+		//     é injetado NA conversa do pai (AEP-0068, "Aviso de conclusão"); sem
+		//     parent, deliver() retorna cedo (ParentConversationID vazio) e a
+		//     notificação NUNCA chega — escondendo o bug de wiring. No síncrono o
+		//     resultado volta pelo retorno da tool, então resume síncrono sem-pai
+		//     segue permitido (não regride).
+		// A exceção legítima sem-pai é a origem job (eventctx.Provenance.Source ==
+		// "job", único valor de automação; ver internal/eventctx/eventctx.go),
+		// formalizada na F4: entrada de automação, parentless por contrato
+		// (auto-wake do mesmo modo não se aplica). Distinção EXPLÍCITA por origem,
+		// não pela mera ausência de InvocationContext.
+		hasParent := strings.TrimSpace(inv.ConversationID) != "" && strings.TrimSpace(inv.TurnID) != ""
+		if !hasParent && !originAllowsParentless(ctx) {
+			if conversationID == "" {
+				return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+			}
+			if a.Background {
+				return errResult("sub-agente em background requer um turno-pai: a entrega da conclusão (auto-wake) precisa de conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+			}
+		}
+
+		profile := strings.TrimSpace(a.Profile)
+		if profile == "" {
+			profile = inv.ProfileSlug
+		}
+		parentProfile := strings.TrimSpace(inv.ProfileSlug)
+		if strings.TrimSpace(a.Profile) != "" && profile != parentProfile {
+			if t.authorizer == nil {
+				return authorizationErrResult(
+					"authorization_unavailable",
+					"delegação para outro profile requer autorização, mas o autorizador não está configurado",
+				), nil
+			}
+			taskTitle := strings.TrimSpace(a.Title)
+			if taskTitle == "" {
+				taskTitle = truncateForDecision(prompt, 1000)
+			}
+			allowed, authErr := t.authorizer.Authorize(ctx, profileaccess.AuthorizationRequest{
+				Source:         inv.Source,
+				ConversationID: inv.ConversationID,
+				CurrentSlug:    parentProfile,
+				TargetSlug:     profile,
+				TaskTitle:      taskTitle,
+				Background:     a.Background,
+			})
+			if authErr != nil {
+				return authorizationErrResult(
+					authorizationErrorCode(authErr),
+					fmt.Sprintf("não foi possível autorizar a delegação cross-profile: %v", authErr),
+				), nil
+			}
+			if !allowed {
+				return jsonResult(map[string]any{
+					"status":     "denied",
+					"authorized": false,
+					"profile":    profile,
+				}, false, map[string]any{"status": "denied", "authorized": false, "profile": profile}), nil
+			}
+		}
+		res, err := runner.Run(ctx, subagent.RunParams{
+			ParentConversationID: inv.ConversationID,
+			ParentTurnID:         inv.TurnID,
+			ParentInvocationID:   toolinvocations.CurrentInvocationID(ctx),
+			ConversationID:       conversationID,
+			Clear:                a.Clear,
+			Prompt:               prompt,
+			ProfileSlug:          profile,
+			Model:                strings.TrimSpace(a.Model),
+			Title:                strings.TrimSpace(a.Title),
+			Background:           a.Background,
+			PreserveResponse:     a.Raw,
+		})
+		if err != nil {
+			return errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err)), nil
+		}
+		// IMPORTANTE (AEP-0068, "Retorno da tool"): o desfecho do sub-agente
+		// (succeeded/failed/timed_out/cancelled) é DADO de negócio, exposto no
+		// campo `status` do payload (e na metadata) — NÃO é falha da tool.
+		// Marcar IsError com base no status faria o pipeline de toolinvocations
+		// (ver statusForExecution) persistir o JSON do RunResult como
+		// error_message e emitir tool_failure/retries indevidos. IsError fica
+		// reservado a falhas da PRÓPRIA tool (args inválidos, wiring ausente,
+		// erro do runner/manager), tratadas acima.
+		metadata := map[string]any{
+			"conversation_id": res.ConversationID,
+			"run_id":          res.RunID,
+			"status":          res.Status,
+		}
+		if res.AssistantMessageID != "" {
+			metadata["assistant_message_id"] = res.AssistantMessageID
+		}
+		if res.Error != "" {
+			metadata["error"] = res.Error
+		}
+		if a.Raw {
+			return tools.ToolResult{Content: res.Response, Metadata: metadata}, nil
+		}
+		return jsonResult(res, false, metadata), nil
+
+	default:
+		// Status (prompt omitido).
+		res, err := runner.Status(ctx, conversationID, runID)
+		if err != nil {
+			return errResult(fmt.Sprintf("erro ao consultar status do sub-agente: %v", err)), nil
+		}
+		metadata := map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}
+		if res.AssistantMessageID != "" {
+			metadata["assistant_message_id"] = res.AssistantMessageID
+		}
+		if res.Error != "" {
+			metadata["error"] = res.Error
+		}
+		return jsonResult(res, false, metadata), nil
+	}
+}
+
+func truncateForDecision(value string, maxRunes int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= maxRunes {
+		return string(runes)
+	}
+	return string(runes[:maxRunes]) + "…"
+}
+
+func authorizationErrorCode(err error) string {
+	switch {
+	case errors.Is(err, profileaccess.ErrTargetNotFound):
+		return "profile_not_found"
+	case errors.Is(err, profileaccess.ErrTargetUnavailable):
+		return "profile_unavailable"
+	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+		return "authorization_no_interlocutor"
+	case errors.Is(err, questionnaire.ErrAskerUnavailable):
+		return "authorization_surface_unavailable"
+	default:
+		return "authorization_failed"
+	}
+}
+
+func authorizationErrResult(code, message string) tools.ToolResult {
+	payload, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
+	return tools.ToolResult{
+		Content: string(payload),
+		IsError: true,
+		Metadata: map[string]any{
+			"error_code": code,
+		},
+	}
+}
+
+func errResult(msg string) tools.ToolResult {
+	return tools.ToolResult{Content: msg, IsError: true}
+}
+
+func jsonResult(v any, isError bool, metadata map[string]any) tools.ToolResult {
+	payload, err := json.Marshal(v)
+	if err != nil {
+		return errResult(fmt.Sprintf("erro ao serializar resultado do sub-agente: %v", err))
+	}
+	return tools.ToolResult{Content: string(payload), IsError: isError, Metadata: metadata}
+}

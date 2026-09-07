@@ -1,27 +1,32 @@
 package summarization
 
 import (
+	"assistente/internal/logging"
 	"context"
+	"encoding/json"
 	"fmt"
-	"log"
+	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/toolinvocations"
 )
 
 // SummarizationRepository abstrai as operações de persistência necessárias para sumarização.
 // Implementado por DBSummarizationStore; pode ser mockado em testes.
 type SummarizationRepository interface {
-	GetMessages(conversationID string) ([]chat.Message, error)
-	GetConversationSummary(conversationID string) (summary string, upToMessageID string, err error)
-	IsSummarizingInProgress(conversationID string) (bool, error)
-	SetSummarizingInProgress(conversationID string, inProgress bool) error
-	UpdateConversationSummary(conversationID string, summary string, upToMessageID string) error
+	GetMessages(ctx context.Context, conversationID string) ([]chat.Message, error)
+	GetConversationSummary(ctx context.Context, conversationID string) (summary string, upToMessageID string, err error)
+	IsSummarizingInProgress(ctx context.Context, conversationID string) (bool, error)
+	SetSummarizingInProgress(ctx context.Context, conversationID string, inProgress bool) error
+	UpdateConversationSummary(ctx context.Context, conversationID string, summary string, upToMessageID string) error
 }
 
 const (
@@ -92,16 +97,174 @@ func ShouldTriggerSummarization(
 	}
 
 	if estimated > budget {
-		log.Printf("[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
+		logging.Infof(context.Background(), "summarization.service", "[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
 			estimated, budget, contextWindow, maxTokens, safetyMargin)
 		return true
 	}
 	return false
 }
 
+type summarizationInvocationResult struct {
+	Result             string
+	ToolName           string
+	Iteration          int
+	AssistantMessageID string
+}
+
+func summarizationInvocationResultsFromStrings(results map[string]map[string]string) map[string]map[string]summarizationInvocationResult {
+	out := make(map[string]map[string]summarizationInvocationResult, len(results))
+	for turnID, byCall := range results {
+		if len(byCall) == 0 {
+			continue
+		}
+		out[turnID] = make(map[string]summarizationInvocationResult, len(byCall))
+		for callID, result := range byCall {
+			out[turnID][callID] = summarizationInvocationResult{Result: result}
+		}
+	}
+	return out
+}
+
+func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvocations.ChatToolInvocationDisplay) map[string]map[string]summarizationInvocationResult {
+	out := make(map[string]map[string]summarizationInvocationResult, len(displays))
+	for turnID, calls := range displays {
+		for _, call := range calls {
+			callID := strings.TrimSpace(call.ID)
+			if callID == "" {
+				continue
+			}
+			byCall := out[turnID]
+			if byCall == nil {
+				byCall = map[string]summarizationInvocationResult{}
+				out[turnID] = byCall
+			}
+			if _, ok := byCall[callID]; ok {
+				continue
+			}
+			byCall[callID] = summarizationInvocationResult{
+				Result:             call.ModelResult,
+				ToolName:           call.Name,
+				Iteration:          call.Iteration,
+				AssistantMessageID: call.AssistantMessageID,
+			}
+		}
+	}
+	return out
+}
+
+func summarizationInvocationResultMatchesMessage(m chat.Message, result summarizationInvocationResult) bool {
+	assistantMessageID := strings.TrimSpace(result.AssistantMessageID)
+	messageID := strings.TrimSpace(m.ID)
+	if assistantMessageID == "" {
+		return messageID == ""
+	}
+	return messageID == assistantMessageID
+}
+
+func assignUnscopedSummarizationInvocationResults(messages []chat.Message, invocationResults map[string]map[string]summarizationInvocationResult) map[string]map[string]summarizationInvocationResult {
+	if len(invocationResults) == 0 {
+		return invocationResults
+	}
+	assistantsByTurn := map[string][]chat.Message{}
+	for _, msg := range messages {
+		if msg.Role != "assistant" || msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		assistantsByTurn[turnID] = append(assistantsByTurn[turnID], msg)
+	}
+	out := make(map[string]map[string]summarizationInvocationResult, len(invocationResults))
+	for turnID, byCall := range invocationResults {
+		if len(byCall) == 0 {
+			continue
+		}
+		out[turnID] = make(map[string]summarizationInvocationResult, len(byCall))
+		for callID, result := range byCall {
+			out[turnID][callID] = result
+		}
+		assignUnscopedSummarizationTurnResults(assistantsByTurn[turnID], out[turnID])
+	}
+	return out
+}
+
+func assignUnscopedSummarizationTurnResults(assistants []chat.Message, byCall map[string]summarizationInvocationResult) {
+	if len(assistants) == 0 || len(byCall) == 0 {
+		return
+	}
+	candidates := summarizationInvocationFallbackCandidates(assistants)
+	if len(candidates) == 0 {
+		return
+	}
+	type pendingInvocation struct {
+		CallID    string
+		Iteration int
+	}
+	pending := make([]pendingInvocation, 0)
+	for callID, result := range byCall {
+		if strings.TrimSpace(result.AssistantMessageID) != "" || strings.TrimSpace(result.Result) == "" {
+			continue
+		}
+		pending = append(pending, pendingInvocation{CallID: callID, Iteration: result.Iteration})
+	}
+	sort.SliceStable(pending, func(i, j int) bool {
+		if pending[i].Iteration != pending[j].Iteration {
+			return pending[i].Iteration < pending[j].Iteration
+		}
+		return pending[i].CallID < pending[j].CallID
+	})
+	groupIndex := -1
+	lastIteration := 0
+	for _, item := range pending {
+		if groupIndex < 0 || item.Iteration != lastIteration {
+			groupIndex++
+			lastIteration = item.Iteration
+		}
+		targetIndex := groupIndex
+		if targetIndex >= len(candidates) {
+			targetIndex = len(candidates) - 1
+		}
+		target := candidates[targetIndex]
+		result := byCall[item.CallID]
+		result.AssistantMessageID = target.ID
+		byCall[item.CallID] = result
+	}
+}
+
+func summarizationInvocationFallbackCandidates(assistants []chat.Message) []chat.Message {
+	if len(assistants) <= 1 {
+		return assistants
+	}
+	finalIdx := len(assistants) - 1
+	first := assistants[0]
+	if strings.TrimSpace(first.Content) != "" && strings.TrimSpace(first.ToolCalls) == "" {
+		finalIdx = 0
+	}
+	candidates := make([]chat.Message, 0, len(assistants)-1)
+	for i, msg := range assistants {
+		if i == finalIdx {
+			continue
+		}
+		candidates = append(candidates, msg)
+	}
+	if len(candidates) == 0 {
+		return []chat.Message{assistants[finalIdx]}
+	}
+	return candidates
+}
+
 // BuildSummarizationUserPrompt monta o user message para a chamada LLM de sumarização.
-func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message) string {
+// invocationResults: resultados hidratados de tool_invocations (best-effort).
+// fallbackResults: resultados persistidos como mensagens role=tool (best-effort); quando presente e não-vazio, é autoritativo.
+func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message, invocationResults map[string]map[string]string, fallbackResults map[string]map[string]string) string {
+	return buildSummarizationUserPrompt(existingSummary, messages, summarizationInvocationResultsFromStrings(invocationResults), fallbackResults)
+}
+
+func buildSummarizationUserPrompt(existingSummary string, messages []chat.Message, invocationResults map[string]map[string]summarizationInvocationResult, fallbackResults map[string]map[string]string) string {
 	var sb strings.Builder
+	invocationResults = assignUnscopedSummarizationInvocationResults(messages, invocationResults)
 
 	if existingSummary != "" {
 		sb.WriteString("## Previous Summary\n\n")
@@ -112,13 +275,62 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		sb.WriteString("## Conversation to Summarize\n\n")
 	}
 
+	usedInvocationResults := map[string]struct{}{}
 	for _, m := range messages {
 		_, _ = fmt.Fprintf(&sb, "**[%s]**: ", m.Role)
 		content := m.Content
 		if len(content) > 2000 {
-			content = content[:2000] + "... [truncated]"
+			content = truncateUTF8Safe(content, 2000) + "... [truncated]"
 		}
 		sb.WriteString(content)
+		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
+			for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
+				turnID := ""
+				if m.TurnID != nil {
+					turnID = strings.TrimSpace(*m.TurnID)
+				}
+				callID := strings.TrimSpace(c.ID)
+
+				// Se existe fallback role=tool não-vazio para este turn/call, ele já estará
+				// presente na lista de mensagens e não deve ser duplicado nem sobrescrito.
+				if turnID != "" && callID != "" {
+					if byCall := fallbackResults[turnID]; byCall != nil {
+						if strings.TrimSpace(byCall[callID]) != "" {
+							continue
+						}
+					}
+				}
+
+				res := strings.TrimSpace(c.Result)
+				if res == "" && turnID != "" && callID != "" {
+					if byCall := invocationResults[turnID]; byCall != nil {
+						result := byCall[callID]
+						if summarizationInvocationResultMatchesMessage(m, result) {
+							res = strings.TrimSpace(result.Result)
+						}
+					}
+				}
+				if res == "" {
+					continue
+				}
+				name := strings.TrimSpace(c.Function.Name)
+				if name == "" {
+					name = c.ID
+				}
+				if len(res) > 2000 {
+					res = truncateUTF8Safe(res, 2000) + "... [truncated]"
+				}
+				usedInvocationResults[summarizationInvocationResultKey(turnID, callID)] = struct{}{}
+				sb.WriteString("\n\n")
+				sb.WriteString("Tool result (")
+				sb.WriteString(name)
+				sb.WriteString("): ")
+				sb.WriteString(res)
+			}
+			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, usedInvocationResults)
+		} else if m.Role == "assistant" {
+			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, usedInvocationResults)
+		}
 		sb.WriteString("\n\n")
 	}
 
@@ -131,6 +343,106 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 	return sb.String()
 }
 
+func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, invocationResults map[string]map[string]summarizationInvocationResult, fallbackResults map[string]map[string]string, skip map[string]struct{}) {
+	if m.TurnID == nil {
+		return
+	}
+	turnID := strings.TrimSpace(*m.TurnID)
+	if turnID == "" {
+		return
+	}
+	byCall := invocationResults[turnID]
+	if len(byCall) == 0 {
+		return
+	}
+	callIDs := make([]string, 0, len(byCall))
+	for callID := range byCall {
+		callID = strings.TrimSpace(callID)
+		if callID == "" {
+			continue
+		}
+		if _, ok := skip[summarizationInvocationResultKey(turnID, callID)]; ok {
+			continue
+		}
+		if byFallback := fallbackResults[turnID]; byFallback != nil {
+			if strings.TrimSpace(byFallback[callID]) != "" {
+				continue
+			}
+		}
+		if !summarizationInvocationResultMatchesMessage(m, byCall[callID]) {
+			continue
+		}
+		callIDs = append(callIDs, callID)
+	}
+	sort.Strings(callIDs)
+	for _, callID := range callIDs {
+		callResult := byCall[callID]
+		res := strings.TrimSpace(callResult.Result)
+		if res == "" {
+			continue
+		}
+		if len(res) > 2000 {
+			res = truncateUTF8Safe(res, 2000) + "... [truncated]"
+		}
+		sb.WriteString("\n\n")
+		sb.WriteString("Tool result (")
+		name := strings.TrimSpace(callResult.ToolName)
+		if name == "" {
+			name = callID
+		}
+		sb.WriteString(name)
+		sb.WriteString("): ")
+		sb.WriteString(res)
+		if skip != nil {
+			skip[summarizationInvocationResultKey(turnID, callID)] = struct{}{}
+		}
+	}
+}
+
+func summarizationInvocationResultKey(turnID, callID string) string {
+	return strings.TrimSpace(turnID) + "\x00" + strings.TrimSpace(callID)
+}
+
+type summarizationToolCall struct {
+	ID       string `json:"id"`
+	Result   string `json:"result,omitempty"`
+	Function struct {
+		Name string `json:"name"`
+	} `json:"function"`
+}
+
+func parseSummarizationToolCalls(raw string) []summarizationToolCall {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var calls []summarizationToolCall
+	if err := json.Unmarshal([]byte(raw), &calls); err == nil {
+		return calls
+	}
+	var single summarizationToolCall
+	if err := json.Unmarshal([]byte(raw), &single); err == nil {
+		if strings.TrimSpace(single.ID) == "" {
+			return nil
+		}
+		return []summarizationToolCall{single}
+	}
+	return nil
+}
+
+func truncateUTF8Safe(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && maxBytes < len(s) && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	if maxBytes <= 0 {
+		return ""
+	}
+	return s[:maxBytes]
+}
+
 // ServiceConfig agrupa as dependências do Service.
 type ServiceConfig struct {
 	Repo            SummarizationRepository
@@ -138,7 +450,15 @@ type ServiceConfig struct {
 	LLMRegistry     *llm.ProviderRegistry
 	CredMgr         *credentials.Manager
 	ProfileManager  *profiles.Manager
-	ProfileResolver func(*profiles.Profile) *profiles.Profile
+	ProfileResolver func(context.Context, *profiles.Profile) *profiles.Profile
+	// RateLimiter aplica o mesmo rate limiting por usuário das chamadas de chat
+	// (Issue #27 / AEP-0065) também à chamada LLM de sumarização, que é um vetor
+	// de custo. Opcional: nil = sem limite.
+	RateLimiter *llm.RateLimiter
+	// RateLimitKeyFunc extrai a chave de limite (userID) do contexto. Opcional.
+	RateLimitKeyFunc func(context.Context) string
+	// RateLimitPolicyResolver relê a política atual do perfil antes da geração.
+	RateLimitPolicyResolver llm.RateLimitPolicyResolver
 }
 
 // Service encapsula a lógica de sumarização de conversas, sem depender de Wails.
@@ -153,26 +473,57 @@ func NewService(cfg ServiceConfig) *Service {
 
 // CheckAndTriggerSummarization verifica se a conversa precisa de sumarização e dispara em background.
 // Deve ser chamado APÓS a resposta do LLM ser salva.
-func (s *Service) CheckAndTriggerSummarization(conversationID string) {
+//
+// profileSlug é o slug do perfil DA CONVERSA (o mesmo resolvido no envio de
+// mensagem, via tab/workspace — `params.ProfileSlug`). O resumo deve usar o
+// provider/modelo desse perfil, não o do perfil ativo global (Issue #203). Só
+// recai sobre o perfil ativo global quando o slug está vazio ou não pode ser
+// resolvido — mesmo padrão de fallback de `chat.Interactor.PrepareContext`.
+func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversationID string, profileSlug string) {
 	if conversationID == "" {
 		return
 	}
 
-	profile, err := s.cfg.ProfileManager.GetActive()
-	if err != nil || profile == nil {
+	profile, effectiveProfileSlug := s.resolveConversationProfileWithSlug(profileSlug)
+	if profile == nil {
 		return
 	}
+	// O perfil pode apontar para o sentinela `$default`, que só vira provider
+	// concreto aqui. Sem resolver antes da guarda abaixo, uma conversa cujo
+	// padrão global é um agente atravessaria o check e só seria recusada na
+	// execução — com aviso na tela a cada turno.
+	if s.cfg.ProfileResolver != nil {
+		profile = s.cfg.ProfileResolver(ctx, profile)
+		if profile == nil {
+			return
+		}
+	}
+	ctx = llm.WithRateLimitProfile(ctx, llm.RateLimitConfig{
+		Enabled:            profile.IsLLMRateLimitEnabled(),
+		RequestsPerMinute:  profile.GetLLMRateLimitRPM(),
+		Burst:              profile.GetLLMRateLimitBurst(),
+		NearLimitThreshold: llm.DefaultNearLimitThreshold,
+	}, effectiveProfileSlug)
 	if profile.Chat.ContextWindow <= 0 {
 		return
 	}
-
-	allRootMessages, err := s.cfg.Repo.GetMessages(conversationID)
-	if err != nil {
-		log.Printf("[Summary] Erro ao carregar mensagens para check: %v", err)
+	// Conversa conduzida por agente externo não sumariza (AEP-0084 D14): quem
+	// administra o contexto é o próprio agente, e compactar do lado do app não
+	// teria efeito no wire — só gastaria um turno de agente de código.
+	if s.isAgentDrivenProfile(profile) {
+		// Debug, não info: o check roda a cada turno e este desvio é o esperado
+		// para a conversa inteira, não uma condição anômala.
+		logging.Debugf(ctx, "summarization.service", "[Summary] Conversa %s usa provider de agente externo — sumarização automática não se aplica", conversationID)
 		return
 	}
 
-	existingSummary, summaryUpToID, _ := s.cfg.Repo.GetConversationSummary(conversationID)
+	allRootMessages, err := s.cfg.Repo.GetMessages(ctx, conversationID)
+	if err != nil {
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao carregar mensagens para check: %v", err)
+		return
+	}
+
+	existingSummary, summaryUpToID, _ := s.cfg.Repo.GetConversationSummary(ctx, conversationID)
 
 	// Use index-based slicing instead of lexicographic ID comparison.
 	// UUIDv7 ordering within the same millisecond is not guaranteed.
@@ -195,25 +546,71 @@ func (s *Service) CheckAndTriggerSummarization(conversationID string) {
 		}
 	}
 
-	if ShouldTriggerSummarization(profile, contextMessages, existingSummary) {
-		s.TriggerSummarizationInBackground(conversationID, profile, allRootMessages)
+	fallbackResults := collectSummarizationFallbackToolResults(contextMessages)
+	invocationResults := loadSummarizationToolInvocationResults(ctx, contextMessages)
+	if shouldTriggerSummarizationWithHydratedToolResults(profile, contextMessages, existingSummary, invocationResults, fallbackResults) {
+		s.TriggerSummarizationInBackground(ctx, conversationID, profile, allRootMessages)
 	}
+}
+
+// resolveConversationProfile resolve o perfil da conversa a partir do slug
+// propagado pelo pipeline de envio. Replica o fallback de
+// `chat.Interactor.PrepareContext`: usa `ProfileManager.Get(slug)` quando o slug
+// está presente e só recai sobre `GetActive()` (perfil ativo global) quando o
+// slug está vazio ou a leitura falha. Isso garante que o resumo use o mesmo
+// provider/modelo do perfil em que a conversa efetivamente roda (Issue #203).
+func (s *Service) resolveConversationProfile(profileSlug string) *profiles.Profile {
+	profile, _ := s.resolveConversationProfileWithSlug(profileSlug)
+	return profile
+}
+
+func (s *Service) resolveConversationProfileWithSlug(profileSlug string) (*profiles.Profile, string) {
+	if s.cfg.ProfileManager == nil {
+		return nil, ""
+	}
+
+	slug := strings.TrimSpace(profileSlug)
+	if slug != "" {
+		profile, err := s.cfg.ProfileManager.Get(slug)
+		if err == nil && profile != nil {
+			return profile, slug
+		}
+		logging.Infof(context.Background(), "summarization.service", "[Summary] Não foi possível obter perfil da conversa %q (%v) — usando perfil ativo global", slug, err)
+	}
+
+	active, err := s.cfg.ProfileManager.GetActiveAndSlug()
+	if err != nil || active == nil {
+		return nil, ""
+	}
+	return active.Profile, active.Slug
+}
+
+// isAgentDrivenProfile informa se o provider do perfil é um agente externo
+// (ACP), que não é elegível para as tarefas auxiliares do perfil: cada chamada
+// dessas seria um turno inteiro de agente de código — sessão, ferramentas,
+// permissões e custo — para produzir um resumo (AEP-0084 D14).
+func (s *Service) isAgentDrivenProfile(profile *profiles.Profile) bool {
+	if profile == nil || s.cfg.LLMRegistry == nil {
+		return false
+	}
+	return s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider).IsACP()
 }
 
 // TriggerSummarizationInBackground lança uma goroutine para sumarizar mensagens antigas.
 // Respeita MinContextMessages: só mensagens além do threshold mínimo são sumarizadas.
 func (s *Service) TriggerSummarizationInBackground(
+	ctx context.Context,
 	conversationID string,
 	profile *profiles.Profile,
 	allRootMessages []chat.Message,
 ) {
-	inProgress, err := s.cfg.Repo.IsSummarizingInProgress(conversationID)
+	inProgress, err := s.cfg.Repo.IsSummarizingInProgress(ctx, conversationID)
 	if err != nil {
-		log.Printf("[Summary] Erro ao verificar status: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao verificar status: %v", err)
 		return
 	}
 	if inProgress {
-		log.Printf("[Summary] Sumarização já em andamento para conversa %s", conversationID)
+		logging.Infof(ctx, "summarization.service", "[Summary] Sumarização já em andamento para conversa %s", conversationID)
 		return
 	}
 
@@ -221,7 +618,7 @@ func (s *Service) TriggerSummarizationInBackground(
 	totalMessages := len(allRootMessages)
 
 	if totalMessages <= minKeep {
-		log.Printf("[Summary] Apenas %d mensagens, mínimo é %d — nada a sumarizar", totalMessages, minKeep)
+		logging.Infof(ctx, "summarization.service", "[Summary] Apenas %d mensagens, mínimo é %d — nada a sumarizar", totalMessages, minKeep)
 		return
 	}
 
@@ -230,16 +627,16 @@ func (s *Service) TriggerSummarizationInBackground(
 		cutIndex--
 	}
 	if cutIndex <= 0 {
-		log.Printf("[Summary] Não encontrou ponto de corte válido (user message) — abortando")
+		logging.Infof(ctx, "summarization.service", "[Summary] Não encontrou ponto de corte válido (user message) — abortando")
 		return
 	}
 
 	messagesToSummarize := allRootMessages[:cutIndex]
 	lastSummarizedMsgID := messagesToSummarize[len(messagesToSummarize)-1].ID
 
-	existingSummary, currentUpToID, err := s.cfg.Repo.GetConversationSummary(conversationID)
+	existingSummary, currentUpToID, err := s.cfg.Repo.GetConversationSummary(ctx, conversationID)
 	if err != nil {
-		log.Printf("[Summary] Erro ao buscar resumo existente: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao buscar resumo existente: %v", err)
 		return
 	}
 
@@ -260,28 +657,29 @@ func (s *Service) TriggerSummarizationInBackground(
 		// If currentUpToID not found, newMessages stays nil → treated as "nothing new"
 	}
 	if len(newMessages) == 0 {
-		log.Printf("[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)
+		logging.Infof(ctx, "summarization.service", "[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)
 		return
 	}
 
-	if err := s.cfg.Repo.SetSummarizingInProgress(conversationID, true); err != nil {
-		log.Printf("[Summary] Erro ao marcar summarizing_in_progress: %v", err)
+	if err := s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, true); err != nil {
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao marcar summarizing_in_progress: %v", err)
 		return
 	}
 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
-				_ = s.cfg.Repo.SetSummarizingInProgress(conversationID, false)
+				logging.Errorf(ctx, "summarization.service", "🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
+				_ = s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, false)
 			}
 		}()
-		s.executeSummarization(conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
+		s.executeSummarization(ctx, conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
 	}()
 }
 
 // executeSummarization chama o LLM para gerar o resumo das mensagens fornecidas.
 func (s *Service) executeSummarization(
+	ctx context.Context,
 	conversationID string,
 	profile *profiles.Profile,
 	existingSummary string,
@@ -289,7 +687,26 @@ func (s *Service) executeSummarization(
 	upToMessageID string,
 ) {
 	if s.cfg.ProfileResolver != nil {
-		profile = s.cfg.ProfileResolver(profile)
+		profile = s.cfg.ProfileResolver(ctx, profile)
+	}
+
+	defer func() {
+		if err := s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, false); err != nil {
+			logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
+		}
+	}()
+
+	// Só aqui o sentinela `$default` do perfil vira provider concreto, então a
+	// recusa do D14 (AEP-0084) precisa existir também neste ponto — antes de
+	// anunciar que a sumarização começou.
+	if s.isAgentDrivenProfile(profile) {
+		logging.Infof(ctx, "summarization.service", "[Summary] Provider %s é agente externo — sumarização recusada para a conversa %s", profile.Chat.LLMProvider, conversationID)
+		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
+			ConversationID: conversationID,
+			Code:           ports.SummaryErrorCodeAgentProvider,
+			Error:          "Resumo não gerado: o provedor do perfil é um agente externo, que administra o próprio contexto.",
+		})
+		return
 	}
 
 	s.cfg.Emitter.Emit("chat:summary_started", ports.SummaryStartedEvent{
@@ -297,22 +714,18 @@ func (s *Service) executeSummarization(
 		MessageCount:   len(newMessages),
 	})
 
-	defer func() {
-		if err := s.cfg.Repo.SetSummarizingInProgress(conversationID, false); err != nil {
-			log.Printf("[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
-		}
-	}()
-
 	model := profile.Chat.Model
 
-	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages)
+	fallbackResults := collectSummarizationFallbackToolResults(newMessages)
+	invocationResults := loadSummarizationToolInvocationResults(ctx, newMessages)
+	userPrompt := buildSummarizationUserPrompt(existingSummary, newMessages, invocationResults, fallbackResults)
 
-	log.Printf("[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
+	logging.Infof(ctx, "summarization.service", "[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
 
 	provider := s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider)
 	if provider == nil {
-		log.Printf("[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          "Provider não encontrado",
@@ -320,10 +733,21 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	cp := llm.NewChatProvider(provider, s.cfg.CredMgr)
-	summary, err := cp.SimpleChat(context.Background(), model, SummaryPrompt, userPrompt)
+	// Aplica o mesmo rate limiting por usuário das chamadas de chat — a
+	// sumarização também consome cota/custo do provedor (Issue #27 / AEP-0065).
+	// Quando RateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
+	cp := llm.NewRateLimitedProviderWithResolver(
+		// Sem agente de código: a guarda acima recusa o resumo antes de chegar
+		// aqui, e um provedor ACP construído nesta linha só teria como cobrar
+		// um turno de agente por um parágrafo (AEP-0084 D14).
+		llm.NewChatProvider(provider, s.cfg.CredMgr, nil),
+		s.cfg.RateLimiter,
+		s.cfg.RateLimitKeyFunc,
+		s.cfg.RateLimitPolicyResolver,
+	)
+	summary, err := cp.SimpleChat(ctx, model, SummaryPrompt, userPrompt)
 	if err != nil {
-		log.Printf("[Summary] Erro na chamada LLM: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro na chamada LLM: %v", err)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          fmt.Sprintf("Erro ao gerar resumo: %v", err),
@@ -333,7 +757,7 @@ func (s *Service) executeSummarization(
 
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		log.Printf("[Summary] LLM retornou resumo vazio — abortando")
+		logging.Errorf(ctx, "summarization.service", "[Summary] LLM retornou resumo vazio — abortando")
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          "Resumo gerado está vazio",
@@ -341,8 +765,8 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	if err := s.cfg.Repo.UpdateConversationSummary(conversationID, summary, upToMessageID); err != nil {
-		log.Printf("[Summary] Erro ao salvar resumo: %v", err)
+	if err := s.cfg.Repo.UpdateConversationSummary(ctx, conversationID, summary, upToMessageID); err != nil {
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao salvar resumo: %v", err)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          "Erro ao salvar resumo",
@@ -350,7 +774,7 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	log.Printf("[Summary] Resumo salvo: conversa=%s, até msgID=%s, %d chars",
+	logging.Infof(ctx, "summarization.service", "[Summary] Resumo salvo: conversa=%s, até msgID=%s, %d chars",
 		conversationID, upToMessageID, len(summary))
 
 	s.cfg.Emitter.Emit("chat:summary_completed", ports.SummaryCompletedEvent{
@@ -359,4 +783,202 @@ func (s *Service) executeSummarization(
 		SummaryLength:        len(summary),
 		MessageCount:         len(newMessages),
 	})
+}
+
+func shouldTriggerSummarizationWithHydratedToolResults(
+	profile *profiles.Profile,
+	contextMessages []chat.Message,
+	existingSummary string,
+	invocationResults map[string]map[string]summarizationInvocationResult,
+	fallbackResults map[string]map[string]string,
+) bool {
+	if profile == nil || profile.Chat.ContextWindow <= 0 {
+		return false
+	}
+
+	contextWindow := profile.Chat.ContextWindow
+	maxTokens := profile.Chat.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+
+	safetyMargin := int(float64(contextWindow) * contextWindowSafetyMargin)
+	budget := contextWindow - maxTokens - safetyMargin
+	if budget <= 0 {
+		return false
+	}
+
+	estimated := EstimateMessagesTokens(contextMessages)
+	if existingSummary != "" {
+		estimated += EstimateTokens(existingSummary)
+	}
+	// Soma somente resultados que serão adicionados como "Tool result (...)".
+	invocationResults = assignUnscopedSummarizationInvocationResults(contextMessages, invocationResults)
+	estimated += estimateHydratedToolResultTokens(contextMessages, invocationResults, fallbackResults)
+
+	if estimated > budget {
+		logging.Infof(context.Background(), "summarization.service", "[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
+			estimated, budget, contextWindow, maxTokens, safetyMargin)
+		return true
+	}
+	return false
+}
+
+func collectSummarizationFallbackToolResults(messages []chat.Message) map[string]map[string]string {
+	results := map[string]map[string]string{}
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role != "tool" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		callID := strings.TrimSpace(msg.ToolCallID)
+		if callID == "" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			continue
+		}
+		byCall := results[turnID]
+		if byCall == nil {
+			byCall = map[string]string{}
+			results[turnID] = byCall
+		}
+		byCall[callID] = msg.Content
+	}
+	return results
+}
+
+func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults map[string]map[string]summarizationInvocationResult, fallbackResults map[string]map[string]string) int {
+	total := 0
+	counted := map[string]struct{}{}
+	for _, m := range messages {
+		if m.Role != "assistant" {
+			continue
+		}
+		if m.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*m.TurnID)
+		if turnID == "" {
+			continue
+		}
+		for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
+			callID := strings.TrimSpace(c.ID)
+			if callID == "" {
+				continue
+			}
+			countedKey := turnID + "\x00" + callID
+			if _, ok := counted[countedKey]; ok {
+				continue
+			}
+			// Se já há result embutido no tool_calls, já foi contado por EstimateMessagesTokens.
+			if strings.TrimSpace(c.Result) != "" {
+				counted[countedKey] = struct{}{}
+				continue
+			}
+			// Se há fallback role=tool não-vazio, o conteúdo já foi contado por EstimateMessagesTokens.
+			if byCall := fallbackResults[turnID]; byCall != nil {
+				if strings.TrimSpace(byCall[callID]) != "" {
+					counted[countedKey] = struct{}{}
+					continue
+				}
+			}
+			var result summarizationInvocationResult
+			if byCall := invocationResults[turnID]; byCall != nil {
+				result = byCall[callID]
+			}
+			if !summarizationInvocationResultMatchesMessage(m, result) {
+				continue
+			}
+			res := strings.TrimSpace(result.Result)
+			if res == "" {
+				continue
+			}
+			counted[countedKey] = struct{}{}
+			if len(res) > 2000 {
+				res = truncateUTF8Safe(res, 2000)
+			}
+			total += EstimateTokens(res)
+		}
+		for callID, result := range invocationResults[turnID] {
+			callID = strings.TrimSpace(callID)
+			if callID == "" {
+				continue
+			}
+			countedKey := turnID + "\x00" + callID
+			if _, ok := counted[countedKey]; ok {
+				continue
+			}
+			if !summarizationInvocationResultMatchesMessage(m, result) {
+				continue
+			}
+			if byCall := fallbackResults[turnID]; byCall != nil {
+				if strings.TrimSpace(byCall[callID]) != "" {
+					counted[countedKey] = struct{}{}
+					continue
+				}
+			}
+			res := strings.TrimSpace(result.Result)
+			if res == "" {
+				continue
+			}
+			counted[countedKey] = struct{}{}
+			if len(res) > 2000 {
+				res = truncateUTF8Safe(res, 2000)
+			}
+			total += EstimateTokens(res)
+		}
+	}
+	return total
+}
+
+func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat.Message) map[string]map[string]summarizationInvocationResult {
+	if len(messages) == 0 {
+		return map[string]map[string]summarizationInvocationResult{}
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return map[string]map[string]summarizationInvocationResult{}
+	}
+
+	seen := map[string]struct{}{}
+	turnIDs := make([]string, 0)
+	for _, msg := range messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		if msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		if _, ok := seen[turnID]; ok {
+			continue
+		}
+		seen[turnID] = struct{}{}
+		turnIDs = append(turnIDs, turnID)
+	}
+	if len(turnIDs) == 0 {
+		return map[string]map[string]summarizationInvocationResult{}
+	}
+
+	displays, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
+	if err != nil {
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao hidratar tool invocations para sumarização: %v", err)
+		return map[string]map[string]summarizationInvocationResult{}
+	}
+	if len(displays) == 0 {
+		return map[string]map[string]summarizationInvocationResult{}
+	}
+	return summarizationInvocationResultsFromDisplays(displays)
 }

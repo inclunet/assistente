@@ -3,15 +3,17 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/configdir"
+	"assistente/internal/logging"
 	"assistente/internal/workspace"
-	"fmt"
-	"log"
+	"context"
 	"os"
 )
 
 // ============================================================================
-// Workspace Management API
+// Workspace — ciclo de vida interno (AEP-0088)
 // ============================================================================
+// A superfície Wails pública vive em wailsapi.Workspace.
+// Aqui ficam init do manager/controller e o uso interno de workspaceMgr.
 
 func (a *App) initWorkspace() {
 	homeDir := configdir.GetHomeDir()
@@ -23,133 +25,13 @@ func (a *App) initWorkspace() {
 	}
 
 	if err := a.workspaceMgr.Initialize(workDir); err != nil {
-		log.Printf("Erro ao inicializar workspace: %v", err)
+		logging.Errorf(context.Background(), "app.app-workspace", "Erro ao inicializar workspace: %v", err)
 	} else if ws := a.workspaceMgr.Active(); ws != nil {
-		log.Printf("Workspace ativo: %s (%s)", ws.Name, ws.ID)
+		logging.Infof(context.Background(), "app.app-workspace", "Workspace ativo: %s (%s)", ws.Name, ws.ID)
 	}
 
 	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
 		WorkspaceMgr: a.workspaceMgr,
 		Emitter:      a.emitter,
 	})
-}
-
-func (a *App) workspaceController() (*controllers.WorkspaceController, error) {
-	if a.workspaceCtrl == nil {
-		return nil, fmt.Errorf("workspace controller not initialized")
-	}
-	return a.workspaceCtrl, nil
-}
-
-func (a *App) GetActiveWorkspace() *workspace.Workspace {
-	if a.workspaceCtrl == nil {
-		return nil
-	}
-	return a.workspaceCtrl.GetActiveWorkspace()
-}
-func (a *App) ListWorkspaces() ([]workspace.WorkspaceInfo, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.ListWorkspaces()
-}
-func (a *App) CreateWorkspace(name string) (*workspace.Workspace, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.CreateWorkspace(name)
-}
-func (a *App) SwitchWorkspace(workspaceID string) (*workspace.Workspace, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.SwitchWorkspace(workspaceID)
-}
-func (a *App) RenameWorkspace(newName string) error {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return err
-	}
-	return ctrl.RenameWorkspace(newName)
-}
-func (a *App) DeleteWorkspace(workspaceID string) error {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return err
-	}
-	return ctrl.DeleteWorkspace(workspaceID)
-}
-func (a *App) SetWorkspaceProfile(profileSlug string) error {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return err
-	}
-	return ctrl.SetWorkspaceProfile(profileSlug)
-}
-func (a *App) SaveWorkspace() error {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return err
-	}
-	return ctrl.SaveWorkspace()
-}
-
-func (a *App) AddWorkspaceTab(tab workspace.Tab) (*workspace.Workspace, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.AddWorkspaceTab(tab)
-}
-func (a *App) RemoveWorkspaceTab(tabID string) (*workspace.Workspace, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.RemoveWorkspaceTab(tabID)
-}
-func (a *App) SetActiveWorkspaceTab(tabID string) error {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return err
-	}
-	return ctrl.SetActiveWorkspaceTab(tabID)
-}
-func (a *App) UpdateWorkspaceTab(tabID string, updates map[string]any) error {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return err
-	}
-	return ctrl.UpdateWorkspaceTab(tabID, updates)
-}
-func (a *App) ReorderWorkspaceTabs(orderedIDs []string) error {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return err
-	}
-	return ctrl.ReorderWorkspaceTabs(orderedIDs)
-}
-func (a *App) MoveWorkspaceTabTo(tabID, targetWorkspaceID string) (*workspace.Workspace, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.MoveWorkspaceTabTo(tabID, targetWorkspaceID)
-}
-func (a *App) ExportWorkspace() (string, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return "", err
-	}
-	return ctrl.ExportWorkspace()
-}
-func (a *App) ImportWorkspace(yamlData string) (*workspace.Workspace, error) {
-	ctrl, err := a.workspaceController()
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.ImportWorkspace(yamlData)
 }

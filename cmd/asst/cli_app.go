@@ -1,0 +1,495 @@
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"assistente/controllers"
+	"assistente/internal/apidto"
+	"assistente/internal/app"
+	"assistente/internal/chat"
+	"assistente/internal/database"
+	"assistente/internal/llm"
+	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/portability"
+	"assistente/internal/profiles"
+	"assistente/internal/wailsapi"
+)
+
+var errProfilesNotReady = fmt.Errorf("profiles controller não inicializado")
+var errCredentialsNotReady = fmt.Errorf("credentials controller não inicializado")
+var errMCPNotReady = fmt.Errorf("mcp controller não inicializado")
+var errLLMNotReady = fmt.Errorf("llm controller não inicializado")
+var errTaskListNotReady = fmt.Errorf("tasklist controller não inicializado")
+var errConversationsNotReady = fmt.Errorf("conversations controller não inicializado")
+var errExportImportNotReady = fmt.Errorf("export/import bind não inicializado")
+var errChatNotReady = fmt.Errorf("chat bind não inicializado")
+
+// cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
+// profiles/credentials/mcp/llm_providers/llm_models/chat/tasklist/conversations saíram do Bind
+// Wails e vivem nos controllers / wailsapi.
+type cliApp struct {
+	*app.App
+}
+
+func asCLI(a *app.App) cliApp {
+	return cliApp{App: a}
+}
+
+func (c cliApp) profiles() (*controllers.ProfilesController, error) {
+	ctrl := app.ProfilesCtrl(c.App)
+	if ctrl == nil {
+		return nil, errProfilesNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) credentials() (*controllers.CredentialsController, error) {
+	ctrl := app.CredentialsCtrl(c.App)
+	if ctrl == nil {
+		return nil, errCredentialsNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) mcp() (*controllers.MCPController, error) {
+	ctrl := app.MCPCtrl(c.App)
+	if ctrl == nil {
+		return nil, errMCPNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) llm() (*controllers.LLMController, error) {
+	ctrl := app.LLMCtrl(c.App)
+	if ctrl == nil {
+		return nil, errLLMNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) tasklist() (*controllers.TaskListController, error) {
+	ctrl := app.TaskListCtrl(c.App)
+	if ctrl == nil {
+		return nil, errTaskListNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) conversations() (*controllers.ConversationsController, error) {
+	ctrl := app.ConversationsCtrl(c.App)
+	if ctrl == nil {
+		return nil, errConversationsNotReady
+	}
+	return ctrl, nil
+}
+
+func (c cliApp) exportImport() (*wailsapi.ExportImport, error) {
+	api := app.ExportImportAPI(c.App)
+	if api == nil {
+		return nil, errExportImportNotReady
+	}
+	return api, nil
+}
+
+func (c cliApp) chat() (*wailsapi.Chat, error) {
+	api := app.ChatAPI(c.App)
+	if api == nil {
+		return nil, errChatNotReady
+	}
+	return api, nil
+}
+
+func (c cliApp) CancelStreamingForConversation(conversationID string) {
+	// Helper de pacote: não exige bind Wails (CLI/testes). O bind LLMModels
+	// também cancela via o mesmo streamMgr.
+	app.CancelStreamingForConversation(c.App, conversationID)
+}
+
+func (c cliApp) SendMessage(conversationID string, userContent, userMedia string, params app.ChatParams) (string, error) {
+	api, err := c.chat()
+	if err != nil {
+		return "", err
+	}
+	return api.SendMessage(conversationID, userContent, userMedia, params)
+}
+
+func (c cliApp) ExportData(req portability.ExportRequest) (string, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return "", err
+	}
+	return api.ExportData(req)
+}
+
+func (c cliApp) ExportDataToFile(req portability.ExportRequest, path string) (string, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return "", err
+	}
+	return api.ExportDataToFile(req, path)
+}
+
+func (c cliApp) AnalyzeImportData(jsonData string, credentialExportPassword string) (*portability.ImportAnalysis, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return nil, err
+	}
+	return api.AnalyzeImportData(jsonData, credentialExportPassword)
+}
+
+func (c cliApp) ImportData(jsonData string, credentialExportPassword string) (*portability.ImportResult, error) {
+	api, err := c.exportImport()
+	if err != nil {
+		return nil, err
+	}
+	return api.ImportData(jsonData, credentialExportPassword)
+}
+
+func (c cliApp) GetProfiles() ([]profiles.ProfileInfo, error) {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetProfiles()
+}
+
+func (c cliApp) GetActiveProfileSlug() string {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return ""
+	}
+	return ctrl.GetActiveProfileSlug()
+}
+
+func (c cliApp) GetProfile(slug string) (*profiles.Profile, error) {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetProfile(slug)
+}
+
+func (c cliApp) GetActiveProfile() (*profiles.Profile, error) {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetActiveProfile()
+}
+
+func (c cliApp) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetActiveProfileAndSlug()
+}
+
+func (c cliApp) SetActiveProfile(slug string) error {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return err
+	}
+	return ctrl.SetActiveProfile(slug)
+}
+
+func (c cliApp) CreateProfile(p profiles.Profile) (string, error) {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return "", err
+	}
+	return ctrl.CreateProfile(p)
+}
+
+func (c cliApp) UpdateProfile(slug string, p profiles.Profile) error {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return err
+	}
+	return ctrl.UpdateProfile(slug, p)
+}
+
+func (c cliApp) DuplicateProfile(slug string) (string, error) {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return "", err
+	}
+	return ctrl.DuplicateProfile(slug)
+}
+
+func (c cliApp) DeleteProfile(slug string) error {
+	ctrl, err := c.profiles()
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteProfile(slug)
+}
+
+func (c cliApp) ListCredentials() ([]apidto.CredentialSummary, error) {
+	ctrl, err := c.credentials()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.ListCredentialsWithContext(ctx)
+}
+
+func (c cliApp) UpsertCredential(input apidto.CredentialInput) error {
+	ctrl, err := c.credentials()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.UpsertCredentialWithContext(ctx, input)
+}
+
+func (c cliApp) DeleteCredential(pattern string) error {
+	ctrl, err := c.credentials()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteCredentialWithContext(ctx, pattern)
+}
+
+func (c cliApp) ListMCPServers() ([]mcpmgr.ServerInfo, error) {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.ListMCPServers(), nil
+}
+
+func (c cliApp) GetAllTaskLists() ([]database.TaskList, error) {
+	ctrl, err := c.tasklist()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetAllTaskLists(ctx)
+}
+
+func (c cliApp) GetConversations() ([]app.Conversation, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetConversations(ctx)
+}
+
+func (c cliApp) GetConversation(id string) (*app.Conversation, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetConversation(ctx, id)
+}
+
+func (c cliApp) EnsureConversation(title string) (*app.Conversation, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.EnsureConversation(ctx, title)
+}
+
+func (c cliApp) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetMessages(ctx, conversationID, parentID)
+}
+
+func (c cliApp) DeleteConversation(id string) error {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteConversation(ctx, id)
+}
+
+func (c cliApp) SearchConversationHistory(query string, limit int) ([]database.MessageSearchResult, error) {
+	ctrl, err := c.conversations()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.SearchConversationHistory(ctx, query, limit)
+}
+
+func (c cliApp) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.SaveMCPServer(slug, cfg)
+}
+
+func (c cliApp) ConnectMCPServer(slug string) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.ConnectMCPServer(slug)
+}
+
+func (c cliApp) DisconnectMCPServer(slug string) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.DisconnectMCPServer(slug)
+}
+
+func (c cliApp) GetMCPServerTools(slug string) ([]mcpmgr.MCPToolInfo, error) {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetMCPServerTools(slug), nil
+}
+
+func (c cliApp) DeleteMCPServer(slug string) error {
+	ctrl, err := c.mcp()
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteMCPServer(slug)
+}
+
+// NeedsWelcomeWizard delega à lógica dual-mode do domínio welcome (AEP-0088),
+// sem método no *App (fora do Bind Wails).
+func (c cliApp) NeedsWelcomeWizard() bool {
+	return app.NeedsWelcomeWizard(c.App)
+}
+
+func (c cliApp) GetLLMProviders() []*llm.ProviderConfig {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil
+	}
+	return ctrl.GetLLMProviders()
+}
+
+func (c cliApp) GetLLMProvidersWithStatus() []map[string]interface{} {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil
+	}
+	return ctrl.GetLLMProvidersWithStatus(ctx)
+}
+
+func (c cliApp) TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error) {
+	ctrl, err := c.llm()
+	if err != nil {
+		return false, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return false, err
+	}
+	return ctrl.TestLLMProvider(ctx, req)
+}
+
+func (c cliApp) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error) {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.ListModelsRaw(ctx, req)
+}
+
+func (c cliApp) CreateDefaultLLMProvider(providerType, apiKey string) error {
+	return app.CreateDefaultLLMProvider(c.App, providerType, apiKey)
+}
+
+func (c cliApp) CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error) {
+	ctrl, err := c.llm()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	created, err := ctrl.CreateLLMProvider(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if id, _ := created["id"].(string); id != "" {
+		app.ApplyInstalledBinaryEnv(c.App, ctx, id, req.ACPAgentID)
+	}
+	return created, nil
+}
+
+func (c cliApp) SetDefaultProvider(id string) error {
+	ctrl, err := c.llm()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.SetDefaultProvider(ctx, id)
+}
+
+func (c cliApp) DeleteLLMProvider(_ context.Context, id string) error {
+	ctrl, err := c.llm()
+	if err != nil {
+		return err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.DeleteLLMProvider(ctx, id); err != nil {
+		return err
+	}
+	return app.PersistLLMProviderDelete(c.App, ctx, id)
+}

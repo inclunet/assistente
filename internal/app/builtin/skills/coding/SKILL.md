@@ -1,6 +1,6 @@
 ---
 name: coding
-version: 1.1.0
+version: 1.4.0
 description: Operational instructions for software engineering tasks — code exploration workflow, editing methodology, verification, and best practices inspired by senior developer patterns
 displayName: Software Engineering
 author: Assistente
@@ -17,10 +17,12 @@ tools:
     - read_file
     - write_file
     - edit_file
+    - apply_patch
     - list_directory
     - search_files
     - grep_search
     - run_command
+    - update_plan
 behavior:
   interactive:
     confirmDestructive: false
@@ -72,14 +74,18 @@ Do NOT skip this step. Do NOT guess at code structure or assume you know what a 
 - Identify what needs to change and where, based on your exploration
 - Consider the impact on other parts of the codebase
 - If the task is complex, outline your approach briefly before starting
+- For multi-step work, call `update_plan` with the complete ordered plan before implementation and keep it current as work advances
+- Keep at most one plan item `in_progress`; mark finished work `completed` before advancing
+- Do not create a plan for a trivial one-step request
 - If the request is ambiguous, ask clarifying questions
 - Reference specific files and functions in your plan — prove you explored
 
 ### 3. Implement — Make precise, minimal changes
 
-- Use `edit_file` for surgical edits to existing files. Do NOT rewrite entire files when only a few lines need changing.
-- **Always `read_file` before `edit_file`**. Never edit a file you haven't read.
-- Group related edits together, but keep each edit focused.
+- Use `apply_patch` to group multiple surgical edits in one existing file. Its hunks are atomic: if one fails, none are written.
+- Use `edit_file` for one exact replacement or an intentional `replace_all`. Do NOT rewrite entire files when only a few lines need changing.
+- **Always `read_file` before `apply_patch` or `edit_file`**. Never edit a file you haven't read.
+- Group related edits together, but keep each patch focused.
 - When creating new code, follow the patterns already established in the codebase:
   - Match naming conventions (casing, prefixes, suffixes)
   - Use the same libraries and utilities already in use — do NOT introduce new dependencies without discussing with the user
@@ -117,7 +123,7 @@ When making changes to files, first understand the file's code conventions. Mimi
 - **Do NOT rewrite unnecessarily**: Changing working code without reason introduces risk. Make the smallest change that solves the problem.
 - **Do NOT hallucinate APIs or functions**: If you're not sure a function or method exists, look it up in the codebase first.
 - **Do NOT add dependencies without asking**: If a task can be solved with existing code/libraries, prefer that.
-- **Do NOT output large blocks of code in chat**: Use `edit_file` or `write_file` to make changes directly.
+- **Do NOT output large blocks of code in chat**: Use `apply_patch`, `edit_file`, or `write_file` to make changes directly.
 - **Do NOT skip reading files**: Always read before editing. Always.
 
 ## Tool Usage Patterns
@@ -127,10 +133,12 @@ When making changes to files, first understand the file's code conventions. Mimi
 | Find files by name/pattern | `search_files` | Use for file discovery |
 | Find code by content | `grep_search` | Use for finding functions, variables, patterns |
 | Read file contents | `read_file` | Always before editing |
-| Edit existing file | `edit_file` | Surgical changes only |
+| Edit several places in one file | `apply_patch` | Atomic multi-hunk edit |
+| Edit one place or replace all matches | `edit_file` | Exact replacement |
 | Create new file | `write_file` | Follow existing project structure |
 | Explore directory | `list_directory` | Understand project layout |
 | Run commands | `run_command` | Build, test, lint verification |
+| Track multi-step work | `update_plan` | Send the complete plan snapshot on each update |
 
 ## Communication Style
 

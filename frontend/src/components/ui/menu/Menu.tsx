@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckOutlined, RightOutlined } from '@ant-design/icons';
 import type { MenuItem, MenuProps } from './types';
 import { restoreDefaultFocus } from '../../../hooks/useDefaultFocus';
+import { useAnnouncer } from '../../../hooks/useAnnouncer';
 
 import '../ContextMenu.css';
 
@@ -20,6 +21,7 @@ export const Menu: React.FC<MenuProps> = ({
   onItemKeyDown,
 }) => {
   const { t } = useTranslation();
+  const { announce: announceGlobally } = useAnnouncer();
   const menuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
@@ -32,9 +34,7 @@ export const Menu: React.FC<MenuProps> = ({
   const [submenuStack, setSubmenuStack] = useState<string[]>([]);
   // Stack de índices focados em cada nível
   const [focusStack, setFocusStack] = useState<number[]>([0]);
-  const [announcement, setAnnouncement] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
-  const announceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filteredItems = searchable && searchQuery.trim()
     ? items.filter(item => item.separator || item.label?.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -42,18 +42,8 @@ export const Menu: React.FC<MenuProps> = ({
 
   // Anuncia mudanças para leitores de tela
   const announce = (message: string) => {
-    setAnnouncement(message);
-    if (announceTimeoutRef.current) {
-      clearTimeout(announceTimeoutRef.current);
-    }
-    announceTimeoutRef.current = setTimeout(() => setAnnouncement(''), 100);
+    announceGlobally(message);
   };
-
-  useEffect(() => () => {
-    if (announceTimeoutRef.current) {
-      clearTimeout(announceTimeoutRef.current);
-    }
-  }, []);
 
   // Helpers para navegação multinível
   const getCurrentFocusIndex = () => focusStack[focusStack.length - 1] || 0;
@@ -269,7 +259,7 @@ export const Menu: React.FC<MenuProps> = ({
           setSubmenuStack((prev) => [...prev, currentItem.id]);
           const submenuItems = currentItem.submenu.filter((item) => !item.separator);
           setFocusStack((prev) => [...prev, firstFocusableIndex(submenuItems)]);
-          announce(`Submenu aberto: ${currentItem.label}. ${submenuItems.length} opções disponíveis.`);
+          announce(t('a11y.announce.submenuOpened', { label: currentItem.label, count: submenuItems.length }));
         }
         break;
 
@@ -279,7 +269,7 @@ export const Menu: React.FC<MenuProps> = ({
           // Fecha o submenu atual e volta para o nível anterior
           setSubmenuStack((prev) => prev.slice(0, -1));
           setFocusStack((prev) => prev.slice(0, -1));
-          announce('Submenu fechado. Voltando ao menu anterior.');
+          announce(t('a11y.announce.submenuClosed'));
         }
         // Se estiver no menu raiz, não faz nada
         break;
@@ -290,7 +280,7 @@ export const Menu: React.FC<MenuProps> = ({
           // Se está em submenu, volta para o nível anterior
           setSubmenuStack((prev) => prev.slice(0, -1));
           setFocusStack((prev) => prev.slice(0, -1));
-          announce('Submenu fechado. Voltando ao menu anterior.');
+          announce(t('a11y.announce.submenuClosed'));
         } else {
           onClose?.();
           requestAnimationFrame(() => restoreDefaultFocus());
@@ -305,7 +295,7 @@ export const Menu: React.FC<MenuProps> = ({
           setSubmenuStack((prev) => [...prev, currentItem.id]);
           const submenuItems = currentItem.submenu.filter((item) => !item.separator);
           setFocusStack((prev) => [...prev, firstFocusableIndex(submenuItems)]);
-          announce(`Submenu aberto: ${currentItem.label}. ${submenuItems.length} opções disponíveis.`);
+          announce(t('a11y.announce.submenuOpened', { label: currentItem.label, count: submenuItems.length }));
         } else if (currentItem?.action && !currentItem?.disabled) {
           currentItem.action();
           onSelect?.(currentItem);
@@ -351,7 +341,7 @@ export const Menu: React.FC<MenuProps> = ({
                 setSubmenuStack((prev) => [...prev.slice(0, level), item.id]);
                 const submenuItems = item.submenu!.filter((subitem) => !subitem.separator);
                 setFocusStack((prev) => [...prev.slice(0, level + 1), firstFocusableIndex(submenuItems)]);
-                announce(`Submenu aberto: ${item.label}. ${submenuItems.length} opções disponíveis.`);
+                announce(t('a11y.announce.submenuOpened', { label: item.label, count: submenuItems.length }));
               } else {
                 item.action?.();
                 onSelect?.(item);
@@ -427,11 +417,6 @@ export const Menu: React.FC<MenuProps> = ({
 
   return (
     <>
-      {/* Região de anúncio para leitores de tela */}
-      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {announcement}
-      </div>
-
       <div
         ref={menuRef}
         className={`context-menu${searchable ? ' context-menu--searchable' : ''}`}

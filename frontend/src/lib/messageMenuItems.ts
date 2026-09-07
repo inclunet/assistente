@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { Message } from '../store/chatStore';
 import { MenuItem } from '../components/menu';
 import { unified } from 'unified';
@@ -24,7 +25,10 @@ export interface MenuItemsOptions {
   onSpeak?: (message: Message) => void;
   onEdit?: (message: Message) => void;
   onResend?: (message: Message) => void;
+  onContinue?: (message: Message) => void;
+  shouldShowContinue?: (message: Message) => boolean;
   onDelete?: (message: Message) => void;
+  onCancelStreaming?: (message: Message) => void;
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
   onSendToEditor?: (payload: SendToEditorPayload & {
@@ -75,7 +79,7 @@ function extractCodeBlocks(content: string): Array<{ code: string; language: str
       });
     });
   } catch (error) {
-    console.error('Erro ao extrair blocos de código:', error);
+    logger.error('Erro ao extrair blocos de código:', error);
   }
   return blocks;
 }
@@ -105,7 +109,7 @@ function extractLinks(content: string): Array<{ url: string; text: string }> {
       }
     });
   } catch (error) {
-    console.error('Erro ao extrair links:', error);
+    logger.error('Erro ao extrair links:', error);
   }
   return links;
 }
@@ -148,7 +152,7 @@ function extractTables(content: string): Array<{ headers: string[]; rows: string
         }
       });
     } catch (error) {
-      console.error('❌ Erro ao processar markdown:', error);
+      logger.error('❌ Erro ao processar markdown:', error);
     }
   };
 
@@ -168,7 +172,7 @@ function extractTables(content: string): Array<{ headers: string[]; rows: string
       }
     });
   } catch (error) {
-    console.error('❌ Erro ao extrair tabelas:', error);
+    logger.error('❌ Erro ao extrair tabelas:', error);
   }
 
   return tables;
@@ -260,7 +264,10 @@ export function getMessageMenuItems(
     onSpeak,
     onEdit,
     onResend,
+    onContinue,
+    shouldShowContinue,
     onDelete,
+    onCancelStreaming,
     onPin,
     onAnnounce,
     onSendToEditor,
@@ -338,6 +345,27 @@ export function getMessageMenuItems(
     action: () => onReadMessage?.(message),
   });
 
+  if (message.isStreaming && onCancelStreaming) {
+    items.push({
+      id: 'cancel-generation',
+      label: i18next.t('chat.cancelGeneration'),
+      icon: '⏹',
+      ariaLabel: i18next.t('chat.cancelGenerationLabel'),
+      shortcut: 'Esc',
+      action: () => onCancelStreaming(message),
+    });
+  }
+
+  if (onContinue && (shouldShowContinue?.(message) ?? false)) {
+    items.push({
+      id: 'continue-response',
+      label: i18next.t('chat.continueResponse'),
+      icon: '⏭',
+      ariaLabel: i18next.t('chat.continueResponseLabel'),
+      action: () => onContinue(message),
+    });
+  }
+
   // 1.5 Ver/Ocultar Raciocínio (se a mensagem tem reasoning)
   type MessageFlags = Message & { reasoning?: string; pinned?: boolean };
   const messageFlags = message as MessageFlags;
@@ -367,40 +395,40 @@ export function getMessageMenuItems(
     // 2.1 Baixar audio desta mensagem (usa DB se disponivel)
     items.push({
       id: 'download-audio',
-      label: i18next.t('chat.message.downloadAudio'),
+      label: i18next.t('chat.downloadAudio'),
       icon: '💾',
-      ariaLabel: i18next.t('chat.message.downloadAudio'),
+      ariaLabel: i18next.t('chat.downloadAudio'),
       action: async () => {
         if (!message.content || !message.id) {
-          onAnnounce?.(i18next.t('chat.message.announce.noContent'));
+          onAnnounce?.(i18next.t('chat.announce.noContent'));
           return;
         }
 
         try {
           const backendId = isBackendId(message.id) ? message.id : '';
           if (!backendId) {
-            onAnnounce?.(i18next.t('chat.message.announce.cannotIdentifyMessage'));
+            onAnnounce?.(i18next.t('chat.announce.cannotIdentifyMessage'));
             return;
           }
 
-          onAnnounce?.(i18next.t('chat.message.announce.generatingAudio'));
+          onAnnounce?.(i18next.t('chat.announce.generatingAudio'));
           const role = message.role === 'user' ? 'user' : 'assistant';
           const voiceCtx = ttsService.getVoiceContext(role);
           const audioBlob = await messageAudioService.getMessageAudioBlob(backendId, voiceCtx);
 
           if (!audioBlob) {
-            onAnnounce?.(i18next.t('chat.message.announce.cannotGenerateAudio'));
+            onAnnounce?.(i18next.t('chat.announce.cannotGenerateAudio'));
             return;
           }
 
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-          const prefix = i18next.t('chat.message.downloadAudioPrefix', 'message');
+          const prefix = i18next.t('chat.downloadAudioPrefix');
           const filename = `${prefix}-${timestamp}.mp3`;
           messageAudioService.downloadAudioBlob(audioBlob, filename);
-          onAnnounce?.(i18next.t('chat.message.announce.audioDownloaded'));
+          onAnnounce?.(i18next.t('chat.announce.audioDownloaded'));
         } catch (error) {
-          console.error('Erro ao baixar audio:', error);
-          onAnnounce?.(i18next.t('chat.message.announce.audioError'));
+          logger.error('Erro ao baixar audio:', error);
+          onAnnounce?.(i18next.t('chat.announce.audioError'));
         }
       },
     });
@@ -469,13 +497,13 @@ export function getMessageMenuItems(
   }
 
   // 5. Fixar/Desafixar
-  if (onPin) {
+  if (onPin && isBackendId(message.id)) {
     const isPinned = messageFlags.pinned || false;
     items.push({
       id: 'pin',
-      label: isPinned ? 'Desafixar mensagem' : 'Fixar mensagem',
+      label: isPinned ? i18next.t('chat.unpinMessage') : i18next.t('chat.pinMessage'),
       icon: isPinned ? '📍' : '📌',
-      ariaLabel: isPinned ? 'Desafixar mensagem' : 'Fixar mensagem',
+      ariaLabel: isPinned ? i18next.t('chat.unpinMessage') : i18next.t('chat.pinMessage'),
       action: () => onPin(message),
     });
   }

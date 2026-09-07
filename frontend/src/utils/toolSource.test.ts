@@ -14,8 +14,21 @@ describe('parseToolSource', () => {
     expect(parseToolSource('mcp_nu-mcp__get_issues')).toEqual({ type: 'mcp', serverSlug: 'nu-mcp' });
   });
 
+  it('identifica MCP quando nome da tool contém separador', () => {
+    expect(parseToolSource('mcp_jira__issue__delete')).toEqual({ type: 'mcp', serverSlug: 'jira' });
+  });
+
   it('retorna local se prefixo mcp_ sem separador __', () => {
     expect(parseToolSource('mcp_broken')).toEqual({ type: 'local' });
+  });
+
+  it('não confunde a tool nativa mcp_server com uma MCP', () => {
+    expect(parseToolSource('mcp_server')).toEqual({ type: 'local' });
+  });
+
+  it('exige slug e nome ao redor do separador canônico', () => {
+    expect(parseToolSource('mcp___search')).toEqual({ type: 'local' });
+    expect(parseToolSource('mcp_atlassian__')).toEqual({ type: 'local' });
   });
 
   it('retorna local para string vazia', () => {

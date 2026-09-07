@@ -40,6 +40,7 @@ const chatStoreState = {
   sendMessageToConversation: sendMessageMock,
   ensureConversationSurfaceSession: vi.fn(),
   removeConversationSurfaceSession: vi.fn(),
+  clearConversationSendFailure: vi.fn(),
   sessionsByConversationId: {
     [conversationId]: {
       conversation: activeConversation,
@@ -119,8 +120,20 @@ vi.mock('../hooks/useContextMenu', () => ({
   }),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
+vi.mock('@wailsjs/go/wailsapi/Conversations', () => ({
   DeleteMessage: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/ACPWorkDir', () => ({
+  // A conversa destes testes não fala com agente de código: sem
+  // diretório de agente a mostrar.
+  GetAgentConversationWorkDir: vi.fn().mockRejectedValue(new Error('sem agente')),
+  SetAgentConversationWorkDir: vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/ACPCommands', () => ({
+  // Sem comandos do agente no menu da barra.
+  GetAgentSessionCommands: vi.fn().mockResolvedValue({ conversationId: '', commands: [] }),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -169,6 +182,7 @@ vi.mock('../components/ui/KeyboardShortcutsHelp', () => ({
 
 vi.mock('../hooks/useAnnouncer', () => ({
   announce: vi.fn(),
+  useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn(() => true) }),
 }));
 
 vi.mock('../utils/errorHandler', () => ({
@@ -261,8 +275,8 @@ describe('ChatPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Falha ao enviar');
+    expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     sendMessageMock.mockResolvedValueOnce(undefined);
     // Mock i18n returns translation keys as literal strings

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -37,7 +36,46 @@ func templateFuncs(secrets SecretResolver) template.FuncMap {
 		"default":      tplDefault,
 		"adf_markdown": tplADFMarkdown,
 		"adf_text":     tplADFText,
+		"jiraTime":     tplJiraTime,
 	}
+}
+
+// flexibleTimeLayouts cobre os formatos de timestamp que aparecem no pipeline de
+// jobs. Além do RFC3339 (offset ±HH:MM), inclui o ISO-8601 com offset numérico
+// ±HHMM (SEM dois-pontos) emitido pelo Jira (MCP Atlassian), que NÃO é RFC3339 e
+// por isso quebrava `date`/`task_note`. Tentados em ordem (RFC3339 primeiro).
+var flexibleTimeLayouts = []string{
+	time.RFC3339Nano,                     // 2006-01-02T15:04:05.999999999Z07:00 (offset com :)
+	time.RFC3339,                         // 2006-01-02T15:04:05Z07:00
+	"2006-01-02T15:04:05.999999999-0700", // Jira: offset ±HHMM, fração opcional
+	"2006-01-02T15:04:05-0700",           // Jira: offset ±HHMM, sem fração
+}
+
+// parseFlexibleTime tenta interpretar uma string de data/hora usando os layouts
+// de flexibleTimeLayouts, aceitando tanto RFC3339 quanto o offset ±HHMM do Jira.
+func parseFlexibleTime(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	var lastErr error
+	for _, layout := range flexibleTimeLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		} else {
+			lastErr = err
+		}
+	}
+	return time.Time{}, lastErr
+}
+
+// tplJiraTime normaliza um timestamp estilo Jira (ISO-8601 com offset ±HHMM) para
+// uma string RFC3339 (offset ±HH:MM) que as tools downstream aceitam (ex.: o campo
+// external_updated_at de task_note). Strings já em RFC3339 passam direto.
+// Uso: {{ jiraTime .output.updated }}
+func tplJiraTime(s string) (string, error) {
+	t, err := parseFlexibleTime(s)
+	if err != nil {
+		return "", fmt.Errorf("jiraTime: cannot parse %q: %w", s, err)
+	}
+	return t.Format(time.RFC3339Nano), nil
 }
 
 // ResolveInputs resolve templates em todos os valores do mapa de inputs.
@@ -140,13 +178,8 @@ func fixArrayAccess(tmpl string) string {
 }
 
 func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
-	original := tmplStr
 	tmplStr = fixTemplateDots(tmplStr)
 	tmplStr = fixArrayAccess(tmplStr)
-
-	if tmplStr != original {
-		log.Printf("[Jobs] Template preprocessed: %q -> %q", original, tmplStr)
-	}
 
 	funcs := templateFuncs(ctx.Secrets)
 
@@ -161,29 +194,50 @@ func resolveTemplate(tmplStr string, ctx *TemplateContext) (any, error) {
 		"now":    ctx.Now,
 	}
 
-	if ctx.Event != nil {
-		log.Printf("[Jobs] Template context event keys: %v", mapKeys(ctx.Event))
-		if c, ok := ctx.Event["content"]; ok {
-			log.Printf("[Jobs] Template event.content type: %T", c)
-		}
-	}
-
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("template exec error (template=%q): %w", tmplStr, err)
 	}
 
 	result := strings.TrimSpace(buf.String())
-	log.Printf("[Jobs] Template resolved: %q -> %q", original, result)
 	return result, nil
 }
 
-func mapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// RenderWithRoot renderiza um template Go contra uma raiz de dados arbitrária
+// (ex.: {"task": {...}, "now": time.Time}), reusando as mesmas funções e
+// correções de sintaxe dos templates de jobs. Usado por custom actions de
+// tasklists (AEP-0067), onde a raiz é `.task`.
+func RenderWithRoot(tmplStr string, data map[string]any) (string, error) {
+	tmplStr = fixTemplateDots(tmplStr)
+	tmplStr = fixArrayAccess(tmplStr)
+
+	t, err := template.New("").Funcs(templateFuncs(nil)).Parse(tmplStr)
+	if err != nil {
+		return "", fmt.Errorf("template parse error: %w", err)
 	}
-	return keys
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("template exec error (template=%q): %w", tmplStr, err)
+	}
+	return strings.TrimSpace(buf.String()), nil
+}
+
+// EvaluateConditionWithRoot avalia uma condição (template truthy) contra uma raiz
+// arbitrária. Condição vazia é sempre verdadeira (sem filtragem). O check de vazio
+// usa `== ""` (igual a EvaluateCondition): uma condição só-whitespace NÃO é tratada
+// como ausente — ela é renderizada (RenderWithRoot já dá TrimSpace), resulta em
+// string vazia e, portanto, falsy — mantendo a semântica consistente entre jobs e
+// custom actions.
+func EvaluateConditionWithRoot(condition string, data map[string]any) (bool, error) {
+	if condition == "" {
+		return true, nil
+	}
+	result, err := RenderWithRoot(condition, data)
+	if err != nil {
+		return false, fmt.Errorf("condition eval: %w", err)
+	}
+	s := strings.TrimSpace(result)
+	return s != "" && s != "false" && s != "<no value>", nil
 }
 
 // --- Funcoes de template ---
@@ -232,7 +286,7 @@ func tplDate(t any, layout string) (string, error) {
 	case time.Time:
 		return v.Format(layout), nil
 	case string:
-		parsed, err := time.Parse(time.RFC3339, v)
+		parsed, err := parseFlexibleTime(v)
 		if err != nil {
 			return "", fmt.Errorf("date: cannot parse %q: %w", v, err)
 		}

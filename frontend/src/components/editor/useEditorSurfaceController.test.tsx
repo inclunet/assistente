@@ -1,6 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceTab } from '../../store/workspaceStore';
+import type { apidto } from '@wailsjs/go/models';
 
 const editorMocks = vi.hoisted(() => ({
   createDocument: vi.fn(),
@@ -17,12 +18,19 @@ const workspaceMocks = vi.hoisted(() => ({
   activeTabId: 'editor-tab' as string | null,
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
-  EditorReadFile: vi.fn().mockResolvedValue({ content: '# Arquivo' }),
+vi.mock('@wailsjs/go/wailsapi/Editor', () => ({
+  EditorReadFile: vi.fn().mockResolvedValue('# Arquivo'),
 }));
 
 vi.mock('../../store/editorStore', () => ({
   DEFAULT_MD: '# Novo documento',
+  resolveEditorDisplayMode: (value: unknown, fallback: string, readOnly: boolean) => (
+    readOnly
+      ? 'view'
+      : value === 'markdown' || value === 'rich' || value === 'view'
+        ? value
+        : fallback
+  ),
   useEditorStore: Object.assign(
     (selector: (state: typeof editorMocks) => unknown) => selector(editorMocks),
     {
@@ -91,6 +99,24 @@ describe('useEditorSurfaceController', () => {
     });
   });
 
+  it('aplica displayMode persistido ao documento provisório', async () => {
+    renderHook(() => useEditorSurfaceController({
+      ...editorTab,
+      state: {
+        ...editorTab.state,
+        displayMode: 'view',
+      },
+    }, true));
+
+    await waitFor(() => {
+      expect(editorMocks.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'editor-tab',
+        mode: 'view',
+        sessionHydrated: false,
+      }));
+    });
+  });
+
   it('não cria documento quando o painel está inativo', async () => {
     renderHook(() => useEditorSurfaceController(editorTab, false));
 
@@ -124,16 +150,64 @@ describe('useEditorSurfaceController', () => {
     });
   });
 
+  it('mantém somente leitura quando a leitura do arquivo falha', async () => {
+    const { EditorReadFile } = await import('@wailsjs/go/wailsapi/Editor');
+    vi.mocked(EditorReadFile).mockRejectedValueOnce(new Error('documento inválido'));
+
+    renderHook(() => useEditorSurfaceController(editorTab, true));
+
+    await waitFor(() => {
+      expect(editorMocks.createDocument).toHaveBeenCalledWith(expect.objectContaining({
+        filePath: 'C:/tmp/doc.md',
+        markdown: '',
+        mode: 'view',
+        readOnly: true,
+        loadError: true,
+      }));
+    });
+  });
+
+  it('não sobrescreve documento criado enquanto a leitura assíncrona estava em curso', async () => {
+    let resolveRead: (value: apidto.EditorOpenResult) => void = () => undefined;
+    const { EditorReadFile } = await import('@wailsjs/go/wailsapi/Editor');
+    vi.mocked(EditorReadFile).mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRead = resolve;
+    }));
+
+    renderHook(() => useEditorSurfaceController(editorTab, true));
+    editorMocks.documents = {
+      'editor-tab': { id: 'editor-tab', title: 'Criado pelo fluxo de abertura' },
+    };
+    resolveRead({
+      path: 'C:/tmp/doc.md',
+      content: '# Leitura tardia',
+      projected: false,
+      readOnly: false,
+    } as apidto.EditorOpenResult);
+
+    await waitFor(() => {
+      expect(EditorReadFile).toHaveBeenCalledWith('C:/tmp/doc.md');
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(editorMocks.createDocument).not.toHaveBeenCalled();
+  });
+
   it('não cria nem ativa documento se a aba deixa de estar ativa durante leitura assíncrona', async () => {
-    let resolveRead: (value: string) => void = () => undefined;
-    const { EditorReadFile } = await import('@wailsjs/go/app/App');
+    let resolveRead: (value: apidto.EditorOpenResult) => void = () => undefined;
+    const { EditorReadFile } = await import('@wailsjs/go/wailsapi/Editor');
     vi.mocked(EditorReadFile).mockImplementationOnce(() => new Promise((resolve) => {
       resolveRead = resolve;
     }));
 
     renderHook(() => useEditorSurfaceController(editorTab, true));
     workspaceMocks.activeTabId = 'other-tab';
-    resolveRead('# Depois');
+    resolveRead({
+      path: 'C:/tmp/doc.md',
+      content: '# Depois',
+      projected: false,
+      readOnly: false,
+    } as apidto.EditorOpenResult);
     await Promise.resolve();
 
     await waitFor(() => {

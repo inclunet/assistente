@@ -2,89 +2,40 @@ package app
 
 import (
 	"fmt"
-	"regexp"
 	"runtime"
 	"strings"
 
+	"assistente/internal/apidto"
 	"assistente/internal/profiles"
+	"assistente/internal/textutil"
 )
 
-// stripMarkdownForTTS removes markdown syntax to produce clean text for TTS.
-var mdPattern = regexp.MustCompile(`(?m)` +
-	`(^#{1,6}\s+)` + // headings
-	`|([*_]{1,3})` + // bold/italic
-	`|(~~)` + // strikethrough
-	"|(```[\\s\\S]*?```)" + // code blocks
-	"|(`[^`]+`)" + // inline code
-	`|(\[([^\]]+)\]\([^)]+\))` + // links → keep text
-	`|(^\s*[-*+]\s)` + // unordered list markers
-	`|(^\s*\d+\.\s)` + // ordered list markers
-	`|(^>\s?)`, // blockquotes
-)
-
-func stripMarkdownForTTS(text string) string {
-	result := mdPattern.ReplaceAllStringFunc(text, func(match string) string {
-		// For links [text](url), keep just the text
-		if strings.HasPrefix(match, "[") {
-			idx := strings.Index(match, "]")
-			if idx > 0 {
-				return match[1:idx]
-			}
-		}
-		return ""
-	})
-	// Collapse multiple blank lines
-	result = regexp.MustCompile(`\n{3,}`).ReplaceAllString(result, "\n\n")
-	return strings.TrimSpace(result)
+func stripMarkdownForTTSInLanguage(text, language string) string {
+	return textutil.StripMarkdownForSpeechLabeled(text, textutil.CodeBlockSpeechLabel(language))
 }
 
-type ChatSpeakStrategy string
+// Aliases da borda (AEP-0088 D5): tipos canônicos em apidto; helpers internos do App
+// e testes do pacote continuam usando estes nomes curtos.
+type (
+	ChatSpeakStrategy = apidto.ChatSpeakStrategy
+	ChatSpeakOrigin   = apidto.ChatSpeakOrigin
+	ChatSpeakRequest  = apidto.ChatSpeakRequest
+	ChatSpeakEvent    = apidto.ChatSpeakEvent
+)
 
 const (
-	ChatSpeakStrategyNone         ChatSpeakStrategy = "none"
-	ChatSpeakStrategyAnnounce     ChatSpeakStrategy = "announce"
-	ChatSpeakStrategyWebSpeech    ChatSpeakStrategy = "webspeech"
-	ChatSpeakStrategyBackendAudio ChatSpeakStrategy = "backend_audio"
+	ChatSpeakStrategyNone         = apidto.ChatSpeakStrategyNone
+	ChatSpeakStrategyAnnounce     = apidto.ChatSpeakStrategyAnnounce
+	ChatSpeakStrategyWebSpeech    = apidto.ChatSpeakStrategyWebSpeech
+	ChatSpeakStrategyBackendAudio = apidto.ChatSpeakStrategyBackendAudio
+
+	ChatSpeakOriginAssistantMessage = apidto.ChatSpeakOriginAssistantMessage
+	ChatSpeakOriginUserMessage      = apidto.ChatSpeakOriginUserMessage
+	ChatSpeakOriginSystemMessage    = apidto.ChatSpeakOriginSystemMessage
+	ChatSpeakOriginThinking         = apidto.ChatSpeakOriginThinking
+	ChatSpeakOriginToolStatus       = apidto.ChatSpeakOriginToolStatus
+	ChatSpeakOriginSegment          = apidto.ChatSpeakOriginSegment
 )
-
-type ChatSpeakOrigin string
-
-const (
-	ChatSpeakOriginAssistantMessage ChatSpeakOrigin = "assistant_message"
-	ChatSpeakOriginUserMessage      ChatSpeakOrigin = "user_message"
-	ChatSpeakOriginSystemMessage    ChatSpeakOrigin = "system_message"
-	ChatSpeakOriginThinking         ChatSpeakOrigin = "thinking"
-	ChatSpeakOriginToolStatus       ChatSpeakOrigin = "tool_status"
-	ChatSpeakOriginSegment          ChatSpeakOrigin = "segment"
-)
-
-type ChatSpeakRequest struct {
-	ConversationID string            `json:"conversationId"`
-	MessageID string            `json:"messageId,omitempty"`
-	ProfileSlug    string          `json:"profileSlug,omitempty"`
-	Role           string          `json:"role"`
-	Text           string          `json:"text"`
-	Origin         ChatSpeakOrigin `json:"origin"`
-	Interrupt      *bool           `json:"interrupt,omitempty"`
-}
-
-type ChatSpeakEvent struct {
-	MessageID string              `json:"messageId,omitempty"`
-	ConversationID string              `json:"conversationId"`
-	Role             string            `json:"role"`
-	Text             string            `json:"text"`
-	Strategy         ChatSpeakStrategy `json:"strategy"`
-	FallbackStrategy ChatSpeakStrategy `json:"fallbackStrategy,omitempty"`
-	AutoRead         bool              `json:"autoRead"`
-	ProviderID       string            `json:"providerId,omitempty"`
-	VoiceID          string            `json:"voiceId,omitempty"`
-	Model            string            `json:"model,omitempty"`
-	Rate             float64           `json:"rate,omitempty"`
-	Pitch            float64           `json:"pitch,omitempty"`
-	Volume           float64           `json:"volume,omitempty"`
-	Origin           ChatSpeakOrigin   `json:"origin"`
-	Interrupt        bool              `json:"interrupt"`
-}
 
 func boolValueOrDefault(v *bool, fallback bool) bool {
 	if v == nil {
@@ -105,14 +56,16 @@ func effectiveVoiceProviderID(cfg profiles.VoiceRoleConfig) string {
 	}
 }
 
-func (a *App) DispatchSpeech(req ChatSpeakRequest) error {
-	_, err := a.dispatchSpeechEvent(req)
+// speechDispatcher adapta helpers lowercase do App para o bind wailsapi.Speech.
+type speechDispatcher struct{ app *App }
+
+func (d speechDispatcher) DispatchSpeech(req apidto.ChatSpeakRequest) error {
+	_, err := d.app.dispatchSpeechEvent(req)
 	return err
 }
 
 func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error) {
-	text := stripMarkdownForTTS(req.Text)
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(req.Text) == "" {
 		return nil, nil
 	}
 
@@ -121,9 +74,20 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 		role = "system"
 	}
 
+	// O perfil é resolvido antes do strip para localizar o marcador de bloco
+	// de código no idioma da fala.
 	profile, err := a.resolveSpeechProfile(req.ConversationID, req.ProfileSlug)
 	if err != nil {
 		return nil, err
+	}
+
+	text := stripMarkdownForTTSInLanguage(req.Text, profile.Input.Language)
+	if strings.TrimSpace(text) == "" {
+		// Strip pode zerar só-sintaxe; fallback ao texto original (SpeakMessage/gateway).
+		text = strings.TrimSpace(req.Text)
+	}
+	if text == "" {
+		return nil, nil
 	}
 
 	var voiceCfg profiles.VoiceRoleConfig
@@ -139,6 +103,7 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 	}
 
 	event := a.buildChatSpeakEvent(req, role, text, voiceCfg)
+	event.SpeechLanguage = profile.Input.Language
 	a.emitter.Emit("chat:speak", event)
 	return &event, nil
 }

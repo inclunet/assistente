@@ -1,71 +1,57 @@
-import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
+import {
+  ReactNode,
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  useId,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import {
+  registerOpenModal,
+  unregisterOpenModal,
+  isTopmostModal,
+  isModalOpen,
+} from '../../lib/modalRegistry';
 import './Modal.css';
 
-// Stack global simples para garantir que apenas o modal do topo
-// trate Escape/Tab/click-outside quando há múltiplos modais abertos.
-const OPEN_MODAL_STACK: string[] = [];
-
-let previousBodyOverflow: string | null = null;
-
-function setGlobalModalEffects(enabled: boolean) {
-  const appRoot = document.getElementById('root');
-
-  if (enabled) {
-    if (appRoot) {
-      appRoot.setAttribute('aria-hidden', 'true');
-      appRoot.setAttribute('inert', '');
-    }
-    if (previousBodyOverflow === null) {
-      previousBodyOverflow = document.body.style.overflow;
-    }
-    document.body.style.overflow = 'hidden';
-    return;
-  }
-
-  if (appRoot) {
-    appRoot.removeAttribute('aria-hidden');
-    appRoot.removeAttribute('inert');
-  }
-
-  if (previousBodyOverflow !== null) {
-    document.body.style.overflow = previousBodyOverflow;
-    previousBodyOverflow = null;
-  } else {
-    document.body.style.overflow = '';
-  }
-}
-
-function syncGlobalModalEffects() {
-  // Safety net: se a stack diz que há modais abertos, mas nenhum overlay
-  // está no DOM, a stack ficou dessincronizada (ex: erro de render ou
-  // unmount inesperado). Limpa a stack para restaurar a interatividade.
-  if (OPEN_MODAL_STACK.length > 0) {
-    const actualOverlays = document.querySelectorAll('.modal-overlay').length;
-    if (actualOverlays === 0) {
-      OPEN_MODAL_STACK.length = 0;
-    }
-  }
-  setGlobalModalEffects(OPEN_MODAL_STACK.length > 0);
-}
-
-export function isModalOpen(): boolean {
-  return OPEN_MODAL_STACK.length > 0;
-}
+// O registro de modais abertos (stack global + efeitos globais de inert/aria-hidden)
+// vive no módulo neutro `lib/modalRegistry.ts`, consumido tanto por este componente
+// quanto por stores/hooks. Reexportamos `isModalOpen`/`ensureModalCleanup` aqui para
+// preservar os consumidores de UI já existentes, sem que a camada de estado precise
+// importar deste componente React.
+export { isModalOpen, ensureModalCleanup } from '../../lib/modalRegistry';
 
 /**
- * Força a limpeza do estado de modal (inert/aria-hidden) quando a stack
- * ficou dessincronizada. Chamado ao navegar entre páginas como safety net.
+ * Contexto que expõe, para os descendentes de um Modal, se aquele Modal é o
+ * que está no topo da stack. Reutiliza o mesmo critério usado pelo Modal para
+ * tratar ESC/Tab, garantindo que handlers de teclado de conteúdos internos
+ * (ex.: setas/zoom do ImageViewerModal) só ajam quando o modal estiver ativo.
  */
-export function ensureModalCleanup() {
-  const actualOverlays = document.querySelectorAll('.modal-overlay').length;
-  if (actualOverlays === 0 && OPEN_MODAL_STACK.length > 0) {
-    OPEN_MODAL_STACK.length = 0;
-    setGlobalModalEffects(false);
-  }
+const ModalTopmostContext = createContext<(() => boolean) | null>(null);
+
+// Fallback estável por referência para uso fora de um Modal: sem stack
+// concorrente, considera-se sempre o topo. Constante de módulo para não
+// criar uma nova função a cada render (evita reexecução de useEffect/deps).
+const ALWAYS_TOPMOST = () => true;
+
+/**
+ * Retorna uma função que indica se o Modal mais próximo (ancestral) é o do
+ * topo da stack. Fora de um Modal, assume `true` (sem stack concorrente).
+ */
+export function useModalIsTopmost(): () => boolean {
+  const ctx = useContext(ModalTopmostContext);
+  return ctx ?? ALWAYS_TOPMOST;
+}
+
+export function useIsInsideModal(): boolean {
+  return useContext(ModalTopmostContext) !== null;
 }
 
 // Seletor para elementos focáveis
@@ -73,8 +59,14 @@ const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]';
 
+function isVisibleFocusableElement(el: HTMLElement): boolean {
+  if (el.closest('[hidden], [aria-hidden="true"]')) return false;
+  return el.offsetParent !== null || el.getClientRects().length > 0;
+}
+
 function restorePageFocus() {
   requestAnimationFrame(() => {
+    if (isModalOpen()) return;
     restoreDefaultFocus();
   });
 }
@@ -91,6 +83,28 @@ export interface ModalProps {
   returnFocusOnClose?: boolean;
   /** Se false, desabilita fechamento (ESC, clique fora e botão X). Default: true */
   allowClose?: boolean;
+  /**
+   * Modais de leitura (ex.: detalhes de mensagem, estatísticas de tokens) recebem
+   * `role="document"` no corpo, o que faz o NVDA alternar para modo de navegação
+   * e permitir leitura linear do conteúdo. Modais de configuração/formulário NÃO
+   * devem habilitar esta opção: eles permanecem com `role="application"` (modo
+   * de foco do NVDA) para que setas e teclas sejam entregues aos controles.
+   * Default: false
+   */
+  readingMode?: boolean;
+  /**
+   * Seletor CSS de um elemento que deve receber o foco inicial quando o modal
+   * abre, sobrepondo a heurística padrão (primeiro campo editável). Útil quando
+   * o conteúdo mais relevante para o usuário não é o primeiro campo do
+   * formulário (ex.: bloco "Depois" na confirmação de edição). Se o seletor
+   * não encontrar um elemento focável visível, a heurística padrão é usada.
+   */
+  initialFocusSelector?: string;
+  /**
+   * Papel ARIA do overlay. Decisões bloqueantes usam `alertdialog` (AEP-0091);
+   * demais diálogos mantêm `dialog` (default).
+   */
+  role?: 'dialog' | 'alertdialog';
 }
 
 export function Modal({
@@ -103,6 +117,9 @@ export function Modal({
   ariaDescribedBy,
   returnFocusOnClose = true,
   allowClose = true,
+  readingMode = false,
+  initialFocusSelector,
+  role = 'dialog',
 }: ModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -119,27 +136,21 @@ export function Modal({
   );
 
   const isTopMost = useCallback(() => {
-    const id = modalInstanceIdRef.current;
-    return OPEN_MODAL_STACK.length > 0 && OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1] === id;
+    return isTopmostModal(modalInstanceIdRef.current);
   }, []);
 
+  // Valor estável exposto via contexto para descendentes do Modal.
+  const topmostValue = useMemo(() => isTopMost, [isTopMost]);
+
   // Mantém o stack em sync com abertura/fechamento.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const id = modalInstanceIdRef.current;
     if (!isOpen) return;
 
-    // Remove qualquer entrada antiga (best-effort), e empilha no topo.
-    for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
-      if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
-    }
-    OPEN_MODAL_STACK.push(id);
-    syncGlobalModalEffects();
+    registerOpenModal(id);
 
     return () => {
-      for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
-        if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
-      }
-      syncGlobalModalEffects();
+      unregisterOpenModal(id);
     };
   }, [isOpen]);
 
@@ -147,7 +158,7 @@ export function Modal({
   const getFocusableElements = useCallback(() => {
     if (!modalRef.current) return [];
     return Array.from(modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-      .filter(el => el.offsetParent !== null); // Filtra elementos visíveis
+      .filter(isVisibleFocusableElement); // Filtra elementos visíveis
   }, []);
 
   // Restaura foco na área padrão quando isOpen transita de true → false
@@ -158,24 +169,99 @@ export function Modal({
     prevOpenRef.current = isOpen;
   }, [isOpen, returnFocusOnClose]);
 
-  // Auto-focus no primeiro elemento focável quando o modal abre
-  useEffect(() => {
+  // Auto-focus no primeiro elemento focável quando o modal abre.
+  //
+  // A aplicação do foco é adiada para depois do primeiro paint (double-rAF):
+  // com NVDA + Chromium/WebView2, chamar `.focus()` no mesmo frame em que o
+  // subtree do modal é inserido no DOM dispara o evento de foco antes de a
+  // árvore de acessibilidade do novo conteúdo existir, e o leitor perde o
+  // evento — o diálogo abre sem que o controle focado seja anunciado.
+  useLayoutEffect(() => {
     if (!isOpen || !modalRef.current) return;
 
-    // Aguarda o DOM renderizar completamente
-    requestAnimationFrame(() => {
-      const focusableElements = getFocusableElements();
-      // Procura primeiro um input/textarea/select, senão usa o primeiro focável
-      const firstInput = focusableElements.find(el => 
-        el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
-      );
-      const firstFocusable = firstInput || focusableElements[0];
-      
-      if (firstFocusable) {
-        firstFocusable.focus();
+    const applyFocus = () => {
+      const container = modalRef.current;
+      if (!container || !isTopMost()) return;
+
+      if (initialFocusSelector) {
+        // Seletor inválido não pode quebrar a abertura do modal: degrada para a
+        // heurística padrão (querySelector lança DOMException nesse caso).
+        let target: HTMLElement | null = null;
+        try {
+          target = container.querySelector<HTMLElement>(initialFocusSelector);
+        } catch {
+          target = null;
+        }
+        if (target && isVisibleFocusableElement(target)) {
+          target.focus();
+          // Elemento visível mas não focável (ex.: div sem tabindex) não recebe
+          // foco de verdade; nesse caso segue para a heurística padrão.
+          if (document.activeElement === target) {
+            return;
+          }
+        }
       }
+
+      const focusableElements = getFocusableElements();
+      // Procura primeiro um input/textarea/select editável (ignora readonly,
+      // usados para exibição de conteúdo), senão usa o primeiro focável
+      const firstInput = focusableElements.find(el =>
+        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') &&
+        !(el as HTMLInputElement | HTMLTextAreaElement).readOnly
+      );
+
+      // Radiogroup com opção marcada: o foco inicial vai para o rádio
+      // `checked` (padrão WAI-ARIA/formulários), não para o primeiro do grupo
+      // — evita que o foco caia numa opção que não é a default (ex.: a opção
+      // destrutiva do diálogo de conflito de edição).
+      let preferredInput = firstInput;
+      if (
+        preferredInput instanceof HTMLInputElement &&
+        preferredInput.type === 'radio' &&
+        preferredInput.name &&
+        !preferredInput.checked
+      ) {
+        const groupName = preferredInput.name;
+        const checkedRadio = focusableElements.find(
+          (el): el is HTMLInputElement =>
+            el instanceof HTMLInputElement &&
+            el.type === 'radio' &&
+            el.name === groupName &&
+            el.checked
+        );
+        if (checkedRadio) preferredInput = checkedRadio;
+      }
+
+      const firstFocusable = preferredInput || focusableElements[0] || container;
+
+      firstFocusable.focus();
+    };
+
+    let secondRafId: number | undefined;
+    let verifyTimeoutId: number | undefined;
+
+    const firstRafId = requestAnimationFrame(() => {
+      secondRafId = requestAnimationFrame(() => {
+        applyFocus();
+
+        // Verificação única (~150ms depois): se algo roubou o foco logo após
+        // a abertura (ex.: efeito tardio de outro componente), reaplica uma
+        // vez. Sem polling contínuo — é um único timeout, cancelado no cleanup.
+        verifyTimeoutId = window.setTimeout(() => {
+          const container = modalRef.current;
+          if (!container || !isTopMost()) return;
+          if (container.contains(document.activeElement)) return;
+          applyFocus();
+        }, 150);
+      });
     });
-  }, [isOpen, getFocusableElements]);
+
+    return () => {
+      cancelAnimationFrame(firstRafId);
+      if (secondRafId !== undefined) cancelAnimationFrame(secondRafId);
+      if (verifyTimeoutId !== undefined) window.clearTimeout(verifyTimeoutId);
+    };
+  }, [isOpen, getFocusableElements, isTopMost, initialFocusSelector]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -183,6 +269,7 @@ export function Modal({
     const handleEscape = (e: KeyboardEvent) => {
       if (!isTopMost()) return;
       if (!allowClose) return;
+      if (e.defaultPrevented) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onClose();
@@ -240,30 +327,40 @@ export function Modal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div
-      className="modal-overlay"
-      role="dialog"
-      aria-labelledby={titleId}
-      aria-describedby={ariaDescribedBy}
-    >
-      <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
-        <div className="modal-header">
-          {allowClose && (
-            <button 
-              className="modal-close"
-              onClick={onClose}
-              aria-label={t('ui.modal.close')}
-            >
-              <CloseOutlined aria-hidden="true" />
-            </button>
-          )}
-          <h1 id={titleId} className="modal-title">{title}</h1>
-        </div>
-        <div className="modal-body">
-          {children}
+    <ModalTopmostContext.Provider value={topmostValue}>
+      <div
+        className="modal-overlay"
+        role={role}
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={ariaDescribedBy}
+      >
+        <div
+          ref={modalRef}
+          className={`modal-content ${size}${className ? ` ${className}` : ''}`}
+          tabIndex={-1}
+        >
+          <div className="modal-header">
+            {allowClose && (
+              <button 
+                className="modal-close"
+                onClick={onClose}
+                aria-label={t('ui.modal.close')}
+              >
+                <CloseOutlined aria-hidden="true" />
+              </button>
+            )}
+            <h1 id={titleId} className="modal-title">{title}</h1>
+          </div>
+          <div
+            className="modal-body"
+            role={readingMode ? 'document' : 'application'}
+          >
+            {children}
+          </div>
         </div>
       </div>
-    </div>,
+    </ModalTopmostContext.Provider>,
     document.body
   );
 }

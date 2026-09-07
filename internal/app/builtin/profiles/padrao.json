@@ -1,9 +1,8 @@
 {
-  "_builtin_version": "4.0.0",
+  "_builtin_version": "4.5.0",
   "name": "Padrão",
-  "description": "Configuração padrão.",
+  "description": "Assistente geral para pesquisar, analisar, escrever, organizar e resolver tarefas cotidianas. Use quando a solicitação combinar assuntos, não exigir trabalho predominante em código ou ainda estiver pouco definida. Não use para implementar, depurar, refatorar ou revisar software de forma substancial; nesses casos, escolha Programação. Exemplos: resumir documentos; comparar opções; redigir um e-mail; planejar uma viagem.",
   "icon": "chatbox",
-  "active": true,
   "chat": {
     "llm_provider": "$default",
     "model": "$default",
@@ -14,10 +13,23 @@
     "min_context_messages": 20,
     "top_p": 1,
     "response_timeout": 180,
-    "enabled_tools": null,
+    "tool_policy_default": "on_demand",
+    "tool_policy": {
+      "read_file": "preloaded",
+      "search_files": "preloaded",
+      "grep_search": "preloaded",
+      "web_search": "preloaded",
+      "web_fetch": "preloaded",
+      "collect_responses": "preloaded",
+      "profile": "preloaded",
+      "subagent": "preloaded",
+      "mcp/*": "on_demand",
+      "text_edit": "disabled"
+    },
     "enabled_skills": [
-      "workspace",
-      "memory"
+      "coding",
+      "job-manager",
+      "tasklist-manager"
     ]
   },
   "voice": {

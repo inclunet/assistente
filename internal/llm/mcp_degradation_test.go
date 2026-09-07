@@ -8,6 +8,34 @@ import (
 	"time"
 )
 
+func TestLooksLikeNativeMCPUnsupported(t *testing.T) {
+	supported := []string{
+		`400 unknown variant ` + "`mcp`" + `, expected ` + "`function`",
+		`Unknown variant "mcp", expected one of "function"`,
+		`tool type "mcp" is not supported by this model`,
+		`invalid tool type=mcp`,
+	}
+	for _, msg := range supported {
+		if !looksLikeNativeMCPUnsupported(msg) {
+			t.Errorf("esperava detectar não-suporte a MCP nativo em: %q", msg)
+		}
+	}
+
+	notMatched := []string{
+		"",
+		"connection refused",
+		"401 unauthorized",
+		"unknown variant `foo`, expected `bar`", // sem menção a mcp
+		"rate limit exceeded",
+		`server unhealthy: failed dependency`, // falha de server MCP, não não-suporte ao tipo
+	}
+	for _, msg := range notMatched {
+		if looksLikeNativeMCPUnsupported(msg) {
+			t.Errorf("NÃO deveria detectar não-suporte a MCP nativo em: %q", msg)
+		}
+	}
+}
+
 func TestMaxMCPDegradationRetries(t *testing.T) {
 	tests := []struct {
 		count int

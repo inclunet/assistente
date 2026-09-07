@@ -1,9 +1,9 @@
 package jobs
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -14,22 +14,35 @@ import (
 type Scheduler struct {
 	mu       sync.Mutex
 	cron     *cron.Cron
-	entries  map[string][]cron.EntryID // jobID -> lista de entry IDs
-	timers   map[string]*time.Ticker   // jobID -> ticker para interval
-	cancelFn map[string]context.CancelFunc // jobID -> cancel para goroutines de interval
+	entries  map[string][]cron.EntryID       // jobID -> lista de entry IDs
+	timers   map[string][]*time.Ticker       // jobID -> tickers para interval
+	cancelFn map[string][]context.CancelFunc // jobID -> cancels para goroutines de interval
+	pending  map[string][]pendingInterval    // jobID -> intervals aguardando Start
 	execFunc func(ctx context.Context, job *Job, trigCtx *TriggerContext)
 	started  bool
+}
+
+type pendingInterval struct {
+	jobCopy  Job
+	every    string
+	when     string
+	duration time.Duration
 }
 
 // NewScheduler cria um scheduler com a funcao de execucao fornecida.
 func NewScheduler(execFunc func(ctx context.Context, job *Job, trigCtx *TriggerContext)) *Scheduler {
 	return &Scheduler{
-		cron:     cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		cron:     newJobCron(),
 		entries:  make(map[string][]cron.EntryID),
-		timers:   make(map[string]*time.Ticker),
-		cancelFn: make(map[string]context.CancelFunc),
+		timers:   make(map[string][]*time.Ticker),
+		cancelFn: make(map[string][]context.CancelFunc),
+		pending:  make(map[string][]pendingInterval),
 		execFunc: execFunc,
 	}
+}
+
+func newJobCron() *cron.Cron {
+	return cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)))
 }
 
 // Schedule registra os triggers temporais de um job.
@@ -78,7 +91,15 @@ func (s *Scheduler) Start() {
 
 	s.cron.Start()
 	s.started = true
-	log.Printf("[Jobs] Scheduler started")
+
+	// Inicia intervals pendentes (Schedule pode ter sido chamado antes de Start)
+	for jobID, specs := range s.pending {
+		for _, spec := range specs {
+			s.startIntervalLocked(jobID, &spec.jobCopy, spec.every, spec.when, spec.duration)
+		}
+		delete(s.pending, jobID)
+	}
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduler started")
 }
 
 // Stop para o scheduler e cancela todos os timers.
@@ -86,25 +107,32 @@ func (s *Scheduler) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.started {
-		return
+	if s.started {
+		ctx := s.cron.Stop()
+		<-ctx.Done()
 	}
 
-	ctx := s.cron.Stop()
-	<-ctx.Done()
-
-	for id, cancel := range s.cancelFn {
-		cancel()
+	for id, cancels := range s.cancelFn {
+		for _, cancel := range cancels {
+			cancel()
+		}
 		delete(s.cancelFn, id)
 	}
 
-	for id, ticker := range s.timers {
-		ticker.Stop()
+	for id, tickers := range s.timers {
+		for _, ticker := range tickers {
+			ticker.Stop()
+		}
 		delete(s.timers, id)
 	}
 
+	// Limpa intervals pendentes que nunca chegaram a iniciar
+	s.pending = make(map[string][]pendingInterval)
+	s.cron = newJobCron()
+	s.entries = make(map[string][]cron.EntryID)
+
 	s.started = false
-	log.Printf("[Jobs] Scheduler stopped")
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduler stopped")
 }
 
 // Reschedule atualiza os triggers de um job (remove e re-adiciona).
@@ -118,7 +146,9 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 		if s.execFunc != nil {
 			ctx := context.Background()
 			s.safeExec(ctx, &jobCopy, &TriggerContext{
-				Type: TriggerCron,
+				Type:       TriggerCron,
+				Expression: t.Expression,
+				When:       t.When,
 			})
 		}
 	})
@@ -127,7 +157,7 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 	}
 
 	s.entries[job.ID] = append(s.entries[job.ID], entryID)
-	log.Printf("[Jobs] Scheduled cron for %s: %s", job.ID, t.Expression)
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduled cron for %s: %s", job.ID, t.Expression)
 	return nil
 }
 
@@ -137,11 +167,25 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 		return err
 	}
 
+	jobCopy := *job
+	if !s.started {
+		s.pending[job.ID] = append(s.pending[job.ID], pendingInterval{jobCopy: jobCopy, every: t.Every, when: t.When, duration: duration})
+		logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduled interval pending for %s: every %s", job.ID, t.Every)
+		return nil
+	}
+
+	s.startIntervalLocked(job.ID, &jobCopy, t.Every, t.When, duration)
+
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduled interval for %s: every %s", job.ID, t.Every)
+	return nil
+}
+
+func (s *Scheduler) startIntervalLocked(jobID string, job *Job, every string, when string, duration time.Duration) {
 	ticker := time.NewTicker(duration)
-	s.timers[job.ID] = ticker
+	s.timers[jobID] = append(s.timers[jobID], ticker)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	s.cancelFn[job.ID] = cancel
+	s.cancelFn[jobID] = append(s.cancelFn[jobID], cancel)
 
 	jobCopy := *job
 	go func() {
@@ -152,15 +196,14 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 			case <-ticker.C:
 				if s.execFunc != nil {
 					s.safeExec(ctx, &jobCopy, &TriggerContext{
-						Type: TriggerInterval,
+						Type:  TriggerInterval,
+						Every: every,
+						When:  when,
 					})
 				}
 			}
 		}
 	}()
-
-	log.Printf("[Jobs] Scheduled interval for %s: every %s", job.ID, t.Every)
-	return nil
 }
 
 // safeExec executa execFunc com recover para evitar que um panic mate a goroutine
@@ -168,7 +211,7 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 func (s *Scheduler) safeExec(ctx context.Context, job *Job, trigCtx *TriggerContext) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Jobs] PANIC recovered in interval execution for %q: %v", job.ID, r)
+			logging.Errorf(ctx, "jobs.scheduler", "[Jobs] PANIC recovered in interval execution for %q: %v", job.ID, r)
 		}
 	}()
 	s.execFunc(ctx, job, trigCtx)
@@ -182,14 +225,19 @@ func (s *Scheduler) removeJobLocked(jobID string) {
 	delete(s.entries, jobID)
 
 	// Remove interval timer
-	if cancel, ok := s.cancelFn[jobID]; ok {
-		cancel()
+	if cancels, ok := s.cancelFn[jobID]; ok {
+		for _, cancel := range cancels {
+			cancel()
+		}
 		delete(s.cancelFn, jobID)
 	}
-	if ticker, ok := s.timers[jobID]; ok {
-		ticker.Stop()
+	if tickers, ok := s.timers[jobID]; ok {
+		for _, ticker := range tickers {
+			ticker.Stop()
+		}
 		delete(s.timers, jobID)
 	}
+	delete(s.pending, jobID)
 }
 
 // ScheduledJobs retorna os IDs dos jobs com schedule ativo.

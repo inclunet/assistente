@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -14,6 +15,7 @@ import { playBumpSound } from '../../services/audioFeedback';
 import { Tabs, TabList, Tab } from '../ui/tabs';
 import { ContextMenu } from '../menu';
 import type { MenuItem } from '../menu';
+import { WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT } from './workspaceFocusEvents';
 import './WorkspaceTabList.css';
 
 const TAB_TYPE_ICONS: Record<TabType, ReactNode> = {
@@ -49,6 +51,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
     const activeElement = document.activeElement as HTMLElement | null;
     if (activeElement?.closest?.('button[role="tab"]')) {
       pendingFocusTabIdRef.current = tabId;
+      window.dispatchEvent(new CustomEvent(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, { detail: { tabId } }));
     }
     void setActiveTab(tabId);
   }, [setActiveTab]);
@@ -102,7 +105,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
       try {
         renameTabContent(tabIdToRename, trimmedTitle);
       } catch (error) {
-        console.error('[WorkspaceTabList] Rename tab content error:', error);
+        logger.error('[WorkspaceTabList] Rename tab content error:', error);
       }
     }
 
@@ -168,7 +171,18 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
 
   const handleListKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (editingTabId) return;
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented) {
+      const tabNavigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+      if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && tabNavigationKeys.includes(e.key)) {
+        const selected = tabListRef.current?.querySelector('button[role="tab"][aria-selected="true"]') as HTMLButtonElement | null;
+        const selectedTabId = selected?.getAttribute('data-tab-value');
+        if (selectedTabId) {
+          pendingFocusTabIdRef.current = selectedTabId;
+          window.dispatchEvent(new CustomEvent(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, { detail: { tabId: selectedTabId } }));
+        }
+      }
+      return;
+    }
 
     const focused = tabListRef.current?.querySelector('button[role="tab"]:focus') as HTMLButtonElement | null;
     const tabId = focused?.getAttribute('data-tab-value');
@@ -203,7 +217,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
       [ids[idx], ids[targetIdx]] = [ids[targetIdx], ids[idx]];
       void reorderTabs(ids);
       const pos = targetIdx + 1;
-      announce(`${tabs[idx].title} movida para posição ${pos} de ${tabs.length}`);
+      announce(t('workspace.announce.tabMovedToPosition', { title: tabs[idx].title, position: pos, total: tabs.length }));
 
       // Re-foca a aba movida após o re-render
       requestAnimationFrame(() => {
@@ -213,7 +227,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
         btn?.focus();
       });
     }
-  }, [editingTabId, tabs, startEditing, reorderTabs, announce]);
+  }, [editingTabId, tabs, startEditing, reorderTabs, announce, t]);
 
   const handleActivate = useCallback(() => {
     return !!editingTabId;
@@ -265,9 +279,9 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
           action: async () => {
             try {
               await moveTabToWorkspace(tabId, ws.id);
-              announce(`${tab.title} movida para ${ws.name}`);
+              announce(t('workspace.announce.tabMovedToWorkspace', { title: tab.title, workspace: ws.name }));
             } catch (error) {
-              console.error('[WorkspaceTabList] Move tab error:', error);
+              logger.error('[WorkspaceTabList] Move tab error:', error);
             }
           },
         })),
@@ -318,9 +332,9 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
 
     const tab = tabs.find(t => t.id === dragTabId);
     if (tab) {
-      announce(`${tab.title} movida para posição ${toIdx + 1} de ${tabs.length}`);
+      announce(t('workspace.announce.tabMovedToPosition', { title: tab.title, position: toIdx + 1, total: tabs.length }));
     }
-  }, [dragTabId, tabs, reorderTabs, announce]);
+  }, [dragTabId, tabs, reorderTabs, announce, t]);
 
   const renderTab = (tab: WorkspaceTab) => {
     const isActive = tab.id === activeTabId;

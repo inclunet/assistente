@@ -31,6 +31,34 @@
   padding: 4px;
 }
 
+/*
+ * Com skills do app e comandos do agente na mesma lista há mais de um grupo, e
+ * aí quem rola é o menu inteiro: uma área de rolagem por grupo esconderia o
+ * segundo atrás do primeiro, e quem chega nele pela seta não veria o item
+ * selecionado. O rótulo do grupo fica grudado no topo enquanto ele rola, para
+ * que a origem do item continue visível.
+ */
+.slash-menu {
+  overflow-y: auto;
+}
+
+.slash-menu__group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.slash-menu__group .slash-menu__list {
+  overflow-y: visible;
+}
+
+.slash-menu__group .slash-menu__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+}
+
 .slash-menu__item {
   display: flex;
   flex-direction: column;
