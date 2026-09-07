@@ -403,14 +403,14 @@ func writeMigratedEditorFileIfAbsent(paths editorUserPaths, destination string, 
 	}
 	file, err := os.OpenFile(resolved, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if os.IsExist(err) {
-		expected, statErr := os.Lstat(destination)
+		expected, statErr := os.Lstat(resolved)
 		if statErr != nil {
 			return statErr
 		}
 		if expected.Mode()&os.ModeSymlink != 0 || !expected.Mode().IsRegular() {
 			return fmt.Errorf("destino migrado não é arquivo regular")
 		}
-		existing, openErr := os.OpenFile(destination, os.O_RDONLY, 0)
+		existing, openErr := os.OpenFile(resolved, os.O_RDONLY, 0)
 		if openErr != nil {
 			return openErr
 		}
