@@ -161,6 +161,19 @@ func Init() error {
 	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
 		return fmt.Errorf("erro nas migrações pós-AutoMigrate: %w", err)
 	}
+	if diagnostic, err := GetUpgradeDiagnostic(); err != nil {
+		logging.Warnf(context.Background(), "database.upgrade-diagnostic", "falha ao inspecionar migrações: %v", err)
+	} else {
+		logging.Infof(
+			context.Background(),
+			"database.upgrade-diagnostic",
+			"schema=%d latest=%d applied=%d pending=%v",
+			diagnostic.SchemaVersion,
+			diagnostic.LatestVersion,
+			diagnostic.AppliedCount,
+			diagnostic.PendingVersions,
+		)
+	}
 
 	// Inicializa FTS5 (full-text search) para busca em mensagens
 	if err := initFTS5(); err != nil {

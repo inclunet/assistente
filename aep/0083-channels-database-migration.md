@@ -104,6 +104,19 @@ Adotar rows DB com `user_id` vazio (runtime só DB). Idempotente: não sobrescre
 - Sem linhas placeholder Telegram/Signal/Slack sempre visíveis
 - i18n nos 3 locales para strings novas
 
+### D9 — Retenção permanente para upgrade direto
+
+O import read-only de `channels/*.json` e `contacts.json` faz parte da política
+de upgrade direto desde qualquer release publicada. Não há release
+intermediária obrigatória nem prazo automático para remover o importador.
+
+O caminho só pode ser substituído por outro que aceite os mesmos arquivos e
+tenha fixtures equivalentes. A limpeza continua exclusivamente opt-in, depois
+da confirmação da importação, com dry-run e backup. Telemetria local pode
+registrar apenas contagens agregadas de importados, existentes, falhas e
+avisos; nomes de contato, IDs externos, caminhos e tokens não podem entrar no
+diagnóstico de compatibilidade.
+
 ## Fases
 
 Todas as fases abaixo foram entregues no PR #400:
@@ -115,6 +128,8 @@ Todas as fases abaixo foram entregues no PR #400:
 5. ✅ **Import legado + boot** — registrar importer; chamar `UseDatabase` após Init.
 6. ✅ **UI** — ChannelsPage sem placeholders; testes Vitest.
 7. ✅ **Testes Go** — map, import idempotente, Save/Load DB.
+8. ✅ **Política de upgrade** — importador retido para todas as releases,
+   matriz de call sites e diagnóstico agregado sem PII.
 
 ## Riscos
 
@@ -125,6 +140,7 @@ Todas as fases abaixo foram entregues no PR #400:
 | Gateway chama `Load` sem ctx de user | Heurística “exatamente um enabled por slug” + owner conhecido |
 | Contatos órfãos (canal ainda não importado) | Import de contacts após channels no mesmo importer; warnings se canal ausente |
 | `ReplyChatIDs` fora do desenho de colunas | Persistidos em `Settings` JSON |
+| Remoção baseada apenas na idade do JSON | Proibida pela política universal; exige substituto com fixtures |
 
 ## Critérios de aceitação
 
@@ -136,6 +152,8 @@ Todas as fases abaixo foram entregues no PR #400:
 - [x] ChannelsPage: grid vazio sem canais; Novo cria e abre editor; sem placeholders fixos
 - [x] Testes unitários (map, import, Save/Load) e Vitest (grid vazio / após create)
 - [x] Pattern futuro `channel:{slug}:app` documentado (ClientID+ClientSecret)
+- [x] Upgrade direto desde qualquer versão publicada não depende de versão intermediária
+- [x] Import e cleanup não expõem tokens ou identificadores no diagnóstico local
 
 ## Smoke (pós-merge)
 

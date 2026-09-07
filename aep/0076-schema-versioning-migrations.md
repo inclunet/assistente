@@ -84,12 +84,33 @@ As demais migrações (v2–v9) são **idempotentes e baratas** (índices `IF NO
 
 `AutoMigrate` não é removido nem versionado. Ele continua sendo a forma idiomática (GORM) de adicionar colunas e tabelas novas a partir dos models. Apenas **mudanças estruturais** (conversões de tipo, índices custom, normalizações de dados legados) passam pelo mecanismo versionado.
 
+### D6 — Compatibilidade universal entre releases
+
+É suportado o upgrade direto de **toda versão publicada** para a versão atual,
+sem instalação intermediária. Portanto:
+
+- uma migração publicada nunca é renumerada, reutilizada ou removida;
+- `AutoMigrate` e as fases pré/pós devem aceitar o estado de qualquer tag;
+- caminhos pré-versionamento, inclusive PKs `INTEGER`, continuam detectáveis;
+- toda nova release entra na matriz
+  `docs/operations/upgrade-compatibility-matrix.md`;
+- alteração de schema exige fixture sintética sem PII ou issue específica que
+  documente a lacuna; uma lacuna de fixture não autoriza remover o caminho.
+
+`UpgradeDiagnostic`, emitido localmente após as migrações, registra somente
+versão do schema, versão mais recente, quantidade aplicada e números pendentes.
+Ele não inclui caminhos, IDs, conteúdo ou credenciais.
+
 ## Fases (de implementação)
 
 1. **Mecanismo**: `migrator.go` com `migration`, `schemaMigrations`, `runMigrations`/`runMigrationList`, `ensureSchemaMigrationsTable`, `appliedMigrationVersions`, `recordMigration`, `syncUserVersion`.
 2. **Migração das custom existentes**: encapsular as funções já existentes (mantidas intactas) como entradas v1..v9, preservando ordem e fases.
 3. **Refatorar `Init()`**: substituir as chamadas diretas por `runMigrations(db, phasePreAutoMigrate)` (antes do `AutoMigrate`) e `runMigrations(db, phasePostAutoMigrate)` (depois).
 4. **Testes**: aplicação ordenada, idempotência, filtragem por fase, `DetectApplied` (carimba sem rodar), parada em erro, consistência do registro, detector UUIDv7 e integração do registro real (fresh DB + segundo boot no-op).
+5. **Compatibilidade publicada**: fixture 0.1.9 atravessa diretamente todo o
+   pipeline até a versão atual; releases 0.2.0–0.5.0 compartilham o prefixo
+   versionado v1–v12 e permanecem cobertas pelo registry. Dumps completos por
+   release são follow-ups rastreados, não cobertura presumida.
 
 ## Riscos
 
@@ -97,6 +118,9 @@ As demais migrações (v2–v9) são **idempotentes e baratas** (índices `IF NO
 - **Banco legado em INTEGER aberto pela primeira vez**: `DetectApplied` da v1 retorna `false` e a conversão real roda — comportamento idêntico ao anterior, agora registrado ao final.
 - **Edição incorreta da lista** (versão duplicada/fora de ordem): guardado por teste de consistência do registro.
 - **Espelho `user_version` divergir da tabela**: `user_version` é apenas informativo; nenhuma lógica depende dele como fonte de verdade.
+- **Fixture parcial parecer cobertura integral**: a matriz declara recursos e
+  relações exercitados. Caminhos não representados permanecem retidos e viram
+  lacunas rastreadas.
 
 ## Critérios de aceitação
 
@@ -105,4 +129,7 @@ As demais migrações (v2–v9) são **idempotentes e baratas** (índices `IF NO
 - [x] Bancos já migrados **não** reexecutam a conversão UUIDv7 (marcada via `DetectApplied`).
 - [x] `AutoMigrate` mantido para adição de colunas.
 - [x] Testes: ordem, idempotência, fase, `DetectApplied`, parada em erro, registro real (fresh DB + segundo boot no-op).
+- [x] Política de upgrade direto universal documentada e diagnóstico local sem PII.
+- [x] Fixture 0.1.9 exercita upgrade direto com preservação de conversa,
+  mensagens e hierarquia.
 - [x] `go build`, `go vet`, `go test`, `golangci-lint` verdes.

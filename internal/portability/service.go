@@ -1351,6 +1351,9 @@ func credentialConflictIdentifier(cred CredentialExport) string {
 
 func parseExportFile(jsonData string) (*ExportFile, []string, error) {
 	rawData := []byte(jsonData)
+	if legacy, matched, err := parseLegacyConversationsExport(rawData); matched {
+		return legacy, nil, err
+	}
 	var envelope struct {
 		Resources map[string]json.RawMessage `json:"resources"`
 		Version   int                        `json:"version"`
