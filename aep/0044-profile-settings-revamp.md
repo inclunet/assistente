@@ -6,69 +6,69 @@ Autor: Leonardo Gleison Ferreira (Leo) / Assistente
 Data: 2026-04-01
 
 Resumo executivo
-- Objetivo: Refatorar a p├ígina de configura├º├Áes de perfil para um layout em paineis/abas, usando os componentes padronizados do design system existentes. Separar e organizar configura├º├Áes em guias coesas (Geral, Modelos, Skills, Tools, Voz, Acessibilidade, Avan├ºado). Manter visual e componentes j├í existentes; adicionar apenas componentes novos quando estritamente necess├írio.
+- Objetivo: Refatorar a página de configurações de perfil para um layout em paineis/abas, usando os componentes padronizados do design system existentes. Separar e organizar configurações em guias coesas (Geral, Modelos, Skills, Tools, Voz, Acessibilidade, Avançado). Manter visual e componentes já existentes; adicionar apenas componentes novos quando estritamente necessário.
 
-Motiva├º├úo / Problema atual
-- A p├ígina atual de perfil ├® muito densa e cresce rapidamente conforme TTS/STT e outras op├º├Áes s├úo adicionadas ÔÇö isso dificulta descoberta, manuten├º├úo e acessibilidade.
-- Evoluir a tela para paineis/abas melhora escalabilidade, permite lazy-load e deep-linking, reduz carga cognitiva e facilita QA por ├írea.
+Motivação / Problema atual
+- A página atual de perfil é muito densa e cresce rapidamente conforme TTS/STT e outras opções são adicionadas — isso dificulta descoberta, manutenção e acessibilidade.
+- Evoluir a tela para paineis/abas melhora escalabilidade, permite lazy-load e deep-linking, reduz carga cognitiva e facilita QA por área.
 
 Objetivos
-- Substituir a tela monol├¡tica por um container com abas (tabbed panels) que respeite o design system.
-- Incluir guias iniciais: Geral, Modelos, Skills, Tools, Voz, Acessibilidade, Avan├ºado.
-- Bot├Áes globais compartilhados (Ativar / Remover / Salvar / Cancelar) vis├¡veis e consistentes em todas as abas.
-- Implementar navega├º├úo por teclado e ARIA roles conformes para tabs + pain├®is.
-- Permitir deep-link para abrir uma aba espec├¡fica (?tab=voice) e lazy-load dos conte├║dos das abas.
+- Substituir a tela monolítica por um container com abas (tabbed panels) que respeite o design system.
+- Incluir guias iniciais: Geral, Modelos, Skills, Tools, Voz, Acessibilidade, Avançado.
+- Botões globais compartilhados (Ativar / Remover / Salvar / Cancelar) visíveis e consistentes em todas as abas.
+- Implementar navegação por teclado e ARIA roles conformes para tabs + painéis.
+- Permitir deep-link para abrir uma aba específica (?tab=voice) e lazy-load dos conteúdos das abas.
 
 Non-goals
-- Redesenhar os componentes padr├úo do design system.
-- Alterar comportamento de backend (exceto endpoints necess├írios para salvar configura├º├Áes j├í existentes).
+- Redesenhar os componentes padrão do design system.
+- Alterar comportamento de backend (exceto endpoints necessários para salvar configurações já existentes).
 
-Guia de conte├║do / tabs propostas
+Guia de conteúdo / tabs propostas
 1. Geral
    - Nome do perfil
-   - Descri├º├úo curta
+   - Descrição curta
    - Imagem/avatar do perfil (upload/preview)
    - Status: Ativo / Inativo
-   - A├º├Áes: Ativar / Desativar / Remover (com confirma├º├úo)
+   - Ações: Ativar / Desativar / Remover (com confirmação)
 2. Modelos
-   - Sele├º├úo de modelo LLM (dropdown)
+   - Seleção de modelo LLM (dropdown)
    - Temperatura, top_p, max_tokens per request (sliders/inputs)
    - Quantidade de mensagens mantidas no contexto (history depth)
-   - Limite/monitoramento de tokens por conversa (se aplic├ível)
-   - Configura├º├Áes avan├ºadas de rate-limit / fallback model
+   - Limite/monitoramento de tokens por conversa (se aplicável)
+   - Configurações avançadas de rate-limit / fallback model
 3. Skills
    - Lista de skills habilitadas para esse perfil (toggle per skill)
-   - Bot├úo Gerenciar/Adicionar skill (abre modal ou navega para gerenciador de skills)
-   - Ordena├º├úo e prioridade de skills
+   - Botão Gerenciar/Adicionar skill (abre modal ou navega para gerenciador de skills)
+   - Ordenação e prioridade de skills
 4. Tools
    - Lista de tools vinculadas ao perfil (habilitar/desabilitar)
-   - Configura├º├Áes espec├¡ficas por tool (link para modal de config)
+   - Configurações específicas por tool (link para modal de config)
 5. Voz (TTS & STT)
    - Reusar VoicePicker, STTProviderPicker
-   - Link para AEP 0001 (voices extension) para detalhes de modelagem e migra├º├úo
-   - Preview de voz, checkbox "usar mesma voz para assistente e usu├írio"
-   - Microphone test widget (gravar 3ÔÇô5s com transcri├º├úo -- se j├í houver componente, reusar)
+   - Link para AEP 0001 (voices extension) para detalhes de modelagem e migração
+   - Preview de voz, checkbox "usar mesma voz para assistente e usuário"
+   - Microphone test widget (gravar 3–5s com transcrição -- se já houver componente, reusar)
 6. Acessibilidade
    - Atalhos de teclado do perfil
-   - Prefer├¬ncias de leitura (auto-read, pause on focus)
-   - Configura├º├Áes de aria-live / announcer se houver necessidades espec├¡ficas
-7. Avan├ºado
+   - Preferências de leitura (auto-read, pause on focus)
+   - Configurações de aria-live / announcer se houver necessidades específicas
+7. Avançado
    - Chaves de provedores (links para key-protection flow)
-   - Op├º├Áes de debug / logs / exportar configura├º├úo
+   - Opções de debug / logs / exportar configuração
 
-Design system e reuso de componentes (obrigat├│rio)
-- Reusar integralmente os componentes existentes sempre que poss├¡vel:
-  - Pain├®is / Tabs padronizados do design system (TabList, Tab, TabPanel) ÔÇö N├âO reimplementar se j├í houver.
+Design system e reuso de componentes (obrigatório)
+- Reusar integralmente os componentes existentes sempre que possível:
+  - Painéis / Tabs padronizados do design system (TabList, Tab, TabPanel) — NÃO reimplementar se já houver.
   - FormLayout, Field, Label, Input, Textarea, Button, IconButton, Modal, Toast, ConfirmDialog.
   - VoicePicker (frontend/src/components/pickers/VoicePicker.tsx)
   - STTProviderPicker (frontend/src/components/pickers/STTProviderPicker.tsx)
-  - RangeSlider e componentes de input j├í existentes.
+  - RangeSlider e componentes de input já existentes.
   - useAnnouncer / ScreenReaderAnnouncer para mensagens de acessibilidade.
-- Novo(s) componente(s) s├│ se necess├írio:
-  - MicrophoneTest widget (se inexistente): grava├º├úo curta + transcri├º├úo + aria-live
-  - Wrapper para bot├Áes globais compartilhados na ├írea de a├º├úo (ActionBar) se ainda n├úo houver um padr├úo.
+- Novo(s) componente(s) só se necessário:
+  - MicrophoneTest widget (se inexistente): gravação curta + transcrição + aria-live
+  - Wrapper para botões globais compartilhados na área de ação (ActionBar) se ainda não houver um padrão.
 
-Estrutura de c├│digo proposta (arquivos a criar/alterar)
+Estrutura de código proposta (arquivos a criar/alterar)
 - frontend/src/components/profiles/ProfileSettingsPage.tsx (novo, container com TabList)
 - frontend/src/components/profiles/tabs/ProfileGeneralTab.tsx (mover/portar campos)
 - frontend/src/components/profiles/tabs/ProfileModelsTab.tsx
@@ -77,17 +77,17 @@ Estrutura de c├│digo proposta (arquivos a criar/alterar)
 - frontend/src/components/profiles/tabs/ProfileVoiceTab.tsx (integra com AEP 0001)
 - frontend/src/components/profiles/tabs/ProfileAccessibilityTab.tsx
 - frontend/src/components/profiles/tabs/ProfileAdvancedTab.tsx
-- frontend/src/components/ui/ActionBar.tsx (se n├úo existir: bot├Áes Salvar/Cancelar/Ativar/Remover; deve seguir o design system)
+- frontend/src/components/ui/ActionBar.tsx (se não existir: botões Salvar/Cancelar/Ativar/Remover; deve seguir o design system)
 - Atualizar frontend/src/stores/uiStore.ts ou settingsStore.ts para suportar aba ativa e unsaved state (opcional)
 
-API / Persist├¬ncia
-- Reusar endpoints existentes de profile GET/PUT. N├úo introduzir schema breaking changes nesta AEP.
-- Se a modelagem de TTS/STT muda (AEP 0001), adaptar ProfileVoiceTab para usar os novos campos; manter backward-compat read-path at├® a migra├º├úo ser executada.
+API / Persistência
+- Reusar endpoints existentes de profile GET/PUT. Não introduzir schema breaking changes nesta AEP.
+- Se a modelagem de TTS/STT muda (AEP 0001), adaptar ProfileVoiceTab para usar os novos campos; manter backward-compat read-path até a migração ser executada.
 
 Acessibilidade e teclado
 - Usar roles ARIA (tablist / tab / tabpanel). Implementar roving tabindex e keyboard navigation (Left/Right/Home/End), Enter/Space para ativar.
-- Anunciar barra de tabs e a ativa├º├úo da aba via useAnnouncer: "Aba Voz ativada".
-- Garantir foco l├│gico ao salvar/fechar/confirmar remo├º├úo.
+- Anunciar barra de tabs e a ativação da aba via useAnnouncer: "Aba Voz ativada".
+- Garantir foco lógico ao salvar/fechar/confirmar remoção.
 
 Deep-linking e lazy-load
 - Suportar query param: /profiles/{id}?tab=models
@@ -95,37 +95,37 @@ Deep-linking e lazy-load
 
 QA / Testes
 - Unit: TabList behavior, ActionBar, components migrating from old page
-- Integration/E2E: Navega├º├úo entre abas, deep-link, salvar profile em cada aba, preview de voz (se aplic├ível), microfone test
+- Integration/E2E: Navegação entre abas, deep-link, salvar profile em cada aba, preview de voz (se aplicável), microfone test
 - A11y: testar com NVDA/VoiceOver e teclado apenas
-- Manual: conservar visual, verificar grid/layout responsivo, confirmar confirma├º├úo de remo├º├úo
+- Manual: conservar visual, verificar grid/layout responsivo, confirmar confirmação de remoção
 
 Rollback e Feature Flag
-- Implementar atr├ís de feature flag profile_tabs_v1
-- Compatibilidade: manter a rota antiga dispon├¡vel at├® rollout completo
-- Observabilidade: telemetria para erros de salvamento, tempo m├®dio de perman├¬ncia por aba, a├º├Áes de remo├º├úo
+- Implementar atrás de feature flag profile_tabs_v1
+- Compatibilidade: manter a rota antiga disponível até rollout completo
+- Observabilidade: telemetria para erros de salvamento, tempo médio de permanência por aba, ações de remoção
 
-Crit├®rios de aceita├º├úo
-- A nova p├ígina exibe as abas com conte├║do correto e mant├®m o visual do app
-- Navega├º├úo por teclado funciona conforme especificado
+Critérios de aceitação
+- A nova página exibe as abas com conteúdo correto e mantém o visual do app
+- Navegação por teclado funciona conforme especificado
 - Deep-link abre a aba correta
-- Salvar/Cancelar/Ativar/Remover funcionam em todas as abas sem regress├úo
+- Salvar/Cancelar/Ativar/Remover funcionam em todas as abas sem regressão
 - Tests automatizados cobrindo fluxos principais
 
-Estimativa (r├ípida)
-- Implementa├º├úo inicial (refactor + tabs + mover se├º├Áes): 3ÔÇô5 dias
-- QA e accessibility review: 1ÔÇô2 dias
-- Ajustes + rollout beta: 1ÔÇô2 dias
+Estimativa (rápida)
+- Implementação inicial (refactor + tabs + mover seções): 3–5 dias
+- QA e accessibility review: 1–2 dias
+- Ajustes + rollout beta: 1–2 dias
 
-Pr├│ximos passos sugeridos
-1. Confirmar numbering do AEP (0002 est├í ok?).
-2. Aprovar conte├║do e n├¡vel de detalhe do AEP.
-3. Eu gero o arquivo .md final (j├í criei este rascunho) e posso preparar um patch inicial que cria o ProfileSettingsPage e move as se├º├Áes para as tabs (sem alterar persist├¬ncia/DB), reusando componentes do design system.
+Próximos passos sugeridos
+1. Confirmar numbering do AEP (0002 está ok?).
+2. Aprovar conteúdo e nível de detalhe do AEP.
+3. Eu gero o arquivo .md final (já criei este rascunho) e posso preparar um patch inicial que cria o ProfileSettingsPage e move as seções para as tabs (sem alterar persistência/DB), reusando componentes do design system.
 
-Anexos / Links ├║teis
+Anexos / Links úteis
 - AEP 0043: ./aep/0043-tts-stt-voices.md (voices extension — complementar à aba Voz)
 
 ---
 
-Notas r├ípidas:
-- Mantive a instru├º├úo de reusar tudo do design system e s├│ adicionar o m├¡nimo necess├írio (ActionBar, MicrophoneTest se ausente).
-- Bot├Áes compartilhados (Ativar / Remover / Salvar / Cancelar) devem ficar num ActionBar fixo na parte inferior do container da p├ígina ou no header da p├ígina de perfil, dependendo do padr├úo visual do sistema.
+Notas rápidas:
+- Mantive a instrução de reusar tudo do design system e só adicionar o mínimo necessário (ActionBar, MicrophoneTest se ausente).
+- Botões compartilhados (Ativar / Remover / Salvar / Cancelar) devem ficar num ActionBar fixo na parte inferior do container da página ou no header da página de perfil, dependendo do padrão visual do sistema.
