@@ -1,9 +1,13 @@
 # AEP-0054 — Separação Servidor/Clientes e Execução Local
 
-**Status**: 📝 Draft  
-**Criado em**: 2026-04-29  
-**Revisado em**: 2026-09-07  
-**Depende de**: AEP-0040 (Backend-Driven Messaging), AEP-0052 (Contas de Usuário), AEP-0076 (Schema e Migrações)  
+**Status**: 📝 Draft
+
+**Criado em**: 2026-04-29
+
+**Revisado em**: 2026-09-07
+
+**Depende de**: AEP-0040 (Backend-Driven Messaging), AEP-0052 (Contas de Usuário), AEP-0076 (Schema e Migrações)
+
 **Relacionado**: AEP-0042 e AEP-0080 (Surface Context), AEP-0056 (Abas Autocontidas), AEP-0082 e AEP-0092 (Trust/Allowlists), AEP-0084 e AEP-0086 (Providers ACP), AEP-0088 (Borda Wails)
 
 ---
