@@ -1240,6 +1240,86 @@ func TestEditorLegacyMigrationRecoversIncompleteCopy(t *testing.T) {
 	}
 }
 
+func TestEditorLegacyDatabaseMigrationRecoversIncompleteCopy(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	legacyDB, err := gorm.Open(sqlitegorm.Open(filepath.Join(tempDir, "editor-0.1.9.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.Exec(`
+		CREATE TABLE editor_session_states (id TEXT PRIMARY KEY, json TEXT);
+		CREATE TABLE editor_documents (id TEXT PRIMARY KEY, markdown TEXT);
+		INSERT INTO editor_session_states (id, json)
+		VALUES ('default', '{"fileModeByPath":{"recuperado.md":"rich"}}');
+		INSERT INTO editor_documents (id, markdown)
+		VALUES ('recuperado', 'conteúdo completo do banco');
+	`).Error; err != nil {
+		t.Fatal(err)
+	}
+	previousDB := database.DB()
+	database.SetDB(legacyDB)
+	t.Cleanup(func() {
+		sqlDB, _ := legacyDB.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+		database.SetDB(previousDB)
+	})
+
+	userID := "01991f7c-1000-7000-8000-00000000003b"
+	paths, err := editorPathsForUser(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(legacyEditorDir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := createJSONPrivateAtomic(editorMigrationClaimPath(), editorMigrationClaim{
+		Version:   editorMigrationVersion,
+		UserID:    userID,
+		ClaimedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.draftDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.state, []byte(`{"fileModeByPath":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	draftPath := filepath.Join(paths.draftDir, "recuperado.md")
+	if err := os.WriteFile(draftPath, []byte("parcial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	api := attachEditorForUser(userID)
+	state, err := api.EditorLoadState()
+	if err != nil || state.FileModeByPath["recuperado.md"] != "rich" {
+		t.Fatalf("retomada não reparou estado do banco: %+v, %v", state, err)
+	}
+	if got, err := api.EditorReadDraft("recuperado"); err != nil || got != "conteúdo completo do banco" {
+		t.Fatalf("retomada não reparou draft do banco: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.root, ".legacy-migration-v1-complete")); err != nil {
+		t.Fatalf("retomada não concluiu migração do banco: %v", err)
+	}
+
+	if err := api.EditorWriteDraft("recuperado", "edição posterior"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.EditorLoadState(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := api.EditorReadDraft("recuperado"); err != nil || got != "edição posterior" {
+		t.Fatalf("migração concluída sobrescreveu edição: %q, %v", got, err)
+	}
+}
+
 func TestEditorLegacyMigrationIgnoresPartialClaimTemporaryFile(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("HOME", tempDir)

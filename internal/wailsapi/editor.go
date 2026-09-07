@@ -393,7 +393,7 @@ func copyLegacyEditorFile(source, destination string, overwriteIncomplete bool) 
 	return nil
 }
 
-func writeMigratedEditorFileIfAbsent(paths editorUserPaths, destination string, content []byte) error {
+func writeMigratedEditorFile(paths editorUserPaths, destination string, content []byte, overwriteIncomplete bool) error {
 	editorPrivateFileMu.Lock()
 	defer editorPrivateFileMu.Unlock()
 
@@ -402,6 +402,7 @@ func writeMigratedEditorFileIfAbsent(paths editorUserPaths, destination string, 
 		return err
 	}
 	file, err := os.OpenFile(resolved, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	created := err == nil
 	if os.IsExist(err) {
 		expected, statErr := os.Lstat(resolved)
 		if statErr != nil {
@@ -410,7 +411,11 @@ func writeMigratedEditorFileIfAbsent(paths editorUserPaths, destination string, 
 		if expected.Mode()&os.ModeSymlink != 0 || !expected.Mode().IsRegular() {
 			return fmt.Errorf("destino migrado não é arquivo regular")
 		}
-		existing, openErr := os.OpenFile(resolved, os.O_RDONLY, 0)
+		openFlags := os.O_RDONLY
+		if overwriteIncomplete {
+			openFlags = os.O_RDWR
+		}
+		existing, openErr := os.OpenFile(resolved, openFlags, 0)
 		if openErr != nil {
 			return openErr
 		}
@@ -423,7 +428,19 @@ func writeMigratedEditorFileIfAbsent(paths editorUserPaths, destination string, 
 			_ = existing.Close()
 			return chmodErr
 		}
-		return existing.Close()
+		if !overwriteIncomplete {
+			return existing.Close()
+		}
+		if truncateErr := existing.Truncate(0); truncateErr != nil {
+			_ = existing.Close()
+			return truncateErr
+		}
+		if _, seekErr := existing.Seek(0, io.SeekStart); seekErr != nil {
+			_ = existing.Close()
+			return seekErr
+		}
+		file = existing
+		err = nil
 	}
 	if err != nil {
 		return err
@@ -431,7 +448,7 @@ func writeMigratedEditorFileIfAbsent(paths editorUserPaths, destination string, 
 	ok := false
 	defer func() {
 		_ = file.Close()
-		if !ok {
+		if created && !ok {
 			_ = os.Remove(resolved)
 		}
 	}()
@@ -455,7 +472,7 @@ func writeMigratedEditorFileIfAbsent(paths editorUserPaths, destination string, 
 	return nil
 }
 
-func migrateLegacyEditorDatabaseData(paths editorUserPaths) error {
+func migrateLegacyEditorDatabaseData(paths editorUserPaths, overwriteIncomplete bool) error {
 	legacy, err := database.LoadLegacyEditorData()
 	if err != nil {
 		return fmt.Errorf("falha ao ler editor legado do banco: %w", err)
@@ -478,7 +495,7 @@ func migrateLegacyEditorDatabaseData(paths editorUserPaths) error {
 			if marshalErr != nil {
 				return marshalErr
 			}
-			if err := writeMigratedEditorFileIfAbsent(paths, paths.state, payload); err != nil {
+			if err := writeMigratedEditorFile(paths, paths.state, payload, overwriteIncomplete); err != nil {
 				return fmt.Errorf("falha ao migrar sessão do editor 0.1.9: %w", err)
 			}
 		}
@@ -491,7 +508,7 @@ func migrateLegacyEditorDatabaseData(paths editorUserPaths) error {
 			// externa inválida não deve atravessar o limite do storage privado.
 			continue
 		}
-		if err := writeMigratedEditorFileIfAbsent(paths, destination, []byte(document.Markdown)); err != nil {
+		if err := writeMigratedEditorFile(paths, destination, []byte(document.Markdown), overwriteIncomplete); err != nil {
 			return fmt.Errorf("falha ao migrar draft do editor 0.1.9 %q: %w", document.ID, err)
 		}
 	}
@@ -597,7 +614,7 @@ func migrateLegacyEditorData(userID string, paths editorUserPaths) error {
 			return fmt.Errorf("falha ao migrar draft legado %q: %w", entry.Name(), err)
 		}
 	}
-	if err := migrateLegacyEditorDatabaseData(paths); err != nil {
+	if err := migrateLegacyEditorDatabaseData(paths, overwriteIncomplete); err != nil {
 		return err
 	}
 
