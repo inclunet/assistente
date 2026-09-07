@@ -25,6 +25,19 @@ Implementado no repositório (não-exaustivo):
 Adiado (por decisão de escopo agora):
 - [ ] Persistência via SQLite (`editor_documents`) e gestão de arquivos do editor.
 
+### Compatibilidade de dados publicados
+
+A release 0.1.9 chegou a persistir sessão e drafts nas tabelas SQLite
+`editor_session_states` e `editor_documents`. A partir da 0.2.0, o estado local
+passou a `editor/state.json` + `editor/drafts/`; o storage atual é isolado em
+`users/<user_id>/editor/`.
+
+O primeiro usuário elegível adota uma única vez os dados legados de qualquer
+dos dois layouts. Markdown, preferência de modo e sessões de merge são
+preservados, sem apagar a origem. Metadados da sessão 0.1.9 que pertenciam ao
+antigo sistema de abas não são recriados, pois abas agora pertencem ao
+workspace (AEP-0034).
+
 ---
 
 ## Escopo (MVP)

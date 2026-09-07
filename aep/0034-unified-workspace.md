@@ -302,6 +302,14 @@ O componente de detalhe é o mesmo tanto no modal da listagem quanto na aba do w
 | Avulso (criado na UI) | `~/.assistente/workspaces/<id>/.assistente/workspace.yaml` |
 | Default (sem diretório) | `~/.assistente/workspaces/default/.assistente/workspace.yaml` |
 
+### Compatibilidade publicada
+
+Workspaces foram publicados a partir da 0.2.0; a 0.1.9 ainda não continha este
+domínio. Fixtures de 0.2.0, 0.3.0, 0.4.0 e 0.5.0 atravessam diretamente o
+loader atual e cobrem remap de conversa/tasklist, estado de editor/terminal,
+perfil base e override por aba. O remap só é removido depois que todos os
+workspaces conhecidos foram persistidos, mantendo a migração idempotente.
+
 ### Resolução ao abrir o app
 
 ```
