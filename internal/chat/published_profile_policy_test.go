@@ -84,7 +84,7 @@ func TestPublishedProfileToolPoliciesKeepTheirScope(t *testing.T) {
 	}
 }
 
-func TestPublishedProfile019WithoutCatalogKeepsLegacyAllPreloaded(t *testing.T) {
+func TestPublishedProfile019WithoutCatalogFailsClosed(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "profiles", "testdata", "published", "0.1.9.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -96,9 +96,10 @@ func TestPublishedProfile019WithoutCatalogKeepsLegacyAllPreloaded(t *testing.T) 
 	effective := NewToolSelectionPolicy(charRegistryNoCatalog(t)).ResolveEffectiveToolPolicy(ProfileToolConfig{
 		EnabledTools: profile.Chat.EnabledTools,
 	})
-	if got := effective.PreloadedNames(); got != nil ||
-		effective.State("read_file") != ToolPolicyPreloaded ||
-		effective.State("grep_search") != ToolPolicyPreloaded {
-		t.Fatalf("legacyAllPreloaded 0.1.9 não preservado: names=%#v", got)
+	if got := effective.PreloadedNames(); len(got) != 0 ||
+		effective.State("read_file") != ToolPolicyDisabled ||
+		effective.State("grep_search") != ToolPolicyDisabled ||
+		effective.SelectionStatus() != ToolSelectionCatalogUnavailable {
+		t.Fatalf("perfil 0.1.9 sem catálogo não falhou fechado: names=%#v status=%s", got, effective.SelectionStatus())
 	}
 }
