@@ -1,0 +1,14 @@
+{
+  "fileModeByPath": {
+    "documento-sintetico-0.3.0.md": "markdown"
+  },
+  "mergeSessionsByTabId": {
+    "tab-0.3.0": {
+      "originalPath": "documento-sintetico-0.3.0.md",
+      "mineDraftId": "rascunho-0.3.0",
+      "diskDraftId": "rascunho-0.3.0",
+      "conflictDraftId": "rascunho-0.3.0",
+      "createdAt": 1773835260000
+    }
+  }
+}
