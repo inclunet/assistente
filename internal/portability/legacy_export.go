@@ -64,20 +64,27 @@ func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 		return nil, false, nil
 	}
 	if strings.TrimSpace(probe.Metadata.Type) != "conversations" ||
-		strings.TrimSpace(probe.Metadata.Version) != "2.0" ||
-		len(probe.Conversations) == 0 {
+		strings.TrimSpace(probe.Metadata.Version) != "2.0" {
 		return nil, false, nil
+	}
+	conversationsJSON := strings.TrimSpace(string(probe.Conversations))
+	if conversationsJSON == "" || conversationsJSON == "null" ||
+		!strings.HasPrefix(conversationsJSON, "[") {
+		return nil, true, fmt.Errorf("exportação legada 0.1.9 exige conversations como array JSON")
 	}
 
 	var legacy legacyConversationsExportFile
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return nil, true, fmt.Errorf("erro ao parsear exportação legada: %w", err)
 	}
+	if legacy.Metadata.ExportedAt.IsZero() {
+		return nil, true, fmt.Errorf("exportação legada 0.1.9 sem metadata.exported_at")
+	}
 
 	file := &ExportFile{
 		Version:    ExportVersion,
 		ExportedAt: legacy.Metadata.ExportedAt,
-		AppVersion: "0.1.9-ou-anterior",
+		AppVersion: "0.1.9",
 		Options: ExportOptions{
 			IncludeAudio: true,
 		},
@@ -86,15 +93,30 @@ func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 		},
 	}
 
+	conversationIDs := make(map[uint]struct{}, len(legacy.Conversations))
 	for _, legacyConversation := range legacy.Conversations {
+		if _, duplicated := conversationIDs[legacyConversation.ID]; duplicated {
+			return nil, true, fmt.Errorf(
+				"exportação legada 0.1.9 contém conversa com ID duplicado %d",
+				legacyConversation.ID,
+			)
+		}
+		conversationIDs[legacyConversation.ID] = struct{}{}
 		conversationID := legacyStableID(
 			legacy.Metadata.ExportedAt,
 			"conversation",
 			legacyConversation.ID,
-			legacyConversation.Title,
+			"",
 		)
 		messageIDs := make(map[uint]string, len(legacyConversation.Messages))
 		for _, message := range legacyConversation.Messages {
+			if _, duplicated := messageIDs[message.ID]; duplicated {
+				return nil, true, fmt.Errorf(
+					"exportação legada 0.1.9 contém mensagem com ID duplicado %d na conversa %d",
+					message.ID,
+					legacyConversation.ID,
+				)
+			}
 			messageIDs[message.ID] = legacyStableID(
 				legacy.Metadata.ExportedAt,
 				"message:"+strconv.FormatUint(uint64(legacyConversation.ID), 10),
@@ -129,10 +151,26 @@ func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 				CreatedAt:        legacyMessage.CreatedAt,
 			}
 			if legacyMessage.ParentID != nil {
-				message.ParentID = messageIDs[*legacyMessage.ParentID]
+				parentID, ok := messageIDs[*legacyMessage.ParentID]
+				if !ok {
+					return nil, true, fmt.Errorf(
+						"mensagem legada %d referencia parentId inexistente %d",
+						legacyMessage.ID,
+						*legacyMessage.ParentID,
+					)
+				}
+				message.ParentID = parentID
 			}
 			if legacyMessage.TurnID != nil {
-				message.TurnID = messageIDs[*legacyMessage.TurnID]
+				turnID, ok := messageIDs[*legacyMessage.TurnID]
+				if !ok {
+					return nil, true, fmt.Errorf(
+						"mensagem legada %d referencia turnId inexistente %d",
+						legacyMessage.ID,
+						*legacyMessage.TurnID,
+					)
+				}
+				message.TurnID = turnID
 			}
 			conversation.Messages = append(conversation.Messages, message)
 		}

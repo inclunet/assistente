@@ -73,3 +73,22 @@ func TestUpgradeDiagnosticDoesNotExposePersistedValues(t *testing.T) {
 		t.Fatalf("pendências inesperadas: %#v", diagnostic)
 	}
 }
+
+func TestUpgradeDiagnosticReadsLegacyUserVersionWithoutRegistry(t *testing.T) {
+	database := newMigratorTestDB(t)
+	if err := database.Exec("PRAGMA user_version = 7").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	diagnostic, err := buildUpgradeDiagnostic(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diagnostic.SchemaVersion != 7 {
+		t.Fatalf("schema legado = %d, esperado 7", diagnostic.SchemaVersion)
+	}
+	if diagnostic.AppliedCount != 0 ||
+		len(diagnostic.PendingVersions) != len(schemaMigrations) {
+		t.Fatalf("diagnóstico legado inesperado: %#v", diagnostic)
+	}
+}

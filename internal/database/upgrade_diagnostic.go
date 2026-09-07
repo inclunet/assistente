@@ -30,6 +30,11 @@ func buildUpgradeDiagnostic(database *gorm.DB) (UpgradeDiagnostic, error) {
 	if database == nil {
 		return diagnostic, fmt.Errorf("banco de dados não inicializado")
 	}
+	var userVersion int
+	if err := database.Raw("PRAGMA user_version").Scan(&userVersion).Error; err != nil {
+		return diagnostic, fmt.Errorf("ler PRAGMA user_version: %w", err)
+	}
+	diagnostic.SchemaVersion = userVersion
 	if !database.Migrator().HasTable("schema_migrations") {
 		for _, migration := range schemaMigrations {
 			diagnostic.PendingVersions = append(diagnostic.PendingVersions, migration.Version)
@@ -42,11 +47,6 @@ func buildUpgradeDiagnostic(database *gorm.DB) (UpgradeDiagnostic, error) {
 		return diagnostic, err
 	}
 	diagnostic.AppliedCount = len(applied)
-	var userVersion int
-	if err := database.Raw("PRAGMA user_version").Scan(&userVersion).Error; err != nil {
-		return diagnostic, fmt.Errorf("ler PRAGMA user_version: %w", err)
-	}
-	diagnostic.SchemaVersion = userVersion
 	for _, migration := range schemaMigrations {
 		if applied[migration.Version] {
 			continue
