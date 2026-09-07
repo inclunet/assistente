@@ -1,0 +1,22 @@
+id: corpus-job
+name: Job sintético do corpus
+description: Fixture do formato YAML aceito pelo importador legado
+enabled: true
+pipeline: corpus
+tags:
+  - synthetic
+triggers:
+  - type: interval
+    every: 30m
+tool: test_tool
+inputs:
+  query: valor-sintetico
+events:
+  on_success: corpus.completed
+error_policy:
+  strategy: retry
+  max_retries: 2
+  backoff: fixed
+metadata:
+  created_at: "2026-05-13T12:00:00Z"
+  created_by: fixture
