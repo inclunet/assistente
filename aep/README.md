@@ -5,12 +5,14 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-08-24):** este índice contém **100 documentos principais
+> **Inventário (2026-09-07):** este índice contém **100 documentos principais
 > para 99 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
 > [Convenção de numeração e anexos](#convenção-de-numeração-e-anexos).
+>
+> Verificação reproduzível: `python .github/scripts/verificar-status-aeps.py`.
 
 ## Índice
 
@@ -44,11 +46,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0026](0026-credential-fixes.md) | Correções no Sistema de Credenciais | ✅ Done |
 | [0027](0027-profiles-refactor.md) | Refatoração ProfilesPage | 🚧 In Progress |
 | [0028](0028-componentization.md) | Componentização Frontend | 🚧 In Progress |
-| [0029](0029-auto-update.md) | Sistema de Auto-Update | 🚧 In Progress |
+| [0029](0029-auto-update.md) | Sistema de Auto-Update | ✅ Done |
 | [0030](0030-email-system.md) | Sistema de Email | 📋 Open |
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 🚧 In Progress |
-| [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | 🚧 In Progress |
+| [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | ✅ Done |
 | [0034](0034-unified-workspace.md) | Unified Workspace | ✅ Done |
 | [0035](0035-split-view.md) | Split View | 📝 Draft |
 | [0036](0036-plan-tasklistmanager.md) | Task List Manager Feature | 🚧 In Progress |
@@ -95,7 +97,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0078](0078-deprecacao-toolcalls-em-mensagens.md) | Deprecação de `tool_calls` em Mensagens | ✅ Done |
 | [0079](0079-editor-modo-apresentacao-reveal.md) | Modo Apresentação Reveal.js no Editor | ✅ Done |
 | [0080](0080-surface-context-unificado.md) | SurfaceContext Unificado | 🚧 In Progress |
-| [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | 🚧 In Progress |
+| [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | ✔️ Accepted |
 | [0082](0082-network-trust-allowlist.md) | Network Trust Allowlist | ✅ Done |
 | [0083](0083-channels-database-migration.md) | Migração de Canais e Contatos para Banco de Dados | ✅ Done |
 | [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | ✅ Done |
@@ -221,5 +223,5 @@ A renumeração de um deles exige alterar **referências em código fora de `aep
 que está fora do escopo da issue #263 (apenas governança/docs). A colisão fica
 **registrada aqui** e deve ser resolvida em uma issue/PR dedicada que também atualize
 as referências no código. Até lá, o índice usa os rótulos 0074-A e 0074-B e conta
-ambos como documentos principais: por isso há 99 documentos para 98 números
+ambos como documentos principais: por isso há 100 documentos para 99 números
 ocupados.

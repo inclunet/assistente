@@ -1,5 +1,7 @@
 # AEP-0076 — Versionamento de Schema do Banco (schema_migrations)
 
+**Status:** Done — mecanismo e matriz de upgrades publicados cobertos por testes
+
 | Campo | Valor |
 |-------|-------|
 | Status | ✅ Done |
