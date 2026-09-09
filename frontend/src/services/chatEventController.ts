@@ -27,8 +27,6 @@ import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
 
-const STREAM_UPDATE_DEBOUNCE_MS = 16;
-
 const translateBackendChatError = (message: string) => {
   if (message === 'assistant_placeholder_error') {
     return i18next.t('chat.errors.assistantPlaceholder');
@@ -49,7 +47,10 @@ interface ChatMessagesReadyEvent {
 
 interface ChatStreamEvent {
   conversationId: string;
-  content?: string;
+  delta?: string;
+  reset?: boolean;
+  baseContent?: string;
+  sequence: number;
   done?: boolean;
   error?: string;
   messageId?: string;
@@ -195,43 +196,6 @@ export interface ChatEventControllerHandle {
 }
 
 const activeControllers = new Map<string, () => void>();
-const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
-const pendingStreamUpdates = new Map<string, { messageId: string; content: string }>();
-
-const debouncedUpdateMessage = (
-  messageId: string,
-  content: string,
-  updateFn: (messageId: string, content: string) => void,
-) => {
-  pendingStreamUpdates.set(messageId, { messageId, content });
-  const existingTimer = streamUpdateTimers.get(messageId);
-  if (existingTimer) clearTimeout(existingTimer);
-  const timer = setTimeout(() => {
-    const pending = pendingStreamUpdates.get(messageId);
-    if (pending) {
-      updateFn(pending.messageId, pending.content);
-      pendingStreamUpdates.delete(messageId);
-      streamUpdateTimers.delete(messageId);
-    }
-  }, STREAM_UPDATE_DEBOUNCE_MS);
-  streamUpdateTimers.set(messageId, timer);
-};
-
-const flushPendingUpdate = (
-  messageId: string,
-  updateFn: (messageId: string, content: string) => void,
-) => {
-  const existingTimer = streamUpdateTimers.get(messageId);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-    streamUpdateTimers.delete(messageId);
-  }
-  const pending = pendingStreamUpdates.get(messageId);
-  if (pending) {
-    updateFn(pending.messageId, pending.content);
-    pendingStreamUpdates.delete(messageId);
-  }
-};
 
 /**
  * Origem já conhecida da ferramenta. O evento de fim costuma repeti-la, mas se
@@ -239,15 +203,6 @@ const flushPendingUpdate = (
  */
 const knownToolOrigin = (session: ChatEventSession, callId: string): ToolOrigin | undefined =>
   session.activeToolCalls.find((tc) => tc.callId === callId)?.origin;
-
-const discardPendingUpdate = (messageId: string) => {
-  const existingTimer = streamUpdateTimers.get(messageId);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-    streamUpdateTimers.delete(messageId);
-  }
-  pendingStreamUpdates.delete(messageId);
-};
 
 export function stopChatEventController(conversationId: string) {
   const cleanup = activeControllers.get(conversationId.toString());
@@ -277,6 +232,9 @@ export function startChatEventController({
   // via chat:speak; o leitor de tela precisa de um aviso de conclusão próprio.
   let turnHadAssistantText = false;
   let currentTurnId: string | null = null;
+  let streamedContent = '';
+  let streamSequence = -1;
+  let streamInitialized = false;
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -374,9 +332,6 @@ export function startChatEventController({
     unsubError();
     unsubSpeak();
     turnEvents.unregister();
-    if (currentAssistantNodeId) {
-      discardPendingUpdate(currentAssistantNodeId);
-    }
     activeControllers.delete(conversationIdStr);
     adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
     patchCurrentSession({
@@ -458,11 +413,6 @@ export function startChatEventController({
   const updateEmptyAssistantWithError = (message: string) => {
     if (getCurrentAssistantContent().trim()) return;
     updateStreamingMessage(i18next.t('chat.errorPrefix', { message }));
-  };
-
-  const flushStreamingUpdate = () => {
-    if (!currentAssistantNodeId) return;
-    flushPendingUpdate(currentAssistantNodeId, (_messageId, nextContent) => updateStreamingMessage(nextContent));
   };
 
   const existingCleanup = activeControllers.get(conversationIdStr);
@@ -547,25 +497,33 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
 
-    if (event.content && !event.done && !event.error) {
+    if (event.delta && !event.done && !event.error) {
       currentTurnId = event.turnId || currentTurnId;
-      if (event.content.trim()) turnHadAssistantText = true;
+      if (event.delta.trim()) turnHadAssistantText = true;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
-      const assistantNodeId = currentAssistantNodeId;
-      if (!assistantNodeId) return;
+      if (!currentAssistantNodeId) return;
+      if (event.reset) {
+        streamedContent = event.baseContent ?? '';
+        streamSequence = -1;
+        streamInitialized = true;
+      }
+      if (!streamInitialized || !Number.isSafeInteger(event.sequence) || event.sequence !== streamSequence + 1) {
+        return;
+      }
+      streamSequence = event.sequence;
+      streamedContent += event.delta;
       if (!streamingAnnounced) {
         streamingAnnounced = true;
         announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
       }
-      debouncedUpdateMessage(assistantNodeId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
+      updateStreamingMessage(streamedContent);
     }
 
     if (event.error) {
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.error || '').trim());
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
@@ -590,11 +548,6 @@ export function startChatEventController({
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       ensureAssistantNode(backendAssistantId);
-      flushStreamingUpdate();
-      if (event.content) {
-        if (event.content.trim()) turnHadAssistantText = true;
-        updateStreamingMessage(event.content);
-      }
       finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
@@ -734,8 +687,10 @@ export function startChatEventController({
       completedSegments: newSegments,
       activeToolCalls: [],
     });
-    flushStreamingUpdate();
     if (currentAssistantNodeId) updateStreamingMessage('');
+    streamedContent = '';
+    streamSequence = -1;
+    streamInitialized = false;
   });
 
   unsubDone = turnEvents.on('chat:done', (event: ChatDoneEvent) => {
@@ -746,7 +701,6 @@ export function startChatEventController({
     if (event.errorMessage) {
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
@@ -772,7 +726,6 @@ export function startChatEventController({
     if (event.reason === 'output_limit') {
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      flushStreamingUpdate();
       const message = i18next.t('chat.outputLimitReached');
       announceWithOrigin({
         message,
