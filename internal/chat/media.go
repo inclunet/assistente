@@ -219,7 +219,6 @@ func PreprocessMessages(ctx context.Context, messages []llm.Message, audioSuppor
 			if partType == "input_audio" {
 				audioMap, _ := partMap["input_audio"].(map[string]interface{})
 				if audioMap != nil {
-					audioData, _ := audioMap["data"].(string)
 					audioFmt, _ := audioMap["format"].(string)
 
 					needsWhisper := !SupportedAudioFormats[audioFmt]
@@ -228,7 +227,6 @@ func PreprocessMessages(ctx context.Context, messages []llm.Message, audioSuppor
 					}
 
 					if needsWhisper {
-						_ = audioData
 						logging.Infof(ctx, "chat.media", "[Preprocess] Áudio %s sem transcrição persistida — placeholder textual", audioFmt)
 						newContent = append(newContent, map[string]interface{}{
 							"type": "text",

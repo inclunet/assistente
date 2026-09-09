@@ -15,6 +15,7 @@ import (
 	"assistente/internal/agent"
 	"assistente/internal/chat"
 	"assistente/internal/configdir"
+	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
 	"assistente/internal/database"
 	"assistente/internal/events"
@@ -163,6 +164,15 @@ func newMediaTestUseCase(
 	profileMgr *profiles.Manager,
 	transcribe chat.TranscribeFunc,
 ) (*usecases.SendMessageUseCase, *chat.StreamingManager) {
+	return newMediaTestUseCaseWithEmitter(t, profileMgr, transcribe, noop.EmitterAdapter{})
+}
+
+func newMediaTestUseCaseWithEmitter(
+	t *testing.T,
+	profileMgr *profiles.Manager,
+	transcribe chat.TranscribeFunc,
+	emitter ports.Emitter,
+) (*usecases.SendMessageUseCase, *chat.StreamingManager) {
 	t.Helper()
 	registry := llm.NewProviderRegistry()
 	provider := &llm.ProviderConfig{
@@ -195,9 +205,24 @@ func newMediaTestUseCase(
 		StreamMgr:      streamMgr,
 		SpeechSvc:      speech.NewService(speech.ServiceConfig{Emitter: events.NoopEmitter{}, Registry: registry}),
 		Transcribe:     transcribe,
-		Emitter:        noop.EmitterAdapter{},
+		Emitter:        emitter,
 		AgentSvc:       agentSvc,
 	}), streamMgr
+}
+
+type mediaEventEmitter struct {
+	failed chan ports.MediaProcessingEvent
+}
+
+func (e mediaEventEmitter) Emit(name string, payload any) {
+	event, ok := payload.(ports.MediaProcessingEvent)
+	if name != "chat:media_processing" || !ok || event.Status != "failed" {
+		return
+	}
+	select {
+	case e.failed <- event:
+	default:
+	}
 }
 
 func TestSendMessageUseCase_STTAssincronoUnicoEPersistido(t *testing.T) {
@@ -316,6 +341,46 @@ func TestSendMessageUseCase_CancelaSTTEmAndamento(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(time.Second):
 		t.Fatal("cancelamento não chegou ao Whisper")
+	}
+}
+
+func TestSendMessageUseCase_RecuperaPanicNoSTTAssincrono(t *testing.T) {
+	setupTestDB(t)
+	sqlDB, err := database.DB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	profile := minValidProfile("Media Panic", "media-test")
+	profile.Input = profiles.InputConfig{Enabled: true, STTProvider: "whisper_api", Language: "pt-BR"}
+	setupProfileWith(t, mgr, profile)
+	conv, err := database.CreateConversationWithContext(ctx, "media", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := make(chan ports.MediaProcessingEvent, 1)
+	uc, _ := newMediaTestUseCaseWithEmitter(t, mgr, func(context.Context, string, string) (string, error) {
+		panic("falha inesperada no cliente STT")
+	}, mediaEventEmitter{failed: failed})
+
+	if _, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conv.ID,
+		UserMedia:      `[{"name":"voz.webm","type":"audio/webm","data":"YXVkaW8=","size":5}]`,
+		Source:         "wails",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-failed:
+		if event.ConversationID != conv.ID || event.Error != ports.ChatErrorInternal {
+			t.Fatalf("evento de panic inválido: %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("panic no STT não emitiu falha de processamento")
 	}
 }
 

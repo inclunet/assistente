@@ -220,6 +220,26 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		req.Ctx = asyncCtx
 		req.prepared = pctx
 		go func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					uc.streamMgr.Unregister(req.ConversationID)
+					logging.Errorf(asyncCtx, "usecases.send-message", "[STT] panic recuperado no processamento assíncrono da conversa %s: %v", req.ConversationID, recovered)
+					func() {
+						defer func() { _ = recover() }()
+						uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
+							ConversationID: req.ConversationID,
+							Status:         "failed",
+							Error:          ports.ChatErrorInternal,
+							SurfaceOrigin:  surfaceOrigin,
+						})
+						uc.emitter.Emit("chat:error", ports.ErrorEvent{
+							ConversationID: req.ConversationID,
+							Error:          ports.ChatErrorInternal,
+							SurfaceOrigin:  surfaceOrigin,
+						})
+					}()
+				}
+			}()
 			if _, asyncErr := uc.Execute(req); asyncErr != nil {
 				uc.streamMgr.Unregister(req.ConversationID)
 				uc.emitter.Emit("chat:error", ports.ErrorEvent{
