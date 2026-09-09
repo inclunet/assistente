@@ -19,6 +19,34 @@ type Conversation = database.Conversation
 type DetailedTokenStats = database.DetailedTokenStats
 type MessageSearchResult = database.MessageSearchResult
 
+// HistoryWindow contém uma janela limitada de mensagens raiz e os metadados
+// persistidos de sumarização usados pelo HistoryLoader.
+type HistoryWindow struct {
+	Messages                 []Message
+	Summary                  string
+	SummaryUpToMessageID     string
+	SummaryBoundaryAvailable bool
+}
+
+// HistoryWindowRepository é uma capacidade opcional do repositório para
+// carregar a janela de contexto sem materializar a conversa inteira.
+type HistoryWindowRepository interface {
+	LoadHistoryWindow(ctx context.Context, conversationID string, maxMessages int) (*HistoryWindow, error)
+}
+
+// UserMessageBatchRepository persiste a mensagem e carrega sua janela de
+// histórico na mesma transação. O evento messages_ready só pode ser emitido
+// depois que esta operação retornar com sucesso.
+type UserMessageBatchRepository interface {
+	CreateUserMessageAndLoadHistory(ctx context.Context, opts MessageOptions, maxMessages int) (*Message, *HistoryWindow, error)
+}
+
+// AssistantPlaceholderRepository garante idempotência ao criar o placeholder
+// persistido de uma resposta.
+type AssistantPlaceholderRepository interface {
+	EnsureAssistantPlaceholder(ctx context.Context, conversationID, turnID string) (string, error)
+}
+
 // ErrConversationDeleted e ErrParentMessageDeleted são re-exportados aqui como erros de
 // domínio do pacote chat, para que os chamadores não precisem importar internal/database.
 var ErrConversationDeleted = database.ErrConversationDeleted
