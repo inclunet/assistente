@@ -133,6 +133,7 @@ type SendMessageRequest struct {
 	Params         llm.ChatParams
 	Source         string
 	prepared       *chat.PrepareContextResponse
+	mediaStreamGen uint64
 }
 
 // Execute executa o pipeline de mensagem: prepara contexto → persiste → monta prompt
@@ -204,7 +205,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if mediaResolution.NeedsSTT && !isDeferredMediaContext(ctx) {
 		asyncCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 		asyncCtx = context.WithValue(asyncCtx, deferredMediaContextKey{}, true)
-		uc.streamMgr.Register(req.ConversationID, cancel)
+		mediaStreamGen := uc.streamMgr.Register(req.ConversationID, cancel)
 		surfaceOrigin := ports.NewChatSurfaceOrigin(
 			req.ConversationID,
 			pctx.Params.SurfaceSessionKey,
@@ -219,10 +220,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		})
 		req.Ctx = asyncCtx
 		req.prepared = pctx
+		req.mediaStreamGen = mediaStreamGen
 		go func() {
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					uc.streamMgr.Unregister(req.ConversationID)
+					uc.streamMgr.UnregisterIfCurrent(req.ConversationID, req.mediaStreamGen)
 					logging.Errorf(asyncCtx, "usecases.send-message", "[STT] panic recuperado no processamento assíncrono da conversa %s: %v", req.ConversationID, recovered)
 					func() {
 						defer func() { _ = recover() }()
@@ -241,10 +243,17 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				}
 			}()
 			if _, asyncErr := uc.Execute(req); asyncErr != nil {
-				uc.streamMgr.Unregister(req.ConversationID)
+				uc.streamMgr.UnregisterIfCurrent(req.ConversationID, req.mediaStreamGen)
+				logging.Errorf(asyncCtx, "usecases.send-message", "[STT] falha no processamento assíncrono da conversa %s: %v", req.ConversationID, asyncErr)
+				uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
+					ConversationID: req.ConversationID,
+					Status:         "failed",
+					Error:          ports.ChatErrorInternal,
+					SurfaceOrigin:  surfaceOrigin,
+				})
 				uc.emitter.Emit("chat:error", ports.ErrorEvent{
 					ConversationID: req.ConversationID,
-					Error:          asyncErr.Error(),
+					Error:          ports.ChatErrorInternal,
 					SurfaceOrigin:  surfaceOrigin,
 				})
 			}
@@ -310,7 +319,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				SurfaceOrigin:  surfaceOrigin,
 			})
 			if status == "cancelled" {
-				uc.streamMgr.Unregister(req.ConversationID)
+				uc.streamMgr.UnregisterIfCurrent(req.ConversationID, req.mediaStreamGen)
 				uc.emitter.Emit("chat:done", ports.DoneEvent{
 					ConversationID: req.ConversationID,
 					Reason:         "cancelled",
@@ -582,10 +591,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
 	convCtx := ctx
+	streamGeneration := req.mediaStreamGen
 	if !isDeferredMediaContext(ctx) {
 		var convCancel context.CancelFunc
 		convCtx, convCancel = context.WithCancel(ctx)
-		uc.streamMgr.Register(req.ConversationID, convCancel)
+		streamGeneration = uc.streamMgr.Register(req.ConversationID, convCancel)
 	}
 
 	// Roteia para o loop agêntico sempre que houver tools em modo adapter (inclui o
@@ -626,7 +636,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(agentCtx, req.ConversationID, userMsg.ID, "runAgenticLoop", r, surfaceOrigin)
 			}()
-			defer uc.streamMgr.Unregister(req.ConversationID)
+			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
 			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
 				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
@@ -645,7 +655,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(convCtx, req.ConversationID, userMsg.ID, "StreamChat", r, surfaceOrigin)
 			}()
-			defer uc.streamMgr.Unregister(req.ConversationID)
+			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
 			uc.agentSvc.StreamSimpleWithRecovery(convCtx, requestStreamer, messages, params, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin, recoveryEnabled, recoveryMaxAttempts)
 		}()
 	}
