@@ -1505,14 +1505,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         enqueueExternalTurn: async (conversationId, sessionKey, task) => {
           const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
-          void turnQueue.enqueue(conversationId, async () => {
+          try {
+            await turnQueue.enqueue(conversationId, async () => {
               if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
               await task();
-            }).catch((error) => {
-              if (!isConversationTurnQueueClearedError(error)) {
-                logger.error('[Chat] falha inesperada na fila de canal externo', error);
-              }
             });
+          } catch (error) {
+            if (!isConversationTurnQueueClearedError(error)) throw error;
+          }
         },
         chatEventAdapter,
       });
