@@ -613,8 +613,8 @@ func TestCloseAllCancelaConnectEmAndamento(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
 			t.Fatalf("Connect err=%v, esperado cancelamento", err)
 		}
-	default:
-		t.Fatal("CloseAll retornou antes de fazer join do Connect")
+	case <-time.After(time.Second):
+		t.Fatal("Connect não retornou após o join interno de CloseAll")
 	}
 	select {
 	case <-blocked.closed:

@@ -642,6 +642,12 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 				if parentCtx.Err() != nil {
 					return parentCtx.Err()
 				}
+				// O timeout do handshake também cancela sessionCtx para limpar
+				// o transport. Preserve a causa original em vez de degradá-la
+				// para context canceled.
+				if errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
 				if sessionCtx.Err() != nil {
 					return sessionCtx.Err()
 				}
@@ -818,6 +824,16 @@ func connectClientSession(
 
 	select {
 	case result := <-resultCh:
+		// O resultado e o deadline podem ficar prontos no mesmo instante. Se o
+		// orçamento já expirou, não publique uma sessão vencedora por acaso nem
+		// exponha o erro interno context canceled do cleanup.
+		if handshakeCtx.Err() != nil {
+			sessionCancel()
+			if result.session != nil {
+				_ = result.session.Close()
+			}
+			return nil, handshakeCtx.Err()
+		}
 		return result.session, result.err
 	case <-handshakeCtx.Done():
 		sessionCancel()
