@@ -234,7 +234,7 @@ const ptBR = {
         announceError: 'Não foi possível trocar o diretório: {{error}}',
       },
       validation: {
-        messageTooLarge: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
+        messageTooLarge: 'Mensagem muito grande ({{sizeBytes}} bytes). Máximo permitido: {{maxKiB}} KiB.',
         mediaTooLarge: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
       },
       mediaProcessing: {
@@ -1476,7 +1476,7 @@ const ptBR = {
         messageActions: 'Ações da mensagem',
         prepareNeedCodeOrRich: 'Mude para Código ou Rico para usar o chat do editor.',
         prepareSelectionFailed: 'Não foi possível capturar a seleção do editor.',
-        prepareSelectionTooLarge: 'Seleção muito grande para enviar ao chat (limite: {{max}} caracteres).',
+        prepareSelectionTooLarge: 'A seleção excede o limite de contexto do editor: {{max}} caracteres.',
         patchNotApplicable: 'Resposta não contém patch aplicável',
         patchExtractDefault: 'Nenhum patch encontrado',
         requestChangeError: 'Erro ao pedir alteração ao chat',
