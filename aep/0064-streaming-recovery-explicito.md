@@ -90,6 +90,11 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 - Para suportar recuperação/continuação, o backend é a única fonte da verdade:
   a mensagem do assistant existe no banco e é atualizada conforme o conteúdo
   parcial evolui. Isso segue AEP-0040 e o contrato backend-driven do projeto.
+- Cada tentativa começa com `chat:stream.reset=true` e `sequence=0`. Retry
+  automático usa base vazia, descartando deterministicamente o parcial da
+  tentativa interrompida; continuação explícita envia o parcial persistido uma
+  única vez em `baseContent` e depois somente deltas. O frontend não compara
+  prefixos para adivinhar qual tentativa está ativa.
 
 ## Fases
 

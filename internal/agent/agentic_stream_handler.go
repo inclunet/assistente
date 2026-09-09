@@ -56,10 +56,8 @@ func (h *AgenticStreamHandler) OnFinishReason(info llm.FinishInfo) {
 }
 
 func (h *AgenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
+	content, reasoning := h.Finalize()
 	h.mu.Lock()
-	h.cancelPendingChunkTimer()
-	content := h.accumulatedContent
-	reasoning := h.accumulatedReasoning
 	mcpEvents := h.nativeMCPEvents
 	finish := h.finish
 	h.nativeMCPEvents = nil
@@ -83,6 +81,7 @@ func (h *AgenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse st
 }
 
 func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
+	h.FlushStream()
 	if event.IsCompleted {
 		h.mu.Lock()
 		if strings.TrimSpace(event.Arguments) == "" {
@@ -161,9 +160,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 }
 
 func (h *AgenticStreamHandler) OnError(err string) {
-	h.mu.Lock()
-	h.cancelPendingChunkTimer()
-	h.mu.Unlock()
+	h.FlushStream()
 
 	h.result = AgenticResult{
 		Error: err,
@@ -171,10 +168,8 @@ func (h *AgenticStreamHandler) OnError(err string) {
 }
 
 func (h *AgenticStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
+	content, reasoning := h.Finalize()
 	h.mu.Lock()
-	h.cancelPendingChunkTimer()
-	content := h.accumulatedContent
-	reasoning := h.accumulatedReasoning
 	mcpEvents := h.nativeMCPEvents
 	finish := h.finish
 	h.nativeMCPEvents = nil

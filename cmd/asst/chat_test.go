@@ -20,14 +20,14 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockBackend struct {
-	mu          sync.Mutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	sendFn      func(string, string, string, app.ChatParams) (string, error)
+	mu           sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	sendFn       func(string, string, string, app.ChatParams) (string, error)
 	ensureConvFn func(string) (*app.Conversation, error)
-	getConvFn   func(string) (*app.Conversation, error)
-	cancelFn    func(string)
-	sendCalls   []sendCall
+	getConvFn    func(string) (*app.Conversation, error)
+	cancelFn     func(string)
+	sendCalls    []sendCall
 }
 
 type sendCall struct {
@@ -245,10 +245,10 @@ func TestSendAndWait_Success(t *testing.T) {
 	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Content: "Olá"})
-			emitter.Emit("chat:stream", ports.StreamEvent{Content: "Olá mundo"})
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
-			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: "assistant-1", ConversationId: convID, TurnID: "turn-1", Delta: "Olá", Reset: true, Sequence: 0})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: "assistant-1", ConversationId: convID, TurnID: "turn-1", Delta: " mundo", Sequence: 1})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: "assistant-1", ConversationId: convID, TurnID: "turn-1", Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, TurnID: "turn-1", AssistantMessageID: "assistant-1"})
 		}()
 		return "1", nil
 	}
@@ -359,8 +359,8 @@ func TestSendAndWait_PassesModelAndProfile(t *testing.T) {
 	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
-			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: "assistant-1", ConversationId: convID, TurnID: "turn-1", Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, TurnID: "turn-1", AssistantMessageID: "assistant-1"})
 		}()
 		return "1", nil
 	}
@@ -399,11 +399,13 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
 		callCount++
 		n := callCount
+		turnID := fmt.Sprintf("turn-%d", n)
+		messageID := fmt.Sprintf("assistant-%d", n)
 		go func() {
 			time.Sleep(2 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Content: fmt.Sprintf("resp%d", n)})
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
-			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: messageID, ConversationId: convID, TurnID: turnID, Delta: fmt.Sprintf("resp%d", n), Reset: true, Sequence: 0})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: messageID, ConversationId: convID, TurnID: turnID, Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, TurnID: turnID, AssistantMessageID: messageID})
 		}()
 		return "1", nil
 	}
@@ -449,8 +451,8 @@ func TestRunREPL_SkipsEmptyLines(t *testing.T) {
 	mock.sendFn = func(convID string, _ string, _ string, _ app.ChatParams) (string, error) {
 		go func() {
 			time.Sleep(2 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
-			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: "assistant-1", ConversationId: convID, TurnID: "turn-1", Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, TurnID: "turn-1", AssistantMessageID: "assistant-1"})
 		}()
 		return "1", nil
 	}
@@ -492,8 +494,8 @@ func TestRunREPL_ContinuesAfterSendError(t *testing.T) {
 		}
 		go func() {
 			time.Sleep(2 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
-			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
+			emitter.Emit("chat:stream", ports.StreamEvent{MessageID: "assistant-2", ConversationId: convID, TurnID: "turn-2", Done: true})
+			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID, TurnID: "turn-2", AssistantMessageID: "assistant-2"})
 		}()
 		return "1", nil
 	}

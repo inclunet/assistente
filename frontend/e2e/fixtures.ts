@@ -85,6 +85,23 @@ export const test = base.extend<{ wails: WailsMock }>({
       },
 
       async emit(event: string, data?: unknown) {
+        // Converte fixtures legadas de streaming acumulado para o protocolo
+        // delta; cenários novos podem enviar delta/sequence diretamente.
+        if (event === 'chat:stream' && data && typeof data === 'object' && 'content' in data) {
+          const { content, ...streamEvent } = data as Record<string, unknown>;
+          if (streamEvent.done && content) {
+            await page.evaluate(
+              ({ event, data }) => window.__wailsMock.emit(event, data),
+              {
+                event,
+                data: { ...streamEvent, done: false, delta: content, reset: true, sequence: 0 },
+              },
+            );
+            data = streamEvent;
+          } else {
+            data = { ...streamEvent, delta: content, reset: true, sequence: 0 };
+          }
+        }
         await page.evaluate(
           ({ event, data }) => window.__wailsMock.emit(event, data),
           { event, data },

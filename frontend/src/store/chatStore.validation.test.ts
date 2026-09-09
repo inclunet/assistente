@@ -119,6 +119,18 @@ vi.mock('i18next', () => ({
 }));
 
 function emitEvent(name: string, data: unknown) {
+  if (name === 'chat:stream' && data && typeof data === 'object' && 'content' in data) {
+    const { content, ...event } = data as Record<string, unknown>;
+    if (event.done && content) {
+      const callbacks = eventListeners.get(name) || [];
+      for (const callback of callbacks) {
+        callback({ ...event, done: false, delta: content, reset: true, sequence: 0 });
+      }
+      data = event;
+    } else {
+      data = { ...event, delta: content, reset: true, sequence: 0 };
+    }
+  }
   const cbs = eventListeners.get(name) || [];
   for (const cb of cbs) cb(data);
 }
