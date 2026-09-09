@@ -2517,6 +2517,7 @@ const es = {
         clearConversation: 'Vaciar conversación',
         navigateTabs: 'Navegar entre conversaciones',
         openHistory: 'Abrir historial',
+        selectModel: 'Seleccionar modelo del chat activo',
         interactionProfiles: 'Perfiles de interacción',
         playAudio: 'Reproducir audio (mensaje enfocado)',
         viewDetails: 'Ver detalles (mensaje enfocado)',

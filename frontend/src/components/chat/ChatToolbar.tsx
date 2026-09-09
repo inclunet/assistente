@@ -27,6 +27,7 @@ import { PinnedMessagesModal } from './PinnedMessagesModal';
 import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
+import { SHORTCUTS } from '../../constants/chat';
 import './ChatToolbar.css';
 
 const DEFAULT_ROUTING_SENTINEL = '$default';
@@ -46,6 +47,47 @@ function providerForProfile(
     return providers.find((provider) => provider.is_default === true);
   }
   return providers.find((provider) => provider.id === configuredID);
+}
+
+const MODEL_SHORTCUT_BLOCKED_TARGETS = [
+  'input',
+  'textarea',
+  'select',
+  '[contenteditable="true"]',
+  '.monaco-editor',
+  '.xterm',
+  '[role="terminal"]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  '[role="menu"]',
+  '[role="listbox"]',
+  '.picker-dropdown',
+  '[data-tab-type]:not([data-tab-type="chat"])',
+].join(',');
+
+function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
+  if (
+    event.defaultPrevented
+    || event.isComposing
+    || event.keyCode === 229
+    || event.repeat
+    || !event.ctrlKey
+    || event.shiftKey
+    || event.altKey
+    || event.metaKey
+    || event.key.toLowerCase() !== 'm'
+    || isModalOpen()
+  ) {
+    return false;
+  }
+
+  const target = event.target instanceof Element ? event.target : null;
+  if (target instanceof HTMLElement && target.isContentEditable) return false;
+  if (target?.closest(MODEL_SHORTCUT_BLOCKED_TARGETS)) return false;
+
+  // Menus e pickers são portalados ou podem estar fora do alvo do evento.
+  // Enquanto qualquer um estiver aberto, Ctrl+M pertence à interação corrente.
+  return document.querySelector('[role="menu"], .picker-dropdown') === null;
 }
 
 export type ChatToolbarConversationChangeHandler = (
@@ -105,6 +147,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
   const previousQueueConversationIdRef = useRef<string | null | undefined>(undefined);
@@ -246,6 +289,16 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
+      if (canOpenModelPickerFromShortcut(e)) {
+        const trigger = toolbarRef.current?.querySelector<HTMLButtonElement>(
+          `button.picker-button[data-shortcut="${SHORTCUTS.MODELS}"]`,
+        );
+        if (trigger && !trigger.disabled) {
+          e.preventDefault();
+          trigger.click();
+        }
+        return;
+      }
       // Sempre previne o default do navegador (Ctrl+L/H/P), mas só age quando
       // não há modal aberto ou quando este toolbar pertence ao modal do topo.
       if (e.ctrlKey && key === 'l') {
@@ -391,6 +444,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   return (
     <>
       <Toolbar
+        ref={toolbarRef}
         ariaLabel={t('chat.toolbarLabel')}
         isLoading={isLoading}
         left={
@@ -456,6 +510,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             <AgentOptionsPickers
               conversationId={effectiveConversationId}
               disabled={isLoading}
+              modelShortcut={SHORTCUTS.MODELS}
             />
 
             {nativeModelProviderID && (
@@ -467,6 +522,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 label={t('chat.modelOverride.label')}
                 placeholder={t('pickers.model.filterPlaceholder')}
                 description={t('chat.modelOverride.description')}
+                shortcut={SHORTCUTS.MODELS}
                 disabled={isLoading || modelOverrideUpdating}
                 includeDefaultOption
                 defaultOptionLabel={t('chat.modelOverride.profileDefault')}

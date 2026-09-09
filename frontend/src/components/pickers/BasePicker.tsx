@@ -31,6 +31,7 @@ interface BasePickerProps {
   maxWidth?: string;
   helpText?: string;
   onAnnounce?: (message: string) => void;
+  shortcut?: string;
   onOpen?: () => void;
   loading?: boolean;
   error?: string | null;
@@ -106,6 +107,7 @@ export const BasePicker = ({
   maxWidth,
   helpText,
   onAnnounce,
+  shortcut,
   onOpen,
   loading = false,
   error,
@@ -264,6 +266,7 @@ export const BasePicker = ({
       placeholder={placeholder}
       disabled={disabled}
       onAnnounce={onAnnounce}
+      shortcut={shortcut}
       onOpen={onOpen}
       allowFreeInput={allowFreeInput}
       onAfterSelect={onAfterSelect}

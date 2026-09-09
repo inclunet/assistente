@@ -2517,6 +2517,7 @@ const en = {
         clearConversation: 'Clear conversation',
         navigateTabs: 'Navigate between conversations',
         openHistory: 'Open history',
+        selectModel: 'Select model for the active chat',
         interactionProfiles: 'Interaction profiles',
         playAudio: 'Play audio (focused message)',
         viewDetails: 'View details (focused message)',
