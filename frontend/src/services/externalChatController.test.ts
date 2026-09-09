@@ -36,6 +36,7 @@ describe('externalChatController', () => {
     mockStartChatEventController.mockClear();
     mockStartChatEventController.mockReturnValue({
       cleanup: vi.fn(),
+      handleSendCancellation: vi.fn(),
       done: Promise.resolve(),
       handleSendFailure: vi.fn(),
     });

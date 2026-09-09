@@ -177,6 +177,7 @@ interface ChatEventControllerOptions {
 
 export interface ChatEventControllerHandle {
   cleanup: () => void;
+  handleSendCancellation: () => void;
   handleSendFailure: (message: string) => void;
   done: Promise<void>;
 }
@@ -834,6 +835,15 @@ export function startChatEventController({
   return {
     cleanup,
     done,
+    handleSendCancellation: () => {
+      if (cleanupExecuted) return;
+      cleanup();
+      adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
+      patchCurrentSession({
+        isLoading: false,
+        streamingMessageId: null,
+      });
+    },
     handleSendFailure: (message: string) => {
       if (cleanupExecuted) return;
       logger.error('[Chat] Error sending message:', message);

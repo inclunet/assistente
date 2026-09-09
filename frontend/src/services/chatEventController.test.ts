@@ -257,6 +257,21 @@ describe('chatEventController', () => {
     eventListeners.clear();
   });
 
+  it('encerra loading sem criar falha quando o envio é cancelado antes do backend', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const handle = startChatEventController({
+      conversationId: 'conversation-1',
+      initialUserContent: 'mensagem',
+      adapter,
+    });
+
+    expect(sessions['conversation-1'].isLoading).toBe(true);
+    handle.handleSendCancellation();
+
+    expect(sessions['conversation-1'].isLoading).toBe(false);
+    expect(sessions['conversation-1'].sendFailureMessage).toBeNull();
+  });
+
   it('mantém eventos isolados por conversationId', () => {
     const { adapter, sessions } = createAdapter(['conversation-1', 'conversation-2']);
 

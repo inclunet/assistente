@@ -648,7 +648,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        controller.cleanup();
+        controller.handleSendCancellation();
         return;
       }
       const errorMsg = isMediaSerializationError(error)

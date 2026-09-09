@@ -272,7 +272,11 @@ func TestSendMessageUseCase_STTAssincronoUnicoEPersistido(t *testing.T) {
 		})
 		result <- executeResult{id: got, err: executeErr}
 	}()
-	<-started
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Whisper não iniciou")
+	}
 	select {
 	case got := <-result:
 		if got.err != nil || got.id != conv.ID {
@@ -335,7 +339,11 @@ func TestSendMessageUseCase_CancelaSTTEmAndamento(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	<-started
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Whisper não iniciou antes do cancelamento")
+	}
 	streamMgr.Cancel(conv.ID)
 	select {
 	case <-cancelled:
