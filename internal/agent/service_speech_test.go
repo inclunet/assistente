@@ -40,8 +40,13 @@ func (m *mockEmitter) getEvents() []emittedEvent {
 }
 
 type mockMsgRepo struct {
-	nextID                int
-	lastCreateMessageOpts *chat.MessageOptions
+	nextID                 int
+	lastCreateMessageOpts  *chat.MessageOptions
+	turnMessages           []chat.Message
+	turnMessagesError      error
+	turnMessagesContextErr error
+	turnMessagesParentID   *string
+	messagesByID           map[string]*chat.Message
 }
 
 func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
@@ -55,14 +60,19 @@ func (m *mockMsgRepo) UpdateMessageContentAndReasoning(_ context.Context, _ stri
 	return nil
 }
 func (m *mockMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
+	if message := m.messagesByID[messageID]; message != nil {
+		return message, nil
+	}
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}}, nil
 }
 func (m *mockMsgRepo) GetMessages(context.Context, string, *string) ([]chat.Message, error) {
 	return nil, nil
 }
 
-func (m *mockMsgRepo) GetMessagesByTurnID(context.Context, string, *string, string, int) ([]chat.Message, error) {
-	return nil, nil
+func (m *mockMsgRepo) GetMessagesByTurnID(ctx context.Context, _ string, parentID *string, _ string, _ int) ([]chat.Message, error) {
+	m.turnMessagesContextErr = ctx.Err()
+	m.turnMessagesParentID = parentID
+	return m.turnMessages, m.turnMessagesError
 }
 func (m *mockMsgRepo) GetConversationSummary(context.Context, string) (string, string, error) {
 	return "", "", nil

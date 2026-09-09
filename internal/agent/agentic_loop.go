@@ -86,7 +86,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro na iteração %d: %s", iteration, result.Error)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
-			r.svc.emitter.Emit("chat:done", r.buildErrorDoneEvent(streamErr, iteration))
+			r.svc.emitter.Emit("chat:done", r.buildErrorDoneEventWithContext(ctx, streamErr, iteration))
 			return
 		}
 
@@ -667,7 +667,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.onSpeechRequest != nil {
 		r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
 	}
-	r.svc.emitter.Emit("chat:done", ports.DoneEvent{
+	doneEvent := ports.DoneEvent{
 		ConversationID:     r.conversationID,
 		TurnID:             r.turnID,
 		AssistantMessageID: r.assistantMessageID,
@@ -682,7 +682,9 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
 		CacheMissTokens:    r.lastUsage.CacheMissTokens,
 		SurfaceOrigin:      r.surfaceOrigin,
-	})
+	}
+	doneEvent.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
+	r.svc.emitter.Emit("chat:done", doneEvent)
 
 	if r.svc.triggerSummarize != nil {
 		go func() {
@@ -695,7 +697,11 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 // buildErrorDoneEvent monta o chat:done terminal de erro de streaming, incluindo
 // as estatísticas acumuladas do loop até a iteração corrente.
 func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int) ports.DoneEvent {
-	return ports.DoneEvent{
+	return r.buildErrorDoneEventWithContext(context.Background(), errMessage, iteration)
+}
+
+func (r *agenticLoopRunner) buildErrorDoneEventWithContext(ctx context.Context, errMessage string, iteration int) ports.DoneEvent {
+	event := ports.DoneEvent{
 		ConversationID:     r.conversationID,
 		TurnID:             r.turnID,
 		AssistantMessageID: r.assistantMessageID,
@@ -712,6 +718,8 @@ func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int
 		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
 		CacheMissTokens:    r.lastUsage.CacheMissTokens,
 	}
+	event.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
+	return event
 }
 
 // resolveAgenticMaxIterations resolve o teto de iterações do loop: usa o valor do

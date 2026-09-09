@@ -24,3 +24,14 @@ não podem ser fixados porque ainda não correspondem a uma mensagem persistida.
 
 Fixações pertencem à conversa e ao usuário autenticado. Outros usuários da
 mesma instalação não conseguem listar nem alterar essas mensagens.
+
+## Respostas em andamento e fila
+
+Cada conversa executa um turno por vez. Se você enviar outra mensagem ou tentar
+novamente enquanto a resposta atual ainda está em andamento, a ação entra na
+fila daquela conversa e o chat informa quantos turnos aguardam.
+
+Cancelar a geração interrompe somente a resposta atual; não apaga os itens já
+enfileirados. Conversas diferentes continuam respondendo em paralelo. Ao
+terminar um turno com ferramentas, o chat atualiza apenas a resposta daquele
+turno, preservando a posição e a janela de histórico que você estava lendo.
