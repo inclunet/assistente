@@ -48,7 +48,9 @@ func (m *StreamingManager) Register(conversationID string, cancel context.Cancel
 	return generation
 }
 
-// Unregister removes the streaming context once a response completes normally.
+// Unregister removes the active context unconditionally. Use it only when no
+// newer turn can have registered the same conversation; concurrent goroutine
+// cleanup must prefer UnregisterIfCurrent with the generation from Register.
 func (m *StreamingManager) Unregister(conversationID string) {
 	m.mu.Lock()
 	delete(m.contexts, conversationID)
