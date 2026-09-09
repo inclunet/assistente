@@ -65,6 +65,18 @@ O STT permite ditar mensagens por voz ao invés de digitar.
 - **Limiar de silêncio**: Sensibilidade para detectar silêncio
 - **Limiar de atividade**: Sensibilidade para detectar fala
 
+### Áudio anexado ao chat
+
+Anexos de áudio sem texto são processados pelo backend antes de chegar ao
+modelo. Com Whisper configurado, o chat anuncia o início e a conclusão da
+transcrição; o resultado é salvo na própria mensagem e reutilizado no
+histórico e em tentativas posteriores, sem cobrar uma nova transcrição.
+
+O processamento pode ser cancelado pelo mesmo botão usado para interromper uma
+resposta. Se a transcrição falhar, o áudio não é enviado em formato incompatível:
+a mensagem é preservada com um aviso e o leitor de telas recebe feedback da
+falha.
+
 ## Wake Word
 
 O sistema de Wake Word permite ativar o assistente por voz sem precisar interagir com a janela do aplicativo.

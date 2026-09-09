@@ -101,7 +101,7 @@ type DoneEvent struct {
 	// acabou. Ele substitui o reload completo pós-tools no frontend.
 	TurnPatch *TurnPatchEvent `json:"turnPatch,omitempty"`
 	// AEP-0039 Fase 2: enriched done event
-	Reason           string             `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error"
+	Reason           string             `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error" | "cancelled"
 	IterationCount   int                `json:"iterationCount,omitempty"`
 	ToolCallCount    int                `json:"toolCallCount,omitempty"`
 	ToolsUsed        []string           `json:"toolsUsed,omitempty"`
@@ -127,6 +127,16 @@ type MessagesReadyEvent struct {
 	UserMessageID  string             `json:"userMessageId"`
 	TurnID         string             `json:"turnId,omitempty"`
 	UserContent    string             `json:"userContent"`
+	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+}
+
+// MediaProcessingEvent informa o processamento backend-driven de anexos.
+// Status: "started" | "completed" | "failed" | "cancelled".
+type MediaProcessingEvent struct {
+	ConversationID string             `json:"conversationId"`
+	MessageID      string             `json:"messageId,omitempty"`
+	Status         string             `json:"status"`
+	Error          string             `json:"error,omitempty"`
 	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
