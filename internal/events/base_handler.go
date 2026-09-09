@@ -13,9 +13,11 @@ import (
 //
 // Campos são exportados para permitir embeddings em outros pacotes internos.
 type BaseStreamHandler struct {
-	Emitter        Emitter
-	ConversationID string
-	TurnID         string
+	Emitter            Emitter
+	ConversationID     string
+	TurnID             string
+	AssistantMessageID string
+	SurfaceOrigin      *ports.ChatSurfaceOrigin
 
 	AccumulatedContent   string
 	PendingDelta         string
@@ -77,12 +79,14 @@ func (h *BaseStreamHandler) emitStreamEvent() {
 		return
 	}
 	h.Emitter.Emit("chat:stream", StreamEvent{
+		MessageID:      h.AssistantMessageID,
 		Delta:          delta,
 		Reset:          !h.StreamStarted,
 		Sequence:       h.Sequence,
 		Done:           false,
 		ConversationId: h.ConversationID,
 		TurnID:         h.TurnID,
+		SurfaceOrigin:  h.SurfaceOrigin,
 	})
 	h.StreamStarted = true
 	h.Sequence++
@@ -95,11 +99,13 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 	if !h.IsThinking {
 		h.IsThinking = true
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-			ConversationID: h.ConversationID,
-			TurnID:         h.TurnID,
-			Content:        content,
-			Done:           false,
-			Started:        true,
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			Content:            content,
+			Done:               false,
+			Started:            true,
+			SurfaceOrigin:      h.SurfaceOrigin,
 		})
 	}
 
@@ -136,10 +142,12 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 
 func (h *BaseStreamHandler) emitThinkingEvent() {
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-		ConversationID: h.ConversationID,
-		TurnID:         h.TurnID,
-		Content:        h.AccumulatedReasoning,
-		Done:           false,
+		ConversationID:     h.ConversationID,
+		TurnID:             h.TurnID,
+		AssistantMessageID: h.AssistantMessageID,
+		Content:            h.AccumulatedReasoning,
+		Done:               false,
+		SurfaceOrigin:      h.SurfaceOrigin,
 	})
 }
 
@@ -158,10 +166,12 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.Mu.Unlock()
 
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-		ConversationID: h.ConversationID,
-		TurnID:         h.TurnID,
-		Content:        reasoning,
-		Done:           true,
+		ConversationID:     h.ConversationID,
+		TurnID:             h.TurnID,
+		AssistantMessageID: h.AssistantMessageID,
+		Content:            reasoning,
+		Done:               true,
+		SurfaceOrigin:      h.SurfaceOrigin,
 	})
 }
 
