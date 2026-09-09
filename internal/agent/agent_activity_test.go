@@ -26,15 +26,15 @@ func novoHandlerDeAgente(t *testing.T, emitter *mockEmitter, fala *[]speechCall)
 	return handler
 }
 
-// esperaStreamDepoisDe aguarda o throttle de 50 ms do chat:stream e devolve o
-// conteúdo do primeiro evento emitido depois dos que já existiam.
+// esperaStreamDepoisDe aguarda o coalescing do chat:stream e devolve o delta
+// do primeiro evento emitido depois dos que já existiam.
 func esperaStreamDepoisDe(t *testing.T, emitter *mockEmitter, jaEmitidos int) string {
 	t.Helper()
 	limite := time.Now().Add(2 * time.Second)
 	for time.Now().Before(limite) {
 		streams := eventosPorNome(emitter, "chat:stream")
 		if len(streams) > jaEmitidos {
-			return streams[len(streams)-1].(events.StreamEvent).Content
+			return streams[len(streams)-1].(events.StreamEvent).Delta
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -363,12 +363,11 @@ func TestLeituraFinalNaoRepeteOQueJaFoiFaladoEmSegmentos(t *testing.T) {
 	if final.text != "bloco final." {
 		t.Errorf("leitura final=%q, esperava só o que ainda não foi lido", final.text)
 	}
-	// A mensagem salva continua sendo o turno inteiro: quem reabre a conversa
-	// precisa ver tudo o que o agente escreveu.
-	streams := eventosPorNome(emitter, "chat:stream")
-	ultimo := streams[len(streams)-1].(events.StreamEvent)
-	if ultimo.FullResponse != "primeiro bloco. bloco final." {
-		t.Errorf("mensagem final=%q, esperava o turno inteiro", ultimo.FullResponse)
+	// O acumulador autoritativo continua contendo o turno inteiro; o evento
+	// terminal não repete esse conteúdo.
+	conteudo, _ := handler.Finalize()
+	if conteudo != "primeiro bloco. bloco final." {
+		t.Errorf("mensagem final=%q, esperava o turno inteiro", conteudo)
 	}
 }
 

@@ -306,11 +306,9 @@ func (s *Service) SaveAndFinish(
 
 	s.emitter.Emit("chat:stream", events.StreamEvent{
 		MessageID:      savedMsgID,
-		Content:        result.FullResponse,
 		Done:           true,
 		ConversationId: conversationID,
 		TurnID:         turnID,
-		FullResponse:   result.FullResponse,
 		SurfaceOrigin:  surfaceOrigin,
 	})
 

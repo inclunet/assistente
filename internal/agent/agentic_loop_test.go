@@ -391,10 +391,14 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 	r.finishLimitReached(context.Background())
 
 	streamEvents := em.find("chat:stream")
-	if len(streamEvents) != 1 {
-		t.Fatalf("chat:stream=%d, want 1", len(streamEvents))
+	if len(streamEvents) != 2 {
+		t.Fatalf("chat:stream=%d, want 2", len(streamEvents))
 	}
-	if !streamEvents[0].data.(events.StreamEvent).Done {
+	delta := streamEvents[0].data.(events.StreamEvent)
+	if delta.Delta != limitReachedNotice || !delta.Reset || delta.Done {
+		t.Fatalf("delta de limite inesperado: %+v", delta)
+	}
+	if !streamEvents[1].data.(events.StreamEvent).Done {
 		t.Fatal("chat:stream de limite deveria ser terminal (Done=true)")
 	}
 	done := em.find("chat:done")
