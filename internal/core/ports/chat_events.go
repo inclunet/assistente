@@ -52,6 +52,7 @@ type TurnPatchEvent struct {
 type TurnPatchMessage struct {
 	ID               string             `json:"id"`
 	ConversationID   string             `json:"conversationId"`
+	ParentID         *string            `json:"parentId,omitempty"`
 	TurnID           string             `json:"turnId"`
 	Content          string             `json:"content"`
 	Reasoning        string             `json:"reasoning,omitempty"`

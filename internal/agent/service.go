@@ -399,7 +399,15 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	patchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	messages, err := s.msgRepo.GetMessagesByTurnID(patchCtx, conversationID, nil, turnID, 1000)
+	turnMessage, err := s.msgRepo.GetMessage(patchCtx, turnID)
+	if err != nil {
+		return nil, err
+	}
+	var parentID *string
+	if turnMessage != nil {
+		parentID = turnMessage.ParentID
+	}
+	messages, err := s.msgRepo.GetMessagesByTurnID(patchCtx, conversationID, parentID, turnID, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +450,7 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	patch := &ports.TurnPatchEvent{Message: ports.TurnPatchMessage{
 		ID:               message.ID,
 		ConversationID:   message.ConversationID,
+		ParentID:         message.ParentID,
 		TurnID:           turnID,
 		Content:          message.Content,
 		Reasoning:        message.Reasoning,

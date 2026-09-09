@@ -287,7 +287,8 @@ type ChatDoneEvent struct {
 
 `turnPatch` contém um único item de timeline consolidado por `turnId`, com texto
 final, reasoning, tokens, tool calls e segmentos cronológicos hidratados de
-`tool_invocations`. O backend o monta após persistir o turno. O frontend faz
+`tool_invocations`. `parentId` preserva o escopo quando o turno pertence a uma
+thread. O backend o monta após persistir o turno. O frontend faz
 upsert desse item e **não executa `GetMessages()` nem recarrega a janela
 completa** após tools. Isso preserva janelas antigas por superfície e evita que
 o custo do término cresça com o tamanho da conversa.

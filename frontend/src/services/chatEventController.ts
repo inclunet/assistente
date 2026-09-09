@@ -132,6 +132,7 @@ interface ChatTurnPatch {
   message: {
     id: string;
     conversationId: string;
+    parentId?: string;
     turnId: string;
     content: string;
     reasoning?: string;

@@ -188,6 +188,41 @@ func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 	}
 }
 
+func TestBuildTurnPatchPreservaEscopoDeThread(t *testing.T) {
+	turnID := "turn-thread"
+	parentID := "thread-root"
+	repo := &mockMsgRepo{
+		messagesByID: map[string]*chat.Message{
+			turnID: {
+				UUIDModel:      database.UUIDModel{ID: turnID},
+				ConversationID: "conv-1",
+				Role:           "user",
+				ParentID:       &parentID,
+			},
+		},
+		turnMessages: []chat.Message{{
+			UUIDModel:      database.UUIDModel{ID: "assistant-thread", CreatedAt: time.Now()},
+			ConversationID: "conv-1",
+			ParentID:       &parentID,
+			Role:           "assistant",
+			TurnID:         &turnID,
+			Content:        "resposta na thread",
+		}},
+	}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+
+	patch, err := svc.buildTurnPatch(context.Background(), "conv-1", turnID)
+	if err != nil {
+		t.Fatalf("montar patch de thread: %v", err)
+	}
+	if repo.turnMessagesParentID == nil || *repo.turnMessagesParentID != parentID {
+		t.Fatalf("consulta perdeu parentId: %v", repo.turnMessagesParentID)
+	}
+	if patch == nil || patch.Message.ParentID == nil || *patch.Message.ParentID != parentID {
+		t.Fatalf("schema perdeu parentId: %+v", patch)
+	}
+}
+
 // TestSaveAndFinish_DoneEvent_NilLoopStats verifica que chat:done funciona
 // sem loopStats (chamada simples sem agentic loop).
 func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 )
 
 func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
+	parentID := "thread-root"
 	payload, err := json.Marshal(DoneEvent{
 		ConversationID: "conv-1",
 		TurnID:         "turn-1",
@@ -14,6 +15,7 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 		TurnPatch: &TurnPatchEvent{Message: TurnPatchMessage{
 			ID:             "assistant-1",
 			ConversationID: "conv-1",
+			ParentID:       &parentID,
 			TurnID:         "turn-1",
 			Content:        "parcial",
 			CreatedAt:      "2026-09-08T20:00:00Z",
@@ -35,6 +37,7 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 	for _, fragment := range []string{
 		`"conversationId":"conv-1"`,
 		`"turnId":"turn-1"`,
+		`"parentId":"thread-root"`,
 		`"reason":"output_limit"`,
 		`"turnPatch":{"message":`,
 		`"turnSegments":[`,
