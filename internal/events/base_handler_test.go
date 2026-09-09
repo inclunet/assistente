@@ -16,6 +16,14 @@ func (c *baseHandlerCapture) Emit(name string, data any) {
 	c.data = data
 }
 
+type retainingBaseHandlerCapture struct {
+	events []any
+}
+
+func (c *retainingBaseHandlerCapture) Emit(_ string, data any) {
+	c.events = append(c.events, data)
+}
+
 func TestBaseStreamHandlerPreservaCorrelacaoCompleta(t *testing.T) {
 	emitter := &baseHandlerCapture{}
 	origin := &ports.ChatSurfaceOrigin{
@@ -43,5 +51,30 @@ func TestBaseStreamHandlerPreservaCorrelacaoCompleta(t *testing.T) {
 	}
 	if event.SurfaceOrigin != origin {
 		t.Fatalf("surfaceOrigin não preservada: %+v", event.SurfaceOrigin)
+	}
+}
+
+func TestBaseStreamHandlerPreservaDeltasEmitidosAposReusoDoBuffer(t *testing.T) {
+	emitter := &retainingBaseHandlerCapture{}
+	handler := &BaseStreamHandler{
+		Emitter:        emitter,
+		ConversationID: "conversation-1",
+		TurnID:         "turn-1",
+	}
+
+	handler.OnChunk("primeiro")
+	handler.OnChunk("segundo!")
+	handler.Mu.Lock()
+	handler.CancelPendingChunkTimer()
+	handler.emitStreamEvent()
+	handler.Mu.Unlock()
+
+	if len(emitter.events) != 2 {
+		t.Fatalf("eventos=%d, quer 2", len(emitter.events))
+	}
+	first := emitter.events[0].(ports.StreamEvent)
+	second := emitter.events[1].(ports.StreamEvent)
+	if first.Delta != "primeiro" || second.Delta != "segundo!" {
+		t.Fatalf("deltas corrompidos após reuso do buffer: primeiro=%q segundo=%q", first.Delta, second.Delta)
 	}
 }

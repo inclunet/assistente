@@ -2,6 +2,7 @@ package events
 
 import (
 	"assistente/internal/core/ports"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,8 +20,8 @@ type BaseStreamHandler struct {
 	AssistantMessageID string
 	SurfaceOrigin      *ports.ChatSurfaceOrigin
 
-	PendingDelta         string
-	AccumulatedReasoning string
+	PendingDelta         strings.Builder
+	AccumulatedReasoning strings.Builder
 	IsThinking           bool
 
 	Mu            sync.Mutex
@@ -39,7 +40,7 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 	h.Mu.Lock()
 	defer h.Mu.Unlock()
 
-	h.PendingDelta += content
+	_, _ = h.PendingDelta.WriteString(content)
 
 	const throttleInterval = 24 * time.Millisecond
 	now := time.Now()
@@ -71,8 +72,8 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 }
 
 func (h *BaseStreamHandler) emitStreamEvent() {
-	delta := h.PendingDelta
-	h.PendingDelta = ""
+	delta := strings.Clone(h.PendingDelta.String())
+	h.PendingDelta.Reset()
 	if delta == "" {
 		return
 	}
@@ -107,7 +108,7 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 		})
 	}
 
-	h.AccumulatedReasoning += content
+	_, _ = h.AccumulatedReasoning.WriteString(content)
 
 	const throttleInterval = 50 * time.Millisecond
 	now := time.Now()
@@ -143,7 +144,7 @@ func (h *BaseStreamHandler) emitThinkingEvent() {
 		ConversationID:     h.ConversationID,
 		TurnID:             h.TurnID,
 		AssistantMessageID: h.AssistantMessageID,
-		Content:            h.AccumulatedReasoning,
+		Content:            strings.Clone(h.AccumulatedReasoning.String()),
 		Done:               false,
 		SurfaceOrigin:      h.SurfaceOrigin,
 	})
@@ -158,9 +159,10 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.PendingThinkingEmit = false
 
 	if fullReasoning != "" {
-		h.AccumulatedReasoning = fullReasoning
+		h.AccumulatedReasoning.Reset()
+		_, _ = h.AccumulatedReasoning.WriteString(fullReasoning)
 	}
-	reasoning := h.AccumulatedReasoning
+	reasoning := strings.Clone(h.AccumulatedReasoning.String())
 	h.Mu.Unlock()
 
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
