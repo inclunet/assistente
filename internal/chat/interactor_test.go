@@ -311,6 +311,61 @@ func TestPrepareContext_AcceptsContentAtExactMaxSize(t *testing.T) {
 	}
 }
 
+func TestPrepareContext_ContaBytesUTF8EmConteudoMultibyte(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		wantTooLarge bool
+	}{
+		{
+			name:    "emoji exatamente no limite",
+			content: strings.Repeat("😀", MaxMessageContentSize/len("😀")),
+		},
+		{
+			name:         "emoji e um byte acima",
+			content:      strings.Repeat("😀", MaxMessageContentSize/len("😀")) + "a",
+			wantTooLarge: true,
+		},
+		{
+			name:    "combinantes e quebra de linha abaixo",
+			content: strings.Repeat("e\u0301\n", MaxMessageContentSize/len("e\u0301\n")-1),
+		},
+		{
+			name:    "vazia",
+			content: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inter := newTestInteractor(&spyEmitter{})
+			_, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+				ConversationID: "1",
+				UserContent:    tt.content,
+			})
+			gotTooLarge := err != nil && strings.Contains(err.Error(), "Mensagem muito grande")
+			if gotTooLarge != tt.wantTooLarge {
+				t.Fatalf("erro de tamanho = %v, esperado %v; bytes=%d err=%v", gotTooLarge, tt.wantTooLarge, len(tt.content), err)
+			}
+		})
+	}
+}
+
+func TestPrepareContext_NaoContaMediaNoLimiteDoTexto(t *testing.T) {
+	inter := newTestInteractor(&spyEmitter{})
+	content := strings.Repeat("x", MaxMessageContentSize)
+	media := strings.Repeat("m", MaxMessageContentSize+1)
+
+	_, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "1",
+		UserContent:    content,
+		UserMedia:      media,
+	})
+	if err != nil && strings.Contains(err.Error(), "Mensagem muito grande") {
+		t.Fatalf("base64 da mídia não deve entrar no limite do texto: %v", err)
+	}
+}
+
 func TestPrepareContext_RejectsMediaExceedingMaxSize(t *testing.T) {
 	spy := &spyEmitter{}
 	inter := newTestInteractor(spy)

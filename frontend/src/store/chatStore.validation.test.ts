@@ -113,6 +113,9 @@ vi.mock('i18next', () => ({
   default: {
     t: (key: string, opts?: Record<string, unknown>) => {
       if (typeof opts === 'object' && opts.defaultValue) return opts.defaultValue;
+      if (key === 'chat.validation.messageTooLarge') {
+        return `Mensagem muito grande (${opts?.sizeBytes} bytes). Máximo permitido: ${opts?.maxKiB} KiB.`;
+      }
       return key;
     },
   },
@@ -225,12 +228,20 @@ describe('chatStore validation', () => {
 
   it('rejects message exceeding max content size', async () => {
     const bigContent = 'x'.repeat(512 * 1024 + 1);
+    const focusedInput = document.createElement('textarea');
+    document.body.appendChild(focusedInput);
+    focusedInput.focus();
 
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, bigContent);
 
     expect(mockAnnounce).toHaveBeenCalledTimes(1);
-    expect(mockAnnounce.mock.calls[0][0]).toContain('grande');
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      'Mensagem muito grande (524289 bytes). Máximo permitido: 512 KiB.',
+      'assertive',
+    );
     expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(focusedInput);
+    focusedInput.remove();
   });
 
   it('accepts message at exact max content size', async () => {
@@ -239,6 +250,79 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
 
     expect(mockSendMessage).toHaveBeenCalled();
+  });
+
+  it('aceita emoji exatamente no limite UTF-8 e rejeita um byte adicional', async () => {
+    const exactContent = '😀'.repeat((512 * 1024) / 4);
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, exactContent);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+    mockSendMessage.mockClear();
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, `${exactContent}a`);
+
+    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockAnnounce).toHaveBeenLastCalledWith(
+      'Mensagem muito grande (524289 bytes). Máximo permitido: 512 KiB.',
+      'assertive',
+    );
+  });
+
+  it('aceita conteúdo vazio', async () => {
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, '');
+
+    expect(mockSendMessage).toHaveBeenCalledWith(defaultConversationId, '', '', expect.any(Object));
+  });
+
+  it('conta somente o texto quando há anexo serializado em base64', async () => {
+    const file = new File(['conteúdo binário'], 'anexo.txt', { type: 'text/plain' });
+    const content = '😀'.repeat((512 * 1024) / 4);
+
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, content, [{
+      id: 'anexo-1',
+      file,
+      category: MediaCategory.DOCUMENT,
+      mimeType: 'text/plain',
+      extension: '.txt',
+      fileName: 'anexo.txt',
+      fileSize: file.size,
+      fileSizeFormatted: '16 B',
+      icon: '📄',
+      preview: '',
+    }]);
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      defaultConversationId,
+      content,
+      expect.stringContaining('"data"'),
+      expect.any(Object),
+    );
+  });
+
+  it('rejeita texto excedente antes de preparar anexos no Worker', async () => {
+    const file = new File(['anexo'], 'anexo.txt', { type: 'text/plain' });
+    const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(5));
+    Object.defineProperty(file, 'arrayBuffer', { value: arrayBuffer });
+
+    await useChatStore.getState().sendMessageToConversation(
+      defaultConversationId,
+      '😀'.repeat((512 * 1024) / 4 + 1),
+      [{
+        id: 'anexo-bloqueado',
+        file,
+        category: MediaCategory.DOCUMENT,
+        mimeType: 'text/plain',
+        extension: '.txt',
+        fileName: 'anexo.txt',
+        fileSize: file.size,
+        fileSizeFormatted: '5 B',
+        icon: '📄',
+        preview: '',
+      }],
+    );
+
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   it('retry de mensagem existente usa RetryMessage sem criar novo SendMessage', async () => {
