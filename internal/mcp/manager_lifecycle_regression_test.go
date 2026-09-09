@@ -346,6 +346,7 @@ func TestDisconnectCancelaSessaoAtiva(t *testing.T) {
 	m.mu.RLock()
 	conn := m.connections["ativa"]
 	healthDone := conn.healthDone
+	sessionDone := conn.sessionDone
 	m.mu.RUnlock()
 
 	if err := m.Disconnect("ativa"); err != nil {
@@ -355,6 +356,14 @@ func TestDisconnectCancelaSessaoAtiva(t *testing.T) {
 	case <-healthDone:
 	case <-time.After(time.Second):
 		t.Fatal("Disconnect retornou antes de encerrar o health loop")
+	}
+	select {
+	case _, ok := <-sessionDone:
+		if ok {
+			t.Fatal("Disconnect retornou sem consumir o resultado de session.Wait")
+		}
+	default:
+		t.Fatal("Disconnect retornou antes de session.Wait terminar")
 	}
 	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second)
 	defer cancelPing()

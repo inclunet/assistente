@@ -1100,8 +1100,11 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 	alreadyEnded := false
 	if conn.sessionDone != nil {
 		select {
-		case <-conn.sessionDone:
-			alreadyEnded = true
+		case _, ok := <-conn.sessionDone:
+			// Canal fechado sem valor significa que o watcher nem chegou a
+			// iniciar (CloseAll já havia bloqueado tryGoTracked), não que
+			// session.Wait comprovou o encerramento.
+			alreadyEnded = ok
 		default:
 		}
 	}
@@ -1118,6 +1121,7 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 		return nil
 	}
 	err := conn.session.Close()
+	waitConnectionSession(conn)
 	if err == nil {
 		return nil
 	}
@@ -1127,6 +1131,12 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 	}
 	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro inesperado ao fechar sessão '%s': %v", slug, err)
 	return err
+}
+
+func waitConnectionSession(conn *serverConnection) {
+	if conn != nil && conn.sessionDone != nil {
+		<-conn.sessionDone
+	}
 }
 
 func waitConnectionLoops(conn *serverConnection) {
