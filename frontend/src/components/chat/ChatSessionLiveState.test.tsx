@@ -1,4 +1,5 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chat } from '../../../wailsjs/go/models';
 import { useChatStore, type Message, type MessageNode } from '../../store/chatStore';
@@ -22,8 +23,10 @@ const createNode = (message: Message): MessageNode => (
 );
 
 function LiveProbe({ message, onRender }: { message: Message; onRender: () => void }) {
-  onRender();
   const { liveContent } = useChatMessageLiveState(message);
+  useEffect(() => {
+    onRender();
+  });
   return <span>{liveContent ?? message.content}</span>;
 }
 

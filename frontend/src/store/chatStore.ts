@@ -1475,10 +1475,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
       set((state) => {
+        const sessionPatch = removeChatSession(state, conversationId);
+        if (!Object.prototype.hasOwnProperty.call(
+          state.liveMessageContentByConversationId,
+          conversationId,
+        )) {
+          return sessionPatch;
+        }
         const liveMessageContentByConversationId = { ...state.liveMessageContentByConversationId };
         delete liveMessageContentByConversationId[conversationId];
         return {
-          ...removeChatSession(state, conversationId),
+          ...sessionPatch,
           liveMessageContentByConversationId,
         };
       });
