@@ -64,6 +64,27 @@ Servidores STDIO/locais **sempre** usam adapter, independente do provider.
 
 ---
 
+## Ciclo de vida e reconexão
+
+Depois que a conexão termina, a sessão permanece ativa até uma destas ações:
+
+- desconexão manual do servidor;
+- logout ou troca de usuário;
+- encerramento do Assistente;
+- falha real detectada pelo health check.
+
+O handshake tem timeout próprio. Se ele expirar, o Assistente cancela a
+tentativa e encerra o transporte ou processo STDIO antes de permitir uma nova
+conexão. A cada 2 minutos, um health check valida a sessão; falhas consecutivas
+acionam reconexão automática com espera progressiva. A reconexão substitui a
+sessão e os monitores anteriores, sem executar duas conexões em paralelo.
+
+Mensagens informativas de reconexão bem-sucedida não indicam falha. Erros reais
+de handshake, transporte, autenticação ou fechamento inesperado continuam
+registrados para diagnóstico.
+
+---
+
 ## Coexistência na mesma request
 
 Quando MCP nativo está ativo, a mesma request ao LLM pode conter:
