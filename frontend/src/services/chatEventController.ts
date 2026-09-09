@@ -501,7 +501,6 @@ export function startChatEventController({
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
-      if (!currentAssistantNodeId) return;
       if (event.reset) {
         streamedContent = event.baseContent ?? '';
         streamSequence = -1;
