@@ -289,6 +289,21 @@ describe('chatEventController', () => {
     eventListeners.clear();
   });
 
+  it('encerra loading sem criar falha quando o envio é cancelado antes do backend', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const handle = startChatEventController({
+      conversationId: 'conversation-1',
+      initialUserContent: 'mensagem',
+      adapter,
+    });
+
+    expect(sessions['conversation-1'].isLoading).toBe(true);
+    handle.handleSendCancellation();
+
+    expect(sessions['conversation-1'].isLoading).toBe(false);
+    expect(sessions['conversation-1'].sendFailureMessage).toBeNull();
+  });
+
   it('mantém eventos isolados por conversationId', () => {
     const { adapter, sessions } = createAdapter(['conversation-1', 'conversation-2']);
 
@@ -1363,6 +1378,39 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
       'conversation-1',
       'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('anuncia processamento, falha e cancelamento de mídia de forma acessível', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:media_processing', {
+      conversationId: 'conversation-1',
+      status: 'started',
+    });
+    emitEvent('chat:media_processing', {
+      conversationId: 'conversation-1',
+      status: 'failed',
+      error: 'indisponível',
+    });
+    emitEvent('chat:media_processing', {
+      conversationId: 'conversation-1',
+      status: 'cancelled',
+    });
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.mediaProcessing.started',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounce).toHaveBeenCalledWith('chat.mediaProcessing.failed', 'assertive');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.mediaProcessing.cancelled',
       'polite',
       undefined,
     );
