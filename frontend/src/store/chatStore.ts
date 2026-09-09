@@ -1258,11 +1258,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             liveMessageContentByConversationId[conversationId] = remainingMessages;
           }
         }
-        const conversationPatch = hasConversationChange
-          ? patchConversation(state, conversationId, (conversation) => ({
-            ...conversation,
-            threadedMessages: updatedNodes!,
-          }))
+        const conversationPatch = timeline
+          ? patchConversation(state, conversationId, (conversation) => {
+            const threadedMessages = updateMessageContentInTree(
+              conversation.threadedMessages,
+              messageId,
+              content,
+            );
+            return threadedMessages === conversation.threadedMessages
+              ? conversation
+              : { ...conversation, threadedMessages };
+          })
           : {};
         return {
           ...conversationPatch,

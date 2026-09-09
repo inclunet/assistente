@@ -2,6 +2,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chat } from '../../../wailsjs/go/models';
 import { useChatStore, type Message, type MessageNode } from '../../store/chatStore';
+import { createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 import { useChatMessageLiveState } from './ChatSessionContext';
 
 const createMessage = (id: string, conversationId: string, content: string): Message => (
@@ -99,5 +100,46 @@ describe('estado live granular do chat', () => {
     });
 
     expect(useChatStore.getState()).toBe(before);
+  });
+
+  it('consolida no terminal o nó transitório visível que ainda não entrou na timeline', () => {
+    const conversationId = 'conversation-1';
+    const sessionKey = 'tab-1:conversation-1';
+    const userNode = createNode(createMessage('user-1', conversationId, 'pergunta'));
+    userNode.message.role = 'user';
+    userNode.message.isStreaming = false;
+    const assistantNode = createNode(createMessage('assistant-1', conversationId, ''));
+    useChatStore.setState({
+      timelinesByConversationId: {
+        [conversationId]: {
+          id: conversationId,
+          title: 'Conversa',
+          threadedMessages: [userNode],
+        },
+      },
+      surfaceSessionsByKey: {
+        [sessionKey]: {
+          ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+          visibleThreadedMessages: [userNode, assistantNode],
+          streamingMessageId: 'assistant-1',
+        },
+      },
+      liveMessageContentByConversationId: {
+        [conversationId]: { 'assistant-1': 'resposta terminal' },
+      },
+    });
+
+    act(() => {
+      useChatStore.getState().commitConversationLiveMessage(
+        conversationId,
+        'assistant-1',
+        'resposta terminal',
+      );
+    });
+
+    const state = useChatStore.getState();
+    expect(state.surfaceSessionsByKey[sessionKey].visibleThreadedMessages?.[1].message.content)
+      .toBe('resposta terminal');
+    expect(state.liveMessageContentByConversationId[conversationId]).toBeUndefined();
   });
 });
