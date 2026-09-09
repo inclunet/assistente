@@ -17,6 +17,13 @@ type HistoryLoader struct {
 	MaxMsgs int
 }
 
+func (h *HistoryLoader) maxMessages() int {
+	if h.MaxMsgs > 0 {
+		return h.MaxMsgs
+	}
+	return DefaultMaxContextMessages
+}
+
 type historyToolCall struct {
 	ID     string  `json:"id"`
 	Result *string `json:"result,omitempty"`
@@ -54,7 +61,7 @@ func parseHistoryToolCalls(raw string) (calls []historyToolCall, raws []json.Raw
 // Os mensagens retornadas estão prontas para conversão ao formato LLM.
 func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Message, string, error) {
 	if windowRepo, ok := h.Repo.(HistoryWindowRepository); ok {
-		window, err := windowRepo.LoadHistoryWindow(ctx, conversationID, h.MaxMsgs)
+		window, err := windowRepo.LoadHistoryWindow(ctx, conversationID, h.maxMessages())
 		if err != nil {
 			return nil, "", err
 		}
@@ -112,15 +119,16 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 // caminho legado quanto a janela batch passam por esta única implementação.
 func (h *HistoryLoader) filter(ctx context.Context, conversationID string, dbMessages []Message, existingSummary string) ([]Message, string, error) {
 	total := len(dbMessages)
+	maxMessages := h.maxMessages()
 
 	// Truncação por limite de mensagens no contexto (MaxMsgs).
 	// Corta no limite de uma mensagem role="user", preservando turns completos.
-	if total > h.MaxMsgs {
+	if total > maxMessages {
 		cutIndex := -1
 		for i := total - 1; i >= 2; i-- {
 			if dbMessages[i].Role == "user" {
 				msgCount := 2 + (total - i)
-				if msgCount > h.MaxMsgs {
+				if msgCount > maxMessages {
 					break
 				}
 				cutIndex = i
@@ -130,7 +138,7 @@ func (h *HistoryLoader) filter(ctx context.Context, conversationID string, dbMes
 		if cutIndex > 2 {
 			dbMessages = append(dbMessages[:2], dbMessages[cutIndex:]...)
 		} else {
-			kept := h.MaxMsgs - 2
+			kept := maxMessages - 2
 			if kept > total {
 				kept = total
 			}

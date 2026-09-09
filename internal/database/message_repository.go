@@ -130,18 +130,13 @@ type historyWindowRow struct {
 	SummaryBoundaryID string `gorm:"column:summary_boundary_id"`
 }
 
-func normalizeHistoryWindowLimit(maxMessages int) int {
-	if maxMessages <= 0 {
-		return 50
-	}
-	return maxMessages
-}
-
 // loadHistoryWindow carrega somente as duas primeiras mensagens elegíveis e a
 // janela recente. Isso fornece ao HistoryLoader tudo de que sua regra de
 // truncamento precisa sem ler a conversa inteira.
 func (r *MessageRepository) loadHistoryWindow(ctx context.Context, conv Conversation, maxMessages int) (*HistoryWindowResult, error) {
-	limit := normalizeHistoryWindowLimit(maxMessages)
+	if maxMessages <= 0 {
+		return nil, fmt.Errorf("maxMessages deve ser positivo")
+	}
 	const query = `
 WITH boundary AS (
 	SELECT id, created_at
@@ -194,7 +189,7 @@ ORDER BY created_at ASC, id ASC`
 		conv.SummaryUpToMessageID,
 		conv.ID,
 		conv.SummaryUpToMessageID,
-		limit,
+		maxMessages,
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, err
