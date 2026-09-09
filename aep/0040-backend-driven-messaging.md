@@ -277,19 +277,23 @@ type StreamChunkEvent struct {
 
 O frontend faz `updateMessage(event.messageId, event.content)` — sem mapeamentos.
 
-#### 2.4 `chat:done` carrega estado final completo
+#### 2.4 `chat:done` carrega o patch autoritativo mínimo do turno
 
 ```go
 type ChatDoneEvent struct {
     ChatEventEnvelope
     AssistantMessageID string `json:"assistantMessageId"`
     HadToolCalls       bool `json:"hadToolCalls"`
-    // Se hadToolCalls, o backend já recarregou e emite a árvore atualizada:
-    UpdatedMessages []MessageNode `json:"updatedMessages,omitempty"`
+    TurnPatch *TurnPatchEvent `json:"turnPatch,omitempty"`
 }
 ```
 
-Quando houve tool calls, o backend inclui a árvore de mensagens atualizada no próprio evento `chat:done`. **O frontend não precisa fazer `GetMessages()` manualmente.**
+`turnPatch` contém um único item de timeline consolidado por `turnId`, com texto
+final, reasoning, tokens, tool calls e segmentos cronológicos hidratados de
+`tool_invocations`. O backend o monta após persistir o turno. O frontend faz
+upsert desse item e **não executa `GetMessages()` nem recarrega a janela
+completa** após tools. Isso preserva janelas antigas por superfície e evita que
+o custo do término cresça com o tamanho da conversa.
 
 #### 2.5 Mudanças no frontend no contrato compartilhado de envio
 
@@ -324,55 +328,54 @@ sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOve
 
 **Removido**: criação implícita de conversa (`if (conversationId === 0) { createConversation() }`). O caller é responsável por garantir que a conversa existe.
 
-#### 2.6 Event listeners por controller de conversa (não por chamada)
+#### 2.6 Hub global de eventos com rotas de turno
 
-Os listeners não são registrados dentro de cada envio. Cada controller de conversa/aba registra seus listeners enquanto estiver vivo, filtra eventos pelo seu `conversationId` e atualiza apenas o próprio estado visual:
+Existe exatamente um listener Wails por nome de evento durante a vida da
+aplicação. Um hub estável roteia ao controller ativo por `conversationId` e
+rejeita eventos cujo `turnId` diverge do turno vinculado. Controllers registram
+somente uma rota interna e a removem ao concluir/cancelar; não registram
+listeners globais por envio ou conversa.
 
 ```typescript
-// frontend/src/hooks/useChatController.ts
-export function useChatController(conversationId: string) {
-  const controller = useMemo(() => createChatController(conversationId), [conversationId]);
-  
-  useEffect(() => {
-    const unsubs = [
-      EventsOn('chat:user_message_created', (e: UserMessageCreatedEvent) => {
-        if (e.conversationId !== conversationId) return;
-        controller.insertBackendMessage(e.message);
-        playSendSound();
-      }),
-      EventsOn('chat:assistant_message_started', (e: AssistantMessageStartedEvent) => {
-        if (e.conversationId !== conversationId) return;
-        controller.insertBackendMessage(e.message);
-        controller.setStreamingMessageId(e.message.id);
-      }),
-      EventsOn('chat:stream', (e: StreamChunkEvent) => {
-        if (e.conversationId !== conversationId) return;
-        controller.updateMessage(e.messageId, e.content);
-      }),
-      EventsOn('chat:done', (e: ChatDoneEvent) => {
-        if (e.conversationId !== conversationId) return;
-        if (e.updatedMessages) {
-          controller.replaceMessages(e.updatedMessages);
-        }
-        controller.finishStreaming();
-      }),
-      // ... thinking, tool_start, tool_end, segment_done
-    ];
-    return () => unsubs.forEach(fn => fn());
-  }, [conversationId, controller]);
+// chatEventHub.ts: executado uma vez, independentemente de turnos/abas.
+for (const name of CHAT_TURN_EVENT_NAMES) {
+  EventsOn(name, event => dispatchByConversationAndTurn(name, event));
 }
+
+// Controller do turno: registra somente handlers na rota interna.
+const route = createChatTurnEventRouter(
+  conversationId,
+  () => currentTurnId,
+  turnId => { currentTurnId = turnId; },
+);
+route.on('chat:stream', handleStream);
+route.on('chat:done', event => {
+  upsertTurnPatch(event.turnPatch);
+  finishStreaming();
+  route.unregister();
+});
 ```
+
+#### 2.7 Fila por conversa sem bloquear aceitação
+
+A serialização usa o evento terminal (`chat:done`) como fronteira do turno, não
+o retorno do binding `SendMessage`, que apenas confirma a aceitação e lança o
+streaming. Enfileirar devolve ao caller assim que o backend aceita o item; a
+cauda interna continua aguardando a conclusão. Assim, outro envio/retry pode
+entrar na fila, o contador visual aparece imediatamente e o cancelamento pode
+interromper o turno ativo sem limpar os pendentes. Filas de `conversationId`
+diferentes avançam em paralelo.
 
 ### Testes
 - [ ] Unit test Go: `SendMessage` com `conversationID=""` retorna erro de ID ausente
 - [ ] Unit test Go: `SendMessage` com UUID inexistente retorna erro de conversa não encontrada
 - [ ] Unit test Go: `SendMessage` cria registro no banco ANTES de emitir `chat:user_message_created`
 - [ ] Unit test Go: `chat:assistant_message_started` emitido com ID real
-- [ ] Unit test Go: `chat:done` inclui `updatedMessages` quando `hadToolCalls=true`
+- [x] Unit test Go: `chat:done` inclui `turnPatch` consolidado quando há tools
 - [ ] Unit test Frontend: `insertBackendMessage` adiciona mensagem ao estado
 - [ ] Unit test Frontend: o pipeline de envio NÃO cria mensagens locais
 - [ ] Unit test Frontend: enviar sem `conversationId` mostra erro, não cria conversa
-- [ ] Unit test Frontend: listeners ignoram eventos de outra conversa
+- [x] Unit test Frontend: hub ignora outra conversa/turno e mantém listener count constante
 - [ ] Integration test: mensagem enviada → UI mostra mensagem com ID do banco, sem temp ID
 
 ### Critério de aceitação
@@ -425,9 +428,9 @@ runtime.EventsEmit(ctx, "chat:speak", ChatSpeakEvent{
 
 O frontend já tem listener para `chat:speak` — basta garantir que a decisão é do backend.
 
-#### 3.3 Tool reload no backend
+#### 3.3 Reconciliação pós-tools no backend
 
-Já resolvido na Fase 2 — `chat:done` carrega `updatedMessages` quando houve tool calls.
+Já resolvido na Fase 2 — `chat:done` carrega `turnPatch`, sem snapshot completo.
 
 ### Testes
 - [ ] Unit test Go: conversa com título padrão é renomeada após primeira resposta
