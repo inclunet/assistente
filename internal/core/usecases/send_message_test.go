@@ -216,12 +216,15 @@ func TestSendMessageUseCase_STTAssincronoUnicoEPersistido(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := make(chan struct{})
+	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var calls atomic.Int32
 	uc, _ := newMediaTestUseCase(t, mgr, func(ctx context.Context, _, _ string) (string, error) {
 		calls.Add(1)
-		close(started)
+		select {
+		case started <- struct{}{}:
+		default:
+		}
 		select {
 		case <-release:
 			return "transcrição persistida", nil
@@ -285,12 +288,18 @@ func TestSendMessageUseCase_CancelaSTTEmAndamento(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := make(chan struct{})
-	cancelled := make(chan struct{})
+	started := make(chan struct{}, 1)
+	cancelled := make(chan struct{}, 1)
 	uc, streamMgr := newMediaTestUseCase(t, mgr, func(ctx context.Context, _, _ string) (string, error) {
-		close(started)
+		select {
+		case started <- struct{}{}:
+		default:
+		}
 		<-ctx.Done()
-		close(cancelled)
+		select {
+		case cancelled <- struct{}{}:
+		default:
+		}
 		return "", ctx.Err()
 	})
 	if _, err := uc.Execute(usecases.SendMessageRequest{
