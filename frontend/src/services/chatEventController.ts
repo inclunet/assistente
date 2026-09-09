@@ -118,7 +118,7 @@ interface ChatDoneEvent {
   assistantMessageId?: string;
   turnId?: string;
   hadToolCalls?: boolean;
-  reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error';
+  reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error' | 'cancelled';
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
   turnPatch?: ChatTurnPatch;
@@ -127,6 +127,15 @@ interface ChatDoneEvent {
 interface ChatErrorEvent {
   conversationId: string;
   error: string;
+}
+
+interface ChatMediaProcessingEvent {
+  conversationId: string;
+  messageId?: string;
+  turnId?: string;
+  status: 'started' | 'completed' | 'failed' | 'cancelled';
+  error?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 interface ChatTurnPatch {
@@ -192,6 +201,7 @@ interface ChatEventControllerOptions {
 
 export interface ChatEventControllerHandle {
   cleanup: () => void;
+  handleSendCancellation: () => void;
   handleSendFailure: (message: string) => void;
   done: Promise<void>;
 }
@@ -262,6 +272,7 @@ export function startChatEventController({
 
   const noop = () => { /* no-op */ };
   let unsubMessagesReady = noop;
+  let unsubMediaProcessing = noop;
   let unsubStream = noop;
   let unsubThinking = noop;
   let unsubToolStart = noop;
@@ -346,6 +357,7 @@ export function startChatEventController({
     commitStreamingContent();
     cleanupExecuted = true;
     unsubMessagesReady();
+    unsubMediaProcessing();
     unsubStream();
     unsubThinking();
     unsubToolStart();
@@ -526,6 +538,34 @@ export function startChatEventController({
         channel: external.channel,
         message: stripMarkdown(event.userContent),
       }));
+    }
+  });
+
+  unsubMediaProcessing = turnEvents.on('chat:media_processing', (event: ChatMediaProcessingEvent) => {
+    if (event.conversationId !== conversationId || !isActive()) return;
+    if (event.status === 'started') {
+      announceForActiveChatConversation(
+        conversationId,
+        i18next.t('chat.mediaProcessing.started'),
+        'polite',
+        getEventOrigin(event),
+      );
+    } else if (event.status === 'completed') {
+      announceForActiveChatConversation(
+        conversationId,
+        i18next.t('chat.mediaProcessing.completed'),
+        'polite',
+        getEventOrigin(event),
+      );
+    } else if (event.status === 'failed') {
+      announce(i18next.t('chat.mediaProcessing.failed'), 'assertive');
+    } else if (event.status === 'cancelled') {
+      announceForActiveChatConversation(
+        conversationId,
+        i18next.t('chat.mediaProcessing.cancelled'),
+        'polite',
+        getEventOrigin(event),
+      );
     }
   });
 
@@ -816,6 +856,15 @@ export function startChatEventController({
   return {
     cleanup,
     done,
+    handleSendCancellation: () => {
+      if (cleanupExecuted) return;
+      cleanup();
+      adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
+      patchCurrentSession({
+        isLoading: false,
+        streamingMessageId: null,
+      });
+    },
     handleSendFailure: (message: string) => {
       if (cleanupExecuted) return;
       logger.error('[Chat] Error sending message:', message);

@@ -10,6 +10,11 @@ import {
 } from '@wailsjs/go/wailsapi/Messaging';
 import { EnsureConversation } from '@wailsjs/go/wailsapi/Conversations';
 import { MediaFile } from '../services/mediaService';
+import {
+  cancelMediaSerialization,
+  isMediaSerializationError,
+  serializeMediaForConversation,
+} from '../services/mediaSerialization';
 import { llm } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
 import { logger } from '../utils/logger';
@@ -73,13 +78,6 @@ import {
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
 
-interface MediaData {
-  name: string;
-  type: string;
-  data: string;
-  size: number;
-}
-
 export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
 export type {
   ActiveConversation,
@@ -122,19 +120,6 @@ const getFirstPersistedMessageId = (nodes: MessageNode[]): string | null => {
     }
   }
   return null;
-};
-
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 };
 
 interface ChatStore {
@@ -639,20 +624,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
 
     try {
-      let mediaJson = '';
-      if (mediaFiles && mediaFiles.length > 0) {
-        const mediaDataArray: MediaData[] = [];
-        for (const mediaFile of mediaFiles) {
-          const base64Data = await fileToBase64(mediaFile.file);
-          mediaDataArray.push({
-            name: mediaFile.file.name,
-            type: mediaFile.file.type,
-            data: base64Data,
-            size: mediaFile.file.size,
-          });
-        }
-        mediaJson = JSON.stringify(mediaDataArray);
-      }
+      const mediaJson = mediaFiles && mediaFiles.length > 0
+        ? await serializeMediaForConversation(conversationId, mediaFiles)
+        : '';
 
       const mergedParams: llm.ChatParams = {
         model: paramsOverride?.model ?? '',
@@ -679,7 +653,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       return controller;
     } catch (error: unknown) {
-      const errorMsg = getErrorMessage(error);
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        controller.handleSendCancellation();
+        return;
+      }
+      const errorMsg = isMediaSerializationError(error)
+        ? i18next.t('chat.errors.mediaSerializationFailed')
+        : getErrorMessage(error);
       controller.handleSendFailure(errorMsg);
       return controller;
     }
@@ -1378,6 +1358,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
 
       try {
+        cancelMediaSerialization(conversationId);
         await CancelStreamingForConversation(conversationId);
         stopChatEventController(conversationId);
         setConversationLoading(conversationId, false, options?.origin?.sessionKey);
@@ -1401,6 +1382,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     cancelConversationTurn: (conversationId) => {
+      cancelMediaSerialization(conversationId);
       turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
       setConversationLoading(conversationId, false);

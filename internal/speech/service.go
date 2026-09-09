@@ -563,7 +563,7 @@ func (s *Service) Transcribe(ctx context.Context, audioBase64, filename string) 
 	if !s.EnsureSpeechManager(ctx) {
 		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
 	}
-	return s.speechManager.Transcribe(audioBase64, filename)
+	return s.speechManager.TranscribeWithContext(ctx, audioBase64, filename)
 }
 
 // Synthesize sintetiza texto via speech manager (TTS padrão).
