@@ -478,7 +478,6 @@ type RecordUserMessageRequest struct {
 	Source         string
 	SurfaceOrigin  *ports.ChatSurfaceOrigin
 	ActiveProfile  *profiles.Profile
-	Transcribe     TranscribeFunc
 	// MaxContextMessages, se > 0, sobrescreve o limite do perfil ao carregar histórico.
 	MaxContextMessages int
 }
@@ -549,7 +548,7 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 	})
 
 	if window != nil {
-		loader := MediaHistoryLoader{Repo: i.repo, Transcribe: req.Transcribe, MaxMsgs: maxCtxMsgs}
+		loader := MediaHistoryLoader{Repo: i.repo, MaxMsgs: maxCtxMsgs}
 		messages, summary, err := loader.LoadWindow(ctx, req.ConversationID, window)
 		if err != nil {
 			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
@@ -584,9 +583,8 @@ func (i *Interactor) ReuseLoadedUserMessage(ctx context.Context, req RecordUserM
 
 	maxCtxMsgs := effectiveMaxContextMessages(req)
 	loader := MediaHistoryLoader{
-		Repo:       i.repo,
-		Transcribe: req.Transcribe,
-		MaxMsgs:    maxCtxMsgs,
+		Repo:    i.repo,
+		MaxMsgs: maxCtxMsgs,
 	}
 	messages, summary, err := loader.Load(ctx, req.ConversationID)
 	if err != nil {
@@ -617,7 +615,7 @@ type ResolveUserContentRequest struct {
 	Media       string
 	Source      string
 	STTProvider string // activeProfile.Input.STTProvider (pode ser "")
-	Transcribe  TranscribeFunc
+	STTLanguage string // activeProfile.Input.Language (pode ser "")
 }
 
 // ResolveUserContentResponse contém o conteúdo resolvido e os dados de áudio extraídos.
@@ -625,35 +623,48 @@ type ResolveUserContentResponse struct {
 	Content       string
 	AudioBase64   string
 	AudioMimeType string
+	NeedsSTT      bool
+	STTFilename   string
 }
 
-// ResolveUserContent extrai o áudio do media, aplica fallback STT para canais não-Wails
-// e transcreve automaticamente quando o conteúdo está vazio e há mídia de áudio.
-// Esta é lógica pura de domínio — sem acesso a banco ou I/O externo além de Transcribe.
+// ResolveUserContent é uma resolução pura: extrai áudio e decide se o pipeline
+// assíncrono precisa executar STT. Nenhuma rede ou transcrição acontece aqui.
 func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserContentRequest) ResolveUserContentResponse {
 	audioBase64, audioMime := ExtractAudio(req.Media)
+	audioMime = NormalizeAudioMIME(audioMime)
 
 	content := req.Content
+	needsSTT := false
 	if content == "" && req.Media != "" {
 		if req.Source != "wails" {
 			stt := req.STTProvider
 			if stt == "webspeech" || stt == "" {
 				logging.Infof(ctx, "chat.interactor", "[ResolveUserContent] Canal %s: STT '%s' não suporta transcrição server-side — usando placeholder", req.Source, stt)
-				content = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"
+				content = AudioSTTNotConfiguredFallback(req.STTLanguage)
 			}
 		}
-		if content == "" && req.Transcribe != nil {
-			if text, err := req.Transcribe(ctx, audioBase64, WhisperFilename(strings.TrimPrefix(audioMime, "audio/"))); err == nil {
-				content = text
-			}
-		}
+		needsSTT = content == "" && audioBase64 != ""
 	}
 
 	return ResolveUserContentResponse{
 		Content:       content,
 		AudioBase64:   audioBase64,
 		AudioMimeType: audioMime,
+		NeedsSTT:      needsSTT,
+		STTFilename:   WhisperFilename(strings.TrimPrefix(audioMime, "audio/")),
 	}
+}
+
+// PersistUserTranscription guarda o resultado único de STT na própria mensagem.
+// Histórico e retry passam a reutilizar esse conteúdo sem novas chamadas Whisper.
+func (i *Interactor) PersistUserTranscription(ctx context.Context, messageID, content string) error {
+	updater, ok := i.repo.(interface {
+		UpdateMessageText(context.Context, string, string) error
+	})
+	if !ok {
+		return errors.New("repositório não suporta atualização isolada da transcrição")
+	}
+	return updater.UpdateMessageText(ctx, messageID, content)
 }
 
 // PrepareMessagesRequest carries inputs for the PrepareMessages pipeline.
@@ -666,7 +677,6 @@ type PrepareMessagesRequest struct {
 	Params              ChatParams
 	ActiveProfile       *profiles.Profile
 	SurfaceOrigin       *ports.ChatSurfaceOrigin
-	Transcribe          TranscribeFunc
 	// AgentTurn diz que quem conduz o turno é um agente de código (AEP-0084
 	// D4, revisto na Fase 8). Ele leva só a mensagem da pessoa: nada de
 	// persona, skills, memória ou blocos de contexto, que o agente resolve com
@@ -812,7 +822,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		audioSupported = req.ActiveProfile.MediaSupport.Audio
 		docSupported = req.ActiveProfile.MediaSupport.Document
 	}
-	messages = PreprocessMessages(ctx, messages, req.Transcribe, audioSupported, docSupported)
+	messages = PreprocessMessages(ctx, messages, audioSupported, docSupported)
 
 	return PrepareMessagesResponse{
 		Messages:                    messages,
@@ -840,7 +850,7 @@ func (i *Interactor) prepareAgentMessages(ctx context.Context, req PrepareMessag
 		docSupported = req.ActiveProfile.MediaSupport.Document
 	}
 	return PrepareMessagesResponse{
-		Messages: PreprocessMessages(ctx, req.Messages, req.Transcribe, audioSupported, docSupported),
+		Messages: PreprocessMessages(ctx, req.Messages, audioSupported, docSupported),
 	}
 }
 

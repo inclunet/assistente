@@ -2,6 +2,41 @@ package database
 
 import "testing"
 
+func TestUpdateMessageTextPreservesExistingMetadata(t *testing.T) {
+	setupOrderingTestDB(t)
+
+	conv := &Conversation{Title: "media-transcription", UserID: testUserID}
+	if err := db.Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	msg, err := CreateMessageWithContext(testCtx(), MessageOptions{
+		ConversationID:   conv.ID,
+		Role:             "user",
+		Content:          "",
+		Reasoning:        "metadata",
+		PromptTokens:     12,
+		CompletionTokens: 3,
+		TotalTokens:      15,
+		Model:            "modelo-original",
+	})
+	if err != nil {
+		t.Fatalf("CreateMessageWithContext: %v", err)
+	}
+
+	if err := UpdateMessageTextWithContext(testCtx(), msg.ID, "transcrição"); err != nil {
+		t.Fatalf("UpdateMessageTextWithContext: %v", err)
+	}
+	retrieved, err := GetMessageWithContext(testCtx(), msg.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContext: %v", err)
+	}
+	if retrieved.Content != "transcrição" || retrieved.Reasoning != "metadata" ||
+		retrieved.PromptTokens != 12 || retrieved.CompletionTokens != 3 ||
+		retrieved.TotalTokens != 15 || retrieved.Model != "modelo-original" {
+		t.Fatalf("metadados foram alterados: %+v", retrieved)
+	}
+}
+
 func TestCacheTokenMetricsPersistAndAggregate(t *testing.T) {
 	setupOrderingTestDB(t)
 

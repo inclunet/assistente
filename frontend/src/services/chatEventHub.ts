@@ -4,6 +4,7 @@ export const CHAT_TURN_EVENT_NAMES = [
   'chat:error',
   'chat:speak',
   'chat:messages_ready',
+  'chat:media_processing',
   'chat:stream',
   'chat:thinking',
   'chat:tool_start',

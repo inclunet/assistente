@@ -192,25 +192,37 @@ func TestMediaHistoryLoader_AudioSupported(t *testing.T) {
 	}
 }
 
-func TestMediaHistoryLoader_AudioUnsupported_Transcribed(t *testing.T) {
+func TestMediaHistoryLoader_AudioSupported_NormalizaMIMEParametrizado(t *testing.T) {
+	media := mediaJSON([]map[string]interface{}{
+		{"type": "audio/wav;codecs=pcm", "data": "wavdata"},
+	})
+	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
+
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part := msgs[0].Content.([]interface{})[0].(map[string]interface{})
+	inputAudio := part["input_audio"].(map[string]interface{})
+	if part["type"] != "input_audio" || inputAudio["format"] != "wav" {
+		t.Fatalf("áudio parametrizado não normalizado: %+v", part)
+	}
+}
+
+func TestMediaHistoryLoader_AudioUnsupported_NaoTranscreveNoHistorico(t *testing.T) {
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "audio/aac", "data": "aacdata"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	loader := &MediaHistoryLoader{
-		Repo: repo,
-		Transcribe: func(_ context.Context, audio, _ string) (string, error) {
-			return "transcrição do áudio", nil
-		},
-		MaxMsgs: 100,
-	}
+	loader := &MediaHistoryLoader{Repo: repo, MaxMsgs: 100}
 	msgs, _, err := loader.Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	parts := msgs[0].Content.([]interface{})
 	m := parts[0].(map[string]interface{})
-	if m["type"] != "text" || m["text"] != "transcrição do áudio" {
+	expected := "[Mensagem de áudio recebida (aac) — não foi possível transcrever]"
+	if m["type"] != "text" || m["text"] != expected {
 		t.Errorf("got type=%v text=%v", m["type"], m["text"])
 	}
 }
@@ -220,7 +232,7 @@ func TestMediaHistoryLoader_AudioUnsupported_NoTranscribe_Placeholder(t *testing
 		{"type": "audio/webm", "data": "webmdata"},
 	})
 	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
-	msgs, _, err := (&MediaHistoryLoader{Repo: repo, Transcribe: nil, MaxMsgs: 100}).Load(context.Background(), "1")
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,6 +264,83 @@ func TestMediaHistoryLoader_AudioSkippedWhenHasTextContent(t *testing.T) {
 	}
 	if parts[0].(map[string]interface{})["type"] != "text" {
 		t.Error("expected text part, not audio")
+	}
+}
+
+func TestResolveUserContent_AgendaSTTSemExecutarIO(t *testing.T) {
+	media := mediaJSON([]map[string]interface{}{
+		{"type": "audio/webm", "data": "webmdata", "name": "voz.webm"},
+	})
+
+	resolved := (&Interactor{}).ResolveUserContent(context.Background(), ResolveUserContentRequest{
+		Media:       media,
+		Source:      "wails",
+		STTProvider: "whisper_api",
+	})
+
+	if !resolved.NeedsSTT {
+		t.Fatal("áudio sem texto deveria agendar STT")
+	}
+	if resolved.STTFilename != "audio.webm" || resolved.AudioBase64 != "webmdata" {
+		t.Fatalf("resolução inesperada: %+v", resolved)
+	}
+	if resolved.Content != "" {
+		t.Fatalf("ResolveUserContent deve permanecer puro; content=%q", resolved.Content)
+	}
+}
+
+func TestResolveUserContent_NormalizaMIMEParametrizadoParaWhisper(t *testing.T) {
+	media := mediaJSON([]map[string]interface{}{
+		{"type": "audio/webm;codecs=opus", "data": "webmdata", "name": "voz.webm"},
+	})
+
+	resolved := (&Interactor{}).ResolveUserContent(context.Background(), ResolveUserContentRequest{
+		Media:       media,
+		Source:      "wails",
+		STTProvider: "whisper_api",
+	})
+
+	if resolved.AudioMimeType != "audio/webm" || resolved.STTFilename != "audio.webm" {
+		t.Fatalf("MIME parametrizado não normalizado: %+v", resolved)
+	}
+}
+
+func TestAudioTranscriptionFallback_UsaIdiomaDoPerfil(t *testing.T) {
+	tests := []struct {
+		language string
+		want     string
+	}{
+		{language: "pt-BR", want: "[Mensagem de áudio recebida (ogg) — não foi possível transcrever]"},
+		{language: "es", want: "[Mensaje de audio recibido (ogg) — no se pudo transcribir]"},
+		{language: "en-US", want: "[Audio message received (ogg) — could not be transcribed]"},
+		{language: "", want: "[Audio message received (ogg) — could not be transcribed]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.language, func(t *testing.T) {
+			if got := AudioTranscriptionFallback(tt.language, "audio/ogg;codecs=opus"); got != tt.want {
+				t.Fatalf("fallback = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveUserContent_CanalWebSpeechUsaFallbackSemSTT(t *testing.T) {
+	media := mediaJSON([]map[string]interface{}{
+		{"type": "audio/ogg", "data": "oggdata", "name": "voz.ogg"},
+	})
+
+	resolved := (&Interactor{}).ResolveUserContent(context.Background(), ResolveUserContentRequest{
+		Media:       media,
+		Source:      "telegram",
+		STTProvider: "webspeech",
+		STTLanguage: "pt-BR",
+	})
+
+	if resolved.NeedsSTT {
+		t.Fatal("canal sem STT server-side não deve agendar Whisper")
+	}
+	if resolved.Content == "" {
+		t.Fatal("fallback persistível deve explicar que STT não está configurado")
 	}
 }
 
@@ -398,46 +487,32 @@ func fileMsg(filename, mime string) llm.Message {
 }
 
 func TestPreprocess_SupportedAudioPassthrough(t *testing.T) {
-	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("wav", "d")}, nil, nil, nil)
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("wav", "d")}, nil, nil)
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "input_audio" {
 		t.Errorf("supported audio must pass through, got type=%v", m["type"])
 	}
 }
 
-func TestPreprocess_UnsupportedAudio_Transcribed(t *testing.T) {
-	called := false
-	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("aac", "d")}, func(_ context.Context, _, _ string) (string, error) {
-		called = true
-		return "texto transcrito", nil
-	}, nil, nil)
-	if !called {
-		t.Error("transcribe must be called for unsupported aac format")
-	}
+func TestPreprocess_UnsupportedAudio_NaoTranscreve(t *testing.T) {
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("aac", "d")}, nil, nil)
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
-	if m["type"] != "text" || m["text"] != "texto transcrito" {
-		t.Errorf("expected text=texto transcrito, got type=%v text=%v", m["type"], m["text"])
+	expected := "[Mensagem de áudio recebida (aac) — não foi possível transcrever]"
+	if m["type"] != "text" || m["text"] != expected {
+		t.Errorf("expected deterministic placeholder, got type=%v text=%v", m["type"], m["text"])
 	}
 }
 
 func TestPreprocess_UnsupportedAudio_NoTranscribe_Placeholder(t *testing.T) {
-	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("ogg", "d")}, nil, nil, nil)
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("ogg", "d")}, nil, nil)
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "text" {
 		t.Errorf("expected placeholder text, got type=%v", m["type"])
 	}
 }
 
-func TestPreprocess_AudioSupportedFalse_ForcesWhisper(t *testing.T) {
-	// Mesmo wav (suportado nativamente), audioSupported=false → Whisper obrigatório
-	called := false
-	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("wav", "d")}, func(_ context.Context, _, _ string) (string, error) {
-		called = true
-		return "whisper text", nil
-	}, boolPtr(false), nil)
-	if !called {
-		t.Error("transcribe must be called when audioSupported=false")
-	}
+func TestPreprocess_AudioSupportedFalse_UsaPlaceholderSemSTT(t *testing.T) {
+	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("wav", "d")}, boolPtr(false), nil)
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "text" {
 		t.Errorf("expected text after forced whisper, got type=%v", m["type"])
@@ -445,7 +520,7 @@ func TestPreprocess_AudioSupportedFalse_ForcesWhisper(t *testing.T) {
 }
 
 func TestPreprocess_DocSupportedFalse_Placeholder(t *testing.T) {
-	result := PreprocessMessages(context.Background(), []llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, nil, boolPtr(false))
+	result := PreprocessMessages(context.Background(), []llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, boolPtr(false))
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "text" || m["text"] == "" {
 		t.Errorf("expected non-empty placeholder text, got type=%v text=%v", m["type"], m["text"])
@@ -453,7 +528,7 @@ func TestPreprocess_DocSupportedFalse_Placeholder(t *testing.T) {
 }
 
 func TestPreprocess_DocSupportedTrue_Passthrough(t *testing.T) {
-	result := PreprocessMessages(context.Background(), []llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, nil, boolPtr(true))
+	result := PreprocessMessages(context.Background(), []llm.Message{fileMsg("rel.pdf", "application/pdf")}, nil, boolPtr(true))
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
 	if m["type"] != "file" {
 		t.Errorf("doc must pass through when docSupported=true, got type=%v", m["type"])
@@ -462,7 +537,7 @@ func TestPreprocess_DocSupportedTrue_Passthrough(t *testing.T) {
 
 func TestPreprocess_StringContentUnchanged(t *testing.T) {
 	msgs := []llm.Message{{Role: "user", Content: "texto simples"}}
-	result := PreprocessMessages(context.Background(), msgs, nil, nil, nil)
+	result := PreprocessMessages(context.Background(), msgs, nil, nil)
 	if result[0].Content != "texto simples" {
 		t.Errorf("string content must be unchanged, got %v", result[0].Content)
 	}
