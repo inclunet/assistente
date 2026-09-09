@@ -500,6 +500,13 @@ export function startChatEventController({
       );
     } else if (event.status === 'failed') {
       announce(i18next.t('chat.mediaProcessing.failed'), 'assertive');
+    } else if (event.status === 'cancelled') {
+      announceForActiveChatConversation(
+        conversationId,
+        i18next.t('chat.mediaProcessing.cancelled'),
+        'polite',
+        getEventOrigin(event),
+      );
     }
   });
 

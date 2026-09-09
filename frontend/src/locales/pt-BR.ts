@@ -241,6 +241,7 @@ const ptBR = {
         started: 'Processando e transcrevendo o anexo de áudio.',
         completed: 'Transcrição do anexo concluída.',
         failed: 'Não foi possível transcrever o áudio. A mensagem será enviada com um aviso.',
+        cancelled: 'Processamento do anexo de áudio cancelado.',
       },
       errors: {
         noActiveConversation:

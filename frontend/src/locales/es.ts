@@ -240,6 +240,7 @@ const es = {
         started: 'Procesando y transcribiendo el archivo de audio adjunto.',
         completed: 'Transcripción del archivo adjunto completada.',
         failed: 'No se pudo transcribir el audio. El mensaje se enviará con un aviso.',
+        cancelled: 'Procesamiento del archivo de audio adjunto cancelado.',
       },
       errors: {
         noActiveConversation:

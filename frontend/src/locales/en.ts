@@ -241,6 +241,7 @@ const en = {
         started: 'Processing and transcribing the audio attachment.',
         completed: 'Attachment transcription completed.',
         failed: 'The audio could not be transcribed. The message will be sent with a notice.',
+        cancelled: 'Audio attachment processing cancelled.',
       },
       errors: {
         noActiveConversation:

@@ -1102,7 +1102,7 @@ describe('chatEventController', () => {
     );
   });
 
-  it('anuncia processamento e falha de mídia de forma acessível', () => {
+  it('anuncia processamento, falha e cancelamento de mídia de forma acessível', () => {
     const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -1115,6 +1115,10 @@ describe('chatEventController', () => {
       status: 'failed',
       error: 'indisponível',
     });
+    emitEvent('chat:media_processing', {
+      conversationId: 'conversation-1',
+      status: 'cancelled',
+    });
 
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
@@ -1123,5 +1127,11 @@ describe('chatEventController', () => {
       undefined,
     );
     expect(mockAnnounce).toHaveBeenCalledWith('chat.mediaProcessing.failed', 'assertive');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.mediaProcessing.cancelled',
+      'polite',
+      undefined,
+    );
   });
 });

@@ -204,7 +204,8 @@ func TestMediaHistoryLoader_AudioUnsupported_NaoTranscreveNoHistorico(t *testing
 	}
 	parts := msgs[0].Content.([]interface{})
 	m := parts[0].(map[string]interface{})
-	if m["type"] != "text" || m["text"] == "" {
+	expected := "[Mensagem de áudio recebida (aac) — não foi possível transcrever]"
+	if m["type"] != "text" || m["text"] != expected {
 		t.Errorf("got type=%v text=%v", m["type"], m["text"])
 	}
 }
@@ -443,7 +444,8 @@ func TestPreprocess_SupportedAudioPassthrough(t *testing.T) {
 func TestPreprocess_UnsupportedAudio_NaoTranscreve(t *testing.T) {
 	result := PreprocessMessages(context.Background(), []llm.Message{audioMsg("aac", "d")}, nil, nil)
 	m := result[0].Content.([]interface{})[0].(map[string]interface{})
-	if m["type"] != "text" || m["text"] == "" {
+	expected := "[Mensagem de áudio recebida (aac) — não foi possível transcrever]"
+	if m["type"] != "text" || m["text"] != expected {
 		t.Errorf("expected deterministic placeholder, got type=%v text=%v", m["type"], m["text"])
 	}
 }
