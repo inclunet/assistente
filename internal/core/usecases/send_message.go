@@ -309,13 +309,18 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		text, transcribeErr := uc.whisperTranscribeFunc()(ctx, mediaResolution.AudioBase64, mediaResolution.STTFilename)
 		if transcribeErr != nil {
 			status := "failed"
+			eventError := ports.ChatErrorInternal
 			if errors.Is(transcribeErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 				status = "cancelled"
+				eventError = ""
+				logging.Infof(ctx, "usecases.send-message", "[STT] transcrição cancelada para a conversa %s", req.ConversationID)
+			} else {
+				logging.Errorf(ctx, "usecases.send-message", "[STT] falha ao transcrever a conversa %s: %v", req.ConversationID, transcribeErr)
 			}
 			uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
 				ConversationID: req.ConversationID,
 				Status:         status,
-				Error:          transcribeErr.Error(),
+				Error:          eventError,
 				SurfaceOrigin:  surfaceOrigin,
 			})
 			if status == "cancelled" {
@@ -330,10 +335,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			userContent = fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", strings.TrimPrefix(mediaResolution.AudioMimeType, "audio/"))
 		} else if strings.TrimSpace(text) == "" {
 			userContent = fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", strings.TrimPrefix(mediaResolution.AudioMimeType, "audio/"))
+			logging.Warnf(ctx, "usecases.send-message", "[STT] transcrição vazia para a conversa %s", req.ConversationID)
 			uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
 				ConversationID: req.ConversationID,
 				Status:         "failed",
-				Error:          "transcrição vazia",
+				Error:          ports.ChatErrorInternal,
 				SurfaceOrigin:  surfaceOrigin,
 			})
 		} else {
