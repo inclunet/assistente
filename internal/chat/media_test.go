@@ -192,6 +192,23 @@ func TestMediaHistoryLoader_AudioSupported(t *testing.T) {
 	}
 }
 
+func TestMediaHistoryLoader_AudioSupported_NormalizaMIMEParametrizado(t *testing.T) {
+	media := mediaJSON([]map[string]interface{}{
+		{"type": "audio/wav;codecs=pcm", "data": "wavdata"},
+	})
+	repo := &stubRepo{messages: []database.ChatMessage{{Role: "user", Media: media}}}
+
+	msgs, _, err := (&MediaHistoryLoader{Repo: repo, MaxMsgs: 100}).Load(context.Background(), "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	part := msgs[0].Content.([]interface{})[0].(map[string]interface{})
+	inputAudio := part["input_audio"].(map[string]interface{})
+	if part["type"] != "input_audio" || inputAudio["format"] != "wav" {
+		t.Fatalf("áudio parametrizado não normalizado: %+v", part)
+	}
+}
+
 func TestMediaHistoryLoader_AudioUnsupported_NaoTranscreveNoHistorico(t *testing.T) {
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "audio/aac", "data": "aacdata"},

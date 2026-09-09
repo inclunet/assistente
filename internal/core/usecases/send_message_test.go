@@ -220,16 +220,25 @@ func newMediaTestUseCaseWithEmitter(
 
 type mediaEventEmitter struct {
 	failed chan ports.MediaProcessingEvent
+	events chan ports.MediaProcessingEvent
 }
 
 func (e mediaEventEmitter) Emit(name string, payload any) {
 	event, ok := payload.(ports.MediaProcessingEvent)
-	if name != "chat:media_processing" || !ok || event.Status != "failed" {
+	if name != "chat:media_processing" || !ok {
 		return
 	}
-	select {
-	case e.failed <- event:
-	default:
+	if event.Status == "failed" && e.failed != nil {
+		select {
+		case e.failed <- event:
+		default:
+		}
+	}
+	if e.events != nil {
+		select {
+		case e.events <- event:
+		default:
+		}
 	}
 }
 
@@ -357,6 +366,61 @@ func TestSendMessageUseCase_CancelaSTTEmAndamento(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(time.Second):
 		t.Fatal("cancelamento não chegou ao Whisper")
+	}
+}
+
+func TestSendMessageUseCase_CancelamentoAssincronoNaoViraFalha(t *testing.T) {
+	setupTestDB(t)
+	sqlDB, err := database.DB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	profile := minValidProfile("Media Cancel Async", "media-test")
+	profile.Input = profiles.InputConfig{Enabled: true, STTProvider: "whisper_api", Language: "pt-BR"}
+	setupProfileWith(t, mgr, profile)
+	conv, err := database.CreateConversationWithContext(ctx, "media", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{}, 1)
+	mediaEvents := make(chan ports.MediaProcessingEvent, 4)
+	uc, streamMgr := newMediaTestUseCaseWithEmitter(t, mgr, func(ctx context.Context, _, _ string) (string, error) {
+		started <- struct{}{}
+		<-ctx.Done()
+		return "texto concluído durante cancelamento", nil
+	}, mediaEventEmitter{events: mediaEvents})
+
+	if _, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conv.ID,
+		UserMedia:      `[{"name":"voz.ogg","type":"audio/ogg","data":"YXVkaW8=","size":5}]`,
+		Source:         "wails",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Whisper não iniciou antes do cancelamento")
+	}
+	streamMgr.Cancel(conv.ID)
+
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-mediaEvents:
+			if event.Status == "failed" {
+				t.Fatalf("cancelamento assíncrono emitido como falha: %+v", event)
+			}
+			if event.Status == "cancelled" {
+				return
+			}
+		case <-timeout:
+			t.Fatal("cancelamento assíncrono não foi emitido")
+		}
 	}
 }
 

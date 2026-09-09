@@ -247,6 +247,20 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			}()
 			if _, asyncErr := uc.Execute(req); asyncErr != nil {
 				uc.streamMgr.UnregisterIfCurrent(req.ConversationID, req.mediaStreamGen)
+				if errors.Is(asyncErr, context.Canceled) || errors.Is(asyncCtx.Err(), context.Canceled) {
+					logging.Infof(asyncCtx, "usecases.send-message", "[STT] processamento assíncrono cancelado para a conversa %s", req.ConversationID)
+					uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
+						ConversationID: req.ConversationID,
+						Status:         "cancelled",
+						SurfaceOrigin:  surfaceOrigin,
+					})
+					uc.emitter.Emit("chat:done", ports.DoneEvent{
+						ConversationID: req.ConversationID,
+						Reason:         "cancelled",
+						SurfaceOrigin:  surfaceOrigin,
+					})
+					return
+				}
 				logging.Errorf(asyncCtx, "usecases.send-message", "[STT] falha no processamento assíncrono da conversa %s: %v", req.ConversationID, asyncErr)
 				uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
 					ConversationID: req.ConversationID,

@@ -231,7 +231,7 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 // incompatível só pode chegar ao LLM como a transcrição já persistida em
 // Message.Content; sem ela, usamos um placeholder determinístico.
 func convertPersistedAudioPart(ctx context.Context, data, mediaType string) []interface{} {
-	audioFmt := strings.TrimPrefix(mediaType, "audio/")
+	audioFmt := strings.TrimPrefix(NormalizeAudioMIME(mediaType), "audio/")
 
 	if SupportedAudioFormats[audioFmt] {
 		return []interface{}{map[string]interface{}{
