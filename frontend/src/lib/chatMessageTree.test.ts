@@ -42,11 +42,23 @@ describe('chatMessageTree', () => {
   });
 
   it('updates message content inside nested nodes', () => {
-    const nodes = [node(message('root', 'user'), [node(message('child', 'assistant', 'old'), [], 1)])];
+    const untouched = node(message('untouched', 'assistant'));
+    const sibling = node(message('sibling', 'user'));
+    const nodes = [
+      node(message('root', 'user'), [
+        node(message('child', 'assistant', 'old'), [], 1),
+        untouched,
+      ]),
+      sibling,
+    ];
+    const untouchedInTree = nodes[0].children?.[1];
 
     const updated = updateMessageContentInTree(nodes, 'child', 'new');
 
     expect(updated[0].children?.[0].message.content).toBe('new');
+    expect(updated[0].children?.[1]).toBe(untouchedInTree);
+    expect(updated[1]).toBe(sibling);
+    expect(updateMessageContentInTree(nodes, 'missing', 'new')).toBe(nodes);
   });
 
   it('attaches loaded children to the requested message', () => {

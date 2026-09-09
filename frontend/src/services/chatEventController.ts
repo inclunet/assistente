@@ -172,6 +172,7 @@ export interface ChatEventControllerAdapter {
     updater: (conversation: ChatTreeConversation) => ChatTreeConversation,
   ) => void;
   updateMessage: (conversationId: string, messageId: string, content: string) => void;
+  commitMessage: (conversationId: string, messageId: string, content: string) => void;
   updateReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   setConversationLoading: (conversationId: string, isLoading: boolean, sessionKey?: string) => void;
 }
@@ -235,6 +236,9 @@ export function startChatEventController({
   let streamedContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
+  let pendingVisualContent: string | null = null;
+  let animationFrameId: number | null = null;
+  let streamingCommitted = false;
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -318,8 +322,28 @@ export function startChatEventController({
     return true;
   };
 
+  const flushVisualStreamingUpdate = () => {
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    const content = pendingVisualContent;
+    pendingVisualContent = null;
+    if (content === null || cleanupExecuted || !currentAssistantNodeId) return;
+    adapter.updateMessage(conversationId, currentAssistantNodeId, content);
+  };
+
+  const commitStreamingContent = () => {
+    if (streamingCommitted || !currentAssistantNodeId) return;
+    const finalContent = pendingVisualContent ?? streamedContent;
+    flushVisualStreamingUpdate();
+    adapter.commitMessage(conversationId, currentAssistantNodeId, finalContent);
+    streamingCommitted = true;
+  };
+
   const cleanup = () => {
     if (cleanupExecuted) return;
+    commitStreamingContent();
     cleanupExecuted = true;
     unsubMessagesReady();
     unsubStream();
@@ -350,6 +374,7 @@ export function startChatEventController({
       ensureAssistantNode(finalId);
     }
     if (!currentAssistantNodeId) return;
+    commitStreamingContent();
     const assistantNodeId = currentAssistantNodeId;
     adapter.patchConversation(
       conversationId,
@@ -401,11 +426,21 @@ export function startChatEventController({
 
   const updateStreamingMessage = (content: string) => {
     if (!currentAssistantNodeId) return;
-    adapter.updateMessage(conversationId, currentAssistantNodeId, content);
+    pendingVisualContent = content;
+    streamingCommitted = false;
+    if (animationFrameId !== null) return;
+    animationFrameId = requestAnimationFrame(() => {
+      animationFrameId = null;
+      const nextContent = pendingVisualContent;
+      pendingVisualContent = null;
+      if (nextContent === null || cleanupExecuted || !currentAssistantNodeId) return;
+      adapter.updateMessage(conversationId, currentAssistantNodeId, nextContent);
+    });
   };
 
   const getCurrentAssistantContent = () => {
     if (!currentAssistantNodeId) return '';
+    if (streamInitialized || pendingVisualContent !== null) return streamedContent;
     const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
@@ -507,6 +542,7 @@ export function startChatEventController({
         streamedContent = event.baseContent ?? '';
         streamSequence = -1;
         streamInitialized = true;
+        streamingCommitted = false;
       }
       if (!streamInitialized || !Number.isSafeInteger(event.sequence) || event.sequence !== streamSequence + 1) {
         return;
@@ -687,10 +723,12 @@ export function startChatEventController({
       completedSegments: newSegments,
       activeToolCalls: [],
     });
-    if (currentAssistantNodeId) updateStreamingMessage('');
+    flushVisualStreamingUpdate();
+    if (currentAssistantNodeId) adapter.updateMessage(conversationId, currentAssistantNodeId, '');
     streamedContent = '';
     streamSequence = -1;
     streamInitialized = false;
+    streamingCommitted = false;
   });
 
   unsubDone = turnEvents.on('chat:done', (event: ChatDoneEvent) => {

@@ -18,6 +18,7 @@ const chatEventAdapter: ChatEventControllerAdapter = {
   patchSession: vi.fn(),
   patchConversation: vi.fn(),
   updateMessage: vi.fn(),
+  commitMessage: vi.fn(),
   updateReasoning: vi.fn(),
   setConversationLoading: vi.fn(),
 };
