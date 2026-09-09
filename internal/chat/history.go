@@ -19,7 +19,7 @@ type HistoryLoader struct {
 
 func (h *HistoryLoader) maxMessages() int {
 	if h.MaxMsgs > 0 {
-		return h.MaxMsgs
+		return max(h.MaxMsgs, 2)
 	}
 	return DefaultMaxContextMessages
 }

@@ -631,9 +631,13 @@ func (r *MessageRepository) EnsureAssistantPlaceholderWithContext(ctx context.Co
 			return err
 		}
 
-		var existing ChatMessage
+		var existing struct {
+			ID string
+		}
 		err := tx.WithContext(ctx).
-			Where("conversation_id = ? AND turn_id = ? AND parent_id IS NULL AND role = ? AND COALESCE(tool_calls, '') = ''", conversationID, turnID, "assistant").
+			Model(&ChatMessage{}).
+			Select("id").
+			Where("conversation_id = ? AND turn_id = ? AND parent_id IS NULL AND role = ? AND (tool_calls IS NULL OR tool_calls = '')", conversationID, turnID, "assistant").
 			Order("created_at ASC, id ASC").
 			First(&existing).Error
 		if err == nil {

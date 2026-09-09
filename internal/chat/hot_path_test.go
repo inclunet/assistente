@@ -92,6 +92,65 @@ func TestPrepareContextStartsIndependentIOConcurrently(t *testing.T) {
 	}
 }
 
+type zeroProviderStore struct {
+	*blockingProviderStore
+	conversationStarted <-chan struct{}
+}
+
+func (s *zeroProviderStore) Count(context.Context) (int, error) {
+	<-s.conversationStarted
+	return 0, nil
+}
+
+type cancelAwareConversationRepo struct {
+	started   chan<- struct{}
+	cancelled chan<- struct{}
+}
+
+func (r *cancelAwareConversationRepo) GetConversationInfo(ctx context.Context, _ string) (*Conversation, error) {
+	r.started <- struct{}{}
+	<-ctx.Done()
+	r.cancelled <- struct{}{}
+	return nil, ctx.Err()
+}
+func (*cancelAwareConversationRepo) UpdateConversation(context.Context, string, string, string) error {
+	return nil
+}
+func (*cancelAwareConversationRepo) UpdateConversationChannel(context.Context, string, string, string) error {
+	return nil
+}
+
+func TestPrepareContextCancelsConcurrentIOOnEarlyReturn(t *testing.T) {
+	conversationStarted := make(chan struct{}, 1)
+	conversationCancelled := make(chan struct{}, 1)
+	providerSvc := providers.NewService(providers.ServiceConfig{
+		Store: &zeroProviderStore{
+			blockingProviderStore: &blockingProviderStore{},
+			conversationStarted:   conversationStarted,
+		},
+	})
+	interactor := NewInteractor(InteractorConfig{
+		Emitter: &spyEmitter{},
+		ConvRepo: &cancelAwareConversationRepo{
+			started:   conversationStarted,
+			cancelled: conversationCancelled,
+		},
+		ProviderSvc: providerSvc,
+	})
+
+	if _, err := interactor.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "mensagem",
+	}); err == nil {
+		t.Fatal("esperava erro por ausência de provider")
+	}
+	select {
+	case <-conversationCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("I/O concorrente não recebeu cancelamento após retorno antecipado")
+	}
+}
+
 type batchHistoryRepo struct {
 	*stubRepo
 	mu            sync.Mutex

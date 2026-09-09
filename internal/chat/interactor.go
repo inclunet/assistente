@@ -185,10 +185,12 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// As leituras de provider e conversa não dependem entre si. Disparamos
 	// ambas, mas consumimos os resultados na ordem histórica para preservar
 	// precedência de erros e efeitos observáveis.
+	ioCtx, cancelIO := context.WithCancel(ctx)
+	defer cancelIO()
 	providerCountCh := make(chan int, 1)
 	if i.providerSvc != nil {
 		go func() {
-			count, _ := i.providerSvc.Count(ctx)
+			count, _ := i.providerSvc.Count(ioCtx)
 			providerCountCh <- count
 		}()
 	}
@@ -200,7 +202,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	if req.ConversationID != "" && req.UserContent != "" && i.convRepo != nil {
 		conversationCh = make(chan conversationResult, 1)
 		go func() {
-			conv, err := i.convRepo.GetConversationInfo(ctx, req.ConversationID)
+			conv, err := i.convRepo.GetConversationInfo(ioCtx, req.ConversationID)
 			conversationCh <- conversationResult{conversation: conv, err: err}
 		}()
 	}
