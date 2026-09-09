@@ -55,6 +55,21 @@ func TestEmitterAdapter_StreamRetryStartsNewLineAndValidatesSequence(t *testing.
 	}
 }
 
+func TestEmitterAdapter_StreamScopedRejectsMissingOrDifferentConversation(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+	e.WaitDone("conv-1")
+
+	e.Emit("chat:stream", ports.StreamEvent{TurnID: "turn-empty", Delta: "sem conversa", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{ConversationId: "conv-2", TurnID: "turn-2", Delta: "outra conversa", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{ConversationId: "conv-1", TurnID: "turn-1", Delta: "correta", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{ConversationId: "conv-1", TurnID: "turn-1", Done: true})
+
+	if got := out.String(); got != "correta\n" {
+		t.Fatalf("saída=%q", got)
+	}
+}
+
 func TestEmitterAdapter_StreamError(t *testing.T) {
 	var out, errOut bytes.Buffer
 	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))

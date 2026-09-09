@@ -245,9 +245,9 @@ func TestSendAndWait_Success(t *testing.T) {
 	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Delta: "Olá", Reset: true, Sequence: 0})
-			emitter.Emit("chat:stream", ports.StreamEvent{Delta: " mundo", Sequence: 1})
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:stream", ports.StreamEvent{ConversationId: convID, TurnID: "turn-1", Delta: "Olá", Reset: true, Sequence: 0})
+			emitter.Emit("chat:stream", ports.StreamEvent{ConversationId: convID, TurnID: "turn-1", Delta: " mundo", Sequence: 1})
+			emitter.Emit("chat:stream", ports.StreamEvent{ConversationId: convID, TurnID: "turn-1", Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return "1", nil
@@ -359,7 +359,7 @@ func TestSendAndWait_PassesModelAndProfile(t *testing.T) {
 	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:stream", ports.StreamEvent{ConversationId: convID, TurnID: "turn-1", Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return "1", nil
@@ -401,8 +401,8 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 		n := callCount
 		go func() {
 			time.Sleep(2 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Delta: fmt.Sprintf("resp%d", n), Reset: true, Sequence: 0})
-			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
+			emitter.Emit("chat:stream", ports.StreamEvent{ConversationId: convID, TurnID: fmt.Sprintf("turn-%d", n), Delta: fmt.Sprintf("resp%d", n), Reset: true, Sequence: 0})
+			emitter.Emit("chat:stream", ports.StreamEvent{ConversationId: convID, TurnID: fmt.Sprintf("turn-%d", n), Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
 		return "1", nil

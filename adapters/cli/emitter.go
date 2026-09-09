@@ -117,8 +117,9 @@ func (e *EmitterAdapter) handleStream(data any) {
 		return
 	}
 
-	// Filtra eventos de outras conversas
-	if e.conversationID != "" && ev.ConversationId != "" && ev.ConversationId != e.conversationID {
+	// Quando há uma conversa em espera, aceita somente eventos explicitamente
+	// correlacionados a ela. ConversationId vazio viola o contrato do stream.
+	if e.conversationID != "" && ev.ConversationId != e.conversationID {
 		return
 	}
 
