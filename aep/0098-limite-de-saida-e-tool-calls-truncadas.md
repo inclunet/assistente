@@ -101,6 +101,10 @@ O harness não continua texto automaticamente. Prefill, fallback de continuaçã
 duplicação de conteúdo e cancelamento já têm contrato próprio na AEP-0064; o
 limite de saída apenas torna esse estado detectável e acionável.
 
+No protocolo delta da issue #693, o backend descarrega qualquer lote pendente
+antes de emitir `chat:done.reason="output_limit"`. O patch terminal continua
+autoritativo e o texto parcial não depende de um evento cumulativo final.
+
 ### D5 — Mapeamento mínimo por transporte
 
 - OpenAI Chat Completions: `length` → `max_tokens`; `tool_calls` e `stop`

@@ -2,9 +2,13 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
+	"assistente/internal/chat"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 )
 
@@ -91,6 +95,131 @@ func TestSaveAndFinish_DoneEvent_WithLoopStats(t *testing.T) {
 			t.Errorf("ToolsUsed não está ordenado: %v", done.ToolsUsed)
 			break
 		}
+	}
+}
+
+func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativoMultiTool(t *testing.T) {
+	turnID := "turn-1"
+	base := time.Date(2026, 9, 8, 20, 0, 0, 0, time.UTC)
+	repo := &mockMsgRepo{turnMessages: []chat.Message{
+		{UUIDModel: database.UUIDModel{ID: "assistant-placeholder", CreatedAt: base}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "resposta final", PromptTokens: 50, CompletionTokens: 12, TotalTokens: 62},
+		{UUIDModel: database.UUIDModel{ID: "assistant-1", CreatedAt: base.Add(time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "vou atualizar o plano", ToolCalls: `[{"id":"call-plan","type":"function","function":{"name":"update_plan","arguments":"{}"}}]`},
+		{UUIDModel: database.UUIDModel{ID: "tool-1", CreatedAt: base.Add(2 * time.Second)}, ConversationID: "conv-1", Role: "tool", TurnID: &turnID, ToolCallID: "call-plan", Content: `{"updated":true}`},
+		{UUIDModel: database.UUIDModel{ID: "assistant-2", CreatedAt: base.Add(3 * time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "agora vou consultar", ToolCalls: `[{"id":"call-read","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a\"}"}}]`},
+		{UUIDModel: database.UUIDModel{ID: "tool-2", CreatedAt: base.Add(4 * time.Second)}, ConversationID: "conv-1", Role: "tool", TurnID: &turnID, ToolCallID: "call-read", Content: "conteúdo"},
+	}}
+	emitter := &mockEmitter{}
+	svc := NewService(ServiceConfig{Emitter: emitter, MsgRepo: repo})
+
+	svc.SaveAndFinish(context.Background(), "conv-1", turnID, "assistant-placeholder", AgenticResult{
+		FullResponse: "resposta final",
+		Finish:       llm.FinishInfo{Reason: llm.FinishReasonMaxTokens},
+	}, "", &LoopStats{IterationCount: 3, ToolCallCount: 2}, nil)
+
+	var done ports.DoneEvent
+	for _, event := range emitter.getEvents() {
+		if event.name == "chat:done" {
+			done = event.data.(ports.DoneEvent)
+		}
+	}
+	if done.Reason != "output_limit" || done.TurnPatch == nil {
+		t.Fatalf("esperava output_limit com patch, recebeu %+v", done)
+	}
+	if done.TurnPatch.Message.TurnID != turnID || done.TurnPatch.Message.Content != "resposta final" {
+		t.Fatalf("mensagem final incorreta no patch: %+v", done.TurnPatch.Message)
+	}
+	if len(done.TurnPatch.Message.TurnSegments) != 5 {
+		t.Fatalf("esperava texto/tool/texto/tool/texto, recebeu %+v", done.TurnPatch.Message.TurnSegments)
+	}
+	if got := done.TurnPatch.Message.TurnSegments[1].ToolCalls[0].Function.Name; got != "update_plan" {
+		t.Fatalf("esperava update_plan no primeiro segmento de tool, recebeu %q", got)
+	}
+	if got := done.TurnPatch.Message.TurnSegments[3].ToolCalls[0].Result; got != "conteúdo" {
+		t.Fatalf("resultado da segunda tool não hidratado: %q", got)
+	}
+}
+
+func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
+	emitter := &mockEmitter{}
+	svc := NewService(ServiceConfig{
+		Emitter: emitter,
+		MsgRepo: &mockMsgRepo{turnMessagesError: errors.New("db indisponível")},
+	})
+
+	svc.SaveAndFinish(context.Background(), "conv-1", "turn-1", "assistant-1", AgenticResult{
+		FullResponse: "resposta salva",
+	}, "", nil, nil)
+
+	for _, event := range emitter.getEvents() {
+		if event.name != "chat:done" {
+			continue
+		}
+		done := event.data.(ports.DoneEvent)
+		if done.Reason != "completed" || done.ErrorMessage != "" || done.TurnPatch != nil {
+			t.Fatalf("falha opcional do patch alterou o desfecho: %+v", done)
+		}
+		return
+	}
+	t.Fatal("chat:done não emitido")
+}
+
+func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
+	turnID := "turn-cancelado"
+	repo := &mockMsgRepo{turnMessages: []chat.Message{{
+		UUIDModel:      database.UUIDModel{ID: "assistant-1", CreatedAt: time.Now()},
+		ConversationID: "conv-1",
+		Role:           "assistant",
+		TurnID:         &turnID,
+		Content:        "conteúdo parcial persistido",
+	}}}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	patch, err := svc.buildTurnPatch(ctx, "conv-1", turnID)
+	if err != nil {
+		t.Fatalf("patch não deve herdar cancelamento: %v", err)
+	}
+	if repo.turnMessagesContextErr != nil {
+		t.Fatalf("repository recebeu contexto cancelado: %v", repo.turnMessagesContextErr)
+	}
+	if patch == nil || patch.Message.Content != "conteúdo parcial persistido" {
+		t.Fatalf("patch parcial ausente após cancelamento: %+v", patch)
+	}
+}
+
+func TestBuildTurnPatchPreservaEscopoDeThread(t *testing.T) {
+	turnID := "turn-thread"
+	parentID := "thread-root"
+	repo := &mockMsgRepo{
+		messagesByID: map[string]*chat.Message{
+			turnID: {
+				UUIDModel:      database.UUIDModel{ID: turnID},
+				ConversationID: "conv-1",
+				Role:           "user",
+				ParentID:       &parentID,
+			},
+		},
+		turnMessages: []chat.Message{{
+			UUIDModel:      database.UUIDModel{ID: "assistant-thread", CreatedAt: time.Now()},
+			ConversationID: "conv-1",
+			ParentID:       &parentID,
+			Role:           "assistant",
+			TurnID:         &turnID,
+			Content:        "resposta na thread",
+		}},
+	}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+
+	patch, err := svc.buildTurnPatch(context.Background(), "conv-1", turnID)
+	if err != nil {
+		t.Fatalf("montar patch de thread: %v", err)
+	}
+	if repo.turnMessagesParentID == nil || *repo.turnMessagesParentID != parentID {
+		t.Fatalf("consulta perdeu parentId: %v", repo.turnMessagesParentID)
+	}
+	if patch == nil || patch.Message.ParentID == nil || *patch.Message.ParentID != parentID {
+		t.Fatalf("schema perdeu parentId: %+v", patch)
 	}
 }
 

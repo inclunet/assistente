@@ -76,6 +76,12 @@ A convenção atual deve ser preservada: `turnId` aponta para o ID da mensagem d
 
 Durante streaming, o backend deve tornar essa relação explícita nos eventos do turno. Eventos como `chat:messages_ready`, `chat:stream`, `chat:tool_start`, `chat:tool_end` e `chat:done` devem carregar ou permitir derivar de forma inequívoca o `turnId`. O frontend pode manter um item transitório local durante streaming, mas esse item precisa ser reconciliável pelo mesmo `turnId` quando a janela persistida for recarregada.
 
+Desde a issue #696, a reconciliação terminal não recarrega a janela: o
+`chat:done.turnPatch` traz o único item canônico do turno, já consolidado e
+hidratado com segmentos e invocações. A janela completa continua reservada para
+abertura e paginação explícitas; o custo pós-tools é constante em relação ao
+tamanho da conversa.
+
 ### 2.3. Consulta em lote, sem N+1
 
 Montar itens de timeline no backend não deve significar carregar a conversa inteira nem executar uma consulta por item.
@@ -114,6 +120,14 @@ Atualizações de streaming devem afetar apenas a mensagem em construção.
 Transformações de árvore, consolidação de turnos e renderização de Markdown não devem recalcular toda a lista a cada token.
 
 Após a fase 2.1, o item de streaming deve seguir a mesma unidade semântica da janela persistida: um item transitório por `turnId`. Tool calls, resultados e texto parcial entram como segmentos desse item, não como múltiplos itens navegáveis independentes.
+
+Desde a issue #693, `chat:stream` usa deltas coalescidos no backend em janelas
+de 24 ms. Cada lote traz `conversationId`, `turnId`, `messageId`, `sequence` e
+somente o texto novo. Uma nova tentativa reinicia a sequência explicitamente;
+o frontend não infere retry pelo conteúdo. Deltas pendentes são descarregados
+antes de tools, segmentos e eventos terminais. Assim, o tráfego IPC e a cópia
+de strings crescem linearmente com a resposta, e apenas o item transitório do
+turno é atualizado. O `turnPatch` terminal permanece autoritativo.
 
 ### 6. Mensagens pesadas sob demanda
 
@@ -210,6 +224,24 @@ Critério prático:
 - Separar estado de streaming da lista consolidada sempre que possível.
 - Evitar recriar arrays e callbacks globais em cada token.
 - Cobrir regressões com testes de render ou contadores em ambiente de teste.
+
+#### Implementação da issue #695
+
+- O conteúdo transitório do streaming é indexado por `conversationId` e
+  `messageId` no store existente; não há store paralelo nem alteração do
+  pipeline backend-driven.
+- Deltas coalescidos são publicados no máximo uma vez por frame com
+  `requestAnimationFrame`. Eventos terminais e cleanup cancelam o frame pendente
+  e fazem flush síncrono antes da finalização.
+- A árvore canônica não é percorrida a cada frame. Ela recebe uma consolidação
+  terminal, e o `turnPatch` do backend continua autoritativo.
+- Seletores primitivos por mensagem evitam snapshots compostos instáveis e
+  limitam o rerender ao item afetado. Ramos não alterados preservam identidade
+  referencial nas mutações estruturais.
+- O limite de virtualização permanece em 40 itens: os testes existentes já
+  demonstram DOM janelado, navegação materializada, preservação de scroll e
+  anúncios sem duplicação; esta fase não encontrou evidência que justificasse
+  alterar o limiar acessível.
 
 ### Fase 4 — Virtualização acessível ⏳
 

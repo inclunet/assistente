@@ -66,7 +66,28 @@ func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([
 	if err != nil {
 		return nil, "", err
 	}
+	return l.format(ctx, dbMessages, existingSummary)
+}
 
+// LoadWindow reutiliza o mesmo HistoryLoader e a mesma conversão de mídia sobre
+// uma janela já carregada pela transação de persistência.
+func (l *MediaHistoryLoader) LoadWindow(ctx context.Context, conversationID string, window *HistoryWindow) ([]llm.Message, string, error) {
+	if window == nil {
+		return nil, "", fmt.Errorf("janela de histórico indisponível")
+	}
+	summary := window.Summary
+	if window.SummaryUpToMessageID != "" && !window.SummaryBoundaryAvailable {
+		summary = ""
+	}
+	h := HistoryLoader{Repo: l.Repo, MaxMsgs: l.MaxMsgs}
+	dbMessages, summary, err := h.filter(ctx, conversationID, window.Messages, summary)
+	if err != nil {
+		return nil, "", err
+	}
+	return l.format(ctx, dbMessages, summary)
+}
+
+func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, existingSummary string) ([]llm.Message, string, error) {
 	messages := make([]llm.Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		// Otimização de contexto: omitir mensagens intermediárias de tool calling

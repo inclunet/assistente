@@ -64,6 +64,24 @@ func TestHistoryLoader_ValidSummaryUpToID_RetainsSummary(t *testing.T) {
 	}
 }
 
+func TestHistoryLoader_ClampsSingleMessageLimitWithoutPanic(t *testing.T) {
+	repo := &stubRepo{
+		messages: []database.ChatMessage{
+			{UUIDModel: database.UUIDModel{ID: "msg-1"}, Role: "user", Content: "primeira"},
+			{UUIDModel: database.UUIDModel{ID: "msg-2"}, Role: "assistant", Content: "resposta"},
+			{UUIDModel: database.UUIDModel{ID: "msg-3"}, Role: "user", Content: "recente"},
+		},
+	}
+
+	messages, _, err := (&HistoryLoader{Repo: repo, MaxMsgs: 1}).Load(context.Background(), "conv-1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(messages) > 2 {
+		t.Fatalf("limite mínimo efetivo deveria ser 2, obteve %d mensagens", len(messages))
+	}
+}
+
 func TestHistoryLoader_ToolCallsSingleObject_DoesNotDropToolResult(t *testing.T) {
 	turnID := "turn-1"
 	callID := "call-1"

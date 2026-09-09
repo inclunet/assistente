@@ -352,12 +352,8 @@ func TestPrepareContext_RejectsConversationIDZero(t *testing.T) {
 		t.Errorf("unexpected error: %q", err.Error())
 	}
 
-	ev := spy.findError()
-	if ev == nil {
-		t.Fatal("expected chat:error event to be emitted")
-	}
-	if ev.ConversationID != "" {
-		t.Errorf("expected conversationId empty, got %s", ev.ConversationID)
+	if ev := spy.findError(); ev != nil {
+		t.Fatalf("não deve emitir chat:error sem conversationId; erro síncrono recebido: %+v", ev)
 	}
 }
 

@@ -32,6 +32,14 @@ func setupTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open in-memory db: %v", err)
 	}
+	// SQLite ":memory:" cria um banco distinto por conexão. O hot path consulta
+	// provider e conversa em paralelo, portanto este fixture precisa manter uma
+	// única conexão para que ambas observem o mesmo schema.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("open sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
 		&database.Conversation{},
 		&database.ChatMessage{},

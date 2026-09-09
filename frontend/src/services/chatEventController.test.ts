@@ -6,6 +6,7 @@ import {
   type ChatEventControllerAdapter,
   type ChatEventSession,
 } from './chatEventController';
+import { CHAT_TURN_EVENT_NAMES, resetChatEventHubForTests } from './chatEventHub';
 import {
   updateMessageContentInTree,
   updateMessageReasoningInTree,
@@ -159,6 +160,20 @@ const createSession = (conversationId: string): TestSession => ({
 });
 
 function emitEvent(name: string, data: unknown) {
+  // Mantém os cenários históricos focados no comportamento do controller,
+  // convertendo suas fixtures acumuladas para o contrato delta atual.
+  if (name === 'chat:stream' && data && typeof data === 'object' && 'content' in data) {
+    const { content, ...event } = data as Record<string, unknown>;
+    if (event.done && content) {
+      const listeners = eventListeners.get(name) || [];
+      for (const listener of listeners) {
+        listener({ ...event, done: false, delta: content, reset: true, sequence: 0 });
+      }
+      data = event;
+    } else {
+      data = { ...event, delta: content, reset: true, sequence: 0 };
+    }
+  }
   const listeners = eventListeners.get(name) || [];
   for (const listener of listeners) listener(data);
 }
@@ -167,6 +182,28 @@ function createAdapter(initialConversationIds: string[]) {
   const sessions: Record<string, TestSession> = Object.fromEntries(
     initialConversationIds.map((conversationId) => [conversationId, createSession(conversationId)]),
   );
+  const updateMessage = vi.fn((conversationId: string, messageId: string, content: string) => {
+    const current = sessions[conversationId] ?? createSession(conversationId);
+    if (!current.conversation) return;
+    sessions[conversationId] = {
+      ...current,
+      conversation: {
+        ...current.conversation,
+        threadedMessages: updateMessageContentInTree(current.conversation.threadedMessages, messageId, content),
+      },
+    };
+  });
+  const commitMessage = vi.fn((conversationId: string, messageId: string, content: string) => {
+    const current = sessions[conversationId] ?? createSession(conversationId);
+    if (!current.conversation) return;
+    sessions[conversationId] = {
+      ...current,
+      conversation: {
+        ...current.conversation,
+        threadedMessages: updateMessageContentInTree(current.conversation.threadedMessages, messageId, content),
+      },
+    };
+  });
 
   const adapter: ChatEventControllerAdapter = {
     getSession: (conversationId) => sessions[conversationId] ?? createSession(conversationId),
@@ -185,17 +222,8 @@ function createAdapter(initialConversationIds: string[]) {
         conversation: updater(current.conversation),
       };
     },
-    updateMessage: (conversationId, messageId, content) => {
-      const current = sessions[conversationId] ?? createSession(conversationId);
-      if (!current.conversation) return;
-      sessions[conversationId] = {
-        ...current,
-        conversation: {
-          ...current.conversation,
-          threadedMessages: updateMessageContentInTree(current.conversation.threadedMessages, messageId, content),
-        },
-      };
-    },
+    updateMessage,
+    commitMessage,
     updateReasoning: (conversationId, messageId, reasoning) => {
       const current = sessions[conversationId] ?? createSession(conversationId);
       if (!current.conversation) return;
@@ -219,12 +247,15 @@ function createAdapter(initialConversationIds: string[]) {
   return {
     adapter,
     sessions,
+    updateMessage,
+    commitMessage,
   };
 }
 
 describe('chatEventController', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    resetChatEventHubForTests();
     eventListeners.clear();
     mockAnnounce.mockClear();
     mockAnnounceWithOrigin.mockClear();
@@ -252,6 +283,7 @@ describe('chatEventController', () => {
 
   afterEach(() => {
     stopAllChatEventControllers();
+    resetChatEventHubForTests();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     eventListeners.clear();
@@ -301,6 +333,176 @@ describe('chatEventController', () => {
     ]);
     expect(sessions['conversation-2'].conversation?.threadedMessages).toEqual([]);
     expect(mockPlayChatReceiveSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
+  });
+
+  it('concatena deltas Unicode em ordem e rejeita lacunas de sequência', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      userMessageId: 'turn-1',
+      userContent: 'pergunta',
+    });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      delta: 'Olá ',
+      reset: true,
+      sequence: 0,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      baseContent: 'base corrompida',
+      delta: ' reset inválido',
+      reset: true,
+      sequence: 2,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      delta: '世界 👩🏽‍💻',
+      sequence: 1,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      delta: ' não pode entrar',
+      sequence: 3,
+    });
+    vi.advanceTimersByTime(16);
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('Olá 世界 👩🏽‍💻');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('agenda um único RAF por frame e publica apenas o acumulado mais recente', () => {
+    const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame');
+    const { adapter, sessions, updateMessage } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    for (const [sequence, delta] of ['Olá ', '世界 ', '👩🏽‍💻'].entries()) {
+      emitEvent('chat:stream', {
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        messageId: 'assistant-1',
+        delta,
+        reset: sequence === 0,
+        sequence,
+      });
+    }
+
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(updateMessage).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(16);
+    expect(updateMessage).toHaveBeenCalledTimes(1);
+    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('Olá 世界 👩🏽‍💻');
+    rafSpy.mockRestore();
+  });
+
+  it('cancela o RAF e faz flush síncrono ao terminar ou desmontar', () => {
+    const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
+    const first = createAdapter(['conversation-1']);
+    const handle = startChatEventController({ conversationId: 'conversation-1', adapter: first.adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      delta: 'terminal',
+      reset: true,
+      sequence: 0,
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'assistant-1',
+      hadToolCalls: false,
+    });
+
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+    expect(first.commitMessage).toHaveBeenCalledWith('conversation-1', 'assistant-1', 'terminal');
+    const updatesAfterTerminal = first.updateMessage.mock.calls.length;
+    vi.advanceTimersByTime(32);
+    expect(first.updateMessage).toHaveBeenCalledTimes(updatesAfterTerminal);
+
+    const second = createAdapter(['conversation-2']);
+    const secondHandle = startChatEventController({ conversationId: 'conversation-2', adapter: second.adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      turnId: 'turn-2',
+      messageId: 'assistant-2',
+      delta: 'desmontagem',
+      reset: true,
+      sequence: 0,
+    });
+    secondHandle.cleanup();
+    expect(second.commitMessage).toHaveBeenCalledWith('conversation-2', 'assistant-2', 'desmontagem');
+    const updatesAfterUnmount = second.updateMessage.mock.calls.length;
+    vi.advanceTimersByTime(32);
+    expect(second.updateMessage).toHaveBeenCalledTimes(updatesAfterUnmount);
+    handle.cleanup();
+    cancelSpy.mockRestore();
+  });
+
+  it('mantém RAFs e acumulados independentes em conversas paralelas', () => {
+    const { adapter, sessions, updateMessage } = createAdapter(['conversation-1', 'conversation-2']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      delta: 'um',
+      reset: true,
+      sequence: 0,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      turnId: 'turn-2',
+      messageId: 'assistant-2',
+      delta: 'dois',
+      reset: true,
+      sequence: 0,
+    });
+    vi.advanceTimersByTime(16);
+
+    expect(updateMessage).toHaveBeenCalledTimes(2);
+    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('um');
+    expect(sessions['conversation-2'].conversation?.threadedMessages[0].message.content).toBe('dois');
+  });
+
+  it('reinicia o acumulado ao recuperar o mesmo turno', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      delta: 'tentativa parcial',
+      reset: true,
+      sequence: 0,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      delta: 'resposta recuperada',
+      reset: true,
+      sequence: 0,
+    });
+    vi.advanceTimersByTime(16);
+
+    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('resposta recuperada');
   });
 
   it('reiniciar a mesma conversa cancela o controller anterior sem criar assistant local sem messageId', () => {
@@ -522,9 +724,11 @@ describe('chatEventController', () => {
       turnId: 'user-1',
       messageId: 'assistant-db-2',
     });
+    mockPlayChatReceiveSoundIfActive.mockClear();
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
       error: 'boom stream',
+      done: true,
       turnId: 'user-1',
       messageId: 'assistant-db-2',
       surfaceOrigin,
@@ -543,6 +747,7 @@ describe('chatEventController', () => {
       announcePriority: 'assertive',
     });
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', surfaceOrigin);
+    expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalled();
   });
 
   it('preenche fallback visual quando chat:stream falha sem parcial', () => {
@@ -1016,45 +1221,106 @@ describe('chatEventController', () => {
     );
   });
 
-  it('recarrega janela canônica ao finalizar resposta com tool calls', async () => {
+  it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
-    const backendNodes = [
-      createNode(createMessage('backend-user', 'user', 'pergunta')),
-      createNode(createMessage('backend-assistant', 'assistant', 'resposta com ferramenta')),
+    const transientAssistant = createMessage('backend-assistant', 'assistant', 'temporária');
+    transientAssistant.turnId = 'turn-1';
+    const legacyTool = createMessage('legacy-tool', 'tool', 'resultado legado');
+    legacyTool.turnId = 'turn-1';
+    sessions['conversation-1'].conversation!.threadedMessages = [
+      createNode(transientAssistant),
+      createNode(legacyTool),
     ];
-    mockReloadConversationSnapshot.mockResolvedValue({
-      threadedMessages: backendNodes,
-      messageWindow: {
-        scope: 'conversation',
-        conversationId: 'conversation-1',
-        totalCount: 2,
-        startIndex: 0,
-        endIndex: 1,
-        hasBefore: false,
-        hasAfter: false,
-      },
-      hasOlderMessages: false,
-      hasNewerMessages: false,
-    });
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'backend-assistant',
+      delta: 'rascunho em streaming',
+      reset: true,
+      sequence: 0,
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'backend-assistant',
+      hadToolCalls: true,
+      turnPatch: {
+        message: {
+          id: 'backend-assistant',
+          conversationId: 'conversation-1',
+          turnId: 'turn-1',
+          content: 'resposta final',
+          createdAt: '2026-09-08T20:00:00Z',
+          timestamp: 1,
+          turnSegments: [
+            { type: 'text', content: 'vou consultar' },
+            {
+              type: 'tool_calls',
+              toolCalls: [{
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'update_plan', arguments: '{}' },
+                result: '{"updated":true}',
+              }],
+            },
+            { type: 'text', content: 'resposta final' },
+          ],
+        },
+      },
+    });
+
+    expect(mockReloadConversationSnapshot).not.toHaveBeenCalled();
+    expect(sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id)).toEqual([
+      'backend-assistant',
+      'legacy-tool',
+    ]);
+    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('resposta final');
+    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.turnSegments).toHaveLength(3);
+    expect(sessions['conversation-1'].conversation?.threadedMessages[1].message.role).toBe('tool');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('mantém um listener global por evento após vários turnos', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+
+    for (let index = 0; index < 5; index += 1) {
+      startChatEventController({ conversationId: 'conversation-1', adapter });
+      emitEvent('chat:done', {
+        conversationId: 'conversation-1',
+        turnId: `turn-${index}`,
+        hadToolCalls: false,
+      });
+    }
+
+    expect(eventListeners.size).toBe(CHAT_TURN_EVENT_NAMES.length);
+    for (const name of CHAT_TURN_EVENT_NAMES) {
+      expect(eventListeners.get(name)).toHaveLength(1);
+    }
+  });
+
+  it('ignora evento atrasado de outro turnId na mesma conversa', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-atual',
+      userMessageId: 'turn-atual',
+      userContent: 'pergunta atual',
+    });
 
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
-      content: 'resposta temporária',
+      turnId: 'turn-antigo',
+      messageId: 'assistant-antigo',
+      content: 'evento atrasado',
       done: false,
     });
-    emitEvent('chat:done', {
-      conversationId: 'conversation-1',
-      hadToolCalls: true,
-    });
-    await Promise.resolve();
 
-    expect(mockReloadConversationSnapshot).toHaveBeenCalledWith('conversation-1', 80);
-    expect(sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id)).toEqual([
-      'backend-user',
-      'backend-assistant',
-    ]);
+    const ids = sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id);
+    expect(ids).toEqual(['turn-atual']);
   });
 
   it('anuncia conclusão genérica quando o turno com ferramentas termina sem texto', () => {
@@ -1145,6 +1411,37 @@ describe('chatEventController', () => {
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
       'chat.mediaProcessing.cancelled',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('considera baseContent como texto na continuação explícita', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      baseContent: 'resposta parcial',
+      delta: ' ',
+      reset: true,
+      sequence: 0,
+      done: false,
+    });
+    mockAnnounceForActiveChatConversation.mockClear();
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'assistant-1',
+      hadToolCalls: true,
+    });
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
       'polite',
       undefined,
     );

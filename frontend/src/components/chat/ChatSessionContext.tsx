@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {
   type ActiveConversation,
   type ChatConversationSession,
@@ -12,17 +12,17 @@ import {
   createEmptyChatSession,
   getDefaultChatConversationSession,
   getConversationTimeline,
-  getChatSession,
   normalizeChatSurfaceOrigin,
   type ChatSurfaceIdentity,
   type ChatSurfaceSession,
   type ChatSurfaceOrigin,
   type ConversationTimeline,
 } from '../../services/chatSessionRegistry';
-import type { ToolCallStatus } from '../../types/chat';
 import type { MediaFile } from '../../services/mediaService';
 
 const EMPTY_MESSAGES: never[] = [];
+const EMPTY_SEGMENTS: never[] = [];
+const EMPTY_TOOL_CALLS: never[] = [];
 
 const composeChatSession = (
   conversationId: string,
@@ -89,6 +89,21 @@ export interface ChatSessionContextValue {
 }
 
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
+type ChatNodeContextValue = Pick<
+  ChatSessionContextValue,
+  | 'conversationId'
+  | 'origin'
+  | 'setConversationEditingMessageId'
+  | 'setConversationReadingMessageId'
+  | 'toggleConversationThreadExpanded'
+  | 'toggleConversationReasoningExpanded'
+>;
+const ChatNodeContext = createContext<ChatNodeContextValue | null>(null);
+const getStoredNodeSession = (
+  state: ReturnType<typeof useChatStore.getState>,
+  conversationId: string,
+  sessionKey: string,
+) => state.surfaceSessionsByKey?.[sessionKey] ?? state.sessionsByConversationId[conversationId];
 
 export interface ChatSessionProviderProps {
   surface: ChatSurfaceIdentity;
@@ -284,9 +299,23 @@ export function ChatSessionProvider({
     [isConversationReasoningExpandedBase, sessionKey],
   );
 
+  const origin = useMemo(() => createChatSurfaceOrigin({
+    conversationId: normalizedConversationId,
+    sessionKey,
+    surfaceId,
+    surfaceType: surfaceIdentity.surfaceType,
+    tabId: surfaceIdentity.tabId,
+  }), [
+    normalizedConversationId,
+    sessionKey,
+    surfaceId,
+    surfaceIdentity.surfaceType,
+    surfaceIdentity.tabId,
+  ]);
+
   const value = useMemo<ChatSessionContextValue>(() => ({
     surface: surfaceIdentity,
-    origin: createChatSurfaceOrigin(surfaceIdentity),
+    origin,
     conversationId: normalizedConversationId,
     session,
     conversation,
@@ -340,6 +369,7 @@ export function ChatSessionProvider({
     loadOlderMessages,
     loadStartMessages,
     normalizedConversationId,
+    origin,
     retryMessageToConversation,
     session,
     sessionKey,
@@ -360,10 +390,27 @@ export function ChatSessionProvider({
     updateConversationMessage,
     updateConversationMessagePinned,
   ]);
+  const nodeValue = useMemo<ChatNodeContextValue>(() => ({
+    conversationId: normalizedConversationId,
+    origin,
+    setConversationEditingMessageId,
+    setConversationReadingMessageId,
+    toggleConversationThreadExpanded,
+    toggleConversationReasoningExpanded,
+  }), [
+    normalizedConversationId,
+    origin,
+    setConversationEditingMessageId,
+    setConversationReadingMessageId,
+    toggleConversationReasoningExpanded,
+    toggleConversationThreadExpanded,
+  ]);
 
   return (
     <ChatSessionContext.Provider value={value}>
-      {children}
+      <ChatNodeContext.Provider value={nodeValue}>
+        {children}
+      </ChatNodeContext.Provider>
     </ChatSessionContext.Provider>
   );
 }
@@ -381,41 +428,57 @@ export function useOptionalChatSession(): ChatSessionContextValue | null {
 }
 
 export function useChatNodeSessionState(messageId: string) {
-  const context = useChatSession();
+  const context = useContext(ChatNodeContext);
+  if (!context) {
+    throw new Error('useChatNodeSessionState must be used within ChatSessionProvider');
+  }
   const conversationId = context.conversationId;
-  const defaultSession = useChatStore((state) => (
-    conversationId ? getDefaultChatConversationSession(state, conversationId) : null
+  const sessionKey = context.origin.sessionKey;
+  const editingMessageId = useChatStore((state) => (
+    conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.editingMessageId ?? null : null
   ));
-  const timeline = useChatStore((state) => (
-    conversationId ? getConversationTimeline(state, conversationId) : null
+  const readingMessageId = useChatStore((state) => (
+    conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.readingMessageId ?? null : null
   ));
-  const surfaceSession = useChatStore((state) => {
-    const sessionKey = context.origin.sessionKey;
-    return state.surfaceSessionsByKey?.[sessionKey] ?? null;
-  });
-  const session = useMemo(() => (
-    conversationId
-      ? composeChatSession(
-        conversationId,
-        context.origin.sessionKey,
-        defaultSession,
-        timeline,
-        surfaceSession,
-      )
+  const streamingMessageId = useChatStore((state) => (
+    conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.streamingMessageId ?? null : null
+  ));
+  const streamingReasoning = useChatStore((state) => (
+    conversationId && getStoredNodeSession(state, conversationId, sessionKey)?.streamingMessageId === messageId
+      ? getStoredNodeSession(state, conversationId, sessionKey)?.streamingReasoning ?? null
       : null
-  ), [defaultSession, context.origin.sessionKey, conversationId, surfaceSession, timeline]);
-  const isExpanded = session?.expandedThreads.has(messageId) ?? false;
-  const reasoningExpanded = session?.expandedReasonings.has(messageId) ?? false;
+  ));
+  const isThinking = useChatStore((state) => (
+    !!conversationId
+    && getStoredNodeSession(state, conversationId, sessionKey)?.streamingMessageId === messageId
+    && !!getStoredNodeSession(state, conversationId, sessionKey)?.isThinking
+  ));
+  const activeToolCalls = useChatStore((state) => {
+    if (!conversationId) return EMPTY_TOOL_CALLS;
+    const session = getStoredNodeSession(state, conversationId, sessionKey);
+    return session?.streamingMessageId === messageId ? session.activeToolCalls : EMPTY_TOOL_CALLS;
+  });
+  const completedSegments = useChatStore((state) => {
+    if (!conversationId) return EMPTY_SEGMENTS;
+    const session = getStoredNodeSession(state, conversationId, sessionKey);
+    return session?.streamingMessageId === messageId ? session.completedSegments : EMPTY_SEGMENTS;
+  });
+  const isExpanded = useChatStore((state) => (
+    !!conversationId && !!getStoredNodeSession(state, conversationId, sessionKey)?.expandedThreads?.has(messageId)
+  ));
+  const reasoningExpanded = useChatStore((state) => (
+    !!conversationId && !!getStoredNodeSession(state, conversationId, sessionKey)?.expandedReasonings?.has(messageId)
+  ));
 
   return {
     conversationId,
-    editingMessageId: session?.editingMessageId ?? null,
-    readingMessageId: session?.readingMessageId ?? null,
-    streamingMessageId: session?.streamingMessageId ?? null,
-    streamingReasoning: session?.streamingReasoning ?? null,
-    isThinking: session?.isThinking ?? false,
-    activeToolCalls: session?.activeToolCalls ?? [],
-    completedSegments: session?.completedSegments ?? [],
+    editingMessageId,
+    readingMessageId,
+    streamingMessageId,
+    streamingReasoning,
+    isThinking,
+    activeToolCalls,
+    completedSegments,
     isExpanded,
     reasoningExpanded,
     setConversationEditingMessageId: context.setConversationEditingMessageId,
@@ -426,116 +489,22 @@ export function useChatNodeSessionState(messageId: string) {
 }
 
 export function useChatMessageLiveState(message: Message) {
-  const context = useOptionalChatSession();
+  const nodeContext = useContext(ChatNodeContext);
   const messageId = message.id;
-  const messageConversationId = context?.conversationId || String(message.conversationId || '');
-  const sessionKey = context?.origin.sessionKey;
-  const { isStreaming } = message;
-  const [liveContent, setLiveContent] = useState<string | null>(null);
-  const [liveIsStreaming, setLiveIsStreaming] = useState<boolean | null>(null);
-  const [liveReasoning, setLiveReasoning] = useState<string | null>(null);
-  const [liveToolCallsRaw, setLiveToolCallsRaw] = useState<string | null>(null);
-  const [liveSegments, setLiveSegments] = useState<TurnSegment[]>([]);
-  const [liveToolCalls, setLiveToolCalls] = useState<ToolCallStatus[]>([]);
-
-  useEffect(() => {
-    const unsub = useChatStore.subscribe((state) => {
-      const session = messageConversationId ? getChatSession(state, messageConversationId, sessionKey) : null;
-      const streamingMessageId = session?.streamingMessageId ?? null;
-      const completedSegments = session?.completedSegments ?? [];
-      const activeToolCalls = session?.activeToolCalls ?? [];
-
-      if (streamingMessageId === messageId) {
-        setLiveSegments((prev) => (prev !== completedSegments ? completedSegments : prev));
-        setLiveToolCalls((prev) => (prev !== activeToolCalls ? activeToolCalls : prev));
-      } else {
-        setLiveSegments((prev) => (prev.length > 0 ? [] : prev));
-        setLiveToolCalls((prev) => (prev.length > 0 ? [] : prev));
-      }
-    });
-
-    const initial = useChatStore.getState();
-    const initialSession = messageConversationId ? getChatSession(initial, messageConversationId, sessionKey) : null;
-    const initialStreamingMessageId = initialSession?.streamingMessageId ?? null;
-    if (initialStreamingMessageId === messageId) {
-      setLiveSegments(initialSession?.completedSegments ?? []);
-      setLiveToolCalls(initialSession?.activeToolCalls ?? []);
-    }
-
-    return unsub;
-  }, [messageConversationId, messageId, sessionKey]);
-
-  useEffect(() => {
-    const trackingRef = { current: !!isStreaming };
-
-    const findMessageInState = (state: ReturnType<typeof useChatStore.getState>) => {
-      const targetId = String(messageId);
-      type ThreadedNode = {
-        message?: { id?: string | number; content?: string; isStreaming?: boolean; reasoning?: string; toolCalls?: string | null };
-        children?: ThreadedNode[];
-      };
-      const visit = (nodes: ThreadedNode[]): ThreadedNode['message'] | null => {
-        for (const node of nodes || []) {
-          const msg = node?.message;
-          if (msg && String(msg.id) === targetId) return msg;
-          if (node?.children?.length) {
-            const hit = visit(node.children);
-            if (hit) return hit;
-          }
-        }
-        return null;
-      };
-
-      const conv = messageConversationId
-        ? getChatSession(state, messageConversationId, sessionKey).conversation
-        : null;
-      if (conv?.threadedMessages) {
-        const hit = visit(conv.threadedMessages as ThreadedNode[]);
-        if (hit) return hit;
-      }
-      return null;
-    };
-
-    const sync = (state: ReturnType<typeof useChatStore.getState>) => {
-      const msg = findMessageInState(state);
-      if (!msg) return;
-
-      const nextContent = typeof msg.content === 'string' ? msg.content : '';
-      const nextIsStreaming = !!msg.isStreaming;
-      const nextReasoning = typeof msg.reasoning === 'string' ? msg.reasoning : '';
-      const nextToolCalls = typeof msg.toolCalls === 'string' ? msg.toolCalls : null;
-
-      setLiveContent((prev) => (prev === nextContent ? prev : nextContent));
-      setLiveIsStreaming((prev) => (prev === nextIsStreaming ? prev : nextIsStreaming));
-      setLiveReasoning((prev) => (prev === nextReasoning ? prev : nextReasoning));
-      setLiveToolCallsRaw((prev) => (prev === nextToolCalls ? prev : nextToolCalls));
-
-      const session = messageConversationId ? getChatSession(state, messageConversationId, sessionKey) : null;
-      const streamingMessageId = session?.streamingMessageId ?? null;
-      if (!nextIsStreaming && streamingMessageId !== messageId) {
-        trackingRef.current = false;
-      }
-    };
-
-    sync(useChatStore.getState());
-
-    const unsub = useChatStore.subscribe((state) => {
-      const session = messageConversationId ? getChatSession(state, messageConversationId, sessionKey) : null;
-      const streamingMessageId = session?.streamingMessageId ?? null;
-      if (streamingMessageId === messageId) trackingRef.current = true;
-      if (!trackingRef.current) return;
-      sync(state);
-    });
-
-    return unsub;
-  }, [messageConversationId, messageId, isStreaming, sessionKey]);
+  const messageConversationId = nodeContext?.conversationId
+    || String(message.conversationId || '');
+  const liveContent = useChatStore((state) => (
+    messageConversationId
+      ? state.liveMessageContentByConversationId?.[messageConversationId]?.[messageId] ?? null
+      : null
+  ));
 
   return {
     liveContent,
-    liveIsStreaming,
-    liveReasoning,
-    liveToolCallsRaw,
-    liveSegments,
-    liveToolCalls,
+    liveIsStreaming: null,
+    liveReasoning: null,
+    liveToolCallsRaw: null,
+    liveSegments: EMPTY_SEGMENTS as TurnSegment[],
+    liveToolCalls: EMPTY_TOOL_CALLS,
   };
 }

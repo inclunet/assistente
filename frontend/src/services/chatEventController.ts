@@ -1,5 +1,4 @@
 import { logger } from '../utils/logger';
-import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
 import { isAppToolEvent, type ToolCallStatus, type ToolOrigin } from '../types/chat';
@@ -25,11 +24,8 @@ import {
 } from './chatArbitration';
 import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
-import { reloadConversationSnapshot } from './chatSessionLoader';
-import { INITIAL_MESSAGE_WINDOW_SIZE } from './messageWindowLimits';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
-
-const STREAM_UPDATE_DEBOUNCE_MS = 16;
+import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
 
 const translateBackendChatError = (message: string) => {
   if (message === 'assistant_placeholder_error') {
@@ -51,7 +47,10 @@ interface ChatMessagesReadyEvent {
 
 interface ChatStreamEvent {
   conversationId: string;
-  content?: string;
+  delta?: string;
+  reset?: boolean;
+  baseContent?: string;
+  sequence: number;
   done?: boolean;
   error?: string;
   messageId?: string;
@@ -122,6 +121,7 @@ interface ChatDoneEvent {
   reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error' | 'cancelled';
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
+  turnPatch?: ChatTurnPatch;
 }
 
 interface ChatErrorEvent {
@@ -132,9 +132,32 @@ interface ChatErrorEvent {
 interface ChatMediaProcessingEvent {
   conversationId: string;
   messageId?: string;
+  turnId?: string;
   status: 'started' | 'completed' | 'failed' | 'cancelled';
   error?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
+}
+
+interface ChatTurnPatch {
+  message: {
+    id: string;
+    conversationId: string;
+    parentId?: string;
+    turnId: string;
+    content: string;
+    reasoning?: string;
+    toolCalls?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    cacheMissTokens?: number;
+    model?: string;
+    createdAt: string;
+    timestamp: number;
+    turnSegments?: TurnSegment[];
+  };
 }
 
 export interface ChatEventSession {
@@ -158,6 +181,7 @@ export interface ChatEventControllerAdapter {
     updater: (conversation: ChatTreeConversation) => ChatTreeConversation,
   ) => void;
   updateMessage: (conversationId: string, messageId: string, content: string) => void;
+  commitMessage: (conversationId: string, messageId: string, content: string) => void;
   updateReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   setConversationLoading: (conversationId: string, isLoading: boolean, sessionKey?: string) => void;
 }
@@ -183,43 +207,6 @@ export interface ChatEventControllerHandle {
 }
 
 const activeControllers = new Map<string, () => void>();
-const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
-const pendingStreamUpdates = new Map<string, { messageId: string; content: string }>();
-
-const debouncedUpdateMessage = (
-  messageId: string,
-  content: string,
-  updateFn: (messageId: string, content: string) => void,
-) => {
-  pendingStreamUpdates.set(messageId, { messageId, content });
-  const existingTimer = streamUpdateTimers.get(messageId);
-  if (existingTimer) clearTimeout(existingTimer);
-  const timer = setTimeout(() => {
-    const pending = pendingStreamUpdates.get(messageId);
-    if (pending) {
-      updateFn(pending.messageId, pending.content);
-      pendingStreamUpdates.delete(messageId);
-      streamUpdateTimers.delete(messageId);
-    }
-  }, STREAM_UPDATE_DEBOUNCE_MS);
-  streamUpdateTimers.set(messageId, timer);
-};
-
-const flushPendingUpdate = (
-  messageId: string,
-  updateFn: (messageId: string, content: string) => void,
-) => {
-  const existingTimer = streamUpdateTimers.get(messageId);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-    streamUpdateTimers.delete(messageId);
-  }
-  const pending = pendingStreamUpdates.get(messageId);
-  if (pending) {
-    updateFn(pending.messageId, pending.content);
-    pendingStreamUpdates.delete(messageId);
-  }
-};
 
 /**
  * Origem já conhecida da ferramenta. O evento de fim costuma repeti-la, mas se
@@ -227,15 +214,6 @@ const flushPendingUpdate = (
  */
 const knownToolOrigin = (session: ChatEventSession, callId: string): ToolOrigin | undefined =>
   session.activeToolCalls.find((tc) => tc.callId === callId)?.origin;
-
-const discardPendingUpdate = (messageId: string) => {
-  const existingTimer = streamUpdateTimers.get(messageId);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-    streamUpdateTimers.delete(messageId);
-  }
-  pendingStreamUpdates.delete(messageId);
-};
 
 export function stopChatEventController(conversationId: string) {
   const cleanup = activeControllers.get(conversationId.toString());
@@ -245,6 +223,7 @@ export function stopChatEventController(conversationId: string) {
 export function stopAllChatEventControllers() {
   activeControllers.forEach((cleanup) => cleanup());
   activeControllers.clear();
+  clearChatTurnRoutes();
 }
 
 export function startChatEventController({
@@ -264,6 +243,12 @@ export function startChatEventController({
   // via chat:speak; o leitor de tela precisa de um aviso de conclusão próprio.
   let turnHadAssistantText = false;
   let currentTurnId: string | null = null;
+  let streamedContent = '';
+  let streamSequence = -1;
+  let streamInitialized = false;
+  let pendingVisualContent: string | null = null;
+  let animationFrameId: number | null = null;
+  let streamingCommitted = false;
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -348,8 +333,28 @@ export function startChatEventController({
     return true;
   };
 
+  const flushVisualStreamingUpdate = () => {
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    const content = pendingVisualContent;
+    pendingVisualContent = null;
+    if (content === null || cleanupExecuted || !currentAssistantNodeId) return;
+    adapter.updateMessage(conversationId, currentAssistantNodeId, content);
+  };
+
+  const commitStreamingContent = () => {
+    if (streamingCommitted || !currentAssistantNodeId) return;
+    const finalContent = pendingVisualContent ?? streamedContent;
+    flushVisualStreamingUpdate();
+    adapter.commitMessage(conversationId, currentAssistantNodeId, finalContent);
+    streamingCommitted = true;
+  };
+
   const cleanup = () => {
     if (cleanupExecuted) return;
+    commitStreamingContent();
     cleanupExecuted = true;
     unsubMessagesReady();
     unsubMediaProcessing();
@@ -362,9 +367,7 @@ export function startChatEventController({
     unsubDone();
     unsubError();
     unsubSpeak();
-    if (currentAssistantNodeId) {
-      discardPendingUpdate(currentAssistantNodeId);
-    }
+    turnEvents.unregister();
     activeControllers.delete(conversationIdStr);
     adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
     patchCurrentSession({
@@ -383,6 +386,7 @@ export function startChatEventController({
       ensureAssistantNode(finalId);
     }
     if (!currentAssistantNodeId) return;
+    commitStreamingContent();
     const assistantNodeId = currentAssistantNodeId;
     adapter.patchConversation(
       conversationId,
@@ -390,13 +394,66 @@ export function startChatEventController({
     );
   };
 
+  const applyTurnPatch = (patch?: ChatTurnPatch) => {
+    if (!patch?.message || patch.message.conversationId !== conversationId) return;
+    if (currentTurnId && patch.message.turnId !== currentTurnId) return;
+    const persistedMessage = new chat.EnrichedMessage({
+      ...patch.message,
+      role: 'assistant',
+      turnId: patch.message.turnId,
+      isStreaming: false,
+      internal: false,
+      pinned: false,
+    }) as Message;
+    const persistedNode = new chat.MessageNode({
+      message: persistedMessage,
+      children: [],
+      level: 0,
+      childCount: 0,
+    }) as MessageNode;
+    adapter.patchConversation(conversationId, (conversation) => {
+      let replaced = false;
+      const threadedMessages = conversation.threadedMessages.map((node) => {
+        const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
+        const sameMessage = node.message.id === patch.message.id;
+        if (!sameTurn && !sameMessage) return node;
+        replaced = true;
+        return new chat.MessageNode({
+          message: persistedMessage,
+          children: node.children,
+          level: node.level,
+          childCount: node.childCount,
+          originalIndex: node.originalIndex,
+        }) as MessageNode;
+      });
+      return {
+        ...conversation,
+        threadedMessages: replaced ? threadedMessages : [...threadedMessages, persistedNode],
+      };
+    });
+    currentAssistantNodeId = patch.message.id;
+    assistantNodeCreated = true;
+    patchCurrentSession({ completedSegments: [], streamingMessageId: patch.message.id });
+  };
+
   const updateStreamingMessage = (content: string) => {
     if (!currentAssistantNodeId) return;
-    adapter.updateMessage(conversationId, currentAssistantNodeId, content);
+    pendingVisualContent = content;
+    streamingCommitted = false;
+    if (animationFrameId !== null) return;
+    animationFrameId = requestAnimationFrame(() => {
+      animationFrameId = null;
+      const nextContent = pendingVisualContent;
+      pendingVisualContent = null;
+      if (nextContent === null || cleanupExecuted || !currentAssistantNodeId) return;
+      adapter.updateMessage(conversationId, currentAssistantNodeId, nextContent);
+    });
   };
 
   const getCurrentAssistantContent = () => {
     if (!currentAssistantNodeId) return '';
+    if (pendingVisualContent !== null) return pendingVisualContent;
+    if (streamInitialized) return streamedContent;
     const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
@@ -406,15 +463,16 @@ export function startChatEventController({
     updateStreamingMessage(i18next.t('chat.errorPrefix', { message }));
   };
 
-  const flushStreamingUpdate = () => {
-    if (!currentAssistantNodeId) return;
-    flushPendingUpdate(currentAssistantNodeId, (_messageId, nextContent) => updateStreamingMessage(nextContent));
-  };
-
   const existingCleanup = activeControllers.get(conversationIdStr);
   if (existingCleanup) existingCleanup();
 
-  unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
+  const turnEvents = createChatTurnEventRouter(
+    conversationIdStr,
+    () => currentTurnId,
+    (turnId) => { currentTurnId = turnId; },
+  );
+
+  unsubError = turnEvents.on('chat:error', (event: ChatErrorEvent) => {
     if (event.conversationId !== conversationId && event.conversationId !== '') return;
     if (!isActive()) return;
     finalizeStreaming();
@@ -423,7 +481,7 @@ export function startChatEventController({
     cleanup();
   });
 
-  unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
+  unsubSpeak = turnEvents.on('chat:speak', (event: ChatSpeakEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     const eventOrigin = getEventOrigin(event);
@@ -447,7 +505,7 @@ export function startChatEventController({
     });
   });
 
-  unsubMessagesReady = EventsOn('chat:messages_ready', (event: ChatMessagesReadyEvent) => {
+  unsubMessagesReady = turnEvents.on('chat:messages_ready', (event: ChatMessagesReadyEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (!event.userMessageId) return;
@@ -483,7 +541,7 @@ export function startChatEventController({
     }
   });
 
-  unsubMediaProcessing = EventsOn('chat:media_processing', (event: ChatMediaProcessingEvent) => {
+  unsubMediaProcessing = turnEvents.on('chat:media_processing', (event: ChatMediaProcessingEvent) => {
     if (event.conversationId !== conversationId || !isActive()) return;
     if (event.status === 'started') {
       announceForActiveChatConversation(
@@ -511,29 +569,42 @@ export function startChatEventController({
     }
   });
 
-  unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
+  unsubStream = turnEvents.on('chat:stream', (event: ChatStreamEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
 
-    if (event.content && !event.done && !event.error) {
+    if (event.delta && !event.done && !event.error) {
+      if (
+        !Number.isSafeInteger(event.sequence)
+        || (event.reset
+          ? event.sequence !== 0
+          : !streamInitialized || event.sequence !== streamSequence + 1)
+      ) {
+        return;
+      }
       currentTurnId = event.turnId || currentTurnId;
-      if (event.content.trim()) turnHadAssistantText = true;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
-      const assistantNodeId = currentAssistantNodeId;
-      if (!assistantNodeId) return;
+      if (event.reset) {
+        streamedContent = event.baseContent ?? '';
+        streamSequence = -1;
+        streamInitialized = true;
+        streamingCommitted = false;
+      }
+      streamSequence = event.sequence;
+      streamedContent += event.delta;
+      if (streamedContent.trim()) turnHadAssistantText = true;
       if (!streamingAnnounced) {
         streamingAnnounced = true;
         announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
       }
-      debouncedUpdateMessage(assistantNodeId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
+      updateStreamingMessage(streamedContent);
     }
 
     if (event.error) {
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.error || '').trim());
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
@@ -552,17 +623,13 @@ export function startChatEventController({
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming();
       cleanup();
+      return;
     }
 
     if (event.done) {
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       ensureAssistantNode(backendAssistantId);
-      flushStreamingUpdate();
-      if (event.content) {
-        if (event.content.trim()) turnHadAssistantText = true;
-        updateStreamingMessage(event.content);
-      }
       finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
@@ -571,7 +638,7 @@ export function startChatEventController({
     }
   });
 
-  unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
+  unsubThinking = turnEvents.on('chat:thinking', (event: ChatThinkingEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
@@ -590,7 +657,7 @@ export function startChatEventController({
     }
   });
 
-  unsubToolStart = EventsOn('chat:tool_start', (event: ChatToolStartEvent) => {
+  unsubToolStart = turnEvents.on('chat:tool_start', (event: ChatToolStartEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
@@ -614,7 +681,7 @@ export function startChatEventController({
     }
   });
 
-  unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
+  unsubToolEnd = turnEvents.on('chat:tool_end', (event: ChatToolEndEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
@@ -646,7 +713,7 @@ export function startChatEventController({
     }
   });
 
-  unsubToolFailure = EventsOn('chat:tool_failure', (event: ChatToolFailureEvent) => {
+  unsubToolFailure = turnEvents.on('chat:tool_failure', (event: ChatToolFailureEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
@@ -664,7 +731,7 @@ export function startChatEventController({
     playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
-  unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
+  unsubSegmentDone = turnEvents.on('chat:segment_done', (event: ChatSegmentDoneEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
@@ -702,11 +769,15 @@ export function startChatEventController({
       completedSegments: newSegments,
       activeToolCalls: [],
     });
-    flushStreamingUpdate();
-    if (currentAssistantNodeId) updateStreamingMessage('');
+    flushVisualStreamingUpdate();
+    if (currentAssistantNodeId) adapter.updateMessage(conversationId, currentAssistantNodeId, '');
+    streamedContent = '';
+    streamSequence = -1;
+    streamInitialized = false;
+    streamingCommitted = false;
   });
 
-  unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
+  unsubDone = turnEvents.on('chat:done', (event: ChatDoneEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
@@ -714,7 +785,6 @@ export function startChatEventController({
     if (event.errorMessage) {
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
@@ -732,6 +802,7 @@ export function startChatEventController({
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
+      applyTurnPatch(event.turnPatch);
       cleanup();
       return;
     }
@@ -739,7 +810,6 @@ export function startChatEventController({
     if (event.reason === 'output_limit') {
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      flushStreamingUpdate();
       const message = i18next.t('chat.outputLimitReached');
       announceWithOrigin({
         message,
@@ -753,12 +823,14 @@ export function startChatEventController({
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
+      applyTurnPatch(event.turnPatch);
       cleanup();
       return;
     }
 
     const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
     finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
+    applyTurnPatch(event.turnPatch);
     patchCurrentSession({ lastInterruptedMessageId: null });
 
     if (event.hadToolCalls) {
@@ -773,57 +845,6 @@ export function startChatEventController({
           getEventOrigin(event),
         );
       }
-      reloadConversationSnapshot(conversationId, INITIAL_MESSAGE_WINDOW_SIZE).then((snapshot) => {
-        const conversation = getCurrentSession().conversation;
-        if (!conversation) return;
-        if (snapshot.threadedMessages.length === 0) {
-          patchCurrentSession({ completedSegments: [] });
-          return;
-        }
-        const currentSession = getCurrentSession();
-        const isSurfaceAtLiveTail = !currentSession.messageWindow?.hasAfter
-          || (
-            currentSession.messageWindow.totalCount > 0
-            && currentSession.messageWindow.endIndex >= currentSession.messageWindow.totalCount - 1
-          );
-        if (
-          currentSession.messageWindow
-          && !isSurfaceAtLiveTail
-          && currentSession.messageWindow.totalCount > snapshot.messageWindow.totalCount
-          && import.meta.env.DEV
-        ) {
-          logger.warn('[Chat] snapshot retornou totalCount menor que a janela paginada atual', {
-            conversationId,
-            currentTotalCount: currentSession.messageWindow.totalCount,
-            snapshotTotalCount: snapshot.messageWindow.totalCount,
-          });
-        }
-        const pagedWindowUpdate = currentSession.messageWindow && !isSurfaceAtLiveTail
-          ? {
-            messageWindow: {
-              ...currentSession.messageWindow,
-              totalCount: Math.max(currentSession.messageWindow.totalCount, snapshot.messageWindow.totalCount),
-              hasAfter: snapshot.messageWindow.totalCount > currentSession.messageWindow.endIndex + 1,
-            },
-          }
-          : {};
-        patchCurrentSession({
-          conversation: {
-            ...conversation,
-            threadedMessages: snapshot.threadedMessages,
-          },
-          ...(isSurfaceAtLiveTail
-            ? {
-              visibleThreadedMessages: snapshot.threadedMessages,
-              messageWindow: snapshot.messageWindow,
-              hasOlderMessages: snapshot.hasOlderMessages,
-            }
-            : pagedWindowUpdate),
-          completedSegments: [],
-        });
-      }).catch((err) => {
-        logger.error('[Chat] Erro ao recarregar mensagens:', err);
-      });
     }
 
     announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title, getEventOrigin(event));

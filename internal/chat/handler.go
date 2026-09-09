@@ -45,6 +45,15 @@ func EnsureAssistantPlaceholder(ctx context.Context, msgRepo MessageRepository, 
 		return "", nil
 	}
 
+	if batchRepo, ok := msgRepo.(AssistantPlaceholderRepository); ok {
+		id, err := batchRepo.EnsureAssistantPlaceholder(ctx, conversationID, turnID)
+		if errors.Is(err, ErrConversationDeleted) || errors.Is(err, ErrParentMessageDeleted) {
+			logPlaceholderConversationGone(ctx, conversationID)
+			return "", ErrConversationGone
+		}
+		return id, err
+	}
+
 	// Reusa uma mensagem assistant root já existente no turno (se houver).
 	msgs, err := msgRepo.GetMessagesByTurnID(ctx, conversationID, nil, turnID, 100)
 	if err != nil {
@@ -66,12 +75,16 @@ func EnsureAssistantPlaceholder(ctx context.Context, msgRepo MessageRepository, 
 	msg, err := msgRepo.CreateMessage(ctx, opts)
 	if err != nil {
 		if errors.Is(err, ErrConversationDeleted) || errors.Is(err, ErrParentMessageDeleted) {
-			logging.Infof(ctx, "chat.handler", "[Chat] conversa %s deletada — abortando placeholder", conversationID)
+			logPlaceholderConversationGone(ctx, conversationID)
 			return "", ErrConversationGone
 		}
 		return "", err
 	}
 	return msg.ID, nil
+}
+
+func logPlaceholderConversationGone(ctx context.Context, conversationID string) {
+	logging.Infof(ctx, "chat.handler", "[Chat] conversa %s deletada — abortando placeholder", conversationID)
 }
 
 // FinalizeAssistantMessage persiste a resposta final no banco, preferindo atualizar
