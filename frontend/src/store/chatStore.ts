@@ -74,8 +74,12 @@ import {
   type Message,
   type MessageNode,
 } from '../lib/chatMessageTree';
+import {
+  getUtf8ByteLength,
+  MAX_MESSAGE_CONTENT_BYTES,
+  MAX_MESSAGE_CONTENT_KIB,
+} from '../lib/messageContentLimit';
 
-const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
 
 export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
@@ -592,15 +596,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     retryMessageId?: string,
     options?: { origin?: ChatSurfaceOrigin },
   ) => {
-    if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
-      announce(i18next.t('chat.validation.messageTooLarge', {
-        defaultValue: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
-        size: content.length,
-        max: MAX_MESSAGE_CONTENT_SIZE,
-      }));
-      return;
-    }
-
     if (mediaFiles && mediaFiles.length > 0) {
       const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
       const estimatedBase64Size = Math.ceil(totalSize * 1.37);
@@ -1284,6 +1279,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (!conversationId) {
         logger.error('[Chat] sendMessageToConversation sem conversationId explícito');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
+        return;
+      }
+      const contentBytes = getUtf8ByteLength(content);
+      if (contentBytes > MAX_MESSAGE_CONTENT_BYTES) {
+        announce(i18next.t('chat.validation.messageTooLarge', {
+          sizeBytes: contentBytes,
+          maxKiB: MAX_MESSAGE_CONTENT_KIB,
+        }), 'assertive');
         return;
       }
       if (!getConversationTimeline(get(), conversationId)) {

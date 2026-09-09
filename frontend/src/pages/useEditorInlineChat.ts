@@ -47,6 +47,16 @@ import type {
 } from './editorTypes';
 
 const EDITOR_APPLY_TOOL_NAMES = new Set(['edit_file', 'text_edit', 'write_file']);
+const MAX_EDITOR_SELECTION_CHARACTERS = 20_000;
+
+function exceedsUnicodeCharacterLimit(text: string, max: number): boolean {
+  let count = 0;
+  for (const _character of text) {
+    count += 1;
+    if (count > max) return true;
+  }
+  return false;
+}
 
 interface UseEditorInlineChatArgs {
   activeTab: EditorDocument | null;
@@ -608,8 +618,12 @@ export function useEditorInlineChat({
           return { ok: false };
         }
 
-        if (selectionRaw.selectedText.length > 20000) {
-          addToast(t('editor.chatModal.prepareSelectionTooLarge', { max: 20000 }), 'error');
+        // Este é um limite próprio em caracteres Unicode, não o limite em bytes
+        // UTF-8 aplicado ao texto da mensagem pelo pipeline compartilhado.
+        if (exceedsUnicodeCharacterLimit(selectionRaw.selectedText, MAX_EDITOR_SELECTION_CHARACTERS)) {
+          addToast(t('editor.chatModal.prepareSelectionTooLarge', {
+            max: MAX_EDITOR_SELECTION_CHARACTERS,
+          }), 'error');
           return { ok: false };
         }
 

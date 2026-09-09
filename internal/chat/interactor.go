@@ -24,7 +24,9 @@ import (
 const DefaultMaxContextMessages = 50
 
 const (
-	MaxMessageContentSize = 512 * 1024       // 512 KB
+	// MaxMessageContentSize protege IPC, serialização e memória em bytes UTF-8.
+	// O espelho frontend é MAX_MESSAGE_CONTENT_BYTES em messageContentLimit.ts.
+	MaxMessageContentSize = 512 * 1024       // 512 KiB
 	MaxMediaSize          = 20 * 1024 * 1024 // 20 MB
 )
 
