@@ -141,6 +141,7 @@ interface ChatStore {
   sessionsByConversationId: Record<string, ChatConversationSession>;
   timelinesByConversationId: Record<string, ConversationTimeline>;
   surfaceSessionsByKey: Record<string, ChatSurfaceSession>;
+  liveMessageContentByConversationId: Record<string, Record<string, string>>;
   loadingConversationIds: Set<string>;
   isInitialized: boolean;
 
@@ -169,6 +170,8 @@ interface ChatStore {
   loadBoundaryMessagesForConversation: (conversationId: string, sessionKey: string, anchor: 'start' | 'end') => Promise<void>;
 
   updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
+  setConversationLiveMessageContent: (conversationId: string, messageId: string, content: string) => void;
+  commitConversationLiveMessage: (conversationId: string, messageId: string, content: string) => void;
   updateConversationMessagePinned: (conversationId: string, messageId: string, pinned: boolean) => void;
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
   clearConversationMessages: (conversationId: string) => void;
@@ -585,7 +588,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => patchConversation(state, conversationId, updater));
     },
     updateMessage: (conversationId: string, messageId: string, content: string) => {
-      get().updateConversationMessage(conversationId, messageId, content);
+      get().setConversationLiveMessageContent(conversationId, messageId, content);
+    },
+    commitMessage: (conversationId: string, messageId: string, content: string) => {
+      get().commitConversationLiveMessage(conversationId, messageId, content);
     },
     updateReasoning: (conversationId: string, messageId: string, reasoning: string) => {
       get().updateConversationMessageReasoning(conversationId, messageId, reasoning);
@@ -683,6 +689,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     sessionsByConversationId: {},
     timelinesByConversationId: {},
     surfaceSessionsByKey: {},
+    liveMessageContentByConversationId: {},
     loadingConversationIds: new Set(),
     isInitialized: false,
 
@@ -1212,6 +1219,62 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
     },
 
+    setConversationLiveMessageContent: (conversationId, messageId, content) => {
+      set((state) => {
+        const conversationMessages = state.liveMessageContentByConversationId[conversationId];
+        if (conversationMessages?.[messageId] === content) return state;
+        return {
+          liveMessageContentByConversationId: {
+            ...state.liveMessageContentByConversationId,
+            [conversationId]: {
+              ...conversationMessages,
+              [messageId]: content,
+            },
+          },
+        };
+      });
+    },
+
+    commitConversationLiveMessage: (conversationId, messageId, content) => {
+      set((state) => {
+        const conversationMessages = state.liveMessageContentByConversationId[conversationId];
+        const hasLiveMessage = !!conversationMessages
+          && Object.prototype.hasOwnProperty.call(conversationMessages, messageId);
+        const timeline = getConversationTimeline(state, conversationId);
+        const updatedNodes = timeline
+          ? updateMessageContentInTree(timeline.threadedMessages, messageId, content)
+          : undefined;
+        const hasConversationChange = !!timeline && updatedNodes !== timeline.threadedMessages;
+        if (!hasLiveMessage && !hasConversationChange) return state;
+
+        let liveMessageContentByConversationId = state.liveMessageContentByConversationId;
+        if (hasLiveMessage) {
+          liveMessageContentByConversationId = { ...state.liveMessageContentByConversationId };
+          const remainingMessages = { ...conversationMessages };
+          delete remainingMessages[messageId];
+          if (Object.keys(remainingMessages).length === 0) {
+            delete liveMessageContentByConversationId[conversationId];
+          } else {
+            liveMessageContentByConversationId[conversationId] = remainingMessages;
+          }
+        }
+        const conversationPatch = timeline
+          ? patchConversation(state, conversationId, (conversation) => {
+            const threadedMessages = conversation.threadedMessages === timeline.threadedMessages
+              ? updatedNodes!
+              : updateMessageContentInTree(conversation.threadedMessages, messageId, content);
+            return threadedMessages === conversation.threadedMessages
+              ? conversation
+              : { ...conversation, threadedMessages };
+          })
+          : {};
+        return {
+          ...conversationPatch,
+          liveMessageContentByConversationId,
+        };
+      });
+    },
+
     updateConversationMessagePinned: (conversationId, messageId, pinned) => {
       set((state) => {
         return patchConversation(state, conversationId, (conversation) => ({
@@ -1411,7 +1474,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     handleConversationDeleted: (conversationId: string) => {
       turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
-      set((state) => removeChatSession(state, conversationId));
+      set((state) => {
+        const sessionPatch = removeChatSession(state, conversationId);
+        if (!Object.prototype.hasOwnProperty.call(
+          state.liveMessageContentByConversationId,
+          conversationId,
+        )) {
+          return sessionPatch;
+        }
+        const liveMessageContentByConversationId = { ...state.liveMessageContentByConversationId };
+        delete liveMessageContentByConversationId[conversationId];
+        return {
+          ...sessionPatch,
+          liveMessageContentByConversationId,
+        };
+      });
       if (isChatConversationActive(conversationId)) {
         announce(i18next.t('chat.announce.conversationDeletedPermanently'));
         setTimeout(() => {
@@ -1454,6 +1531,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         sessionsByConversationId: {},
         timelinesByConversationId: {},
         surfaceSessionsByKey: {},
+        liveMessageContentByConversationId: {},
         loadingConversationIds: new Set(),
         isInitialized: false,
       });

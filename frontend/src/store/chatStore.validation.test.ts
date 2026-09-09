@@ -846,12 +846,18 @@ describe('chatStore validation', () => {
       surfaceSessionsByKey: {
         [orphanSessionKey]: createEmptyChatSession(orphanConversationId, orphanSessionKey),
       },
+      liveMessageContentByConversationId: {
+        [defaultConversationId]: { 'message-1': 'conteúdo live preservado' },
+      },
     });
 
+    const liveMessageContentBeforeDeletion = useChatStore.getState().liveMessageContentByConversationId;
     useChatStore.getState().handleConversationDeleted(orphanConversationId);
 
     expect(useChatStore.getState().timelinesByConversationId[orphanConversationId]).toBeUndefined();
     expect(useChatStore.getState().surfaceSessionsByKey[orphanSessionKey]).toBeUndefined();
+    expect(useChatStore.getState().liveMessageContentByConversationId)
+      .toBe(liveMessageContentBeforeDeletion);
   });
 
   it('envia sem recarregar quando timeline já está carregada sem sessão legada', async () => {
