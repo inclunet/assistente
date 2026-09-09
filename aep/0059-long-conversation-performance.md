@@ -225,6 +225,24 @@ Critério prático:
 - Evitar recriar arrays e callbacks globais em cada token.
 - Cobrir regressões com testes de render ou contadores em ambiente de teste.
 
+#### Implementação da issue #695
+
+- O conteúdo transitório do streaming é indexado por `conversationId` e
+  `messageId` no store existente; não há store paralelo nem alteração do
+  pipeline backend-driven.
+- Deltas coalescidos são publicados no máximo uma vez por frame com
+  `requestAnimationFrame`. Eventos terminais e cleanup cancelam o frame pendente
+  e fazem flush síncrono antes da finalização.
+- A árvore canônica não é percorrida a cada frame. Ela recebe uma consolidação
+  terminal, e o `turnPatch` do backend continua autoritativo.
+- Seletores primitivos por mensagem evitam snapshots compostos instáveis e
+  limitam o rerender ao item afetado. Ramos não alterados preservam identidade
+  referencial nas mutações estruturais.
+- O limite de virtualização permanece em 40 itens: os testes existentes já
+  demonstram DOM janelado, navegação materializada, preservação de scroll e
+  anúncios sem duplicação; esta fase não encontrou evidência que justificasse
+  alterar o limiar acessível.
+
 ### Fase 4 — Virtualização acessível ⏳
 
 - Introduzir virtualização em `MessageList` atrás de um limite.

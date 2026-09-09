@@ -78,11 +78,14 @@ function createNode(input: Partial<MessageNode> & { message: Message }): Message
 }
 
 function cloneNode(node: MessageNode, overrides: Partial<MessageNode> = {}): MessageNode {
+  const children = overrides.children ?? node.children;
   const cloned = createNode({
     ...node,
     ...overrides,
     message: overrides.message ?? node.message,
+    children: [],
   });
+  cloned.children = children;
   cloned.originalIndex = overrides.originalIndex ?? node.originalIndex;
   cloned.isExpanded = overrides.isExpanded ?? node.isExpanded;
   return cloned;
@@ -167,16 +170,26 @@ function mapMessageTree(
   nodes: MessageNode[],
   visitor: (node: MessageNode) => MessageNode,
 ): MessageNode[] {
-  return nodes.map((node) => {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
     const nextNode = visitor(node);
-    if (!nextNode.children?.length) return nextNode;
-    return cloneNode(nextNode, { children: mapMessageTree(nextNode.children, visitor) });
+    let result = nextNode;
+    if (nextNode.children?.length) {
+      const nextChildren = mapMessageTree(nextNode.children, visitor);
+      if (nextChildren !== nextNode.children) {
+        result = cloneNode(nextNode, { children: nextChildren });
+      }
+    }
+    if (result !== node) changed = true;
+    return result;
   });
+  return changed ? nextNodes : nodes;
 }
 
 export function updateMessageContentInTree(nodes: MessageNode[], messageId: string, content: string): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;
+    if (node.message.content === content) return node;
     return cloneNode(node, { message: cloneMessage(node.message, { content }) });
   });
 }
