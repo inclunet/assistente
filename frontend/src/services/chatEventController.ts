@@ -499,7 +499,6 @@ export function startChatEventController({
 
     if (event.delta && !event.done && !event.error) {
       currentTurnId = event.turnId || currentTurnId;
-      if (event.delta.trim()) turnHadAssistantText = true;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
       if (!currentAssistantNodeId) return;
@@ -513,6 +512,7 @@ export function startChatEventController({
       }
       streamSequence = event.sequence;
       streamedContent += event.delta;
+      if (streamedContent.trim()) turnHadAssistantText = true;
       if (!streamingAnnounced) {
         streamingAnnounced = true;
         announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));

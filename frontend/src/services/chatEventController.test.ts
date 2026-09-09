@@ -1241,4 +1241,35 @@ describe('chatEventController', () => {
       undefined,
     );
   });
+
+  it('considera baseContent como texto na continuação explícita', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      baseContent: 'resposta parcial',
+      delta: ' ',
+      reset: true,
+      sequence: 0,
+      done: false,
+    });
+    mockAnnounceForActiveChatConversation.mockClear();
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'assistant-1',
+      hadToolCalls: true,
+    });
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+  });
 });
