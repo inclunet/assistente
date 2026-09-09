@@ -247,6 +247,7 @@ const es = {
           'No hay conversación activa. Abre una pestaña de chat o espera a que el workspace termine de sincronizar.',
         tabCannotSend: 'La pestaña activa no admite el envío de mensajes.',
         chatTabNotReady: 'La conversación de la pestaña de chat aún no está lista.',
+        mediaSerializationFailed: 'No se pudieron preparar los archivos adjuntos. Inténtalo de nuevo.',
         cancelStreamingFailed: 'No se pudo cancelar la generación: {{message}}',
         assistantPlaceholder: 'No se pudo preparar el mensaje del asistente.',
         internalError: 'Error interno inesperado. Inténtalo de nuevo.',

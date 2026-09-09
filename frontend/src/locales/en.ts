@@ -248,6 +248,7 @@ const en = {
           'No active conversation. Open a chat tab or wait for the workspace to finish syncing.',
         tabCannotSend: 'The active tab does not support sending messages.',
         chatTabNotReady: 'The chat tab conversation is not ready yet.',
+        mediaSerializationFailed: 'The attachments could not be prepared. Please try again.',
         cancelStreamingFailed: 'Could not cancel generation: {{message}}',
         assistantPlaceholder: 'Could not prepare the assistant message.',
         internalError: 'Unexpected internal error. Please try again.',

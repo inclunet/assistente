@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MediaCategory, type MediaFile } from './mediaService';
 import {
   arrayBufferToBase64,
+  isMediaSerializationError,
   serializeFilesToJson,
   serializeMediaFiles,
   type MediaSerializationWorkerResponse,
@@ -63,5 +64,28 @@ describe('mediaSerialization Worker', () => {
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
     expect(postMessage).toHaveBeenCalledWith({ type: 'cancel' });
     expect(terminate).toHaveBeenCalledOnce();
+  });
+
+  it('converte falha técnica do Worker em erro codificado para tradução na UI', async () => {
+    let onmessage: ((event: MessageEvent<MediaSerializationWorkerResponse>) => void) | null = null;
+    const workerFactory = () => ({
+      postMessage: vi.fn(() => {
+        queueMicrotask(() => onmessage?.(
+          new MessageEvent<MediaSerializationWorkerResponse>('message', { data: { type: 'error' } }),
+        ));
+      }),
+      terminate: vi.fn(),
+      get onmessage() { return onmessage; },
+      set onmessage(value) { onmessage = value; },
+      onerror: null,
+    });
+
+    const promise = serializeMediaFiles(
+      [mediaFile(new File(['dados'], 'falha.txt', { type: 'text/plain' }))],
+      undefined,
+      workerFactory,
+    );
+
+    await expect(promise).rejects.toSatisfy(isMediaSerializationError);
   });
 });

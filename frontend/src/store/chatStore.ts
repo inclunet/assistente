@@ -12,6 +12,7 @@ import { EnsureConversation } from '@wailsjs/go/wailsapi/Conversations';
 import { MediaFile } from '../services/mediaService';
 import {
   cancelMediaSerialization,
+  isMediaSerializationError,
   serializeMediaForConversation,
 } from '../services/mediaSerialization';
 import { llm } from '../../wailsjs/go/models';
@@ -650,7 +651,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         controller.cleanup();
         return;
       }
-      const errorMsg = getErrorMessage(error);
+      const errorMsg = isMediaSerializationError(error)
+        ? i18next.t('chat.errors.mediaSerializationFailed')
+        : getErrorMessage(error);
       controller.handleSendFailure(errorMsg);
     }
   };

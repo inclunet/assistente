@@ -13,11 +13,22 @@ export type MediaSerializationWorkerRequest =
 
 export type MediaSerializationWorkerResponse =
   | { type: 'success'; mediaJson: string }
-  | { type: 'error'; message: string }
+  | { type: 'error' }
   | { type: 'cancelled' };
 
 type WorkerLike = Pick<Worker, 'postMessage' | 'terminate' | 'onmessage' | 'onerror'>;
 type WorkerFactory = () => WorkerLike;
+
+export class MediaSerializationError extends Error {
+  constructor() {
+    super('MEDIA_SERIALIZATION_FAILED');
+    this.name = 'MediaSerializationError';
+  }
+}
+
+export function isMediaSerializationError(error: unknown): error is MediaSerializationError {
+  return error instanceof MediaSerializationError;
+}
 
 const activeSerializations = new Map<string, AbortController>();
 
@@ -43,7 +54,7 @@ function readFileBuffer(file: File): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(reader.error ?? new Error('Unable to read media file'));
+    reader.onerror = () => reject(reader.error ?? new MediaSerializationError());
     reader.readAsArrayBuffer(file);
   });
 }
@@ -68,7 +79,10 @@ export function serializeMediaFiles(
   // Vitest/jsdom não fornece Worker. Produção Vite/Wails sempre usa o módulo
   // acima; o fallback mantém apenas os testes unitários independentes do browser.
   if (typeof Worker === 'undefined' && import.meta.env.MODE === 'test' && workerFactory === createWorker) {
-    return serializeFilesToJson(mediaFiles.map((item) => item.file));
+    return serializeFilesToJson(mediaFiles.map((item) => item.file))
+      .catch(() => {
+        throw new MediaSerializationError();
+      });
   }
 
   return new Promise((resolve, reject) => {
@@ -83,7 +97,7 @@ export function serializeMediaFiles(
     };
     const abort = () => {
       worker.postMessage({ type: 'cancel' } satisfies MediaSerializationWorkerRequest);
-      finish(() => reject(new DOMException('Media serialization cancelled', 'AbortError')));
+      finish(() => reject(new DOMException('', 'AbortError')));
     };
 
     worker.onmessage = (event: MessageEvent<MediaSerializationWorkerResponse>) => {
@@ -91,13 +105,13 @@ export function serializeMediaFiles(
       if (response.type === 'success') {
         finish(() => resolve(response.mediaJson));
       } else if (response.type === 'error') {
-        finish(() => reject(new Error(response.message)));
+        finish(() => reject(new MediaSerializationError()));
       } else {
-        finish(() => reject(new DOMException('Media serialization cancelled', 'AbortError')));
+        finish(() => reject(new DOMException('', 'AbortError')));
       }
     };
-    worker.onerror = (event) => {
-      finish(() => reject(new Error(event.message || 'Media serialization worker failed')));
+    worker.onerror = () => {
+      finish(() => reject(new MediaSerializationError()));
     };
 
     if (signal?.aborted) {

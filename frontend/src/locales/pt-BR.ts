@@ -248,6 +248,7 @@ const ptBR = {
           'Nenhuma conversa ativa. Abra uma aba de chat ou aguarde o workspace sincronizar.',
         tabCannotSend: 'A aba ativa não suporta envio de mensagens.',
         chatTabNotReady: 'Conversa da aba de chat ainda não está pronta.',
+        mediaSerializationFailed: 'Não foi possível preparar os anexos. Tente novamente.',
         cancelStreamingFailed: 'Não foi possível cancelar a geração: {{message}}',
         assistantPlaceholder: 'Não foi possível preparar a mensagem do assistente.',
         internalError: 'Erro interno inesperado. Tente novamente.',

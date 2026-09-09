@@ -24,11 +24,8 @@ workerScope.onmessage = async (event: MessageEvent<MediaSerializationWorkerReque
       return;
     }
     workerScope.postMessage({ type: 'success', mediaJson } satisfies MediaSerializationWorkerResponse);
-  } catch (error) {
-    workerScope.postMessage({
-      type: 'error',
-      message: error instanceof Error ? error.message : String(error),
-    } satisfies MediaSerializationWorkerResponse);
+  } catch {
+    workerScope.postMessage({ type: 'error' } satisfies MediaSerializationWorkerResponse);
   }
 };
 
