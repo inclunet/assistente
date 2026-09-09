@@ -3,7 +3,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 
-const subscribeSpy = vi.fn();
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 const buildAriaLabelMock = vi.hoisted(() => vi.fn((_args: unknown) => 'aria-label'));
@@ -15,19 +14,14 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../../store/chatStore', () => {
-  const useChatStore = () => ({});
-  useChatStore.subscribe = (cb: (state: unknown) => void) => {
-    subscribeSpy(cb);
-    return () => {};
-  };
-  useChatStore.getState = () => ({
+  const state = {
     sessionsByConversationId: {
-      [conversationId]: {
+      '01926b90-7a5a-7c4e-8d3f-000000000001': {
         streamingMessageId: null,
         completedSegments: [],
         activeToolCalls: [],
         conversation: {
-          id: conversationId,
+          id: '01926b90-7a5a-7c4e-8d3f-000000000001',
           title: 'Conversa',
           threadedMessages: [],
         },
@@ -37,7 +31,12 @@ vi.mock('../../store/chatStore', () => {
     completedSegments: [],
     activeToolCalls: [],
     tabs: [],
-  });
+    liveMessageContentByConversationId: {},
+  };
+  const useChatStore = (selector?: (value: typeof state) => unknown) => (
+    selector ? selector(state) : state
+  );
+  useChatStore.getState = () => state;
   return { useChatStore };
 });
 
