@@ -20,14 +20,14 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockBackend struct {
-	mu          sync.Mutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	sendFn      func(string, string, string, app.ChatParams) (string, error)
+	mu           sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	sendFn       func(string, string, string, app.ChatParams) (string, error)
 	ensureConvFn func(string) (*app.Conversation, error)
-	getConvFn   func(string) (*app.Conversation, error)
-	cancelFn    func(string)
-	sendCalls   []sendCall
+	getConvFn    func(string) (*app.Conversation, error)
+	cancelFn     func(string)
+	sendCalls    []sendCall
 }
 
 type sendCall struct {
@@ -245,8 +245,8 @@ func TestSendAndWait_Success(t *testing.T) {
 	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Content: "Olá"})
-			emitter.Emit("chat:stream", ports.StreamEvent{Content: "Olá mundo"})
+			emitter.Emit("chat:stream", ports.StreamEvent{Delta: "Olá"})
+			emitter.Emit("chat:stream", ports.StreamEvent{Delta: " mundo"})
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
@@ -401,7 +401,7 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 		n := callCount
 		go func() {
 			time.Sleep(2 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Content: fmt.Sprintf("resp%d", n)})
+			emitter.Emit("chat:stream", ports.StreamEvent{Delta: fmt.Sprintf("resp%d", n)})
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()

@@ -52,6 +52,7 @@ type agentActivity struct {
 // OnAgentToolEvent traduz a atividade de ferramenta do agente para os eventos de
 // chat que a UI já sabe renderizar e anunciar.
 func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
+	h.FlushStream()
 	name := singleLine(event.Kind)
 	if name == "" {
 		name = llm.AgentToolKindOther

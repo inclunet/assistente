@@ -68,9 +68,9 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
-	h.closePendingAgentTools()
 	h.FinishThinkingIfActive()
-	content, _ := h.Finalize()
+	_, _ = h.Finalize()
+	h.closePendingAgentTools()
 	// A supressão existe para não finalizar o streaming enquanto ainda há
 	// tentativa pela frente. Um erro que não pode ser repetido encerra o turno
 	// agora, e calá-lo deixaria a tela esperando por uma tentativa que não vem.
@@ -79,7 +79,6 @@ func (h *SimpleStreamHandler) OnError(err string) {
 	}
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
 		MessageID:      h.AssistantMessageID,
-		Content:        content,
 		Done:           true,
 		Error:          err,
 		ConversationId: h.ConversationID,
@@ -121,9 +120,9 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 }
 
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
-	h.closePendingAgentTools()
 	remainingSpeech, readInSegments := h.UnreadTail()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
+	h.closePendingAgentTools()
 
 	finalContent := fullResponse
 	if finalContent == "" {

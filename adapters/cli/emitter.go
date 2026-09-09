@@ -22,7 +22,6 @@ type EmitterAdapter struct {
 	errOut         io.Writer // stderr por padrão
 	verbose        bool
 	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
-	lastPrinted    int           // quantidade de bytes de Content já impressos (para imprimir só o delta)
 	conversationID string        // conversa ativa; "" = aceita qualquer conversa
 }
 
@@ -107,8 +106,7 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 	}
 }
 
-// handleStream imprime tokens de streaming no stdout.
-// Content chega acumulado: só imprimimos o delta em relação ao que já foi escrito.
+// handleStream imprime os deltas de streaming no stdout.
 func (e *EmitterAdapter) handleStream(data any) {
 	ev, ok := e.toStreamEvent(data)
 	if !ok {
@@ -122,7 +120,6 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 	if ev.Error != "" {
 		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
-		e.lastPrinted = 0
 		// Fallback: sinaliza done em chat:stream com Error porque há caminhos
 		// no backend (ex.: HandlePanic) que emitem apenas chat:stream terminal
 		// sem emitir chat:done. signalDone() é idempotente.
@@ -132,17 +129,14 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 	if ev.Done {
 		_, _ = fmt.Fprintln(e.out)
-		e.lastPrinted = 0
 		// NÃO chama signalDone aqui: o fluxo normal emite chat:done após
 		// chat:stream Done=true, e signalDone fica com chat:done para garantir
 		// que o CLI processe o resumo final antes de encerrar.
 		return
 	}
 
-	// Content é acumulado; imprime só o que é novo.
-	if len(ev.Content) > e.lastPrinted {
-		_, _ = fmt.Fprint(e.out, ev.Content[e.lastPrinted:])
-		e.lastPrinted = len(ev.Content)
+	if ev.Delta != "" {
+		_, _ = fmt.Fprint(e.out, ev.Delta)
 	}
 }
 
@@ -172,7 +166,6 @@ func (e *EmitterAdapter) handleError(data any) {
 	default:
 		_, _ = fmt.Fprintf(e.errOut, "Erro: %v\n", data)
 	}
-	e.lastPrinted = 0
 	// Fallback: sinaliza done em chat:error para cobrir caminhos onde o backend
 	// não emite chat:done (erro pré-streaming, sem provedor, etc.).
 	// Na prática chat:error e chat:done são mutuamente exclusivos: chat:error é
@@ -378,7 +371,6 @@ func (e *EmitterAdapter) handleDone(data any) {
 	// chat:done com ErrorMessage: exibe erro (substitui chat:stream terminal)
 	if ev.ErrorMessage != "" {
 		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.ErrorMessage)
-		e.lastPrinted = 0
 	}
 
 	// Só exibe resumo se houve tool calls (evita ruído em respostas simples).

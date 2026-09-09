@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -10,8 +11,11 @@ import (
 
 // BaseStreamHandler contém os campos e métodos compartilhados entre
 // os stream handlers do pacote agent (SimpleStreamHandler e AgenticStreamHandler).
-// Lida com throttling de 50 ms para os eventos chat:stream e chat:thinking.
+// Agrupa deltas de chat:stream em janelas curtas e mantém chat:thinking
+// throttled separadamente.
 // Emitter e ConversationID são exportados para permitir construção fora do pacote.
+const StreamCoalesceInterval = 24 * time.Millisecond
+
 type BaseStreamHandler struct {
 	Emitter            events.Emitter
 	ConversationID     string
@@ -19,14 +23,17 @@ type BaseStreamHandler struct {
 	AssistantMessageID string
 	SurfaceOrigin      *ports.ChatSurfaceOrigin
 
-	accumulatedContent   string
-	promotedContent      string
+	accumulatedContent   strings.Builder
+	promotedContent      strings.Builder
+	pendingDelta         strings.Builder
+	initialContent       string
+	streamSequence       uint64
+	streamStarted        bool
 	accumulatedReasoning string
 	isThinking           bool
 	errorNotRetryable    bool
 
 	mu            sync.Mutex
-	lastEmitTime  time.Time
 	throttleTimer *time.Timer
 	pendingEmit   bool
 
@@ -42,12 +49,14 @@ func (h *BaseStreamHandler) SetAssistantMessageID(messageID string) {
 }
 
 // SetInitialContent define o conteúdo inicial do stream (prefill).
-// Útil para continuação explícita: o handler passa a emitir conteúdo cumulativo
-// (prefill + novos chunks) sem sobrescrever o parcial já existente.
+// Útil para continuação explícita: o primeiro lote envia o prefill uma única
+// vez como BaseContent e os chunks novos continuam viajando como delta.
 func (h *BaseStreamHandler) SetInitialContent(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.accumulatedContent = content
+	h.initialContent = content
+	h.accumulatedContent.Reset()
+	h.accumulatedContent.WriteString(content)
 }
 
 // MarkErrorNotRetryable registra que o erro deste turno não pode ser repetido
@@ -68,49 +77,65 @@ func (h *BaseStreamHandler) ErrorNotRetryable() bool {
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {
+	if content == "" {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.accumulatedContent += content
-
-	const throttleInterval = 50 * time.Millisecond
-	now := time.Now()
-
-	if now.Sub(h.lastEmitTime) >= throttleInterval {
-		h.emitStreamEvent()
-		h.lastEmitTime = now
-		h.pendingEmit = false
-		if h.throttleTimer != nil {
-			h.throttleTimer.Stop()
-			h.throttleTimer = nil
-		}
-		return
-	}
+	h.accumulatedContent.WriteString(content)
+	h.pendingDelta.WriteString(content)
 
 	if !h.pendingEmit {
 		h.pendingEmit = true
-		remainingTime := throttleInterval - now.Sub(h.lastEmitTime)
-		h.throttleTimer = time.AfterFunc(remainingTime, func() {
+		h.throttleTimer = time.AfterFunc(StreamCoalesceInterval, func() {
 			h.mu.Lock()
 			defer h.mu.Unlock()
 			if h.pendingEmit {
-				h.emitStreamEvent()
-				h.lastEmitTime = time.Now()
-				h.pendingEmit = false
+				h.flushPendingDeltaLocked()
 			}
 		})
 	}
 }
 
-func (h *BaseStreamHandler) emitStreamEvent() {
+func (h *BaseStreamHandler) flushPendingDeltaLocked() {
+	delta := h.pendingDelta.String()
+	if delta == "" {
+		h.cancelPendingChunkTimer()
+		return
+	}
+	h.pendingDelta.Reset()
+	h.pendingEmit = false
+	if h.throttleTimer != nil {
+		h.throttleTimer.Stop()
+		h.throttleTimer = nil
+	}
+	reset := !h.streamStarted
+	baseContent := ""
+	if reset {
+		baseContent = h.initialContent
+	}
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
 		MessageID:      h.AssistantMessageID,
-		Content:        h.accumulatedContent,
+		Delta:          delta,
+		Reset:          reset,
+		BaseContent:    baseContent,
+		Sequence:       h.streamSequence,
 		Done:           false,
 		ConversationId: h.ConversationID,
 		TurnID:         h.TurnID,
 		SurfaceOrigin:  h.SurfaceOrigin,
 	})
+	h.streamStarted = true
+	h.streamSequence++
+}
+
+// FlushStream emite imediatamente o delta pendente. Deve ser chamado antes de
+// eventos terminais, de tool ou de segmento para preservar a ordem no IPC.
+func (h *BaseStreamHandler) FlushStream() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.flushPendingDeltaLocked()
 }
 
 func (h *BaseStreamHandler) OnThinking(content string) {
@@ -234,8 +259,8 @@ func (h *BaseStreamHandler) cancelPendingChunkTimer() {
 func (h *BaseStreamHandler) Finalize() (content, reasoning string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.cancelPendingChunkTimer()
-	return h.promotedContent + h.accumulatedContent, h.accumulatedReasoning
+	h.flushPendingDeltaLocked()
+	return h.promotedContent.String() + h.accumulatedContent.String(), h.accumulatedReasoning
 }
 
 // UnreadTail devolve o texto que ainda não virou segmento e diz se o turno já
@@ -245,7 +270,7 @@ func (h *BaseStreamHandler) Finalize() (content, reasoning string) {
 func (h *BaseStreamHandler) UnreadTail() (tail string, readInSegments bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.accumulatedContent, h.promotedContent != ""
+	return h.accumulatedContent.String(), h.promotedContent.Len() != 0
 }
 
 // CutSegment fecha o bloco de texto corrente: devolve o que foi acumulado desde
@@ -255,9 +280,12 @@ func (h *BaseStreamHandler) UnreadTail() (tail string, readInSegments bool) {
 func (h *BaseStreamHandler) CutSegment() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.cancelPendingChunkTimer()
-	segment := h.accumulatedContent
-	h.promotedContent += segment
-	h.accumulatedContent = ""
+	h.flushPendingDeltaLocked()
+	segment := h.accumulatedContent.String()
+	h.promotedContent.WriteString(segment)
+	h.accumulatedContent.Reset()
+	h.initialContent = ""
+	h.streamStarted = false
+	h.streamSequence = 0
 	return segment
 }

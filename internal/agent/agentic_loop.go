@@ -648,12 +648,20 @@ func (r *agenticLoopRunner) emitTokenStatsUpdate() {
 const limitReachedNotice = "Limite de iterações do agente atingido. A resposta pode estar incompleta."
 
 // finishLimitReached emite os eventos terminais quando o loop atinge o teto de
-// iterações (chat:stream informativo + chat:speak do aviso + chat:done com
+// iterações (delta informativo, terminal, chat:speak e chat:done com
 // Reason="limit_reached").
 func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	logging.Infof(ctx, "agent.agentic-loop", "[Agent] limite de %d iterações atingido para conversa %s", r.maxIterations, r.conversationID)
 	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
-		Content:        limitReachedNotice,
+		Delta:          limitReachedNotice,
+		Reset:          true,
+		Sequence:       0,
+		MessageID:      r.assistantMessageID,
+		ConversationId: r.conversationID,
+		TurnID:         r.turnID,
+		SurfaceOrigin:  r.surfaceOrigin,
+	})
+	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
 		Done:           true,
 		MessageID:      r.assistantMessageID,
 		ConversationId: r.conversationID,

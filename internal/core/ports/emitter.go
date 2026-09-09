@@ -7,13 +7,18 @@ type Emitter interface {
 }
 
 // StreamEvent é o payload do evento chat:stream emitido durante o streaming LLM.
+// Delta contém somente o texto novo desde o evento anterior. Reset inicia uma
+// nova tentativa do mesmo turno; BaseContent é o prefixo persistido usado em
+// continuação explícita. Sequence é monotônica dentro de cada tentativa.
 type StreamEvent struct {
 	MessageID      string             `json:"messageId"`
 	ConversationId string             `json:"conversationId"`
-	TurnID         string             `json:"turnId,omitempty"`
-	Content        string             `json:"content"`
+	TurnID         string             `json:"turnId"`
+	Delta          string             `json:"delta,omitempty"`
+	Reset          bool               `json:"reset,omitempty"`
+	BaseContent    string             `json:"baseContent,omitempty"`
+	Sequence       uint64             `json:"sequence"`
 	Done           bool               `json:"done"`
-	FullResponse   string             `json:"fullResponse,omitempty"`
 	Error          string             `json:"error,omitempty"`
 	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }

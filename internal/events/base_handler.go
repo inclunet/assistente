@@ -8,7 +8,8 @@ import (
 
 // BaseStreamHandler contém os campos e métodos compartilhados entre
 // stream handlers (agentic e chat direto).
-// Lida com throttling de 50 ms para os eventos chat:stream e chat:thinking.
+// Lida com coalescing de 24 ms para os eventos chat:stream e throttling de
+// chat:thinking.
 //
 // Campos são exportados para permitir embeddings em outros pacotes internos.
 type BaseStreamHandler struct {
@@ -17,6 +18,7 @@ type BaseStreamHandler struct {
 	TurnID         string
 
 	AccumulatedContent   string
+	PendingDelta         string
 	AccumulatedReasoning string
 	IsThinking           bool
 
@@ -24,6 +26,8 @@ type BaseStreamHandler struct {
 	LastEmitTime  time.Time
 	ThrottleTimer *time.Timer
 	PendingEmit   bool
+	StreamStarted bool
+	Sequence      uint64
 
 	LastThinkingEmitTime time.Time
 	ThinkingTimer        *time.Timer
@@ -35,8 +39,9 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 	defer h.Mu.Unlock()
 
 	h.AccumulatedContent += content
+	h.PendingDelta += content
 
-	const throttleInterval = 50 * time.Millisecond
+	const throttleInterval = 24 * time.Millisecond
 	now := time.Now()
 
 	if now.Sub(h.LastEmitTime) >= throttleInterval {
@@ -66,12 +71,21 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 }
 
 func (h *BaseStreamHandler) emitStreamEvent() {
+	delta := h.PendingDelta
+	h.PendingDelta = ""
+	if delta == "" {
+		return
+	}
 	h.Emitter.Emit("chat:stream", StreamEvent{
-		Content:        h.AccumulatedContent,
+		Delta:          delta,
+		Reset:          !h.StreamStarted,
+		Sequence:       h.Sequence,
 		Done:           false,
 		ConversationId: h.ConversationID,
 		TurnID:         h.TurnID,
 	})
+	h.StreamStarted = true
+	h.Sequence++
 }
 
 func (h *BaseStreamHandler) OnThinking(content string) {
