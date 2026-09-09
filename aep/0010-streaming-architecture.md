@@ -14,7 +14,8 @@ O contrato atual (backend-driven) é:
 - **Continuação/recuperação de streaming é explícita** (não depende de `assistant prefill` acidental). Ver AEP-0064.
 - **Streaming usa deltas coalescidos**, não conteúdo acumulado: lotes de cerca
   de 24 ms carregam `delta`, `sequence`, `conversationId`, `turnId` e
-  `messageId`; `reset` marca uma nova tentativa. Ver AEP-0040.
+  `messageId`; `reset` marca uma nova época de acumulação visual, em retry ou
+  após `segment_done`. Ver AEP-0040.
 
 Os trechos abaixo devem ser lidos como motivação histórica e direção arquitetural, não como especificação literal de APIs.
 

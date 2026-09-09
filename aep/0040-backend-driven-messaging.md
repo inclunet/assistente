@@ -291,11 +291,13 @@ exceção: ele pode ocorrer fora de um turno (por exemplo, em uma goroutine de
 sumarização) e, portanto, carrega `conversationId`, `error` e `done`, mas não
 é um lote delta e não possui necessariamente `messageId` ou `turnId`.
 
-O primeiro lote de cada tentativa usa `reset=true` e `sequence=0`. Em
-continuação explícita, `baseContent` traz uma única vez o prefixo persistido;
-os demais lotes incrementam `sequence` e carregam apenas `delta`. O frontend
-reinicia o acumulador em `reset`, concatena deltas contíguos e rejeita lacunas,
-duplicatas, outra conversa ou outro turno.
+O primeiro lote de cada época de acumulação visual usa `reset=true` e
+`sequence=0`. Toda tentativa inicia uma época; após `chat:segment_done`, o
+próximo segmento também inicia outra época no mesmo turno. Em continuação
+explícita, `baseContent` traz uma única vez o prefixo persistido; após segmento,
+a nova época começa com base vazia. Os demais lotes incrementam `sequence` e
+carregam apenas `delta`. O frontend reinicia o acumulador em `reset`, concatena
+deltas contíguos e rejeita lacunas, duplicatas, outra conversa ou outro turno.
 
 Antes de `chat:tool_*`, `chat:segment_done`, erro, `output_limit` ou qualquer
 evento terminal, o backend faz flush síncrono do delta pendente. O
