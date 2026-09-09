@@ -90,4 +90,14 @@ describe('estado live granular do chat', () => {
     expect(currentTimeline.threadedMessages).toBe(nodes);
     expect(currentTimeline.threadedMessages[1]).toBe(untouched);
   });
+
+  it('preserva o snapshot Zustand quando o commit não tem timeline nem estado live', () => {
+    const before = useChatStore.getState();
+
+    act(() => {
+      useChatStore.getState().commitConversationLiveMessage('conversation-missing', 'message-missing', '');
+    });
+
+    expect(useChatStore.getState()).toBe(before);
+  });
 });

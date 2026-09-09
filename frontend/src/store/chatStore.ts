@@ -1238,8 +1238,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     commitConversationLiveMessage: (conversationId, messageId, content) => {
       set((state) => {
         const conversationMessages = state.liveMessageContentByConversationId[conversationId];
-        const liveMessageContentByConversationId = { ...state.liveMessageContentByConversationId };
-        if (conversationMessages && Object.prototype.hasOwnProperty.call(conversationMessages, messageId)) {
+        const hasLiveMessage = !!conversationMessages
+          && Object.prototype.hasOwnProperty.call(conversationMessages, messageId);
+        const timeline = getConversationTimeline(state, conversationId);
+        const updatedNodes = timeline
+          ? updateMessageContentInTree(timeline.threadedMessages, messageId, content)
+          : undefined;
+        const hasConversationChange = !!timeline && updatedNodes !== timeline.threadedMessages;
+        if (!hasLiveMessage && !hasConversationChange) return state;
+
+        let liveMessageContentByConversationId = state.liveMessageContentByConversationId;
+        if (hasLiveMessage) {
+          liveMessageContentByConversationId = { ...state.liveMessageContentByConversationId };
           const remainingMessages = { ...conversationMessages };
           delete remainingMessages[messageId];
           if (Object.keys(remainingMessages).length === 0) {
@@ -1248,11 +1258,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             liveMessageContentByConversationId[conversationId] = remainingMessages;
           }
         }
-        return {
-          ...patchConversation(state, conversationId, (conversation) => ({
+        const conversationPatch = hasConversationChange
+          ? patchConversation(state, conversationId, (conversation) => ({
             ...conversation,
-            threadedMessages: updateMessageContentInTree(conversation.threadedMessages, messageId, content),
-          })),
+            threadedMessages: updatedNodes!,
+          }))
+          : {};
+        return {
+          ...conversationPatch,
           liveMessageContentByConversationId,
         };
       });

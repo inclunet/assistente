@@ -189,6 +189,7 @@ function mapMessageTree(
 export function updateMessageContentInTree(nodes: MessageNode[], messageId: string, content: string): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;
+    if (node.message.content === content) return node;
     return cloneNode(node, { message: cloneMessage(node.message, { content }) });
   });
 }
