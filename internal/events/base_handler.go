@@ -2,28 +2,34 @@ package events
 
 import (
 	"assistente/internal/core/ports"
+	"strings"
 	"sync"
 	"time"
 )
 
 // BaseStreamHandler contém os campos e métodos compartilhados entre
 // stream handlers (agentic e chat direto).
-// Lida com throttling de 50 ms para os eventos chat:stream e chat:thinking.
+// Lida com coalescing de 24 ms para os eventos chat:stream e throttling de
+// chat:thinking.
 //
 // Campos são exportados para permitir embeddings em outros pacotes internos.
 type BaseStreamHandler struct {
-	Emitter        Emitter
-	ConversationID string
-	TurnID         string
+	Emitter            Emitter
+	ConversationID     string
+	TurnID             string
+	AssistantMessageID string
+	SurfaceOrigin      *ports.ChatSurfaceOrigin
 
-	AccumulatedContent   string
-	AccumulatedReasoning string
+	PendingDelta         strings.Builder
+	AccumulatedReasoning strings.Builder
 	IsThinking           bool
 
 	Mu            sync.Mutex
 	LastEmitTime  time.Time
 	ThrottleTimer *time.Timer
 	PendingEmit   bool
+	StreamStarted bool
+	Sequence      uint64
 
 	LastThinkingEmitTime time.Time
 	ThinkingTimer        *time.Timer
@@ -31,12 +37,16 @@ type BaseStreamHandler struct {
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {
+	if content == "" {
+		return
+	}
+
 	h.Mu.Lock()
 	defer h.Mu.Unlock()
 
-	h.AccumulatedContent += content
+	_, _ = h.PendingDelta.WriteString(content)
 
-	const throttleInterval = 50 * time.Millisecond
+	const throttleInterval = 24 * time.Millisecond
 	now := time.Now()
 
 	if now.Sub(h.LastEmitTime) >= throttleInterval {
@@ -66,12 +76,23 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 }
 
 func (h *BaseStreamHandler) emitStreamEvent() {
+	delta := strings.Clone(h.PendingDelta.String())
+	h.PendingDelta.Reset()
+	if delta == "" {
+		return
+	}
 	h.Emitter.Emit("chat:stream", StreamEvent{
-		Content:        h.AccumulatedContent,
+		MessageID:      h.AssistantMessageID,
+		Delta:          delta,
+		Reset:          !h.StreamStarted,
+		Sequence:       h.Sequence,
 		Done:           false,
 		ConversationId: h.ConversationID,
 		TurnID:         h.TurnID,
+		SurfaceOrigin:  h.SurfaceOrigin,
 	})
+	h.StreamStarted = true
+	h.Sequence++
 }
 
 func (h *BaseStreamHandler) OnThinking(content string) {
@@ -80,16 +101,19 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 
 	if !h.IsThinking {
 		h.IsThinking = true
+		h.AccumulatedReasoning.Reset()
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-			ConversationID: h.ConversationID,
-			TurnID:         h.TurnID,
-			Content:        content,
-			Done:           false,
-			Started:        true,
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			Content:            content,
+			Done:               false,
+			Started:            true,
+			SurfaceOrigin:      h.SurfaceOrigin,
 		})
 	}
 
-	h.AccumulatedReasoning += content
+	_, _ = h.AccumulatedReasoning.WriteString(content)
 
 	const throttleInterval = 50 * time.Millisecond
 	now := time.Now()
@@ -122,10 +146,12 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 
 func (h *BaseStreamHandler) emitThinkingEvent() {
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-		ConversationID: h.ConversationID,
-		TurnID:         h.TurnID,
-		Content:        h.AccumulatedReasoning,
-		Done:           false,
+		ConversationID:     h.ConversationID,
+		TurnID:             h.TurnID,
+		AssistantMessageID: h.AssistantMessageID,
+		Content:            strings.Clone(h.AccumulatedReasoning.String()),
+		Done:               false,
+		SurfaceOrigin:      h.SurfaceOrigin,
 	})
 }
 
@@ -136,18 +162,22 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 		h.ThinkingTimer = nil
 	}
 	h.PendingThinkingEmit = false
+	h.IsThinking = false
 
 	if fullReasoning != "" {
-		h.AccumulatedReasoning = fullReasoning
+		h.AccumulatedReasoning.Reset()
+		_, _ = h.AccumulatedReasoning.WriteString(fullReasoning)
 	}
-	reasoning := h.AccumulatedReasoning
+	reasoning := strings.Clone(h.AccumulatedReasoning.String())
 	h.Mu.Unlock()
 
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-		ConversationID: h.ConversationID,
-		TurnID:         h.TurnID,
-		Content:        reasoning,
-		Done:           true,
+		ConversationID:     h.ConversationID,
+		TurnID:             h.TurnID,
+		AssistantMessageID: h.AssistantMessageID,
+		Content:            reasoning,
+		Done:               true,
+		SurfaceOrigin:      h.SurfaceOrigin,
 	})
 }
 

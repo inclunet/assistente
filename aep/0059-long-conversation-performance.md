@@ -121,6 +121,14 @@ Transformações de árvore, consolidação de turnos e renderização de Markdo
 
 Após a fase 2.1, o item de streaming deve seguir a mesma unidade semântica da janela persistida: um item transitório por `turnId`. Tool calls, resultados e texto parcial entram como segmentos desse item, não como múltiplos itens navegáveis independentes.
 
+Desde a issue #693, `chat:stream` usa deltas coalescidos no backend em janelas
+de 24 ms. Cada lote traz `conversationId`, `turnId`, `messageId`, `sequence` e
+somente o texto novo. Uma nova tentativa reinicia a sequência explicitamente;
+o frontend não infere retry pelo conteúdo. Deltas pendentes são descarregados
+antes de tools, segmentos e eventos terminais. Assim, o tráfego IPC e a cópia
+de strings crescem linearmente com a resposta, e apenas o item transitório do
+turno é atualizado. O `turnPatch` terminal permanece autoritativo.
+
 ### 6. Mensagens pesadas sob demanda
 
 Partes caras de uma mensagem devem carregar ou expandir sob demanda quando possível:

@@ -35,7 +35,7 @@ func (s *continuationStreamer) StreamChat(_ context.Context, messages []llm.Mess
 	handler.OnDone("", llm.Usage{}, "")
 }
 
-func TestStreamSimpleWithRecovery_AllowsAssistantPrefill_EmitsCumulativeContent(t *testing.T) {
+func TestStreamSimpleWithRecovery_AllowsAssistantPrefill_EmitsDeltaWithBase(t *testing.T) {
 	repo := &inMemoryMsgRepo{}
 	turnID := "u1"
 	repo.messages = []chat.Message{
@@ -67,13 +67,13 @@ func TestStreamSimpleWithRecovery_AllowsAssistantPrefill_EmitsCumulativeContent(
 	if len(streams) == 0 {
 		t.Fatalf("expected at least one chat:stream event")
 	}
-	// O primeiro emit já deve conter o prefill + chunk
+	// O prefill viaja uma vez como base; o lote contém somente o texto novo.
 	first, ok := streams[0].data.(ports.StreamEvent)
 	if !ok {
 		t.Fatalf("expected ports.StreamEvent")
 	}
-	if first.Content != "prefillX" {
-		t.Fatalf("expected first stream content to be %q, got %q", "prefillX", first.Content)
+	if !first.Reset || first.BaseContent != "prefill" || first.Delta != "X" {
+		t.Fatalf("evento inicial inesperado: %+v", first)
 	}
 	if first.MessageID != "a1" {
 		t.Fatalf("expected stream messageId %q, got %q", "a1", first.MessageID)
@@ -141,13 +141,13 @@ func TestStreamSimpleWithRecovery_ContinueViaUserMessage_FallbackPrompt(t *testi
 	if len(streams) == 0 {
 		t.Fatalf("expected at least one chat:stream event")
 	}
-	// Conteúdo cumulativo: parcial + novo trecho gerado.
+	// O fallback também preserva o parcial como base e envia só o delta.
 	first, ok := streams[0].data.(ports.StreamEvent)
 	if !ok {
 		t.Fatalf("expected ports.StreamEvent")
 	}
-	if first.Content != "parcialY" {
-		t.Fatalf("expected first stream content to be %q, got %q", "parcialY", first.Content)
+	if !first.Reset || first.BaseContent != "parcial" || first.Delta != "Y" {
+		t.Fatalf("evento inicial inesperado: %+v", first)
 	}
 	if first.MessageID != "a1" {
 		t.Fatalf("expected stream messageId %q, got %q", "a1", first.MessageID)

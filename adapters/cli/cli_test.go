@@ -12,9 +12,8 @@ func TestEmitterAdapter_StreamEvent(t *testing.T) {
 	var out, errOut bytes.Buffer
 	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
 
-	// Content chega acumulado como no BaseStreamHandler real
-	e.Emit("chat:stream", ports.StreamEvent{Content: "Olá"})
-	e.Emit("chat:stream", ports.StreamEvent{Content: "Olá mundo"})
+	e.Emit("chat:stream", ports.StreamEvent{Delta: "Olá", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{Delta: " mundo", Sequence: 1})
 	e.Emit("chat:stream", ports.StreamEvent{Done: true})
 
 	if got := out.String(); got != "Olá mundo\n" {
@@ -22,6 +21,54 @@ func TestEmitterAdapter_StreamEvent(t *testing.T) {
 	}
 	if errOut.Len() > 0 {
 		t.Errorf("stderr deveria estar vazio, obteve %q", errOut.String())
+	}
+}
+
+func TestEmitterAdapter_StreamContinuationIncludesBaseContent(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+
+	e.Emit("chat:stream", ports.StreamEvent{
+		BaseContent: "resposta parcial",
+		Delta:       " continuada",
+		Reset:       true,
+		Sequence:    0,
+	})
+	e.Emit("chat:stream", ports.StreamEvent{Done: true})
+
+	if got := out.String(); got != "resposta parcial continuada\n" {
+		t.Fatalf("saída=%q", got)
+	}
+}
+
+func TestEmitterAdapter_StreamRetryStartsNewLineAndValidatesSequence(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+
+	e.Emit("chat:stream", ports.StreamEvent{Delta: "tentativa parcial", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{Delta: " ignorado", Sequence: 2})
+	e.Emit("chat:stream", ports.StreamEvent{BaseContent: "base inválida", Delta: " ignorado", Reset: true, Sequence: 2})
+	e.Emit("chat:stream", ports.StreamEvent{Delta: " válida", Sequence: 1})
+	e.Emit("chat:stream", ports.StreamEvent{Delta: "recuperada", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{Done: true})
+
+	if got := out.String(); got != "tentativa parcial válida\nrecuperada\n" {
+		t.Fatalf("saída=%q", got)
+	}
+}
+
+func TestEmitterAdapter_StreamScopedRejectsMissingOrDifferentConversation(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+	e.WaitDone("conv-1")
+
+	e.Emit("chat:stream", ports.StreamEvent{TurnID: "turn-empty", Delta: "sem conversa", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{ConversationId: "conv-2", TurnID: "turn-2", Delta: "outra conversa", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{ConversationId: "conv-1", TurnID: "turn-1", Delta: "correta", Reset: true, Sequence: 0})
+	e.Emit("chat:stream", ports.StreamEvent{ConversationId: "conv-1", TurnID: "turn-1", Done: true})
+
+	if got := out.String(); got != "correta\n" {
+		t.Fatalf("saída=%q", got)
 	}
 }
 
