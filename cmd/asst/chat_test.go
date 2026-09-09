@@ -245,8 +245,8 @@ func TestSendAndWait_Success(t *testing.T) {
 	mock.sendFn = func(convID string, content, media string, params app.ChatParams) (string, error) {
 		go func() {
 			time.Sleep(5 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Delta: "Olá"})
-			emitter.Emit("chat:stream", ports.StreamEvent{Delta: " mundo"})
+			emitter.Emit("chat:stream", ports.StreamEvent{Delta: "Olá", Reset: true, Sequence: 0})
+			emitter.Emit("chat:stream", ports.StreamEvent{Delta: " mundo", Sequence: 1})
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()
@@ -401,7 +401,7 @@ func TestRunREPL_ProcessesMultipleLines(t *testing.T) {
 		n := callCount
 		go func() {
 			time.Sleep(2 * time.Millisecond)
-			emitter.Emit("chat:stream", ports.StreamEvent{Delta: fmt.Sprintf("resp%d", n)})
+			emitter.Emit("chat:stream", ports.StreamEvent{Delta: fmt.Sprintf("resp%d", n), Reset: true, Sequence: 0})
 			emitter.Emit("chat:stream", ports.StreamEvent{Done: true})
 			emitter.Emit("chat:done", ports.DoneEvent{ConversationID: convID})
 		}()

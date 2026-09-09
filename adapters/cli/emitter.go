@@ -23,6 +23,9 @@ type EmitterAdapter struct {
 	verbose        bool
 	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
 	conversationID string        // conversa ativa; "" = aceita qualquer conversa
+	streamContent  string
+	streamSequence int64
+	streamActive   bool
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -68,6 +71,7 @@ func (e *EmitterAdapter) WaitDone(conversationID string) <-chan struct{} {
 	defer e.mu.Unlock()
 	e.done = make(chan struct{})
 	e.conversationID = conversationID
+	e.resetStreamState()
 	return e.done
 }
 
@@ -120,6 +124,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 	if ev.Error != "" {
 		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
+		e.resetStreamState()
 		// Fallback: sinaliza done em chat:stream com Error porque há caminhos
 		// no backend (ex.: HandlePanic) que emitem apenas chat:stream terminal
 		// sem emitir chat:done. signalDone() é idempotente.
@@ -129,15 +134,40 @@ func (e *EmitterAdapter) handleStream(data any) {
 
 	if ev.Done {
 		_, _ = fmt.Fprintln(e.out)
+		e.resetStreamState()
 		// NÃO chama signalDone aqui: o fluxo normal emite chat:done após
 		// chat:stream Done=true, e signalDone fica com chat:done para garantir
 		// que o CLI processe o resumo final antes de encerrar.
 		return
 	}
 
+	if ev.Reset {
+		if e.streamActive && e.streamContent != "" {
+			// stdout não pode apagar uma tentativa já exibida. Uma nova linha
+			// separa o retry e evita concatená-lo como se fosse continuação.
+			_, _ = fmt.Fprintln(e.out)
+		}
+		e.streamContent = ev.BaseContent
+		e.streamSequence = -1
+		e.streamActive = true
+		if ev.BaseContent != "" {
+			_, _ = fmt.Fprint(e.out, ev.BaseContent)
+		}
+	}
+	if !e.streamActive || int64(ev.Sequence) != e.streamSequence+1 {
+		return
+	}
+	e.streamSequence = int64(ev.Sequence)
+	e.streamContent += ev.Delta
 	if ev.Delta != "" {
 		_, _ = fmt.Fprint(e.out, ev.Delta)
 	}
+}
+
+func (e *EmitterAdapter) resetStreamState() {
+	e.streamContent = ""
+	e.streamSequence = -1
+	e.streamActive = false
 }
 
 // handleError imprime erros no stderr.
@@ -171,6 +201,7 @@ func (e *EmitterAdapter) handleError(data any) {
 	// Na prática chat:error e chat:done são mutuamente exclusivos: chat:error é
 	// emitido em paths que retornam antes de entrar no agent loop (que emite chat:done).
 	// Se chat:done eventualmente chegar, signalDone() é idempotente (canal já fechado).
+	e.resetStreamState()
 	e.signalDone()
 }
 
@@ -371,6 +402,7 @@ func (e *EmitterAdapter) handleDone(data any) {
 	// chat:done com ErrorMessage: exibe erro (substitui chat:stream terminal)
 	if ev.ErrorMessage != "" {
 		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.ErrorMessage)
+		e.resetStreamState()
 	}
 
 	// Só exibe resumo se houve tool calls (evita ruído em respostas simples).
