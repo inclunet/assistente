@@ -6,6 +6,7 @@ import {
   type ChatEventControllerAdapter,
   type ChatEventSession,
 } from './chatEventController';
+import { CHAT_TURN_EVENT_NAMES, resetChatEventHubForTests } from './chatEventHub';
 import {
   updateMessageContentInTree,
   updateMessageReasoningInTree,
@@ -225,6 +226,7 @@ function createAdapter(initialConversationIds: string[]) {
 describe('chatEventController', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    resetChatEventHubForTests();
     eventListeners.clear();
     mockAnnounce.mockClear();
     mockAnnounceWithOrigin.mockClear();
@@ -252,6 +254,7 @@ describe('chatEventController', () => {
 
   afterEach(() => {
     stopAllChatEventControllers();
+    resetChatEventHubForTests();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     eventListeners.clear();
@@ -1001,45 +1004,96 @@ describe('chatEventController', () => {
     );
   });
 
-  it('recarrega janela canônica ao finalizar resposta com tool calls', async () => {
+  it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
-    const backendNodes = [
-      createNode(createMessage('backend-user', 'user', 'pergunta')),
-      createNode(createMessage('backend-assistant', 'assistant', 'resposta com ferramenta')),
+    const transientAssistant = createMessage('backend-assistant', 'assistant', 'temporária');
+    transientAssistant.turnId = 'turn-1';
+    const legacyTool = createMessage('legacy-tool', 'tool', 'resultado legado');
+    legacyTool.turnId = 'turn-1';
+    sessions['conversation-1'].conversation!.threadedMessages = [
+      createNode(transientAssistant),
+      createNode(legacyTool),
     ];
-    mockReloadConversationSnapshot.mockResolvedValue({
-      threadedMessages: backendNodes,
-      messageWindow: {
-        scope: 'conversation',
-        conversationId: 'conversation-1',
-        totalCount: 2,
-        startIndex: 0,
-        endIndex: 1,
-        hasBefore: false,
-        hasAfter: false,
-      },
-      hasOlderMessages: false,
-      hasNewerMessages: false,
-    });
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
-    emitEvent('chat:stream', {
-      conversationId: 'conversation-1',
-      content: 'resposta temporária',
-      done: false,
-    });
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'backend-assistant',
       hadToolCalls: true,
+      turnPatch: {
+        message: {
+          id: 'backend-assistant',
+          conversationId: 'conversation-1',
+          turnId: 'turn-1',
+          content: 'resposta final',
+          createdAt: '2026-09-08T20:00:00Z',
+          timestamp: 1,
+          turnSegments: [
+            { type: 'text', content: 'vou consultar' },
+            {
+              type: 'tool_calls',
+              toolCalls: [{
+                id: 'call-1',
+                type: 'function',
+                function: { name: 'update_plan', arguments: '{}' },
+                result: '{"updated":true}',
+              }],
+            },
+            { type: 'text', content: 'resposta final' },
+          ],
+        },
+      },
     });
-    await Promise.resolve();
 
-    expect(mockReloadConversationSnapshot).toHaveBeenCalledWith('conversation-1', 80);
+    expect(mockReloadConversationSnapshot).not.toHaveBeenCalled();
     expect(sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id)).toEqual([
-      'backend-user',
       'backend-assistant',
+      'legacy-tool',
     ]);
+    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.turnSegments).toHaveLength(3);
+    expect(sessions['conversation-1'].conversation?.threadedMessages[1].message.role).toBe('tool');
+  });
+
+  it('mantém um listener global por evento após vários turnos', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+
+    for (let index = 0; index < 5; index += 1) {
+      startChatEventController({ conversationId: 'conversation-1', adapter });
+      emitEvent('chat:done', {
+        conversationId: 'conversation-1',
+        turnId: `turn-${index}`,
+        hadToolCalls: false,
+      });
+    }
+
+    expect(eventListeners.size).toBe(CHAT_TURN_EVENT_NAMES.length);
+    for (const name of CHAT_TURN_EVENT_NAMES) {
+      expect(eventListeners.get(name)).toHaveLength(1);
+    }
+  });
+
+  it('ignora evento atrasado de outro turnId na mesma conversa', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-atual',
+      userMessageId: 'turn-atual',
+      userContent: 'pergunta atual',
+    });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-antigo',
+      messageId: 'assistant-antigo',
+      content: 'evento atrasado',
+      done: false,
+    });
+
+    const ids = sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id);
+    expect(ids).toEqual(['turn-atual']);
   });
 
   it('anuncia conclusão genérica quando o turno com ferramentas termina sem texto', () => {

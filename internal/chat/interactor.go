@@ -195,7 +195,6 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 3. Validate conversation ID
 	if req.ConversationID == "" {
 		const errMsg = "conversationID é obrigatório — conversas devem ser criadas ao criar/resetar a tab"
-		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: "", Error: errMsg})
 		return nil, errors.New(errMsg)
 	}
 

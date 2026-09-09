@@ -76,6 +76,12 @@ A convenção atual deve ser preservada: `turnId` aponta para o ID da mensagem d
 
 Durante streaming, o backend deve tornar essa relação explícita nos eventos do turno. Eventos como `chat:messages_ready`, `chat:stream`, `chat:tool_start`, `chat:tool_end` e `chat:done` devem carregar ou permitir derivar de forma inequívoca o `turnId`. O frontend pode manter um item transitório local durante streaming, mas esse item precisa ser reconciliável pelo mesmo `turnId` quando a janela persistida for recarregada.
 
+Desde a issue #696, a reconciliação terminal não recarrega a janela: o
+`chat:done.turnPatch` traz o único item canônico do turno, já consolidado e
+hidratado com segmentos e invocações. A janela completa continua reservada para
+abertura e paginação explícitas; o custo pós-tools é constante em relação ao
+tamanho da conversa.
+
 ### 2.3. Consulta em lote, sem N+1
 
 Montar itens de timeline no backend não deve significar carregar a conversa inteira nem executar uma consulta por item.
