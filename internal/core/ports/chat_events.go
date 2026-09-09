@@ -43,12 +43,62 @@ type ThinkingEvent struct {
 	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
+// TurnPatchEvent é o item autoritativo mínimo de timeline emitido ao concluir
+// um turno. Os tipos próprios evitam acoplar ports ao pacote chat.
+type TurnPatchEvent struct {
+	Message TurnPatchMessage `json:"message"`
+}
+
+type TurnPatchMessage struct {
+	ID               string             `json:"id"`
+	ConversationID   string             `json:"conversationId"`
+	TurnID           string             `json:"turnId"`
+	Content          string             `json:"content"`
+	Reasoning        string             `json:"reasoning,omitempty"`
+	ToolCalls        string             `json:"toolCalls,omitempty"`
+	PromptTokens     int                `json:"promptTokens,omitempty"`
+	CompletionTokens int                `json:"completionTokens,omitempty"`
+	TotalTokens      int                `json:"totalTokens,omitempty"`
+	CacheReadTokens  int                `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int                `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens  int                `json:"cacheMissTokens,omitempty"`
+	Model            string             `json:"model,omitempty"`
+	CreatedAt        string             `json:"createdAt"`
+	Timestamp        int64              `json:"timestamp"`
+	TurnSegments     []TurnPatchSegment `json:"turnSegments,omitempty"`
+}
+
+type TurnPatchSegment struct {
+	Type      string              `json:"type"`
+	Content   string              `json:"content,omitempty"`
+	ToolCalls []TurnPatchToolCall `json:"toolCalls,omitempty"`
+}
+
+type TurnPatchToolCall struct {
+	ID          string                `json:"id"`
+	Type        string                `json:"type"`
+	Function    TurnPatchToolFunction `json:"function"`
+	Result      string                `json:"result,omitempty"`
+	Origin      string                `json:"origin,omitempty"`
+	ServerLabel string                `json:"server_label,omitempty"`
+	Iteration   int                   `json:"iteration,omitempty"`
+	DurationMs  int64                 `json:"duration_ms,omitempty"`
+}
+
+type TurnPatchToolFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
 // DoneEvent is the payload for chat:done.
 type DoneEvent struct {
 	ConversationID     string `json:"conversationId"`
 	TurnID             string `json:"turnId,omitempty"`
 	AssistantMessageID string `json:"assistantMessageId,omitempty"`
 	HadToolCalls       bool   `json:"hadToolCalls,omitempty"`
+	// TurnPatch é o item autoritativo e mínimo da timeline para o turno que
+	// acabou. Ele substitui o reload completo pós-tools no frontend.
+	TurnPatch *TurnPatchEvent `json:"turnPatch,omitempty"`
 	// AEP-0039 Fase 2: enriched done event
 	Reason           string             `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error"
 	IterationCount   int                `json:"iterationCount,omitempty"`

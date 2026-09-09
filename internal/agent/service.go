@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"assistente/internal/chat"
@@ -373,6 +374,12 @@ func (s *Service) SaveAndFinish(
 	if doneEvent.CacheMissTokens == 0 {
 		doneEvent.CacheMissTokens = result.Usage.CacheMissTokens
 	}
+	if patch, err := s.buildTurnPatch(ctx, conversationID, turnID); err != nil {
+		doneEvent.Reason = "error"
+		doneEvent.ErrorMessage = ports.ChatErrorInternal
+	} else {
+		doneEvent.TurnPatch = patch
+	}
 	s.emitter.Emit("chat:done", doneEvent)
 
 	if s.triggerSummarize != nil {
@@ -383,6 +390,82 @@ func (s *Service) SaveAndFinish(
 	}
 
 	s.emitTokenStats(conversationID)
+}
+
+func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID string) (*ports.TurnPatchEvent, error) {
+	if s == nil || s.msgRepo == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(turnID) == "" {
+		return nil, nil
+	}
+	messages, err := s.msgRepo.GetMessagesByTurnID(ctx, conversationID, nil, turnID, 1000)
+	if err != nil {
+		return nil, err
+	}
+	if len(messages) == 0 {
+		return nil, nil
+	}
+
+	callsByTurn := map[string][]chat.TurnSegmentToolCall{}
+	resultsByTurn := map[string]map[string]string{}
+	if userID, userErr := database.RequireUserID(ctx); userErr == nil {
+		displays, displayErr := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, []string{turnID})
+		if displayErr != nil {
+			return nil, displayErr
+		}
+		for _, display := range displays[turnID] {
+			call := chat.TurnSegmentToolCall{
+				ID:                 display.ID,
+				Type:               display.Type,
+				Function:           chat.TurnSegmentToolFunction{Name: display.Name, Arguments: display.Arguments},
+				Result:             display.Result,
+				Origin:             display.Origin,
+				ServerLabel:        display.ServerLabel,
+				Iteration:          display.Iteration,
+				DurationMs:         display.DurationMs,
+				AssistantMessageID: display.AssistantMessageID,
+			}
+			callsByTurn[turnID] = append(callsByTurn[turnID], call)
+			if resultsByTurn[turnID] == nil {
+				resultsByTurn[turnID] = map[string]string{}
+			}
+			resultsByTurn[turnID][display.ID] = display.Result
+		}
+	}
+
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, resultsByTurn, callsByTurn)
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+	message := nodes[0].Message
+	patch := &ports.TurnPatchEvent{Message: ports.TurnPatchMessage{
+		ID:               message.ID,
+		ConversationID:   message.ConversationID,
+		TurnID:           turnID,
+		Content:          message.Content,
+		Reasoning:        message.Reasoning,
+		ToolCalls:        message.ToolCalls,
+		PromptTokens:     message.PromptTokens,
+		CompletionTokens: message.CompletionTokens,
+		TotalTokens:      message.TotalTokens,
+		CacheReadTokens:  message.CacheReadTokens,
+		CacheWriteTokens: message.CacheWriteTokens,
+		CacheMissTokens:  message.CacheMissTokens,
+		Model:            message.Model,
+		CreatedAt:        message.CreatedAt.Format(time.RFC3339Nano),
+		Timestamp:        message.Timestamp,
+	}}
+	for _, segment := range message.TurnSegments {
+		target := ports.TurnPatchSegment{Type: segment.Type, Content: segment.Content}
+		for _, call := range segment.ToolCalls {
+			target.ToolCalls = append(target.ToolCalls, ports.TurnPatchToolCall{
+				ID: call.ID, Type: call.Type,
+				Function: ports.TurnPatchToolFunction{Name: call.Function.Name, Arguments: call.Function.Arguments},
+				Result:   call.Result, Origin: call.Origin, ServerLabel: call.ServerLabel,
+				Iteration: call.Iteration, DurationMs: call.DurationMs,
+			})
+		}
+		patch.Message.TurnSegments = append(patch.Message.TurnSegments, target)
+	}
+	return patch, nil
 }
 
 // emitTokenStats queries token usage for a conversation and emits chat:token_stats
