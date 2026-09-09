@@ -431,6 +431,31 @@ describe('ChatToolbar shortcuts', () => {
     terminal.remove();
   });
 
+  it('bloqueia listbox portalado visível, mas ignora o mesmo listbox oculto', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const outsideFocus = document.createElement('button');
+    const portalListbox = document.createElement('ul');
+    portalListbox.setAttribute('role', 'listbox');
+    document.body.append(outsideFocus, portalListbox);
+    outsideFocus.focus();
+
+    const blockedEvent = dispatchModelShortcut(outsideFocus);
+    expect(blockedEvent.defaultPrevented).toBe(false);
+    expect(modelOpenMock).not.toHaveBeenCalled();
+
+    portalListbox.hidden = true;
+    const normalEvent = dispatchModelShortcut(outsideFocus);
+    expect(normalEvent.defaultPrevented).toBe(true);
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+
+    outsideFocus.remove();
+    portalListbox.remove();
+  });
+
   it('respeita evento tratado, IME, modificadores extras e repetição', async () => {
     renderToolbar();
     await screen.findByRole('button', {

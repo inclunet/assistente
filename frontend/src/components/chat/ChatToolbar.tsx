@@ -65,6 +65,19 @@ const MODEL_SHORTCUT_BLOCKED_TARGETS = [
   '[data-tab-type]:not([data-tab-type="chat"])',
 ].join(',');
 
+function isVisibleShortcutOverlay(element: Element): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.closest('[hidden], [aria-hidden="true"], [inert]')) return false;
+
+  for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+    const style = window.getComputedStyle(current);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
+      return false;
+    }
+  }
+  return true;
+}
+
 function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
   if (
     event.defaultPrevented
@@ -87,7 +100,10 @@ function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
 
   // Menus e pickers são portalados ou podem estar fora do alvo do evento.
   // Enquanto qualquer um estiver aberto, Ctrl+M pertence à interação corrente.
-  return document.querySelector('[role="menu"], .picker-dropdown') === null;
+  const openOverlay = Array.from(
+    document.querySelectorAll('[role="menu"], [role="listbox"], .picker-dropdown'),
+  ).some(isVisibleShortcutOverlay);
+  return !openOverlay;
 }
 
 export type ChatToolbarConversationChangeHandler = (
