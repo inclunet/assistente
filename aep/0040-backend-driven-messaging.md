@@ -49,7 +49,7 @@ consistente e o frontend dependia de closure capture.
 |---|---|
 | `chat:messages_ready`, `chat:stream`, `chat:done` | `conversationId` e IDs persistidos como `string` |
 | `chat:tool_start`, `chat:tool_end`, `chat:segment_done` | `conversationId` obrigatório |
-| `chat:error` | `conversationId` obrigatório pelo contrato; há lacuna conhecida para erro anterior à resolução da conversa |
+| `chat:error` | `conversationId` obrigatório; erro anterior à resolução volta sincronamente ao caller |
 
 Os payloads tipados vivem em `internal/core/ports/chat_events.go`; controllers
 frontend filtram por conversa em
@@ -215,16 +215,13 @@ Cada listener verifica `event.conversationId === activeConversationId` antes de 
 - [x] Frontend em conversa A ignora eventos identificados da conversa B sem
   lógica de closure.
 
-### Lacuna conhecida de conformidade
+### Erros anteriores à resolução da conversa
 
-`internal/chat/interactor.go`, em `PrepareContext`, emite `chat:error` com
-`ConversationID: ""` quando o request não possui conversa. Em paralelo,
-`frontend/src/services/chatEventController.ts` aceita `chat:error` com
-`conversationId === ""` como broadcast. Esse comportamento viola o contrato
-vigente de identificação obrigatória e pode anunciar o erro em superfícies não
-relacionadas. A correção de implementação permanece pendente: o erro deve ser
-associado a uma origem/superfície identificável sem relaxar o requisito de
-`conversationId` para eventos de chat.
+Se o request não possui `conversationId`, não existe rota segura para um evento
+de chat. O backend retorna o erro sincronamente ao caller e não emite
+`chat:error` broadcast. O pipeline compartilhado apresenta esse retorno na
+superfície que iniciou a chamada, preservando identificação obrigatória em todo
+evento publicado.
 
 ---
 
