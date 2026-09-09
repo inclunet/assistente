@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -136,6 +137,30 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativoMultiTool(t *testing.T)
 	if got := done.TurnPatch.Message.TurnSegments[3].ToolCalls[0].Result; got != "conteúdo" {
 		t.Fatalf("resultado da segunda tool não hidratado: %q", got)
 	}
+}
+
+func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
+	emitter := &mockEmitter{}
+	svc := NewService(ServiceConfig{
+		Emitter: emitter,
+		MsgRepo: &mockMsgRepo{turnMessagesError: errors.New("db indisponível")},
+	})
+
+	svc.SaveAndFinish(context.Background(), "conv-1", "turn-1", "assistant-1", AgenticResult{
+		FullResponse: "resposta salva",
+	}, "", nil, nil)
+
+	for _, event := range emitter.getEvents() {
+		if event.name != "chat:done" {
+			continue
+		}
+		done := event.data.(ports.DoneEvent)
+		if done.Reason != "completed" || done.ErrorMessage != "" || done.TurnPatch != nil {
+			t.Fatalf("falha opcional do patch alterou o desfecho: %+v", done)
+		}
+		return
+	}
+	t.Fatal("chat:done não emitido")
 }
 
 // TestSaveAndFinish_DoneEvent_NilLoopStats verifica que chat:done funciona

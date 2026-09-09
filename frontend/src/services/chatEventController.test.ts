@@ -1006,6 +1006,14 @@ describe('chatEventController', () => {
 
   it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
+    const transientAssistant = createMessage('backend-assistant', 'assistant', 'temporária');
+    transientAssistant.turnId = 'turn-1';
+    const legacyTool = createMessage('legacy-tool', 'tool', 'resultado legado');
+    legacyTool.turnId = 'turn-1';
+    sessions['conversation-1'].conversation!.threadedMessages = [
+      createNode(transientAssistant),
+      createNode(legacyTool),
+    ];
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -1042,8 +1050,10 @@ describe('chatEventController', () => {
     expect(mockReloadConversationSnapshot).not.toHaveBeenCalled();
     expect(sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id)).toEqual([
       'backend-assistant',
+      'legacy-tool',
     ]);
     expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.turnSegments).toHaveLength(3);
+    expect(sessions['conversation-1'].conversation?.threadedMessages[1].message.role).toBe('tool');
   });
 
   it('mantém um listener global por evento após vários turnos', () => {

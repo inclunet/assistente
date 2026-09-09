@@ -421,7 +421,7 @@ export function startChatEventController({
     adapter.patchConversation(conversationId, (conversation) => {
       let replaced = false;
       const threadedMessages = conversation.threadedMessages.map((node) => {
-        const sameTurn = node.message.role !== 'user' && node.message.turnId === patch.message.turnId;
+        const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
         const sameMessage = node.message.id === patch.message.id;
         if (!sameTurn && !sameMessage) return node;
         replaced = true;

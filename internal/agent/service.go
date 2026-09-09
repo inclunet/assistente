@@ -374,10 +374,7 @@ func (s *Service) SaveAndFinish(
 	if doneEvent.CacheMissTokens == 0 {
 		doneEvent.CacheMissTokens = result.Usage.CacheMissTokens
 	}
-	if patch, err := s.buildTurnPatch(ctx, conversationID, turnID); err != nil {
-		doneEvent.Reason = "error"
-		doneEvent.ErrorMessage = ports.ChatErrorInternal
-	} else {
+	if patch, err := s.buildTurnPatch(ctx, conversationID, turnID); err == nil {
 		doneEvent.TurnPatch = patch
 	}
 	s.emitter.Emit("chat:done", doneEvent)

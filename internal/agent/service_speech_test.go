@@ -43,6 +43,7 @@ type mockMsgRepo struct {
 	nextID                int
 	lastCreateMessageOpts *chat.MessageOptions
 	turnMessages          []chat.Message
+	turnMessagesError     error
 }
 
 func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
@@ -63,7 +64,7 @@ func (m *mockMsgRepo) GetMessages(context.Context, string, *string) ([]chat.Mess
 }
 
 func (m *mockMsgRepo) GetMessagesByTurnID(context.Context, string, *string, string, int) ([]chat.Message, error) {
-	return m.turnMessages, nil
+	return m.turnMessages, m.turnMessagesError
 }
 func (m *mockMsgRepo) GetConversationSummary(context.Context, string) (string, string, error) {
 	return "", "", nil
