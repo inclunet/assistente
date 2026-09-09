@@ -148,7 +148,10 @@ func TestHandshakeTimeoutEncerraProcessoStdio(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("timeout não interrompeu o handshake a tempo: %v", elapsed)
 	}
-	if cmd == nil || cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+	// ProcessState não nil prova que Wait coletou o subprocesso. Exited()
+	// retorna false no Unix quando o processo termina por sinal (inclusive o
+	// SIGKILL esperado do exec.CommandContext), portanto não é portável aqui.
+	if cmd == nil || cmd.ProcessState == nil {
 		t.Fatalf("processo stdio não foi coletado após timeout: cmd=%#v state=%#v", cmd, cmd.ProcessState)
 	}
 	m.mu.RLock()
