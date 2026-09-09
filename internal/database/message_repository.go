@@ -115,6 +115,176 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 	return msg, nil
 }
 
+// HistoryWindowResult é a janela limitada usada para montar contexto de LLM.
+// Ela mantém os metadados de resumo separados para que a camada de domínio
+// continue responsável pelas regras de filtragem.
+type HistoryWindowResult struct {
+	Messages                 []ChatMessage
+	Summary                  string
+	SummaryUpToMessageID     string
+	SummaryBoundaryAvailable bool
+}
+
+type historyWindowRow struct {
+	ChatMessage
+	SummaryBoundaryID string `gorm:"column:summary_boundary_id"`
+}
+
+func normalizeHistoryWindowLimit(maxMessages int) int {
+	if maxMessages <= 0 {
+		return 50
+	}
+	return maxMessages
+}
+
+// loadHistoryWindow carrega somente as duas primeiras mensagens elegíveis e a
+// janela recente. Isso fornece ao HistoryLoader tudo de que sua regra de
+// truncamento precisa sem ler a conversa inteira.
+func (r *MessageRepository) loadHistoryWindow(ctx context.Context, conv Conversation, maxMessages int) (*HistoryWindowResult, error) {
+	limit := normalizeHistoryWindowLimit(maxMessages)
+	const query = `
+WITH boundary AS (
+	SELECT id, created_at
+	FROM chat_messages
+	WHERE id = ? AND conversation_id = ? AND parent_id IS NULL
+),
+selected AS (
+	SELECT * FROM (
+		SELECT chat_messages.*
+		FROM chat_messages
+		WHERE conversation_id = ?
+		  AND parent_id IS NULL
+		  AND (
+			? = ''
+			OR NOT EXISTS (SELECT 1 FROM boundary)
+			OR created_at > (SELECT created_at FROM boundary)
+			OR (created_at = (SELECT created_at FROM boundary) AND id > (SELECT id FROM boundary))
+		  )
+		ORDER BY created_at ASC, id ASC
+		LIMIT 2
+	)
+	UNION
+	SELECT * FROM (
+		SELECT chat_messages.*
+		FROM chat_messages
+		WHERE conversation_id = ?
+		  AND parent_id IS NULL
+		  AND (
+			? = ''
+			OR NOT EXISTS (SELECT 1 FROM boundary)
+			OR created_at > (SELECT created_at FROM boundary)
+			OR (created_at = (SELECT created_at FROM boundary) AND id > (SELECT id FROM boundary))
+		  )
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?
+	)
+)
+SELECT
+	selected.*,
+	COALESCE((SELECT id FROM boundary), '') AS summary_boundary_id
+FROM selected
+ORDER BY created_at ASC, id ASC`
+
+	var rows []historyWindowRow
+	err := r.db.WithContext(ctx).Raw(
+		query,
+		conv.SummaryUpToMessageID,
+		conv.ID,
+		conv.ID,
+		conv.SummaryUpToMessageID,
+		conv.ID,
+		conv.SummaryUpToMessageID,
+		limit,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	messages := make([]ChatMessage, 0, len(rows))
+	boundaryAvailable := conv.SummaryUpToMessageID == ""
+	for _, row := range rows {
+		messages = append(messages, row.ChatMessage)
+		if row.SummaryBoundaryID != "" {
+			boundaryAvailable = true
+		}
+	}
+	return &HistoryWindowResult{
+		Messages:                 messages,
+		Summary:                  conv.Summary,
+		SummaryUpToMessageID:     conv.SummaryUpToMessageID,
+		SummaryBoundaryAvailable: boundaryAvailable,
+	}, nil
+}
+
+// LoadHistoryWindowWithContext retorna a janela canônica e limitada do hot path
+// de envio, preservando isolamento por usuário.
+func (r *MessageRepository) LoadHistoryWindowWithContext(ctx context.Context, conversationID string, maxMessages int) (*HistoryWindowResult, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	var conv Conversation
+	if err := ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Select("id", "summary", "summary_up_to_message_id").
+		First(&conv, "id = ?", conversationID).Error; err != nil {
+		return nil, err
+	}
+	return r.loadHistoryWindow(ctx, conv, maxMessages)
+}
+
+// CreateUserMessageAndLoadHistoryWithContext agrupa persistência e leitura da
+// janela em uma transação. A confirmação só retorna após commit, impedindo que
+// chat:messages_ready anuncie uma linha ainda não durável.
+func (r *MessageRepository) CreateUserMessageAndLoadHistoryWithContext(ctx context.Context, opts MessageOptions, maxMessages int) (*ChatMessage, *HistoryWindowResult, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, nil, err
+	}
+	if opts.Role != "user" || opts.ParentID != nil {
+		return nil, nil, fmt.Errorf("batch de envio exige mensagem user raiz")
+	}
+
+	var msg *ChatMessage
+	var window *HistoryWindowResult
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var conv Conversation
+		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Select("id", "summary", "summary_up_to_message_id").
+			First(&conv, "id = ?", opts.ConversationID).Error; err != nil {
+			return fmt.Errorf("%w: conversa %s", ErrConversationDeleted, opts.ConversationID)
+		}
+
+		created := &ChatMessage{
+			ConversationID: opts.ConversationID,
+			Role:           opts.Role,
+			Content:        opts.Content,
+			Media:          opts.Media,
+			Audio:          opts.Audio,
+			AudioMimeType:  opts.AudioMimeType,
+			Source:         opts.Source,
+		}
+		if err := tx.WithContext(ctx).Create(created).Error; err != nil {
+			return err
+		}
+		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
+			Where("id = ?", opts.ConversationID).
+			Update("updated_at", time.Now()).Error; err != nil {
+			return err
+		}
+
+		txRepo := NewMessageRepository(tx)
+		loaded, err := txRepo.loadHistoryWindow(ctx, conv, maxMessages)
+		if err != nil {
+			return err
+		}
+		msg = created
+		window = loaded
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return msg, window, nil
+}
+
 // AddMessageWithContext adiciona uma mensagem simples (sem parent - nível 0)
 // para o usuário do contexto.
 func AddMessageWithContext(ctx context.Context, conversationID string, role, content string) (*ChatMessage, error) {
@@ -431,6 +601,54 @@ func (r *MessageRepository) GetMessagesByTurnIDWithContext(ctx context.Context, 
 	var messages []ChatMessage
 	err := query.Order("chat_messages.created_at ASC, chat_messages.id ASC").Find(&messages).Error
 	return messages, err
+}
+
+// EnsureAssistantPlaceholderWithContext encontra ou cria atomicamente o
+// placeholder root do assistant para um turno.
+func (r *MessageRepository) EnsureAssistantPlaceholderWithContext(ctx context.Context, conversationID, turnID string) (string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return "", err
+	}
+	var placeholderID string
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var conv Conversation
+		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Select("id").
+			First(&conv, "id = ?", conversationID).Error; err != nil {
+			return fmt.Errorf("%w: conversa %s", ErrConversationDeleted, conversationID)
+		}
+
+		var existing ChatMessage
+		err := tx.WithContext(ctx).
+			Where("conversation_id = ? AND turn_id = ? AND parent_id IS NULL AND role = ? AND COALESCE(tool_calls, '') = ''", conversationID, turnID, "assistant").
+			Order("created_at ASC, id ASC").
+			First(&existing).Error
+		if err == nil {
+			placeholderID = existing.ID
+			return nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		created := &ChatMessage{
+			ConversationID: conversationID,
+			TurnID:         &turnID,
+			Role:           "assistant",
+			Content:        "",
+		}
+		if err := tx.WithContext(ctx).Create(created).Error; err != nil {
+			return err
+		}
+		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
+			Where("id = ?", conversationID).
+			Update("updated_at", time.Now()).Error; err != nil {
+			return err
+		}
+		placeholderID = created.ID
+		return nil
+	})
+	return placeholderID, err
 }
 
 // AddChildMessageWithContext adiciona uma mensagem filha (com ParentID
