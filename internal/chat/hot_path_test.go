@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -368,5 +369,64 @@ func TestDBMessageStoreBatchKeepsHistoryBoundedAndUserScoped(t *testing.T) {
 		Content:        "intrusão",
 	}, 10); err == nil {
 		t.Fatal("batch cross-user deveria falhar fechado")
+	}
+}
+
+func TestHistoryWindowKeepsSummaryWhenBoundaryIsLastMessage(t *testing.T) {
+	testDB, ctx, conversationID := setupHotPathDB(t)
+	boundary := &database.ChatMessage{
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        "já resumida",
+	}
+	if err := testDB.Create(boundary).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.Model(&database.Conversation{}).
+		Where("id = ?", conversationID).
+		Updates(map[string]any{
+			"summary":                  "resumo íntegro",
+			"summary_up_to_message_id": boundary.ID,
+		}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewDBMessageStore()
+	window, err := store.LoadHistoryWindow(ctx, conversationID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(window.Messages) != 0 || !window.SummaryBoundaryAvailable {
+		t.Fatalf("boundary final deveria produzir janela vazia válida: %+v", window)
+	}
+	messages, summary, err := (&HistoryLoader{Repo: store, MaxMsgs: 10}).Load(ctx, conversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 0 || summary != "resumo íntegro" {
+		t.Fatalf("resumo descartado: summary=%q messages=%d", summary, len(messages))
+	}
+}
+
+func TestBatchDoesNotMaskDatabaseFailureAsDeletedConversation(t *testing.T) {
+	testDB, ctx, conversationID := setupHotPathDB(t)
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = NewDBMessageStore().CreateUserMessageAndLoadHistory(ctx, MessageOptions{
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        "mensagem",
+	}, 10)
+	if err == nil {
+		t.Fatal("esperava falha do banco fechado")
+	}
+	if errors.Is(err, ErrConversationDeleted) {
+		t.Fatalf("falha de infraestrutura mascarada como conversa deletada: %v", err)
 	}
 }

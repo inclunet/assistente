@@ -208,6 +208,18 @@ ORDER BY created_at ASC, id ASC`
 			boundaryAvailable = true
 		}
 	}
+	// A query não produz linha quando o boundary é a última mensagem. Nesse
+	// caso raro, confirme sua existência sem penalizar o hot path comum (que
+	// sempre contém a mensagem user recém-inserida).
+	if len(rows) == 0 && conv.SummaryUpToMessageID != "" {
+		var count int64
+		if err := r.db.WithContext(ctx).Model(&ChatMessage{}).
+			Where("id = ? AND conversation_id = ? AND parent_id IS NULL", conv.SummaryUpToMessageID, conv.ID).
+			Count(&count).Error; err != nil {
+			return nil, err
+		}
+		boundaryAvailable = count > 0
+	}
 	return &HistoryWindowResult{
 		Messages:                 messages,
 		Summary:                  conv.Summary,
@@ -249,7 +261,10 @@ func (r *MessageRepository) CreateUserMessageAndLoadHistoryWithContext(ctx conte
 		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
 			Select("id", "summary", "summary_up_to_message_id").
 			First(&conv, "id = ?", opts.ConversationID).Error; err != nil {
-			return fmt.Errorf("%w: conversa %s", ErrConversationDeleted, opts.ConversationID)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("%w: conversa %s", ErrConversationDeleted, opts.ConversationID)
+			}
+			return err
 		}
 
 		created := &ChatMessage{
@@ -615,7 +630,10 @@ func (r *MessageRepository) EnsureAssistantPlaceholderWithContext(ctx context.Co
 		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
 			Select("id").
 			First(&conv, "id = ?", conversationID).Error; err != nil {
-			return fmt.Errorf("%w: conversa %s", ErrConversationDeleted, conversationID)
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("%w: conversa %s", ErrConversationDeleted, conversationID)
+			}
+			return err
 		}
 
 		var existing ChatMessage
