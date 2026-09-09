@@ -615,6 +615,7 @@ type ResolveUserContentRequest struct {
 	Media       string
 	Source      string
 	STTProvider string // activeProfile.Input.STTProvider (pode ser "")
+	STTLanguage string // activeProfile.Input.Language (pode ser "")
 }
 
 // ResolveUserContentResponse contém o conteúdo resolvido e os dados de áudio extraídos.
@@ -630,6 +631,7 @@ type ResolveUserContentResponse struct {
 // assíncrono precisa executar STT. Nenhuma rede ou transcrição acontece aqui.
 func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserContentRequest) ResolveUserContentResponse {
 	audioBase64, audioMime := ExtractAudio(req.Media)
+	audioMime = NormalizeAudioMIME(audioMime)
 
 	content := req.Content
 	needsSTT := false
@@ -638,7 +640,7 @@ func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserCont
 			stt := req.STTProvider
 			if stt == "webspeech" || stt == "" {
 				logging.Infof(ctx, "chat.interactor", "[ResolveUserContent] Canal %s: STT '%s' não suporta transcrição server-side — usando placeholder", req.Source, stt)
-				content = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"
+				content = AudioSTTNotConfiguredFallback(req.STTLanguage)
 			}
 		}
 		needsSTT = content == "" && audioBase64 != ""

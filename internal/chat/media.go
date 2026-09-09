@@ -32,6 +32,40 @@ func WhisperFilename(format string) string {
 	return fmt.Sprintf("audio.%s", format)
 }
 
+// NormalizeAudioMIME remove parâmetros opcionais (ex.: codecs) e normaliza o
+// tipo antes de derivar extensões ou conteúdo persistido.
+func NormalizeAudioMIME(mimeType string) string {
+	base, _, _ := strings.Cut(mimeType, ";")
+	return strings.ToLower(strings.TrimSpace(base))
+}
+
+// AudioTranscriptionFallback devolve conteúdo persistível no idioma de STT do
+// perfil. Inglês é o fallback quando o idioma está vazio ou não é suportado.
+func AudioTranscriptionFallback(language, mimeType string) string {
+	format := strings.TrimPrefix(NormalizeAudioMIME(mimeType), "audio/")
+	switch strings.ToLower(strings.SplitN(strings.ReplaceAll(language, "_", "-"), "-", 2)[0]) {
+	case "pt":
+		return fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", format)
+	case "es":
+		return fmt.Sprintf("[Mensaje de audio recibido (%s) — no se pudo transcribir]", format)
+	default:
+		return fmt.Sprintf("[Audio message received (%s) — could not be transcribed]", format)
+	}
+}
+
+// AudioSTTNotConfiguredFallback explica, no idioma de STT do perfil, por que
+// um canal externo não conseguiu processar a mensagem de voz.
+func AudioSTTNotConfiguredFallback(language string) string {
+	switch strings.ToLower(strings.SplitN(strings.ReplaceAll(language, "_", "-"), "-", 2)[0]) {
+	case "pt":
+		return "[Mensagem de áudio recebida, mas a transcrição automática não está configurada. Configure o Whisper no perfil deste canal para processar mensagens de voz.]"
+	case "es":
+		return "[Mensaje de audio recibido, pero la transcripción automática no está configurada. Configura Whisper en el perfil de este canal para procesar mensajes de voz.]"
+	default:
+		return "[Audio message received, but automatic transcription is not configured. Configure Whisper in this channel profile to process voice messages.]"
+	}
+}
+
 // ExtractAudio examina um mediaJSON e retorna o base64 e MIME do primeiro áudio encontrado.
 // Retorna ("", "") se não houver áudio ou o JSON for inválido.
 func ExtractAudio(mediaJSON string) (audioBase64, mimeType string) {

@@ -272,6 +272,41 @@ func TestResolveUserContent_AgendaSTTSemExecutarIO(t *testing.T) {
 	}
 }
 
+func TestResolveUserContent_NormalizaMIMEParametrizadoParaWhisper(t *testing.T) {
+	media := mediaJSON([]map[string]interface{}{
+		{"type": "audio/webm;codecs=opus", "data": "webmdata", "name": "voz.webm"},
+	})
+
+	resolved := (&Interactor{}).ResolveUserContent(context.Background(), ResolveUserContentRequest{
+		Media:       media,
+		Source:      "wails",
+		STTProvider: "whisper_api",
+	})
+
+	if resolved.AudioMimeType != "audio/webm" || resolved.STTFilename != "audio.webm" {
+		t.Fatalf("MIME parametrizado não normalizado: %+v", resolved)
+	}
+}
+
+func TestAudioTranscriptionFallback_UsaIdiomaDoPerfil(t *testing.T) {
+	tests := []struct {
+		language string
+		want     string
+	}{
+		{language: "pt-BR", want: "[Mensagem de áudio recebida (ogg) — não foi possível transcrever]"},
+		{language: "es", want: "[Mensaje de audio recibido (ogg) — no se pudo transcribir]"},
+		{language: "en-US", want: "[Audio message received (ogg) — could not be transcribed]"},
+		{language: "", want: "[Audio message received (ogg) — could not be transcribed]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.language, func(t *testing.T) {
+			if got := AudioTranscriptionFallback(tt.language, "audio/ogg;codecs=opus"); got != tt.want {
+				t.Fatalf("fallback = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveUserContent_CanalWebSpeechUsaFallbackSemSTT(t *testing.T) {
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "audio/ogg", "data": "oggdata", "name": "voz.ogg"},
@@ -281,6 +316,7 @@ func TestResolveUserContent_CanalWebSpeechUsaFallbackSemSTT(t *testing.T) {
 		Media:       media,
 		Source:      "telegram",
 		STTProvider: "webspeech",
+		STTLanguage: "pt-BR",
 	})
 
 	if resolved.NeedsSTT {

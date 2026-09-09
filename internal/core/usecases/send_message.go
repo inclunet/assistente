@@ -193,14 +193,17 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	activeProfile := pctx.ActiveProfile
 	var sttProvider string
+	var sttLanguage string
 	if activeProfile != nil {
 		sttProvider = activeProfile.Input.STTProvider
+		sttLanguage = activeProfile.Input.Language
 	}
 	mediaResolution := uc.chatInteractor.ResolveUserContent(ctx, chat.ResolveUserContentRequest{
 		Content:     pctx.UserContent,
 		Media:       req.UserMedia,
 		Source:      req.Source,
 		STTProvider: sttProvider,
+		STTLanguage: sttLanguage,
 	})
 	if mediaResolution.NeedsSTT && !isDeferredMediaContext(ctx) {
 		asyncCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -332,9 +335,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				})
 				return req.ConversationID, nil
 			}
-			userContent = fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", strings.TrimPrefix(mediaResolution.AudioMimeType, "audio/"))
+			userContent = chat.AudioTranscriptionFallback(sttLanguage, mediaResolution.AudioMimeType)
 		} else if strings.TrimSpace(text) == "" {
-			userContent = fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", strings.TrimPrefix(mediaResolution.AudioMimeType, "audio/"))
+			userContent = chat.AudioTranscriptionFallback(sttLanguage, mediaResolution.AudioMimeType)
 			logging.Warnf(ctx, "usecases.send-message", "[STT] transcrição vazia para a conversa %s", req.ConversationID)
 			uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
 				ConversationID: req.ConversationID,
