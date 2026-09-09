@@ -136,15 +136,22 @@ type Manager struct {
 
 // goTracked executa fn numa goroutine rastreada por bgWG, permitindo que
 // CloseAll aguarde o término dos loops e reconexões antes do shutdown.
+func (m *Manager) goTracked(fn func()) {
+	m.tryGoTracked(fn)
+}
+
+// tryGoTracked informa se a goroutine pôde ser iniciada. Os chamadores que
+// publicam canais de conclusão usam o retorno para fechá-los quando CloseAll
+// já bloqueou a criação de novo trabalho.
 //
 // O Add(1) é serializado com a flag bgClosed sob bgMu: depois que CloseAll
-// marca bgClosed (antes de chamar bgWG.Wait()), goTracked vira no-op. Isso
+// marca bgClosed (antes de chamar bgWG.Wait()), tryGoTracked vira no-op. Isso
 // garante que nenhum Add ocorra concorrente ao Wait — caso contrário o
 // runtime aborta com "sync: WaitGroup misuse: Add called concurrently with
 // Wait" quando uma reconexão dispara trabalho rastreado durante o shutdown.
 // bgMu é dedicado (não reusa m.mu) porque goTracked é chamado com m.mu já
 // retido em performHealthCheck.
-func (m *Manager) goTracked(fn func()) bool {
+func (m *Manager) tryGoTracked(fn func()) bool {
 	m.bgMu.Lock()
 	if m.bgClosed {
 		m.bgMu.Unlock()
@@ -583,11 +590,27 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		nil,
 	)
 
+	if err := parentCtx.Err(); err != nil {
+		sessionCancel()
+		m.resetConnectingStatus(slug)
+		return err
+	}
+
 	// Probe SSE: para Streamable HTTP, verifica se o servidor suporta SSE
 	// antes de conectar, evitando esperar timeouts longos em 5 retries do SDK.
 	if cfg.Transport == TransportStreamable && !cfg.DisableSSE && cfg.URL != "" {
 		httpClient := m.buildAuthHTTPClient(slug, cfg)
-		if sseSupported, reason := probeSSESupport(sessionCtx, cfg.URL, httpClient); !sseSupported {
+		probeCtx, probeCancel := context.WithCancel(sessionCtx)
+		stopParentCancel := context.AfterFunc(parentCtx, probeCancel)
+		sseSupported, reason := probeSSESupport(probeCtx, cfg.URL, httpClient)
+		stopParentCancel()
+		probeCancel()
+		if !sseSupported {
+			if err := parentCtx.Err(); err != nil {
+				sessionCancel()
+				m.resetConnectingStatus(slug)
+				return err
+			}
 			if sessionCtx.Err() != nil {
 				m.resetConnectingStatus(slug)
 				return sessionCtx.Err()
@@ -595,6 +618,12 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] SSE não suportado (%s) — usando polling", slug, reason)
 			cfg.DisableSSE = true
 		}
+	}
+
+	if err := parentCtx.Err(); err != nil {
+		sessionCancel()
+		m.resetConnectingStatus(slug)
+		return err
 	}
 
 	// Cria o transport com base no tipo (inclui autenticação se configurada)
@@ -707,7 +736,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	}
 	m.connections[slug] = conn
 	m.mu.Unlock()
-	if !m.goTracked(func() {
+	if !m.tryGoTracked(func() {
 		sessionDone <- session.Wait()
 		close(sessionDone)
 	}) {
@@ -717,7 +746,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	// Descobre tools, resources e prompts do servidor
 	operationCtx, operationCancel := context.WithCancel(parentCtx)
 	stopSessionCancel := context.AfterFunc(sessionCtx, operationCancel)
-	err = m.refreshServerOfferingsWithContext(operationCtx, slug)
+	err = m.refreshServerOfferingsWithContextFor(operationCtx, slug, conn)
 	stopSessionCancel()
 	operationCancel()
 	if err != nil {
@@ -773,14 +802,14 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	}
 	m.mu.Unlock()
 
-	if !m.goTracked(func() {
+	if !m.tryGoTracked(func() {
 		defer close(healthDone)
 		m.healthCheckLoop(healthCtx, slug, conn)
 	}) {
 		close(healthDone)
 	}
 	if tokenCancel != nil {
-		if !m.goTracked(func() {
+		if !m.tryGoTracked(func() {
 			defer close(tokenDone)
 			m.tokenRefreshLoop(tokenCtx, slug)
 		}) {
@@ -873,7 +902,13 @@ func (m *Manager) resetConnectingStatus(slug string) {
 }
 
 func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, slug string) error {
-	return m.refreshServerOfferingsWithContextFor(parentCtx, slug, nil)
+	m.mu.RLock()
+	conn, ok := m.connections[slug]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("servidor '%s' não está conectado", slug)
+	}
+	return m.refreshServerOfferingsWithContextFor(parentCtx, slug, conn)
 }
 
 func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context, slug string, expected *serverConnection) error {

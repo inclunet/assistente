@@ -490,6 +490,53 @@ func TestReconnectNaoDuplicaConexaoNemHealthLoop(t *testing.T) {
 	m.CloseAll()
 }
 
+func TestCancelamentoDoCallerInterrompeProbeSSE(t *testing.T) {
+	probeStarted := make(chan struct{})
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(probeStarted)
+		<-r.Context().Done()
+	}))
+	defer httpServer.Close()
+
+	m := newLifecycleManager()
+	defer m.CloseAll()
+	var transportCalls atomic.Int32
+	m.transportFactory = func(context.Context, string, ServerConfig) (mcpsdk.Transport, error) {
+		transportCalls.Add(1)
+		return nil, errors.New("transport não deveria ser criado")
+	}
+	registerLifecycleServer(m, "probe-cancelado", ServerConfig{
+		Enabled:   true,
+		Transport: TransportStreamable,
+		URL:       httpServer.URL,
+		AuthType:  AuthNone,
+	})
+
+	parentCtx, cancelParent := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		result <- m.connectWithContext(parentCtx, "probe-cancelado")
+	}()
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("probe SSE não iniciou")
+	}
+	cancelParent()
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("connectWithContext retornou %v, esperado context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelamento do caller não interrompeu o probe SSE")
+	}
+	if got := transportCalls.Load(); got != 0 {
+		t.Fatalf("transport criado %d vez(es) após cancelamento durante probe", got)
+	}
+}
+
 func TestSSELegadoMantemLifecycleAposConnectRetornar(t *testing.T) {
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "sse-test", Version: "1.0.0"}, nil)
 	httpServer := httptest.NewServer(mcpsdk.NewSSEHandler(func(*http.Request) *mcpsdk.Server { return server }, nil))
