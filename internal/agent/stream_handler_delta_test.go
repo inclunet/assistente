@@ -90,6 +90,9 @@ func TestBaseStreamHandlerFlushPreservesSequenceAndRetryReset(t *testing.T) {
 	first := events[0].data.(ports.StreamEvent)
 	second := events[1].data.(ports.StreamEvent)
 	retry := events[2].data.(ports.StreamEvent)
+	if first.Delta != "primeiro" || second.Delta != " segundo" {
+		t.Fatalf("buffers de deltas foram alterados após reuso: %+v %+v", first, second)
+	}
 	if first.Sequence != 0 || !first.Reset || second.Sequence != 1 || second.Reset {
 		t.Fatalf("sequência da primeira tentativa inválida: %+v %+v", first, second)
 	}

@@ -17,15 +17,15 @@ import (
 // Eventos de streaming de chat são impressos token a token no stdout.
 // Demais eventos são ignorados em modo silencioso ou logados em modo verbose.
 type EmitterAdapter struct {
-	mu             sync.Mutex
-	out            io.Writer // stdout por padrão
-	errOut         io.Writer // stderr por padrão
-	verbose        bool
-	done           chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
-	conversationID string        // conversa ativa; "" = aceita qualquer conversa
-	streamContent  string
-	streamSequence int64
-	streamActive   bool
+	mu              sync.Mutex
+	out             io.Writer // stdout por padrão
+	errOut          io.Writer // stderr por padrão
+	verbose         bool
+	done            chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
+	conversationID  string        // conversa ativa; "" = aceita qualquer conversa
+	streamSequence  int64
+	streamActive    bool
+	streamHasOutput bool
 }
 
 // EmitterOption configura o EmitterAdapter.
@@ -142,14 +142,14 @@ func (e *EmitterAdapter) handleStream(data any) {
 	}
 
 	if ev.Reset {
-		if e.streamActive && e.streamContent != "" {
+		if e.streamActive && e.streamHasOutput {
 			// stdout não pode apagar uma tentativa já exibida. Uma nova linha
 			// separa o retry e evita concatená-lo como se fosse continuação.
 			_, _ = fmt.Fprintln(e.out)
 		}
-		e.streamContent = ev.BaseContent
 		e.streamSequence = -1
 		e.streamActive = true
+		e.streamHasOutput = ev.BaseContent != ""
 		if ev.BaseContent != "" {
 			_, _ = fmt.Fprint(e.out, ev.BaseContent)
 		}
@@ -158,16 +158,16 @@ func (e *EmitterAdapter) handleStream(data any) {
 		return
 	}
 	e.streamSequence = int64(ev.Sequence)
-	e.streamContent += ev.Delta
 	if ev.Delta != "" {
+		e.streamHasOutput = true
 		_, _ = fmt.Fprint(e.out, ev.Delta)
 	}
 }
 
 func (e *EmitterAdapter) resetStreamState() {
-	e.streamContent = ""
 	e.streamSequence = -1
 	e.streamActive = false
+	e.streamHasOutput = false
 }
 
 // handleError imprime erros no stderr.

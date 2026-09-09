@@ -99,7 +99,9 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 }
 
 func (h *BaseStreamHandler) flushPendingDeltaLocked() {
-	delta := h.pendingDelta.String()
+	// O emitter pode reter o payload depois deste método. Clone evita que o
+	// evento dependa do armazenamento interno do Builder que será resetado.
+	delta := strings.Clone(h.pendingDelta.String())
 	if delta == "" {
 		h.cancelPendingChunkTimer()
 		return
@@ -281,7 +283,8 @@ func (h *BaseStreamHandler) CutSegment() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.flushPendingDeltaLocked()
-	segment := h.accumulatedContent.String()
+	// O segmento sobrevive ao reset/reuso do acumulador.
+	segment := strings.Clone(h.accumulatedContent.String())
 	h.promotedContent.WriteString(segment)
 	h.accumulatedContent.Reset()
 	h.initialContent = ""
