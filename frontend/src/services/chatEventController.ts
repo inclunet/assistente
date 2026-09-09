@@ -440,7 +440,8 @@ export function startChatEventController({
 
   const getCurrentAssistantContent = () => {
     if (!currentAssistantNodeId) return '';
-    if (streamInitialized || pendingVisualContent !== null) return streamedContent;
+    if (pendingVisualContent !== null) return pendingVisualContent;
+    if (streamInitialized) return streamedContent;
     const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };

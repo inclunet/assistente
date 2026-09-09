@@ -1260,11 +1260,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
         const conversationPatch = timeline
           ? patchConversation(state, conversationId, (conversation) => {
-            const threadedMessages = updateMessageContentInTree(
-              conversation.threadedMessages,
-              messageId,
-              content,
-            );
+            const threadedMessages = conversation.threadedMessages === timeline.threadedMessages
+              ? updatedNodes!
+              : updateMessageContentInTree(conversation.threadedMessages, messageId, content);
             return threadedMessages === conversation.threadedMessages
               ? conversation
               : { ...conversation, threadedMessages };
