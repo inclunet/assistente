@@ -299,9 +299,23 @@ export function ChatSessionProvider({
     [isConversationReasoningExpandedBase, sessionKey],
   );
 
+  const origin = useMemo(() => createChatSurfaceOrigin({
+    conversationId: normalizedConversationId,
+    sessionKey,
+    surfaceId,
+    surfaceType: surfaceIdentity.surfaceType,
+    tabId: surfaceIdentity.tabId,
+  }), [
+    normalizedConversationId,
+    sessionKey,
+    surfaceId,
+    surfaceIdentity.surfaceType,
+    surfaceIdentity.tabId,
+  ]);
+
   const value = useMemo<ChatSessionContextValue>(() => ({
     surface: surfaceIdentity,
-    origin: createChatSurfaceOrigin(surfaceIdentity),
+    origin,
     conversationId: normalizedConversationId,
     session,
     conversation,
@@ -355,6 +369,7 @@ export function ChatSessionProvider({
     loadOlderMessages,
     loadStartMessages,
     normalizedConversationId,
+    origin,
     retryMessageToConversation,
     session,
     sessionKey,
@@ -377,18 +392,18 @@ export function ChatSessionProvider({
   ]);
   const nodeValue = useMemo<ChatNodeContextValue>(() => ({
     conversationId: normalizedConversationId,
-    origin: value.origin,
+    origin,
     setConversationEditingMessageId,
     setConversationReadingMessageId,
     toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded,
   }), [
     normalizedConversationId,
+    origin,
     setConversationEditingMessageId,
     setConversationReadingMessageId,
     toggleConversationReasoningExpanded,
     toggleConversationThreadExpanded,
-    value.origin,
   ]);
 
   return (
