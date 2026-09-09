@@ -233,7 +233,7 @@ const es = {
         announceError: 'No se pudo cambiar el directorio: {{error}}',
       },
       validation: {
-        messageTooLarge: 'Mensaje demasiado grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
+        messageTooLarge: 'Mensaje demasiado grande ({{sizeBytes}} bytes). Máximo permitido: {{maxKiB}} KiB.',
         mediaTooLarge: 'Archivos de medios demasiado grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
       },
       mediaProcessing: {
@@ -1475,7 +1475,7 @@ const es = {
         messageActions: 'Acciones del mensaje',
         prepareNeedCodeOrRich: 'Cambia a Código o Rico para usar el chat del editor.',
         prepareSelectionFailed: 'No se pudo capturar la selección del editor.',
-        prepareSelectionTooLarge: 'La selección es demasiado grande para enviar al chat (límite: {{max}} caracteres).',
+        prepareSelectionTooLarge: 'La selección supera el límite de contexto del editor: {{max}} caracteres.',
         patchNotApplicable: 'La respuesta no contiene un parche aplicable',
         patchExtractDefault: 'No se encontró ningún parche',
         requestChangeError: 'Error al pedir un cambio al chat',

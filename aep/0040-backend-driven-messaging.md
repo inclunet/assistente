@@ -500,14 +500,25 @@ Se a validação falha, `SendMessage` retorna erro via Wails e o frontend mostra
 
 O frontend pode manter checks de tamanho para evitar chamada Wails desnecessária, mas o backend é a autoridade. Se o frontend falhar em validar (bug), o backend rejeita.
 
+Desde a issue #701, texto usa o mesmo teto de **512 KiB em bytes UTF-8** nas
+duas camadas. O frontend mede com `TextEncoder` antes de enfileirar o turno e
+antes de serializar anexos no Worker; mídia/base64 permanece no limite
+independente de mídia. O backend mantém `len(string)` como fail-safe em bytes.
+
 ### Testes
-- [ ] Unit test Go: conteúdo > 500KB retorna `ErrContentTooLarge`
+- [x] Unit test Go: conteúdo > 512 KiB em UTF-8 é rejeitado
 - [ ] Unit test Go: media > 10MB retorna `ErrMediaTooLarge`
-- [ ] Unit test Frontend: erro de validação do backend é exibido ao usuário
+- [x] Unit test Frontend: limite UTF-8 bloqueia o pipeline antes de `SendMessage`
+- [x] Unit test Frontend: erro de validação do backend é exibido ao usuário
 
 ### Critério de aceitação
-- Backend rejeita mensagens inválidas antes de criar registro no banco
-- Frontend exibe erros do backend para o usuário
+- [x] Backend rejeita mensagens inválidas antes de criar registro no banco
+- [x] Frontend exibe erros do backend para o usuário
+
+Evidências da issue #701: `internal/chat/interactor_test.go`,
+`frontend/src/lib/messageContentLimit.test.ts`,
+`frontend/src/lib/messageContentLimit.i18n.test.ts` e
+`frontend/src/store/chatStore.validation.test.ts`.
 
 ---
 

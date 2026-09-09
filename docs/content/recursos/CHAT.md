@@ -35,3 +35,13 @@ Cancelar a geração interrompe somente a resposta atual; não apaga os itens j�
 enfileirados. Conversas diferentes continuam respondendo em paralelo. Ao
 terminar um turno com ferramentas, o chat atualiza apenas a resposta daquele
 turno, preservando a posição e a janela de histórico que você estava lendo.
+
+## Limite do texto
+
+O texto de cada nova mensagem pode ocupar até **512 KiB em UTF-8**. Letras
+acentuadas, caracteres combinantes e emojis podem usar mais de um byte. Se o
+texto exceder esse limite, o chat anuncia o erro antes de iniciar o envio e
+mantém o rascunho e o foco para correção.
+
+Anexos não entram nessa contagem: mídia e arquivos têm validação própria. O
+limite protege a comunicação interna, a serialização e o uso de memória.
