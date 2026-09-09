@@ -237,6 +237,11 @@ const en = {
         messageTooLarge: 'Message too large ({{size}} bytes). Maximum allowed: {{max}} bytes',
         mediaTooLarge: 'Media files too large (~{{size}}MB). Maximum allowed: {{max}}MB',
       },
+      mediaProcessing: {
+        started: 'Processing and transcribing the audio attachment.',
+        completed: 'Attachment transcription completed.',
+        failed: 'The audio could not be transcribed. The message will be sent with a notice.',
+      },
       errors: {
         noActiveConversation:
           'No active conversation. Open a chat tab or wait for the workspace to finish syncing.',

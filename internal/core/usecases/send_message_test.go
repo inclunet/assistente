@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -154,6 +156,158 @@ func createRetryableUserMessage(t *testing.T, ctx context.Context) (conversation
 		t.Fatalf("create user message: %v", err)
 	}
 	return conv.ID, userMsg.ID
+}
+
+func newMediaTestUseCase(
+	t *testing.T,
+	profileMgr *profiles.Manager,
+	transcribe chat.TranscribeFunc,
+) (*usecases.SendMessageUseCase, *chat.StreamingManager) {
+	t.Helper()
+	registry := llm.NewProviderRegistry()
+	provider := &llm.ProviderConfig{
+		ID:        "media-test",
+		Name:      "Media Test",
+		Type:      llm.ProviderOpenAI,
+		APIFormat: llm.APIFormatOpenAI,
+		BaseURL:   "http://127.0.0.1:1/v1",
+	}
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(context.Background(), "test-user")
+	if err := providers.NewDBStore().Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		t.Fatal(err)
+	}
+	providerSvc := providers.NewService(providers.ServiceConfig{Registry: registry, Store: providers.NewDBStore()})
+	streamMgr := chat.NewStreamingManager(nil)
+	interactor := chat.NewInteractor(chat.InteractorConfig{
+		Emitter:     events.NoopEmitter{},
+		Repo:        chat.NewDBMessageStore(),
+		ConvRepo:    chat.NewDBConversationStore(),
+		ProviderSvc: providerSvc,
+		ProfileMgr:  profileMgr,
+	})
+	agentSvc := agent.NewService(agent.ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: chat.NewDBMessageStore()})
+	return usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
+		ChatInteractor: interactor,
+		ProviderSvc:    providerSvc,
+		StreamMgr:      streamMgr,
+		SpeechSvc:      speech.NewService(speech.ServiceConfig{Emitter: events.NoopEmitter{}, Registry: registry}),
+		Transcribe:     transcribe,
+		Emitter:        noop.EmitterAdapter{},
+		AgentSvc:       agentSvc,
+	}), streamMgr
+}
+
+func TestSendMessageUseCase_STTAssincronoUnicoEPersistido(t *testing.T) {
+	setupTestDB(t)
+	sqlDB, err := database.DB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	profile := minValidProfile("Media Async", "media-test")
+	profile.Input = profiles.InputConfig{Enabled: true, STTProvider: "whisper_api", Language: "pt-BR"}
+	setupProfileWith(t, mgr, profile)
+	conv, err := database.CreateConversationWithContext(ctx, "media", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	uc, _ := newMediaTestUseCase(t, mgr, func(ctx context.Context, _, _ string) (string, error) {
+		calls.Add(1)
+		close(started)
+		select {
+		case <-release:
+			return "transcrição persistida", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	})
+
+	type executeResult struct {
+		id  string
+		err error
+	}
+	result := make(chan executeResult, 1)
+	go func() {
+		got, executeErr := uc.Execute(usecases.SendMessageRequest{
+			Ctx:            ctx,
+			ConversationID: conv.ID,
+			UserMedia:      `[{"name":"voz.webm","type":"audio/webm","data":"YXVkaW8=","size":5}]`,
+			Source:         "wails",
+		})
+		result <- executeResult{id: got, err: executeErr}
+	}()
+	<-started
+	select {
+	case got := <-result:
+		if got.err != nil || got.id != conv.ID {
+			t.Fatalf("envio assíncrono: id=%q err=%v", got.id, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SendMessage bloqueou aguardando Whisper")
+	}
+	close(release)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		messages, loadErr := chat.NewDBMessageStore().GetMessages(ctx, conv.ID, nil)
+		if loadErr == nil && len(messages) > 0 && messages[0].Content == "transcrição persistida" {
+			if calls.Load() != 1 {
+				t.Fatalf("Whisper chamado %d vezes; esperado 1", calls.Load())
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("transcrição não foi persistida no histórico")
+}
+
+func TestSendMessageUseCase_CancelaSTTEmAndamento(t *testing.T) {
+	setupTestDB(t)
+	sqlDB, err := database.DB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	profile := minValidProfile("Media Cancel", "media-test")
+	profile.Input = profiles.InputConfig{Enabled: true, STTProvider: "whisper_api", Language: "pt-BR"}
+	setupProfileWith(t, mgr, profile)
+	conv, err := database.CreateConversationWithContext(ctx, "media", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	uc, streamMgr := newMediaTestUseCase(t, mgr, func(ctx context.Context, _, _ string) (string, error) {
+		close(started)
+		<-ctx.Done()
+		close(cancelled)
+		return "", ctx.Err()
+	})
+	if _, err := uc.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conv.ID,
+		UserMedia:      `[{"name":"voz.ogg","type":"audio/ogg","data":"YXVkaW8=","size":5}]`,
+		Source:         "wails",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	streamMgr.Cancel(conv.ID)
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("cancelamento não chegou ao Whisper")
+	}
 }
 
 // TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders verifica que o UC retorna

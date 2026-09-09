@@ -32,14 +32,6 @@ func WhisperFilename(format string) string {
 	return fmt.Sprintf("audio.%s", format)
 }
 
-// truncate encurta uma string para uso em logs.
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
 // ExtractAudio examina um mediaJSON e retorna o base64 e MIME do primeiro áudio encontrado.
 // Retorna ("", "") se não houver áudio ou o JSON for inválido.
 func ExtractAudio(mediaJSON string) (audioBase64, mimeType string) {
@@ -57,15 +49,14 @@ func ExtractAudio(mediaJSON string) (audioBase64, mimeType string) {
 	return "", ""
 }
 
-// TranscribeFunc abstrai a transcrição de áudio sem acoplar este pacote ao internal/speech.
-// Retorna o texto transcrito ou string vazia em caso de falha (nunca erro fatal).
+// TranscribeFunc abstrai a transcrição única do áudio do turno sem acoplar este
+// pacote ao internal/speech. Histórico e pré-processamento nunca a invocam.
 type TranscribeFunc func(ctx context.Context, audioBase64, filename string) (string, error)
 
 // MediaHistoryLoader carrega o histórico de conversa convertendo mídias para o formato LLM.
 type MediaHistoryLoader struct {
-	Repo       MessageRepository
-	Transcribe TranscribeFunc // nil = transcrição indisponível
-	MaxMsgs    int
+	Repo    MessageRepository
+	MaxMsgs int
 }
 
 // Load retorna as mensagens formatadas para o LLM e o resumo existente da conversa.
@@ -149,7 +140,7 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 				logging.Infof(ctx, "chat.media", "[Media] Áudio ignorado no histórico — já temos transcrição no content")
 				continue
 			}
-			content = append(content, l.convertAudioPart(ctx, data, mediaType)...)
+			content = append(content, convertPersistedAudioPart(ctx, data, mediaType)...)
 
 		case mediaType == "application/pdf" || strings.HasPrefix(mediaType, "text/"):
 			content = append(content, map[string]interface{}{
@@ -181,8 +172,10 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 	return content
 }
 
-// convertAudioPart converte um áudio para formato LLM, transcrevendo via Whisper se necessário.
-func (l *MediaHistoryLoader) convertAudioPart(ctx context.Context, data, mediaType string) []interface{} {
+// convertPersistedAudioPart converte áudio histórico sem executar I/O. Áudio
+// incompatível só pode chegar ao LLM como a transcrição já persistida em
+// Message.Content; sem ela, usamos um placeholder determinístico.
+func convertPersistedAudioPart(ctx context.Context, data, mediaType string) []interface{} {
 	audioFmt := strings.TrimPrefix(mediaType, "audio/")
 
 	if SupportedAudioFormats[audioFmt] {
@@ -195,35 +188,18 @@ func (l *MediaHistoryLoader) convertAudioPart(ctx context.Context, data, mediaTy
 		}}
 	}
 
-	// Formato não suportado: tenta transcrever com Whisper
-	if l.Transcribe != nil {
-		filename := WhisperFilename(audioFmt)
-		logging.Infof(ctx, "chat.media", "[Media] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
-		text, err := l.Transcribe(ctx, data, filename)
-		if err != nil {
-			logging.Errorf(ctx, "chat.media", "[Media] Erro ao transcrever %s via Whisper: %v", audioFmt, err)
-		} else if text != "" {
-			logging.Infof(ctx, "chat.media", "[Media] Áudio %s transcrito via Whisper ao carregar histórico: %s", audioFmt, truncate(text, 100))
-			return []interface{}{map[string]interface{}{
-				"type": "text",
-				"text": text,
-			}}
-		}
-	}
-
-	// NUNCA enviar formato não suportado como input_audio — placeholder textual
-	logging.Infof(ctx, "chat.media", "[Media] Áudio %s não transcrito — adicionando placeholder textual", audioFmt)
+	logging.Infof(ctx, "chat.media", "[Media] Áudio histórico %s sem transcrição persistida — adicionando placeholder textual", audioFmt)
 	return []interface{}{map[string]interface{}{
 		"type": "text",
 		"text": fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", audioFmt),
 	}}
 }
 
-// PreprocessMessages percorre as mensagens e:
-//   - Converte formatos de áudio não suportados (aac, ogg, webm, etc.) para texto via Whisper
-//   - Se audioSupported é false, transcreve todo áudio com Whisper
+// PreprocessMessages percorre as mensagens sem I/O e:
+//   - impede formatos de áudio não suportados de chegar ao provider;
+//   - usa placeholder se o provider não suporta áudio e não há transcrição persistida;
 //   - Se docSupported é false, converte documentos em texto placeholder
-func PreprocessMessages(ctx context.Context, messages []llm.Message, transcribe TranscribeFunc, audioSupported *bool, docSupported *bool) []llm.Message {
+func PreprocessMessages(ctx context.Context, messages []llm.Message, audioSupported *bool, docSupported *bool) []llm.Message {
 	for i, msg := range messages {
 		content, ok := msg.Content.([]interface{})
 		if !ok {
@@ -252,30 +228,12 @@ func PreprocessMessages(ctx context.Context, messages []llm.Message, transcribe 
 					}
 
 					if needsWhisper {
-						transcribed := false
-						if audioData != "" && transcribe != nil {
-							filename := WhisperFilename(audioFmt)
-							logging.Infof(ctx, "chat.media", "[Preprocess] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
-							text, err := transcribe(ctx, audioData, filename)
-							if err != nil {
-								logging.Errorf(ctx, "chat.media", "[Preprocess] Erro ao transcrever áudio %s: %v", audioFmt, err)
-							} else if text != "" {
-								logging.Infof(ctx, "chat.media", "[Preprocess] Áudio %s transcrito via Whisper: %s", audioFmt, truncate(text, 100))
-								newContent = append(newContent, map[string]interface{}{
-									"type": "text",
-									"text": text,
-								})
-								transcribed = true
-							}
-						}
-						if !transcribed {
-							// NUNCA enviar formato não suportado — placeholder textual
-							logging.Infof(ctx, "chat.media", "[Preprocess] Áudio %s não transcrito — placeholder textual", audioFmt)
-							newContent = append(newContent, map[string]interface{}{
-								"type": "text",
-								"text": fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", audioFmt),
-							})
-						}
+						_ = audioData
+						logging.Infof(ctx, "chat.media", "[Preprocess] Áudio %s sem transcrição persistida — placeholder textual", audioFmt)
+						newContent = append(newContent, map[string]interface{}{
+							"type": "text",
+							"text": fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", audioFmt),
+						})
 						continue
 					}
 				}

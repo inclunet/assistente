@@ -14,9 +14,17 @@ import (
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+type deferredMediaContextKey struct{}
+
+func isDeferredMediaContext(ctx context.Context) bool {
+	deferred, _ := ctx.Value(deferredMediaContextKey{}).(bool)
+	return deferred
+}
 
 // profileWithToolsDisabled devolve o perfil do turno com o interruptor de tools
 // desligado, em cópia rasa: o perfil salvo continua como o usuário o configurou,
@@ -62,7 +70,9 @@ type SendMessageConfig struct {
 	AgentSvc        *agent.Service
 	StreamMgr       *chat.StreamingManager
 	SpeechSvc       *speech.Service
-	Emitter         ports.Emitter
+	// Transcribe permite substituir STT em testes; produção usa SpeechSvc.
+	Transcribe chat.TranscribeFunc
+	Emitter    ports.Emitter
 	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
 	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	// OpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor.
@@ -81,6 +91,7 @@ type SendMessageUseCase struct {
 	agentSvc        *agent.Service
 	streamMgr       *chat.StreamingManager
 	speechSvc       *speech.Service
+	transcribe      chat.TranscribeFunc
 	emitter         ports.Emitter
 	onSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	openEditorPaths func() []string
@@ -92,6 +103,10 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 	if loadedToolStore == nil {
 		loadedToolStore = tools.NewLoadedToolStore()
 	}
+	streamMgr := cfg.StreamMgr
+	if streamMgr == nil {
+		streamMgr = chat.NewStreamingManager(nil)
+	}
 	return &SendMessageUseCase{
 		chatInteractor:  cfg.ChatInteractor,
 		toolRegistry:    cfg.ToolRegistry,
@@ -99,8 +114,9 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 		providerSvc:     cfg.ProviderSvc,
 		mcpMgr:          cfg.MCPMgr,
 		agentSvc:        cfg.AgentSvc,
-		streamMgr:       cfg.StreamMgr,
+		streamMgr:       streamMgr,
 		speechSvc:       cfg.SpeechSvc,
+		transcribe:      cfg.Transcribe,
 		emitter:         cfg.Emitter,
 		onSpeechRequest: cfg.OnSpeechRequest,
 		openEditorPaths: cfg.OpenEditorPaths,
@@ -116,6 +132,7 @@ type SendMessageRequest struct {
 	UserMedia      string
 	Params         llm.ChatParams
 	Source         string
+	prepared       *chat.PrepareContextResponse
 }
 
 // Execute executa o pipeline de mensagem: prepara contexto → persiste → monta prompt
@@ -159,17 +176,61 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 
 	// Delega validação, renaming e resolução de perfil para o ChatInteractor.
-	pctx, err := uc.chatInteractor.PrepareContext(ctx, chat.PrepareContextRequest{
-		ConversationID: req.ConversationID,
-		UserContent:    req.UserContent,
-		UserMedia:      req.UserMedia,
-		Params:         req.Params,
-		Source:         req.Source,
-	})
-	if err != nil {
-		return "", err
+	pctx := req.prepared
+	if pctx == nil {
+		var err error
+		pctx, err = uc.chatInteractor.PrepareContext(ctx, chat.PrepareContextRequest{
+			ConversationID: req.ConversationID,
+			UserContent:    req.UserContent,
+			UserMedia:      req.UserMedia,
+			Params:         req.Params,
+			Source:         req.Source,
+		})
+		if err != nil {
+			return "", err
+		}
 	}
 	activeProfile := pctx.ActiveProfile
+	var sttProvider string
+	if activeProfile != nil {
+		sttProvider = activeProfile.Input.STTProvider
+	}
+	mediaResolution := uc.chatInteractor.ResolveUserContent(ctx, chat.ResolveUserContentRequest{
+		Content:     pctx.UserContent,
+		Media:       req.UserMedia,
+		Source:      req.Source,
+		STTProvider: sttProvider,
+	})
+	if mediaResolution.NeedsSTT && !isDeferredMediaContext(ctx) {
+		asyncCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		asyncCtx = context.WithValue(asyncCtx, deferredMediaContextKey{}, true)
+		uc.streamMgr.Register(req.ConversationID, cancel)
+		surfaceOrigin := ports.NewChatSurfaceOrigin(
+			req.ConversationID,
+			pctx.Params.SurfaceSessionKey,
+			pctx.Params.SurfaceID,
+			pctx.Params.SurfaceType,
+			pctx.Params.SurfaceTabID,
+		)
+		uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
+			ConversationID: req.ConversationID,
+			Status:         "started",
+			SurfaceOrigin:  surfaceOrigin,
+		})
+		req.Ctx = asyncCtx
+		req.prepared = pctx
+		go func() {
+			if _, asyncErr := uc.Execute(req); asyncErr != nil {
+				uc.streamMgr.Unregister(req.ConversationID)
+				uc.emitter.Emit("chat:error", ports.ErrorEvent{
+					ConversationID: req.ConversationID,
+					Error:          asyncErr.Error(),
+					SurfaceOrigin:  surfaceOrigin,
+				})
+			}
+		}()
+		return req.ConversationID, nil
+	}
 	// Turno conduzido por agente externo (AEP-0084 D7): as ferramentas são do
 	// agente, e o app planeja o turno com as suas desligadas — pelo mesmo
 	// interruptor que o perfil oferece, para que prompt e roteamento enxerguem a
@@ -203,7 +264,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] provider/modelo sem suporte a assistant prefill — usando fallback de continuação por mensagem de usuário (conversa %s)", req.ConversationID)
 		}
 	}
-	userContent := pctx.UserContent
+	userContent := mediaResolution.Content
 	surfaceOrigin := ports.NewChatSurfaceOrigin(
 		req.ConversationID,
 		params.SurfaceSessionKey,
@@ -215,12 +276,57 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	var userMsg *chat.Message
 	var messages []llm.Message
 	var conversationSummary string
+	if mediaResolution.NeedsSTT {
+		text, transcribeErr := uc.whisperTranscribeFunc()(ctx, mediaResolution.AudioBase64, mediaResolution.STTFilename)
+		if transcribeErr != nil {
+			status := "failed"
+			if errors.Is(transcribeErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				status = "cancelled"
+			}
+			uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
+				ConversationID: req.ConversationID,
+				Status:         status,
+				Error:          transcribeErr.Error(),
+				SurfaceOrigin:  surfaceOrigin,
+			})
+			if status == "cancelled" {
+				uc.streamMgr.Unregister(req.ConversationID)
+				uc.emitter.Emit("chat:done", ports.DoneEvent{
+					ConversationID: req.ConversationID,
+					Reason:         "cancelled",
+					SurfaceOrigin:  surfaceOrigin,
+				})
+				return req.ConversationID, nil
+			}
+			userContent = fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", strings.TrimPrefix(mediaResolution.AudioMimeType, "audio/"))
+		} else if strings.TrimSpace(text) == "" {
+			userContent = fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", strings.TrimPrefix(mediaResolution.AudioMimeType, "audio/"))
+			uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
+				ConversationID: req.ConversationID,
+				Status:         "failed",
+				Error:          "transcrição vazia",
+				SurfaceOrigin:  surfaceOrigin,
+			})
+		} else {
+			userContent = text
+			uc.emitter.Emit("chat:media_processing", ports.MediaProcessingEvent{
+				ConversationID: req.ConversationID,
+				Status:         "completed",
+				SurfaceOrigin:  surfaceOrigin,
+			})
+		}
+	}
 	if req.RetryMessageID != "" {
+		if mediaResolution.NeedsSTT {
+			if err := uc.chatInteractor.PersistUserTranscription(ctx, retryUserMsg.ID, userContent); err != nil {
+				return "", err
+			}
+			retryUserMsg.Content = userContent
+		}
 		rmsg, err := uc.chatInteractor.ReuseLoadedUserMessage(ctx, chat.RecordUserMessageRequest{
 			ConversationID:     req.ConversationID,
 			Source:             req.Source,
 			ActiveProfile:      activeProfile,
-			Transcribe:         uc.whisperTranscribeFunc(),
 			MaxContextMessages: params.MaxContextMessages,
 		}, retryUserMsg)
 		if err != nil {
@@ -236,19 +342,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			}
 		}
 	} else {
-		// Resolve conteúdo: extrai áudio do media e aplica STT fallback para canais.
-		var sttProvider string
-		if activeProfile != nil {
-			sttProvider = activeProfile.Input.STTProvider
-		}
-		resolved := uc.chatInteractor.ResolveUserContent(ctx, chat.ResolveUserContentRequest{
-			Content:     userContent,
-			Media:       req.UserMedia,
-			Source:      req.Source,
-			STTProvider: sttProvider,
-			Transcribe:  uc.whisperTranscribeFunc(),
-		})
-		userContent = resolved.Content
 		if !agentDrivenTurn {
 			if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
 				return "", err
@@ -260,12 +353,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			ConversationID:     req.ConversationID,
 			Content:            userContent,
 			Media:              req.UserMedia,
-			AudioBase64:        resolved.AudioBase64,
-			AudioMimeType:      resolved.AudioMimeType,
+			AudioBase64:        mediaResolution.AudioBase64,
+			AudioMimeType:      mediaResolution.AudioMimeType,
 			Source:             req.Source,
 			SurfaceOrigin:      surfaceOrigin,
 			ActiveProfile:      activeProfile,
-			Transcribe:         uc.whisperTranscribeFunc(),
 			MaxContextMessages: params.MaxContextMessages,
 		})
 		if err != nil {
@@ -291,7 +383,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		Params:              params,
 		ActiveProfile:       activeProfile,
 		SurfaceOrigin:       surfaceOrigin,
-		Transcribe:          uc.whisperTranscribeFunc(),
 		AgentTurn:           agentDrivenTurn,
 	})
 	if prepResult.Err != nil {
@@ -470,8 +561,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
-	convCtx, convCancel := context.WithCancel(ctx)
-	uc.streamMgr.Register(req.ConversationID, convCancel)
+	convCtx := ctx
+	if !isDeferredMediaContext(ctx) {
+		var convCancel context.CancelFunc
+		convCtx, convCancel = context.WithCancel(ctx)
+		uc.streamMgr.Register(req.ConversationID, convCancel)
+	}
 
 	// Roteia para o loop agêntico sempre que houver tools em modo adapter (inclui o
 	// caso em que o caminho nativo removeu todas as bridges): assim o fallback
@@ -547,6 +642,9 @@ func loadedToolChangeNames(changes []tools.LoadedToolChange) []string {
 
 // whisperTranscribeFunc cria o callback de transcrição STT para o pipeline.
 func (uc *SendMessageUseCase) whisperTranscribeFunc() chat.TranscribeFunc {
+	if uc.transcribe != nil {
+		return uc.transcribe
+	}
 	return func(ctx context.Context, audioBase64, filename string) (string, error) {
 		result, err := uc.speechSvc.Transcribe(ctx, audioBase64, filename)
 		if err != nil {

@@ -236,6 +236,11 @@ const es = {
         messageTooLarge: 'Mensaje demasiado grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Archivos de medios demasiado grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
       },
+      mediaProcessing: {
+        started: 'Procesando y transcribiendo el archivo de audio adjunto.',
+        completed: 'Transcripción del archivo adjunto completada.',
+        failed: 'No se pudo transcribir el audio. El mensaje se enviará con un aviso.',
+      },
       errors: {
         noActiveConversation:
           'No hay conversación activa. Abre una pestaña de chat o espera a que el workspace termine de sincronizar.',

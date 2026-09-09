@@ -79,6 +79,16 @@ type MessagesReadyEvent struct {
 	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
+// MediaProcessingEvent informa o processamento backend-driven de anexos.
+// Status: "started" | "completed" | "failed" | "cancelled".
+type MediaProcessingEvent struct {
+	ConversationID string             `json:"conversationId"`
+	MessageID      string             `json:"messageId,omitempty"`
+	Status         string             `json:"status"`
+	Error          string             `json:"error,omitempty"`
+	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+}
+
 // SkillLoadedEvent is the payload for chat:skill_loaded.
 type SkillLoadedEvent struct {
 	ConversationID string             `json:"conversationId"`

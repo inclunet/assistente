@@ -1101,4 +1101,27 @@ describe('chatEventController', () => {
       undefined,
     );
   });
+
+  it('anuncia processamento e falha de mídia de forma acessível', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:media_processing', {
+      conversationId: 'conversation-1',
+      status: 'started',
+    });
+    emitEvent('chat:media_processing', {
+      conversationId: 'conversation-1',
+      status: 'failed',
+      error: 'indisponível',
+    });
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.mediaProcessing.started',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounce).toHaveBeenCalledWith('chat.mediaProcessing.failed', 'assertive');
+  });
 });

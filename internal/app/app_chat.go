@@ -67,23 +67,8 @@ func (a *App) loadConversationHistory(conversationID string, profile *profiles.P
 		maxCtxMsgs = profile.GetMaxContextMessages()
 	}
 	loader := chat.MediaHistoryLoader{
-		Repo:       a.msgRepo,
-		Transcribe: a.whisperTranscribeFunc(),
-		MaxMsgs:    maxCtxMsgs,
+		Repo:    a.msgRepo,
+		MaxMsgs: maxCtxMsgs,
 	}
 	return loader.Load(ctx, conversationID)
-}
-
-// whisperTranscribeFunc cria o callback de transcrição para o MediaHistoryLoader e PreprocessMessages.
-func (a *App) whisperTranscribeFunc() chat.TranscribeFunc {
-	return func(ctx context.Context, audioBase64, filename string) (string, error) {
-		result, err := a.speechSvc.Transcribe(ctx, audioBase64, filename)
-		if err != nil {
-			return "", err
-		}
-		if result == nil {
-			return "", nil
-		}
-		return result.Text, nil
-	}
 }

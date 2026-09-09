@@ -237,6 +237,11 @@ const ptBR = {
         messageTooLarge: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
       },
+      mediaProcessing: {
+        started: 'Processando e transcrevendo o anexo de áudio.',
+        completed: 'Transcrição do anexo concluída.',
+        failed: 'Não foi possível transcrever o áudio. A mensagem será enviada com um aviso.',
+      },
       errors: {
         noActiveConversation:
           'Nenhuma conversa ativa. Abra uma aba de chat ou aguarde o workspace sincronizar.',

@@ -119,7 +119,7 @@ interface ChatDoneEvent {
   assistantMessageId?: string;
   turnId?: string;
   hadToolCalls?: boolean;
-  reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error';
+  reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error' | 'cancelled';
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -127,6 +127,14 @@ interface ChatDoneEvent {
 interface ChatErrorEvent {
   conversationId: string;
   error: string;
+}
+
+interface ChatMediaProcessingEvent {
+  conversationId: string;
+  messageId?: string;
+  status: 'started' | 'completed' | 'failed' | 'cancelled';
+  error?: string;
+  surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 export interface ChatEventSession {
@@ -278,6 +286,7 @@ export function startChatEventController({
 
   const noop = () => { /* no-op */ };
   let unsubMessagesReady = noop;
+  let unsubMediaProcessing = noop;
   let unsubStream = noop;
   let unsubThinking = noop;
   let unsubToolStart = noop;
@@ -342,6 +351,7 @@ export function startChatEventController({
     if (cleanupExecuted) return;
     cleanupExecuted = true;
     unsubMessagesReady();
+    unsubMediaProcessing();
     unsubStream();
     unsubThinking();
     unsubToolStart();
@@ -469,6 +479,27 @@ export function startChatEventController({
         channel: external.channel,
         message: stripMarkdown(event.userContent),
       }));
+    }
+  });
+
+  unsubMediaProcessing = EventsOn('chat:media_processing', (event: ChatMediaProcessingEvent) => {
+    if (event.conversationId !== conversationId || !isActive()) return;
+    if (event.status === 'started') {
+      announceForActiveChatConversation(
+        conversationId,
+        i18next.t('chat.mediaProcessing.started'),
+        'polite',
+        getEventOrigin(event),
+      );
+    } else if (event.status === 'completed') {
+      announceForActiveChatConversation(
+        conversationId,
+        i18next.t('chat.mediaProcessing.completed'),
+        'polite',
+        getEventOrigin(event),
+      );
+    } else if (event.status === 'failed') {
+      announce(i18next.t('chat.mediaProcessing.failed'), 'assertive');
     }
   });
 
