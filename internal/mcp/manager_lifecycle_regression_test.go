@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -204,6 +205,90 @@ func (t *blockingTransport) Connect(context.Context) (mcpsdk.Connection, error) 
 	return t.conn, nil
 }
 
+type delayedErrorTransport struct {
+	delay time.Duration
+	err   error
+}
+
+func (t *delayedErrorTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	timer := time.NewTimer(t.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil, t.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+type delayedWriteTransport struct {
+	inner mcpsdk.Transport
+	delay time.Duration
+}
+
+func (t *delayedWriteTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	conn, err := t.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &delayedWriteConnection{Connection: conn, delay: t.delay}, nil
+}
+
+type delayedWriteConnection struct {
+	mcpsdk.Connection
+	delay time.Duration
+}
+
+func (c *delayedWriteConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
+	timer := time.NewTimer(c.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return c.Connection.Write(ctx, msg)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestFallbackSSERecebeNovoTimeoutDeHandshake(t *testing.T) {
+	m := newLifecycleManager()
+	m.connectTimeout = 120 * time.Millisecond
+	registerLifecycleServer(m, "fallback-timeout", ServerConfig{
+		Enabled:   true,
+		Transport: TransportStreamable,
+	})
+
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fallback-test", Version: "1.0.0"}, nil)
+	var calls atomic.Int32
+	m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
+		if calls.Add(1) == 1 {
+			return &delayedErrorTransport{
+				delay: 80 * time.Millisecond,
+				err:   errors.New("standalone SSE request failed"),
+			}, nil
+		}
+		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+		serverSession, err := server.Connect(
+			m.ctx,
+			&delayedWriteTransport{inner: serverTransport, delay: 80 * time.Millisecond},
+			nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+		t.Cleanup(func() { _ = serverSession.Close() })
+		return clientTransport, nil
+	}
+
+	if err := m.Connect("fallback-timeout"); err != nil {
+		t.Fatalf("fallback deveria receber timeout próprio: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("tentativas=%d, esperado 2", got)
+	}
+	m.CloseAll()
+}
+
 func TestDisconnectCancelaConnectEmAndamento(t *testing.T) {
 	m := newLifecycleManager()
 	m.connectTimeout = 5 * time.Second
@@ -275,6 +360,94 @@ func TestDisconnectCancelaSessaoAtiva(t *testing.T) {
 	defer cancelPing()
 	if err := conn.session.Ping(pingCtx, nil); err == nil {
 		t.Fatal("sessão continuou utilizável após Disconnect")
+	}
+	m.CloseAll()
+}
+
+type pingBlockingTransport struct {
+	inner       mcpsdk.Transport
+	pingStarted chan struct{}
+}
+
+func (t *pingBlockingTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	conn, err := t.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &pingBlockingConnection{Connection: conn, pingStarted: t.pingStarted}, nil
+}
+
+type pingBlockingConnection struct {
+	mcpsdk.Connection
+	pingStarted chan struct{}
+	pingOnce    sync.Once
+}
+
+func (c *pingBlockingConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
+	if request, ok := msg.(*jsonrpc.Request); ok && request.Method == "ping" {
+		c.pingOnce.Do(func() { close(c.pingStarted) })
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return c.Connection.Write(ctx, msg)
+}
+
+func TestDisconnectCancelaHealthCheckEmVoo(t *testing.T) {
+	m := newLifecycleManager()
+	registerLifecycleServer(m, "health-em-voo", ServerConfig{Enabled: true, Transport: TransportStdio})
+
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "health-cancel-test", Version: "1.0.0"}, nil)
+	pingStarted := make(chan struct{})
+	m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
+		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+		serverSession, err := server.Connect(m.ctx, serverTransport, nil)
+		if err != nil {
+			return nil, err
+		}
+		t.Cleanup(func() { _ = serverSession.Close() })
+		return &pingBlockingTransport{inner: clientTransport, pingStarted: pingStarted}, nil
+	}
+	if err := m.Connect("health-em-voo"); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	m.mu.Lock()
+	conn := m.connections["health-em-voo"]
+	conn.cancelHealth()
+	oldHealthDone := conn.healthDone
+	m.mu.Unlock()
+	<-oldHealthDone
+
+	probeCtx, probeCancel := context.WithCancel(m.ctx)
+	probeDone := make(chan struct{})
+	m.mu.Lock()
+	conn.cancelHealth = probeCancel
+	conn.healthDone = probeDone
+	m.mu.Unlock()
+	go func() {
+		defer close(probeDone)
+		m.performHealthCheckFor(probeCtx, "health-em-voo", conn)
+	}()
+
+	select {
+	case <-pingStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Ping não entrou em voo")
+	}
+	disconnectDone := make(chan error, 1)
+	go func() { disconnectDone <- m.Disconnect("health-em-voo") }()
+	select {
+	case err := <-disconnectDone:
+		if err != nil {
+			t.Fatalf("Disconnect: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disconnect aguardou o timeout global em vez de cancelar Ping")
+	}
+	select {
+	case <-probeDone:
+	default:
+		t.Fatal("Disconnect retornou antes do health check em voo")
 	}
 	m.CloseAll()
 }
@@ -490,5 +663,15 @@ func TestReconexaoBemSucedidaUsaNivelInfo(t *testing.T) {
 	}
 	if !strings.Contains(handler.records[0].Message, "Reconexão bem-sucedida") {
 		t.Fatalf("mensagem inesperada: %q", handler.records[0].Message)
+	}
+}
+
+func TestExitStatusSoEhEsperadoParaSessaoJaEncerrada(t *testing.T) {
+	err := errors.New("exit status 1")
+	if isExpectedSessionCloseError(err, false) {
+		t.Fatal("exit status de sessão ativa não pode ser mascarado")
+	}
+	if !isExpectedSessionCloseError(err, true) {
+		t.Fatal("exit status de sessão comprovadamente encerrada deveria ser cleanup esperado")
 	}
 }
