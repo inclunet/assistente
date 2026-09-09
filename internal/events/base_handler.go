@@ -101,6 +101,7 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 
 	if !h.IsThinking {
 		h.IsThinking = true
+		h.AccumulatedReasoning.Reset()
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
 			ConversationID:     h.ConversationID,
 			TurnID:             h.TurnID,
@@ -161,6 +162,7 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 		h.ThinkingTimer = nil
 	}
 	h.PendingThinkingEmit = false
+	h.IsThinking = false
 
 	if fullReasoning != "" {
 		h.AccumulatedReasoning.Reset()
