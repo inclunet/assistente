@@ -595,9 +595,11 @@ describe('chatEventController', () => {
       turnId: 'user-1',
       messageId: 'assistant-db-2',
     });
+    mockPlayChatReceiveSoundIfActive.mockClear();
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
       error: 'boom stream',
+      done: true,
       turnId: 'user-1',
       messageId: 'assistant-db-2',
       surfaceOrigin,
@@ -616,6 +618,7 @@ describe('chatEventController', () => {
       announcePriority: 'assertive',
     });
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', surfaceOrigin);
+    expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalled();
   });
 
   it('preenche fallback visual quando chat:stream falha sem parcial', () => {

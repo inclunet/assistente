@@ -546,6 +546,7 @@ export function startChatEventController({
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming();
       cleanup();
+      return;
     }
 
     if (event.done) {
