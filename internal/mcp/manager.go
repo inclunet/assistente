@@ -736,11 +736,16 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	}
 	m.connections[slug] = conn
 	m.mu.Unlock()
-	if !m.tryGoTracked(func() {
+	watchSession := func() {
 		sessionDone <- session.Wait()
 		close(sessionDone)
-	}) {
-		close(sessionDone)
+	}
+	if !m.tryGoTracked(watchSession) {
+		// CloseAll pode bloquear novos Adds no bgWG entre a publicação da
+		// conexão e o início do watcher. Ainda assim Wait precisa rodar:
+		// closeServerConnection aguarda este canal e, portanto, coleta a
+		// sessão antes de o shutdown retornar.
+		go watchSession()
 	}
 
 	// Descobre tools, resources e prompts do servidor

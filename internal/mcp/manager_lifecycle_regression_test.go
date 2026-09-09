@@ -373,6 +373,42 @@ func TestDisconnectCancelaSessaoAtiva(t *testing.T) {
 	m.CloseAll()
 }
 
+func TestWatcherDaSessaoIniciaComBackgroundFechado(t *testing.T) {
+	m := newLifecycleManager()
+	factory := newInMemoryMCPFactory(t, m.ctx)
+	defer factory.close()
+	m.transportFactory = factory.transport
+	registerLifecycleServer(m, "watcher-direto", ServerConfig{Enabled: true, Transport: TransportStdio})
+
+	m.bgMu.Lock()
+	m.bgClosed = true
+	m.bgMu.Unlock()
+
+	if err := m.Connect("watcher-direto"); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	m.mu.RLock()
+	sessionDone := m.connections["watcher-direto"].sessionDone
+	m.mu.RUnlock()
+	select {
+	case <-sessionDone:
+		t.Fatal("sessionDone fechou sem aguardar session.Wait")
+	default:
+	}
+
+	if err := m.Disconnect("watcher-direto"); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	select {
+	case _, ok := <-sessionDone:
+		if ok {
+			t.Fatal("resultado de session.Wait não foi consumido no cleanup")
+		}
+	default:
+		t.Fatal("Disconnect retornou antes do watcher direto")
+	}
+}
+
 type pingBlockingTransport struct {
 	inner       mcpsdk.Transport
 	pingStarted chan struct{}
