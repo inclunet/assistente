@@ -47,10 +47,12 @@ func TestEmitterAdapter_StreamRetryStartsNewLineAndValidatesSequence(t *testing.
 
 	e.Emit("chat:stream", ports.StreamEvent{Delta: "tentativa parcial", Reset: true, Sequence: 0})
 	e.Emit("chat:stream", ports.StreamEvent{Delta: " ignorado", Sequence: 2})
+	e.Emit("chat:stream", ports.StreamEvent{BaseContent: "base inválida", Delta: " ignorado", Reset: true, Sequence: 2})
+	e.Emit("chat:stream", ports.StreamEvent{Delta: " válida", Sequence: 1})
 	e.Emit("chat:stream", ports.StreamEvent{Delta: "recuperada", Reset: true, Sequence: 0})
 	e.Emit("chat:stream", ports.StreamEvent{Done: true})
 
-	if got := out.String(); got != "tentativa parcial\nrecuperada\n" {
+	if got := out.String(); got != "tentativa parcial válida\nrecuperada\n" {
 		t.Fatalf("saída=%q", got)
 	}
 }

@@ -143,6 +143,9 @@ func (e *EmitterAdapter) handleStream(data any) {
 	}
 
 	if ev.Reset {
+		if ev.Sequence != 0 {
+			return
+		}
 		if e.streamActive && e.streamHasOutput {
 			// stdout não pode apagar uma tentativa já exibida. Uma nova linha
 			// separa o retry e evita concatená-lo como se fosse continuação.
@@ -154,8 +157,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 		if ev.BaseContent != "" {
 			_, _ = fmt.Fprint(e.out, ev.BaseContent)
 		}
-	}
-	if !e.streamActive || int64(ev.Sequence) != e.streamSequence+1 {
+	} else if !e.streamActive || int64(ev.Sequence) != e.streamSequence+1 {
 		return
 	}
 	e.streamSequence = int64(ev.Sequence)

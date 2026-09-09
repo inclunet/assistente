@@ -342,6 +342,15 @@ describe('chatEventController', () => {
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       messageId: 'assistant-1',
+      baseContent: 'base corrompida',
+      delta: ' reset inválido',
+      reset: true,
+      sequence: 2,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
       delta: '世界 👩🏽‍💻',
       sequence: 1,
     });
@@ -700,9 +709,11 @@ describe('chatEventController', () => {
       turnId: 'user-1',
       messageId: 'assistant-db-2',
     });
+    mockPlayChatReceiveSoundIfActive.mockClear();
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
       error: 'boom stream',
+      done: true,
       turnId: 'user-1',
       messageId: 'assistant-db-2',
       surfaceOrigin,
@@ -721,6 +732,7 @@ describe('chatEventController', () => {
       announcePriority: 'assertive',
     });
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', surfaceOrigin);
+    expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalled();
   });
 
   it('preenche fallback visual quando chat:stream falha sem parcial', () => {
@@ -1345,6 +1357,37 @@ describe('chatEventController', () => {
 
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
+      hadToolCalls: true,
+    });
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('considera baseContent como texto na continuação explícita', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
+      baseContent: 'resposta parcial',
+      delta: ' ',
+      reset: true,
+      sequence: 0,
+      done: false,
+    });
+    mockAnnounceForActiveChatConversation.mockClear();
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'assistant-1',
       hadToolCalls: true,
     });
 

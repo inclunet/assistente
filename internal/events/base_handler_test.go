@@ -92,3 +92,39 @@ func TestBaseStreamHandlerIgnoraChunkVazioSemAlterarCoalescing(t *testing.T) {
 		t.Fatal("chunk vazio alterou o estado de coalescing")
 	}
 }
+
+func TestBaseStreamHandlerReiniciaEstadoEntreFasesDeThinking(t *testing.T) {
+	emitter := &retainingBaseHandlerCapture{}
+	handler := &BaseStreamHandler{
+		Emitter:        emitter,
+		ConversationID: "conversation-1",
+		TurnID:         "turn-1",
+	}
+
+	handler.OnThinking("primeira")
+	handler.OnThinkingDone("primeira completa")
+	handler.OnThinking("segunda")
+
+	handler.Mu.Lock()
+	if handler.ThinkingTimer != nil {
+		handler.ThinkingTimer.Stop()
+		handler.ThinkingTimer = nil
+	}
+	handler.PendingThinkingEmit = false
+	reasoning := handler.AccumulatedReasoning.String()
+	handler.Mu.Unlock()
+
+	var started []ports.ThinkingEvent
+	for _, data := range emitter.events {
+		event, ok := data.(ports.ThinkingEvent)
+		if ok && event.Started {
+			started = append(started, event)
+		}
+	}
+	if len(started) != 2 {
+		t.Fatalf("eventos Started=%d, quer 2", len(started))
+	}
+	if started[1].Content != "segunda" || reasoning != "segunda" {
+		t.Fatalf("segunda fase não reiniciada: Started=%q acumulado=%q", started[1].Content, reasoning)
+	}
+}
