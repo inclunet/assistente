@@ -19,7 +19,6 @@ type BaseStreamHandler struct {
 	AssistantMessageID string
 	SurfaceOrigin      *ports.ChatSurfaceOrigin
 
-	AccumulatedContent   string
 	PendingDelta         string
 	AccumulatedReasoning string
 	IsThinking           bool
@@ -40,7 +39,6 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 	h.Mu.Lock()
 	defer h.Mu.Unlock()
 
-	h.AccumulatedContent += content
 	h.PendingDelta += content
 
 	const throttleInterval = 24 * time.Millisecond
