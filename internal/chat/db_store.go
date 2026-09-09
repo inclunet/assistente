@@ -2,21 +2,99 @@ package chat
 
 import (
 	"context"
+	"sync"
 
 	"assistente/internal/database"
 )
 
 // DBMessageStore implementa MessageRepository usando o banco de dados SQLite via GORM.
-type DBMessageStore struct{}
+type DBMessageStore struct {
+	placeholderLocksMu sync.Mutex
+	placeholderLocks   map[string]*placeholderLock
+}
+
+type placeholderLock struct {
+	mu   sync.Mutex
+	refs int
+}
 
 // NewDBMessageStore cria um DBMessageStore pronto para uso.
 func NewDBMessageStore() *DBMessageStore { return &DBMessageStore{} }
+
+func (s *DBMessageStore) lockPlaceholderKey(key string) func() {
+	s.placeholderLocksMu.Lock()
+	if s.placeholderLocks == nil {
+		s.placeholderLocks = make(map[string]*placeholderLock)
+	}
+	entry := s.placeholderLocks[key]
+	if entry == nil {
+		entry = &placeholderLock{}
+		s.placeholderLocks[key] = entry
+	}
+	entry.refs++
+	s.placeholderLocksMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		s.placeholderLocksMu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(s.placeholderLocks, key)
+		}
+		s.placeholderLocksMu.Unlock()
+	}
+}
 
 func (s *DBMessageStore) CreateMessage(ctx context.Context, opts database.MessageOptions) (*database.ChatMessage, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
 	return database.CreateMessageWithContext(ctx, opts)
+}
+
+func (s *DBMessageStore) LoadHistoryWindow(ctx context.Context, conversationID string, maxMessages int) (*HistoryWindow, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	window, err := database.NewMessageRepository(database.DB()).LoadHistoryWindowWithContext(ctx, conversationID, maxMessages)
+	if err != nil {
+		return nil, err
+	}
+	return &HistoryWindow{
+		Messages:                 window.Messages,
+		Summary:                  window.Summary,
+		SummaryUpToMessageID:     window.SummaryUpToMessageID,
+		SummaryBoundaryAvailable: window.SummaryBoundaryAvailable,
+	}, nil
+}
+
+func (s *DBMessageStore) CreateUserMessageAndLoadHistory(ctx context.Context, opts database.MessageOptions, maxMessages int) (*database.ChatMessage, *HistoryWindow, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, nil, err
+	}
+	msg, window, err := database.NewMessageRepository(database.DB()).CreateUserMessageAndLoadHistoryWithContext(ctx, opts, maxMessages)
+	if err != nil {
+		return nil, nil, err
+	}
+	return msg, &HistoryWindow{
+		Messages:                 window.Messages,
+		Summary:                  window.Summary,
+		SummaryUpToMessageID:     window.SummaryUpToMessageID,
+		SummaryBoundaryAvailable: window.SummaryBoundaryAvailable,
+	}, nil
+}
+
+func (s *DBMessageStore) EnsureAssistantPlaceholder(ctx context.Context, conversationID, turnID string) (string, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", err
+	}
+	// O lock por escopo impede que duas goroutines criem o mesmo placeholder
+	// sem serializar conversas e turnos independentes.
+	unlock := s.lockPlaceholderKey(userID + "\x00" + conversationID + "\x00" + turnID)
+	defer unlock()
+	return database.NewMessageRepository(database.DB()).EnsureAssistantPlaceholderWithContext(ctx, conversationID, turnID)
 }
 
 func (s *DBMessageStore) UpdateMessageContentAndReasoning(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {

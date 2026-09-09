@@ -182,9 +182,34 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		return nil, errors.New(errMsg)
 	}
 
+	// As leituras de provider e conversa não dependem entre si. Disparamos
+	// ambas, mas consumimos os resultados na ordem histórica para preservar
+	// precedência de erros e efeitos observáveis.
+	ioCtx, cancelIO := context.WithCancel(ctx)
+	defer cancelIO()
+	providerCountCh := make(chan int, 1)
+	if i.providerSvc != nil {
+		go func() {
+			count, _ := i.providerSvc.Count(ioCtx)
+			providerCountCh <- count
+		}()
+	}
+	type conversationResult struct {
+		conversation *Conversation
+		err          error
+	}
+	var conversationCh chan conversationResult
+	if req.ConversationID != "" && req.UserContent != "" && i.convRepo != nil {
+		conversationCh = make(chan conversationResult, 1)
+		go func() {
+			conv, err := i.convRepo.GetConversationInfo(ioCtx, req.ConversationID)
+			conversationCh <- conversationResult{conversation: conv, err: err}
+		}()
+	}
+
 	// 2. Verify that at least one LLM provider is configured
 	if i.providerSvc != nil {
-		providerCount, _ := i.providerSvc.Count(ctx)
+		providerCount := <-providerCountCh
 		if providerCount == 0 {
 			msg := "Nenhum provedor LLM configurado. Configure um provedor nas configurações."
 			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: msg})
@@ -199,8 +224,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	// 4. Auto-rename conversation if it still has the generic default title
-	if req.UserContent != "" {
-		conv, convErr := i.convRepo.GetConversationInfo(ctx, req.ConversationID)
+	if conversationCh != nil {
+		result := <-conversationCh
+		conv, convErr := result.conversation, result.err
 		if convErr == nil && conv != nil && conv.Title == DefaultConversationTitle {
 			title := automaticTitle(req.UserContent)
 			if err := i.convRepo.UpdateConversation(ctx, req.ConversationID, title, ""); err == nil {
@@ -490,7 +516,8 @@ func (i *Interactor) GetRetryableUserMessage(ctx context.Context, conversationID
 
 // RecordUserMessage persiste a mensagem do usuário, emite o evento ready e carrega o histórico da conversa.
 func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessageRequest) (*RecordUserMessageResponse, error) {
-	userMsg, err := i.repo.CreateMessage(ctx, MessageOptions{
+	maxCtxMsgs := effectiveMaxContextMessages(req)
+	opts := MessageOptions{
 		ConversationID: req.ConversationID,
 		Role:           "user",
 		Content:        req.Content,
@@ -498,7 +525,16 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		Audio:          req.AudioBase64,
 		AudioMimeType:  req.AudioMimeType,
 		Source:         req.Source,
-	})
+	}
+
+	var userMsg *Message
+	var window *HistoryWindow
+	var err error
+	if batchRepo, ok := i.repo.(UserMessageBatchRepository); ok {
+		userMsg, window, err = batchRepo.CreateUserMessageAndLoadHistory(ctx, opts, maxCtxMsgs)
+	} else {
+		userMsg, err = i.repo.CreateMessage(ctx, opts)
+	}
 	if err != nil {
 		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao salvar mensagem: " + err.Error()})
 		return nil, err
@@ -512,7 +548,32 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		SurfaceOrigin:  req.SurfaceOrigin,
 	})
 
+	if window != nil {
+		loader := MediaHistoryLoader{Repo: i.repo, Transcribe: req.Transcribe, MaxMsgs: maxCtxMsgs}
+		messages, summary, err := loader.LoadWindow(ctx, req.ConversationID, window)
+		if err != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
+			return nil, err
+		}
+		return &RecordUserMessageResponse{
+			UserMsg:             userMsg,
+			Messages:            messages,
+			ConversationSummary: summary,
+		}, nil
+	}
+
 	return i.ReuseLoadedUserMessage(ctx, req, userMsg)
+}
+
+func effectiveMaxContextMessages(req RecordUserMessageRequest) int {
+	maxCtxMsgs := DefaultMaxContextMessages
+	if req.MaxContextMessages > 0 {
+		return req.MaxContextMessages
+	}
+	if req.ActiveProfile != nil {
+		return req.ActiveProfile.GetMaxContextMessages()
+	}
+	return maxCtxMsgs
 }
 
 // ReuseLoadedUserMessage monta a resposta de retry a partir de uma mensagem já validada/carregada.
@@ -521,12 +582,7 @@ func (i *Interactor) ReuseLoadedUserMessage(ctx context.Context, req RecordUserM
 		return nil, errors.New("mensagem não encontrada")
 	}
 
-	maxCtxMsgs := DefaultMaxContextMessages
-	if req.MaxContextMessages > 0 {
-		maxCtxMsgs = req.MaxContextMessages
-	} else if req.ActiveProfile != nil {
-		maxCtxMsgs = req.ActiveProfile.GetMaxContextMessages()
-	}
+	maxCtxMsgs := effectiveMaxContextMessages(req)
 	loader := MediaHistoryLoader{
 		Repo:       i.repo,
 		Transcribe: req.Transcribe,

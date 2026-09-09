@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"assistente/internal/logging"
+	"gorm.io/gorm"
 )
 
 const (
@@ -94,4 +95,32 @@ func WithSQLiteBusyRetry(ctx context.Context, operation string, fn func() error)
 		}
 	}
 	return lastErr
+}
+
+func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
+	return WithSQLiteBusyRetry(ctx, operation, func() error {
+		return db.WithContext(ctx).Connection(func(tx *gorm.DB) error {
+			// BEGIN/COMMIT são controlados explicitamente abaixo; impedir que
+			// callbacks de escrita do GORM abram uma transação aninhada.
+			tx = tx.Session(&gorm.Session{SkipDefaultTransaction: true})
+			if err := tx.Exec("BEGIN IMMEDIATE").Error; err != nil {
+				return err
+			}
+			committed := false
+			defer func() {
+				if !committed {
+					_ = tx.Exec("ROLLBACK").Error
+				}
+			}()
+
+			if err := fn(tx); err != nil {
+				return err
+			}
+			if err := tx.Exec("COMMIT").Error; err != nil {
+				return err
+			}
+			committed = true
+			return nil
+		})
+	})
 }
