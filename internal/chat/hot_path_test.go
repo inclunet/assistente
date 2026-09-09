@@ -347,6 +347,36 @@ func TestDBMessageStorePlaceholderIsIdempotentUnderConcurrency(t *testing.T) {
 	}
 }
 
+func TestDBMessageStorePlaceholderLocksAreScopedByTurn(t *testing.T) {
+	store := NewDBMessageStore()
+	unlockFirst := store.lockPlaceholderKey("user\x00conv-1\x00turn-1")
+	defer unlockFirst()
+
+	sameKeyAcquired := make(chan struct{}, 1)
+	go func() {
+		unlock := store.lockPlaceholderKey("user\x00conv-1\x00turn-1")
+		unlock()
+		sameKeyAcquired <- struct{}{}
+	}()
+	select {
+	case <-sameKeyAcquired:
+		t.Fatal("mesma chave não deveria adquirir lock concorrentemente")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	otherKeyAcquired := make(chan struct{}, 1)
+	go func() {
+		unlock := store.lockPlaceholderKey("user\x00conv-2\x00turn-2")
+		unlock()
+		otherKeyAcquired <- struct{}{}
+	}()
+	select {
+	case <-otherKeyAcquired:
+	case <-time.After(time.Second):
+		t.Fatal("turno independente foi serializado pelo lock de outro turno")
+	}
+}
+
 func TestDBMessageStoreBatchKeepsHistoryBoundedAndUserScoped(t *testing.T) {
 	testDB, ctx, conversationID := setupHotPathDB(t)
 	var summaryUpToID string

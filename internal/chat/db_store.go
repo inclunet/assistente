@@ -9,11 +9,42 @@ import (
 
 // DBMessageStore implementa MessageRepository usando o banco de dados SQLite via GORM.
 type DBMessageStore struct {
-	placeholderMu sync.Mutex
+	placeholderLocksMu sync.Mutex
+	placeholderLocks   map[string]*placeholderLock
+}
+
+type placeholderLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 // NewDBMessageStore cria um DBMessageStore pronto para uso.
 func NewDBMessageStore() *DBMessageStore { return &DBMessageStore{} }
+
+func (s *DBMessageStore) lockPlaceholderKey(key string) func() {
+	s.placeholderLocksMu.Lock()
+	if s.placeholderLocks == nil {
+		s.placeholderLocks = make(map[string]*placeholderLock)
+	}
+	entry := s.placeholderLocks[key]
+	if entry == nil {
+		entry = &placeholderLock{}
+		s.placeholderLocks[key] = entry
+	}
+	entry.refs++
+	s.placeholderLocksMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		s.placeholderLocksMu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(s.placeholderLocks, key)
+		}
+		s.placeholderLocksMu.Unlock()
+	}
+}
 
 func (s *DBMessageStore) CreateMessage(ctx context.Context, opts database.MessageOptions) (*database.ChatMessage, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
@@ -55,13 +86,14 @@ func (s *DBMessageStore) CreateUserMessageAndLoadHistory(ctx context.Context, op
 }
 
 func (s *DBMessageStore) EnsureAssistantPlaceholder(ctx context.Context, conversationID, turnID string) (string, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return "", err
 	}
-	// O SQLite serializa writers, mas o mutex também impede duas goroutines do
-	// mesmo processo de observarem simultaneamente a ausência do placeholder.
-	s.placeholderMu.Lock()
-	defer s.placeholderMu.Unlock()
+	// O lock por escopo impede que duas goroutines criem o mesmo placeholder
+	// sem serializar conversas e turnos independentes.
+	unlock := s.lockPlaceholderKey(userID + "\x00" + conversationID + "\x00" + turnID)
+	defer unlock()
 	return database.NewMessageRepository(database.DB()).EnsureAssistantPlaceholderWithContext(ctx, conversationID, turnID)
 }
 
