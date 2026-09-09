@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -278,19 +279,22 @@ var _ ports.Emitter = (*commitCheckingEmitter)(nil)
 func setupHotPathDB(t *testing.T) (*gorm.DB, context.Context, string) {
 	t.Helper()
 	previous := database.DB()
-	testDB, err := gorm.Open(sqlite.Open("file:chat-hot-path?mode=memory&cache=shared"), &gorm.Config{})
+	path := filepath.ToSlash(filepath.Join(t.TempDir(), "chat-hot-path.db"))
+	testDB, err := gorm.Open(sqlite.Open("file:"+path+"?_pragma=busy_timeout(100)&_pragma=journal_mode(WAL)"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(8)
 	if err := testDB.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
 		t.Fatal(err)
 	}
 	database.SetDB(testDB)
 	t.Cleanup(func() {
-		sqlDB, _ := testDB.DB()
-		if sqlDB != nil {
-			_ = sqlDB.Close()
-		}
+		_ = sqlDB.Close()
 		database.SetDB(previous)
 	})
 
@@ -304,7 +308,6 @@ func setupHotPathDB(t *testing.T) (*gorm.DB, context.Context, string) {
 
 func TestDBMessageStorePlaceholderIsIdempotentUnderConcurrency(t *testing.T) {
 	testDB, ctx, conversationID := setupHotPathDB(t)
-	store := NewDBMessageStore()
 	const workers = 16
 	ids := make(chan string, workers)
 	errs := make(chan error, workers)
@@ -313,7 +316,9 @@ func TestDBMessageStorePlaceholderIsIdempotentUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id, err := store.EnsureAssistantPlaceholder(ctx, conversationID, "turn-1")
+			// Uma instância por goroutine contorna deliberadamente o lock local
+			// e prova a atomicidade entre conexões no SQLite.
+			id, err := NewDBMessageStore().EnsureAssistantPlaceholder(ctx, conversationID, "turn-1")
 			ids <- id
 			errs <- err
 		}()

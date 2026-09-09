@@ -620,7 +620,7 @@ func (r *MessageRepository) EnsureAssistantPlaceholderWithContext(ctx context.Co
 		return "", err
 	}
 	var placeholderID string
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := withSQLiteImmediateTransaction(ctx, r.db, "chat.ensure_assistant_placeholder", func(tx *gorm.DB) error {
 		var conv Conversation
 		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
 			Select("id").
