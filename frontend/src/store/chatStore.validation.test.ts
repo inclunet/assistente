@@ -207,6 +207,7 @@ describe('chatStore validation', () => {
   }, 30_000);
 
   afterEach(() => {
+    useChatStore.getState().handleDatabaseReset();
     vi.restoreAllMocks();
   });
 
@@ -1711,6 +1712,8 @@ describe('chatStore validation', () => {
 
     firstSend.resolve();
     await first;
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await flushMicrotasks();
     await second;
 
     expect(mockSendMessage).toHaveBeenCalledTimes(2);
@@ -1733,6 +1736,8 @@ describe('chatStore validation', () => {
 
     firstSend.resolve();
     await first;
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await flushMicrotasks();
     await retry;
 
     expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'message-1', expect.any(Object));
@@ -2052,7 +2057,8 @@ describe('chatStore validation', () => {
     expect(state.surfaceSessionsByKey[originSessionKey]?.visibleThreadedMessages?.map((node) => node.message.id)).toEqual([
       'initial-message',
     ]);
-    expect(state.timelinesByConversationId[defaultConversationId]?.threadedMessages).toHaveLength(refreshedNodes.length);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('snapshot retornou totalCount menor'), expect.any(Object));
+    expect(state.sessionsByConversationId[defaultConversationId]?.conversation?.threadedMessages).toHaveLength(1);
+    expect(mockGetConversationMessageWindow).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

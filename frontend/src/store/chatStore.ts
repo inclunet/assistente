@@ -671,10 +671,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } else {
         await SendMessage(conversationId, content, mediaJson, mergedParams);
       }
-
+      return controller;
     } catch (error: unknown) {
       const errorMsg = getErrorMessage(error);
       controller.handleSendFailure(errorMsg);
+      return controller;
     }
   };
 
@@ -1248,14 +1249,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
-      try {
-        await turnQueue.enqueue(conversationId, async () => {
+      let markAccepted!: () => void;
+      const accepted = new Promise<void>((resolve) => { markAccepted = resolve; });
+      void turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
-          await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+          const controller = await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+          markAccepted();
+          await controller?.done;
+        }).catch((error) => {
+          markAccepted();
+          if (!isConversationTurnQueueClearedError(error)) {
+            logger.error('[Chat] falha inesperada na fila do turno', error);
+          }
         });
-      } catch (error) {
-        if (!isConversationTurnQueueClearedError(error)) throw error;
-      }
+      await accepted;
     },
 
     retryMessageToConversation: async (conversationId, messageId, paramsOverride, options) => {
@@ -1270,14 +1277,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
-      try {
-        await turnQueue.enqueue(conversationId, async () => {
+      let markAccepted!: () => void;
+      const accepted = new Promise<void>((resolve) => { markAccepted = resolve; });
+      void turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
-          await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+          const controller = await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+          markAccepted();
+          await controller?.done;
+        }).catch((error) => {
+          markAccepted();
+          if (!isConversationTurnQueueClearedError(error)) {
+            logger.error('[Chat] falha inesperada na fila de retry', error);
+          }
         });
-      } catch (error) {
-        if (!isConversationTurnQueueClearedError(error)) throw error;
-      }
+      await accepted;
     },
 
     cancelStreaming: async (conversationId, options) => {
