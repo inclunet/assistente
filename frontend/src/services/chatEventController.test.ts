@@ -327,6 +327,15 @@ describe('chatEventController', () => {
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       messageId: 'assistant-1',
+      baseContent: 'base corrompida',
+      delta: ' reset inválido',
+      reset: true,
+      sequence: 2,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      messageId: 'assistant-1',
       delta: '世界 👩🏽‍💻',
       sequence: 1,
     });

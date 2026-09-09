@@ -498,6 +498,14 @@ export function startChatEventController({
     if (!isActive()) return;
 
     if (event.delta && !event.done && !event.error) {
+      if (
+        !Number.isSafeInteger(event.sequence)
+        || (event.reset
+          ? event.sequence !== 0
+          : !streamInitialized || event.sequence !== streamSequence + 1)
+      ) {
+        return;
+      }
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
@@ -505,9 +513,6 @@ export function startChatEventController({
         streamedContent = event.baseContent ?? '';
         streamSequence = -1;
         streamInitialized = true;
-      }
-      if (!streamInitialized || !Number.isSafeInteger(event.sequence) || event.sequence !== streamSequence + 1) {
-        return;
       }
       streamSequence = event.sequence;
       streamedContent += event.delta;
