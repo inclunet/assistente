@@ -12,6 +12,9 @@ O contrato atual (backend-driven) é:
 - **Eventos são tipados e sempre carregam `conversationId`** (e `turnId` quando aplicável). O schema canônico está em `internal/core/ports/chat_events.go` e foi estendido por AEPs posteriores (AEP-0039).
 - **Cancelamento de geração é explícito** via `CancelStreamingForConversation(conversationId)`.
 - **Continuação/recuperação de streaming é explícita** (não depende de `assistant prefill` acidental). Ver AEP-0064.
+- **Streaming usa deltas coalescidos**, não conteúdo acumulado: lotes de cerca
+  de 24 ms carregam `delta`, `sequence`, `conversationId`, `turnId` e
+  `messageId`; `reset` marca uma nova tentativa. Ver AEP-0040.
 
 Os trechos abaixo devem ser lidos como motivação histórica e direção arquitetural, não como especificação literal de APIs.
 

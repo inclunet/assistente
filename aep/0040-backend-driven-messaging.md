@@ -125,10 +125,14 @@ type MessagesReadyEvent struct {
 
 type StreamChunkEvent struct {
     ChatEventEnvelope
-    Content   string `json:"content"`
+    MessageID  string `json:"messageId"`
+    TurnID     string `json:"turnId"`
+    Delta      string `json:"delta,omitempty"`
+    Reset      bool   `json:"reset,omitempty"`
+    BaseContent string `json:"baseContent,omitempty"`
+    Sequence   uint64 `json:"sequence"`
     Done      bool   `json:"done"`
     Error     string `json:"error,omitempty"`
-    MessageID string `json:"messageId,omitempty"` // presente quando done=true
 }
 
 type StreamDoneEvent struct {
@@ -185,10 +189,14 @@ interface MessagesReadyEvent extends ChatEventEnvelope {
 }
 
 interface StreamChunkEvent extends ChatEventEnvelope {
-  content: string;
+  messageId: string;
+  turnId: string;
+  delta?: string;
+  reset?: boolean;
+  baseContent?: string;
+  sequence: number;
   done: boolean;
   error?: string;
-  messageId?: string;
 }
 
 interface StreamDoneEvent extends ChatEventEnvelope {
@@ -260,19 +268,33 @@ O frontend recebe e insere no estado. **O frontend não cria mais o placeholder 
 
 #### 2.3 Streaming atualiza mensagem existente (sem ID temporário)
 
-`chat:stream` agora carrega o `messageId` real em **todo** chunk, não só no final:
+`chat:stream` carrega o `messageId` e o `turnId` reais em **todo** lote. O
+backend agrupa chunks por aproximadamente 24 ms e envia somente o delta novo:
 
 ```go
 type StreamChunkEvent struct {
     ChatEventEnvelope
-    MessageID string `json:"messageId"` // SEMPRE presente
-    Content   string `json:"content"`
-    Done      bool   `json:"done"`
-    Error     string `json:"error,omitempty"`
+    MessageID   string `json:"messageId"`
+    TurnID      string `json:"turnId"`
+    Delta       string `json:"delta,omitempty"`
+    Reset       bool   `json:"reset,omitempty"`
+    BaseContent string `json:"baseContent,omitempty"`
+    Sequence    uint64 `json:"sequence"`
+    Done        bool   `json:"done"`
+    Error       string `json:"error,omitempty"`
 }
 ```
 
-O frontend faz `updateMessage(event.messageId, event.content)` — sem mapeamentos.
+O primeiro lote de cada tentativa usa `reset=true` e `sequence=0`. Em
+continuação explícita, `baseContent` traz uma única vez o prefixo persistido;
+os demais lotes incrementam `sequence` e carregam apenas `delta`. O frontend
+reinicia o acumulador em `reset`, concatena deltas contíguos e rejeita lacunas,
+duplicatas, outra conversa ou outro turno.
+
+Antes de `chat:tool_*`, `chat:segment_done`, erro, `output_limit` ou qualquer
+evento terminal, o backend faz flush síncrono do delta pendente. O
+`chat:done.turnPatch` continua sendo o estado final autoritativo e corrige o
+item transitório sem snapshot completo.
 
 #### 2.4 `chat:done` carrega o patch autoritativo mínimo do turno
 
