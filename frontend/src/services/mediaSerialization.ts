@@ -32,10 +32,7 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const chunks: string[] = [];
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
     const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
-    let binary = '';
-    for (let index = 0; index < chunk.length; index += 1) {
-      binary += String.fromCharCode(chunk[index]);
-    }
+    const binary = String.fromCharCode(...chunk);
     chunks.push(btoa(binary));
   }
   return chunks.join('');

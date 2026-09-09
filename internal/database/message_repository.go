@@ -466,6 +466,24 @@ func (r *MessageRepository) UpdateMessageContentWithContext(ctx context.Context,
 	}).Error
 }
 
+// UpdateMessageTextWithContext atualiza somente o texto, preservando reasoning,
+// tokens, modelo e métricas já associados à mensagem.
+func UpdateMessageTextWithContext(ctx context.Context, messageID string, content string) error {
+	return NewMessageRepository(db).UpdateMessageTextWithContext(ctx, messageID, content)
+}
+
+func (r *MessageRepository) UpdateMessageTextWithContext(ctx context.Context, messageID string, content string) error {
+	db := r.db
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
+	return db.WithContext(ctx).Model(&ChatMessage{}).
+		Where("id = ?", messageID).
+		Where("id IN (?)", messageIDs).
+		Update("content", content).Error
+}
+
 // UpdateMessageContentAndReasoningWithContext atualiza conteúdo, reasoning e tokens de uma mensagem
 // existente no contexto do usuário atual.
 func UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {

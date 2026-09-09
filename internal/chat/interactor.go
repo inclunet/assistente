@@ -601,7 +601,13 @@ func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserCont
 // PersistUserTranscription guarda o resultado único de STT na própria mensagem.
 // Histórico e retry passam a reutilizar esse conteúdo sem novas chamadas Whisper.
 func (i *Interactor) PersistUserTranscription(ctx context.Context, messageID, content string) error {
-	return i.repo.UpdateMessageContentAndReasoning(ctx, messageID, content, "", 0, 0, 0, "")
+	updater, ok := i.repo.(interface {
+		UpdateMessageText(context.Context, string, string) error
+	})
+	if !ok {
+		return errors.New("repositório não suporta atualização isolada da transcrição")
+	}
+	return updater.UpdateMessageText(ctx, messageID, content)
 }
 
 // PrepareMessagesRequest carries inputs for the PrepareMessages pipeline.
