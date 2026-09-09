@@ -37,6 +37,10 @@ type BaseStreamHandler struct {
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {
+	if content == "" {
+		return
+	}
+
 	h.Mu.Lock()
 	defer h.Mu.Unlock()
 

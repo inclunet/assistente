@@ -78,3 +78,17 @@ func TestBaseStreamHandlerPreservaDeltasEmitidosAposReusoDoBuffer(t *testing.T) 
 		t.Fatalf("deltas corrompidos após reuso do buffer: primeiro=%q segundo=%q", first.Delta, second.Delta)
 	}
 }
+
+func TestBaseStreamHandlerIgnoraChunkVazioSemAlterarCoalescing(t *testing.T) {
+	emitter := &retainingBaseHandlerCapture{}
+	handler := &BaseStreamHandler{Emitter: emitter}
+
+	handler.OnChunk("")
+
+	if len(emitter.events) != 0 {
+		t.Fatalf("chunk vazio emitiu %d evento(s)", len(emitter.events))
+	}
+	if !handler.LastEmitTime.IsZero() || handler.PendingEmit || handler.ThrottleTimer != nil {
+		t.Fatal("chunk vazio alterou o estado de coalescing")
+	}
+}

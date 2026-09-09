@@ -268,8 +268,9 @@ O frontend recebe e insere no estado. **O frontend não cria mais o placeholder 
 
 #### 2.3 Streaming atualiza mensagem existente (sem ID temporário)
 
-`chat:stream` carrega o `messageId` e o `turnId` reais em **todo** lote. O
-backend agrupa chunks por aproximadamente 24 ms e envia somente o delta novo:
+Todo lote delta normal de `chat:stream` carrega `conversationId`, `messageId`
+e `turnId` reais. O backend agrupa chunks por aproximadamente 24 ms e envia
+somente o delta novo:
 
 ```go
 type StreamChunkEvent struct {
@@ -284,6 +285,11 @@ type StreamChunkEvent struct {
     Error       string `json:"error,omitempty"`
 }
 ```
+
+O sinal terminal emergencial emitido por `events.HandlePanic` é a única
+exceção: ele pode ocorrer fora de um turno (por exemplo, em uma goroutine de
+sumarização) e, portanto, carrega `conversationId`, `error` e `done`, mas não
+é um lote delta e não possui necessariamente `messageId` ou `turnId`.
 
 O primeiro lote de cada tentativa usa `reset=true` e `sequence=0`. Em
 continuação explícita, `baseContent` traz uma única vez o prefixo persistido;
