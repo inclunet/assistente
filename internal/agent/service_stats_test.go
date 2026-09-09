@@ -163,6 +163,31 @@ func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
 	t.Fatal("chat:done não emitido")
 }
 
+func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
+	turnID := "turn-cancelado"
+	repo := &mockMsgRepo{turnMessages: []chat.Message{{
+		UUIDModel:      database.UUIDModel{ID: "assistant-1", CreatedAt: time.Now()},
+		ConversationID: "conv-1",
+		Role:           "assistant",
+		TurnID:         &turnID,
+		Content:        "conteúdo parcial persistido",
+	}}}
+	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	patch, err := svc.buildTurnPatch(ctx, "conv-1", turnID)
+	if err != nil {
+		t.Fatalf("patch não deve herdar cancelamento: %v", err)
+	}
+	if repo.turnMessagesContextErr != nil {
+		t.Fatalf("repository recebeu contexto cancelado: %v", repo.turnMessagesContextErr)
+	}
+	if patch == nil || patch.Message.Content != "conteúdo parcial persistido" {
+		t.Fatalf("patch parcial ausente após cancelamento: %+v", patch)
+	}
+}
+
 // TestSaveAndFinish_DoneEvent_NilLoopStats verifica que chat:done funciona
 // sem loopStats (chamada simples sem agentic loop).
 func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {

@@ -393,7 +393,13 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	if s == nil || s.msgRepo == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(turnID) == "" {
 		return nil, nil
 	}
-	messages, err := s.msgRepo.GetMessagesByTurnID(ctx, conversationID, nil, turnID, 1000)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	patchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+
+	messages, err := s.msgRepo.GetMessagesByTurnID(patchCtx, conversationID, nil, turnID, 1000)
 	if err != nil {
 		return nil, err
 	}
@@ -403,8 +409,8 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 
 	callsByTurn := map[string][]chat.TurnSegmentToolCall{}
 	resultsByTurn := map[string]map[string]string{}
-	if userID, userErr := database.RequireUserID(ctx); userErr == nil {
-		displays, displayErr := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, []string{turnID})
+	if userID, userErr := database.RequireUserID(patchCtx); userErr == nil {
+		displays, displayErr := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(patchCtx, userID, []string{turnID})
 		if displayErr != nil {
 			return nil, displayErr
 		}
