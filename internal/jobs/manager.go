@@ -1301,9 +1301,9 @@ func (m *Manager) registerTriggers(job *Job) {
 			jobCopy := *job
 			triggerWhen := t.When
 			m.eventBus.Subscribe(t.Listen, job.ID, func(ctx context.Context, eventName string, payload map[string]any) {
-				// Extrai chain context do payload
-				chainID, _ := payload["_chain_id"].(string)
-				chainHistory, _ := payload["_chain_history"].([]string)
+				// Eventos de sucesso trazem a cadeia no payload. Eventos de
+				// falha preservam o mesmo contrato pelo eventctx do publicador.
+				chainID, chainHistory := triggerChainContext(ctx, payload)
 
 				// Remove metadados de chain do payload visivel
 				cleanPayload := make(map[string]any, len(payload))
@@ -1354,6 +1354,20 @@ func (m *Manager) registerTriggers(job *Job) {
 			m.registerJobHotkey(job, t.Keys, t.When)
 		}
 	}
+}
+
+func triggerChainContext(ctx context.Context, payload map[string]any) (string, []string) {
+	chainID, _ := payload["_chain_id"].(string)
+	chainHistory, _ := payload["_chain_history"].([]string)
+	if provenance, ok := eventctx.From(ctx); ok {
+		if chainID == "" {
+			chainID = provenance.ChainID
+		}
+		if len(chainHistory) == 0 {
+			chainHistory = provenance.ChainHistory
+		}
+	}
+	return chainID, clipHistory(chainHistory)
 }
 
 func (m *Manager) unregisterTriggers(job *Job) {
