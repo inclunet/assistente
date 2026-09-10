@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os/exec"
 	"sort"
@@ -85,12 +86,24 @@ type ToolCatalog interface {
 type serverConnection struct {
 	client             *mcpsdk.Client
 	session            *mcpsdk.ClientSession
+	cancelSession      context.CancelFunc         // encerra todo o ciclo de vida da sessão
+	sessionDone        chan error                 // recebe o resultado de Wait quando a sessão termina
 	bridges            []*MCPToolBridge           // tools registradas no registry
 	cancelHealth       context.CancelFunc         // cancela health check goroutine
+	healthDone         chan struct{}              // fechado quando o health loop termina
 	cancelTokenRefresh context.CancelFunc         // cancela token refresh goroutine (OAuth2)
+	tokenRefreshDone   chan struct{}              // fechado quando o token refresh loop termina
 	logHandler         func(LogEntry)             // handler para logs do servidor
 	progressHandler    func(ProgressNotification) // handler para progresso
 	resourceSubHandler func(ResourceUpdated)      // handler para resource updates
+}
+
+// connectionAttempt representa todo o Connect em andamento, não apenas a
+// chamada ao SDK. Disconnect espera done antes de retornar, impedindo que uma
+// sessão seja publicada depois de o usuário já tê-la desconectado.
+type connectionAttempt struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
@@ -106,7 +119,7 @@ type Manager struct {
 	llmHandler     func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
 	servers        map[string]*ServerStatus                               // slug -> status
 	connections    map[string]*serverConnection                           // slug -> connection ativa
-	connectCancels map[string]context.CancelFunc                          // slug -> cancel for in-flight Connect()
+	connectCancels map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
 	ctx            context.Context
 	cancel         context.CancelFunc
 	bgWG           sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
@@ -114,23 +127,35 @@ type Manager struct {
 	bgClosed       bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
 	authContext    func() context.Context
 	roots          []Root // workspace roots globais
+	connectTimeout time.Duration
+
+	// transportFactory existe para testes de lifecycle sem processos ou rede
+	// externa. Em produção, createTransport usa os transports oficiais.
+	transportFactory func(context.Context, string, ServerConfig) (mcpsdk.Transport, error)
 }
 
 // goTracked executa fn numa goroutine rastreada por bgWG, permitindo que
 // CloseAll aguarde o término dos loops e reconexões antes do shutdown.
+func (m *Manager) goTracked(fn func()) {
+	m.tryGoTracked(fn)
+}
+
+// tryGoTracked informa se a goroutine pôde ser iniciada. Os chamadores que
+// publicam canais de conclusão usam o retorno para fechá-los quando CloseAll
+// já bloqueou a criação de novo trabalho.
 //
 // O Add(1) é serializado com a flag bgClosed sob bgMu: depois que CloseAll
-// marca bgClosed (antes de chamar bgWG.Wait()), goTracked vira no-op. Isso
+// marca bgClosed (antes de chamar bgWG.Wait()), tryGoTracked vira no-op. Isso
 // garante que nenhum Add ocorra concorrente ao Wait — caso contrário o
 // runtime aborta com "sync: WaitGroup misuse: Add called concurrently with
 // Wait" quando uma reconexão dispara trabalho rastreado durante o shutdown.
 // bgMu é dedicado (não reusa m.mu) porque goTracked é chamado com m.mu já
 // retido em performHealthCheck.
-func (m *Manager) goTracked(fn func()) {
+func (m *Manager) tryGoTracked(fn func()) bool {
 	m.bgMu.Lock()
 	if m.bgClosed {
 		m.bgMu.Unlock()
-		return
+		return false
 	}
 	m.bgWG.Add(1)
 	m.bgMu.Unlock()
@@ -138,6 +163,7 @@ func (m *Manager) goTracked(fn func()) {
 		defer m.bgWG.Done()
 		fn()
 	}()
+	return true
 }
 
 // waitBackground aguarda o término das goroutines rastreadas em bgWG, com
@@ -165,9 +191,10 @@ func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEven
 		emitEvent:      emitEvent,
 		servers:        make(map[string]*ServerStatus),
 		connections:    make(map[string]*serverConnection),
-		connectCancels: make(map[string]context.CancelFunc),
+		connectCancels: make(map[string]*connectionAttempt),
 		ctx:            ctx,
 		cancel:         cancel,
+		connectTimeout: connectTimeout,
 	}
 }
 
@@ -492,6 +519,10 @@ func (m *Manager) Connect(slug string) error {
 }
 
 func (m *Manager) connectWithContext(parentCtx context.Context, slug string) error {
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+
 	m.mu.Lock()
 	status, ok := m.servers[slug]
 	if !ok {
@@ -504,7 +535,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		return fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
 	}
 
-	if status.Status == StatusConnecting {
+	if _, connecting := m.connectCancels[slug]; connecting {
 		m.mu.Unlock()
 		return fmt.Errorf("servidor MCP '%s' já está conectando — use Desconectar para cancelar", slug)
 	}
@@ -516,12 +547,37 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		m.mu.Unlock()
 		_ = m.Disconnect(slug)
 		m.mu.Lock()
+		status, ok = m.servers[slug]
+		if !ok {
+			m.mu.Unlock()
+			return fmt.Errorf("servidor MCP '%s' não encontrado", slug)
+		}
+		if !status.Config.Enabled {
+			m.mu.Unlock()
+			return fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
+		}
 	}
 
+	// O contexto entregue ao SDK governa toda a jsonrpc2.Connection. Por isso
+	// ele é persistente e só termina em Disconnect/CloseAll (ou falha da
+	// sessão), nunca no retorno desta função. O timeout do handshake é imposto
+	// separadamente em connectClientSession.
+	sessionCtx, sessionCancel := context.WithCancel(m.ctx)
+	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{})}
+	m.connectCancels[slug] = attempt
 	status.Status = StatusConnecting
 	status.Error = ""
 	cfg := status.Config
 	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		if m.connectCancels[slug] == attempt {
+			delete(m.connectCancels, slug)
+		}
+		m.mu.Unlock()
+		close(attempt.done)
+	}()
 
 	m.emit("mcp:server_connecting", map[string]string{"slug": slug})
 
@@ -534,39 +590,59 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		nil,
 	)
 
+	if err := parentCtx.Err(); err != nil {
+		sessionCancel()
+		m.resetConnectingStatus(slug)
+		return err
+	}
+
 	// Probe SSE: para Streamable HTTP, verifica se o servidor suporta SSE
 	// antes de conectar, evitando esperar timeouts longos em 5 retries do SDK.
 	if cfg.Transport == TransportStreamable && !cfg.DisableSSE && cfg.URL != "" {
 		httpClient := m.buildAuthHTTPClient(slug, cfg)
-		if sseSupported, reason := probeSSESupport(cfg.URL, httpClient); !sseSupported {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] SSE não suportado (%s) — usando polling", slug, reason)
+		probeCtx, probeCancel := context.WithCancel(sessionCtx)
+		stopParentCancel := context.AfterFunc(parentCtx, probeCancel)
+		sseSupported, reason := probeSSESupport(probeCtx, cfg.URL, httpClient)
+		stopParentCancel()
+		probeCancel()
+		if !sseSupported {
+			if err := parentCtx.Err(); err != nil {
+				sessionCancel()
+				m.resetConnectingStatus(slug)
+				return err
+			}
+			if sessionCtx.Err() != nil {
+				m.resetConnectingStatus(slug)
+				return sessionCtx.Err()
+			}
+			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] SSE não suportado (%s) — usando polling", slug, reason)
 			cfg.DisableSSE = true
 		}
 	}
 
+	if err := parentCtx.Err(); err != nil {
+		sessionCancel()
+		m.resetConnectingStatus(slug)
+		return err
+	}
+
 	// Cria o transport com base no tipo (inclui autenticação se configurada)
-	transport, err := m.createTransport(slug, cfg)
+	transport, err := m.createTransport(sessionCtx, slug, cfg)
 	if err != nil {
+		if sessionCtx.Err() != nil {
+			m.resetConnectingStatus(slug)
+			return sessionCtx.Err()
+		}
+		sessionCancel()
 		m.setError(slug, fmt.Sprintf("erro ao criar transport: %v", err))
 		return err
 	}
 
-	// Conecta ao servidor com timeout; registra cancel para permitir abortar via Disconnect
-	connectCtx, connectCancel := context.WithTimeout(parentCtx, connectTimeout)
-	m.mu.Lock()
-	m.connectCancels[slug] = connectCancel
-	m.mu.Unlock()
-	defer func() {
-		connectCancel()
-		m.mu.Lock()
-		delete(m.connectCancels, slug)
-		m.mu.Unlock()
-	}()
-
-	session, err := client.Connect(connectCtx, transport, nil)
+	session, err := m.connectClientSessionWithTimeout(parentCtx, sessionCtx, sessionCancel, client, transport)
 	if err != nil {
 		// SSE failure: auto-fallback to polling (disable SSE and retry once)
-		if !cfg.DisableSSE && cfg.Transport == TransportStreamable &&
+		if sessionCtx.Err() == nil && parentCtx.Err() == nil &&
+			!cfg.DisableSSE && cfg.Transport == TransportStreamable &&
 			strings.Contains(err.Error(), "standalone SSE") {
 			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] SSE falhou — tentando reconectar sem SSE (polling)", slug)
 			cfg.DisableSSE = true
@@ -578,14 +654,35 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 			_ = m.SaveConfig(slug, cfg)
 
 			client = mcpsdk.NewClient(&mcpsdk.Implementation{Name: "assistente", Version: "1.0.0"}, nil)
-			transport2, err2 := m.createTransport(slug, cfg)
+			transport2, err2 := m.createTransport(sessionCtx, slug, cfg)
 			if err2 == nil {
-				retryCtx, retryCancel := context.WithTimeout(parentCtx, connectTimeout)
-				defer retryCancel()
-				session, err = client.Connect(retryCtx, transport2, nil)
+				// O fallback é uma nova tentativa e recebe seu próprio orçamento
+				// completo de handshake.
+				session, err = m.connectClientSessionWithTimeout(parentCtx, sessionCtx, sessionCancel, client, transport2)
+			} else {
+				err = err2
 			}
 		}
 		if err != nil {
+			if sessionCtx.Err() != nil || parentCtx.Err() != nil ||
+				errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				sessionCancel()
+				m.resetConnectingStatus(slug)
+				if parentCtx.Err() != nil {
+					return parentCtx.Err()
+				}
+				// O timeout do handshake também cancela sessionCtx para limpar
+				// o transport. Preserve a causa original em vez de degradá-la
+				// para context canceled.
+				if errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				if sessionCtx.Err() != nil {
+					return sessionCtx.Err()
+				}
+				return err
+			}
+			sessionCancel()
 			m.setError(slug, fmt.Sprintf("erro ao conectar: %v", err))
 			return fmt.Errorf("falha ao conectar ao servidor MCP '%s': %w", slug, err)
 		}
@@ -615,30 +712,89 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		// TODO: Quando SDK suportar, enviar via session.NotifyRootsListChanged
 	}
 
-	// Inicia health check goroutine
-	healthCtx, healthCancel := context.WithCancel(m.ctx)
-	m.goTracked(func() { m.healthCheckLoop(healthCtx, slug) })
-
-	// Inicia token refresh proativo para servidores OAuth2
-	var tokenRefreshCancel context.CancelFunc
-	if cfg.AuthType == AuthOAuth2PKCE || cfg.AuthType == AuthOAuth2ClientCredentials {
-		tokenCtx, cancel := context.WithCancel(m.ctx)
-		tokenRefreshCancel = cancel
-		m.goTracked(func() { m.tokenRefreshLoop(tokenCtx, slug) })
-	}
-
-	now := time.Now()
-
-	// Atualiza estado da conexão (antes de descobrir offerings)
-	m.mu.Lock()
-	m.connections[slug] = &serverConnection{
+	sessionDone := make(chan error, 1)
+	conn := &serverConnection{
 		client:             client,
 		session:            session,
-		cancelHealth:       healthCancel,
-		cancelTokenRefresh: tokenRefreshCancel,
+		cancelSession:      sessionCancel,
+		sessionDone:        sessionDone,
 		logHandler:         logHandler,
 		progressHandler:    progressHandler,
 		resourceSubHandler: resourceSubHandler,
+	}
+
+	// Publica provisoriamente a sessão para permitir o discovery. A tentativa
+	// continua registrada até offerings e loops estarem prontos, portanto
+	// Disconnect ainda consegue cancelá-la e aguardar seu cleanup completo.
+	m.mu.Lock()
+	if m.connectCancels[slug] != attempt || sessionCtx.Err() != nil {
+		m.mu.Unlock()
+		sessionCancel()
+		_ = closeAndWaitClientSession(session)
+		m.resetConnectingStatus(slug)
+		return context.Canceled
+	}
+	m.connections[slug] = conn
+	m.mu.Unlock()
+	watchSession := func() {
+		sessionDone <- session.Wait()
+		close(sessionDone)
+	}
+	if !m.tryGoTracked(watchSession) {
+		// CloseAll pode bloquear novos Adds no bgWG entre a publicação da
+		// conexão e o início do watcher. Ainda assim Wait precisa rodar:
+		// closeServerConnection aguarda este canal e, portanto, coleta a
+		// sessão antes de o shutdown retornar.
+		go watchSession()
+	}
+
+	// Descobre tools, resources e prompts do servidor
+	operationCtx, operationCancel := context.WithCancel(parentCtx)
+	stopSessionCancel := context.AfterFunc(sessionCtx, operationCancel)
+	err = m.refreshServerOfferingsWithContextFor(operationCtx, slug, conn)
+	stopSessionCancel()
+	operationCancel()
+	if err != nil {
+		m.detachConnection(slug, conn)
+		_ = closeServerConnection(slug, conn, true)
+		if sessionCtx.Err() != nil || errors.Is(err, context.Canceled) {
+			m.resetConnectingStatus(slug)
+			return context.Canceled
+		}
+		m.setError(slug, fmt.Sprintf("erro ao descobrir offerings: %v", err))
+		return fmt.Errorf("falha ao descobrir offerings do servidor MCP '%s': %w", slug, err)
+	}
+
+	healthCtx, healthCancel := context.WithCancel(sessionCtx)
+	healthDone := make(chan struct{})
+	var (
+		tokenCtx    context.Context
+		tokenCancel context.CancelFunc
+		tokenDone   chan struct{}
+	)
+	if cfg.AuthType == AuthOAuth2PKCE || cfg.AuthType == AuthOAuth2ClientCredentials {
+		tokenCtx, tokenCancel = context.WithCancel(sessionCtx)
+		tokenDone = make(chan struct{})
+	}
+
+	now := time.Now()
+	m.mu.Lock()
+	if m.connections[slug] != conn || sessionCtx.Err() != nil {
+		m.mu.Unlock()
+		healthCancel()
+		if tokenCancel != nil {
+			tokenCancel()
+		}
+		m.detachConnection(slug, conn)
+		_ = closeServerConnection(slug, conn, true)
+		m.resetConnectingStatus(slug)
+		return context.Canceled
+	}
+	conn.cancelHealth = healthCancel
+	conn.healthDone = healthDone
+	if tokenCancel != nil {
+		conn.cancelTokenRefresh = tokenCancel
+		conn.tokenRefreshDone = tokenDone
 	}
 	if s, ok := m.servers[slug]; ok {
 		s.Status = StatusConnected
@@ -651,11 +807,19 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	}
 	m.mu.Unlock()
 
-	// Descobre tools, resources e prompts do servidor
-	if err := m.refreshServerOfferingsWithContext(parentCtx, slug); err != nil {
-		_ = m.Disconnect(slug)
-		m.setError(slug, fmt.Sprintf("erro ao descobrir offerings: %v", err))
-		return fmt.Errorf("falha ao descobrir offerings do servidor MCP '%s': %w", slug, err)
+	if !m.tryGoTracked(func() {
+		defer close(healthDone)
+		m.healthCheckLoop(healthCtx, slug, conn)
+	}) {
+		close(healthDone)
+	}
+	if tokenCancel != nil {
+		if !m.tryGoTracked(func() {
+			defer close(tokenDone)
+			m.tokenRefreshLoop(tokenCtx, slug)
+		}) {
+			close(tokenDone)
+		}
 	}
 
 	m.emit("mcp:server_connected", map[string]any{
@@ -669,17 +833,96 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	return nil
 }
 
-// refreshServerOfferings re-descobre tools, resources e prompts de um servidor
-// já conectado, atualizando o registry e o ServerStatus.
-// Usado pelo Connect inicial e pelo health check periódico.
-func (m *Manager) refreshServerOfferings(slug string) error {
-	return m.refreshServerOfferingsWithContext(m.ctx, slug)
+type clientConnectResult struct {
+	session *mcpsdk.ClientSession
+	err     error
+}
+
+// connectClientSession aplica timeout/cancelamento ao handshake sem entregar
+// esse contexto efêmero ao jsonrpc2.NewConnection. Ao cancelar, espera o SDK
+// fechar transport/processo antes de retornar, evitando goroutines e processos
+// órfãos. O canal bufferizado cobre a corrida em que Connect conclui junto do
+// timeout.
+func connectClientSession(
+	handshakeCtx context.Context,
+	sessionCtx context.Context,
+	sessionCancel context.CancelFunc,
+	client *mcpsdk.Client,
+	transport mcpsdk.Transport,
+) (*mcpsdk.ClientSession, error) {
+	resultCh := make(chan clientConnectResult, 1)
+	go func() {
+		session, err := client.Connect(sessionCtx, transport, nil)
+		resultCh <- clientConnectResult{session: session, err: err}
+	}()
+
+	select {
+	case result := <-resultCh:
+		// O resultado e o deadline podem ficar prontos no mesmo instante. Se o
+		// orçamento já expirou, não publique uma sessão vencedora por acaso nem
+		// exponha o erro interno context canceled do cleanup.
+		if handshakeCtx.Err() != nil {
+			sessionCancel()
+			_ = closeAndWaitClientSession(result.session)
+			return nil, handshakeCtx.Err()
+		}
+		return result.session, result.err
+	case <-handshakeCtx.Done():
+		sessionCancel()
+		result := <-resultCh
+		_ = closeAndWaitClientSession(result.session)
+		return nil, handshakeCtx.Err()
+	case <-sessionCtx.Done():
+		result := <-resultCh
+		_ = closeAndWaitClientSession(result.session)
+		return nil, sessionCtx.Err()
+	}
+}
+
+func closeAndWaitClientSession(session *mcpsdk.ClientSession) error {
+	if session == nil {
+		return nil
+	}
+	closeErr := session.Close()
+	waitErr := session.Wait()
+	return errors.Join(closeErr, waitErr)
+}
+
+func (m *Manager) connectClientSessionWithTimeout(
+	parentCtx context.Context,
+	sessionCtx context.Context,
+	sessionCancel context.CancelFunc,
+	client *mcpsdk.Client,
+	transport mcpsdk.Transport,
+) (*mcpsdk.ClientSession, error) {
+	handshakeCtx, handshakeCancel := context.WithTimeout(parentCtx, m.connectTimeout)
+	defer handshakeCancel()
+	return connectClientSession(handshakeCtx, sessionCtx, sessionCancel, client, transport)
+}
+
+func (m *Manager) resetConnectingStatus(slug string) {
+	m.mu.Lock()
+	if s, ok := m.servers[slug]; ok && s.Status == StatusConnecting {
+		s.Status = StatusDisconnected
+		s.Error = ""
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, slug string) error {
 	m.mu.RLock()
 	conn, ok := m.connections[slug]
+	m.mu.RUnlock()
 	if !ok {
+		return fmt.Errorf("servidor '%s' não está conectado", slug)
+	}
+	return m.refreshServerOfferingsWithContextFor(parentCtx, slug, conn)
+}
+
+func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context, slug string, expected *serverConnection) error {
+	m.mu.RLock()
+	conn, ok := m.connections[slug]
+	if !ok || (expected != nil && conn != expected) {
 		m.mu.RUnlock()
 		return fmt.Errorf("servidor '%s' não está conectado", slug)
 	}
@@ -748,7 +991,7 @@ func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, s
 	// Atualiza registry: remove bridges antigos, registra novos
 	m.mu.Lock()
 	conn, ok = m.connections[slug]
-	if !ok {
+	if !ok || (expected != nil && conn != expected) {
 		m.mu.Unlock()
 		return fmt.Errorf("servidor '%s' desconectou durante refresh", slug)
 	}
@@ -791,40 +1034,31 @@ func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, s
 func (m *Manager) Disconnect(slug string) error {
 	m.mu.Lock()
 	conn, ok := m.connections[slug]
-	if !ok {
-		// Not connected yet — but may be mid-Connect(). Cancel and reset status.
-		if cancelFn, has := m.connectCancels[slug]; has {
-			cancelFn()
-			delete(m.connectCancels, slug)
-			if s, exists := m.servers[slug]; exists {
-				s.Status = StatusDisconnected
-				s.Error = ""
-			}
-			m.mu.Unlock()
-			m.markServerToolsUnavailable(slug, "server disconnected")
-			logging.Infof(context.Background(), "mcp.manager", "[MCP] Conexão em andamento de '%s' cancelada pelo usuário", slug)
-			m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
-			m.logEvent(slug, "disconnected", "Conexão MCP cancelada pelo usuário", nil)
-			return nil
-		}
+	attempt := m.connectCancels[slug]
+	if !ok && attempt == nil {
 		m.mu.Unlock()
 		return nil
 	}
 
-	// Cancela goroutines
-	if conn.cancelHealth != nil {
-		conn.cancelHealth()
+	if attempt != nil {
+		attempt.cancel()
 	}
-	if conn.cancelTokenRefresh != nil {
-		conn.cancelTokenRefresh()
-	}
+	if conn != nil {
+		if conn.cancelHealth != nil {
+			conn.cancelHealth()
+		}
+		if conn.cancelTokenRefresh != nil {
+			conn.cancelTokenRefresh()
+		}
+		if conn.cancelSession != nil {
+			conn.cancelSession()
+		}
 
-	// Remove tools do registry
-	for _, bridge := range conn.bridges {
-		m.registry.Unregister(bridge.Name())
+		for _, bridge := range conn.bridges {
+			m.registry.Unregister(bridge.Name())
+		}
+		delete(m.connections, slug)
 	}
-
-	delete(m.connections, slug)
 
 	if s, ok := m.servers[slug]; ok {
 		s.Status = StatusDisconnected
@@ -837,11 +1071,13 @@ func (m *Manager) Disconnect(slug string) error {
 	}
 	m.mu.Unlock()
 
-	// Fecha a sessão (fora do lock para evitar deadlock)
-	if conn.session != nil {
-		if err := conn.session.Close(); err != nil {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro ao fechar sessão '%s': %v", slug, err)
-		}
+	var closeErr error
+	if conn != nil {
+		closeErr = closeServerConnection(slug, conn, true)
+		waitConnectionLoops(conn)
+	}
+	if attempt != nil {
+		<-attempt.done
 	}
 
 	m.markServerToolsUnavailable(slug, "server disconnected")
@@ -851,7 +1087,116 @@ func (m *Manager) Disconnect(slug string) error {
 	m.emit("mcp:tools_changed", nil)
 	m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
 
-	return nil
+	return closeErr
+}
+
+func (m *Manager) detachConnection(slug string, expected *serverConnection) {
+	m.mu.Lock()
+	if m.connections[slug] == expected {
+		for _, bridge := range expected.bridges {
+			m.registry.Unregister(bridge.Name())
+		}
+		delete(m.connections, slug)
+	}
+	m.mu.Unlock()
+}
+
+func closeServerConnection(slug string, conn *serverConnection, expected bool) error {
+	if conn == nil {
+		return nil
+	}
+	waitCompleted := false
+	var waitErr error
+	if conn.sessionDone != nil {
+		select {
+		case result, ok := <-conn.sessionDone:
+			// Canal fechado sem valor significa que o watcher nem chegou a
+			// iniciar (CloseAll já havia bloqueado tryGoTracked), não que
+			// session.Wait comprovou o encerramento.
+			waitCompleted = ok
+			if ok {
+				waitErr = result
+				// O watcher fecha o canal logo depois do envio. Aguarde esse
+				// passo também para que o retorno represente um join completo.
+				<-conn.sessionDone
+			}
+		default:
+		}
+	}
+	if conn.cancelHealth != nil {
+		conn.cancelHealth()
+	}
+	if conn.cancelTokenRefresh != nil {
+		conn.cancelTokenRefresh()
+	}
+	if conn.cancelSession != nil {
+		conn.cancelSession()
+	}
+	if conn.session == nil {
+		return nil
+	}
+	closeErr := conn.session.Close()
+	if !waitCompleted {
+		waitErr, waitCompleted = waitConnectionSession(conn)
+	}
+	combinedErr := errors.Join(closeErr, waitErr)
+	if combinedErr == nil {
+		return nil
+	}
+	var unexpectedErrs []error
+	for _, err := range []error{closeErr, waitErr} {
+		if err != nil && (!expected || !isExpectedSessionCloseError(err, waitCompleted)) {
+			unexpectedErrs = append(unexpectedErrs, err)
+		}
+	}
+	if len(unexpectedErrs) == 0 {
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] Sessão '%s' já estava encerrada durante cleanup: %v", slug, combinedErr)
+		return nil
+	}
+	unexpectedErr := errors.Join(unexpectedErrs...)
+	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro inesperado ao fechar sessão '%s': %v", slug, unexpectedErr)
+	return unexpectedErr
+}
+
+func waitConnectionSession(conn *serverConnection) (error, bool) {
+	if conn != nil && conn.sessionDone != nil {
+		result, ok := <-conn.sessionDone
+		if ok {
+			// Há exatamente um resultado por watcher; o segundo receive
+			// aguarda o close que conclui sua execução.
+			<-conn.sessionDone
+		}
+		return result, ok
+	}
+	return nil, false
+}
+
+func waitConnectionLoops(conn *serverConnection) {
+	if conn == nil {
+		return
+	}
+	if conn.healthDone != nil {
+		<-conn.healthDone
+	}
+	if conn.tokenRefreshDone != nil {
+		<-conn.tokenRefreshDone
+	}
+}
+
+func isExpectedSessionCloseError(err error, alreadyEnded bool) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, mcpsdk.ErrConnectionClosed) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "client is closing") ||
+		strings.Contains(msg, "connection closed") ||
+		strings.Contains(msg, "closed pipe") ||
+		(alreadyEnded && strings.Contains(msg, "exit status"))
 }
 
 // Reconnect desconecta e reconecta a um servidor.
@@ -1055,12 +1400,20 @@ func (m *Manager) DisconnectAll() {
 
 func (m *Manager) disconnectAllConnections(reason string) {
 	m.mu.RLock()
-	slugs := make([]string, 0, len(m.connections))
+	slugSet := make(map[string]struct{}, len(m.connections)+len(m.connectCancels))
 	for slug := range m.connections {
-		slugs = append(slugs, slug)
+		slugSet[slug] = struct{}{}
+	}
+	for slug := range m.connectCancels {
+		slugSet[slug] = struct{}{}
 	}
 	m.mu.RUnlock()
 
+	slugs := make([]string, 0, len(slugSet))
+	for slug := range slugSet {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
 	for _, slug := range slugs {
 		if err := m.Disconnect(slug); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro ao desconectar '%s' (%s): %v", slug, reason, err)
@@ -1070,14 +1423,17 @@ func (m *Manager) disconnectAllConnections(reason string) {
 
 // createTransport cria o transport apropriado para o tipo de servidor,
 // incluindo autenticação integrada com o gerenciador de credenciais.
-func (m *Manager) createTransport(slug string, cfg ServerConfig) (mcpsdk.Transport, error) {
+func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerConfig) (mcpsdk.Transport, error) {
+	if m.transportFactory != nil {
+		return m.transportFactory(ctx, slug, cfg)
+	}
 	switch cfg.Transport {
 	case TransportStdio:
 		if cfg.Command == "" {
 			return nil, fmt.Errorf("campo 'command' é obrigatório para transport stdio")
 		}
 
-		cmd := exec.CommandContext(m.ctx, cfg.Command, cfg.Args...)
+		cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
 		// Sem isso, no Windows cada servidor MCP stdio (incluindo reconexões do
 		// health check) abre uma janela de console que rouba o foco do app.
 		osutil.HideConsoleWindow(cmd)
@@ -1233,8 +1589,8 @@ func newMCPTransport() http.RoundTripper {
 // probeSSESupport sends a quick GET with Accept: text/event-stream to the MCP
 // endpoint to check if the server supports SSE. Returns (true, "") if supported,
 // or (false, reason) if not. Uses a short timeout so this doesn't slow down connect.
-func probeSSESupport(mcpURL string, authClient *http.Client) (bool, string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.Client) (bool, string) {
+	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, nil)
@@ -1359,7 +1715,7 @@ func (m *Manager) tokenRefreshLoop(ctx context.Context, slug string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.checkAndRefreshToken(slug)
+			m.checkAndRefreshTokenWithContext(ctx, slug)
 		}
 	}
 }
@@ -1367,7 +1723,11 @@ func (m *Manager) tokenRefreshLoop(ctx context.Context, slug string) {
 // checkAndRefreshToken verifica se o token OAuth2 está próximo de expirar
 // e força um refresh proativo usando o refresh_token.
 func (m *Manager) checkAndRefreshToken(slug string) {
-	refreshed, err := m.refreshOAuthTokenBestEffort(m.ctx, slug, false)
+	m.checkAndRefreshTokenWithContext(m.ctx, slug)
+}
+
+func (m *Manager) checkAndRefreshTokenWithContext(ctx context.Context, slug string) {
+	refreshed, err := m.refreshOAuthTokenBestEffort(ctx, slug, false)
 	if err != nil {
 		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Refresh proativo falhou: %v", slug, err)
 		return
@@ -1529,7 +1889,7 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 }
 
 // healthCheckLoop executa pings periódicos para verificar a saúde do servidor.
-func (m *Manager) healthCheckLoop(ctx context.Context, slug string) {
+func (m *Manager) healthCheckLoop(ctx context.Context, slug string, expected *serverConnection) {
 	ticker := time.NewTicker(healthCheckInterval)
 	defer ticker.Stop()
 
@@ -1538,7 +1898,7 @@ func (m *Manager) healthCheckLoop(ctx context.Context, slug string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.performHealthCheck(slug)
+			m.performHealthCheckFor(ctx, slug, expected)
 		}
 	}
 }
@@ -1547,9 +1907,13 @@ func (m *Manager) healthCheckLoop(ctx context.Context, slug string) {
 // Para servidores que não suportam ping, faz fallback para refreshServerOfferings,
 // que também mantém tools/resources/prompts sincronizados.
 func (m *Manager) performHealthCheck(slug string) {
+	m.performHealthCheckFor(m.ctx, slug, nil)
+}
+
+func (m *Manager) performHealthCheckFor(parentCtx context.Context, slug string, expected *serverConnection) {
 	m.mu.RLock()
 	conn, ok := m.connections[slug]
-	if !ok {
+	if !ok || (expected != nil && conn != expected) {
 		m.mu.RUnlock()
 		return
 	}
@@ -1561,7 +1925,7 @@ func (m *Manager) performHealthCheck(slug string) {
 	session := conn.session
 	m.mu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(m.ctx, healthCheckTimeout)
+	ctx, cancel := context.WithTimeout(parentCtx, healthCheckTimeout)
 	defer cancel()
 
 	err := session.Ping(ctx, nil)
@@ -1569,11 +1933,18 @@ func (m *Manager) performHealthCheck(slug string) {
 	if err != nil && isMethodNotFound(err) {
 		// Ping não suportado — valida a sessão re-descobrindo offerings.
 		// Isso também mantém as tools sincronizadas caso o servidor as altere.
-		err = m.refreshServerOfferings(slug)
+		err = m.refreshServerOfferingsWithContextFor(ctx, slug, conn)
 	}
 
 	now := time.Now()
 	m.mu.Lock()
+	// A sessão pode ter sido desconectada ou substituída enquanto Ping estava
+	// em voo. Um resultado tardio nunca deve degradar a nova conexão nem
+	// sobrescrever o estado disconnected.
+	if m.connections[slug] != conn {
+		m.mu.Unlock()
+		return
+	}
 	if s, ok := m.servers[slug]; ok {
 		if err != nil {
 			s.ConsecutiveHealthFailures++
@@ -1725,7 +2096,7 @@ func (m *Manager) reconnectWithRetry(slug string) {
 			continue
 		}
 
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP] Reconexão bem-sucedida para '%s'", slug)
+		logReconnectSuccess(slug)
 		m.mu.Lock()
 		if s, ok := m.servers[slug]; ok {
 			s.RetryCount = 0
@@ -1733,6 +2104,10 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		m.mu.Unlock()
 		return
 	}
+}
+
+func logReconnectSuccess(slug string) {
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Reconexão bem-sucedida para '%s'", slug)
 }
 
 // ReadResource lê o conteúdo de um resource MCP.
