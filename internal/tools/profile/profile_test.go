@@ -3,6 +3,7 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -210,7 +211,7 @@ func TestSwitchValidatesTabBeforeAuthorization(t *testing.T) {
 }
 
 func TestSwitchRevalidatesTargetAfterAuthorization(t *testing.T) {
-	access := &fakeAccess{allowed: true, validateErr: context.Canceled}
+	access := &fakeAccess{allowed: true, validateErr: errors.New("profile removido")}
 	switcher := &fakeSwitcher{}
 	result, err := New(access, switcher).Execute(profileToolContext("wails"), json.RawMessage(
 		`{"action":"switch","slug":"custom","reason":"motivo"}`,
@@ -220,5 +221,15 @@ func TestSwitchRevalidatesTargetAfterAuthorization(t *testing.T) {
 	}
 	if result.Metadata["error_code"] != "target_unavailable" {
 		t.Fatalf("código inesperado: %#v", result.Metadata)
+	}
+}
+
+func TestSwitchPropagatesTargetValidationCancellation(t *testing.T) {
+	access := &fakeAccess{allowed: true, validateErr: context.Canceled}
+	result, err := New(access, &fakeSwitcher{}).Execute(profileToolContext("wails"), json.RawMessage(
+		`{"action":"switch","slug":"custom","reason":"motivo"}`,
+	))
+	if !errors.Is(err, context.Canceled) || result.IsError {
+		t.Fatalf("cancelamento deveria ser propagado ao executor: result=%#v err=%v", result, err)
 	}
 }

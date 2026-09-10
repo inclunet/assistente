@@ -255,7 +255,7 @@ O backend ja possui todos os dados necessarios no momento da emissao: `iteration
 type ToolExecutionResult struct {
     Content    string
     IsError    bool
-    ErrorKind  string // "timeout" | "invalid_args" | "not_found" | "panic" | "unknown"
+    ErrorKind  string // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "authorization" | "unavailable" | "configuration" | "unknown"
     Retryable  bool
     DurationMs int64
 }

@@ -4,6 +4,7 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -172,6 +173,9 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		PersistentSwitch: true,
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tools.ToolResult{}, err
+		}
 		return errorResult("authorization_failed", fmt.Sprintf("não foi possível autorizar a troca de profile: %v", err)), nil
 	}
 	if !allowed {
@@ -185,6 +189,9 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		})
 	}
 	if err := t.access.ValidateTarget(ctx, targetSlug); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tools.ToolResult{}, err
+		}
 		return errorResult("target_unavailable", fmt.Sprintf("profile alvo indisponível após autorização: %v", err)), nil
 	}
 	if err := t.switcher.SwitchTabProfile(inv.SurfaceTabID, inv.ConversationID, targetSlug); err != nil {
