@@ -33,4 +33,16 @@ nenhuma ferramenta, sem aviso de falha do catálogo.
 
 ## Delegação
 
-Um perfil pode delegar para outro com escopo e expiração. A delegação é explícita, revogável e auditável — útil para automações que precisam agir como o usuário sem compartilhar credenciais. Veja AEP-0101 para o contrato completo.
+Em conversas, a autorização para usar outro perfil vale somente para a
+invocação atual. Jobs usam um contrato separado: cada job `subagent` precisa de
+autorização explícita para cada perfil alvo. A lista e a revogação ficam em
+**Jobs → Editar → Perfis autorizados para este job**.
+
+Permissões de jobs não ficam no arquivo do perfil nem no JSON/YAML do job, não
+são herdadas por cópias e não são concedidas por importação. Se um perfil for
+removido, seus grants são revogados; se a configuração do input `profile`
+mudar, será preciso autorizar novamente. Templates dinâmicos nunca recebem
+permissão curinga: cada slug permitido é confirmado separadamente.
+
+A delegação é explícita, revogável e auditável, sem compartilhar credenciais.
+Veja AEP-0101 para o contrato completo.

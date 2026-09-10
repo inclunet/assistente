@@ -1,6 +1,6 @@
 # AEP-0101 — Profiles descobríveis e delegação autorizada
 
-**Status:** ✅ Concluído
+**Status:** ✅ Concluído — incluindo grants específicos de jobs por perfil alvo
 
 ## Resumo
 
@@ -108,9 +108,10 @@ Quando um envio novo ou resume informa profile diferente:
 - a autorização vale apenas para aquela invocação.
 
 Origens interativas usam `questionnaire.Router` e sua superfície original.
-Origem sem interlocutor, como job/system, falha fechada para cross-profile até
-existir autorização persistida específica. Não há fallback silencioso para o
-profile global. O `questionnaire.Manager` serializa decisões backend no desktop
+Origem sem interlocutor, como system, falha fechada. Jobs só atravessam a
+fronteira cross-profile quando existe um grant persistido exato para usuário,
+job, profile alvo e fingerprint da configuração relevante, conforme D9. Não há
+fallback silencioso para o profile global. O `questionnaire.Manager` serializa decisões backend no desktop
 para que duas conversas concorrentes não disputem o único diálogo visível.
 
 ### D5 — Troca persistente é explícita e sempre confirmada
@@ -162,6 +163,28 @@ iniciam subagente.
 As tools retornam códigos estáveis e estruturados. Textos visíveis do diálogo
 usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
 
+### D9 — Jobs usam grants exatos, separados e revogáveis
+
+Jobs `subagent` não reutilizam a autorização por invocação de conversas. Cada
+combinação `(user_id, job_id, target_profile_slug,
+delegation_fingerprint)` nasce somente após uma decisão explícita no desktop.
+O fingerprint deriva da tool `subagent` e da expressão do input `profile`;
+nome, descrição, prompt, tags e outras mudanças editoriais não o alteram.
+
+Os grants vivem em tabela própria, nunca em `Job.Metadata`, `Inputs`, JSON ou
+YAML portável. Importar ou duplicar um job não concede autorização. Alterar a
+expressão de profile revoga grants anteriores; excluir o job ou o profile
+também revoga. Templates dinâmicos exigem um grant individual por slug
+instalado, sem wildcard nem confiança no valor recebido do evento.
+
+No runtime, `eventctx.SourceJobID` identifica o job persistido. O backend
+revalida job, fingerprint, profile alvo e grant antes de criar conversa/run.
+Grant ausente falha como `authorization_not_granted`, permanente para a
+política de retry. Cron/event/headless nunca abre diálogo. A autorização
+interativa existente continua sendo por invocação e não consulta grants de
+jobs. Uma revogação corta autorizações futuras; uma execução que já atravessou
+o gate não é interrompida.
+
 ## Fases
 
 1. **Contrato e catálogo**
@@ -180,6 +203,12 @@ usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
    - orientar uso de catálogo, delegação e semântica “próximo turno”;
    - atualizar AEP-0096 e AEP-0068;
    - validar backend, frontend, acessibilidade e E2E aplicável.
+5. **Grants persistidos para jobs**
+   - persistir grants exatos e multiusuário em tabela própria;
+   - revalidar configuração/profile antes e depois do DecisionDialog;
+   - oferecer aprovação individual e revogação acessível no Job Builder;
+   - falhar fechado no runtime sem diálogo e sem retry permanente;
+   - cobrir migração, concorrência e isolamento.
 
 ## Riscos
 
@@ -209,6 +238,12 @@ usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
 - [x] Toda delegação cross-profile interativa exige autorização por invocação.
 - [x] Recusa de delegação não cria conversa nem run.
 - [x] Origem sem interlocutor falha fechada para delegação cross-profile.
+- [x] Job cross-profile só executa com grant exato para usuário, job, target e
+      fingerprint atual; ausência retorna falha permanente sem diálogo.
+- [x] Importação, exportação e duplicação não transportam grants.
+- [x] Template dinâmico exige autorização individual por slug, sem wildcard.
+- [x] Alteração relevante, exclusão do job/profile e revogação visível
+      invalidam autorizações futuras.
 - [x] Toda troca persistente real exige autorização e afeta somente a aba de
       origem.
 - [x] O retorno de switch declara que o efeito começa no próximo turno.

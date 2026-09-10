@@ -17,6 +17,28 @@ Jobs são automações do tipo "uma ferramenta por disparo": cada job chama uma 
 - Armazenado no SQLite, com retenção de 30 dias e isolado por usuário.
 - Gerenciado em **Jobs**: grid com busca, criar/editar, ativar/desativar, ver logs e timeline.
 
+## Subagentes com perfil específico
+
+Quando a tool de um job é `subagent` e o input `profile` aponta para um perfil
+específico, o aplicativo pede uma autorização explícita no desktop. A permissão
+vale somente para aquele usuário, job, perfil alvo e configuração da expressão
+de `profile`.
+
+- Profile literal: ao salvar ou ativar sem permissão, confirme uma vez. Se
+  recusar ou fechar o diálogo, o job fica salvo desativado.
+- Profile por template: abra **Perfis autorizados para este job** no editor e
+  autorize cada perfil instalado separadamente. O valor recebido de um evento
+  nunca é liberado automaticamente.
+- Use **Revogar** ao lado de um perfil para impedir execuções futuras. Uma
+  execução que já começou não é interrompida.
+- Alterar a expressão de `profile`, excluir o job ou excluir o perfil revoga a
+  permissão aplicável. Alterações de nome, descrição ou prompt não pedem nova
+  autorização.
+
+Importar ou duplicar um job nunca importa permissões. Sem um grant válido,
+disparos cron/event/headless falham antes de criar conversa ou run de subagente
+e não abrem diálogo.
+
 ## Navegação e ações pelo teclado
 
 - Navegue pelas células da grade com as setas e pressione `Enter` para abrir os logs do job focado.
