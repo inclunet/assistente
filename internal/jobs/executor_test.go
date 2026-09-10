@@ -799,6 +799,61 @@ func TestExecute_EventChainReplacesParentRunLogIdentity(t *testing.T) {
 	assertCapturedAttrOnce(t, eventBusLog.attrs, "request_id", "request-1")
 }
 
+func TestLogSkippedUnavailableToolReplacesParentRunIdentity(t *testing.T) {
+	defaultLogger := slog.Default()
+	sink := &logCaptureSink{}
+	slog.SetDefault(slog.New(&logCaptureHandler{sink: sink}))
+	t.Cleanup(func() { slog.SetDefault(defaultLogger) })
+
+	manager := NewManager(ManagerConfig{})
+	job := &Job{ID: "child-job", Tool: "mcp_unavailable"}
+	trigCtx := &TriggerContext{
+		Type:         TriggerEvent,
+		EventName:    "parent.failed",
+		ChainID:      "parent-chain",
+		ChainHistory: []string{"parent-job"},
+	}
+	ctx := logging.WithAttrs(context.Background(),
+		slog.String("job_id", "parent-job"),
+		slog.String("run_id", "parent-run"),
+		slog.String("trigger_type", "manual"),
+		slog.String("request_id", "request-1"),
+	)
+	ctx = eventctx.With(ctx, eventctx.Provenance{
+		Source:       "job",
+		SourceJobID:  "parent-job",
+		ChainID:      "parent-chain",
+		ChainHistory: []string{"parent-job"},
+	})
+
+	manager.logSkippedUnavailableTool(ctx, job, trigCtx, "tool indisponível")
+
+	var skippedLog *capturedLog
+	for _, record := range sink.snapshot() {
+		if record.message == "child-job: skipping automatic run; tool indisponível" {
+			record := record
+			skippedLog = &record
+			break
+		}
+	}
+	if skippedLog == nil {
+		t.Fatal("log do run pulado não capturado")
+	}
+	assertCapturedAttrOnce(t, skippedLog.attrs, "job_id", job.ID)
+	assertCapturedAttrOnce(t, skippedLog.attrs, "trigger_type", string(TriggerEvent))
+	assertCapturedAttrOnce(t, skippedLog.attrs, "trigger_event", "parent.failed")
+	assertCapturedAttrOnce(t, skippedLog.attrs, "source_job_id", job.ID)
+	assertCapturedAttrOnce(t, skippedLog.attrs, "chain_id", "parent-chain")
+	assertCapturedAttrOnce(t, skippedLog.attrs, "chain_depth", int64(2))
+	assertCapturedAttrOnce(t, skippedLog.attrs, "request_id", "request-1")
+	if countCapturedAttrs(skippedLog.attrs, "run_id") != 1 {
+		t.Fatalf("run_id ocorre %d vezes, want 1", countCapturedAttrs(skippedLog.attrs, "run_id"))
+	}
+	if runID := attrString(skippedLog.attrs, "run_id"); runID == "parent-run" || runID == "" {
+		t.Fatalf("run_id do run pulado = %q, want identidade nova do filho", runID)
+	}
+}
+
 func countCapturedAttrs(attrs []slog.Attr, key string) int {
 	count := 0
 	for _, attr := range attrs {

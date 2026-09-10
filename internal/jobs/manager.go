@@ -1518,10 +1518,6 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 }
 
 func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigCtx *TriggerContext, reason string) {
-	logging.Infof(ctx, "jobs.manager", "[Jobs] %s: skipping automatic run; %s", job.ID, reason)
-	if m.cfg.Repository == nil {
-		return
-	}
 	runUUID, err := uuid.NewV7()
 	if err != nil {
 		runUUID = uuid.New()
@@ -1549,6 +1545,12 @@ func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigC
 	rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
 	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 	rl.addRunEvent("skipped", fmt.Sprintf("[%s] SKIPPED: %s", job.ID, reason), nil)
+	ctx = logging.WithAttrScope(ctx, jobRunLogAttrKeys, jobRunLogAttrs(job.ID, rl.RunID, trigCtx)...)
+	ctx = eventctx.With(ctx, m.executor.runProvenance(job, trigCtx, rl))
+	logging.Infof(ctx, "jobs.manager", "[Jobs] %s: skipping automatic run; %s", job.ID, reason)
+	if m.cfg.Repository == nil {
+		return
+	}
 	if err := m.cfg.Repository.LogRun(context.WithoutCancel(ctx), rl); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] %s: error logging skipped run: %v", job.ID, err)
 	}
