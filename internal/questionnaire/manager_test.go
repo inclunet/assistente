@@ -123,6 +123,32 @@ func TestRequestQuestionnaire_EventOmitsRejectReasonWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestRequestQuestionnaire_EmitsBodyLabelWithRawBody(t *testing.T) {
+	var mgr *Manager
+	mgr = NewManager(func(_ string, data any) {
+		dataMap := data.(map[string]any)
+		if got := dataMap["body"]; got != "rm -rf build" {
+			t.Errorf("body = %#v, quer conteúdo cru integral", got)
+		}
+		label, ok := dataMap["bodyLabel"].(Text)
+		if !ok || label.Key != "app.questionnaire.shell.bodyLabel" {
+			t.Errorf("bodyLabel = %#v, quer Text traduzível separado", dataMap["bodyLabel"])
+		}
+		go func() {
+			_ = mgr.Respond(dataMap["id"].(string), map[string]any{}, true)
+		}()
+	})
+
+	if _, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Kind:      KindDecision,
+		Body:      "rm -rf build",
+		BodyLabel: Keyed("app.questionnaire.shell.bodyLabel", "Comando solicitado"),
+		Questions: []Question{},
+	}); err != nil {
+		t.Fatalf("RequestQuestionnaire: %v", err)
+	}
+}
+
 func TestRespondQuestionnaire_NotFound(t *testing.T) {
 	mgr := NewManager(func(string, any) {})
 	if err := mgr.Respond("missing", map[string]any{}, false); err == nil {

@@ -1,4 +1,8 @@
-import { DecisionDialog, type DecisionAction } from '../ui/DecisionDialog';
+import {
+  DecisionDialog,
+  type DecisionAction,
+  type DecisionReadingRegion,
+} from '../ui/DecisionDialog';
 
 export type EditorExternalChangeAction =
   | 'use-disk'
@@ -69,6 +73,28 @@ export function EditorExternalChangeDialog({
       variant: 'outline',
     },
   ];
+  const readingRegions: DecisionReadingRegion[] = [
+    {
+      id: 'file',
+      label: decision.labels.file,
+      content: decision.filePath,
+    },
+    ...(decision.diffPreview ? [{
+      id: 'diff',
+      label: decision.labels.diff,
+      content: decision.diffPreview,
+    }] : []),
+    {
+      id: 'disk',
+      label: decision.labels.disk,
+      content: decision.diskPreview,
+    },
+    {
+      id: 'local',
+      label: decision.labels.local,
+      content: decision.localPreview,
+    },
+  ];
 
   return (
     <DecisionDialog
@@ -83,28 +109,7 @@ export function EditorExternalChangeDialog({
       size="xl"
       onAction={(actionId) => onAction(actionId as EditorExternalChangeAction)}
       onCancel={() => onAction('not-now')}
-      body={
-        <div className="decision-dialog__questions">
-          <section className="decision-dialog__question">
-            <h3 className="decision-dialog__question-label">{decision.labels.file}</h3>
-            <pre className="decision-dialog__question-content"><code>{decision.filePath}</code></pre>
-          </section>
-          {decision.diffPreview && (
-            <section className="decision-dialog__question">
-              <h3 className="decision-dialog__question-label">{decision.labels.diff}</h3>
-              <pre className="decision-dialog__question-content"><code>{decision.diffPreview}</code></pre>
-            </section>
-          )}
-          <section className="decision-dialog__question">
-            <h3 className="decision-dialog__question-label">{decision.labels.disk}</h3>
-            <pre className="decision-dialog__question-content"><code>{decision.diskPreview}</code></pre>
-          </section>
-          <section className="decision-dialog__question">
-            <h3 className="decision-dialog__question-label">{decision.labels.local}</h3>
-            <pre className="decision-dialog__question-content"><code>{decision.localPreview}</code></pre>
-          </section>
-        </div>
-      }
+      readingRegions={readingRegions}
     />
   );
 }

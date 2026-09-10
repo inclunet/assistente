@@ -18,6 +18,7 @@ const originalOffsetParentDescriptor = Object.getOwnPropertyDescriptor(
 );
 
 vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: announceMock,
   useAnnouncer: () => ({
     announce: announceMock,
   }),
@@ -320,8 +321,7 @@ describe('QuestionnaireDialog', () => {
       />
     );
 
-    const code = screen.getByRole('region', { name: '1. Antes' });
-    expect(code.tagName).toBe('PRE');
+    const code = screen.getByRole('group', { name: '1. Antes' });
     expect(code).toHaveAttribute('tabindex', '0');
     // Conteúdo exato, sem whitespace extra da indentação do JSX (o JSX remove
     // espaços com quebra de linha ao redor de expressões) — importante porque
@@ -329,7 +329,7 @@ describe('QuestionnaireDialog', () => {
     expect(code.textContent).toBe('linha 1\nlinha 2');
   });
 
-  it('usa modo de leitura (role=document) quando há readonly_code', () => {
+  it('mantém o formulário em application e ativa apenas a ilha documental', async () => {
     render(
       <QuestionnaireDialog
         isOpen
@@ -349,9 +349,13 @@ describe('QuestionnaireDialog', () => {
       />
     );
 
-    const readingBody = screen.getByRole('document');
-    expect(readingBody).toHaveClass('modal-body');
-    expect(screen.queryByRole('application')).toBeNull();
+    const anchor = screen.getByRole('group', { name: '1. Antes' });
+    anchor.focus();
+    await waitFor(() => {
+      expect(screen.getByRole('document', { name: '1. Antes' })).toHaveFocus();
+    });
+    expect(screen.getByRole('application')).toHaveClass('modal-body');
+    expect(screen.getAllByRole('document')).toHaveLength(1);
   });
 
   it('mantém role=application quando não há readonly_code', () => {
@@ -394,7 +398,7 @@ describe('QuestionnaireDialog', () => {
       />
     );
 
-    const code = screen.getByRole('region', { name: '1. Antes' });
+    const code = screen.getByRole('group', { name: '1. Antes' });
     code.focus();
     await user.keyboard('{Enter}');
 
@@ -551,7 +555,7 @@ describe('QuestionnaireDialog', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByRole('region', { name: '2. Depois' })).toHaveFocus();
+        expect(screen.getByRole('document', { name: '2. Depois' })).toHaveFocus();
       });
     });
 

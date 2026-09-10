@@ -17,6 +17,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: vi.fn(),
   useAnnouncer: () => ({
     announce: vi.fn(),
     announceRequest: vi.fn(),
@@ -40,6 +41,7 @@ function shellDecision(): QuestionnairePayload {
     title: { key: 'app.questionnaire.shell.title', fallback: 'Confirmar execução de comando' },
     description: { key: 'app.questionnaire.shell.prompt', fallback: 'Permitir a execução deste comando?' },
     body: 'ls -la',
+    bodyLabel: { key: 'app.questionnaire.shell.bodyLabel', fallback: 'Comando solicitado' },
     actions: [
       { id: 'allow', label: { key: 'app.questionnaire.shell.submit', fallback: 'Permitir' }, primary: true, variant: 'primary', polarity: 'affirmative', scope: 'current' },
       { id: 'deny', label: { key: 'app.questionnaire.shell.cancel', fallback: 'Negar' }, variant: 'outline', polarity: 'negative', scope: 'current' },
@@ -93,6 +95,7 @@ describe('DecisionQuestionnaireHost', () => {
 
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     expect(screen.getByText('ls -la')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Comando solicitado' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Permitir/i }));
     expect(onAction).toHaveBeenCalledWith({ [DECISION_ANSWER_ACTION_ID]: 'allow' });
   });
@@ -225,8 +228,12 @@ describe('DecisionQuestionnaireHost', () => {
       <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
     );
 
-    expect(screen.getByRole('region', { name: 'Antes' })).toHaveTextContent('old');
-    expect(screen.getByRole('region', { name: 'Depois' })).toHaveTextContent('new');
+    expect(screen.getByRole('group', { name: 'Antes' })).toHaveTextContent('old');
+    expect(screen.getByRole('group', { name: 'Depois' })).toHaveTextContent('new');
+    expect(screen.getByRole('alertdialog').querySelector('.modal-body')).toHaveAttribute(
+      'role',
+      'application',
+    );
 
     fireEvent.change(screen.getByLabelText(/Motivo da rejeição/i), {
       target: { value: 'prefiro o original' },
@@ -275,9 +282,9 @@ describe('DecisionQuestionnaireHost', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByRole('region', { name: 'Depois' })).toHaveFocus();
+        expect(screen.getByRole('document', { name: 'Depois' })).toHaveFocus();
       });
-      expect(screen.getByRole('region', { name: 'Antes' })).not.toHaveFocus();
+      expect(screen.getAllByRole('document')).toHaveLength(1);
     } finally {
       if (descritor) {
         Object.defineProperty(HTMLElement.prototype, 'offsetParent', descritor);

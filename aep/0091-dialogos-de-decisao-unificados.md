@@ -1,4 +1,4 @@
-# AEP-0091 — Diálogos de decisão unificados (estilo Windows + NVDA)
+# AEP-0091 — Diálogos de decisão unificados e ilhas documentais (Windows + NVDA)
 
 **Status:** ✅ Done
 
@@ -55,8 +55,9 @@ Se precisa preencher vários campos (nome, opções, texto longo), continua
 API conceitual (frontend):
 
 - `title`, `description` (texto falado e `aria-describedby`)
-- `body` opcional (conteúdo só leitura: comando, URL, diff — `readonly_code` /
-  `readingMode` quando for leitura pesada)
+- `body` opcional para conteúdo curto/legado;
+- `readingRegions[]` para conteúdo longo somente leitura (comando, URL, path,
+  diff), com nome traduzível e conteúdo cru separado;
 - `actions[]`: lista ordenada de ações
   `{ id, label, variant, shortcut?, primary?, polarity?, scope? }`
 - `onAction(id)` / cancel via ESC ou ação explícita de cancelar
@@ -86,7 +87,8 @@ Todo DecisionDialog:
    **assertive**. Bodies longos (diff/comando) usam o caminho do broker com
    `protectsReading` (`announceWithOrigin` / `announceRequest`), não só
    `useAnnouncer().announce(priority)`, cuja API atual não carrega essa flag.
-3. `aria-describedby` aponta para a região da pergunta (e body quando houver).
+3. `aria-describedby` aponta para a pergunta; conteúdo longo não é despejado no
+   anúncio e fica disponível nas ilhas documentais nomeadas.
 
 ### D4. Som de alerta na abertura
 
@@ -141,7 +143,7 @@ Enquanto um DecisionDialog (ou Modal de decisão) for o topo do stack:
 | Severidade | Foco inicial |
 |------------|--------------|
 | Destrutivo (apagar, remover) | Ação de cancelar / segura |
-| Permissão / shell / rede | Body readonly (comando/URL) se houver; senão primeira ação **segura** (ex. “Permitir uma vez”, não “sempre”) |
+| Permissão / shell / rede | Âncora da ilha readonly (comando/URL) se houver; senão primeira ação **segura** (ex. “Permitir uma vez”, não “sempre”) |
 | Artefato não verificado (AgentInstall) | Cancelar (já documentado em AEP-0086) |
 
 ### D8. Backend: kind `decision` no questionnaire (ou payload equivalente)
@@ -190,6 +192,29 @@ do backend ativo.
 backend aberta; empilhamento teórico é raro. Unificar numa fila bloqueante
 única fica como evolução futura, fora deste AEP.
 
+### D10. Ilhas documentais coordenadas para conteúdo extenso
+
+O `readingMode` no corpo inteiro do modal não é usado por diálogos de decisão
+ou questionários multi-campo com `readonly_code`. O overlay externo permanece
+`role="alertdialog"` (decisões) ou `role="dialog"` (formulários), e a
+`.modal-body` permanece `role="application"`.
+
+Cada bloco longo somente leitura é exposto por `DocumentReadingRegion`:
+
+1. heading/label traduzível e âncora externa estável;
+2. ao chegar por Tab, a ativação aguarda um frame;
+3. `useRenderedContentNavigation` aplica `role="document"` e `tabIndex` antes
+   de focar o conteúdo, reproduzindo a sequência validada no editor;
+4. Tab/Shift+Tab seguem a ordem natural do modal e desativam a ilha anterior;
+5. um coordenador garante somente uma ilha ativa por vez;
+6. Escape não é capturado pela ilha e preserva a política segura do modal.
+
+O conteúdo cru nunca fornece seu próprio rótulo. Produtores backend enviam
+`bodyLabel: QuestionnaireText`; blocos `readonly_code` usam seu `prompt`.
+Confirmações de edição mantêm “Antes” e “Depois” separados e podem marcar
+“Depois” com `autoFocus`. Trocas de payload em fila remontam o diálogo pela
+identidade do pedido.
+
 ## Fases
 
 ### Fase 0 — Contrato (este PR de docs)
@@ -230,6 +255,16 @@ backend aberta; empilhamento teórico é raro. Unificar numa fila bloqueante
       interativo do mantenedor)
 - [x] AEP → ✅ Done
 
+### Fase 5 — Ilhas documentais delimitadas
+([issue #714](https://github.com/inclunet/assistente/issues/714))
+
+- [x] componente reutilizável e coordenador de região documental;
+- [x] DecisionDialog e QuestionnaireDialog sem `readingMode` no corpo inteiro;
+- [x] migração de shell, HTTP, rede, filesystem, ACP e editor;
+- [x] payload `bodyLabel` explícito, traduzível e separado do conteúdo cru;
+- [x] testes de ARIA, foco em frames, Antes/Depois, fila, Escape, atalhos e axe;
+- [x] documentação de usuário e checklist NVDA atualizados.
+
 ### Checklist NVDA (validação interativa)
 
 Itens com cobertura de teste automatizada (unitário / e2e parcial):
@@ -260,7 +295,7 @@ Passo do mantenedor (NVDA no Windows), uma vez após o merge:
 - Som de alerta pode irritar; precisa toggle.
 - Diffs longos: anúncio completo pode ser verboso — anunciar título +
   descrição e indicar que o corpo está no diálogo; Ctrl+Shift+R repete o
-  mesmo pacote; readingMode cobre a leitura do body.
+  mesmo pacote; ilhas documentais cobrem a leitura sob demanda.
 
 ## Critérios de aceitação
 
@@ -276,3 +311,16 @@ Passo do mantenedor (NVDA no Windows), uma vez após o merge:
       metadados explícitos, colisões seguras, ajuda/ARIA e compatibilidade com
       ações legadas (`DecisionDialog.test.tsx`,
       `DecisionQuestionnaireHost.test.tsx` e contratos Go).
+- [x] Conteúdo extenso fica em ilhas `role=document` independentes, nunca na
+      `.modal-body`; somente uma ilha fica ativa e Tab/Shift+Tab saem sem trap
+      interno (`DocumentReadingRegion`, testes de Decision/Questionnaire).
+- [x] Shell, path/folder, rede, HTTP e ACP fornecem nome traduzível explícito
+      para o conteúdo cru; edição preserva “Antes”/“Depois” e foco em “Depois”.
+
+### Checklist NVDA das ilhas (validação interativa)
+
+- [ ] Shell: “Comando solicitado” entra em browse mode; Tab chega às ações.
+- [ ] Path/pasta: nome e detalhes são lidos sem ultrapassar a fronteira.
+- [ ] Edição: abre em “Depois”; Shift+Tab volta a “Antes”; Tab segue às ações.
+- [ ] Rede/HTTP/ACP: setas leem só a ilha e Escape mantém a recusa segura.
+- [ ] Questionário multi-campo: ilhas readonly coexistem com inputs utilizáveis.

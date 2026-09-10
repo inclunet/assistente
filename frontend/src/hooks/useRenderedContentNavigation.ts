@@ -20,6 +20,8 @@ interface RenderedContentNavigationBaseOptions {
   restoreFocusOnDeactivate?: boolean;
   /** Padrão true; false quando o consumidor controla role/tabIndex via React. */
   manageDocumentSemantics?: boolean;
+  /** Se false, deixa Escape seguir para um diálogo/overlay ancestral. */
+  handleEscape?: boolean;
 }
 
 export type UseRenderedContentNavigationOptions =
@@ -82,6 +84,7 @@ export function useRenderedContentNavigation({
   restoreFocusOnDeactivate,
   manageDocumentSemantics = true,
   handleEscapeOutside,
+  handleEscape = true,
 }: UseRenderedContentNavigationOptions) {
   const previousActiveElement = useRef<HTMLElement | null>(null);
   const previousElementAttrs = useRef<PreviousElementAttrs | null>(null);
@@ -98,6 +101,7 @@ export function useRenderedContentNavigation({
   const handleEscapeOutsideRef = useRef(
     profile === 'scoped' && Boolean(handleEscapeOutside),
   );
+  const handleEscapeRef = useRef(handleEscape);
 
   profileRef.current = profile;
   contentSelectorRef.current = contentSelector;
@@ -109,6 +113,7 @@ export function useRenderedContentNavigation({
   restoreFocusRef.current = restoreFocusOnDeactivate ?? profile === 'modal';
   manageDocumentSemanticsRef.current = manageDocumentSemantics;
   handleEscapeOutsideRef.current = profile === 'scoped' && Boolean(handleEscapeOutside);
+  handleEscapeRef.current = handleEscape;
 
   useEffect(() => {
     const element = elementRef.current;
@@ -189,6 +194,7 @@ export function useRenderedContentNavigation({
       if (!element) return;
 
       if (event.key === 'Escape') {
+        if (!handleEscapeRef.current) return;
         const activeProfile = profileRef.current;
         let isScopedDefaultArea = false;
         if (activeProfile === 'scoped') {

@@ -206,4 +206,8 @@ func TestAAcaoPedidaContinuaSendoConteudoDoBloco(t *testing.T) {
 	if body != "rm -rf build" {
 		t.Errorf("body = %q, quer a ação que o agente pediu", body)
 	}
+	bodyLabel, ok := payload["bodyLabel"].(questionnaire.Text)
+	if !ok || bodyLabel.Key != "app.questionnaire.agentPermission.bodyLabel" {
+		t.Errorf("bodyLabel = %#v, quer nome traduzível da ilha da ação", payload["bodyLabel"])
+	}
 }

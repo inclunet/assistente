@@ -15,5 +15,13 @@ export { Modal } from './Modal';
 export type { ModalProps } from './Modal';
 export { DialogActions } from './DialogActions';
 export type { DialogActionsProps } from './DialogActions';
+export {
+  DocumentReadingRegion,
+  DocumentReadingRegionGroup,
+} from './DocumentReadingRegion';
+export type {
+  DocumentReadingRegionProps,
+  DocumentReadingRegionGroupProps,
+} from './DocumentReadingRegion';
 export { ImageViewerModal } from './ImageViewerModal';
 export type { ImageViewerModalProps, ImageViewerImage } from './ImageViewerModal';

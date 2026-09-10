@@ -124,8 +124,12 @@ func networkConfirmationPayload(req nettrust.PromptRequest) questionnaire.Reques
 			map[string]any{"category": req.Category},
 			fmt.Sprintf("O assistente tentou acessar um host que resolve para um endereço interno/privado (%s). Autorize apenas se você confia neste destino.", req.Category),
 		),
-		Hint:        skillHostHint,
-		Body:        details.String(),
+		Hint: skillHostHint,
+		Body: details.String(),
+		BodyLabel: questionnaire.Keyed(
+			"app.questionnaire.network.bodyLabel",
+			"Detalhes do destino",
+		),
 		AllowCancel: true,
 		Actions:     networkDecisionActions(),
 	}

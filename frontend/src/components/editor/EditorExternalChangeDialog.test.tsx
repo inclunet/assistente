@@ -56,6 +56,11 @@ describe('EditorExternalChangeDialog', () => {
 
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Arquivo' })).toHaveTextContent('C:/tmp/doc.md');
+    expect(screen.getByRole('group', { name: 'Diff' }).textContent).toBe('- antigo\n+ novo');
+    expect(screen.getByRole('group', { name: 'Disco' })).toHaveTextContent('novo');
+    expect(screen.getByRole('group', { name: 'Local' })).toHaveTextContent('local');
+    expect(screen.queryByRole('document')).toBeNull();
     const footer = screen.getByRole('alertdialog').querySelector('[data-dialog-actions]');
     expect(
       Array.from(footer?.querySelectorAll('button') ?? []).map(
