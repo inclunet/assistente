@@ -17,6 +17,8 @@ export interface DataGridColumn<T = unknown> {
   width?: string;
   truncate?: boolean;
   action?: boolean;
+  /** Executa onCellAction por Enter/Espaço sem substituir o conteúdo formatado da célula. */
+  keyboardAction?: boolean;
   actionIcon?: string;
   actionLabel?: string; // Texto acessível para leitores de tela (ex: "Abrir", "Editar", "Excluir")
   editable?: boolean;
@@ -105,6 +107,7 @@ export function DataGrid<T = unknown>({
   const instructionsId = useId().replace(/[^a-zA-Z0-9_-]/g, '') + '-instructions';
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blurFrameRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const hasInitializedRef = useRef(false);
   // Indica que o grid já recebeu foco pelo menos uma vez
@@ -143,6 +146,9 @@ export function DataGrid<T = unknown>({
       mountedRef.current = false;
       if (focusTimerRef.current) {
         clearTimeout(focusTimerRef.current);
+      }
+      if (blurFrameRef.current !== null) {
+        cancelAnimationFrame(blurFrameRef.current);
       }
       if (scrollNearEndTimerRef.current) {
         clearTimeout(scrollNearEndTimerRef.current);
@@ -533,6 +539,10 @@ export function DataGrid<T = unknown>({
   // Quando o grid recebe foco diretamente (tabIndex=0 no container),
   // ativa o foco lazy e move para a primeira célula.
   const handleGridFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    if (blurFrameRef.current !== null) {
+      cancelAnimationFrame(blurFrameRef.current);
+      blurFrameRef.current = null;
+    }
     gridOwnsFocusRef.current = true;
     // Se o foco veio de dentro do grid (célula → célula), ignora
     if (gridRef.current?.contains(event.relatedTarget as Node)) return;
@@ -556,6 +566,17 @@ export function DataGrid<T = unknown>({
     if (next && !gridRef.current?.contains(next)) {
       gridOwnsFocusRef.current = false;
       clearScheduledCellFocus();
+      return;
+    }
+    if (!next) {
+      if (blurFrameRef.current !== null) cancelAnimationFrame(blurFrameRef.current);
+      blurFrameRef.current = requestAnimationFrame(() => {
+        blurFrameRef.current = null;
+        if (!gridRef.current?.contains(document.activeElement)) {
+          gridOwnsFocusRef.current = false;
+          clearScheduledCellFocus();
+        }
+      });
     }
   }, [clearScheduledCellFocus]);
 
@@ -597,7 +618,7 @@ export function DataGrid<T = unknown>({
           toggleSelection(focusedRow);
         } else {
           const col = columns[focusedCol];
-          if (col.action) {
+          if (col.action || col.keyboardAction) {
             onCellAction?.(items[focusedRow], col, focusedRow, focusedCol);
           }
         }
@@ -618,7 +639,7 @@ export function DataGrid<T = unknown>({
           }
           return;
         }
-        if (colEnter.action) {
+        if (colEnter.action || colEnter.keyboardAction) {
           // Se for célula de ação, executa a ação
           onCellAction?.(items[focusedRow], colEnter, focusedRow, focusedCol);
         } else {

@@ -231,16 +231,27 @@ describe('JobsPage', () => {
     await waitFor(() => expect(getFirstCell('Bravo')).toHaveFocus());
   });
 
+  it('ativa ou desativa o job com Espaço na célula de estado', async () => {
+    render(<JobsPage />);
+    const grid = await focusRow(1);
+
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    await waitFor(() => expect(storeState.toggleJob).toHaveBeenCalledWith('b', false));
+    expect(getFirstCell('Bravo')).toHaveFocus();
+  });
+
   it('fechar modal aberto pelo grid restaura a célula do job', async () => {
     const user = userEvent.setup();
     render(<JobsPage />);
     const grid = await focusRow(1);
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
     fireEvent.keyDown(grid, { key: 'Enter' });
 
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'fechar-modal' }));
 
-    await waitFor(() => expect(getFirstCell('Bravo')).toHaveFocus());
+    await waitFor(() => expect(screen.getByText('Bravo').closest('[role="gridcell"]')).toHaveFocus());
   });
 
   it('ao excluir o único job retorna ao controle padrão utilizável', async () => {

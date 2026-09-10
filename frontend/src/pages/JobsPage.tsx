@@ -311,6 +311,7 @@ export default function JobsPage() {
         key: 'enabled' as keyof jobs.JobInfo,
         label: t('jobs.enabled'),
         width: '36px',
+        keyboardAction: true,
         format: (_value, item) => {
           const job = item as jobs.JobInfo;
           const labels = {
@@ -386,6 +387,16 @@ export default function JobsPage() {
   const hasJobs = jobsList.length > 0;
   const hasFilteredJobs = filteredJobs.length > 0;
 
+  const handleCellAction = useCallback((
+    item: jobs.JobInfo,
+    column: DataGridColumn<jobs.JobInfo>,
+    rowIndex: number,
+  ) => {
+    if (column.key === 'enabled') {
+      void handleToggle(item, rowIndex);
+    }
+  }, [handleToggle]);
+
   const homeActions = [
     {
       key: 'new-job',
@@ -436,6 +447,7 @@ export default function JobsPage() {
             columns={columns}
             getItemId={getRowId}
             onActivate={(item: jobs.JobInfo) => handleViewLogs(item.id)}
+            onCellAction={handleCellAction}
             onDelete={(item: jobs.JobInfo, rowIndex) => void handleDeleteJob(item, rowIndex)}
             getRowActions={getJobRowActions}
             onFocusChange={handleFocusChange}

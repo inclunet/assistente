@@ -132,6 +132,24 @@ describe('DataGrid (list mode — backward compat)', () => {
     expect(getGrid().classList.contains('my-custom')).toBe(true);
   });
 
+  it('executa conteúdo formatado marcado como keyboardAction por Enter e Espaço', () => {
+    const onCellAction = vi.fn();
+    const actionColumns: DataGridColumn<TestItem>[] = [
+      { key: 'name', label: 'Ativo', keyboardAction: true, format: () => <button tabIndex={-1}>toggle</button> },
+    ];
+    render(
+      <DataGrid items={items.slice(0, 1)} columns={actionColumns}
+        onCellAction={onCellAction} autoFocusOnMount={false} />
+    );
+    focusGrid();
+
+    fireEvent.keyDown(getGrid(), { key: 'Enter' });
+    fireEvent.keyDown(getGrid(), { key: ' ' });
+
+    expect(onCellAction).toHaveBeenCalledTimes(2);
+    expect(onCellAction).toHaveBeenCalledWith(items[0], actionColumns[0], 0, 0);
+  });
+
   it('abre ações por Shift+F10, navega por setas e ativa com Enter', async () => {
     const update = vi.fn();
     render(
