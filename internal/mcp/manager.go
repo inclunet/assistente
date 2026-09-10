@@ -1106,13 +1106,17 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 		return nil
 	}
 	alreadyEnded := false
+	var waitErr error
 	if conn.sessionDone != nil {
 		select {
-		case _, ok := <-conn.sessionDone:
+		case result, ok := <-conn.sessionDone:
 			// Canal fechado sem valor significa que o watcher nem chegou a
 			// iniciar (CloseAll já havia bloqueado tryGoTracked), não que
 			// session.Wait comprovou o encerramento.
 			alreadyEnded = ok
+			if ok {
+				waitErr = result
+			}
 		default:
 		}
 	}
@@ -1128,23 +1132,34 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 	if conn.session == nil {
 		return nil
 	}
-	err := conn.session.Close()
-	waitConnectionSession(conn)
-	if err == nil {
+	closeErr := conn.session.Close()
+	if !alreadyEnded {
+		waitErr = waitConnectionSession(conn)
+	}
+	combinedErr := errors.Join(closeErr, waitErr)
+	if combinedErr == nil {
 		return nil
 	}
-	if expected && isExpectedSessionCloseError(err, alreadyEnded) {
-		logging.Infof(context.Background(), "mcp.manager", "[MCP] Sessão '%s' já estava encerrada durante cleanup: %v", slug, err)
+	var unexpectedErrs []error
+	for _, err := range []error{closeErr, waitErr} {
+		if err != nil && (!expected || !isExpectedSessionCloseError(err, alreadyEnded)) {
+			unexpectedErrs = append(unexpectedErrs, err)
+		}
+	}
+	if len(unexpectedErrs) == 0 {
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] Sessão '%s' já estava encerrada durante cleanup: %v", slug, combinedErr)
 		return nil
 	}
-	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro inesperado ao fechar sessão '%s': %v", slug, err)
-	return err
+	unexpectedErr := errors.Join(unexpectedErrs...)
+	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro inesperado ao fechar sessão '%s': %v", slug, unexpectedErr)
+	return unexpectedErr
 }
 
-func waitConnectionSession(conn *serverConnection) {
+func waitConnectionSession(conn *serverConnection) error {
 	if conn != nil && conn.sessionDone != nil {
-		<-conn.sessionDone
+		return <-conn.sessionDone
 	}
+	return nil
 }
 
 func waitConnectionLoops(conn *serverConnection) {

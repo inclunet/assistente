@@ -767,3 +767,15 @@ func TestExitStatusSoEhEsperadoParaSessaoJaEncerrada(t *testing.T) {
 		t.Fatal("exit status de sessão comprovadamente encerrada deveria ser cleanup esperado")
 	}
 }
+
+func TestWaitConnectionSessionPropagaErroDoWatcher(t *testing.T) {
+	want := errors.New("falha inesperada do transport")
+	done := make(chan error, 1)
+	done <- want
+	close(done)
+
+	got := waitConnectionSession(&serverConnection{sessionDone: done})
+	if !errors.Is(got, want) {
+		t.Fatalf("waitConnectionSession=%v, esperado %v", got, want)
+	}
+}
