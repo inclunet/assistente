@@ -36,6 +36,8 @@ func TestProfileFailureClassification(t *testing.T) {
 		{code: "catalog_unavailable", kind: tools.ErrorKindUnavailable},
 		{code: "switch_unavailable", kind: tools.ErrorKindUnavailable},
 		{code: "target_unavailable", kind: tools.ErrorKindUnavailable},
+		{code: "profile_not_found", kind: tools.ErrorKindNotFound},
+		{code: "profile_unavailable", kind: tools.ErrorKindUnavailable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
@@ -231,5 +233,25 @@ func TestSwitchPropagatesTargetValidationCancellation(t *testing.T) {
 	))
 	if !errors.Is(err, context.Canceled) || result.IsError {
 		t.Fatalf("cancelamento deveria ser propagado ao executor: result=%#v err=%v", result, err)
+	}
+}
+
+func TestSwitchPreservesTargetSentinelClassification(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+		kind tools.ErrorKind
+	}{
+		{err: profileaccess.ErrTargetNotFound, code: "profile_not_found", kind: tools.ErrorKindNotFound},
+		{err: profileaccess.ErrTargetUnavailable, code: "profile_unavailable", kind: tools.ErrorKindUnavailable},
+	} {
+		access := &fakeAccess{allowed: true, validateErr: tc.err}
+		result, err := New(access, &fakeSwitcher{}).Execute(profileToolContext("wails"), json.RawMessage(
+			`{"action":"switch","slug":"custom","reason":"motivo"}`,
+		))
+		if err != nil || result.Metadata["error_code"] != tc.code {
+			t.Fatalf("%s não preservado: result=%#v err=%v", tc.code, result, err)
+		}
+		requirePermanentFailure(t, result, tc.code, tc.kind)
 	}
 }

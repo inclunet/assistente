@@ -431,10 +431,14 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		if err != nil {
 			execution := tools.ToolExecutionResult{
 				ToolName:  job.Tool,
-				Result:    tools.ToolResult{Content: err.Error(), IsError: true},
+				Result:    result,
 				Error:     err,
 				ErrorKind: tools.ErrorKindUnknown,
 			}
+			if execution.Result.Content == "" {
+				execution.Result.Content = err.Error()
+			}
+			execution.Result.IsError = true
 			switch {
 			case errors.Is(err, context.Canceled):
 				execution.ErrorKind = tools.ErrorKindCancelled
@@ -443,6 +447,15 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 				execution.ErrorKind = tools.ErrorKindTimeout
 				execution.Retryable = true
 				execution.RetryabilityKnown = true
+			case result.Failure != nil:
+				execution.ErrorKind = result.Failure.Kind
+				execution.ErrorCode = result.Failure.Code
+				execution.Retryable = result.Failure.Retryable
+				execution.RetryabilityKnown = true
+			default:
+				if code, ok := result.Metadata["error_code"].(string); ok {
+					execution.ErrorCode = code
+				}
 			}
 			return execution
 		}

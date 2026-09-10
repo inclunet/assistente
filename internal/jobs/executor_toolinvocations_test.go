@@ -29,8 +29,9 @@ type scriptedTool struct {
 }
 
 type contextErrorTool struct {
-	err   error
-	calls int
+	result tools.ToolResult
+	err    error
+	calls  int
 }
 
 func (t *contextErrorTool) Name() string                { return "context_error_tool" }
@@ -38,7 +39,7 @@ func (t *contextErrorTool) Description() string         { return "context error 
 func (t *contextErrorTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 func (t *contextErrorTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
 	t.calls++
-	return tools.ToolResult{}, t.err
+	return t.result, t.err
 }
 
 func (s *scriptedTool) Name() string                { return "scripted_tool" }
@@ -267,6 +268,41 @@ func TestJobExecutorWithoutInvocationServiceDoesNotRetryCancellation(t *testing.
 	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
 	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
 		t.Fatalf("cancelamento foi repetido: calls=%d run=%#v", tool.calls, run)
+	}
+}
+
+func TestJobExecutorWithoutInvocationServicePreservesFailureReturnedWithError(t *testing.T) {
+	tool := &contextErrorTool{
+		result: tools.ToolResult{
+			Content: "configuração inválida",
+			Failure: &tools.ToolFailure{
+				Code:      "invalid_configuration",
+				Kind:      tools.ErrorKindConfiguration,
+				Retryable: false,
+			},
+		},
+		err: errors.New("configuração inválida"),
+	}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:   "legacy-structured-error-job",
+		Tool: tool.Name(),
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 2,
+			RetryDelay: "1ms",
+		},
+	}
+
+	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
+		t.Fatalf("falha estruturada retornada com erro foi repetida: calls=%d run=%#v", tool.calls, run)
 	}
 }
 

@@ -192,6 +192,12 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return tools.ToolResult{}, err
 		}
+		if errors.Is(err, profileaccess.ErrTargetNotFound) {
+			return errorResult("profile_not_found", fmt.Sprintf("profile alvo não encontrado após autorização: %v", err)), nil
+		}
+		if errors.Is(err, profileaccess.ErrTargetUnavailable) {
+			return errorResult("profile_unavailable", fmt.Sprintf("profile alvo indisponível após autorização: %v", err)), nil
+		}
 		return errorResult("target_unavailable", fmt.Sprintf("profile alvo indisponível após autorização: %v", err)), nil
 	}
 	if err := t.switcher.SwitchTabProfile(inv.SurfaceTabID, inv.ConversationID, targetSlug); err != nil {
@@ -233,7 +239,11 @@ func profileFailure(code string) *tools.ToolFailure {
 		kind = tools.ErrorKindInvalidArgs
 	case "desktop_tab_required", "invalid_tab_conversation":
 		kind = tools.ErrorKindConfiguration
+	case "profile_not_found":
+		kind = tools.ErrorKindNotFound
 	case "catalog_unavailable", "switch_unavailable", "target_unavailable":
+		kind = tools.ErrorKindUnavailable
+	case "profile_unavailable":
 		kind = tools.ErrorKindUnavailable
 	default:
 		return nil

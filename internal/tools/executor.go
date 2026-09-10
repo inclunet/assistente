@@ -176,24 +176,33 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		if err != nil {
 			errKind := ErrorKindUnknown
 			retryable := false
+			retryabilityKnown := false
 			switch {
 			case errors.Is(err, context.Canceled):
 				errKind = ErrorKindCancelled
+				retryabilityKnown = true
 			case errors.Is(err, context.DeadlineExceeded) && toolCtx.Err() != nil:
 				errKind = ErrorKindTimeout
 				retryable = true
+				retryabilityKnown = true
+			case result.Failure != nil:
+				errKind = result.Failure.Kind
+				retryable = result.Failure.Retryable
+				retryabilityKnown = true
 			}
+			if result.Content == "" {
+				result.Content = fmt.Sprintf("Erro ao executar '%s': %v", toolName, err)
+			}
+			result.IsError = true
 			resultCh <- ToolExecutionResult{
-				CallID:   call.ID,
-				ToolName: toolName,
-				Result: ToolResult{
-					Content: fmt.Sprintf("Erro ao executar '%s': %v", toolName, err),
-					IsError: true,
-				},
+				CallID:            call.ID,
+				ToolName:          toolName,
+				Result:            result,
 				Error:             err,
 				ErrorKind:         errKind,
+				ErrorCode:         failureCode(result),
 				Retryable:         retryable,
-				RetryabilityKnown: errKind == ErrorKindTimeout || errKind == ErrorKindCancelled,
+				RetryabilityKnown: retryabilityKnown,
 				DurationMs:        time.Since(start).Milliseconds(),
 			}
 			return

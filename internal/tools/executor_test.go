@@ -418,3 +418,32 @@ func TestExecuteToolReturnedCancellationIsKnownAndPermanent(t *testing.T) {
 		t.Fatalf("cancelamento deveria ser conhecido e permanente: %#v", res)
 	}
 }
+
+func TestExecutePreservesStructuredFailureReturnedWithError(t *testing.T) {
+	tool := &mockTool{
+		name: "structured_error",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{
+				Content: "configuração inválida",
+				Failure: &ToolFailure{
+					Code:      "invalid_configuration",
+					Kind:      ErrorKindConfiguration,
+					Retryable: false,
+				},
+			}, errors.New("configuração inválida")
+		},
+	}
+	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+
+	res := e.ExecuteOne(context.Background(), ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "structured_error", Arguments: `{}`},
+	})
+
+	if res.ErrorCode != "invalid_configuration" ||
+		res.ErrorKind != ErrorKindConfiguration ||
+		!res.RetryabilityKnown ||
+		res.Retryable {
+		t.Fatalf("falha estruturada foi perdida: %#v", res)
+	}
+}
