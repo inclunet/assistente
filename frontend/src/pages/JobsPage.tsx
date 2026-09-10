@@ -164,8 +164,12 @@ export default function JobsPage() {
         await toggleJob(job.id, !job.enabled);
         addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
-      } catch {
-        addToast(t('common.error', 'Error'), 'error');
+      } catch (error) {
+        const message = String(error).includes('authorization_not_granted')
+          ? t('jobs.builder.enableRequiresAuthorizedProfile')
+          : t('common.error', 'Error');
+        addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+        announce(message, 'assertive');
       } finally {
         restoreJobFocus(job.id, rowIndex);
       }

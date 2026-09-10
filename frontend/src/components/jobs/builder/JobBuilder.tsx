@@ -18,6 +18,7 @@ import { YAMLPreview } from './YAMLPreview';
 import { useJobStore } from '../../../store/jobStore';
 import { useAnnouncer } from '../../../hooks/useAnnouncer';
 import { ListKnownEvents, InferEventSchema } from '@wailsjs/go/wailsapi/Jobs';
+import { GetProfiles } from '@wailsjs/go/wailsapi/Profiles';
 import { jobs } from '@wailsjs/go/models';
 import './JobBuilder.css';
 
@@ -160,7 +161,15 @@ function hasArraysInData(data: Record<string, unknown> | null): boolean {
 export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const { saveJob, testTool, fetchToolCatalog } = useJobStore();
+  const {
+    saveJob,
+    testTool,
+    fetchToolCatalog,
+    toggleJob,
+    getJobProfileGrantState,
+    authorizeJobProfile,
+    revokeJobProfile,
+  } = useJobStore();
 
   const isEditing = Boolean(editJob);
   const [draft, setDraft] = useState<JobDraft>(() =>
@@ -185,6 +194,11 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   }, [editJob?.tool, fetchToolCatalog]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [persistedJobId, setPersistedJobId] = useState(editJob?.id ?? '');
+  const [installedProfiles, setInstalledProfiles] = useState<Array<{ slug: string; name: string }>>([]);
+  const [authorizedProfiles, setAuthorizedProfiles] = useState<string[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState('');
+  const [profileGrantBusy, setProfileGrantBusy] = useState(false);
 
   const [testOutput, setTestOutput] = useState<Record<string, unknown> | null>(null);
   const [testing, setTesting] = useState(false);
@@ -208,6 +222,28 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [toolOpen, setToolOpen] = useState(true);
   const [errorPolicyOpen, setErrorPolicyOpen] = useState(() => draft.error_policy.strategy !== 'stop');
   const [yamlOpen, setYamlOpen] = useState(false);
+
+  const isSubagentJob = draft.tool === 'subagent';
+  const profileExpression = typeof draft.inputs.profile === 'string'
+    ? draft.inputs.profile.trim()
+    : '';
+  const isDynamicProfile = profileExpression.includes('{{');
+
+  const refreshProfileGrants = useCallback(async (jobId: string) => {
+    if (!jobId) return;
+    const state = await getJobProfileGrantState(jobId);
+    setAuthorizedProfiles((state.grants ?? []).map((grant) => grant.targetProfileSlug));
+  }, [getJobProfileGrantState]);
+
+  useEffect(() => {
+    if (!isSubagentJob) return;
+    GetProfiles()
+      .then((items) => setInstalledProfiles((items ?? []).map((item) => ({ slug: item.slug, name: item.name || item.slug }))))
+      .catch(() => setInstalledProfiles([]));
+    if (persistedJobId) {
+      refreshProfileGrants(persistedJobId).catch(() => setAuthorizedProfiles([]));
+    }
+  }, [isSubagentJob, persistedJobId, profileExpression, refreshProfileGrants]);
 
   const outputHasArrays = useMemo(() => hasArraysInData(testOutput), [testOutput]);
   const shouldAnnounceFanoutNoArraysWarning = Boolean(
@@ -347,6 +383,40 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     }
   }, [announce, draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger, showError, t]);
 
+  const handleAuthorizeProfile = useCallback(async (jobId: string, profileSlug: string) => {
+    if (!jobId || !profileSlug) return false;
+    setProfileGrantBusy(true);
+    try {
+      const approved = await authorizeJobProfile(jobId, profileSlug);
+      if (approved) {
+        await refreshProfileGrants(jobId);
+        announce(t('jobs.builder.profileAuthorized', { profile: profileSlug }));
+      } else {
+        announce(t('jobs.builder.profileAuthorizationDenied'), 'assertive');
+      }
+      return approved;
+    } catch (err) {
+      showError(String(err));
+      return false;
+    } finally {
+      setProfileGrantBusy(false);
+    }
+  }, [announce, authorizeJobProfile, refreshProfileGrants, showError, t]);
+
+  const handleRevokeProfile = useCallback(async (profileSlug: string) => {
+    if (!persistedJobId) return;
+    setProfileGrantBusy(true);
+    try {
+      await revokeJobProfile(persistedJobId, profileSlug);
+      await refreshProfileGrants(persistedJobId);
+      announce(t('jobs.builder.profileRevoked', { profile: profileSlug }));
+    } catch (err) {
+      showError(String(err));
+    } finally {
+      setProfileGrantBusy(false);
+    }
+  }, [announce, persistedJobId, refreshProfileGrants, revokeJobProfile, showError, t]);
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     setError(null);
@@ -374,15 +444,28 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
           ? draft.max_runs_per_hour
           : undefined,
       };
-      await saveJob(JSON.stringify(jobData));
+      const result = await saveJob(JSON.stringify(jobData));
+      setPersistedJobId(finalId);
       onSaved?.();
+      if (result.authorizationRequired && result.targetProfileSlug) {
+        const approved = await handleAuthorizeProfile(finalId, result.targetProfileSlug);
+        if (approved && result.requestedEnabled) {
+          await toggleJob(finalId, true);
+        } else {
+          announce(t('jobs.builder.savedDisabledWithoutAuthorization'), 'assertive');
+        }
+      } else if (result.authorizationRequired && result.dynamicProfile) {
+        announce(t('jobs.builder.savedDisabledChooseProfiles'), 'assertive');
+        await refreshProfileGrants(finalId);
+        return;
+      }
       onClose();
     } catch (err) {
       showError(String(err));
     } finally {
       setSaving(false);
     }
-  }, [draft, saveJob, onClose, onSaved, showError, testOutput]);
+  }, [announce, draft, handleAuthorizeProfile, onClose, onSaved, refreshProfileGrants, saveJob, showError, t, testOutput, toggleJob]);
 
   const handleFanoutSelect = useCallback((path: string) => {
     updateEvents('for_each', path);
@@ -536,6 +619,72 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
             )}
           </div>
         </CollapsibleSection>
+
+        {isSubagentJob && (
+          <section className="job-builder__profile-grants" aria-labelledby="job-profile-grants-title">
+            <h3 id="job-profile-grants-title">{t('jobs.builder.authorizedProfilesTitle')}</h3>
+            <p className="job-builder__section-desc">
+              {isDynamicProfile
+                ? t('jobs.builder.authorizedProfilesDynamicDescription')
+                : t('jobs.builder.authorizedProfilesLiteralDescription')}
+            </p>
+            {authorizedProfiles.length > 0 ? (
+              <ul className="job-builder__profile-grant-list">
+                {authorizedProfiles.map((slug) => (
+                  <li key={slug}>
+                    <span>{installedProfiles.find((profile) => profile.slug === slug)?.name ?? slug}</span>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleRevokeProfile(slug)}
+                      disabled={profileGrantBusy}
+                    >
+                      {t('jobs.builder.revokeProfile')}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p role="status">{t('jobs.builder.noAuthorizedProfiles')}</p>
+            )}
+            {persistedJobId ? (
+              <div className="job-builder__profile-grant-add">
+                {isDynamicProfile ? (
+                  <FormField label={t('jobs.builder.chooseProfileToAuthorize')}>
+                    <Select
+                      options={[
+                        { value: '', label: t('jobs.builder.chooseProfilePlaceholder') },
+                        ...installedProfiles
+                          .filter((profile) => !authorizedProfiles.includes(profile.slug))
+                          .map((profile) => ({ value: profile.slug, label: profile.name })),
+                      ]}
+                      value={selectedProfile}
+                      onChange={(event) => setSelectedProfile(event.target.value)}
+                      fullWidth
+                    />
+                  </FormField>
+                ) : (
+                  <p>{profileExpression || t('jobs.builder.profileInputRequired')}</p>
+                )}
+                <Button
+                  variant="primary"
+                  onClick={() => handleAuthorizeProfile(
+                    persistedJobId,
+                    isDynamicProfile ? selectedProfile : profileExpression,
+                  )}
+                  disabled={
+                    profileGrantBusy
+                    || !(isDynamicProfile ? selectedProfile : profileExpression)
+                    || authorizedProfiles.includes(isDynamicProfile ? selectedProfile : profileExpression)
+                  }
+                >
+                  {t('jobs.builder.authorizeProfile')}
+                </Button>
+              </div>
+            ) : (
+              <p role="note">{t('jobs.builder.saveBeforeAuthorizingProfiles')}</p>
+            )}
+          </section>
+        )}
 
         {/* Success Event */}
         <CollapsibleSection
