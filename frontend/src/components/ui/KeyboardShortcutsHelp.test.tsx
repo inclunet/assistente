@@ -20,8 +20,8 @@ vi.mock('react-i18next', () => ({
  * exibida no painel pertence a esta lista — pegando regressões em que o
  * painel passa a mostrar um atalho sem handler real correspondente.
  *
- * NOTA (Issue #37): o painel deixou de exibir `Ctrl+M` (sem handler real) e
- * `Ctrl+I` (perfis usam `Ctrl+P` no ChatToolbar). A navegação entre abas usa
+ * `Ctrl+M` voltou ao painel com o handler escopado da Issue #705. `Ctrl+I`
+ * continua ausente (perfis usam `Ctrl+P` no ChatToolbar). A navegação entre abas usa
  * `Ctrl+PageDown / Ctrl+PageUp`; `Ctrl+P` aparece apenas para "Perfis de
  * interação". Mantenha esta lista em sincronia com `KeyboardShortcutsHelp`.
  */
@@ -38,6 +38,7 @@ const CANONICAL_SHORTCUT_COMBOS = [
   'Ctrl+Enter',                   // enviar mensagem
   'Ctrl+L',                       // limpar conversa
   'Ctrl+H',                       // histórico
+  'Ctrl+M',                       // seletor de modelos do chat ativo
   'Ctrl+P',                       // perfis de interação (ChatToolbar)
   'Space',                        // falar mensagem
   'Enter',                        // detalhes da mensagem
@@ -86,7 +87,7 @@ describe('KeyboardShortcutsHelp', () => {
     expect(screen.getByText('Ctrl+?')).toBeInTheDocument();
   });
 
-  it('exibe a tecla real (Ctrl+P) para perfis e usa a chave i18n renomeada; sem atalhos fantasmas', () => {
+  it('exibe os atalhos reais de modelos e perfis, sem atalhos fantasmas', () => {
     render(<KeyboardShortcutsHelp isOpen={true} onClose={() => {}} />);
 
     // "Perfis de interação" reflete o handler real (ChatToolbar: Ctrl+P), não Ctrl+I.
@@ -98,9 +99,8 @@ describe('KeyboardShortcutsHelp', () => {
     expect(screen.getByText('ui.shortcuts.openNewTabMenu')).toBeInTheDocument();
     expect(screen.queryByText('ui.shortcuts.newConversation')).toBeNull();
 
-    // Ctrl+M não possui handler real — item removido do painel.
-    expect(screen.queryByText('Ctrl+M')).toBeNull();
-    expect(screen.queryByText('ui.shortcuts.selectModel')).toBeNull();
+    expect(screen.getByText('Ctrl+M')).toBeInTheDocument();
+    expect(screen.getByText('ui.shortcuts.selectModel')).toBeInTheDocument();
   });
 
   it('mostra a navegação de abas real (PageDown/PageUp), não como Ctrl+P', () => {
