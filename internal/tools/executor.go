@@ -174,10 +174,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		execCtx := WithMaxResultSize(toolCtx, e.config.MaxResultSize)
 		result, err := tool.Execute(execCtx, args)
 		if err != nil {
-			// Detecta se o erro é um timeout (context deadline exceeded)
 			errKind := ErrorKindUnknown
 			retryable := false
-			if errors.Is(err, context.DeadlineExceeded) && toolCtx.Err() != nil {
+			switch {
+			case errors.Is(err, context.Canceled):
+				errKind = ErrorKindCancelled
+			case errors.Is(err, context.DeadlineExceeded) && toolCtx.Err() != nil:
 				errKind = ErrorKindTimeout
 				retryable = true
 			}
@@ -191,7 +193,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Error:             err,
 				ErrorKind:         errKind,
 				Retryable:         retryable,
-				RetryabilityKnown: errKind == ErrorKindTimeout,
+				RetryabilityKnown: errKind == ErrorKindTimeout || errKind == ErrorKindCancelled,
 				DurationMs:        time.Since(start).Milliseconds(),
 			}
 			return

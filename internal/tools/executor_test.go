@@ -397,3 +397,24 @@ func TestExecuteContextCancellation(t *testing.T) {
 		t.Error("expected IsError=true after cancellation")
 	}
 }
+
+func TestExecuteToolReturnedCancellationIsKnownAndPermanent(t *testing.T) {
+	tool := &mockTool{
+		name: "cancelled",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{}, context.Canceled
+		},
+	}
+	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+
+	res := e.ExecuteOne(context.Background(), ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "cancelled", Arguments: `{}`},
+	})
+
+	if res.ErrorKind != ErrorKindCancelled ||
+		!res.RetryabilityKnown ||
+		res.Retryable {
+		t.Fatalf("cancelamento deveria ser conhecido e permanente: %#v", res)
+	}
+}
