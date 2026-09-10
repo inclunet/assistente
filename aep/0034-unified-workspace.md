@@ -203,6 +203,16 @@ Cada landmark é uma ARIA landmark region. Dentro de cada região, Tab e setas n
 | **Ctrl+PageUp** | Aba anterior |
 | **Ctrl+1..9** | Vai direto pra aba N |
 
+### Chat
+
+| Atalho | Ação |
+|--------|------|
+| **Ctrl+M** | Abre o seletor de modelos do chat interativo ativo |
+
+`Ctrl+M` é contextual à surface de chat ativa. Não é capturado quando o foco
+pertence a Monaco, campo editável, terminal, modal, diálogo, menu, picker já
+aberto ou outra surface; repetições de tecla são ignoradas.
+
 Observação: quando um **chat modal** estiver aberto, a troca de abas fica bloqueada até ele ser fechado. Isso evita que o modal continue apontando para uma superfície diferente da aba original.
 
 ### Movimentação (Alt+Setas — convenção interna)

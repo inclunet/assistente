@@ -2524,6 +2524,7 @@ const ptBR = {
         clearConversation: 'Limpar conversa',
         navigateTabs: 'Navegar entre conversas',
         openHistory: 'Abrir histórico',
+        selectModel: 'Selecionar modelo do chat ativo',
         interactionProfiles: 'Perfis de interação',
         playAudio: 'Reproduzir áudio (mensagem focada)',
         viewDetails: 'Ver detalhes (mensagem focada)',

@@ -28,6 +28,7 @@ export interface ModelPickerProps {
     variant?: 'toolbar' | 'form';
     helpText?: string;
     onAnnounce?: (message: string) => void;
+    shortcut?: string;
     providerID?: string; // ID do provedor para filtrar modelos
     includeDefaultOption?: boolean;
     defaultOptionLabel?: string;
@@ -70,6 +71,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   variant = 'toolbar',
   helpText = '',
   onAnnounce,
+  shortcut,
   providerID = '', // Provedor específico (se vazio, usa GetModels do ativo)
   includeDefaultOption = false,
   defaultOptionLabel,
@@ -257,6 +259,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       maxWidth={variant === 'form' ? '100%' : maxWidth}
       helpText={variant === 'form' ? (endpointNotSupported ? t('pickers.model.notLoaded') : (notice || helpText)) : undefined}
       onAnnounce={onAnnounce}
+      shortcut={shortcut}
       loading={loading && !endpointNotSupported}
       error={endpointNotSupported ? null : (error || null)}
       onRetry={endpointNotSupported ? undefined : handleRefresh}
