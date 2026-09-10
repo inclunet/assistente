@@ -39,7 +39,11 @@ func shellConfirmationPayload(cmd, workDir string) questionnaire.RequestPayload 
 			map[string]any{"workDir": workDir},
 			fmt.Sprintf("Diretório: %s", workDir),
 		),
-		Body:        cmd,
+		Body: cmd,
+		BodyLabel: questionnaire.Keyed(
+			"app.questionnaire.shell.bodyLabel",
+			"Comando solicitado",
+		),
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{
@@ -77,7 +81,11 @@ func httpConfirmationPayload(method, url, bodyPreview string) questionnaire.Requ
 		),
 		// Pedido cru no Body (método, URL e body); rótulos localizados ficam
 		// fora para não vazar pt-BR em en/es.
-		Body:        fmt.Sprintf("%s %s\n\n%s", method, url, bodyPreview),
+		Body: fmt.Sprintf("%s %s\n\n%s", method, url, bodyPreview),
+		BodyLabel: questionnaire.Keyed(
+			"app.questionnaire.http.bodyLabel",
+			"Detalhes da operação solicitada",
+		),
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{

@@ -147,6 +147,10 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		Title:       questionnaire.Keyed(permissionTextKey("title"), "O agente pede permissão"),
 		Description: permissionDescriptionText(choices, kind),
 		Body:        action,
+		BodyLabel: questionnaire.Keyed(
+			permissionTextKey("bodyLabel"),
+			"Ação solicitada",
+		),
 		AllowCancel: true,
 		Actions:     permissionDecisionActions(choices),
 	})

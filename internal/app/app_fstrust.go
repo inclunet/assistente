@@ -135,7 +135,11 @@ func pathConfirmationPayload(req fstrust.PromptRequest) questionnaire.RequestPay
 			map[string]any{"operation": req.Operation},
 			fmt.Sprintf("O assistente pediu a operação \"%s\" em um caminho fora do workspace ativo e de ~/.assistente. Permita o path ou a pasta pai, negue esta tentativa ou lembre a negação no escopo escolhido.", req.Operation),
 		),
-		Body:        details.String(),
+		Body: details.String(),
+		BodyLabel: questionnaire.Keyed(
+			"app.questionnaire.fstrust.bodyLabel",
+			"Caminho e detalhes solicitados",
+		),
 		AllowCancel: true,
 		Actions:     fsDecisionActions(),
 	}

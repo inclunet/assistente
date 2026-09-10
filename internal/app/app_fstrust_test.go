@@ -9,10 +9,10 @@ import (
 
 func TestFsScopeFromActionID(t *testing.T) {
 	tests := []struct {
-		id      string
-		wantOK  bool
-		scope   fstrust.Scope
-		kind    fstrust.Kind
+		id     string
+		wantOK bool
+		scope  fstrust.Scope
+		kind   fstrust.Kind
 	}{
 		{"once", true, fstrust.ScopeOnce, fstrust.KindFile},
 		{"dir-session", true, fstrust.ScopeSession, fstrust.KindDir},
@@ -42,6 +42,10 @@ func TestPathConfirmationPayloadIsDecision(t *testing.T) {
 	})
 	if payload.Kind != questionnaire.KindDecision {
 		t.Fatalf("kind=%q want decision", payload.Kind)
+	}
+	if payload.BodyLabel.Key != "app.questionnaire.fstrust.bodyLabel" ||
+		payload.BodyLabel.Fallback != "Caminho e detalhes solicitados" {
+		t.Fatalf("bodyLabel=%+v; esperava nome traduzível da ilha de path", payload.BodyLabel)
 	}
 	if len(payload.Actions) < 3 {
 		t.Fatalf("actions=%d; esperava escopos file+dir+deny", len(payload.Actions))

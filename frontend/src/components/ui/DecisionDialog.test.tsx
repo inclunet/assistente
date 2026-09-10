@@ -21,6 +21,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: vi.fn(),
   useAnnouncer: () => ({
     announce: vi.fn(),
     announceRequest,
@@ -540,6 +541,66 @@ describe('DecisionDialog', () => {
     field.focus();
     fireEvent.keyDown(field, { key: 'R', ctrlKey: true, shiftKey: true });
     expect(announceRequest).not.toHaveBeenCalled();
+  });
+
+  it('coordena Antes/Depois, mantém Tab livre e deixa Escape fechar', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() {
+        return document.body;
+      },
+    });
+    try {
+      render(
+        <DecisionDialog
+          isOpen
+          title="Revisar alteração"
+          description="Confira a proposta"
+          severity="permission"
+          readingRegions={[
+            { id: 'before', label: 'Antes', content: 'texto antigo' },
+            { id: 'after', label: 'Depois', content: 'texto novo', autoFocus: true },
+          ]}
+          actions={[
+            { id: 'apply', label: 'Aplicar', primary: true },
+            { id: 'reject', label: 'Rejeitar', variant: 'outline' },
+          ]}
+          onAction={vi.fn()}
+          onCancel={onCancel}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('document', { name: 'Depois' })).toHaveFocus();
+      });
+      expect(screen.getAllByRole('document')).toHaveLength(1);
+      expect(screen.getByRole('application')).toHaveClass('modal-body');
+
+      await user.tab({ shift: true });
+      await waitFor(() => {
+        expect(screen.getByRole('document', { name: 'Antes' })).toHaveFocus();
+      });
+      expect(screen.getAllByRole('document')).toHaveLength(1);
+
+      await user.tab();
+      await waitFor(() => {
+        expect(screen.getByRole('document', { name: 'Depois' })).toHaveFocus();
+      });
+      await user.tab();
+      expect(screen.getByRole('button', { name: 'Aplicar' })).toHaveFocus();
+
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(HTMLElement.prototype, 'offsetParent', descriptor);
+      } else {
+        delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+      }
+    }
   });
 
   it('não tem violações axe', async () => {

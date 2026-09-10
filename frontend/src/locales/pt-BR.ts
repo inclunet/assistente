@@ -2260,6 +2260,7 @@ const ptBR = {
             titleUpdate: 'Atualizar {{agent}} para a versão {{version}}?',
             introUpdate:
               'O aplicativo vai instalar a versão nova ao lado da atual, apontar para ela os provedores que usam este agente e só então tentar apagar a anterior. Nada é baixado antes de você confirmar.',
+            detailsRegion: 'Detalhes do agente e da instalação',
             agent: 'Agente',
             version: 'Versão',
             installedVersion: 'Versão instalada agora',
@@ -2496,7 +2497,11 @@ const ptBR = {
       confirm: { title: 'Confirmar' },
       decisionDialog: {
         bodyHint: 'Há conteúdo adicional no diálogo para leitura.',
+        detailsRegion: 'Detalhes da solicitação',
         shortcutsHint: 'Atalhos disponíveis: {{shortcuts}}',
+      },
+      documentReadingRegion: {
+        opened: '{{label}}. Use as setas para ler; Tab sai desta região.',
       },
       questionnaire: {
         defaultTitle: 'Questionário',
@@ -4288,6 +4293,7 @@ const ptBR = {
           description: 'O assistente quer executar:\n\n{{command}}\n\nem: {{workDir}}',
           prompt: 'Permitir a execução deste comando?',
           workDir: 'Diretório: {{workDir}}',
+          bodyLabel: 'Comando solicitado',
           submit: 'Permitir',
           cancel: 'Negar',
         },
@@ -4295,6 +4301,7 @@ const ptBR = {
           title: 'Confirmar operação {{method}}',
           description: 'O assistente quer executar:\n\n{{method}} {{url}}\n\nBody:\n{{body}}',
           prompt: 'Permitir esta operação {{method}}?',
+          bodyLabel: 'Detalhes da operação solicitada',
           submit: 'Permitir',
           cancel: 'Negar',
         },
@@ -4307,6 +4314,7 @@ const ptBR = {
         profileSwitch: {
           title: 'Trocar o profile desta conversa?',
           description: 'O profile mudará de {{currentProfile}} para {{targetProfile}} a partir do próximo turno.',
+          bodyLabel: 'Tarefa solicitada',
           allow: 'Trocar para {{targetProfile}}',
           deny: 'Manter {{currentProfile}}',
         },
@@ -4314,6 +4322,7 @@ const ptBR = {
           title: 'Executar a tarefa com outro profile?',
           descriptionInline: 'O subagente usará {{targetProfile}} em vez de {{currentProfile}} somente nesta execução, e o turno aguardará o resultado.',
           descriptionBackground: 'O subagente usará {{targetProfile}} em vez de {{currentProfile}} somente nesta execução em segundo plano; o resultado chegará depois nesta conversa.',
+          bodyLabel: 'Tarefa solicitada',
           allow: 'Executar com {{targetProfile}}',
           deny: 'Não executar',
         },
@@ -4323,6 +4332,7 @@ const ptBR = {
           submit: 'Autorizar',
           cancel: 'Negar',
           detailsPrompt: 'Detalhes do destino',
+          bodyLabel: 'Detalhes do destino',
           skillHostMatch: 'Este destino casa com {{pattern}}, declarado pelo skill como host esperado. Isso não dispensa a sua autorização.',
           scopePrompt: 'Por quanto tempo autorizar este host?',
           reasonPrompt: 'Observação (opcional)',
@@ -4338,6 +4348,7 @@ const ptBR = {
         fstrust: {
           title: 'Autorizar acesso a caminho fora do workspace',
           description: 'O assistente pediu a operação "{{operation}}" em um caminho fora do workspace ativo e de ~/.assistente. Permita o path ou a pasta pai, negue esta tentativa ou lembre a negação no escopo escolhido.',
+          bodyLabel: 'Caminho e detalhes solicitados',
           cancel: 'Negar',
           deny: {
             session: 'Negar durante esta conversa',
@@ -4365,6 +4376,7 @@ const ptBR = {
           submit: 'Confirmar',
           cancel: 'Negar',
           actionPrompt: 'Ação pedida',
+          bodyLabel: 'Ação solicitada',
           choicePrompt: 'O que o agente pode fazer?',
           // Uma frase por classe de ação (backend: acp.ToolKind), e não a
           // classe interpolada: o código do protocolo é inglês, e "o agente

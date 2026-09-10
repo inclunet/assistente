@@ -2259,6 +2259,7 @@ const es = {
             titleUpdate: '¿Actualizar {{agent}} a la versión {{version}}?',
             introUpdate:
               'La aplicación va a instalar la versión nueva junto a la actual, apuntar hacia ella los proveedores que usan este agente y solo entonces intentar borrar la anterior. No se descarga nada antes de que confirmes.',
+            detailsRegion: 'Detalles del agente y de la instalación',
             agent: 'Agente',
             version: 'Versión',
             installedVersion: 'Versión instalada ahora',
@@ -2496,7 +2497,11 @@ const es = {
       confirm: { title: 'Confirmar' },
       decisionDialog: {
         bodyHint: 'Hay contenido adicional en el diálogo para leer.',
+        detailsRegion: 'Detalles de la solicitud',
         shortcutsHint: 'Atajos disponibles: {{shortcuts}}',
+      },
+      documentReadingRegion: {
+        opened: '{{label}}. Usa las flechas para leer; Tab sale de esta región.',
       },
       questionnaire: {
         defaultTitle: 'Cuestionario',
@@ -4287,6 +4292,7 @@ const es = {
           description: 'El asistente quiere ejecutar:\n\n{{command}}\n\nen: {{workDir}}',
           prompt: '¿Permitir la ejecución de este comando?',
           workDir: 'Directorio: {{workDir}}',
+          bodyLabel: 'Comando solicitado',
           submit: 'Permitir',
           cancel: 'Denegar',
         },
@@ -4294,6 +4300,7 @@ const es = {
           title: 'Confirmar operación {{method}}',
           description: 'El asistente quiere ejecutar:\n\n{{method}} {{url}}\n\nBody:\n{{body}}',
           prompt: '¿Permitir esta operación {{method}}?',
+          bodyLabel: 'Detalles de la operación solicitada',
           submit: 'Permitir',
           cancel: 'Denegar',
         },
@@ -4306,6 +4313,7 @@ const es = {
         profileSwitch: {
           title: '¿Cambiar el perfil de esta conversación?',
           description: 'El perfil cambiará de {{currentProfile}} a {{targetProfile}} a partir del próximo turno.',
+          bodyLabel: 'Tarea solicitada',
           allow: 'Cambiar a {{targetProfile}}',
           deny: 'Mantener {{currentProfile}}',
         },
@@ -4313,6 +4321,7 @@ const es = {
           title: '¿Ejecutar la tarea con otro perfil?',
           descriptionInline: 'El subagente usará {{targetProfile}} en lugar de {{currentProfile}} solo en esta ejecución, y el turno esperará el resultado.',
           descriptionBackground: 'El subagente usará {{targetProfile}} en lugar de {{currentProfile}} solo en esta ejecución en segundo plano; el resultado llegará después a esta conversación.',
+          bodyLabel: 'Tarea solicitada',
           allow: 'Ejecutar con {{targetProfile}}',
           deny: 'No ejecutar',
         },
@@ -4322,6 +4331,7 @@ const es = {
           submit: 'Autorizar',
           cancel: 'Denegar',
           detailsPrompt: 'Detalles del destino',
+          bodyLabel: 'Detalles del destino',
           skillHostMatch: 'Este destino coincide con {{pattern}}, declarado por el skill como host esperado. Eso no sustituye su autorización.',
           scopePrompt: '¿Por cuánto tiempo autorizar este host?',
           reasonPrompt: 'Observación (opcional)',
@@ -4337,6 +4347,7 @@ const es = {
         fstrust: {
           title: 'Autorizar acceso a una ruta fuera del workspace',
           description: 'El asistente pidió la operación "{{operation}}" en una ruta fuera del workspace activo y de ~/.assistente. Permita la ruta o la carpeta padre, deniegue este intento o recuerde la denegación en el alcance elegido.',
+          bodyLabel: 'Ruta y detalles solicitados',
           cancel: 'Denegar',
           deny: {
             session: 'Denegar durante esta conversación',
@@ -4364,6 +4375,7 @@ const es = {
           submit: 'Confirmar',
           cancel: 'Denegar',
           actionPrompt: 'Acción solicitada',
+          bodyLabel: 'Acción solicitada',
           choicePrompt: '¿Qué puede hacer el agente?',
           // Una frase por clase de acción (backend: acp.ToolKind), y no la clase
           // interpolada: el código del protocolo está en inglés, así que "el

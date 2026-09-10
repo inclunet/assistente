@@ -2260,6 +2260,7 @@ const en = {
             titleUpdate: 'Update {{agent}} to version {{version}}?',
             introUpdate:
               'The application will install the new version alongside the current one, point the providers that use this agent to it and only then try to delete the previous one. Nothing is downloaded before you confirm.',
+            detailsRegion: 'Agent and installation details',
             agent: 'Agent',
             version: 'Version',
             installedVersion: 'Currently installed version',
@@ -2496,7 +2497,11 @@ const en = {
       confirm: { title: 'Confirm' },
       decisionDialog: {
         bodyHint: 'There is additional content in the dialog to read.',
+        detailsRegion: 'Request details',
         shortcutsHint: 'Available shortcuts: {{shortcuts}}',
+      },
+      documentReadingRegion: {
+        opened: '{{label}}. Use the arrow keys to read; Tab leaves this region.',
       },
       questionnaire: {
         defaultTitle: 'Questionnaire',
@@ -4287,6 +4292,7 @@ const en = {
           description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',
           prompt: 'Allow running this command?',
           workDir: 'Directory: {{workDir}}',
+          bodyLabel: 'Requested command',
           submit: 'Allow',
           cancel: 'Deny',
         },
@@ -4294,6 +4300,7 @@ const en = {
           title: 'Confirm {{method}} operation',
           description: 'The assistant wants to run:\n\n{{method}} {{url}}\n\nBody:\n{{body}}',
           prompt: 'Allow this {{method}} operation?',
+          bodyLabel: 'Requested operation details',
           submit: 'Allow',
           cancel: 'Deny',
         },
@@ -4306,6 +4313,7 @@ const en = {
         profileSwitch: {
           title: 'Change this conversation profile?',
           description: 'The profile will change from {{currentProfile}} to {{targetProfile}} starting next turn.',
+          bodyLabel: 'Requested task',
           allow: 'Change to {{targetProfile}}',
           deny: 'Keep {{currentProfile}}',
         },
@@ -4313,6 +4321,7 @@ const en = {
           title: 'Run the task with another profile?',
           descriptionInline: 'The sub-agent will use {{targetProfile}} instead of {{currentProfile}} for this run only, and this turn will wait for the result.',
           descriptionBackground: 'The sub-agent will use {{targetProfile}} instead of {{currentProfile}} for this background run only; the result will arrive later in this conversation.',
+          bodyLabel: 'Requested task',
           allow: 'Run with {{targetProfile}}',
           deny: 'Do not run',
         },
@@ -4322,6 +4331,7 @@ const en = {
           submit: 'Authorize',
           cancel: 'Deny',
           detailsPrompt: 'Destination details',
+          bodyLabel: 'Destination details',
           skillHostMatch: 'This destination matches {{pattern}}, declared by the skill as an expected host. That does not waive your authorization.',
           scopePrompt: 'For how long should this host be authorized?',
           reasonPrompt: 'Note (optional)',
@@ -4337,6 +4347,7 @@ const en = {
         fstrust: {
           title: 'Authorize access to a path outside the workspace',
           description: 'The assistant requested the "{{operation}}" operation on a path outside the active workspace and ~/.assistente. Allow the path or parent folder, deny this attempt, or remember the denial in the selected scope.',
+          bodyLabel: 'Requested path and details',
           cancel: 'Deny',
           deny: {
             session: 'Deny for this conversation',
@@ -4364,6 +4375,7 @@ const en = {
           submit: 'Confirm',
           cancel: 'Deny',
           actionPrompt: 'Requested action',
+          bodyLabel: 'Requested action',
           choicePrompt: 'What may the agent do?',
           // One sentence per action class (backend: acp.ToolKind) instead of the
           // interpolated class: the protocol code is English, so "the agent

@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from './Modal';
 import { DialogActions } from './DialogActions';
+import {
+  DocumentReadingRegion,
+  DocumentReadingRegionGroup,
+} from './DocumentReadingRegion';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import {
   questionnaireOptionValue,
@@ -64,6 +68,8 @@ export interface QuestionnairePayload {
   description?: QuestionnaireText;
   /** Conteúdo só leitura (comando, URL, ação ACP). */
   body?: string;
+  /** Nome traduzível da ilha que contém Body cru. */
+  bodyLabel?: QuestionnaireText;
   /** Texto traduzível secundário (ex.: hint de skill host). */
   hint?: QuestionnaireText;
   actions?: QuestionnaireDecisionAction[];
@@ -134,16 +140,6 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
 
   const questions = useMemo(() => data?.questions || [], [data]);
 
-  // Diálogos com blocos readonly_code (confirmação de edição Antes/Depois,
-  // diff de conflito, consentimento de rede) são de leitura pesada: o Modal
-  // recebe readingMode (role="document"), fazendo o NVDA entrar em modo de
-  // navegação e permitir leitura linha a linha com as setas. Questionários
-  // só de formulário mantêm role="application" (modo de foco).
-  const hasReadonlyCode = useMemo(
-    () => questions.some((q) => q.type === 'readonly_code'),
-    [questions]
-  );
-
   // Pergunta marcada pelo backend/UI para receber o foco inicial (ex.: bloco
   // "Depois" no editor, ou o primeiro rádio de uma escolha).
   // Perguntas de escolha (boolean/single_choice/multiple_choice) não têm
@@ -154,6 +150,9 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     const escapedId = CSS.escape(target.id);
     if (target.type === 'boolean' || target.type === 'single_choice' || target.type === 'multiple_choice') {
       return `input[name="question-${escapedId}"]`;
+    }
+    if (target.type === 'readonly_code') {
+      return `[data-document-reading-anchor="${escapedId}"]`;
     }
     return `#question-${escapedId}`;
   }, [questions]);
@@ -234,11 +233,11 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       size="lg"
       returnFocusOnClose={false}
       allowClose={allowCancel}
-      readingMode={hasReadonlyCode}
       initialFocusSelector={initialFocusSelector}
     >
       {description && <p className="questionnaire-dialog__description">{description}</p>}
 
+      <DocumentReadingRegionGroup>
       <form
         className="questionnaire-dialog__form"
         onSubmit={(e) => {
@@ -249,9 +248,15 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           if (e.key !== 'Enter') return;
           if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
           if (e.target instanceof HTMLTextAreaElement) return;
-          // Enter com foco no bloco readonly_code (<pre>) não deve submeter:
+          // Enter com foco na ilha readonly_code não deve submeter:
           // o usuário está apenas lendo/navegando pelo conteúdo.
-          if (e.target instanceof HTMLPreElement) return;
+          if (
+            e.target instanceof HTMLElement
+            && e.target.closest('[data-document-reading-region]')
+          ) {
+            e.preventDefault();
+            return;
+          }
           // Enter em botões segue a ativação nativa (ex.: "Rejeitar" deve
           // cancelar, não submeter o formulário).
           if (e.target instanceof HTMLButtonElement) return;
@@ -329,19 +334,14 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             )}
 
             {q.type === 'readonly_code' && (
-              // Conteúdo estático: com o readingMode do Modal (role="document"),
-              // o NVDA lê o bloco linha a linha em modo de navegação, sem
-              // depender de caret. O tabIndex mantém uma parada de Tab para
-              // orientação; role="region" dá nome acessível via aria-labelledby.
-              <pre
-                id={`question-${q.id}`}
-                className="questionnaire-dialog__readonly"
-                tabIndex={0}
-                role="region"
-                aria-labelledby={labelId}
+              <DocumentReadingRegion
+                id={q.id}
+                label={`${index + 1}. ${prompt}`}
+                labelledBy={labelId}
+                contentClassName="questionnaire-dialog__readonly"
               >
                 {q.content ?? ''}
-              </pre>
+              </DocumentReadingRegion>
             )}
 
             {q.type === 'number' && (
@@ -460,6 +460,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           }
         />
       </form>
+      </DocumentReadingRegionGroup>
     </Modal>
   );
 }

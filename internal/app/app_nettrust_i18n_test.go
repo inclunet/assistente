@@ -118,6 +118,10 @@ func TestODialogoDestacaOHostQueOSkillDeclarou(t *testing.T) {
 		t.Errorf("pattern nos params = %v, quer o host declarado", got)
 	}
 	body, _ := payload["body"].(string)
+	bodyLabel, ok := payload["bodyLabel"].(questionnaire.Text)
+	if !ok || bodyLabel.Key != "app.questionnaire.network.bodyLabel" {
+		t.Fatalf("bodyLabel = %#v, quer nome traduzível da ilha do destino", payload["bodyLabel"])
+	}
 	if strings.Contains(body, "casa com") {
 		t.Errorf("body = %q, o hint traduzível não deve ir no Body cru", body)
 	}

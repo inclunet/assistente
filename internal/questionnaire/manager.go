@@ -88,6 +88,7 @@ type RequestPayload struct {
 	// anexado à descrição no DecisionDialog sem misturar com Body cru.
 	Hint         Text                `json:"hint,omitzero"`
 	Body         string              `json:"body,omitempty"`
+	BodyLabel    Text                `json:"bodyLabel,omitzero"`
 	Actions      []DecisionAction    `json:"actions,omitempty"`
 	Questions    []Question          `json:"questions"`
 	AllowCancel  bool                `json:"allowCancel,omitempty"`
@@ -146,6 +147,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		Description:  payload.Description,
 		Hint:         payload.Hint,
 		Body:         payload.Body,
+		BodyLabel:    payload.BodyLabel,
 		Actions:      payload.Actions,
 		Questions:    payload.Questions,
 		AllowCancel:  payload.AllowCancel,
@@ -186,6 +188,9 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	}
 	if req.Body != "" {
 		eventData["body"] = req.Body
+		if !req.BodyLabel.IsZero() {
+			eventData["bodyLabel"] = req.BodyLabel
+		}
 	}
 	if !req.Hint.IsZero() {
 		eventData["hint"] = req.Hint
