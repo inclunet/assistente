@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -34,6 +35,17 @@ type JobExecutor struct {
 
 // NotifyFunc envia notificacao para canais (chat, telegram, etc.)
 type NotifyFunc func(channels []string, message string)
+
+type attemptFailure struct {
+	err               error
+	retryable         bool
+	retryabilityKnown bool
+	code              string
+	kind              tools.ErrorKind
+}
+
+func (e *attemptFailure) Error() string { return e.err.Error() }
+func (e *attemptFailure) Unwrap() error { return e.err }
 
 // ExecutorConfig configura o JobExecutor.
 type ExecutorConfig struct {
@@ -190,6 +202,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	}
 
 	var lastErr error
+	attemptsMade := 0
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			delay := e.calculateRetryDelay(job, attempt)
@@ -211,6 +224,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		}
 
 		output, err := e.executeSingle(ctx, job, trigCtx, rl)
+		attemptsMade++
 		if err == nil {
 			rl.Output = output
 			rl.OutputSize = estimateSize(output)
@@ -221,6 +235,19 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 
 		lastErr = err
 		logger.Warn("job attempt failed", slog.Int("attempt", attempt+1), slog.Any("error", err))
+		var classified *attemptFailure
+		if errors.As(err, &classified) && classified.retryabilityKnown && !classified.retryable {
+			logger.Info("job retry suppressed for permanent failure",
+				slog.String("error_code", classified.code),
+				slog.String("error_kind", string(classified.kind)),
+			)
+			break
+		}
+		if attempt+1 < maxAttempts {
+			rl.addRunEvent("retry_scheduled", fmt.Sprintf("[%s] RETRY SCHEDULED after attempt %d", job.ID, attempt+1), map[string]any{
+				"attempt": attempt + 1,
+			})
+		}
 	}
 
 	// Todos os retries falharam
@@ -237,7 +264,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		if len(channels) == 0 {
 			channels = []string{"chat"}
 		}
-		e.notifyFunc(channels, fmt.Sprintf("Job %q falhou apos %d tentativas: %s", job.ID, maxAttempts, lastErr))
+		e.notifyFunc(channels, fmt.Sprintf("Job %q falhou apos %d tentativas: %s", job.ID, attemptsMade, lastErr))
 	}
 
 	e.emitFailure(ctx, job, rl, trigCtx)
@@ -287,7 +314,11 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Resolve a tool no registry
 	tool, ok := e.toolRegistry.Get(job.Tool)
 	if !ok {
-		return nil, fmt.Errorf("tool not found: %s", job.Tool)
+		return nil, permanentAttemptFailure(
+			fmt.Errorf("tool not found: %s", job.Tool),
+			tools.ErrorKindNotFound,
+			"tool_not_found",
+		)
 	}
 
 	// Monta contexto de template
@@ -305,7 +336,11 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Resolve templates nos inputs
 	resolvedInputs, err := ResolveInputs(job.Inputs, tmplCtx)
 	if err != nil {
-		return nil, fmt.Errorf("resolve inputs: %w", err)
+		return nil, permanentAttemptFailure(
+			fmt.Errorf("resolve inputs: %w", err),
+			tools.ErrorKindConfiguration,
+			"invalid_job_inputs",
+		)
 	}
 
 	resolvedInputs = CoerceInputs(resolvedInputs, tool.Parameters())
@@ -318,13 +353,18 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Serializa inputs para JSON (formato esperado por tool.Execute)
 	argsJSON, err := json.Marshal(resolvedInputs)
 	if err != nil {
-		return nil, fmt.Errorf("marshal inputs: %w", err)
+		return nil, permanentAttemptFailure(
+			fmt.Errorf("marshal inputs: %w", err),
+			tools.ErrorKindInvalidArgs,
+			"invalid_arguments",
+		)
 	}
 
-	result, err := e.executeTool(ctx, job, rl, argsJSON)
-	if err != nil {
-		return nil, err
+	execution := e.executeTool(ctx, job, rl, argsJSON)
+	if execution.Error != nil || execution.Result.IsError {
+		return nil, newAttemptFailure(ctx, execution)
 	}
+	result := execution.Result
 
 	// Parse o resultado para map[string]any
 	output := make(map[string]any)
@@ -358,7 +398,11 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		tmplCtx.Output = output
 		mapped, err := ResolveOutputMap(job.Output.Map, tmplCtx)
 		if err != nil {
-			return nil, fmt.Errorf("resolve output map: %w", err)
+			return nil, permanentAttemptFailure(
+				fmt.Errorf("resolve output map: %w", err),
+				tools.ErrorKindConfiguration,
+				"invalid_output_map",
+			)
 		}
 		return mapped, nil
 	}
@@ -366,20 +410,34 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	return output, nil
 }
 
-func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON json.RawMessage) (tools.ToolResult, error) {
+func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON json.RawMessage) tools.ToolExecutionResult {
 	if e.toolInvocations == nil {
 		tool, ok := e.toolRegistry.Get(job.Tool)
 		if !ok {
-			return tools.ToolResult{}, fmt.Errorf("tool not found: %s", job.Tool)
+			return tools.ToolExecutionResult{
+				ToolName:          job.Tool,
+				Result:            tools.ToolResult{Content: fmt.Sprintf("tool not found: %s", job.Tool), IsError: true},
+				ErrorKind:         tools.ErrorKindNotFound,
+				RetryabilityKnown: true,
+			}
 		}
 		result, err := tool.Execute(ctx, argsJSON)
 		if err != nil {
-			return tools.ToolResult{}, wrapToolExecuteErr(ctx, err)
+			return tools.ToolExecutionResult{
+				ToolName:  job.Tool,
+				Result:    tools.ToolResult{Content: wrapToolExecuteErr(ctx, err).Error(), IsError: true},
+				Error:     err,
+				ErrorKind: tools.ErrorKindUnknown,
+			}
 		}
-		if result.IsError {
-			return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Content)
+		execution := tools.ToolExecutionResult{ToolName: job.Tool, Result: result}
+		if result.Failure != nil {
+			execution.ErrorKind = result.Failure.Kind
+			execution.ErrorCode = result.Failure.Code
+			execution.Retryable = result.Failure.Retryable
+			execution.RetryabilityKnown = true
 		}
-		return result, nil
+		return execution
 	}
 
 	callID := fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano())
@@ -390,7 +448,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		originType = toolinvocations.OriginJobRun
 		originID = rl.RunID
 	}
-	result := e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+	return e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
 		Call: tools.ToolCall{
 			ID:   callID,
 			Type: "function",
@@ -409,13 +467,31 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		// a persistência em tool_invocations pode truncar separadamente.
 		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
 	}).Execution
-	if result.Error != nil {
-		return tools.ToolResult{}, wrapToolExecuteErr(ctx, result.Error)
+}
+
+func newAttemptFailure(ctx context.Context, execution tools.ToolExecutionResult) error {
+	err := execution.Error
+	if err == nil {
+		err = fmt.Errorf("tool error: %s", execution.Result.Content)
+	} else {
+		err = wrapToolExecuteErr(ctx, err)
 	}
-	if result.Result.IsError {
-		return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Result.Content)
+	return &attemptFailure{
+		err:               err,
+		retryable:         execution.Retryable,
+		retryabilityKnown: execution.RetryabilityKnown,
+		code:              execution.ErrorCode,
+		kind:              execution.ErrorKind,
 	}
-	return result.Result, nil
+}
+
+func permanentAttemptFailure(err error, kind tools.ErrorKind, code string) error {
+	return &attemptFailure{
+		err:               err,
+		retryabilityKnown: true,
+		code:              code,
+		kind:              kind,
+	}
 }
 
 // runProvenance monta a proveniência carimbada no ctx do run, espelhando a

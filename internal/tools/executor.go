@@ -99,10 +99,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: err.Error(),
 				IsError: true,
 			},
-			Error:      err,
-			ErrorKind:  ErrorKindInvalidArgs,
-			Retryable:  false,
-			DurationMs: time.Since(start).Milliseconds(),
+			Error:             err,
+			ErrorKind:         ErrorKindInvalidArgs,
+			Retryable:         false,
+			RetryabilityKnown: true,
+			DurationMs:        time.Since(start).Milliseconds(),
 		}
 	}
 
@@ -116,10 +117,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Ferramenta '%s' não encontrada", toolName),
 				IsError: true,
 			},
-			Error:      fmt.Errorf("ferramenta '%s' não encontrada", toolName),
-			ErrorKind:  ErrorKindNotFound,
-			Retryable:  false,
-			DurationMs: time.Since(start).Milliseconds(),
+			Error:             fmt.Errorf("ferramenta '%s' não encontrada", toolName),
+			ErrorKind:         ErrorKindNotFound,
+			Retryable:         false,
+			RetryabilityKnown: true,
+			DurationMs:        time.Since(start).Milliseconds(),
 		}
 	}
 
@@ -133,10 +135,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Argumentos inválidos para '%s': JSON malformado", toolName),
 				IsError: true,
 			},
-			Error:      fmt.Errorf("argumentos inválidos para '%s': JSON malformado", toolName),
-			ErrorKind:  ErrorKindInvalidArgs,
-			Retryable:  false,
-			DurationMs: time.Since(start).Milliseconds(),
+			Error:             fmt.Errorf("argumentos inválidos para '%s': JSON malformado", toolName),
+			ErrorKind:         ErrorKindInvalidArgs,
+			Retryable:         false,
+			RetryabilityKnown: true,
+			DurationMs:        time.Since(start).Milliseconds(),
 		}
 	}
 
@@ -156,10 +159,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						Content: fmt.Sprintf("Erro interno em '%s': %v", toolName, r),
 						IsError: true,
 					},
-					Error:      fmt.Errorf("panic: %v", r),
-					ErrorKind:  ErrorKindPanic,
-					Retryable:  false,
-					DurationMs: time.Since(start).Milliseconds(),
+					Error:             fmt.Errorf("panic: %v", r),
+					ErrorKind:         ErrorKindPanic,
+					Retryable:         false,
+					RetryabilityKnown: true,
+					DurationMs:        time.Since(start).Milliseconds(),
 				}
 			}
 		}()
@@ -184,10 +188,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					Content: fmt.Sprintf("Erro ao executar '%s': %v", toolName, err),
 					IsError: true,
 				},
-				Error:      err,
-				ErrorKind:  errKind,
-				Retryable:  retryable,
-				DurationMs: time.Since(start).Milliseconds(),
+				Error:             err,
+				ErrorKind:         errKind,
+				Retryable:         retryable,
+				RetryabilityKnown: errKind == ErrorKindTimeout,
+				DurationMs:        time.Since(start).Milliseconds(),
 			}
 			return
 		}
@@ -234,12 +239,15 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		}
 
 		resultCh <- ToolExecutionResult{
-			CallID:     call.ID,
-			ToolName:   toolName,
-			Result:     result,
-			Error:      execErr,
-			ErrorKind:  execKind,
-			DurationMs: time.Since(start).Milliseconds(),
+			CallID:            call.ID,
+			ToolName:          toolName,
+			Result:            result,
+			Error:             execErr,
+			ErrorKind:         firstFailureKind(execKind, result),
+			ErrorCode:         failureCode(result),
+			Retryable:         failureRetryable(result),
+			RetryabilityKnown: result.Failure != nil,
+			DurationMs:        time.Since(start).Milliseconds(),
 		}
 	}()
 
@@ -253,12 +261,14 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				// Contexto pai cancelado — não é retryable
 				result.ErrorKind = ErrorKindCancelled
 				result.Retryable = false
+				result.RetryabilityKnown = true
 				result.Result.Content = fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName)
 				result.Error = ctx.Err()
 			} else if toolCtx.Err() != nil {
 				// Timeout da tool
 				result.ErrorKind = ErrorKindTimeout
 				result.Retryable = true
+				result.RetryabilityKnown = true
 				result.Result.Content = fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout)
 				result.Error = context.DeadlineExceeded
 			}
@@ -275,10 +285,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
 					IsError: true,
 				},
-				Error:      ctx.Err(),
-				ErrorKind:  ErrorKindCancelled,
-				Retryable:  false,
-				DurationMs: elapsed,
+				Error:             ctx.Err(),
+				ErrorKind:         ErrorKindCancelled,
+				Retryable:         false,
+				RetryabilityKnown: true,
+				DurationMs:        elapsed,
 			}
 		}
 		// Timeout da tool
@@ -289,12 +300,37 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
 				IsError: true,
 			},
-			Error:      context.DeadlineExceeded,
-			ErrorKind:  ErrorKindTimeout,
-			Retryable:  true,
-			DurationMs: elapsed,
+			Error:             context.DeadlineExceeded,
+			ErrorKind:         ErrorKindTimeout,
+			Retryable:         true,
+			RetryabilityKnown: true,
+			DurationMs:        elapsed,
 		}
 	}
+}
+
+func failureCode(result ToolResult) string {
+	if result.Failure == nil {
+		return ""
+	}
+	return result.Failure.Code
+}
+
+func firstFailureKind(executorKind ErrorKind, result ToolResult) ErrorKind {
+	if executorKind != ErrorKindNone {
+		return executorKind
+	}
+	if result.Failure != nil {
+		return result.Failure.Kind
+	}
+	if result.IsError {
+		return ErrorKindUnknown
+	}
+	return ErrorKindNone
+}
+
+func failureRetryable(result ToolResult) bool {
+	return result.Failure != nil && result.Failure.Retryable
 }
 
 func validateExecutionContextToolAccess(ctx context.Context, toolName string) error {

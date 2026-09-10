@@ -2,11 +2,14 @@ package database
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 )
+
+var ErrConversationIDRequired = errors.New("conversation ID required")
 
 // ConversationRepository encapsula a persistencia de conversas e busca com um *gorm.DB injetado.
 type ConversationRepository struct {
@@ -344,6 +347,10 @@ func (r *ConversationRepository) GetConversationInfoWithContext(ctx context.Cont
 	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, ErrConversationIDRequired
 	}
 	var conv Conversation
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&conv, "id = ?", id).Error

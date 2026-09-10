@@ -104,6 +104,34 @@ func TestExecuteSingle_InvalidArgs(t *testing.T) {
 	}
 }
 
+func TestExecuteSingle_PreservesStructuredToolFailure(t *testing.T) {
+	tool := &mockTool{
+		name: "permanent_failure",
+		exec: func(_ context.Context, _ json.RawMessage) (ToolResult, error) {
+			return ToolResult{
+				Content: `{"error":{"code":"authorization_no_interlocutor"}}`,
+				IsError: true,
+				Failure: &ToolFailure{
+					Code:      "authorization_no_interlocutor",
+					Kind:      ErrorKindAuthorization,
+					Retryable: false,
+				},
+			}, nil
+		},
+	}
+
+	result := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(context.Background(), ToolCall{
+		ID:       "call-1",
+		Function: FunctionCall{Name: tool.Name(), Arguments: `{}`},
+	})
+	if result.ErrorCode != "authorization_no_interlocutor" ||
+		result.ErrorKind != ErrorKindAuthorization ||
+		!result.RetryabilityKnown ||
+		result.Retryable {
+		t.Fatalf("falha estruturada perdida: %#v", result)
+	}
+}
+
 func TestExecuteSingle_Panic(t *testing.T) {
 	tool := &mockTool{
 		name:   "panic_tool",

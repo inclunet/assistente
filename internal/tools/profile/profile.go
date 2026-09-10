@@ -215,7 +215,23 @@ func errorResult(code, message string) tools.ToolResult {
 		Metadata: map[string]any{
 			"error_code": code,
 		},
+		Failure: profileFailure(code),
 	}
+}
+
+func profileFailure(code string) *tools.ToolFailure {
+	var kind tools.ErrorKind
+	switch code {
+	case "invalid_arguments", "invalid_action", "target_required", "reason_required", "reason_too_long":
+		kind = tools.ErrorKindInvalidArgs
+	case "desktop_tab_required", "invalid_tab_conversation":
+		kind = tools.ErrorKindConfiguration
+	case "catalog_unavailable", "switch_unavailable", "target_unavailable":
+		kind = tools.ErrorKindUnavailable
+	default:
+		return nil
+	}
+	return &tools.ToolFailure{Code: code, Kind: kind, Retryable: false}
 }
 
 func jsonResult(value response) (tools.ToolResult, error) {

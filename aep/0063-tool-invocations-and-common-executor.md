@@ -133,6 +133,13 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 6. O serviço grava `succeeded`, `failed`, `timed_out` ou `cancelled`, com duração, output e erro.
 7. O chamador recebe um resultado normalizado e decide como continuar o fluxo.
 
+O resultado normalizado preserva ainda o código estável da falha, seu tipo e
+uma decisão explícita de retryability. A ausência dessa decisão em tools
+legadas não equivale a `Retryable=false`: chamadores conservam seu default
+anterior. Jobs encerram na primeira tentativa apenas quando a execução declara
+explicitamente uma falha permanente; falhas transitórias e não classificadas
+continuam obedecendo `error_policy`, `max_retries` e backoff.
+
 ## Integração com jobs
 
 Jobs passam a registrar execução operacional em `job_runs` e execução técnica de tools em `tool_invocations`.
@@ -239,6 +246,9 @@ Evidências: `internal/toolinvocations/{repository,service}_test.go`,
 `internal/agent/service_tool_calls_persistence_test.go`,
 `internal/jobs/executor_toolinvocations_test.go`,
 `manager_toolinvocations_test.go` e `internal/wailsapi/jobs_dryrun_test.go`.
+O contrato de código/retryability e a interrupção seletiva de retries de jobs
+são cobertos também por `internal/tools/executor_test.go` e
+`internal/jobs/executor_toolinvocations_test.go`.
 
 ## Plano de Transição e Compatibilidade (Issue #127)
 

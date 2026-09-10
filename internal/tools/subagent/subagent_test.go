@@ -704,6 +704,24 @@ func TestToolCrossProfileAuthorizationErrorIsStructured(t *testing.T) {
 	if result.Metadata["error_code"] != "profile_not_found" {
 		t.Fatalf("código estruturado inesperado: %#v", result.Metadata)
 	}
+	if result.Failure == nil || result.Failure.Code != "profile_not_found" || result.Failure.Kind != tools.ErrorKindNotFound || result.Failure.Retryable {
+		t.Fatalf("classificação permanente inesperada: %#v", result.Failure)
+	}
+}
+
+func TestAuthorizationFailuresAreExplicitlyPermanent(t *testing.T) {
+	for _, code := range []string{
+		"authorization_no_interlocutor",
+		"authorization_unavailable",
+		"authorization_surface_unavailable",
+		"profile_not_found",
+		"profile_unavailable",
+	} {
+		result := authorizationErrResult(code, "falha")
+		if result.Failure == nil || result.Failure.Code != code || result.Failure.Retryable {
+			t.Fatalf("%s sem classificação permanente: %#v", code, result.Failure)
+		}
+	}
 }
 
 func TestToolSameExplicitProfileDoesNotAsk(t *testing.T) {

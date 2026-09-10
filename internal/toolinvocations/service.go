@@ -248,8 +248,10 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.Status = status
 		inv.Output = s.outputForPersistence(exec.Result)
 		inv.ErrorKind = string(exec.ErrorKind)
+		inv.ErrorCode = exec.ErrorCode
 		inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
 		inv.Retryable = exec.Retryable
+		inv.RetryabilityKnown = exec.RetryabilityKnown
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
 		inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, exec.DurationMs, false)
@@ -702,8 +704,10 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.Status = status
 	inv.Output = s.outputForPersistence(req.Result)
 	inv.ErrorKind = string(req.ErrorKind)
+	inv.ErrorCode = req.ErrorCode
 	inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
 	inv.Retryable = req.Retryable
+	inv.RetryabilityKnown = req.RetryabilityKnown
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = req.DurationMs
 	inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, req.DurationMs, true)
@@ -880,9 +884,10 @@ func executionError(call tools.ToolCall, message string) tools.ToolExecutionResu
 			Content: message,
 			IsError: true,
 		},
-		ErrorKind:  tools.ErrorKindUnknown,
-		Retryable:  false,
-		DurationMs: 0,
+		ErrorKind:         tools.ErrorKindUnknown,
+		Retryable:         false,
+		RetryabilityKnown: true,
+		DurationMs:        0,
 	}
 }
 
@@ -897,9 +902,10 @@ func executionCancelled(call tools.ToolCall, message string) tools.ToolExecution
 			Content: message,
 			IsError: true,
 		},
-		ErrorKind:  tools.ErrorKindCancelled,
-		Retryable:  false,
-		DurationMs: 0,
+		ErrorKind:         tools.ErrorKindCancelled,
+		Retryable:         false,
+		RetryabilityKnown: true,
+		DurationMs:        0,
 	}
 }
 
