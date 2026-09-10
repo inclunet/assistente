@@ -18,6 +18,7 @@ const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 const mockAnnounce = vi.fn();
+const mockRequestGridFocus = vi.fn(() => true);
 
 let mockLocationSearch = '';
 
@@ -94,6 +95,7 @@ vi.mock('../lib/exportImport', async (importOriginal) => {
 vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
     handleGridReady: vi.fn(),
+    requestGridFocus: mockRequestGridFocus,
   }),
 }));
 
@@ -163,6 +165,7 @@ vi.mock('../components/ui/DataGrid', () => ({
     getRowActions,
     onNearEnd,
     onCellEdit,
+    onDelete,
   }: {
     items?: ConversationItem[];
     onSelectionChange?: (selected: Set<string | number>) => void;
@@ -170,6 +173,7 @@ vi.mock('../components/ui/DataGrid', () => ({
     getRowActions?: (item: ConversationItem) => Array<{ id: string; label?: string; action?: () => void }>;
     onNearEnd?: () => void;
     onCellEdit?: (item: ConversationItem, column: { key: string }, newValue: string, rowIndex: number, colIndex: number) => void;
+    onDelete?: (item: ConversationItem, rowIndex: number) => void;
   }) => (
     <div>
       <button type="button" onClick={() => onSelectionChange?.(new Set(items?.map(i => i.id) ?? []))}>
@@ -180,6 +184,12 @@ vi.mock('../components/ui/DataGrid', () => ({
       </button>
       <button type="button" onClick={() => onSelectionChange?.(new Set())}>
         clear-selection
+      </button>
+      <button type="button" onClick={() => onSelectionChange?.(new Set(items?.slice(0, 2).map(i => i.id) ?? []))}>
+        keyboard-select-range
+      </button>
+      <button type="button" onClick={() => items?.[1] && onDelete?.(items[1], 1)}>
+        keyboard-delete
       </button>
       <button type="button" onClick={() => onFocusChange?.(items?.[0] ?? null)}>
         focus-first
@@ -269,6 +279,7 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     lastToolbarActions = [];
     mockRequestConfirm.mockReset();
     mockRequestConfirm.mockResolvedValue(true);
+    mockRequestGridFocus.mockClear();
   });
 
   it('nao duplica acao de deletar na toolbar', async () => {
@@ -296,6 +307,59 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000001');
       expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000002');
     });
+    expect(mockRequestConfirm).toHaveBeenCalledOnce();
+    expect(mockAnnounce).toHaveBeenCalledWith('history.deleteSucceeded:2');
+  });
+
+  it('Delete do grid usa toda a seleção produzida pelo teclado', async () => {
+    const user = userEvent.setup();
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'keyboard-select-range' }));
+    await user.click(screen.getByRole('button', { name: 'keyboard-delete' }));
+
+    await waitFor(() => expect(mockDeleteConversation).toHaveBeenCalledTimes(2));
+    expect(new Set(mockDeleteConversation.mock.calls.map(([id]) => id))).toEqual(new Set([
+      '01926b90-7a5a-7c4e-8d3f-000000000001',
+      '01926b90-7a5a-7c4e-8d3f-000000000002',
+    ]));
+    expect(mockRequestConfirm).toHaveBeenCalledOnce();
+  });
+
+  it('mantém falhas selecionadas e anuncia exclusão parcial', async () => {
+    const user = userEvent.setup();
+    mockDeleteConversation.mockImplementation((id: string) => (
+      id.endsWith('2') ? Promise.reject(new Error('falha')) : Promise.resolve()
+    ));
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getAllByRole('button', { name: 'select-two' })[0]);
+    await user.click(await screen.findByRole('button', { name: 'Deletar (2)' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Conversa 1')).not.toBeInTheDocument();
+      expect(screen.getByText('Conversa 2')).toBeInTheDocument();
+    });
+    expect(mockAnnounce).toHaveBeenCalledWith('history.deletePartial', 'assertive');
+    expect(mockRequestGridFocus).toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'Deletar (1)' })).toBeInTheDocument();
+  });
+
+  it('cancelar exclusão preserva a lista sem chamar o backend', async () => {
+    const user = userEvent.setup();
+    mockRequestConfirm.mockResolvedValue(false);
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getAllByRole('button', { name: 'select-two' })[0]);
+    await user.click(await screen.findByRole('button', { name: 'Deletar (2)' }));
+
+    await waitFor(() => expect(mockRequestConfirm).toHaveBeenCalledOnce());
+    expect(mockDeleteConversation).not.toHaveBeenCalled();
+    expect(screen.getByText('Conversa 1')).toBeInTheDocument();
+    expect(screen.getByText('Conversa 2')).toBeInTheDocument();
   });
 
   it('deleta conversa focada quando nao ha selecao', async () => {
