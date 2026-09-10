@@ -253,11 +253,13 @@ O backend ja possui todos os dados necessarios no momento da emissao: `iteration
 
 ```go
 type ToolExecutionResult struct {
-    Content    string
-    IsError    bool
-    ErrorKind  string // "timeout" | "invalid_args" | "not_found" | "panic" | "unknown"
-    Retryable  bool
-    DurationMs int64
+    Content           string
+    IsError           bool
+    ErrorKind         string // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "authorization" | "unavailable" | "configuration" | "unknown"
+    ErrorCode         string
+    Retryable         bool
+    RetryabilityKnown bool
+    DurationMs        int64
 }
 ```
 

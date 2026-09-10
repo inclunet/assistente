@@ -3,10 +3,13 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
+	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
 
@@ -17,6 +20,70 @@ type fakeAccess struct {
 	authCalls   int
 	lastAuth    profileaccess.AuthorizationRequest
 	validateErr error
+}
+
+func requirePermanentFailure(t *testing.T, result tools.ToolResult, code string, kind tools.ErrorKind) {
+	t.Helper()
+	if result.Failure == nil ||
+		result.Failure.Code != code ||
+		result.Failure.Kind != kind ||
+		result.Failure.Retryable {
+		t.Fatalf("falha permanente inesperada: %#v", result.Failure)
+	}
+}
+
+func TestProfileFailureClassification(t *testing.T) {
+	tests := []struct {
+		code string
+		kind tools.ErrorKind
+	}{
+		{code: "invalid_arguments", kind: tools.ErrorKindInvalidArgs},
+		{code: "invalid_action", kind: tools.ErrorKindInvalidArgs},
+		{code: "target_required", kind: tools.ErrorKindInvalidArgs},
+		{code: "reason_required", kind: tools.ErrorKindInvalidArgs},
+		{code: "reason_too_long", kind: tools.ErrorKindInvalidArgs},
+		{code: "desktop_tab_required", kind: tools.ErrorKindConfiguration},
+		{code: "invalid_tab_conversation", kind: tools.ErrorKindConfiguration},
+		{code: "catalog_unavailable", kind: tools.ErrorKindUnavailable},
+		{code: "switch_unavailable", kind: tools.ErrorKindUnavailable},
+		{code: "target_unavailable", kind: tools.ErrorKindUnavailable},
+		{code: "profile_not_found", kind: tools.ErrorKindNotFound},
+		{code: "profile_unavailable", kind: tools.ErrorKindUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			failure := profileFailure(tt.code)
+			if failure == nil || failure.Code != tt.code || failure.Kind != tt.kind || failure.Retryable {
+				t.Fatalf("classificação = %#v, esperava code=%s kind=%s permanente", failure, tt.code, tt.kind)
+			}
+		})
+	}
+	for _, code := range []string{"authorization_failed", "list_failed", "persistence_failed", "serialization_failed"} {
+		if failure := profileFailure(code); failure != nil {
+			t.Fatalf("%s deveria permanecer não classificado, veio %#v", code, failure)
+		}
+	}
+}
+
+func TestProfileAuthorizationFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+		kind tools.ErrorKind
+	}{
+		{err: profileaccess.ErrTargetNotFound, code: "profile_not_found", kind: tools.ErrorKindNotFound},
+		{err: profileaccess.ErrTargetUnavailable, code: "profile_unavailable", kind: tools.ErrorKindUnavailable},
+		{err: questionnaire.ErrNoInterlocutor, code: "authorization_no_interlocutor", kind: tools.ErrorKindAuthorization},
+	} {
+		code := profileAuthorizationErrorCode(tc.err)
+		failure := profileFailure(code)
+		if code != tc.code || failure == nil || failure.Kind != tc.kind || failure.Retryable {
+			t.Fatalf("classificação de autorização inesperada: code=%s failure=%#v", code, failure)
+		}
+	}
+	if code := profileAuthorizationErrorCode(errors.New("transporte temporariamente indisponível")); code != "authorization_failed" {
+		t.Fatalf("erro genérico deveria permanecer não classificado: %s", code)
+	}
 }
 
 func (f *fakeAccess) List(context.Context, string) ([]profileaccess.ProfileSummary, error) {
@@ -178,7 +245,7 @@ func TestSwitchValidatesTabBeforeAuthorization(t *testing.T) {
 }
 
 func TestSwitchRevalidatesTargetAfterAuthorization(t *testing.T) {
-	access := &fakeAccess{allowed: true, validateErr: context.Canceled}
+	access := &fakeAccess{allowed: true, validateErr: errors.New("profile removido")}
 	switcher := &fakeSwitcher{}
 	result, err := New(access, switcher).Execute(profileToolContext("wails"), json.RawMessage(
 		`{"action":"switch","slug":"custom","reason":"motivo"}`,
@@ -188,5 +255,35 @@ func TestSwitchRevalidatesTargetAfterAuthorization(t *testing.T) {
 	}
 	if result.Metadata["error_code"] != "target_unavailable" {
 		t.Fatalf("código inesperado: %#v", result.Metadata)
+	}
+}
+
+func TestSwitchPropagatesTargetValidationCancellation(t *testing.T) {
+	access := &fakeAccess{allowed: true, validateErr: context.Canceled}
+	result, err := New(access, &fakeSwitcher{}).Execute(profileToolContext("wails"), json.RawMessage(
+		`{"action":"switch","slug":"custom","reason":"motivo"}`,
+	))
+	if !errors.Is(err, context.Canceled) || result.IsError {
+		t.Fatalf("cancelamento deveria ser propagado ao executor: result=%#v err=%v", result, err)
+	}
+}
+
+func TestSwitchPreservesTargetSentinelClassification(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+		kind tools.ErrorKind
+	}{
+		{err: profileaccess.ErrTargetNotFound, code: "profile_not_found", kind: tools.ErrorKindNotFound},
+		{err: profileaccess.ErrTargetUnavailable, code: "profile_unavailable", kind: tools.ErrorKindUnavailable},
+	} {
+		access := &fakeAccess{allowed: true, validateErr: tc.err}
+		result, err := New(access, &fakeSwitcher{}).Execute(profileToolContext("wails"), json.RawMessage(
+			`{"action":"switch","slug":"custom","reason":"motivo"}`,
+		))
+		if err != nil || result.Metadata["error_code"] != tc.code {
+			t.Fatalf("%s não preservado: result=%#v err=%v", tc.code, result, err)
+		}
+		requirePermanentFailure(t, result, tc.code, tc.kind)
 	}
 }

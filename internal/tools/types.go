@@ -49,6 +49,19 @@ type ToolResult struct {
 	// limite do executor, este falha de forma explícita em vez de cortar o conteúdo.
 	// Centraliza no executor a política antes duplicada em cada tool canônica.
 	Structured bool `json:"structured,omitempty"`
+
+	// Failure classifica uma falha retornada pela própria tool. O ponteiro
+	// distingue uma decisão explícita de retryability do legado IsError, cuja
+	// ausência de classificação deve preservar a política do chamador.
+	Failure *ToolFailure `json:"failure,omitempty"`
+}
+
+// ToolFailure é o contrato estruturado de falha entre a tool, o executor
+// comum e seus chamadores (chat, jobs e dry-run).
+type ToolFailure struct {
+	Code      string    `json:"code"`
+	Kind      ErrorKind `json:"kind"`
+	Retryable bool      `json:"retryable"`
 }
 
 // ResultAnnotations carrega informações que alteram a interpretação do
@@ -115,13 +128,16 @@ type FunctionDefinition struct {
 type ErrorKind string
 
 const (
-	ErrorKindNone        ErrorKind = ""             // Sem erro
-	ErrorKindTimeout     ErrorKind = "timeout"      // Timeout de execução (retryable)
-	ErrorKindInvalidArgs ErrorKind = "invalid_args" // JSON malformado nos argumentos (não retryable)
-	ErrorKindNotFound    ErrorKind = "not_found"    // Ferramenta não encontrada no registry (não retryable)
-	ErrorKindPanic       ErrorKind = "panic"        // Panic capturado durante execução (não retryable)
-	ErrorKindCancelled   ErrorKind = "cancelled"    // Cancelamento pelo usuário (não retryable)
-	ErrorKindUnknown     ErrorKind = "unknown"      // Erro genérico de execução (não retryable)
+	ErrorKindNone          ErrorKind = ""              // Sem erro
+	ErrorKindTimeout       ErrorKind = "timeout"       // Timeout de execução (retryable)
+	ErrorKindInvalidArgs   ErrorKind = "invalid_args"  // JSON malformado nos argumentos (não retryable)
+	ErrorKindNotFound      ErrorKind = "not_found"     // Ferramenta não encontrada no registry (não retryable)
+	ErrorKindPanic         ErrorKind = "panic"         // Panic capturado durante execução (não retryable)
+	ErrorKindCancelled     ErrorKind = "cancelled"     // Cancelamento pelo usuário (não retryable)
+	ErrorKindUnknown       ErrorKind = "unknown"       // Erro genérico; retryability depende da classificação explícita
+	ErrorKindAuthorization ErrorKind = "authorization" // Autorização indisponível/negada de forma permanente
+	ErrorKindUnavailable   ErrorKind = "unavailable"   // Dependência/configuração indisponível
+	ErrorKindConfiguration ErrorKind = "configuration" // Configuração inválida (não retryable)
 )
 
 // ToolExecutionResult agrupa o resultado de uma execução com metadados do call original.
@@ -144,6 +160,14 @@ type ToolExecutionResult struct {
 
 	// Retryable indica se o erro permite retry automático (AEP-0039 Fase 3)
 	Retryable bool `json:"retryable,omitempty"`
+
+	// RetryabilityKnown indica que Retryable foi definido explicitamente pela
+	// tool/executor. Sem este marcador, jobs mantêm a política histórica para
+	// falhas IsError legadas.
+	RetryabilityKnown bool `json:"retryability_known,omitempty"`
+
+	// ErrorCode preserva o código estável da falha retornado pela tool.
+	ErrorCode string `json:"error_code,omitempty"`
 
 	// DurationMs é a duração da execução em milissegundos (AEP-0039 Fase 3)
 	DurationMs int64 `json:"duration_ms,omitempty"`

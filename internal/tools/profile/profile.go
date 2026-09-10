@@ -4,10 +4,12 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -172,7 +174,10 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		PersistentSwitch: true,
 	})
 	if err != nil {
-		return errorResult("authorization_failed", fmt.Sprintf("não foi possível autorizar a troca de profile: %v", err)), nil
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tools.ToolResult{}, err
+		}
+		return errorResult(profileAuthorizationErrorCode(err), fmt.Sprintf("não foi possível autorizar a troca de profile: %v", err)), nil
 	}
 	if !allowed {
 		authorized := false
@@ -185,6 +190,15 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		})
 	}
 	if err := t.access.ValidateTarget(ctx, targetSlug); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tools.ToolResult{}, err
+		}
+		if errors.Is(err, profileaccess.ErrTargetNotFound) {
+			return errorResult("profile_not_found", fmt.Sprintf("profile alvo não encontrado após autorização: %v", err)), nil
+		}
+		if errors.Is(err, profileaccess.ErrTargetUnavailable) {
+			return errorResult("profile_unavailable", fmt.Sprintf("profile alvo indisponível após autorização: %v", err)), nil
+		}
 		return errorResult("target_unavailable", fmt.Sprintf("profile alvo indisponível após autorização: %v", err)), nil
 	}
 	if err := t.switcher.SwitchTabProfile(inv.SurfaceTabID, inv.ConversationID, targetSlug); err != nil {
@@ -215,6 +229,45 @@ func errorResult(code, message string) tools.ToolResult {
 		Metadata: map[string]any{
 			"error_code": code,
 		},
+		Failure: profileFailure(code),
+	}
+}
+
+func profileFailure(code string) *tools.ToolFailure {
+	var kind tools.ErrorKind
+	switch code {
+	case "invalid_arguments", "invalid_action", "target_required", "reason_required", "reason_too_long":
+		kind = tools.ErrorKindInvalidArgs
+	case "desktop_tab_required", "invalid_tab_conversation":
+		kind = tools.ErrorKindConfiguration
+	case "profile_not_found":
+		kind = tools.ErrorKindNotFound
+	case "catalog_unavailable", "switch_unavailable", "target_unavailable":
+		kind = tools.ErrorKindUnavailable
+	case "profile_unavailable":
+		kind = tools.ErrorKindUnavailable
+	case "authorization_no_interlocutor":
+		kind = tools.ErrorKindAuthorization
+	case "authorization_surface_unavailable":
+		return &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnavailable, Retryable: true}
+	default:
+		return nil
+	}
+	return &tools.ToolFailure{Code: code, Kind: kind, Retryable: false}
+}
+
+func profileAuthorizationErrorCode(err error) string {
+	switch {
+	case errors.Is(err, profileaccess.ErrTargetNotFound):
+		return "profile_not_found"
+	case errors.Is(err, profileaccess.ErrTargetUnavailable):
+		return "profile_unavailable"
+	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+		return "authorization_no_interlocutor"
+	case errors.Is(err, questionnaire.ErrAskerUnavailable):
+		return "authorization_surface_unavailable"
+	default:
+		return "authorization_failed"
 	}
 }
 

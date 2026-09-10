@@ -216,3 +216,10 @@ usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
 - [x] Strings visíveis existem em pt-BR, inglês e espanhol.
 - [x] Testes cobrem catálogo, profiles customizados, autorização, recusa,
       concorrência, vínculo aba↔conversa e regressões same-profile.
+
+Evidência adicional de defesa em profundidade: o resolver de autorização usa a
+proveniência canônica de jobs e devolve `NoSurface` sem consultar conversas
+quando não existe interlocutor; códigos permanentes de autorização/profile
+atravessam o executor comum até jobs sem retry. Cobertura em
+`internal/app/app_tool_registry_surface_test.go` e
+`internal/jobs/executor_toolinvocations_test.go`.

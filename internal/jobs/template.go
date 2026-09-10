@@ -3,6 +3,7 @@ package jobs
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -14,6 +15,18 @@ import (
 
 // SecretResolver busca secrets pelo nome (integra com credentials.Store).
 type SecretResolver func(key string) (string, error)
+
+type secretResolutionError struct {
+	err error
+}
+
+func (e *secretResolutionError) Error() string { return e.err.Error() }
+func (e *secretResolutionError) Unwrap() error { return e.err }
+
+func isSecretResolutionError(err error) bool {
+	var target *secretResolutionError
+	return errors.As(err, &target)
+}
 
 // TemplateContext e o contexto disponivel durante a resolucao de templates.
 type TemplateContext struct {
@@ -316,7 +329,11 @@ func makeSecretFunc(resolver SecretResolver) func(string) (string, error) {
 		if resolver == nil {
 			return "", fmt.Errorf("secret: no secret resolver configured")
 		}
-		return resolver(key)
+		value, err := resolver(key)
+		if err != nil {
+			return "", &secretResolutionError{err: err}
+		}
+		return value, nil
 	}
 }
 

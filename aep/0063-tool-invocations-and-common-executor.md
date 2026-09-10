@@ -108,6 +108,9 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 | `output` | TEXT | | JSON/texto normalizado retornado |
 | `error` | TEXT | | Erro legível |
 | `error_code` | TEXT | | Código opcional para UI/retry |
+| `error_kind` | TEXT | INDEX | Tipo estável da falha |
+| `retryable` | BOOL | NOT NULL, DEFAULT false | Decisão de retry, quando conhecida |
+| `retryability_known` | BOOL | NOT NULL, DEFAULT false | Distingue decisão explícita do default legado |
 | `queued_at` | DATETIME | NOT NULL, INDEX | Momento em que a invocação entrou na fila |
 | `started_at` | DATETIME | INDEX | Início real da execução; nulo enquanto `queued` |
 | `completed_at` | DATETIME | | Fim |
@@ -132,6 +135,13 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 5. O adapter executa tool nativa ou MCP.
 6. O serviço grava `succeeded`, `failed`, `timed_out` ou `cancelled`, com duração, output e erro.
 7. O chamador recebe um resultado normalizado e decide como continuar o fluxo.
+
+O resultado normalizado preserva ainda o código estável da falha, seu tipo e
+uma decisão explícita de retryability. A ausência dessa decisão em tools
+legadas não equivale a `Retryable=false`: chamadores conservam seu default
+anterior. Jobs encerram na primeira tentativa apenas quando a execução declara
+explicitamente uma falha permanente; falhas transitórias e não classificadas
+continuam obedecendo `error_policy`, `max_retries` e backoff.
 
 ## Integração com jobs
 
@@ -239,6 +249,9 @@ Evidências: `internal/toolinvocations/{repository,service}_test.go`,
 `internal/agent/service_tool_calls_persistence_test.go`,
 `internal/jobs/executor_toolinvocations_test.go`,
 `manager_toolinvocations_test.go` e `internal/wailsapi/jobs_dryrun_test.go`.
+O contrato de código/retryability e a interrupção seletiva de retries de jobs
+são cobertos também por `internal/tools/executor_test.go` e
+`internal/jobs/executor_toolinvocations_test.go`.
 
 ## Plano de Transição e Compatibilidade (Issue #127)
 

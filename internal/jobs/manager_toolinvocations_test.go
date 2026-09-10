@@ -150,8 +150,8 @@ func TestManagerTestToolDryRunContext_RecordsDryRunToolCatalogInvocations(t *tes
 	if len(invocations) != 1 {
 		t.Fatalf("expected 1 invocation for tool_err, got %d", len(invocations))
 	}
-	if invocations[0].Status != toolinvocations.StatusFailed {
-		t.Fatalf("expected status=failed, got %#v", invocations[0])
+	if invocations[0].Status != toolinvocations.StatusCancelled {
+		t.Fatalf("expected status=cancelled, got %#v", invocations[0])
 	}
 }
 
