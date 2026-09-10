@@ -66,7 +66,7 @@ Servidores STDIO/locais **sempre** usam adapter, independente do provider.
 
 ## Ciclo de vida e reconexão
 
-Depois que a conexão termina, a sessão permanece ativa até uma destas ações:
+Depois que a conexão é estabelecida, a sessão permanece ativa até uma destas ações:
 
 - desconexão manual do servidor;
 - logout ou troca de usuário;
