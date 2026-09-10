@@ -21,6 +21,16 @@ type fakeAccess struct {
 	validateErr error
 }
 
+func requirePermanentFailure(t *testing.T, result tools.ToolResult, code string, kind tools.ErrorKind) {
+	t.Helper()
+	if result.Failure == nil ||
+		result.Failure.Code != code ||
+		result.Failure.Kind != kind ||
+		result.Failure.Retryable {
+		t.Fatalf("falha permanente inesperada: %#v", result.Failure)
+	}
+}
+
 func TestProfileFailureClassification(t *testing.T) {
 	tests := []struct {
 		code string
