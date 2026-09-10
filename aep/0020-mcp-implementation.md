@@ -33,9 +33,32 @@ ausente.
 - ✅ Retorno de múltiplas mensagens
 
 ### 4. **Health Checks** ✅ FUNCIONAL
-- ✅ Ping periódico a cada 30s
+- ✅ Ping periódico a cada 2 minutos
 - ✅ Auto-reconnect com exponential backoff
 - ✅ Notificações de estado no frontend
+- ✅ Contexto de sessão persistente, separado do timeout do handshake
+- ✅ `Disconnect`/`CloseAll` cancelam e aguardam conexões em andamento
+- ✅ Reconexão substitui sessão e health loop sem duplicação
+
+#### Contrato de lifecycle da sessão
+
+O contexto entregue a `Client.Connect` dura por toda a sessão MCP. Ele não pode
+ser um `context.WithTimeout` cancelado no retorno do handshake, porque
+transports como SSE associam a requisição longa a esse contexto. O timeout de
+conexão é um orçamento externo: ao expirar, o Manager cancela o contexto
+persistente, aguarda o SDK fechar o transport e coleta subprocessos STDIO antes
+de retornar.
+
+Cada slug possui no máximo uma tentativa de conexão publicada. `Disconnect`
+cancela tanto a tentativa em andamento quanto a sessão ativa e aguarda o
+cleanup da tentativa; `CloseAll` inclui tentativas ainda não publicadas no
+shutdown. Os loops de health check e refresh OAuth pertencem à instância da
+conexão, encerram com ela e não podem operar sobre a sessão criada por uma
+reconexão posterior.
+
+Erros esperados ao fechar uma sessão já encerrada são registrados como
+informação de cleanup. Falhas inesperadas de fechamento permanecem em nível de
+erro; reconexão bem-sucedida é informação, não erro.
 
 ### 5. **Native MCP Mode** ✅ FUNCIONAL
 - ✅ MCP nativo real via Responses API (OpenAI) e MCP Connector (Anthropic)
@@ -201,3 +224,12 @@ mas ainda exigem suporte do SDK, wiring de sessão e testes de integração ante
 de esta AEP poder ser concluída.
 
 **Esta é a abordagem ideal para um assistente generalista!** ✨
+
+## Evidências adicionais
+
+- lifecycle, timeout, cancelamento, reconexão e shutdown:
+  `internal/mcp/manager.go`;
+- regressões de sessão persistente, health check, timeout STDIO, cancelamento
+  concorrente, SSE legado, Streamable HTTP sem SSE, reconexão e `CloseAll`:
+  `internal/mcp/manager_lifecycle_regression_test.go`;
+- validação de concorrência: `go test -race ./internal/mcp`.
