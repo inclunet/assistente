@@ -234,8 +234,11 @@ Cada método acima é exposto via `app.go` como binding Wails, com evento corres
 | `Alt+Shift+→` | Focar grupo à direita |
 | `Alt+Shift+↑` | Focar grupo acima |
 | `Alt+Shift+↓` | Focar grupo abaixo |
+| `Ctrl+M` | Abrir o seletor de modelos, somente quando o grupo ativo contém um chat interativo |
 
 Atalhos existentes (`Ctrl+Tab`, `Ctrl+W`, `Ctrl+1..9`) operam sobre o **grupo ativo**.
+O mesmo isolamento vale para `Ctrl+M`: grupos de chat inativos permanecem
+montados, mas não registram resposta efetiva ao atalho.
 
 ## Drag & Drop
 

@@ -15,6 +15,8 @@ const getProvidersMock = vi.hoisted(() => vi.fn().mockResolvedValue([
   { id: 'native-provider', api_format: 'openai', is_default: true },
 ]));
 const modelChangeRef = vi.hoisted(() => ({ current: null as null | ((model: string) => void) }));
+const modelOpenMock = vi.hoisted(() => vi.fn());
+const announceMock = vi.hoisted(() => vi.fn());
 const profileChangeRef = vi.hoisted(() => ({ current: null as null | ((slug: string) => void) }));
 const historyClickMock = vi.hoisted(() => vi.fn());
 const getAgentSessionOptionsMock = vi.hoisted(() => vi.fn().mockResolvedValue({
@@ -108,13 +110,25 @@ vi.mock('../pickers/ProfilePicker', async () => {
 });
 
 vi.mock('../pickers/ModelPicker', () => ({
-  ModelPicker: ({ value, label, onChange }: {
+  ModelPicker: ({ value, label, onChange, shortcut }: {
     value: string;
     label: string;
     onChange: (model: string) => void;
+    shortcut?: string;
   }) => {
     modelChangeRef.current = onChange;
-    return <button type="button" aria-label={`${label}, ${value}`}>{label}</button>;
+    return (
+      <button
+        className="picker-button"
+        type="button"
+        aria-label={`${label}, ${value}`}
+        data-shortcut={shortcut}
+        title={shortcut}
+        onClick={modelOpenMock}
+      >
+        {label}
+      </button>
+    );
   },
 }));
 
@@ -163,7 +177,7 @@ vi.mock('../../store/navigationStore', () => ({
 
 vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
-    announce: vi.fn(),
+    announce: announceMock,
     announceRequest: vi.fn(),
   }),
 }));
@@ -212,6 +226,21 @@ function dispatchCtrlKey(key: string) {
   return event;
 }
 
+function dispatchModelShortcut(
+  target: EventTarget = window,
+  init: Partial<KeyboardEventInit> = {},
+) {
+  const event = new KeyboardEvent('keydown', {
+    key: 'm',
+    ctrlKey: true,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 beforeEach(() => {
   updateTabMock.mockReset().mockResolvedValue(undefined);
   getProfileMock.mockReset().mockResolvedValue({
@@ -221,6 +250,8 @@ beforeEach(() => {
     { id: 'native-provider', api_format: 'openai', is_default: true },
   ]);
   modelChangeRef.current = null;
+  modelOpenMock.mockClear();
+  announceMock.mockClear();
   profileChangeRef.current = null;
   activeConversationRef.current = { id: 'conversation-1', title: 'Conversa' };
   mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
@@ -315,6 +346,150 @@ describe('ChatToolbar shortcuts', () => {
     expect(screen.getByRole('heading', { name: 'Conversa' })).toBeInTheDocument();
     expect(historyClickMock).toHaveBeenCalledTimes(1);
     expect(profileClickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Ctrl+M abre uma vez o seletor de modelos do chat ativo', async () => {
+    renderToolbar();
+    const trigger = await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const event = dispatchModelShortcut();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(trigger).toHaveAttribute('title', 'Ctrl+M');
+  });
+
+  it('em surfaces mantidas montadas, somente a ativa responde a Ctrl+M', async () => {
+    render(
+      <MemoryRouter>
+        <ChatToolbar enableShortcuts={false} />
+        <ChatToolbar enableShortcuts />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', {
+        name: 'chat.modelOverride.label, $default',
+      })).toHaveLength(2);
+    });
+
+    dispatchModelShortcut();
+
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+  });
+
+  it('não intercepta Ctrl+M em editores, terminal, modal, menu ou picker aberto', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const contentEditable = document.createElement('div');
+    contentEditable.setAttribute('contenteditable', 'true');
+    const targets: HTMLElement[] = [
+      document.createElement('textarea'),
+      document.createElement('input'),
+      contentEditable,
+    ];
+    const monaco = document.createElement('div');
+    monaco.className = 'monaco-editor';
+    const monacoTarget = document.createElement('span');
+    monaco.appendChild(monacoTarget);
+    targets.push(monacoTarget);
+    const terminal = document.createElement('div');
+    terminal.className = 'xterm';
+    const terminalTarget = document.createElement('span');
+    terminal.appendChild(terminalTarget);
+    targets.push(terminalTarget);
+    targets.slice(0, 3).forEach((target) => document.body.appendChild(target));
+    document.body.append(monaco, terminal);
+
+    targets.forEach((target) => {
+      expect(dispatchModelShortcut(target).defaultPrevented).toBe(false);
+    });
+
+    modalState.open = true;
+    expect(dispatchModelShortcut().defaultPrevented).toBe(false);
+    modalState.open = false;
+
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    document.body.appendChild(menu);
+    expect(dispatchModelShortcut().defaultPrevented).toBe(false);
+    menu.remove();
+
+    const picker = document.createElement('div');
+    picker.className = 'picker-dropdown';
+    document.body.appendChild(picker);
+    expect(dispatchModelShortcut().defaultPrevented).toBe(false);
+    picker.remove();
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    targets.forEach((target) => target.closest('body') && target.remove());
+    monaco.remove();
+    terminal.remove();
+  });
+
+  it('bloqueia listbox portalado visível, mas ignora o mesmo listbox oculto', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const outsideFocus = document.createElement('button');
+    const portalListbox = document.createElement('ul');
+    portalListbox.setAttribute('role', 'listbox');
+    document.body.append(outsideFocus, portalListbox);
+    outsideFocus.focus();
+
+    const blockedEvent = dispatchModelShortcut(outsideFocus);
+    expect(blockedEvent.defaultPrevented).toBe(false);
+    expect(modelOpenMock).not.toHaveBeenCalled();
+
+    portalListbox.hidden = true;
+    const normalEvent = dispatchModelShortcut(outsideFocus);
+    expect(normalEvent.defaultPrevented).toBe(true);
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+
+    outsideFocus.remove();
+    portalListbox.remove();
+  });
+
+  it('respeita evento tratado, IME, modificadores extras e repetição', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const prevented = new KeyboardEvent('keydown', {
+      key: 'm',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    prevented.preventDefault();
+    window.dispatchEvent(prevented);
+
+    dispatchModelShortcut(window, { isComposing: true });
+    dispatchModelShortcut(window, { shiftKey: true });
+    dispatchModelShortcut(window, { altKey: true });
+    dispatchModelShortcut(window, { metaKey: true });
+    dispatchModelShortcut(window, { repeat: true });
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+  });
+
+  it('remove o listener de Ctrl+M ao desmontar', async () => {
+    const view = renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+    view.unmount();
+
+    dispatchModelShortcut();
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
   });
 });
 

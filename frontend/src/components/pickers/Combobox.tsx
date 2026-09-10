@@ -26,6 +26,7 @@ export interface ComboboxProps {
     disabled?: boolean;
     maxWidth?: string;
     onAnnounce?: (message: string) => void;
+    shortcut?: string;
     onOpen?: () => void;
     allowFreeInput?: boolean;
     /** Called after an item is selected and the dropdown closes. Use to customize focus restoration. */
@@ -43,6 +44,7 @@ export const Combobox = ({
     disabled = false,
     maxWidth = '180px',
     onAnnounce,
+    shortcut,
     onOpen,
     allowFreeInput = false,
     onAfterSelect,
@@ -322,7 +324,8 @@ export const Combobox = ({
                     aria-expanded={false}
                     aria-haspopup="listbox"
                     aria-label={`${effectiveLabel}, ${selectedLabel}`}
-                    title={description || `${effectiveLabel}: ${selectedLabel}`}
+                    title={`${description || `${effectiveLabel}: ${selectedLabel}`}${shortcut ? ` (${shortcut})` : ''}`}
+                    data-shortcut={shortcut}
                 >
                     {icon && <span className="picker-icon" aria-hidden="true">{icon}</span>}
                     <span className="picker-label" aria-hidden="true">{displayLabel}</span>

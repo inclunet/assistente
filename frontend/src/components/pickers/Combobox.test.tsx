@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { axe } from '../../test/a11yAxe';
 import { Combobox, ComboboxItem } from './Combobox';
 
 const announceMock = vi.hoisted(() => vi.fn());
@@ -262,6 +263,34 @@ describe('Combobox - allowFreeInput', () => {
       dropdown = container.querySelector('.picker-dropdown');
       expect(dropdown).not.toBeInTheDocument();
     });
+  });
+
+  it('expõe o atalho, anuncia uma vez, foca a busca e restaura o trigger no Escape', async () => {
+    const onAnnounce = vi.fn();
+    const user = userEvent.setup();
+    const { container } = render(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={vi.fn()}
+        label="Modelo"
+        description="Selecionar modelo do chat ativo"
+        shortcut="Ctrl+M"
+        onAnnounce={onAnnounce}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Modelo, GPT-4' });
+    expect(trigger).toHaveAttribute('title', 'Selecionar modelo do chat ativo (Ctrl+M)');
+    await user.click(trigger);
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveFocus());
+    expect(onAnnounce).toHaveBeenCalledOnce();
+    expect(onAnnounce).toHaveBeenCalledWith('GPT-4, 1 common.of 3');
+    expect(await axe(container)).toHaveNoViolations();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Modelo, GPT-4' })).toHaveFocus());
   });
 
   it('desabilita entrada quando disabled=true', () => {
