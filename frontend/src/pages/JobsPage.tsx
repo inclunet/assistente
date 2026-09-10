@@ -90,6 +90,8 @@ export default function JobsPage() {
 
   const toolbarRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const restoreFocusFrameRef = useRef<number | null>(null);
 
   const getRowId = useCallback((item: jobs.JobInfo) => item.id, []);
   const handleFocusChange = useCallback((item: jobs.JobInfo | null, rowIndex: number) => {
@@ -103,6 +105,17 @@ export default function JobsPage() {
     loadedRef.current = true;
     void fetchJobs();
   }, [fetchJobs]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (restoreFocusFrameRef.current !== null) {
+        cancelAnimationFrame(restoreFocusFrameRef.current);
+        restoreFocusFrameRef.current = null;
+      }
+    };
+  }, []);
 
   const filteredJobs = useMemo(
     () =>
@@ -124,7 +137,12 @@ export default function JobsPage() {
   }, [filteredJobs, focusedJob]);
 
   const restoreJobFocus = useCallback((jobId?: string, rowIndex = focusedJobIndex) => {
-    requestAnimationFrame(() => {
+    if (restoreFocusFrameRef.current !== null) {
+      cancelAnimationFrame(restoreFocusFrameRef.current);
+    }
+    restoreFocusFrameRef.current = requestAnimationFrame(() => {
+      restoreFocusFrameRef.current = null;
+      if (!mountedRef.current) return;
       const currentJobs = useJobStore.getState().jobs.filter(
         (job) =>
           job.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -370,7 +388,7 @@ export default function JobsPage() {
         },
       },
       {
-        key: 'id' as keyof jobs.JobInfo,
+        key: 'actions',
         label: t('jobs.actions'),
         width: '5%',
         format: (_value, item) => (

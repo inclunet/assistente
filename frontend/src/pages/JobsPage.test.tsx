@@ -1,6 +1,6 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import type { jobs } from '@wailsjs/go/models';
@@ -241,6 +241,16 @@ describe('JobsPage', () => {
     expect(getFirstCell('Bravo')).toHaveFocus();
   });
 
+  it('abre o menu de ações com Enter na última coluna', async () => {
+    render(<JobsPage />);
+    const grid = await focusRow(0);
+    fireEvent.keyDown(grid, { key: 'End' });
+
+    fireEvent.keyDown(grid, { key: 'Enter' });
+
+    expect(await screen.findByRole('menu')).toBeInTheDocument();
+  });
+
   it('fechar modal aberto pelo grid restaura a célula do job', async () => {
     const user = userEvent.setup();
     render(<JobsPage />);
@@ -277,5 +287,24 @@ describe('JobsPage', () => {
     expect(search).toHaveFocus();
     expect(within(screen.getByRole('toolbar')).getByRole('button', { name: 'jobs.run' })).toBeDisabled();
     expect(screen.getByText('jobs.noSearchResults')).toBeInTheDocument();
+  });
+
+  it('não restaura foco de ação assíncrona depois do unmount', async () => {
+    let resolveRun: ((value: { status: string }) => void) | undefined;
+    storeState.runJob.mockImplementation(() => new Promise((resolve) => {
+      resolveRun = resolve;
+    }));
+    const { unmount } = render(<JobsPage />);
+    await focusRow(0);
+    fireEvent.click(within(screen.getByRole('toolbar')).getByRole('button', { name: 'jobs.run' }));
+
+    unmount();
+    await act(async () => {
+      resolveRun?.({ status: 'completed' });
+      await Promise.resolve();
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(restoreDefaultFocusMock).not.toHaveBeenCalled();
   });
 });

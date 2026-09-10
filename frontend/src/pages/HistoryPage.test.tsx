@@ -169,7 +169,7 @@ vi.mock('../components/ui/DataGrid', () => ({
   }: {
     items?: ConversationItem[];
     onSelectionChange?: (selected: Set<string | number>) => void;
-    onFocusChange?: (item: ConversationItem | null) => void;
+    onFocusChange?: (item: ConversationItem | null, rowIndex: number) => void;
     getRowActions?: (item: ConversationItem) => Array<{ id: string; label?: string; action?: () => void }>;
     onNearEnd?: () => void;
     onCellEdit?: (item: ConversationItem, column: { key: string }, newValue: string, rowIndex: number, colIndex: number) => void;
@@ -191,10 +191,10 @@ vi.mock('../components/ui/DataGrid', () => ({
       <button type="button" onClick={() => items?.[1] && onDelete?.(items[1], 1)}>
         keyboard-delete
       </button>
-      <button type="button" onClick={() => onFocusChange?.(items?.[0] ?? null)}>
+      <button type="button" onClick={() => onFocusChange?.(items?.[0] ?? null, items?.[0] ? 0 : -1)}>
         focus-first
       </button>
-      <button type="button" onClick={() => onFocusChange?.(items?.[1] ?? null)}>
+      <button type="button" onClick={() => onFocusChange?.(items?.[1] ?? null, items?.[1] ? 1 : -1)}>
         focus-second
       </button>
       <button type="button" onClick={() => onNearEnd?.()}>
