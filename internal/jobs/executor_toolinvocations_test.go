@@ -162,6 +162,39 @@ func TestJobExecutorDoesNotRetryPermanentToolFailure(t *testing.T) {
 	}
 }
 
+func TestJobExecutorWithoutInvocationServiceDoesNotRetryPermanentToolFailure(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{
+		Content: "autorização indisponível",
+		IsError: true,
+		Failure: &tools.ToolFailure{
+			Code:      "authorization_unavailable",
+			Kind:      tools.ErrorKindAuthorization,
+			Retryable: false,
+		},
+	}}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:   "legacy-direct-job",
+		Tool: tool.Name(),
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 3,
+			RetryDelay: "1ms",
+		},
+	}
+
+	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
+		t.Fatalf("caminho direto repetiu falha permanente: calls=%d run=%#v", tool.calls, run)
+	}
+}
+
 func TestJobExecutorRetriesUnclassifiedTransientToolFailure(t *testing.T) {
 	tool := &scriptedTool{results: []tools.ToolResult{
 		{Content: "temporary outage", IsError: true},
