@@ -1105,7 +1105,7 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 	if conn == nil {
 		return nil
 	}
-	alreadyEnded := false
+	waitCompleted := false
 	var waitErr error
 	if conn.sessionDone != nil {
 		select {
@@ -1113,7 +1113,7 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 			// Canal fechado sem valor significa que o watcher nem chegou a
 			// iniciar (CloseAll já havia bloqueado tryGoTracked), não que
 			// session.Wait comprovou o encerramento.
-			alreadyEnded = ok
+			waitCompleted = ok
 			if ok {
 				waitErr = result
 			}
@@ -1133,8 +1133,8 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 		return nil
 	}
 	closeErr := conn.session.Close()
-	if !alreadyEnded {
-		waitErr = waitConnectionSession(conn)
+	if !waitCompleted {
+		waitErr, waitCompleted = waitConnectionSession(conn)
 	}
 	combinedErr := errors.Join(closeErr, waitErr)
 	if combinedErr == nil {
@@ -1142,7 +1142,7 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 	}
 	var unexpectedErrs []error
 	for _, err := range []error{closeErr, waitErr} {
-		if err != nil && (!expected || !isExpectedSessionCloseError(err, alreadyEnded)) {
+		if err != nil && (!expected || !isExpectedSessionCloseError(err, waitCompleted)) {
 			unexpectedErrs = append(unexpectedErrs, err)
 		}
 	}
@@ -1155,11 +1155,12 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 	return unexpectedErr
 }
 
-func waitConnectionSession(conn *serverConnection) error {
+func waitConnectionSession(conn *serverConnection) (error, bool) {
 	if conn != nil && conn.sessionDone != nil {
-		return <-conn.sessionDone
+		result, ok := <-conn.sessionDone
+		return result, ok
 	}
-	return nil
+	return nil, false
 }
 
 func waitConnectionLoops(conn *serverConnection) {

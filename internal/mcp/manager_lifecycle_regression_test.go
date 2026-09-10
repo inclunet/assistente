@@ -774,8 +774,17 @@ func TestWaitConnectionSessionPropagaErroDoWatcher(t *testing.T) {
 	done <- want
 	close(done)
 
-	got := waitConnectionSession(&serverConnection{sessionDone: done})
+	got, completed := waitConnectionSession(&serverConnection{sessionDone: done})
 	if !errors.Is(got, want) {
 		t.Fatalf("waitConnectionSession=%v, esperado %v", got, want)
+	}
+	if !completed {
+		t.Fatal("waitConnectionSession não confirmou execução do watcher")
+	}
+
+	closedWithoutResult := make(chan error)
+	close(closedWithoutResult)
+	if _, completed := waitConnectionSession(&serverConnection{sessionDone: closedWithoutResult}); completed {
+		t.Fatal("canal fechado sem resultado não pode comprovar session.Wait")
 	}
 }
