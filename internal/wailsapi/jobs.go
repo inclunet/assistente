@@ -98,9 +98,41 @@ func (api *Jobs) ToggleJob(id string, enabled bool) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		if enabled {
+			job, getErr := ctrl.GetJobContext(ctx, id)
+			if getErr != nil {
+				return struct{}{}, getErr
+			}
+			if fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs); grantable {
+				api.mu.RLock()
+				access := api.profileAccess
+				api.mu.RUnlock()
+				if access == nil {
+					return struct{}{}, profileaccess.ErrAuthorizationNotGranted
+				}
+				state, stateErr := access.JobGrantState(ctx, id)
+				if stateErr != nil || state.Fingerprint != fingerprint || !jobGrantCovers(state, job.Inputs) {
+					return struct{}{}, profileaccess.ErrAuthorizationNotGranted
+				}
+			}
+		}
 		return struct{}{}, ctrl.ToggleJobContext(ctx, id, enabled)
 	})
 	return err
+}
+
+func jobGrantCovers(state profileaccess.JobGrantState, inputs map[string]any) bool {
+	expression, _ := inputs["profile"].(string)
+	expression = strings.TrimSpace(expression)
+	if strings.Contains(expression, "{{") {
+		return len(state.Grants) > 0
+	}
+	for _, grant := range state.Grants {
+		if grant.TargetProfileSlug == expression {
+			return true
+		}
+	}
+	return false
 }
 
 // RunJob dispara a execução manual de um job.

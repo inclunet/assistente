@@ -22,7 +22,7 @@ const (
 var (
 	ErrTargetNotFound          = errors.New("profile alvo não encontrado")
 	ErrTargetUnavailable       = errors.New("provider do profile alvo indisponível")
-	ErrAuthorizationNotGranted = errors.New("autorização persistida não concedida")
+	ErrAuthorizationNotGranted = errors.New("authorization_not_granted")
 )
 
 // ProfileStore é a leitura mínima do catálogo persistido de profiles.

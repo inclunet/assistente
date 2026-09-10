@@ -1,6 +1,8 @@
 package wailsapi
 
 import (
+	"assistente/internal/jobprofilegrant"
+	"assistente/internal/profileaccess"
 	"errors"
 	"os"
 	"path/filepath"
@@ -40,5 +42,23 @@ func TestJobsUsesWithUserNotRequireAuth(t *testing.T) {
 	}
 	if !strings.Contains(string(src), "WithUser(") {
 		t.Fatal("jobs.go deve chamar WithUser(")
+	}
+}
+
+func TestJobGrantCoversLiteralAndDynamicProfiles(t *testing.T) {
+	state := profileaccess.JobGrantState{
+		Grants: []jobprofilegrant.Grant{{TargetProfileSlug: "especialista"}},
+	}
+	if !jobGrantCovers(state, map[string]any{"profile": "especialista"}) {
+		t.Fatal("grant literal exato deveria permitir habilitação")
+	}
+	if jobGrantCovers(state, map[string]any{"profile": "outro"}) {
+		t.Fatal("grant de outro target não deveria permitir habilitação")
+	}
+	if !jobGrantCovers(state, map[string]any{"profile": "{{ event.profile }}"}) {
+		t.Fatal("template com ao menos um target autorizado deveria permitir habilitação")
+	}
+	if jobGrantCovers(profileaccess.JobGrantState{}, map[string]any{"profile": "{{ event.profile }}"}) {
+		t.Fatal("template sem targets autorizados não deveria permitir habilitação")
 	}
 }
