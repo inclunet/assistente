@@ -13,6 +13,13 @@ Jobs são automações do tipo "uma ferramenta por disparo": cada job chama uma 
 - Armazenado no SQLite, com retenção de 30 dias e isolado por usuário.
 - Gerenciado em **Jobs**: grid com busca, criar/editar, ativar/desativar, ver logs e timeline.
 
+## Navegação e ações pelo teclado
+
+- Navegue pelas células da grade com as setas e pressione `Enter` para abrir os logs do job focado.
+- Pressione `Delete` para excluir o job focado. A exclusão sempre pede confirmação.
+- Jobs não usam seleção múltipla. Depois de excluir, ativar/desativar, executar ou fechar um menu/modal, o foco retorna a uma célula válida da grade.
+- Se um filtro remover o job focado, a referência é reconciliada com a lista visível. Quando não houver jobs, o foco retorna a um controle utilizável da página.
+
 ## Gatilhos
 
 - `cron` (expressão), `interval` (`a cada 30m`), `event` (reage a `on_success`/`on_failure` de outro job), `hotkey`, `manual` e `webhook`.
