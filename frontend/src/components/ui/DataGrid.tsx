@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useId } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ContextMenu, MenuItem } from './menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -17,12 +17,22 @@ export interface DataGridColumn<T = unknown> {
   width?: string;
   truncate?: boolean;
   action?: boolean;
+  /** Executa onCellAction por Enter/Espaço sem substituir o conteúdo formatado da célula. */
+  keyboardAction?: boolean;
   actionIcon?: string;
   actionLabel?: string; // Texto acessível para leitores de tela (ex: "Abrir", "Editar", "Excluir")
   editable?: boolean;
   selectionToggle?: boolean;
   format?: (value: unknown, item: T) => string | React.ReactNode;
 }
+
+export interface GridFocusTarget {
+  itemId?: string | number;
+  rowIndex?: number;
+  colIndex?: number;
+}
+
+export type GridFocusRequest = (target?: GridFocusTarget) => boolean;
 
 export interface DataGridProps<T = unknown> {
   items: T[];
@@ -38,7 +48,8 @@ export interface DataGridProps<T = unknown> {
   onDelete?: (item: T, rowIndex: number) => void;
   onCellAction?: (item: T, column: DataGridColumn<T>, rowIndex: number, colIndex: number) => void;
   onCellEdit?: (item: T, column: DataGridColumn<T>, newValue: string, rowIndex: number, colIndex: number) => void;
-  onGridReady?: (focusFirstCell: () => void) => void;
+  onGridReady?: (requestFocus: GridFocusRequest) => void;
+  onEmptyFocus?: () => boolean | void;
   onMoveItem?: (fromIndex: number, toIndex: number) => void;
   onFocusChange?: (item: T | null, rowIndex: number) => void;
   onNearEnd?: () => void;
@@ -68,6 +79,7 @@ export function DataGrid<T = unknown>({
   onCellAction,
   onCellEdit,
   onGridReady,
+  onEmptyFocus,
   onMoveItem,
   onFocusChange,
   onNearEnd,
@@ -95,16 +107,27 @@ export function DataGrid<T = unknown>({
   const instructionsId = useId().replace(/[^a-zA-Z0-9_-]/g, '') + '-instructions';
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blurFrameRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
   const hasInitializedRef = useRef(false);
   // Indica que o grid já recebeu foco pelo menos uma vez
   const hasReceivedFocusRef = useRef(false);
   const focusedItemIdRef = useRef<string | number | null>(null);
+  const gridOwnsFocusRef = useRef(false);
   const onFocusChangeRef = useRef(onFocusChange);
   onFocusChangeRef.current = onFocusChange;
   const onNearEndRef = useRef(onNearEnd);
   onNearEndRef.current = onNearEnd;
   const itemsLengthRef = useRef(items.length);
   itemsLengthRef.current = items.length;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const columnsLengthRef = useRef(columns.length);
+  columnsLengthRef.current = columns.length;
+  const getItemIdRef = useRef(getItemId);
+  getItemIdRef.current = getItemId;
+  const onEmptyFocusRef = useRef(onEmptyFocus);
+  onEmptyFocusRef.current = onEmptyFocus;
   const focusedRowRef = useRef(focusedRow);
   const focusedColRef = useRef(focusedCol);
   const nearEndSignalRef = useRef<number | null>(null);
@@ -118,27 +141,14 @@ export function DataGrid<T = unknown>({
   const rowCount = items.length;
   const columnCount = columns.length;
 
-  // Cria função estável para focar a primeira célula
-  const focusFirstCell = useCallback(() => {
-    // Sempre pega as células disponíveis no momento da chamada
-    const cellKey = '0-0';
-    const cellElement = cellRefs.current.get(cellKey);
-    if (cellElement) {
-      cellElement.focus();
-    }
-  }, []); // cellRefs é uma ref e não muda
-
-  // Fornece a função ao parent - apenas uma vez no mount
-  useEffect(() => {
-    if (onGridReady) {
-      onGridReady(focusFirstCell);
-    }
-  }, [focusFirstCell, onGridReady]);
-
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       if (focusTimerRef.current) {
         clearTimeout(focusTimerRef.current);
+      }
+      if (blurFrameRef.current !== null) {
+        cancelAnimationFrame(blurFrameRef.current);
       }
       if (scrollNearEndTimerRef.current) {
         clearTimeout(scrollNearEndTimerRef.current);
@@ -186,39 +196,6 @@ export function DataGrid<T = unknown>({
     announceGlobally(message);
   };
 
-  // Foca no grid quando montado (se houver items) - apenas uma vez
-  useEffect(() => {
-    if (!autoFocusOnMount) {
-      return;
-    }
-    // Aguarda os dados carregarem
-    const checkTimer = setInterval(() => {
-      if (items.length > 0 && !hasInitializedRef.current) {
-        hasInitializedRef.current = true;
-        clearInterval(checkTimer);
-        
-        // Pequeno delay para garantir que o grid foi renderizado
-        setTimeout(() => {
-          // Só foca se nenhum elemento interativo já está focado.
-          // Evita roubar foco de tab buttons e outros controles
-          // quando o grid monta em background (ex: troca de abas).
-          const activeElement = document.activeElement;
-          const isFocusIdle = !activeElement || activeElement === document.body;
-          const isInsideGrid = gridRef.current?.contains(activeElement);
-          
-          if (isFocusIdle || isInsideGrid) {
-            // Ativa o foco lazy e foca a primeira célula
-            activateFocus(0, 0);
-          }
-        }, 100);
-      }
-    }, 100);
-    
-    return () => {
-      clearInterval(checkTimer);
-    };
-  }, [autoFocusOnMount, items.length, focusFirstCell]);
-
   // Sincroniza selectedIds externo com estado local
   useEffect(() => {
     if (selectedIds) {
@@ -234,15 +211,13 @@ export function DataGrid<T = unknown>({
 
   // Função auxiliar para focar célula - chamada explicitamente quando necessário
   const focusCell = useCallback((row: number, col: number) => {
-    if (rowCount === 0 || columnCount === 0) return;
-    
     const cellKey = `${row}-${col}`;
     const cellElement = cellRefs.current.get(cellKey);
-    if (cellElement && document.activeElement !== cellElement) {
+    if (mountedRef.current && cellElement && document.activeElement !== cellElement) {
       cellElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       cellElement.focus();
     }
-  }, [rowCount, columnCount]);
+  }, []);
 
   const clearScheduledCellFocus = useCallback(() => {
     if (focusTimerRef.current) {
@@ -259,14 +234,66 @@ export function DataGrid<T = unknown>({
     }, 0);
   }, [clearScheduledCellFocus, focusCell]);
 
+  const requestGridFocus = useCallback<GridFocusRequest>((target = {}) => {
+    clearScheduledCellFocus();
+    if (!mountedRef.current) {
+      return onEmptyFocusRef.current?.() ?? false;
+    }
+    const currentItems = itemsRef.current;
+    const currentColumnCount = columnsLengthRef.current;
+    if (currentItems.length === 0 || currentColumnCount === 0) {
+      return onEmptyFocusRef.current?.() ?? false;
+    }
+
+    let row = target.itemId === undefined
+      ? -1
+      : currentItems.findIndex((item) => getItemIdRef.current(item) === target.itemId);
+    if (row < 0) {
+      row = Math.min(
+        Math.max(target.rowIndex ?? focusedRowRef.current ?? 0, 0),
+        currentItems.length - 1,
+      );
+    }
+    const col = Math.min(
+      Math.max(target.colIndex ?? focusedColRef.current ?? 0, 0),
+      currentColumnCount - 1,
+    );
+
+    hasReceivedFocusRef.current = true;
+    gridOwnsFocusRef.current = true;
+    focusedRowRef.current = row;
+    focusedColRef.current = col;
+    const previousId = focusedItemIdRef.current;
+    const nextItem = currentItems[row];
+    focusedItemIdRef.current = getItemIdRef.current(nextItem);
+    setFocusedRow(row);
+    setFocusedCol(col);
+    if (focusedItemIdRef.current !== previousId) {
+      onFocusChangeRef.current?.(nextItem, row);
+    }
+    scheduleFocusCell(row, col);
+    return true;
+  }, [clearScheduledCellFocus, scheduleFocusCell]);
+
+  useEffect(() => {
+    onGridReady?.(requestGridFocus);
+    return () => {
+      onGridReady?.(() => false);
+    };
+  }, [onGridReady, requestGridFocus]);
+
   const focusCurrentCell = useCallback(() => {
-    focusCell(focusedRowRef.current, focusedColRef.current);
-  }, [focusCell]);
+    requestGridFocus({
+      rowIndex: focusedRowRef.current,
+      colIndex: focusedColRef.current,
+    });
+  }, [requestGridFocus]);
 
   // Ativa o foco lazy: marca o grid como "já recebeu foco" e
   // posiciona focusedRow/Col. Chamada no primeiro foco real do usuário.
   const activateFocus = useCallback((row: number, col: number) => {
     hasReceivedFocusRef.current = true;
+    gridOwnsFocusRef.current = true;
     hasNearEndInteractionRef.current = true;
     setFocusedRow(row);
     setFocusedCol(col);
@@ -274,6 +301,66 @@ export function DataGrid<T = unknown>({
     focusedColRef.current = col;
     scheduleFocusCell(row, col);
   }, [scheduleFocusCell]);
+
+  // Foca no grid quando os dados chegam, sem deixar callback tardio após
+  // unmount e sem interromper quem já está em outro controle.
+  useEffect(() => {
+    if (!autoFocusOnMount || items.length === 0 || hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+    const activeElement = document.activeElement;
+    const isFocusIdle = !activeElement || activeElement === document.body;
+    const isInsideGrid = gridRef.current?.contains(activeElement);
+    if (isFocusIdle || isInsideGrid) {
+      activateFocus(0, 0);
+    }
+  }, [activateFocus, autoFocusOnMount, items.length]);
+
+  // Reconcilia a posição lógica antes dos efeitos passivos. Se o item focado
+  // sumiu, mantém o índice (ou usa o anterior para a última linha), preserva a
+  // coluna dentro dos limites e só move o foco DOM se o grid ainda era a origem.
+  useLayoutEffect(() => {
+    if (focusedRowRef.current < 0 || focusedItemIdRef.current === null) return;
+
+    const currentItems = itemsRef.current;
+    if (currentItems.length === 0 || columnsLengthRef.current === 0) {
+      focusedRowRef.current = -1;
+      focusedItemIdRef.current = null;
+      setFocusedRow(-1);
+      onFocusChangeRef.current?.(null, -1);
+      if (gridOwnsFocusRef.current) {
+        gridOwnsFocusRef.current = false;
+        clearScheduledCellFocus();
+        onEmptyFocusRef.current?.();
+      }
+      return;
+    }
+
+    const previousId = focusedItemIdRef.current;
+    const previousRow = focusedRowRef.current;
+    const existingIndex = currentItems.findIndex((item) => getItemIdRef.current(item) === previousId);
+    const nextRow = existingIndex >= 0
+      ? existingIndex
+      : Math.min(Math.max(previousRow, 0), currentItems.length - 1);
+    const nextCol = Math.min(Math.max(focusedColRef.current, 0), columnsLengthRef.current - 1);
+    const nextItem = currentItems[nextRow];
+    const nextId = getItemIdRef.current(nextItem);
+    const positionChanged = nextRow !== previousRow || nextCol !== focusedColRef.current;
+    const itemChanged = nextId !== previousId;
+
+    if (!positionChanged && !itemChanged) return;
+
+    focusedRowRef.current = nextRow;
+    focusedColRef.current = nextCol;
+    focusedItemIdRef.current = nextId;
+    setFocusedRow(nextRow);
+    setFocusedCol(nextCol);
+    if (itemChanged) {
+      onFocusChangeRef.current?.(nextItem, nextRow);
+    }
+    if (gridOwnsFocusRef.current) {
+      scheduleFocusCell(nextRow, nextCol);
+    }
+  }, [items, columns.length, clearScheduledCellFocus, scheduleFocusCell]);
 
   // Rastreia qual item está focado por ID e notifica o pai.
   // Só notifica quando o ID do item focado realmente mudou, para evitar
@@ -330,22 +417,6 @@ export function DataGrid<T = unknown>({
       scrollNearEndSignalRef.current = null;
     }
   }, [items.length, markScrollNearEndSignaled]);
-
-  // Segue o item quando a lista é reordenada
-  useEffect(() => {
-    if (focusedRow < 0) return; // Foco lazy: não rastrear antes de ativar
-    if (focusedItemIdRef.current === null || items.length === 0) return;
-
-    const row = focusedRowRef.current;
-    const currentItem = row >= 0 && row < items.length ? items[row] : null;
-    if (currentItem && getItemId(currentItem) === focusedItemIdRef.current) return;
-
-    const newIndex = items.findIndex(item => getItemId(item) === focusedItemIdRef.current);
-    if (newIndex >= 0 && newIndex !== row) {
-      setFocusedRow(newIndex);
-      scheduleFocusCell(newIndex, focusedColRef.current);
-    }
-  }, [items, getItemId, scheduleFocusCell]);
 
   // Foca no input ao editar
   useEffect(() => {
@@ -468,6 +539,11 @@ export function DataGrid<T = unknown>({
   // Quando o grid recebe foco diretamente (tabIndex=0 no container),
   // ativa o foco lazy e move para a primeira célula.
   const handleGridFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    if (blurFrameRef.current !== null) {
+      cancelAnimationFrame(blurFrameRef.current);
+      blurFrameRef.current = null;
+    }
+    gridOwnsFocusRef.current = true;
     // Se o foco veio de dentro do grid (célula → célula), ignora
     if (gridRef.current?.contains(event.relatedTarget as Node)) return;
     // Se já tem uma célula ativa, apenas garantir que o foco vai pra ela
@@ -484,6 +560,25 @@ export function DataGrid<T = unknown>({
       activateFocus(0, 0);
     }
   }, [items.length, columns.length, activateFocus]);
+
+  const handleGridBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    const next = event.relatedTarget as Node | null;
+    if (next && !gridRef.current?.contains(next)) {
+      gridOwnsFocusRef.current = false;
+      clearScheduledCellFocus();
+      return;
+    }
+    if (!next) {
+      if (blurFrameRef.current !== null) cancelAnimationFrame(blurFrameRef.current);
+      blurFrameRef.current = requestAnimationFrame(() => {
+        blurFrameRef.current = null;
+        if (!gridRef.current?.contains(document.activeElement)) {
+          gridOwnsFocusRef.current = false;
+          clearScheduledCellFocus();
+        }
+      });
+    }
+  }, [clearScheduledCellFocus]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (rowCount === 0 || columnCount === 0) return;
@@ -523,7 +618,7 @@ export function DataGrid<T = unknown>({
           toggleSelection(focusedRow);
         } else {
           const col = columns[focusedCol];
-          if (col.action) {
+          if (col.action || col.keyboardAction) {
             onCellAction?.(items[focusedRow], col, focusedRow, focusedCol);
           }
         }
@@ -544,7 +639,7 @@ export function DataGrid<T = unknown>({
           }
           return;
         }
-        if (colEnter.action) {
+        if (colEnter.action || colEnter.keyboardAction) {
           // Se for célula de ação, executa a ação
           onCellAction?.(items[focusedRow], colEnter, focusedRow, focusedCol);
         } else {
@@ -765,6 +860,13 @@ export function DataGrid<T = unknown>({
       const oldRow = focusedRow;
       setFocusedRow(newRow);
       setFocusedCol(newCol);
+      focusedRowRef.current = newRow;
+      focusedColRef.current = newCol;
+      const nextFocusedId = getItemId(items[newRow]);
+      if (nextFocusedId !== focusedItemIdRef.current) {
+        focusedItemIdRef.current = nextFocusedId;
+        onFocusChangeRef.current?.(items[newRow], newRow);
+      }
 
       // Foca a nova célula após atualizar o estado
       scheduleFocusCell(newRow, newCol);
@@ -794,6 +896,7 @@ export function DataGrid<T = unknown>({
     const target = event.target as HTMLElement | null;
     if (target?.closest('.menu-wrapper') || target?.closest('.menu-toggle')) {
       hasReceivedFocusRef.current = true;
+      gridOwnsFocusRef.current = true;
       setFocusedRow(rowIndex);
       setFocusedCol(colIndex);
       scheduleFocusCell(rowIndex, colIndex);
@@ -803,6 +906,7 @@ export function DataGrid<T = unknown>({
     
     // Ativa o foco lazy ao clicar (primeiro contato do usuário)
     hasReceivedFocusRef.current = true;
+    gridOwnsFocusRef.current = true;
     setFocusedRow(rowIndex);
     setFocusedCol(colIndex);
     
@@ -901,6 +1005,7 @@ export function DataGrid<T = unknown>({
         aria-describedby={instructionsId}
         tabIndex={focusedRow < 0 ? 0 : -1}
         onFocus={handleGridFocus}
+        onBlur={handleGridBlur}
         onKeyDown={handleKeyDown}
         onClick={() => {
           if (items.length > 0 && columns.length > 0) {
@@ -922,7 +1027,7 @@ export function DataGrid<T = unknown>({
           : 'Pressione Ctrl+Espaço para marcar ou desmarcar. '}
         {isMultiSelect && 'Pressione Ctrl+A para selecionar todos. '}
         {onMoveItem && 'Pressione Alt+Seta para mover o item. '}
-        Pressione Delete para remover.
+        {onDelete && 'Pressione Delete para remover. '}
         Pressione F2 para editar.
         Pressione Escape para limpar a seleção.
       </div>

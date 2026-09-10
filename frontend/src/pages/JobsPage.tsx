@@ -12,6 +12,7 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { restoreDefaultFocus } from '../hooks/useDefaultFocus';
 import { useUIStore } from '../store/uiStore';
 import { jobs } from '@wailsjs/go/models';
 import { ReplayRun, RunJob as WailsRunJob } from '@wailsjs/go/wailsapi/Jobs';
@@ -68,7 +69,7 @@ export default function JobsPage() {
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const confirm = useConfirm();
-  const { handleGridReady } = useGridFocus();
+  const { handleGridReady, requestGridFocus } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'jobs-page' });
 
   const jobsList = useJobStore((s) => s.jobs);
@@ -79,6 +80,7 @@ export default function JobsPage() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [focusedJob, setFocusedJob] = useState<jobs.JobInfo | null>(null);
+  const [focusedJobIndex, setFocusedJobIndex] = useState(-1);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [logsJobId, setLogsJobId] = useState<string | null>(null);
   const [eventsModalOpen, setEventsModalOpen] = useState(false);
@@ -88,9 +90,14 @@ export default function JobsPage() {
 
   const toolbarRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const restoreFocusFrameRef = useRef<number | null>(null);
 
   const getRowId = useCallback((item: jobs.JobInfo) => item.id, []);
-  const handleFocusChange = useCallback((item: jobs.JobInfo | null) => setFocusedJob(item), []);
+  const handleFocusChange = useCallback((item: jobs.JobInfo | null, rowIndex: number) => {
+    setFocusedJob(item);
+    setFocusedJobIndex(rowIndex);
+  }, []);
 
   const loadedRef = useRef(false);
   useEffect(() => {
@@ -98,6 +105,17 @@ export default function JobsPage() {
     loadedRef.current = true;
     void fetchJobs();
   }, [fetchJobs]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (restoreFocusFrameRef.current !== null) {
+        cancelAnimationFrame(restoreFocusFrameRef.current);
+        restoreFocusFrameRef.current = null;
+      }
+    };
+  }, []);
 
   const filteredJobs = useMemo(
     () =>
@@ -111,21 +129,52 @@ export default function JobsPage() {
     [jobsList, searchTerm]
   );
 
+  useEffect(() => {
+    if (!focusedJob) return;
+    const reconciled = filteredJobs.find((job) => job.id === focusedJob.id) ?? null;
+    setFocusedJob(reconciled);
+    if (!reconciled) setFocusedJobIndex(-1);
+  }, [filteredJobs, focusedJob]);
+
+  const restoreJobFocus = useCallback((jobId?: string, rowIndex = focusedJobIndex) => {
+    if (restoreFocusFrameRef.current !== null) {
+      cancelAnimationFrame(restoreFocusFrameRef.current);
+    }
+    restoreFocusFrameRef.current = requestAnimationFrame(() => {
+      restoreFocusFrameRef.current = null;
+      if (!mountedRef.current) return;
+      const currentJobs = useJobStore.getState().jobs.filter(
+        (job) =>
+          job.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          job.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          job.tool.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (job.pipeline || '').toLowerCase().includes(searchTerm.toLowerCase()),
+      );
+      if (currentJobs.length === 0) {
+        restoreDefaultFocus();
+        return;
+      }
+      requestGridFocus({ itemId: jobId, rowIndex });
+    });
+  }, [focusedJobIndex, requestGridFocus, searchTerm]);
+
   const handleToggle = useCallback(
-    async (job: jobs.JobInfo) => {
+    async (job: jobs.JobInfo, rowIndex = filteredJobs.findIndex((item) => item.id === job.id)) => {
       try {
         await toggleJob(job.id, !job.enabled);
         addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
       } catch {
         addToast(t('common.error', 'Error'), 'error');
+      } finally {
+        restoreJobFocus(job.id, rowIndex);
       }
     },
-    [toggleJob, addToast, announce, t]
+    [toggleJob, addToast, announce, t, filteredJobs, restoreJobFocus]
   );
 
   const handleRun = useCallback(
-    async (job: jobs.JobInfo) => {
+    async (job: jobs.JobInfo, rowIndex = filteredJobs.findIndex((item) => item.id === job.id)) => {
       setRunningJobId(job.id);
       try {
         const result = await runJob(job.id);
@@ -140,9 +189,10 @@ export default function JobsPage() {
         addToast(t('jobs.runFailed'), 'error');
       } finally {
         setRunningJobId(null);
+        restoreJobFocus(job.id, rowIndex);
       }
     },
-    [runJob, addToast, announce, t]
+    [runJob, addToast, announce, t, filteredJobs, restoreJobFocus]
   );
 
   const handleViewLogs = useCallback(
@@ -202,7 +252,10 @@ export default function JobsPage() {
     }
   }, [fetchJobDetail, addToast, t]);
 
-  const handleDeleteJob = useCallback(async (job: jobs.JobInfo) => {
+  const handleDeleteJob = useCallback(async (
+    job: jobs.JobInfo,
+    rowIndex = filteredJobs.findIndex((item) => item.id === job.id),
+  ) => {
     const ok = await confirm({
       title: t('jobs.builder.deleteConfirmTitle', 'Excluir job'),
       message: t('jobs.builder.deleteConfirm', { name: job.name || job.id }),
@@ -215,10 +268,12 @@ export default function JobsPage() {
       await deleteJob(job.id);
       addToast(t('jobs.builder.deleteSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('jobs.builder.deleteSuccess'));
+      restoreJobFocus(undefined, rowIndex);
     } catch {
       addToast(t('common.error'), 'error');
+      restoreJobFocus(job.id, rowIndex);
     }
-  }, [confirm, deleteJob, addToast, announce, t]);
+  }, [confirm, deleteJob, addToast, announce, t, filteredJobs, restoreJobFocus]);
 
   const getJobRowActions = useCallback(
     (job: jobs.JobInfo) => {
@@ -272,8 +327,9 @@ export default function JobsPage() {
     () => [
       {
         key: 'enabled' as keyof jobs.JobInfo,
-        label: '',
+        label: t('jobs.enabled'),
         width: '36px',
+        keyboardAction: true,
         format: (_value, item) => {
           const job = item as jobs.JobInfo;
           const labels = {
@@ -289,6 +345,7 @@ export default function JobsPage() {
               onClick={(e) => { e.stopPropagation(); handleToggle(job); }}
               aria-label={ariaLabel}
               title={title}
+              tabIndex={-1}
             >
               {isJobEffectivelyEnabled(job) ? '●' : '○'}
             </button>
@@ -331,8 +388,8 @@ export default function JobsPage() {
         },
       },
       {
-        key: 'id' as keyof jobs.JobInfo,
-        label: '',
+        key: 'actions',
+        label: t('jobs.actions'),
         width: '5%',
         format: (_value, item) => (
           <MenuButton
@@ -348,6 +405,16 @@ export default function JobsPage() {
   const hasJobs = jobsList.length > 0;
   const hasFilteredJobs = filteredJobs.length > 0;
 
+  const handleCellAction = useCallback((
+    item: jobs.JobInfo,
+    column: DataGridColumn<jobs.JobInfo>,
+    rowIndex: number,
+  ) => {
+    if (column.key === 'enabled') {
+      void handleToggle(item, rowIndex);
+    }
+  }, [handleToggle]);
+
   const homeActions = [
     {
       key: 'new-job',
@@ -358,13 +425,13 @@ export default function JobsPage() {
     {
       key: 'run-job',
       label: t('jobs.run'),
-      onClick: () => focusedJob && handleRun(focusedJob),
+      onClick: () => focusedJob && handleRun(focusedJob, focusedJobIndex),
       disabled: !focusedJob || runningJobId === focusedJob?.id,
     },
     {
       key: 'toggle-job',
       label: focusedJob?.enabled ? t('jobs.disable') : t('jobs.enable'),
-      onClick: () => focusedJob && handleToggle(focusedJob),
+      onClick: () => focusedJob && handleToggle(focusedJob, focusedJobIndex),
       disabled: !focusedJob,
     },
     {
@@ -398,9 +465,12 @@ export default function JobsPage() {
             columns={columns}
             getItemId={getRowId}
             onActivate={(item: jobs.JobInfo) => handleViewLogs(item.id)}
+            onCellAction={handleCellAction}
+            onDelete={(item: jobs.JobInfo, rowIndex) => void handleDeleteJob(item, rowIndex)}
             getRowActions={getJobRowActions}
             onFocusChange={handleFocusChange}
             onGridReady={handleGridReady}
+            onEmptyFocus={restoreDefaultFocus}
             label={t('jobs.gridLabel')}
           />
         </div>
@@ -421,30 +491,45 @@ export default function JobsPage() {
 
       <Modal
         isOpen={logsModalOpen}
-        onClose={() => setLogsModalOpen(false)}
+        onClose={() => {
+          setLogsModalOpen(false);
+          restoreJobFocus(logsJobId ?? focusedJob?.id);
+        }}
         title={`${t('jobs.logsTitle')} — ${logsJobId || ''}`}
+        returnFocusOnClose={false}
       >
         <RunLogViewer logs={runLogs} onReplay={handleReplay} onRerun={handleRerun} />
       </Modal>
 
       <Modal
         isOpen={eventsModalOpen}
-        onClose={() => setEventsModalOpen(false)}
+        onClose={() => {
+          setEventsModalOpen(false);
+          restoreJobFocus(focusedJob?.id);
+        }}
         title={t('jobs.eventsTitle')}
+        returnFocusOnClose={false}
       >
         <EventTimeline events={events} />
       </Modal>
 
       <Modal
         isOpen={builderOpen}
-        onClose={() => setBuilderOpen(false)}
+        onClose={() => {
+          setBuilderOpen(false);
+          restoreJobFocus(focusedJob?.id);
+        }}
         title={editingJob ? t('jobs.builder.editJob') : t('jobs.builder.newJob')}
         size="lg"
+        returnFocusOnClose={false}
       >
         <JobBuilder
           editJob={editingJob}
-          onClose={() => setBuilderOpen(false)}
-          onSaved={() => fetchJobs()}
+          onClose={() => {
+            setBuilderOpen(false);
+            restoreJobFocus(focusedJob?.id);
+          }}
+          onSaved={() => fetchJobs().then(() => restoreJobFocus(focusedJob?.id))}
         />
       </Modal>
     </div>
