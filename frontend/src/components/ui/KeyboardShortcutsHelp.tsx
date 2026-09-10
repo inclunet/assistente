@@ -55,6 +55,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
         { keys: 'Ctrl+Enter', description: t('ui.shortcuts.sendMessage') },
         { keys: SHORTCUTS.CLEAR_CONVERSATION, description: t('ui.shortcuts.clearConversation') },
         { keys: SHORTCUTS.HISTORY, description: t('ui.shortcuts.openHistory') },
+        { keys: SHORTCUTS.MODELS, description: t('ui.shortcuts.selectModel') },
         { keys: 'Ctrl+P', description: t('ui.shortcuts.interactionProfiles') },
         { keys: SHORTCUTS.SPEAK_MESSAGE, description: t('ui.shortcuts.playAudio') },
         { keys: SHORTCUTS.MESSAGE_DETAILS, description: t('ui.shortcuts.viewDetails') },

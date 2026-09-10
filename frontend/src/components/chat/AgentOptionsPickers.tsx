@@ -16,6 +16,7 @@ import {
 export interface AgentOptionsPickersProps {
   conversationId?: string | null;
   disabled?: boolean;
+  modelShortcut?: string;
 }
 
 /**
@@ -29,6 +30,7 @@ export interface AgentOptionsPickersProps {
 export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
   conversationId,
   disabled = false,
+  modelShortcut,
 }) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -80,6 +82,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
           maxWidth="180px"
           disabled={disabled || changing}
           onAnnounce={announce}
+          shortcut={modelShortcut}
           showEmptyState={false}
         />
       )}

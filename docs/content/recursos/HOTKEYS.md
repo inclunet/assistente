@@ -48,10 +48,14 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 | `ESC` | Voltar à área padrão da aba ativa |
 | `Alt + M` | Menu principal do chat |
 | `Ctrl + Tab` / `Ctrl + Shift + Tab` | Próxima/anterior aba (chat, editor, tasklist, terminal) |
+| `Ctrl + M` | Abrir o seletor de modelos do chat ativo |
 | `Ctrl + Shift + R` | Repetir pergunta em diálogos de decisão |
 
 ## Notas
 
 - Hotkeys globais podem conflitar com atalhos de outros aplicativos
+- `Ctrl + M` é contextual: só age no chat interativo ativo. Não é capturado em
+  editores de texto ou Monaco, terminais, modais, diálogos, menus ou outros
+  seletores; no Monaco, a alternância de Tab continua preservada.
 - No Linux, requer X11 (Wayland pode ter limitações)
 - Cada hotkey roda em sua própria goroutine para não bloquear o app
