@@ -264,7 +264,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		if len(channels) == 0 {
 			channels = []string{"chat"}
 		}
-		e.notifyFunc(channels, fmt.Sprintf("Job %q falhou apos %d tentativas: %s", job.ID, attemptsMade, lastErr))
+		e.notifyFunc(channels, fmt.Sprintf("Job %q falhou após %d tentativas: %s", job.ID, attemptsMade, lastErr))
 	}
 
 	e.emitFailure(ctx, job, rl, trigCtx)

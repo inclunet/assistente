@@ -214,9 +214,14 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						origSize, e.config.MaxResultSize,
 					),
 					IsError: true,
+					Failure: &ToolFailure{
+						Code:      "result_too_large",
+						Kind:      ErrorKindInvalidArgs,
+						Retryable: false,
+					},
 				}
 				execErr = fmt.Errorf("saída estruturada de '%s' tem %d bytes, acima do limite de %d", toolName, origSize, e.config.MaxResultSize)
-				execKind = ErrorKindUnknown
+				execKind = ErrorKindInvalidArgs
 			} else {
 				origSize := len(result.Content)
 				// Reserva bytes para o aviso, garantindo Content final ≤ MaxResultSize.

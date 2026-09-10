@@ -361,8 +361,11 @@ func TestStructuredResultNotTruncated(t *testing.T) {
 	}
 	// Falha classificada: precisa de ErrorKind != "" e Error != nil para que
 	// agent/service.go emita tool_failure e persista o error_kind (AEP-0039).
-	if res.ErrorKind != ErrorKindUnknown {
-		t.Errorf("esperado ErrorKind=%q, got %q", ErrorKindUnknown, res.ErrorKind)
+	if res.ErrorKind != ErrorKindInvalidArgs ||
+		res.ErrorCode != "result_too_large" ||
+		!res.RetryabilityKnown ||
+		res.Retryable {
+		t.Errorf("classificação permanente inesperada: %#v", res)
 	}
 	if res.Error == nil {
 		t.Error("esperado Error não-nil para oversize estruturado")

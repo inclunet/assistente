@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"assistente/internal/profileaccess"
+	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
 
@@ -17,6 +18,38 @@ type fakeAccess struct {
 	authCalls   int
 	lastAuth    profileaccess.AuthorizationRequest
 	validateErr error
+}
+
+func TestProfileFailureClassification(t *testing.T) {
+	tests := []struct {
+		code string
+		kind tools.ErrorKind
+	}{
+		{code: "invalid_arguments", kind: tools.ErrorKindInvalidArgs},
+		{code: "invalid_action", kind: tools.ErrorKindInvalidArgs},
+		{code: "target_required", kind: tools.ErrorKindInvalidArgs},
+		{code: "reason_required", kind: tools.ErrorKindInvalidArgs},
+		{code: "reason_too_long", kind: tools.ErrorKindInvalidArgs},
+		{code: "desktop_tab_required", kind: tools.ErrorKindConfiguration},
+		{code: "invalid_tab_conversation", kind: tools.ErrorKindConfiguration},
+		{code: "catalog_unavailable", kind: tools.ErrorKindUnavailable},
+		{code: "switch_unavailable", kind: tools.ErrorKindUnavailable},
+		{code: "target_unavailable", kind: tools.ErrorKindUnavailable},
+		{code: "authorization_failed", kind: tools.ErrorKindAuthorization},
+	}
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			failure := profileFailure(tt.code)
+			if failure == nil || failure.Code != tt.code || failure.Kind != tt.kind || failure.Retryable {
+				t.Fatalf("classificação = %#v, esperava code=%s kind=%s permanente", failure, tt.code, tt.kind)
+			}
+		})
+	}
+	for _, code := range []string{"list_failed", "persistence_failed", "serialization_failed"} {
+		if failure := profileFailure(code); failure != nil {
+			t.Fatalf("%s deveria permanecer não classificado, veio %#v", code, failure)
+		}
+	}
 }
 
 func (f *fakeAccess) List(context.Context, string) ([]profileaccess.ProfileSummary, error) {
