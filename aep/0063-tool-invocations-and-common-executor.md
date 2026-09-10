@@ -108,6 +108,9 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 | `output` | TEXT | | JSON/texto normalizado retornado |
 | `error` | TEXT | | Erro legível |
 | `error_code` | TEXT | | Código opcional para UI/retry |
+| `error_kind` | TEXT | INDEX | Tipo estável da falha |
+| `retryable` | BOOL | NOT NULL, DEFAULT false | Decisão de retry, quando conhecida |
+| `retryability_known` | BOOL | NOT NULL, DEFAULT false | Distingue decisão explícita do default legado |
 | `queued_at` | DATETIME | NOT NULL, INDEX | Momento em que a invocação entrou na fila |
 | `started_at` | DATETIME | INDEX | Início real da execução; nulo enquanto `queued` |
 | `completed_at` | DATETIME | | Fim |

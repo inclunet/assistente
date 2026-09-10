@@ -361,7 +361,7 @@ func TestStructuredResultNotTruncated(t *testing.T) {
 	}
 	// Falha classificada: precisa de ErrorKind != "" e Error != nil para que
 	// agent/service.go emita tool_failure e persista o error_kind (AEP-0039).
-	if res.ErrorKind != ErrorKindInvalidArgs ||
+	if res.ErrorKind != ErrorKindUnknown ||
 		res.ErrorCode != "result_too_large" ||
 		!res.RetryabilityKnown ||
 		res.Retryable {
