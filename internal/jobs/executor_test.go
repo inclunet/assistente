@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/eventctx"
 	"assistente/internal/logging"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
@@ -1197,9 +1198,15 @@ func (f *fakeErrorTool) Execute(_ context.Context, _ json.RawMessage) (tools.Too
 // que publica um evento no EventBus (via Manager.PublishDomainEvent), usando o ctx
 // do run. Permite verificar que o dry-run suprime a ponte de eventos.
 type fakeDomainPublishTool struct {
-	name  string
-	mgr   *Manager
-	event string
+	name     string
+	mgr      *Manager
+	event    string
+	observed chan dryRunContext
+}
+
+type dryRunContext struct {
+	provenance eventctx.Provenance
+	attrs      []slog.Attr
 }
 
 func (f *fakeDomainPublishTool) Name() string        { return f.name }
@@ -1208,6 +1215,13 @@ func (f *fakeDomainPublishTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object"}`)
 }
 func (f *fakeDomainPublishTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	if f.observed != nil {
+		provenance, _ := eventctx.From(ctx)
+		f.observed <- dryRunContext{
+			provenance: provenance,
+			attrs:      logging.ContextAttrs(ctx),
+		}
+	}
 	_ = f.mgr.PublishDomainEvent(ctx, f.event, map[string]any{"task_id": "t-1"})
 	return tools.ToolResult{Content: `{"ok":true}`}, nil
 }
@@ -1257,7 +1271,8 @@ func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	})
 
 	registry := tools.NewRegistry()
-	registry.MustRegister(&fakeDomainPublishTool{name: "domain_pub", mgr: mgr, event: evt})
+	observed := make(chan dryRunContext, 1)
+	registry.MustRegister(&fakeDomainPublishTool{name: "domain_pub", mgr: mgr, event: evt, observed: observed})
 
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
@@ -1268,9 +1283,32 @@ func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	job := &Job{ID: "dry-job", Tool: "domain_pub"}
 
 	// Dry-run: a tool publica, mas a ponte deve ficar muda.
-	res := executor.ExecuteDryRun(userA, job, &TriggerContext{Type: TriggerManual})
+	dryCtx := logging.WithAttrs(userA,
+		slog.String("job_id", "parent-job"),
+		slog.String("run_id", "parent-run"),
+		slog.String("trigger_type", "event"),
+		slog.String("request_id", "request-1"),
+	)
+	res := executor.ExecuteDryRun(dryCtx, job, &TriggerContext{Type: TriggerManual})
 	if !res.Success {
 		t.Fatalf("dry-run falhou: %s", res.Error)
+	}
+	gotCtx := <-observed
+	if gotCtx.provenance.SourceJobID != job.ID ||
+		gotCtx.provenance.Source != "job" ||
+		gotCtx.provenance.ChainID == "" ||
+		len(gotCtx.provenance.ChainHistory) != 1 ||
+		gotCtx.provenance.ChainHistory[0] != job.ID {
+		t.Fatalf("proveniência do dry-run = %+v, want job atual com cadeia própria", gotCtx.provenance)
+	}
+	assertCapturedAttrOnce(t, gotCtx.attrs, "job_id", job.ID)
+	assertCapturedAttrOnce(t, gotCtx.attrs, "trigger_type", string(TriggerManual))
+	assertCapturedAttrOnce(t, gotCtx.attrs, "source_job_id", job.ID)
+	assertCapturedAttrOnce(t, gotCtx.attrs, "chain_id", gotCtx.provenance.ChainID)
+	assertCapturedAttrOnce(t, gotCtx.attrs, "chain_depth", int64(1))
+	assertCapturedAttrOnce(t, gotCtx.attrs, "request_id", "request-1")
+	if countCapturedAttrs(gotCtx.attrs, "run_id") != 0 {
+		t.Fatal("dry-run herdou run_id do contexto pai")
 	}
 	select {
 	case <-fired:

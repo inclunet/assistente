@@ -262,6 +262,15 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 	if trigCtx == nil {
 		trigCtx = &TriggerContext{Type: TriggerManual}
 	}
+	logAttrs := []slog.Attr{
+		slog.String("job_id", job.ID),
+		slog.String("trigger_type", string(trigCtx.Type)),
+	}
+	if trigCtx.EventName != "" {
+		logAttrs = append(logAttrs, slog.String("trigger_event", trigCtx.EventName))
+	}
+	ctx = logging.WithAttrScope(ctx, jobRunLogAttrKeys, logAttrs...)
+	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, nil))
 	if job.DryRun.MockOutput != nil {
 		return &DryRunResult{
 			Success: true,
