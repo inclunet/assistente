@@ -374,6 +374,33 @@ describe('DecisionDialog', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 
+  it('libera a proteção se o handler mantiver o diálogo aberto', () => {
+    const onAction = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Tentar novamente"
+        description="Escolha"
+        actions={[{ id: 'yes', label: 'Sim', polarity: 'affirmative', scope: 'current' }]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
+      fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
+      expect(onAction).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1000);
+      fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
+      expect(onAction).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('envia rejectReason no extras ao rejeitar e na ordem AEP-0090', () => {
     const onAction = vi.fn();
     render(

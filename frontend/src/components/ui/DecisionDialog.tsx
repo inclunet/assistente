@@ -29,6 +29,8 @@ import './DecisionDialog.css';
 
 export type DecisionSeverity = 'destructive' | 'permission' | 'info';
 
+const ACTION_REENTRY_GUARD_MS = 1000;
+
 export interface DecisionAction {
   id: string;
   label: string;
@@ -211,6 +213,9 @@ export function DecisionDialog({
   const announcementRef = useRef('');
   const openedForIdRef = useRef<string | null>(null);
   const actionInFlightRef = useRef(false);
+  const actionUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [rejectReasonText, setRejectReasonText] = useState('');
 
   const mnemonics = useMemo(() => assignMnemonics(actions), [actions]);
@@ -301,6 +306,12 @@ export function DecisionDialog({
   const fireAction = (actionId: string) => {
     if (actionInFlightRef.current) return;
     actionInFlightRef.current = true;
+    // O fechamento normal limpa o timer pelo efeito de isOpen. O fallback
+    // evita travar o diálogo se o callback falhar ou decidir mantê-lo aberto.
+    actionUnlockTimerRef.current = setTimeout(() => {
+      actionInFlightRef.current = false;
+      actionUnlockTimerRef.current = null;
+    }, ACTION_REENTRY_GUARD_MS);
     const extras = extrasForAction(actionId);
     if (extras) onAction(actionId, extras);
     else onAction(actionId);
@@ -328,6 +339,10 @@ export function DecisionDialog({
       openedForIdRef.current = null;
       announcementRef.current = '';
       actionInFlightRef.current = false;
+      if (actionUnlockTimerRef.current) {
+        clearTimeout(actionUnlockTimerRef.current);
+        actionUnlockTimerRef.current = null;
+      }
       setRejectReasonText('');
       return;
     }
@@ -355,6 +370,15 @@ export function DecisionDialog({
       playSound(SOUND_TYPES.ALERT);
     }
   }, [isOpen, title, description, body, bodyHint, shortcutsHint, announceRequest, decisionAlertSound]);
+
+  useEffect(
+    () => () => {
+      if (actionUnlockTimerRef.current) {
+        clearTimeout(actionUnlockTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const variantClass = `decision-dialog-modal--${severity}`;
   const sizeClass = size !== 'sm' ? ` decision-dialog-modal--size-${size}` : '';
