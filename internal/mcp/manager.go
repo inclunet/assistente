@@ -730,7 +730,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	if m.connectCancels[slug] != attempt || sessionCtx.Err() != nil {
 		m.mu.Unlock()
 		sessionCancel()
-		_ = session.Close()
+		_ = closeAndWaitClientSession(session)
 		m.resetConnectingStatus(slug)
 		return context.Canceled
 	}
@@ -863,26 +863,29 @@ func connectClientSession(
 		// exponha o erro interno context canceled do cleanup.
 		if handshakeCtx.Err() != nil {
 			sessionCancel()
-			if result.session != nil {
-				_ = result.session.Close()
-			}
+			_ = closeAndWaitClientSession(result.session)
 			return nil, handshakeCtx.Err()
 		}
 		return result.session, result.err
 	case <-handshakeCtx.Done():
 		sessionCancel()
 		result := <-resultCh
-		if result.session != nil {
-			_ = result.session.Close()
-		}
+		_ = closeAndWaitClientSession(result.session)
 		return nil, handshakeCtx.Err()
 	case <-sessionCtx.Done():
 		result := <-resultCh
-		if result.session != nil {
-			_ = result.session.Close()
-		}
+		_ = closeAndWaitClientSession(result.session)
 		return nil, sessionCtx.Err()
 	}
+}
+
+func closeAndWaitClientSession(session *mcpsdk.ClientSession) error {
+	if session == nil {
+		return nil
+	}
+	closeErr := session.Close()
+	waitErr := session.Wait()
+	return errors.Join(closeErr, waitErr)
 }
 
 func (m *Manager) connectClientSessionWithTimeout(
