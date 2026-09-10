@@ -76,6 +76,14 @@ type TriggerContext struct {
 	ChainHistory []string // jobs ja executados nesta cadeia
 }
 
+var jobRunLogAttrKeys = []string{
+	"job_id",
+	"run_id",
+	"trigger_type",
+	"trigger_event",
+	"trigger_chain_id",
+}
+
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
@@ -96,10 +104,10 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	if trigCtx.EventName != "" {
 		logAttrs = append(logAttrs, slog.String("trigger_event", trigCtx.EventName))
 	}
-	if trigCtx.ChainID != "" {
-		logAttrs = append(logAttrs, slog.String("trigger_chain_id", trigCtx.ChainID))
-	}
-	ctx = logging.WithAttrs(ctx, logAttrs...)
+	// O EventBus preserva o contexto do run publicador. Substitui somente o
+	// escopo de identidade do run para que o filho não herde job/run/trigger do
+	// pai. A proveniência da cadeia continua canônica em eventctx.
+	ctx = logging.WithAttrScope(ctx, jobRunLogAttrKeys, logAttrs...)
 	logger := logging.Logger(ctx, "jobs.executor")
 
 	rl := &RunLog{

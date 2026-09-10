@@ -3,6 +3,8 @@ package logging
 import (
 	"context"
 	"log/slog"
+	"strconv"
+	"sync"
 	"testing"
 
 	"assistente/internal/eventctx"
@@ -52,6 +54,72 @@ func TestWithAttrsKeepsExistingAttributes(t *testing.T) {
 	got := attrsByKey(ContextAttrs(ctx))
 	assertAttr(t, got, "job_id", "job-1")
 	assertAttr(t, got, "run_id", "run-1")
+}
+
+func TestWithAttrScopeReplacesOnlyScopedAttributes(t *testing.T) {
+	base := WithAttrs(context.Background(),
+		slog.String("job_id", "parent-job"),
+		slog.String("run_id", "parent-run"),
+		slog.String("trigger_type", "manual"),
+		slog.String("trigger_event", "parent.done"),
+		slog.String("trigger_chain_id", "parent-chain"),
+		slog.String("request_id", "request-1"),
+	)
+
+	child := WithAttrScope(base,
+		[]string{"job_id", "run_id", "trigger_type", "trigger_event", "trigger_chain_id"},
+		slog.String("job_id", "child-job"),
+		slog.String("run_id", "child-run"),
+		slog.String("trigger_type", "event"),
+		slog.String("trigger_event", "parent.done"),
+	)
+
+	got := ContextAttrs(child)
+	assertSingleAttr(t, got, "job_id", "child-job")
+	assertSingleAttr(t, got, "run_id", "child-run")
+	assertSingleAttr(t, got, "trigger_type", "event")
+	assertSingleAttr(t, got, "trigger_event", "parent.done")
+	assertAttr(t, attrsByKey(got), "request_id", "request-1")
+	if countAttrs(got, "trigger_chain_id") != 0 {
+		t.Fatal("trigger_chain_id herdado deveria ter sido removido")
+	}
+
+	baseAttrs := attrsByKey(ContextAttrs(base))
+	assertAttr(t, baseAttrs, "job_id", "parent-job")
+	assertAttr(t, baseAttrs, "run_id", "parent-run")
+}
+
+func TestWithAttrScopeSupportsConcurrentDerivedContexts(t *testing.T) {
+	base := WithAttrs(context.Background(),
+		slog.String("job_id", "parent-job"),
+		slog.String("run_id", "parent-run"),
+		slog.String("request_id", "request-1"),
+	)
+
+	const workers = 32
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			id := strconv.Itoa(i)
+			ctx := WithAttrScope(base,
+				[]string{"job_id", "run_id"},
+				slog.String("job_id", "job-"+id),
+				slog.String("run_id", "run-"+id),
+			)
+			got := ContextAttrs(ctx)
+			assertSingleAttr(t, got, "job_id", "job-"+id)
+			assertSingleAttr(t, got, "run_id", "run-"+id)
+			assertSingleAttr(t, got, "request_id", "request-1")
+		}()
+	}
+	wg.Wait()
+
+	got := ContextAttrs(base)
+	assertSingleAttr(t, got, "job_id", "parent-job")
+	assertSingleAttr(t, got, "run_id", "parent-run")
 }
 
 func TestNormalizeLegacyMessageRemovesPrefixAndSymbols(t *testing.T) {
@@ -106,6 +174,24 @@ func attrsByKey(attrs []slog.Attr) map[string]any {
 		out[attr.Key] = attr.Value.Any()
 	}
 	return out
+}
+
+func countAttrs(attrs []slog.Attr, key string) int {
+	count := 0
+	for _, attr := range attrs {
+		if attr.Key == key {
+			count++
+		}
+	}
+	return count
+}
+
+func assertSingleAttr(t *testing.T, attrs []slog.Attr, key string, want any) {
+	t.Helper()
+	if count := countAttrs(attrs, key); count != 1 {
+		t.Fatalf("attr %q ocorre %d vezes, want 1", key, count)
+	}
+	assertAttr(t, attrsByKey(attrs), key, want)
 }
 
 func assertAttr(t *testing.T, attrs map[string]any, key string, want any) {
