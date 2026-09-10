@@ -74,7 +74,7 @@ function subagentJob(profile: string): jobs.Job {
     metadata: {},
     status: 'idle',
     pipeline_enabled: true,
-  } as jobs.Job;
+  } as unknown as jobs.Job;
 }
 
 describe('JobBuilder grants de profiles', () => {
