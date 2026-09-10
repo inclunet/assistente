@@ -372,23 +372,23 @@ func authorizationErrResult(code, message string) tools.ToolResult {
 		Metadata: map[string]any{
 			"error_code": code,
 		},
-		Failure: &tools.ToolFailure{
-			Code:      code,
-			Kind:      authorizationFailureKind(code),
-			Retryable: false,
-		},
+		Failure: authorizationFailure(code),
 	}
 }
 
-func authorizationFailureKind(code string) tools.ErrorKind {
+func authorizationFailure(code string) *tools.ToolFailure {
+	var kind tools.ErrorKind
 	switch code {
 	case "profile_not_found":
-		return tools.ErrorKindNotFound
+		kind = tools.ErrorKindNotFound
 	case "profile_unavailable":
-		return tools.ErrorKindUnavailable
+		kind = tools.ErrorKindUnavailable
+	case "authorization_no_interlocutor", "authorization_unavailable", "authorization_surface_unavailable":
+		kind = tools.ErrorKindAuthorization
 	default:
-		return tools.ErrorKindAuthorization
+		return nil
 	}
+	return &tools.ToolFailure{Code: code, Kind: kind, Retryable: false}
 }
 
 func invalidArgsResult(msg string) tools.ToolResult {

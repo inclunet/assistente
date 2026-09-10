@@ -134,7 +134,7 @@ const (
 	ErrorKindNotFound      ErrorKind = "not_found"     // Ferramenta não encontrada no registry (não retryable)
 	ErrorKindPanic         ErrorKind = "panic"         // Panic capturado durante execução (não retryable)
 	ErrorKindCancelled     ErrorKind = "cancelled"     // Cancelamento pelo usuário (não retryable)
-	ErrorKindUnknown       ErrorKind = "unknown"       // Erro genérico de execução (não retryable)
+	ErrorKindUnknown       ErrorKind = "unknown"       // Erro genérico; retryability depende da classificação explícita
 	ErrorKindAuthorization ErrorKind = "authorization" // Autorização indisponível/negada de forma permanente
 	ErrorKindUnavailable   ErrorKind = "unavailable"   // Dependência/configuração indisponível
 	ErrorKindConfiguration ErrorKind = "configuration" // Configuração inválida (não retryable)

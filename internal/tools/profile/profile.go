@@ -228,8 +228,6 @@ func profileFailure(code string) *tools.ToolFailure {
 		kind = tools.ErrorKindConfiguration
 	case "catalog_unavailable", "switch_unavailable", "target_unavailable":
 		kind = tools.ErrorKindUnavailable
-	case "authorization_failed":
-		kind = tools.ErrorKindAuthorization
 	default:
 		return nil
 	}

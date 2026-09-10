@@ -35,7 +35,6 @@ func TestProfileFailureClassification(t *testing.T) {
 		{code: "catalog_unavailable", kind: tools.ErrorKindUnavailable},
 		{code: "switch_unavailable", kind: tools.ErrorKindUnavailable},
 		{code: "target_unavailable", kind: tools.ErrorKindUnavailable},
-		{code: "authorization_failed", kind: tools.ErrorKindAuthorization},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
@@ -45,7 +44,7 @@ func TestProfileFailureClassification(t *testing.T) {
 			}
 		})
 	}
-	for _, code := range []string{"list_failed", "persistence_failed", "serialization_failed"} {
+	for _, code := range []string{"authorization_failed", "list_failed", "persistence_failed", "serialization_failed"} {
 		if failure := profileFailure(code); failure != nil {
 			t.Fatalf("%s deveria permanecer não classificado, veio %#v", code, failure)
 		}

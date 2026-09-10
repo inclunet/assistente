@@ -735,6 +735,9 @@ func TestAuthorizationFailuresAreExplicitlyPermanent(t *testing.T) {
 			t.Fatalf("%s sem classificação permanente: %#v", code, result.Failure)
 		}
 	}
+	if result := authorizationErrResult("authorization_failed", "timeout transitório"); result.Failure != nil {
+		t.Fatalf("authorization_failed genérico não deve suprimir retry: %#v", result.Failure)
+	}
 }
 
 func TestToolSameExplicitProfileDoesNotAsk(t *testing.T) {
