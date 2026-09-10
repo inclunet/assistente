@@ -10,6 +10,10 @@ Jobs são automações do tipo "uma ferramenta por disparo": cada job chama uma 
 ## Conceito
 
 - Cada job tem nome, pipeline opcional, entradas e política de erro (`retry`/`skip`/`stop`).
+- A estratégia `retry` repete falhas transitórias até `max_retries`; falhas
+  permanentes classificadas pela tool, como argumentos/configuração inválidos,
+  profile indisponível ou autorização sem interlocutor, encerram o run na
+  primeira tentativa.
 - Armazenado no SQLite, com retenção de 30 dias e isolado por usuário.
 - Gerenciado em **Jobs**: grid com busca, criar/editar, ativar/desativar, ver logs e timeline.
 

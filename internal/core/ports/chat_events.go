@@ -193,7 +193,7 @@ type ToolFailureEvent struct {
 	AssistantMessageID string             `json:"assistantMessageId,omitempty"`
 	Name               string             `json:"name"`
 	CallID             string             `json:"callId"`
-	ErrorKind          string             `json:"errorKind"` // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
+	ErrorKind          string             `json:"errorKind"` // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "authorization" | "unavailable" | "configuration" | "unknown"
 	Retryable          bool               `json:"retryable"`
 	Message            string             `json:"message,omitempty"`
 	DurationMs         int64              `json:"durationMs,omitempty"`

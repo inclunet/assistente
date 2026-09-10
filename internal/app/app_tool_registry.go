@@ -5,10 +5,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/database"
 	"assistente/internal/docextract"
+	"assistente/internal/eventctx"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
 	"assistente/internal/nettrust"
@@ -78,19 +80,44 @@ func (a *App) profileAccessService() *profileaccess.Service {
 		a.profileManager,
 		a.questionnaireRouter(),
 		func(ctx context.Context, source, conversationID string) questionnaire.Surface {
-			if source == "wails" {
-				return questionnaire.DesktopSurface(conversationID)
-			}
-			conv, err := database.GetConversationInfoWithContext(ctx, conversationID)
-			if err != nil || conv == nil {
-				return questionnaire.NoSurface(conversationID)
-			}
-			return questionnaire.ChannelSurface(conversationID, conv.Channel, conv.ContactID)
+			return resolveProfileAccessSurface(ctx, source, conversationID, database.GetConversationInfoWithContext)
 		},
 		func(ctx context.Context, profile *profiles.Profile) bool {
 			return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
 		},
 	)
+}
+
+type profileConversationLookup func(context.Context, string) (*database.Conversation, error)
+
+func resolveProfileAccessSurface(
+	ctx context.Context,
+	source string,
+	conversationID string,
+	lookup profileConversationLookup,
+) questionnaire.Surface {
+	source = strings.TrimSpace(source)
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return questionnaire.NoSurface(conversationID)
+	}
+	if provenance, ok := eventctx.From(ctx); ok && provenance.Source == "job" {
+		return questionnaire.NoSurface(conversationID)
+	}
+	if source == "job" || source == "system" {
+		return questionnaire.NoSurface(conversationID)
+	}
+	if source == "wails" {
+		return questionnaire.DesktopSurface(conversationID)
+	}
+	if lookup == nil {
+		return questionnaire.NoSurface(conversationID)
+	}
+	conv, err := lookup(ctx, conversationID)
+	if err != nil || conv == nil {
+		return questionnaire.NoSurface(conversationID)
+	}
+	return questionnaire.ChannelSurface(conversationID, conv.Channel, conv.ContactID)
 }
 
 // serviceTaskListManager adapta tasklist.Service para a interface tasklisttool.TaskListManager.
