@@ -274,7 +274,7 @@ describe('DataGrid (checkbox mode)', () => {
     expect(getGrid().classList.contains('datagrid-container--checkbox')).toBe(true);
   });
 
-  it('ignora toggle customizado quando a linha focada sai da lista', () => {
+  it('reconcilia toggle customizado quando a linha focada sai da lista', () => {
     const onItemToggle = vi.fn();
     const { rerender } = render(
       <DataGrid
@@ -300,7 +300,7 @@ describe('DataGrid (checkbox mode)', () => {
     );
     fireEvent.keyDown(getGrid(), { key: ' ' });
 
-    expect(onItemToggle).not.toHaveBeenCalled();
+    expect(onItemToggle).toHaveBeenCalledWith(items[0], 0);
   });
 });
 
@@ -404,6 +404,135 @@ describe('DataGrid (onFocusChange)', () => {
     onFocus.mockClear();
     fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
     expect(onFocus).toHaveBeenCalledWith(items[1], 1);
+  });
+});
+
+describe('DataGrid (reconciliação de foco após remoção)', () => {
+  it('foca a próxima linha no mesmo índice e preserva a coluna', async () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(
+      <DataGrid items={items.slice(0, 3)} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+    focusGrid();
+    fireEvent.keyDown(getGrid(), { key: 'ArrowRight' });
+    fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
+
+    rerender(
+      <DataGrid items={[items[0], items[2]]} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    await waitFor(() => expect(screen.getByText('Third').closest('[role="gridcell"]')).toHaveFocus());
+    expect(onFocus).toHaveBeenLastCalledWith(items[2], 1);
+  });
+
+  it('foca a linha anterior quando a última é removida', async () => {
+    const { rerender } = render(
+      <DataGrid items={items.slice(0, 3)} columns={columns} autoFocusOnMount={false} />
+    );
+    focusGrid();
+    fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
+    fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
+
+    rerender(
+      <DataGrid items={items.slice(0, 2)} columns={columns} autoFocusOnMount={false} />
+    );
+
+    await waitFor(() => expect(screen.getByText('Bravo').closest('[role="gridcell"]')).toHaveFocus());
+  });
+
+  it('usa fallback utilizável quando a única linha é removida', async () => {
+    const fallback = vi.fn(() => {
+      screen.getByRole('button', { name: 'fallback' }).focus();
+      return true;
+    });
+    const { rerender } = render(
+      <>
+        <button type="button">fallback</button>
+        <DataGrid items={items.slice(0, 1)} columns={columns}
+          onEmptyFocus={fallback} autoFocusOnMount={false} />
+      </>
+    );
+    focusGrid();
+
+    rerender(
+      <>
+        <button type="button">fallback</button>
+        <DataGrid items={[]} columns={columns}
+          onEmptyFocus={fallback} autoFocusOnMount={false} />
+      </>
+    );
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'fallback' })).toHaveFocus());
+    expect(fallback).toHaveBeenCalledOnce();
+  });
+
+  it('não rouba foco durante atualização em background', async () => {
+    const { rerender } = render(
+      <>
+        <button type="button">fora</button>
+        <DataGrid items={items.slice(0, 3)} columns={columns} autoFocusOnMount={false} />
+      </>
+    );
+    focusGrid();
+    fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
+    const outside = screen.getByRole('button', { name: 'fora' });
+    outside.focus();
+
+    rerender(
+      <>
+        <button type="button">fora</button>
+        <DataGrid items={[items[0], items[2]]} columns={columns} autoFocusOnMount={false} />
+      </>
+    );
+
+    await waitFor(() => expect(outside).toHaveFocus());
+  });
+
+  it('limita a coluna quando ela deixa de existir', async () => {
+    const { rerender } = render(
+      <DataGrid items={items.slice(0, 2)} columns={columns} autoFocusOnMount={false} />
+    );
+    focusGrid();
+    fireEvent.keyDown(getGrid(), { key: 'ArrowRight' });
+
+    rerender(
+      <DataGrid items={items.slice(0, 2)} columns={columns.slice(0, 1)} autoFocusOnMount={false} />
+    );
+
+    await waitFor(() => expect(screen.getByText('Alpha').closest('[role="gridcell"]')).toHaveFocus());
+  });
+
+  it('cancela foco agendado ao desmontar', () => {
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(
+        <DataGrid items={items} columns={columns} autoFocusOnMount={false} />
+      );
+      focusGrid();
+      const firstCell = getCells()[0];
+      const focusSpy = vi.spyOn(firstCell, 'focus');
+      unmount();
+      act(() => vi.runAllTimers());
+      expect(focusSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('DataGrid (instruções acessíveis)', () => {
+  it('só informa Delete quando a ação existe', () => {
+    const { rerender } = render(
+      <DataGrid items={items} columns={columns} autoFocusOnMount={false} />
+    );
+    expect(screen.getByText(/Grade de dados/)).not.toHaveTextContent('Delete');
+
+    rerender(
+      <DataGrid items={items} columns={columns} onDelete={vi.fn()} autoFocusOnMount={false} />
+    );
+    expect(screen.getByText(/Grade de dados/)).toHaveTextContent('Delete');
   });
 });
 
