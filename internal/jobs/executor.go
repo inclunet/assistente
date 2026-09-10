@@ -88,6 +88,29 @@ type TriggerContext struct {
 	ChainHistory []string // jobs ja executados nesta cadeia
 }
 
+var jobRunLogAttrKeys = []string{
+	"job_id",
+	"run_id",
+	"trigger_type",
+	"trigger_event",
+	"trigger_chain_id",
+}
+
+func jobRunLogAttrs(jobID, runID string, trigCtx *TriggerContext) []slog.Attr {
+	attrs := []slog.Attr{slog.String("job_id", jobID)}
+	if runID != "" {
+		attrs = append(attrs, slog.String("run_id", runID))
+	}
+	if trigCtx == nil {
+		return attrs
+	}
+	attrs = append(attrs, slog.String("trigger_type", string(trigCtx.Type)))
+	if trigCtx.EventName != "" {
+		attrs = append(attrs, slog.String("trigger_event", trigCtx.EventName))
+	}
+	return attrs
+}
+
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
@@ -100,19 +123,10 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		runUUID = uuid.New()
 	}
 	runID := "run_" + runUUID.String()
-	logAttrs := []slog.Attr{
-		slog.String("job_id", job.ID),
-		slog.String("run_id", runID),
-		slog.String("trigger_type", string(trigCtx.Type)),
-	}
-	if trigCtx.EventName != "" {
-		logAttrs = append(logAttrs, slog.String("trigger_event", trigCtx.EventName))
-	}
-	if trigCtx.ChainID != "" {
-		logAttrs = append(logAttrs, slog.String("trigger_chain_id", trigCtx.ChainID))
-	}
-	ctx = logging.WithAttrs(ctx, logAttrs...)
-	logger := logging.Logger(ctx, "jobs.executor")
+	// O EventBus preserva o contexto do run publicador. Substitui somente o
+	// escopo de identidade do run para que o filho não herde job/run/trigger do
+	// pai. A proveniência da cadeia continua canônica em eventctx.
+	ctx = logging.WithAttrScope(ctx, jobRunLogAttrKeys, jobRunLogAttrs(job.ID, runID, trigCtx)...)
 
 	rl := &RunLog{
 		RunID: runID,
@@ -128,6 +142,10 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		},
 		StartedAt: time.Now(),
 	}
+	// Carimba a proveniência atual antes de qualquer caminho de log, retry,
+	// falha ou publicação. O contexto completo segue também para tools e eventos.
+	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
+	logger := logging.Logger(ctx, "jobs.executor")
 
 	if e.onRunStart != nil {
 		e.onRunStart(job.ID, runID)
@@ -278,6 +296,8 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 	if trigCtx == nil {
 		trigCtx = &TriggerContext{Type: TriggerManual}
 	}
+	ctx = logging.WithAttrScope(ctx, jobRunLogAttrKeys, jobRunLogAttrs(job.ID, "", trigCtx)...)
+	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, nil))
 	if job.DryRun.MockOutput != nil {
 		return &DryRunResult{
 			Success: true,
@@ -304,11 +324,6 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 }
 
 func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *TriggerContext, rl *RunLog) (map[string]any, error) {
-	// Carimba proveniência no ctx do run (AEP-0067): mutações de domínio feitas
-	// pela tool (ex.: task_list) durante este run são marcadas como _source="job".
-	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
-	// permitindo anti-loop via trigger.when ({{ eq .event._source "user" }}).
-	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
 	logger := logging.Logger(ctx, "jobs.executor")
 
 	// Resolve a tool no registry

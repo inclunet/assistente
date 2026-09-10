@@ -31,6 +31,36 @@ func WithAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
 	return context.WithValue(ctx, contextAttrsKey{}, merged)
 }
 
+// WithAttrScope substitui apenas os atributos extras pertencentes ao escopo
+// informado. Atributos canônicos extraídos de userctx, invocationctx e eventctx
+// permanecem intactos, assim como extras de outros domínios.
+//
+// Os slices armazenados no contexto são sempre copiados para que contextos
+// derivados possam ser usados concorrentemente sem compartilhar mutações.
+func WithAttrScope(ctx context.Context, scopeKeys []string, attrs ...slog.Attr) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(scopeKeys) == 0 {
+		return WithAttrs(ctx, attrs...)
+	}
+
+	keys := make(map[string]struct{}, len(scopeKeys))
+	for _, key := range scopeKeys {
+		keys[key] = struct{}{}
+	}
+
+	existing, _ := ctx.Value(contextAttrsKey{}).([]slog.Attr)
+	scoped := make([]slog.Attr, 0, len(existing)+len(attrs))
+	for _, attr := range existing {
+		if _, replace := keys[attr.Key]; !replace {
+			scoped = append(scoped, attr)
+		}
+	}
+	scoped = append(scoped, attrs...)
+	return context.WithValue(ctx, contextAttrsKey{}, scoped)
+}
+
 // Logger retorna um slog.Logger com component e atributos de correlacao do ctx.
 func Logger(ctx context.Context, component string) *slog.Logger {
 	attrs := make([]slog.Attr, 0, 8)

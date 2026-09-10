@@ -3,11 +3,16 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	"assistente/internal/eventctx"
+	"assistente/internal/logging"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
+	"assistente/internal/userctx"
 )
 
 type secretStoreFunc func(ctx context.Context, key string) (string, error)
@@ -622,6 +627,273 @@ func (f *fakeTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolR
 	return tools.ToolResult{Content: f.response}, nil
 }
 
+type contextLoggingTool struct {
+	name string
+}
+
+func (t *contextLoggingTool) Name() string        { return t.name }
+func (t *contextLoggingTool) Description() string { return "tool de teste com log contextual" }
+func (t *contextLoggingTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (t *contextLoggingTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	logging.Logger(ctx, "jobs.test-tool").Info("tool executada")
+	return tools.ToolResult{Content: `{"ok":true}`}, nil
+}
+
+type capturedLog struct {
+	message string
+	attrs   []slog.Attr
+}
+
+type logCaptureSink struct {
+	mu      sync.Mutex
+	records []capturedLog
+}
+
+type logCaptureHandler struct {
+	sink  *logCaptureSink
+	attrs []slog.Attr
+}
+
+func (h *logCaptureHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *logCaptureHandler) Handle(_ context.Context, record slog.Record) error {
+	attrs := make([]slog.Attr, 0, len(h.attrs)+record.NumAttrs())
+	attrs = append(attrs, h.attrs...)
+	record.Attrs(func(attr slog.Attr) bool {
+		attrs = append(attrs, attr)
+		return true
+	})
+	h.sink.mu.Lock()
+	h.sink.records = append(h.sink.records, capturedLog{message: record.Message, attrs: attrs})
+	h.sink.mu.Unlock()
+	return nil
+}
+
+func (h *logCaptureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	merged := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
+	merged = append(merged, h.attrs...)
+	merged = append(merged, attrs...)
+	return &logCaptureHandler{sink: h.sink, attrs: merged}
+}
+
+func (h *logCaptureHandler) WithGroup(string) slog.Handler { return h }
+
+func (s *logCaptureSink) snapshot() []capturedLog {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]capturedLog, len(s.records))
+	copy(out, s.records)
+	return out
+}
+
+func TestExecute_EventChainReplacesParentRunLogIdentity(t *testing.T) {
+	defaultLogger := slog.Default()
+	sink := &logCaptureSink{}
+	slog.SetDefault(slog.New(&logCaptureHandler{sink: sink}))
+	t.Cleanup(func() { slog.SetDefault(defaultLogger) })
+
+	registry := tools.NewRegistry()
+	registry.MustRegister(&contextLoggingTool{name: "context_log"})
+	eventBus := NewEventBus()
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       eventBus,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	parent := &Job{
+		ID:   "parent-job",
+		Tool: "context_log",
+		Events: EventsConfig{
+			OnSuccess: "parent.completed",
+		},
+	}
+	child := &Job{ID: "child-job", Tool: "context_log"}
+	childRun := make(chan *RunLog, 1)
+	eventBus.Subscribe("parent.completed", child.ID, func(ctx context.Context, eventName string, payload map[string]any) {
+		chainID, _ := payload["_chain_id"].(string)
+		chainHistory, _ := payload["_chain_history"].([]string)
+		childRun <- executor.Execute(ctx, child, &TriggerContext{
+			Type:         TriggerEvent,
+			EventName:    eventName,
+			EventPayload: payload,
+			ChainID:      chainID,
+			ChainHistory: chainHistory,
+		})
+	})
+
+	ctx := userctx.WithUserID(context.Background(), "user-1")
+	ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
+		ConversationID: "conversation-1",
+		TurnID:         "turn-1",
+	})
+	ctx = logging.WithAttrs(ctx,
+		slog.String("job_id", "stale-job"),
+		slog.String("run_id", "stale-run"),
+		slog.String("trigger_type", "stale-trigger"),
+		slog.String("trigger_event", "stale-event"),
+		slog.String("trigger_chain_id", "stale-chain"),
+		slog.String("request_id", "request-1"),
+	)
+
+	parentRun := executor.Execute(ctx, parent, &TriggerContext{Type: TriggerManual})
+	var gotChildRun *RunLog
+	select {
+	case gotChildRun = <-childRun:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout aguardando execução do job filho")
+	}
+	eventBus.Close()
+
+	var childToolLog *capturedLog
+	for _, record := range sink.snapshot() {
+		if record.message == "tool executada" && attrString(record.attrs, "job_id") == child.ID {
+			record := record
+			childToolLog = &record
+			break
+		}
+	}
+	if childToolLog == nil {
+		t.Fatal("log da tool do job filho não capturado")
+	}
+
+	assertCapturedAttrOnce(t, childToolLog.attrs, "job_id", child.ID)
+	assertCapturedAttrOnce(t, childToolLog.attrs, "run_id", gotChildRun.RunID)
+	assertCapturedAttrOnce(t, childToolLog.attrs, "trigger_type", string(TriggerEvent))
+	assertCapturedAttrOnce(t, childToolLog.attrs, "trigger_event", "parent.completed")
+	assertCapturedAttrOnce(t, childToolLog.attrs, "source_job_id", child.ID)
+	assertCapturedAttrOnce(t, childToolLog.attrs, "chain_id", parentRun.RunID)
+	assertCapturedAttrOnce(t, childToolLog.attrs, "chain_depth", int64(2))
+	assertCapturedAttrOnce(t, childToolLog.attrs, "user_id", "user-1")
+	assertCapturedAttrOnce(t, childToolLog.attrs, "conversation_id", "conversation-1")
+	assertCapturedAttrOnce(t, childToolLog.attrs, "turn_id", "turn-1")
+	assertCapturedAttrOnce(t, childToolLog.attrs, "request_id", "request-1")
+	if countCapturedAttrs(childToolLog.attrs, "trigger_chain_id") != 0 {
+		t.Fatal("trigger_chain_id não deve duplicar o chain_id canônico")
+	}
+	for _, stale := range []string{"stale-job", "stale-run", "stale-trigger", "stale-event", "stale-chain"} {
+		if hasCapturedValue(childToolLog.attrs, stale) {
+			t.Fatalf("valor residual do run pai encontrado no log filho: %q", stale)
+		}
+	}
+
+	var eventBusLog *capturedLog
+	for _, record := range sink.snapshot() {
+		if record.message == `Event "parent.completed" published to 1 listener(s)` {
+			record := record
+			eventBusLog = &record
+			break
+		}
+	}
+	if eventBusLog == nil {
+		t.Fatal("log de publicação do EventBus não capturado")
+	}
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "job_id", parent.ID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "run_id", parentRun.RunID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "trigger_type", string(TriggerManual))
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "source_job_id", parent.ID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "chain_id", parentRun.RunID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "chain_depth", int64(1))
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "request_id", "request-1")
+}
+
+func TestLogSkippedUnavailableToolReplacesParentRunIdentity(t *testing.T) {
+	defaultLogger := slog.Default()
+	sink := &logCaptureSink{}
+	slog.SetDefault(slog.New(&logCaptureHandler{sink: sink}))
+	t.Cleanup(func() { slog.SetDefault(defaultLogger) })
+
+	manager := NewManager(ManagerConfig{})
+	job := &Job{ID: "child-job", Tool: "mcp_unavailable"}
+	trigCtx := &TriggerContext{
+		Type:         TriggerEvent,
+		EventName:    "parent.failed",
+		ChainID:      "parent-chain",
+		ChainHistory: []string{"parent-job"},
+	}
+	ctx := logging.WithAttrs(context.Background(),
+		slog.String("job_id", "parent-job"),
+		slog.String("run_id", "parent-run"),
+		slog.String("trigger_type", "manual"),
+		slog.String("request_id", "request-1"),
+	)
+	ctx = eventctx.With(ctx, eventctx.Provenance{
+		Source:       "job",
+		SourceJobID:  "parent-job",
+		ChainID:      "parent-chain",
+		ChainHistory: []string{"parent-job"},
+	})
+
+	manager.logSkippedUnavailableTool(ctx, job, trigCtx, "tool indisponível")
+
+	var skippedLog *capturedLog
+	for _, record := range sink.snapshot() {
+		if record.message == "child-job: skipping automatic run; tool indisponível" {
+			record := record
+			skippedLog = &record
+			break
+		}
+	}
+	if skippedLog == nil {
+		t.Fatal("log do run pulado não capturado")
+	}
+	assertCapturedAttrOnce(t, skippedLog.attrs, "job_id", job.ID)
+	assertCapturedAttrOnce(t, skippedLog.attrs, "trigger_type", string(TriggerEvent))
+	assertCapturedAttrOnce(t, skippedLog.attrs, "trigger_event", "parent.failed")
+	assertCapturedAttrOnce(t, skippedLog.attrs, "source_job_id", job.ID)
+	assertCapturedAttrOnce(t, skippedLog.attrs, "chain_id", "parent-chain")
+	assertCapturedAttrOnce(t, skippedLog.attrs, "chain_depth", int64(2))
+	assertCapturedAttrOnce(t, skippedLog.attrs, "request_id", "request-1")
+	if countCapturedAttrs(skippedLog.attrs, "run_id") != 1 {
+		t.Fatalf("run_id ocorre %d vezes, want 1", countCapturedAttrs(skippedLog.attrs, "run_id"))
+	}
+	if runID := attrString(skippedLog.attrs, "run_id"); runID == "parent-run" || runID == "" {
+		t.Fatalf("run_id do run pulado = %q, want identidade nova do filho", runID)
+	}
+}
+
+func countCapturedAttrs(attrs []slog.Attr, key string) int {
+	count := 0
+	for _, attr := range attrs {
+		if attr.Key == key {
+			count++
+		}
+	}
+	return count
+}
+
+func attrString(attrs []slog.Attr, key string) string {
+	for _, attr := range attrs {
+		if attr.Key == key {
+			return attr.Value.String()
+		}
+	}
+	return ""
+}
+
+func hasCapturedValue(attrs []slog.Attr, value string) bool {
+	for _, attr := range attrs {
+		if attr.Value.Any() == value {
+			return true
+		}
+	}
+	return false
+}
+
+func assertCapturedAttrOnce(t *testing.T, attrs []slog.Attr, key string, want any) {
+	t.Helper()
+	if count := countCapturedAttrs(attrs, key); count != 1 {
+		t.Fatalf("attr %q ocorre %d vezes, want 1", key, count)
+	}
+	for _, attr := range attrs {
+		if attr.Key == key && attr.Value.Any() != want {
+			t.Fatalf("attr %q = %v, want %v", key, attr.Value.Any(), want)
+		}
+	}
+}
+
 // --- Execute captures ToolName and ResolvedInputs ---
 
 func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
@@ -981,15 +1253,30 @@ func (f *fakeErrorTool) Execute(_ context.Context, _ json.RawMessage) (tools.Too
 // que publica um evento no EventBus (via Manager.PublishDomainEvent), usando o ctx
 // do run. Permite verificar que o dry-run suprime a ponte de eventos.
 type fakeDomainPublishTool struct {
-	name  string
-	mgr   *Manager
-	event string
+	name     string
+	mgr      *Manager
+	event    string
+	observed chan dryRunContext
 }
 
-func (f *fakeDomainPublishTool) Name() string                { return f.name }
-func (f *fakeDomainPublishTool) Description() string         { return "publishes a domain event when executed" }
-func (f *fakeDomainPublishTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+type dryRunContext struct {
+	provenance eventctx.Provenance
+	attrs      []slog.Attr
+}
+
+func (f *fakeDomainPublishTool) Name() string        { return f.name }
+func (f *fakeDomainPublishTool) Description() string { return "publishes a domain event when executed" }
+func (f *fakeDomainPublishTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
 func (f *fakeDomainPublishTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	if f.observed != nil {
+		provenance, _ := eventctx.From(ctx)
+		f.observed <- dryRunContext{
+			provenance: provenance,
+			attrs:      logging.ContextAttrs(ctx),
+		}
+	}
 	_ = f.mgr.PublishDomainEvent(ctx, f.event, map[string]any{"task_id": "t-1"})
 	return tools.ToolResult{Content: `{"ok":true}`}, nil
 }
@@ -1039,7 +1326,8 @@ func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	})
 
 	registry := tools.NewRegistry()
-	registry.MustRegister(&fakeDomainPublishTool{name: "domain_pub", mgr: mgr, event: evt})
+	observed := make(chan dryRunContext, 1)
+	registry.MustRegister(&fakeDomainPublishTool{name: "domain_pub", mgr: mgr, event: evt, observed: observed})
 
 	executor := NewJobExecutor(ExecutorConfig{
 		ToolRegistry:   registry,
@@ -1050,9 +1338,32 @@ func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	job := &Job{ID: "dry-job", Tool: "domain_pub"}
 
 	// Dry-run: a tool publica, mas a ponte deve ficar muda.
-	res := executor.ExecuteDryRun(userA, job, &TriggerContext{Type: TriggerManual})
+	dryCtx := logging.WithAttrs(userA,
+		slog.String("job_id", "parent-job"),
+		slog.String("run_id", "parent-run"),
+		slog.String("trigger_type", "event"),
+		slog.String("request_id", "request-1"),
+	)
+	res := executor.ExecuteDryRun(dryCtx, job, &TriggerContext{Type: TriggerManual})
 	if !res.Success {
 		t.Fatalf("dry-run falhou: %s", res.Error)
+	}
+	gotCtx := <-observed
+	if gotCtx.provenance.SourceJobID != job.ID ||
+		gotCtx.provenance.Source != "job" ||
+		gotCtx.provenance.ChainID == "" ||
+		len(gotCtx.provenance.ChainHistory) != 1 ||
+		gotCtx.provenance.ChainHistory[0] != job.ID {
+		t.Fatalf("proveniência do dry-run = %+v, want job atual com cadeia própria", gotCtx.provenance)
+	}
+	assertCapturedAttrOnce(t, gotCtx.attrs, "job_id", job.ID)
+	assertCapturedAttrOnce(t, gotCtx.attrs, "trigger_type", string(TriggerManual))
+	assertCapturedAttrOnce(t, gotCtx.attrs, "source_job_id", job.ID)
+	assertCapturedAttrOnce(t, gotCtx.attrs, "chain_id", gotCtx.provenance.ChainID)
+	assertCapturedAttrOnce(t, gotCtx.attrs, "chain_depth", int64(1))
+	assertCapturedAttrOnce(t, gotCtx.attrs, "request_id", "request-1")
+	if countCapturedAttrs(gotCtx.attrs, "run_id") != 0 {
+		t.Fatal("dry-run herdou run_id do contexto pai")
 	}
 	select {
 	case <-fired:

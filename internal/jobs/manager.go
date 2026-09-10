@@ -1301,9 +1301,9 @@ func (m *Manager) registerTriggers(job *Job) {
 			jobCopy := *job
 			triggerWhen := t.When
 			m.eventBus.Subscribe(t.Listen, job.ID, func(ctx context.Context, eventName string, payload map[string]any) {
-				// Extrai chain context do payload
-				chainID, _ := payload["_chain_id"].(string)
-				chainHistory, _ := payload["_chain_history"].([]string)
+				// Eventos de sucesso trazem a cadeia no payload. Eventos de
+				// falha preservam o mesmo contrato pelo eventctx do publicador.
+				chainID, chainHistory := triggerChainContext(ctx, payload)
 
 				// Remove metadados de chain do payload visivel
 				cleanPayload := make(map[string]any, len(payload))
@@ -1354,6 +1354,20 @@ func (m *Manager) registerTriggers(job *Job) {
 			m.registerJobHotkey(job, t.Keys, t.When)
 		}
 	}
+}
+
+func triggerChainContext(ctx context.Context, payload map[string]any) (string, []string) {
+	chainID, _ := payload["_chain_id"].(string)
+	chainHistory, _ := payload["_chain_history"].([]string)
+	if provenance, ok := eventctx.From(ctx); ok {
+		if chainID == "" {
+			chainID = provenance.ChainID
+		}
+		if len(chainHistory) == 0 {
+			chainHistory = provenance.ChainHistory
+		}
+	}
+	return chainID, clipHistory(chainHistory)
 }
 
 func (m *Manager) unregisterTriggers(job *Job) {
@@ -1504,10 +1518,6 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 }
 
 func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigCtx *TriggerContext, reason string) {
-	logging.Infof(ctx, "jobs.manager", "[Jobs] %s: skipping automatic run; %s", job.ID, reason)
-	if m.cfg.Repository == nil {
-		return
-	}
 	runUUID, err := uuid.NewV7()
 	if err != nil {
 		runUUID = uuid.New()
@@ -1535,6 +1545,12 @@ func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigC
 	rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
 	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 	rl.addRunEvent("skipped", fmt.Sprintf("[%s] SKIPPED: %s", job.ID, reason), nil)
+	ctx = logging.WithAttrScope(ctx, jobRunLogAttrKeys, jobRunLogAttrs(job.ID, rl.RunID, trigCtx)...)
+	ctx = eventctx.With(ctx, m.executor.runProvenance(job, trigCtx, rl))
+	logging.Infof(ctx, "jobs.manager", "[Jobs] %s: skipping automatic run; %s", job.ID, reason)
+	if m.cfg.Repository == nil {
+		return
+	}
 	if err := m.cfg.Repository.LogRun(context.WithoutCancel(ctx), rl); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] %s: error logging skipped run: %v", job.ID, err)
 	}
