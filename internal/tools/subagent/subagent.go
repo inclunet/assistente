@@ -266,6 +266,9 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 				Background:     a.Background,
 			})
 			if authErr != nil {
+				if errors.Is(authErr, context.Canceled) || errors.Is(authErr, context.DeadlineExceeded) {
+					return tools.ToolResult{}, authErr
+				}
 				return authorizationErrResult(
 					authorizationErrorCode(authErr),
 					fmt.Sprintf("não foi possível autorizar a delegação cross-profile: %v", authErr),

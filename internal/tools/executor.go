@@ -207,6 +207,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			}
 			return
 		}
+		if result.Failure != nil {
+			result.IsError = true
+		}
 
 		// Aplica o limite de tamanho. Política canônica (centralizada aqui, antes
 		// duplicada em cada tool): saídas estruturadas (JSON canônico) não podem ser

@@ -336,6 +336,13 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Resolve templates nos inputs
 	resolvedInputs, err := ResolveInputs(job.Inputs, tmplCtx)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, permanentAttemptFailure(
+				fmt.Errorf("resolve inputs: %w", err),
+				tools.ErrorKindCancelled,
+				"cancelled",
+			)
+		}
 		if !isSecretResolutionError(err) {
 			return nil, permanentAttemptFailure(
 				fmt.Errorf("resolve inputs: %w", err),
@@ -401,6 +408,13 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		tmplCtx.Output = output
 		mapped, err := ResolveOutputMap(job.Output.Map, tmplCtx)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil, permanentAttemptFailure(
+					fmt.Errorf("resolve output map: %w", err),
+					tools.ErrorKindCancelled,
+					"cancelled",
+				)
+			}
 			if !isSecretResolutionError(err) {
 				return nil, permanentAttemptFailure(
 					fmt.Errorf("resolve output map: %w", err),
@@ -439,11 +453,14 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 				execution.Result.Content = err.Error()
 			}
 			execution.Result.IsError = true
+			if result.Failure != nil {
+				execution.ErrorCode = result.Failure.Code
+			}
 			switch {
 			case errors.Is(err, context.Canceled):
 				execution.ErrorKind = tools.ErrorKindCancelled
 				execution.RetryabilityKnown = true
-			case errors.Is(err, context.DeadlineExceeded):
+			case errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil:
 				execution.ErrorKind = tools.ErrorKindTimeout
 				execution.Retryable = true
 				execution.RetryabilityKnown = true
@@ -458,6 +475,9 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 				}
 			}
 			return execution
+		}
+		if result.Failure != nil {
+			result.IsError = true
 		}
 		execution := tools.ToolExecutionResult{ToolName: job.Tool, Result: result}
 		if result.Failure != nil {

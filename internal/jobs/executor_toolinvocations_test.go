@@ -134,7 +134,6 @@ func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 func TestJobExecutorDoesNotRetryPermanentToolFailure(t *testing.T) {
 	tool := &scriptedTool{results: []tools.ToolResult{{
 		Content: `{"error":{"code":"authorization_no_interlocutor","message":"sem interlocutor"}}`,
-		IsError: true,
 		Failure: &tools.ToolFailure{
 			Code:      "authorization_no_interlocutor",
 			Kind:      tools.ErrorKindAuthorization,
@@ -180,7 +179,6 @@ func TestJobExecutorDoesNotRetryPermanentToolFailure(t *testing.T) {
 func TestJobExecutorWithoutInvocationServiceDoesNotRetryPermanentToolFailure(t *testing.T) {
 	tool := &scriptedTool{results: []tools.ToolResult{{
 		Content: "autorização indisponível",
-		IsError: true,
 		Failure: &tools.ToolFailure{
 			Code:      "authorization_unavailable",
 			Kind:      tools.ErrorKindAuthorization,
@@ -363,6 +361,37 @@ func TestJobExecutorDoesNotRetryInvalidOutputMapAfterToolMutation(t *testing.T) 
 	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
 	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
 		t.Fatalf("mapa inválido repetiu mutação: calls=%d run=%#v", tool.calls, run)
+	}
+}
+
+func TestJobExecutorDoesNotRetryInvalidInputTemplate(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:     "invalid-input-template-job",
+		Tool:   tool.Name(),
+		Inputs: map[string]any{"value": "{{"},
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 2,
+			RetryDelay: "1ms",
+		},
+	}
+
+	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if tool.calls != 0 || run.RetryCount != 0 || run.Status != "failed" {
+		t.Fatalf("template inválido foi repetido: calls=%d run=%#v", tool.calls, run)
+	}
+	for _, event := range run.RunEvents {
+		if event.Type == "retry_scheduled" {
+			t.Fatalf("template inválido apareceu como retry: %#v", run.RunEvents)
+		}
 	}
 }
 

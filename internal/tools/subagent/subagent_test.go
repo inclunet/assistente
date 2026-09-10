@@ -723,6 +723,22 @@ func TestToolCrossProfileAuthorizationErrorIsStructured(t *testing.T) {
 	}
 }
 
+func TestToolCrossProfileAuthorizationPropagatesCancellation(t *testing.T) {
+	runner := &fakeRunner{}
+	authorizer := &fakeProfileAuthorizer{err: context.Canceled}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+		ProfileSlug:    "parent-profile",
+	})
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"delegar","profile":"outro"}`))
+	if !errors.Is(err, context.Canceled) || result.IsError {
+		t.Fatalf("cancelamento deveria ser propagado: result=%#v err=%v", result, err)
+	}
+}
+
 func TestAuthorizationFailuresAreExplicitlyPermanent(t *testing.T) {
 	for _, code := range []string{
 		"authorization_no_interlocutor",

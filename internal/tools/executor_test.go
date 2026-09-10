@@ -448,3 +448,23 @@ func TestExecutePreservesStructuredFailureReturnedWithError(t *testing.T) {
 		t.Fatalf("falha estruturada foi perdida: %#v", res)
 	}
 }
+
+func TestExecuteNormalizesFailureAsError(t *testing.T) {
+	tool := &mockTool{
+		name: "failure_only",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{Failure: &ToolFailure{
+				Code:      "invalid_configuration",
+				Kind:      ErrorKindConfiguration,
+				Retryable: false,
+			}}, nil
+		},
+	}
+	res := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(context.Background(), ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "failure_only", Arguments: `{}`},
+	})
+	if !res.Result.IsError || res.ErrorCode != "invalid_configuration" || !res.RetryabilityKnown {
+		t.Fatalf("Failure deveria implicar IsError: %#v", res)
+	}
+}
