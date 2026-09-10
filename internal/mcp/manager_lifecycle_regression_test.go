@@ -252,7 +252,7 @@ func (c *delayedWriteConnection) Write(ctx context.Context, msg jsonrpc.Message)
 
 func TestFallbackSSERecebeNovoTimeoutDeHandshake(t *testing.T) {
 	m := newLifecycleManager()
-	m.connectTimeout = 120 * time.Millisecond
+	m.connectTimeout = 800 * time.Millisecond
 	registerLifecycleServer(m, "fallback-timeout", ServerConfig{
 		Enabled:   true,
 		Transport: TransportStreamable,
@@ -263,14 +263,14 @@ func TestFallbackSSERecebeNovoTimeoutDeHandshake(t *testing.T) {
 	m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
 		if calls.Add(1) == 1 {
 			return &delayedErrorTransport{
-				delay: 80 * time.Millisecond,
+				delay: 450 * time.Millisecond,
 				err:   errors.New("standalone SSE request failed"),
 			}, nil
 		}
 		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
 		serverSession, err := server.Connect(
 			m.ctx,
-			&delayedWriteTransport{inner: serverTransport, delay: 80 * time.Millisecond},
+			&delayedWriteTransport{inner: serverTransport, delay: 450 * time.Millisecond},
 			nil,
 		)
 		if err != nil {
