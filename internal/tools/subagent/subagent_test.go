@@ -750,14 +750,19 @@ func TestSubagentRunPreconditionsAreExplicitlyPermanent(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
 		code string
+		kind tools.ErrorKind
 	}{
-		{err: subagent.ErrManagerNotConfigured, code: "subagent_unavailable"},
-		{err: fmt.Errorf("%w (3)", subagent.ErrMaxChainDepth), code: "subagent_max_chain_depth"},
+		{err: subagent.ErrManagerNotConfigured, code: "subagent_unavailable", kind: tools.ErrorKindConfiguration},
+		{err: fmt.Errorf("%w (3)", subagent.ErrMaxChainDepth), code: "subagent_max_chain_depth", kind: tools.ErrorKindConfiguration},
+		{err: subagent.ErrRunNotFound, code: "subagent_run_not_found", kind: tools.ErrorKindNotFound},
+		{err: subagent.ErrRunReferenceRequired, code: "invalid_subagent_run_reference", kind: tools.ErrorKindInvalidArgs},
+		{err: subagent.ErrRunConversation, code: "invalid_subagent_run_reference", kind: tools.ErrorKindInvalidArgs},
+		{err: subagent.ErrCancelConversation, code: "invalid_subagent_run_reference", kind: tools.ErrorKindInvalidArgs},
 	} {
 		failure := subagentRunFailure(tc.err)
 		if failure == nil ||
 			failure.Code != tc.code ||
-			failure.Kind != tools.ErrorKindConfiguration ||
+			failure.Kind != tc.kind ||
 			failure.Retryable {
 			t.Fatalf("%s sem classificação permanente: %#v", tc.code, failure)
 		}

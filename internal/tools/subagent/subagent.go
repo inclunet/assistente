@@ -203,7 +203,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	case a.Cancel:
 		res, err := runner.Cancel(ctx, conversationID, runID)
 		if err != nil {
-			return errResult(fmt.Sprintf("erro ao cancelar sub-agente: %v", err)), nil
+			return subagentManagerErrorResult("erro ao cancelar sub-agente", err), nil
 		}
 		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status, "cancelled": res.Cancelled}), nil
 
@@ -293,11 +293,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			PreserveResponse:     a.Raw,
 		})
 		if err != nil {
-			result := errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err))
-			if failure := subagentRunFailure(err); failure != nil {
-				result.Failure = failure
-			}
-			return result, nil
+			return subagentManagerErrorResult("erro ao iniciar sub-agente", err), nil
 		}
 		// IMPORTANTE (AEP-0068, "Retorno da tool"): o desfecho do sub-agente
 		// (succeeded/failed/timed_out/cancelled) é DADO de negócio, exposto no
@@ -327,7 +323,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		// Status (prompt omitido).
 		res, err := runner.Status(ctx, conversationID, runID)
 		if err != nil {
-			return errResult(fmt.Sprintf("erro ao consultar status do sub-agente: %v", err)), nil
+			return subagentManagerErrorResult("erro ao consultar status do sub-agente", err), nil
 		}
 		metadata := map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}
 		if res.AssistantMessageID != "" {
@@ -403,9 +399,21 @@ func subagentRunFailure(err error) *tools.ToolFailure {
 		return &tools.ToolFailure{Code: "subagent_unavailable", Kind: tools.ErrorKindConfiguration, Retryable: false}
 	case errors.Is(err, subagent.ErrMaxChainDepth):
 		return &tools.ToolFailure{Code: "subagent_max_chain_depth", Kind: tools.ErrorKindConfiguration, Retryable: false}
+	case errors.Is(err, subagent.ErrRunNotFound):
+		return &tools.ToolFailure{Code: "subagent_run_not_found", Kind: tools.ErrorKindNotFound, Retryable: false}
+	case errors.Is(err, subagent.ErrRunConversation),
+		errors.Is(err, subagent.ErrRunReferenceRequired),
+		errors.Is(err, subagent.ErrCancelConversation):
+		return &tools.ToolFailure{Code: "invalid_subagent_run_reference", Kind: tools.ErrorKindInvalidArgs, Retryable: false}
 	default:
 		return nil
 	}
+}
+
+func subagentManagerErrorResult(prefix string, err error) tools.ToolResult {
+	result := errResult(fmt.Sprintf("%s: %v", prefix, err))
+	result.Failure = subagentRunFailure(err)
+	return result
 }
 
 func invalidArgsResult(msg string) tools.ToolResult {

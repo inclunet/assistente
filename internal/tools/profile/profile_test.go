@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -61,6 +62,27 @@ func TestProfileFailureClassification(t *testing.T) {
 		if failure := profileFailure(code); failure != nil {
 			t.Fatalf("%s deveria permanecer não classificado, veio %#v", code, failure)
 		}
+	}
+}
+
+func TestProfileAuthorizationFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+		kind tools.ErrorKind
+	}{
+		{err: profileaccess.ErrTargetNotFound, code: "profile_not_found", kind: tools.ErrorKindNotFound},
+		{err: profileaccess.ErrTargetUnavailable, code: "profile_unavailable", kind: tools.ErrorKindUnavailable},
+		{err: questionnaire.ErrNoInterlocutor, code: "authorization_no_interlocutor", kind: tools.ErrorKindAuthorization},
+	} {
+		code := profileAuthorizationErrorCode(tc.err)
+		failure := profileFailure(code)
+		if code != tc.code || failure == nil || failure.Kind != tc.kind || failure.Retryable {
+			t.Fatalf("classificação de autorização inesperada: code=%s failure=%#v", code, failure)
+		}
+	}
+	if code := profileAuthorizationErrorCode(errors.New("transporte temporariamente indisponível")); code != "authorization_failed" {
+		t.Fatalf("erro genérico deveria permanecer não classificado: %s", code)
 	}
 }
 

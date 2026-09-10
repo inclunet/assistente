@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -176,7 +177,7 @@ func (t *Tool) executeSwitch(ctx context.Context, inv invocationctx.InvocationCo
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return tools.ToolResult{}, err
 		}
-		return errorResult("authorization_failed", fmt.Sprintf("não foi possível autorizar a troca de profile: %v", err)), nil
+		return errorResult(profileAuthorizationErrorCode(err), fmt.Sprintf("não foi possível autorizar a troca de profile: %v", err)), nil
 	}
 	if !allowed {
 		authorized := false
@@ -245,10 +246,29 @@ func profileFailure(code string) *tools.ToolFailure {
 		kind = tools.ErrorKindUnavailable
 	case "profile_unavailable":
 		kind = tools.ErrorKindUnavailable
+	case "authorization_no_interlocutor":
+		kind = tools.ErrorKindAuthorization
+	case "authorization_surface_unavailable":
+		return &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnavailable, Retryable: true}
 	default:
 		return nil
 	}
 	return &tools.ToolFailure{Code: code, Kind: kind, Retryable: false}
+}
+
+func profileAuthorizationErrorCode(err error) string {
+	switch {
+	case errors.Is(err, profileaccess.ErrTargetNotFound):
+		return "profile_not_found"
+	case errors.Is(err, profileaccess.ErrTargetUnavailable):
+		return "profile_unavailable"
+	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+		return "authorization_no_interlocutor"
+	case errors.Is(err, questionnaire.ErrAskerUnavailable):
+		return "authorization_surface_unavailable"
+	default:
+		return "authorization_failed"
+	}
 }
 
 func jsonResult(value response) (tools.ToolResult, error) {
