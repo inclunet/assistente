@@ -644,7 +644,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                 ))}
               </ul>
             ) : (
-              <p role="status">{t('jobs.builder.noAuthorizedProfiles')}</p>
+              <p>{t('jobs.builder.noAuthorizedProfiles')}</p>
             )}
             {persistedJobId ? (
               <div className="job-builder__profile-grant-add">
