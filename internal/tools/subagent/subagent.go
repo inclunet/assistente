@@ -142,7 +142,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	var a subagentArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
-			return errResult(fmt.Sprintf("argumentos inválidos: %v", err)), nil
+			return invalidArgsResult(fmt.Sprintf("argumentos inválidos: %v", err)), nil
 		}
 	}
 	prompt := strings.TrimSpace(a.Prompt)
@@ -151,19 +151,19 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 
 	// Validações de combinação (AEP-0068).
 	if a.Cancel && prompt != "" {
-		return errResult("'cancel' e 'prompt' são mutuamente exclusivos"), nil
+		return invalidArgsResult("'cancel' e 'prompt' são mutuamente exclusivos"), nil
 	}
 	if a.Cancel && a.Clear {
-		return errResult("'cancel' e 'clear' são mutuamente exclusivos"), nil
+		return invalidArgsResult("'cancel' e 'clear' são mutuamente exclusivos"), nil
 	}
 	if a.Cancel && conversationID == "" {
-		return errResult("'cancel' requer 'conversation_id'"), nil
+		return invalidArgsResult("'cancel' requer 'conversation_id'"), nil
 	}
 	if a.Clear && conversationID == "" {
-		return errResult("'clear' requer 'conversation_id' (nada a resetar)"), nil
+		return invalidArgsResult("'clear' requer 'conversation_id' (nada a resetar)"), nil
 	}
 	if a.Clear && prompt == "" {
-		return errResult("'clear' requer 'prompt': clear é sempre reset + envio na mesma chamada"), nil
+		return invalidArgsResult("'clear' requer 'prompt': clear é sempre reset + envio na mesma chamada"), nil
 	}
 	// 'run_id' sozinho (sem 'conversation_id') é permitido APENAS no modo status
 	// (sem 'cancel', sem 'clear' e sem 'prompt'): o Manager resolve o run pelo
@@ -173,37 +173,37 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	// run_id basta).
 	isStatus := !a.Cancel && !a.Clear && prompt == ""
 	if a.Raw && a.Background {
-		return errResult("'raw' não pode ser combinado com 'background': use raw somente em envio síncrono"), nil
+		return invalidArgsResult("'raw' não pode ser combinado com 'background': use raw somente em envio síncrono"), nil
 	}
 	if a.Raw && (a.Cancel || isStatus) {
-		return errResult("'raw' requer 'prompt' e só é válido em envio síncrono"), nil
+		return invalidArgsResult("'raw' requer 'prompt' e só é válido em envio síncrono"), nil
 	}
 	if runID != "" && conversationID == "" && !isStatus {
-		return errResult("'run_id' requer 'conversation_id'"), nil
+		return invalidArgsResult("'run_id' requer 'conversation_id'"), nil
 	}
 	if runID != "" && prompt != "" {
 		// run_id identifica um run específico para status/cancel; não faz sentido
 		// (e seria ignorado) ao enviar/continuar. Rejeita para não criar uma
 		// superfície ambígua (AEP-0068 — validações mínimas).
-		return errResult("'run_id' é para status/cancel e não pode ser combinado com 'prompt' (enviar/continuar)"), nil
+		return invalidArgsResult("'run_id' é para status/cancel e não pode ser combinado com 'prompt' (enviar/continuar)"), nil
 	}
 	if !a.Cancel && prompt == "" && conversationID == "" && runID == "" {
-		return errResult("nada a fazer: informe 'prompt' (enviar); 'conversation_id' (status do run mais recente) ou 'run_id' (status por run); ou 'cancel'"), nil
+		return invalidArgsResult("nada a fazer: informe 'prompt' (enviar); 'conversation_id' (status do run mais recente) ou 'run_id' (status por run); ou 'cancel'"), nil
 	}
 
 	if t.provider == nil {
-		return errResult("sub-agentes indisponíveis: runner não configurado"), nil
+		return configurationResult("subagent_unavailable", "sub-agentes indisponíveis: runner não configurado"), nil
 	}
 	runner := t.provider()
 	if runner == nil {
-		return errResult("sub-agentes indisponíveis no momento"), nil
+		return configurationResult("subagent_unavailable", "sub-agentes indisponíveis no momento"), nil
 	}
 
 	switch {
 	case a.Cancel:
 		res, err := runner.Cancel(ctx, conversationID, runID)
 		if err != nil {
-			return errResult(fmt.Sprintf("erro ao cancelar sub-agente: %v", err)), nil
+			return subagentManagerErrorResult("erro ao cancelar sub-agente", err), nil
 		}
 		return jsonResult(res, false, map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status, "cancelled": res.Cancelled}), nil
 
@@ -234,10 +234,10 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		hasParent := strings.TrimSpace(inv.ConversationID) != "" && strings.TrimSpace(inv.TurnID) != ""
 		if !hasParent && !originAllowsParentless(ctx) {
 			if conversationID == "" {
-				return errResult("sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+				return configurationResult("parent_context_required", "sub-agente requer um turno-pai: invocado sem conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
 			}
 			if a.Background {
-				return errResult("sub-agente em background requer um turno-pai: a entrega da conclusão (auto-wake) precisa de conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
+				return configurationResult("parent_context_required", "sub-agente em background requer um turno-pai: a entrega da conclusão (auto-wake) precisa de conversation_id/turn_id de invocação (possível erro de wiring do agentic loop)"), nil
 			}
 		}
 
@@ -266,6 +266,9 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 				Background:     a.Background,
 			})
 			if authErr != nil {
+				if errors.Is(authErr, context.Canceled) || errors.Is(authErr, context.DeadlineExceeded) {
+					return tools.ToolResult{}, authErr
+				}
 				return authorizationErrResult(
 					authorizationErrorCode(authErr),
 					fmt.Sprintf("não foi possível autorizar a delegação cross-profile: %v", authErr),
@@ -293,7 +296,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			PreserveResponse:     a.Raw,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err)), nil
+			return subagentManagerErrorResult("erro ao iniciar sub-agente", err), nil
 		}
 		// IMPORTANTE (AEP-0068, "Retorno da tool"): o desfecho do sub-agente
 		// (succeeded/failed/timed_out/cancelled) é DADO de negócio, exposto no
@@ -323,7 +326,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		// Status (prompt omitido).
 		res, err := runner.Status(ctx, conversationID, runID)
 		if err != nil {
-			return errResult(fmt.Sprintf("erro ao consultar status do sub-agente: %v", err)), nil
+			return subagentManagerErrorResult("erro ao consultar status do sub-agente", err), nil
 		}
 		metadata := map[string]any{"conversation_id": res.ConversationID, "run_id": res.RunID, "status": res.Status}
 		if res.AssistantMessageID != "" {
@@ -371,6 +374,71 @@ func authorizationErrResult(code, message string) tools.ToolResult {
 		IsError: true,
 		Metadata: map[string]any{
 			"error_code": code,
+		},
+		Failure: authorizationFailure(code),
+	}
+}
+
+func authorizationFailure(code string) *tools.ToolFailure {
+	var kind tools.ErrorKind
+	switch code {
+	case "profile_not_found":
+		kind = tools.ErrorKindNotFound
+	case "profile_unavailable":
+		kind = tools.ErrorKindUnavailable
+	case "authorization_no_interlocutor", "authorization_unavailable":
+		kind = tools.ErrorKindAuthorization
+	case "authorization_surface_unavailable":
+		return &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnavailable, Retryable: true}
+	default:
+		return nil
+	}
+	return &tools.ToolFailure{Code: code, Kind: kind, Retryable: false}
+}
+
+func subagentRunFailure(err error) *tools.ToolFailure {
+	switch {
+	case errors.Is(err, subagent.ErrManagerNotConfigured):
+		return &tools.ToolFailure{Code: "subagent_unavailable", Kind: tools.ErrorKindConfiguration, Retryable: false}
+	case errors.Is(err, subagent.ErrMaxChainDepth):
+		return &tools.ToolFailure{Code: "subagent_max_chain_depth", Kind: tools.ErrorKindConfiguration, Retryable: false}
+	case errors.Is(err, subagent.ErrRunNotFound):
+		return &tools.ToolFailure{Code: "subagent_run_not_found", Kind: tools.ErrorKindNotFound, Retryable: false}
+	case errors.Is(err, subagent.ErrRunConversation),
+		errors.Is(err, subagent.ErrRunReferenceRequired),
+		errors.Is(err, subagent.ErrCancelConversation):
+		return &tools.ToolFailure{Code: "invalid_subagent_run_reference", Kind: tools.ErrorKindInvalidArgs, Retryable: false}
+	default:
+		return nil
+	}
+}
+
+func subagentManagerErrorResult(prefix string, err error) tools.ToolResult {
+	result := errResult(fmt.Sprintf("%s: %v", prefix, err))
+	result.Failure = subagentRunFailure(err)
+	return result
+}
+
+func invalidArgsResult(msg string) tools.ToolResult {
+	return tools.ToolResult{
+		Content: msg,
+		IsError: true,
+		Failure: &tools.ToolFailure{
+			Code:      "invalid_arguments",
+			Kind:      tools.ErrorKindInvalidArgs,
+			Retryable: false,
+		},
+	}
+}
+
+func configurationResult(code, msg string) tools.ToolResult {
+	return tools.ToolResult{
+		Content: msg,
+		IsError: true,
+		Failure: &tools.ToolFailure{
+			Code:      code,
+			Kind:      tools.ErrorKindConfiguration,
+			Retryable: false,
 		},
 	}
 }

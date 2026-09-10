@@ -34,8 +34,10 @@ type Invocation struct {
 	Output             json.RawMessage `json:"output,omitempty"`
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
 	ErrorKind          string          `json:"error_kind,omitempty"`
+	ErrorCode          string          `json:"error_code,omitempty"`
 	ErrorMessage       string          `json:"error_message,omitempty"`
 	Retryable          bool            `json:"retryable,omitempty"`
+	RetryabilityKnown  bool            `json:"retryability_known,omitempty"`
 	QueuedAt           time.Time       `json:"queued_at"`
 	StartedAt          *time.Time      `json:"started_at,omitempty"`
 	CompletedAt        *time.Time      `json:"completed_at,omitempty"`
@@ -84,11 +86,13 @@ type RecordRequest struct {
 	DryRun        bool
 	Iteration     int
 
-	Result       tools.ToolResult
-	ErrorKind    tools.ErrorKind
-	ErrorMessage string
-	Retryable    bool
-	DurationMs   int64
+	Result            tools.ToolResult
+	ErrorKind         tools.ErrorKind
+	ErrorCode         string
+	ErrorMessage      string
+	Retryable         bool
+	RetryabilityKnown bool
+	DurationMs        int64
 }
 
 type Filter struct {

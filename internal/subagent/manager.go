@@ -24,6 +24,15 @@ import (
 // crescimento excessivo da tabela sub_agent_runs.
 const maxResultSummary = 16 * 1024
 
+var (
+	ErrManagerNotConfigured = errors.New("subagent manager não configurado")
+	ErrMaxChainDepth        = errors.New("limite de profundidade de cadeia atingido")
+	ErrRunNotFound          = errors.New("run de sub-agente não encontrado")
+	ErrRunConversation      = errors.New("run não pertence à conversa")
+	ErrRunReferenceRequired = errors.New("conversation_id ou run_id é obrigatório")
+	ErrCancelConversation   = errors.New("conversation_id é obrigatório para cancelar um run")
+)
+
 // DefaultMaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway,
 // AEP-0068). Espelha jobs.DefaultMaxChainDepth para coerência entre os dois
 // caminhos que compartilham proveniência via eventctx. Não é o gate de
@@ -211,7 +220,7 @@ func (m *Manager) nowFn() time.Time {
 // sub-conversa/run).
 func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	if m == nil || m.send == nil || m.repo == nil || m.notifier == nil {
-		return RunResult{}, fmt.Errorf("subagent manager não configurado")
+		return RunResult{}, ErrManagerNotConfigured
 	}
 	if strings.TrimSpace(p.Prompt) == "" {
 		return RunResult{}, fmt.Errorf("prompt é obrigatório para iniciar um sub-agente")
@@ -226,7 +235,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// de criar qualquer sub-conversa/run para não deixar lixo.
 	prov := deriveProvenance(ctx, "")
 	if len(prov.ChainHistory) >= m.maxChainDepth {
-		return RunResult{}, fmt.Errorf("limite de profundidade de cadeia atingido (%d): possível runaway de sub-agentes/jobs", m.maxChainDepth)
+		return RunResult{}, fmt.Errorf("%w (%d): possível runaway de sub-agentes/jobs", ErrMaxChainDepth, m.maxChainDepth)
 	}
 
 	// Teto global de concorrência por usuário (AEP-0068 F5): reserva uma vaga
@@ -736,7 +745,7 @@ func (m *Manager) Status(ctx context.Context, conversationID, runID string) (Sta
 	// Falha-fechado como o Run: sem manager/repo, derreferenciar daria panic. O
 	// Status é só-leitura, então basta repo (não usa send/notifier).
 	if m == nil || m.repo == nil {
-		return StatusResult{}, fmt.Errorf("subagent manager não configurado")
+		return StatusResult{}, ErrManagerNotConfigured
 	}
 	run, err := m.resolveRun(ctx, conversationID, runID)
 	if err != nil {
@@ -791,10 +800,10 @@ func (m *Manager) Cancel(ctx context.Context, conversationID, runID string) (Can
 	// de entrada). Cancel usa repo (resolveRun) e notifier (notifier.Cancel), logo
 	// exige ambos além do próprio manager — sem isso, derreferenciar daria panic.
 	if m == nil || m.repo == nil || m.notifier == nil {
-		return CancelResult{}, fmt.Errorf("subagent manager não configurado")
+		return CancelResult{}, ErrManagerNotConfigured
 	}
 	if strings.TrimSpace(conversationID) == "" {
-		return CancelResult{}, fmt.Errorf("conversation_id é obrigatório para cancelar um run")
+		return CancelResult{}, ErrCancelConversation
 	}
 	run, err := m.resolveRun(ctx, conversationID, runID)
 	if err != nil {
@@ -860,18 +869,24 @@ func (m *Manager) resolveRun(ctx context.Context, conversationID, runID string) 
 	if strings.TrimSpace(runID) != "" {
 		run, err := m.repo.Get(ctx, runID)
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, fmt.Errorf("%w: %s", ErrRunNotFound, runID)
+			}
 			return nil, fmt.Errorf("run não encontrado: %w", err)
 		}
 		if strings.TrimSpace(conversationID) != "" && run.ChildConversationID != conversationID {
-			return nil, fmt.Errorf("run %s não pertence à conversa %s", runID, conversationID)
+			return nil, fmt.Errorf("%w: run %s, conversa %s", ErrRunConversation, runID, conversationID)
 		}
 		return run, nil
 	}
 	if strings.TrimSpace(conversationID) == "" {
-		return nil, fmt.Errorf("conversation_id ou run_id é obrigatório")
+		return nil, ErrRunReferenceRequired
 	}
 	run, err := m.repo.GetLatestByChildConversation(ctx, conversationID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%w para a conversa %s", ErrRunNotFound, conversationID)
+		}
 		return nil, fmt.Errorf("nenhum run encontrado para a conversa %s: %w", conversationID, err)
 	}
 	return run, nil

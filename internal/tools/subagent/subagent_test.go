@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -22,6 +23,16 @@ func parentCtx() context.Context {
 		ConversationID: "parent-conv",
 		TurnID:         "parent-turn",
 	})
+}
+
+func requirePermanentFailure(t *testing.T, result tools.ToolResult, code string, kind tools.ErrorKind) {
+	t.Helper()
+	if result.Failure == nil ||
+		result.Failure.Code != code ||
+		result.Failure.Kind != kind ||
+		result.Failure.Retryable {
+		t.Fatalf("falha permanente inesperada: %#v", result.Failure)
+	}
 }
 
 type fakeRunner struct {
@@ -238,6 +249,7 @@ func TestToolValidationCancelWithPrompt(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("esperava erro: cancel + prompt são mutuamente exclusivos")
 	}
+	requirePermanentFailure(t, res, "invalid_arguments", tools.ErrorKindInvalidArgs)
 }
 
 func TestToolValidationCancelWithoutConversation(t *testing.T) {
@@ -517,6 +529,7 @@ func TestToolRealFailureMarksError(t *testing.T) {
 	if !res2.IsError {
 		t.Fatal("wiring ausente deveria marcar IsError=true")
 	}
+	requirePermanentFailure(t, res2, "subagent_unavailable", tools.ErrorKindConfiguration)
 }
 
 // TestToolFailsClosedWithoutParent garante que uma chamada de chat sem vínculo
@@ -542,6 +555,7 @@ func TestToolFailsClosedWithoutParent(t *testing.T) {
 			if !res.IsError {
 				t.Fatal("chamada de chat sem turno-pai deveria falhar fechado (IsError)")
 			}
+			requirePermanentFailure(t, res, "parent_context_required", tools.ErrorKindConfiguration)
 			if runner.lastParams.Prompt != "" {
 				t.Fatalf("runner não deveria ter sido chamado (sub-conversa órfã): %#v", runner.lastParams)
 			}
@@ -703,6 +717,74 @@ func TestToolCrossProfileAuthorizationErrorIsStructured(t *testing.T) {
 	}
 	if result.Metadata["error_code"] != "profile_not_found" {
 		t.Fatalf("código estruturado inesperado: %#v", result.Metadata)
+	}
+	if result.Failure == nil || result.Failure.Code != "profile_not_found" || result.Failure.Kind != tools.ErrorKindNotFound || result.Failure.Retryable {
+		t.Fatalf("classificação permanente inesperada: %#v", result.Failure)
+	}
+}
+
+func TestToolCrossProfileAuthorizationPropagatesCancellation(t *testing.T) {
+	runner := &fakeRunner{}
+	authorizer := &fakeProfileAuthorizer{err: context.Canceled}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "parent-conv",
+		TurnID:         "parent-turn",
+		ProfileSlug:    "parent-profile",
+	})
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"delegar","profile":"outro"}`))
+	if !errors.Is(err, context.Canceled) || result.IsError {
+		t.Fatalf("cancelamento deveria ser propagado: result=%#v err=%v", result, err)
+	}
+}
+
+func TestAuthorizationFailuresAreExplicitlyPermanent(t *testing.T) {
+	for _, code := range []string{
+		"authorization_no_interlocutor",
+		"authorization_unavailable",
+		"profile_not_found",
+		"profile_unavailable",
+	} {
+		result := authorizationErrResult(code, "falha")
+		if result.Failure == nil || result.Failure.Code != code || result.Failure.Retryable {
+			t.Fatalf("%s sem classificação permanente: %#v", code, result.Failure)
+		}
+	}
+	if result := authorizationErrResult("authorization_failed", "timeout transitório"); result.Failure != nil {
+		t.Fatalf("authorization_failed genérico não deve suprimir retry: %#v", result.Failure)
+	}
+	transient := authorizationErrResult("authorization_surface_unavailable", "superfície fora do ar")
+	if transient.Failure == nil ||
+		transient.Failure.Kind != tools.ErrorKindUnavailable ||
+		!transient.Failure.Retryable {
+		t.Fatalf("superfície indisponível deveria ser retentável: %#v", transient.Failure)
+	}
+}
+
+func TestSubagentRunPreconditionsAreExplicitlyPermanent(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+		kind tools.ErrorKind
+	}{
+		{err: subagent.ErrManagerNotConfigured, code: "subagent_unavailable", kind: tools.ErrorKindConfiguration},
+		{err: fmt.Errorf("%w (3)", subagent.ErrMaxChainDepth), code: "subagent_max_chain_depth", kind: tools.ErrorKindConfiguration},
+		{err: subagent.ErrRunNotFound, code: "subagent_run_not_found", kind: tools.ErrorKindNotFound},
+		{err: subagent.ErrRunReferenceRequired, code: "invalid_subagent_run_reference", kind: tools.ErrorKindInvalidArgs},
+		{err: subagent.ErrRunConversation, code: "invalid_subagent_run_reference", kind: tools.ErrorKindInvalidArgs},
+		{err: subagent.ErrCancelConversation, code: "invalid_subagent_run_reference", kind: tools.ErrorKindInvalidArgs},
+	} {
+		failure := subagentRunFailure(tc.err)
+		if failure == nil ||
+			failure.Code != tc.code ||
+			failure.Kind != tc.kind ||
+			failure.Retryable {
+			t.Fatalf("%s sem classificação permanente: %#v", tc.code, failure)
+		}
+	}
+	if failure := subagentRunFailure(errors.New("banco temporariamente indisponível")); failure != nil {
+		t.Fatalf("erro transitório do manager não deve suprimir retry: %#v", failure)
 	}
 }
 

@@ -113,14 +113,16 @@ func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation)
 		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
 			Where("id = ?", strings.TrimSpace(id)).
 			Updates(map[string]any{
-				"status":        status,
-				"output":        string(inv.Output),
-				"metadata":      string(inv.Metadata),
-				"error_kind":    inv.ErrorKind,
-				"error_message": inv.ErrorMessage,
-				"retryable":     inv.Retryable,
-				"completed_at":  completedAt,
-				"duration_ms":   inv.DurationMs,
+				"status":             status,
+				"output":             string(inv.Output),
+				"metadata":           string(inv.Metadata),
+				"error_kind":         inv.ErrorKind,
+				"error_code":         inv.ErrorCode,
+				"error_message":      inv.ErrorMessage,
+				"retryable":          inv.Retryable,
+				"retryability_known": inv.RetryabilityKnown,
+				"completed_at":       completedAt,
+				"duration_ms":        inv.DurationMs,
 			})
 		return tx.Error
 	})
@@ -386,8 +388,10 @@ func invocationDomainToModel(inv Invocation) database.ToolInvocation {
 		Output:             string(inv.Output),
 		Metadata:           string(inv.Metadata),
 		ErrorKind:          strings.TrimSpace(inv.ErrorKind),
+		ErrorCode:          strings.TrimSpace(inv.ErrorCode),
 		ErrorMessage:       strings.TrimSpace(inv.ErrorMessage),
 		Retryable:          inv.Retryable,
+		RetryabilityKnown:  inv.RetryabilityKnown,
 		QueuedAt:           inv.QueuedAt,
 		StartedAt:          inv.StartedAt,
 		CompletedAt:        inv.CompletedAt,
@@ -414,8 +418,10 @@ func invocationModelToDomain(row database.ToolInvocation) Invocation {
 		Output:             json.RawMessage(row.Output),
 		Metadata:           json.RawMessage(row.Metadata),
 		ErrorKind:          row.ErrorKind,
+		ErrorCode:          row.ErrorCode,
 		ErrorMessage:       row.ErrorMessage,
 		Retryable:          row.Retryable,
+		RetryabilityKnown:  row.RetryabilityKnown,
 		QueuedAt:           row.QueuedAt,
 		StartedAt:          row.StartedAt,
 		CompletedAt:        row.CompletedAt,
@@ -435,6 +441,9 @@ func resultOutput(result tools.ToolResult) json.RawMessage {
 	}
 	if result.Annotations != nil {
 		payload["annotations"] = result.Annotations
+	}
+	if result.Failure != nil {
+		payload["failure"] = result.Failure
 	}
 	data, err := json.Marshal(payload)
 	if err == nil {

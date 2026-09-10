@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,34 @@ func TestExecuteSingle_InvalidArgs(t *testing.T) {
 	}
 	if res.Retryable {
 		t.Fatal("invalid_args should not be retryable")
+	}
+}
+
+func TestExecuteSingle_PreservesStructuredToolFailure(t *testing.T) {
+	tool := &mockTool{
+		name: "permanent_failure",
+		exec: func(_ context.Context, _ json.RawMessage) (ToolResult, error) {
+			return ToolResult{
+				Content: `{"error":{"code":"authorization_no_interlocutor"}}`,
+				IsError: true,
+				Failure: &ToolFailure{
+					Code:      "authorization_no_interlocutor",
+					Kind:      ErrorKindAuthorization,
+					Retryable: false,
+				},
+			}, nil
+		},
+	}
+
+	result := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(context.Background(), ToolCall{
+		ID:       "call-1",
+		Function: FunctionCall{Name: tool.Name(), Arguments: `{}`},
+	})
+	if result.ErrorCode != "authorization_no_interlocutor" ||
+		result.ErrorKind != ErrorKindAuthorization ||
+		!result.RetryabilityKnown ||
+		result.Retryable {
+		t.Fatalf("falha estruturada perdida: %#v", result)
 	}
 }
 
@@ -333,8 +362,11 @@ func TestStructuredResultNotTruncated(t *testing.T) {
 	}
 	// Falha classificada: precisa de ErrorKind != "" e Error != nil para que
 	// agent/service.go emita tool_failure e persista o error_kind (AEP-0039).
-	if res.ErrorKind != ErrorKindUnknown {
-		t.Errorf("esperado ErrorKind=%q, got %q", ErrorKindUnknown, res.ErrorKind)
+	if res.ErrorKind != ErrorKindUnknown ||
+		res.ErrorCode != "result_too_large" ||
+		!res.RetryabilityKnown ||
+		res.Retryable {
+		t.Errorf("classificação permanente inesperada: %#v", res)
 	}
 	if res.Error == nil {
 		t.Error("esperado Error não-nil para oversize estruturado")
@@ -364,5 +396,75 @@ func TestExecuteContextCancellation(t *testing.T) {
 
 	if !res.Result.IsError {
 		t.Error("expected IsError=true after cancellation")
+	}
+}
+
+func TestExecuteToolReturnedCancellationIsKnownAndPermanent(t *testing.T) {
+	tool := &mockTool{
+		name: "cancelled",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{}, context.Canceled
+		},
+	}
+	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+
+	res := e.ExecuteOne(context.Background(), ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "cancelled", Arguments: `{}`},
+	})
+
+	if res.ErrorKind != ErrorKindCancelled ||
+		!res.RetryabilityKnown ||
+		res.Retryable {
+		t.Fatalf("cancelamento deveria ser conhecido e permanente: %#v", res)
+	}
+}
+
+func TestExecutePreservesStructuredFailureReturnedWithError(t *testing.T) {
+	tool := &mockTool{
+		name: "structured_error",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{
+				Content: "configuração inválida",
+				Failure: &ToolFailure{
+					Code:      "invalid_configuration",
+					Kind:      ErrorKindConfiguration,
+					Retryable: false,
+				},
+			}, errors.New("configuração inválida")
+		},
+	}
+	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+
+	res := e.ExecuteOne(context.Background(), ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "structured_error", Arguments: `{}`},
+	})
+
+	if res.ErrorCode != "invalid_configuration" ||
+		res.ErrorKind != ErrorKindConfiguration ||
+		!res.RetryabilityKnown ||
+		res.Retryable {
+		t.Fatalf("falha estruturada foi perdida: %#v", res)
+	}
+}
+
+func TestExecuteNormalizesFailureAsError(t *testing.T) {
+	tool := &mockTool{
+		name: "failure_only",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{Failure: &ToolFailure{
+				Code:      "invalid_configuration",
+				Kind:      ErrorKindConfiguration,
+				Retryable: false,
+			}}, nil
+		},
+	}
+	res := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(context.Background(), ToolCall{
+		ID:       "c1",
+		Function: FunctionCall{Name: "failure_only", Arguments: `{}`},
+	})
+	if !res.Result.IsError || res.ErrorCode != "invalid_configuration" || !res.RetryabilityKnown {
+		t.Fatalf("Failure deveria implicar IsError: %#v", res)
 	}
 }

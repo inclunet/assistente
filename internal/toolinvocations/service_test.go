@@ -664,18 +664,30 @@ func TestRecordTreatsNonNoneErrorKindAsFailed(t *testing.T) {
 				Arguments: `{"value":"ok"}`,
 			},
 		},
-		Origin:       Origin{Type: OriginChat, ID: "turn-rec"},
-		Result:       tools.ToolResult{Content: ""},
-		ErrorKind:    tools.ErrorKindNotFound,
-		ErrorMessage: "",
-		Retryable:    false,
-		DurationMs:   1,
+		Origin:            Origin{Type: OriginChat, ID: "turn-rec"},
+		Result:            tools.ToolResult{Content: ""},
+		ErrorKind:         tools.ErrorKindConfiguration,
+		ErrorCode:         "invalid_configuration",
+		ErrorMessage:      "",
+		Retryable:         false,
+		RetryabilityKnown: true,
+		DurationMs:        1,
 	})
 	if err != nil {
 		t.Fatalf("record: %v", err)
 	}
 	if inv.Status != StatusFailed {
 		t.Fatalf("expected status failed, got=%s", inv.Status)
+	}
+	persisted, err := repo.Get(userA, inv.ID)
+	if err != nil {
+		t.Fatalf("get recorded invocation: %v", err)
+	}
+	if persisted.ErrorKind != string(tools.ErrorKindConfiguration) ||
+		persisted.ErrorCode != "invalid_configuration" ||
+		!persisted.RetryabilityKnown ||
+		persisted.Retryable {
+		t.Fatalf("structured record fields were not preserved: %#v", persisted)
 	}
 }
 
