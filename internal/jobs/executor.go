@@ -108,7 +108,6 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	// escopo de identidade do run para que o filho não herde job/run/trigger do
 	// pai. A proveniência da cadeia continua canônica em eventctx.
 	ctx = logging.WithAttrScope(ctx, jobRunLogAttrKeys, logAttrs...)
-	logger := logging.Logger(ctx, "jobs.executor")
 
 	rl := &RunLog{
 		RunID: runID,
@@ -124,6 +123,10 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		},
 		StartedAt: time.Now(),
 	}
+	// Carimba a proveniência atual antes de qualquer caminho de log, retry,
+	// falha ou publicação. O contexto completo segue também para tools e eventos.
+	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
+	logger := logging.Logger(ctx, "jobs.executor")
 
 	if e.onRunStart != nil {
 		e.onRunStart(job.ID, runID)
@@ -285,11 +288,6 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 }
 
 func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *TriggerContext, rl *RunLog) (map[string]any, error) {
-	// Carimba proveniência no ctx do run (AEP-0067): mutações de domínio feitas
-	// pela tool (ex.: task_list) durante este run são marcadas como _source="job".
-	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
-	// permitindo anti-loop via trigger.when ({{ eq .event._source "user" }}).
-	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
 	logger := logging.Logger(ctx, "jobs.executor")
 
 	// Resolve a tool no registry

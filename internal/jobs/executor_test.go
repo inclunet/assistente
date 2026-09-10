@@ -777,6 +777,25 @@ func TestExecute_EventChainReplacesParentRunLogIdentity(t *testing.T) {
 			t.Fatalf("valor residual do run pai encontrado no log filho: %q", stale)
 		}
 	}
+
+	var eventBusLog *capturedLog
+	for _, record := range sink.snapshot() {
+		if record.message == `Event "parent.completed" published to 1 listener(s)` {
+			record := record
+			eventBusLog = &record
+			break
+		}
+	}
+	if eventBusLog == nil {
+		t.Fatal("log de publicação do EventBus não capturado")
+	}
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "job_id", parent.ID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "run_id", parentRun.RunID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "trigger_type", string(TriggerManual))
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "source_job_id", parent.ID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "chain_id", parentRun.RunID)
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "chain_depth", int64(1))
+	assertCapturedAttrOnce(t, eventBusLog.attrs, "request_id", "request-1")
 }
 
 func countCapturedAttrs(attrs []slog.Attr, key string) int {
