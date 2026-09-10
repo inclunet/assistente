@@ -57,7 +57,8 @@ API conceitual (frontend):
 - `title`, `description` (texto falado e `aria-describedby`)
 - `body` opcional (conteúdo só leitura: comando, URL, diff — `readonly_code` /
   `readingMode` quando for leitura pesada)
-- `actions[]`: lista ordenada de ações `{ id, label, variant, shortcut?, primary? }`
+- `actions[]`: lista ordenada de ações
+  `{ id, label, variant, shortcut?, primary?, polarity?, scope? }`
 - `onAction(id)` / cancel via ESC ou ação explícita de cancelar
 - Sem rádios para escolher entre as ações. **Cada opção é um botão.**
 
@@ -111,18 +112,29 @@ Enquanto um DecisionDialog (ou Modal de decisão) for o topo do stack:
 
 ### D6. Atalhos de ação (estilo Windows)
 
-- Decisão **binária** (Sim/Não, Permitir/Negar, OK/Cancelar):
-  - Cada ação declara um **mnemônico** (letra do rótulo localizado, ex. a
-    letra sublinhada). O **atalho de teclado** é `Alt+<mnemônico>` no idioma
-    corrente (ex.: pt-BR “Sim” → mnemônico `S`, atalho `Alt+S`; “Não” → `N` /
-    `Alt+N`; en “Yes” → `Y` / `Alt+Y`; “No” → `N` / `Alt+N`). Não há atalho
-    fixo multi-idioma: só vale o do locale ativo.
-  - ESC cancela/fecha sem autorizar (equivalente à ação negativa quando
-    existir).
-- Decisão **multi-opção**: atalho opcional por ação (`shortcut` no payload,
-  também localizado); no mínimo Enter ativa a ação focada; ESC cancela.
-- Atalhos de letra **não** disparam com foco em campo editável
-  (textarea de motivo, se existir).
+- Cada ação pode declarar metadados semânticos explícitos e tipados:
+  `polarity` (`affirmative`/`negative`) e `scope`
+  (`current`/`conversation`/`persistent`/`profile`/`global`). É proibido
+  inferi-los de label traduzido, posição, `variant` ou substring do ID.
+- A família universal, baseada em polaridade + escopo, é:
+  - `Ctrl+Enter` / `Ctrl+Backspace`: afirmativa / negativa atual;
+  - `Shift+Enter` / `Shift+Backspace`: afirmativa / negativa da conversa;
+  - `Ctrl+Shift+Enter` / `Ctrl+Shift+Backspace`: afirmativa / negativa
+    persistente (`persistent`, `profile` ou `global`).
+- Perfil e global podem compartilhar o chord persistente apenas quando não
+  coexistirem. Qualquer colisão omite o chord de todas as ações envolvidas e
+  emite diagnóstico; nunca vence silenciosamente a primeira ação.
+- `ConfirmDialog` declara explicitamente confirmação atual afirmativa e
+  cancelamento atual negativo. Ações antigas sem metadados não ganham chord.
+- Os mnemônicos `Alt+<letra>` localizados continuam disponíveis e são
+  combinados com o chord semântico em `aria-keyshortcuts`. `Alt+Enter` fica
+  reservado para ação auxiliar excepcional e não é slot ordinal.
+- Enter sem modificador ativa apenas o botão focado; ESC cancela/fecha sem
+  autorizar; `Ctrl+Shift+R` repete pergunta e ajuda compacta relevante.
+- Somente o `DecisionDialog` topmost captura atalhos. Campos editáveis,
+  `contenteditable`, Monaco/editor, IME/composição e eventos repetidos não são
+  capturados. O disparo de ação é protegido contra reentrada durante o
+  fechamento.
 
 ### D7. Foco inicial
 
@@ -260,3 +272,7 @@ Passo do mantenedor (NVDA no Windows), uma vez após o merge:
 - [x] ConfirmDialog UI alinhado ao mesmo componente/contrato.
 - [x] QuestionnaireDialog multi-campo preservado onde faz sentido.
 - [x] AEP-0090 respeitado na ordem das ações.
+- [x] Família universal de atalhos por polaridade + escopo implementada com
+      metadados explícitos, colisões seguras, ajuda/ARIA e compatibilidade com
+      ações legadas (`DecisionDialog.test.tsx`,
+      `DecisionQuestionnaireHost.test.tsx` e contratos Go).

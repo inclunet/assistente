@@ -65,6 +65,20 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
       ],
     },
     {
+      id: 'decision',
+      title: t('ui.shortcuts.categories.decision'),
+      items: [
+        { keys: 'Ctrl+Enter', description: t('ui.shortcuts.decisionAffirmCurrent') },
+        { keys: 'Ctrl+Backspace', description: t('ui.shortcuts.decisionRejectCurrent') },
+        { keys: 'Shift+Enter', description: t('ui.shortcuts.decisionAffirmConversation') },
+        { keys: 'Shift+Backspace', description: t('ui.shortcuts.decisionRejectConversation') },
+        { keys: 'Ctrl+Shift+Enter', description: t('ui.shortcuts.decisionAffirmPersistent') },
+        { keys: 'Ctrl+Shift+Backspace', description: t('ui.shortcuts.decisionRejectPersistent') },
+        { keys: 'Alt+A…Z', description: t('ui.shortcuts.decisionMnemonic') },
+        { keys: 'Ctrl+Shift+R', description: t('ui.shortcuts.repeatDecisionPrompt') },
+      ],
+    },
+    {
       id: 'general',
       title: t('ui.shortcuts.categories.general'),
       items: [
@@ -78,7 +92,6 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
         { keys: 'Alt+T', description: t('ui.shortcuts.goToTasklists') },
         { keys: 'Alt+J', description: t('ui.shortcuts.goToJobs') },
         { keys: 'Alt+P', description: t('ui.shortcuts.goToProfiles') },
-        { keys: 'Ctrl+Shift+R', description: t('ui.shortcuts.repeatDecisionPrompt') },
         { keys: 'Esc', description: t('ui.shortcuts.closeDialog') },
       ],
     },

@@ -43,15 +43,19 @@ func shellConfirmationPayload(cmd, workDir string) questionnaire.RequestPayload 
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{
-				ID:      decisionAllow,
-				Label:   questionnaire.Keyed("app.questionnaire.shell.submit", "Permitir"),
-				Variant: "primary",
-				Primary: true,
+				ID:       decisionAllow,
+				Label:    questionnaire.Keyed("app.questionnaire.shell.submit", "Permitir"),
+				Variant:  "primary",
+				Primary:  true,
+				Polarity: questionnaire.DecisionPolarityAffirmative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 			{
-				ID:      decisionDeny,
-				Label:   questionnaire.Keyed("app.questionnaire.shell.cancel", "Negar"),
-				Variant: "outline",
+				ID:       decisionDeny,
+				Label:    questionnaire.Keyed("app.questionnaire.shell.cancel", "Negar"),
+				Variant:  "outline",
+				Polarity: questionnaire.DecisionPolarityNegative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 		},
 	}
@@ -77,15 +81,19 @@ func httpConfirmationPayload(method, url, bodyPreview string) questionnaire.Requ
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{
-				ID:      decisionAllow,
-				Label:   questionnaire.Keyed("app.questionnaire.http.submit", "Permitir"),
-				Variant: "primary",
-				Primary: true,
+				ID:       decisionAllow,
+				Label:    questionnaire.Keyed("app.questionnaire.http.submit", "Permitir"),
+				Variant:  "primary",
+				Primary:  true,
+				Polarity: questionnaire.DecisionPolarityAffirmative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 			{
-				ID:      decisionDeny,
-				Label:   questionnaire.Keyed("app.questionnaire.http.cancel", "Negar"),
-				Variant: "outline",
+				ID:       decisionDeny,
+				Label:    questionnaire.Keyed("app.questionnaire.http.cancel", "Negar"),
+				Variant:  "outline",
+				Polarity: questionnaire.DecisionPolarityNegative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 		},
 	}

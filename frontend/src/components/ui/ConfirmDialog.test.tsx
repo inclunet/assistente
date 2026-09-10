@@ -28,7 +28,7 @@ describe('ConfirmDialog', () => {
     const onConfirm = vi.fn();
     const onCancel = vi.fn();
 
-    render(
+    const { unmount } = render(
       <ConfirmDialog
         isOpen={true}
         title="Apagar"
@@ -43,11 +43,53 @@ describe('ConfirmDialog', () => {
     expect(screen.getByText('Tem certeza')).toBeInTheDocument();
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
-
-    expect(onCancel).toHaveBeenCalled();
     expect(onConfirm).toHaveBeenCalled();
+
+    unmount();
+    render(
+      <ConfirmDialog
+        isOpen
+        title="Apagar"
+        message="Tem certeza"
+        confirmText="Confirmar"
+        cancelText="Cancelar"
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('mapeia Ctrl+Enter e Ctrl+Backspace para a decisão binária', () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    const { unmount } = render(
+      <ConfirmDialog
+        isOpen
+        title="Confirmar"
+        message="Prosseguir?"
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+
+    unmount();
+    render(
+      <ConfirmDialog
+        isOpen
+        title="Confirmar"
+        message="Prosseguir?"
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.keyDown(document, { key: 'Backspace', ctrlKey: true });
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('coloca Confirmar antes de Cancelar no DOM (AEP-0090)', () => {
@@ -66,7 +108,10 @@ describe('ConfirmDialog', () => {
     const actions = document.querySelector('[data-dialog-actions]');
     expect(actions).not.toBeNull();
     const footerButtons = Array.from(actions!.querySelectorAll('button'));
-    expect(footerButtons.map((b) => b.textContent)).toEqual(['Sim, apagar', 'Não']);
+    expect(footerButtons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Sim, apagar',
+      'Não',
+    ]);
   });
 
   it('mapeia danger para severidade destrutiva com alertdialog', async () => {

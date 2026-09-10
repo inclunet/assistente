@@ -33,20 +33,34 @@ var networkScopeOptions = []scopeOption{
 func networkDecisionActions() []questionnaire.DecisionAction {
 	out := make([]questionnaire.DecisionAction, 0, len(networkScopeOptions)+1)
 	for i, o := range networkScopeOptions {
-		out = append(out, questionnaire.DecisionAction{
-			ID:      string(o.scope),
-			Label:   questionnaire.Keyed(o.key, o.label),
-			Variant: "secondary",
-			Primary: i == 0,
-		})
+		action := questionnaire.DecisionAction{
+			ID:       string(o.scope),
+			Label:    questionnaire.Keyed(o.key, o.label),
+			Variant:  "secondary",
+			Primary:  i == 0,
+			Polarity: questionnaire.DecisionPolarityAffirmative,
+		}
+		switch o.scope {
+		case nettrust.ScopeOnce:
+			action.Scope = questionnaire.DecisionScopeCurrent
+		case nettrust.ScopeSession:
+			action.Scope = questionnaire.DecisionScopeConversation
+		case nettrust.ScopeGlobal:
+			action.Scope = questionnaire.DecisionScopeGlobal
+		}
+		// Workspace e perfil continuam sem chord: coexistem com global e os
+		// três são persistentes, portanto disputariam Ctrl+Shift+Enter.
+		out = append(out, action)
 	}
 	if len(out) > 0 {
 		out[0].Variant = "primary"
 	}
 	out = append(out, questionnaire.DecisionAction{
-		ID:      decisionDeny,
-		Label:   questionnaire.Keyed("app.questionnaire.network.cancel", "Negar"),
-		Variant: "outline",
+		ID:       decisionDeny,
+		Label:    questionnaire.Keyed("app.questionnaire.network.cancel", "Negar"),
+		Variant:  "outline",
+		Polarity: questionnaire.DecisionPolarityNegative,
+		Scope:    questionnaire.DecisionScopeCurrent,
 	})
 	return out
 }

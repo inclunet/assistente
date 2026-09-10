@@ -51,6 +51,26 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 | `Ctrl + M` | Abrir o seletor de modelos do chat ativo |
 | `Ctrl + Shift + R` | Repetir pergunta em diálogos de decisão |
 
+## Atalhos de diálogos de decisão
+
+Quando um diálogo de decisão está no topo, uma família estável complementa os
+mnemônicos `Alt + letra` localizados:
+
+| Atalho | Ação |
+|---|---|
+| `Ctrl + Enter` | Afirmar/confirmar somente a requisição atual |
+| `Ctrl + Backspace` | Negar/rejeitar somente a requisição atual |
+| `Shift + Enter` | Afirmar para a conversa ou sessão |
+| `Shift + Backspace` | Negar para a conversa ou sessão |
+| `Ctrl + Shift + Enter` | Afirmar permanentemente no perfil ou globalmente |
+| `Ctrl + Shift + Backspace` | Negar permanentemente no perfil ou globalmente |
+| `Ctrl + Shift + R` | Repetir a pergunta e a ajuda relevante |
+
+O atalho só existe quando a ação declara explicitamente sua polaridade e seu
+escopo. `Enter` sem modificador ativa apenas o botão focado; `Esc` fecha ou
+cancela com segurança. Os atalhos não são capturados durante composição de
+texto nem em campos editáveis ou editores. `Alt + Enter` permanece reservado.
+
 ## Notas
 
 - Hotkeys globais podem conflitar com atalhos de outros aplicativos

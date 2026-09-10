@@ -63,15 +63,19 @@ func (a *App) confirmDeleteMessageQuestionnaire() error {
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{
-				ID:      "delete",
-				Label:   questionnaire.Keyed("app.questionnaire.deleteMessage.submit", "Excluir"),
-				Variant: "danger",
-				Primary: true,
+				ID:       "delete",
+				Label:    questionnaire.Keyed("app.questionnaire.deleteMessage.submit", "Excluir"),
+				Variant:  "danger",
+				Primary:  true,
+				Polarity: questionnaire.DecisionPolarityAffirmative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 			{
-				ID:      "cancel",
-				Label:   questionnaire.Keyed("app.questionnaire.deleteMessage.cancel", "Cancelar"),
-				Variant: "outline",
+				ID:       "cancel",
+				Label:    questionnaire.Keyed("app.questionnaire.deleteMessage.cancel", "Cancelar"),
+				Variant:  "outline",
+				Polarity: questionnaire.DecisionPolarityNegative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 		},
 	})

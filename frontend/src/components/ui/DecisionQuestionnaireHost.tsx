@@ -106,6 +106,8 @@ export function DecisionQuestionnaireHost({
         ? resolveQuestionnaireText(t, action.shortcut)
         : undefined,
       primary: action.primary,
+      polarity: action.polarity,
+      scope: action.scope,
     }));
   }, [open, data?.actions, t]);
 

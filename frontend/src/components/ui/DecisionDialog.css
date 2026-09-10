@@ -154,6 +154,14 @@
   text-underline-offset: 2px;
 }
 
+.decision-dialog__shortcut {
+  margin-inline-start: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
 /* Compat: ConfirmDialog ainda aplica confirm-dialog-modal via className. */
 .modal-content.confirm-dialog-modal {
   max-width: 450px;

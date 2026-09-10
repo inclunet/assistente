@@ -72,7 +72,14 @@ export function assignMnemonics(
 
 export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
+  if (
+    target.isContentEditable ||
+    target.closest(
+      '[contenteditable]:not([contenteditable="false"]), .monaco-editor, [data-editor]',
+    )
+  ) {
+    return true;
+  }
   const tag = target.tagName;
   if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (tag === 'INPUT') {

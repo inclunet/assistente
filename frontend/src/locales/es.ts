@@ -2496,6 +2496,7 @@ const es = {
       confirm: { title: 'Confirmar' },
       decisionDialog: {
         bodyHint: 'Hay contenido adicional en el diálogo para leer.',
+        shortcutsHint: 'Atajos disponibles: {{shortcuts}}',
       },
       questionnaire: {
         defaultTitle: 'Cuestionario',
@@ -2513,6 +2514,7 @@ const es = {
         categories: {
           navigation: 'Navegación',
           chat: 'Chat',
+          decision: 'Diálogos de decisión',
           general: 'General',
         },
         openNewTabMenu: 'Menú de creación de pestaña',
@@ -2542,6 +2544,13 @@ const es = {
         goToTasklists: 'Abrir listas de tareas',
         goToJobs: 'Abrir jobs',
         goToProfiles: 'Abrir perfiles de interacción',
+        decisionAffirmCurrent: 'Afirmar o confirmar solo la solicitud actual',
+        decisionRejectCurrent: 'Negar o rechazar solo la solicitud actual',
+        decisionAffirmConversation: 'Afirmar para la conversación o sesión',
+        decisionRejectConversation: 'Negar para la conversación o sesión',
+        decisionAffirmPersistent: 'Afirmar permanentemente en el perfil o globalmente',
+        decisionRejectPersistent: 'Negar permanentemente en el perfil o globalmente',
+        decisionMnemonic: 'Activar la acción con esa letra mnemónica localizada',
         repeatDecisionPrompt: 'Repetir la pregunta del diálogo de decisión abierto',
         closeDialog: 'Cerrar diálogos y menús',
         escToClose: 'Presiona Esc para cerrar',

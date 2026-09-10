@@ -745,6 +745,28 @@ func TestOBotaoDeConfirmarDizOQueEleFaz(t *testing.T) {
 	}
 }
 
+func TestAcoesACPDeclaramEscoposAtualEPersistente(t *testing.T) {
+	actions := permissionDecisionActions(permissionChoices{
+		{id: "allow-once", label: "Permitir uma vez", kind: optionAllowOnce},
+		{id: "allow-always", label: "Permitir sempre", kind: optionAllowAlways},
+		{id: "reject-once", label: "Negar", kind: "reject_once"},
+	})
+	byID := make(map[string]questionnaire.DecisionAction, len(actions))
+	for _, action := range actions {
+		byID[action.ID] = action
+	}
+
+	if action := byID["allow-once"]; action.Polarity != questionnaire.DecisionPolarityAffirmative || action.Scope != questionnaire.DecisionScopeCurrent {
+		t.Errorf("allow-once sem semântica atual afirmativa: %+v", action)
+	}
+	if action := byID["allow-always"]; action.Polarity != questionnaire.DecisionPolarityAffirmative || action.Scope != questionnaire.DecisionScopePersistent {
+		t.Errorf("allow-always sem semântica persistente afirmativa: %+v", action)
+	}
+	if action := byID["reject-once"]; action.Polarity != questionnaire.DecisionPolarityNegative || action.Scope != questionnaire.DecisionScopeCurrent {
+		t.Errorf("reject-once sem semântica atual negativa: %+v", action)
+	}
+}
+
 func TestOpcaoSemNomeGanhaORotuloDaClasse(t *testing.T) {
 	var oferecidas []string
 	tela := novaTelaFalsa(func(opcoes []string) string {

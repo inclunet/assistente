@@ -512,12 +512,18 @@ func permissionDecisionActions(choices permissionChoices) []questionnaire.Decisi
 		case optionAllowOnce:
 			action.Primary = true
 			action.Variant = "primary"
+			action.Polarity = questionnaire.DecisionPolarityAffirmative
+			action.Scope = questionnaire.DecisionScopeCurrent
 			primary = append(primary, action)
 		case optionAllowAlways:
 			action.Variant = "secondary"
+			action.Polarity = questionnaire.DecisionPolarityAffirmative
+			action.Scope = questionnaire.DecisionScopePersistent
 			secondary = append(secondary, action)
 		default:
 			action.Variant = "outline"
+			action.Polarity = questionnaire.DecisionPolarityNegative
+			action.Scope = questionnaire.DecisionScopeCurrent
 			deny = append(deny, action)
 		}
 	}
