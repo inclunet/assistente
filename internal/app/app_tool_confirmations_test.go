@@ -87,12 +87,21 @@ func TestConfirmacaoDeHTTPMutavelVaiTraduzivelComOPedidoNosParametros(t *testing
 
 func TestAcaoDeShellContinuaSendoARespondida(t *testing.T) {
 	payload := shellConfirmationPayload("ls", ".")
-	ids := make(map[string]bool, len(payload.Actions))
+	actions := make(map[string]questionnaire.DecisionAction, len(payload.Actions))
 	for _, action := range payload.Actions {
-		ids[action.ID] = true
+		actions[action.ID] = action
 	}
-	if !ids[decisionAllow] || !ids[decisionDeny] {
+	if _, allowOK := actions[decisionAllow]; !allowOK {
 		t.Errorf("ações = %+v, quer allow e deny", payload.Actions)
+	}
+	if _, denyOK := actions[decisionDeny]; !denyOK {
+		t.Errorf("ações = %+v, quer allow e deny", payload.Actions)
+	}
+	if allow := actions[decisionAllow]; allow.Polarity != questionnaire.DecisionPolarityAffirmative || allow.Scope != questionnaire.DecisionScopeCurrent {
+		t.Errorf("allow sem semântica atual afirmativa: %+v", allow)
+	}
+	if deny := actions[decisionDeny]; deny.Polarity != questionnaire.DecisionPolarityNegative || deny.Scope != questionnaire.DecisionScopeCurrent {
+		t.Errorf("deny sem semântica atual negativa: %+v", deny)
 	}
 }
 

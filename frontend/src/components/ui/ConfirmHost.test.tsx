@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ConfirmHost } from './ConfirmHost';
 
@@ -36,7 +36,12 @@ vi.mock('../../store/confirmStore', () => ({
 }));
 
 describe('ConfirmHost', () => {
-  it('renderiza dialogo e aciona callbacks', () => {
+  beforeEach(() => {
+    confirmSpy.mockClear();
+    cancelSpy.mockClear();
+  });
+
+  it('renderiza dialogo na ordem canônica e confirma', () => {
     render(<ConfirmHost />);
 
     expect(screen.getByText('Tem certeza')).toBeInTheDocument();
@@ -45,12 +50,18 @@ describe('ConfirmHost', () => {
     const actions = document.querySelector('[data-dialog-actions]');
     expect(actions).not.toBeNull();
     const footerButtons = Array.from(actions!.querySelectorAll('button'));
-    expect(footerButtons.map((b) => b.textContent)).toEqual(['Confirmar', 'Cancelar']);
+    expect(footerButtons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Confirmar',
+      'Cancelar',
+    ]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
-
-    expect(cancelSpy).toHaveBeenCalled();
     expect(confirmSpy).toHaveBeenCalled();
+  });
+
+  it('aciona cancelamento', () => {
+    render(<ConfirmHost />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(cancelSpy).toHaveBeenCalled();
   });
 });

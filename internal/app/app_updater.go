@@ -38,15 +38,19 @@ func updateElevationPayload() questionnaire.RequestPayload {
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{
-				ID:      "allow",
-				Label:   questionnaire.Keyed(updateElevationTextKey("submit"), "Permitir"),
-				Variant: "primary",
-				Primary: true,
+				ID:       "allow",
+				Label:    questionnaire.Keyed(updateElevationTextKey("submit"), "Permitir"),
+				Variant:  "primary",
+				Primary:  true,
+				Polarity: questionnaire.DecisionPolarityAffirmative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 			{
-				ID:      "deny",
-				Label:   questionnaire.Keyed(updateElevationTextKey("cancel"), "Cancelar"),
-				Variant: "outline",
+				ID:       "deny",
+				Label:    questionnaire.Keyed(updateElevationTextKey("cancel"), "Cancelar"),
+				Variant:  "outline",
+				Polarity: questionnaire.DecisionPolarityNegative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 		},
 	}

@@ -2496,6 +2496,7 @@ const en = {
       confirm: { title: 'Confirm' },
       decisionDialog: {
         bodyHint: 'There is additional content in the dialog to read.',
+        shortcutsHint: 'Available shortcuts: {{shortcuts}}',
       },
       questionnaire: {
         defaultTitle: 'Questionnaire',
@@ -2513,6 +2514,7 @@ const en = {
         categories: {
           navigation: 'Navigation',
           chat: 'Chat',
+          decision: 'Decision dialogs',
           general: 'General',
         },
         openNewTabMenu: 'Create tab menu',
@@ -2542,6 +2544,13 @@ const en = {
         goToTasklists: 'Open task lists',
         goToJobs: 'Open jobs',
         goToProfiles: 'Open interaction profiles',
+        decisionAffirmCurrent: 'Affirm or confirm only the current request',
+        decisionRejectCurrent: 'Deny or reject only the current request',
+        decisionAffirmConversation: 'Affirm for the conversation or session',
+        decisionRejectConversation: 'Deny for the conversation or session',
+        decisionAffirmPersistent: 'Affirm permanently for the profile or globally',
+        decisionRejectPersistent: 'Deny permanently for the profile or globally',
+        decisionMnemonic: 'Activate the action using that localized mnemonic letter',
         repeatDecisionPrompt: 'Repeat the open decision dialog question',
         closeDialog: 'Close dialogs and menus',
         escToClose: 'Press Esc to close',

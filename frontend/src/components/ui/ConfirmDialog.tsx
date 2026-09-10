@@ -59,11 +59,15 @@ export function ConfirmDialog({
           label: confirmLabel,
           variant: variant === 'danger' ? 'danger' : 'primary',
           primary: true,
+          polarity: 'affirmative',
+          scope: 'current',
         },
         {
           id: 'cancel',
           label: cancelLabel,
           variant: 'outline',
+          polarity: 'negative',
+          scope: 'current',
         },
       ]}
       onAction={(id) => {

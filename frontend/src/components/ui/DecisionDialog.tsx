@@ -18,9 +18,18 @@ import {
   isEditableKeyboardTarget,
   parseMnemonicMarker,
 } from '../../lib/decisionMnemonic';
+import {
+  resolveDecisionShortcuts,
+  shortcutForKeyboardEvent,
+  type DecisionActionPolarity,
+  type DecisionActionScope,
+  type ResolvedDecisionShortcuts,
+} from '../../lib/decisionShortcuts';
 import './DecisionDialog.css';
 
 export type DecisionSeverity = 'destructive' | 'permission' | 'info';
+
+const ACTION_REENTRY_GUARD_MS = 1000;
 
 export interface DecisionAction {
   id: string;
@@ -31,6 +40,10 @@ export interface DecisionAction {
   shortcut?: string;
   /** Marca a ação afirmativa principal (ordem AEP-0090). */
   primary?: boolean;
+  /** Polaridade semântica explícita; nunca derivada do rótulo/id/variant. */
+  polarity?: DecisionActionPolarity;
+  /** Escopo semântico explícito do efeito da ação. */
+  scope?: DecisionActionScope;
 }
 
 /** Campo opcional de motivo ao rejeitar (confirmação de edição). */
@@ -97,8 +110,9 @@ function buildAnnouncement(
   title: string,
   description: string,
   bodyHint?: string,
+  shortcutsHint?: string,
 ): string {
-  return [title, description, bodyHint].filter(Boolean).join('. ');
+  return [title, description, bodyHint, shortcutsHint].filter(Boolean).join('. ');
 }
 
 function isRejectLikeAction(_action: DecisionAction | undefined, actionId: string): boolean {
@@ -116,11 +130,13 @@ function isRejectLikeAction(_action: DecisionAction | undefined, actionId: strin
 function DecisionDialogHotkeys({
   actions,
   mnemonics,
+  semanticShortcuts,
   onAction,
   onRepeat,
 }: {
   actions: DecisionAction[];
   mnemonics: string[];
+  semanticShortcuts: ResolvedDecisionShortcuts;
   onAction: (actionId: string) => void;
   onRepeat: () => void;
 }) {
@@ -129,6 +145,7 @@ function DecisionDialogHotkeys({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!isTopmost()) return;
+      if (e.isComposing || e.keyCode === 229) return;
 
       if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'r') {
         if (isEditableKeyboardTarget(e.target)) return;
@@ -138,7 +155,19 @@ function DecisionDialogHotkeys({
         return;
       }
 
+      const semanticChord = shortcutForKeyboardEvent(e);
+      if (semanticChord) {
+        if (e.repeat || isEditableKeyboardTarget(e.target)) return;
+        const actionId = semanticShortcuts.byAriaChord.get(semanticChord);
+        if (!actionId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onAction(actionId);
+        return;
+      }
+
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.repeat) return;
       if (isEditableKeyboardTarget(e.target)) return;
       if (e.key.length !== 1) return;
 
@@ -153,7 +182,7 @@ function DecisionDialogHotkeys({
 
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [isTopmost, mnemonics, actions, onAction, onRepeat]);
+  }, [isTopmost, mnemonics, semanticShortcuts, actions, onAction, onRepeat]);
 
   return null;
 }
@@ -183,15 +212,44 @@ export function DecisionDialog({
   const decisionAlertSound = useSettingsStore((s) => s.config.decisionAlertSound);
   const announcementRef = useRef('');
   const openedForIdRef = useRef<string | null>(null);
+  const actionInFlightRef = useRef(false);
+  const actionUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [rejectReasonText, setRejectReasonText] = useState('');
 
   const mnemonics = useMemo(() => assignMnemonics(actions), [actions]);
+  const semanticShortcuts = useMemo(
+    () => resolveDecisionShortcuts(actions),
+    [actions],
+  );
+
+  useEffect(() => {
+    for (const collision of semanticShortcuts.collisions) {
+      // eslint-disable-next-line no-console -- colisão é defeito de contrato
+      console.error(
+        `[DecisionDialog] atalho semântico omitido por colisão (${collision})`,
+      );
+    }
+  }, [semanticShortcuts]);
 
   const describedBy = body ? `${descriptionId} ${bodyId}` : descriptionId;
 
   const resolvedSafeId = safeActionId ?? actions[actions.length - 1]?.id ?? '';
 
   const bodyHint = body ? t('ui.decisionDialog.bodyHint') : undefined;
+  const shortcutsHint = useMemo(() => {
+    const entries = actions.flatMap((action) => {
+      const label = parseMnemonicMarker(action.label).displayLabel;
+      return (semanticShortcuts.byActionId.get(action.id) ?? []).map(
+        (shortcut) => `${label}: ${shortcut.display}`,
+      );
+    });
+    if (entries.length === 0) return undefined;
+    return t('ui.decisionDialog.shortcutsHint', {
+      shortcuts: entries.join('; '),
+    });
+  }, [actions, semanticShortcuts, t]);
 
   // Ordem DOM com motivo (AEP-0090): afirmativas → textarea → restante
   // (reject/outline por último). Sem `primary`, a primeira ação vai antes do campo.
@@ -246,6 +304,14 @@ export function DecisionDialog({
   };
 
   const fireAction = (actionId: string) => {
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
+    // O fechamento normal limpa o timer pelo efeito de isOpen. O fallback
+    // evita travar o diálogo se o callback falhar ou decidir mantê-lo aberto.
+    actionUnlockTimerRef.current = setTimeout(() => {
+      actionInFlightRef.current = false;
+      actionUnlockTimerRef.current = null;
+    }, ACTION_REENTRY_GUARD_MS);
     const extras = extrasForAction(actionId);
     if (extras) onAction(actionId, extras);
     else onAction(actionId);
@@ -272,15 +338,25 @@ export function DecisionDialog({
     if (!isOpen) {
       openedForIdRef.current = null;
       announcementRef.current = '';
+      actionInFlightRef.current = false;
+      if (actionUnlockTimerRef.current) {
+        clearTimeout(actionUnlockTimerRef.current);
+        actionUnlockTimerRef.current = null;
+      }
       setRejectReasonText('');
       return;
     }
 
-    const openKey = `${title}\0${description}\0${bodyHint ?? ''}`;
+    const openKey = `${title}\0${description}\0${bodyHint ?? ''}\0${shortcutsHint ?? ''}`;
     if (openedForIdRef.current === openKey) return;
     openedForIdRef.current = openKey;
 
-    const message = buildAnnouncement(title, description, bodyHint);
+    const message = buildAnnouncement(
+      title,
+      description,
+      bodyHint,
+      shortcutsHint,
+    );
     announcementRef.current = message;
 
     announceRequest({
@@ -293,13 +369,24 @@ export function DecisionDialog({
     if (decisionAlertSound) {
       playSound(SOUND_TYPES.ALERT);
     }
-  }, [isOpen, title, description, body, bodyHint, announceRequest, decisionAlertSound]);
+  }, [isOpen, title, description, body, bodyHint, shortcutsHint, announceRequest, decisionAlertSound]);
+
+  useEffect(
+    () => () => {
+      if (actionUnlockTimerRef.current) {
+        clearTimeout(actionUnlockTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const variantClass = `decision-dialog-modal--${severity}`;
   const sizeClass = size !== 'sm' ? ` decision-dialog-modal--size-${size}` : '';
 
   const renderActionButton = (action: DecisionAction, indexInActions: number) => {
     const mnemonic = mnemonics[indexInActions] ?? '';
+    const actionSemanticShortcuts =
+      semanticShortcuts.byActionId.get(action.id) ?? [];
     const { displayLabel } = parseMnemonicMarker(action.label);
     const buttonVariant =
       action.variant ??
@@ -313,9 +400,21 @@ export function DecisionDialog({
         data-decision-action={action.id}
         onClick={() => fireAction(action.id)}
         aria-label={displayLabel}
-        aria-keyshortcuts={mnemonic ? `Alt+${mnemonic.toUpperCase()}` : undefined}
+        aria-keyshortcuts={[
+          ...actionSemanticShortcuts.map((shortcut) => shortcut.aria),
+          ...(mnemonic ? [`Alt+${mnemonic.toUpperCase()}`] : []),
+        ].join(' ') || undefined}
       >
         <MnemonicLabel label={action.label} mnemonic={mnemonic} />
+        {actionSemanticShortcuts.map((shortcut) => (
+          <span
+            key={shortcut.aria}
+            className="decision-dialog__shortcut"
+            aria-hidden="true"
+          >
+            {shortcut.display}
+          </span>
+        ))}
       </Button>
     );
   };
@@ -342,6 +441,7 @@ export function DecisionDialog({
       <DecisionDialogHotkeys
         actions={actions}
         mnemonics={mnemonics}
+        semanticShortcuts={semanticShortcuts}
         onAction={fireAction}
         onRepeat={reannounce}
       />
