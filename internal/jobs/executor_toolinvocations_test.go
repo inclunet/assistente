@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"assistente/internal/database"
@@ -25,6 +26,19 @@ func (simpleTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResul
 type scriptedTool struct {
 	results []tools.ToolResult
 	calls   int
+}
+
+type contextErrorTool struct {
+	err   error
+	calls int
+}
+
+func (t *contextErrorTool) Name() string                { return "context_error_tool" }
+func (t *contextErrorTool) Description() string         { return "context error tool" }
+func (t *contextErrorTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (t *contextErrorTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	t.calls++
+	return tools.ToolResult{}, t.err
 }
 
 func (s *scriptedTool) Name() string                { return "scripted_tool" }
@@ -192,6 +206,101 @@ func TestJobExecutorWithoutInvocationServiceDoesNotRetryPermanentToolFailure(t *
 	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
 	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
 		t.Fatalf("caminho direto repetiu falha permanente: calls=%d run=%#v", tool.calls, run)
+	}
+}
+
+func TestJobExecutorWithoutInvocationServiceRetriesExplicitTransientFailure(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{
+		{
+			Content: "serviço temporariamente indisponível",
+			IsError: true,
+			Failure: &tools.ToolFailure{
+				Code:      "service_unavailable",
+				Kind:      tools.ErrorKindUnavailable,
+				Retryable: true,
+			},
+		},
+		{Content: `{"ok":true}`},
+	}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:   "legacy-transient-job",
+		Tool: tool.Name(),
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 1,
+			RetryDelay: "1ms",
+		},
+	}
+
+	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if tool.calls != 2 || run.RetryCount != 1 || run.Status != "completed" {
+		t.Fatalf("caminho direto não repetiu falha transitória: calls=%d run=%#v", tool.calls, run)
+	}
+}
+
+func TestJobExecutorWithoutInvocationServiceDoesNotRetryCancellation(t *testing.T) {
+	tool := &contextErrorTool{err: context.Canceled}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:   "legacy-cancelled-job",
+		Tool: tool.Name(),
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 2,
+			RetryDelay: "1ms",
+		},
+	}
+
+	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
+		t.Fatalf("cancelamento foi repetido: calls=%d run=%#v", tool.calls, run)
+	}
+}
+
+func TestJobExecutorRetriesTransientSecretResolutionFailure(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	secretCalls := 0
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry: registry,
+		EventBus:     NewEventBus(),
+		SecretStore: secretStoreFunc(func(context.Context, string) (string, error) {
+			secretCalls++
+			if secretCalls == 1 {
+				return "", errors.New("cofre temporariamente indisponível")
+			}
+			return "segredo", nil
+		}),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:     "transient-secret-job",
+		Tool:   tool.Name(),
+		Inputs: map[string]any{"token": `{{ secret "token" }}`},
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 1,
+			RetryDelay: "1ms",
+		},
+	}
+
+	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if secretCalls != 2 || tool.calls != 1 || run.RetryCount != 1 || run.Status != "completed" {
+		t.Fatalf("falha transitória do cofre não foi repetida corretamente: secretCalls=%d toolCalls=%d run=%#v", secretCalls, tool.calls, run)
 	}
 }
 

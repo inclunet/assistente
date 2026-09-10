@@ -348,8 +348,7 @@ func (r *ConversationRepository) GetConversationInfoWithContext(ctx context.Cont
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	id = strings.TrimSpace(id)
-	if id == "" {
+	if strings.TrimSpace(id) == "" {
 		return nil, ErrConversationIDRequired
 	}
 	var conv Conversation

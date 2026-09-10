@@ -336,11 +336,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Resolve templates nos inputs
 	resolvedInputs, err := ResolveInputs(job.Inputs, tmplCtx)
 	if err != nil {
-		return nil, permanentAttemptFailure(
-			fmt.Errorf("resolve inputs: %w", err),
-			tools.ErrorKindConfiguration,
-			"invalid_job_inputs",
-		)
+		return nil, fmt.Errorf("resolve inputs: %w", err)
 	}
 
 	resolvedInputs = CoerceInputs(resolvedInputs, tool.Parameters())
@@ -398,11 +394,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		tmplCtx.Output = output
 		mapped, err := ResolveOutputMap(job.Output.Map, tmplCtx)
 		if err != nil {
-			return nil, permanentAttemptFailure(
-				fmt.Errorf("resolve output map: %w", err),
-				tools.ErrorKindConfiguration,
-				"invalid_output_map",
-			)
+			return nil, fmt.Errorf("resolve output map: %w", err)
 		}
 		return mapped, nil
 	}
@@ -423,12 +415,22 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		}
 		result, err := tool.Execute(ctx, argsJSON)
 		if err != nil {
-			return tools.ToolExecutionResult{
+			execution := tools.ToolExecutionResult{
 				ToolName:  job.Tool,
 				Result:    tools.ToolResult{Content: wrapToolExecuteErr(ctx, err).Error(), IsError: true},
 				Error:     err,
 				ErrorKind: tools.ErrorKindUnknown,
 			}
+			switch {
+			case errors.Is(err, context.Canceled):
+				execution.ErrorKind = tools.ErrorKindCancelled
+				execution.RetryabilityKnown = true
+			case errors.Is(err, context.DeadlineExceeded):
+				execution.ErrorKind = tools.ErrorKindTimeout
+				execution.Retryable = true
+				execution.RetryabilityKnown = true
+			}
+			return execution
 		}
 		execution := tools.ToolExecutionResult{ToolName: job.Tool, Result: result}
 		if result.Failure != nil {
