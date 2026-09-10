@@ -417,7 +417,7 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 		if err != nil {
 			execution := tools.ToolExecutionResult{
 				ToolName:  job.Tool,
-				Result:    tools.ToolResult{Content: wrapToolExecuteErr(ctx, err).Error(), IsError: true},
+				Result:    tools.ToolResult{Content: err.Error(), IsError: true},
 				Error:     err,
 				ErrorKind: tools.ErrorKindUnknown,
 			}

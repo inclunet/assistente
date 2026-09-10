@@ -726,7 +726,6 @@ func TestAuthorizationFailuresAreExplicitlyPermanent(t *testing.T) {
 	for _, code := range []string{
 		"authorization_no_interlocutor",
 		"authorization_unavailable",
-		"authorization_surface_unavailable",
 		"profile_not_found",
 		"profile_unavailable",
 	} {
@@ -737,6 +736,12 @@ func TestAuthorizationFailuresAreExplicitlyPermanent(t *testing.T) {
 	}
 	if result := authorizationErrResult("authorization_failed", "timeout transitório"); result.Failure != nil {
 		t.Fatalf("authorization_failed genérico não deve suprimir retry: %#v", result.Failure)
+	}
+	transient := authorizationErrResult("authorization_surface_unavailable", "superfície fora do ar")
+	if transient.Failure == nil ||
+		transient.Failure.Kind != tools.ErrorKindUnavailable ||
+		!transient.Failure.Retryable {
+		t.Fatalf("superfície indisponível deveria ser retentável: %#v", transient.Failure)
 	}
 }
 

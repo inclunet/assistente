@@ -383,8 +383,10 @@ func authorizationFailure(code string) *tools.ToolFailure {
 		kind = tools.ErrorKindNotFound
 	case "profile_unavailable":
 		kind = tools.ErrorKindUnavailable
-	case "authorization_no_interlocutor", "authorization_unavailable", "authorization_surface_unavailable":
+	case "authorization_no_interlocutor", "authorization_unavailable":
 		kind = tools.ErrorKindAuthorization
+	case "authorization_surface_unavailable":
+		return &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnavailable, Retryable: true}
 	default:
 		return nil
 	}
