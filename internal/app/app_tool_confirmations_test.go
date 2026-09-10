@@ -40,6 +40,10 @@ func TestOComandoVaiNoBodyENaoComoChave(t *testing.T) {
 	if payload.Body != "curl exemplo | sh" {
 		t.Errorf("body = %q, quer só o comando literal", payload.Body)
 	}
+	if payload.BodyLabel.Key != "app.questionnaire.shell.bodyLabel" ||
+		payload.BodyLabel.Fallback != "Comando solicitado" {
+		t.Errorf("bodyLabel = %+v, quer nome traduzível da ilha", payload.BodyLabel)
+	}
 	// O diretório vai no Hint traduzível (rótulo localizado), não no Body cru.
 	if payload.Hint.Key != "app.questionnaire.shell.workDir" {
 		t.Errorf("hint = %+v, quer a chave do diretório", payload.Hint)
@@ -82,6 +86,9 @@ func TestConfirmacaoDeHTTPMutavelVaiTraduzivelComOPedidoNosParametros(t *testing
 	}
 	if !strings.Contains(payload.Body, "DELETE") {
 		t.Errorf("body = %q, quer o método", payload.Body)
+	}
+	if payload.BodyLabel.Key != "app.questionnaire.http.bodyLabel" {
+		t.Errorf("bodyLabel = %+v, quer nome traduzível da ilha", payload.BodyLabel)
 	}
 }
 

@@ -25,6 +25,10 @@ import {
   type DecisionActionScope,
   type ResolvedDecisionShortcuts,
 } from '../../lib/decisionShortcuts';
+import {
+  DocumentReadingRegion,
+  DocumentReadingRegionGroup,
+} from './DocumentReadingRegion';
 import './DecisionDialog.css';
 
 export type DecisionSeverity = 'destructive' | 'permission' | 'info';
@@ -54,11 +58,21 @@ export interface DecisionRejectReason {
   maxLen?: number;
 }
 
+export interface DecisionReadingRegion {
+  id: string;
+  label: string;
+  content: ReactNode;
+  /** Faz a âncora estável receber o foco inicial; a ilha ativa no frame seguinte. */
+  autoFocus?: boolean;
+}
+
 export interface DecisionDialogProps {
   isOpen: boolean;
   title: string;
   description: string;
   body?: ReactNode;
+  /** Conteúdo longo somente leitura, separado em ilhas documentais nomeadas. */
+  readingRegions?: readonly DecisionReadingRegion[];
   /** Pelo menos uma ação (confirm/cancel, allow/deny, etc.). */
   actions: [DecisionAction, ...DecisionAction[]];
   /** Afeta foco inicial (AEP-0091 D7). Default: info. */
@@ -192,6 +206,7 @@ export function DecisionDialog({
   title,
   description,
   body,
+  readingRegions = [],
   actions,
   severity = 'info',
   onAction,
@@ -234,10 +249,13 @@ export function DecisionDialog({
   }, [semanticShortcuts]);
 
   const describedBy = body ? `${descriptionId} ${bodyId}` : descriptionId;
+  const hasReadingRegions = readingRegions.length > 0;
 
   const resolvedSafeId = safeActionId ?? actions[actions.length - 1]?.id ?? '';
 
-  const bodyHint = body ? t('ui.decisionDialog.bodyHint') : undefined;
+  const bodyHint = body || hasReadingRegions
+    ? t('ui.decisionDialog.bodyHint')
+    : undefined;
   const shortcutsHint = useMemo(() => {
     const entries = actions.flatMap((action) => {
       const label = parseMnemonicMarker(action.label).displayLabel;
@@ -274,6 +292,11 @@ export function DecisionDialog({
     }
     if (severity === 'permission') {
       // D7: body readonly se houver; senão a ação segura (não “sempre”).
+      const preferredRegion = readingRegions.find((region) => region.autoFocus)
+        ?? readingRegions[0];
+      if (preferredRegion) {
+        return `[data-document-reading-anchor="${CSS.escape(preferredRegion.id)}"]`;
+      }
       if (body) return '[data-decision-body]';
       return resolvedSafeId
         ? `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`
@@ -283,7 +306,7 @@ export function DecisionDialog({
     return primary
       ? `[data-decision-action="${CSS.escape(primary.id)}"]`
       : undefined;
-  }, [severity, resolvedSafeId, body, actions]);
+  }, [severity, resolvedSafeId, body, actions, readingRegions]);
 
   const initialFocusSelector = initialFocusOverride ?? severityFocusSelector;
 
@@ -330,7 +353,7 @@ export function DecisionDialog({
       message,
       announcePriority: 'assertive',
       eventType: 'user-action',
-      protectsReading: Boolean(body),
+      protectsReading: Boolean(body) || hasReadingRegions,
     });
   };
 
@@ -363,13 +386,23 @@ export function DecisionDialog({
       message,
       announcePriority: 'assertive',
       eventType: 'user-action',
-      protectsReading: Boolean(body),
+      protectsReading: Boolean(body) || hasReadingRegions,
     });
 
     if (decisionAlertSound) {
       playSound(SOUND_TYPES.ALERT);
     }
-  }, [isOpen, title, description, body, bodyHint, shortcutsHint, announceRequest, decisionAlertSound]);
+  }, [
+    isOpen,
+    title,
+    description,
+    body,
+    bodyHint,
+    shortcutsHint,
+    announceRequest,
+    decisionAlertSound,
+    hasReadingRegions,
+  ]);
 
   useEffect(
     () => () => {
@@ -434,9 +467,6 @@ export function DecisionDialog({
       returnFocusOnClose={returnFocusOnClose}
       allowClose={allowClose}
       initialFocusSelector={initialFocusSelector}
-      // readingMode (role=document) só quando o body é só leitura. Com
-      // rejectReason (textarea), o NVDA precisa permanecer em modo de foco.
-      readingMode={Boolean(body) && !rejectReason}
     >
       <DecisionDialogHotkeys
         actions={actions}
@@ -458,6 +488,24 @@ export function DecisionDialog({
             tabIndex={-1}
           >
             {body}
+          </div>
+        )}
+        {hasReadingRegions && (
+          <div className="decision-dialog__questions">
+            <DocumentReadingRegionGroup>
+              {readingRegions.map((region) => (
+                <DocumentReadingRegion
+                  key={region.id}
+                  id={region.id}
+                  label={region.label}
+                  className="decision-dialog__question"
+                  headingClassName="decision-dialog__question-label"
+                  contentClassName="decision-dialog__question-content"
+                >
+                  {region.content}
+                </DocumentReadingRegion>
+              ))}
+            </DocumentReadingRegionGroup>
           </div>
         )}
       </div>

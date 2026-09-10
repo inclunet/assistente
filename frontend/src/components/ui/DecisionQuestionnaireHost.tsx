@@ -1,8 +1,9 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DecisionDialog,
   type DecisionAction,
+  type DecisionReadingRegion,
   type DecisionRejectReason,
 } from './DecisionDialog';
 import {
@@ -55,36 +56,28 @@ export function DecisionQuestionnaireHost({
     [data?.questions],
   );
 
-  const body: ReactNode = useMemo(() => {
+  const readingRegions: DecisionReadingRegion[] = useMemo(() => {
     if (bodyQuestions.length > 0) {
-      return (
-        <div className="decision-dialog__questions">
-          {bodyQuestions.map((q) => {
-            const labelId = `decision-q-label-${q.id}`;
-            const prompt = resolveQuestionnaireText(t, q.prompt, q.id);
-            return (
-              <section key={q.id} className="decision-dialog__question">
-                <h3 id={labelId} className="decision-dialog__question-label">
-                  {prompt}
-                </h3>
-                <pre
-                  className="decision-dialog__question-content"
-                  data-decision-question={q.id}
-                  tabIndex={0}
-                  role="region"
-                  aria-labelledby={labelId}
-                >
-                  {q.content ?? ''}
-                </pre>
-              </section>
-            );
-          })}
-        </div>
-      );
+      return bodyQuestions.map((q) => ({
+        id: q.id,
+        label: resolveQuestionnaireText(t, q.prompt, q.id),
+        content: q.content ?? '',
+        autoFocus: q.autoFocus,
+      }));
     }
     const plain = data?.body?.trim();
-    return plain || undefined;
-  }, [bodyQuestions, data?.body, t]);
+    if (!plain) return [];
+    return [{
+      id: 'body',
+      label: resolveQuestionnaireText(
+        t,
+        data?.bodyLabel,
+        t('ui.decisionDialog.detailsRegion'),
+      ),
+      content: plain,
+      autoFocus: true,
+    }];
+  }, [bodyQuestions, data?.body, data?.bodyLabel, t]);
 
   const rejectReason: DecisionRejectReason | undefined = useMemo(() => {
     if (!data?.rejectReason) return undefined;
@@ -121,16 +114,7 @@ export function DecisionQuestionnaireHost({
     [actions],
   );
 
-  const size = bodyQuestions.length > 0 ? 'lg' : 'sm';
-
-  // Focar o container do body faria a leitura começar no primeiro bloco. A
-  // confirmação de edição marca o "Depois" com autoFocus justamente para o
-  // NVDA abrir no texto resultante, e não no original.
-  const initialFocusSelector = useMemo(() => {
-    const target = bodyQuestions.find((q) => q.autoFocus);
-    if (!target) return undefined;
-    return `[data-decision-question="${CSS.escape(target.id)}"]`;
-  }, [bodyQuestions]);
+  const size = readingRegions.length > 1 ? 'lg' : 'sm';
 
   // Respeita o contrato: allowCancel=false bloqueia ESC/X/clique fora, para o
   // backend não receber Cancelled=true de um pedido que exige uma das ações.
@@ -148,13 +132,12 @@ export function DecisionQuestionnaireHost({
       isOpen
       title={title}
       description={description || title}
-      body={body}
+      readingRegions={readingRegions}
       size={size}
       rejectReason={rejectReason}
       actions={actions as [DecisionAction, ...DecisionAction[]]}
       severity={severity}
       safeActionId={safeActionId}
-      initialFocusSelector={initialFocusSelector}
       // App restaura o foco após submit/cancel; evita restauração dupla.
       returnFocusOnClose={false}
       // allowCancel=false esconde o X e desliga ESC/clique fora (sem armadilha

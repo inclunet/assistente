@@ -32,6 +32,7 @@ const permissionKeys = [
   'submit',
   'cancel',
   'actionPrompt',
+  'bodyLabel',
   'choicePrompt',
   ...actionClasses.map((classe) => `description.${classe}`),
   ...actionClasses.map((classe) => `descriptionAlways.${classe}`),
@@ -96,12 +97,13 @@ const shellKeys = [
   'title',
   'prompt',
   'workDir',
+  'bodyLabel',
   'submit',
   'cancel',
 ].map((sufixo) => `app.questionnaire.shell.${sufixo}`);
 
 /** Confirmação HTTP mutável (AEP-0091 Fase 3). */
-const httpKeys = ['title', 'prompt', 'submit', 'cancel'].map(
+const httpKeys = ['title', 'prompt', 'bodyLabel', 'submit', 'cancel'].map(
   (sufixo) => `app.questionnaire.http.${sufixo}`,
 );
 
@@ -117,6 +119,7 @@ const networkKeys = [
   'submit',
   'cancel',
   'detailsPrompt',
+  'bodyLabel',
   'skillHostMatch',
   'scopePrompt',
   'reasonPrompt',
@@ -131,6 +134,7 @@ const networkKeys = [
 const fstrustKeys = [
   'title',
   'description',
+  'bodyLabel',
   'cancel',
   'deny.session',
   'deny.workspace',

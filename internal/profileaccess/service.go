@@ -200,6 +200,10 @@ func authorizationPayload(req AuthorizationRequest, currentName, targetName stri
 				fmt.Sprintf("O profile mudará de %s para %s a partir do próximo turno.", currentName, targetName),
 			),
 			Body: strings.TrimSpace(req.TaskTitle),
+			BodyLabel: questionnaire.Keyed(
+				"app.questionnaire.profileSwitch.bodyLabel",
+				"Tarefa solicitada",
+			),
 			Actions: []questionnaire.DecisionAction{
 				{
 					ID:       ActionAllow,
@@ -247,6 +251,10 @@ func authorizationPayload(req AuthorizationRequest, currentName, targetName stri
 			descriptionFallback,
 		),
 		Body: strings.TrimSpace(req.TaskTitle),
+		BodyLabel: questionnaire.Keyed(
+			"app.questionnaire.subagentProfile.bodyLabel",
+			"Tarefa solicitada",
+		),
 		Actions: []questionnaire.DecisionAction{
 			{
 				ID:       ActionAllow,

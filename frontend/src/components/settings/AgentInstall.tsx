@@ -141,7 +141,6 @@ export const AgentInstall = ({
   const installHelpId = `${idBase}-install-help`;
   const updateHelpId = `${idBase}-update-help`;
   const removeHelpId = `${idBase}-remove-help`;
-  const unverifiedId = `${idBase}-unverified`;
 
   // O plano guarda de qual agente ele fala, pelo mesmo motivo que a detecção ao
   // lado: trocar o agente não desmonta este bloco, e o plano anterior ofereceria
@@ -814,15 +813,18 @@ export const AgentInstall = ({
               })
             : t('providerForm.agent.catalog.confirm.title', { agent: plan.name })
         }
-        description={t(
-          updating
-            ? 'providerForm.agent.catalog.confirm.introUpdate'
-            : unverified
-              ? 'providerForm.agent.catalog.confirm.introUnverified'
-              : binary
-                ? 'providerForm.agent.catalog.confirm.introBinary'
-                : 'providerForm.agent.catalog.confirm.intro',
-        )}
+        description={[
+          t(
+            updating
+              ? 'providerForm.agent.catalog.confirm.introUpdate'
+              : unverified
+                ? 'providerForm.agent.catalog.confirm.introUnverified'
+                : binary
+                  ? 'providerForm.agent.catalog.confirm.introBinary'
+                  : 'providerForm.agent.catalog.confirm.intro',
+          ),
+          unverified ? t('providerForm.agent.catalog.confirm.unverified') : '',
+        ].filter(Boolean).join(' ')}
         size="md"
         severity={unverified ? 'permission' : 'info'}
         /*
@@ -862,19 +864,12 @@ export const AgentInstall = ({
           }
           setConfirming('');
         }}
-        body={
-          <>
-            {/*
-              A frase nomeia a ausência, e é texto: ícone de alerta como único sinal
-              não chega a quem não vê a tela, e "não verificado" sem dizer o que isso
-              significa não é informação (D4).
-            */}
-            {unverified && (
-              <p id={unverifiedId} className="agent-install__unverified">
-                {t('providerForm.agent.catalog.confirm.unverified')}
-              </p>
-            )}
-            <dl className="agent-install__details">
+        readingRegions={[
+          {
+            id: 'artifact-details',
+            label: t('providerForm.agent.catalog.confirm.detailsRegion'),
+            content: (
+              <dl className="agent-install__details">
               <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
               <dd>{plan.name}</dd>
               {/*
@@ -929,9 +924,10 @@ export const AgentInstall = ({
                   <dd className="agent-install__details-code">{plan.install_command}</dd>
                 </>
               )}
-            </dl>
-          </>
-        }
+              </dl>
+            ),
+          },
+        ]}
       />
 
       {showManualActions && (
