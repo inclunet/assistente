@@ -213,15 +213,19 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{
-				ID:      editDecisionApply,
-				Label:   questionnaire.Keyed(editConfirmationTextKey("submit"), "Aplicar"),
-				Variant: "primary",
-				Primary: true,
+				ID:       editDecisionApply,
+				Label:    questionnaire.Keyed(editConfirmationTextKey("submit"), "Aplicar"),
+				Variant:  "primary",
+				Primary:  true,
+				Polarity: questionnaire.DecisionPolarityAffirmative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 			{
-				ID:      editDecisionReject,
-				Label:   questionnaire.Keyed(editConfirmationTextKey("cancel"), "Rejeitar"),
-				Variant: "outline",
+				ID:       editDecisionReject,
+				Label:    questionnaire.Keyed(editConfirmationTextKey("cancel"), "Rejeitar"),
+				Variant:  "outline",
+				Polarity: questionnaire.DecisionPolarityNegative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 		},
 		RejectReason: &questionnaire.RejectReasonConfig{

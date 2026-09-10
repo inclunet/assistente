@@ -271,15 +271,19 @@ func updatePromptPayload(info *updater.UpdateInfo) questionnaire.RequestPayload 
 		AllowCancel: true,
 		Actions: []questionnaire.DecisionAction{
 			{
-				ID:      "update",
-				Label:   questionnaire.Keyed(updateTextKey("submit"), "Atualizar"),
-				Variant: "primary",
-				Primary: true,
+				ID:       "update",
+				Label:    questionnaire.Keyed(updateTextKey("submit"), "Atualizar"),
+				Variant:  "primary",
+				Primary:  true,
+				Polarity: questionnaire.DecisionPolarityAffirmative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 			{
-				ID:      "later",
-				Label:   questionnaire.Keyed(updateTextKey("cancel"), "Mais Tarde"),
-				Variant: "outline",
+				ID:       "later",
+				Label:    questionnaire.Keyed(updateTextKey("cancel"), "Mais Tarde"),
+				Variant:  "outline",
+				Polarity: questionnaire.DecisionPolarityNegative,
+				Scope:    questionnaire.DecisionScopeCurrent,
 			},
 		},
 	}
