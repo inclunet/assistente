@@ -279,7 +279,7 @@ export const useJobStore = create<JobStoreState>((set, get) => {
     deleteJob: async (id: string) => {
       try {
         await DeleteJob(id);
-        get().fetchJobs();
+        await get().fetchJobs();
       } catch (err) {
         set({ error: String(err) });
         throw err;

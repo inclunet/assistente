@@ -66,6 +66,9 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageL
         if (cell) { cell.focus(); return true; }
         const grid = page.querySelector('[role="grid"]') as HTMLElement | null;
         if (grid) { grid.focus(); return true; }
+        const toolbar = page.querySelector('[role="toolbar"]') as Element | null;
+        const control = toolbar?.querySelector('button:not([disabled]), input:not([disabled])') as HTMLElement | null;
+        if (control) { control.focus(); return true; }
         return false;
       },
       contains: () => !!document.activeElement?.closest?.('.datagrid-container'),

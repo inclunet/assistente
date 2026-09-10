@@ -35,6 +35,7 @@ import { DialogActions } from '../components/ui/DialogActions';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
+import { restoreDefaultFocus } from '../hooks/useDefaultFocus';
 import { useConfirm } from '../hooks/useConfirm';
 import { SubAgentRunsModal } from '../components/history/SubAgentRunsModal';
 import { useSubAgentRunsStore } from '../store/subAgentRunsStore';
@@ -99,6 +100,7 @@ export default function HistoryPage() {
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
+  const [focusedRowIndex, setFocusedRowIndex] = useState(-1);
   const [showSubAgents, setShowSubAgents] = useState(true);
   const [runsModalOpen, setRunsModalOpen] = useState(false);
   const [exportRequest, setExportRequest] = useState<ActiveRichExport | null>(null);
@@ -113,7 +115,7 @@ export default function HistoryPage() {
   const autoFillRetryAttemptsRef = useRef(0);
   const autoFillRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRequestRef = useRef(0);
-  const { handleGridReady } = useGridFocus();
+  const { handleGridReady, requestGridFocus } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const activeSubAgentRuns = useSubAgentRunsStore(state => state.activeForUser);
   const fetchSubAgentRuns = useSubAgentRunsStore(state => state.fetchRuns);
@@ -319,78 +321,82 @@ export default function HistoryPage() {
     });
   }, [announce, t]);
 
-  const handleDeleteConversation = useCallback(async (conversationId: string) => {
-    const conv = conversations.find((c) => c.id === conversationId) ?? searchConversations.find((c) => c.id === conversationId);
-    const title = conv?.title || t('history.untitled');
-    const ok = await confirm({
-      title: t('history.confirmDeleteTitle'),
-      message: t('history.confirmDelete', { title }),
-      confirmText: t('common.confirm'),
-      cancelText: t('common.cancel'),
-      variant: 'danger',
-    });
-    if (!ok) return;
-
-    try {
-      await DeleteConversation(conversationId);
-      const existedInPage = conversationsRef.current.some((conversation) => conversation.id === conversationId);
-      const existed = existedInPage || searchConversations.some((conversation) => conversation.id === conversationId);
-      const nextConversations = conversationsRef.current.filter(c => c.id !== conversationId);
-      conversationsRef.current = nextConversations;
-      setConversations(nextConversations);
-      setSearchConversations((prev) => prev.filter(c => c.id !== conversationId));
-      if (existed) {
-        totalConversationsRef.current = Math.max(0, totalConversationsRef.current - 1);
-        setTotalConversations(totalConversationsRef.current);
-        reduceConversationPageOffset(existedInPage ? 1 : 0);
-      }
-      setSelectedIds(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(conversationId);
-        return newSet;
-      });
-    } catch (error) {
-      logger.error('Erro ao deletar conversa:', error);
-    }
-  }, [confirm, conversations, reduceConversationPageOffset, searchConversations, t]);
-
-  const handleDeleteSelected = useCallback(async () => {
-    if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds).map(String);
+  const deleteConversations = useCallback(async (
+    ids: string[],
+    options: { bulk: boolean; anchorRow: number },
+  ) => {
+    if (ids.length === 0) return;
+    const firstConversation = conversations.find((c) => c.id === ids[0])
+      ?? searchConversations.find((c) => c.id === ids[0]);
+    const title = firstConversation?.title || t('history.untitled');
     const count = ids.length;
     const ok = await confirm({
-      title: t('history.confirmDeleteMultipleTitle'),
-      message: t('history.confirmDeleteMultiple', { count }),
+      title: options.bulk
+        ? t('history.confirmDeleteMultipleTitle')
+        : t('history.confirmDeleteTitle'),
+      message: options.bulk
+        ? t('history.confirmDeleteMultiple', { count })
+        : t('history.confirmDelete', { title }),
       confirmText: t('common.confirm'),
       cancelText: t('common.cancel'),
       variant: 'danger',
     });
     if (!ok) return;
 
-    try {
-      await Promise.all(ids.map((id) => DeleteConversation(id)));
-      const idSet = new Set(ids);
-      const paginatedDeleted = new Set(
-        conversationsRef.current.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
-      ).size;
+    const results = await Promise.allSettled(ids.map((id) => DeleteConversation(id)));
+    const succeededIds = ids.filter((_, index) => results[index].status === 'fulfilled');
+    const failedIds = ids.filter((_, index) => results[index].status === 'rejected');
+
+    if (succeededIds.length > 0) {
+      const succeededSet = new Set(succeededIds);
+      const paginatedDeleted = conversationsRef.current.filter((conversation) => succeededSet.has(conversation.id)).length;
       const knownDeleted = new Set([
-        ...conversationsRef.current.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
-        ...searchConversations.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
+        ...conversationsRef.current.filter((conversation) => succeededSet.has(conversation.id)).map((conversation) => conversation.id),
+        ...searchConversations.filter((conversation) => succeededSet.has(conversation.id)).map((conversation) => conversation.id),
       ]).size;
-      const previousLength = conversationsRef.current.length;
-      const nextConversations = conversationsRef.current.filter((c) => !idSet.has(c.id));
+      const nextConversations = conversationsRef.current.filter((conversation) => !succeededSet.has(conversation.id));
       conversationsRef.current = nextConversations;
       setConversations(nextConversations);
-      setSearchConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
-      const deletedCount = Math.max(knownDeleted, previousLength - nextConversations.length);
-      totalConversationsRef.current = Math.max(0, totalConversationsRef.current - deletedCount);
+      setSearchConversations((previous) => previous.filter((conversation) => !succeededSet.has(conversation.id)));
+      totalConversationsRef.current = Math.max(0, totalConversationsRef.current - knownDeleted);
       setTotalConversations(totalConversationsRef.current);
       reduceConversationPageOffset(paginatedDeleted);
-      setSelectedIds(new Set());
-    } catch (error) {
-      logger.error('Erro ao deletar conversas:', error);
+      setSelectedIds(new Set(failedIds));
+      requestGridFocus({ rowIndex: options.anchorRow });
     }
-  }, [confirm, reduceConversationPageOffset, searchConversations, selectedIds, t]);
+
+    if (failedIds.length === 0) {
+      announce(t('history.deleteSucceeded', { count: succeededIds.length }));
+    } else if (succeededIds.length > 0) {
+      logger.error('Erro ao deletar parte das conversas:', results);
+      announce(t('history.deletePartial', {
+        successCount: succeededIds.length,
+        failureCount: failedIds.length,
+      }), 'assertive');
+    } else {
+      logger.error('Erro ao deletar conversas:', results);
+      announce(t('history.deleteFailed', { count: failedIds.length }), 'assertive');
+    }
+  }, [
+    announce,
+    confirm,
+    conversations,
+    reduceConversationPageOffset,
+    requestGridFocus,
+    searchConversations,
+    t,
+  ]);
+
+  const handleDeleteConversation = useCallback((conversationId: string, anchorRow = focusedRowIndex) => {
+    void deleteConversations([conversationId], { bulk: false, anchorRow });
+  }, [deleteConversations, focusedRowIndex]);
+
+  const handleDeleteSelected = useCallback(() => {
+    void deleteConversations(Array.from(selectedIds).map(String), {
+      bulk: true,
+      anchorRow: focusedRowIndex,
+    });
+  }, [deleteConversations, focusedRowIndex, selectedIds]);
 
   const getContextConversationIds = useCallback(() => {
     if (selectedIds.size > 0) {
@@ -512,6 +518,7 @@ export default function HistoryPage() {
     const visibleIds = new Set(displayItems.map((c) => c.id));
     if (focusedRow && !visibleIds.has(focusedRow.id)) {
       setFocusedRow(null);
+      setFocusedRowIndex(-1);
     }
     setSelectedIds((prev) => {
       if (prev.size === 0) return prev;
@@ -520,8 +527,9 @@ export default function HistoryPage() {
     });
   }, [displayItems, focusedRow]);
 
-  const handleFocusChange = useCallback((item: Conversation | null) => {
+  const handleFocusChange = useCallback((item: Conversation | null, rowIndex: number) => {
     setFocusedRow(item);
+    setFocusedRowIndex(rowIndex);
   }, []);
 
   const handleNearEnd = useCallback(() => {
@@ -529,9 +537,13 @@ export default function HistoryPage() {
     void loadConversations({ announceProgress: true });
   }, [loadConversations, searchResultIds]);
 
-  const handleDeleteRow = useCallback((item: Conversation) => {
-    handleDeleteConversation(item.id);
-  }, [handleDeleteConversation]);
+  const handleDeleteRow = useCallback((item: Conversation, rowIndex: number) => {
+    if (selectedIds.size > 0) {
+      handleDeleteSelected();
+      return;
+    }
+    handleDeleteConversation(item.id, rowIndex);
+  }, [handleDeleteConversation, handleDeleteSelected, selectedIds.size]);
 
   const handleSendToWorkspace = useCallback(async (_conversationId: string, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
@@ -853,6 +865,7 @@ export default function HistoryPage() {
         multiSelect={true}
         onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
         onGridReady={handleGridReady}
+        onEmptyFocus={restoreDefaultFocus}
         onFocusChange={handleFocusChange}
         onNearEnd={canLoadMoreConversations ? handleNearEnd : undefined}
         getRowActions={getRowActions}

@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { restoreDefaultFocus } from '../hooks/useDefaultFocus';
+import { isModalOpen } from '../lib/modalRegistry';
 
 export type ConfirmVariant = 'danger' | 'warning' | 'info';
 
@@ -36,13 +38,27 @@ function nextId(): string {
 
 function safeRestoreFocus(el: HTMLElement | null) {
   requestAnimationFrame(() => {
+    if (isModalOpen()) return;
+
+    const activeElement = document.activeElement as HTMLElement | null;
+    const focusIsIdle = !activeElement || activeElement === document.body || !document.contains(activeElement);
+    if (!focusIsIdle && activeElement !== el) return;
+
     try {
-      if (el && document.contains(el)) {
-        el.focus?.();
+      const targetIsUsable = Boolean(
+        el
+        && document.contains(el)
+        && !el.matches?.(':disabled, [aria-disabled="true"]')
+        && !el.closest?.('[hidden], [aria-hidden="true"], [inert]'),
+      );
+      if (targetIsUsable) {
+        el?.focus();
+        if (document.activeElement === el) return;
       }
     } catch {
-      // best-effort
+      // O fallback abaixo cobre alvo inválido ou focus() rejeitado.
     }
+    restoreDefaultFocus();
   });
 }
 
