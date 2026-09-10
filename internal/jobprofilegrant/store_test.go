@@ -128,6 +128,27 @@ func TestStoreRevokesStaleFingerprint(t *testing.T) {
 	}
 }
 
+func TestStoreProfileRemovalRevokesEveryUser(t *testing.T) {
+	store, _, userA, userB, jobA, jobB := grantTestStore(t)
+	configA, _ := store.CurrentDelegation(userA, jobA.ID)
+	configB, _ := store.CurrentDelegation(userB, jobB.ID)
+	if err := store.Grant(userA, jobA.ID, "especialista", configA.Fingerprint, "desktop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userB, jobB.ID, "especialista", configB.Fingerprint, "desktop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RevokeProfile(userA, "especialista", "profile excluído"); err != nil {
+		t.Fatal(err)
+	}
+	if valid, _ := store.HasValid(userA, jobA.ID, "especialista", configA.Fingerprint); valid {
+		t.Fatal("grant do usuário A permaneceu após remoção global do profile")
+	}
+	if valid, _ := store.HasValid(userB, jobB.ID, "especialista", configB.Fingerprint); valid {
+		t.Fatal("grant do usuário B permaneceu após remoção global do profile")
+	}
+}
+
 func TestStoreConcurrentGrantIsIdempotent(t *testing.T) {
 	store, db, userA, _, jobA, _ := grantTestStore(t)
 	config, _ := store.CurrentDelegation(userA, jobA.ID)

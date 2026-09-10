@@ -256,14 +256,13 @@ func (s *Store) RevokeJobTx(tx *gorm.DB, userID, jobID, actor string) error {
 }
 
 func (s *Store) RevokeProfile(ctx context.Context, targetSlug, actor string) error {
-	userID, err := database.RequireUserID(ctx)
-	if err != nil {
+	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
 	now := s.now().UTC()
 	return database.WithSQLiteBusyRetry(ctx, "job_profile_grants.revoke_profile", func() error {
 		return s.db.WithContext(ctx).Model(&database.JobProfileGrant{}).
-			Where("user_id = ? AND target_profile_slug = ? AND revoked_at IS NULL", userID, strings.TrimSpace(targetSlug)).
+			Where("target_profile_slug = ? AND revoked_at IS NULL", strings.TrimSpace(targetSlug)).
 			Updates(map[string]any{"revoked_at": now, "revoked_by": strings.TrimSpace(actor)}).Error
 	})
 }
