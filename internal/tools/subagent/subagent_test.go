@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -742,6 +743,27 @@ func TestAuthorizationFailuresAreExplicitlyPermanent(t *testing.T) {
 		transient.Failure.Kind != tools.ErrorKindUnavailable ||
 		!transient.Failure.Retryable {
 		t.Fatalf("superfície indisponível deveria ser retentável: %#v", transient.Failure)
+	}
+}
+
+func TestSubagentRunPreconditionsAreExplicitlyPermanent(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{
+		{err: subagent.ErrManagerNotConfigured, code: "subagent_unavailable"},
+		{err: fmt.Errorf("%w (3)", subagent.ErrMaxChainDepth), code: "subagent_max_chain_depth"},
+	} {
+		failure := subagentRunFailure(tc.err)
+		if failure == nil ||
+			failure.Code != tc.code ||
+			failure.Kind != tools.ErrorKindConfiguration ||
+			failure.Retryable {
+			t.Fatalf("%s sem classificação permanente: %#v", tc.code, failure)
+		}
+	}
+	if failure := subagentRunFailure(errors.New("banco temporariamente indisponível")); failure != nil {
+		t.Fatalf("erro transitório do manager não deve suprimir retry: %#v", failure)
 	}
 }
 

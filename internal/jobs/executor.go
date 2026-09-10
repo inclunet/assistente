@@ -336,6 +336,13 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Resolve templates nos inputs
 	resolvedInputs, err := ResolveInputs(job.Inputs, tmplCtx)
 	if err != nil {
+		if !isSecretResolutionError(err) {
+			return nil, permanentAttemptFailure(
+				fmt.Errorf("resolve inputs: %w", err),
+				tools.ErrorKindConfiguration,
+				"invalid_job_inputs",
+			)
+		}
 		return nil, fmt.Errorf("resolve inputs: %w", err)
 	}
 
@@ -394,6 +401,13 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		tmplCtx.Output = output
 		mapped, err := ResolveOutputMap(job.Output.Map, tmplCtx)
 		if err != nil {
+			if !isSecretResolutionError(err) {
+				return nil, permanentAttemptFailure(
+					fmt.Errorf("resolve output map: %w", err),
+					tools.ErrorKindConfiguration,
+					"invalid_output_map",
+				)
+			}
 			return nil, fmt.Errorf("resolve output map: %w", err)
 		}
 		return mapped, nil
@@ -438,6 +452,8 @@ func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, arg
 			execution.ErrorCode = result.Failure.Code
 			execution.Retryable = result.Failure.Retryable
 			execution.RetryabilityKnown = true
+		} else if code, ok := result.Metadata["error_code"].(string); ok {
+			execution.ErrorCode = code
 		}
 		return execution
 	}

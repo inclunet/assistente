@@ -24,6 +24,11 @@ import (
 // crescimento excessivo da tabela sub_agent_runs.
 const maxResultSummary = 16 * 1024
 
+var (
+	ErrManagerNotConfigured = errors.New("subagent manager não configurado")
+	ErrMaxChainDepth        = errors.New("limite de profundidade de cadeia atingido")
+)
+
 // DefaultMaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway,
 // AEP-0068). Espelha jobs.DefaultMaxChainDepth para coerência entre os dois
 // caminhos que compartilham proveniência via eventctx. Não é o gate de
@@ -211,7 +216,7 @@ func (m *Manager) nowFn() time.Time {
 // sub-conversa/run).
 func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	if m == nil || m.send == nil || m.repo == nil || m.notifier == nil {
-		return RunResult{}, fmt.Errorf("subagent manager não configurado")
+		return RunResult{}, ErrManagerNotConfigured
 	}
 	if strings.TrimSpace(p.Prompt) == "" {
 		return RunResult{}, fmt.Errorf("prompt é obrigatório para iniciar um sub-agente")
@@ -226,7 +231,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// de criar qualquer sub-conversa/run para não deixar lixo.
 	prov := deriveProvenance(ctx, "")
 	if len(prov.ChainHistory) >= m.maxChainDepth {
-		return RunResult{}, fmt.Errorf("limite de profundidade de cadeia atingido (%d): possível runaway de sub-agentes/jobs", m.maxChainDepth)
+		return RunResult{}, fmt.Errorf("%w (%d): possível runaway de sub-agentes/jobs", ErrMaxChainDepth, m.maxChainDepth)
 	}
 
 	// Teto global de concorrência por usuário (AEP-0068 F5): reserva uma vaga

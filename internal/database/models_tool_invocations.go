@@ -23,8 +23,8 @@ type ToolInvocation struct {
 	ErrorKind         string     `json:"errorKind,omitempty" gorm:"index"`
 	ErrorCode         string     `json:"errorCode,omitempty" gorm:"index"`
 	ErrorMessage      string     `json:"errorMessage,omitempty" gorm:"type:text"`
-	Retryable         bool       `json:"retryable,omitempty"`
-	RetryabilityKnown bool       `json:"retryabilityKnown,omitempty"`
+	Retryable         bool       `json:"retryable,omitempty" gorm:"not null;default:false"`
+	RetryabilityKnown bool       `json:"retryabilityKnown,omitempty" gorm:"not null;default:false"`
 	QueuedAt          time.Time  `json:"queuedAt" gorm:"not null;index:idx_tool_invocations_user_origin_queued,priority:3;index:idx_tool_invocations_user_status_queued,priority:3;index:idx_tool_invocations_user_dryrun_queued,priority:3"`
 	StartedAt         *time.Time `json:"startedAt,omitempty" gorm:"index:idx_tool_invocations_user_tool_started,priority:3"`
 	CompletedAt       *time.Time `json:"completedAt,omitempty" gorm:"index"`

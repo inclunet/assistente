@@ -293,7 +293,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			PreserveResponse:     a.Raw,
 		})
 		if err != nil {
-			return errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err)), nil
+			result := errResult(fmt.Sprintf("erro ao iniciar sub-agente: %v", err))
+			if failure := subagentRunFailure(err); failure != nil {
+				result.Failure = failure
+			}
+			return result, nil
 		}
 		// IMPORTANTE (AEP-0068, "Retorno da tool"): o desfecho do sub-agente
 		// (succeeded/failed/timed_out/cancelled) é DADO de negócio, exposto no
@@ -391,6 +395,17 @@ func authorizationFailure(code string) *tools.ToolFailure {
 		return nil
 	}
 	return &tools.ToolFailure{Code: code, Kind: kind, Retryable: false}
+}
+
+func subagentRunFailure(err error) *tools.ToolFailure {
+	switch {
+	case errors.Is(err, subagent.ErrManagerNotConfigured):
+		return &tools.ToolFailure{Code: "subagent_unavailable", Kind: tools.ErrorKindConfiguration, Retryable: false}
+	case errors.Is(err, subagent.ErrMaxChainDepth):
+		return &tools.ToolFailure{Code: "subagent_max_chain_depth", Kind: tools.ErrorKindConfiguration, Retryable: false}
+	default:
+		return nil
+	}
 }
 
 func invalidArgsResult(msg string) tools.ToolResult {

@@ -304,6 +304,32 @@ func TestJobExecutorRetriesTransientSecretResolutionFailure(t *testing.T) {
 	}
 }
 
+func TestJobExecutorDoesNotRetryInvalidOutputMapAfterToolMutation(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"ok":true}`}}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:   registry,
+		EventBus:       NewEventBus(),
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:     "invalid-output-map-job",
+		Tool:   tool.Name(),
+		Output: OutputConfig{Map: map[string]string{"value": "{{"}},
+		ErrorPolicy: ErrorPolicy{
+			Strategy:   ErrorRetry,
+			MaxRetries: 2,
+			RetryDelay: "1ms",
+		},
+	}
+
+	run := executor.Execute(context.Background(), job, &TriggerContext{Type: TriggerManual})
+	if tool.calls != 1 || run.RetryCount != 0 || run.Status != "failed" {
+		t.Fatalf("mapa inválido repetiu mutação: calls=%d run=%#v", tool.calls, run)
+	}
+}
+
 func TestJobExecutorRetriesUnclassifiedTransientToolFailure(t *testing.T) {
 	tool := &scriptedTool{results: []tools.ToolResult{
 		{Content: "temporary outage", IsError: true},

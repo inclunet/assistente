@@ -263,7 +263,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	case result := <-resultCh:
 		// Reclassifica: se a goroutine retornou um erro genérico mas o contexto
 		// já foi cancelado/expirado, normaliza o ErrorKind e Result.Content para consistência.
-		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown {
+		if result.Result.IsError && result.ErrorKind == ErrorKindUnknown && result.Result.Failure == nil {
 			if ctx.Err() != nil {
 				// Contexto pai cancelado — não é retryable
 				result.ErrorKind = ErrorKindCancelled
@@ -317,10 +317,13 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 }
 
 func failureCode(result ToolResult) string {
-	if result.Failure == nil {
-		return ""
+	if result.Failure != nil {
+		return result.Failure.Code
 	}
-	return result.Failure.Code
+	if code, ok := result.Metadata["error_code"].(string); ok {
+		return code
+	}
+	return ""
 }
 
 func firstFailureKind(executorKind ErrorKind, result ToolResult) ErrorKind {
