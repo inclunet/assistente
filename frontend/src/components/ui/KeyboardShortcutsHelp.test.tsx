@@ -56,6 +56,13 @@ const CANONICAL_SHORTCUT_COMBOS = [
   'Alt+T',                        // listas de tarefas
   'Alt+J',                        // jobs
   'Alt+P',                        // perfis
+  // DecisionDialog (metadados explícitos de polaridade + escopo)
+  'Ctrl+Backspace',
+  'Shift+Enter',
+  'Shift+Backspace',
+  'Ctrl+Shift+Enter',
+  'Ctrl+Shift+Backspace',
+  'Alt+A…Z',
   'Ctrl+Shift+R',                 // repetir pergunta do DecisionDialog (AEP-0091)
   'Esc',                          // fechar diálogos
 ];

@@ -41,8 +41,8 @@ function shellDecision(): QuestionnairePayload {
     description: { key: 'app.questionnaire.shell.prompt', fallback: 'Permitir a execução deste comando?' },
     body: 'ls -la',
     actions: [
-      { id: 'allow', label: { key: 'app.questionnaire.shell.submit', fallback: 'Permitir' }, primary: true, variant: 'primary' },
-      { id: 'deny', label: { key: 'app.questionnaire.shell.cancel', fallback: 'Negar' }, variant: 'outline' },
+      { id: 'allow', label: { key: 'app.questionnaire.shell.submit', fallback: 'Permitir' }, primary: true, variant: 'primary', polarity: 'affirmative', scope: 'current' },
+      { id: 'deny', label: { key: 'app.questionnaire.shell.cancel', fallback: 'Negar' }, variant: 'outline', polarity: 'negative', scope: 'current' },
     ],
     questions: [],
   };
@@ -110,6 +110,66 @@ describe('DecisionQuestionnaireHost', () => {
     fireEvent.click(screen.getByRole('button', { name: /Negar/i }));
     expect(onAction).toHaveBeenCalledWith({ [DECISION_ANSWER_ACTION_ID]: 'deny' });
     expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('transporta escopos current/conversation/global da decisão de rede', () => {
+    const onAction = vi.fn();
+    const data: QuestionnairePayload = {
+      ...shellDecision(),
+      id: 'network',
+      actions: [
+        { id: 'once', label: 'Uma vez', polarity: 'affirmative', scope: 'current' },
+        { id: 'session', label: 'Conversa', polarity: 'affirmative', scope: 'conversation' },
+        { id: 'global', label: 'Global', polarity: 'affirmative', scope: 'global' },
+        { id: 'deny', label: 'Negar', polarity: 'negative', scope: 'current' },
+      ],
+    };
+    render(
+      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Uma vez' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Enter'),
+    );
+    expect(screen.getByRole('button', { name: 'Conversa' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Shift+Enter'),
+    );
+    expect(screen.getByRole('button', { name: 'Global' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Shift+Enter'),
+    );
+
+    fireEvent.keyDown(document, { key: 'Enter', shiftKey: true });
+    expect(onAction).toHaveBeenCalledWith({
+      [DECISION_ANSWER_ACTION_ID]: 'session',
+    });
+  });
+
+  it('transporta ação persistente do ACP', () => {
+    const onAction = vi.fn();
+    const data: QuestionnairePayload = {
+      ...shellDecision(),
+      id: 'acp',
+      actions: [
+        { id: 'allow-once', label: 'Permitir uma vez', polarity: 'affirmative', scope: 'current' },
+        { id: 'allow-always', label: 'Permitir sempre', polarity: 'affirmative', scope: 'persistent' },
+        { id: 'deny', label: 'Negar', polarity: 'negative', scope: 'current' },
+      ],
+    };
+    render(
+      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
+    );
+
+    fireEvent.keyDown(document, {
+      key: 'Enter',
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(onAction).toHaveBeenCalledWith({
+      [DECISION_ANSWER_ACTION_ID]: 'allow-always',
+    });
   });
 
   it('respeita allowCancel=false ignorando ESC', () => {

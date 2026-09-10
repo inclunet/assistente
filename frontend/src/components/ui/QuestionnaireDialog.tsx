@@ -8,6 +8,10 @@ import {
   resolveQuestionnaireText,
   type QuestionnaireText,
 } from '../../lib/questionnaireText';
+import type {
+  DecisionActionPolarity,
+  DecisionActionScope,
+} from '../../lib/decisionShortcuts';
 import './QuestionnaireDialog.css';
 
 export type QuestionnaireQuestionType =
@@ -81,6 +85,8 @@ export interface QuestionnaireDecisionAction {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
   shortcut?: QuestionnaireText;
   primary?: boolean;
+  polarity?: DecisionActionPolarity;
+  scope?: DecisionActionScope;
 }
 
 export function isDecisionQuestionnaire(

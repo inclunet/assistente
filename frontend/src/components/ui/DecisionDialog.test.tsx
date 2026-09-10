@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { DecisionDialog } from './DecisionDialog';
 import { axe } from '../../test/a11yAxe';
 
@@ -8,9 +9,10 @@ const playSound = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => {
+    t: (key: string, options?: { shortcuts?: string }) => {
       const map: Record<string, string> = {
         'ui.decisionDialog.bodyHint': 'Há conteúdo adicional no diálogo para leitura.',
+        'ui.decisionDialog.shortcutsHint': `Atalhos disponíveis: ${options?.shortcuts ?? ''}`,
         'ui.modal.close': 'Fechar',
       };
       return map[key] ?? key;
@@ -111,6 +113,265 @@ describe('DecisionDialog', () => {
 
     fireEvent.keyDown(document, { key: 's', altKey: true });
     expect(onAction).toHaveBeenCalledWith('yes');
+  });
+
+  it('Enter sem modificador ativa somente o botão focado', async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Confirmar"
+        description="Prosseguir?"
+        actions={[
+          { id: 'yes', label: 'Sim', polarity: 'affirmative', scope: 'current' },
+          { id: 'no', label: 'Não', polarity: 'negative', scope: 'current' },
+        ]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    screen.getByRole('button', { name: 'Não' }).focus();
+    await user.keyboard('{Enter}');
+    expect(onAction).toHaveBeenCalledWith('no');
+  });
+
+  it.each([
+    ['current', 'affirmative', 'Enter', true, false, 'current-yes'],
+    ['current', 'negative', 'Backspace', true, false, 'current-no'],
+    ['conversation', 'affirmative', 'Enter', false, true, 'conversation-yes'],
+    ['conversation', 'negative', 'Backspace', false, true, 'conversation-no'],
+    ['persistent', 'affirmative', 'Enter', true, true, 'persistent-yes'],
+    ['global', 'negative', 'Backspace', true, true, 'global-no'],
+  ] as const)(
+    'dispara scope=%s polarity=%s pelo chord correto',
+    (scope, polarity, key, ctrlKey, shiftKey, expectedId) => {
+      const onAction = vi.fn();
+      render(
+        <DecisionDialog
+          isOpen
+          title="Decisão"
+          description="Escolha"
+          actions={[
+            {
+              id: expectedId,
+              label: expectedId,
+              polarity,
+              scope,
+              primary: polarity === 'affirmative',
+            },
+          ]}
+          onAction={onAction}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      fireEvent.keyDown(document, { key, ctrlKey, shiftKey });
+      expect(onAction).toHaveBeenCalledWith(expectedId);
+    },
+  );
+
+  it('não atribui chord sem metadados e preserva Alt+mnemônico', () => {
+    const onAction = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Legado"
+        description="Escolha"
+        actions={[{ id: 'legacy', label: '&Legado' }]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, { key: 'l', altKey: true });
+    expect(onAction).toHaveBeenCalledWith('legacy');
+  });
+
+  it('omite chord em colisão e diagnostica sem executar ação', () => {
+    const onAction = vi.fn();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <DecisionDialog
+        isOpen
+        title="Colisão"
+        description="Escolha"
+        actions={[
+          { id: 'profile', label: 'Perfil', polarity: 'affirmative', scope: 'profile' },
+          { id: 'global', label: 'Global', polarity: 'affirmative', scope: 'global' },
+        ]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true, shiftKey: true });
+    expect(onAction).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('colisão'));
+    error.mockRestore();
+  });
+
+  it('combina chord semântico e Alt+mnemônico em aria-keyshortcuts', () => {
+    render(
+      <DecisionDialog
+        isOpen
+        title="Confirmar"
+        description="Prosseguir?"
+        actions={[
+          {
+            id: 'yes',
+            label: '&Sim',
+            polarity: 'affirmative',
+            scope: 'current',
+          },
+        ]}
+        onAction={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Sim' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Control+Enter Alt+S',
+    );
+    expect(screen.getByText('Ctrl+Enter')).toBeVisible();
+  });
+
+  it('anuncia ajuda relevante na abertura e na repetição', async () => {
+    render(
+      <DecisionDialog
+        isOpen
+        title="Confirmar"
+        description="Prosseguir?"
+        actions={[
+          {
+            id: 'yes',
+            label: 'Sim',
+            polarity: 'affirmative',
+            scope: 'current',
+          },
+          {
+            id: 'no',
+            label: 'Não',
+            polarity: 'negative',
+            scope: 'current',
+          },
+        ]}
+        onAction={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(announceRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Sim: Ctrl+Enter; Não: Ctrl+Backspace'),
+        }),
+      ),
+    );
+    announceRequest.mockClear();
+    fireEvent.keyDown(document, { key: 'R', ctrlKey: true, shiftKey: true });
+    expect(announceRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Sim: Ctrl+Enter; Não: Ctrl+Backspace'),
+      }),
+    );
+  });
+
+  it('somente o DecisionDialog topmost responde ao chord', () => {
+    const firstAction = vi.fn();
+    const secondAction = vi.fn();
+    render(
+      <>
+        <DecisionDialog
+          isOpen
+          title="Primeiro"
+          description="Primeira pergunta"
+          actions={[{ id: 'first', label: 'Primeiro', polarity: 'affirmative', scope: 'current' }]}
+          onAction={firstAction}
+          onCancel={vi.fn()}
+        />
+        <DecisionDialog
+          isOpen
+          title="Segundo"
+          description="Segunda pergunta"
+          actions={[{ id: 'second', label: 'Segundo', polarity: 'affirmative', scope: 'current' }]}
+          onAction={secondAction}
+          onCancel={vi.fn()}
+        />
+      </>,
+    );
+
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
+    expect(firstAction).not.toHaveBeenCalled();
+    expect(secondAction).toHaveBeenCalledWith('second');
+  });
+
+  it('ignora campos editáveis, contenteditable, Monaco, IME e repeat', () => {
+    const onAction = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Protegido"
+        description="Escolha"
+        body={
+          <div>
+            <input aria-label="input" />
+            <textarea aria-label="textarea" />
+            <select aria-label="select"><option>opção</option></select>
+            <div contentEditable suppressContentEditableWarning>
+              <span data-testid="editable-child">texto</span>
+            </div>
+            <div className="monaco-editor"><span data-testid="monaco-child">código</span></div>
+          </div>
+        }
+        actions={[{ id: 'yes', label: 'Sim', polarity: 'affirmative', scope: 'current' }]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    for (const target of [
+      screen.getByLabelText('input'),
+      screen.getByLabelText('textarea'),
+      screen.getByLabelText('select'),
+      screen.getByTestId('editable-child'),
+      screen.getByTestId('monaco-child'),
+    ]) {
+      fireEvent.keyDown(target, { key: 'Enter', ctrlKey: true });
+    }
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true, isComposing: true });
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true, repeat: true });
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('captura Backspace do chord e bloqueia reentrada', () => {
+    const onAction = vi.fn();
+    render(
+      <DecisionDialog
+        isOpen
+        title="Negar"
+        description="Escolha"
+        actions={[{ id: 'no', label: 'Não', polarity: 'negative', scope: 'current' }]}
+        onAction={onAction}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const first = new KeyboardEvent('keydown', {
+      key: 'Backspace',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(first);
+    fireEvent.keyDown(document, { key: 'Backspace', ctrlKey: true });
+
+    expect(first.defaultPrevented).toBe(true);
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 
   it('envia rejectReason no extras ao rejeitar e na ordem AEP-0090', () => {
