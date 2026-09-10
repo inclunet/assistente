@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/slug"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -508,6 +509,7 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 				}
 			}
 			job.ID = slug
+			job.DatabaseID = row.ID
 			job.Pipeline = normalizeSlug(job.Pipeline)
 			job.PipelineEnabled = pipelineEnabled
 			job.Tags = uniqueSlugs(job.Tags)
@@ -562,6 +564,9 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 					return err
 				}
 			}
+			if err := r.revokeStaleJobGrantsTx(tx, userID, row.ID, job); err != nil {
+				return err
+			}
 			if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
 				return err
 			}
@@ -577,6 +582,7 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				}
 			}
 			job.ID = slug
+			job.DatabaseID = row.ID
 			job.Pipeline = normalizeSlug(job.Pipeline)
 			job.PipelineEnabled = pipelineEnabled
 			job.Tags = uniqueSlugs(job.Tags)
@@ -620,9 +626,31 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 			if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, tagResourceJob, row.ID).Delete(&database.TagAssignment{}).Error; err != nil {
 				return err
 			}
+			if tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+				now := r.now().UTC()
+				if err := tx.Model(&database.JobProfileGrant{}).
+					Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, row.ID).
+					Updates(map[string]any{"revoked_at": now, "revoked_by": "job excluído"}).Error; err != nil {
+					return err
+				}
+			}
 			return tx.Delete(&row).Error
 		})
 	})
+}
+
+func (r *DBRepository) revokeStaleJobGrantsTx(tx *gorm.DB, userID, jobID string, job *Job) error {
+	if !tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+		return nil
+	}
+	fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+	stale := tx.Model(&database.JobProfileGrant{}).
+		Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, jobID)
+	if grantable {
+		stale = stale.Where("delegation_fingerprint <> ?", fingerprint)
+	}
+	now := r.now().UTC()
+	return stale.Updates(map[string]any{"revoked_at": now, "revoked_by": "configuração alterada"}).Error
 }
 
 func (r *DBRepository) ListTriggers(ctx context.Context, jobID string) ([]Trigger, error) {
@@ -1799,6 +1827,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		toolName = row.ToolCatalog.Name
 	}
 	return &Job{
+		DatabaseID:     row.ID,
 		ID:             row.Slug,
 		Name:           row.Name,
 		Description:    row.Description,

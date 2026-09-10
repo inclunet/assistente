@@ -87,6 +87,7 @@ func TestJobsTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		controllers.NewJobsController(controllers.JobsControllerConfig{JobMgr: jobMgr}),
 		mcpMgr,
 		nil,
+		nil,
 	)
 
 	result, err := api.TestToolDryRun(`{"mcp_server_id":"srv-1","tool_name":"create_issue","inputs":{}}`)

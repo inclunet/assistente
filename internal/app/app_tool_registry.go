@@ -13,6 +13,7 @@ import (
 	"assistente/internal/eventctx"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/nettrust"
 	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
@@ -85,7 +86,7 @@ func (a *App) profileAccessService() *profileaccess.Service {
 		func(ctx context.Context, profile *profiles.Profile) bool {
 			return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
 		},
-	)
+	).WithJobGrants(jobprofilegrant.NewStore(database.DB()))
 }
 
 type profileConversationLookup func(context.Context, string) (*database.Conversation, error)

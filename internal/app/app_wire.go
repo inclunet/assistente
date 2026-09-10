@@ -5,6 +5,7 @@ import (
 	"assistente/internal/acpinstall"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
 	"context"
@@ -79,6 +80,9 @@ func (a *App) wireProfiles() {
 			a.initLLMClient()
 			a.reinitSpeechFromActiveProfile(slug)
 			a.registerActiveProfileHotkeys()
+		},
+		OnProfileDeleted: func(ctx context.Context, slug string) error {
+			return jobprofilegrant.NewStore(database.DB()).RevokeProfile(ctx, slug, "profile excluído")
 		},
 	})
 	if a.profilesAPI != nil {
@@ -352,6 +356,7 @@ func (a *App) wireJobs() {
 			a.jobsCtrl,
 			a.mcpMgr,
 			a.customActionEventNames,
+			a.profileAccessService(),
 		)
 	}
 }

@@ -71,6 +71,24 @@ type Job struct {
 	Runs        []JobRun     `json:"-" gorm:"foreignKey:JobID"`
 }
 
+// JobProfileGrant registra uma autorização explícita e exata para um job
+// delegar à tool subagent usando um profile alvo sob uma configuração
+// específica. O grant não faz parte do JSON/YAML do job.
+type JobProfileGrant struct {
+	UUIDModel
+	UserID                string     `json:"userId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_exact,priority:1"`
+	JobID                 string     `json:"jobId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_exact,priority:2"`
+	TargetProfileSlug     string     `json:"targetProfileSlug" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_exact,priority:3"`
+	DelegationFingerprint string     `json:"delegationFingerprint" gorm:"not null;uniqueIndex:ux_job_profile_grants_exact,priority:4"`
+	GrantedAt             time.Time  `json:"grantedAt" gorm:"not null"`
+	GrantedBy             string     `json:"grantedBy" gorm:"not null"`
+	RevokedAt             *time.Time `json:"revokedAt,omitempty" gorm:"index"`
+	RevokedBy             string     `json:"revokedBy,omitempty"`
+
+	User *User `json:"-" gorm:"foreignKey:UserID"`
+	Job  *Job  `json:"-" gorm:"foreignKey:JobID"`
+}
+
 // JobTrigger registra um gatilho individual de um job.
 type JobTrigger struct {
 	UUIDModel

@@ -2,8 +2,11 @@ package wailsapi
 
 import (
 	"assistente/controllers"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/jobs"
 	"assistente/internal/logging"
+	"assistente/internal/profileaccess"
+	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
 	"context"
 	"encoding/json"
@@ -21,6 +24,7 @@ type Jobs struct {
 	ctrl                       *controllers.JobsController
 	mcp                        DryRunMCPCatalog
 	listCustomActionEventNames func(ctx context.Context) []string
+	profileAccess              *profileaccess.Service
 }
 
 // NewJobs cria o bind vazio; AttachJobs preenche deps no startup.
@@ -37,6 +41,7 @@ func AttachJobs(
 	ctrl *controllers.JobsController,
 	mcp DryRunMCPCatalog,
 	listCustomActionEventNames func(ctx context.Context) []string,
+	profileAccess *profileaccess.Service,
 ) {
 	if api == nil {
 		return
@@ -47,6 +52,7 @@ func AttachJobs(
 	api.ctrl = ctrl
 	api.mcp = mcp
 	api.listCustomActionEventNames = listCustomActionEventNames
+	api.profileAccess = profileAccess
 }
 
 func (api *Jobs) deps() (Session, *controllers.JobsController, DryRunMCPCatalog, func(context.Context) []string, error) {
@@ -203,13 +209,114 @@ func (api *Jobs) RegenerateJobCatalog() error {
 }
 
 // SaveJob cria ou atualiza um job a partir do JSON.
-func (api *Jobs) SaveJob(jobJSON string) error {
+type SaveJobResult struct {
+	JobID                 string `json:"jobId"`
+	AuthorizationRequired bool   `json:"authorizationRequired"`
+	RequestedEnabled      bool   `json:"requestedEnabled"`
+	TargetProfileSlug     string `json:"targetProfileSlug,omitempty"`
+	DynamicProfile        bool   `json:"dynamicProfile"`
+}
+
+func (api *Jobs) SaveJob(jobJSON string) (*SaveJobResult, error) {
 	session, ctrl, _, _, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) (*SaveJobResult, error) {
+		var job jobs.Job
+		if err := json.Unmarshal([]byte(jobJSON), &job); err != nil {
+			return nil, fmt.Errorf("invalid job data: %w", err)
+		}
+		result := &SaveJobResult{JobID: job.ID, RequestedEnabled: job.Enabled}
+		fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+		if job.Enabled && grantable {
+			expression, _ := job.Inputs["profile"].(string)
+			expression = strings.TrimSpace(expression)
+			result.DynamicProfile = strings.Contains(expression, "{{")
+			if !result.DynamicProfile {
+				result.TargetProfileSlug = expression
+			}
+			valid := false
+			api.mu.RLock()
+			access := api.profileAccess
+			api.mu.RUnlock()
+			if access != nil {
+				if state, stateErr := access.JobGrantState(ctx, job.ID); stateErr == nil && state.Fingerprint == fingerprint {
+					if result.DynamicProfile {
+						valid = len(state.Grants) > 0
+					} else {
+						for _, grant := range state.Grants {
+							if grant.TargetProfileSlug == expression {
+								valid = true
+								break
+							}
+						}
+					}
+				}
+			}
+			if !valid {
+				job.Enabled = false
+				result.AuthorizationRequired = true
+				encoded, marshalErr := json.Marshal(job)
+				if marshalErr != nil {
+					return nil, marshalErr
+				}
+				jobJSON = string(encoded)
+			}
+		}
+		if err := ctrl.SaveJobContext(ctx, jobJSON); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
+}
+
+func (api *Jobs) GetJobProfileGrantState(jobID string) (*profileaccess.JobGrantState, error) {
+	session, _, _, _, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	api.mu.RLock()
+	access := api.profileAccess
+	api.mu.RUnlock()
+	if access == nil {
+		return nil, profileaccess.ErrAuthorizationNotGranted
+	}
+	return WithUser(session, func(ctx context.Context) (*profileaccess.JobGrantState, error) {
+		state, err := access.JobGrantState(ctx, jobID)
+		return &state, err
+	})
+}
+
+func (api *Jobs) AuthorizeJobProfile(jobID, targetProfileSlug string) (bool, error) {
+	session, _, _, _, err := api.deps()
+	if err != nil {
+		return false, err
+	}
+	api.mu.RLock()
+	access := api.profileAccess
+	api.mu.RUnlock()
+	if access == nil {
+		return false, questionnaire.ErrAskerUnavailable
+	}
+	return WithUser(session, func(ctx context.Context) (bool, error) {
+		return access.AuthorizeJobTarget(ctx, questionnaire.DesktopSurface(""), jobID, targetProfileSlug)
+	})
+}
+
+func (api *Jobs) RevokeJobProfile(jobID, targetProfileSlug string) error {
+	session, _, _, _, err := api.deps()
 	if err != nil {
 		return err
 	}
+	api.mu.RLock()
+	access := api.profileAccess
+	api.mu.RUnlock()
+	if access == nil {
+		return profileaccess.ErrAuthorizationNotGranted
+	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.SaveJobContext(ctx, jobJSON)
+		return struct{}{}, access.RevokeJobTarget(ctx, jobID, targetProfileSlug)
 	})
 	return err
 }

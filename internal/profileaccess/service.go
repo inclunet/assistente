@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"assistente/internal/eventctx"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/profiles"
 	"assistente/internal/questionnaire"
 )
@@ -18,8 +20,9 @@ const (
 )
 
 var (
-	ErrTargetNotFound    = errors.New("profile alvo não encontrado")
-	ErrTargetUnavailable = errors.New("provider do profile alvo indisponível")
+	ErrTargetNotFound          = errors.New("profile alvo não encontrado")
+	ErrTargetUnavailable       = errors.New("provider do profile alvo indisponível")
+	ErrAuthorizationNotGranted = errors.New("autorização persistida não concedida")
 )
 
 // ProfileStore é a leitura mínima do catálogo persistido de profiles.
@@ -40,11 +43,20 @@ type SurfaceResolver func(context.Context, string, string) questionnaire.Surface
 // disponível sem fazer uma chamada de rede.
 type Availability func(context.Context, *profiles.Profile) bool
 
+type JobGrantStore interface {
+	CurrentDelegation(context.Context, string) (jobprofilegrant.DelegationConfig, error)
+	HasValid(context.Context, string, string, string) (bool, error)
+	ListValid(context.Context, string) ([]jobprofilegrant.Grant, jobprofilegrant.DelegationConfig, error)
+	Grant(context.Context, string, string, string, string) error
+	Revoke(context.Context, string, string, string) error
+}
+
 type Service struct {
 	profiles     ProfileStore
 	asker        Asker
 	surface      SurfaceResolver
 	availability Availability
+	grants       JobGrantStore
 }
 
 func NewService(store ProfileStore, asker Asker, surface SurfaceResolver, availability Availability) *Service {
@@ -54,6 +66,14 @@ func NewService(store ProfileStore, asker Asker, surface SurfaceResolver, availa
 		surface:      surface,
 		availability: availability,
 	}
+}
+
+// WithJobGrants habilita o contrato persistente específico para origens job.
+func (s *Service) WithJobGrants(store JobGrantStore) *Service {
+	if s != nil {
+		s.grants = store
+	}
+	return s
 }
 
 type ProfileSummary struct {
@@ -134,6 +154,26 @@ func (s *Service) Authorize(ctx context.Context, req AuthorizationRequest) (bool
 	if targetSlug == "" {
 		return false, errors.New("profile alvo é obrigatório")
 	}
+	if provenance, ok := eventctx.From(ctx); ok && provenance.Source == "job" {
+		if s.grants == nil || strings.TrimSpace(provenance.SourceJobID) == "" {
+			return false, ErrAuthorizationNotGranted
+		}
+		config, err := s.grants.CurrentDelegation(ctx, provenance.SourceJobID)
+		if err != nil {
+			return false, fmt.Errorf("%w: %v", ErrAuthorizationNotGranted, err)
+		}
+		if err := s.ValidateTarget(ctx, targetSlug); err != nil {
+			return false, err
+		}
+		allowed, err := s.grants.HasValid(ctx, config.JobID, targetSlug, config.Fingerprint)
+		if err != nil {
+			return false, fmt.Errorf("%w: %v", ErrAuthorizationNotGranted, err)
+		}
+		if !allowed {
+			return false, ErrAuthorizationNotGranted
+		}
+		return true, nil
+	}
 	if targetSlug == currentSlug && !req.PersistentSwitch {
 		return true, nil
 	}
@@ -180,6 +220,112 @@ func (s *Service) Authorize(ctx context.Context, req AuthorizationRequest) (bool
 		return false, fmt.Errorf("%w após autorização: %s", ErrTargetUnavailable, targetSlug)
 	}
 	return true, nil
+}
+
+type JobGrantState struct {
+	JobID             string                  `json:"jobId"`
+	JobSlug           string                  `json:"jobSlug"`
+	JobName           string                  `json:"jobName"`
+	ProfileExpression string                  `json:"profileExpression"`
+	Fingerprint       string                  `json:"fingerprint"`
+	Dynamic           bool                    `json:"dynamic"`
+	Grants            []jobprofilegrant.Grant `json:"grants"`
+}
+
+func (s *Service) JobGrantState(ctx context.Context, jobID string) (JobGrantState, error) {
+	if s == nil || s.grants == nil {
+		return JobGrantState{}, errors.New("store de grants indisponível")
+	}
+	grants, config, err := s.grants.ListValid(ctx, jobID)
+	if err != nil {
+		return JobGrantState{}, err
+	}
+	return JobGrantState{
+		JobID:             config.JobID,
+		JobSlug:           config.JobSlug,
+		JobName:           config.JobName,
+		ProfileExpression: config.ProfileExpression,
+		Fingerprint:       config.Fingerprint,
+		Dynamic:           strings.Contains(config.ProfileExpression, "{{"),
+		Grants:            grants,
+	}, nil
+}
+
+// AuthorizeJobTarget cria um grant somente após decisão explícita no desktop.
+// Job, fingerprint e profile são revalidados depois da resposta.
+func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.Surface, jobID, targetSlug string) (bool, error) {
+	if s == nil || s.grants == nil || s.asker == nil {
+		return false, questionnaire.ErrAskerUnavailable
+	}
+	if !surface.AllowsPersistentAuthorization() {
+		return false, questionnaire.ErrNoInterlocutor
+	}
+	before, err := s.grants.CurrentDelegation(ctx, jobID)
+	if err != nil {
+		return false, err
+	}
+	targetSlug = strings.TrimSpace(targetSlug)
+	if err := s.ValidateTarget(ctx, targetSlug); err != nil {
+		return false, err
+	}
+	target, _ := s.profiles.Get(targetSlug)
+	targetName := targetSlug
+	if target != nil && strings.TrimSpace(target.Name) != "" {
+		targetName = strings.TrimSpace(target.Name)
+	}
+	response, err := s.asker.Ask(ctx, surface, jobAuthorizationPayload(before.JobName, targetName))
+	if err != nil {
+		return false, err
+	}
+	actionID, ok := questionnaire.DecisionActionID(response)
+	if !ok || actionID != ActionAllow {
+		return false, nil
+	}
+	after, err := s.grants.CurrentDelegation(ctx, jobID)
+	if err != nil {
+		return false, err
+	}
+	if after.JobID != before.JobID || after.Fingerprint != before.Fingerprint {
+		return false, errors.New("job ou configuração mudou durante a autorização")
+	}
+	if err := s.ValidateTarget(ctx, targetSlug); err != nil {
+		return false, err
+	}
+	if err := s.grants.Grant(ctx, after.JobID, targetSlug, after.Fingerprint, "desktop"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) RevokeJobTarget(ctx context.Context, jobID, targetSlug string) error {
+	if s == nil || s.grants == nil {
+		return errors.New("store de grants indisponível")
+	}
+	return s.grants.Revoke(ctx, jobID, targetSlug, "revogação no desktop")
+}
+
+func jobAuthorizationPayload(jobName, targetName string) questionnaire.RequestPayload {
+	params := map[string]any{"jobName": jobName, "targetProfile": targetName}
+	return questionnaire.RequestPayload{
+		Kind:  questionnaire.KindDecision,
+		Title: questionnaire.Keyed("app.questionnaire.jobProfileGrant.title", "Autorizar profile para este job?"),
+		Description: questionnaire.KeyedWith(
+			"app.questionnaire.jobProfileGrant.description",
+			params,
+			fmt.Sprintf("O job %s poderá executar sozinho usando somente o profile %s enquanto essa configuração não mudar.", jobName, targetName),
+		),
+		Actions: []questionnaire.DecisionAction{
+			{
+				ID: ActionAllow, Label: questionnaire.KeyedWith("app.questionnaire.jobProfileGrant.allow", params, "Autorizar "+targetName),
+				Variant: "primary", Primary: true, Polarity: questionnaire.DecisionPolarityAffirmative, Scope: questionnaire.DecisionScopePersistent,
+			},
+			{
+				ID: ActionDeny, Label: questionnaire.Keyed("app.questionnaire.jobProfileGrant.deny", "Não autorizar"),
+				Variant: "secondary", Polarity: questionnaire.DecisionPolarityNegative, Scope: questionnaire.DecisionScopePersistent,
+			},
+		},
+		AllowCancel: true,
+	}
 }
 
 func authorizationPayload(req AuthorizationRequest, currentName, targetName string) questionnaire.RequestPayload {

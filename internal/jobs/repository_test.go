@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -35,6 +36,7 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 		&database.TagAssignment{},
 		&database.JobPipeline{},
 		&database.Job{},
+		&database.JobProfileGrant{},
 		&database.JobTrigger{},
 		&database.JobRun{},
 		&database.JobEvent{},
@@ -57,6 +59,33 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 		t.Fatalf("seed tool catalog: %v", err)
 	}
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
+}
+
+func TestImportedJobCannotCreateProfileGrantFromApprovedFlag(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var job Job
+	if err := json.Unmarshal([]byte(`{
+		"id":"importado","name":"Importado","enabled":true,"tool":"subagent",
+		"inputs":{"profile":"pesquisa","prompt":"x","approved":true},
+		"approved":true,"triggers":[{"type":"manual"}]
+	}`), &job); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveJob(userA, &job); err != nil {
+		t.Fatal(err)
+	}
+	var grants int64
+	if err := repo.db.Model(&database.JobProfileGrant{}).Count(&grants).Error; err != nil {
+		t.Fatal(err)
+	}
+	if grants != 0 {
+		t.Fatalf("importação criou %d grant(s) a partir de approved", grants)
+	}
 }
 
 func TestDBRepositoryJobsAreScopedByUser(t *testing.T) {

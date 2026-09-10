@@ -177,6 +177,15 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			}
 
 			runCurrentUpgrade(t, database)
+			if !database.Migrator().HasTable(&JobProfileGrant{}) {
+				t.Fatal("upgrade não criou job_profile_grants")
+			}
+			if got := rowCount(t, database, "job_profile_grants"); got != 0 {
+				t.Fatalf("upgrade não pode fabricar grants: %d", got)
+			}
+			if got := queryCount(t, database, `SELECT COUNT(*) FROM pragma_index_list('job_profile_grants') WHERE name = 'ux_job_profile_grants_exact' AND "unique" = 1`); got != 1 {
+				t.Fatalf("índice unique exato ausente: %d", got)
+			}
 			verifyPublishedFixtureData(t, database)
 			afterFirstBoot := populatedTableCounts(t, database)
 			if !reflect.DeepEqual(afterFirstBoot, expectedCounts) {

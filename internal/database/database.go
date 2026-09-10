@@ -139,6 +139,7 @@ func Init() error {
 		&TagAssignment{},
 		&JobPipeline{},
 		&Job{},
+		&JobProfileGrant{},
 		&JobTrigger{},
 		&JobRun{},
 		&JobEvent{},

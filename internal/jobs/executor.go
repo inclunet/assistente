@@ -564,9 +564,13 @@ func (e *JobExecutor) runProvenance(job *Job, trigCtx *TriggerContext, rl *RunLo
 	chain := make([]string, 0, len(history)+1)
 	chain = append(chain, history...)
 	chain = append(chain, job.ID)
+	sourceJobID := strings.TrimSpace(job.DatabaseID)
+	if sourceJobID == "" {
+		sourceJobID = job.ID
+	}
 	return eventctx.Provenance{
 		Source:       "job",
-		SourceJobID:  job.ID,
+		SourceJobID:  sourceJobID,
 		ChainID:      chainID,
 		ChainHistory: chain,
 	}
