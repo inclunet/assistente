@@ -58,6 +58,9 @@ API conceitual (frontend):
 - `body` opcional para conteúdo curto/legado;
 - `readingRegions[]` para conteúdo longo somente leitura (comando, URL, path,
   diff), com nome traduzível e conteúdo cru separado;
+- `severity` explícita (`permission`/`destructive`/`info`), usada para
+  apresentação e nunca inferida de `variant`, cor, label ou posição; decisões
+  backend antigas sem o campo usam `permission`;
 - `actions[]`: lista ordenada de ações
   `{ id, label, variant, shortcut?, primary?, polarity?, scope? }`
 - `onAction(id)` / cancel via ESC ou ação explícita de cancelar
@@ -140,11 +143,25 @@ Enquanto um DecisionDialog (ou Modal de decisão) for o topo do stack:
 
 ### D7. Foco inicial
 
-| Severidade | Foco inicial |
-|------------|--------------|
-| Destrutivo (apagar, remover) | Ação de cancelar / segura |
-| Permissão / shell / rede | Âncora da ilha readonly (comando/URL) se houver; senão primeira ação **segura** (ex. “Permitir uma vez”, não “sempre”) |
-| Artefato não verificado (AgentInstall) | Cancelar (já documentado em AEP-0086) |
+A prioridade global, para qualquer severidade, é:
+
+1. região documental marcada com `autoFocus`;
+2. primeira região documental;
+3. body somente leitura focalizável;
+4. ação afirmativa marcada como `primary`;
+5. primeira ação.
+
+`safeActionId`, variante visual e cor não governam foco. Não há exceção para
+exclusões destrutivas nem para artefatos não verificados. `Enter` sem
+modificador continua ativando apenas o botão efetivamente focado; quando o
+foco está no conteúdo, não confirma nem cancela. A ordem DOM
+primária→cancelar da AEP-0090 permanece inalterada.
+
+**Trade-off aceito:** após ler ou tabular até a ação afirmativa, um Enter pode
+executar inclusive uma exclusão. Em troca, o diálogo começa no conteúdo que
+explica a decisão — ou, sem conteúdo, na ação afirmativa — de forma uniforme e
+previsível. A proteção contra acionamento implícito fica no foco real e nos
+atalhos com modificador, não em deslocar sistematicamente o foco para Cancelar.
 
 ### D8. Backend: kind `decision` no questionnaire (ou payload equivalente)
 
@@ -153,6 +170,7 @@ um payload de decisão:
 
 ```text
 kind: decision
+severity?: permission | destructive | info
 title, description, body?
 actions: [{ id, label(QuestionnaireText), variant, shortcut?(QuestionnaireText) }]
 ```
@@ -165,6 +183,10 @@ actions: [{ id, label(QuestionnaireText), variant, shortcut?(QuestionnaireText) 
 
 O frontend renderiza `DecisionDialog`. Resposta: `{ actionId }` ou
 `cancelled: true`.
+
+`severity` atravessa o evento backend sem conversão. O default
+`permission` existe no host para compatibilidade; produtores realmente
+destrutivos, como exclusão de mensagem, devem declarar `destructive`.
 
 Compatibilidade com o padrão antigo (rádio único + submit mapeado para
 DecisionDialog) **não foi implementada**. Os produtores de permissão emitem
@@ -265,6 +287,18 @@ identidade do pedido.
 - [x] testes de ARIA, foco em frames, Antes/Depois, fila, Escape, atalhos e axe;
 - [x] documentação de usuário e checklist NVDA atualizados.
 
+### Fase 6 — atalhos de filesystem e foco global
+([issues #723](https://github.com/inclunet/assistente/issues/723) e
+[#724](https://github.com/inclunet/assistente/issues/724))
+
+- [x] `polarity`/`scope` efetivos no trust de filesystem, sem ocupar o mesmo
+      chord com alternativas de pasta/profile/global;
+- [x] severidade explícita no payload backend e default `permission`, sem
+      inferência por `variant`;
+- [x] foco global conteúdo→primária em todas as severidades e remoção dos
+      overrides de Cancelar;
+- [x] produtores frontend inequívocos anotados e contratos/testes atualizados.
+
 ### Checklist NVDA (validação interativa)
 
 Itens com cobertura de teste automatizada (unitário / e2e parcial):
@@ -283,7 +317,8 @@ Passo do mantenedor (NVDA no Windows), uma vez após o merge:
 
 - [ ] Shell: abertura fala a pergunta; `Alt+Tab` + `Ctrl+Shift+R` repete
 - [ ] Rede: cada escopo é botão (sem rádio); Tab chega em Negar por último
-- [ ] ACP: allow-once / always / deny como botões; foco inicial seguro
+- [ ] ACP: allow-once / always / deny como botões; foco inicial no conteúdo
+      quando presente, senão em allow-once
 - [ ] Exclusão via `useConfirm`: anúncio + alerta + mnemônicos
 
 ## Riscos
@@ -307,6 +342,9 @@ Passo do mantenedor (NVDA no Windows), uma vez após o merge:
 - [x] ConfirmDialog UI alinhado ao mesmo componente/contrato.
 - [x] QuestionnaireDialog multi-campo preservado onde faz sentido.
 - [x] AEP-0090 respeitado na ordem das ações.
+- [x] Foco inicial independe da severidade e segue conteúdo documental →
+      ação primária; exclusões e artefatos não verificados não focam Cancelar
+      por padrão.
 - [x] Família universal de atalhos por polaridade + escopo implementada com
       metadados explícitos, colisões seguras, ajuda/ARIA e compatibilidade com
       ações legadas (`DecisionDialog.test.tsx`,

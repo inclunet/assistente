@@ -393,11 +393,10 @@ O app passa a oferecer a instalação, com uma confirmação que não é a de se
   ausência — "este agente não publica verificação de integridade: o aplicativo
   não tem como conferir que o arquivo baixado é o que o registro curou" —, além
   de tudo o que o D3 já manda mostrar. Nada de ícone de alerta como único sinal.
-- **A ação afirmativa não é o botão padrão do diálogo.** O Enter ativa o botão
-  que estiver com o foco, como em qualquer diálogo; o que esta regra decide é
-  onde o foco começa, e ele começa em cancelar. Escape fecha sem instalar.
-  Instalar exige mover o foco até o outro botão — e é esse movimento que separa
-  ler do reflexo de confirmar.
+- **A ação afirmativa não é implícita.** A revisão da AEP-0091 D7 substituiu a
+  antiga exceção que focava Cancelar: o foco começa nos detalhes documentais.
+  Enter ativa somente um botão efetivamente focado e, sobre os detalhes, não
+  instala nem cancela. Escape fecha sem instalar.
 - **Não existe interruptor global.** Nem "não perguntar de novo", nem preferência
   em Configurações que desligue a pergunta. Cada agente não verificado pergunta,
   toda vez que for instalado. Uma decisão que vale para um artefato não vale para
@@ -1049,8 +1048,8 @@ O Cursor é o caso principal, e é o que precisa ficar bom.
 
 **Aceite:** instalar o Cursor pelo catálogo é possível e passa por uma
 confirmação que diz, em texto lido por leitor de telas, que não há como conferir
-a integridade do arquivo; com o foco onde o diálogo o deixa, Enter cancela e
-Escape fecha, e instalar exige mover o foco até o botão afirmativo; depois de
+a integridade do arquivo; o foco começa nos detalhes, Enter ali não instala e
+Escape fecha; depois de
 instalado, o item continua dizendo que aquela instalação não foi verificada;
 baixar de novo a mesma versão com artefato diferente é recusado com o motivo;
 não há em lugar nenhum uma preferência que desligue a pergunta.
