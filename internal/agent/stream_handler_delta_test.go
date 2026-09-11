@@ -221,6 +221,37 @@ func TestAgenticStreamHandlerResetDescartaResultadoEDiagnosticos(t *testing.T) {
 	}
 }
 
+func TestAgenticDiscardReasoningPreservaDiagnosticosTerminais(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
+	handler.OnThinking("reasoning descartado")
+	handler.OnFinishReason(llm.FinishInfo{Provider: "provider-1", ResponseBytes: 0})
+	handler.OnUsage(llm.Usage{CompletionTokens: 4, OutputTokensReported: true})
+
+	handler.DiscardStreamReasoning()
+	handler.OnError("streaming_interrupted")
+
+	result := handler.Result()
+	if result.Reasoning != "" || result.Finish.Provider != "provider-1" ||
+		!result.Usage.OutputTokensReported || result.Usage.CompletionTokens != 4 {
+		t.Fatalf("descarte terminal alterou diagnósticos: %+v", result)
+	}
+	thinking := emitter.find("chat:thinking")
+	doneCount := 0
+	for _, captured := range thinking {
+		event := captured.data.(ports.ThinkingEvent)
+		if event.Done {
+			doneCount++
+			if event.Content != "" {
+				t.Fatalf("reasoning descartado foi promovido: %+v", event)
+			}
+		}
+	}
+	if doneCount != 1 {
+		t.Fatalf("eventos terminal de thinking=%d, esperado 1", doneCount)
+	}
+}
+
 func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	emitter := &captureEmitter{}
 	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})

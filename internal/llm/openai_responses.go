@@ -164,6 +164,7 @@ func (p *OpenAIProvider) streamChatResponses(
 				bk = nextBackoff(bk, maxBk)
 				continue
 			}
+			resetStreamAttempt(handler)
 			handler.OnError("Máximo de tentativas de streaming excedido")
 			return
 		}
@@ -286,11 +287,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		if thinkingFinished || fullReasoning.Len() == 0 {
 			return
 		}
-		handler.OnThinkingDone("")
+		discardStreamReasoning(handler)
 		thinkingFinished = true
 		isThinking = false
 		thinkingBuffer.Reset()
-		resetStreamAttempt(handler)
 	}
 	reportCurrentDiagnostics := func() {
 		model := lastModel

@@ -129,6 +129,22 @@ type StreamAttemptResetSink interface {
 	ResetStreamAttempt()
 }
 
+// StreamReasoningDiscardSink limpa apenas o reasoning transitório, sem apagar
+// usage/finish já calculados para um desfecho terminal.
+type StreamReasoningDiscardSink interface {
+	DiscardStreamReasoning()
+}
+
+func discardStreamReasoning(handler StreamHandler) {
+	if sink, ok := handler.(StreamReasoningDiscardSink); ok {
+		sink.DiscardStreamReasoning()
+		return
+	}
+	// Handler externo sem estado conhecido: ao menos encerra a live region sem
+	// promover o conteúdo descartado.
+	handler.OnThinkingDone("")
+}
+
 func resetStreamAttempt(handler StreamHandler) {
 	if sink, ok := handler.(StreamAttemptResetSink); ok {
 		sink.ResetStreamAttempt()

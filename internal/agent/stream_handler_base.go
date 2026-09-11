@@ -267,6 +267,16 @@ func (h *BaseStreamHandler) FinishThinkingIfActive() {
 // providers só podem chamar esta capability quando repetir não duplicará texto
 // nem efeitos já entregues.
 func (h *BaseStreamHandler) ResetStreamAttempt() {
+	h.DiscardStreamReasoning()
+	h.mu.Lock()
+	h.errorNotRetryable = false
+	h.mu.Unlock()
+}
+
+// DiscardStreamReasoning fecha o estado visual de thinking e apaga somente o
+// raciocínio transitório. Usage e finish pertencem aos handlers concretos e
+// permanecem intactos para o erro terminal.
+func (h *BaseStreamHandler) DiscardStreamReasoning() {
 	h.mu.Lock()
 	active := h.isThinking || h.pendingThinkingEmit || h.thinkingTimer != nil
 	hadReasoning := h.accumulatedReasoning != ""
@@ -278,7 +288,6 @@ func (h *BaseStreamHandler) ResetStreamAttempt() {
 	h.isThinking = false
 	h.accumulatedReasoning = ""
 	h.lastThinkingEmitTime = time.Time{}
-	h.errorNotRetryable = false
 	h.mu.Unlock()
 
 	if active || hadReasoning {

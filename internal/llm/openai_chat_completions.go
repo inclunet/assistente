@@ -125,6 +125,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 			continue
 		}
 
+		resetStreamAttempt(handler)
 		handler.OnError("Máximo de tentativas de streaming excedido")
 	}
 }
@@ -172,11 +173,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		if thinkingFinished || fullReasoning.Len() == 0 {
 			return
 		}
-		handler.OnThinkingDone("")
+		discardStreamReasoning(handler)
 		thinkingFinished = true
 		isThinking = false
 		thinkingBuffer.Reset()
-		resetStreamAttempt(handler)
 	}
 
 	// Coletar tool calls finalizadas durante streaming

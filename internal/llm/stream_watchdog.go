@@ -110,15 +110,23 @@ func (w *streamWatchdog) Stop() {
 	// Se o deadline já venceu mas a goroutine ainda não consumiu timer.C,
 	// registre a expiração antes de cancelar watchCtx. Isso remove a escolha
 	// não determinística do select entre timer.C e watchCtx.Done no EOF.
-	w.mu.Lock()
-	if !w.timedOut && w.parent.Err() == nil && time.Since(w.lastActivity) >= w.idle {
-		w.timedOut = true
-	}
-	w.mu.Unlock()
+	w.markExpiredDeadline()
 	w.cancel()
 	select {
 	case <-w.done:
 	case <-time.After(2 * time.Second):
+	}
+	// O deadline pode vencer entre a primeira inspeção e cancel(). Reavaliar
+	// depois de a goroutine sair fecha essa última janela sem confundir
+	// cancelamento explícito do contexto pai com timeout.
+	w.markExpiredDeadline()
+}
+
+func (w *streamWatchdog) markExpiredDeadline() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.timedOut && w.parent.Err() == nil && time.Since(w.lastActivity) >= w.idle {
+		w.timedOut = true
 	}
 }
 

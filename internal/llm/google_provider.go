@@ -312,6 +312,7 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 			continue
 		}
 
+		resetStreamAttempt(handler)
 		handler.OnError("MÃƒÆ’Ã‚Â¡ximo de tentativas de streaming excedido")
 	}
 }
@@ -346,6 +347,10 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 
 			// Cancelamento do usuÃƒÂ¡rio (contexto pai): nunca retentar.
 			if ctx.Err() != nil {
+				if fullReasoning.Len() > 0 {
+					handler.OnThinkingDone(fullReasoning.String())
+				}
+				reportCurrentDiagnostics()
 				handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 				return true
 			}
@@ -418,6 +423,21 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 			}
 
 			if part.Text != "" {
+				if ctx.Err() != nil {
+					if fullReasoning.Len() > 0 {
+						handler.OnThinkingDone(fullReasoning.String())
+					}
+					return true
+				}
+				if wd.TimedOut() {
+					if !emittedNonRetryableEffect {
+						return false
+					}
+					reportCurrentDiagnostics()
+					markErrorNotRetryable(handler)
+					handler.OnError(streamIdleErrorMessage)
+					return true
+				}
 				fullResponse.WriteString(part.Text)
 				emittedNonRetryableEffect = true
 				handler.OnChunk(part.Text)
