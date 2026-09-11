@@ -121,6 +121,20 @@ type TurnNoticeSink interface {
 	OnTurnNotice(notice TurnNotice)
 }
 
+// StreamAttemptResetSink descarta o estado transitório de uma tentativa que
+// será repetida pelo mesmo provider. É opcional porque handlers externos podem
+// não acumular estado; os handlers do chat implementam a capability para que
+// thinking e timers da tentativa descartada não vazem para a próxima.
+type StreamAttemptResetSink interface {
+	ResetStreamAttempt()
+}
+
+func resetStreamAttempt(handler StreamHandler) {
+	if sink, ok := handler.(StreamAttemptResetSink); ok {
+		sink.ResetStreamAttempt()
+	}
+}
+
 // NonRetryableErrorSink recebe do provider o aviso de que o erro que vem a
 // seguir não pode ser repetido sozinho pela auto-recuperação.
 //

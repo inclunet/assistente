@@ -752,21 +752,38 @@ func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int
 
 func (r *agenticLoopRunner) buildErrorDoneEventWithContext(ctx context.Context, errMessage string, iteration int) ports.DoneEvent {
 	event := ports.DoneEvent{
-		ConversationID:     r.conversationID,
-		TurnID:             r.turnID,
-		AssistantMessageID: r.assistantMessageID,
-		SurfaceOrigin:      r.surfaceOrigin,
-		HadToolCalls:       r.totalToolCallCount > 0,
-		Reason:             "error",
-		ErrorMessage:       errMessage,
-		IterationCount:     iteration + 1,
-		ToolCallCount:      r.totalToolCallCount,
-		ToolsUsed:          sortedToolNames(r.toolsUsedSet),
-		PromptTokens:       r.lastUsage.PromptTokens,
-		CompletionTokens:   r.lastUsage.CompletionTokens,
-		CacheReadTokens:    r.lastUsage.CacheReadTokens,
-		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
-		CacheMissTokens:    r.lastUsage.CacheMissTokens,
+		ConversationID:       r.conversationID,
+		TurnID:               r.turnID,
+		AssistantMessageID:   r.assistantMessageID,
+		SurfaceOrigin:        r.surfaceOrigin,
+		HadToolCalls:         r.totalToolCallCount > 0,
+		Reason:               "error",
+		ErrorMessage:         errMessage,
+		IterationCount:       iteration + 1,
+		ToolCallCount:        r.totalToolCallCount,
+		ToolsUsed:            sortedToolNames(r.toolsUsedSet),
+		PromptTokens:         r.lastUsage.PromptTokens,
+		CompletionTokens:     r.lastUsage.CompletionTokens,
+		CacheReadTokens:      r.lastUsage.CacheReadTokens,
+		CacheWriteTokens:     r.lastUsage.CacheWriteTokens,
+		CacheMissTokens:      r.lastUsage.CacheMissTokens,
+		FinishReason:         string(r.lastFinish.Reason),
+		RawReason:            r.lastFinish.RawReason,
+		Provider:             r.lastFinish.Provider,
+		Model:                r.lastFinish.Model,
+		EffectiveOutputLimit: r.lastFinish.OutputLimit,
+	}
+	if r.lastFinish.ResponseBytes > 0 {
+		responseBytes := r.lastFinish.ResponseBytes
+		event.ResponseBytes = &responseBytes
+	}
+	if r.lastDiagnosticUsage.OutputTokensReported {
+		outputTokens := r.lastDiagnosticUsage.CompletionTokens
+		event.OutputTokens = &outputTokens
+	}
+	if r.lastDiagnosticUsage.ReasoningTokensReported {
+		reasoningTokens := r.lastDiagnosticUsage.ReasoningTokens
+		event.ReasoningTokens = &reasoningTokens
 	}
 	event.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
 	return event

@@ -101,6 +101,63 @@ func TestBaseStreamHandlerFlushPreservesSequenceAndRetryReset(t *testing.T) {
 	}
 }
 
+func TestBaseStreamHandlerResetStreamAttemptDescartaReasoningAnterior(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := &BaseStreamHandler{
+		Emitter:            emitter,
+		ConversationID:     "conversation-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "assistant-1",
+	}
+
+	handler.OnThinking("tentativa descartada")
+	handler.ResetStreamAttempt()
+	handler.OnThinking("tentativa válida")
+	handler.OnThinkingDone("tentativa válida")
+
+	_, reasoning := handler.Finalize()
+	if reasoning != "tentativa válida" {
+		t.Fatalf("reasoning=%q; tentativa descartada vazou para o resultado", reasoning)
+	}
+	thinkingEvents := emitter.find("chat:thinking")
+	if len(thinkingEvents) < 4 {
+		t.Fatalf("eventos de thinking=%d, esperava início/fim das duas tentativas", len(thinkingEvents))
+	}
+	var resetDone *ports.ThinkingEvent
+	for _, captured := range thinkingEvents {
+		event := captured.data.(ports.ThinkingEvent)
+		if event.Done && event.Content == "tentativa descartada" {
+			resetDone = &event
+			break
+		}
+	}
+	if resetDone == nil {
+		t.Fatal("reset não encerrou o thinking descartado")
+	}
+}
+
+func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
+	handler := NewAgenticStreamHandler(&captureEmitter{}, "conversation-1", 0, nil, "turn-1")
+	handler.OnChunk("parcial")
+	handler.OnThinking("raciocínio")
+	handler.OnFinishReason(llm.FinishInfo{
+		Provider:      "provider-1",
+		Model:         "model-1",
+		OutputLimit:   4096,
+		ResponseBytes: 7,
+	})
+	handler.OnError("streaming_interrupted")
+
+	result := handler.Result()
+	if result.FullResponse != "parcial" || result.Reasoning != "raciocínio" {
+		t.Fatalf("parcial perdido no erro: %+v", result)
+	}
+	if result.Finish.Provider != "provider-1" || result.Finish.Model != "model-1" ||
+		result.Finish.OutputLimit != 4096 || result.Finish.ResponseBytes != 7 {
+		t.Fatalf("diagnóstico perdido no erro: %+v", result.Finish)
+	}
+}
+
 func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	emitter := &captureEmitter{}
 	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})

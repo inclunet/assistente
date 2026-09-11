@@ -472,9 +472,12 @@ export function startChatEventController({
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
 
-  const updateEmptyAssistantWithError = (message: string) => {
-    if (getCurrentAssistantContent().trim()) return;
-    updateStreamingMessage(i18next.t('chat.errorPrefix', { message }));
+  const updateAssistantWithError = (message: string) => {
+    const currentContent = getCurrentAssistantContent().trimEnd();
+    const formattedError = i18next.t('chat.errorPrefix', { message });
+    updateStreamingMessage(
+      currentContent ? `${currentContent}\n\n${formattedError}` : formattedError,
+    );
   };
 
   const existingCleanup = activeControllers.get(conversationIdStr);
@@ -629,7 +632,7 @@ export function startChatEventController({
       });
       playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(errorMessage);
+        updateAssistantWithError(errorMessage);
       } else {
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
@@ -809,7 +812,7 @@ export function startChatEventController({
       });
       playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(errorMessage);
+        updateAssistantWithError(errorMessage);
       } else {
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }

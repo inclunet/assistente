@@ -246,6 +246,36 @@ func (h *BaseStreamHandler) FinishThinkingIfActive() {
 	})
 }
 
+// ResetStreamAttempt encerra o thinking ainda ativo e descarta apenas o
+// raciocínio da tentativa que será repetida. O conteúdo visível não é apagado:
+// providers só podem chamar esta capability quando repetir não duplicará texto
+// nem efeitos já entregues.
+func (h *BaseStreamHandler) ResetStreamAttempt() {
+	h.mu.Lock()
+	active := h.isThinking || h.pendingThinkingEmit || h.thinkingTimer != nil
+	reasoning := h.accumulatedReasoning
+	if h.thinkingTimer != nil {
+		h.thinkingTimer.Stop()
+		h.thinkingTimer = nil
+	}
+	h.pendingThinkingEmit = false
+	h.isThinking = false
+	h.accumulatedReasoning = ""
+	h.lastThinkingEmitTime = time.Time{}
+	h.mu.Unlock()
+
+	if active {
+		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			Content:            reasoning,
+			Done:               true,
+			SurfaceOrigin:      h.SurfaceOrigin,
+		})
+	}
+}
+
 // cancelPendingChunkTimer cancela o timer de throttle de chunk, se houver.
 // Deve ser chamado com h.mu locked.
 func (h *BaseStreamHandler) cancelPendingChunkTimer() {

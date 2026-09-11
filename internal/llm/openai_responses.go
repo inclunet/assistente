@@ -109,6 +109,7 @@ func (p *OpenAIProvider) streamChatResponses(
 		if result.done {
 			return
 		}
+		resetStreamAttempt(handler)
 		if result.nativeMCPUnsupported {
 			// O modelo/endpoint rejeitou type:"mcp". Dispara o auto-ajuste persistido
 			// do perfil (nil→false) e degrada nativo→adapter.
@@ -258,13 +259,25 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
-	var emittedAnything bool
+	// Texto visível e eventos MCP impedem retry automático porque seriam
+	// duplicados. Thinking é descartável e não entra nesta barreira.
+	var emittedNonRetryableEffect bool
 	var lastUsage Usage
 	var lastUsageRaw any
 	var lastModel string
 	var finish FinishInfo
 	var isThinking bool
 	var thinkingBuffer strings.Builder
+	thinkingFinished := false
+	finishThinking := func() {
+		if thinkingFinished || fullReasoning.Len() == 0 {
+			return
+		}
+		handler.OnThinkingDone(fullReasoning.String())
+		thinkingFinished = true
+		isThinking = false
+		thinkingBuffer.Reset()
+	}
 
 	type pendingFuncCall struct {
 		ID   string
@@ -300,24 +313,20 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				if content != "" {
 					select {
 					case <-ctx.Done():
-						if isThinking || fullReasoning.Len() > 0 {
-							handler.OnThinkingDone(fullReasoning.String())
-						}
+						finishThinking()
 						return mcpStreamAttemptResult{done: true}
 					default:
 					}
 					if wd.TimedOut() {
-						if isThinking || fullReasoning.Len() > 0 {
-							handler.OnThinkingDone(fullReasoning.String())
-						}
-						if !emittedAnything {
+						finishThinking()
+						if !emittedNonRetryableEffect {
 							return mcpStreamAttemptResult{retry: true}
 						}
 						handler.OnError(streamIdleErrorMessage)
 						return mcpStreamAttemptResult{done: true}
 					}
 					fullResponse.WriteString(content)
-					emittedAnything = true
+					emittedNonRetryableEffect = true
 					handler.OnChunk(content)
 				}
 			}
@@ -329,7 +338,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			ev := event.AsResponseReasoningSummaryTextDelta()
 			if ev.Delta != "" {
 				fullReasoning.WriteString(ev.Delta)
-				emittedAnything = true
 				handler.OnThinking(ev.Delta)
 			}
 
@@ -353,7 +361,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 					ServerLabel: ev.Item.ServerLabel,
 				}
 				activeMCPCalls[ev.Item.ID] = mc
-				emittedAnything = true
+				emittedNonRetryableEffect = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mc.ID,
 					Name:        mc.Name,
@@ -373,7 +381,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				if args == "" {
 					args = ev.Item.Arguments
 				}
-				emittedAnything = true
+				emittedNonRetryableEffect = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          ev.Item.ID,
 					Name:        ev.Item.Name,
@@ -446,7 +454,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if mc, ok := activeMCPCalls[ev.ItemID]; ok {
 				fallbackServer = mc.ServerLabel
 			}
-			if failure := inferMCPFailure(MCPFailureStageCall, "", ev.RawJSON(), fallbackServer, mcpServers); failure != nil && !emittedAnything {
+			if failure := inferMCPFailure(MCPFailureStageCall, "", ev.RawJSON(), fallbackServer, mcpServers); failure != nil && !emittedNonRetryableEffect {
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
 
@@ -457,7 +465,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.mcp_list_tools.failed":
 			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
 			ev := event.AsResponseMcpListToolsFailed()
-			if failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
+			if failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
 
@@ -512,16 +520,16 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				errMsg = ev.Response.Error.Message
 			}
 			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Response FAILED: %s", errMsg)
-			if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errMsg) {
+			if len(mcpServers) > 0 && !emittedNonRetryableEffect && looksLikeNativeMCPUnsupported(errMsg) {
 				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 			}
-			if !emittedAnything && looksLikePromptCacheHintUnsupported(errMsg) {
+			if !emittedNonRetryableEffect && looksLikePromptCacheHintUnsupported(errMsg) {
 				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 			}
-			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
+			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
-			if !emittedAnything && isRetryableError(errMsg) {
+			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
 				return mcpStreamAttemptResult{retry: true}
 			}
 			handler.OnError(errMsg)
@@ -538,6 +546,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
+			finishThinking()
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 			return mcpStreamAttemptResult{done: true}
 		}
@@ -545,23 +554,25 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
-			if !emittedAnything {
+			finishThinking()
+			if !emittedNonRetryableEffect {
 				return mcpStreamAttemptResult{retry: true}
 			}
 			handler.OnError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
 
-		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
+		if len(mcpServers) > 0 && !emittedNonRetryableEffect && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
-		if !emittedAnything && looksLikePromptCacheHintUnsupported(errStr) {
+		if !emittedNonRetryableEffect && looksLikePromptCacheHintUnsupported(errStr) {
 			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 		}
-		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
+		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
-		if !emittedAnything && isRetryableError(errStr) {
+		if !emittedNonRetryableEffect && isRetryableError(errStr) {
+			finishThinking()
 			return mcpStreamAttemptResult{retry: true}
 		}
 		handler.OnError(errStr)
@@ -570,14 +581,17 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
-	// truncada. Nesse caso não há conclusão válida a entregar.
+	// truncada. Parar e aguardar o watchdog fecha a janela entre consultar
+	// TimedOut e entregar OnDone.
+	wd.Stop()
 	if wd.TimedOut() {
 		logging.Logger(ctx, "llm.openai-responses").ErrorContext(
 			ctx,
 			"stream encerrou junto com timeout de inatividade",
 			"partial_bytes", fullResponse.Len(),
 		)
-		if !emittedAnything {
+		finishThinking()
+		if !emittedNonRetryableEffect {
 			return mcpStreamAttemptResult{retry: true}
 		}
 		handler.OnError(streamIdleErrorMessage)
@@ -589,37 +603,21 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	// Fallback de conclusão de MCP nativo para itens que receberam
 	// response.mcp_call.completed mas não response.output_item.done. Após o loop,
-	// emittedAnything já não é mais lido (servia para gatear fallback/falha durante
-	// o stream), então não o reatribuímos aqui.
+	// emittedNonRetryableEffect já não é mais lido (servia para gatear
+	// fallback/falha durante o stream), então não o reatribuímos aqui.
 	flushPendingCompletedMCPCalls(activeMCPCalls, handler)
 
 	if isThinking && thinkingBuffer.Len() > 0 {
 		select {
 		case <-ctx.Done():
-			if fullReasoning.Len() > 0 {
-				handler.OnThinkingDone(fullReasoning.String())
-			}
+			finishThinking()
 			return mcpStreamAttemptResult{done: true}
 		default:
-		}
-		if wd.TimedOut() {
-			thinkingBuffer.Reset()
-			isThinking = false
-			if fullReasoning.Len() > 0 {
-				handler.OnThinkingDone(fullReasoning.String())
-			}
-			if !emittedAnything {
-				return mcpStreamAttemptResult{retry: true}
-			}
-			handler.OnError(streamIdleErrorMessage)
-			return mcpStreamAttemptResult{done: true}
 		}
 		thinkingBuffer.Reset()
 		isThinking = false
 	}
-	if fullReasoning.Len() > 0 {
-		handler.OnThinkingDone(fullReasoning.String())
-	}
+	finishThinking()
 	if finish.Reason == FinishReasonMaxTokens && len(activeFuncCalls) > 0 {
 		itemIDs := make([]string, 0, len(activeFuncCalls))
 		for itemID := range activeFuncCalls {
@@ -647,15 +645,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
 	select {
 	case <-ctx.Done():
+		finishThinking()
 		return mcpStreamAttemptResult{done: true}
 	default:
-	}
-	if wd.TimedOut() {
-		if !emittedAnything {
-			return mcpStreamAttemptResult{retry: true}
-		}
-		handler.OnError(streamIdleErrorMessage)
-		return mcpStreamAttemptResult{done: true}
 	}
 	ReportFinishReason(handler, finish)
 

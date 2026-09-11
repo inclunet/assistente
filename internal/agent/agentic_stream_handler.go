@@ -160,10 +160,19 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 }
 
 func (h *AgenticStreamHandler) OnError(err string) {
-	h.FlushStream()
-
+	h.FinishThinkingIfActive()
+	content, reasoning := h.Finalize()
+	h.mu.Lock()
+	finish := h.finish
+	mcpEvents := h.nativeMCPEvents
+	h.nativeMCPEvents = nil
+	h.mu.Unlock()
 	h.result = AgenticResult{
-		Error: err,
+		FullResponse:    content,
+		Reasoning:       reasoning,
+		NativeMCPEvents: mcpEvents,
+		Error:           err,
+		Finish:          finish,
 	}
 }
 

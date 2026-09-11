@@ -125,6 +125,43 @@ func (h *noopStreamHandler) OnDone(_ string, usage Usage, _ string) { h.usage = 
 func (h *noopStreamHandler) OnMCPToolEvent(MCPToolEvent)    {}
 func (h *noopStreamHandler) OnFinishReason(info FinishInfo) { h.finish = info }
 
+type resetCountingHandler struct {
+	noopStreamHandler
+	resets int
+}
+
+func (h *resetCountingHandler) ResetStreamAttempt() {
+	h.resets++
+}
+
+func TestOpenAIResponsesResetaHandlerAntesDeNovaTentativa(t *testing.T) {
+	attempts := 0
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, _ []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
+		attempts++
+		if attempts == 1 {
+			handler.OnThinking("descartado")
+			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+		}
+		handler.OnDone("ok", Usage{}, "gpt-test")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &resetCountingHandler{}
+	params := ChatParams{
+		PromptCacheKey:          "asst-key",
+		PromptCacheHintFallback: &PromptCacheHintFallback{},
+	}
+	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 2 || handler.resets != 1 {
+		t.Fatalf("attempts=%d resets=%d, esperado 2/1", attempts, handler.resets)
+	}
+}
+
 func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 	const stream = "event: response.output_text.delta\n" +
 		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +

@@ -111,6 +111,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		if res.done {
 			return
 		}
+		resetStreamAttempt(handler)
 
 		if attempt < maxAttempts {
 			if res.plainRetry {
@@ -157,6 +158,16 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var thinkingBuffer strings.Builder
 	var emittedVisibleContent bool
 	captureReasoningContent := p.ReplaysReasoningContent()
+	thinkingFinished := false
+	finishThinking := func() {
+		if thinkingFinished || fullReasoning.Len() == 0 {
+			return
+		}
+		handler.OnThinkingDone(fullReasoning.String())
+		thinkingFinished = true
+		isThinking = false
+		thinkingBuffer.Reset()
+	}
 
 	// Coletar tool calls finalizadas durante streaming
 	var finishedToolCalls []ToolCall
@@ -202,16 +213,12 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			if content != "" {
 				select {
 				case <-ctx.Done():
-					if isThinking || fullReasoning.Len() > 0 {
-						handler.OnThinkingDone(fullReasoning.String())
-					}
+					finishThinking()
 					return chatStreamAttempt{done: true}
 				default:
 				}
 				if wd.TimedOut() {
-					if isThinking || fullReasoning.Len() > 0 {
-						handler.OnThinkingDone(fullReasoning.String())
-					}
+					finishThinking()
 					if !emittedVisibleContent {
 						return chatStreamAttempt{plainRetry: true}
 					}
@@ -238,6 +245,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		// Watchdog de ociosidade estourou. Sem conteúdo visível, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
+			finishThinking()
 			if !emittedVisibleContent {
 				return chatStreamAttempt{plainRetry: true}
 			}
@@ -264,6 +272,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 
 			if isRetryableError(errStr) {
+				finishThinking()
 				return chatStreamAttempt{plainRetry: true}
 			}
 		}
@@ -272,31 +281,18 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		return chatStreamAttempt{done: true}
 	}
 
-	if isThinking && thinkingBuffer.Len() > 0 {
-		// Se só houve thinking, finaliza antes de decidir retry/erro do watchdog
-		if wd.TimedOut() {
-			thinkingBuffer.Reset()
-			isThinking = false
-			if fullReasoning.Len() > 0 {
-				handler.OnThinkingDone(fullReasoning.String())
-			}
-			if !emittedVisibleContent {
-				return chatStreamAttempt{plainRetry: true}
-			}
-			handler.OnError(streamIdleErrorMessage)
-			return chatStreamAttempt{done: true}
-		}
-	}
-
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
-	// truncada. Nesse caso não há conclusão válida a entregar.
+	// truncada. Parar e aguardar o watchdog fecha a janela entre consultar
+	// TimedOut e entregar OnDone.
+	wd.Stop()
 	if wd.TimedOut() {
 		logging.Logger(ctx, "llm.openai-chat-completions").ErrorContext(
 			ctx,
 			"stream encerrou junto com timeout de inatividade",
 			"partial_bytes", fullResponse.Len(),
 		)
+		finishThinking()
 		if !emittedVisibleContent {
 			return chatStreamAttempt{plainRetry: true}
 		}
@@ -307,18 +303,14 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	if isThinking && thinkingBuffer.Len() > 0 {
 		select {
 		case <-ctx.Done():
-			if fullReasoning.Len() > 0 {
-				handler.OnThinkingDone(fullReasoning.String())
-			}
+			finishThinking()
 			return chatStreamAttempt{done: true}
 		default:
 		}
 		thinkingBuffer.Reset()
 		isThinking = false
 	}
-	if fullReasoning.Len() > 0 {
-		handler.OnThinkingDone(fullReasoning.String())
-	}
+	finishThinking()
 
 	usage := Usage{}
 	if openAIUsageReported(usageRawJSON,
@@ -370,15 +362,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	finish = finishInfoWithDiagnostics(finish, p.provider, model, outputLimit, fullResponse.Len())
 	select {
 	case <-ctx.Done():
+		finishThinking()
 		return chatStreamAttempt{done: true}
 	default:
-	}
-	if wd.TimedOut() {
-		if !emittedVisibleContent {
-			return chatStreamAttempt{plainRetry: true}
-		}
-		handler.OnError(streamIdleErrorMessage)
-		return chatStreamAttempt{done: true}
 	}
 	ReportFinishReason(handler, finish)
 

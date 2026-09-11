@@ -637,7 +637,7 @@ describe('chatEventController', () => {
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
     expect(messages[1].message.id).toBe('assistant-db-1');
-    expect(messages[1].message.content).toBe('parcial');
+    expect(messages[1].message.content).toBe('parcial\n\nErro: boom');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-1');
   });
 
@@ -1495,5 +1495,55 @@ describe('chatEventController', () => {
     expect(
       sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
     ).toBe('Erro: chat.errors.streamingIdleTimeout');
+  });
+
+  it('preserva conteúdo parcial e acrescenta erro terminal de chat:stream', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'resposta parcial',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    vi.runOnlyPendingTimers();
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'streaming_idle_timeout',
+      sequence: 1,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('resposta parcial\n\nErro: chat.errors.streamingIdleTimeout');
+  });
+
+  it('preserva conteúdo parcial e acrescenta erro terminal de chat:done', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'resposta parcial',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    vi.runOnlyPendingTimers();
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      errorMessage: 'streaming_interrupted',
+      turnId: 't1',
+      assistantMessageId: 'a1',
+      hadToolCalls: false,
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
   });
 });

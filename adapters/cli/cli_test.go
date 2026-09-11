@@ -86,6 +86,39 @@ func TestEmitterAdapter_StreamError(t *testing.T) {
 	}
 }
 
+func TestEmitterAdapter_TraduzCodigosDeErroDeStreaming(t *testing.T) {
+	tests := []struct {
+		name  string
+		event string
+		data  any
+		want  string
+	}{
+		{
+			name:  "interrupção no stream simples",
+			event: "chat:stream",
+			data:  ports.StreamEvent{Error: "streaming_interrupted"},
+			want:  "\nErro: Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.\n",
+		},
+		{
+			name:  "timeout no loop agêntico",
+			event: "chat:done",
+			data:  ports.DoneEvent{ErrorMessage: "streaming_idle_timeout"},
+			want:  "\nErro: O provedor parou de responder no meio da geração (timeout de inatividade).\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+			e.Emit(tt.event, tt.data)
+			if got := errOut.String(); got != tt.want {
+				t.Fatalf("stderr=%q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEmitterAdapter_VerboseLogsEvents(t *testing.T) {
 	var out, errOut bytes.Buffer
 	e := cli.NewEmitterAdapter(

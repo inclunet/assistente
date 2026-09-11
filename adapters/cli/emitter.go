@@ -124,7 +124,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 	}
 
 	if ev.Error != "" {
-		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
+		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", readableChatError(ev.Error))
 		e.resetStreamState()
 		// Fallback: sinaliza done em chat:stream com Error porque há caminhos
 		// no backend (ex.: HandlePanic) que emitem apenas chat:stream terminal
@@ -404,7 +404,7 @@ func (e *EmitterAdapter) handleDone(data any) {
 
 	// chat:done com ErrorMessage: exibe erro (substitui chat:stream terminal)
 	if ev.ErrorMessage != "" {
-		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.ErrorMessage)
+		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", readableChatError(ev.ErrorMessage))
 		e.resetStreamState()
 	}
 
@@ -431,6 +431,17 @@ func (e *EmitterAdapter) handleDone(data any) {
 		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
 	} else if e.verbose {
 		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
+	}
+}
+
+func readableChatError(message string) string {
+	switch message {
+	case "streaming_interrupted":
+		return "Resposta interrompida pelo provedor sem motivo de finalização; tente novamente."
+	case "streaming_idle_timeout":
+		return "O provedor parou de responder no meio da geração (timeout de inatividade)."
+	default:
+		return message
 	}
 }
 
