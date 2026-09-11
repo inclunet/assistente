@@ -30,16 +30,18 @@ func streamIdleTimeoutForProvider(p *ProviderConfig) time.Duration {
 // derruba a leitura bloqueada e o erro vira retryable (quando nada visível foi
 // emitido) ou erro explícito para quem assiste.
 type streamWatchdog struct {
-	cancel context.CancelFunc
-	kick   chan struct{}
-	done   chan struct{}
-	parent context.Context
-	idle   time.Duration
+	cancel    context.CancelFunc
+	kick      chan struct{}
+	done      chan struct{}
+	parent    context.Context
+	idle      time.Duration
+	onTimeout func()
 
-	mu            sync.Mutex
-	timedOut      bool
-	lastActivity  time.Time
-	stopRequested bool
+	mu              sync.Mutex
+	timedOut        bool
+	timeoutNotified bool
+	lastActivity    time.Time
+	stopRequested   bool
 }
 
 // startStreamWatchdog deriva ctx com cancelamento por ociosidade. onTimeout é
@@ -53,6 +55,7 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 		done:         make(chan struct{}),
 		parent:       ctx,
 		idle:         idle,
+		onTimeout:    onTimeout,
 		lastActivity: time.Now(),
 	}
 
@@ -80,9 +83,7 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 				w.mu.Unlock()
 				logging.Warnf(ctx, "llm.stream-watchdog", "[stream-watchdog] stream sem eventos há %s; cancelando tentativa", idle)
 				cancel()
-				if onTimeout != nil {
-					onTimeout()
-				}
+				w.notifyTimeout()
 				return
 			case <-w.kick:
 				if !timer.Stop() {
@@ -111,6 +112,7 @@ func (w *streamWatchdog) Kick() {
 		w.timedOut = true
 		w.mu.Unlock()
 		w.cancel()
+		w.notifyTimeout()
 		return
 	}
 	w.lastActivity = now
@@ -119,6 +121,18 @@ func (w *streamWatchdog) Kick() {
 	case w.kick <- struct{}{}:
 	default:
 	}
+}
+
+func (w *streamWatchdog) notifyTimeout() {
+	w.mu.Lock()
+	if w.timeoutNotified || w.onTimeout == nil {
+		w.mu.Unlock()
+		return
+	}
+	w.timeoutNotified = true
+	callback := w.onTimeout
+	w.mu.Unlock()
+	callback()
 }
 
 // Stop encerra o watchdog quando a tentativa acabou por vias próprias.

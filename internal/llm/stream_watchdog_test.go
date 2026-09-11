@@ -77,12 +77,16 @@ func TestStartStreamWatchdogNaoEstouraQuandoPaiCancelar(t *testing.T) {
 }
 
 func TestStreamWatchdogKickNaoRessuscitaDeadlineExpirado(t *testing.T) {
-	watchCtx, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
+	callbacks := 0
+	watchCtx, wd := startStreamWatchdog(context.Background(), time.Hour, func() {
+		callbacks++
+	})
 	wd.mu.Lock()
 	expiredActivity := time.Now().Add(-2 * time.Hour)
 	wd.lastActivity = expiredActivity
 	wd.mu.Unlock()
 
+	wd.Kick()
 	wd.Kick()
 	wd.Stop()
 
@@ -91,6 +95,9 @@ func TestStreamWatchdogKickNaoRessuscitaDeadlineExpirado(t *testing.T) {
 	}
 	if watchCtx.Err() == nil {
 		t.Fatal("kick posterior ao deadline deve cancelar a tentativa imediatamente")
+	}
+	if callbacks != 1 {
+		t.Fatalf("onTimeout chamado %d vezes, esperado 1", callbacks)
 	}
 }
 
@@ -118,7 +125,7 @@ func TestStreamWatchdogStopReconheceDeadlineJaExpirado(t *testing.T) {
 	}
 }
 
-func TestStreamWatchdogStopNaoBloqueiaEmCallbackLento(t *testing.T) {
+func TestStreamWatchdogStopLimitaEsperaDeCallbackLento(t *testing.T) {
 	release := make(chan struct{})
 	watchCtx, wd := startStreamWatchdog(context.Background(), 10*time.Millisecond, func() {
 		<-release
