@@ -179,7 +179,8 @@ func optionalUsageTokenCount(reported bool, value int) any {
 }
 
 func hasLegacyTokenCounters(usage llm.Usage) bool {
-	return usage.PromptTokens != 0 || usage.TotalTokens != 0 || usage.OutputTokensReported
+	return usage.PromptTokens != 0 || usage.CompletionTokens != 0 ||
+		usage.TotalTokens != 0 || usage.OutputTokensReported
 }
 
 // streamIteration executa o streaming do LLM para uma iteração, com auto-retry
