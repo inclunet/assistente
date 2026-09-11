@@ -46,6 +46,8 @@ export function WorkspaceLayout() {
     return cleanup;
   }, [setupEventListeners]);
 
+  const isWorkspaceRoute = pathname === '/' || pathname === '';
+
   const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
   const restoreFocusToTablistRef = useRef<string | null>(null);
   const lastTabShortcutTargetRef = useRef<string | null>(null);
@@ -75,8 +77,6 @@ export function WorkspaceLayout() {
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
   useVoiceAccessibilityWorkspaceResolver();
-
-  const isWorkspaceRoute = pathname === '/' || pathname === '';
 
   useEffect(() => {
     pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));
