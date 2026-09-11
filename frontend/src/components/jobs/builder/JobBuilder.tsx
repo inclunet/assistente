@@ -498,7 +498,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       onSaved?.();
       onClose();
     } catch (err) {
-      if (isJobProfileAuthorizationError(err)) {
+      if (isJobProfileAuthorizationError(err) || String(err).includes('authorization_not_granted')) {
         showProfileGrantError(err);
       } else {
         showError(String(err));

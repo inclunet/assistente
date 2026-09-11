@@ -176,6 +176,17 @@ describe('JobBuilder grants de profiles', () => {
     );
   });
 
+  it('localiza revalidação fail-closed retornada pelo SaveJob', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    saveJob.mockRejectedValue(new Error('authorization_not_granted'));
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={onClose} />);
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    expect(await screen.findByText('jobs.builder.profileGrantNotAuthorizedError')).toBeInTheDocument();
+    expect(screen.queryByText(/authorization_not_granted/)).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('não anuncia falta de autorização quando grant foi aprovado para job desabilitado', async () => {
     const user = userEvent.setup();
     saveJob.mockResolvedValue({
