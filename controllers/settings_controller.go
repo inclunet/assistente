@@ -27,6 +27,7 @@ type SettingsControllerConfig struct {
 	RestartChannel func(channelName string) error
 	GetModels      func() ([]string, error)
 	DeleteProfile  func(string) error
+	ClearMessages  func(context.Context) error
 }
 
 // SettingsController é o adapter primário (Inbound) para operações de configurações globais e reset.
@@ -38,6 +39,7 @@ type SettingsController struct {
 	restartChannel func(string) error
 	getModels      func() ([]string, error)
 	deleteProfile  func(string) error
+	clearMessages  func(context.Context) error
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
@@ -50,6 +52,7 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 		restartChannel: cfg.RestartChannel,
 		getModels:      cfg.GetModels,
 		deleteProfile:  cfg.DeleteProfile,
+		clearMessages:  cfg.ClearMessages,
 	}
 }
 
@@ -250,12 +253,13 @@ func (c *SettingsController) ResetDatabase() error {
 	return nil
 }
 
-// ClearMessages apaga as mensagens e conversas pertencentes ao usuário do
-// contexto. Usa ClearAllConversationsWithContext, que respeita o escopo do
-// usuário; o caller (Wails binding) é responsável por validar autenticação
-// antes de chamar.
+// ClearMessages apaga as conversas do usuário pelo mesmo pipeline batch usado
+// no Histórico. O caller (Wails binding) valida autenticação antes de chamar.
 func (c *SettingsController) ClearMessages(ctx context.Context) error {
-	if err := database.ClearAllConversationsWithContext(ctx); err != nil {
+	if c.clearMessages == nil {
+		return fmt.Errorf("pipeline canônico de exclusão não configurado")
+	}
+	if err := c.clearMessages(ctx); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
 	logging.Println(ctx, "controllers.settings-controller", "[ClearMessages] Mensagens e conversas apagadas")

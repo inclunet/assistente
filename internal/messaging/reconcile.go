@@ -57,9 +57,14 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 
 		// Já entregue (MarkDelivered): limpa sem depender do find bater msgID.
 		if rec.DeliveredAssistantID != "" {
+			releaseOperation, allowed := g.notifier.ReserveConversationOperation(rec.ConversationID)
+			if !allowed {
+				continue
+			}
 			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
 				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete já-entregue conv=%s: %v", rec.ConversationID, err)
 			}
+			releaseOperation()
 			logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: pending já entregue conv=%s msg=%s — só limpeza",
 				rec.ConversationID, rec.DeliveredAssistantID)
 			continue
@@ -80,7 +85,6 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			// entre o snapshot e aqui. Sem isso reenviamos ao contato.
 			skip, deliveredID, known := pendingSendGate(recCtx, store, rec.ConversationID, rec.TraceID)
 			if known && skip {
-				releaseOperation()
 				if deliveredID != "" {
 					if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
 						logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete já-entregue (fresco) conv=%s: %v", rec.ConversationID, err)
@@ -91,6 +95,7 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 					logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pending supersedido/ausente conv=%s trace=%s — pula reenvio",
 						rec.ConversationID, rec.TraceID)
 				}
+				releaseOperation()
 				continue
 			}
 			if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
@@ -108,11 +113,16 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 
 		expired := rec.CreatedAt.Add(callbackTTL).Before(now)
 		if expired {
+			releaseOperation, allowed := g.notifier.ReserveConversationOperation(rec.ConversationID)
+			if !allowed {
+				continue
+			}
 			// DeleteIfTrace: Upsert de turno novo entre List e Delete não pode
 			// apagar a pendência mais recente (PK = conversation_id).
 			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
 				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
 			}
+			releaseOperation()
 			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pendência expirada sem assistant conv=%s channel=%s",
 				rec.ConversationID, rec.Channel)
 			continue
@@ -123,9 +133,14 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 		// check e o write, preserva o callback atual (não limpa/substitui).
 		remaining := time.Until(rec.CreatedAt.Add(callbackTTL))
 		if remaining <= 0 {
+			releaseOperation, allowed := g.notifier.ReserveConversationOperation(rec.ConversationID)
+			if !allowed {
+				continue
+			}
 			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
 				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
 			}
+			releaseOperation()
 			continue
 		}
 		recCopy := rec

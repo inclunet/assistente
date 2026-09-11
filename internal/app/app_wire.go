@@ -162,6 +162,24 @@ func (a *App) wireSettings() {
 		ProfileMgr: a.profileManager,
 		SkillMgr:   a.skillMgr,
 		Emitter:    a.emitter,
+		ClearMessages: func(ctx context.Context) error {
+			conversations, err := database.GetConversationsWithContext(ctx)
+			if err != nil {
+				return err
+			}
+			if len(conversations) == 0 {
+				return nil
+			}
+			ids := make([]string, 0, len(conversations))
+			for _, conversation := range conversations {
+				ids = append(ids, conversation.ID)
+			}
+			if a.conversationsCtrl == nil {
+				return fmt.Errorf("controller de conversas não inicializado")
+			}
+			_, err = a.conversationsCtrl.DeleteConversations(ctx, ids)
+			return err
+		},
 		DeleteProfile: func(slug string) error {
 			return a.profileAccessService().DeleteProfile(context.Background(), slug, func() error {
 				return a.profileManager.Delete(slug)

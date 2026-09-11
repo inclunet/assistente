@@ -114,6 +114,17 @@ func acquireSQLiteMaintenance(ctx context.Context) (func(), error) {
 	}
 }
 
+// WithSQLiteMaintenance serializa operações de manutenção/importação com
+// exclusões destrutivas e VACUUM sem expor o gate global aos callers.
+func WithSQLiteMaintenance(ctx context.Context, fn func() error) error {
+	release, err := acquireSQLiteMaintenance(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
 func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
 	return WithSQLiteImmediateTransaction(ctx, db, operation, fn)
 }

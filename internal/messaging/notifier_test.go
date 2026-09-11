@@ -14,6 +14,18 @@ type blockingUpsertStore struct {
 	release chan struct{}
 }
 
+type blockingDeleteStore struct {
+	*memPendingStore
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingDeleteStore) Delete(ctx context.Context, conversationID string) error {
+	close(s.started)
+	<-s.release
+	return s.memPendingStore.Delete(ctx, conversationID)
+}
+
 func (s *blockingUpsertStore) Upsert(ctx context.Context, rec ChannelPendingRecord) error {
 	close(s.started)
 	<-s.release
@@ -159,6 +171,33 @@ func TestResponseNotifier_PrepareDeletionDetectaUpsertEmExecucao(t *testing.T) {
 		t.Fatalf("preparo após Upsert: %v", err)
 	}
 	finalize(false)
+}
+
+func TestResponseNotifier_PrepareDeletionDetectaDeleteEmExecucao(t *testing.T) {
+	store := &blockingDeleteStore{
+		memPendingStore: newMemPendingStore(),
+		started:         make(chan struct{}),
+		release:         make(chan struct{}),
+	}
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	n.SetPendingStore(store)
+	n.Register("conversation-1", ResponseCallback{
+		Channel: "telegram", ChatID: "chat", TraceID: "trace", OwnerUserID: "user-1",
+		Callback: func(string, string) {},
+	})
+
+	cancelled := make(chan struct{})
+	go func() {
+		n.Cancel("conversation-1")
+		close(cancelled)
+	}()
+	<-store.started
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro=%v, esperado Delete persistente ativo", err)
+	}
+	close(store.release)
+	<-cancelled
 }
 
 func TestResponseNotifier_ReservaOperacaoCoordenaExclusao(t *testing.T) {

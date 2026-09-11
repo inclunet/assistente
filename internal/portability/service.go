@@ -562,21 +562,26 @@ func ImportConversationsWithResolutions(
 		result.Warnings = append(result.Warnings, unsupportedResourcesWarning(unsupportedResourceTypes))
 	}
 
-	for _, conv := range file.Resources.Conversations {
-		if isEmptyConversation(conv) {
-			result.Skipped++
-			result.SkippedEmptyConversations++
-			continue
+	if err := database.WithSQLiteMaintenance(ctx, func() error {
+		for _, conv := range file.Resources.Conversations {
+			if isEmptyConversation(conv) {
+				result.Skipped++
+				result.SkippedEmptyConversations++
+				continue
+			}
+			imported, err := importConversation(ctx, conv, file.Options.IncludeAudio)
+			if err != nil {
+				result.Errors = append(result.Errors, messageFromError(err))
+				result.Failed++
+				continue
+			}
+			if imported {
+				result.Imported++
+			}
 		}
-		imported, err := importConversation(ctx, conv, file.Options.IncludeAudio)
-		if err != nil {
-			result.Errors = append(result.Errors, messageFromError(err))
-			result.Failed++
-			continue
-		}
-		if imported {
-			result.Imported++
-		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	// Os provedores de agente importados ficam guardados para o aviso sobre o
@@ -789,7 +794,7 @@ func importConversation(ctx context.Context, conv ConversationExport, includeAud
 		return overwriteConversationByExisting(ctx, conv, includeAudio, existing)
 	}
 
-	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.WithSQLiteImmediateTransaction(ctx, database.DB(), "portability.import_conversation", func(tx *gorm.DB) error {
 		newConv, err := createImportedConversation(ctx, tx, conv)
 		if err != nil {
 			return err
@@ -804,7 +809,7 @@ func importConversation(ctx context.Context, conv ConversationExport, includeAud
 }
 
 func overwriteConversationByExisting(ctx context.Context, conv ConversationExport, includeAudio bool, existing *database.Conversation) (bool, error) {
-	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.WithSQLiteImmediateTransaction(ctx, database.DB(), "portability.overwrite_conversation", func(tx *gorm.DB) error {
 		updatedAt := conv.CreatedAt
 		if updatedAt.IsZero() {
 			updatedAt = time.Now().UTC()

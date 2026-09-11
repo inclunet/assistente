@@ -480,8 +480,12 @@ func (n *ResponseNotifier) Cancel(conversationID string) {
 		delete(n.callbacks, conversationID)
 	}
 	store := n.store
+	if store != nil && conversationID != "" {
+		n.operations[conversationID]++
+	}
 	n.mu.Unlock()
 	if store != nil {
+		defer n.finishConversationOperation(conversationID)
 		if err := store.Delete(context.Background(), conversationID); err != nil {
 			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no Cancel conv=%s: %v", conversationID, err)
 		}
@@ -520,9 +524,13 @@ func (n *ResponseNotifier) CancelTrace(conversationID, traceID string) {
 		n.callbacks[conversationID] = fresh
 	}
 	store := n.store
+	if store != nil {
+		n.operations[conversationID]++
+	}
 	n.mu.Unlock()
 
 	if store != nil {
+		defer n.finishConversationOperation(conversationID)
 		if err := store.DeleteIfTrace(context.Background(), conversationID, traceID); err != nil {
 			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no CancelTrace conv=%s trace=%s: %v",
 				conversationID, traceID, err)
@@ -590,6 +598,11 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 		}
 	}
 	store := n.store
+	if store != nil {
+		for _, id := range deleteIDs {
+			n.operations[id]++
+		}
+	}
 	n.mu.Unlock()
 
 	for _, e := range toLog {
@@ -601,6 +614,7 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 			if err := store.Delete(context.Background(), id); err != nil {
 				logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no CancelByChannel conv=%s: %v", id, err)
 			}
+			n.finishConversationOperation(id)
 		}
 	}
 	return cancelled
