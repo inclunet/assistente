@@ -18,6 +18,7 @@ type spyHandler struct {
 
 func (s *spyHandler) OnChunk(c string) { s.chunks = append(s.chunks, c) }
 func (s *spyHandler) OnThinking(c string) { s.thinking = append(s.thinking, c) }
+func (s *spyHandler) OnThinkingDone(c string) { s.thinking = append(s.thinking, "done:"+c) }
 func (s *spyHandler) OnDone(content string, _ Usage, _ string) { s.done = content }
 func (s *spyHandler) OnError(e string) { s.err = e }
 
