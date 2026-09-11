@@ -54,6 +54,8 @@ type agenticLoopRunner struct {
 	totalToolCallCount    int
 	toolsUsedSet          map[string]struct{}
 	lastUsage             llm.Usage
+	lastDiagnosticUsage   llm.Usage
+	lastFinish            llm.FinishInfo
 	outputLimitRepairUsed bool
 }
 
@@ -75,9 +77,14 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		if stop {
 			return
 		}
+		r.lastFinish = result.Finish
+		r.lastDiagnosticUsage = result.Usage
 
 		// Acumula usage da última iteração (AEP-0039)
-		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
+		// Usage parcial só de cache/reasoning continua no diagnóstico acima, mas
+		// não apaga os contadores legados de input/output da última chamada que
+		// efetivamente os informou.
+		if hasLegacyTokenCounters(result.Usage) {
 			r.lastUsage = result.Usage
 		}
 
@@ -93,6 +100,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		// 3. Limite de saída: tool calls locais são descartadas antes de qualquer
 		// efeito e podem receber uma única reformulação em chamadas menores.
 		if result.Finish.Reason == llm.FinishReasonMaxTokens {
+			r.logOutputLimit(ctx, result, iteration)
 			if r.recoverOutputLimitedToolCalls(ctx, result, iteration) {
 				continue
 			}
@@ -144,16 +152,35 @@ func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(ctx context.Context, r
 			"Não repita um payload grande em uma única chamada. Ferramentas interrompidas: " + strings.Join(toolNames, ", "),
 	})
 	logging.Infof(ctx, "agent.agentic-loop",
-		"[Agent] tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
+		"tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
 		iteration, strings.Join(toolNames, ","))
 	return true
 }
 
-func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
+func (r *agenticLoopRunner) logOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
 	logging.Infof(ctx, "agent.agentic-loop",
-		"[Agent] geração encerrada por limite de saída (iteração=%d, raw_reason=%q, tool_calls=%d)",
-		iteration, result.Finish.RawReason, len(result.ToolCalls))
+		"provider sinalizou limite de geração (iteração=%d, finish_reason=%s, raw_reason=%q, provider=%q, model=%q, output_limit=%d, output_tokens=%v, reasoning_tokens=%v, response_bytes=%d, tool_calls=%d)",
+		iteration, result.Finish.Reason, result.Finish.RawReason, result.Finish.Provider,
+		result.Finish.Model, result.Finish.OutputLimit,
+		optionalUsageTokenCount(result.Usage.OutputTokensReported, result.Usage.CompletionTokens),
+		optionalUsageTokenCount(result.Usage.ReasoningTokensReported, result.Usage.ReasoningTokens),
+		result.Finish.ResponseBytes, len(result.ToolCalls))
+}
+
+func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
 	r.finishFinalResult(ctx, result, iteration)
+}
+
+func optionalUsageTokenCount(reported bool, value int) any {
+	if !reported {
+		return "unavailable"
+	}
+	return value
+}
+
+func hasLegacyTokenCounters(usage llm.Usage) bool {
+	return usage.PromptTokens != 0 || usage.CompletionTokens != 0 ||
+		usage.TotalTokens != 0 || usage.OutputTokensReported
 }
 
 // streamIteration executa o streaming do LLM para uma iteração, com auto-retry
@@ -675,21 +702,36 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.onSpeechRequest != nil {
 		r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
 	}
+	responseBytes := r.lastFinish.ResponseBytes
 	doneEvent := ports.DoneEvent{
-		ConversationID:     r.conversationID,
-		TurnID:             r.turnID,
-		AssistantMessageID: r.assistantMessageID,
-		HadToolCalls:       r.totalToolCallCount > 0,
-		Reason:             "limit_reached",
-		IterationCount:     r.maxIterations,
-		ToolCallCount:      r.totalToolCallCount,
-		ToolsUsed:          sortedToolNames(r.toolsUsedSet),
-		PromptTokens:       r.lastUsage.PromptTokens,
-		CompletionTokens:   r.lastUsage.CompletionTokens,
-		CacheReadTokens:    r.lastUsage.CacheReadTokens,
-		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
-		CacheMissTokens:    r.lastUsage.CacheMissTokens,
-		SurfaceOrigin:      r.surfaceOrigin,
+		ConversationID:       r.conversationID,
+		TurnID:               r.turnID,
+		AssistantMessageID:   r.assistantMessageID,
+		HadToolCalls:         r.totalToolCallCount > 0,
+		Reason:               "limit_reached",
+		IterationCount:       r.maxIterations,
+		ToolCallCount:        r.totalToolCallCount,
+		ToolsUsed:            sortedToolNames(r.toolsUsedSet),
+		PromptTokens:         r.lastUsage.PromptTokens,
+		CompletionTokens:     r.lastUsage.CompletionTokens,
+		CacheReadTokens:      r.lastUsage.CacheReadTokens,
+		CacheWriteTokens:     r.lastUsage.CacheWriteTokens,
+		CacheMissTokens:      r.lastUsage.CacheMissTokens,
+		FinishReason:         string(r.lastFinish.Reason),
+		RawReason:            r.lastFinish.RawReason,
+		Provider:             r.lastFinish.Provider,
+		Model:                r.lastFinish.Model,
+		EffectiveOutputLimit: r.lastFinish.OutputLimit,
+		ResponseBytes:        &responseBytes,
+		SurfaceOrigin:        r.surfaceOrigin,
+	}
+	if r.lastDiagnosticUsage.OutputTokensReported {
+		outputTokens := r.lastDiagnosticUsage.CompletionTokens
+		doneEvent.OutputTokens = &outputTokens
+	}
+	if r.lastDiagnosticUsage.ReasoningTokensReported {
+		reasoningTokens := r.lastDiagnosticUsage.ReasoningTokens
+		doneEvent.ReasoningTokens = &reasoningTokens
 	}
 	doneEvent.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
 	r.svc.emitter.Emit("chat:done", doneEvent)
