@@ -56,6 +56,10 @@ export function WorkspaceLayout() {
     if (tabId === workspace?.activeTabId) {
       const activeTabType = workspace?.tabs.find((tab) => tab.id === tabId)?.type;
       requestAnimationFrame(() => {
+        if (!isWorkspaceRoute) {
+          cancelWorkspacePanelFocus(tabId);
+          return;
+        }
         if (hasWorkspacePanelFocusHandler(tabId)) {
           requestWorkspacePanelFocus(tabId);
         } else if (activeTabType === 'editor') {
