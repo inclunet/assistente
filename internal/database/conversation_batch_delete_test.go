@@ -360,7 +360,7 @@ func TestDeleteConversationsConcurrentWithReaderAndMaintenance(t *testing.T) {
 
 	start := make(chan struct{})
 	stopReader := make(chan struct{})
-	errs := make(chan error, groups+2)
+	errs := make(chan error, groups+4)
 	var wg sync.WaitGroup
 
 	wg.Add(1)
@@ -399,9 +399,23 @@ func TestDeleteConversationsConcurrentWithReaderAndMaintenance(t *testing.T) {
 		_, err := Compact(ownerCtx, false, 1<<60)
 		errs <- err
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, err := CreateConversationWithContext(ownerCtx, "criada durante exclusão", "")
+		errs <- err
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, _, err := FindOrCreateChannelConversationWithContext(ownerCtx, "signal", "concurrent-contact", "Contato")
+		errs <- err
+	}()
 
 	close(start)
-	for range groups + 1 {
+	for range groups + 3 {
 		if err := <-errs; err != nil {
 			t.Errorf("operação concorrente falhou: %v", err)
 		}
@@ -414,8 +428,8 @@ func TestDeleteConversationsConcurrentWithReaderAndMaintenance(t *testing.T) {
 			t.Errorf("leitor concorrente falhou: %v", err)
 		}
 	}
-	if countWhere(t, testDB, &Conversation{}, "user_id = ?", "delete-owner") != 0 {
-		t.Fatal("nem todas as conversas concorrentes foram excluídas")
+	if countWhere(t, testDB, &Conversation{}, "user_id = ?", "delete-owner") != 2 {
+		t.Fatal("writers de criação não concluíram após as exclusões")
 	}
 }
 

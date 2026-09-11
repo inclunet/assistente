@@ -133,7 +133,13 @@ func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation 
 			committed := false
 			defer func() {
 				if !committed {
-					_ = tx.Exec("ROLLBACK").Error
+					rollbackCtx := context.Background()
+					if ctx != nil {
+						rollbackCtx = context.WithoutCancel(ctx)
+					}
+					if err := tx.WithContext(rollbackCtx).Exec("ROLLBACK").Error; err != nil {
+						logging.Errorf(rollbackCtx, "database.sqlite", "falha no rollback de %s: %v", operation, err)
+					}
 				}
 			}()
 

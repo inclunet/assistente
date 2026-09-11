@@ -96,6 +96,27 @@ func TestResponseNotifier_CommitDescartaRegisterBloqueado(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_TombstoneExpira(t *testing.T) {
+	now := time.Now()
+	n := newResponseNotifierWithClock(func() time.Time { return now })
+	t.Cleanup(n.Stop)
+	finalize, err := n.PrepareConversationDeletion([]string{" conversation-1 ", "conversation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+	n.Register(" conversation-1 ", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 0 {
+		t.Fatalf("tombstone normalizado aceitou callback: %d", got)
+	}
+
+	now = now.Add(callbackTTL + time.Second)
+	n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("tombstone expirado bloqueou callback: %d", got)
+	}
+}
+
 func TestNotifier_RegisterAndNotify(t *testing.T) {
 	n := NewResponseNotifier()
 

@@ -16,11 +16,11 @@ func (a *App) prepareConversationDeletion(ctx context.Context, conversationIDs [
 	}
 
 	if a.subagentMgr != nil {
-		release, err := a.subagentMgr.PrepareConversationDeletion(ctx, conversationIDs)
+		finalize, err := a.subagentMgr.PrepareConversationDeletion(ctx, conversationIDs)
 		if err != nil {
 			return nil, err
 		}
-		finalizers = append(finalizers, func(bool) { release() })
+		finalizers = append(finalizers, finalize)
 	}
 	if a.streamMgr != nil {
 		finalize, err := a.streamMgr.PrepareConversationDeletion(conversationIDs)

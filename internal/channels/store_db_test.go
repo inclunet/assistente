@@ -154,6 +154,14 @@ func TestSaveConversationIDRejectsDeletedConversation(t *testing.T) {
 	}
 }
 
+func TestSaveConversationIDRejectsBlankConversation(t *testing.T) {
+	setupTempHome(t)
+	setupChannelsDB(t)
+	if err := SaveConversationID("telegram", "99", " \t "); !errors.Is(err, database.ErrConversationIDRequired) {
+		t.Fatalf("erro=%v, esperado ID obrigatório", err)
+	}
+}
+
 func TestAdoptOrphans_DB(t *testing.T) {
 	setupTempHome(t)
 	setupChannelsDB(t)

@@ -107,6 +107,11 @@ type conversationReservation struct {
 	userID               string
 }
 
+type deletionTombstone struct {
+	userID    string
+	expiresAt time.Time
+}
+
 func (a *activeRun) cancel() {
 	a.cancelOnce.Do(func() { close(a.cancelCh) })
 }
@@ -133,6 +138,7 @@ type Manager struct {
 	activeTotal   int                                // nº de runs ativos somando todos os usuários (teto global)
 	activeConvs   map[string]conversationReservation // childConversationID com run reservado/ativo
 	deletingConvs map[string]string                  // conversationID -> userID durante exclusão
+	deletedConvs  map[string]deletionTombstone       // tombstones temporários após commit
 
 	// parentLocks serializa a entrega por conversa-pai (evita corrida no
 	// StreamingManager). Striped locks de cardinalidade FIXA: um map[parentID]
@@ -145,6 +151,8 @@ type Manager struct {
 
 // parentLockStripes é a cardinalidade fixa do pool de locks por conversa-pai.
 const parentLockStripes = 64
+
+const deletionTombstoneTTL = 5 * time.Minute
 
 // ManagerConfig agrupa as dependências do Manager.
 type ManagerConfig struct {
@@ -207,6 +215,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		activeByUser:        make(map[string]int),
 		activeConvs:         make(map[string]conversationReservation),
 		deletingConvs:       make(map[string]string),
+		deletedConvs:        make(map[string]deletionTombstone),
 	}
 }
 
@@ -263,8 +272,10 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	m.mu.Lock()
 	parentDeleting := m.deletingConvs[p.ParentConversationID] == userID
 	childDeleting := p.ConversationID != "" && m.deletingConvs[p.ConversationID] == userID
+	parentDeleted := m.isDeletedLocked(p.ParentConversationID, userID)
+	childDeleted := p.ConversationID != "" && m.isDeletedLocked(p.ConversationID, userID)
 	m.mu.Unlock()
-	if parentDeleting || childDeleting {
+	if parentDeleting || childDeleting || parentDeleted || childDeleted {
 		m.deletionGate.RUnlock()
 		m.releaseSlot(userID)
 		return RunResult{}, database.ErrConversationDeleted
@@ -1087,6 +1098,9 @@ func (m *Manager) reserveConversation(childConversationID, parentConversationID,
 	if deletingUser := m.deletingConvs[parentConversationID]; parentConversationID != "" && deletingUser == userID {
 		return database.ErrConversationDeleted
 	}
+	if m.isDeletedLocked(childConversationID, userID) || m.isDeletedLocked(parentConversationID, userID) {
+		return database.ErrConversationDeleted
+	}
 	m.activeConvs[childConversationID] = conversationReservation{
 		parentConversationID: parentConversationID,
 		userID:               userID,
@@ -1097,7 +1111,7 @@ func (m *Manager) reserveConversation(childConversationID, parentConversationID,
 // PrepareConversationDeletion impede novos runs ligados às conversas. Se já
 // existe run reservado/ativo, falha sem efeitos colaterais: cancelar antes do
 // commit tornaria uma eventual falha do delete impossível de reverter.
-func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationIDs []string) (func(), error) {
+func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationIDs []string) (func(committed bool), error) {
 	if m == nil {
 		return nil, ErrManagerNotConfigured
 	}
@@ -1117,6 +1131,7 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 
 	m.deletionGate.Lock()
 	m.mu.Lock()
+	m.isDeletedLocked("", userID)
 	if m.deletingConvs == nil {
 		m.deletingConvs = make(map[string]string)
 	}
@@ -1132,12 +1147,18 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 	}
 
 	var releaseOnce sync.Once
-	release := func() {
+	finalize := func(committed bool) {
 		releaseOnce.Do(func() {
 			m.mu.Lock()
 			for id := range targets {
 				if m.deletingConvs[id] == userID {
 					delete(m.deletingConvs, id)
+				}
+			}
+			if committed {
+				expiresAt := m.nowFn().Add(deletionTombstoneTTL)
+				for id := range targets {
+					m.deletedConvs[id] = deletionTombstone{userID: userID, expiresAt: expiresAt}
 				}
 			}
 			m.mu.Unlock()
@@ -1157,7 +1178,18 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 		}
 	}
 	m.mu.Unlock()
-	return release, nil
+	return finalize, nil
+}
+
+func (m *Manager) isDeletedLocked(conversationID, userID string) bool {
+	now := m.nowFn()
+	for id, tombstone := range m.deletedConvs {
+		if !tombstone.expiresAt.After(now) {
+			delete(m.deletedConvs, id)
+		}
+	}
+	tombstone, deleted := m.deletedConvs[conversationID]
+	return deleted && tombstone.userID == userID && tombstone.expiresAt.After(now)
 }
 
 // releaseConversation libera a reserva de uma sub-conversa. Usado no caminho de

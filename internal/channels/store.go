@@ -383,6 +383,9 @@ func ListForUser(userID string) (map[string]*ChannelConfig, error) {
 func saveConversationIDDB(channelName, contactID, conversationID string) error {
 	ctx := context.Background()
 	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return database.ErrConversationIDRequired
+	}
 	return database.WithSQLiteImmediateTransaction(ctx, storeDB, "channels.save_conversation_id", func(tx *gorm.DB) error {
 		row, err := findChannelRow(tx, channelName)
 		if err != nil {

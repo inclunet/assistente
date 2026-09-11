@@ -44,7 +44,9 @@ func (r *ConversationRepository) CreateConversationWithContext(ctx context.Conte
 		UserID: userID,
 	}
 
-	if err := db.WithContext(ctx).Create(conv).Error; err != nil {
+	if err := withSQLiteImmediateTransaction(ctx, db, "conversation.create", func(tx *gorm.DB) error {
+		return tx.WithContext(ctx).Create(conv).Error
+	}); err != nil {
 		return nil, err
 	}
 	return conv, nil
@@ -71,7 +73,9 @@ func (r *ConversationRepository) CreateSubAgentConversationWithContext(ctx conte
 		Kind:                 ConversationKindSubagent,
 		ParentConversationID: parentConversationID,
 	}
-	if err := db.WithContext(ctx).Create(conv).Error; err != nil {
+	if err := withSQLiteImmediateTransaction(ctx, db, "conversation.create_subagent", func(tx *gorm.DB) error {
+		return tx.WithContext(ctx).Create(conv).Error
+	}); err != nil {
 		return nil, err
 	}
 	return conv, nil
@@ -156,28 +160,47 @@ func (r *ConversationRepository) FindOrCreateChannelConversationWithContext(ctx 
 		return nil, false, err
 	}
 	var conv Conversation
-	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
-		Where("channel = ? AND contact_id = ?", channel, contactID).
-		First(&conv).Error
-	if err == nil {
-		return &conv, false, nil
-	}
+	created := false
+	err := withSQLiteImmediateTransaction(ctx, db, "conversation.find_or_create_channel", func(tx *gorm.DB) error {
+		query := tx.WithContext(ctx)
+		if IsBootstrap(ctx) {
+			query = query.Where("user_id = '' OR user_id IS NULL")
+		} else {
+			query = ScopeByUser(ctx, query, "user_id")
+		}
+		// SECURITY: bootstrap é deliberadamente instance-wide e só pode criar/
+		// reutilizar conversa órfã; o caminho autenticado permanece escopado.
+		err := query.
+			Where("channel = ? AND contact_id = ?", channel, contactID).
+			First(&conv).Error
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
 
-	title := contactName
-	if title == "" {
-		title = contactID
-	}
-	userID, _ := UserIDFromContext(ctx)
-	conv = Conversation{
-		Title:     title,
-		Channel:   channel,
-		ContactID: contactID,
-		UserID:    userID,
-	}
-	if err := db.WithContext(ctx).Create(&conv).Error; err != nil {
+		title := contactName
+		if title == "" {
+			title = contactID
+		}
+		userID, _ := UserIDFromContext(ctx)
+		conv = Conversation{
+			Title:     title,
+			Channel:   channel,
+			ContactID: contactID,
+			UserID:    userID,
+		}
+		if err := tx.WithContext(ctx).Create(&conv).Error; err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
 		return nil, false, err
 	}
-	return &conv, true, nil
+	return &conv, created, nil
 }
 
 // GetConversationsWithContext retorna as conversas do usuário do contexto,

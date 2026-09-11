@@ -115,6 +115,27 @@ func TestStreamingManager_CommitRejeitaReservaBloqueada(t *testing.T) {
 	}
 }
 
+func TestStreamingManager_TombstoneExpira(t *testing.T) {
+	now := time.Now()
+	manager := NewStreamingManager(nil)
+	manager.now = func() time.Time { return now }
+	finalize, err := manager.PrepareConversationDeletion([]string{" conversation-1 ", "conversation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+
+	if _, ok := manager.ReserveConversation(" conversation-1 "); ok {
+		t.Fatal("tombstone normalizado não bloqueou reserva")
+	}
+	now = now.Add(deletionTombstoneTTL + time.Second)
+	release, ok := manager.ReserveConversation("conversation-1")
+	if !ok {
+		t.Fatal("tombstone expirado continuou bloqueando reserva")
+	}
+	release()
+}
+
 func TestStreamingManager_CurrentGenerationCanUnregister(t *testing.T) {
 	manager := NewStreamingManager(nil)
 	generation := manager.Register("conversation-1", func() {})

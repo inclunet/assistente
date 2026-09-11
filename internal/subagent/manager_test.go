@@ -71,7 +71,7 @@ func TestPrepareConversationDeletionRejectsActiveRunWithoutCancelling(t *testing
 	if err := mgr.reserveConversation("new-child", "parent", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
 		t.Fatalf("novo run durante delete: erro=%v, esperado conversa deletada", err)
 	}
-	release()
+	release(false)
 	if err := mgr.reserveConversation("new-child", "parent", "user-a"); err != nil {
 		t.Fatalf("reserva após release: %v", err)
 	}
@@ -96,12 +96,32 @@ func TestPrepareConversationDeletionMantemGateAteRelease(t *testing.T) {
 		t.Fatal("novo run atravessou gate antes do release")
 	case <-time.After(25 * time.Millisecond):
 	}
-	release()
+	release(false)
 	select {
 	case <-acquired:
 	case <-time.After(time.Second):
 		t.Fatal("novo run não prosseguiu após release")
 	}
+}
+
+func TestPrepareConversationDeletionCommitBloqueiaRunTardioAteExpirar(t *testing.T) {
+	now := time.Now()
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{Now: func() time.Time { return now }})
+	finalize, err := mgr.PrepareConversationDeletion(ctx, []string{" parent ", "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+
+	if err := mgr.reserveConversation("child", "parent", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("run tardio após commit: erro=%v", err)
+	}
+	now = now.Add(deletionTombstoneTTL + time.Second)
+	if err := mgr.reserveConversation("child", "parent", "user-a"); err != nil {
+		t.Fatalf("tombstone expirado bloqueou run: %v", err)
+	}
+	mgr.releaseConversation("child")
 }
 
 func TestManagerRunSyncSuccess(t *testing.T) {
