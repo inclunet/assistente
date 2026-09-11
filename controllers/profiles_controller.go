@@ -112,10 +112,12 @@ func (c *ProfilesController) DeleteProfile(slug string) error {
 }
 
 func (c *ProfilesController) DeleteProfileContext(ctx context.Context, slug string) error {
-	if slug == c.profileMgr.GetActiveSlug() {
-		return fmt.Errorf("não é possível deletar o perfil ativo")
+	deleteFile := func() error {
+		if slug == c.profileMgr.GetActiveSlug() {
+			return fmt.Errorf("não é possível deletar o perfil ativo")
+		}
+		return c.profileMgr.Delete(slug)
 	}
-	deleteFile := func() error { return c.profileMgr.Delete(slug) }
 	var err error
 	if c.deleteProfile != nil {
 		err = c.deleteProfile(ctx, slug, deleteFile)

@@ -363,7 +363,7 @@ func (api *Jobs) AuthorizeJobProfile(jobID, targetProfileSlug string) (bool, err
 }
 
 func (api *Jobs) RevokeJobProfile(jobID, targetProfileSlug string) error {
-	session, ctrl, _, _, err := api.deps()
+	session, _, _, _, err := api.deps()
 	if err != nil {
 		return err
 	}
@@ -374,23 +374,7 @@ func (api *Jobs) RevokeJobProfile(jobID, targetProfileSlug string) error {
 		return profileaccess.ErrAuthorizationNotGranted
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		if revokeErr := access.RevokeJobTarget(ctx, jobID, targetProfileSlug); revokeErr != nil {
-			return struct{}{}, revokeErr
-		}
-		job, getErr := ctrl.GetJobContext(ctx, jobID)
-		if getErr != nil {
-			return struct{}{}, getErr
-		}
-		state, stateErr := access.JobGrantState(ctx, jobID)
-		if stateErr != nil {
-			return struct{}{}, stateErr
-		}
-		if job.Enabled && !jobGrantCovers(state, job.Inputs) {
-			if toggleErr := ctrl.ToggleJobContext(ctx, jobID, false); toggleErr != nil {
-				return struct{}{}, toggleErr
-			}
-		}
-		return struct{}{}, nil
+		return struct{}{}, access.RevokeJobTarget(ctx, jobID, targetProfileSlug)
 	})
 	return err
 }

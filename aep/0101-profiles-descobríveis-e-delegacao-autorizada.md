@@ -211,7 +211,8 @@ desabilitados quando possuem `inputs.profile` textual e não vazio, porque não
 existe decisão explícita que possa ser convertida em grant; jobs que omitem o
 input e herdam profile não são alterados. Em registros legados com
 `jobs.tool_name` vazio, tanto migração quanto runtime usam
-`tool_catalog.name` como fallback canônico. O startup reconcilia novamente jobs
+`tool_catalog.name` como fallback canônico; ambos os campos são normalizados
+com trim para tolerar dados legados. O startup reconcilia novamente jobs
 habilitados sem grant. O executor remove `invocationctx` herdado da conversa
 que publicou um evento antes de chamar tools, impedindo bypass por coincidência
 com o profile-pai. Revogações
@@ -225,6 +226,9 @@ remoção e a revogação; falha de exclusão não altera autorizações nem job
 Se a revogação no SQLite falhar depois da remoção, o arquivo original é
 restaurado no mesmo slug antes de retornar o erro, evitando que uma recriação
 posterior reaproveite grants órfãos.
+Revogar um target delega a decisão de desabilitar ao mesmo transaction do
+store que revalida fingerprint e grants restantes; adapters não repetem essa
+decisão com snapshots anteriores.
 
 ## Fases
 
