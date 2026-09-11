@@ -322,6 +322,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		finishThinking()
 		reportCurrentDiagnostics()
+		if emittedVisibleContent {
+			markErrorNotRetryable(handler)
+		}
 		handler.OnError(errStr)
 		return chatStreamAttempt{done: true}
 	}

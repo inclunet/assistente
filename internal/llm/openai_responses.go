@@ -551,6 +551,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			}
 			finishThinking()
 			reportCurrentDiagnostics()
+			if emittedNonRetryableEffect {
+				markErrorNotRetryable(handler)
+			}
 			handler.OnError(errMsg)
 			return mcpStreamAttemptResult{done: true}
 
@@ -598,6 +601,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		}
 		finishThinking()
 		reportCurrentDiagnostics()
+		if emittedNonRetryableEffect {
+			markErrorNotRetryable(handler)
+		}
 		handler.OnError(errStr)
 		return mcpStreamAttemptResult{done: true}
 	}
