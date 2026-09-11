@@ -45,7 +45,7 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 | Dry-runs operacionais | `CleanOldDryRuns` no `runRetention` | Idade curta de jobs |
 | Guardas de volume na escrita | budget 10 MiB por resultado; truncamento de input/output | Limita tamanho por linha, não o total |
 | Pragmas | `internal/database/database.go` (`Init`) | `journal_mode=WAL`, `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`, `busy_timeout` |
-| `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados |
+| `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados; gate compartilhado com exclusão transacional de conversas |
 
 Testes de compactação, conversão de bancos legados e retenção ficam em
 `internal/database/maintenance_test.go`, `sqlite_policy_test.go`,
@@ -68,7 +68,16 @@ O `VACUUM` completo é **gated** por um limiar de páginas livres (`PRAGMA freel
 
 ### D3 — Compactação throttled e em momento ocioso
 
-A compactação roda a partir do `runRetention` do Manager (em `Start`, logo após o login, e a cada 24h), mas com **throttle global** (no máximo 1× por intervalo de retenção) para não competir com a UI. `wal_checkpoint(TRUNCATE)` roda junto para limitar o `-wal`. `PRAGMA busy_timeout` é configurado para que a compactação aguarde locks transitórios em vez de falhar imediatamente — alinhado (sem antecipar) com a investigação da issue #292.
+A compactação roda a partir do `runRetention` do Manager (em `Start`, logo após o login, e a cada 24h), mas com **throttle global** (no máximo 1× por intervalo de retenção) para não competir com a UI. `wal_checkpoint(TRUNCATE)` roda junto para limitar o `-wal`. `PRAGMA busy_timeout` é configurado para que a compactação aguarde locks transitórios em vez de falhar imediatamente.
+
+A exclusão de conversas, inclusive em lote, compartilha um gate cancelável com compactação e importação. Assim, `VACUUM`, restauração de conversas e a transação destrutiva `BEGIN IMMEDIATE` do delete nunca disputam o arquivo entre si. Criadores de conversa — comum, reciclagem, subagente e canal — também entram nesse gate para tornar o clear-all linearizável. Os demais writers de dados associados usam a transação/retry canônicos e revalidam vínculos sob o writer lock; eles não mantêm o maintenance gate global durante toda escrita. O “Limpar mensagens” delega ao pipeline batch do Histórico e, se um criador alterar seu snapshot antes de o gate fechar, refaz o snapshot antes de qualquer mutação. Conversas com run de subagente, entrega terminal ao pai, pipeline/stream LLM, callback de canal ou reconcile/retry reservado/ativo são recusadas sem cancelar o trabalho antes do commit. Toda mutação de pendência conta como operação ativa até `Upsert`, `Delete` ou `DeleteIfTrace` terminar. O write gate dos subagentes permanece fechado até o desfecho da transação. Em sucesso, os gates runtime são convertidos no commit em tombstones temporários, normalizados e podados após a janela de callbacks; chamadas bloqueadas são recusadas, enquanto os mutexes globais são liberados antes da limpeza pós-commit. Um gate de ciclo de vida permanece até o fim dos efeitos pós-commit e impede que uma importação do mesmo ID seja seguida por um evento tardio de exclusão. A importação adquire os gates na mesma ordem da exclusão e, após cada commit, remove tombstones somente dos IDs efetivamente restaurados; em falha, libera os gates sem invalidá-los. Em rollback, nenhum tombstone permanece. A ordem de aquisição antecede o lock SQLite e é estável, evitando deadlock. Evidências: `internal/database/conversation_batch_delete_test.go`, `internal/app/conversation_deletion_test.go`, `internal/subagent/manager_test.go`, `internal/chat/streaming_manager_test.go` e `internal/messaging/notifier_test.go`.
+
+O snapshot inicial do “Limpar mensagens” também roda sob o maintenance gate e
+busy retry; a revalidação sob o mesmo gate descarta snapshots obsoletos antes
+do batch. O retry é limitado a oito tentativas e respeita cancelamento para não
+prender a limpeza sob criação contínua. As esperas dos gates de exclusão e
+restauração de subagentes também observam o contexto. Há testes determinísticos
+do retry, da ausência de efeitos em erro e dos três entrypoints de importação.
 
 A compactação é **best-effort**: qualquer erro é logado e não interrompe o boot nem a retenção.
 
@@ -135,4 +144,4 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 ## Follow-up (fora do escopo desta fatia)
 
 - Teardown completo dos campos legados do `config.json` (welcome wizard, tokens controller, `App.tsx`, bindings) — issue #299.
-- Reconciliar com a estratégia de concorrência da issue #292 (pooling, retries em `SQLITE_BUSY`).
+- Pooling e retries de `SQLITE_BUSY` foram centralizados em `sqlite_policy.go`; a coordenação entre compactação e exclusão de conversas foi concluída pela issue #725.

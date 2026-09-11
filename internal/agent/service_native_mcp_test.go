@@ -73,8 +73,8 @@ func (m msgRepoStub) SearchMessages(context.Context, string, int) ([]chat.Messag
 
 type capturingMsgRepo struct {
 	conversationID string
-	lastContent  string
-	lastToolCall string
+	lastContent    string
+	lastToolCall   string
 }
 
 func (m *capturingMsgRepo) CreateMessage(context.Context, chat.MessageOptions) (*chat.Message, error) {
@@ -136,7 +136,10 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+	if err := db.AutoMigrate(
+		&database.User{}, &database.Conversation{}, &database.ChatMessage{},
+		&database.MCPServer{}, &database.ToolCatalog{}, &database.ToolInvocation{},
+	); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 	prev := database.DB()
@@ -144,6 +147,20 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 	t.Cleanup(func() { database.SetDB(prev) })
 
 	userCtx := database.WithUserID(context.Background(), "user-mcp")
+	if err := db.Create(&database.Conversation{
+		UUIDModel: database.UUIDModel{ID: "conv-1"},
+		UserID:    "user-mcp",
+		Title:     "Teste",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&database.ChatMessage{
+		UUIDModel:      database.UUIDModel{ID: "turn-1"},
+		ConversationID: "conv-1",
+		Role:           "assistant",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	// Seed MCP server + catalog entry for the namespaced bridge tool.
 	server := database.MCPServer{UserID: "user-mcp", Slug: "srv", Name: "Server One", Enabled: true}

@@ -199,16 +199,21 @@ func (api *Conversations) UpdateConversation(id string, title, model string) err
 	return err
 }
 
-// DeleteConversation remove a conversa.
+// DeleteConversation delega à operação batch canônica.
 func (api *Conversations) DeleteConversation(id string) error {
+	_, err := api.DeleteConversations([]string{id})
+	return err
+}
+
+// DeleteConversations remove uma ou mais conversas atomicamente.
+func (api *Conversations) DeleteConversations(ids []string) ([]string, error) {
 	session, ctrl, err := api.deps()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.DeleteConversation(ctx, id)
+	return WithUser(session, func(ctx context.Context) ([]string, error) {
+		return ctrl.DeleteConversations(ctx, ids)
 	})
-	return err
 }
 
 // DeleteMessage exclui mensagem (com confirmação no controller).

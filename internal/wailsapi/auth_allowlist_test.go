@@ -593,6 +593,7 @@ func TestConversationsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"GetMessageChildren",
 		"UpdateConversation",
 		"DeleteConversation",
+		"DeleteConversations",
 		"DeleteMessage",
 		"UpdateMessage",
 		"ToggleMessagePin",

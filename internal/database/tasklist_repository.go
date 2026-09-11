@@ -457,13 +457,29 @@ func UpdateTaskListFullWithContext(ctx context.Context, id string, title, descri
 }
 
 // SetTaskListConversationWithContext vincula (ou desvincula, com nil) uma
-// tasklist do usuário do contexto a uma conversa. Não valida a existência da
-// conversa: o vínculo é uma referência fraca (a conversa pode ser de outra
-// origem/canal); o escopo por usuário já protege contra acesso indevido.
+// tasklist do usuário do contexto a uma conversa que pertença ao mesmo usuário.
 func SetTaskListConversationWithContext(ctx context.Context, id string, conversationID *string) error {
-	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
-		Where("id = ?", id).
-		Update("conversation_id", conversationID).Error
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.set_conversation", func(tx *gorm.DB) error {
+		var normalizedConversationID *string
+		if conversationID != nil {
+			trimmed := strings.TrimSpace(*conversationID)
+			if trimmed != "" {
+				normalizedConversationID = &trimmed
+			}
+		}
+		if normalizedConversationID != nil {
+			if err := ValidateConversationOwnerTx(ctx, tx, *normalizedConversationID, userID); err != nil {
+				return err
+			}
+		}
+		return ScopeByUser(ctx, tx.WithContext(ctx).Model(&TaskList{}), "user_id").
+			Where("id = ?", id).
+			Update("conversation_id", normalizedConversationID).Error
+	})
 }
 
 // GetTaskListsByConversationIDWithContext retorna as tasklists do usuário do
@@ -790,11 +806,29 @@ func UpdateTaskFullWithContext(ctx context.Context, id string, title, descriptio
 // usuário do contexto a uma conversa. Usa o mesmo padrão de escopo via subquery
 // de UpdateTaskWithContext para garantir que só tasks do usuário sejam afetadas.
 func SetTaskConversationWithContext(ctx context.Context, id string, conversationID *string) error {
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
-	return db.WithContext(ctx).Model(&Task{}).
-		Where("id = ?", id).
-		Where("id IN (?)", taskIDs).
-		Update("conversation_id", conversationID).Error
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return withSQLiteImmediateTransaction(ctx, db, "task.set_conversation", func(tx *gorm.DB) error {
+		var normalizedConversationID *string
+		if conversationID != nil {
+			trimmed := strings.TrimSpace(*conversationID)
+			if trimmed != "" {
+				normalizedConversationID = &trimmed
+			}
+		}
+		if normalizedConversationID != nil {
+			if err := ValidateConversationOwnerTx(ctx, tx, *normalizedConversationID, userID); err != nil {
+				return err
+			}
+		}
+		taskIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
+		return tx.WithContext(ctx).Model(&Task{}).
+			Where("id = ?", id).
+			Where("id IN (?)", taskIDs).
+			Update("conversation_id", normalizedConversationID).Error
+	})
 }
 
 // GetTasksByConversationIDWithContext retorna as tasks do usuário do contexto

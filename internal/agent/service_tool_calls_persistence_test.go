@@ -99,6 +99,11 @@ func setupAgenticToolCallDB(t *testing.T) (*gorm.DB, func()) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
 		&database.User{},
 		&database.Conversation{},

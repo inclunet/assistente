@@ -63,12 +63,24 @@ func newTaskListTestDB(t testing.TB, userID string) (*gorm.DB, context.Context) 
 		database.SetDB(previous)
 	})
 	if err := db.AutoMigrate(
+		&database.Conversation{},
 		&database.TaskListWorkflow{},
 		&database.TaskList{},
 		&database.Task{},
 		&database.TaskNote{},
 	); err != nil {
 		t.Fatalf("migrate tasklist test db: %v", err)
+	}
+	for _, conversationID := range []string{
+		"conv-src", "conv-1", "conv-2", "conv-other", "conv-123", "conv-456",
+	} {
+		if err := db.Create(&database.Conversation{
+			UUIDModel: database.UUIDModel{ID: conversationID},
+			UserID:    userID,
+			Title:     conversationID,
+		}).Error; err != nil {
+			t.Fatalf("seed conversation %s: %v", conversationID, err)
+		}
 	}
 
 	return db, database.WithUserID(context.Background(), userID)

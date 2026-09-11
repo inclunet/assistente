@@ -18,17 +18,37 @@ import (
 // ExportImport é o bind Wails do domínio export_import (AEP-0088).
 // Auth só via WithUser — sem chamar o helper de auth do App no call site.
 // Tipos de request/response vêm de portability (sem apidto novo).
+type importConversationsFunc func(
+	context.Context,
+	string,
+	*credentials.Manager,
+	string,
+	[]portability.ImportResolution,
+	func([]string),
+) (*portability.ImportResult, error)
+
 type ExportImport struct {
-	mu         sync.RWMutex
-	session    Session
-	credMgr    *credentials.Manager
-	dialog     func() ports.SystemDialogPort
-	appVersion string
+	mu                         sync.RWMutex
+	session                    Session
+	credMgr                    *credentials.Manager
+	dialog                     func() ports.SystemDialogPort
+	appVersion                 string
+	prepareConversationRestore func(context.Context) (func([]string), error)
+	importConversations        importConversationsFunc
 }
 
 // NewExportImport cria o bind vazio; AttachExportImport preenche deps no startup.
 func NewExportImport() *ExportImport {
-	return &ExportImport{}
+	return &ExportImport{importConversations: portability.ImportConversationsWithRestoreHook}
+}
+
+func (api *ExportImport) importer() importConversationsFunc {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	if api.importConversations == nil {
+		return portability.ImportConversationsWithRestoreHook
+	}
+	return api.importConversations
 }
 
 // AttachExportImport associa Session, credenciais, diálogo e versão após o startup.
@@ -39,6 +59,7 @@ func AttachExportImport(
 	credMgr *credentials.Manager,
 	dialog func() ports.SystemDialogPort,
 	appVersion string,
+	prepareConversationRestore func(context.Context) (func([]string), error),
 ) {
 	if api == nil {
 		return
@@ -49,20 +70,21 @@ func AttachExportImport(
 	api.credMgr = credMgr
 	api.dialog = dialog
 	api.appVersion = appVersion
+	api.prepareConversationRestore = prepareConversationRestore
 }
 
-func (api *ExportImport) deps() (Session, *credentials.Manager, func() ports.SystemDialogPort, string, error) {
+func (api *ExportImport) deps() (Session, *credentials.Manager, func() ports.SystemDialogPort, string, func(context.Context) (func([]string), error), error) {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
 	if api.session == nil || api.dialog == nil {
-		return nil, nil, nil, "", ErrExportImportNotWired
+		return nil, nil, nil, "", nil, ErrExportImportNotWired
 	}
-	return api.session, api.credMgr, api.dialog, api.appVersion, nil
+	return api.session, api.credMgr, api.dialog, api.appVersion, api.prepareConversationRestore, nil
 }
 
 // ExportConversations exporta conversas selecionadas em JSON portátil.
 func (api *ExportImport) ExportConversations(ids []string) (string, error) {
-	session, credMgr, _, appVersion, err := api.deps()
+	session, credMgr, _, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
@@ -75,7 +97,7 @@ func (api *ExportImport) ExportConversations(ids []string) (string, error) {
 
 // ExportData exporta dados portáteis conforme o request (JSON/HTML/MCP-JSON).
 func (api *ExportImport) ExportData(req portability.ExportRequest) (string, error) {
-	session, credMgr, _, appVersion, err := api.deps()
+	session, credMgr, _, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +110,7 @@ func (api *ExportImport) ExportData(req portability.ExportRequest) (string, erro
 // labels deve vir já traduzido do frontend (i18n); campos vazios usam fallback pt-BR.
 // MarkdownFilter carrega o rótulo do filtro do formato (HTML/PDF/Markdown).
 func (api *ExportImport) ExportConversationsToFile(ids []string, format string, options portability.ContentExportOptions, labels apidto.FileDialogLabels) (string, error) {
-	session, credMgr, dialogFn, appVersion, err := api.deps()
+	session, credMgr, dialogFn, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +176,7 @@ func (api *ExportImport) ExportConversationsToFile(ids []string, format string, 
 
 // ExportDataToFile exporta dados portáteis para um caminho informado.
 func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path string) (string, error) {
-	session, credMgr, _, appVersion, err := api.deps()
+	session, credMgr, _, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
@@ -220,46 +242,83 @@ func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path st
 
 // ImportConversations importa conversas a partir de JSON portátil.
 func (api *ExportImport) ImportConversations(jsonData string) (*portability.ImportResult, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, prepareRestore, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
-		return portability.ImportConversationsWithContext(ctx, jsonData, credMgr, "")
+		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+			return api.importer()(ctx, jsonData, credMgr, "", nil, finalize)
+		})
 	})
 }
 
 // ImportData importa dados portáteis (com senha opcional de credenciais).
 func (api *ExportImport) ImportData(jsonData string, credentialExportPassword string) (*portability.ImportResult, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, prepareRestore, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
-		return portability.ImportConversationsWithContext(ctx, jsonData, credMgr, credentialExportPassword)
+		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+			return api.importer()(ctx, jsonData, credMgr, credentialExportPassword, nil, finalize)
+		})
 	})
 }
 
 // ImportDataWithResolutions importa dados aplicando resoluções de conflito.
 func (api *ExportImport) ImportDataWithResolutions(req portability.ImportRequest) (*portability.ImportResult, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, prepareRestore, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
-		return portability.ImportConversationsWithResolutions(
-			ctx,
-			req.JSONData,
-			credMgr,
-			req.CredentialExportPassword,
-			req.Resolutions,
-		)
+		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+			return api.importer()(
+				ctx,
+				req.JSONData,
+				credMgr,
+				req.CredentialExportPassword,
+				req.Resolutions,
+				finalize,
+			)
+		})
 	})
+}
+
+func withPreparedConversationRestore(
+	ctx context.Context,
+	prepare func(context.Context) (func([]string), error),
+	importFn func(func([]string)) (*portability.ImportResult, error),
+) (*portability.ImportResult, error) {
+	preparedFinalize := func([]string) {}
+	if prepare != nil {
+		var err error
+		preparedFinalize, err = prepare(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if preparedFinalize == nil {
+			preparedFinalize = func([]string) {}
+		}
+	}
+	var finalizeOnce sync.Once
+	finalize := func(ids []string) {
+		finalizeOnce.Do(func() { preparedFinalize(ids) })
+	}
+	defer finalize(nil)
+	var result *portability.ImportResult
+	err := database.WithConversationLifecycle(ctx, func() error {
+		var importErr error
+		result, importErr = importFn(finalize)
+		return importErr
+	})
+	return result, err
 }
 
 // AnalyzeImportData analisa um payload de importação sem aplicar mudanças.
 func (api *ExportImport) AnalyzeImportData(jsonData string, credentialExportPassword string) (*portability.ImportAnalysis, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, _, err := api.deps()
 	if err != nil {
 		return nil, err
 	}

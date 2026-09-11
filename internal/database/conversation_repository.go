@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -43,7 +44,12 @@ func (r *ConversationRepository) CreateConversationWithContext(ctx context.Conte
 		UserID: userID,
 	}
 
-	if err := db.WithContext(ctx).Create(conv).Error; err != nil {
+	err = WithSQLiteMaintenance(ctx, func() error {
+		return withSQLiteImmediateTransaction(ctx, db, "conversation.create", func(tx *gorm.DB) error {
+			return tx.WithContext(ctx).Create(conv).Error
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	return conv, nil
@@ -64,13 +70,24 @@ func (r *ConversationRepository) CreateSubAgentConversationWithContext(ctx conte
 	if err != nil {
 		return nil, err
 	}
+	parentConversationID = strings.TrimSpace(parentConversationID)
 	conv := &Conversation{
 		Title:                title,
 		UserID:               userID,
 		Kind:                 ConversationKindSubagent,
 		ParentConversationID: parentConversationID,
 	}
-	if err := db.WithContext(ctx).Create(conv).Error; err != nil {
+	err = WithSQLiteMaintenance(ctx, func() error {
+		return withSQLiteImmediateTransaction(ctx, db, "conversation.create_subagent", func(tx *gorm.DB) error {
+			if strings.TrimSpace(parentConversationID) != "" {
+				if err := ValidateConversationOwnerTx(ctx, tx, parentConversationID, userID); err != nil {
+					return err
+				}
+			}
+			return tx.WithContext(ctx).Create(conv).Error
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	return conv, nil
@@ -85,37 +102,49 @@ func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (
 }
 
 func (r *ConversationRepository) RecycleOrCreateConversationWithContext(ctx context.Context, title string) (*Conversation, error) {
-	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
-	var candidate Conversation
-	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
-		Where("channel = '' AND contact_id = '' AND (kind = '' OR kind IS NULL)").
-		Where("id NOT IN (?)",
-			db.WithContext(ctx).Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
-		).
-		Order("created_at ASC").
-		First(&candidate).Error
 
-	if err == nil {
-		now := time.Now()
-		candidate.Title = title
-		candidate.Summary = ""
-		candidate.SummaryUpToMessageID = ""
-		candidate.SummarizingInProgress = false
-		candidate.CreatedAt = now
-		candidate.UpdatedAt = now
-		if userID, ok := UserIDFromContext(ctx); ok {
+	var result *Conversation
+	err = WithSQLiteMaintenance(ctx, func() error {
+		return withSQLiteImmediateTransaction(ctx, r.db, "conversations.recycle_or_create", func(tx *gorm.DB) error {
+			var candidate Conversation
+			err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+				Where("channel = '' AND contact_id = '' AND (kind = '' OR kind IS NULL)").
+				Where("id NOT IN (?)",
+					tx.WithContext(ctx).Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
+				).
+				Order("created_at ASC").
+				First(&candidate).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				result = &Conversation{Title: title, UserID: userID}
+				return tx.WithContext(ctx).Create(result).Error
+			}
+			if err != nil {
+				return err
+			}
+
+			now := time.Now()
+			candidate.Title = title
+			candidate.Summary = ""
+			candidate.SummaryUpToMessageID = ""
+			candidate.SummarizingInProgress = false
+			candidate.CreatedAt = now
+			candidate.UpdatedAt = now
 			candidate.UserID = userID
-		}
-		if err := db.WithContext(ctx).Save(&candidate).Error; err != nil {
-			return nil, err
-		}
-		return &candidate, nil
+			if err := tx.WithContext(ctx).Save(&candidate).Error; err != nil {
+				return err
+			}
+			result = &candidate
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return r.CreateConversationWithContext(ctx, title, "")
+	return result, nil
 }
 
 // FindOrCreateChannelConversationWithContext localiza ou cria uma conversa de
@@ -145,28 +174,49 @@ func (r *ConversationRepository) FindOrCreateChannelConversationWithContext(ctx 
 		return nil, false, err
 	}
 	var conv Conversation
-	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
-		Where("channel = ? AND contact_id = ?", channel, contactID).
-		First(&conv).Error
-	if err == nil {
-		return &conv, false, nil
-	}
+	created := false
+	err := WithSQLiteMaintenance(ctx, func() error {
+		return withSQLiteImmediateTransaction(ctx, db, "conversation.find_or_create_channel", func(tx *gorm.DB) error {
+			query := tx.WithContext(ctx)
+			if IsBootstrap(ctx) {
+				query = query.Where("user_id = '' OR user_id IS NULL")
+			} else {
+				query = ScopeByUser(ctx, query, "user_id")
+			}
+			// SECURITY: bootstrap é deliberadamente instance-wide e só pode criar/
+			// reutilizar conversa órfã; o caminho autenticado permanece escopado.
+			err := query.
+				Where("channel = ? AND contact_id = ?", channel, contactID).
+				First(&conv).Error
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
 
-	title := contactName
-	if title == "" {
-		title = contactID
-	}
-	userID, _ := UserIDFromContext(ctx)
-	conv = Conversation{
-		Title:     title,
-		Channel:   channel,
-		ContactID: contactID,
-		UserID:    userID,
-	}
-	if err := db.WithContext(ctx).Create(&conv).Error; err != nil {
+			title := contactName
+			if title == "" {
+				title = contactID
+			}
+			userID, _ := UserIDFromContext(ctx)
+			conv = Conversation{
+				Title:     title,
+				Channel:   channel,
+				ContactID: contactID,
+				UserID:    userID,
+			}
+			if err := tx.WithContext(ctx).Create(&conv).Error; err != nil {
+				return err
+			}
+			created = true
+			return nil
+		})
+	})
+	if err != nil {
 		return nil, false, err
 	}
-	return &conv, true, nil
+	return &conv, created, nil
 }
 
 // GetConversationsWithContext retorna as conversas do usuário do contexto,
@@ -420,27 +470,361 @@ func (r *ConversationRepository) UpdateConversationAgentWorkDirWithContext(ctx c
 	}).Error
 }
 
-// DeleteConversationWithContext deleta uma conversa do usuário do contexto e
-// suas mensagens.
+const conversationDeleteBatchSize = 400
+
+// DeleteConversationWithContext usa o mesmo pipeline transacional da exclusão
+// em lote, evitando diferenças entre a ação unitária e a seleção múltipla.
 func DeleteConversationWithContext(ctx context.Context, id string) error {
 	return NewConversationRepository(db).DeleteConversationWithContext(ctx, id)
 }
 
 func (r *ConversationRepository) DeleteConversationWithContext(ctx context.Context, id string) error {
-	db := r.db
+	_, err := r.DeleteConversationsWithContext(ctx, []string{id})
+	return err
+}
+
+// ValidateOwnedConversationIDsWithContext normaliza e valida previamente um
+// lote sem mutá-lo. A borda de domínio usa esta etapa antes de fechar os gates
+// efêmeros; a transação de delete repete a validação sob BEGIN IMMEDIATE.
+func ValidateOwnedConversationIDsWithContext(ctx context.Context, ids []string) ([]string, error) {
 	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeConversationIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	releaseMaintenance, err := acquireSQLiteMaintenance(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseMaintenance()
+	if err := WithSQLiteBusyRetry(ctx, "conversations.validate_batch", func() error {
+		return validateOwnedConversationsTx(ctx, db.WithContext(ctx), normalized)
+	}); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+// DeleteConversationsWithContext normaliza e remove uma ou mais conversas em
+// uma única transação BEGIN IMMEDIATE. A posse de TODOS os IDs é validada antes
+// da primeira mutação; ID inexistente ou de outro usuário produz o mesmo erro e
+// causa rollback integral (AEP-0052).
+func DeleteConversationsWithContext(ctx context.Context, ids []string) ([]string, error) {
+	return NewConversationRepository(db).DeleteConversationsWithContext(ctx, ids)
+}
+
+func (r *ConversationRepository) DeleteConversationsWithContext(ctx context.Context, ids []string) ([]string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeConversationIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	var deleted []string
+	err = WithConversationLifecycle(ctx, func() error {
+		var deleteErr error
+		deleted, deleteErr = r.deleteConversationsWithinLifecycle(ctx, normalized)
+		return deleteErr
+	})
+	return deleted, err
+}
+
+// DeleteConversationsWithinLifecycleWithContext executa o batch assumindo que
+// o caller mantém o gate de ciclo de vida até concluir efeitos pós-commit.
+func DeleteConversationsWithinLifecycleWithContext(ctx context.Context, ids []string) ([]string, error) {
+	return NewConversationRepository(db).DeleteConversationsWithinLifecycleWithContext(ctx, ids)
+}
+
+func (r *ConversationRepository) DeleteConversationsWithinLifecycleWithContext(ctx context.Context, ids []string) ([]string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeConversationIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return r.deleteConversationsWithinLifecycle(ctx, normalized)
+}
+
+func (r *ConversationRepository) deleteConversationsWithinLifecycle(ctx context.Context, normalized []string) ([]string, error) {
+	releaseMaintenance, err := acquireSQLiteMaintenance(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseMaintenance()
+	return r.deleteConversationsWithinMaintenance(ctx, normalized)
+}
+
+// DeleteConversationsWithinMaintenanceWithContext executa o batch assumindo
+// que o caller já mantém os gates de ciclo de vida e manutenção.
+func DeleteConversationsWithinMaintenanceWithContext(ctx context.Context, ids []string) ([]string, error) {
+	return NewConversationRepository(db).DeleteConversationsWithinMaintenanceWithContext(ctx, ids)
+}
+
+func (r *ConversationRepository) DeleteConversationsWithinMaintenanceWithContext(ctx context.Context, ids []string) ([]string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeConversationIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return r.deleteConversationsWithinMaintenance(ctx, normalized)
+}
+
+func (r *ConversationRepository) deleteConversationsWithinMaintenance(ctx context.Context, normalized []string) ([]string, error) {
+	err := withSQLiteImmediateTransaction(ctx, r.db, "conversations.delete_batch", func(tx *gorm.DB) error {
+		if err := validateOwnedConversationsTx(ctx, tx, normalized); err != nil {
+			return err
+		}
+		return deleteOwnedConversationsTx(ctx, tx, normalized)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func normalizeConversationIDs(ids []string) ([]string, error) {
+	normalized := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, rawID := range ids {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			return nil, ErrConversationIDRequired
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	if len(normalized) == 0 {
+		return nil, ErrConversationIDRequired
+	}
+	return normalized, nil
+}
+
+func forConversationIDBatches(ids []string, fn func([]string) error) error {
+	for start := 0; start < len(ids); start += conversationDeleteBatchSize {
+		end := start + conversationDeleteBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := fn(ids[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sqliteTableExists(ctx context.Context, exec *gorm.DB, model any) (bool, error) {
+	if exec == nil {
+		return false, errors.New("executor SQLite ausente")
+	}
+	statement := &gorm.Statement{DB: exec}
+	if err := statement.Parse(model); err != nil {
+		return false, err
+	}
+	var count int64
+	if err := exec.WithContext(ctx).
+		Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", statement.Schema.Table).
+		Scan(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func validateOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) error {
+	found := make(map[string]struct{}, len(ids))
+	err := forConversationIDBatches(ids, func(batch []string) error {
+		var ownedIDs []string
+		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
+			Where("id IN ?", batch).
+			Pluck("id", &ownedIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range ownedIDs {
+			found[id] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
-	if _, err := r.GetConversationInfoWithContext(ctx, id); err != nil {
+	if len(found) != len(ids) {
+		// Não identifica qual ID falhou: inexistente e pertencente a outra conta
+		// são indistinguíveis para impedir inferência cross-user.
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// ValidateConversationOwnerTx valida um alvo de escrita relacionado a uma
+// conversa usando o mesmo executor/transação da mutação. O erro não inclui o
+// ID, para não distinguir conversa inexistente de conversa de outro usuário.
+func ValidateConversationOwnerTx(ctx context.Context, tx *gorm.DB, conversationID, userID string) error {
+	var count int64
+	if err := tx.WithContext(ctx).Model(&Conversation{}).
+		Where("id = ? AND user_id = ?", strings.TrimSpace(conversationID), strings.TrimSpace(userID)).
+		Count(&count).Error; err != nil {
 		return err
 	}
-	if err := deleteChatToolInvocationsForConversation(ctx, db, id); err != nil {
-		return err
+	if count != 1 {
+		return ErrConversationDeleted
 	}
-	if err := db.WithContext(ctx).Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
-		return err
+	return nil
+}
+
+func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) error {
+	if err := deleteChatToolInvocationsForConversationsTx(ctx, tx, ids); err != nil {
+		return fmt.Errorf("erro ao excluir invocações das conversas: %w", err)
 	}
-	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("id = ?", id).Delete(&Conversation{}).Error
+	hasChannelResponses, err := sqliteTableExists(ctx, tx, &ChannelResponsePending{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar respostas pendentes das conversas: %w", err)
+	}
+	if hasChannelResponses {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("conversation_id IN ?", batch).
+				Delete(&ChannelResponsePending{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir respostas pendentes das conversas: %w", err)
+		}
+	}
+	hasACPSessions, err := sqliteTableExists(ctx, tx, &ACPSession{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar sessões ACP das conversas: %w", err)
+	}
+	if hasACPSessions {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("conversation_id IN ?", batch).
+				Delete(&ACPSession{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir sessões ACP das conversas: %w", err)
+		}
+	}
+	hasChannelAssociations, err := sqliteTableExists(ctx, tx, &ChannelContactConversation{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar associações de canal das conversas: %w", err)
+	}
+	if hasChannelAssociations {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("conversation_id IN ?", batch).
+				Delete(&ChannelContactConversation{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir associações de canal das conversas: %w", err)
+		}
+	}
+	hasSubAgentRuns, err := sqliteTableExists(ctx, tx, &SubAgentRun{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar runs de subagente das conversas: %w", err)
+	}
+	if hasSubAgentRuns {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("child_conversation_id IN ?", batch).
+				Delete(&SubAgentRun{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir runs de subagente das conversas: %w", err)
+		}
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).Model(&SubAgentRun{}).
+				Where("parent_conversation_id IN ?", batch).
+				Updates(map[string]any{"parent_conversation_id": "", "parent_turn_id": ""}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao desvincular runs filhos das conversas: %w", err)
+		}
+	}
+	hasTaskLists, err := sqliteTableExists(ctx, tx, &TaskList{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar listas de tarefas das conversas: %w", err)
+	}
+	if hasTaskLists {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).Model(&TaskList{}).
+				Where("conversation_id IN ?", batch).
+				Update("conversation_id", nil).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao desvincular listas de tarefas das conversas: %w", err)
+		}
+	}
+	hasTasks, err := sqliteTableExists(ctx, tx, &Task{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar tarefas das conversas: %w", err)
+	}
+	if hasTasks {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).Model(&Task{}).
+				Where("conversation_id IN ?", batch).
+				Update("conversation_id", nil).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao desvincular tarefas das conversas: %w", err)
+		}
+	}
+	hasMemories, err := sqliteTableExists(ctx, tx, &MemoryRecord{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar memórias das conversas: %w", err)
+	}
+	if hasMemories {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("scope = ? AND scope_ref IN ?", MemoryScopeConversation, batch).
+				Delete(&MemoryRecord{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir memórias das conversas: %w", err)
+		}
+	}
+	hasTags, err := sqliteTableExists(ctx, tx, &TagAssignment{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar tags das conversas: %w", err)
+	}
+	if hasTags {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("resource_type = ? AND resource_id IN ?", "conversation", batch).
+				Delete(&TagAssignment{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir tags das conversas: %w", err)
+		}
+	}
+	if err := forConversationIDBatches(ids, func(batch []string) error {
+		return tx.WithContext(ctx).Model(&Conversation{}).
+			Where("parent_conversation_id IN ?", batch).
+			Update("parent_conversation_id", "").Error
+	}); err != nil {
+		return fmt.Errorf("erro ao desvincular sub-conversas: %w", err)
+	}
+	if err := forConversationIDBatches(ids, func(batch []string) error {
+		messageIDs := tx.WithContext(ctx).Model(&ChatMessage{}).
+			Select("chat_messages.id").
+			Where("chat_messages.conversation_id IN ?", batch)
+		return tx.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
+	}); err != nil {
+		return fmt.Errorf("erro ao excluir mensagens das conversas: %w", err)
+	}
+
+	var deleted int64
+	if err := forConversationIDBatches(ids, func(batch []string) error {
+		result := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Where("id IN ?", batch).
+			Delete(&Conversation{})
+		deleted += result.RowsAffected
+		return result.Error
+	}); err != nil {
+		return fmt.Errorf("erro ao excluir conversas: %w", err)
+	}
+	if deleted != int64(len(ids)) {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func deleteChatToolInvocationsForConversation(ctx context.Context, exec *gorm.DB, conversationID string) error {
@@ -471,48 +855,46 @@ func deleteChatToolInvocationsForConversationTx(ctx context.Context, exec *gorm.
 	if conversationID == "" {
 		return nil
 	}
-	if !exec.Migrator().HasTable(&ToolInvocation{}) {
+	return deleteChatToolInvocationsForConversationsTx(ctx, exec, []string{conversationID})
+}
+
+func deleteChatToolInvocationsForConversationsTx(ctx context.Context, exec *gorm.DB, conversationIDs []string) error {
+	hasToolInvocations, err := sqliteTableExists(ctx, exec, &ToolInvocation{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar invocações de ferramentas: %w", err)
+	}
+	if !hasToolInvocations {
 		return nil
 	}
-	userID, _ := UserIDFromContext(ctx)
-
-	// turn_id aponta para a user message; origin_id usa turn_id.
-	var turnIDs []string
-	if err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
-		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", conversationID).
-		Distinct().
-		Pluck("chat_messages.turn_id", &turnIDs).Error; err != nil {
-		return err
-	}
-	// Algumas mensagens podem ter origin_id igual ao próprio message id.
-	var msgIDs []string
-	if err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
-		Where("chat_messages.conversation_id = ?", conversationID).
-		Pluck("chat_messages.id", &msgIDs).Error; err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
 		return err
 	}
 
-	ids := make([]string, 0, len(turnIDs)+len(msgIDs))
-	ids = append(ids, turnIDs...)
-	ids = append(ids, msgIDs...)
-	if len(ids) == 0 {
-		return nil
-	}
-
-	// Batch para evitar estourar limite de variáveis do SQLite.
-	const batchSize = 400
-	for start := 0; start < len(ids); start += batchSize {
-		end := start + batchSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-		if err := exec.WithContext(ctx).
-			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
-			Delete(&ToolInvocation{}).Error; err != nil {
+	return forConversationIDBatches(conversationIDs, func(batch []string) error {
+		messageIDs := exec.WithContext(ctx).Model(&ChatMessage{}).
+			Select("chat_messages.id").
+			Where("chat_messages.conversation_id IN ?", batch)
+		turnIDs := exec.WithContext(ctx).Model(&ChatMessage{}).
+			Select("chat_messages.turn_id").
+			Where("chat_messages.conversation_id IN ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", batch)
+		var invocationIDs []string
+		if err := exec.WithContext(ctx).Model(&ToolInvocation{}).
+			Where("user_id = ? AND origin_type = ? AND (origin_id IN (?) OR origin_id IN (?))", userID, "chat", messageIDs, turnIDs).
+			Pluck("id", &invocationIDs).Error; err != nil {
 			return err
 		}
-	}
-	return nil
+		return forConversationIDBatches(invocationIDs, func(invocationBatch []string) error {
+			if err := exec.WithContext(ctx).Model(&ToolInvocation{}).
+				Where("user_id = ? AND parent_invocation_id IN ?", userID, invocationBatch).
+				Update("parent_invocation_id", nil).Error; err != nil {
+				return err
+			}
+			return exec.WithContext(ctx).
+				Where("user_id = ? AND id IN ?", userID, invocationBatch).
+				Delete(&ToolInvocation{}).Error
+		})
+	})
 }
 
 // ==================== Utilities ====================

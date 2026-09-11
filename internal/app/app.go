@@ -1182,6 +1182,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		MsgRepo:               a.msgRepo,
 		Emitter:               a.emitter,
 		ResetScopedState:      a.resetConversationScopedState,
+		PrepareBatchDelete:    a.prepareConversationDeletion,
 		ConfirmDeleteMessage:  a.confirmDeleteMessageQuestionnaire,
 		GetEffectiveModelFunc: a.effectiveModelFromActiveProfile,
 	})

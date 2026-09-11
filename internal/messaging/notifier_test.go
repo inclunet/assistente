@@ -1,10 +1,263 @@
 package messaging
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 )
+
+type blockingUpsertStore struct {
+	*memPendingStore
+	started chan struct{}
+	release chan struct{}
+}
+
+type blockingDeleteStore struct {
+	*memPendingStore
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingDeleteStore) Delete(ctx context.Context, conversationID string) error {
+	close(s.started)
+	<-s.release
+	return s.memPendingStore.Delete(ctx, conversationID)
+}
+
+func (s *blockingUpsertStore) Upsert(ctx context.Context, rec ChannelPendingRecord) error {
+	close(s.started)
+	<-s.release
+	return s.memPendingStore.Upsert(ctx, rec)
+}
+
+func TestResponseNotifier_PrepareDeletionFalhaSemRemoverCallback(t *testing.T) {
+	n := NewResponseNotifier()
+	n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro = %v, want %v", err, ErrConversationCallbackActive)
+	}
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("callbacks pendentes = %d, want 1", got)
+	}
+}
+
+func TestResponseNotifier_PrepareDeletionFalhaEnquantoCallbackExecuta(t *testing.T) {
+	n := NewResponseNotifier()
+	started := make(chan struct{})
+	finish := make(chan struct{})
+	done := make(chan struct{})
+	n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {
+		close(started)
+		<-finish
+		close(done)
+	}})
+	n.Notify("conversation-1", "resposta", "message-1")
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("callback não iniciou")
+	}
+
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro = %v, want %v", err, ErrConversationCallbackActive)
+	}
+	close(finish)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("callback não terminou")
+	}
+}
+
+func TestResponseNotifier_PrepareDeletionBloqueiaRegisterAteRelease(t *testing.T) {
+	n := NewResponseNotifier()
+	release, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion: %v", err)
+	}
+
+	registered := make(chan struct{})
+	go func() {
+		n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+		close(registered)
+	}()
+	select {
+	case <-registered:
+		t.Fatal("Register atravessou gate de exclusão")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	release(false)
+	select {
+	case <-registered:
+	case <-time.After(time.Second):
+		t.Fatal("Register não prosseguiu após release")
+	}
+}
+
+func TestResponseNotifier_CommitDescartaRegisterBloqueado(t *testing.T) {
+	n := NewResponseNotifier()
+	finalize, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion: %v", err)
+	}
+
+	registered := make(chan struct{})
+	go func() {
+		n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+		close(registered)
+	}()
+	finalize(true)
+	select {
+	case <-registered:
+	case <-time.After(time.Second):
+		t.Fatal("Register permaneceu bloqueado após commit")
+	}
+	if got := n.PendingCount(); got != 0 {
+		t.Fatalf("callback órfão registrado após commit: pending=%d", got)
+	}
+}
+
+func TestResponseNotifier_TombstoneExpira(t *testing.T) {
+	now := time.Now()
+	n := newResponseNotifierWithClock(func() time.Time { return now })
+	t.Cleanup(n.Stop)
+	finalize, err := n.PrepareConversationDeletion([]string{" conversation-1 ", "conversation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+	n.Register(" conversation-1 ", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 0 {
+		t.Fatalf("tombstone normalizado aceitou callback: %d", got)
+	}
+
+	now = now.Add(callbackTTL + time.Second)
+	n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("tombstone expirado bloqueou callback: %d", got)
+	}
+}
+
+func TestResponseNotifier_RestorationRemoveTombstoneDoIDImportado(t *testing.T) {
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	finalizeDelete, err := n.PrepareConversationDeletion([]string{"restored", "still-deleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeDelete(true)
+
+	finalizeRestore := n.PrepareConversationRestoration()
+	finalizeRestore([]string{" restored "})
+	n.Register("restored", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("ID restaurado continuou bloqueado: pending=%d", got)
+	}
+	n.Register("still-deleted", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("restauração removeu tombstone de ID não importado: pending=%d", got)
+	}
+}
+
+func TestResponseNotifier_PrepareDeletionDetectaUpsertEmExecucao(t *testing.T) {
+	store := &blockingUpsertStore{
+		memPendingStore: newMemPendingStore(),
+		started:         make(chan struct{}),
+		release:         make(chan struct{}),
+	}
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	n.SetPendingStore(store)
+	registered := make(chan struct{})
+	go func() {
+		n.Register("conversation-1", ResponseCallback{
+			Channel: "telegram", ChatID: "chat", TraceID: "trace", OwnerUserID: "user-1",
+			Callback: func(string, string) {},
+		})
+		close(registered)
+	}()
+	<-store.started
+	n.Cancel("conversation-1")
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro=%v, esperado operação persistente ativa", err)
+	}
+	close(store.release)
+	<-registered
+	finalize, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("preparo após Upsert: %v", err)
+	}
+	finalize(false)
+}
+
+func TestResponseNotifier_PrepareDeletionDetectaDeleteEmExecucao(t *testing.T) {
+	store := &blockingDeleteStore{
+		memPendingStore: newMemPendingStore(),
+		started:         make(chan struct{}),
+		release:         make(chan struct{}),
+	}
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	n.SetPendingStore(store)
+	n.Register("conversation-1", ResponseCallback{
+		Channel: "telegram", ChatID: "chat", TraceID: "trace", OwnerUserID: "user-1",
+		Callback: func(string, string) {},
+	})
+
+	cancelled := make(chan struct{})
+	go func() {
+		n.Cancel("conversation-1")
+		close(cancelled)
+	}()
+	<-store.started
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro=%v, esperado Delete persistente ativo", err)
+	}
+	close(store.release)
+	<-cancelled
+}
+
+func TestResponseNotifier_ReservaOperacaoCoordenaExclusao(t *testing.T) {
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	release, ok := n.ReserveConversationOperation(" conversation-1 ")
+	if !ok {
+		t.Fatal("reserva recusada")
+	}
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro=%v, esperado operação ativa", err)
+	}
+	release()
+	finalize, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+	if _, ok := n.ReserveConversationOperation("conversation-1"); ok {
+		t.Fatal("reserva tardia atravessou tombstone")
+	}
+}
+
+func TestResponseNotifier_TraceSemCorrespondenciaNaoCriaActiveVazio(t *testing.T) {
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	n.Register("conversation-1", ResponseCallback{
+		Channel: "telegram", ChatID: "chat", OwnerUserID: "user-1", TraceID: "trace-1",
+		SkipPersist: true, Callback: func(string, string) {},
+	})
+	n.NotifyContext(WithChannelTraceID(context.Background(), "trace-2"), "conversation-1", "resposta", "message")
+
+	n.mu.Lock()
+	_, leaked := n.active["conversation-1"]
+	n.mu.Unlock()
+	if leaked {
+		t.Fatal("Notify sem callback correspondente deixou entrada active vazia")
+	}
+}
 
 func TestNotifier_RegisterAndNotify(t *testing.T) {
 	n := NewResponseNotifier()
@@ -265,8 +518,8 @@ func TestNotifier_TTLDoesNotExpireFreshCallbacks(t *testing.T) {
 	defer n.Stop()
 
 	n.Register("conv-fresh", ResponseCallback{
-		Channel: "telegram",
-		TraceID: "trace-fresh",
+		Channel:  "telegram",
+		TraceID:  "trace-fresh",
 		Callback: func(string, string) {},
 	})
 
