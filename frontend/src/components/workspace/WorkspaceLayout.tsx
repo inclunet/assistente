@@ -47,16 +47,18 @@ export function WorkspaceLayout() {
   }, [setupEventListeners]);
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
+  const isWorkspaceRouteRef = useRef(isWorkspaceRoute);
+  isWorkspaceRouteRef.current = isWorkspaceRoute;
 
   const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
   const restoreFocusToTablistRef = useRef<string | null>(null);
   const lastTabShortcutTargetRef = useRef<string | null>(null);
   const markTabShortcutNavigation = useCallback((tabId: string) => {
-    if (!isWorkspaceRoute) return;
+    if (!isWorkspaceRouteRef.current) return;
     if (tabId === workspace?.activeTabId) {
       const activeTabType = workspace?.tabs.find((tab) => tab.id === tabId)?.type;
       requestAnimationFrame(() => {
-        if (!isWorkspaceRoute) {
+        if (!isWorkspaceRouteRef.current) {
           cancelWorkspacePanelFocus(tabId);
           return;
         }
