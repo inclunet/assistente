@@ -20,6 +20,9 @@ func TestConversationsNotWired(t *testing.T) {
 	if err := api.DeleteConversation("id"); !errors.Is(err, ErrConversationsNotWired) {
 		t.Fatalf("DeleteConversation: got %v", err)
 	}
+	if _, err := api.DeleteConversations([]string{"id"}); !errors.Is(err, ErrConversationsNotWired) {
+		t.Fatalf("DeleteConversations: got %v", err)
+	}
 	if _, err := api.GetMessages("id", nil); !errors.Is(err, ErrConversationsNotWired) {
 		t.Fatalf("GetMessages: got %v", err)
 	}
@@ -122,6 +125,10 @@ func TestConversationsUsesWithUserNotRequireAuth(t *testing.T) {
 		}},
 		{"DeleteConversation", func() error {
 			return api.DeleteConversation("id")
+		}},
+		{"DeleteConversations", func() error {
+			_, err := api.DeleteConversations([]string{"id"})
+			return err
 		}},
 		{"DeleteMessage", func() error {
 			return api.DeleteMessage("id")

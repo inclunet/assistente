@@ -387,6 +387,7 @@ export function buildWailsMockScript(): string {
     GetMessageChildren: [],
     ClearConversation: undefined,
     DeleteConversation: undefined,
+    DeleteConversations: (ids) => ids,
     RenameConversation: undefined,
     ClearMessages: undefined,
     SearchConversationHistory: [],

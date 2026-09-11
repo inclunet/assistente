@@ -22,6 +22,11 @@ const (
 	sqliteBusyRetryMaxWait       = 4 * time.Second
 )
 
+// sqliteMaintenanceGate coordena operações destrutivas longas com a
+// compactação física. Um canal, em vez de sync.Mutex, permite que quem espera
+// respeite o cancelamento do contexto.
+var sqliteMaintenanceGate = make(chan struct{}, 1)
+
 var sqliteBusyRetryDelays = []time.Duration{
 	25 * time.Millisecond,
 	50 * time.Millisecond,
@@ -95,6 +100,18 @@ func WithSQLiteBusyRetry(ctx context.Context, operation string, fn func() error)
 		}
 	}
 	return lastErr
+}
+
+func acquireSQLiteMaintenance(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case sqliteMaintenanceGate <- struct{}{}:
+		return func() { <-sqliteMaintenanceGate }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {

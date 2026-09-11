@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -420,27 +421,232 @@ func (r *ConversationRepository) UpdateConversationAgentWorkDirWithContext(ctx c
 	}).Error
 }
 
-// DeleteConversationWithContext deleta uma conversa do usuário do contexto e
-// suas mensagens.
+const conversationDeleteBatchSize = 400
+
+// DeleteConversationWithContext usa o mesmo pipeline transacional da exclusão
+// em lote, evitando diferenças entre a ação unitária e a seleção múltipla.
 func DeleteConversationWithContext(ctx context.Context, id string) error {
 	return NewConversationRepository(db).DeleteConversationWithContext(ctx, id)
 }
 
 func (r *ConversationRepository) DeleteConversationWithContext(ctx context.Context, id string) error {
-	db := r.db
+	_, err := r.DeleteConversationsWithContext(ctx, []string{id})
+	return err
+}
+
+// DeleteConversationsWithContext normaliza e remove uma ou mais conversas em
+// uma única transação BEGIN IMMEDIATE. A posse de TODOS os IDs é validada antes
+// da primeira mutação; ID inexistente ou de outro usuário produz o mesmo erro e
+// causa rollback integral (AEP-0052).
+func DeleteConversationsWithContext(ctx context.Context, ids []string) ([]string, error) {
+	return NewConversationRepository(db).DeleteConversationsWithContext(ctx, ids)
+}
+
+func (r *ConversationRepository) DeleteConversationsWithContext(ctx context.Context, ids []string) ([]string, error) {
 	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeConversationIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	releaseMaintenance, err := acquireSQLiteMaintenance(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseMaintenance()
+
+	err = withSQLiteImmediateTransaction(ctx, r.db, "conversations.delete_batch", func(tx *gorm.DB) error {
+		if err := validateOwnedConversationsTx(ctx, tx, normalized); err != nil {
+			return err
+		}
+		return deleteOwnedConversationsTx(ctx, tx, normalized)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func normalizeConversationIDs(ids []string) ([]string, error) {
+	normalized := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, rawID := range ids {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			return nil, ErrConversationIDRequired
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	if len(normalized) == 0 {
+		return nil, ErrConversationIDRequired
+	}
+	return normalized, nil
+}
+
+func forConversationIDBatches(ids []string, fn func([]string) error) error {
+	for start := 0; start < len(ids); start += conversationDeleteBatchSize {
+		end := start + conversationDeleteBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := fn(ids[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) error {
+	found := make(map[string]struct{}, len(ids))
+	err := forConversationIDBatches(ids, func(batch []string) error {
+		var ownedIDs []string
+		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
+			Where("id IN ?", batch).
+			Pluck("id", &ownedIDs).Error; err != nil {
+			return err
+		}
+		for _, id := range ownedIDs {
+			found[id] = struct{}{}
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
-	if _, err := r.GetConversationInfoWithContext(ctx, id); err != nil {
-		return err
+	if len(found) != len(ids) {
+		// Não identifica qual ID falhou: inexistente e pertencente a outra conta
+		// são indistinguíveis para impedir inferência cross-user.
+		return gorm.ErrRecordNotFound
 	}
-	if err := deleteChatToolInvocationsForConversation(ctx, db, id); err != nil {
-		return err
+	return nil
+}
+
+func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) error {
+	userID, _ := UserIDFromContext(ctx)
+
+	if err := deleteChatToolInvocationsForConversationsTx(ctx, tx, ids); err != nil {
+		return fmt.Errorf("erro ao excluir invocações das conversas: %w", err)
 	}
-	if err := db.WithContext(ctx).Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
-		return err
+	if tx.Migrator().HasTable(&ChannelResponsePending{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("owner_user_id = ? AND conversation_id IN ?", userID, batch).
+				Delete(&ChannelResponsePending{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir respostas pendentes das conversas: %w", err)
+		}
 	}
-	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("id = ?", id).Delete(&Conversation{}).Error
+	if tx.Migrator().HasTable(&ACPSession{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("user_id = ? AND conversation_id IN ?", userID, batch).
+				Delete(&ACPSession{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir sessões ACP das conversas: %w", err)
+		}
+	}
+	if tx.Migrator().HasTable(&ChannelContactConversation{}) && tx.Migrator().HasTable(&Channel{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			userChannelIDs := tx.WithContext(ctx).Model(&Channel{}).Select("id").Where("user_id = ?", userID)
+			return tx.WithContext(ctx).
+				Where("conversation_id IN ? AND channel_id IN (?)", batch, userChannelIDs).
+				Delete(&ChannelContactConversation{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir associações de canal das conversas: %w", err)
+		}
+	}
+	if tx.Migrator().HasTable(&SubAgentRun{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("user_id = ? AND child_conversation_id IN ?", userID, batch).
+				Delete(&SubAgentRun{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir runs de subagente das conversas: %w", err)
+		}
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).Model(&SubAgentRun{}).
+				Where("user_id = ? AND parent_conversation_id IN ?", userID, batch).
+				Updates(map[string]any{"parent_conversation_id": "", "parent_turn_id": ""}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao desvincular runs filhos das conversas: %w", err)
+		}
+	}
+	if tx.Migrator().HasTable(&TaskList{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).Model(&TaskList{}).
+				Where("user_id = ? AND conversation_id IN ?", userID, batch).
+				Update("conversation_id", nil).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao desvincular listas de tarefas das conversas: %w", err)
+		}
+	}
+	if tx.Migrator().HasTable(&Task{}) && tx.Migrator().HasTable(&TaskList{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			userTaskIDs := tx.WithContext(ctx).Model(&Task{}).
+				Select("tasks.id").
+				Joins("JOIN task_lists ON task_lists.id = tasks.task_list_id").
+				Where("task_lists.user_id = ? AND tasks.conversation_id IN ?", userID, batch)
+			return tx.WithContext(ctx).Model(&Task{}).
+				Where("id IN (?)", userTaskIDs).
+				Update("conversation_id", nil).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao desvincular tarefas das conversas: %w", err)
+		}
+	}
+	if tx.Migrator().HasTable(&MemoryRecord{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("user_id = ? AND scope = ? AND scope_ref IN ?", userID, MemoryScopeConversation, batch).
+				Delete(&MemoryRecord{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir memórias das conversas: %w", err)
+		}
+	}
+	if tx.Migrator().HasTable(&TagAssignment{}) {
+		if err := forConversationIDBatches(ids, func(batch []string) error {
+			return tx.WithContext(ctx).
+				Where("user_id = ? AND resource_type = ? AND resource_id IN ?", userID, "conversation", batch).
+				Delete(&TagAssignment{}).Error
+		}); err != nil {
+			return fmt.Errorf("erro ao excluir tags das conversas: %w", err)
+		}
+	}
+	if err := forConversationIDBatches(ids, func(batch []string) error {
+		return tx.WithContext(ctx).Model(&Conversation{}).
+			Where("user_id = ? AND parent_conversation_id IN ?", userID, batch).
+			Update("parent_conversation_id", "").Error
+	}); err != nil {
+		return fmt.Errorf("erro ao desvincular sub-conversas: %w", err)
+	}
+	if err := forConversationIDBatches(ids, func(batch []string) error {
+		messageIDs := scopedMessageQuery(ctx, tx.WithContext(ctx).Model(&ChatMessage{}).
+			Select("chat_messages.id").
+			Where("chat_messages.conversation_id IN ?", batch))
+		return tx.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
+	}); err != nil {
+		return fmt.Errorf("erro ao excluir mensagens das conversas: %w", err)
+	}
+
+	var deleted int64
+	if err := forConversationIDBatches(ids, func(batch []string) error {
+		result := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Where("id IN ?", batch).
+			Delete(&Conversation{})
+		deleted += result.RowsAffected
+		return result.Error
+	}); err != nil {
+		return fmt.Errorf("erro ao excluir conversas: %w", err)
+	}
+	if deleted != int64(len(ids)) {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func deleteChatToolInvocationsForConversation(ctx context.Context, exec *gorm.DB, conversationID string) error {
@@ -471,48 +677,26 @@ func deleteChatToolInvocationsForConversationTx(ctx context.Context, exec *gorm.
 	if conversationID == "" {
 		return nil
 	}
+	return deleteChatToolInvocationsForConversationsTx(ctx, exec, []string{conversationID})
+}
+
+func deleteChatToolInvocationsForConversationsTx(ctx context.Context, exec *gorm.DB, conversationIDs []string) error {
 	if !exec.Migrator().HasTable(&ToolInvocation{}) {
 		return nil
 	}
 	userID, _ := UserIDFromContext(ctx)
 
-	// turn_id aponta para a user message; origin_id usa turn_id.
-	var turnIDs []string
-	if err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
-		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", conversationID).
-		Distinct().
-		Pluck("chat_messages.turn_id", &turnIDs).Error; err != nil {
-		return err
-	}
-	// Algumas mensagens podem ter origin_id igual ao próprio message id.
-	var msgIDs []string
-	if err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
-		Where("chat_messages.conversation_id = ?", conversationID).
-		Pluck("chat_messages.id", &msgIDs).Error; err != nil {
-		return err
-	}
-
-	ids := make([]string, 0, len(turnIDs)+len(msgIDs))
-	ids = append(ids, turnIDs...)
-	ids = append(ids, msgIDs...)
-	if len(ids) == 0 {
-		return nil
-	}
-
-	// Batch para evitar estourar limite de variáveis do SQLite.
-	const batchSize = 400
-	for start := 0; start < len(ids); start += batchSize {
-		end := start + batchSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-		if err := exec.WithContext(ctx).
-			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
-			Delete(&ToolInvocation{}).Error; err != nil {
-			return err
-		}
-	}
-	return nil
+	return forConversationIDBatches(conversationIDs, func(batch []string) error {
+		messageIDs := scopedMessageQuery(ctx, exec.WithContext(ctx).Model(&ChatMessage{}).
+			Select("chat_messages.id").
+			Where("chat_messages.conversation_id IN ?", batch))
+		turnIDs := scopedMessageQuery(ctx, exec.WithContext(ctx).Model(&ChatMessage{}).
+			Select("chat_messages.turn_id").
+			Where("chat_messages.conversation_id IN ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", batch))
+		return exec.WithContext(ctx).
+			Where("user_id = ? AND origin_type = ? AND (origin_id IN (?) OR origin_id IN (?))", userID, "chat", messageIDs, turnIDs).
+			Delete(&ToolInvocation{}).Error
+	})
 }
 
 // ==================== Utilities ====================

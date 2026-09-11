@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 )
 
 // defaultVacuumMinFreeBytes é o limiar mínimo de espaço livre (freelist) usado
@@ -14,12 +13,6 @@ import (
 // ("sempre compactar"). A política real vem do config.json (AEP-0074); este
 // pacote não lê configuração diretamente.
 const defaultVacuumMinFreeBytes int64 = 16 * 1024 * 1024 // 16 MiB
-
-// compactionMu serializa GLOBALMENTE toda compactação física do arquivo .db,
-// independentemente da origem (loop de retenção ou botão "Limpar agora" da UI).
-// Sem isso, dois VACUUM concorrentes poderiam disputar o lock exclusivo do
-// SQLite e gerar SQLITE_BUSY (issue #292, AEP-0074).
-var compactionMu sync.Mutex
 
 // Modos de auto_vacuum do SQLite (PRAGMA auto_vacuum).
 const (
@@ -124,7 +117,7 @@ func DatabaseStatsSnapshot(ctx context.Context) (DatabaseStats, error) {
 // É best-effort: erros são retornados, mas o chamador (retenção/boot) deve
 // apenas logá-los sem abortar. Toda a operação usa UMA conexão dedicada para
 // garantir que o PRAGMA auto_vacuum e o VACUUM rodem na mesma conexão, e é
-// serializada globalmente por compactionMu.
+// serializada globalmente pelo gate compartilhado com exclusões em lote.
 func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionResult, error) {
 	res := CompactionResult{Mode: "noop"}
 	if db == nil {
@@ -134,8 +127,11 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 		minFreeBytes = defaultVacuumMinFreeBytes
 	}
 
-	compactionMu.Lock()
-	defer compactionMu.Unlock()
+	releaseMaintenance, err := acquireSQLiteMaintenance(ctx)
+	if err != nil {
+		return res, err
+	}
+	defer releaseMaintenance()
 
 	before, _ := DatabaseStatsSnapshot(ctx)
 	res.FreeBytesBefore = before.FreeBytes

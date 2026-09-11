@@ -45,7 +45,7 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 | Dry-runs operacionais | `CleanOldDryRuns` no `runRetention` | Idade curta de jobs |
 | Guardas de volume na escrita | budget 10 MiB por resultado; truncamento de input/output | Limita tamanho por linha, não o total |
 | Pragmas | `internal/database/database.go` (`Init`) | `journal_mode=WAL`, `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`, `busy_timeout` |
-| `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados |
+| `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados; gate compartilhado com exclusão transacional de conversas |
 
 Testes de compactação, conversão de bancos legados e retenção ficam em
 `internal/database/maintenance_test.go`, `sqlite_policy_test.go`,
@@ -68,7 +68,9 @@ O `VACUUM` completo é **gated** por um limiar de páginas livres (`PRAGMA freel
 
 ### D3 — Compactação throttled e em momento ocioso
 
-A compactação roda a partir do `runRetention` do Manager (em `Start`, logo após o login, e a cada 24h), mas com **throttle global** (no máximo 1× por intervalo de retenção) para não competir com a UI. `wal_checkpoint(TRUNCATE)` roda junto para limitar o `-wal`. `PRAGMA busy_timeout` é configurado para que a compactação aguarde locks transitórios em vez de falhar imediatamente — alinhado (sem antecipar) com a investigação da issue #292.
+A compactação roda a partir do `runRetention` do Manager (em `Start`, logo após o login, e a cada 24h), mas com **throttle global** (no máximo 1× por intervalo de retenção) para não competir com a UI. `wal_checkpoint(TRUNCATE)` roda junto para limitar o `-wal`. `PRAGMA busy_timeout` é configurado para que a compactação aguarde locks transitórios em vez de falhar imediatamente.
+
+A exclusão de conversas, inclusive em lote, compartilha um gate cancelável com a compactação. Assim, `VACUUM` e a transação destrutiva `BEGIN IMMEDIATE` nunca disputam o arquivo entre si; outros writers continuam protegidos pelo retry canônico de `SQLITE_BUSY`. O gate é adquirido antes do lock SQLite em ambos os caminhos, mantendo uma ordem única e evitando deadlock. Evidência: `internal/database/conversation_batch_delete_test.go`.
 
 A compactação é **best-effort**: qualquer erro é logado e não interrompe o boot nem a retenção.
 
@@ -135,4 +137,4 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 ## Follow-up (fora do escopo desta fatia)
 
 - Teardown completo dos campos legados do `config.json` (welcome wizard, tokens controller, `App.tsx`, bindings) — issue #299.
-- Reconciliar com a estratégia de concorrência da issue #292 (pooling, retries em `SQLITE_BUSY`).
+- Pooling e retries de `SQLITE_BUSY` foram centralizados em `sqlite_policy.go`; a coordenação entre compactação e exclusão de conversas foi concluída pela issue #725.

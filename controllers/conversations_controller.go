@@ -350,16 +350,26 @@ func (c *ConversationsController) UpdateConversation(ctx context.Context, id str
 	return nil
 }
 
-// DeleteConversation remove a conversa e limpa estado efêmero.
+// DeleteConversation delega ao pipeline batch canônico.
 func (c *ConversationsController) DeleteConversation(ctx context.Context, id string) error {
-	if err := database.DeleteConversationWithContext(ctx, id); err != nil {
-		return err
+	_, err := c.DeleteConversations(ctx, []string{id})
+	return err
+}
+
+// DeleteConversations remove atomicamente as conversas e só então limpa estado
+// efêmero e publica um evento por ID normalizado.
+func (c *ConversationsController) DeleteConversations(ctx context.Context, ids []string) ([]string, error) {
+	deletedIDs, err := database.DeleteConversationsWithContext(ctx, ids)
+	if err != nil {
+		return nil, err
 	}
-	c.resetScoped(ctx, id)
-	c.emit("conversation:deleted", map[string]interface{}{
-		"conversation_id": id,
-	})
-	return nil
+	for _, id := range deletedIDs {
+		c.resetScoped(ctx, id)
+		c.emit("conversation:deleted", map[string]interface{}{
+			"conversation_id": id,
+		})
+	}
+	return deletedIDs, nil
 }
 
 // DeleteMessage exclui uma mensagem (com confirmação via hook) e filhas.
