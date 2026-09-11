@@ -342,11 +342,8 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
 
   it('Ctrl+1..9 na aba já ativa enfileira foco lazy do editor', () => {
     const focusPanel = vi.fn(() => true);
-    renderWorkspaceLayout();
-    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-1');
-    // tab-1 é chat no setup; muda para editor para exercitar queueWorkspacePanelFocus
     storeMock.state.workspace.tabs[0].type = 'editor';
-    // re-render para atualizar? chama callback novamente com tab editor
+    renderWorkspaceLayout();
     shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-1');
     const unregister = registerWorkspacePanelFocus('tab-1', focusPanel);
     expect(focusPanel).toHaveBeenCalledOnce();
