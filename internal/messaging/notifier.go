@@ -440,7 +440,9 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 	} else {
 		n.callbacks[conversationID] = keep
 	}
-	n.active[conversationID] += len(fire)
+	if len(fire) > 0 {
+		n.active[conversationID] += len(fire)
+	}
 	n.mu.Unlock()
 
 	// Não remove channel_response_pending aqui: o Delete só ocorre após

@@ -67,6 +67,7 @@ func (r *ConversationRepository) CreateSubAgentConversationWithContext(ctx conte
 	if err != nil {
 		return nil, err
 	}
+	parentConversationID = strings.TrimSpace(parentConversationID)
 	conv := &Conversation{
 		Title:                title,
 		UserID:               userID,
@@ -74,6 +75,11 @@ func (r *ConversationRepository) CreateSubAgentConversationWithContext(ctx conte
 		ParentConversationID: parentConversationID,
 	}
 	if err := withSQLiteImmediateTransaction(ctx, db, "conversation.create_subagent", func(tx *gorm.DB) error {
+		if strings.TrimSpace(parentConversationID) != "" {
+			if err := ValidateConversationOwnerTx(ctx, tx, parentConversationID, userID); err != nil {
+				return err
+			}
+		}
 		return tx.WithContext(ctx).Create(conv).Error
 	}); err != nil {
 		return nil, err

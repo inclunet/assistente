@@ -154,6 +154,24 @@ func TestRepositoryNormalizesChatOriginBeforeOwnershipValidation(t *testing.T) {
 	}
 }
 
+func TestRepositoryRejectsBlankChatOriginID(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := &Invocation{
+		ToolCatalogID: toolID,
+		OriginType:    " ",
+		OriginID:      " ",
+		ToolCallID:    "blank-origin",
+		Status:        StatusQueued,
+	}
+	if err := repo.Create(userA, inv); !errors.Is(err, ErrChatOriginIDRequired) {
+		t.Fatalf("erro=%v, esperado origin ID obrigatório", err)
+	}
+}
+
 func TestCreateChatInvocationCannotRaceIntoDeletedConversation(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "race.db")), &gorm.Config{})
 	if err != nil {

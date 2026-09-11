@@ -35,6 +35,17 @@ func setupManagerTest(t *testing.T) (*DBRepository, context.Context) {
 	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.SubAgentRun{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
+	for _, parent := range []database.Conversation{
+		{UUIDModel: database.UUIDModel{ID: "parent-conv"}, UserID: "user-a", Title: "Parent"},
+		{UUIDModel: database.UUIDModel{ID: "parent"}, UserID: "user-a", Title: "Parent"},
+		{UUIDModel: database.UUIDModel{ID: "p"}, UserID: "user-a", Title: "Parent"},
+		{UUIDModel: database.UUIDModel{ID: "p-b"}, UserID: "user-b", Title: "Parent B"},
+		{UUIDModel: database.UUIDModel{ID: "parent-b"}, UserID: "user-b", Title: "Parent B"},
+	} {
+		if err := db.Create(&parent).Error; err != nil {
+			t.Fatalf("seed parent %s: %v", parent.ID, err)
+		}
+	}
 	previous := database.DB()
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(previous) })
@@ -1281,11 +1292,15 @@ func TestManagerReconcileOrphansIsInstanceWide(t *testing.T) {
 	ctxB := database.WithUserID(context.Background(), "user-b")
 
 	mkRunFor := func(userCtx context.Context, userID string) string {
-		conv, err := database.CreateSubAgentConversationWithContext(userCtx, "t", "parent")
+		parentID := "parent"
+		if userID == "user-b" {
+			parentID = "parent-b"
+		}
+		conv, err := database.CreateSubAgentConversationWithContext(userCtx, "t", parentID)
 		if err != nil {
 			t.Fatalf("criar conv (%s): %v", userID, err)
 		}
-		run := &database.SubAgentRun{UserID: userID, ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+		run := &database.SubAgentRun{UserID: userID, ParentConversationID: parentID, ChildConversationID: conv.ID, Status: StatusRunning}
 		if err := repo.Create(userCtx, run); err != nil {
 			t.Fatalf("criar run (%s): %v", userID, err)
 		}

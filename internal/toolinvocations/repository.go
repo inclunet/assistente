@@ -14,6 +14,8 @@ import (
 	"gorm.io/gorm"
 )
 
+var ErrChatOriginIDRequired = errors.New("chat origin ID required")
+
 type Repository interface {
 	Create(ctx context.Context, inv *Invocation) error
 	MarkRunning(ctx context.Context, id string, startedAt time.Time) error
@@ -55,6 +57,14 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 	}
 	if inv.Status == "" {
 		inv.Status = StatusQueued
+	}
+	inv.OriginType = strings.TrimSpace(inv.OriginType)
+	if inv.OriginType == "" {
+		inv.OriginType = OriginChat
+	}
+	inv.OriginID = strings.TrimSpace(inv.OriginID)
+	if inv.OriginType == OriginChat && inv.OriginID == "" {
+		return ErrChatOriginIDRequired
 	}
 	row := invocationDomainToModel(*inv)
 	create := func(exec *gorm.DB) error {

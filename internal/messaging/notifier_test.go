@@ -182,6 +182,23 @@ func TestResponseNotifier_ReservaOperacaoCoordenaExclusao(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_TraceSemCorrespondenciaNaoCriaActiveVazio(t *testing.T) {
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	n.Register("conversation-1", ResponseCallback{
+		Channel: "telegram", ChatID: "chat", OwnerUserID: "user-1", TraceID: "trace-1",
+		SkipPersist: true, Callback: func(string, string) {},
+	})
+	n.NotifyContext(WithChannelTraceID(context.Background(), "trace-2"), "conversation-1", "resposta", "message")
+
+	n.mu.Lock()
+	_, leaked := n.active["conversation-1"]
+	n.mu.Unlock()
+	if leaked {
+		t.Fatal("Notify sem callback correspondente deixou entrada active vazia")
+	}
+}
+
 func TestNotifier_RegisterAndNotify(t *testing.T) {
 	n := NewResponseNotifier()
 

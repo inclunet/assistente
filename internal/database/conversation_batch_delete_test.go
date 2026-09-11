@@ -457,6 +457,18 @@ func TestValidateOwnedConversationIDsWaitsForMaintenanceGate(t *testing.T) {
 	}
 }
 
+func TestCreateSubAgentConversationValidatesParentOwnership(t *testing.T) {
+	testDB, ownerCtx, otherCtx := setupConversationBatchDeleteDB(t)
+	parent, _ := seedDeleteConversation(t, testDB, "delete-owner", "parent")
+
+	if _, err := CreateSubAgentConversationWithContext(otherCtx, "filho indevido", parent.ID); !errors.Is(err, ErrConversationDeleted) {
+		t.Fatalf("erro=%v, esperado rejeição fail-closed do parent alheio", err)
+	}
+	if _, err := CreateSubAgentConversationWithContext(ownerCtx, "filho", " "); err != nil {
+		t.Fatalf("parent vazio deve permanecer permitido: %v", err)
+	}
+}
+
 func TestCreateMessageCannotRaceIntoDeletedConversation(t *testing.T) {
 	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
 	for range 12 {
