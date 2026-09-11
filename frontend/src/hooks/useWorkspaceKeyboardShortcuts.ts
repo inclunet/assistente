@@ -241,6 +241,11 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
           const targetTab = tabs[num - 1];
           if (targetTab) {
             setActiveTab(targetTab.id);
+            if (onTabShortcutNavigation) {
+              onTabShortcutNavigation(targetTab.id);
+            } else {
+              requestAnimationFrame(() => restoreDefaultFocus());
+            }
             announce(i18next.t('workspace.announce.tabPosition', { title: targetTab.title, position: num, total: tabs.length }));
           }
         }

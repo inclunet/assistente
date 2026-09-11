@@ -48,6 +48,7 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 | `ESC` | Voltar à área padrão da aba ativa |
 | `Alt + M` | Menu principal do chat |
 | `Ctrl + Tab` / `Ctrl + Shift + Tab` | Próxima/anterior aba (chat, editor, tasklist, terminal) |
+| `Ctrl + 1` .. `Ctrl + 9` | Ir direto para aba N e restaurar foco na área padrão da aba (editor usa fila do painel quando lazy) |
 | `Ctrl + M` | Abrir o seletor de modelos do chat ativo |
 | `Ctrl + Shift + R` | Repetir pergunta em diálogos de decisão |
 
