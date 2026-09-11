@@ -33,3 +33,9 @@ func Get(ctx context.Context) (InvocationContext, bool) {
 	v, ok := ctx.Value(ctxKey{}).(InvocationContext)
 	return v, ok
 }
+
+// Without cria uma fronteira de execução que não herda conversa, turno,
+// superfície nem profile-pai do contexto que originou um evento.
+func Without(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxKey{}, nil)
+}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 type secretStoreFunc func(ctx context.Context, key string) (string, error)
@@ -612,13 +613,15 @@ type fakeTool struct {
 	response  string
 	callCount int
 	lastArgs  json.RawMessage
+	lastCtx   context.Context
 }
 
 func (f *fakeTool) Name() string                { return f.name }
 func (f *fakeTool) Description() string         { return "fake tool for testing" }
 func (f *fakeTool) Parameters() json.RawMessage { return f.params }
-func (f *fakeTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolResult, error) {
+func (f *fakeTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	f.callCount++
+	f.lastCtx = ctx
 	f.lastArgs = args
 	return tools.ToolResult{Content: f.response}, nil
 }
@@ -850,6 +853,29 @@ func TestRunProvenanceKeepsPublicJobSlug(t *testing.T) {
 	)
 	if provenance.SourceJobID != "move-card-job" {
 		t.Fatalf("SourceJobID público = %q, esperado slug", provenance.SourceJobID)
+	}
+}
+
+func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name: "subagent", params: json.RawMessage(`{"type":"object"}`), response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry: registry, EventBus: NewEventBus(), CircuitBreaker: NewCircuitBreaker(),
+	})
+	parent := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "conversation-parent", TurnID: "turn-parent", ProfileSlug: "pesquisa",
+	})
+	rl := executor.Execute(parent, &Job{
+		ID: "job-evento", Tool: "subagent", Inputs: map[string]any{"profile": "pesquisa"},
+	}, &TriggerContext{Type: TriggerEvent})
+	if rl.Status != "completed" {
+		t.Fatalf("execução falhou: %s", rl.Error)
+	}
+	if _, inherited := invocationctx.Get(ft.lastCtx); inherited {
+		t.Fatal("job herdou invocationctx da conversa que publicou o evento")
 	}
 }
 

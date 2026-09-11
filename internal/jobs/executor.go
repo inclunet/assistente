@@ -15,6 +15,7 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 
 	"github.com/google/uuid"
 )
@@ -309,6 +310,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// pela tool (ex.: task_list) durante este run são marcadas como _source="job".
 	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
 	// permitindo anti-loop via trigger.when ({{ eq .event._source "user" }}).
+	ctx = invocationctx.Without(ctx)
 	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
 	logger := logging.Logger(ctx, "jobs.executor")
 
