@@ -83,6 +83,9 @@ func (a *App) wireProfiles() {
 		DeleteProfile: func(ctx context.Context, slug string, deleteFile func() error) error {
 			return a.profileAccessService().DeleteProfile(ctx, slug, deleteFile)
 		},
+		MutateProfiles: func(mutate func() error) error {
+			return a.profileAccessService().MutateProfiles(mutate)
+		},
 	})
 	if a.profilesAPI != nil {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)

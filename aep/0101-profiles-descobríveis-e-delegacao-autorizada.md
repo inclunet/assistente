@@ -170,6 +170,9 @@ combinação `(user_id, job_id, target_profile_slug,
 delegation_fingerprint)` nasce somente após uma decisão explícita no desktop.
 O fingerprint deriva da tool `subagent` e da expressão do input `profile`;
 nome, descrição, prompt, tags e outras mudanças editoriais não o alteram.
+Edições, troca de profile ativo, atualização automática de mídia e exclusão
+compartilham a mesma seção crítica da revalidação final do grant, impedindo
+mudança do arquivo entre a confirmação e a persistência.
 
 Os grants vivem em tabela própria, nunca em `Job.Metadata`, `Inputs`, JSON ou
 YAML portável. Importar ou duplicar um job não concede autorização. Alterar a
@@ -199,6 +202,9 @@ jobs. Uma revogação corta autorizações futuras; uma execução que já atrav
 o gate não é interrompida. Um input `profile` explicitamente configurado como
 template que resolva para vazio também falha fechado, sem herdar o profile
 global.
+Create/save/toggle compartilhados propagam `authorization_not_granted` quando
+uma ativação solicitada é persistida como desabilitada, sem confirmar sucesso
+falso para tools ou adapters.
 
 No primeiro upgrade que introduz grants, jobs `subagent` já habilitados são
 desabilitados quando possuem `inputs.profile` textual e não vazio, porque não

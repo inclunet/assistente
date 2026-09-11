@@ -1077,6 +1077,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		PromptBuilder:    a.promptBuilder,
 		ContextProviders: a.contextProviders,
 		LinkedTaskLists:  a.linkedTaskListsForConversation,
+		MutateProfiles: func(mutate func() error) error {
+			return a.profileAccessService().MutateProfiles(mutate)
+		},
 	})
 
 	// Inicializa hotkeys globais

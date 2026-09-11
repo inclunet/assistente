@@ -88,6 +88,18 @@ func (s *Service) WithJobGrants(store JobGrantStore) *Service {
 	return s
 }
 
+// MutateProfiles compartilha a mesma seção crítica das decisões de grants.
+// Callers de escrita devem usá-la para impedir mudança do alvo entre a
+// revalidação final e a persistência da autorização.
+func (s *Service) MutateProfiles(mutate func() error) error {
+	if s == nil || mutate == nil {
+		return errors.New("mutação de profile indisponível")
+	}
+	s.profileMu.Lock()
+	defer s.profileMu.Unlock()
+	return mutate()
+}
+
 type ProfileSummary struct {
 	Slug        string `json:"slug"`
 	Name        string `json:"name"`

@@ -382,3 +382,31 @@ func TestAuthorizeJobTargetRejectsProfileRemovedAndRecreatedDuringDialog(t *test
 			allowed, grants.granted, err)
 	}
 }
+
+func TestAuthorizeJobTargetSharesLockWithProfileUpdates(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
+	var service *Service
+	asker := &fakeAsker{resp: questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow},
+	}}
+	service = NewService(store, asker, nil, nil).WithJobGrants(grants)
+	asker.onAsk = func() {
+		if err := service.MutateProfiles(func() error {
+			store.bySlug["custom"].Description = "configuração alterada"
+			return nil
+		}); err != nil {
+			t.Errorf("update profile: %v", err)
+		}
+	}
+	allowed, err := service.AuthorizeJobTarget(
+		context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom",
+	)
+	if allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("profile editado durante diálogo não pode receber grant: allowed=%v grants=%d err=%v",
+			allowed, grants.granted, err)
+	}
+}

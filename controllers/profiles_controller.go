@@ -17,6 +17,7 @@ type ProfilesController struct {
 	contextProviders *contextprovider.Registry
 	onProfileChanged func(slug string) // callback para reinicializar LLM/Speech/Hotkeys
 	deleteProfile    func(context.Context, string, func() error) error
+	mutateProfiles   func(func() error) error
 }
 
 // ProfilesControllerConfig agrupa as dependências do ProfilesController.
@@ -26,6 +27,7 @@ type ProfilesControllerConfig struct {
 	ContextProviders *contextprovider.Registry
 	OnProfileChanged func(slug string)
 	DeleteProfile    func(context.Context, string, func() error) error
+	MutateProfiles   func(func() error) error
 }
 
 // NewProfilesController cria um ProfilesController com suas dependências.
@@ -36,6 +38,7 @@ func NewProfilesController(cfg ProfilesControllerConfig) *ProfilesController {
 		contextProviders: cfg.ContextProviders,
 		onProfileChanged: cfg.OnProfileChanged,
 		deleteProfile:    cfg.DeleteProfile,
+		mutateProfiles:   cfg.MutateProfiles,
 	}
 }
 
@@ -62,7 +65,7 @@ func (c *ProfilesController) GetActiveProfileAndSlug() (*profiles.ActiveProfile,
 }
 
 func (c *ProfilesController) SetActiveProfile(slug string) error {
-	if err := c.profileMgr.SetActive(slug); err != nil {
+	if err := c.mutateProfileFiles(func() error { return c.profileMgr.SetActive(slug) }); err != nil {
 		return err
 	}
 	if c.onProfileChanged != nil {
@@ -93,7 +96,7 @@ func (c *ProfilesController) DuplicateProfile(slug string) (string, error) {
 }
 
 func (c *ProfilesController) UpdateProfile(slug string, profile profiles.Profile) error {
-	if err := c.profileMgr.Update(slug, &profile); err != nil {
+	if err := c.mutateProfileFiles(func() error { return c.profileMgr.Update(slug, &profile) }); err != nil {
 		return err
 	}
 	if slug == c.profileMgr.GetActiveSlug() && c.onProfileChanged != nil {
@@ -165,9 +168,16 @@ func (c *ProfilesController) UpdateProfileMediaSupport(mediaType string, support
 	if slug == "" {
 		return
 	}
-	if err := c.profileMgr.Update(slug, profile); err != nil {
+	if err := c.mutateProfileFiles(func() error { return c.profileMgr.Update(slug, profile) }); err != nil {
 		logging.Errorf(context.Background(), "controllers.profiles-controller", "[MediaSupport] Erro ao salvar perfil: %v", err)
 	} else {
 		logging.Infof(context.Background(), "controllers.profiles-controller", "[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
 	}
+}
+
+func (c *ProfilesController) mutateProfileFiles(mutate func() error) error {
+	if c.mutateProfiles != nil {
+		return c.mutateProfiles(mutate)
+	}
+	return mutate()
 }
