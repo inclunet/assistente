@@ -655,6 +655,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	if diagnosticModel == "" {
 		diagnosticModel = string(params.Model)
 	}
+	lastModel = diagnosticModel
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, int(params.MaxTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
@@ -877,6 +878,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	if diagnosticModel == "" {
 		diagnosticModel = string(params.Model)
 	}
+	lastModel = diagnosticModel
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, int(params.MaxTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 

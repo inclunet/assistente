@@ -93,6 +93,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		// 3. Limite de saída: tool calls locais são descartadas antes de qualquer
 		// efeito e podem receber uma única reformulação em chamadas menores.
 		if result.Finish.Reason == llm.FinishReasonMaxTokens {
+			r.logOutputLimit(ctx, result, iteration)
 			if r.recoverOutputLimitedToolCalls(ctx, result, iteration) {
 				continue
 			}
@@ -144,12 +145,12 @@ func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(ctx context.Context, r
 			"Não repita um payload grande em uma única chamada. Ferramentas interrompidas: " + strings.Join(toolNames, ", "),
 	})
 	logging.Infof(ctx, "agent.agentic-loop",
-		"[Agent] tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
+		"tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
 		iteration, strings.Join(toolNames, ","))
 	return true
 }
 
-func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
+func (r *agenticLoopRunner) logOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
 	logging.Infof(ctx, "agent.agentic-loop",
 		"provider sinalizou limite de geração (iteração=%d, finish_reason=%s, raw_reason=%q, provider=%q, model=%q, output_limit=%d, output_tokens=%v, reasoning_tokens=%v, response_bytes=%d, tool_calls=%d)",
 		iteration, result.Finish.Reason, result.Finish.RawReason, result.Finish.Provider,
@@ -157,6 +158,9 @@ func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result Agenti
 		optionalUsageTokenCount(result.Usage.Reported, result.Usage.CompletionTokens),
 		optionalUsageTokenCount(result.Usage.ReasoningTokensReported, result.Usage.ReasoningTokens),
 		result.Finish.ResponseBytes, len(result.ToolCalls))
+}
+
+func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
 	r.finishFinalResult(ctx, result, iteration)
 }
 

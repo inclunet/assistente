@@ -79,3 +79,36 @@ func TestGoogleStreamRetryAvisoEFinalizacao(t *testing.T) {
 		t.Fatalf("esperava exatamente 1 aviso stream_retry (falha 502); veio %d", avisosRetry)
 	}
 }
+
+func TestGooglePreservaReasoningZeroExplicitamenteReportado(t *testing.T) {
+	const stream = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":2,\"thoughtsTokenCount\":0,\"totalTokenCount\":3}}\r\n\r\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	ctxCred := database.WithUserID(context.Background(), "user-zero")
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-zero.test", &credentials.AuthConfig{
+		Type: "bearer", Token: "test-key",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+	provider := NewGoogleProvider(&ProviderConfig{
+		ID: "google-zero", Name: "Google Zero", BaseURL: server.URL,
+		Type: ProviderType("gemini"), Model: "gemini-test", CredentialPattern: "gemini-zero.test",
+	}, credMgr)
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gemini-test"}, handler)
+
+	if handler.err != "" {
+		t.Fatalf("stream falhou: %s", handler.err)
+	}
+	if !handler.usage.Reported || !handler.usage.ReasoningTokensReported ||
+		handler.usage.ReasoningTokens != 0 {
+		t.Fatalf("zero explícito de reasoning não foi preservado: %#v", handler.usage)
+	}
+}

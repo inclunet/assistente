@@ -129,7 +129,7 @@ func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 	const stream = "event: response.output_text.delta\n" +
 		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
 		"event: response.incomplete\n" +
-		"data: {\"type\":\"response.incomplete\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"incomplete\",\"model\":\"gpt-test\",\"output\":[],\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":5},\"total_tokens\":10}}}\n\n"
+		"data: {\"type\":\"response.incomplete\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"incomplete\",\"model\":\"gpt-test\",\"output\":[],\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":5}}}}\n\n"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -157,7 +157,8 @@ func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 		t.Fatalf("diagnóstico de término incompleto: %#v", got)
 	}
 	if !handler.usage.Reported || !handler.usage.ReasoningTokensReported ||
-		handler.usage.CompletionTokens != 7 || handler.usage.ReasoningTokens != 5 {
+		handler.usage.CompletionTokens != 7 || handler.usage.ReasoningTokens != 5 ||
+		handler.usage.TotalTokens != 10 {
 		t.Fatalf("usage de output/reasoning não preservada: %#v", handler.usage)
 	}
 }

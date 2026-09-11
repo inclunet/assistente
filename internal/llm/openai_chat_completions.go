@@ -271,7 +271,8 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 
 	usage := Usage{}
-	if acc.Usage.TotalTokens > 0 {
+	if openAIUsageReported(usageRawJSON,
+		int(acc.Usage.PromptTokens), int(acc.Usage.CompletionTokens), int(acc.Usage.TotalTokens)) {
 		cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
 		if cachedTokens == 0 {
 			cachedTokens = promptTokensDetails.CachedTokens

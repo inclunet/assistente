@@ -104,12 +104,18 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 }
 
 func TestChatCompletionsNaoEnviaLimiteZeroComoMaxCompletionTokens(t *testing.T) {
-	var body string
+	var bodies []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		payload, _ := io.ReadAll(r.Body)
-		body = string(payload)
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte(sseChatCompletion))
+		body := string(payload)
+		bodies = append(bodies, body)
+		if strings.Contains(body, `"stream":true`) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(sseChatCompletion))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
 	}))
 	defer server.Close()
 
@@ -127,7 +133,43 @@ func TestChatCompletionsNaoEnviaLimiteZeroComoMaxCompletionTokens(t *testing.T) 
 	if handler.err != "" {
 		t.Fatalf("stream falhou: %s", handler.err)
 	}
-	if strings.Contains(body, "max_completion_tokens") || strings.Contains(body, `"max_tokens"`) {
-		t.Fatalf("limite default/ausente foi serializado como zero: %s", body)
+	if _, err := provider.SendChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "m", MaxTokensMode: "completion_tokens"}); err != nil {
+		t.Fatalf("send não-streaming falhou: %v", err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("esperava duas requisições, recebeu %d", len(bodies))
+	}
+	for _, body := range bodies {
+		if strings.Contains(body, "max_completion_tokens") || strings.Contains(body, `"max_tokens"`) {
+			t.Fatalf("limite default/ausente foi serializado como zero: %s", body)
+		}
+	}
+}
+
+func TestChatCompletionsPreservaUsageSemTotalTokens(t *testing.T) {
+	const stream = "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":7,\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n" +
+		"data: [DONE]\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider(&ProviderConfig{
+		ID: "compat-usage", Name: "Compat Usage", BaseURL: server.URL + "/v1", AuthMode: AuthModeNone,
+	}, credentials.NewManager(nil))
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "m"}, handler)
+
+	if handler.err != "" {
+		t.Fatalf("stream falhou: %s", handler.err)
+	}
+	if !handler.usage.Reported || handler.usage.TotalTokens != 10 ||
+		!handler.usage.ReasoningTokensReported || handler.usage.ReasoningTokens != 0 {
+		t.Fatalf("usage sem total_tokens não foi preservada: %#v", handler.usage)
 	}
 }

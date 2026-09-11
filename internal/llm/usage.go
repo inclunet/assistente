@@ -89,6 +89,64 @@ func baseUsage(promptTokens, completionTokens, totalTokens int) Usage {
 	}
 }
 
+func openAIUsageReported(rawJSON string, tokenCounts ...int) bool {
+	for _, count := range tokenCounts {
+		if count > 0 {
+			return true
+		}
+	}
+	fields := parseUsageFields(rawJSON)
+	for _, key := range []string{
+		"prompt_tokens", "completion_tokens", "total_tokens",
+		"input_tokens", "output_tokens",
+		"prompt_tokens_details.cached_tokens",
+		"input_tokens_details.cached_tokens",
+		"completion_tokens_details.reasoning_tokens",
+		"output_tokens_details.reasoning_tokens",
+	} {
+		if _, ok := fields[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func jsonHasAnyKey(rawJSON string, keys ...string) bool {
+	if rawJSON == "" {
+		return false
+	}
+	var payload any
+	if err := json.Unmarshal([]byte(rawJSON), &payload); err != nil {
+		return false
+	}
+	wanted := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		wanted[key] = struct{}{}
+	}
+	return jsonValueHasAnyKey(payload, wanted)
+}
+
+func jsonValueHasAnyKey(value any, keys map[string]struct{}) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if _, ok := keys[key]; ok {
+				return true
+			}
+			if jsonValueHasAnyKey(child, keys) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if jsonValueHasAnyKey(child, keys) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func applyOpenAIReasoningUsage(usage *Usage, rawJSON string) {
 	fields := parseUsageFields(rawJSON)
 	for _, key := range []string{
