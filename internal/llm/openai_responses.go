@@ -364,8 +364,26 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.reasoning_summary_text.delta":
 			ev := event.AsResponseReasoningSummaryTextDelta()
 			if ev.Delta != "" {
+				if ctx.Err() != nil {
+					finishThinking()
+					return mcpStreamAttemptResult{done: true}
+				}
+				if wd.TimedOut() {
+					if !emittedNonRetryableEffect {
+						return mcpStreamAttemptResult{retry: true}
+					}
+					finishThinking()
+					reportCurrentDiagnostics()
+					markErrorNotRetryable(handler)
+					handler.OnError(streamIdleErrorMessage)
+					return mcpStreamAttemptResult{done: true}
+				}
 				fullReasoning.WriteString(ev.Delta)
 				handler.OnThinking(ev.Delta)
+				if ctx.Err() != nil {
+					finishThinking()
+					return mcpStreamAttemptResult{done: true}
+				}
 			}
 
 		case "response.reasoning_summary_text.done",

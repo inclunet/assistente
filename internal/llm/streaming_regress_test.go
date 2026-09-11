@@ -221,6 +221,32 @@ func TestResponses_CancelamentoAposThinkingNaoEmiteChunk(t *testing.T) {
 	}
 }
 
+func TestResponses_CancelamentoEmReasoningSummaryNaoFinalizaResposta(t *testing.T) {
+	stream := "event: response.reasoning_summary_text.delta\n" +
+		"data: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":1,\"item_id\":\"reason_1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"segredo\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"completed\",\"model\":\"m\",\"output\":[]}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	p := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "test", BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone,
+	}, credentials.NewManager(nil))
+	h := &cancelOnThinkingHandler{cancel: cancel}
+	p.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m"}, h)
+
+	if h.done != "" || len(h.chunks) != 0 {
+		t.Fatalf("barge-in publicou terminal/chunk obsoleto: done=%q chunks=%v", h.done, h.chunks)
+	}
+	if got, want := h.thinking, []string{"segredo", "done:segredo"}; !slicesEqual(got, want) {
+		t.Fatalf("reasoning não foi encerrado: %v, esperado %v", got, want)
+	}
+}
+
 func TestChatCompletions_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
 	stream := "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m-real\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"parcial\"},\"finish_reason\":null}]}\n\n" +
 		"data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m-real\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n"

@@ -580,6 +580,9 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			case "thinking_delta":
 				if delta.Thinking != "" {
 					if ctx.Err() != nil {
+						if fullReasoning.Len() > 0 {
+							handler.OnThinkingDone(fullReasoning.String())
+						}
 						return mcpStreamAttemptResult{done: true}
 					}
 					if wd.TimedOut() {
@@ -872,6 +875,9 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			case "thinking_delta":
 				if delta.Thinking != "" {
 					if ctx.Err() != nil {
+						if fullReasoning.Len() > 0 {
+							handler.OnThinkingDone(fullReasoning.String())
+						}
 						return true
 					}
 					if wd.TimedOut() {

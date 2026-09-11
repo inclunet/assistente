@@ -418,6 +418,9 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 		for _, part := range candidate.Content.Parts {
 			if part.Thought && part.Text != "" {
 				if ctx.Err() != nil {
+					if fullReasoning.Len() > 0 {
+						handler.OnThinkingDone(fullReasoning.String())
+					}
 					return true
 				}
 				if wd.TimedOut() {
