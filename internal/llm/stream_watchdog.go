@@ -112,11 +112,14 @@ func (w *streamWatchdog) TimedOut() bool {
 const TurnNoticeStreamRetry TurnNoticeKind = "stream_retry"
 
 // notifyTurnNotice entrega o aviso ao handler quando ele souber recebê-lo
-// (TurnNoticeSink é opcional por contrato).
+// (TurnNoticeSink é opcional por contrato). Garante log mesmo sem sink
+// para não deixar o usuário no silêncio do backoff.
 func notifyTurnNotice(handler StreamHandler, notice TurnNotice) {
 	if sink, ok := handler.(TurnNoticeSink); ok {
 		sink.OnTurnNotice(notice)
+		return
 	}
+	logging.Warnf(context.Background(), "llm.stream-watchdog", "[stream] aviso %s count=%d sem TurnNoticeSink; backoff segue", notice.Kind, notice.Count)
 }
 
 // streamIdleErrorMessage é o erro mostrado quando o watchdog interrompe um
