@@ -625,6 +625,7 @@ func (r *DBRepository) enabledJobGrantValidTx(tx *gorm.DB, userID, jobID string,
 	query := tx.Model(&database.JobProfileGrant{}).
 		Where("user_id = ? AND job_id = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
 			userID, jobID, fingerprint).
+		Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
 		Where("generation = (?)", tx.Model(&database.JobProfileGrantEpoch{}).
 			Select("generation").
 			Where("job_profile_grant_epochs.user_id = job_profile_grants.user_id AND job_profile_grant_epochs.job_id = job_profile_grants.job_id AND job_profile_grant_epochs.target_profile_slug = job_profile_grants.target_profile_slug AND job_profile_grant_epochs.delegation_fingerprint = job_profile_grants.delegation_fingerprint"))

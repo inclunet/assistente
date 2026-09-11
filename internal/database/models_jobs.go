@@ -104,6 +104,15 @@ func (JobProfileGrantEpoch) TableName() string {
 	return "job_profile_grant_epochs"
 }
 
+// ProfileGrantRevocationIntent torna recuperável a exclusão de um profile
+// entre a remoção do arquivo e a revogação transacional dos grants.
+type ProfileGrantRevocationIntent struct {
+	UUIDModel
+	TargetProfileSlug string `json:"targetProfileSlug" gorm:"not null;uniqueIndex"`
+	OriginalIdentity  string `json:"originalIdentity" gorm:"not null"`
+	RequestedBy       string `json:"requestedBy" gorm:"not null"`
+}
+
 // JobTrigger registra um gatilho individual de um job.
 type JobTrigger struct {
 	UUIDModel

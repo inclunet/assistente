@@ -183,6 +183,9 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			if !database.Migrator().HasTable(&JobProfileGrantEpoch{}) {
 				t.Fatal("upgrade não criou job_profile_grant_epochs")
 			}
+			if !database.Migrator().HasTable(&ProfileGrantRevocationIntent{}) {
+				t.Fatal("upgrade não criou profile_grant_revocation_intents")
+			}
 			if got := rowCount(t, database, "job_profile_grants"); got != 0 {
 				t.Fatalf("upgrade não pode fabricar grants: %d", got)
 			}

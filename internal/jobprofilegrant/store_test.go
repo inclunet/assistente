@@ -19,7 +19,7 @@ func grantTestStore(t *testing.T) (*Store, *gorm.DB, context.Context, context.Co
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&database.ToolCatalog{}, &database.Job{}, &database.JobProfileGrant{}, &database.JobProfileGrantEpoch{}); err != nil {
+	if err := db.AutoMigrate(&database.ToolCatalog{}, &database.Job{}, &database.JobProfileGrant{}, &database.JobProfileGrantEpoch{}, &database.ProfileGrantRevocationIntent{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&database.ToolCatalog{
@@ -299,5 +299,45 @@ func TestRevocationInvalidatesPendingAuthorizationAndPreservesAudit(t *testing.T
 	}
 	if len(rows) != 2 || rows[0].RevokedAt == nil || rows[0].RevokedBy != "usuário" || rows[1].RevokedAt != nil {
 		t.Fatalf("histórico de revoke/regrant não foi preservado: %#v", rows)
+	}
+}
+
+func TestProfileRevocationIntentFailsClosedAndRecoversAfterCrash(t *testing.T) {
+	store, db, userA, _, jobA, _ := grantTestStore(t)
+	snapshot, err := store.AuthorizationSnapshot(userA, jobA.ID, "especialista")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, snapshot.Config.JobID, "especialista", snapshot.Config.Fingerprint, "desktop", snapshot.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BeginProfileRevocation(userA, "especialista", "identidade-antiga", "profile excluído"); err != nil {
+		t.Fatal(err)
+	}
+	if valid, err := store.HasValid(userA, jobA.ID, "especialista", snapshot.Config.Fingerprint); err != nil || valid {
+		t.Fatalf("intenção pendente deveria falhar fechado: valid=%v err=%v", valid, err)
+	}
+	if err := store.ReconcileProfileRevocations(context.Background(), func(string) string { return "" }); err != nil {
+		t.Fatal(err)
+	}
+	var intents, active int64
+	_ = db.Model(&database.ProfileGrantRevocationIntent{}).Count(&intents).Error
+	_ = db.Model(&database.JobProfileGrant{}).Where("revoked_at IS NULL").Count(&active).Error
+	if intents != 0 || active != 0 {
+		t.Fatalf("recovery não concluiu revogação: intents=%d active=%d", intents, active)
+	}
+}
+
+func TestProfileRevocationIntentIsCanceledWhenOriginalStillExists(t *testing.T) {
+	store, db, userA, _, _, _ := grantTestStore(t)
+	if err := store.BeginProfileRevocation(userA, "especialista", "identidade", "profile excluído"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReconcileProfileRevocations(context.Background(), func(string) string { return "identidade" }); err != nil {
+		t.Fatal(err)
+	}
+	var intents int64
+	if err := db.Model(&database.ProfileGrantRevocationIntent{}).Count(&intents).Error; err != nil || intents != 0 {
+		t.Fatalf("intent de exclusão não executada deveria ser cancelada: count=%d err=%v", intents, err)
 	}
 }

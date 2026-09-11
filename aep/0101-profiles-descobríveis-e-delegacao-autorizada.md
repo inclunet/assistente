@@ -173,6 +173,8 @@ nome, descrição, prompt, tags e outras mudanças editoriais não o alteram.
 Edições, troca de profile ativo, atualização automática de mídia e exclusão
 compartilham a mesma seção crítica da revalidação final do grant, impedindo
 mudança do arquivo entre a confirmação e a persistência.
+Antes de persistir, a sessão autenticada também é comparada com o `user_id`
+capturado na abertura; logout/login invalida a decisão pendente.
 
 Os grants vivem em tabela própria, nunca em `Job.Metadata`, `Inputs`, JSON ou
 YAML portável. Importar ou duplicar um job não concede autorização. Alterar a
@@ -226,6 +228,10 @@ remoção e a revogação; falha de exclusão não altera autorizações nem job
 Se a revogação no SQLite falhar depois da remoção, o arquivo original é
 restaurado no mesmo slug antes de retornar o erro, evitando que uma recriação
 posterior reaproveite grants órfãos.
+Antes de tocar o filesystem, uma intenção durável registra slug e identidade
+original. Enquanto existe, consultas de grants falham fechado. No startup,
+identidade original ainda presente cancela a intenção; profile ausente ou
+substituído conclui a revogação, cobrindo queda do processo entre os stores.
 Revogar um target delega a decisão de desabilitar ao mesmo transaction do
 store que revalida fingerprint e grants restantes; adapters não repetem essa
 decisão com snapshots anteriores.

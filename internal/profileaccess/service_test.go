@@ -49,6 +49,8 @@ type fakeJobGrants struct {
 	revoked    int
 	generation uint64
 	revokeErr  error
+	begun      int
+	canceled   int
 }
 
 func (f *fakeJobGrants) AuthorizationSnapshot(ctx context.Context, jobID, _ string) (jobprofilegrant.AuthorizationSnapshot, error) {
@@ -83,6 +85,14 @@ func (f *fakeJobGrants) Grant(_ context.Context, _, _, _, _ string, expectedGene
 func (f *fakeJobGrants) Revoke(context.Context, string, string, string) error {
 	f.generation++
 	f.revoked++
+	return nil
+}
+func (f *fakeJobGrants) BeginProfileRevocation(context.Context, string, string, string) error {
+	f.begun++
+	return nil
+}
+func (f *fakeJobGrants) CancelProfileRevocation(context.Context, string) error {
+	f.canceled++
 	return nil
 }
 func (f *fakeJobGrants) RevokeProfileGlobal(context.Context, string, string) error {
@@ -296,6 +306,35 @@ func TestAuthorizeJobTargetDoesNotUndoRevocationDuringDialog(t *testing.T) {
 	)
 	if allowed || !errors.Is(err, jobprofilegrant.ErrGrantGenerationChanged) || grants.granted != 0 {
 		t.Fatalf("revogação concorrente deveria vencer: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+}
+
+func TestAuthorizeJobTargetRevalidatesSessionAfterDialog(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
+	sessionCurrent := true
+	asker := &fakeAsker{
+		resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}},
+		onAsk: func() {
+			sessionCurrent = false
+		},
+	}
+	service := NewService(store, asker, nil, nil).
+		WithJobGrants(grants).
+		WithSessionValidator(func(context.Context) error {
+			if !sessionCurrent {
+				return errors.New("sessão mudou")
+			}
+			return nil
+		})
+	allowed, err := service.AuthorizeJobTarget(
+		context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom",
+	)
+	if allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("troca de sessão deveria invalidar decisão: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
 	}
 }
 

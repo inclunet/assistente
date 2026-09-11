@@ -58,17 +58,20 @@ type JobGrantStore interface {
 	ListValid(context.Context, string) ([]jobprofilegrant.Grant, jobprofilegrant.DelegationConfig, error)
 	Grant(context.Context, string, string, string, string, uint64) error
 	Revoke(context.Context, string, string, string) error
+	BeginProfileRevocation(context.Context, string, string, string) error
+	CancelProfileRevocation(context.Context, string) error
 	RevokeProfileGlobal(context.Context, string, string) error
 }
 
 type Service struct {
-	profiles     ProfileStore
-	asker        Asker
-	surface      SurfaceResolver
-	availability Availability
-	grants       JobGrantStore
-	profileMu    sync.Mutex
-	profileEpoch map[string]uint64
+	profiles        ProfileStore
+	asker           Asker
+	surface         SurfaceResolver
+	availability    Availability
+	grants          JobGrantStore
+	validateSession func(context.Context) error
+	profileMu       sync.Mutex
+	profileEpoch    map[string]uint64
 }
 
 func NewService(store ProfileStore, asker Asker, surface SurfaceResolver, availability Availability) *Service {
@@ -84,6 +87,13 @@ func NewService(store ProfileStore, asker Asker, surface SurfaceResolver, availa
 func (s *Service) WithJobGrants(store JobGrantStore) *Service {
 	if s != nil {
 		s.grants = store
+	}
+	return s
+}
+
+func (s *Service) WithSessionValidator(validate func(context.Context) error) *Service {
+	if s != nil {
+		s.validateSession = validate
 	}
 	return s
 }
@@ -341,6 +351,11 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 	if profileIdentity(currentTarget) != targetIdentity {
 		return false, errors.New("profile mudou durante a autorização")
 	}
+	if s.validateSession != nil {
+		if err := s.validateSession(ctx); err != nil {
+			return false, err
+		}
+	}
 	if err := s.grants.Grant(ctx, after.JobID, targetSlug, after.Fingerprint, "desktop", snapshot.Generation); err != nil {
 		return false, err
 	}
@@ -364,7 +379,13 @@ func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deletePr
 	if err != nil || original == nil {
 		return fmt.Errorf("%w: %s", ErrTargetNotFound, targetSlug)
 	}
+	if err := s.grants.BeginProfileRevocation(ctx, targetSlug, profileIdentity(original), "profile excluído"); err != nil {
+		return err
+	}
 	if err := deleteProfile(); err != nil {
+		if cancelErr := s.grants.CancelProfileRevocation(ctx, targetSlug); cancelErr != nil {
+			return errors.Join(err, cancelErr)
+		}
 		return err
 	}
 	if s.profileEpoch == nil {
@@ -381,6 +402,9 @@ func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deletePr
 				fmt.Errorf("revogar grants após excluir profile: %w", err),
 				fmt.Errorf("restaurar profile após falha de revogação: %w", restoreErr),
 			)
+		}
+		if cancelErr := s.grants.CancelProfileRevocation(ctx, targetSlug); cancelErr != nil {
+			return errors.Join(err, cancelErr)
 		}
 		return fmt.Errorf("revogar grants após excluir profile; arquivo restaurado: %w", err)
 	}
@@ -428,6 +452,10 @@ func profileIdentity(profile *profiles.Profile) string {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func ProfileIdentity(profile *profiles.Profile) string {
+	return profileIdentity(profile)
 }
 
 func authorizationPayload(req AuthorizationRequest, currentName, targetName string) questionnaire.RequestPayload {

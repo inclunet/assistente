@@ -39,6 +39,7 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 		&database.Job{},
 		&database.JobProfileGrant{},
 		&database.JobProfileGrantEpoch{},
+		&database.ProfileGrantRevocationIntent{},
 		&database.JobTrigger{},
 		&database.JobRun{},
 		&database.JobEvent{},

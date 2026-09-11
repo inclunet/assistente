@@ -10,6 +10,7 @@ import (
 	"assistente/internal/tools"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -111,7 +112,10 @@ func (api *Jobs) ToggleJob(id string, enabled bool) error {
 					return struct{}{}, profileaccess.ErrAuthorizationNotGranted
 				}
 				state, stateErr := access.JobGrantState(ctx, id)
-				if stateErr != nil || state.Fingerprint != fingerprint || !jobGrantCovers(state, job.Inputs) {
+				if stateErr != nil {
+					return struct{}{}, stateErr
+				}
+				if state.Fingerprint != fingerprint || !jobGrantCovers(state, job.Inputs) {
 					return struct{}{}, profileaccess.ErrAuthorizationNotGranted
 				}
 			}
@@ -286,7 +290,11 @@ func (api *Jobs) SaveJob(jobJSON string) (*SaveJobResult, error) {
 			access := api.profileAccess
 			api.mu.RUnlock()
 			if access != nil {
-				if state, stateErr := access.JobGrantState(ctx, job.ID); stateErr == nil && state.Fingerprint == fingerprint {
+				state, stateErr := access.JobGrantState(ctx, job.ID)
+				if stateErr != nil && !errors.Is(stateErr, jobprofilegrant.ErrJobNotFound) {
+					return nil, stateErr
+				}
+				if stateErr == nil && state.Fingerprint == fingerprint {
 					if result.DynamicProfile {
 						valid = len(state.Grants) > 0
 					} else {

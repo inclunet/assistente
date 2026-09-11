@@ -86,8 +86,9 @@ func (jobsGrantTestProfiles) Get(slug string) (*profiles.Profile, error) {
 }
 
 type jobsGrantTestStore struct {
-	config jobprofilegrant.DelegationConfig
-	grants []jobprofilegrant.Grant
+	config  jobprofilegrant.DelegationConfig
+	grants  []jobprofilegrant.Grant
+	listErr error
 }
 
 func (s *jobsGrantTestStore) CurrentDelegation(context.Context, string) (jobprofilegrant.DelegationConfig, error) {
@@ -100,12 +101,16 @@ func (s *jobsGrantTestStore) HasValid(context.Context, string, string, string) (
 	return len(s.grants) > 0, nil
 }
 func (s *jobsGrantTestStore) ListValid(context.Context, string) ([]jobprofilegrant.Grant, jobprofilegrant.DelegationConfig, error) {
-	return s.grants, s.config, nil
+	return s.grants, s.config, s.listErr
 }
 func (*jobsGrantTestStore) Grant(context.Context, string, string, string, string, uint64) error {
 	return nil
 }
 func (*jobsGrantTestStore) Revoke(context.Context, string, string, string) error { return nil }
+func (*jobsGrantTestStore) BeginProfileRevocation(context.Context, string, string, string) error {
+	return nil
+}
+func (*jobsGrantTestStore) CancelProfileRevocation(context.Context, string) error { return nil }
 func (*jobsGrantTestStore) RevokeProfileGlobal(context.Context, string, string) error {
 	return nil
 }
@@ -122,7 +127,8 @@ func setupJobsGrantBehaviorTest(t *testing.T) (*Jobs, *jobs.Manager, *gorm.DB, c
 	if err := db.AutoMigrate(
 		&database.User{}, &database.ToolCatalog{}, &database.Tag{}, &database.TagAssignment{},
 		&database.JobPipeline{}, &database.Job{}, &database.JobProfileGrant{},
-		&database.JobProfileGrantEpoch{}, &database.JobTrigger{}, &database.JobRun{},
+		&database.JobProfileGrantEpoch{}, &database.ProfileGrantRevocationIntent{},
+		&database.JobTrigger{}, &database.JobRun{},
 		&database.JobEvent{}, &database.JobRunEvent{},
 	); err != nil {
 		t.Fatal(err)
@@ -252,6 +258,15 @@ func TestJobsToggleJobChecksGrantBeforeChangingState(t *testing.T) {
 	if saved.Enabled {
 		t.Fatal("toggle sem grant alterou o job")
 	}
+	storeErr := errors.New("SQLite indisponível")
+	state.listErr = storeErr
+	if err := api.ToggleJob("toggle", true); !errors.Is(err, storeErr) {
+		t.Fatalf("toggle ocultou erro operacional do store: %v", err)
+	}
+	if _, err := api.SaveJob(grantBehaviorJobJSON(t, "toggle", expression, true)); !errors.Is(err, storeErr) {
+		t.Fatalf("save ocultou erro operacional do store: %v", err)
+	}
+	state.listErr = nil
 
 	store := jobprofilegrant.NewStore(db)
 	snapshot, err := store.AuthorizationSnapshot(ctx, "toggle", expression)

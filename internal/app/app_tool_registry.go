@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -90,9 +91,24 @@ func (a *App) profileAccessService() *profileaccess.Service {
 			func(ctx context.Context, profile *profiles.Profile) bool {
 				return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
 			},
-		).WithJobGrants(a.jobGrantStore)
+		).WithJobGrants(a.jobGrantStore).
+			WithSessionValidator(a.validateProfileGrantSession)
 	})
 	return a.profileAccess
+}
+
+func (a *App) validateProfileGrantSession(ctx context.Context) error {
+	expectedUserID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	a.authMu.RLock()
+	currentUserID := a.currentUserID
+	a.authMu.RUnlock()
+	if currentUserID == "" || currentUserID != expectedUserID {
+		return errors.New("sessão mudou durante a autorização")
+	}
+	return nil
 }
 
 type profileConversationLookup func(context.Context, string) (*database.Conversation, error)

@@ -285,6 +285,7 @@ func (s *Store) HasValid(ctx context.Context, jobID, targetSlug, fingerprint str
 			if countErr := tx.Model(&database.JobProfileGrant{}).
 				Where("user_id = ? AND job_id = ? AND target_profile_slug = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
 					userID, config.JobID, strings.TrimSpace(targetSlug), config.Fingerprint).
+				Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
 				Where("generation = (?)", epochGeneration).
 				Count(&count).Error; countErr != nil {
 				return countErr
@@ -315,6 +316,7 @@ func (s *Store) ListValid(ctx context.Context, jobID string) ([]Grant, Delegatio
 			}
 			return tx.Where("user_id = ? AND job_id = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
 				userID, config.JobID, config.Fingerprint).
+				Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
 				Where("generation = (?)", tx.Model(&database.JobProfileGrantEpoch{}).
 					Select("generation").
 					Where("job_profile_grant_epochs.user_id = job_profile_grants.user_id AND job_profile_grant_epochs.job_id = job_profile_grants.job_id AND job_profile_grant_epochs.target_profile_slug = job_profile_grants.target_profile_slug AND job_profile_grant_epochs.delegation_fingerprint = job_profile_grants.delegation_fingerprint")).
@@ -478,6 +480,52 @@ func (s *Store) RevokeJobTx(tx *gorm.DB, userID, jobID, actor string) error {
 		Updates(map[string]any{"revoked_at": now, "revoked_by": strings.TrimSpace(actor)}).Error
 }
 
+func (s *Store) BeginProfileRevocation(ctx context.Context, targetSlug, originalIdentity, actor string) error {
+	row := database.ProfileGrantRevocationIntent{
+		TargetProfileSlug: strings.TrimSpace(targetSlug),
+		OriginalIdentity:  strings.TrimSpace(originalIdentity),
+		RequestedBy:       strings.TrimSpace(actor),
+	}
+	return database.WithSQLiteBusyRetry(ctx, "job_profile_grants.begin_profile_revocation", func() error {
+		return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "target_profile_slug"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"original_identity": row.OriginalIdentity,
+				"requested_by":      row.RequestedBy,
+			}),
+		}).Create(&row).Error
+	})
+}
+
+func (s *Store) CancelProfileRevocation(ctx context.Context, targetSlug string) error {
+	return database.WithSQLiteBusyRetry(ctx, "job_profile_grants.cancel_profile_revocation", func() error {
+		return s.db.WithContext(ctx).
+			Where("target_profile_slug = ?", strings.TrimSpace(targetSlug)).
+			Delete(&database.ProfileGrantRevocationIntent{}).Error
+	})
+}
+
+func (s *Store) ReconcileProfileRevocations(ctx context.Context, currentIdentity func(string) string) error {
+	var intents []database.ProfileGrantRevocationIntent
+	if err := database.WithSQLiteBusyRetry(ctx, "job_profile_grants.list_profile_revocations", func() error {
+		return s.db.WithContext(ctx).Order("created_at ASC").Find(&intents).Error
+	}); err != nil {
+		return err
+	}
+	for _, intent := range intents {
+		if currentIdentity != nil && currentIdentity(intent.TargetProfileSlug) == intent.OriginalIdentity {
+			if err := s.CancelProfileRevocation(ctx, intent.TargetProfileSlug); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := s.RevokeProfileGlobal(ctx, intent.TargetProfileSlug, intent.RequestedBy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) RevokeProfileGlobal(ctx context.Context, targetSlug, actor string) error {
 	now := s.now().UTC()
 	var disabled []DisabledJob
@@ -513,7 +561,8 @@ func (s *Store) RevokeProfileGlobal(ctx context.Context, targetSlug, actor strin
 					disabled = append(disabled, *disabledJob)
 				}
 			}
-			return nil
+			return tx.Where("target_profile_slug = ?", strings.TrimSpace(targetSlug)).
+				Delete(&database.ProfileGrantRevocationIntent{}).Error
 		})
 	})
 	if err == nil {
@@ -546,6 +595,7 @@ func disableJobWithoutGrantTx(tx *gorm.DB, userID, jobID string) (*DisabledJob, 
 	query := tx.Model(&database.JobProfileGrant{}).
 		Where("user_id = ? AND job_id = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
 			userID, jobID, fingerprint).
+		Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
 		Where("generation = (?)", tx.Model(&database.JobProfileGrantEpoch{}).
 			Select("generation").
 			Where("job_profile_grant_epochs.user_id = job_profile_grants.user_id AND job_profile_grant_epochs.job_id = job_profile_grants.job_id AND job_profile_grant_epochs.target_profile_slug = job_profile_grants.target_profile_slug AND job_profile_grant_epochs.delegation_fingerprint = job_profile_grants.delegation_fingerprint"))

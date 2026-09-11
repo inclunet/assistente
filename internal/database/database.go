@@ -141,6 +141,7 @@ func Init() error {
 		&Job{},
 		&JobProfileGrant{},
 		&JobProfileGrantEpoch{},
+		&ProfileGrantRevocationIntent{},
 		&JobTrigger{},
 		&JobRun{},
 		&JobEvent{},
