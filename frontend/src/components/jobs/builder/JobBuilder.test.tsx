@@ -146,7 +146,7 @@ describe('JobBuilder grants de profiles', () => {
     render(<JobBuilder editJob={subagentJob('{{ .event.profile }}')} onClose={vi.fn()} />);
 
     expect(await screen.findByText('Pesquisa')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'jobs.builder.revokeProfile' }));
+    await user.click(screen.getByRole('button', { name: 'jobs.builder.revokeProfileAriaLabel:Pesquisa' }));
     await waitFor(() => expect(revokeProfile).toHaveBeenCalledWith('resumo-diario', 'pesquisa'));
     await waitFor(() => expect(document.activeElement).toBe(
       screen.getByRole('region', { name: 'jobs.builder.authorizedProfilesTitle' }),
@@ -169,6 +169,30 @@ describe('JobBuilder grants de profiles', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it('localiza falhas de grant sem expor detalhes internos', async () => {
+    const user = userEvent.setup();
+    authorizeProfile.mockRejectedValue(new Error('authorization_not_granted: store de grants indisponível'));
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'jobs.builder.authorizeProfile' }));
+    expect(await screen.findByText('jobs.builder.profileGrantNotAuthorizedError')).toBeInTheDocument();
+    expect(screen.queryByText(/store de grants indisponível/)).not.toBeInTheDocument();
+  });
+
+  it('distingue cada ação de revogação pelo nome do profile', async () => {
+    getGrantState.mockResolvedValue({
+      grants: [{ targetProfileSlug: 'pesquisa' }, { targetProfileSlug: 'programacao' }],
+      fingerprint: 'fp',
+      profileExpression: '{{ .event.profile }}',
+    });
+    render(<JobBuilder editJob={subagentJob('{{ .event.profile }}')} onClose={vi.fn()} />);
+    expect(await screen.findByRole('button', {
+      name: 'jobs.builder.revokeProfileAriaLabel:Pesquisa',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'jobs.builder.revokeProfileAriaLabel:Programação',
+    })).toBeInTheDocument();
+  });
+
   it('bloqueia grants do estado persistido enquanto o draft diverge sem recarregar profiles', async () => {
     const user = userEvent.setup();
     getGrantState.mockResolvedValue({
@@ -180,7 +204,7 @@ describe('JobBuilder grants de profiles', () => {
     await screen.findByText('Pesquisa');
     const callsBeforeEdit = getProfiles.mock.calls.length;
     await user.click(screen.getByRole('button', { name: 'edit-profile' }));
-    expect(screen.getByRole('button', { name: 'jobs.builder.revokeProfile' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'jobs.builder.revokeProfileAriaLabel:Pesquisa' })).toBeDisabled();
     expect(screen.getByText('jobs.builder.saveProfileConfigurationFirst')).toBeInTheDocument();
     expect(getProfiles).toHaveBeenCalledTimes(callsBeforeEdit);
   });

@@ -263,6 +263,14 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     announce(message, 'assertive');
   }, [announce]);
 
+  const showProfileGrantError = useCallback((err: unknown) => {
+    const raw = err instanceof Error ? err.message : String(err);
+    const message = raw.includes('authorization_not_granted')
+      ? t('jobs.builder.profileGrantNotAuthorizedError')
+      : t('jobs.builder.profileGrantUnavailableError');
+    showError(message);
+  }, [showError, t]);
+
   useEffect(() => {
     if (profileGrantConfigurationDirty) {
       announce(t('jobs.builder.saveProfileConfigurationFirst'), 'polite');
@@ -410,12 +418,12 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       }
       return approved;
     } catch (err) {
-      showError(String(err));
+      showProfileGrantError(err);
       return false;
     } finally {
       setProfileGrantBusy(false);
     }
-  }, [announce, authorizeJobProfile, refreshProfileGrants, showError, t]);
+  }, [announce, authorizeJobProfile, refreshProfileGrants, showProfileGrantError, t]);
 
   const handleRevokeProfile = useCallback(async (profileSlug: string) => {
     if (!persistedJobId) return;
@@ -426,11 +434,11 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       announce(t('jobs.builder.profileRevoked', { profile: profileSlug }));
       requestAnimationFrame(() => profileGrantsSectionRef.current?.focus());
     } catch (err) {
-      showError(String(err));
+      showProfileGrantError(err);
     } finally {
       setProfileGrantBusy(false);
     }
-  }, [announce, persistedJobId, refreshProfileGrants, revokeJobProfile, showError, t]);
+  }, [announce, persistedJobId, refreshProfileGrants, revokeJobProfile, showProfileGrantError, t]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -653,18 +661,22 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
             </p>
             {authorizedProfiles.length > 0 ? (
               <ul className="job-builder__profile-grant-list">
-                {authorizedProfiles.map((slug) => (
-                  <li key={slug}>
-                    <span>{installedProfiles.find((profile) => profile.slug === slug)?.name ?? slug}</span>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleRevokeProfile(slug)}
-                      disabled={profileGrantBusy || profileGrantConfigurationDirty}
-                    >
-                      {t('jobs.builder.revokeProfile')}
-                    </Button>
-                  </li>
-                ))}
+                {authorizedProfiles.map((slug) => {
+                  const profileName = installedProfiles.find((profile) => profile.slug === slug)?.name ?? slug;
+                  return (
+                    <li key={slug}>
+                      <span>{profileName}</span>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleRevokeProfile(slug)}
+                        disabled={profileGrantBusy || profileGrantConfigurationDirty}
+                        aria-label={t('jobs.builder.revokeProfileAriaLabel', { profile: profileName })}
+                      >
+                        {t('jobs.builder.revokeProfile')}
+                      </Button>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <p>{t('jobs.builder.noAuthorizedProfiles')}</p>
