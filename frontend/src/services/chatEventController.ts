@@ -119,6 +119,14 @@ interface ChatDoneEvent {
   turnId?: string;
   hadToolCalls?: boolean;
   reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error' | 'cancelled';
+  finishReason?: 'stop' | 'tool_calls' | 'max_tokens' | 'content_filter' | 'cancelled' | 'other';
+  rawReason?: string;
+  provider?: string;
+  model?: string;
+  effectiveOutputLimit?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  responseBytes?: number;
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
   turnPatch?: ChatTurnPatch;

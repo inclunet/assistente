@@ -152,8 +152,12 @@ const (
 // FinishInfo preserva o motivo normalizado usado pelo harness e o valor bruto
 // para diagnóstico do adapter. Decisões de runtime nunca dependem de RawReason.
 type FinishInfo struct {
-	Reason    FinishReason
-	RawReason string
+	Reason        FinishReason
+	RawReason     string
+	Provider      string
+	Model         string
+	OutputLimit   int
+	ResponseBytes int
 }
 
 // FinishReasonSink recebe o motivo antes de OnDone/OnToolCalls. É opcional para

@@ -891,7 +891,9 @@ func TestACPPropagaLimiteDeTokensAntesDoDone(t *testing.T) {
 		[]Message{{Role: "user", Content: "vai"}},
 		ChatParams{ConversationID: "conversa-1"}, handler)
 
-	if handler.finish.Reason != FinishReasonMaxTokens || handler.finish.RawReason != "max_tokens" {
+	if handler.finish.Reason != FinishReasonMaxTokens || handler.finish.RawReason != "max_tokens" ||
+		handler.finish.Provider != "cursor" || handler.finish.Model != "auto" ||
+		handler.finish.OutputLimit != 0 || handler.finish.ResponseBytes != len("resposta parcial") {
 		t.Fatalf("finish=%#v", handler.finish)
 	}
 	if handler.chamouOnDone != 1 {

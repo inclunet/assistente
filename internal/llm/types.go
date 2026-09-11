@@ -179,12 +179,16 @@ type Delta struct {
 
 // Usage representa o uso de tokens
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
-	CacheMissTokens  int `json:"cache_miss_tokens,omitempty"`
+	PromptTokens            int  `json:"prompt_tokens"`
+	CompletionTokens        int  `json:"completion_tokens"`
+	TotalTokens             int  `json:"total_tokens"`
+	CacheReadTokens         int  `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens        int  `json:"cache_write_tokens,omitempty"`
+	CacheMissTokens         int  `json:"cache_miss_tokens,omitempty"`
+	Reported                bool `json:"-"`
+	OutputTokensReported    bool `json:"-"`
+	ReasoningTokens         int  `json:"reasoning_tokens,omitempty"`
+	ReasoningTokensReported bool `json:"-"`
 }
 
 // ChatResponse representa a resposta da API

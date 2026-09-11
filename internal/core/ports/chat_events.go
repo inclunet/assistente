@@ -101,17 +101,28 @@ type DoneEvent struct {
 	// acabou. Ele substitui o reload completo pós-tools no frontend.
 	TurnPatch *TurnPatchEvent `json:"turnPatch,omitempty"`
 	// AEP-0039 Fase 2: enriched done event
-	Reason           string             `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error" | "cancelled"
-	IterationCount   int                `json:"iterationCount,omitempty"`
-	ToolCallCount    int                `json:"toolCallCount,omitempty"`
-	ToolsUsed        []string           `json:"toolsUsed,omitempty"`
-	PromptTokens     int                `json:"promptTokens,omitempty"`
-	CompletionTokens int                `json:"completionTokens,omitempty"`
-	CacheReadTokens  int                `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens int                `json:"cacheWriteTokens,omitempty"`
-	CacheMissTokens  int                `json:"cacheMissTokens,omitempty"`
-	ErrorMessage     string             `json:"errorMessage,omitempty"`
-	SurfaceOrigin    *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	Reason           string   `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error" | "cancelled"
+	IterationCount   int      `json:"iterationCount,omitempty"`
+	ToolCallCount    int      `json:"toolCallCount,omitempty"`
+	ToolsUsed        []string `json:"toolsUsed,omitempty"`
+	PromptTokens     int      `json:"promptTokens,omitempty"`
+	CompletionTokens int      `json:"completionTokens,omitempty"`
+	CacheReadTokens  int      `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int      `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens  int      `json:"cacheMissTokens,omitempty"`
+	// Diagnóstico aditivo do término informado pelo transporte. Os ponteiros
+	// distinguem zero reportado de usage ausente, sem alterar consumidores
+	// antigos do evento.
+	FinishReason         string             `json:"finishReason,omitempty"`
+	RawReason            string             `json:"rawReason,omitempty"`
+	Provider             string             `json:"provider,omitempty"`
+	Model                string             `json:"model,omitempty"`
+	EffectiveOutputLimit int                `json:"effectiveOutputLimit,omitempty"`
+	OutputTokens         *int               `json:"outputTokens,omitempty"`
+	ReasoningTokens      *int               `json:"reasoningTokens,omitempty"`
+	ResponseBytes        *int               `json:"responseBytes,omitempty"`
+	ErrorMessage         string             `json:"errorMessage,omitempty"`
+	SurfaceOrigin        *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
 // ErrorEvent is the payload for chat:error.
