@@ -205,6 +205,13 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 					return chatStreamAttempt{done: true}
 				default:
 				}
+				if wd.TimedOut() {
+					if !emittedVisibleContent {
+						return chatStreamAttempt{plainRetry: true}
+					}
+					handler.OnError(streamIdleErrorMessage)
+					return chatStreamAttempt{done: true}
+				}
 				fullResponse.WriteString(content)
 				emittedVisibleContent = true
 				handler.OnChunk(content)
@@ -274,8 +281,23 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	if isThinking && thinkingBuffer.Len() > 0 {
 		select {
 		case <-ctx.Done():
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
 			return chatStreamAttempt{done: true}
 		default:
+		}
+		if wd.TimedOut() {
+			thinkingBuffer.Reset()
+			isThinking = false
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			if !emittedVisibleContent {
+				return chatStreamAttempt{plainRetry: true}
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return chatStreamAttempt{done: true}
 		}
 		thinkingBuffer.Reset()
 		isThinking = false
@@ -337,9 +359,16 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		return chatStreamAttempt{done: true}
 	default:
 	}
+	if wd.TimedOut() {
+		if !emittedVisibleContent {
+			return chatStreamAttempt{plainRetry: true}
+		}
+		handler.OnError(streamIdleErrorMessage)
+		return chatStreamAttempt{done: true}
+	}
 	ReportFinishReason(handler, finish)
 
-	if finish.Reason == "" && fullResponse.Len() > 0 && len(finishedToolCalls) == 0 {
+	if finish.Reason == "" && len(finishedToolCalls) == 0 {
 		handler.OnError("streaming_interrupted")
 		return chatStreamAttempt{done: true}
 	}
