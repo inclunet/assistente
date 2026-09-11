@@ -34,6 +34,9 @@ const translateBackendChatError = (message: string) => {
   if (message === 'internal_error') {
     return i18next.t('chat.errors.internalError');
   }
+  if (message === 'streaming_interrupted') {
+    return i18next.t('chat.errors.streamingInterrupted');
+  }
   return message;
 };
 

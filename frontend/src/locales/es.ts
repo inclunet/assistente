@@ -251,6 +251,7 @@ const es = {
         cancelStreamingFailed: 'No se pudo cancelar la generación: {{message}}',
         assistantPlaceholder: 'No se pudo preparar el mensaje del asistente.',
         internalError: 'Error interno inesperado. Inténtalo de nuevo.',
+        streamingInterrupted: 'Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
