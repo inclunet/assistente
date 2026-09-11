@@ -64,8 +64,8 @@ Abas não visitadas permanecem inativas e não carregam conteúdo pesado. Ao vis
 
 Painéis inativos devem ficar fora da navegação por teclado e da árvore de leitores de tela. Eles não podem capturar foco, atalhos locais, microfone ou ações de UI que pertençam à aba ativa.
 
-Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp ou Ctrl+PageDown, o
-shell solicita foco ao controller da superfície ativada. O controller é
+Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp, Ctrl+PageDown ou
+Ctrl+1..9, o shell solicita foco ao controller da superfície ativada. O controller é
 responsável por escolher o alvo correto e só atende depois de seu painel estar
 ativo. No editor, isso significa Monaco em `markdown`, TipTap em `rich` e a
 ilha documental da AEP-0094 em `view`.

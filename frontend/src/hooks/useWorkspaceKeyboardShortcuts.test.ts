@@ -277,5 +277,16 @@ describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => 
 
     expect(setActiveTab).toHaveBeenCalledWith('t2');
     expect(onTabShortcutNavigation).toHaveBeenCalledWith('t2');
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+numero na aba já ativa restaura foco sem trocar', async () => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    dispatchKey({ ctrlKey: true, key: '1' });
+
+    expect(setActiveTab).toHaveBeenCalledWith('t1');
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    expect(restoreDefaultFocus).toHaveBeenCalled();
   });
 });

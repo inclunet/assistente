@@ -50,8 +50,7 @@ export function WorkspaceLayout() {
   const restoreFocusToTablistRef = useRef<string | null>(null);
   const lastTabShortcutTargetRef = useRef<string | null>(null);
   const markTabShortcutNavigation = useCallback((tabId: string) => {
-    restoreFocusAfterTabShortcutRef.current = tabId;
-    lastTabShortcutTargetRef.current = tabId;
+    if (!isWorkspaceRoute) return;
     if (tabId === workspace?.activeTabId) {
       const activeTabType = workspace?.tabs.find((tab) => tab.id === tabId)?.type;
       requestAnimationFrame(() => {
@@ -63,8 +62,11 @@ export function WorkspaceLayout() {
           restoreDefaultFocus();
         }
       });
+      return;
     }
-  }, [workspace?.activeTabId, workspace?.tabs]);
+    restoreFocusAfterTabShortcutRef.current = tabId;
+    lastTabShortcutTargetRef.current = tabId;
+  }, [isWorkspaceRoute, workspace?.activeTabId, workspace?.tabs]);
 
   useWorkspaceKeyboardShortcuts({
     onTabShortcutNavigation: markTabShortcutNavigation,
