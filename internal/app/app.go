@@ -33,6 +33,7 @@ import (
 	"assistente/internal/memory"
 	"assistente/internal/messaging"
 	"assistente/internal/nettrust"
+	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
@@ -73,6 +74,8 @@ type App struct {
 	bgWG              sync.WaitGroup        // join das goroutines de background no Shutdown
 	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
 	profileManager    *profiles.Manager
+	profileAccess     *profileaccess.Service
+	profileAccessOnce sync.Once
 	toolRegistry      *tools.Registry          // Registro de ferramentas disponíveis
 	toolExecutor      *tools.Executor          // Executor de ferramentas com paralelismo e timeout
 	toolInvocationSvc *toolinvocations.Service // Persistência e execução comum de tool calls

@@ -5,7 +5,6 @@ import (
 	"assistente/internal/acpinstall"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
-	"assistente/internal/jobprofilegrant"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
 	"context"
@@ -81,8 +80,8 @@ func (a *App) wireProfiles() {
 			a.reinitSpeechFromActiveProfile(slug)
 			a.registerActiveProfileHotkeys()
 		},
-		OnProfileDeleted: func(ctx context.Context, slug string) error {
-			return jobprofilegrant.NewStore(database.DB()).RevokeProfile(ctx, slug, "profile excluído")
+		DeleteProfile: func(ctx context.Context, slug string, deleteFile func() error) error {
+			return a.profileAccessService().DeleteProfile(ctx, slug, deleteFile)
 		},
 	})
 	if a.profilesAPI != nil {
@@ -160,6 +159,11 @@ func (a *App) wireSettings() {
 		ProfileMgr: a.profileManager,
 		SkillMgr:   a.skillMgr,
 		Emitter:    a.emitter,
+		DeleteProfile: func(slug string) error {
+			return a.profileAccessService().DeleteProfile(context.Background(), slug, func() error {
+				return a.profileManager.Delete(slug)
+			})
+		},
 		RestartChannel: func(channelName string) error {
 			// Via Messaging bind: WithUser + SetCredentialUserID + ownership
 			// (não chamar msgCtrl.RestartChannel direto — perde escopo de credenciais).

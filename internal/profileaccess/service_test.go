@@ -34,6 +34,7 @@ type fakeAsker struct {
 	payload questionnaire.RequestPayload
 	resp    questionnaire.Response
 	err     error
+	onAsk   func()
 }
 
 type fakeJobGrants struct {
@@ -68,10 +69,17 @@ func (f *fakeJobGrants) Revoke(context.Context, string, string, string) error {
 	f.revoked++
 	return nil
 }
+func (f *fakeJobGrants) RevokeProfileGlobal(context.Context, string, string) error {
+	f.revoked++
+	return nil
+}
 
 func (f *fakeAsker) Ask(_ context.Context, _ questionnaire.Surface, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
 	f.calls++
 	f.payload = payload
+	if f.onAsk != nil {
+		f.onAsk()
+	}
 	return f.resp, f.err
 }
 
@@ -205,7 +213,7 @@ func TestAuthorizeJobWithoutGrantFailsBeforeSurface(t *testing.T) {
 }
 
 func TestAuthorizeJobTargetPersistsOnlyDesktopApproval(t *testing.T) {
-	config := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Resumo diário", Fingerprint: "fp"}
+	config := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Resumo diário", ProfileExpression: "custom", Fingerprint: "fp"}
 	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
 	asker := &fakeAsker{resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}}}
 	service := NewService(profileStoreFixture(), asker, nil, nil).WithJobGrants(grants)
@@ -221,7 +229,7 @@ func TestAuthorizeJobTargetPersistsOnlyDesktopApproval(t *testing.T) {
 }
 
 func TestAuthorizeJobTargetRevalidatesTOCTOUAndDenial(t *testing.T) {
-	before := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Job", Fingerprint: "before"}
+	before := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "before"}
 	after := before
 	after.Fingerprint = "after"
 	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{before, after}}
@@ -235,5 +243,60 @@ func TestAuthorizeJobTargetRevalidatesTOCTOUAndDenial(t *testing.T) {
 	asker.resp = questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionDeny}}
 	if allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom"); err != nil || allowed || grants.granted != 0 {
 		t.Fatalf("recusa não pode conceder: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+}
+
+func TestAuthorizeJobTargetRejectsDifferentLiteralBeforeDialog(t *testing.T) {
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "geral", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config}}
+	asker := &fakeAsker{}
+	service := NewService(profileStoreFixture(), asker, nil, nil).WithJobGrants(grants)
+	allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom")
+	if allowed || err == nil || asker.calls != 0 || grants.granted != 0 {
+		t.Fatalf("target diferente do literal deveria falhar antes do diálogo: allowed=%v calls=%d grants=%d err=%v",
+			allowed, asker.calls, grants.granted, err)
+	}
+}
+
+func TestDeleteProfileRevokesGloballyWithoutUserContext(t *testing.T) {
+	grants := &fakeJobGrants{}
+	service := NewService(profileStoreFixture(), nil, nil, nil).WithJobGrants(grants)
+	deleted := false
+	err := service.DeleteProfile(context.Background(), "custom", func() error {
+		deleted = true
+		return nil
+	})
+	if err != nil || !deleted || grants.revoked != 1 {
+		t.Fatalf("exclusão global deveria revogar e apagar sem sessão: deleted=%v revoked=%d err=%v",
+			deleted, grants.revoked, err)
+	}
+}
+
+func TestAuthorizeJobTargetRejectsProfileRemovedAndRecreatedDuringDialog(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config}}
+	var service *Service
+	asker := &fakeAsker{resp: questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow},
+	}}
+	service = NewService(store, asker, nil, nil).WithJobGrants(grants)
+	asker.onAsk = func() {
+		if err := service.DeleteProfile(context.Background(), "custom", func() error {
+			delete(store.bySlug, "custom")
+			store.bySlug["custom"] = &profiles.Profile{Name: "Custom recriado"}
+			return nil
+		}); err != nil {
+			t.Errorf("delete profile: %v", err)
+		}
+	}
+	allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom")
+	if allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("profile recriado durante diálogo não pode receber grant: allowed=%v grants=%d err=%v",
+			allowed, grants.granted, err)
 	}
 }

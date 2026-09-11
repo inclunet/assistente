@@ -77,16 +77,19 @@ func (s appProfileSwitcher) ResetConversationTools(conversationID string) {
 }
 
 func (a *App) profileAccessService() *profileaccess.Service {
-	return profileaccess.NewService(
-		a.profileManager,
-		a.questionnaireRouter(),
-		func(ctx context.Context, source, conversationID string) questionnaire.Surface {
-			return resolveProfileAccessSurface(ctx, source, conversationID, database.GetConversationInfoWithContext)
-		},
-		func(ctx context.Context, profile *profiles.Profile) bool {
-			return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
-		},
-	).WithJobGrants(jobprofilegrant.NewStore(database.DB()))
+	a.profileAccessOnce.Do(func() {
+		a.profileAccess = profileaccess.NewService(
+			a.profileManager,
+			a.questionnaireRouter(),
+			func(ctx context.Context, source, conversationID string) questionnaire.Surface {
+				return resolveProfileAccessSurface(ctx, source, conversationID, database.GetConversationInfoWithContext)
+			},
+			func(ctx context.Context, profile *profiles.Profile) bool {
+				return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
+			},
+		).WithJobGrants(jobprofilegrant.NewStore(database.DB()))
+	})
+	return a.profileAccess
 }
 
 type profileConversationLookup func(context.Context, string) (*database.Conversation, error)

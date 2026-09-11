@@ -22,8 +22,8 @@ func grantTestStore(t *testing.T) (*Store, *gorm.DB, context.Context, context.Co
 		t.Fatal(err)
 	}
 	inputs := `{"profile":"especialista","prompt":"texto editorial"}`
-	jobA := database.Job{UserID: "user-a", Slug: "job-a", Name: "Job A", ToolCatalogID: "subagent", ToolName: ToolSubagent, Inputs: inputs}
-	jobB := database.Job{UserID: "user-b", Slug: "job-a", Name: "Job B", ToolCatalogID: "subagent", ToolName: ToolSubagent, Inputs: inputs}
+	jobA := database.Job{UserID: "user-a", Slug: "job-a", Name: "Job A", Enabled: true, ToolCatalogID: "subagent", ToolName: ToolSubagent, Inputs: inputs}
+	jobB := database.Job{UserID: "user-b", Slug: "job-a", Name: "Job B", Enabled: true, ToolCatalogID: "subagent", ToolName: ToolSubagent, Inputs: inputs}
 	if err := db.Create(&jobA).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +103,10 @@ func TestStoreExactIsolationIdempotencyAndRevocation(t *testing.T) {
 	if valid, _ := store.HasValid(userA, jobA.ID, "especialista", configA.Fingerprint); valid {
 		t.Fatal("grant revogado permaneceu válido")
 	}
+	var revokedJob database.Job
+	if err := db.First(&revokedJob, "id = ?", jobA.ID).Error; err != nil || revokedJob.Enabled {
+		t.Fatalf("job sem grant deveria ser desabilitado: enabled=%v err=%v", revokedJob.Enabled, err)
+	}
 }
 
 func TestStoreRevokesStaleFingerprint(t *testing.T) {
@@ -138,7 +142,7 @@ func TestStoreProfileRemovalRevokesEveryUser(t *testing.T) {
 	if err := store.Grant(userB, jobB.ID, "especialista", configB.Fingerprint, "desktop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RevokeProfile(userA, "especialista", "profile excluído"); err != nil {
+	if err := store.RevokeProfileGlobal(userA, "especialista", "profile excluído"); err != nil {
 		t.Fatal(err)
 	}
 	if valid, _ := store.HasValid(userA, jobA.ID, "especialista", configA.Fingerprint); valid {
@@ -146,6 +150,10 @@ func TestStoreProfileRemovalRevokesEveryUser(t *testing.T) {
 	}
 	if valid, _ := store.HasValid(userB, jobB.ID, "especialista", configB.Fingerprint); valid {
 		t.Fatal("grant do usuário B permaneceu após remoção global do profile")
+	}
+	var enabled int64
+	if err := store.db.Model(&database.Job{}).Where("enabled = ?", true).Count(&enabled).Error; err != nil || enabled != 0 {
+		t.Fatalf("jobs sem grant após remoção deveriam ser desabilitados: enabled=%d err=%v", enabled, err)
 	}
 }
 

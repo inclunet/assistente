@@ -227,7 +227,7 @@ var schemaMigrations = []migration{
 		Name:    "job_profile_grants_exact_index",
 		Phase:   phasePostAutoMigrate,
 		Run: func(database *gorm.DB) error {
-			return deferIfErr(database.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_exact ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint)`).Error)
+			return database.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_exact ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint)`).Error
 		},
 	},
 }

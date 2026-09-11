@@ -4,9 +4,13 @@ package profileaccess
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"assistente/internal/eventctx"
 	"assistente/internal/jobprofilegrant"
@@ -22,7 +26,7 @@ const (
 var (
 	ErrTargetNotFound          = errors.New("profile alvo não encontrado")
 	ErrTargetUnavailable       = errors.New("provider do profile alvo indisponível")
-	ErrAuthorizationNotGranted = errors.New("authorization_not_granted")
+	ErrAuthorizationNotGranted = jobprofilegrant.ErrAuthorizationNotGranted
 )
 
 // ProfileStore é a leitura mínima do catálogo persistido de profiles.
@@ -49,6 +53,7 @@ type JobGrantStore interface {
 	ListValid(context.Context, string) ([]jobprofilegrant.Grant, jobprofilegrant.DelegationConfig, error)
 	Grant(context.Context, string, string, string, string) error
 	Revoke(context.Context, string, string, string) error
+	RevokeProfileGlobal(context.Context, string, string) error
 }
 
 type Service struct {
@@ -57,6 +62,8 @@ type Service struct {
 	surface      SurfaceResolver
 	availability Availability
 	grants       JobGrantStore
+	profileMu    sync.Mutex
+	profileEpoch map[string]uint64
 }
 
 func NewService(store ProfileStore, asker Asker, surface SurfaceResolver, availability Availability) *Service {
@@ -265,10 +272,18 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 		return false, err
 	}
 	targetSlug = strings.TrimSpace(targetSlug)
+	if !strings.Contains(before.ProfileExpression, "{{") && targetSlug != before.ProfileExpression {
+		return false, fmt.Errorf("profile alvo não corresponde à configuração literal do job")
+	}
+	s.profileMu.Lock()
 	if err := s.ValidateTarget(ctx, targetSlug); err != nil {
+		s.profileMu.Unlock()
 		return false, err
 	}
 	target, _ := s.profiles.Get(targetSlug)
+	targetIdentity := profileIdentity(target)
+	targetEpoch := s.profileEpoch[targetSlug]
+	s.profileMu.Unlock()
 	targetName := targetSlug
 	if target != nil && strings.TrimSpace(target.Name) != "" {
 		targetName = strings.TrimSpace(target.Name)
@@ -281,6 +296,11 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 	if !ok || actionID != ActionAllow {
 		return false, nil
 	}
+	s.profileMu.Lock()
+	defer s.profileMu.Unlock()
+	if s.profileEpoch[targetSlug] != targetEpoch {
+		return false, errors.New("profile foi removido durante a autorização")
+	}
 	after, err := s.grants.CurrentDelegation(ctx, jobID)
 	if err != nil {
 		return false, err
@@ -291,10 +311,36 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 	if err := s.ValidateTarget(ctx, targetSlug); err != nil {
 		return false, err
 	}
+	currentTarget, _ := s.profiles.Get(targetSlug)
+	if profileIdentity(currentTarget) != targetIdentity {
+		return false, errors.New("profile mudou durante a autorização")
+	}
 	if err := s.grants.Grant(ctx, after.JobID, targetSlug, after.Fingerprint, "desktop"); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// DeleteProfile serializa a remoção do arquivo com a concessão de grants.
+// Assim, ou o grant é criado antes e revogado pela exclusão, ou a validação
+// final já observa que o profile não existe.
+func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deleteProfile func() error) error {
+	if s == nil || s.grants == nil {
+		return errors.New("store de grants indisponível")
+	}
+	if deleteProfile == nil {
+		return errors.New("operação de exclusão de profile indisponível")
+	}
+	s.profileMu.Lock()
+	defer s.profileMu.Unlock()
+	if err := s.grants.RevokeProfileGlobal(ctx, targetSlug, "profile excluído"); err != nil {
+		return err
+	}
+	if s.profileEpoch == nil {
+		s.profileEpoch = make(map[string]uint64)
+	}
+	s.profileEpoch[strings.TrimSpace(targetSlug)]++
+	return deleteProfile()
 }
 
 func (s *Service) RevokeJobTarget(ctx context.Context, jobID, targetSlug string) error {
@@ -326,6 +372,18 @@ func jobAuthorizationPayload(jobName, targetName string) questionnaire.RequestPa
 		},
 		AllowCancel: true,
 	}
+}
+
+func profileIdentity(profile *profiles.Profile) string {
+	if profile == nil {
+		return ""
+	}
+	data, err := json.Marshal(profile)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func authorizationPayload(req AuthorizationRequest, currentName, targetName string) questionnaire.RequestPayload {

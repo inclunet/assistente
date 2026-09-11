@@ -488,6 +488,14 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 			if err != nil {
 				return err
 			}
+			allowed, err := r.enabledJobGrantValidTx(tx, userID, "", job)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				row.Enabled = false
+				job.Enabled = false
+			}
 			if err := tx.Create(row).Error; err != nil {
 				if isUniqueConstraintError(err) {
 					return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
@@ -551,15 +559,26 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
-				if err := tx.Create(row).Error; err != nil {
-					return err
-				}
 			case err != nil:
 				return err
 			default:
 				row.ID = existing.ID
 				row.CreatedAt = existing.CreatedAt
 				row.CreatedBy = existing.CreatedBy
+			}
+			allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, job)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				row.Enabled = false
+				job.Enabled = false
+			}
+			if existing.ID == "" {
+				if err := tx.Create(row).Error; err != nil {
+					return err
+				}
+			} else {
 				if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(row).Error; err != nil {
 					return err
 				}
@@ -589,6 +608,31 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			return nil
 		})
 	})
+}
+
+func (r *DBRepository) enabledJobGrantValidTx(tx *gorm.DB, userID, jobID string, job *Job) (bool, error) {
+	if job == nil || !job.Enabled {
+		return true, nil
+	}
+	fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+	if !grantable {
+		return true, nil
+	}
+	if jobID == "" || !tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+		return false, nil
+	}
+	expression, _ := job.Inputs["profile"].(string)
+	query := tx.Model(&database.JobProfileGrant{}).
+		Where("user_id = ? AND job_id = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
+			userID, jobID, fingerprint)
+	if !strings.Contains(expression, "{{") {
+		query = query.Where("target_profile_slug = ?", strings.TrimSpace(expression))
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {

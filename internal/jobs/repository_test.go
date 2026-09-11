@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -85,6 +86,82 @@ func TestImportedJobCannotCreateProfileGrantFromApprovedFlag(t *testing.T) {
 	}
 	if grants != 0 {
 		t.Fatalf("importação criou %d grant(s) a partir de approved", grants)
+	}
+	saved, err := repo.GetJob(userA, "importado")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Enabled {
+		t.Fatal("job importado sem grant permaneceu habilitado")
+	}
+}
+
+func TestDBRepositoryEnablesSubagentOnlyWithCurrentExactGrant(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := testRepositoryJob("delegado", "Delegado")
+	job.Tool = "subagent"
+	job.Inputs = map[string]any{"profile": "pesquisa", "prompt": "x"}
+	job.Enabled = false
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	store := jobprofilegrant.NewStore(repo.db)
+	config, err := store.CurrentDelegation(userA, job.DatabaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop"); err != nil {
+		t.Fatal(err)
+	}
+	job.Enabled = true
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	if !job.Enabled {
+		t.Fatal("grant corrente deveria permitir habilitação")
+	}
+	job.Inputs["profile"] = "programacao"
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	if job.Enabled {
+		t.Fatal("mudança da expressão deveria desabilitar o job atomicamente")
+	}
+}
+
+func TestDBRepositoryDeleteJobPreservesRevokedGrantAudit(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := testRepositoryJob("auditado", "Auditado")
+	job.Tool = "subagent"
+	job.Inputs = map[string]any{"profile": "pesquisa", "prompt": "x"}
+	job.Enabled = false
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	store := jobprofilegrant.NewStore(repo.db)
+	config, _ := store.CurrentDelegation(userA, job.DatabaseID)
+	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteJob(userA, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	var grant database.JobProfileGrant
+	if err := repo.db.Where("job_id = ?", job.DatabaseID).First(&grant).Error; err != nil {
+		t.Fatalf("auditoria do grant deveria permanecer: %v", err)
+	}
+	if grant.RevokedAt == nil {
+		t.Fatal("grant preservado deveria estar revogado")
 	}
 }
 

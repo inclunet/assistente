@@ -16,7 +16,7 @@ type ProfilesController struct {
 	emitter          ports.Emitter
 	contextProviders *contextprovider.Registry
 	onProfileChanged func(slug string) // callback para reinicializar LLM/Speech/Hotkeys
-	onProfileDeleted func(context.Context, string) error
+	deleteProfile    func(context.Context, string, func() error) error
 }
 
 // ProfilesControllerConfig agrupa as dependências do ProfilesController.
@@ -25,7 +25,7 @@ type ProfilesControllerConfig struct {
 	Emitter          ports.Emitter
 	ContextProviders *contextprovider.Registry
 	OnProfileChanged func(slug string)
-	OnProfileDeleted func(context.Context, string) error
+	DeleteProfile    func(context.Context, string, func() error) error
 }
 
 // NewProfilesController cria um ProfilesController com suas dependências.
@@ -35,7 +35,7 @@ func NewProfilesController(cfg ProfilesControllerConfig) *ProfilesController {
 		emitter:          cfg.Emitter,
 		contextProviders: cfg.ContextProviders,
 		onProfileChanged: cfg.OnProfileChanged,
-		onProfileDeleted: cfg.OnProfileDeleted,
+		deleteProfile:    cfg.DeleteProfile,
 	}
 }
 
@@ -112,12 +112,14 @@ func (c *ProfilesController) DeleteProfileContext(ctx context.Context, slug stri
 	if slug == c.profileMgr.GetActiveSlug() {
 		return fmt.Errorf("não é possível deletar o perfil ativo")
 	}
-	if c.onProfileDeleted != nil {
-		if err := c.onProfileDeleted(ctx, slug); err != nil {
-			return fmt.Errorf("revogar autorizações do profile: %w", err)
-		}
+	deleteFile := func() error { return c.profileMgr.Delete(slug) }
+	var err error
+	if c.deleteProfile != nil {
+		err = c.deleteProfile(ctx, slug, deleteFile)
+	} else {
+		err = deleteFile()
 	}
-	if err := c.profileMgr.Delete(slug); err != nil {
+	if err != nil {
 		return err
 	}
 	c.emitter.Emit("profile:deleted", map[string]interface{}{"slug": slug})

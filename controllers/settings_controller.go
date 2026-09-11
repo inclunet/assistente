@@ -26,6 +26,7 @@ type SettingsControllerConfig struct {
 	// Callbacks cross-domain
 	RestartChannel func(channelName string) error
 	GetModels      func() ([]string, error)
+	DeleteProfile  func(string) error
 }
 
 // SettingsController é o adapter primário (Inbound) para operações de configurações globais e reset.
@@ -36,6 +37,7 @@ type SettingsController struct {
 	emitter        ports.Emitter
 	restartChannel func(string) error
 	getModels      func() ([]string, error)
+	deleteProfile  func(string) error
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
@@ -47,6 +49,7 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 		emitter:        cfg.Emitter,
 		restartChannel: cfg.RestartChannel,
 		getModels:      cfg.GetModels,
+		deleteProfile:  cfg.DeleteProfile,
 	}
 }
 
@@ -175,8 +178,14 @@ func (c *SettingsController) ClearAllProfiles() error {
 		return fmt.Errorf("erro ao listar perfis: %v", err)
 	}
 	for _, p := range list {
-		if err := c.profileMgr.Delete(p.Slug); err != nil {
-			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, err)
+		var deleteErr error
+		if c.deleteProfile != nil {
+			deleteErr = c.deleteProfile(p.Slug)
+		} else {
+			deleteErr = c.profileMgr.Delete(p.Slug)
+		}
+		if deleteErr != nil {
+			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, deleteErr)
 		}
 	}
 	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Perfis apagados")

@@ -86,7 +86,6 @@ type JobProfileGrant struct {
 	RevokedBy             string     `json:"revokedBy,omitempty"`
 
 	User *User `json:"-" gorm:"foreignKey:UserID"`
-	Job  *Job  `json:"-" gorm:"foreignKey:JobID"`
 }
 
 // JobTrigger registra um gatilho individual de um job.

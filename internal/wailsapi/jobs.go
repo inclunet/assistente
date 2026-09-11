@@ -116,7 +116,19 @@ func (api *Jobs) ToggleJob(id string, enabled bool) error {
 				}
 			}
 		}
-		return struct{}{}, ctrl.ToggleJobContext(ctx, id, enabled)
+		if toggleErr := ctrl.ToggleJobContext(ctx, id, enabled); toggleErr != nil {
+			return struct{}{}, toggleErr
+		}
+		if enabled {
+			saved, getErr := ctrl.GetJobContext(ctx, id)
+			if getErr != nil {
+				return struct{}{}, getErr
+			}
+			if !saved.Enabled {
+				return struct{}{}, profileaccess.ErrAuthorizationNotGranted
+			}
+		}
+		return struct{}{}, nil
 	})
 	return err
 }
@@ -299,6 +311,15 @@ func (api *Jobs) SaveJob(jobJSON string) (*SaveJobResult, error) {
 		if err := ctrl.SaveJobContext(ctx, jobJSON); err != nil {
 			return nil, err
 		}
+		if result.RequestedEnabled && grantable {
+			saved, getErr := ctrl.GetJobContext(ctx, job.ID)
+			if getErr != nil {
+				return nil, getErr
+			}
+			if !saved.Enabled {
+				result.AuthorizationRequired = true
+			}
+		}
 		return result, nil
 	})
 }
@@ -337,7 +358,7 @@ func (api *Jobs) AuthorizeJobProfile(jobID, targetProfileSlug string) (bool, err
 }
 
 func (api *Jobs) RevokeJobProfile(jobID, targetProfileSlug string) error {
-	session, _, _, _, err := api.deps()
+	session, ctrl, _, _, err := api.deps()
 	if err != nil {
 		return err
 	}
@@ -348,7 +369,23 @@ func (api *Jobs) RevokeJobProfile(jobID, targetProfileSlug string) error {
 		return profileaccess.ErrAuthorizationNotGranted
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, access.RevokeJobTarget(ctx, jobID, targetProfileSlug)
+		if revokeErr := access.RevokeJobTarget(ctx, jobID, targetProfileSlug); revokeErr != nil {
+			return struct{}{}, revokeErr
+		}
+		job, getErr := ctrl.GetJobContext(ctx, jobID)
+		if getErr != nil {
+			return struct{}{}, getErr
+		}
+		state, stateErr := access.JobGrantState(ctx, jobID)
+		if stateErr != nil {
+			return struct{}{}, stateErr
+		}
+		if job.Enabled && !jobGrantCovers(state, job.Inputs) {
+			if toggleErr := ctrl.ToggleJobContext(ctx, jobID, false); toggleErr != nil {
+				return struct{}{}, toggleErr
+			}
+		}
+		return struct{}{}, nil
 	})
 	return err
 }
