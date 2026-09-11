@@ -71,6 +71,13 @@ escopo. `Enter` sem modificador ativa apenas o botão focado; `Esc` fecha ou
 cancela com segurança. Os atalhos não são capturados durante composição de
 texto nem em campos editáveis ou editores. `Alt + Enter` permanece reservado.
 
+Ao abrir, o foco prioriza conteúdo somente leitura e depois a ação afirmativa,
+independentemente de o diálogo ser informativo, de permissão ou destrutivo.
+Por isso, `Enter` sobre uma ilha documental não executa ação alguma. Ações
+alternativas que não cabem sem ambiguidade na família universal — por exemplo,
+path versus pasta ou vários escopos persistentes simultâneos — continuam
+disponíveis pelos mnemônicos `Alt + letra` anunciados em cada botão.
+
 ## Notas
 
 - Hotkeys globais podem conflitar com atalhos de outros aplicativos

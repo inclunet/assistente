@@ -21,3 +21,15 @@ semântica segura do diálogo e nunca autoriza uma ação.
 
 Em confirmações de edição, “Antes” e “Depois” são regiões separadas. O foco
 inicial fica em “Depois”; Shift+Tab permite revisar “Antes” antes de decidir.
+
+## Foco inicial e confirmação
+
+Em qualquer severidade — inclusive exclusões e instalações sem verificação — o
+foco começa na região marcada para leitura, na primeira região disponível ou
+no body somente leitura. Se não houver conteúdo, começa na ação afirmativa
+principal. A ordem dos botões continua ação principal antes de Cancelar.
+
+Essa escolha prioriza entender o conteúdo antes de decidir. `Enter` sozinho
+aciona somente um botão que esteja realmente focado; sobre uma região de
+leitura, não confirma nem cancela. `Ctrl+Enter` confirma a ação atual quando o
+diálogo expõe esse atalho, e `Ctrl+Backspace` escolhe a negativa atual.
