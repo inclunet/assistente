@@ -38,6 +38,7 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 		&database.JobPipeline{},
 		&database.Job{},
 		&database.JobProfileGrant{},
+		&database.JobProfileGrantEpoch{},
 		&database.JobTrigger{},
 		&database.JobRun{},
 		&database.JobEvent{},
@@ -115,7 +116,7 @@ func TestDBRepositoryEnablesSubagentOnlyWithCurrentExactGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop"); err != nil {
+	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop", 0); err != nil {
 		t.Fatal(err)
 	}
 	job.Enabled = true
@@ -131,6 +132,35 @@ func TestDBRepositoryEnablesSubagentOnlyWithCurrentExactGrant(t *testing.T) {
 	}
 	if job.Enabled {
 		t.Fatal("mudança da expressão deveria desabilitar o job atomicamente")
+	}
+}
+
+func TestDBRepositoryReconcilesUnauthorizedEnabledSubagent(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := testRepositoryJob("legado-habilitado", "Legado")
+	job.Tool = "subagent"
+	job.Inputs = map[string]any{"profile": "pesquisa", "prompt": "x"}
+	job.Enabled = false
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Model(&database.Job{}).Where("id = ?", job.DatabaseID).Update("enabled", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReconcileUnauthorizedJobs(userA); err != nil {
+		t.Fatal(err)
+	}
+	var row database.Job
+	if err := repo.db.First(&row, "id = ?", job.DatabaseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Enabled {
+		t.Fatal("reconciliação de startup deveria desabilitar job sem grant")
 	}
 }
 
@@ -150,7 +180,7 @@ func TestDBRepositoryDeleteJobPreservesRevokedGrantAudit(t *testing.T) {
 	}
 	store := jobprofilegrant.NewStore(repo.db)
 	config, _ := store.CurrentDelegation(userA, job.DatabaseID)
-	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop"); err != nil {
+	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop", 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.DeleteJob(userA, job.ID); err != nil {

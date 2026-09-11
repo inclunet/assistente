@@ -38,10 +38,16 @@ type fakeAsker struct {
 }
 
 type fakeJobGrants struct {
-	configs []jobprofilegrant.DelegationConfig
-	valid   bool
-	granted int
-	revoked int
+	configs    []jobprofilegrant.DelegationConfig
+	valid      bool
+	granted    int
+	revoked    int
+	generation uint64
+}
+
+func (f *fakeJobGrants) AuthorizationSnapshot(ctx context.Context, jobID, _ string) (jobprofilegrant.AuthorizationSnapshot, error) {
+	config, err := f.CurrentDelegation(ctx, jobID)
+	return jobprofilegrant.AuthorizationSnapshot{Config: config, Generation: f.generation}, err
 }
 
 func (f *fakeJobGrants) CurrentDelegation(_ context.Context, _ string) (jobprofilegrant.DelegationConfig, error) {
@@ -61,11 +67,15 @@ func (f *fakeJobGrants) ListValid(context.Context, string) ([]jobprofilegrant.Gr
 	config, err := f.CurrentDelegation(context.Background(), "")
 	return nil, config, err
 }
-func (f *fakeJobGrants) Grant(context.Context, string, string, string, string) error {
+func (f *fakeJobGrants) Grant(_ context.Context, _, _, _, _ string, expectedGeneration uint64) error {
+	if expectedGeneration != f.generation {
+		return jobprofilegrant.ErrGrantGenerationChanged
+	}
 	f.granted++
 	return nil
 }
 func (f *fakeJobGrants) Revoke(context.Context, string, string, string) error {
+	f.generation++
 	f.revoked++
 	return nil
 }
@@ -243,6 +253,28 @@ func TestAuthorizeJobTargetRevalidatesTOCTOUAndDenial(t *testing.T) {
 	asker.resp = questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionDeny}}
 	if allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom"); err != nil || allowed || grants.granted != 0 {
 		t.Fatalf("recusa não pode conceder: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+}
+
+func TestAuthorizeJobTargetDoesNotUndoRevocationDuringDialog(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", Tool: "subagent",
+		ProfileExpression: "{{ .event.profile }}", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
+	asker := &fakeAsker{
+		resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}},
+		onAsk: func() {
+			_ = grants.Revoke(context.Background(), "job-db", "custom", "desktop")
+		},
+	}
+	service := NewService(&store, asker, nil, nil).WithJobGrants(grants)
+	allowed, err := service.AuthorizeJobTarget(
+		context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom",
+	)
+	if allowed || !errors.Is(err, jobprofilegrant.ErrGrantGenerationChanged) || grants.granted != 0 {
+		t.Fatalf("revogação concorrente deveria vencer: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
 	}
 }
 

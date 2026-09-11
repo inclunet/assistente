@@ -49,9 +49,10 @@ type Availability func(context.Context, *profiles.Profile) bool
 
 type JobGrantStore interface {
 	CurrentDelegation(context.Context, string) (jobprofilegrant.DelegationConfig, error)
+	AuthorizationSnapshot(context.Context, string, string) (jobprofilegrant.AuthorizationSnapshot, error)
 	HasValid(context.Context, string, string, string) (bool, error)
 	ListValid(context.Context, string) ([]jobprofilegrant.Grant, jobprofilegrant.DelegationConfig, error)
-	Grant(context.Context, string, string, string, string) error
+	Grant(context.Context, string, string, string, string, uint64) error
 	Revoke(context.Context, string, string, string) error
 	RevokeProfileGlobal(context.Context, string, string) error
 }
@@ -267,11 +268,12 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 	if !surface.AllowsPersistentAuthorization() {
 		return false, questionnaire.ErrNoInterlocutor
 	}
-	before, err := s.grants.CurrentDelegation(ctx, jobID)
+	targetSlug = strings.TrimSpace(targetSlug)
+	snapshot, err := s.grants.AuthorizationSnapshot(ctx, jobID, targetSlug)
 	if err != nil {
 		return false, err
 	}
-	targetSlug = strings.TrimSpace(targetSlug)
+	before := snapshot.Config
 	if !strings.Contains(before.ProfileExpression, "{{") && targetSlug != before.ProfileExpression {
 		return false, fmt.Errorf("profile alvo não corresponde à configuração literal do job")
 	}
@@ -315,7 +317,7 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 	if profileIdentity(currentTarget) != targetIdentity {
 		return false, errors.New("profile mudou durante a autorização")
 	}
-	if err := s.grants.Grant(ctx, after.JobID, targetSlug, after.Fingerprint, "desktop"); err != nil {
+	if err := s.grants.Grant(ctx, after.JobID, targetSlug, after.Fingerprint, "desktop", snapshot.Generation); err != nil {
 		return false, err
 	}
 	return true, nil

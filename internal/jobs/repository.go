@@ -624,7 +624,10 @@ func (r *DBRepository) enabledJobGrantValidTx(tx *gorm.DB, userID, jobID string,
 	expression, _ := job.Inputs["profile"].(string)
 	query := tx.Model(&database.JobProfileGrant{}).
 		Where("user_id = ? AND job_id = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
-			userID, jobID, fingerprint)
+			userID, jobID, fingerprint).
+		Where("generation = (?)", tx.Model(&database.JobProfileGrantEpoch{}).
+			Select("generation").
+			Where("job_profile_grant_epochs.user_id = job_profile_grants.user_id AND job_profile_grant_epochs.job_id = job_profile_grants.job_id AND job_profile_grant_epochs.target_profile_slug = job_profile_grants.target_profile_slug AND job_profile_grant_epochs.delegation_fingerprint = job_profile_grants.delegation_fingerprint"))
 	if !strings.Contains(expression, "{{") {
 		query = query.Where("target_profile_slug = ?", strings.TrimSpace(expression))
 	}
@@ -633,6 +636,40 @@ func (r *DBRepository) enabledJobGrantValidTx(tx *gorm.DB, userID, jobID string,
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (r *DBRepository) ReconcileUnauthorizedJobs(ctx context.Context) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return r.retry(ctx, "reconcile_unauthorized_jobs", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var rows []database.Job
+			if err := tx.Where("user_id = ? AND tool_name = ? AND enabled = ?", userID, jobprofilegrant.ToolSubagent, true).
+				Find(&rows).Error; err != nil {
+				return err
+			}
+			for _, row := range rows {
+				var inputs map[string]any
+				if err := json.Unmarshal([]byte(row.Inputs), &inputs); err != nil {
+					return err
+				}
+				candidate := &Job{Tool: row.ToolName, Inputs: inputs, Enabled: true}
+				allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, candidate)
+				if err != nil {
+					return err
+				}
+				if !allowed {
+					if err := tx.Model(&database.Job{}).Where("id = ? AND user_id = ?", row.ID, userID).
+						Update("enabled", false).Error; err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
+	})
 }
 
 func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
@@ -672,6 +709,13 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 			}
 			if tx.Migrator().HasTable(&database.JobProfileGrant{}) {
 				now := r.now().UTC()
+				if tx.Migrator().HasTable(&database.JobProfileGrantEpoch{}) {
+					if err := tx.Model(&database.JobProfileGrantEpoch{}).
+						Where("user_id = ? AND job_id = ?", userID, row.ID).
+						UpdateColumn("generation", gorm.Expr("generation + 1")).Error; err != nil {
+						return err
+					}
+				}
 				if err := tx.Model(&database.JobProfileGrant{}).
 					Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, row.ID).
 					Updates(map[string]any{"revoked_at": now, "revoked_by": "job excluído"}).Error; err != nil {
@@ -688,6 +732,16 @@ func (r *DBRepository) revokeStaleJobGrantsTx(tx *gorm.DB, userID, jobID string,
 		return nil
 	}
 	fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+	if tx.Migrator().HasTable(&database.JobProfileGrantEpoch{}) {
+		epochs := tx.Model(&database.JobProfileGrantEpoch{}).
+			Where("user_id = ? AND job_id = ?", userID, jobID)
+		if grantable {
+			epochs = epochs.Where("delegation_fingerprint <> ?", fingerprint)
+		}
+		if err := epochs.UpdateColumn("generation", gorm.Expr("generation + 1")).Error; err != nil {
+			return err
+		}
+	}
 	stale := tx.Model(&database.JobProfileGrant{}).
 		Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, jobID)
 	if grantable {
@@ -2112,6 +2166,12 @@ func unmarshalJSON(raw string, dst any) error {
 // vazios e lookups por slug vazio não devem casar registros).
 func normalizeSlug(s string) string {
 	return slug.Slugify(s, "")
+}
+
+// NormalizeSlug expõe a mesma normalização usada na persistência para adapters
+// que precisam devolver ou consultar a identidade canônica após salvar.
+func NormalizeSlug(s string) string {
+	return normalizeSlug(s)
 }
 
 func uniqueSlugs(values []string) []string {

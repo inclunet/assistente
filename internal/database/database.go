@@ -140,6 +140,7 @@ func Init() error {
 		&JobPipeline{},
 		&Job{},
 		&JobProfileGrant{},
+		&JobProfileGrantEpoch{},
 		&JobTrigger{},
 		&JobRun{},
 		&JobEvent{},

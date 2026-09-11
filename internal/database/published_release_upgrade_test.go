@@ -180,11 +180,14 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 			if !database.Migrator().HasTable(&JobProfileGrant{}) {
 				t.Fatal("upgrade não criou job_profile_grants")
 			}
+			if !database.Migrator().HasTable(&JobProfileGrantEpoch{}) {
+				t.Fatal("upgrade não criou job_profile_grant_epochs")
+			}
 			if got := rowCount(t, database, "job_profile_grants"); got != 0 {
 				t.Fatalf("upgrade não pode fabricar grants: %d", got)
 			}
-			if got := queryCount(t, database, `SELECT COUNT(*) FROM pragma_index_list('job_profile_grants') WHERE name = 'ux_job_profile_grants_exact' AND "unique" = 1`); got != 1 {
-				t.Fatalf("índice unique exato ausente: %d", got)
+			if got := queryCount(t, database, `SELECT COUNT(*) FROM pragma_index_list('job_profile_grants') WHERE name IN ('ux_job_profile_grants_generation', 'ux_job_profile_grants_active') AND "unique" = 1`); got != 2 {
+				t.Fatalf("índices de histórico e grant ativo ausentes: %d", got)
 			}
 			verifyPublishedFixtureData(t, database)
 			afterFirstBoot := populatedTableCounts(t, database)
@@ -212,6 +215,17 @@ func TestPublishedReleaseDatabasesUpgradeDirectlyAndIdempotently(t *testing.T) {
 				t.Fatalf("migrações duplicadas ou ausentes após segundo boot: %d", got)
 			}
 		})
+	}
+}
+
+func TestPublishedReleaseUpgradeDisablesLegacySubagentJobsWithoutGrants(t *testing.T) {
+	database := loadPublishedReleaseFixture(t, "0.5.0")
+	if err := database.Exec(`UPDATE jobs SET tool_name = 'subagent', inputs = '{"profile":"pesquisa","prompt":"x"}', enabled = 1`).Error; err != nil {
+		t.Fatal(err)
+	}
+	runCurrentUpgrade(t, database)
+	if got := queryCount(t, database, `SELECT COUNT(*) FROM jobs WHERE tool_name = 'subagent' AND enabled = 1`); got != 0 {
+		t.Fatalf("upgrade deixou %d job(s) subagent legado(s) habilitado(s) sem grant", got)
 	}
 }
 

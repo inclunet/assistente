@@ -2,6 +2,7 @@ package jobprofilegrant
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -18,7 +19,7 @@ func grantTestStore(t *testing.T) (*Store, *gorm.DB, context.Context, context.Co
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&database.Job{}, &database.JobProfileGrant{}); err != nil {
+	if err := db.AutoMigrate(&database.Job{}, &database.JobProfileGrant{}, &database.JobProfileGrantEpoch{}); err != nil {
 		t.Fatal(err)
 	}
 	inputs := `{"profile":"especialista","prompt":"texto editorial"}`
@@ -59,10 +60,10 @@ func TestStoreExactIsolationIdempotencyAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Grant(userA, jobA.ID, "especialista", configA.Fingerprint, "desktop"); err != nil {
+	if err := store.Grant(userA, jobA.ID, "especialista", configA.Fingerprint, "desktop", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Grant(userA, jobA.ID, "especialista", configA.Fingerprint, "desktop"); err != nil {
+	if err := store.Grant(userA, jobA.ID, "especialista", configA.Fingerprint, "desktop", 0); err != nil {
 		t.Fatal(err)
 	}
 	var count int64
@@ -112,7 +113,7 @@ func TestStoreExactIsolationIdempotencyAndRevocation(t *testing.T) {
 func TestStoreRevokesStaleFingerprint(t *testing.T) {
 	store, db, userA, _, jobA, _ := grantTestStore(t)
 	config, _ := store.CurrentDelegation(userA, jobA.ID)
-	if err := store.Grant(userA, jobA.ID, "especialista", config.Fingerprint, "desktop"); err != nil {
+	if err := store.Grant(userA, jobA.ID, "especialista", config.Fingerprint, "desktop", 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Model(&database.Job{}).Where("id = ?", jobA.ID).Update("inputs", `{"profile":"{{ .event.profile }}"}`).Error; err != nil {
@@ -136,10 +137,10 @@ func TestStoreProfileRemovalRevokesEveryUser(t *testing.T) {
 	store, _, userA, userB, jobA, jobB := grantTestStore(t)
 	configA, _ := store.CurrentDelegation(userA, jobA.ID)
 	configB, _ := store.CurrentDelegation(userB, jobB.ID)
-	if err := store.Grant(userA, jobA.ID, "especialista", configA.Fingerprint, "desktop"); err != nil {
+	if err := store.Grant(userA, jobA.ID, "especialista", configA.Fingerprint, "desktop", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Grant(userB, jobB.ID, "especialista", configB.Fingerprint, "desktop"); err != nil {
+	if err := store.Grant(userB, jobB.ID, "especialista", configB.Fingerprint, "desktop", 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.RevokeProfileGlobal(userA, "especialista", "profile excluído"); err != nil {
@@ -166,7 +167,7 @@ func TestStoreConcurrentGrantIsIdempotent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- store.Grant(userA, jobA.ID, "especialista", config.Fingerprint, "desktop")
+			errs <- store.Grant(userA, jobA.ID, "especialista", config.Fingerprint, "desktop", 0)
 		}()
 	}
 	wg.Wait()
@@ -179,5 +180,45 @@ func TestStoreConcurrentGrantIsIdempotent(t *testing.T) {
 	var count int64
 	if err := db.Model(&database.JobProfileGrant{}).Where("job_id = ? AND revoked_at IS NULL", jobA.ID).Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("concorrência criou duplicatas: count=%d err=%v", count, err)
+	}
+}
+
+func TestRevocationInvalidatesPendingAuthorizationAndPreservesAudit(t *testing.T) {
+	store, db, userA, _, jobA, _ := grantTestStore(t)
+	var disabled []DisabledJob
+	store.SetJobsDisabledCallback(func(jobs []DisabledJob) {
+		disabled = append(disabled, jobs...)
+	})
+	pending, err := store.AuthorizationSnapshot(userA, jobA.ID, "especialista")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, jobA.ID, "especialista", pending.Config.Fingerprint, "desktop", pending.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Revoke(userA, jobA.ID, "especialista", "usuário"); err != nil {
+		t.Fatal(err)
+	}
+	if len(disabled) != 1 || disabled[0].Slug != jobA.Slug {
+		t.Fatalf("revogação não publicou reconciliação do job: %#v", disabled)
+	}
+	if err := store.Grant(userA, jobA.ID, "especialista", pending.Config.Fingerprint, "desktop", pending.Generation); !errors.Is(err, ErrGrantGenerationChanged) {
+		t.Fatalf("decisão pendente deveria ser invalidada pela revogação: %v", err)
+	}
+
+	next, err := store.AuthorizationSnapshot(userA, jobA.ID, "especialista")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, jobA.ID, "especialista", next.Config.Fingerprint, "desktop", next.Generation); err != nil {
+		t.Fatal(err)
+	}
+	var rows []database.JobProfileGrant
+	if err := db.Where("job_id = ? AND target_profile_slug = ?", jobA.ID, "especialista").
+		Order("generation ASC").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].RevokedAt == nil || rows[0].RevokedBy != "usuário" || rows[1].RevokedAt != nil {
+		t.Fatalf("histórico de revoke/regrant não foi preservado: %#v", rows)
 	}
 }

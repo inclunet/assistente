@@ -76,16 +76,32 @@ type Job struct {
 // específica. O grant não faz parte do JSON/YAML do job.
 type JobProfileGrant struct {
 	UUIDModel
-	UserID                string     `json:"userId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_exact,priority:1"`
-	JobID                 string     `json:"jobId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_exact,priority:2"`
-	TargetProfileSlug     string     `json:"targetProfileSlug" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_exact,priority:3"`
-	DelegationFingerprint string     `json:"delegationFingerprint" gorm:"not null;uniqueIndex:ux_job_profile_grants_exact,priority:4"`
+	UserID                string     `json:"userId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_generation,priority:1"`
+	JobID                 string     `json:"jobId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_generation,priority:2"`
+	TargetProfileSlug     string     `json:"targetProfileSlug" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_generation,priority:3"`
+	DelegationFingerprint string     `json:"delegationFingerprint" gorm:"not null;uniqueIndex:ux_job_profile_grants_generation,priority:4"`
+	Generation            uint64     `json:"generation" gorm:"not null;uniqueIndex:ux_job_profile_grants_generation,priority:5"`
 	GrantedAt             time.Time  `json:"grantedAt" gorm:"not null"`
 	GrantedBy             string     `json:"grantedBy" gorm:"not null"`
 	RevokedAt             *time.Time `json:"revokedAt,omitempty" gorm:"index"`
 	RevokedBy             string     `json:"revokedBy,omitempty"`
 
 	User *User `json:"-" gorm:"foreignKey:UserID"`
+}
+
+// JobProfileGrantEpoch invalida decisões pendentes e gera um novo registro
+// auditável a cada ciclo revogar → autorizar da mesma combinação exata.
+type JobProfileGrantEpoch struct {
+	UUIDModel
+	UserID                string `json:"userId" gorm:"not null;index;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:1"`
+	JobID                 string `json:"jobId" gorm:"not null;index;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:2"`
+	TargetProfileSlug     string `json:"targetProfileSlug" gorm:"not null;index;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:3"`
+	DelegationFingerprint string `json:"delegationFingerprint" gorm:"not null;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:4"`
+	Generation            uint64 `json:"generation" gorm:"not null"`
+}
+
+func (JobProfileGrantEpoch) TableName() string {
+	return "job_profile_grant_epochs"
 }
 
 // JobTrigger registra um gatilho individual de um job.

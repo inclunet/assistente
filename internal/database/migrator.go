@@ -224,10 +224,21 @@ var schemaMigrations = []migration{
 	},
 	{
 		Version: 16,
-		Name:    "job_profile_grants_exact_index",
+		Name:    "job_profile_grants_epochs_and_reconciliation",
 		Phase:   phasePostAutoMigrate,
 		Run: func(database *gorm.DB) error {
-			return database.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_exact ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint)`).Error
+			statements := []string{
+				`DROP INDEX IF EXISTS ux_job_profile_grants_exact`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_generation ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint, generation)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_active ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint) WHERE revoked_at IS NULL`,
+				`UPDATE jobs SET enabled = 0 WHERE enabled = 1 AND tool_name = 'subagent'`,
+			}
+			for _, statement := range statements {
+				if err := database.Exec(statement).Error; err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	},
 }
