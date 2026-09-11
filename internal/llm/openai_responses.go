@@ -80,6 +80,7 @@ func (p *OpenAIProvider) streamChatResponses(
 	handler StreamHandler,
 	tools ...ToolDefinition,
 ) {
+	params.Model = model
 	currentServers := cloneMCPServers(p.mcpServers)
 	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
 

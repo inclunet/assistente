@@ -186,6 +186,7 @@ type Usage struct {
 	CacheWriteTokens        int  `json:"cache_write_tokens,omitempty"`
 	CacheMissTokens         int  `json:"cache_miss_tokens,omitempty"`
 	Reported                bool `json:"-"`
+	OutputTokensReported    bool `json:"-"`
 	ReasoningTokens         int  `json:"reasoning_tokens,omitempty"`
 	ReasoningTokensReported bool `json:"-"`
 }

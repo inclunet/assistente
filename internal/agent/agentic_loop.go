@@ -54,6 +54,7 @@ type agenticLoopRunner struct {
 	totalToolCallCount    int
 	toolsUsedSet          map[string]struct{}
 	lastUsage             llm.Usage
+	lastFinish            llm.FinishInfo
 	outputLimitRepairUsed bool
 }
 
@@ -75,6 +76,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		if stop {
 			return
 		}
+		r.lastFinish = result.Finish
 
 		// Acumula usage da última iteração (AEP-0039)
 		if result.Usage.Reported {
@@ -155,7 +157,7 @@ func (r *agenticLoopRunner) logOutputLimit(ctx context.Context, result AgenticRe
 		"provider sinalizou limite de geração (iteração=%d, finish_reason=%s, raw_reason=%q, provider=%q, model=%q, output_limit=%d, output_tokens=%v, reasoning_tokens=%v, response_bytes=%d, tool_calls=%d)",
 		iteration, result.Finish.Reason, result.Finish.RawReason, result.Finish.Provider,
 		result.Finish.Model, result.Finish.OutputLimit,
-		optionalUsageTokenCount(result.Usage.Reported, result.Usage.CompletionTokens),
+		optionalUsageTokenCount(result.Usage.OutputTokensReported, result.Usage.CompletionTokens),
 		optionalUsageTokenCount(result.Usage.ReasoningTokensReported, result.Usage.ReasoningTokens),
 		result.Finish.ResponseBytes, len(result.ToolCalls))
 }
@@ -690,21 +692,36 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.onSpeechRequest != nil {
 		r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
 	}
+	responseBytes := r.lastFinish.ResponseBytes
 	doneEvent := ports.DoneEvent{
-		ConversationID:     r.conversationID,
-		TurnID:             r.turnID,
-		AssistantMessageID: r.assistantMessageID,
-		HadToolCalls:       r.totalToolCallCount > 0,
-		Reason:             "limit_reached",
-		IterationCount:     r.maxIterations,
-		ToolCallCount:      r.totalToolCallCount,
-		ToolsUsed:          sortedToolNames(r.toolsUsedSet),
-		PromptTokens:       r.lastUsage.PromptTokens,
-		CompletionTokens:   r.lastUsage.CompletionTokens,
-		CacheReadTokens:    r.lastUsage.CacheReadTokens,
-		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
-		CacheMissTokens:    r.lastUsage.CacheMissTokens,
-		SurfaceOrigin:      r.surfaceOrigin,
+		ConversationID:       r.conversationID,
+		TurnID:               r.turnID,
+		AssistantMessageID:   r.assistantMessageID,
+		HadToolCalls:         r.totalToolCallCount > 0,
+		Reason:               "limit_reached",
+		IterationCount:       r.maxIterations,
+		ToolCallCount:        r.totalToolCallCount,
+		ToolsUsed:            sortedToolNames(r.toolsUsedSet),
+		PromptTokens:         r.lastUsage.PromptTokens,
+		CompletionTokens:     r.lastUsage.CompletionTokens,
+		CacheReadTokens:      r.lastUsage.CacheReadTokens,
+		CacheWriteTokens:     r.lastUsage.CacheWriteTokens,
+		CacheMissTokens:      r.lastUsage.CacheMissTokens,
+		FinishReason:         string(r.lastFinish.Reason),
+		RawReason:            r.lastFinish.RawReason,
+		Provider:             r.lastFinish.Provider,
+		Model:                r.lastFinish.Model,
+		EffectiveOutputLimit: r.lastFinish.OutputLimit,
+		ResponseBytes:        &responseBytes,
+		SurfaceOrigin:        r.surfaceOrigin,
+	}
+	if r.lastUsage.OutputTokensReported {
+		outputTokens := r.lastUsage.CompletionTokens
+		doneEvent.OutputTokens = &outputTokens
+	}
+	if r.lastUsage.ReasoningTokensReported {
+		reasoningTokens := r.lastUsage.ReasoningTokens
+		doneEvent.ReasoningTokens = &reasoningTokens
 	}
 	doneEvent.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
 	r.svc.emitter.Emit("chat:done", doneEvent)

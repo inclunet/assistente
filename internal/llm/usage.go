@@ -7,6 +7,7 @@ import "encoding/json"
 // best-effort emitidos por gateways/DeepSeek no payload bruto.
 func UsageFromOpenAICompletion(promptTokens, completionTokens, totalTokens, cachedTokens int, rawJSON string) Usage {
 	usage := baseUsage(promptTokens, completionTokens, totalTokens)
+	usage.OutputTokensReported = openAIOutputTokensReported(rawJSON, completionTokens, "completion_tokens")
 	applyOpenAICacheUsage(&usage, cachedTokens, rawJSON)
 	applyOpenAIReasoningUsage(&usage, rawJSON)
 	return usage
@@ -15,6 +16,7 @@ func UsageFromOpenAICompletion(promptTokens, completionTokens, totalTokens, cach
 // UsageFromOpenAIResponses normaliza usage da Responses API.
 func UsageFromOpenAIResponses(inputTokens, outputTokens, totalTokens, cachedTokens int, rawJSON string) Usage {
 	usage := baseUsage(inputTokens, outputTokens, totalTokens)
+	usage.OutputTokensReported = openAIOutputTokensReported(rawJSON, outputTokens, "output_tokens")
 	applyOpenAICacheUsage(&usage, cachedTokens, rawJSON)
 	applyOpenAIReasoningUsage(&usage, rawJSON)
 	return usage
@@ -28,6 +30,7 @@ func UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheRea
 		promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens
 	}
 	usage := baseUsage(promptTokens, outputTokens, 0)
+	usage.OutputTokensReported = true
 	usage.CacheReadTokens = cacheReadTokens
 	usage.CacheWriteTokens = cacheCreationTokens
 	if cacheCreationTokens > 0 || cacheReadTokens > 0 {
@@ -66,6 +69,7 @@ func UsageFromGemini(promptTokens, completionTokens, totalTokens, cachedContentT
 // incluir os tokens ocultos de raciocínio.
 func UsageFromGeminiWithReasoning(promptTokens, completionTokens, totalTokens, cachedContentTokens, reasoningTokens int, reasoningReported bool) Usage {
 	usage := baseUsage(promptTokens, completionTokens, totalTokens)
+	usage.OutputTokensReported = true
 	if cachedContentTokens > 0 {
 		usage.CacheReadTokens = cachedContentTokens
 		if promptTokens >= cachedContentTokens {
@@ -99,6 +103,10 @@ func openAIUsageReported(rawJSON string, tokenCounts ...int) bool {
 	for _, key := range []string{
 		"prompt_tokens", "completion_tokens", "total_tokens",
 		"input_tokens", "output_tokens",
+		"prompt_cache_hit_tokens", "cached_tokens",
+		"cache_read_tokens", "cache_read_input_tokens",
+		"cache_write_tokens", "cache_creation_input_tokens", "prompt_cache_write_tokens",
+		"prompt_cache_miss_tokens", "cache_miss_tokens",
 		"prompt_tokens_details.cached_tokens",
 		"input_tokens_details.cached_tokens",
 		"completion_tokens_details.reasoning_tokens",
@@ -107,11 +115,24 @@ func openAIUsageReported(rawJSON string, tokenCounts ...int) bool {
 		if _, ok := fields[key]; ok {
 			return true
 		}
+		if _, ok := fields["usage."+key]; ok {
+			return true
+		}
 	}
 	return false
 }
 
-func jsonHasAnyKey(rawJSON string, keys ...string) bool {
+func openAIOutputTokensReported(rawJSON string, outputTokens int, key string) bool {
+	if outputTokens > 0 {
+		return true
+	}
+	fields := parseUsageFields(rawJSON)
+	_, direct := fields[key]
+	_, enveloped := fields["usage."+key]
+	return direct || enveloped
+}
+
+func jsonUsageHasAnyKey(rawJSON string, keys ...string) bool {
 	if rawJSON == "" {
 		return false
 	}
@@ -123,23 +144,26 @@ func jsonHasAnyKey(rawJSON string, keys ...string) bool {
 	for _, key := range keys {
 		wanted[key] = struct{}{}
 	}
-	return jsonValueHasAnyKey(payload, wanted)
+	return jsonTopLevelUsageHasAnyKey(payload, wanted)
 }
 
-func jsonValueHasAnyKey(value any, keys map[string]struct{}) bool {
+func jsonTopLevelUsageHasAnyKey(value any, keys map[string]struct{}) bool {
 	switch typed := value.(type) {
 	case map[string]any:
-		for key, child := range typed {
-			if _, ok := keys[key]; ok {
-				return true
+		for _, usageKey := range []string{"usageMetadata", "usage_metadata"} {
+			usage, ok := typed[usageKey].(map[string]any)
+			if !ok {
+				continue
 			}
-			if jsonValueHasAnyKey(child, keys) {
-				return true
+			for key := range usage {
+				if _, ok := keys[key]; ok {
+					return true
+				}
 			}
 		}
 	case []any:
 		for _, child := range typed {
-			if jsonValueHasAnyKey(child, keys) {
+			if jsonTopLevelUsageHasAnyKey(child, keys) {
 				return true
 			}
 		}

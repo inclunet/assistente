@@ -387,6 +387,14 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 	r.maxIterations = 4
 	r.totalToolCallCount = 1
 	r.toolsUsedSet = map[string]struct{}{"x": {}}
+	r.lastUsage = llm.Usage{
+		CompletionTokens: 7, OutputTokensReported: true,
+		ReasoningTokens: 5, ReasoningTokensReported: true,
+	}
+	r.lastFinish = llm.FinishInfo{
+		Reason: llm.FinishReasonToolCalls, RawReason: "tool_calls",
+		Provider: "provider-1", Model: "modelo-1", OutputLimit: 20, ResponseBytes: 3,
+	}
 
 	r.finishLimitReached(context.Background())
 
@@ -408,6 +416,13 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 	d := done[0].data.(ports.DoneEvent)
 	if d.Reason != "limit_reached" || d.IterationCount != 4 || d.ToolCallCount != 1 {
 		t.Fatalf("chat:done de limite inesperado: %+v", d)
+	}
+	if d.FinishReason != "tool_calls" || d.RawReason != "tool_calls" ||
+		d.Provider != "provider-1" || d.Model != "modelo-1" || d.EffectiveOutputLimit != 20 ||
+		d.OutputTokens == nil || *d.OutputTokens != 7 ||
+		d.ReasoningTokens == nil || *d.ReasoningTokens != 5 ||
+		d.ResponseBytes == nil || *d.ResponseBytes != 3 {
+		t.Fatalf("diagnóstico da última iteração ausente: %+v", d)
 	}
 }
 

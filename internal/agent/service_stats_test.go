@@ -117,6 +117,7 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativoMultiTool(t *testing.T)
 		Usage: llm.Usage{
 			CompletionTokens:        11,
 			Reported:                true,
+			OutputTokensReported:    true,
 			ReasoningTokens:         9,
 			ReasoningTokensReported: true,
 		},

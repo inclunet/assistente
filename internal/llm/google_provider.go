@@ -97,7 +97,7 @@ func (t *googleUsagePresenceTracker) observe(chunk []byte) {
 			continue
 		}
 		raw := strings.TrimSpace(string(bytes.TrimPrefix(line, []byte("data:"))))
-		if jsonHasAnyKey(raw, "thoughtsTokenCount", "thoughts_token_count") {
+		if jsonUsageHasAnyKey(raw, "thoughtsTokenCount", "thoughts_token_count") {
 			t.reasoningReported = true
 		}
 	}
@@ -351,7 +351,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 		if resp.UsageMetadata != nil {
 			reasoningReported := resp.UsageMetadata.ThoughtsTokenCount > 0
 			if resp.SDKHTTPResponse != nil {
-				reasoningReported = reasoningReported || jsonHasAnyKey(
+				reasoningReported = reasoningReported || jsonUsageHasAnyKey(
 					resp.SDKHTTPResponse.Body, "thoughtsTokenCount", "thoughts_token_count")
 			}
 			if usagePresence != nil {

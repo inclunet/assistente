@@ -346,7 +346,7 @@ func (s *Service) SaveAndFinish(
 	if doneEvent.Model == "" {
 		doneEvent.Model = result.Finish.Model
 	}
-	if result.Usage.Reported {
+	if result.Usage.OutputTokensReported {
 		outputTokens := result.Usage.CompletionTokens
 		doneEvent.OutputTokens = &outputTokens
 	}

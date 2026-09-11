@@ -129,7 +129,7 @@ func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 	const stream = "event: response.output_text.delta\n" +
 		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
 		"event: response.incomplete\n" +
-		"data: {\"type\":\"response.incomplete\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"incomplete\",\"model\":\"gpt-test\",\"output\":[],\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":5}}}}\n\n"
+		"data: {\"type\":\"response.incomplete\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"incomplete\",\"output\":[],\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":5}}}}\n\n"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -138,16 +138,17 @@ func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 	defer server.Close()
 
 	provider := NewOpenAIResponsesProvider(&ProviderConfig{
-		ID:        "responses-test",
-		Name:      "Responses Test",
-		BaseURL:   server.URL + "/v1",
-		APIFormat: APIFormatOpenAIResponses,
-		AuthMode:  AuthModeNone,
+		ID:           "responses-test",
+		Name:         "Responses Test",
+		BaseURL:      server.URL + "/v1",
+		APIFormat:    APIFormatOpenAIResponses,
+		AuthMode:     AuthModeNone,
+		DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &noopStreamHandler{}
 
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
-		ChatParams{Model: "gpt-test", MaxTokens: 99}, handler)
+		ChatParams{MaxTokens: 99}, handler)
 
 	if handler.err != "" {
 		t.Fatalf("stream falhou: %s", handler.err)

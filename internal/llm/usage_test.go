@@ -120,3 +120,27 @@ func TestUsageFromGemini_CachedContentTokenCount(t *testing.T) {
 		t.Fatalf("CacheMissTokens=%d, want 650", usage.CacheMissTokens)
 	}
 }
+
+func TestOpenAIUsagePresenceDistingueOutputAusente(t *testing.T) {
+	raw := `{"cache_read_tokens":4,"completion_tokens_details":{"reasoning_tokens":0}}`
+	if !openAIUsageReported(raw, 0, 0, 0) {
+		t.Fatal("usage com apenas cache/reasoning deveria ser preservada")
+	}
+	usage := UsageFromOpenAICompletion(0, 0, 0, 0, raw)
+	if usage.OutputTokensReported {
+		t.Fatal("output_tokens ausente não pode ser convertido em zero reportado")
+	}
+	if !usage.ReasoningTokensReported || usage.ReasoningTokens != 0 {
+		t.Fatalf("reasoning zero explícito não preservado: %#v", usage)
+	}
+}
+
+func TestJSONUsagePresenceIgnoraChaveEmArgumentos(t *testing.T) {
+	raw := `{"candidates":[{"content":{"parts":[{"functionCall":{"args":{"usageMetadata":{"thoughtsTokenCount":0}}}}]}}],"usageMetadata":{"promptTokenCount":1}}`
+	if jsonUsageHasAnyKey(raw, "thoughtsTokenCount") {
+		t.Fatal("chave em arguments não pode ser confundida com usageMetadata do transport")
+	}
+	if !jsonUsageHasAnyKey(`{"usageMetadata":{"thoughtsTokenCount":0}}`, "thoughtsTokenCount") {
+		t.Fatal("chave direta em usageMetadata deveria ser detectada")
+	}
+}
