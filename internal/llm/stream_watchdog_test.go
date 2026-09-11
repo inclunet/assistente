@@ -77,7 +77,7 @@ func TestStartStreamWatchdogNaoEstouraQuandoPaiCancelar(t *testing.T) {
 }
 
 func TestStreamWatchdogKickNaoRessuscitaDeadlineExpirado(t *testing.T) {
-	_, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
+	watchCtx, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
 	wd.mu.Lock()
 	expiredActivity := time.Now().Add(-2 * time.Hour)
 	wd.lastActivity = expiredActivity
@@ -88,6 +88,20 @@ func TestStreamWatchdogKickNaoRessuscitaDeadlineExpirado(t *testing.T) {
 
 	if !wd.TimedOut() {
 		t.Fatal("kick posterior ao deadline não pode ressuscitar a tentativa")
+	}
+	if watchCtx.Err() == nil {
+		t.Fatal("kick posterior ao deadline deve cancelar a tentativa imediatamente")
+	}
+}
+
+func TestStreamWatchdogStopAntesDoDeadlineNaoViraTimeoutDepois(t *testing.T) {
+	_, wd := startStreamWatchdog(context.Background(), 30*time.Millisecond, nil)
+	time.Sleep(10 * time.Millisecond)
+	wd.Stop()
+	time.Sleep(30 * time.Millisecond)
+
+	if wd.TimedOut() {
+		t.Fatal("EOF anterior ao deadline não pode virar timeout após Stop")
 	}
 }
 

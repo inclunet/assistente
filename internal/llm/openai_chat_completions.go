@@ -250,6 +250,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				// contrato. Só conteúdo visível entregue por OnChunk torna uma
 				// nova tentativa insegura por poder duplicar a resposta.
 				handler.OnThinking(reasoning)
+				if ctx.Err() != nil {
+					finishThinking()
+					return chatStreamAttempt{done: true}
+				}
 			}
 		}
 

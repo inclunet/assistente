@@ -464,6 +464,11 @@ export function startChatEventController({
     streamedContent = patch.message.content;
     streamInitialized = true;
     streamingCommitted = false;
+    turnHadAssistantText = turnHadAssistantText
+      || patch.message.content.trim().length > 0
+      || (patch.message.turnSegments ?? []).some(
+        (segment) => segment.type === 'text' && Boolean(segment.content?.trim()),
+      );
     patchCurrentSession({ completedSegments: [], streamingMessageId: patch.message.id });
   };
 

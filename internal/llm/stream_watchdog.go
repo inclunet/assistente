@@ -36,9 +36,10 @@ type streamWatchdog struct {
 	parent context.Context
 	idle   time.Duration
 
-	mu           sync.Mutex
-	timedOut     bool
-	lastActivity time.Time
+	mu            sync.Mutex
+	timedOut      bool
+	lastActivity  time.Time
+	stopRequested bool
 }
 
 // startStreamWatchdog deriva ctx com cancelamento por ociosidade. onTimeout é
@@ -65,7 +66,7 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 				return
 			case <-timer.C:
 				w.mu.Lock()
-				if w.parent.Err() != nil {
+				if w.stopRequested || w.parent.Err() != nil {
 					w.mu.Unlock()
 					return
 				}
@@ -102,8 +103,14 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 func (w *streamWatchdog) Kick() {
 	w.mu.Lock()
 	now := time.Now()
-	if w.timedOut || now.Sub(w.lastActivity) >= w.idle {
+	if w.stopRequested || w.parent.Err() != nil || w.timedOut {
 		w.mu.Unlock()
+		return
+	}
+	if now.Sub(w.lastActivity) >= w.idle {
+		w.timedOut = true
+		w.mu.Unlock()
+		w.cancel()
 		return
 	}
 	w.lastActivity = now
@@ -119,23 +126,16 @@ func (w *streamWatchdog) Stop() {
 	// Se o deadline já venceu mas a goroutine ainda não consumiu timer.C,
 	// registre a expiração antes de cancelar watchCtx. Isso remove a escolha
 	// não determinística do select entre timer.C e watchCtx.Done no EOF.
-	w.markExpiredDeadline()
+	w.mu.Lock()
+	if !w.timedOut && w.parent.Err() == nil && time.Since(w.lastActivity) >= w.idle {
+		w.timedOut = true
+	}
+	w.stopRequested = true
+	w.mu.Unlock()
 	w.cancel()
 	select {
 	case <-w.done:
 	case <-time.After(2 * time.Second):
-	}
-	// O deadline pode vencer entre a primeira inspeção e cancel(). Reavaliar
-	// depois de a goroutine sair fecha essa última janela sem confundir
-	// cancelamento explícito do contexto pai com timeout.
-	w.markExpiredDeadline()
-}
-
-func (w *streamWatchdog) markExpiredDeadline() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if !w.timedOut && w.parent.Err() == nil && time.Since(w.lastActivity) >= w.idle {
-		w.timedOut = true
 	}
 }
 
