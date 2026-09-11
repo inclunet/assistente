@@ -235,13 +235,13 @@ var schemaMigrations = []migration{
 				    SET enabled = 0
 				  WHERE enabled = 1
 				    AND (
-				      tool_name = 'subagent'
+				      trim(tool_name) = 'subagent'
 				      OR (
 				        trim(tool_name) = ''
 				        AND EXISTS (
 				          SELECT 1 FROM tool_catalog
 				           WHERE tool_catalog.id = jobs.tool_catalog_id
-				             AND tool_catalog.name = 'subagent'
+				             AND trim(tool_catalog.name) = 'subagent'
 				        )
 				      )
 				    )

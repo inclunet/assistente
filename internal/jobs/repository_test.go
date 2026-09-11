@@ -150,7 +150,7 @@ func TestDBRepositoryReconcilesUnauthorizedEnabledSubagent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repo.db.Model(&database.Job{}).Where("id = ?", job.DatabaseID).
-		Updates(map[string]any{"enabled": true, "tool_name": ""}).Error; err != nil {
+		Updates(map[string]any{"enabled": true, "tool_name": " subagent "}).Error; err != nil {
 		t.Fatal(err)
 	}
 	inherited := testRepositoryJob("legado-herdado", "Legado herdado")

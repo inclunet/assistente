@@ -223,10 +223,13 @@ func TestPublishedReleaseUpgradeDisablesLegacySubagentJobsWithoutGrants(t *testi
 	if err := database.Exec(`UPDATE jobs SET tool_name = 'subagent', inputs = '{"profile":"pesquisa","prompt":"x"}', enabled = 1`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Exec(`UPDATE tool_catalog SET name = 'subagent' WHERE id = '018f0000-0000-7000-8000-000000000032'`).Error; err != nil {
+	if err := database.Exec(`UPDATE tool_catalog SET name = ' subagent ' WHERE id = '018f0000-0000-7000-8000-000000000032'`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Exec(`UPDATE jobs SET tool_name = '' WHERE id = '018f0000-0000-7000-8000-000000000041'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Exec(`UPDATE jobs SET tool_name = ' subagent ' WHERE id = '018f0000-0000-7000-8000-000000000141'`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Exec(`

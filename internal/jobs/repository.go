@@ -649,7 +649,7 @@ func (r *DBRepository) ReconcileUnauthorizedJobs(ctx context.Context) error {
 			if err := tx.Model(&database.Job{}).
 				Select("jobs.*").
 				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = jobs.tool_catalog_id").
-				Where("jobs.user_id = ? AND jobs.enabled = ? AND (jobs.tool_name = ? OR (TRIM(jobs.tool_name) = '' AND tool_catalog.name = ?))",
+				Where("jobs.user_id = ? AND jobs.enabled = ? AND (TRIM(jobs.tool_name) = ? OR (TRIM(jobs.tool_name) = '' AND TRIM(tool_catalog.name) = ?))",
 					userID, true, jobprofilegrant.ToolSubagent, jobprofilegrant.ToolSubagent).
 				Find(&rows).Error; err != nil {
 				return err
