@@ -125,10 +125,12 @@ autoritativo e o texto parcial não depende de um evento cumulativo final.
 
 ### D6 — Observabilidade sem persistir payload truncado
 
-Logs e `chat:done` registram motivo normalizado, motivo bruto quando disponível,
-provider/modelo, limite efetivamente solicitado, usage de output e reasoning
-quando reportada e tamanho em bytes do texto visível. O diagnóstico nunca inclui
-o conteúdo da resposta nem argumentos potencialmente grandes ou incompletos.
+Logs e eventos terminais registram motivo normalizado, motivo bruto quando
+disponível, provider/modelo, limite efetivamente solicitado, usage de output e
+reasoning quando reportada e tamanho em bytes do texto visível. O loop agêntico
+usa `chat:done`; o fluxo simples usa o `chat:stream` terminal. O diagnóstico
+nunca inclui o conteúdo da resposta nem argumentos potencialmente grandes ou
+incompletos.
 
 Ausência de stop reason ou usage permanece ausência no `FinishInfo`; não vira
 `max_tokens` nem zero reportado. Nos transports OpenAI, um stream que termina
@@ -165,8 +167,9 @@ transporte e não dispara retry automático de streaming.
 - **Provider OpenAI omite o motivo:** desde a correção da issue #731, os
   transports Chat Completions e Responses tratam stream sem `finish_reason` e
   sem tool calls como `streaming_interrupted`, em vez de `OnDone` silencioso.
-  O fluxo simples entrega o código no `chat:stream.error`; o loop agêntico, no
-  `chat:done.errorMessage`. O motivo normalizado continua ausente.
+  O fluxo simples entrega o código no campo `error` do evento `chat:stream`; o
+  loop agêntico, no campo `errorMessage` de `chat:done`. O motivo normalizado
+  continua ausente.
 - **Tool call aparentemente completa em lote truncado:** será descartada para
   preservar atomicidade. O custo é repetir geração, sem repetir efeitos.
 - **Modelo ignora a orientação de fatiamento:** apenas uma reformulação é

@@ -31,6 +31,11 @@ type AgenticStreamHandler struct {
 	nativeMCPArgsByID map[string]string
 }
 
+var (
+	_ llm.TurnNoticeSink = (*AgenticStreamHandler)(nil)
+	_ llm.UsageSink      = (*AgenticStreamHandler)(nil)
+)
+
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
 func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin, turnID string) *AgenticStreamHandler {
 	return &AgenticStreamHandler{

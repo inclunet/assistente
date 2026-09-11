@@ -182,6 +182,23 @@ func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
 	}
 }
 
+func TestAgenticStreamHandlerEmiteAvisoDeRetry(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
+
+	handler.OnTurnNotice(llm.TurnNotice{Kind: llm.TurnNoticeStreamRetry, Count: 2})
+
+	notices := emitter.find("chat:notice")
+	if len(notices) != 1 {
+		t.Fatalf("chat:notice=%d, esperado 1", len(notices))
+	}
+	notice := notices[0].data.(ports.ChatNoticeEvent)
+	if notice.ConversationID != "conversation-1" ||
+		notice.Kind != string(llm.TurnNoticeStreamRetry) || notice.Count != 2 {
+		t.Fatalf("aviso agêntico inválido: %+v", notice)
+	}
+}
+
 func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	emitter := &captureEmitter{}
 	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
@@ -197,6 +214,13 @@ func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 		Status: llm.AgentToolRunning,
 	})
 	handler.OnChunk(" e antes do erro")
+	handler.OnFinishReason(llm.FinishInfo{
+		Provider: "provider-1", Model: "model-1", OutputLimit: 99, ResponseBytes: 25,
+	})
+	handler.OnUsage(llm.Usage{
+		CompletionTokens: 7, OutputTokensReported: true,
+		ReasoningTokens: 3, ReasoningTokensReported: true,
+	})
 	handler.OnError("falhou")
 
 	names := capturedNames(emitter)
@@ -212,6 +236,13 @@ func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	terminal := emitter.find("chat:stream")[2].data.(ports.StreamEvent)
 	if !terminal.Done || terminal.Error != "falhou" || terminal.Delta != "" {
 		t.Fatalf("terminal de erro inválido: %+v", terminal)
+	}
+	if terminal.Provider != "provider-1" || terminal.Model != "model-1" ||
+		terminal.EffectiveOutputLimit != 99 ||
+		terminal.ResponseBytes == nil || *terminal.ResponseBytes != 25 ||
+		terminal.OutputTokens == nil || *terminal.OutputTokens != 7 ||
+		terminal.ReasoningTokens == nil || *terminal.ReasoningTokens != 3 {
+		t.Fatalf("diagnóstico simples perdido: %+v", terminal)
 	}
 }
 

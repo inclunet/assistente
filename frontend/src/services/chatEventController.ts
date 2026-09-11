@@ -59,6 +59,14 @@ interface ChatStreamEvent {
   sequence: number;
   done?: boolean;
   error?: string;
+  finishReason?: 'stop' | 'tool_calls' | 'max_tokens' | 'content_filter' | 'cancelled' | 'other';
+  rawReason?: string;
+  provider?: string;
+  model?: string;
+  effectiveOutputLimit?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  responseBytes?: number;
   messageId?: string;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;

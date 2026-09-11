@@ -61,10 +61,11 @@ finalização (`streaming_interrupted`) ou parar de responder no meio da geraç�
 (`streaming_idle_timeout`), o chat exibe erro visível traduzido, sem deixar a
 resposta congelada. Se já houver texto parcial, o aviso de erro aparece depois
 dele para deixar explícito que a resposta não foi concluída. Internamente, o
-fluxo simples entrega esses erros em `chat:stream.error`, enquanto o loop com
-ferramentas usa `chat:done.errorMessage`. Os logs técnicos registram apenas
-metadados como provedor, modelo, motivo de término, limites e contagens; o
-conteúdo da resposta não é incluído nesse diagnóstico.
+fluxo simples entrega esses erros no campo `error` do evento `chat:stream`,
+enquanto o loop com ferramentas usa o campo `errorMessage` de `chat:done`. Os
+logs técnicos registram apenas metadados como provedor, modelo, motivo de
+término, limites e contagens; o conteúdo da resposta não é incluído nesse
+diagnóstico.
 
 ## Limite do texto
 

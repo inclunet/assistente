@@ -7,6 +7,7 @@ import (
 
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
+	"assistente/internal/llm"
 )
 
 // BaseStreamHandler contém os campos e métodos compartilhados entre
@@ -74,6 +75,21 @@ func (h *BaseStreamHandler) ErrorNotRetryable() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.errorNotRetryable
+}
+
+// OnTurnNotice emite avisos de tentativa para qualquer handler de chat,
+// inclusive o agêntico. O aviso é evento próprio e nunca vira conteúdo salvo
+// como se tivesse sido escrito pelo modelo.
+func (h *BaseStreamHandler) OnTurnNotice(notice llm.TurnNotice) {
+	if h.Emitter == nil || strings.TrimSpace(string(notice.Kind)) == "" {
+		return
+	}
+	h.Emitter.Emit("chat:notice", ports.ChatNoticeEvent{
+		ConversationID: h.ConversationID,
+		Kind:           string(notice.Kind),
+		Count:          notice.Count,
+		Model:          notice.Model,
+	})
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {
