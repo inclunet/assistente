@@ -450,6 +450,18 @@ func TestAgenticLoopRunner_FinishLimitReachedNaoReutilizaUsageAnterior(t *testin
 	}
 }
 
+func TestHasLegacyTokenCountersIgnoraUsageApenasDiagnostico(t *testing.T) {
+	if hasLegacyTokenCounters(llm.Usage{
+		Reported: true, CacheReadTokens: 4,
+		ReasoningTokensReported: true,
+	}) {
+		t.Fatal("usage apenas de cache/reasoning não pode apagar contadores legados")
+	}
+	if !hasLegacyTokenCounters(llm.Usage{Reported: true, OutputTokensReported: true}) {
+		t.Fatal("output zero explicitamente reportado é um contador legado válido")
+	}
+}
+
 func TestAgenticLoopRunner_FinishLimitReachedFalaOAviso(t *testing.T) {
 	em := &captureEmitter{}
 	var calls []speechCall

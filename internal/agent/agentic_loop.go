@@ -81,7 +81,10 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		r.lastDiagnosticUsage = result.Usage
 
 		// Acumula usage da última iteração (AEP-0039)
-		if result.Usage.Reported {
+		// Usage parcial só de cache/reasoning continua no diagnóstico acima, mas
+		// não apaga os contadores legados de input/output da última chamada que
+		// efetivamente os informou.
+		if hasLegacyTokenCounters(result.Usage) {
 			r.lastUsage = result.Usage
 		}
 
@@ -173,6 +176,10 @@ func optionalUsageTokenCount(reported bool, value int) any {
 		return "unavailable"
 	}
 	return value
+}
+
+func hasLegacyTokenCounters(usage llm.Usage) bool {
+	return usage.PromptTokens != 0 || usage.TotalTokens != 0 || usage.OutputTokensReported
 }
 
 // streamIteration executa o streaming do LLM para uma iteração, com auto-retry
