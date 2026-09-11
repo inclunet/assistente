@@ -259,7 +259,7 @@ describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => 
     await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
   });
 
-  it('Ctrl+numero troca diretamente e restaura a area default', async () => {
+  it('Ctrl+número troca diretamente e restaura a área default', async () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: '2' });
@@ -269,7 +269,7 @@ describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => 
     expect(restoreDefaultFocus).toHaveBeenCalled();
   });
 
-  it('Ctrl+numero com callback notifica navegação', async () => {
+  it('Ctrl+número com callback notifica navegação', async () => {
     const onTabShortcutNavigation = vi.fn();
     renderHook(() => useWorkspaceKeyboardShortcuts({ onTabShortcutNavigation }));
 
@@ -280,7 +280,7 @@ describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => 
     expect(restoreDefaultFocus).not.toHaveBeenCalled();
   });
 
-  it('Ctrl+numero na aba já ativa restaura foco sem trocar', async () => {
+  it('Ctrl+número na aba já ativa restaura foco sem trocar', async () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: '1' });
