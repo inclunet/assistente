@@ -224,11 +224,26 @@ func TestJobsToggleJobChecksGrantBeforeChangingState(t *testing.T) {
 	api, manager, db, ctx, state := setupJobsGrantBehaviorTest(t)
 	expression := "pesquisa"
 	fingerprint := jobprofilegrant.Fingerprint("subagent", expression)
+	createCandidate := &jobs.Job{
+		ID: "create-sem-grant", Name: "create-sem-grant", Tool: "subagent", Enabled: true,
+		Inputs:   map[string]any{"profile": expression, "prompt": "x"},
+		Triggers: []jobs.Trigger{{Type: jobs.TriggerManual}},
+	}
+	if err := manager.CreateJobContext(ctx, createCandidate); !errors.Is(err, jobprofilegrant.ErrAuthorizationNotGranted) {
+		t.Fatalf("create compartilhado confirmou ativação recusada: %v", err)
+	}
+	created, _ := manager.GetJobContext(ctx, "create-sem-grant")
+	if created == nil || created.Enabled {
+		t.Fatalf("create recusado não reconciliou estado persistido: %#v", created)
+	}
 	state.config = jobprofilegrant.DelegationConfig{
 		JobSlug: "toggle", Tool: "subagent", ProfileExpression: expression, Fingerprint: fingerprint,
 	}
 	if _, err := api.SaveJob(grantBehaviorJobJSON(t, "toggle", expression, false)); err != nil {
 		t.Fatal(err)
+	}
+	if err := manager.ToggleJobContext(ctx, "toggle", true); !errors.Is(err, jobprofilegrant.ErrAuthorizationNotGranted) {
+		t.Fatalf("manager compartilhado confirmou ativação recusada: %v", err)
 	}
 	if err := api.ToggleJob("toggle", true); !errors.Is(err, profileaccess.ErrAuthorizationNotGranted) {
 		t.Fatalf("toggle sem grant deveria falhar fechado: %v", err)

@@ -15,6 +15,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
 	"assistente/internal/hotkey"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
@@ -300,6 +301,9 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 		"enabled": updated.Enabled,
 	})
 
+	if enabled && !updated.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
@@ -327,6 +331,9 @@ func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool)
 		m.unregisterTriggers(&updated)
 	}
 	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": updated.Enabled})
+	if enabled && !updated.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
@@ -949,6 +956,7 @@ func newChainID() string {
 func (m *Manager) SaveJob(job *Job) error {
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	if err := Validate(job); err != nil {
 		return err
 	}
@@ -981,12 +989,16 @@ func (m *Manager) SaveJob(job *Job) error {
 		"name": job.Name,
 	})
 
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -1016,6 +1028,9 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 
 	m.registerJob(saved)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
@@ -1023,6 +1038,7 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 func (m *Manager) CreateJobContext(ctx context.Context, job *Job) error {
 	m.runtimeMu.Lock()
 	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -1048,6 +1064,9 @@ func (m *Manager) CreateJobContext(ctx context.Context, job *Job) error {
 	}
 	m.registerJob(saved)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
