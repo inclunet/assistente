@@ -31,6 +31,7 @@ var (
 	ErrRunConversation      = errors.New("run não pertence à conversa")
 	ErrRunReferenceRequired = errors.New("conversation_id ou run_id é obrigatório")
 	ErrCancelConversation   = errors.New("conversation_id é obrigatório para cancelar um run")
+	ErrConversationActive   = errors.New("conversa possui run de sub-agente ativo")
 )
 
 // DefaultMaxChainDepth é o teto de profundidade de cadeia (backstop anti-runaway,
@@ -1087,9 +1088,9 @@ func (m *Manager) reserveConversation(childConversationID, parentConversationID,
 	return nil
 }
 
-// PrepareConversationDeletion impede novos runs ligados às conversas, cancela
-// os ativos e aguarda sua finalização persistida. O release devolvido deve
-// permanecer retido até o commit/rollback da exclusão no banco.
+// PrepareConversationDeletion impede novos runs ligados às conversas. Se já
+// existe run reservado/ativo, falha sem efeitos colaterais: cancelar antes do
+// commit tornaria uma eventual falha do delete impossível de reverter.
 func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationIDs []string) (func(), error) {
 	if m == nil {
 		return nil, ErrManagerNotConfigured
@@ -1119,10 +1120,10 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 			m.deletionGate.Unlock()
 			return nil, fmt.Errorf("exclusão da conversa já está em andamento")
 		}
+	}
+	for id := range targets {
 		m.deletingConvs[id] = userID
 	}
-	m.mu.Unlock()
-	m.deletionGate.Unlock()
 
 	var releaseOnce sync.Once
 	release := func() {
@@ -1136,53 +1137,21 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 			m.mu.Unlock()
 		})
 	}
-
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		var claimed []*activeRun
-		pending := false
-		m.mu.Lock()
-		for childID, reservation := range m.activeConvs {
-			_, childTarget := targets[childID]
-			_, parentTarget := targets[reservation.parentConversationID]
-			if reservation.userID == userID && (childTarget || parentTarget) {
-				pending = true
+	for childID, reservation := range m.activeConvs {
+		_, childTarget := targets[childID]
+		_, parentTarget := targets[reservation.parentConversationID]
+		if reservation.userID == userID && (childTarget || parentTarget) {
+			for id := range targets {
+				delete(m.deletingConvs, id)
 			}
-		}
-		for _, ar := range m.active {
-			_, childTarget := targets[ar.childConversationID]
-			_, parentTarget := targets[ar.parentConversationID]
-			if ar.userID != userID || (!childTarget && !parentTarget) {
-				continue
-			}
-			pending = true
-			if ar.terminalStatus == "" {
-				ar.terminalStatus = database.SubAgentRunStatusCancelled
-				claimed = append(claimed, ar)
-			}
-		}
-		m.mu.Unlock()
-
-		for _, ar := range claimed {
-			if m.cancelStrm != nil {
-				m.cancelStrm(ar.childConversationID)
-			}
-			if m.notifier != nil {
-				m.notifier.Cancel(ar.childConversationID)
-			}
-			ar.cancel()
-		}
-		if !pending {
-			return release, nil
-		}
-		select {
-		case <-ctx.Done():
-			release()
-			return nil, ctx.Err()
-		case <-ticker.C:
+			m.mu.Unlock()
+			m.deletionGate.Unlock()
+			return nil, ErrConversationActive
 		}
 	}
+	m.mu.Unlock()
+	m.deletionGate.Unlock()
+	return release, nil
 }
 
 // releaseConversation libera a reserva de uma sub-conversa. Usado no caminho de

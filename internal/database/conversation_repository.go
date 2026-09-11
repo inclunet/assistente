@@ -86,20 +86,29 @@ func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (
 }
 
 func (r *ConversationRepository) RecycleOrCreateConversationWithContext(ctx context.Context, title string) (*Conversation, error) {
-	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
-	var candidate Conversation
-	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").
-		Where("channel = '' AND contact_id = '' AND (kind = '' OR kind IS NULL)").
-		Where("id NOT IN (?)",
-			db.WithContext(ctx).Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
-		).
-		Order("created_at ASC").
-		First(&candidate).Error
 
-	if err == nil {
+	var result *Conversation
+	err = withSQLiteImmediateTransaction(ctx, r.db, "conversations.recycle_or_create", func(tx *gorm.DB) error {
+		var candidate Conversation
+		err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Where("channel = '' AND contact_id = '' AND (kind = '' OR kind IS NULL)").
+			Where("id NOT IN (?)",
+				tx.WithContext(ctx).Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
+			).
+			Order("created_at ASC").
+			First(&candidate).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = &Conversation{Title: title, UserID: userID}
+			return tx.WithContext(ctx).Create(result).Error
+		}
+		if err != nil {
+			return err
+		}
+
 		now := time.Now()
 		candidate.Title = title
 		candidate.Summary = ""
@@ -107,16 +116,17 @@ func (r *ConversationRepository) RecycleOrCreateConversationWithContext(ctx cont
 		candidate.SummarizingInProgress = false
 		candidate.CreatedAt = now
 		candidate.UpdatedAt = now
-		if userID, ok := UserIDFromContext(ctx); ok {
-			candidate.UserID = userID
+		candidate.UserID = userID
+		if err := tx.WithContext(ctx).Save(&candidate).Error; err != nil {
+			return err
 		}
-		if err := db.WithContext(ctx).Save(&candidate).Error; err != nil {
-			return nil, err
-		}
-		return &candidate, nil
+		result = &candidate
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return r.CreateConversationWithContext(ctx, title, "")
+	return result, nil
 }
 
 // FindOrCreateChannelConversationWithContext localiza ou cria uma conversa de
@@ -445,7 +455,14 @@ func ValidateOwnedConversationIDsWithContext(ctx context.Context, ids []string) 
 	if err != nil {
 		return nil, err
 	}
-	if err := validateOwnedConversationsTx(ctx, db.WithContext(ctx), normalized); err != nil {
+	releaseMaintenance, err := acquireSQLiteMaintenance(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseMaintenance()
+	if err := WithSQLiteBusyRetry(ctx, "conversations.validate_batch", func() error {
+		return validateOwnedConversationsTx(ctx, db.WithContext(ctx), normalized)
+	}); err != nil {
 		return nil, err
 	}
 	return normalized, nil
@@ -540,6 +557,22 @@ func validateOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string
 		// Não identifica qual ID falhou: inexistente e pertencente a outra conta
 		// são indistinguíveis para impedir inferência cross-user.
 		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// ValidateConversationOwnerTx valida um alvo de escrita relacionado a uma
+// conversa usando o mesmo executor/transação da mutação. O erro não inclui o
+// ID, para não distinguir conversa inexistente de conversa de outro usuário.
+func ValidateConversationOwnerTx(ctx context.Context, tx *gorm.DB, conversationID, userID string) error {
+	var count int64
+	if err := tx.WithContext(ctx).Model(&Conversation{}).
+		Where("id = ? AND user_id = ?", strings.TrimSpace(conversationID), strings.TrimSpace(userID)).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrConversationDeleted
 	}
 	return nil
 }

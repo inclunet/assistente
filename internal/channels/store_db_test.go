@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,11 +38,27 @@ func setupChannelsDB(t *testing.T) *gorm.DB {
 	}
 	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
+		&database.Conversation{},
 		&database.Channel{},
 		&database.ChannelContact{},
 		&database.ChannelContactConversation{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	for id, userID := range map[string]string{
+		"conv-uuid": "user-ana",
+		"conv-2":    "user-ana",
+		"conv-1":    "user-1",
+		"c-1":       "user-ana",
+		"7":         "published-fixture-user",
+	} {
+		if err := db.Create(&database.Conversation{
+			UUIDModel: database.UUIDModel{ID: id},
+			UserID:    userID,
+			Title:     id,
+		}).Error; err != nil {
+			t.Fatalf("seed conversation %s: %v", id, err)
+		}
 	}
 	UseDatabase(db)
 	t.Cleanup(func() {
@@ -116,6 +133,24 @@ func TestSaveLoadDelete_DB(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Fatalf("esperava nil após Delete, got %+v", loaded)
+	}
+}
+
+func TestSaveConversationIDRejectsDeletedConversation(t *testing.T) {
+	setupTempHome(t)
+	db := setupChannelsDB(t)
+	if err := Save("telegram", &ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-ana",
+		Type:        "telegram",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&database.Conversation{}, "id = ?", "conv-2").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConversationID("telegram", "99", "conv-2"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("erro=%v, esperado conversa deletada", err)
 	}
 }
 

@@ -41,7 +41,7 @@ func setupManagerTest(t *testing.T) (*DBRepository, context.Context) {
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a")
 }
 
-func TestPrepareConversationDeletionCancelsAndBlocksRuns(t *testing.T) {
+func TestPrepareConversationDeletionRejectsActiveRunWithoutCancelling(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "user-a")
 	mgr := NewManager(ManagerConfig{})
 	if err := mgr.reserveConversation("child", "parent", "user-a"); err != nil {
@@ -54,14 +54,19 @@ func TestPrepareConversationDeletionCancelsAndBlocksRuns(t *testing.T) {
 		cancelCh:             make(chan struct{}),
 	}
 	mgr.registerActive("run", ar)
-	go func() {
-		<-ar.cancelCh
-		mgr.unregisterActive("run")
-	}()
+	if _, err := mgr.PrepareConversationDeletion(ctx, []string{"parent"}); !errors.Is(err, ErrConversationActive) {
+		t.Fatalf("erro=%v, esperado run ativo", err)
+	}
+	select {
+	case <-ar.cancelCh:
+		t.Fatal("preparação não deve cancelar run antes do commit")
+	default:
+	}
+	mgr.unregisterActive("run")
 
 	release, err := mgr.PrepareConversationDeletion(ctx, []string{"parent"})
 	if err != nil {
-		t.Fatalf("PrepareConversationDeletion: %v", err)
+		t.Fatalf("PrepareConversationDeletion sem run: %v", err)
 	}
 	if err := mgr.reserveConversation("new-child", "parent", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
 		t.Fatalf("novo run durante delete: erro=%v, esperado conversa deletada", err)
@@ -71,6 +76,23 @@ func TestPrepareConversationDeletionCancelsAndBlocksRuns(t *testing.T) {
 		t.Fatalf("reserva após release: %v", err)
 	}
 	mgr.releaseConversation("new-child")
+}
+
+func TestPrepareConversationDeletionConflictDoesNotLeavePartialMarker(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	release, err := mgr.PrepareConversationDeletion(ctx, []string{"existing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if _, err := mgr.PrepareConversationDeletion(ctx, []string{"new", "existing"}); err == nil {
+		t.Fatal("esperava conflito de exclusão")
+	}
+	if err := mgr.reserveConversation("child", "new", "user-a"); err != nil {
+		t.Fatalf("marcador parcial permaneceu após conflito: %v", err)
+	}
+	mgr.releaseConversation("child")
 }
 
 func TestManagerRunSyncSuccess(t *testing.T) {

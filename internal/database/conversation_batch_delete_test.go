@@ -370,6 +370,30 @@ func TestDeleteConversationsConcurrentWithReaderAndMaintenance(t *testing.T) {
 	}
 }
 
+func TestValidateOwnedConversationIDsWaitsForMaintenanceGate(t *testing.T) {
+	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
+	conv, _ := seedDeleteConversation(t, testDB, "delete-owner", "preflight gate")
+	release, err := acquireSQLiteMaintenance(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := ValidateOwnedConversationIDsWithContext(ownerCtx, []string{conv.ID})
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		release()
+		t.Fatalf("preflight atravessou manutenção ativa: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	release()
+	if err := <-result; err != nil {
+		t.Fatalf("preflight após manutenção: %v", err)
+	}
+}
+
 func TestCreateMessageCannotRaceIntoDeletedConversation(t *testing.T) {
 	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
 	for range 12 {
@@ -400,5 +424,64 @@ func TestCreateMessageCannotRaceIntoDeletedConversation(t *testing.T) {
 		if countWhere(t, testDB, &ChatMessage{}, "conversation_id = ?", conv.ID) != 0 {
 			t.Fatal("mensagem órfã criada após exclusão concorrente")
 		}
+	}
+}
+
+func TestRecycleCannotRecreateDeletedConversation(t *testing.T) {
+	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
+	conv, _ := seedDeleteConversation(t, testDB, "delete-owner", "recycle race")
+	if err := testDB.Where("conversation_id = ?", conv.ID).Delete(&ChatMessage{}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	go func() {
+		<-start
+		_, err := RecycleOrCreateConversationWithContext(ownerCtx, "recycled")
+		errs <- err
+	}()
+	go func() {
+		<-start
+		errs <- DeleteConversationWithContext(ownerCtx, conv.ID)
+	}()
+	close(start)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("corrida recycle/delete: %v", err)
+		}
+	}
+	if countWhere(t, testDB, &Conversation{}, "id = ?", conv.ID) != 0 {
+		t.Fatal("reciclagem recriou a conversa excluída")
+	}
+}
+
+func TestPendingResponseCannotRaceIntoDeletedConversation(t *testing.T) {
+	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
+	conv, _ := seedDeleteConversation(t, testDB, "delete-owner", "pending race")
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	go func() {
+		<-start
+		errs <- UpsertChannelResponsePending(ownerCtx, &ChannelResponsePending{
+			ConversationID: conv.ID,
+			OwnerUserID:    "delete-owner",
+			Channel:        "signal",
+			ChatID:         "race",
+		})
+	}()
+	go func() {
+		<-start
+		errs <- DeleteConversationWithContext(ownerCtx, conv.ID)
+	}()
+	close(start)
+	for range 2 {
+		err := <-errs
+		if err != nil && !errors.Is(err, ErrConversationDeleted) {
+			t.Fatalf("corrida pending/delete: %v", err)
+		}
+	}
+	if countWhere(t, testDB, &ChannelResponsePending{}, "conversation_id = ?", conv.ID) != 0 {
+		t.Fatal("pendência órfã criada após exclusão concorrente")
 	}
 }

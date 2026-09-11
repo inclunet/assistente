@@ -23,8 +23,17 @@ func setupMemoryService(t *testing.T) (*Service, context.Context, context.Contex
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&database.User{}, &database.MemoryRecord{}); err != nil {
+	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.MemoryRecord{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
+	}
+	for _, id := range []string{"conv-a", "conv-b", "conv-atual"} {
+		if err := db.Create(&database.Conversation{
+			UUIDModel: database.UUIDModel{ID: id},
+			UserID:    "user-a",
+			Title:     id,
+		}).Error; err != nil {
+			t.Fatalf("seed conversation %s: %v", id, err)
+		}
 	}
 	svc := NewService(NewDBStore(db))
 	return svc, database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
@@ -58,6 +67,19 @@ func TestServiceCreateDefaultsAndPromptBlock(t *testing.T) {
 	}
 	if block == "" || !containsAll(block, "<user_memory>", "Usuário prefere respostas curtas.") {
 		t.Fatalf("prompt block inesperado: %q", block)
+	}
+}
+
+func TestServiceRejectsMemoryForDeletedConversation(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	_, err := svc.Create(ctx, RecordInput{
+		Content:    "não deve persistir",
+		LoadPolicy: LoadPolicyPinned,
+		Scope:      database.MemoryScopeConversation,
+		ScopeRef:   "conv-inexistente",
+	})
+	if !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("erro=%v, esperado conversa deletada", err)
 	}
 }
 

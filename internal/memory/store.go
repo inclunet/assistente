@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -138,14 +139,16 @@ func (s *DBStore) Get(ctx context.Context, id string) (*database.MemoryRecord, e
 }
 
 func (s *DBStore) Create(ctx context.Context, record *database.MemoryRecord) (*database.MemoryRecord, error) {
-	if userID, ok := database.UserIDFromContext(ctx); ok {
-		record.UserID = userID
-	}
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if err := database.WithSQLiteBusyRetry(ctx, "memory.create", func() error {
-		return s.dbOrDefault().WithContext(ctx).Create(record).Error
+	record.UserID = userID
+	if err := database.WithSQLiteImmediateTransaction(ctx, s.dbOrDefault(), "memory.create", func(tx *gorm.DB) error {
+		if err := validateConversationScope(ctx, tx, record, userID); err != nil {
+			return err
+		}
+		return tx.WithContext(ctx).Create(record).Error
 	}); err != nil {
 		return nil, err
 	}
@@ -153,43 +156,70 @@ func (s *DBStore) Create(ctx context.Context, record *database.MemoryRecord) (*d
 }
 
 func (s *DBStore) Upsert(ctx context.Context, record *database.MemoryRecord) (*database.MemoryRecord, error) {
-	if userID, ok := database.UserIDFromContext(ctx); ok {
-		record.UserID = userID
-	}
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
-	var existing database.MemoryRecord
-	err := database.WithSQLiteBusyRetry(ctx, "memory.upsert.lookup", func() error {
-		return s.scoped(ctx).Where("id = ?", record.ID).First(&existing).Error
-	})
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return nil, err
-	}
-	if err == gorm.ErrRecordNotFound {
-		if err := database.WithSQLiteBusyRetry(ctx, "memory.upsert.create", func() error {
-			return s.dbOrDefault().WithContext(ctx).Create(record).Error
-		}); err != nil {
-			return nil, err
+	record.UserID = userID
+	err = database.WithSQLiteImmediateTransaction(ctx, s.dbOrDefault(), "memory.upsert", func(tx *gorm.DB) error {
+		var existing database.MemoryRecord
+		err := database.ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Where("id = ?", record.ID).
+			First(&existing).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
 		}
-		return s.Get(ctx, record.ID)
-	}
-	record.UserID = existing.UserID
-	record.CreatedAt = existing.CreatedAt
-	if err := database.WithSQLiteBusyRetry(ctx, "memory.upsert.save", func() error {
-		return s.dbOrDefault().WithContext(ctx).Save(record).Error
-	}); err != nil {
+		if err == nil {
+			record.UserID = existing.UserID
+			record.CreatedAt = existing.CreatedAt
+		}
+		if err := validateConversationScope(ctx, tx, record, userID); err != nil {
+			return err
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.WithContext(ctx).Create(record).Error
+		}
+		return tx.WithContext(ctx).Save(record).Error
+	})
+	if err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, record.ID)
 }
 
+func validateConversationScope(ctx context.Context, tx *gorm.DB, record *database.MemoryRecord, userID string) error {
+	if record.Scope != database.MemoryScopeConversation {
+		return nil
+	}
+	return database.ValidateConversationOwnerTx(ctx, tx, record.ScopeRef, userID)
+}
+
 func (s *DBStore) Update(ctx context.Context, id string, updates map[string]any) (*database.MemoryRecord, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if err := database.WithSQLiteBusyRetry(ctx, "memory.update", func() error {
-		return s.scoped(ctx).Where("id = ?", id).Updates(updates).Error
+	if err := database.WithSQLiteImmediateTransaction(ctx, s.dbOrDefault(), "memory.update", func(tx *gorm.DB) error {
+		var existing database.MemoryRecord
+		if err := database.ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			First(&existing, "id = ?", id).Error; err != nil {
+			return err
+		}
+		scope, scopeRef := existing.Scope, existing.ScopeRef
+		if value, ok := updates["scope"].(string); ok {
+			scope = value
+		}
+		if value, ok := updates["scope_ref"].(string); ok {
+			scopeRef = value
+		}
+		if scope == database.MemoryScopeConversation {
+			if err := database.ValidateConversationOwnerTx(ctx, tx, scopeRef, userID); err != nil {
+				return err
+			}
+		}
+		return database.ScopeByUser(ctx, tx.WithContext(ctx).Model(&database.MemoryRecord{}), "user_id").
+			Where("id = ?", id).
+			Updates(updates).Error
 	}); err != nil {
 		return nil, err
 	}

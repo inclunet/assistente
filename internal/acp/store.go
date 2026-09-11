@@ -127,7 +127,10 @@ func (s *DBSessionStore) Save(ctx context.Context, rec StoredSession) error {
 	if err != nil {
 		return err
 	}
-	return db.Transaction(func(tx *gorm.DB) error {
+	return database.WithSQLiteImmediateTransaction(ctx, db, "acp.session.save", func(tx *gorm.DB) error {
+		if err := database.ValidateConversationOwnerTx(ctx, tx, rec.ConversationID, userID); err != nil {
+			return err
+		}
 		var existing database.ACPSession
 		err := tx.Where("user_id = ? AND conversation_id = ? AND provider_id = ?", userID, rec.ConversationID, rec.ProviderID).
 			First(&existing).Error

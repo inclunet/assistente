@@ -47,7 +47,17 @@ func UpsertChannelResponsePending(ctx context.Context, p *ChannelResponsePending
 	if db == nil {
 		return errDBNotInitialized
 	}
-	return db.WithContext(ctx).Save(p).Error
+	ownerUserID := p.OwnerUserID
+	if scopedUserID, ok := UserIDFromContext(ctx); ok {
+		ownerUserID = scopedUserID
+		p.OwnerUserID = scopedUserID
+	}
+	return WithSQLiteImmediateTransaction(ctx, db, "channel_response_pending.upsert", func(tx *gorm.DB) error {
+		if err := ValidateConversationOwnerTx(ctx, tx, p.ConversationID, ownerUserID); err != nil {
+			return err
+		}
+		return tx.WithContext(ctx).Save(p).Error
+	})
 }
 
 // DeleteChannelResponsePending remove a pendência (Cancel/TTL — incondicional).
