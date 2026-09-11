@@ -115,19 +115,31 @@ describe('ConfirmDialog', () => {
   });
 
   it('mapeia danger para severidade destrutiva com alertdialog', async () => {
-    render(
-      <ConfirmDialog
-        isOpen
-        title="Excluir"
-        message="Irreversível"
-        variant="danger"
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    const rects = vi
+      .spyOn(HTMLElement.prototype, 'getClientRects')
+      .mockReturnValue(Object.assign([{} as DOMRect], {
+        item: () => ({} as DOMRect),
+      }) as DOMRectList);
+    try {
+      render(
+        <ConfirmDialog
+          isOpen
+          title="Excluir"
+          message="Irreversível"
+          variant="danger"
+          confirmText="Confirmar"
+          cancelText="Cancelar"
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
 
-    await waitFor(() => {
-      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
-    });
+      await waitFor(() => {
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Confirmar' })).toHaveFocus();
+      });
+    } finally {
+      rects.mockRestore();
+    }
   });
 });

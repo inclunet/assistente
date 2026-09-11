@@ -80,10 +80,11 @@ type RejectReasonConfig struct {
 // de edição Antes/Depois) para o host renderizar no body. Resposta em
 // Answers[AnswerActionID].
 type RequestPayload struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind,omitempty"`
-	Title       Text   `json:"title,omitzero"`
-	Description Text   `json:"description,omitzero"`
+	ID          string           `json:"id"`
+	Kind        string           `json:"kind,omitempty"`
+	Severity    DecisionSeverity `json:"severity,omitempty"`
+	Title       Text             `json:"title,omitzero"`
+	Description Text             `json:"description,omitzero"`
 	// Hint é texto traduzível secundário (ex.: match de host do skill),
 	// anexado à descrição no DecisionDialog sem misturar com Body cru.
 	Hint         Text                `json:"hint,omitzero"`

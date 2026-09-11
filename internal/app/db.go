@@ -51,7 +51,8 @@ func (a *App) confirmDeleteMessageQuestionnaire() error {
 		return fmt.Errorf("questionnaire manager não inicializado")
 	}
 	resp, err := a.questionnaireMgr.RequestQuestionnaire(a.ctx, questionnaire.RequestPayload{
-		Kind: questionnaire.KindDecision,
+		Kind:     questionnaire.KindDecision,
+		Severity: questionnaire.DecisionSeverityDestructive,
 		Title: questionnaire.Keyed(
 			"app.questionnaire.deleteMessage.title",
 			"Excluir mensagem",

@@ -16,6 +16,7 @@ import type {
   DecisionActionPolarity,
   DecisionActionScope,
 } from '../../lib/decisionShortcuts';
+import type { DecisionSeverity } from './DecisionDialog';
 import './QuestionnaireDialog.css';
 
 export type QuestionnaireQuestionType =
@@ -64,6 +65,8 @@ export interface QuestionnairePayload {
   id: string;
   /** AEP-0091: "decision" renderiza DecisionDialog em vez do formulário. */
   kind?: string;
+  /** Intenção explícita; decisões backend sem valor são permissões. */
+  severity?: DecisionSeverity;
   title?: QuestionnaireText;
   description?: QuestionnaireText;
   /** Conteúdo só leitura (comando, URL, ação ACP). */

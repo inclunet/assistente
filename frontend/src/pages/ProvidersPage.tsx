@@ -517,10 +517,6 @@ export default function ProvidersPage() {
             })}
             description={t('providerForm.agent.catalog.confirm.introUpdate')}
             severity={updateTarget?.plan.unverified ? 'permission' : 'info'}
-            initialFocusSelector={
-              updateTarget?.plan.unverified ? '[data-decision-action="cancel"]' : undefined
-            }
-            safeActionId="cancel"
             actions={[
               {
                 id: 'confirm',
@@ -531,11 +527,15 @@ export default function ProvidersPage() {
                 ),
                 primary: true,
                 variant: 'primary',
+                polarity: 'affirmative',
+                scope: 'current',
               },
               {
                 id: 'cancel',
                 label: t('providerForm.agent.catalog.confirm.cancelBtn'),
                 variant: 'outline',
+                polarity: 'negative',
+                scope: 'current',
               },
             ]}
             onAction={(actionId) => {

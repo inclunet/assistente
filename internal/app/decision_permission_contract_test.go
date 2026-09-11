@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"assistente/internal/fstrust"
 	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
 )
@@ -10,6 +11,24 @@ import (
 // Fase 4 do AEP-0091: permissões críticas não podem voltar ao híbrido
 // rádio + Confirmar/Negar. O contrato é kind=decision com Actions.
 func assertDecisionOnly(t *testing.T, nome string, payload questionnaire.RequestPayload) {
+	t.Helper()
+	assertDecisionOnlyShape(t, nome, payload)
+	hasAffirmativeCurrent := false
+	hasNegativeCurrent := false
+	for _, action := range payload.Actions {
+		hasAffirmativeCurrent = hasAffirmativeCurrent ||
+			(action.Polarity == questionnaire.DecisionPolarityAffirmative &&
+				action.Scope == questionnaire.DecisionScopeCurrent)
+		hasNegativeCurrent = hasNegativeCurrent ||
+			(action.Polarity == questionnaire.DecisionPolarityNegative &&
+				action.Scope == questionnaire.DecisionScopeCurrent)
+	}
+	if !hasAffirmativeCurrent || !hasNegativeCurrent {
+		t.Errorf("%s: decisão precisa expor par semântico atual afirmativo/negativo", nome)
+	}
+}
+
+func assertDecisionOnlyShape(t *testing.T, nome string, payload questionnaire.RequestPayload) {
 	t.Helper()
 	if payload.Kind != questionnaire.KindDecision {
 		t.Errorf("%s: kind = %q, quer %q", nome, payload.Kind, questionnaire.KindDecision)
@@ -42,4 +61,10 @@ func TestPermissoesCriticasUsamSoDecisionDialog(t *testing.T) {
 		Category: "private",
 		Reason:   "teste",
 	}))
+	// Filesystem tem alternativas de path/pasta que não cabem sem colisão na
+	// família universal; o builder possui teste específico para seus slots.
+	payloadFS := pathConfirmationPayload(fstrust.PromptRequest{
+		Path: "C:/tmp/contrato.txt", Operation: "write",
+	})
+	assertDecisionOnlyShape(t, "filesystem", payloadFS)
 }
