@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	storeDB      *gorm.DB
-	knownOwners  sync.Map // slug → userID visto em Save/Adopt
+	storeDB     *gorm.DB
+	knownOwners sync.Map // slug → userID visto em Save/Adopt
 )
 
 // UseDatabase ativa a persistência SQLite para a fachada channels (AEP-0083).
@@ -101,7 +101,21 @@ func loadConversationsByChannelIDs(tx *gorm.DB, channelIDs []string) (map[string
 	return out, nil
 }
 
-func syncConversations(tx *gorm.DB, channelID string, conversations map[string]string) error {
+func syncConversations(ctx context.Context, tx *gorm.DB, channelID, ownerUserID string, conversations map[string]string) error {
+	seen := make(map[string]struct{}, len(conversations))
+	for _, convID := range conversations {
+		convID = strings.TrimSpace(convID)
+		if convID == "" {
+			continue
+		}
+		if _, ok := seen[convID]; ok {
+			continue
+		}
+		seen[convID] = struct{}{}
+		if err := database.ValidateConversationOwnerTx(ctx, tx, convID, ownerUserID); err != nil {
+			return err
+		}
+	}
 	if err := tx.Where("channel_id = ?", channelID).Delete(&database.ChannelContactConversation{}).Error; err != nil {
 		return err
 	}
@@ -228,7 +242,8 @@ func saveToDB(slug string, cfg *ChannelConfig) error {
 	}
 
 	userID := strings.TrimSpace(cfg.OwnerUserID)
-	return storeDB.Transaction(func(tx *gorm.DB) error {
+	ctx := context.Background()
+	return database.WithSQLiteImmediateTransaction(ctx, storeDB, "channels.save", func(tx *gorm.DB) error {
 		existing, err := findChannelRowForUser(tx, slug, userID)
 		if err != nil {
 			return err
@@ -263,7 +278,7 @@ func saveToDB(slug string, cfg *ChannelConfig) error {
 			}
 		}
 		if !preserveConversations {
-			if err := syncConversations(tx, row.ID, cfg.Conversations); err != nil {
+			if err := syncConversations(ctx, tx, row.ID, userID, cfg.Conversations); err != nil {
 				return err
 			}
 		}
@@ -366,13 +381,21 @@ func ListForUser(userID string) (map[string]*ChannelConfig, error) {
 }
 
 func saveConversationIDDB(channelName, contactID, conversationID string) error {
-	return storeDB.Transaction(func(tx *gorm.DB) error {
+	ctx := context.Background()
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return database.ErrConversationIDRequired
+	}
+	return database.WithSQLiteImmediateTransaction(ctx, storeDB, "channels.save_conversation_id", func(tx *gorm.DB) error {
 		row, err := findChannelRow(tx, channelName)
 		if err != nil {
 			return err
 		}
 		if row == nil {
 			return fmt.Errorf("canal %s não encontrado", channelName)
+		}
+		if err := database.ValidateConversationOwnerTx(ctx, tx, conversationID, row.UserID); err != nil {
+			return err
 		}
 		rec := database.ChannelContactConversation{
 			ChannelID:         row.ID,

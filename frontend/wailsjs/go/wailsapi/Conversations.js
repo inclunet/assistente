@@ -38,6 +38,10 @@ export function DeleteConversation(arg1) {
   return window['go']['wailsapi']['Conversations']['DeleteConversation'](arg1);
 }
 
+export function DeleteConversations(arg1) {
+  return window['go']['wailsapi']['Conversations']['DeleteConversations'](arg1);
+}
+
 export function DeleteMessage(arg1) {
   return window['go']['wailsapi']['Conversations']['DeleteMessage'](arg1);
 }

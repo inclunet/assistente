@@ -1,11 +1,16 @@
 package messaging
 
 import (
-	"assistente/internal/logging"
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"time"
+
+	"assistente/internal/logging"
 )
+
+var ErrConversationCallbackActive = errors.New("conversa possui callback de resposta ativo")
 
 // callbackTTL é o tempo máximo que um callback pode ficar pendente antes
 // de ser descartado pela goroutine de housekeeping. Mensagens de canal
@@ -100,12 +105,15 @@ type pendingCallback struct {
 // No startup, ReconcilePending reenvia respostas já salvas ou re-registra
 // callbacks ainda válidos.
 type ResponseNotifier struct {
-	mu        sync.Mutex
-	callbacks map[string][]pendingCallback // conversationID -> callbacks pendentes
-	now       func() time.Time             // injetável para testes
-	stopCh    chan struct{}
-	stopOnce  sync.Once
-	store     ChannelPendingStore
+	mu         sync.Mutex
+	callbacks  map[string][]pendingCallback // conversationID -> callbacks pendentes
+	active     map[string]int               // conversationID -> callbacks em execução
+	operations map[string]int               // persistências/reconcile em execução
+	deleted    map[string]time.Time         // tombstones temporários após commit
+	now        func() time.Time             // injetável para testes
+	stopCh     chan struct{}
+	stopOnce   sync.Once
+	store      ChannelPendingStore
 }
 
 // NewResponseNotifier cria um novo ResponseNotifier e inicia a goroutine
@@ -116,9 +124,12 @@ func NewResponseNotifier() *ResponseNotifier {
 
 func newResponseNotifierWithClock(now func() time.Time) *ResponseNotifier {
 	n := &ResponseNotifier{
-		callbacks: make(map[string][]pendingCallback),
-		now:       now,
-		stopCh:    make(chan struct{}),
+		callbacks:  make(map[string][]pendingCallback),
+		active:     make(map[string]int),
+		operations: make(map[string]int),
+		deleted:    make(map[string]time.Time),
+		now:        now,
+		stopCh:     make(chan struct{}),
 	}
 	go n.runCleanup(callbackCleanupInterval)
 	return n
@@ -231,11 +242,16 @@ type expiredLogEntry struct {
 // conversa — alinhado ao store (1 pending/conversa). Bridge Wails
 // (SkipPersist) apenas acrescenta, sem remover o callback do gateway.
 func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) {
+	conversationID = strings.TrimSpace(conversationID)
 	ttl := callbackTTL
 	if cb.TTL > 0 {
 		ttl = cb.TTL
 	}
 	n.mu.Lock()
+	if n.isDeletedLocked(conversationID) {
+		n.mu.Unlock()
+		return
+	}
 	now := n.now()
 	entry := pendingCallback{
 		cb:         cb,
@@ -268,9 +284,14 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		n.callbacks[conversationID] = append(n.callbacks[conversationID], entry)
 	}
 	store := n.store
+	persist := store != nil && shouldPersistChannelCallback(cb) && !cb.SkipPersist
+	if persist {
+		n.operations[conversationID]++
+	}
 	n.mu.Unlock()
 
-	if store != nil && shouldPersistChannelCallback(cb) && !cb.SkipPersist {
+	if persist {
+		defer n.finishConversationOperation(conversationID)
 		if err := store.Upsert(context.Background(), ChannelPendingRecord{
 			ConversationID: conversationID,
 			Channel:        cb.Channel,
@@ -289,6 +310,93 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		// deliver do turno ainda precisa do store (M14). Fantasmas raros
 		// (Cancel+Upsert) saem no reconcile/DeleteIfTrace.
 	}
+}
+
+// PrepareConversationDeletion falha sem remover callbacks pendentes. Em
+// sucesso, mantém o gate fechado até release para impedir Register/Notify
+// durante a transação de exclusão.
+func (n *ResponseNotifier) PrepareConversationDeletion(conversationIDs []string) (func(committed bool), error) {
+	normalized := make([]string, 0, len(conversationIDs))
+	seen := make(map[string]struct{}, len(conversationIDs))
+	for _, rawID := range conversationIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	n.mu.Lock()
+	n.isDeletedLocked("")
+	for _, conversationID := range normalized {
+		if len(n.callbacks[conversationID]) > 0 || n.active[conversationID] > 0 || n.operations[conversationID] > 0 {
+			n.mu.Unlock()
+			return func(bool) {}, ErrConversationCallbackActive
+		}
+	}
+
+	var once sync.Once
+	return func(committed bool) {
+		once.Do(func() {
+			if committed {
+				expiresAt := n.now().Add(callbackTTL)
+				for _, conversationID := range normalized {
+					n.deleted[conversationID] = expiresAt
+				}
+			}
+			n.mu.Unlock()
+		})
+	}, nil
+}
+
+// PrepareConversationRestoration fecha o gate até o caller informar os IDs
+// cujo commit de importação foi concluído.
+func (n *ResponseNotifier) PrepareConversationRestoration() func([]string) {
+	n.mu.Lock()
+	var once sync.Once
+	return func(conversationIDs []string) {
+		once.Do(func() {
+			for _, rawID := range conversationIDs {
+				delete(n.deleted, strings.TrimSpace(rawID))
+			}
+			n.mu.Unlock()
+		})
+	}
+}
+
+// ReserveConversationOperation coordena envios de reconcile/retry e outras
+// operações externas que não vivem em callbacks do notifier. A exclusão falha
+// enquanto a reserva existir; após commit, o tombstone recusa reservas tardias.
+func (n *ResponseNotifier) ReserveConversationOperation(conversationID string) (func(), bool) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return func() {}, false
+	}
+	n.mu.Lock()
+	if n.isDeletedLocked(conversationID) {
+		n.mu.Unlock()
+		return func() {}, false
+	}
+	n.operations[conversationID]++
+	n.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() { n.finishConversationOperation(conversationID) })
+	}, true
+}
+
+func (n *ResponseNotifier) finishConversationOperation(conversationID string) {
+	n.mu.Lock()
+	if n.operations[conversationID] <= 1 {
+		delete(n.operations, conversationID)
+	} else {
+		n.operations[conversationID]--
+	}
+	n.mu.Unlock()
 }
 
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
@@ -311,7 +419,12 @@ func (n *ResponseNotifier) NotifyContext(ctx context.Context, conversationID str
 }
 
 func (n *ResponseNotifier) notifyFiltered(conversationID string, response string, assistantMessageID, traceID string) {
+	conversationID = strings.TrimSpace(conversationID)
 	n.mu.Lock()
+	if n.isDeletedLocked(conversationID) {
+		n.mu.Unlock()
+		return
+	}
 	pendings := n.callbacks[conversationID]
 	if len(pendings) == 0 {
 		n.mu.Unlock()
@@ -342,6 +455,9 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 	} else {
 		n.callbacks[conversationID] = keep
 	}
+	if len(fire) > 0 {
+		n.active[conversationID] += len(fire)
+	}
 	n.mu.Unlock()
 
 	// Não remove channel_response_pending aqui: o Delete só ocorre após
@@ -350,6 +466,13 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 	for _, p := range fire {
 		go func(cb ResponseCallback) {
 			defer func() {
+				n.mu.Lock()
+				if n.active[conversationID] <= 1 {
+					delete(n.active, conversationID)
+				} else {
+					n.active[conversationID]--
+				}
+				n.mu.Unlock()
 				if r := recover(); r != nil {
 					logging.Errorf(context.Background(), "messaging.notifier", "[Notifier] panic em callback trace=%s channel=%s conv=%s: %v",
 						cb.TraceID, cb.Channel, conversationID, r)
@@ -365,14 +488,19 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 // conversa/run é encerrada — evita callbacks órfãos que nunca disparariam.
 // Para falha de um turno específico no gateway, preferir CancelTrace.
 func (n *ResponseNotifier) Cancel(conversationID string) {
+	conversationID = strings.TrimSpace(conversationID)
 	n.mu.Lock()
 	pendings, ok := n.callbacks[conversationID]
 	if ok {
 		delete(n.callbacks, conversationID)
 	}
 	store := n.store
+	if store != nil && conversationID != "" {
+		n.operations[conversationID]++
+	}
 	n.mu.Unlock()
 	if store != nil {
+		defer n.finishConversationOperation(conversationID)
 		if err := store.Delete(context.Background(), conversationID); err != nil {
 			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no Cancel conv=%s: %v", conversationID, err)
 		}
@@ -390,6 +518,7 @@ func (n *ResponseNotifier) Cancel(conversationID string) {
 // Evita que falha de sendMessage de um turno antigo apague a intenção M14
 // de um turno mais novo na mesma conversa.
 func (n *ResponseNotifier) CancelTrace(conversationID, traceID string) {
+	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
 		return
 	}
@@ -410,9 +539,13 @@ func (n *ResponseNotifier) CancelTrace(conversationID, traceID string) {
 		n.callbacks[conversationID] = fresh
 	}
 	store := n.store
+	if store != nil {
+		n.operations[conversationID]++
+	}
 	n.mu.Unlock()
 
 	if store != nil {
+		defer n.finishConversationOperation(conversationID)
 		if err := store.DeleteIfTrace(context.Background(), conversationID, traceID); err != nil {
 			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no CancelTrace conv=%s trace=%s: %v",
 				conversationID, traceID, err)
@@ -422,6 +555,17 @@ func (n *ResponseNotifier) CancelTrace(conversationID, traceID string) {
 		logging.Debugf(context.Background(), "messaging.notifier", "[Messaging] Callback cancelado por trace=%s conv=%s channel=%s",
 			p.cb.TraceID, conversationID, p.cb.Channel)
 	}
+}
+
+func (n *ResponseNotifier) isDeletedLocked(conversationID string) bool {
+	now := n.now()
+	for id, expiresAt := range n.deleted {
+		if !expiresAt.After(now) {
+			delete(n.deleted, id)
+		}
+	}
+	expiresAt, deleted := n.deleted[conversationID]
+	return deleted && expiresAt.After(now)
 }
 
 // CancelByChannel cancela todos os callbacks pendentes pertencentes a um
@@ -469,6 +613,11 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 		}
 	}
 	store := n.store
+	if store != nil {
+		for _, id := range deleteIDs {
+			n.operations[id]++
+		}
+	}
 	n.mu.Unlock()
 
 	for _, e := range toLog {
@@ -480,6 +629,7 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 			if err := store.Delete(context.Background(), id); err != nil {
 				logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no CancelByChannel conv=%s: %v", id, err)
 			}
+			n.finishConversationOperation(id)
 		}
 	}
 	return cancelled

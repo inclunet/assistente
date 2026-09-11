@@ -65,24 +65,8 @@ func CreateMessageWithContext(ctx context.Context, opts MessageOptions) (*ChatMe
 }
 
 func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts MessageOptions) (*ChatMessage, error) {
-	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
-	}
-	var conv Conversation
-	if err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").First(&conv, "id = ?", opts.ConversationID).Error; err != nil {
-		return nil, fmt.Errorf("%w: conversa %s", ErrConversationDeleted, opts.ConversationID)
-	}
-
-	// Verifica se a mensagem pai existe (se parentId foi fornecido)
-	if opts.ParentID != nil && *opts.ParentID != "" {
-		var parentMsg ChatMessage
-		if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).First(&parentMsg, "chat_messages.id = ?", *opts.ParentID).Error; err != nil {
-			return nil, fmt.Errorf("%w: mensagem %s", ErrParentMessageDeleted, *opts.ParentID)
-		}
-		if parentMsg.ConversationID != opts.ConversationID {
-			return nil, fmt.Errorf("%w: mensagem %s", ErrParentMessageDeleted, *opts.ParentID)
-		}
 	}
 
 	msg := &ChatMessage{
@@ -106,12 +90,39 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 		Model:            opts.Model,
 		Source:           opts.Source,
 	}
-	if err := db.WithContext(ctx).Create(msg).Error; err != nil {
+	err := withSQLiteImmediateTransaction(ctx, r.db, "chat.create_message", func(tx *gorm.DB) error {
+		var conv Conversation
+		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").First(&conv, "id = ?", opts.ConversationID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("%w: conversa %s", ErrConversationDeleted, opts.ConversationID)
+			}
+			return err
+		}
+
+		// Verifica a mensagem pai sob o mesmo writer lock da inserção.
+		if opts.ParentID != nil && *opts.ParentID != "" {
+			var parentMsg ChatMessage
+			if err := scopedMessageQuery(ctx, tx.Model(&ChatMessage{})).First(&parentMsg, "chat_messages.id = ?", *opts.ParentID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("%w: mensagem %s", ErrParentMessageDeleted, *opts.ParentID)
+				}
+				return err
+			}
+			if parentMsg.ConversationID != opts.ConversationID {
+				return fmt.Errorf("%w: mensagem %s", ErrParentMessageDeleted, *opts.ParentID)
+			}
+		}
+
+		if err := tx.WithContext(ctx).Create(msg).Error; err != nil {
+			return err
+		}
+		return ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
+			Where("id = ?", opts.ConversationID).
+			Update("updated_at", time.Now()).Error
+	})
+	if err != nil {
 		return nil, err
 	}
-	ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").
-		Where("id = ?", opts.ConversationID).
-		Update("updated_at", time.Now())
 	return msg, nil
 }
 
@@ -251,7 +262,7 @@ func (r *MessageRepository) CreateUserMessageAndLoadHistoryWithContext(ctx conte
 
 	var msg *ChatMessage
 	var window *HistoryWindowResult
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := withSQLiteImmediateTransaction(ctx, r.db, "chat.create_user_message_and_load_history", func(tx *gorm.DB) error {
 		var conv Conversation
 		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
 			Select("id", "summary", "summary_up_to_message_id").

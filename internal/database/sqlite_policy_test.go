@@ -184,3 +184,45 @@ func TestWALReaderSucceedsDuringBackgroundWriter(t *testing.T) {
 		t.Fatalf("count = %d, want committed snapshot count 1", count)
 	}
 }
+
+func TestImmediateTransactionRollsBackAfterContextCancellation(t *testing.T) {
+	gdb, cleanup := openSQLitePolicyTestDB(t, sqliteDSN(t.TempDir()+"/cancel-rollback.db"))
+	defer cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := WithSQLiteImmediateTransaction(ctx, gdb, "test.cancel_rollback", func(tx *gorm.DB) error {
+		if err := tx.Create(&MemoryRecord{
+			UserID:     "user-1",
+			Content:    "não deve confirmar",
+			LoadPolicy: MemoryLoadPolicyRetrievable,
+			Kind:       MemoryKindHistoricalNote,
+			Scope:      MemoryScopeUser,
+		}).Error; err != nil {
+			return err
+		}
+		cancel()
+		return ctx.Err()
+	})
+	if err == nil {
+		t.Fatal("esperava cancelamento da transação")
+	}
+
+	if err := WithSQLiteImmediateTransaction(context.Background(), gdb, "test.after_cancel", func(tx *gorm.DB) error {
+		return tx.Create(&MemoryRecord{
+			UserID:     "user-1",
+			Content:    "writer posterior",
+			LoadPolicy: MemoryLoadPolicyRetrievable,
+			Kind:       MemoryKindHistoricalNote,
+			Scope:      MemoryScopeUser,
+		}).Error
+	}); err != nil {
+		t.Fatalf("writer lock permaneceu após rollback cancelado: %v", err)
+	}
+	var cancelledRows int64
+	if err := gdb.Model(&MemoryRecord{}).Where("content = ?", "não deve confirmar").Count(&cancelledRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cancelledRows != 0 {
+		t.Fatalf("rollback não removeu escrita cancelada: %d", cancelledRows)
+	}
+}

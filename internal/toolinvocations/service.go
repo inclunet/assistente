@@ -94,6 +94,13 @@ func (s *Service) CleanOrphanChat(ctx context.Context) (int, error) {
 	return s.repo.CleanOrphanChat(ctx)
 }
 
+func cancelledChatValidation(call tools.ToolCall) ExecuteResult {
+	return ExecuteResult{
+		Execution: executionCancelled(call, "Execução cancelada: não foi possível validar o item do chat"),
+		Persisted: false,
+	}
+}
+
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult {
 	if s == nil || s.executor == nil {
 		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured"), Persisted: false}
@@ -106,26 +113,22 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
 	persistCtx := s.persistCtx(ctx)
+	req.Origin.Type = strings.TrimSpace(req.Origin.Type)
+	if req.Origin.Type == "" {
+		req.Origin.Type = OriginChat
+	}
+	req.Origin.ID = strings.TrimSpace(req.Origin.ID)
 
-	// Defesa best-effort: se a origem do chat já foi deletada, não criar
-	// registros técnicos que ficarão órfãos. Alguns cenários de teste/migração
-	// não têm a tabela de chat_messages disponível.
-	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
-			cancel()
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					// Se o turno/mensagem foi removido antes da execução, não execute tools com efeitos colaterais.
-					logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
-					return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
-				}
-				// Para falhas transitórias de DB, mantém best-effort e executa sem persistência.
-				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate chat origin %s; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
-				exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-				return ExecuteResult{Execution: exec, Persisted: false}
-			}
+	// Defesa fail-closed para chat: sem validar a origem, não execute uma tool
+	// que pode produzir efeitos externos. A validação transacional do Create
+	// continua sendo a autoridade contra a corrida posterior.
+	if req.Origin.Type == OriginChat {
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		err := s.repo.ValidateChatOrigin(opCtx, req.Origin.ID)
+		cancel()
+		if err != nil {
+			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s could not be validated; aborting tool execution: %v", req.Origin.ID, err)
+			return cancelledChatValidation(req.Call)
 		}
 	}
 
@@ -197,11 +200,16 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 
 	opCtx, cancel := s.persistOpCtx(persistCtx)
-	if err := s.repo.Create(opCtx, &inv); err != nil {
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", err)
+	createErr := s.repo.Create(opCtx, &inv)
+	cancel()
+	if createErr != nil {
+		if strings.TrimSpace(inv.OriginType) == OriginChat {
+			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat invocation could not be persisted safely for origin %s; aborting: %v", strings.TrimSpace(inv.OriginID), createErr)
+			return cancelledChatValidation(req.Call)
+		}
+		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", createErr)
 		inv.ID = ""
 	}
-	cancel()
 	if inv.ID != "" {
 		startedAt := s.now()
 		opCtx, cancel := s.persistOpCtx(persistCtx)

@@ -43,7 +43,7 @@ test.describe('Histórico — seleção múltipla', () => {
 test.describe('Histórico — bulk delete', () => {
   test('deletar conversa selecionada via toolbar', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
-    await wails.setResponse('DeleteConversation', undefined);
+    await wails.setResponse('DeleteConversations', (ids: string[]) => ids);
 
     await wails.waitForApp();
     await page.goto('/#/history');
@@ -69,13 +69,13 @@ test.describe('Histórico — bulk delete', () => {
 
       await page.waitForFunction(() => {
         return window.__wailsMock.getCallLog().some(
-          (c: { fn: string }) => c.fn === 'DeleteConversation'
+          (c: { fn: string }) => c.fn === 'DeleteConversations'
         );
       }, { timeout: 5_000 });
 
       const log = await wails.getCallLog();
-      const deleteCalls = log.filter(c => c.fn === 'DeleteConversation');
-      expect(deleteCalls.length).toBeGreaterThanOrEqual(1);
+      const deleteCalls = log.filter(c => c.fn === 'DeleteConversations');
+      expect(deleteCalls.length).toBe(1);
     }
   });
 
@@ -105,7 +105,7 @@ test.describe('Histórico — bulk delete', () => {
 
       // Nenhum delete deve ter ocorrido
       const log = await wails.getCallLog();
-      const deleteCalls = log.filter(c => c.fn === 'DeleteConversation');
+      const deleteCalls = log.filter(c => c.fn === 'DeleteConversations');
       expect(deleteCalls.length).toBe(0);
     }
   });
