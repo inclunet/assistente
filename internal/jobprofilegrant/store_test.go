@@ -130,6 +130,20 @@ func TestCurrentDelegationPrefersPublicSlugOverUUIDFallback(t *testing.T) {
 	if config.JobID != jobA.ID {
 		t.Fatalf("slug público deveria vencer colisão com UUID: job=%q esperado=%q", config.JobID, jobA.ID)
 	}
+	snapshot, err := store.AuthorizationSnapshot(userA, jobByUUID.ID, "especialista")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, snapshot.Config.JobID, "especialista", snapshot.Config.Fingerprint, "desktop", snapshot.Generation); err != nil {
+		t.Fatal(err)
+	}
+	var grant database.JobProfileGrant
+	if err := db.Where("user_id = ? AND revoked_at IS NULL", "user-a").First(&grant).Error; err != nil {
+		t.Fatal(err)
+	}
+	if grant.JobID != jobA.ID {
+		t.Fatalf("operação interna por UUID gravou grant no job errado: %#v", grant)
+	}
 }
 
 func TestStoreRevokesStaleFingerprint(t *testing.T) {

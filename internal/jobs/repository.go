@@ -652,7 +652,7 @@ func (r *DBRepository) ReconcileUnauthorizedJobs(ctx context.Context) error {
 			}
 			for _, row := range rows {
 				var inputs map[string]any
-				if err := json.Unmarshal([]byte(row.Inputs), &inputs); err != nil {
+				if err := unmarshalJSON(row.Inputs, &inputs); err != nil {
 					return err
 				}
 				candidate := &Job{Tool: row.ToolName, Inputs: inputs, Enabled: true}

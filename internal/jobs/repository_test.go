@@ -152,6 +152,17 @@ func TestDBRepositoryReconcilesUnauthorizedEnabledSubagent(t *testing.T) {
 	if err := repo.db.Model(&database.Job{}).Where("id = ?", job.DatabaseID).Update("enabled", true).Error; err != nil {
 		t.Fatal(err)
 	}
+	inherited := testRepositoryJob("legado-herdado", "Legado herdado")
+	inherited.Tool = "subagent"
+	inherited.Inputs = nil
+	inherited.Enabled = false
+	if err := repo.SaveJob(userA, inherited); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Model(&database.Job{}).Where("id = ?", inherited.DatabaseID).
+		Updates(map[string]any{"inputs": "", "enabled": true}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.ReconcileUnauthorizedJobs(userA); err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +172,13 @@ func TestDBRepositoryReconcilesUnauthorizedEnabledSubagent(t *testing.T) {
 	}
 	if row.Enabled {
 		t.Fatal("reconciliação de startup deveria desabilitar job sem grant")
+	}
+	row = database.Job{}
+	if err := repo.db.First(&row, "id = ?", inherited.DatabaseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !row.Enabled {
+		t.Fatal("reconciliação deveria preservar job com payload vazio e profile herdado")
 	}
 }
 

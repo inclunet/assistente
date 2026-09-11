@@ -150,6 +150,24 @@ func currentDelegationDB(ctx context.Context, db *gorm.DB, jobID string) (Delega
 	if err != nil {
 		return DelegationConfig{}, err
 	}
+	return delegationConfigFromRow(row)
+}
+
+func currentDelegationByDatabaseIDDB(ctx context.Context, db *gorm.DB, jobID string) (DelegationConfig, error) {
+	var row database.Job
+	err := database.ScopeByUser(ctx, db, "user_id").
+		Where("id = ?", strings.TrimSpace(jobID)).
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return DelegationConfig{}, ErrJobNotFound
+	}
+	if err != nil {
+		return DelegationConfig{}, err
+	}
+	return delegationConfigFromRow(row)
+}
+
+func delegationConfigFromRow(row database.Job) (DelegationConfig, error) {
 	if strings.TrimSpace(row.ToolName) != ToolSubagent {
 		return DelegationConfig{}, ErrNotSubagentJob
 	}
@@ -232,7 +250,7 @@ func (s *Store) HasValid(ctx context.Context, jobID, targetSlug, fingerprint str
 	valid := false
 	err = database.WithSQLiteBusyRetry(ctx, "job_profile_grants.has_valid", func() error {
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			config, currentErr := currentDelegationDB(ctx, tx, jobID)
+			config, currentErr := currentDelegationByDatabaseIDDB(ctx, tx, jobID)
 			if currentErr != nil {
 				return currentErr
 			}
@@ -312,7 +330,7 @@ func (s *Store) Grant(ctx context.Context, jobID, targetSlug, fingerprint, actor
 	}
 	return database.WithSQLiteBusyRetry(ctx, "job_profile_grants.grant", func() error {
 		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			config, currentErr := currentDelegationDB(ctx, tx, jobID)
+			config, currentErr := currentDelegationByDatabaseIDDB(ctx, tx, jobID)
 			if currentErr != nil {
 				return currentErr
 			}

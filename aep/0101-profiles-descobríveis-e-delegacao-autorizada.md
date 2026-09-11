@@ -184,7 +184,9 @@ pendentes. Reautorizar cria uma nova linha; a linha anterior conserva
 
 No runtime, `eventctx.SourceJobID` continua sendo o slug público do job,
 conforme AEP-0067; o UUID `database.Job.ID` é usado somente em consultas
-internas de grants. O backend
+internas de grants. A resolução de entrada prioriza slug e só usa UUID como
+fallback; depois de resolvido, validação e persistência usam uma consulta
+explicitamente por UUID para não reintroduzir ambiguidade slug↔ID. O backend
 revalida job, fingerprint, profile alvo e grant antes de criar conversa/run.
 Grant ausente falha como `authorization_not_granted`, permanente para a
 política de retry. Cron/event/headless nunca abre diálogo. A autorização
