@@ -61,7 +61,8 @@ func (a *App) initJobs() {
 			}
 			return profileaccess.ProfileIdentity(profile)
 		}); err != nil {
-			logging.Errorf(context.Background(), "app.app-jobs", "[Jobs] Falha ao reconciliar exclusões pendentes de profiles: %v", err)
+			logging.Logger(context.Background(), "app.app-jobs").
+				Error("Falha ao reconciliar exclusões pendentes de profiles", "error", err)
 		}
 	}
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
