@@ -259,13 +259,13 @@ describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => 
     await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
   });
 
-  it('Ctrl+numero troca diretamente sem restaurar a area default', async () => {
+  it('Ctrl+numero troca diretamente e restaura a area default', async () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: '2' });
 
     expect(setActiveTab).toHaveBeenCalledWith('t2');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    expect(restoreDefaultFocus).toHaveBeenCalled();
   });
 });
