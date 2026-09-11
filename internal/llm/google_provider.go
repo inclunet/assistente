@@ -284,11 +284,13 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 		}
 
 		if resp.UsageMetadata != nil {
-			lastUsage = UsageFromGemini(
+			lastUsage = UsageFromGeminiWithReasoning(
 				int(resp.UsageMetadata.PromptTokenCount),
 				int(resp.UsageMetadata.CandidatesTokenCount),
 				int(resp.UsageMetadata.TotalTokenCount),
 				int(resp.UsageMetadata.CachedContentTokenCount),
+				int(resp.UsageMetadata.ThoughtsTokenCount),
+				resp.UsageMetadata.ThoughtsTokenCount > 0,
 			)
 		}
 
@@ -352,6 +354,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 		handler.OnThinkingDone(fullReasoning.String())
 	}
 	finish = finishInfoWithToolCalls(finish, len(functionCalls))
+	finish = finishInfoWithDiagnostics(finish, p.provider, model, int(config.MaxOutputTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(functionCalls) > 0 {

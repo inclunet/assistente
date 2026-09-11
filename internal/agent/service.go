@@ -325,16 +325,42 @@ func (s *Service) SaveAndFinish(
 	if loopStats != nil {
 		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
 	}
+	responseBytes := result.Finish.ResponseBytes
+	if responseBytes == 0 && result.FullResponse != "" {
+		responseBytes = len(result.FullResponse)
+	}
 	doneEvent := ports.DoneEvent{
-		ConversationID:     conversationID,
-		TurnID:             turnID,
-		AssistantMessageID: savedMsgID,
-		HadToolCalls:       hadTools,
-		Reason:             "completed",
-		SurfaceOrigin:      surfaceOrigin,
+		ConversationID:       conversationID,
+		TurnID:               turnID,
+		AssistantMessageID:   savedMsgID,
+		HadToolCalls:         hadTools,
+		Reason:               "completed",
+		FinishReason:         string(result.Finish.Reason),
+		RawReason:            result.Finish.RawReason,
+		Provider:             result.Finish.Provider,
+		Model:                result.Model,
+		EffectiveOutputLimit: result.Finish.OutputLimit,
+		ResponseBytes:        &responseBytes,
+		SurfaceOrigin:        surfaceOrigin,
+	}
+	if doneEvent.Model == "" {
+		doneEvent.Model = result.Finish.Model
+	}
+	if result.Usage.Reported {
+		outputTokens := result.Usage.CompletionTokens
+		doneEvent.OutputTokens = &outputTokens
+	}
+	if result.Usage.ReasoningTokensReported {
+		reasoningTokens := result.Usage.ReasoningTokens
+		doneEvent.ReasoningTokens = &reasoningTokens
 	}
 	if result.Finish.Reason == llm.FinishReasonMaxTokens {
 		doneEvent.Reason = "output_limit"
+		logging.Infof(ctx, "agent.service",
+			"provider informou limite de geração (finish_reason=%s, raw_reason=%q, provider=%q, model=%q, output_limit=%d, output_tokens=%v, reasoning_tokens=%v, response_bytes=%d)",
+			doneEvent.FinishReason, doneEvent.RawReason, doneEvent.Provider, doneEvent.Model,
+			doneEvent.EffectiveOutputLimit, optionalTokenCount(doneEvent.OutputTokens),
+			optionalTokenCount(doneEvent.ReasoningTokens), optionalTokenCount(doneEvent.ResponseBytes))
 	}
 	if loopStats != nil {
 		doneEvent.IterationCount = loopStats.IterationCount
@@ -385,6 +411,13 @@ func (s *Service) SaveAndFinish(
 	}
 
 	s.emitTokenStats(conversationID)
+}
+
+func optionalTokenCount(value *int) any {
+	if value == nil {
+		return "unavailable"
+	}
+	return *value
 }
 
 func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID string) (*ports.TurnPatchEvent, error) {

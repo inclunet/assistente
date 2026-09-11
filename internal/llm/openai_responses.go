@@ -586,6 +586,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	diagnosticModel := lastModel
+	if diagnosticModel == "" {
+		diagnosticModel = chatParams.Model
+	}
+	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {

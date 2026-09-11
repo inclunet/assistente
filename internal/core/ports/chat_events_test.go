@@ -40,10 +40,21 @@ func TestStreamEventSerializaSomenteDeltaCorrelacionado(t *testing.T) {
 
 func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 	parentID := "thread-root"
+	outputTokens := 7
+	reasoningTokens := 5
+	responseBytes := 8
 	payload, err := json.Marshal(DoneEvent{
-		ConversationID: "conv-1",
-		TurnID:         "turn-1",
-		Reason:         "output_limit",
+		ConversationID:       "conv-1",
+		TurnID:               "turn-1",
+		Reason:               "output_limit",
+		FinishReason:         "max_tokens",
+		RawReason:            "length",
+		Provider:             "provider-1",
+		Model:                "modelo-1",
+		EffectiveOutputLimit: 12,
+		OutputTokens:         &outputTokens,
+		ReasoningTokens:      &reasoningTokens,
+		ResponseBytes:        &responseBytes,
 		TurnPatch: &TurnPatchEvent{Message: TurnPatchMessage{
 			ID:             "assistant-1",
 			ConversationID: "conv-1",
@@ -71,6 +82,13 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 		`"turnId":"turn-1"`,
 		`"parentId":"thread-root"`,
 		`"reason":"output_limit"`,
+		`"finishReason":"max_tokens"`,
+		`"rawReason":"length"`,
+		`"provider":"provider-1"`,
+		`"effectiveOutputLimit":12`,
+		`"outputTokens":7`,
+		`"reasoningTokens":5`,
+		`"responseBytes":8`,
 		`"turnPatch":{"message":`,
 		`"turnSegments":[`,
 		`"name":"update_plan"`,

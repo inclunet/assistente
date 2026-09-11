@@ -77,7 +77,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		}
 
 		// Acumula usage da última iteração (AEP-0039)
-		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
+		if result.Usage.Reported {
 			r.lastUsage = result.Usage
 		}
 
@@ -151,9 +151,20 @@ func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(ctx context.Context, r
 
 func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
 	logging.Infof(ctx, "agent.agentic-loop",
-		"[Agent] geração encerrada por limite de saída (iteração=%d, raw_reason=%q, tool_calls=%d)",
-		iteration, result.Finish.RawReason, len(result.ToolCalls))
+		"provider sinalizou limite de geração (iteração=%d, finish_reason=%s, raw_reason=%q, provider=%q, model=%q, output_limit=%d, output_tokens=%v, reasoning_tokens=%v, response_bytes=%d, tool_calls=%d)",
+		iteration, result.Finish.Reason, result.Finish.RawReason, result.Finish.Provider,
+		result.Finish.Model, result.Finish.OutputLimit,
+		optionalUsageTokenCount(result.Usage.Reported, result.Usage.CompletionTokens),
+		optionalUsageTokenCount(result.Usage.ReasoningTokensReported, result.Usage.ReasoningTokens),
+		result.Finish.ResponseBytes, len(result.ToolCalls))
 	r.finishFinalResult(ctx, result, iteration)
+}
+
+func optionalUsageTokenCount(reported bool, value int) any {
+	if !reported {
+		return "unavailable"
+	}
+	return value
 }
 
 // streamIteration executa o streaming do LLM para uma iteração, com auto-retry

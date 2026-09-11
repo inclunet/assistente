@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,13 +16,16 @@ type espiaoAvisos struct {
 	noopStreamHandler
 	avisos   []TurnNotice
 	conteudo string
+	finish   FinishInfo
+	usage    Usage
 }
 
 func (e *espiaoAvisos) OnTurnNotice(n TurnNotice) { e.avisos = append(e.avisos, n) }
 
 func (e *espiaoAvisos) OnChunk(content string)                        { e.conteudo += content }
-func (e *espiaoAvisos) OnDone(string, Usage, string)                  {}
+func (e *espiaoAvisos) OnDone(_ string, usage Usage, _ string)        { e.usage = usage }
 func (e *espiaoAvisos) OnToolCalls([]ToolCall, string, Usage, string) {}
+func (e *espiaoAvisos) OnFinishReason(info FinishInfo)                { e.finish = info }
 
 // sseChatCompletion devolve um chunk SSE Chat Completions com conteÃºdo.
 const sseChatCompletion = "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n" +
@@ -69,6 +73,7 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 
 	params := ChatParams{
 		Model:                   "m",
+		MaxTokens:               77,
 		PromptCacheKey:          "cache-key",
 		PromptCacheHintFallback: &PromptCacheHintFallback{},
 	}
@@ -76,6 +81,10 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 
 	if handler.err != "" {
 		t.Fatalf("turno deveria concluir sem erro; veio %q", handler.err)
+	}
+	if got := handler.finish; got.Reason != FinishReasonStop || got.RawReason != "stop" ||
+		got.Provider != "compat-test" || got.Model != "m" || got.OutputLimit != 77 || got.ResponseBytes != 2 {
+		t.Fatalf("diagnóstico de término incompleto: %#v", got)
 	}
 
 	var avisosRetry int
@@ -91,5 +100,34 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 	}
 	if avisosRetry != 1 {
 		t.Fatalf("esperava exatamente 1 aviso stream_retry (falha 502); veio %d", avisosRetry)
+	}
+}
+
+func TestChatCompletionsNaoEnviaLimiteZeroComoMaxCompletionTokens(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		payload, _ := io.ReadAll(r.Body)
+		body = string(payload)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sseChatCompletion))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider(&ProviderConfig{
+		ID:       "compat-zero",
+		Name:     "Compat Zero",
+		BaseURL:  server.URL + "/v1",
+		AuthMode: AuthModeNone,
+	}, credentials.NewManager(nil))
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "m", MaxTokensMode: "completion_tokens"}, handler)
+
+	if handler.err != "" {
+		t.Fatalf("stream falhou: %s", handler.err)
+	}
+	if strings.Contains(body, "max_completion_tokens") || strings.Contains(body, `"max_tokens"`) {
+		t.Fatalf("limite default/ausente foi serializado como zero: %s", body)
 	}
 }

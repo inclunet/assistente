@@ -113,7 +113,21 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativoMultiTool(t *testing.T)
 
 	svc.SaveAndFinish(context.Background(), "conv-1", turnID, "assistant-placeholder", AgenticResult{
 		FullResponse: "resposta final",
-		Finish:       llm.FinishInfo{Reason: llm.FinishReasonMaxTokens},
+		Model:        "modelo-real",
+		Usage: llm.Usage{
+			CompletionTokens:        11,
+			Reported:                true,
+			ReasoningTokens:         9,
+			ReasoningTokensReported: true,
+		},
+		Finish: llm.FinishInfo{
+			Reason:        llm.FinishReasonMaxTokens,
+			RawReason:     "length",
+			Provider:      "provider-1",
+			Model:         "modelo-real",
+			OutputLimit:   20,
+			ResponseBytes: len("resposta final"),
+		},
 	}, "", &LoopStats{IterationCount: 3, ToolCallCount: 2}, nil)
 
 	var done ports.DoneEvent
@@ -124,6 +138,15 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativoMultiTool(t *testing.T)
 	}
 	if done.Reason != "output_limit" || done.TurnPatch == nil {
 		t.Fatalf("esperava output_limit com patch, recebeu %+v", done)
+	}
+	if done.FinishReason != "max_tokens" || done.RawReason != "length" ||
+		done.Provider != "provider-1" || done.Model != "modelo-real" ||
+		done.EffectiveOutputLimit != 20 || done.ResponseBytes == nil || *done.ResponseBytes != len("resposta final") {
+		t.Fatalf("diagnóstico terminal incompleto: %+v", done)
+	}
+	if done.OutputTokens == nil || *done.OutputTokens != 11 ||
+		done.ReasoningTokens == nil || *done.ReasoningTokens != 9 {
+		t.Fatalf("usage terminal incompleta: %+v", done)
 	}
 	if done.TurnPatch.Message.TurnID != turnID || done.TurnPatch.Message.Content != "resposta final" {
 		t.Fatalf("mensagem final incorreta no patch: %+v", done.TurnPatch.Message)

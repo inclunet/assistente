@@ -651,6 +651,11 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	diagnosticModel := lastModel
+	if diagnosticModel == "" {
+		diagnosticModel = string(params.Model)
+	}
+	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, int(params.MaxTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {
@@ -868,6 +873,11 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	diagnosticModel := lastModel
+	if diagnosticModel == "" {
+		diagnosticModel = string(params.Model)
+	}
+	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, int(params.MaxTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {

@@ -13,7 +13,7 @@ import (
 )
 
 // sseGeminiChunk devolve um chunk Gemini SSE com texto.
-const sseGeminiChunk = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":2,\"totalTokenCount\":3}}\r\n\r\n"
+const sseGeminiChunk = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":2,\"thoughtsTokenCount\":5,\"totalTokenCount\":8}}\r\n\r\n"
 
 func TestGoogleStreamRetryAvisoEFinalizacao(t *testing.T) {
 	var tentativas atomic.Int32
@@ -51,13 +51,20 @@ func TestGoogleStreamRetryAvisoEFinalizacao(t *testing.T) {
 	}, credMgr)
 	handler := &espiaoAvisos{}
 
-	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "gemini-test"}, handler)
+	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "gemini-test", MaxTokens: 321}, handler)
 
 	if handler.err != "" {
 		t.Fatalf("turno deveria concluir sem erro; veio %q", handler.err)
 	}
 	if !strings.Contains(handler.conteudo, "ok") {
 		t.Fatalf("resposta incompleta: %q", handler.conteudo)
+	}
+	if got := handler.finish; got.Reason != FinishReasonStop || got.RawReason != "STOP" ||
+		got.Provider != "google-test" || got.Model != "gemini-test" || got.OutputLimit != 321 || got.ResponseBytes != 2 {
+		t.Fatalf("diagnóstico de término incompleto: %#v", got)
+	}
+	if !handler.usage.Reported || !handler.usage.ReasoningTokensReported || handler.usage.ReasoningTokens != 5 {
+		t.Fatalf("usage de reasoning não preservada: %#v", handler.usage)
 	}
 
 	var avisosRetry int

@@ -8,6 +8,7 @@ import "encoding/json"
 func UsageFromOpenAICompletion(promptTokens, completionTokens, totalTokens, cachedTokens int, rawJSON string) Usage {
 	usage := baseUsage(promptTokens, completionTokens, totalTokens)
 	applyOpenAICacheUsage(&usage, cachedTokens, rawJSON)
+	applyOpenAIReasoningUsage(&usage, rawJSON)
 	return usage
 }
 
@@ -15,6 +16,7 @@ func UsageFromOpenAICompletion(promptTokens, completionTokens, totalTokens, cach
 func UsageFromOpenAIResponses(inputTokens, outputTokens, totalTokens, cachedTokens int, rawJSON string) Usage {
 	usage := baseUsage(inputTokens, outputTokens, totalTokens)
 	applyOpenAICacheUsage(&usage, cachedTokens, rawJSON)
+	applyOpenAIReasoningUsage(&usage, rawJSON)
 	return usage
 }
 
@@ -56,6 +58,13 @@ func mergeAnthropicStreamingUsage(previous Usage, inputTokens, outputTokens, cac
 
 // UsageFromGemini normaliza usage do SDK Gemini.
 func UsageFromGemini(promptTokens, completionTokens, totalTokens, cachedContentTokens int) Usage {
+	return UsageFromGeminiWithReasoning(promptTokens, completionTokens, totalTokens, cachedContentTokens, 0, false)
+}
+
+// UsageFromGeminiWithReasoning preserva thoughtsTokenCount separadamente:
+// CandidatesTokenCount mede a resposta visível e TotalTokenCount também pode
+// incluir os tokens ocultos de raciocínio.
+func UsageFromGeminiWithReasoning(promptTokens, completionTokens, totalTokens, cachedContentTokens, reasoningTokens int, reasoningReported bool) Usage {
 	usage := baseUsage(promptTokens, completionTokens, totalTokens)
 	if cachedContentTokens > 0 {
 		usage.CacheReadTokens = cachedContentTokens
@@ -63,6 +72,8 @@ func UsageFromGemini(promptTokens, completionTokens, totalTokens, cachedContentT
 			usage.CacheMissTokens = promptTokens - cachedContentTokens
 		}
 	}
+	usage.ReasoningTokens = reasoningTokens
+	usage.ReasoningTokensReported = reasoningReported
 	return usage
 }
 
@@ -74,6 +85,23 @@ func baseUsage(promptTokens, completionTokens, totalTokens int) Usage {
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
+		Reported:         true,
+	}
+}
+
+func applyOpenAIReasoningUsage(usage *Usage, rawJSON string) {
+	fields := parseUsageFields(rawJSON)
+	for _, key := range []string{
+		"completion_tokens_details.reasoning_tokens",
+		"output_tokens_details.reasoning_tokens",
+		"usage.completion_tokens_details.reasoning_tokens",
+		"usage.output_tokens_details.reasoning_tokens",
+	} {
+		if value, ok := fields[key]; ok {
+			usage.ReasoningTokens = value
+			usage.ReasoningTokensReported = true
+			return
+		}
 	}
 }
 
@@ -127,7 +155,7 @@ func flattenUsageFields(prefix string, in map[string]any, out map[string]int) {
 		}
 		switch v := value.(type) {
 		case float64:
-			if v > 0 {
+			if v >= 0 {
 				if prefix == "" {
 					out[key] = int(v)
 				}

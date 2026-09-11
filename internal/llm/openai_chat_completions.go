@@ -25,7 +25,7 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 	if params.Temperature > 0 {
 		sdkParams.Temperature = param.NewOpt(params.Temperature)
 	}
-	if params.MaxTokensMode == "completion_tokens" {
+	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 {
 		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
 	} else if params.MaxTokens > 0 {
 		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
@@ -68,7 +68,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		sdkParams.Temperature = param.NewOpt(params.Temperature)
 	}
 
-	if params.MaxTokensMode == "completion_tokens" {
+	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 {
 		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
 	} else if params.MaxTokens > 0 {
 		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
@@ -286,6 +286,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 
 	model := acc.Model
+	if model == "" {
+		model = string(params.Model)
+	}
 	finish := FinishInfo{}
 	if len(acc.Choices) > 0 {
 		finish = normalizeOpenAIChatFinishReason(string(acc.Choices[0].FinishReason))
@@ -307,6 +310,13 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	outputLimit := 0
+	if params.MaxCompletionTokens.Valid() {
+		outputLimit = int(params.MaxCompletionTokens.Value)
+	} else if params.MaxTokens.Valid() {
+		outputLimit = int(params.MaxTokens.Value)
+	}
+	finish = finishInfoWithDiagnostics(finish, p.provider, model, outputLimit, fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {
