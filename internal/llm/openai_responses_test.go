@@ -104,10 +104,13 @@ func TestOpenAIResponsesProvider_UsesResponsesWithoutMCP(t *testing.T) {
 }
 
 type noopStreamHandler struct {
-	err string
+	err     string
+	content string
+	usage   Usage
+	finish  FinishInfo
 }
 
-func (h *noopStreamHandler) OnChunk(string) {}
+func (h *noopStreamHandler) OnChunk(content string) { h.content += content }
 
 func (h *noopStreamHandler) OnThinking(string) {}
 
@@ -117,9 +120,77 @@ func (h *noopStreamHandler) OnToolCalls([]ToolCall, string, Usage, string) {}
 
 func (h *noopStreamHandler) OnError(err string) { h.err = err }
 
-func (h *noopStreamHandler) OnDone(string, Usage, string) {}
+func (h *noopStreamHandler) OnDone(_ string, usage Usage, _ string) { h.usage = usage }
 
-func (h *noopStreamHandler) OnMCPToolEvent(MCPToolEvent) {}
+func (h *noopStreamHandler) OnMCPToolEvent(MCPToolEvent)    {}
+func (h *noopStreamHandler) OnFinishReason(info FinishInfo) { h.finish = info }
+
+func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
+	const stream = "event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
+		"event: response.incomplete\n" +
+		"data: {\"type\":\"response.incomplete\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"incomplete\",\"output\":[],\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":3,\"output_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":5}}}}\n\n"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID:           "responses-test",
+		Name:         "Responses Test",
+		BaseURL:      server.URL + "/v1",
+		APIFormat:    APIFormatOpenAIResponses,
+		AuthMode:     AuthModeNone,
+		DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &noopStreamHandler{}
+
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{MaxTokens: 99}, handler)
+
+	if handler.err != "" {
+		t.Fatalf("stream falhou: %s", handler.err)
+	}
+	if got := handler.finish; got.Reason != FinishReasonMaxTokens || got.RawReason != "max_output_tokens" ||
+		got.Provider != "responses-test" || got.Model != "gpt-test" || got.OutputLimit != 99 || got.ResponseBytes != 2 {
+		t.Fatalf("diagnóstico de término incompleto: %#v", got)
+	}
+	if !handler.usage.Reported || !handler.usage.ReasoningTokensReported ||
+		handler.usage.CompletionTokens != 7 || handler.usage.ReasoningTokens != 5 ||
+		handler.usage.TotalTokens != 10 {
+		t.Fatalf("usage de output/reasoning não preservada: %#v", handler.usage)
+	}
+}
+
+func TestOpenAIResponsesCompletedNaoInventaRawReason(t *testing.T) {
+	const stream = "event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"completed\",\"model\":\"gpt-test\",\"output\":[]}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-completed", Name: "Responses Completed", BaseURL: server.URL + "/v1",
+		APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone,
+	}, credentials.NewManager(nil))
+	handler := &noopStreamHandler{}
+
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gpt-test"}, handler)
+
+	if handler.err != "" {
+		t.Fatalf("stream falhou: %s", handler.err)
+	}
+	if handler.finish.Reason != FinishReasonStop || handler.finish.RawReason != "" {
+		t.Fatalf("response.completed inventou motivo bruto: %#v", handler.finish)
+	}
+}
 
 func TestOpenAIResponsesStreamInjectsScopedCredential(t *testing.T) {
 	var gotAuth string

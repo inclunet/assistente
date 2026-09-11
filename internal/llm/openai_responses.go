@@ -80,6 +80,7 @@ func (p *OpenAIProvider) streamChatResponses(
 	handler StreamHandler,
 	tools ...ToolDefinition,
 ) {
+	params.Model = model
 	currentServers := cloneMCPServers(p.mcpServers)
 	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
 
@@ -444,9 +445,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.completed":
 			ev := event.AsResponseCompleted()
-			finish = normalizeOpenAIResponsesFinishReason("completed")
-			if ev.Response.Usage.TotalTokens > 0 {
-				lastUsageRaw = rawJSONDump(ev.Response.Usage.RawJSON())
+			// "response.completed" é o tipo do evento, não um finish_reason
+			// informado pelo provider. Preserve a ausência no motivo bruto.
+			finish = FinishInfo{Reason: FinishReasonStop}
+			usageRaw := ev.Response.Usage.RawJSON()
+			if openAIUsageReported(usageRaw,
+				int(ev.Response.Usage.InputTokens), int(ev.Response.Usage.OutputTokens), int(ev.Response.Usage.TotalTokens)) {
+				lastUsageRaw = rawJSONDump(usageRaw)
 				lastUsage = UsageFromOpenAIResponses(
 					int(ev.Response.Usage.InputTokens),
 					int(ev.Response.Usage.OutputTokens),
@@ -464,8 +469,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.incomplete":
 			ev := event.AsResponseIncomplete()
 			finish = normalizeOpenAIResponsesFinishReason(ev.Response.IncompleteDetails.Reason)
-			if ev.Response.Usage.TotalTokens > 0 {
-				lastUsageRaw = rawJSONDump(ev.Response.Usage.RawJSON())
+			usageRaw := ev.Response.Usage.RawJSON()
+			if openAIUsageReported(usageRaw,
+				int(ev.Response.Usage.InputTokens), int(ev.Response.Usage.OutputTokens), int(ev.Response.Usage.TotalTokens)) {
+				lastUsageRaw = rawJSONDump(usageRaw)
 				lastUsage = UsageFromOpenAIResponses(
 					int(ev.Response.Usage.InputTokens),
 					int(ev.Response.Usage.OutputTokens),
@@ -586,6 +593,12 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	diagnosticModel := lastModel
+	if diagnosticModel == "" {
+		diagnosticModel = chatParams.Model
+	}
+	lastModel = diagnosticModel
+	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {

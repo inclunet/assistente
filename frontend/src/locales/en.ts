@@ -113,7 +113,7 @@ const en = {
       },
       continueResponse: 'Continue response',
       continueResponseLabel: 'Continue response',
-      outputLimitReached: 'The response reached its output limit. Use “Continue response” or ask to split the task into smaller parts.',
+      outputLimitReached: 'The provider reported that it reached the generation limit. Use “Continue response” or ask to split the task into smaller parts.',
       stop: 'Stop',
       cancelGeneration: 'Cancel generation',
       cancelGenerationLabel: 'Cancel generation (Esc)',

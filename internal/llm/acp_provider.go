@@ -167,12 +167,14 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	if stop != acp.StopEndTurn {
 		logging.Infof(ctx, acpProviderComponent, "[ACP] turno encerrado por %q", string(stop))
 	}
-	ReportFinishReason(handler, normalizeACPFinishReason(string(stop)))
+	model := p.currentModel(conv, params.Model)
+	finish := finishInfoWithDiagnostics(normalizeACPFinishReason(string(stop)), p.provider, model, 0, len(response))
+	ReportFinishReason(handler, finish)
 	// Sem contagem de tokens: o agente cobra na conta dele e não reporta uso. O
 	// modelo relatado é o da sessão, e não o que o perfil pediu: o agente troca
 	// sozinho, e dizer o pedido faria a mensagem ficar salva com a autoria
 	// errada.
-	handler.OnDone(response, Usage{}, p.currentModel(conv, params.Model))
+	handler.OnDone(response, Usage{}, model)
 }
 
 // currentModel é o modelo em que a sessão está. Quando o agente não expõe
