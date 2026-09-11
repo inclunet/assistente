@@ -209,6 +209,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [testJustFinished, setTestJustFinished] = useState(false);
   const testResultRef = useRef<HTMLDivElement>(null);
   const profileGrantsSectionRef = useRef<HTMLElement>(null);
+  const profileGrantsRequestRef = useRef(0);
   const announcedFanoutWarningRef = useRef<Record<string, unknown> | null>(null);
 
   const [eventSchema, setEventSchema] = useState<Record<string, unknown> | null>(null);
@@ -238,9 +239,17 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
   const refreshProfileGrants = useCallback(async (jobId: string) => {
     if (!jobId) return;
-    const state = await getJobProfileGrantState(jobId);
-    setAuthorizedProfiles((state.grants ?? []).map((grant) => grant.targetProfileSlug));
-    setPersistedProfileExpression((state.profileExpression ?? '').trim());
+    const requestID = ++profileGrantsRequestRef.current;
+    try {
+      const state = await getJobProfileGrantState(jobId);
+      if (requestID !== profileGrantsRequestRef.current) return;
+      setAuthorizedProfiles((state.grants ?? []).map((grant) => grant.targetProfileSlug));
+      setPersistedProfileExpression((state.profileExpression ?? '').trim());
+    } catch (err) {
+      if (requestID !== profileGrantsRequestRef.current) return;
+      setAuthorizedProfiles([]);
+      throw err;
+    }
   }, [getJobProfileGrantState]);
 
   useEffect(() => {
@@ -249,7 +258,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       .then((items) => setInstalledProfiles((items ?? []).map((item) => ({ slug: item.slug, name: item.name || item.slug }))))
       .catch(() => setInstalledProfiles([]));
     if (persistedJobId) {
-      refreshProfileGrants(persistedJobId).catch(() => setAuthorizedProfiles([]));
+      refreshProfileGrants(persistedJobId).catch(() => {});
     }
   }, [isSubagentJob, persistedJobId, refreshProfileGrants]);
 
@@ -474,9 +483,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       if (isSubagentJob) {
         try {
           await refreshProfileGrants(savedId);
-        } catch {
-          setAuthorizedProfiles([]);
-        }
+        } catch { /* refreshProfileGrants já aplicou o fallback atual */ }
       } else {
         setAuthorizedProfiles([]);
       }

@@ -237,6 +237,40 @@ describe('JobBuilder grants de profiles', () => {
     })).not.toBeInTheDocument());
   });
 
+  it('ignora refresh inicial que termina depois do refresh do save', async () => {
+    const user = userEvent.setup();
+    let resolveInitial!: (value: {
+      grants: Array<{ targetProfileSlug: string }>;
+      fingerprint: string;
+      profileExpression: string;
+    }) => void;
+    const initial = new Promise<{
+      grants: Array<{ targetProfileSlug: string }>;
+      fingerprint: string;
+      profileExpression: string;
+    }>((resolve) => { resolveInitial = resolve; });
+    getGrantState
+      .mockReturnValueOnce(initial)
+      .mockResolvedValue({
+        grants: [],
+        fingerprint: 'novo',
+        profileExpression: 'programacao',
+      });
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'edit-profile' }));
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(getGrantState).toHaveBeenCalledTimes(2));
+    resolveInitial({
+      grants: [{ targetProfileSlug: 'pesquisa' }],
+      fingerprint: 'antigo',
+      profileExpression: 'pesquisa',
+    });
+    await waitFor(() => expect(screen.queryByRole('button', {
+      name: 'jobs.builder.revokeProfileAriaLabel:Pesquisa',
+    })).not.toBeInTheDocument());
+    expect(screen.queryByText('jobs.builder.saveProfileConfigurationFirst')).not.toBeInTheDocument();
+  });
+
   it('autoriza slugs individuais de template e permite revogação', async () => {
     const user = userEvent.setup();
     getGrantState
