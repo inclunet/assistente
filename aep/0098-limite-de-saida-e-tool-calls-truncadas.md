@@ -130,9 +130,11 @@ provider/modelo, limite efetivamente solicitado, usage de output e reasoning
 quando reportada e tamanho em bytes do texto visível. O diagnóstico nunca inclui
 o conteúdo da resposta nem argumentos potencialmente grandes ou incompletos.
 
-Ausência de stop reason ou usage permanece ausência; não vira `max_tokens` nem
-zero reportado. Motivos brutos futuros são preservados e normalizados como
-`other` até decisão explícita.
+Ausência de stop reason ou usage permanece ausência no `FinishInfo`; não vira
+`max_tokens` nem zero reportado. Nos transports OpenAI, um stream que termina
+sem motivo e sem tool calls usa essa própria ausência para emitir o erro
+`streaming_interrupted`, sem inventar um motivo normalizado. Motivos brutos
+futuros são preservados e normalizados como `other` até decisão explícita.
 
 `chat:done.reason` passa a admitir `output_limit`. Esse desfecho não é erro de
 transporte e não dispara retry automático de streaming.
@@ -160,11 +162,11 @@ transporte e não dispara retry automático de streaming.
 
 ## Riscos
 
-- **Provider omite o motivo:** desde a correção da issue #731,
-  stream sem `finish_reason` e sem tool calls vira `streaming_interrupted`
-  em vez de `OnDone` silencioso. O fluxo simples entrega o código no
-  `chat:stream.error`; o loop agêntico, no `chat:done.errorMessage`. O legado de
-  preservar ausência foi superado para evitar truncamento mudo.
+- **Provider OpenAI omite o motivo:** desde a correção da issue #731, os
+  transports Chat Completions e Responses tratam stream sem `finish_reason` e
+  sem tool calls como `streaming_interrupted`, em vez de `OnDone` silencioso.
+  O fluxo simples entrega o código no `chat:stream.error`; o loop agêntico, no
+  `chat:done.errorMessage`. O motivo normalizado continua ausente.
 - **Tool call aparentemente completa em lote truncado:** será descartada para
   preservar atomicidade. O custo é repetir geração, sem repetir efeitos.
 - **Modelo ignora a orientação de fatiamento:** apenas uma reformulação é

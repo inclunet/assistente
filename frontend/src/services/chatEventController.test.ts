@@ -1470,6 +1470,14 @@ describe('chatEventController', () => {
       userContent: 'pergunta',
       turnId: 't1',
     });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'texto transmitido incompleto',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
       errorMessage: 'streaming_interrupted',

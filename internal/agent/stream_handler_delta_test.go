@@ -140,7 +140,8 @@ func TestBaseStreamHandlerResetStreamAttemptDescartaReasoningAnterior(t *testing
 }
 
 func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
-	handler := NewAgenticStreamHandler(&captureEmitter{}, "conversation-1", 0, nil, "turn-1")
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
 	handler.OnChunk("parcial")
 	handler.OnThinking("raciocínio")
 	handler.OnFinishReason(llm.FinishInfo{
@@ -165,6 +166,19 @@ func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
 	}
 	if !result.Usage.OutputTokensReported || result.Usage.CompletionTokens != 12 {
 		t.Fatalf("usage perdido no erro: %+v", result.Usage)
+	}
+	events := capturedNames(emitter)
+	streamIndex, thinkingDoneIndex := -1, -1
+	for i, event := range events {
+		if event == "chat:stream" {
+			streamIndex = i
+		}
+		if event == "chat:thinking" {
+			thinkingDoneIndex = i
+		}
+	}
+	if streamIndex < 0 || thinkingDoneIndex < 0 || streamIndex > thinkingDoneIndex {
+		t.Fatalf("ordem terminal inválida: stream=%d thinkingDone=%d", streamIndex, thinkingDoneIndex)
 	}
 }
 

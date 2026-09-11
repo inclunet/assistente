@@ -73,6 +73,41 @@ func TestStartStreamWatchdogNaoEstouraQuandoPaiCancelar(t *testing.T) {
 	}
 }
 
+func TestStreamWatchdogStopReconheceDeadlineJaExpirado(t *testing.T) {
+	_, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
+	wd.mu.Lock()
+	wd.lastActivity = time.Now().Add(-2 * time.Hour)
+	wd.mu.Unlock()
+
+	wd.Stop()
+
+	if !wd.TimedOut() {
+		t.Fatal("Stop deve preservar timeout cujo deadline venceu antes do EOF")
+	}
+}
+
+func TestStreamWatchdogStopNaoBloqueiaEmCallbackLento(t *testing.T) {
+	release := make(chan struct{})
+	watchCtx, wd := startStreamWatchdog(context.Background(), 10*time.Millisecond, func() {
+		<-release
+	})
+
+	select {
+	case <-watchCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("watchdog não cancelou o contexto")
+	}
+
+	start := time.Now()
+	wd.Stop()
+	elapsed := time.Since(start)
+	close(release)
+
+	if elapsed < 1500*time.Millisecond || elapsed > 3*time.Second {
+		t.Fatalf("Stop esperou %v; deveria respeitar o teto de 2s", elapsed)
+	}
+}
+
 func TestStreamIdleTimeoutForProvider(t *testing.T) {
 	if got := streamIdleTimeoutForProvider(nil); got != defaultStreamIdleTimeout {
 		t.Fatalf("nil provider: esperava %v, veio %v", defaultStreamIdleTimeout, got)

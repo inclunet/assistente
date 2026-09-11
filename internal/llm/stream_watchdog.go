@@ -33,9 +33,12 @@ type streamWatchdog struct {
 	cancel context.CancelFunc
 	kick   chan struct{}
 	done   chan struct{}
+	parent context.Context
+	idle   time.Duration
 
-	mu       sync.Mutex
-	timedOut bool
+	mu           sync.Mutex
+	timedOut     bool
+	lastActivity time.Time
 }
 
 // startStreamWatchdog deriva ctx com cancelamento por ociosidade. onTimeout é
@@ -44,9 +47,12 @@ type streamWatchdog struct {
 func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func()) (context.Context, *streamWatchdog) {
 	watchCtx, cancel := context.WithCancel(ctx)
 	w := &streamWatchdog{
-		cancel: cancel,
-		kick:   make(chan struct{}, 1),
-		done:   make(chan struct{}),
+		cancel:       cancel,
+		kick:         make(chan struct{}, 1),
+		done:         make(chan struct{}),
+		parent:       ctx,
+		idle:         idle,
+		lastActivity: time.Now(),
 	}
 
 	go func() {
@@ -59,6 +65,12 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 				return
 			case <-timer.C:
 				w.mu.Lock()
+				remaining := w.idle - time.Since(w.lastActivity)
+				if remaining > 0 {
+					w.mu.Unlock()
+					timer.Reset(remaining)
+					continue
+				}
 				w.timedOut = true
 				w.mu.Unlock()
 				logging.Warnf(ctx, "llm.stream-watchdog", "[stream-watchdog] stream sem eventos há %s; cancelando tentativa", idle)
@@ -84,6 +96,9 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 
 // Kick sinaliza atividade: reinicia a contagem de ociosidade. Non-blocking.
 func (w *streamWatchdog) Kick() {
+	w.mu.Lock()
+	w.lastActivity = time.Now()
+	w.mu.Unlock()
 	select {
 	case w.kick <- struct{}{}:
 	default:
@@ -92,6 +107,14 @@ func (w *streamWatchdog) Kick() {
 
 // Stop encerra o watchdog quando a tentativa acabou por vias próprias.
 func (w *streamWatchdog) Stop() {
+	// Se o deadline já venceu mas a goroutine ainda não consumiu timer.C,
+	// registre a expiração antes de cancelar watchCtx. Isso remove a escolha
+	// não determinística do select entre timer.C e watchCtx.Done no EOF.
+	w.mu.Lock()
+	if !w.timedOut && w.parent.Err() == nil && time.Since(w.lastActivity) >= w.idle {
+		w.timedOut = true
+	}
+	w.mu.Unlock()
 	w.cancel()
 	select {
 	case <-w.done:

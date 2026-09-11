@@ -447,6 +447,14 @@ export function startChatEventController({
     });
     currentAssistantNodeId = patch.message.id;
     assistantNodeCreated = true;
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    pendingVisualContent = null;
+    streamedContent = patch.message.content;
+    streamInitialized = true;
+    streamingCommitted = false;
     patchCurrentSession({ completedSegments: [], streamingMessageId: patch.message.id });
   };
 

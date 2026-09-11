@@ -38,7 +38,7 @@ turno, preservando a posição e a janela de histórico que você estava lendo.
 
 ## Limites e truncamentos
 
-O chat diferencia três situações:
+O chat diferencia cinco situações:
 
 - **Limite de geração (`output_limit`)**: o provedor informou que atingiu o
   limite de saída solicitado. Uma resposta curta também pode consumir o limite
@@ -50,6 +50,10 @@ O chat diferencia três situações:
 - **Saída truncada para exibição ou contexto**: previews e resultados extensos
   de ferramentas podem ser recortados localmente. Esse recorte é identificado
   como truncamento local e não produz `output_limit`.
+- **Stream interrompido (`streaming_interrupted`)**: um transporte OpenAI
+  encerrou sem informar motivo de finalização e sem concluir uma ferramenta.
+- **Timeout de inatividade (`streaming_idle_timeout`)**: o provedor parou de
+  enviar eventos durante uma resposta que já tinha conteúdo visível.
 
 Quando o provedor informa limite de geração, o chat preserva o texto recebido e
 oferece **Continuar resposta**. Se o provedor encerrar o stream sem motivo de
