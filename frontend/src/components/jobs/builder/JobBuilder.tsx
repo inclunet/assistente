@@ -419,7 +419,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       return approved;
     } catch (err) {
       showProfileGrantError(err);
-      return false;
+      return null;
     } finally {
       setProfileGrantBusy(false);
     }
@@ -482,10 +482,12 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       }
       if (result.authorizationRequired && result.targetProfileSlug) {
         const approved = await handleAuthorizeProfile(savedId, result.targetProfileSlug);
-        if (approved && result.requestedEnabled) {
+        if (approved === true && result.requestedEnabled) {
           await toggleJob(savedId, true);
-        } else if (!approved) {
+        } else if (approved === false) {
           announce(t('jobs.builder.savedDisabledWithoutAuthorization'), 'assertive');
+        } else if (approved === null) {
+          return;
         }
       } else if (result.authorizationRequired && result.dynamicProfile) {
         announce(t('jobs.builder.savedDisabledChooseProfiles'), 'assertive');

@@ -155,6 +155,27 @@ describe('JobBuilder grants de profiles', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('mantém editor aberto quando autorizar falha operacionalmente', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    saveJob.mockResolvedValue({
+      jobId: 'resumo-diario',
+      authorizationRequired: true,
+      requestedEnabled: true,
+      targetProfileSlug: 'pesquisa',
+      dynamicProfile: false,
+    });
+    authorizeProfile.mockRejectedValue(new Error('store de grants indisponível'));
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={onClose} />);
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    expect(await screen.findByText('jobs.builder.profileGrantUnavailableError')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalledWith(
+      'jobs.builder.savedDisabledWithoutAuthorization',
+      'assertive',
+    );
+  });
+
   it('não anuncia falta de autorização quando grant foi aprovado para job desabilitado', async () => {
     const user = userEvent.setup();
     saveJob.mockResolvedValue({
