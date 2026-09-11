@@ -391,6 +391,7 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 		CompletionTokens: 7, OutputTokensReported: true,
 		ReasoningTokens: 5, ReasoningTokensReported: true,
 	}
+	r.lastDiagnosticUsage = r.lastUsage
 	r.lastFinish = llm.FinishInfo{
 		Reason: llm.FinishReasonToolCalls, RawReason: "tool_calls",
 		Provider: "provider-1", Model: "modelo-1", OutputLimit: 20, ResponseBytes: 3,
@@ -423,6 +424,29 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 		d.ReasoningTokens == nil || *d.ReasoningTokens != 5 ||
 		d.ResponseBytes == nil || *d.ResponseBytes != 3 {
 		t.Fatalf("diagnóstico da última iteração ausente: %+v", d)
+	}
+}
+
+func TestAgenticLoopRunner_FinishLimitReachedNaoReutilizaUsageAnterior(t *testing.T) {
+	em := &captureEmitter{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	r := newSeamRunner(svc, "c1", "t1")
+	r.maxIterations = 2
+	r.lastUsage = llm.Usage{
+		CompletionTokens: 7, Reported: true, OutputTokensReported: true,
+		ReasoningTokens: 5, ReasoningTokensReported: true,
+	}
+	r.lastDiagnosticUsage = llm.Usage{}
+	r.lastFinish = llm.FinishInfo{Reason: llm.FinishReasonToolCalls, RawReason: "tool_calls"}
+
+	r.finishLimitReached(context.Background())
+
+	done := em.find("chat:done")[0].data.(ports.DoneEvent)
+	if done.CompletionTokens != 7 {
+		t.Fatalf("contador legado deveria continuar disponível: %+v", done)
+	}
+	if done.OutputTokens != nil || done.ReasoningTokens != nil {
+		t.Fatalf("usage anterior não pode vazar no diagnóstico da última iteração: %+v", done)
 	}
 }
 

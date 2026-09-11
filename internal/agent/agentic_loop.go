@@ -54,6 +54,7 @@ type agenticLoopRunner struct {
 	totalToolCallCount    int
 	toolsUsedSet          map[string]struct{}
 	lastUsage             llm.Usage
+	lastDiagnosticUsage   llm.Usage
 	lastFinish            llm.FinishInfo
 	outputLimitRepairUsed bool
 }
@@ -77,6 +78,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 			return
 		}
 		r.lastFinish = result.Finish
+		r.lastDiagnosticUsage = result.Usage
 
 		// Acumula usage da última iteração (AEP-0039)
 		if result.Usage.Reported {
@@ -715,12 +717,12 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 		ResponseBytes:        &responseBytes,
 		SurfaceOrigin:        r.surfaceOrigin,
 	}
-	if r.lastUsage.OutputTokensReported {
-		outputTokens := r.lastUsage.CompletionTokens
+	if r.lastDiagnosticUsage.OutputTokensReported {
+		outputTokens := r.lastDiagnosticUsage.CompletionTokens
 		doneEvent.OutputTokens = &outputTokens
 	}
-	if r.lastUsage.ReasoningTokensReported {
-		reasoningTokens := r.lastUsage.ReasoningTokens
+	if r.lastDiagnosticUsage.ReasoningTokensReported {
+		reasoningTokens := r.lastDiagnosticUsage.ReasoningTokens
 		doneEvent.ReasoningTokens = &reasoningTokens
 	}
 	doneEvent.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
