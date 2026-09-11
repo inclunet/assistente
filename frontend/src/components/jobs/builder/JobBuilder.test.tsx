@@ -27,6 +27,10 @@ vi.mock('../../../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('../../../store/jobStore', () => ({
+  isJobProfileAuthorizationError: (err: unknown) => (
+    typeof err === 'object' && err !== null && 'code' in err
+    && err.code === 'job_profile_authorization_required'
+  ),
   useJobStore: () => ({
     saveJob,
     toggleJob,
@@ -132,6 +136,23 @@ describe('JobBuilder grants de profiles', () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(authorizeProfile).not.toHaveBeenCalled();
+  });
+
+  it('localiza revogação concorrente entre autorização e ativação', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    saveJob.mockResolvedValue({
+      jobId: 'resumo-diario',
+      authorizationRequired: true,
+      requestedEnabled: true,
+      targetProfileSlug: 'pesquisa',
+      dynamicProfile: false,
+    });
+    toggleJob.mockRejectedValue({ code: 'job_profile_authorization_required' });
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={onClose} />);
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    expect(await screen.findByText('jobs.builder.profileGrantNotAuthorizedError')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('autoriza slugs individuais de template e permite revogação', async () => {

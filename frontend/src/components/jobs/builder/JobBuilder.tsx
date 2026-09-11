@@ -15,7 +15,7 @@ import { TriggerEditor } from './TriggerEditor';
 import { OutputExplorer } from './OutputExplorer';
 import { TemplateEditor } from './TemplateEditor';
 import { YAMLPreview } from './YAMLPreview';
-import { useJobStore } from '../../../store/jobStore';
+import { isJobProfileAuthorizationError, useJobStore } from '../../../store/jobStore';
 import { useAnnouncer } from '../../../hooks/useAnnouncer';
 import { ListKnownEvents, InferEventSchema } from '@wailsjs/go/wailsapi/Jobs';
 import { GetProfiles } from '@wailsjs/go/wailsapi/Profiles';
@@ -265,7 +265,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
   const showProfileGrantError = useCallback((err: unknown) => {
     const raw = err instanceof Error ? err.message : String(err);
-    const message = raw.includes('authorization_not_granted')
+    const message = isJobProfileAuthorizationError(err) || raw.includes('authorization_not_granted')
       ? t('jobs.builder.profileGrantNotAuthorizedError')
       : t('jobs.builder.profileGrantUnavailableError');
     showError(message);
@@ -487,11 +487,15 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       onSaved?.();
       onClose();
     } catch (err) {
-      showError(String(err));
+      if (isJobProfileAuthorizationError(err)) {
+        showProfileGrantError(err);
+      } else {
+        showError(String(err));
+      }
     } finally {
       setSaving(false);
     }
-  }, [announce, draft, handleAuthorizeProfile, onClose, onSaved, refreshProfileGrants, saveJob, showError, t, testOutput, toggleJob]);
+  }, [announce, draft, handleAuthorizeProfile, onClose, onSaved, profileExpression, refreshProfileGrants, saveJob, showError, showProfileGrantError, t, testOutput, toggleJob]);
 
   const handleFanoutSelect = useCallback((path: string) => {
     updateEvents('for_each', path);

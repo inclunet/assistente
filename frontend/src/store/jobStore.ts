@@ -20,6 +20,23 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { jobs, profileaccess, wailsapi } from '@wailsjs/go/models';
 import { parseToolSource } from '../utils/toolSource';
 
+export const JOB_PROFILE_AUTHORIZATION_REQUIRED = 'job_profile_authorization_required';
+
+export class JobProfileAuthorizationError extends Error {
+  readonly code = JOB_PROFILE_AUTHORIZATION_REQUIRED;
+
+  constructor() {
+    super(JOB_PROFILE_AUTHORIZATION_REQUIRED);
+    this.name = 'JobProfileAuthorizationError';
+  }
+}
+
+export function isJobProfileAuthorizationError(err: unknown): boolean {
+  return err instanceof JobProfileAuthorizationError
+    || (typeof err === 'object' && err !== null && 'code' in err
+      && err.code === JOB_PROFILE_AUTHORIZATION_REQUIRED);
+}
+
 function applyEffectiveEnabled(job: jobs.JobInfo, enabled: boolean): jobs.JobInfo {
   const updated = Object.assign(Object.create(Object.getPrototypeOf(job)), job);
   updated.enabled = enabled;
@@ -186,11 +203,11 @@ export const useJobStore = create<JobStoreState>((set, get) => {
             ));
             if (!granted) {
               if (expression.includes('{{')) {
-                throw new Error('authorization_not_granted');
+                throw new JobProfileAuthorizationError();
               }
               const approved = await AuthorizeJobProfile(id, expression);
               if (!approved) {
-                throw new Error('authorization_not_granted');
+                throw new JobProfileAuthorizationError();
               }
             }
           }
@@ -203,13 +220,22 @@ export const useJobStore = create<JobStoreState>((set, get) => {
           }),
         }));
       } catch (err) {
+        const normalizedError = isJobProfileAuthorizationError(err)
+          || String(err).includes('authorization_not_granted')
+          ? new JobProfileAuthorizationError()
+          : err;
         try {
           const reconciled = await GetJobs();
-          set({ jobs: reconciled || [], error: String(err) });
+          set({
+            jobs: reconciled || [],
+            error: isJobProfileAuthorizationError(normalizedError) ? null : String(normalizedError),
+          });
         } catch {
-          set({ error: String(err) });
+          set({
+            error: isJobProfileAuthorizationError(normalizedError) ? null : String(normalizedError),
+          });
         }
-        throw err;
+        throw normalizedError;
       }
     },
 

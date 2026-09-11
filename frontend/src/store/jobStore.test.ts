@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { jobs } from '@wailsjs/go/models';
-import { useJobStore } from './jobStore';
+import { JOB_PROFILE_AUTHORIZATION_REQUIRED, useJobStore } from './jobStore';
 
 const {
   mockAuthorizeJobProfile,
@@ -138,7 +138,7 @@ describe('jobStore.toggleJob', () => {
 
   it('bloqueia template dinâmico sem grant antes do backend', async () => {
     mockGetJob.mockResolvedValue({ tool: 'subagent', inputs: { profile: '{{ .event.profile }}' } });
-    await expect(useJobStore.getState().toggleJob('dinamico', true)).rejects.toThrow('authorization_not_granted');
+    await expect(useJobStore.getState().toggleJob('dinamico', true)).rejects.toThrow(JOB_PROFILE_AUTHORIZATION_REQUIRED);
     expect(mockAuthorizeJobProfile).not.toHaveBeenCalled();
     expect(mockToggleJob).not.toHaveBeenCalled();
   });
@@ -151,8 +151,9 @@ describe('jobStore.toggleJob', () => {
     mockToggleJob.mockRejectedValue(new Error('authorization_not_granted'));
     const disabled = jobInfo({ id: 'literal', enabled: false, effective_enabled: false });
     mockGetJobs.mockResolvedValue([disabled]);
-    await expect(useJobStore.getState().toggleJob('literal', true)).rejects.toThrow('authorization_not_granted');
+    await expect(useJobStore.getState().toggleJob('literal', true)).rejects.toThrow(JOB_PROFILE_AUTHORIZATION_REQUIRED);
     expect(useJobStore.getState().jobs).toEqual([disabled]);
+    expect(useJobStore.getState().error).toBeNull();
   });
 });
 

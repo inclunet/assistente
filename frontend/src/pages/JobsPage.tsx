@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useJobStore } from '../store/jobStore';
+import { isJobProfileAuthorizationError, useJobStore } from '../store/jobStore';
 import { Modal } from '../components/ui/Modal';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -165,7 +165,7 @@ export default function JobsPage() {
         addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
       } catch (error) {
-        const message = String(error).includes('authorization_not_granted')
+        const message = isJobProfileAuthorizationError(error)
           ? t('jobs.builder.enableRequiresAuthorizedProfile')
           : t('common.error', 'Error');
         addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
