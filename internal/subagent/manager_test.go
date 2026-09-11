@@ -3,6 +3,7 @@ package subagent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -38,6 +39,38 @@ func setupManagerTest(t *testing.T) (*DBRepository, context.Context) {
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(previous) })
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a")
+}
+
+func TestPrepareConversationDeletionCancelsAndBlocksRuns(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	if err := mgr.reserveConversation("child", "parent", "user-a"); err != nil {
+		t.Fatal(err)
+	}
+	ar := &activeRun{
+		childConversationID:  "child",
+		parentConversationID: "parent",
+		userID:               "user-a",
+		cancelCh:             make(chan struct{}),
+	}
+	mgr.registerActive("run", ar)
+	go func() {
+		<-ar.cancelCh
+		mgr.unregisterActive("run")
+	}()
+
+	release, err := mgr.PrepareConversationDeletion(ctx, []string{"parent"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion: %v", err)
+	}
+	if err := mgr.reserveConversation("new-child", "parent", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("novo run durante delete: erro=%v, esperado conversa deletada", err)
+	}
+	release()
+	if err := mgr.reserveConversation("new-child", "parent", "user-a"); err != nil {
+		t.Fatalf("reserva após release: %v", err)
+	}
+	mgr.releaseConversation("new-child")
 }
 
 func TestManagerRunSyncSuccess(t *testing.T) {

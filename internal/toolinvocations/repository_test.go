@@ -3,6 +3,8 @@ package toolinvocations
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -70,6 +72,85 @@ func TestRepositoryCreatesAndListsScopedInvocations(t *testing.T) {
 	}
 	if len(gotA) != 1 || gotA[0].ToolCallID != "call-a" {
 		t.Fatalf("unexpected user A invocations: %#v", gotA)
+	}
+}
+
+func TestCreateChatInvocationCannotRaceIntoDeletedConversation(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "race.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(
+		&database.User{}, &database.Conversation{}, &database.ChatMessage{},
+		&database.ToolCatalog{}, &database.ToolInvocation{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	previous := database.DB()
+	database.SetDB(db)
+	t.Cleanup(func() { database.SetDB(previous) })
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	ctx := database.WithUserID(context.Background(), "user-a")
+	if err := db.Create(&database.User{
+		UUIDModel:    database.UUIDModel{ID: "user-a"},
+		Username:     "user-a",
+		PasswordHash: "test",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	conv := database.Conversation{UserID: "user-a", Title: "race"}
+	if err := db.Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	msg := database.ChatMessage{ConversationID: conv.ID, Role: "user", Content: "origem"}
+	if err := db.Create(&msg).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := database.ToolCatalog{
+		Name:               "echo-race",
+		DisplayName:        "echo",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := db.Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := NewDBRepository(db)
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	go func() {
+		<-start
+		errs <- repo.Create(ctx, &Invocation{
+			ToolCatalogID: catalog.ID,
+			OriginType:    OriginChat,
+			OriginID:      msg.ID,
+			ToolCallID:    "call-race",
+		})
+	}()
+	go func() {
+		<-start
+		errs <- database.DeleteConversationWithContext(ctx, conv.ID)
+	}()
+	close(start)
+	for range 2 {
+		err := <-errs
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Fatalf("corrida create/delete: %v", err)
+		}
+	}
+	var count int64
+	if err := db.Model(&database.ToolInvocation{}).Where("origin_id = ?", msg.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("tool invocation órfã criada após exclusão concorrente")
 	}
 }
 

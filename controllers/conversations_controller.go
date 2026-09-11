@@ -18,6 +18,7 @@ type ConversationsControllerConfig struct {
 	MsgRepo               chat.MessageRepository
 	Emitter               ports.Emitter
 	ResetScopedState      func(ctx context.Context, conversationID string)
+	PrepareBatchDelete    func(ctx context.Context, conversationIDs []string) (release func(), err error)
 	ConfirmDeleteMessage  func() error
 	GetEffectiveModelFunc func() (string, error)
 }
@@ -27,6 +28,7 @@ type ConversationsController struct {
 	msgRepo              chat.MessageRepository
 	emitter              ports.Emitter
 	resetScopedState     func(ctx context.Context, conversationID string)
+	prepareBatchDelete   func(ctx context.Context, conversationIDs []string) (release func(), err error)
 	confirmDeleteMessage func() error
 	getEffectiveModel    func() (string, error)
 }
@@ -37,6 +39,7 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 		msgRepo:              cfg.MsgRepo,
 		emitter:              cfg.Emitter,
 		resetScopedState:     cfg.ResetScopedState,
+		prepareBatchDelete:   cfg.PrepareBatchDelete,
 		confirmDeleteMessage: cfg.ConfirmDeleteMessage,
 		getEffectiveModel:    cfg.GetEffectiveModelFunc,
 	}
@@ -359,7 +362,23 @@ func (c *ConversationsController) DeleteConversation(ctx context.Context, id str
 // DeleteConversations remove atomicamente as conversas e só então limpa estado
 // efêmero e publica um evento por ID normalizado.
 func (c *ConversationsController) DeleteConversations(ctx context.Context, ids []string) ([]string, error) {
-	deletedIDs, err := database.DeleteConversationsWithContext(ctx, ids)
+	normalizedIDs, err := database.ValidateOwnedConversationIDsWithContext(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	release := func() {}
+	if c.prepareBatchDelete != nil {
+		release, err = c.prepareBatchDelete(ctx, normalizedIDs)
+		if err != nil {
+			return nil, err
+		}
+		if release == nil {
+			release = func() {}
+		}
+	}
+	defer release()
+
+	deletedIDs, err := database.DeleteConversationsWithContext(ctx, normalizedIDs)
 	if err != nil {
 		return nil, err
 	}

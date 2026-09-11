@@ -89,7 +89,9 @@ type outcome struct {
 // status running) — fecha a janela entre a decisão e a persistência. Lido/escrito
 // sob m.mu.
 type activeRun struct {
-	childConversationID string
+	childConversationID  string
+	parentConversationID string
+	userID               string
 	// title é o título da sub-conversa no momento do disparo. Imutável após a
 	// criação; serve para nomear o run nos eventos de conclusão sem uma leitura
 	// extra ao banco no caminho terminal.
@@ -97,6 +99,11 @@ type activeRun struct {
 	cancelCh       chan struct{}
 	cancelOnce     sync.Once
 	terminalStatus string
+}
+
+type conversationReservation struct {
+	parentConversationID string
+	userID               string
 }
 
 func (a *activeRun) cancel() {
@@ -118,11 +125,13 @@ type Manager struct {
 	maxConcurrent       int
 	maxConcurrentGlobal int
 
-	mu           sync.Mutex
-	active       map[string]*activeRun // runID -> run ativo
-	activeByUser map[string]int        // userID -> nº de runs ativos (teto por usuário)
-	activeTotal  int                   // nº de runs ativos somando todos os usuários (teto global)
-	activeConvs  map[string]struct{}   // childConversationID com run ativo (fail-fast resume)
+	deletionGate  sync.RWMutex
+	mu            sync.Mutex
+	active        map[string]*activeRun              // runID -> run ativo
+	activeByUser  map[string]int                     // userID -> nº de runs ativos (teto por usuário)
+	activeTotal   int                                // nº de runs ativos somando todos os usuários (teto global)
+	activeConvs   map[string]conversationReservation // childConversationID com run reservado/ativo
+	deletingConvs map[string]string                  // conversationID -> userID durante exclusão
 
 	// parentLocks serializa a entrega por conversa-pai (evita corrida no
 	// StreamingManager). Striped locks de cardinalidade FIXA: um map[parentID]
@@ -195,7 +204,8 @@ func NewManager(cfg ManagerConfig) *Manager {
 		maxConcurrentGlobal: maxConcurrentGlobal,
 		active:              make(map[string]*activeRun),
 		activeByUser:        make(map[string]int),
-		activeConvs:         make(map[string]struct{}),
+		activeConvs:         make(map[string]conversationReservation),
+		deletingConvs:       make(map[string]string),
 	}
 }
 
@@ -244,12 +254,28 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		return RunResult{}, err
 	}
 
+	// Torna atômica, em relação ao início de uma exclusão, a janela que pode
+	// criar uma sub-conversa nova e reservá-la. Assim, delete-first bloqueia o
+	// run antes de qualquer criação; run-first é registrado e depois cancelado
+	// e aguardado pelo coordenador.
+	m.deletionGate.RLock()
+	m.mu.Lock()
+	parentDeleting := m.deletingConvs[p.ParentConversationID] == userID
+	childDeleting := p.ConversationID != "" && m.deletingConvs[p.ConversationID] == userID
+	m.mu.Unlock()
+	if parentDeleting || childDeleting {
+		m.deletionGate.RUnlock()
+		m.releaseSlot(userID)
+		return RunResult{}, database.ErrConversationDeleted
+	}
+
 	// 1. Resolve a sub-conversa SEM efeitos destrutivos: cria nova ou valida uma
 	// existente (resume — Fase 3). O clear (reset) NÃO ocorre aqui — só após a
 	// reserva de concorrência abaixo, para não apagar dados de um run que será
 	// rejeitado pelo fail-fast.
 	childConvID, childTitle, isNew, err := m.resolveChildConversation(ctx, p)
 	if err != nil {
+		m.deletionGate.RUnlock()
 		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
@@ -265,10 +291,12 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// reserva. A reserva protege o que é destrutivo/concorrente: o registro do run
 	// (Create) e o clear (reset de histórico/resumo). É liberada quando o run
 	// deixa de estar ativo (unregisterActive) ou nos caminhos de falha aqui.
-	if err := m.reserveConversation(childConvID); err != nil {
+	if err := m.reserveConversation(childConvID, p.ParentConversationID, userID); err != nil {
+		m.deletionGate.RUnlock()
 		m.releaseSlot(userID)
 		return RunResult{}, err
 	}
+	m.deletionGate.RUnlock()
 
 	// 1b. Calcula o TurnIndex (LEITURA não-destrutiva) com a reserva em mãos. O
 	//     índice vem da tabela de runs, não do histórico de chat, então independe
@@ -367,7 +395,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			}
 		},
 	})
-	ar := &activeRun{childConversationID: childConvID, title: childTitle, cancelCh: make(chan struct{})}
+	ar := &activeRun{
+		childConversationID:  childConvID,
+		parentConversationID: p.ParentConversationID,
+		userID:               userID,
+		title:                childTitle,
+		cancelCh:             make(chan struct{}),
+	}
 	m.registerActive(run.ID, ar)
 
 	// 4. Marca running e dispara o envio pelo pipeline oficial.
@@ -1034,14 +1068,121 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
 // erro (fail-fast) se já existir um run ativo para o mesmo childConversationID,
 // evitando dois runs concorrentes na mesma sub-conversa (limitação do
 // ResponseNotifier, indexado por conversationID — AEP-0068).
-func (m *Manager) reserveConversation(childConversationID string) error {
+func (m *Manager) reserveConversation(childConversationID, parentConversationID, userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, busy := m.activeConvs[childConversationID]; busy {
 		return fmt.Errorf("já existe um sub-agente ativo nesta sub-conversa (%s); aguarde a conclusão ou cancele o run atual antes de continuar", childConversationID)
 	}
-	m.activeConvs[childConversationID] = struct{}{}
+	if deletingUser := m.deletingConvs[childConversationID]; deletingUser == userID {
+		return database.ErrConversationDeleted
+	}
+	if deletingUser := m.deletingConvs[parentConversationID]; parentConversationID != "" && deletingUser == userID {
+		return database.ErrConversationDeleted
+	}
+	m.activeConvs[childConversationID] = conversationReservation{
+		parentConversationID: parentConversationID,
+		userID:               userID,
+	}
 	return nil
+}
+
+// PrepareConversationDeletion impede novos runs ligados às conversas, cancela
+// os ativos e aguarda sua finalização persistida. O release devolvido deve
+// permanecer retido até o commit/rollback da exclusão no banco.
+func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationIDs []string) (func(), error) {
+	if m == nil {
+		return nil, ErrManagerNotConfigured
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targets := make(map[string]struct{}, len(conversationIDs))
+	for _, rawID := range conversationIDs {
+		if id := strings.TrimSpace(rawID); id != "" {
+			targets[id] = struct{}{}
+		}
+	}
+	if len(targets) == 0 {
+		return nil, database.ErrConversationIDRequired
+	}
+
+	m.deletionGate.Lock()
+	m.mu.Lock()
+	if m.deletingConvs == nil {
+		m.deletingConvs = make(map[string]string)
+	}
+	for id := range targets {
+		if _, exists := m.deletingConvs[id]; exists {
+			m.mu.Unlock()
+			m.deletionGate.Unlock()
+			return nil, fmt.Errorf("exclusão da conversa já está em andamento")
+		}
+		m.deletingConvs[id] = userID
+	}
+	m.mu.Unlock()
+	m.deletionGate.Unlock()
+
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			m.mu.Lock()
+			for id := range targets {
+				if m.deletingConvs[id] == userID {
+					delete(m.deletingConvs, id)
+				}
+			}
+			m.mu.Unlock()
+		})
+	}
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var claimed []*activeRun
+		pending := false
+		m.mu.Lock()
+		for childID, reservation := range m.activeConvs {
+			_, childTarget := targets[childID]
+			_, parentTarget := targets[reservation.parentConversationID]
+			if reservation.userID == userID && (childTarget || parentTarget) {
+				pending = true
+			}
+		}
+		for _, ar := range m.active {
+			_, childTarget := targets[ar.childConversationID]
+			_, parentTarget := targets[ar.parentConversationID]
+			if ar.userID != userID || (!childTarget && !parentTarget) {
+				continue
+			}
+			pending = true
+			if ar.terminalStatus == "" {
+				ar.terminalStatus = database.SubAgentRunStatusCancelled
+				claimed = append(claimed, ar)
+			}
+		}
+		m.mu.Unlock()
+
+		for _, ar := range claimed {
+			if m.cancelStrm != nil {
+				m.cancelStrm(ar.childConversationID)
+			}
+			if m.notifier != nil {
+				m.notifier.Cancel(ar.childConversationID)
+			}
+			ar.cancel()
+		}
+		if !pending {
+			return release, nil
+		}
+		select {
+		case <-ctx.Done():
+			release()
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // releaseConversation libera a reserva de uma sub-conversa. Usado no caminho de

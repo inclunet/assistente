@@ -108,11 +108,18 @@ func TestDeleteConversationsWithContextNormalizesAndCleansAssociations(t *testin
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := testDB.Create(&ToolInvocation{
+		UserID: "delete-other", ToolCatalogID: "tool", OriginType: "chat",
+		OriginID: firstMsg.ID, Status: "succeeded", QueuedAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	for _, row := range []any{
-		&ChannelResponsePending{ConversationID: first.ID, OwnerUserID: "delete-owner", Channel: "signal", ChatID: "owner"},
+		&ChannelResponsePending{ConversationID: first.ID, OwnerUserID: "delete-other", Channel: "signal", ChatID: "legacy"},
 		&ChannelResponsePending{ConversationID: other.ID, OwnerUserID: "delete-other", Channel: "signal", ChatID: "other"},
 		&ACPSession{UserID: "delete-owner", ConversationID: first.ID, ProviderID: "acp", SessionID: "owner"},
+		&ACPSession{UserID: "delete-other", ConversationID: first.ID, ProviderID: "acp-legacy", SessionID: "legacy"},
 		&ACPSession{UserID: "delete-other", ConversationID: other.ID, ProviderID: "acp", SessionID: "other"},
 	} {
 		if err := testDB.Create(row).Error; err != nil {
@@ -129,6 +136,7 @@ func TestDeleteConversationsWithContextNormalizesAndCleansAssociations(t *testin
 	}
 	for _, row := range []*ChannelContactConversation{
 		{ChannelID: ownerChannel.ID, ContactExternalID: "owner", ConversationID: first.ID},
+		{ChannelID: otherChannel.ID, ContactExternalID: "legacy", ConversationID: first.ID},
 		{ChannelID: otherChannel.ID, ContactExternalID: "other", ConversationID: other.ID},
 	} {
 		if err := testDB.Create(row).Error; err != nil {
@@ -359,5 +367,38 @@ func TestDeleteConversationsConcurrentWithReaderAndMaintenance(t *testing.T) {
 	}
 	if countWhere(t, testDB, &Conversation{}, "user_id = ?", "delete-owner") != 0 {
 		t.Fatal("nem todas as conversas concorrentes foram excluídas")
+	}
+}
+
+func TestCreateMessageCannotRaceIntoDeletedConversation(t *testing.T) {
+	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
+	for range 12 {
+		conv, _ := seedDeleteConversation(t, testDB, "delete-owner", "message race")
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+		go func() {
+			<-start
+			_, err := CreateMessageWithContext(ownerCtx, MessageOptions{
+				ConversationID: conv.ID,
+				Role:           "assistant",
+				Content:        "concorrente",
+			})
+			errs <- err
+		}()
+		go func() {
+			<-start
+			errs <- DeleteConversationWithContext(ownerCtx, conv.ID)
+		}()
+		close(start)
+
+		for range 2 {
+			err := <-errs
+			if err != nil && !errors.Is(err, ErrConversationDeleted) {
+				t.Fatalf("corrida create/delete: %v", err)
+			}
+		}
+		if countWhere(t, testDB, &ChatMessage{}, "conversation_id = ?", conv.ID) != 0 {
+			t.Fatal("mensagem órfã criada após exclusão concorrente")
+		}
 	}
 }

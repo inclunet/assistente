@@ -57,10 +57,34 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 		inv.Status = StatusQueued
 	}
 	row := invocationDomainToModel(*inv)
-	if err := r.retry(ctx, "create", func() error {
-		return r.db.WithContext(ctx).Create(&row).Error
-	}); err != nil {
-		return err
+	create := func(exec *gorm.DB) error {
+		return exec.WithContext(ctx).Create(&row).Error
+	}
+	var createErr error
+	if inv.OriginType == OriginChat {
+		createErr = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.create_chat", func(tx *gorm.DB) error {
+			// Testes/migrações parciais podem montar apenas a tabela técnica.
+			if !tx.Migrator().HasTable(&database.ChatMessage{}) ||
+				!tx.Migrator().HasTable(&database.Conversation{}) {
+				return create(tx)
+			}
+			var originCount int64
+			if err := tx.WithContext(ctx).Model(&database.ChatMessage{}).
+				Joins("JOIN conversations ON conversations.id = chat_messages.conversation_id").
+				Where("conversations.user_id = ? AND (chat_messages.id = ? OR chat_messages.turn_id = ?)", userID, inv.OriginID, inv.OriginID).
+				Count(&originCount).Error; err != nil {
+				return err
+			}
+			if originCount == 0 {
+				return gorm.ErrRecordNotFound
+			}
+			return create(tx)
+		})
+	} else {
+		createErr = r.retry(ctx, "create", func() error { return create(r.db) })
+	}
+	if createErr != nil {
+		return createErr
 	}
 	*inv = invocationModelToDomain(row)
 	return nil

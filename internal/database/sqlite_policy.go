@@ -115,6 +115,13 @@ func acquireSQLiteMaintenance(ctx context.Context) (func(), error) {
 }
 
 func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
+	return WithSQLiteImmediateTransaction(ctx, db, operation, fn)
+}
+
+// WithSQLiteImmediateTransaction serializa a aquisição do writer lock antes
+// de qualquer leitura de validação. É exportado para repositories de outros
+// pacotes que persistem dados ligados ao histórico.
+func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
 	return WithSQLiteBusyRetry(ctx, operation, func() error {
 		return db.WithContext(ctx).Connection(func(tx *gorm.DB) error {
 			// BEGIN/COMMIT são controlados explicitamente abaixo; impedir que
