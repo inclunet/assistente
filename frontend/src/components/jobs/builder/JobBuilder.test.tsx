@@ -173,6 +173,38 @@ describe('JobBuilder grants de profiles', () => {
     );
   });
 
+  it('remove grants revogados da lista após salvar nova expressão', async () => {
+    const user = userEvent.setup();
+    getGrantState
+      .mockResolvedValueOnce({
+        grants: [{ targetProfileSlug: 'pesquisa' }],
+        fingerprint: 'antigo',
+        profileExpression: 'pesquisa',
+      })
+      .mockResolvedValue({
+        grants: [],
+        fingerprint: 'novo',
+        profileExpression: 'programacao',
+      });
+    saveJob.mockResolvedValue({
+      jobId: 'resumo-diario',
+      authorizationRequired: true,
+      requestedEnabled: true,
+      targetProfileSlug: 'programacao',
+      dynamicProfile: false,
+    });
+    authorizeProfile.mockResolvedValue(false);
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={vi.fn()} />);
+    expect(await screen.findByRole('button', {
+      name: 'jobs.builder.revokeProfileAriaLabel:Pesquisa',
+    })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'edit-profile' }));
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(screen.queryByRole('button', {
+      name: 'jobs.builder.revokeProfileAriaLabel:Pesquisa',
+    })).not.toBeInTheDocument());
+  });
+
   it('autoriza slugs individuais de template e permite revogação', async () => {
     const user = userEvent.setup();
     getGrantState

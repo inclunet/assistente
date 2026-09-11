@@ -471,6 +471,15 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       const savedId = result.jobId || finalId;
       setPersistedJobId(savedId);
       setPersistedProfileExpression(profileExpression);
+      if (isSubagentJob) {
+        try {
+          await refreshProfileGrants(savedId);
+        } catch {
+          setAuthorizedProfiles([]);
+        }
+      } else {
+        setAuthorizedProfiles([]);
+      }
       if (result.authorizationRequired && result.targetProfileSlug) {
         const approved = await handleAuthorizeProfile(savedId, result.targetProfileSlug);
         if (approved && result.requestedEnabled) {
@@ -495,7 +504,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     } finally {
       setSaving(false);
     }
-  }, [announce, draft, handleAuthorizeProfile, onClose, onSaved, profileExpression, refreshProfileGrants, saveJob, showError, showProfileGrantError, t, testOutput, toggleJob]);
+  }, [announce, draft, handleAuthorizeProfile, isSubagentJob, onClose, onSaved, profileExpression, refreshProfileGrants, saveJob, showError, showProfileGrantError, t, testOutput, toggleJob]);
 
   const handleFanoutSelect = useCallback((path: string) => {
     updateEvents('for_each', path);
