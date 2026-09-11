@@ -52,7 +52,19 @@ export function WorkspaceLayout() {
   const markTabShortcutNavigation = useCallback((tabId: string) => {
     restoreFocusAfterTabShortcutRef.current = tabId;
     lastTabShortcutTargetRef.current = tabId;
-  }, []);
+    if (tabId === workspace?.activeTabId) {
+      const activeTabType = workspace?.tabs.find((tab) => tab.id === tabId)?.type;
+      requestAnimationFrame(() => {
+        if (hasWorkspacePanelFocusHandler(tabId)) {
+          requestWorkspacePanelFocus(tabId);
+        } else if (activeTabType === 'editor') {
+          queueWorkspacePanelFocus(tabId);
+        } else {
+          restoreDefaultFocus();
+        }
+      });
+    }
+  }, [workspace?.activeTabId, workspace?.tabs]);
 
   useWorkspaceKeyboardShortcuts({
     onTabShortcutNavigation: markTabShortcutNavigation,

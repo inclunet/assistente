@@ -240,11 +240,8 @@ export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShort
           }
           const targetTab = tabs[num - 1];
           if (targetTab) {
-            const isActiveTab = targetTab.id === activeTabId;
             setActiveTab(targetTab.id);
-            if (isActiveTab) {
-              requestAnimationFrame(() => restoreDefaultFocus());
-            } else if (onTabShortcutNavigation) {
+            if (onTabShortcutNavigation) {
               onTabShortcutNavigation(targetTab.id);
             } else {
               requestAnimationFrame(() => restoreDefaultFocus());
