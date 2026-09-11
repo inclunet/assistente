@@ -116,7 +116,7 @@ func TestDeleteConversationsWithContextNormalizesAndCleansAssociations(t *testin
 	first, firstMsg := seedDeleteConversation(t, testDB, "delete-owner", "first")
 	second, secondMsg := seedDeleteConversation(t, testDB, "delete-owner", "second")
 	other, otherMsg := seedDeleteConversation(t, testDB, "delete-other", "other")
-	child, _ := seedDeleteConversation(t, testDB, "delete-owner", "child kept")
+	child, childMsg := seedDeleteConversation(t, testDB, "delete-owner", "child kept")
 	child.Kind = ConversationKindSubagent
 	child.ParentConversationID = first.ID
 	if err := testDB.Save(child).Error; err != nil {
@@ -144,6 +144,19 @@ func TestDeleteConversationsWithContextNormalizesAndCleansAssociations(t *testin
 		UserID: "delete-other", ToolCatalogID: "tool", OriginType: "chat",
 		OriginID: firstMsg.ID, Status: "succeeded", QueuedAt: time.Now(),
 	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var parentInvocation ToolInvocation
+	if err := testDB.Where("user_id = ? AND origin_id = ?", "delete-owner", firstMsg.ID).
+		First(&parentInvocation).Error; err != nil {
+		t.Fatal(err)
+	}
+	childInvocation := &ToolInvocation{
+		UserID: "delete-owner", ToolCatalogID: "tool", OriginType: "chat",
+		OriginID: childMsg.ID, ParentInvocationID: &parentInvocation.ID,
+		Status: "succeeded", QueuedAt: time.Now(),
+	}
+	if err := testDB.Create(childInvocation).Error; err != nil {
 		t.Fatal(err)
 	}
 
@@ -225,7 +238,7 @@ func TestDeleteConversationsWithContextNormalizesAndCleansAssociations(t *testin
 	}
 	if countWhere(t, testDB, &Conversation{}, "id IN ?", []string{first.ID, second.ID}) != 0 ||
 		countWhere(t, testDB, &ChatMessage{}, "conversation_id IN ?", []string{first.ID, second.ID}) != 0 ||
-		countWhere(t, testDB, &ToolInvocation{}, "user_id = ?", "delete-owner") != 0 ||
+		countWhere(t, testDB, &ToolInvocation{}, "user_id = ?", "delete-owner") != 1 ||
 		countWhere(t, testDB, &ChannelResponsePending{}, "conversation_id = ?", first.ID) != 0 ||
 		countWhere(t, testDB, &ACPSession{}, "conversation_id = ?", first.ID) != 0 ||
 		countWhere(t, testDB, &ChannelContactConversation{}, "conversation_id = ?", first.ID) != 0 ||
@@ -250,6 +263,12 @@ func TestDeleteConversationsWithContextNormalizesAndCleansAssociations(t *testin
 	}
 	if keptRun.ParentConversationID != "" || keptRun.ParentTurnID != "" {
 		t.Fatalf("run mantido ainda aponta para pai excluído: %+v", keptRun)
+	}
+	if err := testDB.First(childInvocation, "id = ?", childInvocation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if childInvocation.ParentInvocationID != nil {
+		t.Fatalf("invocação mantida ainda aponta para pai excluído: %v", *childInvocation.ParentInvocationID)
 	}
 	if err := testDB.First(list, "id = ?", list.ID).Error; err != nil {
 		t.Fatal(err)

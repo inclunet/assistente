@@ -26,6 +26,7 @@ const (
 // compactação física. Um canal, em vez de sync.Mutex, permite que quem espera
 // respeite o cancelamento do contexto.
 var sqliteMaintenanceGate = make(chan struct{}, 1)
+var conversationLifecycleGate = make(chan struct{}, 1)
 
 var sqliteBusyRetryDelays = []time.Duration{
 	25 * time.Millisecond,
@@ -123,6 +124,21 @@ func WithSQLiteMaintenance(ctx context.Context, fn func() error) error {
 	}
 	defer release()
 	return fn()
+}
+
+// WithConversationLifecycle serializa exclusão e restauração do mesmo espaço
+// de IDs até os efeitos pós-commit terminarem.
+func WithConversationLifecycle(ctx context.Context, fn func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case conversationLifecycleGate <- struct{}{}:
+		defer func() { <-conversationLifecycleGate }()
+		return fn()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {

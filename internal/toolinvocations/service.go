@@ -107,24 +107,17 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
 	persistCtx := s.persistCtx(ctx)
 
-	// Defesa best-effort: se a origem do chat já foi deletada, não criar
-	// registros técnicos que ficarão órfãos. Alguns cenários de teste/migração
-	// não têm a tabela de chat_messages disponível.
+	// Defesa fail-closed para chat: sem validar a origem, não execute uma tool
+	// que pode produzir efeitos externos. A validação transacional do Create
+	// continua sendo a autoridade contra a corrida posterior.
 	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
 		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
 			opCtx, cancel := s.persistOpCtx(persistCtx)
 			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
 			cancel()
 			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					// Se o turno/mensagem foi removido antes da execução, não execute tools com efeitos colaterais.
-					logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
-					return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
-				}
-				// Para falhas transitórias de DB, mantém best-effort e executa sem persistência.
-				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate chat origin %s; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
-				exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-				return ExecuteResult{Execution: exec, Persisted: false}
+				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s could not be validated; aborting tool execution: %v", strings.TrimSpace(req.Origin.ID), err)
+				return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
 			}
 		}
 	}
@@ -201,7 +194,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	cancel()
 	if createErr != nil {
 		if strings.TrimSpace(inv.OriginType) == OriginChat {
-			logging.Warnf(ctx, "toolinvocations.service", "chat invocation could not be persisted safely for origin %s; aborting: %v", strings.TrimSpace(inv.OriginID), createErr)
+			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat invocation could not be persisted safely for origin %s; aborting: %v", strings.TrimSpace(inv.OriginID), createErr)
 			return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
 		}
 		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", createErr)

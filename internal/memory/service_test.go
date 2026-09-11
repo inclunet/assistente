@@ -83,6 +83,22 @@ func TestServiceRejectsMemoryForDeletedConversation(t *testing.T) {
 	}
 }
 
+func TestServiceNormalizaConversationScopeRef(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	record, err := svc.Create(ctx, RecordInput{
+		Content:    "memória escopada",
+		LoadPolicy: LoadPolicyPinned,
+		Scope:      database.MemoryScopeConversation,
+		ScopeRef:   " conv-a ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ScopeRef != "conv-a" {
+		t.Fatalf("ScopeRef não normalizado: %q", record.ScopeRef)
+	}
+}
+
 func TestServiceImplementsContextProvider(t *testing.T) {
 	svc, ctx, _ := setupMemoryService(t)
 	if _, err := svc.Create(ctx, RecordInput{

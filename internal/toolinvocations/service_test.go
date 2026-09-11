@@ -203,6 +203,28 @@ func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T)
 	}
 }
 
+func TestServiceDoesNotExecuteWhenChatOriginValidationFails(t *testing.T) {
+	repo, _, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(echoTool{})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	result := svc.Execute(context.Background(), ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   "call-validation-error",
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      "echo",
+				Arguments: `{"value":"não executar"}`,
+			},
+		},
+		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+	})
+	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "item do chat foi removido") {
+		t.Fatalf("falha de validação deveria cancelar sem executar tool: %+v", result.Execution.Result)
+	}
+}
+
 func TestServicePersistsDisplayMetadataBeforeExecutionCompletes(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	started := make(chan struct{}, 1)

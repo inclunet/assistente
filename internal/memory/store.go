@@ -191,6 +191,7 @@ func validateConversationScope(ctx context.Context, tx *gorm.DB, record *databas
 	if record.Scope != database.MemoryScopeConversation {
 		return nil
 	}
+	record.ScopeRef = strings.TrimSpace(record.ScopeRef)
 	return database.ValidateConversationOwnerTx(ctx, tx, record.ScopeRef, userID)
 }
 
@@ -210,7 +211,8 @@ func (s *DBStore) Update(ctx context.Context, id string, updates map[string]any)
 			scope = value
 		}
 		if value, ok := updates["scope_ref"].(string); ok {
-			scopeRef = value
+			scopeRef = strings.TrimSpace(value)
+			updates["scope_ref"] = scopeRef
 		}
 		if scope == database.MemoryScopeConversation {
 			if err := database.ValidateConversationOwnerTx(ctx, tx, scopeRef, userID); err != nil {

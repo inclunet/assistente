@@ -284,7 +284,13 @@ func withPreparedConversationRestore(
 		}
 	}
 	defer finalize(nil)
-	return importFn(finalize)
+	var result *portability.ImportResult
+	err := database.WithConversationLifecycle(ctx, func() error {
+		var importErr error
+		result, importErr = importFn(finalize)
+		return importErr
+	})
+	return result, err
 }
 
 // AnalyzeImportData analisa um payload de importação sem aplicar mudanças.

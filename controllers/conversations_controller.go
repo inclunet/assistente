@@ -52,7 +52,7 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 		cfg.ValidateBatchDelete = database.ValidateOwnedConversationIDsWithContext
 	}
 	if cfg.DeleteBatch == nil {
-		cfg.DeleteBatch = database.DeleteConversationsWithContext
+		cfg.DeleteBatch = database.DeleteConversationsWithinLifecycleWithContext
 	}
 	if cfg.ListConversations == nil {
 		cfg.ListConversations = database.GetConversationsWithContext
@@ -495,17 +495,25 @@ func (c *ConversationsController) deletePreparedConversations(
 		}
 	}()
 
-	deletedIDs, err := deleteBatch(ctx, normalizedIDs)
+	var deletedIDs []string
+	err := database.WithConversationLifecycle(ctx, func() error {
+		var err error
+		deletedIDs, err = deleteBatch(ctx, normalizedIDs)
+		if err != nil {
+			return err
+		}
+		finalize(true)
+		committed = true
+		for _, id := range deletedIDs {
+			c.resetScoped(ctx, id)
+			c.emit("conversation:deleted", map[string]interface{}{
+				"conversation_id": id,
+			})
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	finalize(true)
-	committed = true
-	for _, id := range deletedIDs {
-		c.resetScoped(ctx, id)
-		c.emit("conversation:deleted", map[string]interface{}{
-			"conversation_id": id,
-		})
 	}
 	return deletedIDs, nil
 }

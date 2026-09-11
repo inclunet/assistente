@@ -524,18 +524,43 @@ func (r *ConversationRepository) DeleteConversationsWithContext(ctx context.Cont
 		return nil, err
 	}
 
+	var deleted []string
+	err = WithConversationLifecycle(ctx, func() error {
+		var deleteErr error
+		deleted, deleteErr = r.deleteConversationsWithinLifecycle(ctx, normalized)
+		return deleteErr
+	})
+	return deleted, err
+}
+
+// DeleteConversationsWithinLifecycleWithContext executa o batch assumindo que
+// o caller mantém o gate de ciclo de vida até concluir efeitos pós-commit.
+func DeleteConversationsWithinLifecycleWithContext(ctx context.Context, ids []string) ([]string, error) {
+	return NewConversationRepository(db).DeleteConversationsWithinLifecycleWithContext(ctx, ids)
+}
+
+func (r *ConversationRepository) DeleteConversationsWithinLifecycleWithContext(ctx context.Context, ids []string) ([]string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	normalized, err := normalizeConversationIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	return r.deleteConversationsWithinLifecycle(ctx, normalized)
+}
+
+func (r *ConversationRepository) deleteConversationsWithinLifecycle(ctx context.Context, normalized []string) ([]string, error) {
 	releaseMaintenance, err := acquireSQLiteMaintenance(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer releaseMaintenance()
-
 	return r.deleteConversationsWithinMaintenance(ctx, normalized)
 }
 
 // DeleteConversationsWithinMaintenanceWithContext executa o batch assumindo
-// que o caller já mantém o gate de manutenção. É usado por operações
-// compostas que precisam manter seleção e exclusão no mesmo trecho crítico.
+// que o caller já mantém os gates de ciclo de vida e manutenção.
 func DeleteConversationsWithinMaintenanceWithContext(ctx context.Context, ids []string) ([]string, error) {
 	return NewConversationRepository(db).DeleteConversationsWithinMaintenanceWithContext(ctx, ids)
 }
@@ -800,9 +825,22 @@ func deleteChatToolInvocationsForConversationsTx(ctx context.Context, exec *gorm
 		turnIDs := exec.WithContext(ctx).Model(&ChatMessage{}).
 			Select("chat_messages.turn_id").
 			Where("chat_messages.conversation_id IN ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", batch)
-		return exec.WithContext(ctx).
+		var invocationIDs []string
+		if err := exec.WithContext(ctx).Model(&ToolInvocation{}).
 			Where("user_id = ? AND origin_type = ? AND (origin_id IN (?) OR origin_id IN (?))", userID, "chat", messageIDs, turnIDs).
-			Delete(&ToolInvocation{}).Error
+			Pluck("id", &invocationIDs).Error; err != nil {
+			return err
+		}
+		return forConversationIDBatches(invocationIDs, func(invocationBatch []string) error {
+			if err := exec.WithContext(ctx).Model(&ToolInvocation{}).
+				Where("user_id = ? AND parent_invocation_id IN ?", userID, invocationBatch).
+				Update("parent_invocation_id", nil).Error; err != nil {
+				return err
+			}
+			return exec.WithContext(ctx).
+				Where("user_id = ? AND id IN ?", userID, invocationBatch).
+				Delete(&ToolInvocation{}).Error
+		})
 	})
 }
 

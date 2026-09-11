@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
 )
@@ -231,5 +232,55 @@ func TestClearConversationsPropagaErroSemEfeitosPosCommit(t *testing.T) {
 	}
 	if !reflect.DeepEqual(finalized, []bool{false}) || len(events) != 0 {
 		t.Fatalf("efeitos em erro: finalized=%v events=%v", finalized, events)
+	}
+}
+
+func TestDeleteConversationsMantemLifecycleGateDurantePosCommit(t *testing.T) {
+	resetStarted := make(chan struct{})
+	releaseReset := make(chan struct{})
+	deleteDone := make(chan error, 1)
+	controller := NewConversationsController(ConversationsControllerConfig{
+		ValidateBatchDelete: func(_ context.Context, ids []string) ([]string, error) {
+			return ids, nil
+		},
+		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
+			return ids, nil
+		},
+		ResetScopedState: func(context.Context, string) {
+			close(resetStarted)
+			<-releaseReset
+		},
+	})
+	go func() {
+		_, err := controller.DeleteConversations(context.Background(), []string{"conv-1"})
+		deleteDone <- err
+	}()
+	<-resetStarted
+
+	restoreAcquired := make(chan struct{})
+	go func() {
+		_ = database.WithConversationLifecycle(context.Background(), func() error {
+			close(restoreAcquired)
+			return nil
+		})
+	}()
+	select {
+	case <-restoreAcquired:
+		t.Fatal("restauração atravessou efeitos pós-commit da exclusão")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(releaseReset)
+	select {
+	case err := <-deleteDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("exclusão não concluiu")
+	}
+	select {
+	case <-restoreAcquired:
+	case <-time.After(time.Second):
+		t.Fatal("gate de ciclo de vida não foi liberado")
 	}
 }
