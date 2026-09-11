@@ -349,6 +349,13 @@ export default function HistoryPage() {
       if (!ok) return;
 
       const deletedIds = await DeleteConversations(ids);
+      // Respostas iniciadas antes do commit não podem repor linhas excluídas.
+      loadRequestRef.current += 1;
+      searchRequestRef.current += 1;
+      loadingPageRef.current = false;
+      setLoading(false);
+      setLoadingMore(false);
+      setSearching(false);
       const deletedSet = new Set(deletedIds);
       const paginatedDeleted = conversationsRef.current.filter((conversation) => deletedSet.has(conversation.id)).length;
       const knownDeleted = new Set([

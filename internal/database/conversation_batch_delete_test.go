@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -394,6 +395,30 @@ func TestDeleteConversationsWithContextRollsBackAllDependencies(t *testing.T) {
 		countWhere(t, testDB, &ChatMessage{}, "id = ?", msg.ID) != 1 ||
 		countWhere(t, testDB, &ToolInvocation{}, "origin_id = ?", msg.ID) != 1 {
 		t.Fatal("rollback não preservou integralmente conversa, mensagem e invocação")
+	}
+}
+
+func TestDeleteConversationsWithContextFailsClosedOnSchemaIntrospectionError(t *testing.T) {
+	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
+	conv, msg := seedDeleteConversation(t, testDB, "delete-owner", "schema error")
+
+	forced := errors.New("falha forçada na introspecção")
+	const callback = "test:fail_conversation_schema_introspection"
+	if err := testDB.Callback().Row().Before("gorm:row").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement != nil && strings.Contains(tx.Statement.SQL.String(), "sqlite_master") {
+			_ = tx.AddError(forced)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = testDB.Callback().Row().Remove(callback) })
+
+	if _, err := DeleteConversationsWithContext(ownerCtx, []string{conv.ID}); !errors.Is(err, forced) {
+		t.Fatalf("erro=%v, esperado falha de introspecção", err)
+	}
+	if countWhere(t, testDB, &Conversation{}, "id = ?", conv.ID) != 1 ||
+		countWhere(t, testDB, &ChatMessage{}, "id = ?", msg.ID) != 1 {
+		t.Fatal("falha de introspecção não preservou conversa e mensagem")
 	}
 }
 

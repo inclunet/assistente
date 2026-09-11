@@ -622,6 +622,23 @@ func forConversationIDBatches(ids []string, fn func([]string) error) error {
 	return nil
 }
 
+func sqliteTableExists(ctx context.Context, exec *gorm.DB, model any) (bool, error) {
+	if exec == nil {
+		return false, errors.New("executor SQLite ausente")
+	}
+	statement := &gorm.Statement{DB: exec}
+	if err := statement.Parse(model); err != nil {
+		return false, err
+	}
+	var count int64
+	if err := exec.WithContext(ctx).
+		Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", statement.Schema.Table).
+		Scan(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func validateOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) error {
 	found := make(map[string]struct{}, len(ids))
 	err := forConversationIDBatches(ids, func(batch []string) error {
@@ -667,7 +684,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 	if err := deleteChatToolInvocationsForConversationsTx(ctx, tx, ids); err != nil {
 		return fmt.Errorf("erro ao excluir invocações das conversas: %w", err)
 	}
-	if tx.Migrator().HasTable(&ChannelResponsePending{}) {
+	hasChannelResponses, err := sqliteTableExists(ctx, tx, &ChannelResponsePending{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar respostas pendentes das conversas: %w", err)
+	}
+	if hasChannelResponses {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).
 				Where("conversation_id IN ?", batch).
@@ -676,7 +697,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 			return fmt.Errorf("erro ao excluir respostas pendentes das conversas: %w", err)
 		}
 	}
-	if tx.Migrator().HasTable(&ACPSession{}) {
+	hasACPSessions, err := sqliteTableExists(ctx, tx, &ACPSession{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar sessões ACP das conversas: %w", err)
+	}
+	if hasACPSessions {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).
 				Where("conversation_id IN ?", batch).
@@ -685,7 +710,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 			return fmt.Errorf("erro ao excluir sessões ACP das conversas: %w", err)
 		}
 	}
-	if tx.Migrator().HasTable(&ChannelContactConversation{}) {
+	hasChannelAssociations, err := sqliteTableExists(ctx, tx, &ChannelContactConversation{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar associações de canal das conversas: %w", err)
+	}
+	if hasChannelAssociations {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).
 				Where("conversation_id IN ?", batch).
@@ -694,7 +723,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 			return fmt.Errorf("erro ao excluir associações de canal das conversas: %w", err)
 		}
 	}
-	if tx.Migrator().HasTable(&SubAgentRun{}) {
+	hasSubAgentRuns, err := sqliteTableExists(ctx, tx, &SubAgentRun{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar runs de subagente das conversas: %w", err)
+	}
+	if hasSubAgentRuns {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).
 				Where("child_conversation_id IN ?", batch).
@@ -710,7 +743,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 			return fmt.Errorf("erro ao desvincular runs filhos das conversas: %w", err)
 		}
 	}
-	if tx.Migrator().HasTable(&TaskList{}) {
+	hasTaskLists, err := sqliteTableExists(ctx, tx, &TaskList{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar listas de tarefas das conversas: %w", err)
+	}
+	if hasTaskLists {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).Model(&TaskList{}).
 				Where("conversation_id IN ?", batch).
@@ -719,7 +756,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 			return fmt.Errorf("erro ao desvincular listas de tarefas das conversas: %w", err)
 		}
 	}
-	if tx.Migrator().HasTable(&Task{}) {
+	hasTasks, err := sqliteTableExists(ctx, tx, &Task{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar tarefas das conversas: %w", err)
+	}
+	if hasTasks {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).Model(&Task{}).
 				Where("conversation_id IN ?", batch).
@@ -728,7 +769,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 			return fmt.Errorf("erro ao desvincular tarefas das conversas: %w", err)
 		}
 	}
-	if tx.Migrator().HasTable(&MemoryRecord{}) {
+	hasMemories, err := sqliteTableExists(ctx, tx, &MemoryRecord{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar memórias das conversas: %w", err)
+	}
+	if hasMemories {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).
 				Where("scope = ? AND scope_ref IN ?", MemoryScopeConversation, batch).
@@ -737,7 +782,11 @@ func deleteOwnedConversationsTx(ctx context.Context, tx *gorm.DB, ids []string) 
 			return fmt.Errorf("erro ao excluir memórias das conversas: %w", err)
 		}
 	}
-	if tx.Migrator().HasTable(&TagAssignment{}) {
+	hasTags, err := sqliteTableExists(ctx, tx, &TagAssignment{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar tags das conversas: %w", err)
+	}
+	if hasTags {
 		if err := forConversationIDBatches(ids, func(batch []string) error {
 			return tx.WithContext(ctx).
 				Where("resource_type = ? AND resource_id IN ?", "conversation", batch).
@@ -810,7 +859,11 @@ func deleteChatToolInvocationsForConversationTx(ctx context.Context, exec *gorm.
 }
 
 func deleteChatToolInvocationsForConversationsTx(ctx context.Context, exec *gorm.DB, conversationIDs []string) error {
-	if !exec.Migrator().HasTable(&ToolInvocation{}) {
+	hasToolInvocations, err := sqliteTableExists(ctx, exec, &ToolInvocation{})
+	if err != nil {
+		return fmt.Errorf("erro ao verificar invocações de ferramentas: %w", err)
+	}
+	if !hasToolInvocations {
 		return nil
 	}
 	userID, err := RequireUserID(ctx)

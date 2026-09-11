@@ -388,6 +388,64 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(screen.getByText('Conversa 2')).toBeInTheDocument();
   });
 
+  it('ignora pagina iniciada antes da exclusão confirmada', async () => {
+    const user = userEvent.setup();
+    let resolvePage!: (value: { conversations: typeof conversations; total: number }) => void;
+    mockGetConversationsPage
+      .mockResolvedValueOnce({ conversations, total: 3 })
+      .mockImplementationOnce(() => new Promise<{ conversations: typeof conversations; total: number }>((resolve) => {
+        resolvePage = resolve;
+      }))
+      .mockResolvedValue({
+        conversations: [conversations[0]],
+        total: 1,
+      });
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 2');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => expect(mockGetConversationsPage).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole('button', { name: 'keyboard-delete' }));
+    await waitFor(() => {
+      expect(mockDeleteConversations).toHaveBeenCalledWith([conversations[1].id]);
+      expect(screen.queryByText('Conversa 2')).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      resolvePage({ conversations: [conversations[1]], total: 2 });
+    });
+    expect(screen.queryByText('Conversa 2')).not.toBeInTheDocument();
+  });
+
+  it('ignora busca iniciada antes da exclusão confirmada', async () => {
+    const user = userEvent.setup();
+    let resolveRows!: (value: typeof conversations) => void;
+    mockSearchConversationHistory.mockResolvedValue([{
+      conversation_id: conversations[1].id,
+      snippet: 'resultado',
+    }]);
+    mockGetConversationsByIDs.mockImplementation(() => new Promise<typeof conversations>((resolve) => {
+      resolveRows = resolve;
+    }));
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 2');
+    await user.type(screen.getByLabelText('history-search'), 'resultado');
+    await waitFor(() => expect(mockGetConversationsByIDs).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole('button', { name: 'keyboard-delete' }));
+    await waitFor(() => {
+      expect(mockDeleteConversations).toHaveBeenCalledWith([conversations[1].id]);
+      expect(screen.queryByText('Conversa 2')).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      resolveRows([conversations[1]]);
+    });
+    expect(screen.queryByText('Conversa 2')).not.toBeInTheDocument();
+  });
+
   it('deleta conversa focada quando nao ha selecao', async () => {
     const user = userEvent.setup();
     render(<HistoryPage />);
