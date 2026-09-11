@@ -202,10 +202,16 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			if content != "" {
 				select {
 				case <-ctx.Done():
+					if isThinking || fullReasoning.Len() > 0 {
+						handler.OnThinkingDone(fullReasoning.String())
+					}
 					return chatStreamAttempt{done: true}
 				default:
 				}
 				if wd.TimedOut() {
+					if isThinking || fullReasoning.Len() > 0 {
+						handler.OnThinkingDone(fullReasoning.String())
+					}
 					if !emittedVisibleContent {
 						return chatStreamAttempt{plainRetry: true}
 					}

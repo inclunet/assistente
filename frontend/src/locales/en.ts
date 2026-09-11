@@ -253,6 +253,7 @@ const en = {
         assistantPlaceholder: 'Could not prepare the assistant message.',
         internalError: 'Unexpected internal error. Please try again.',
         streamingInterrupted: 'Response interrupted by provider without finish reason; please try again.',
+        streamingIdleTimeout: 'Provider stopped responding mid-generation (idle timeout).',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',

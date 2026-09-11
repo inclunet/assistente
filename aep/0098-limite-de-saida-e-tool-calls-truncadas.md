@@ -160,8 +160,10 @@ transporte e não dispara retry automático de streaming.
 
 ## Riscos
 
-- **Provider omite o motivo:** o comportamento legado permanece; não se inventa
-  truncamento por heurística de tamanho ou JSON.
+- **Provider omite o motivo:** desde a correção #732 (AEP-0100 complementar),
+  stream sem `finish_reason` e sem tool calls vira `streaming_interrupted`
+  (erro visível `chat:done.errorMessage`), não `OnDone` silencioso. O legado
+  de preservar ausência foi superado para evitar truncamento mudo.
 - **Tool call aparentemente completa em lote truncado:** será descartada para
   preservar atomicidade. O custo é repetir geração, sem repetir efeitos.
 - **Modelo ignora a orientação de fatiamento:** apenas uma reformulação é

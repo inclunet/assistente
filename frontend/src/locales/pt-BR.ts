@@ -253,6 +253,7 @@ const ptBR = {
         assistantPlaceholder: 'Não foi possível preparar a mensagem do assistente.',
         internalError: 'Erro interno inesperado. Tente novamente.',
         streamingInterrupted: 'Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.',
+        streamingIdleTimeout: 'O provedor parou de responder no meio da geração (timeout de inatividade).',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',

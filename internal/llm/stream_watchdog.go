@@ -125,4 +125,4 @@ func notifyTurnNotice(handler StreamHandler, notice TurnNotice) {
 // streamIdleErrorMessage é o erro mostrado quando o watchdog interrompe um
 // stream que já havia entregado conteúdo visível (não é seguro retentar sem
 // duplicar a resposta).
-const streamIdleErrorMessage = "streaming interrompido: o provedor parou de responder no meio da geração (timeout de inatividade)"
+const streamIdleErrorMessage = "streaming_idle_timeout"

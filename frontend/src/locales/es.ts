@@ -252,6 +252,7 @@ const es = {
         assistantPlaceholder: 'No se pudo preparar el mensaje del asistente.',
         internalError: 'Error interno inesperado. Inténtalo de nuevo.',
         streamingInterrupted: 'Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.',
+        streamingIdleTimeout: 'El proveedor dejó de responder a mitad de la generación (timeout de inactividad).',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
