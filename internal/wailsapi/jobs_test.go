@@ -207,6 +207,21 @@ func TestJobsSaveJobFailsClosedWithoutGrantAndAllowsExactGrant(t *testing.T) {
 	if result.AuthorizationRequired || !saved.Enabled {
 		t.Fatalf("save literal autorizado foi bloqueado: result=%#v enabled=%v", result, saved.Enabled)
 	}
+	for _, expectedState := range []error{
+		jobprofilegrant.ErrNotSubagentJob,
+		jobprofilegrant.ErrProfileExpressionRequired,
+	} {
+		state.listErr = expectedState
+		result, err = api.SaveJob(grantBehaviorJobJSON(t, "literal", "programacao", true))
+		if err != nil {
+			t.Fatalf("transição válida foi bloqueada por %v: %v", expectedState, err)
+		}
+		saved, _ = manager.GetJobContext(ctx, "literal")
+		if !result.AuthorizationRequired || saved.Enabled {
+			t.Fatalf("transição sem grant não falhou fechado: result=%#v enabled=%v", result, saved.Enabled)
+		}
+	}
+	state.listErr = nil
 
 	state.config = jobprofilegrant.DelegationConfig{
 		JobSlug: "dinamico", Tool: "subagent",

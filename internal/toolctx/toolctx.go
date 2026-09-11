@@ -5,6 +5,7 @@ import "context"
 type currentInvocationIDKey struct{}
 
 type parentInvocationIDKey struct{}
+type maskedInvocationID struct{}
 
 // WithCurrentInvocationID returns a context carrying the current tool invocation.
 func WithCurrentInvocationID(ctx context.Context, id string) context.Context {
@@ -44,4 +45,14 @@ func ParentInvocationIDFromContext(ctx context.Context) string {
 	}
 	id, _ := ctx.Value(parentInvocationIDKey{}).(string)
 	return id
+}
+
+// WithoutInvocationIDs cria uma fronteira que não herda correlação de
+// invocações da tool/evento que originou uma nova execução independente.
+func WithoutInvocationIDs(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx = context.WithValue(ctx, currentInvocationIDKey{}, maskedInvocationID{})
+	return context.WithValue(ctx, parentInvocationIDKey{}, maskedInvocationID{})
 }

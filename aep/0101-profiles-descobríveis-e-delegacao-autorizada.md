@@ -216,8 +216,9 @@ input e herdam profile não são alterados. Em registros legados com
 `tool_catalog.name` como fallback canônico; ambos os campos são normalizados
 com trim para tolerar dados legados. O startup reconcilia novamente jobs
 habilitados sem grant. O executor remove `invocationctx` herdado da conversa
-que publicou um evento antes de chamar tools, impedindo bypass por coincidência
-com o profile-pai. Revogações
+e IDs corrente/pai de `toolinvocations` herdados de quem publicou um evento
+antes de chamar tools, impedindo bypass por coincidência com o profile-pai ou
+parentesco falso na auditoria. Revogações
 atualizam banco, registry, cron/interval, subscriptions de eventos, hotkeys e
 UI imediatamente para o usuário ativo; outros usuários observam o estado
 persistido ao carregar seu runtime.

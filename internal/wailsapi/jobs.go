@@ -291,7 +291,10 @@ func (api *Jobs) SaveJob(jobJSON string) (*SaveJobResult, error) {
 			api.mu.RUnlock()
 			if access != nil {
 				state, stateErr := access.JobGrantState(ctx, job.ID)
-				if stateErr != nil && !errors.Is(stateErr, jobprofilegrant.ErrJobNotFound) {
+				expectedMissingGrantConfig := errors.Is(stateErr, jobprofilegrant.ErrJobNotFound) ||
+					errors.Is(stateErr, jobprofilegrant.ErrNotSubagentJob) ||
+					errors.Is(stateErr, jobprofilegrant.ErrProfileExpressionRequired)
+				if stateErr != nil && !expectedMissingGrantConfig {
 					return nil, stateErr
 				}
 				if stateErr == nil && state.Fingerprint == fingerprint {

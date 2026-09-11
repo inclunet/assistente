@@ -30,6 +30,10 @@ func CurrentInvocationID(ctx context.Context) string {
 	return toolctx.CurrentInvocationID(ctx)
 }
 
+func WithoutInvocationIDs(ctx context.Context) context.Context {
+	return toolctx.WithoutInvocationIDs(ctx)
+}
+
 // WithParentInvocationID retorna um ctx carregando o ID da invocação-pai que as
 // próximas invocações devem herdar.
 func WithParentInvocationID(ctx context.Context, id string) context.Context {

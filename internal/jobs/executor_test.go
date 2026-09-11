@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/toolctx"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -868,6 +870,8 @@ func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
 	parent := invocationctx.With(context.Background(), invocationctx.InvocationContext{
 		ConversationID: "conversation-parent", TurnID: "turn-parent", ProfileSlug: "pesquisa",
 	})
+	parent = toolinvocations.WithCurrentInvocationID(parent, "invocacao-publicadora")
+	parent = toolctx.WithParentInvocationID(parent, "invocacao-ancestral")
 	rl := executor.Execute(parent, &Job{
 		ID: "job-evento", Tool: "subagent", Inputs: map[string]any{"profile": "pesquisa"},
 	}, &TriggerContext{Type: TriggerEvent})
@@ -876,6 +880,12 @@ func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
 	}
 	if _, inherited := invocationctx.Get(ft.lastCtx); inherited {
 		t.Fatal("job herdou invocationctx da conversa que publicou o evento")
+	}
+	if current := toolinvocations.CurrentInvocationID(ft.lastCtx); current != "" {
+		t.Fatalf("job herdou invocação publicadora: %q", current)
+	}
+	if parentID := toolctx.ParentInvocationIDFromContext(ft.lastCtx); parentID != "" {
+		t.Fatalf("job herdou invocação ancestral: %q", parentID)
 	}
 }
 
