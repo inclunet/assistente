@@ -272,6 +272,22 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		return chatStreamAttempt{done: true}
 	}
 
+	if isThinking && thinkingBuffer.Len() > 0 {
+		// Se só houve thinking, finaliza antes de decidir retry/erro do watchdog
+		if wd.TimedOut() {
+			thinkingBuffer.Reset()
+			isThinking = false
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			if !emittedVisibleContent {
+				return chatStreamAttempt{plainRetry: true}
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return chatStreamAttempt{done: true}
+		}
+	}
+
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Nesse caso não há conclusão válida a entregar.
@@ -292,18 +308,6 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 			return chatStreamAttempt{done: true}
 		default:
-		}
-		if wd.TimedOut() {
-			thinkingBuffer.Reset()
-			isThinking = false
-			if fullReasoning.Len() > 0 {
-				handler.OnThinkingDone(fullReasoning.String())
-			}
-			if !emittedVisibleContent {
-				return chatStreamAttempt{plainRetry: true}
-			}
-			handler.OnError(streamIdleErrorMessage)
-			return chatStreamAttempt{done: true}
 		}
 		thinkingBuffer.Reset()
 		isThinking = false
