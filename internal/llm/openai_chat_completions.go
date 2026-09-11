@@ -200,6 +200,11 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
 
 			if content != "" {
+				select {
+				case <-ctx.Done():
+					return chatStreamAttempt{done: true}
+				default:
+				}
 				fullResponse.WriteString(content)
 				emittedVisibleContent = true
 				handler.OnChunk(content)
@@ -328,6 +333,11 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		outputLimit = int(params.MaxTokens.Value)
 	}
 	finish = finishInfoWithDiagnostics(finish, p.provider, model, outputLimit, fullResponse.Len())
+	select {
+	case <-ctx.Done():
+		return chatStreamAttempt{done: true}
+	default:
+	}
 	ReportFinishReason(handler, finish)
 
 	if finish.Reason == "" && fullResponse.Len() > 0 && len(finishedToolCalls) == 0 && finish.OutputLimit == 0 {
