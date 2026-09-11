@@ -48,7 +48,7 @@ func UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheRea
 }
 
 func mergeAnthropicStreamingUsage(previous Usage, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int, outputReported bool) Usage {
-	if outputTokens == 0 {
+	if outputTokens == 0 && !outputReported {
 		outputTokens = previous.CompletionTokens
 	}
 	if cacheCreationTokens == 0 {

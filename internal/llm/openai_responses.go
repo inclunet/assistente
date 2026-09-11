@@ -445,7 +445,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.completed":
 			ev := event.AsResponseCompleted()
-			finish = normalizeOpenAIResponsesFinishReason("completed")
+			// "response.completed" é o tipo do evento, não um finish_reason
+			// informado pelo provider. Preserve a ausência no motivo bruto.
+			finish = FinishInfo{Reason: FinishReasonStop}
 			usageRaw := ev.Response.Usage.RawJSON()
 			if openAIUsageReported(usageRaw,
 				int(ev.Response.Usage.InputTokens), int(ev.Response.Usage.OutputTokens), int(ev.Response.Usage.TotalTokens)) {

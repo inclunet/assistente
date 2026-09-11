@@ -120,6 +120,12 @@ func TestMergeAnthropicStreamingUsage_DistingueOutputAusenteDeZero(t *testing.T)
 	if !delta.OutputTokensReported || delta.CompletionTokens != 0 {
 		t.Fatalf("zero explícito do message_delta não preservado: %#v", delta)
 	}
+	afterPositive := mergeAnthropicStreamingUsage(
+		Usage{CompletionTokens: 9, OutputTokensReported: true}, 0, 0, 0, 0, true,
+	)
+	if afterPositive.CompletionTokens != 0 {
+		t.Fatalf("zero explícito não pode reutilizar valor anterior: %#v", afterPositive)
+	}
 }
 
 func TestUsageFromGemini_CachedContentTokenCount(t *testing.T) {

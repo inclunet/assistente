@@ -164,6 +164,34 @@ func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesCompletedNaoInventaRawReason(t *testing.T) {
+	const stream = "event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"completed\",\"model\":\"gpt-test\",\"output\":[]}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-completed", Name: "Responses Completed", BaseURL: server.URL + "/v1",
+		APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone,
+	}, credentials.NewManager(nil))
+	handler := &noopStreamHandler{}
+
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gpt-test"}, handler)
+
+	if handler.err != "" {
+		t.Fatalf("stream falhou: %s", handler.err)
+	}
+	if handler.finish.Reason != FinishReasonStop || handler.finish.RawReason != "" {
+		t.Fatalf("response.completed inventou motivo bruto: %#v", handler.finish)
+	}
+}
+
 func TestOpenAIResponsesStreamInjectsScopedCredential(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
