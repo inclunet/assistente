@@ -26,6 +26,7 @@ type Repository interface {
 	CleanOldDryRuns(ctx context.Context, maxAge time.Duration) (int, error)
 	CleanOldChat(ctx context.Context, maxAge time.Duration) (int, error)
 	CleanOrphanChat(ctx context.Context) (int, error)
+	ValidateChatOrigin(ctx context.Context, originID string) error
 	ResolveToolCatalogID(ctx context.Context, toolName string) (string, error)
 	IsToolCatalogIDVisible(ctx context.Context, toolCatalogID string) (bool, error)
 }
@@ -73,19 +74,8 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 	var createErr error
 	if row.OriginType == OriginChat {
 		createErr = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.create_chat", func(tx *gorm.DB) error {
-			if !tx.Migrator().HasTable(&database.ChatMessage{}) ||
-				!tx.Migrator().HasTable(&database.Conversation{}) {
-				return fmt.Errorf("não é possível validar origem chat sem tabelas de conversa e mensagens")
-			}
-			var originCount int64
-			if err := tx.WithContext(ctx).Model(&database.ChatMessage{}).
-				Joins("JOIN conversations ON conversations.id = chat_messages.conversation_id").
-				Where("conversations.user_id = ? AND (chat_messages.id = ? OR chat_messages.turn_id = ?)", userID, row.OriginID, row.OriginID).
-				Count(&originCount).Error; err != nil {
+			if err := validateChatOriginTx(ctx, tx, userID, row.OriginID); err != nil {
 				return err
-			}
-			if originCount == 0 {
-				return gorm.ErrRecordNotFound
 			}
 			return create(tx)
 		})
@@ -96,6 +86,39 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 		return createErr
 	}
 	*inv = invocationModelToDomain(row)
+	return nil
+}
+
+func (r *DBRepository) ValidateChatOrigin(ctx context.Context, originID string) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	originID = strings.TrimSpace(originID)
+	if originID == "" {
+		return ErrChatOriginIDRequired
+	}
+	return r.retry(ctx, "validate_chat_origin", func() error {
+		return validateChatOriginTx(ctx, r.db, userID, originID)
+	})
+}
+
+func validateChatOriginTx(ctx context.Context, tx *gorm.DB, userID, originID string) error {
+	if tx == nil ||
+		!tx.Migrator().HasTable(&database.ChatMessage{}) ||
+		!tx.Migrator().HasTable(&database.Conversation{}) {
+		return fmt.Errorf("não é possível validar origem chat sem tabelas de conversa e mensagens")
+	}
+	var originCount int64
+	if err := tx.WithContext(ctx).Model(&database.ChatMessage{}).
+		Joins("JOIN conversations ON conversations.id = chat_messages.conversation_id").
+		Where("conversations.user_id = ? AND (chat_messages.id = ? OR chat_messages.turn_id = ?)", userID, originID, originID).
+		Count(&originCount).Error; err != nil {
+		return err
+	}
+	if originCount == 0 {
+		return gorm.ErrRecordNotFound
+	}
 	return nil
 }
 

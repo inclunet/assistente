@@ -1131,7 +1131,9 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 		return nil, database.ErrConversationIDRequired
 	}
 
-	m.deletionGate.Lock()
+	if err := m.lockDeletionGate(ctx); err != nil {
+		return nil, err
+	}
 	m.mu.Lock()
 	m.isDeletedLocked("", userID)
 	if m.deletingConvs == nil {
@@ -1190,7 +1192,9 @@ func (m *Manager) PrepareConversationRestoration(ctx context.Context) (func([]st
 	if err != nil {
 		return nil, err
 	}
-	m.deletionGate.Lock()
+	if err := m.lockDeletionGate(ctx); err != nil {
+		return nil, err
+	}
 	m.mu.Lock()
 	var once sync.Once
 	return func(conversationIDs []string) {
@@ -1205,6 +1209,24 @@ func (m *Manager) PrepareConversationRestoration(ctx context.Context) (func([]st
 			m.deletionGate.Unlock()
 		})
 	}, nil
+}
+
+func (m *Manager) lockDeletionGate(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		if m.deletionGate.TryLock() {
+			return nil
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (m *Manager) isDeletedLocked(conversationID, userID string) bool {

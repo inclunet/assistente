@@ -94,6 +94,13 @@ func (s *Service) CleanOrphanChat(ctx context.Context) (int, error) {
 	return s.repo.CleanOrphanChat(ctx)
 }
 
+func cancelledChatValidation(call tools.ToolCall) ExecuteResult {
+	return ExecuteResult{
+		Execution: executionCancelled(call, "Execução cancelada: não foi possível validar o item do chat"),
+		Persisted: false,
+	}
+}
+
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult {
 	if s == nil || s.executor == nil {
 		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured"), Persisted: false}
@@ -106,19 +113,22 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 
 	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
 	persistCtx := s.persistCtx(ctx)
+	req.Origin.Type = strings.TrimSpace(req.Origin.Type)
+	if req.Origin.Type == "" {
+		req.Origin.Type = OriginChat
+	}
+	req.Origin.ID = strings.TrimSpace(req.Origin.ID)
 
 	// Defesa fail-closed para chat: sem validar a origem, não execute uma tool
 	// que pode produzir efeitos externos. A validação transacional do Create
 	// continua sendo a autoridade contra a corrida posterior.
-	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
-			cancel()
-			if err != nil {
-				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s could not be validated; aborting tool execution: %v", strings.TrimSpace(req.Origin.ID), err)
-				return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
-			}
+	if req.Origin.Type == OriginChat {
+		opCtx, cancel := s.persistOpCtx(persistCtx)
+		err := s.repo.ValidateChatOrigin(opCtx, req.Origin.ID)
+		cancel()
+		if err != nil {
+			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s could not be validated; aborting tool execution: %v", req.Origin.ID, err)
+			return cancelledChatValidation(req.Call)
 		}
 	}
 
@@ -195,7 +205,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	if createErr != nil {
 		if strings.TrimSpace(inv.OriginType) == OriginChat {
 			logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat invocation could not be persisted safely for origin %s; aborting: %v", strings.TrimSpace(inv.OriginID), createErr)
-			return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
+			return cancelledChatValidation(req.Call)
 		}
 		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", createErr)
 		inv.ID = ""

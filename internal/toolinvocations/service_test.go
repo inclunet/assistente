@@ -116,6 +116,7 @@ func TestExtractToolInvocationResultRestoresProjectionAnnotations(t *testing.T) 
 }
 
 type echoTool struct{}
+type countingTool struct{ calls *int }
 
 func (echoTool) Name() string { return "echo" }
 func (echoTool) Description() string {
@@ -135,6 +136,15 @@ func (echoTool) Parameters() json.RawMessage {
 }
 func (echoTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(args)}, nil
+}
+func (countingTool) Name() string        { return "echo" }
+func (countingTool) Description() string { return "counting" }
+func (countingTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (t countingTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	*t.calls++
+	return tools.ToolResult{Content: "executed"}, nil
 }
 
 func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
@@ -179,8 +189,9 @@ func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T)
 		ErrChatOriginIDRequired,
 		errors.New("database is locked (5) (SQLITE_BUSY)"),
 	} {
+		calls := 0
 		registry := tools.NewRegistry()
-		registry.MustRegister(echoTool{})
+		registry.MustRegister(countingTool{calls: &calls})
 		svc := NewService(
 			createFailRepository{Repository: repo, err: createErr},
 			tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
@@ -197,16 +208,20 @@ func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T)
 			},
 			Origin: Origin{Type: OriginChat, ID: "turn-1"},
 		})
-		if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "item do chat foi removido") {
+		if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "validar o item do chat") {
 			t.Fatalf("erro %v deveria cancelar sem executar tool: %+v", createErr, result.Execution.Result)
+		}
+		if calls != 0 {
+			t.Fatalf("erro %v executou a tool %d vez(es)", createErr, calls)
 		}
 	}
 }
 
 func TestServiceDoesNotExecuteWhenChatOriginValidationFails(t *testing.T) {
 	repo, _, _ := setupRepositoryTest(t)
+	calls := 0
 	registry := tools.NewRegistry()
-	registry.MustRegister(echoTool{})
+	registry.MustRegister(countingTool{calls: &calls})
 	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
 
 	result := svc.Execute(context.Background(), ExecuteRequest{
@@ -220,8 +235,40 @@ func TestServiceDoesNotExecuteWhenChatOriginValidationFails(t *testing.T) {
 		},
 		Origin: Origin{Type: OriginChat, ID: "turn-1"},
 	})
-	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "item do chat foi removido") {
+	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "validar o item do chat") {
 		t.Fatalf("falha de validação deveria cancelar sem executar tool: %+v", result.Execution.Result)
+	}
+	if calls != 0 {
+		t.Fatalf("falha de validação executou a tool %d vez(es)", calls)
+	}
+}
+
+func TestServiceDoesNotExecuteWhenChatSchemaIsUnavailable(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	if err := database.DB().Migrator().DropTable(&database.ChatMessage{}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	result := svc.Execute(userA, ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   "call-schema-error",
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      "echo",
+				Arguments: `{}`,
+			},
+		},
+		Origin: Origin{Type: " chat ", ID: " turn-1 "},
+	})
+	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "validar o item do chat") {
+		t.Fatalf("schema ausente deveria cancelar: %+v", result.Execution.Result)
+	}
+	if calls != 0 {
+		t.Fatalf("schema ausente executou a tool %d vez(es)", calls)
 	}
 }
 

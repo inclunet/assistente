@@ -18,6 +18,15 @@ import (
 // ExportImport é o bind Wails do domínio export_import (AEP-0088).
 // Auth só via WithUser — sem chamar o helper de auth do App no call site.
 // Tipos de request/response vêm de portability (sem apidto novo).
+type importConversationsFunc func(
+	context.Context,
+	string,
+	*credentials.Manager,
+	string,
+	[]portability.ImportResolution,
+	func([]string),
+) (*portability.ImportResult, error)
+
 type ExportImport struct {
 	mu                         sync.RWMutex
 	session                    Session
@@ -25,11 +34,21 @@ type ExportImport struct {
 	dialog                     func() ports.SystemDialogPort
 	appVersion                 string
 	prepareConversationRestore func(context.Context) (func([]string), error)
+	importConversations        importConversationsFunc
 }
 
 // NewExportImport cria o bind vazio; AttachExportImport preenche deps no startup.
 func NewExportImport() *ExportImport {
-	return &ExportImport{}
+	return &ExportImport{importConversations: portability.ImportConversationsWithRestoreHook}
+}
+
+func (api *ExportImport) importer() importConversationsFunc {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	if api.importConversations == nil {
+		return portability.ImportConversationsWithRestoreHook
+	}
+	return api.importConversations
 }
 
 // AttachExportImport associa Session, credenciais, diálogo e versão após o startup.
@@ -229,7 +248,7 @@ func (api *ExportImport) ImportConversations(jsonData string) (*portability.Impo
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
 		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
-			return portability.ImportConversationsWithRestoreHook(ctx, jsonData, credMgr, "", nil, finalize)
+			return api.importer()(ctx, jsonData, credMgr, "", nil, finalize)
 		})
 	})
 }
@@ -242,7 +261,7 @@ func (api *ExportImport) ImportData(jsonData string, credentialExportPassword st
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
 		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
-			return portability.ImportConversationsWithRestoreHook(ctx, jsonData, credMgr, credentialExportPassword, nil, finalize)
+			return api.importer()(ctx, jsonData, credMgr, credentialExportPassword, nil, finalize)
 		})
 	})
 }
@@ -255,7 +274,7 @@ func (api *ExportImport) ImportDataWithResolutions(req portability.ImportRequest
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
 		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
-			return portability.ImportConversationsWithRestoreHook(
+			return api.importer()(
 				ctx,
 				req.JSONData,
 				credMgr,
@@ -272,16 +291,20 @@ func withPreparedConversationRestore(
 	prepare func(context.Context) (func([]string), error),
 	importFn func(func([]string)) (*portability.ImportResult, error),
 ) (*portability.ImportResult, error) {
-	finalize := func([]string) {}
+	preparedFinalize := func([]string) {}
 	if prepare != nil {
 		var err error
-		finalize, err = prepare(ctx)
+		preparedFinalize, err = prepare(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if finalize == nil {
-			finalize = func([]string) {}
+		if preparedFinalize == nil {
+			preparedFinalize = func([]string) {}
 		}
+	}
+	var finalizeOnce sync.Once
+	finalize := func(ids []string) {
+		finalizeOnce.Do(func() { preparedFinalize(ids) })
 	}
 	defer finalize(nil)
 	var result *portability.ImportResult

@@ -235,6 +235,44 @@ func TestClearConversationsPropagaErroSemEfeitosPosCommit(t *testing.T) {
 	}
 }
 
+func TestClearConversationsLimitaRetriesSobContencaoContinua(t *testing.T) {
+	listCall := 0
+	finalized := 0
+	deleteCalls := 0
+	controller := NewConversationsController(ConversationsControllerConfig{
+		ListConversations: func(context.Context) ([]database.Conversation, error) {
+			listCall++
+			conversations := []database.Conversation{{UUIDModel: database.UUIDModel{ID: "conv-1"}}}
+			if listCall%2 == 0 {
+				conversations = append(conversations, database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-new"}})
+			}
+			return conversations, nil
+		},
+		WithMaintenance: func(_ context.Context, fn func() error) error {
+			return fn()
+		},
+		PrepareBatchDelete: func(_ context.Context, _ []string) (func(bool), error) {
+			return func(committed bool) {
+				if committed {
+					t.Error("snapshot obsoleto foi confirmado")
+				}
+				finalized++
+			}, nil
+		},
+		DeleteWithinMaintenance: func(_ context.Context, ids []string) ([]string, error) {
+			deleteCalls++
+			return ids, nil
+		},
+	})
+
+	if _, err := controller.ClearConversations(context.Background()); !errors.Is(err, ErrClearConversationsContended) {
+		t.Fatalf("erro = %v, want %v", err, ErrClearConversationsContended)
+	}
+	if listCall != clearConversationsMaxAttempts*2 || finalized != clearConversationsMaxAttempts || deleteCalls != 0 {
+		t.Fatalf("retry sem limite correto: list=%d finalized=%d deletes=%d", listCall, finalized, deleteCalls)
+	}
+}
+
 func TestDeleteConversationsMantemLifecycleGateDurantePosCommit(t *testing.T) {
 	resetStarted := make(chan struct{})
 	releaseReset := make(chan struct{})

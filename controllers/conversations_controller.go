@@ -44,7 +44,12 @@ type ConversationsController struct {
 	getEffectiveModel       func() (string, error)
 }
 
-var errClearConversationSnapshotChanged = errors.New("conversation snapshot changed during clear")
+var (
+	errClearConversationSnapshotChanged = errors.New("conversation snapshot changed during clear")
+	ErrClearConversationsContended      = errors.New("conversation set kept changing during clear")
+)
+
+const clearConversationsMaxAttempts = 8
 
 // NewConversationsController monta o controller a partir da config.
 func NewConversationsController(cfg ConversationsControllerConfig) *ConversationsController {
@@ -406,7 +411,7 @@ func (c *ConversationsController) DeleteConversations(ctx context.Context, ids [
 // manutenção entre o snapshot e o commit. Assim, criadores não atravessam o
 // snapshot e a operação não deixa conversas que existiam quando começou.
 func (c *ConversationsController) ClearConversations(ctx context.Context) ([]string, error) {
-	for {
+	for attempt := 1; attempt <= clearConversationsMaxAttempts; attempt++ {
 		var conversations []database.Conversation
 		err := c.withMaintenance(ctx, func() error {
 			return database.WithSQLiteBusyRetry(ctx, "conversations.clear_snapshot", func() error {
@@ -450,10 +455,17 @@ func (c *ConversationsController) ClearConversations(ctx context.Context) ([]str
 			},
 		)
 		if errors.Is(err, errClearConversationSnapshotChanged) {
+			if ctx != nil && ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if attempt == clearConversationsMaxAttempts {
+				return nil, ErrClearConversationsContended
+			}
 			continue
 		}
 		return deletedIDs, err
 	}
+	return nil, ErrClearConversationsContended
 }
 
 func sameConversationIDs(ids []string, conversations []database.Conversation) bool {

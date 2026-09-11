@@ -115,6 +115,32 @@ func TestPrepareConversationDeletionMantemGateAteRelease(t *testing.T) {
 	}
 }
 
+func TestPrepareConversationGatesRespeitamCancelamento(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	mgr.deletionGate.RLock()
+	defer mgr.deletionGate.RUnlock()
+
+	for name, prepare := range map[string]func(context.Context) error{
+		"delete": func(waitCtx context.Context) error {
+			_, err := mgr.PrepareConversationDeletion(waitCtx, []string{"conversation"})
+			return err
+		},
+		"restore": func(waitCtx context.Context) error {
+			_, err := mgr.PrepareConversationRestoration(waitCtx)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			waitCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+			defer cancel()
+			if err := prepare(waitCtx); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("erro=%v, esperado deadline", err)
+			}
+		})
+	}
+}
+
 func TestPrepareConversationDeletionCommitBloqueiaRunTardioAteExpirar(t *testing.T) {
 	now := time.Now()
 	ctx := database.WithUserID(context.Background(), "user-a")

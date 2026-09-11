@@ -74,7 +74,10 @@ A exclusão de conversas, inclusive em lote, compartilha um gate cancelável com
 
 O snapshot inicial do “Limpar mensagens” também roda sob o maintenance gate e
 busy retry; a revalidação sob o mesmo gate descarta snapshots obsoletos antes
-do batch, com teste determinístico do retry e da ausência de efeitos em erro.
+do batch. O retry é limitado a oito tentativas e respeita cancelamento para não
+prender a limpeza sob criação contínua. As esperas dos gates de exclusão e
+restauração de subagentes também observam o contexto. Há testes determinísticos
+do retry, da ausência de efeitos em erro e dos três entrypoints de importação.
 
 A compactação é **best-effort**: qualquer erro é logado e não interrompe o boot nem a retenção.
 

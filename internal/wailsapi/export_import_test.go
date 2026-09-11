@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
+	"assistente/internal/credentials"
 	"assistente/internal/portability"
 )
 
@@ -75,6 +77,66 @@ func TestWithPreparedConversationRestoreSempreLiberaGate(t *testing.T) {
 	}
 	if prepared != 1 || !finalizedCalled || len(finalized) != 0 {
 		t.Fatalf("gate não foi liberado no erro: prepared=%d called=%t finalized=%v", prepared, finalizedCalled, finalized)
+	}
+}
+
+func TestImportEntrypointsPropagamIDsRestauradosEAlteramGate(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*ExportImport) (*portability.ImportResult, error)
+	}{
+		{"ImportConversations", func(api *ExportImport) (*portability.ImportResult, error) {
+			return api.ImportConversations("success")
+		}},
+		{"ImportData", func(api *ExportImport) (*portability.ImportResult, error) {
+			return api.ImportData("success", "")
+		}},
+		{"ImportDataWithResolutions", func(api *ExportImport) (*portability.ImportResult, error) {
+			return api.ImportDataWithResolutions(portability.ImportRequest{JSONData: "partial"})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var restored []string
+			finalizeCalls := 0
+			api := NewExportImport()
+			AttachExportImport(
+				api,
+				stubSession{ctx: context.Background()},
+				nil,
+				func() ports.SystemDialogPort { return nil },
+				"dev",
+				func(context.Context) (func([]string), error) {
+					return func(ids []string) {
+						finalizeCalls++
+						restored = append([]string(nil), ids...)
+					}, nil
+				},
+			)
+			api.importConversations = func(
+				_ context.Context,
+				jsonData string,
+				_ *credentials.Manager,
+				_ string,
+				_ []portability.ImportResolution,
+				finalize func([]string),
+			) (*portability.ImportResult, error) {
+				finalize([]string{"restored-id"})
+				return &portability.ImportResult{
+					Success:  jsonData != "partial",
+					Imported: 1,
+					Failed:   map[bool]int{true: 1, false: 0}[jsonData == "partial"],
+				}, nil
+			}
+
+			result, err := tt.call(api)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Imported != 1 || finalizeCalls != 1 || !reflect.DeepEqual(restored, []string{"restored-id"}) {
+				t.Fatalf("fiação incorreta: result=%+v finalizeCalls=%d restored=%v", result, finalizeCalls, restored)
+			}
+		})
 	}
 }
 
