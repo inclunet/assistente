@@ -16,26 +16,32 @@ import (
 // ConversationsController orquestra persistência de conversas/mensagens (AEP-0088).
 // Side-effects do App (reset de escopo, questionário, modelo do perfil) entram via hooks.
 type ConversationsControllerConfig struct {
-	MsgRepo               chat.MessageRepository
-	Emitter               ports.Emitter
-	ResetScopedState      func(ctx context.Context, conversationID string)
-	PrepareBatchDelete    func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
-	ValidateBatchDelete   func(ctx context.Context, conversationIDs []string) ([]string, error)
-	DeleteBatch           func(ctx context.Context, conversationIDs []string) ([]string, error)
-	ConfirmDeleteMessage  func() error
-	GetEffectiveModelFunc func() (string, error)
+	MsgRepo                 chat.MessageRepository
+	Emitter                 ports.Emitter
+	ResetScopedState        func(ctx context.Context, conversationID string)
+	PrepareBatchDelete      func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
+	ValidateBatchDelete     func(ctx context.Context, conversationIDs []string) ([]string, error)
+	DeleteBatch             func(ctx context.Context, conversationIDs []string) ([]string, error)
+	ListConversations       func(ctx context.Context) ([]database.Conversation, error)
+	WithMaintenance         func(ctx context.Context, fn func() error) error
+	DeleteWithinMaintenance func(ctx context.Context, conversationIDs []string) ([]string, error)
+	ConfirmDeleteMessage    func() error
+	GetEffectiveModelFunc   func() (string, error)
 }
 
 // ConversationsController é o orquestrador do domínio conversations.
 type ConversationsController struct {
-	msgRepo              chat.MessageRepository
-	emitter              ports.Emitter
-	resetScopedState     func(ctx context.Context, conversationID string)
-	prepareBatchDelete   func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
-	validateBatchDelete  func(ctx context.Context, conversationIDs []string) ([]string, error)
-	deleteBatch          func(ctx context.Context, conversationIDs []string) ([]string, error)
-	confirmDeleteMessage func() error
-	getEffectiveModel    func() (string, error)
+	msgRepo                 chat.MessageRepository
+	emitter                 ports.Emitter
+	resetScopedState        func(ctx context.Context, conversationID string)
+	prepareBatchDelete      func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
+	validateBatchDelete     func(ctx context.Context, conversationIDs []string) ([]string, error)
+	deleteBatch             func(ctx context.Context, conversationIDs []string) ([]string, error)
+	listConversations       func(ctx context.Context) ([]database.Conversation, error)
+	withMaintenance         func(ctx context.Context, fn func() error) error
+	deleteWithinMaintenance func(ctx context.Context, conversationIDs []string) ([]string, error)
+	confirmDeleteMessage    func() error
+	getEffectiveModel       func() (string, error)
 }
 
 var errClearConversationSnapshotChanged = errors.New("conversation snapshot changed during clear")
@@ -48,15 +54,27 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 	if cfg.DeleteBatch == nil {
 		cfg.DeleteBatch = database.DeleteConversationsWithContext
 	}
+	if cfg.ListConversations == nil {
+		cfg.ListConversations = database.GetConversationsWithContext
+	}
+	if cfg.WithMaintenance == nil {
+		cfg.WithMaintenance = database.WithSQLiteMaintenance
+	}
+	if cfg.DeleteWithinMaintenance == nil {
+		cfg.DeleteWithinMaintenance = database.DeleteConversationsWithinMaintenanceWithContext
+	}
 	return &ConversationsController{
-		msgRepo:              cfg.MsgRepo,
-		emitter:              cfg.Emitter,
-		resetScopedState:     cfg.ResetScopedState,
-		prepareBatchDelete:   cfg.PrepareBatchDelete,
-		validateBatchDelete:  cfg.ValidateBatchDelete,
-		deleteBatch:          cfg.DeleteBatch,
-		confirmDeleteMessage: cfg.ConfirmDeleteMessage,
-		getEffectiveModel:    cfg.GetEffectiveModelFunc,
+		msgRepo:                 cfg.MsgRepo,
+		emitter:                 cfg.Emitter,
+		resetScopedState:        cfg.ResetScopedState,
+		prepareBatchDelete:      cfg.PrepareBatchDelete,
+		validateBatchDelete:     cfg.ValidateBatchDelete,
+		deleteBatch:             cfg.DeleteBatch,
+		listConversations:       cfg.ListConversations,
+		withMaintenance:         cfg.WithMaintenance,
+		deleteWithinMaintenance: cfg.DeleteWithinMaintenance,
+		confirmDeleteMessage:    cfg.ConfirmDeleteMessage,
+		getEffectiveModel:       cfg.GetEffectiveModelFunc,
 	}
 }
 
@@ -389,7 +407,14 @@ func (c *ConversationsController) DeleteConversations(ctx context.Context, ids [
 // snapshot e a operação não deixa conversas que existiam quando começou.
 func (c *ConversationsController) ClearConversations(ctx context.Context) ([]string, error) {
 	for {
-		conversations, err := database.GetConversationsWithContext(ctx)
+		var conversations []database.Conversation
+		err := c.withMaintenance(ctx, func() error {
+			return database.WithSQLiteBusyRetry(ctx, "conversations.clear_snapshot", func() error {
+				var err error
+				conversations, err = c.listConversations(ctx)
+				return err
+			})
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -406,15 +431,19 @@ func (c *ConversationsController) ClearConversations(ctx context.Context) ([]str
 			ids,
 			func(ctx context.Context, snapshot []string) ([]string, error) {
 				var deleted []string
-				err := database.WithSQLiteMaintenance(ctx, func() error {
-					current, err := database.GetConversationsWithContext(ctx)
-					if err != nil {
+				err := c.withMaintenance(ctx, func() error {
+					var current []database.Conversation
+					if err := database.WithSQLiteBusyRetry(ctx, "conversations.clear_revalidate", func() error {
+						var err error
+						current, err = c.listConversations(ctx)
+						return err
+					}); err != nil {
 						return err
 					}
 					if !sameConversationIDs(snapshot, current) {
 						return errClearConversationSnapshotChanged
 					}
-					deleted, err = database.DeleteConversationsWithinMaintenanceWithContext(ctx, snapshot)
+					deleted, err = c.deleteWithinMaintenance(ctx, snapshot)
 					return err
 				})
 				return deleted, err

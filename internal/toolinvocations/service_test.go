@@ -3,6 +3,7 @@ package toolinvocations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -173,7 +174,11 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 
 func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
-	for _, createErr := range []error{gorm.ErrRecordNotFound, ErrChatOriginIDRequired} {
+	for _, createErr := range []error{
+		gorm.ErrRecordNotFound,
+		ErrChatOriginIDRequired,
+		errors.New("database is locked (5) (SQLITE_BUSY)"),
+	} {
 		registry := tools.NewRegistry()
 		registry.MustRegister(echoTool{})
 		svc := NewService(

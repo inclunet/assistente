@@ -157,3 +157,79 @@ func TestDeleteConversationsNaoPreparaQuandoPreflightFalha(t *testing.T) {
 		t.Fatal("preparo ou exclusão executado após falha no preflight")
 	}
 }
+
+func TestClearConversationsRefazSnapshotAlteradoAntesDoCommit(t *testing.T) {
+	snapshots := [][]database.Conversation{
+		{{UUIDModel: database.UUIDModel{ID: "conv-1"}}},
+		{{UUIDModel: database.UUIDModel{ID: "conv-1"}}, {UUIDModel: database.UUIDModel{ID: "conv-2"}}},
+		{{UUIDModel: database.UUIDModel{ID: "conv-1"}}, {UUIDModel: database.UUIDModel{ID: "conv-2"}}},
+		{{UUIDModel: database.UUIDModel{ID: "conv-1"}}, {UUIDModel: database.UUIDModel{ID: "conv-2"}}},
+	}
+	listCall := 0
+	var finalized []bool
+	var deletedBatches [][]string
+	var events []string
+	controller := NewConversationsController(ConversationsControllerConfig{
+		Emitter: conversationRecordingEmitter{events: &events},
+		ListConversations: func(context.Context) ([]database.Conversation, error) {
+			result := snapshots[listCall]
+			listCall++
+			return result, nil
+		},
+		WithMaintenance: func(_ context.Context, fn func() error) error {
+			return fn()
+		},
+		PrepareBatchDelete: func(_ context.Context, _ []string) (func(bool), error) {
+			return func(committed bool) { finalized = append(finalized, committed) }, nil
+		},
+		DeleteWithinMaintenance: func(_ context.Context, ids []string) ([]string, error) {
+			deletedBatches = append(deletedBatches, append([]string(nil), ids...))
+			return ids, nil
+		},
+	})
+
+	deleted, err := controller.ClearConversations(context.Background())
+	if err != nil {
+		t.Fatalf("ClearConversations: %v", err)
+	}
+	if want := []string{"conv-1", "conv-2"}; !reflect.DeepEqual(deleted, want) {
+		t.Fatalf("IDs excluídos = %v, want %v", deleted, want)
+	}
+	if listCall != 4 || !reflect.DeepEqual(finalized, []bool{false, true}) {
+		t.Fatalf("retry incorreto: listCall=%d finalized=%v", listCall, finalized)
+	}
+	if want := [][]string{{"conv-1", "conv-2"}}; !reflect.DeepEqual(deletedBatches, want) {
+		t.Fatalf("batches mutados = %v, want %v", deletedBatches, want)
+	}
+	if len(events) != 2 {
+		t.Fatalf("eventos pós-commit = %v", events)
+	}
+}
+
+func TestClearConversationsPropagaErroSemEfeitosPosCommit(t *testing.T) {
+	commitErr := errors.New("falha no commit")
+	finalized := make([]bool, 0, 1)
+	var events []string
+	controller := NewConversationsController(ConversationsControllerConfig{
+		Emitter: conversationRecordingEmitter{events: &events},
+		ListConversations: func(context.Context) ([]database.Conversation, error) {
+			return []database.Conversation{{UUIDModel: database.UUIDModel{ID: "conv-1"}}}, nil
+		},
+		WithMaintenance: func(_ context.Context, fn func() error) error {
+			return fn()
+		},
+		PrepareBatchDelete: func(_ context.Context, _ []string) (func(bool), error) {
+			return func(committed bool) { finalized = append(finalized, committed) }, nil
+		},
+		DeleteWithinMaintenance: func(context.Context, []string) ([]string, error) {
+			return nil, commitErr
+		},
+	})
+
+	if _, err := controller.ClearConversations(context.Background()); !errors.Is(err, commitErr) {
+		t.Fatalf("erro = %v, want %v", err, commitErr)
+	}
+	if !reflect.DeepEqual(finalized, []bool{false}) || len(events) != 0 {
+		t.Fatalf("efeitos em erro: finalized=%v events=%v", finalized, events)
+	}
+}
