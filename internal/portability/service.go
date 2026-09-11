@@ -594,7 +594,7 @@ func ImportConversationsWithRestoreHook(
 			}
 			if imported {
 				result.Imported++
-				restoredIDs = append(restoredIDs, conv.ID)
+				restoredIDs = append(restoredIDs, strings.TrimSpace(conv.ID))
 			}
 		}
 		if restoreHook != nil && len(restoredIDs) > 0 {

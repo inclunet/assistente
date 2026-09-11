@@ -2403,6 +2403,57 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	}
 }
 
+func TestImportConversationsNormalizesRestoredIDsBeforeHook(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	const conversationID = "01926b90-0000-7000-8000-000000000511"
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: now,
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					ID:        " " + conversationID + " ",
+					Title:     "Com ID normalizado",
+					CreatedAt: now,
+					Messages: []MessageExport{
+						{ID: "01926b90-0000-7000-8000-000000000512", Role: "user", Content: "Oi", CreatedAt: now},
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var restoredIDs []string
+	result, err := ImportConversationsWithRestoreHook(
+		portabilityTestCtx(),
+		string(raw),
+		nil,
+		"",
+		nil,
+		func(ids []string) { restoredIDs = append(restoredIDs, ids...) },
+	)
+	if err != nil {
+		t.Fatalf("ImportConversationsWithRestoreHook() error = %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(restoredIDs) != 1 || restoredIDs[0] != conversationID {
+		t.Fatalf("restoredIDs = %q, want [%q]", restoredIDs, conversationID)
+	}
+
+	var imported database.Conversation
+	if err := database.DB().Where("id = ?", conversationID).First(&imported).Error; err != nil {
+		t.Fatalf("conversa normalizada não foi persistida: %v", err)
+	}
+}
+
 func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 	setupPortabilityTestDB(t)
 
