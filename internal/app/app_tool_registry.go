@@ -78,6 +78,9 @@ func (s appProfileSwitcher) ResetConversationTools(conversationID string) {
 
 func (a *App) profileAccessService() *profileaccess.Service {
 	a.profileAccessOnce.Do(func() {
+		if a.jobGrantStore == nil {
+			a.jobGrantStore = jobprofilegrant.NewStore(database.DB())
+		}
 		a.profileAccess = profileaccess.NewService(
 			a.profileManager,
 			a.questionnaireRouter(),
@@ -87,7 +90,7 @@ func (a *App) profileAccessService() *profileaccess.Service {
 			func(ctx context.Context, profile *profiles.Profile) bool {
 				return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
 			},
-		).WithJobGrants(jobprofilegrant.NewStore(database.DB()))
+		).WithJobGrants(a.jobGrantStore)
 	})
 	return a.profileAccess
 }

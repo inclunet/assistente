@@ -117,6 +117,13 @@ func (m *Manager) Start() error {
 	}
 
 	ctx := m.context()
+	if reconciler, ok := m.cfg.Repository.(interface {
+		ReconcileUnauthorizedJobs(context.Context) error
+	}); ok {
+		if err := reconciler.ReconcileUnauthorizedJobs(ctx); err != nil {
+			return fmt.Errorf("reconcile unauthorized jobs: %w", err)
+		}
+	}
 	jobs, err := m.cfg.Repository.ListJobs(ctx, JobFilter{})
 	if err != nil {
 		return fmt.Errorf("load jobs from database: %w", err)
@@ -282,7 +289,7 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 
 	m.emitEvent("jobs:toggled", map[string]any{
 		"id":      id,
-		"enabled": enabled,
+		"enabled": updated.Enabled,
 	})
 
 	return nil
@@ -309,8 +316,33 @@ func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool)
 	} else {
 		m.unregisterTriggers(&updated)
 	}
-	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": enabled})
+	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": updated.Enabled})
 	return nil
+}
+
+// ReconcileDisabledJobs aplica ao registry/scheduler o estado já persistido
+// pelo store de grants após revogação ou exclusão global de profile.
+func (m *Manager) ReconcileDisabledJobs(slugs []string) {
+	seen := make(map[string]struct{}, len(slugs))
+	for _, slug := range slugs {
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			continue
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		seen[slug] = struct{}{}
+		current := m.registry.Get(slug)
+		if current == nil || !current.Enabled {
+			continue
+		}
+		updated := *current
+		updated.Enabled = false
+		m.unregisterTriggers(current)
+		m.registry.Set(&updated)
+		m.emitEvent("jobs:toggled", map[string]any{"id": slug, "enabled": false})
+	}
 }
 
 // RunJob executa um job manualmente.

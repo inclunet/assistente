@@ -120,6 +120,43 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	}
 }
 
+func TestManagerReconcileDisabledJobsUpdatesRegistrySchedulerAndEvent(t *testing.T) {
+	mgr := NewManager(ManagerConfig{})
+	mgr.started = true
+	mgr.scheduler.Start()
+	t.Cleanup(mgr.scheduler.Stop)
+	var emitted map[string]any
+	mgr.cfg.EmitEvent = func(event string, data any) {
+		if event == "jobs:toggled" {
+			emitted, _ = data.(map[string]any)
+		}
+	}
+	job := &Job{
+		ID: "delegado", Name: "Delegado", Enabled: true, PipelineEnabled: true,
+		Triggers: []Trigger{
+			{Type: TriggerInterval, Every: "1h"},
+			{Type: TriggerEvent, Listen: "deploy"},
+			{Type: TriggerHotkey, Keys: "Ctrl+Alt+D"},
+		},
+	}
+	mgr.registry.Set(job)
+	mgr.registerTriggers(job)
+	if len(mgr.scheduler.ScheduledJobs()) != 1 {
+		t.Fatal("job deveria estar agendado antes da reconciliação")
+	}
+	mgr.ReconcileDisabledJobs([]string{"delegado"})
+	got := mgr.registry.Get("delegado")
+	if got == nil || got.Enabled {
+		t.Fatalf("registry não refletiu desabilitação: %#v", got)
+	}
+	if len(mgr.scheduler.ScheduledJobs()) != 0 {
+		t.Fatal("scheduler manteve job revogado")
+	}
+	if emitted["id"] != "delegado" || emitted["enabled"] != false {
+		t.Fatalf("evento efetivo inválido: %#v", emitted)
+	}
+}
+
 func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegisterOptIn(&fakeTool{
