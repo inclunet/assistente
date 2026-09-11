@@ -58,6 +58,9 @@ API conceitual (frontend):
 - `body` opcional para conteúdo curto/legado;
 - `readingRegions[]` para conteúdo longo somente leitura (comando, URL, path,
   diff), com nome traduzível e conteúdo cru separado;
+- `severity` explícita (`permission`/`destructive`/`info`), usada para
+  apresentação e nunca inferida de `variant`, cor, label ou posição; decisões
+  backend antigas sem o campo usam `permission`;
 - `actions[]`: lista ordenada de ações
   `{ id, label, variant, shortcut?, primary?, polarity?, scope? }`
 - `onAction(id)` / cancel via ESC ou ação explícita de cancelar
@@ -167,6 +170,7 @@ um payload de decisão:
 
 ```text
 kind: decision
+severity?: permission | destructive | info
 title, description, body?
 actions: [{ id, label(QuestionnaireText), variant, shortcut?(QuestionnaireText) }]
 ```
@@ -179,6 +183,10 @@ actions: [{ id, label(QuestionnaireText), variant, shortcut?(QuestionnaireText) 
 
 O frontend renderiza `DecisionDialog`. Resposta: `{ actionId }` ou
 `cancelled: true`.
+
+`severity` atravessa o evento backend sem conversão. O default
+`permission` existe no host para compatibilidade; produtores realmente
+destrutivos, como exclusão de mensagem, devem declarar `destructive`.
 
 Compatibilidade com o padrão antigo (rádio único + submit mapeado para
 DecisionDialog) **não foi implementada**. Os produtores de permissão emitem
