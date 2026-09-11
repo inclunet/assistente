@@ -78,11 +78,13 @@ func (p *GoogleProvider) newStreamingClient(ctx context.Context) (*genai.Client,
 type googleUsagePresenceTracker struct {
 	line              []byte
 	reasoningReported bool
+	outputReported    bool
 }
 
 func (t *googleUsagePresenceTracker) reset() {
 	t.line = t.line[:0]
 	t.reasoningReported = false
+	t.outputReported = false
 }
 
 func (t *googleUsagePresenceTracker) observe(chunk []byte) {
@@ -96,9 +98,17 @@ func (t *googleUsagePresenceTracker) observe(chunk []byte) {
 		if !bytes.HasPrefix(line, []byte("data:")) {
 			continue
 		}
-		raw := strings.TrimSpace(string(bytes.TrimPrefix(line, []byte("data:"))))
+		rawBytes := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if !bytes.Contains(rawBytes, []byte(`"usageMetadata"`)) &&
+			!bytes.Contains(rawBytes, []byte(`"usage_metadata"`)) {
+			continue
+		}
+		raw := string(rawBytes)
 		if jsonUsageHasAnyKey(raw, "thoughtsTokenCount", "thoughts_token_count") {
 			t.reasoningReported = true
+		}
+		if jsonUsageHasAnyKey(raw, "candidatesTokenCount", "candidates_token_count") {
+			t.outputReported = true
 		}
 	}
 }
@@ -350,20 +360,25 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 
 		if resp.UsageMetadata != nil {
 			reasoningReported := resp.UsageMetadata.ThoughtsTokenCount > 0
+			outputReported := resp.UsageMetadata.CandidatesTokenCount > 0
 			if resp.SDKHTTPResponse != nil {
 				reasoningReported = reasoningReported || jsonUsageHasAnyKey(
 					resp.SDKHTTPResponse.Body, "thoughtsTokenCount", "thoughts_token_count")
+				outputReported = outputReported || jsonUsageHasAnyKey(
+					resp.SDKHTTPResponse.Body, "candidatesTokenCount", "candidates_token_count")
 			}
 			if usagePresence != nil {
 				reasoningReported = reasoningReported || usagePresence.reasoningReported
+				outputReported = outputReported || usagePresence.outputReported
 			}
-			lastUsage = UsageFromGeminiWithReasoning(
+			lastUsage = usageFromGeminiWithPresence(
 				int(resp.UsageMetadata.PromptTokenCount),
 				int(resp.UsageMetadata.CandidatesTokenCount),
 				int(resp.UsageMetadata.TotalTokenCount),
 				int(resp.UsageMetadata.CachedContentTokenCount),
 				int(resp.UsageMetadata.ThoughtsTokenCount),
 				reasoningReported,
+				outputReported,
 			)
 		}
 

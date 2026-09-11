@@ -63,7 +63,7 @@ func TestUsageFromAnthropic_CacheTokensArePartOfInput(t *testing.T) {
 
 func TestMergeAnthropicStreamingUsage_PreservesStartCacheMetrics(t *testing.T) {
 	start := UsageFromAnthropic(700, 0, 200, 300)
-	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0)
+	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0, true)
 
 	if usage.PromptTokens != 1200 {
 		t.Fatalf("PromptTokens=%d, want 1200", usage.PromptTokens)
@@ -84,7 +84,7 @@ func TestMergeAnthropicStreamingUsage_PreservesStartCacheMetrics(t *testing.T) {
 
 func TestMergeAnthropicStreamingUsage_PreservesStartInputWithoutCache(t *testing.T) {
 	start := UsageFromAnthropic(700, 0, 0, 0)
-	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0)
+	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0, true)
 
 	if usage.PromptTokens != 700 {
 		t.Fatalf("PromptTokens=%d, want 700", usage.PromptTokens)
@@ -98,7 +98,7 @@ func TestMergeAnthropicStreamingUsage_PreservesStartInputWithoutCache(t *testing
 }
 
 func TestMergeAnthropicStreamingUsage_AllowsFullyCachedInput(t *testing.T) {
-	usage := mergeAnthropicStreamingUsage(Usage{}, 0, 0, 0, 300)
+	usage := mergeAnthropicStreamingUsage(Usage{}, 0, 0, 0, 300, false)
 
 	if usage.PromptTokens != 300 {
 		t.Fatalf("PromptTokens=%d, want 300", usage.PromptTokens)
@@ -108,6 +108,17 @@ func TestMergeAnthropicStreamingUsage_AllowsFullyCachedInput(t *testing.T) {
 	}
 	if usage.CacheMissTokens != 0 {
 		t.Fatalf("CacheMissTokens=%d, want 0", usage.CacheMissTokens)
+	}
+}
+
+func TestMergeAnthropicStreamingUsage_DistingueOutputAusenteDeZero(t *testing.T) {
+	start := mergeAnthropicStreamingUsage(Usage{}, 10, 0, 0, 0, false)
+	if start.OutputTokensReported {
+		t.Fatal("message_start sem output_tokens não pode reportar zero")
+	}
+	delta := mergeAnthropicStreamingUsage(start, 0, 0, 0, 0, true)
+	if !delta.OutputTokensReported || delta.CompletionTokens != 0 {
+		t.Fatalf("zero explícito do message_delta não preservado: %#v", delta)
 	}
 }
 
@@ -132,6 +143,18 @@ func TestOpenAIUsagePresenceDistingueOutputAusente(t *testing.T) {
 	}
 	if !usage.ReasoningTokensReported || usage.ReasoningTokens != 0 {
 		t.Fatalf("reasoning zero explícito não preservado: %#v", usage)
+	}
+}
+
+func TestOpenAIChatUsageNormalizaAliasesInputOutput(t *testing.T) {
+	raw := `{"input_tokens":3,"output_tokens":7}`
+	if !openAIUsageReported(raw, 0, 0, 0) {
+		t.Fatal("aliases de usage deveriam ser detectados")
+	}
+	usage := UsageFromOpenAICompletion(0, 0, 0, 0, raw)
+	if usage.PromptTokens != 3 || usage.CompletionTokens != 7 ||
+		usage.TotalTokens != 10 || !usage.OutputTokensReported {
+		t.Fatalf("aliases não normalizados: %#v", usage)
 	}
 }
 

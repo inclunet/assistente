@@ -6,8 +6,12 @@ import "encoding/json"
 // Além do formato OpenAI (prompt_tokens_details.cached_tokens), aceita campos
 // best-effort emitidos por gateways/DeepSeek no payload bruto.
 func UsageFromOpenAICompletion(promptTokens, completionTokens, totalTokens, cachedTokens int, rawJSON string) Usage {
+	fields := parseUsageFields(rawJSON)
+	promptTokens = tokenCountWithAliases(promptTokens, fields, "prompt_tokens", "input_tokens")
+	completionTokens = tokenCountWithAliases(completionTokens, fields, "completion_tokens", "output_tokens")
+	totalTokens = tokenCountWithAliases(totalTokens, fields, "total_tokens")
 	usage := baseUsage(promptTokens, completionTokens, totalTokens)
-	usage.OutputTokensReported = openAIOutputTokensReported(rawJSON, completionTokens, "completion_tokens")
+	usage.OutputTokensReported = openAIOutputTokensReported(fields, completionTokens, "completion_tokens", "output_tokens")
 	applyOpenAICacheUsage(&usage, cachedTokens, rawJSON)
 	applyOpenAIReasoningUsage(&usage, rawJSON)
 	return usage
@@ -15,8 +19,12 @@ func UsageFromOpenAICompletion(promptTokens, completionTokens, totalTokens, cach
 
 // UsageFromOpenAIResponses normaliza usage da Responses API.
 func UsageFromOpenAIResponses(inputTokens, outputTokens, totalTokens, cachedTokens int, rawJSON string) Usage {
+	fields := parseUsageFields(rawJSON)
+	inputTokens = tokenCountWithAliases(inputTokens, fields, "input_tokens", "prompt_tokens")
+	outputTokens = tokenCountWithAliases(outputTokens, fields, "output_tokens", "completion_tokens")
+	totalTokens = tokenCountWithAliases(totalTokens, fields, "total_tokens")
 	usage := baseUsage(inputTokens, outputTokens, totalTokens)
-	usage.OutputTokensReported = openAIOutputTokensReported(rawJSON, outputTokens, "output_tokens")
+	usage.OutputTokensReported = openAIOutputTokensReported(fields, outputTokens, "output_tokens", "completion_tokens")
 	applyOpenAICacheUsage(&usage, cachedTokens, rawJSON)
 	applyOpenAIReasoningUsage(&usage, rawJSON)
 	return usage
@@ -30,7 +38,7 @@ func UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheRea
 		promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens
 	}
 	usage := baseUsage(promptTokens, outputTokens, 0)
-	usage.OutputTokensReported = true
+	usage.OutputTokensReported = outputTokens > 0
 	usage.CacheReadTokens = cacheReadTokens
 	usage.CacheWriteTokens = cacheCreationTokens
 	if cacheCreationTokens > 0 || cacheReadTokens > 0 {
@@ -39,7 +47,7 @@ func UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheRea
 	return usage
 }
 
-func mergeAnthropicStreamingUsage(previous Usage, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) Usage {
+func mergeAnthropicStreamingUsage(previous Usage, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int, outputReported bool) Usage {
 	if outputTokens == 0 {
 		outputTokens = previous.CompletionTokens
 	}
@@ -56,7 +64,9 @@ func mergeAnthropicStreamingUsage(previous Usage, inputTokens, outputTokens, cac
 			inputTokens = previous.PromptTokens
 		}
 	}
-	return UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
+	usage := UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
+	usage.OutputTokensReported = previous.OutputTokensReported || outputReported
+	return usage
 }
 
 // UsageFromGemini normaliza usage do SDK Gemini.
@@ -68,8 +78,15 @@ func UsageFromGemini(promptTokens, completionTokens, totalTokens, cachedContentT
 // CandidatesTokenCount mede a resposta visível e TotalTokenCount também pode
 // incluir os tokens ocultos de raciocínio.
 func UsageFromGeminiWithReasoning(promptTokens, completionTokens, totalTokens, cachedContentTokens, reasoningTokens int, reasoningReported bool) Usage {
+	return usageFromGeminiWithPresence(
+		promptTokens, completionTokens, totalTokens, cachedContentTokens,
+		reasoningTokens, reasoningReported, completionTokens > 0,
+	)
+}
+
+func usageFromGeminiWithPresence(promptTokens, completionTokens, totalTokens, cachedContentTokens, reasoningTokens int, reasoningReported, outputReported bool) Usage {
 	usage := baseUsage(promptTokens, completionTokens, totalTokens)
-	usage.OutputTokensReported = true
+	usage.OutputTokensReported = outputReported
 	if cachedContentTokens > 0 {
 		usage.CacheReadTokens = cachedContentTokens
 		if promptTokens >= cachedContentTokens {
@@ -122,14 +139,34 @@ func openAIUsageReported(rawJSON string, tokenCounts ...int) bool {
 	return false
 }
 
-func openAIOutputTokensReported(rawJSON string, outputTokens int, key string) bool {
+func openAIOutputTokensReported(fields map[string]int, outputTokens int, keys ...string) bool {
 	if outputTokens > 0 {
 		return true
 	}
-	fields := parseUsageFields(rawJSON)
-	_, direct := fields[key]
-	_, enveloped := fields["usage."+key]
-	return direct || enveloped
+	for _, key := range keys {
+		if _, ok := fields[key]; ok {
+			return true
+		}
+		if _, ok := fields["usage."+key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func tokenCountWithAliases(value int, fields map[string]int, keys ...string) int {
+	if value != 0 {
+		return value
+	}
+	for _, key := range keys {
+		if count, ok := fields[key]; ok {
+			return count
+		}
+		if count, ok := fields["usage."+key]; ok {
+			return count
+		}
+	}
+	return value
 }
 
 func jsonUsageHasAnyKey(rawJSON string, keys ...string) bool {

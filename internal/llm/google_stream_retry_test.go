@@ -81,7 +81,7 @@ func TestGoogleStreamRetryAvisoEFinalizacao(t *testing.T) {
 }
 
 func TestGooglePreservaReasoningZeroExplicitamenteReportado(t *testing.T) {
-	const stream = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":2,\"thoughtsTokenCount\":0,\"totalTokenCount\":3}}\r\n\r\n"
+	const stream = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":1,\"thoughtsTokenCount\":0,\"totalTokenCount\":1}}\r\n\r\n"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(stream))
@@ -110,5 +110,8 @@ func TestGooglePreservaReasoningZeroExplicitamenteReportado(t *testing.T) {
 	if !handler.usage.Reported || !handler.usage.ReasoningTokensReported ||
 		handler.usage.ReasoningTokens != 0 {
 		t.Fatalf("zero explícito de reasoning não foi preservado: %#v", handler.usage)
+	}
+	if handler.usage.OutputTokensReported {
+		t.Fatalf("output ausente não pode virar zero reportado: %#v", handler.usage)
 	}
 }
