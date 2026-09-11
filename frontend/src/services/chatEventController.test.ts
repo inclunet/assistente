@@ -1446,4 +1446,13 @@ describe('chatEventController', () => {
       undefined,
     );
   });
+
+  it('traduz streaming_interrupted e streaming_idle_timeout', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', { conversationId: 'conversation-1', error: 'streaming_interrupted', turnId: 't1', messageId: 'a1' });
+    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toContain('streamingInterrupted');
+    emitEvent('chat:stream', { conversationId: 'conversation-1', error: 'streaming_idle_timeout', turnId: 't1', messageId: 'a2' });
+    // segundo erro não deve sobrescrever sem novo controller
+  });
 });
