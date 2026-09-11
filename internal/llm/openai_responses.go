@@ -300,10 +300,16 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				if content != "" {
 					select {
 					case <-ctx.Done():
+						if isThinking || fullReasoning.Len() > 0 {
+							handler.OnThinkingDone(fullReasoning.String())
+						}
 						return mcpStreamAttemptResult{done: true}
 					default:
 					}
 					if wd.TimedOut() {
+						if isThinking || fullReasoning.Len() > 0 {
+							handler.OnThinkingDone(fullReasoning.String())
+						}
 						if !emittedAnything {
 							return mcpStreamAttemptResult{retry: true}
 						}
