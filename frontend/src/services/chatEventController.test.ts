@@ -1450,14 +1450,50 @@ describe('chatEventController', () => {
   it('traduz streaming_interrupted', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:stream', { conversationId: 'conversation-1', error: 'streaming_interrupted', turnId: 't1', messageId: 'a1' });
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toContain('streamingInterrupted');
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'streaming_interrupted',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingInterrupted');
+  });
+
+  it('traduz streaming_interrupted recebido em chat:done', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 't1',
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      errorMessage: 'streaming_interrupted',
+      turnId: 't1',
+      assistantMessageId: 'a1',
+      hadToolCalls: false,
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[1].message.content,
+    ).toBe('Erro: chat.errors.streamingInterrupted');
   });
 
   it('traduz streaming_idle_timeout', () => {
     const { adapter, sessions } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });
-    emitEvent('chat:stream', { conversationId: 'conversation-2', error: 'streaming_idle_timeout', turnId: 't1', messageId: 'a1' });
-    expect(sessions['conversation-2'].conversation?.threadedMessages[0].message.content).toContain('streamingIdleTimeout');
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_idle_timeout',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingIdleTimeout');
   });
 });
