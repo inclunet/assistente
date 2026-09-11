@@ -306,6 +306,18 @@ func TestDeleteProfileRevokesGloballyWithoutUserContext(t *testing.T) {
 	}
 }
 
+func TestDeleteProfileFailureDoesNotRevokeGrants(t *testing.T) {
+	grants := &fakeJobGrants{}
+	service := NewService(profileStoreFixture(), nil, nil, nil).WithJobGrants(grants)
+	deleteErr := errors.New("falha de I/O")
+	err := service.DeleteProfile(context.Background(), "custom", func() error {
+		return deleteErr
+	})
+	if !errors.Is(err, deleteErr) || grants.revoked != 0 {
+		t.Fatalf("exclusão falha não pode revogar grants: revoked=%d err=%v", grants.revoked, err)
+	}
+}
+
 func TestAuthorizeJobTargetRejectsProfileRemovedAndRecreatedDuringDialog(t *testing.T) {
 	store := profileStoreFixture()
 	config := jobprofilegrant.DelegationConfig{

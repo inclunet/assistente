@@ -195,11 +195,19 @@ template que resolva para vazio também falha fechado, sem herdar o profile
 global.
 
 No primeiro upgrade que introduz grants, jobs `subagent` já habilitados são
-desabilitados porque não existe decisão explícita que possa ser convertida em
-grant. O startup reconcilia novamente jobs habilitados sem grant. Revogações
+desabilitados quando possuem `inputs.profile` textual e não vazio, porque não
+existe decisão explícita que possa ser convertida em grant; jobs que omitem o
+input e herdam profile não são alterados. O startup reconcilia novamente jobs
+habilitados sem grant. O executor remove `invocationctx` herdado da conversa
+que publicou um evento antes de chamar tools, impedindo bypass por coincidência
+com o profile-pai. Revogações
 atualizam banco, registry, cron/interval, subscriptions de eventos, hotkeys e
 UI imediatamente para o usuário ativo; outros usuários observam o estado
 persistido ao carregar seu runtime.
+
+Ao excluir um profile, a revogação global ocorre somente depois de a remoção no
+filesystem ter sucesso. A seção crítica impede grants concorrentes entre a
+remoção e a revogação; falha de exclusão não altera autorizações nem jobs.
 
 ## Fases
 

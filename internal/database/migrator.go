@@ -231,7 +231,12 @@ var schemaMigrations = []migration{
 				`DROP INDEX IF EXISTS ux_job_profile_grants_exact`,
 				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_generation ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint, generation)`,
 				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_active ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint) WHERE revoked_at IS NULL`,
-				`UPDATE jobs SET enabled = 0 WHERE enabled = 1 AND tool_name = 'subagent'`,
+				`UPDATE jobs
+				    SET enabled = 0
+				  WHERE enabled = 1
+				    AND tool_name = 'subagent'
+				    AND json_type(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile') = 'text'
+				    AND trim(json_extract(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile')) <> ''`,
 			}
 			for _, statement := range statements {
 				if err := database.Exec(statement).Error; err != nil {

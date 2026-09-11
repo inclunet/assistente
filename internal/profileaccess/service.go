@@ -324,8 +324,8 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 }
 
 // DeleteProfile serializa a remoção do arquivo com a concessão de grants.
-// Assim, ou o grant é criado antes e revogado pela exclusão, ou a validação
-// final já observa que o profile não existe.
+// A revogação global só é confirmada após a exclusão bem-sucedida; o mutex
+// impede que uma autorização pendente seja persistida entre as duas etapas.
 func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deleteProfile func() error) error {
 	if s == nil || s.grants == nil {
 		return errors.New("store de grants indisponível")
@@ -335,14 +335,14 @@ func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deletePr
 	}
 	s.profileMu.Lock()
 	defer s.profileMu.Unlock()
-	if err := s.grants.RevokeProfileGlobal(ctx, targetSlug, "profile excluído"); err != nil {
+	if err := deleteProfile(); err != nil {
 		return err
 	}
 	if s.profileEpoch == nil {
 		s.profileEpoch = make(map[string]uint64)
 	}
 	s.profileEpoch[strings.TrimSpace(targetSlug)]++
-	return deleteProfile()
+	return s.grants.RevokeProfileGlobal(ctx, targetSlug, "profile excluído")
 }
 
 func (s *Service) RevokeJobTarget(ctx context.Context, jobID, targetSlug string) error {

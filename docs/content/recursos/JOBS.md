@@ -43,8 +43,9 @@ Importar ou duplicar um job nunca importa permissões. Sem um grant válido,
 disparos cron/event/headless falham antes de criar conversa ou run de subagente
 e não abrem diálogo.
 
-Na atualização que introduz esse controle, jobs `subagent` antigos são
-desativados até que cada perfil necessário seja autorizado explicitamente.
+Na atualização que introduz esse controle, jobs `subagent` antigos com um
+`profile` explícito são desativados até que cada perfil necessário seja
+autorizado. Jobs que omitem esse input e herdam o profile continuam inalterados.
 
 ## Navegação e ações pelo teclado
 
