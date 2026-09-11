@@ -274,9 +274,6 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	if isThinking && thinkingBuffer.Len() > 0 {
 		remaining := thinkingBuffer.String()
 		fullResponse.WriteString(remaining)
-		if remaining != "" {
-			emittedVisibleContent = true
-		}
 		handler.OnChunk(remaining)
 		thinkingBuffer.Reset()
 		isThinking = false
