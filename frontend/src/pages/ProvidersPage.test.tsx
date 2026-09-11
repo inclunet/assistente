@@ -353,9 +353,20 @@ describe('ProvidersPage', () => {
     const update = await screen.findByRole('button', { name: 'Atualizar agente' });
     await waitFor(() => expect(update).toBeEnabled());
     await user.click(update);
-    await user.click(await screen.findByRole('button', {
+    const confirmUpdate = await screen.findByRole('button', {
       name: 'providerForm.agent.catalog.confirm.confirmUpdateBtn',
-    }));
+    });
+    expect(confirmUpdate).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Enter'),
+    );
+    expect(screen.getByRole('button', {
+      name: 'providerForm.agent.catalog.confirm.cancelBtn',
+    })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Backspace'),
+    );
+    await user.click(confirmUpdate);
 
     await waitFor(() => {
       expect(mockUpdateAgent).toHaveBeenCalledWith('cursor', {

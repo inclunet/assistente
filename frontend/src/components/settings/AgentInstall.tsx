@@ -827,14 +827,6 @@ export const AgentInstall = ({
         ].filter(Boolean).join(' ')}
         size="md"
         severity={unverified ? 'permission' : 'info'}
-        /*
-          Artefato sem digest: foco em Cancelar (D4 / AEP-0091). Sem override,
-          permission+body focaria o corpo e Enter não fecharia no cancelar.
-        */
-        initialFocusSelector={
-          unverified ? '[data-decision-action="cancel"]' : undefined
-        }
-        safeActionId="cancel"
         actions={[
           {
             id: 'confirm',
@@ -849,11 +841,15 @@ export const AgentInstall = ({
             ),
             primary: true,
             variant: 'primary',
+            polarity: 'affirmative',
+            scope: 'current',
           },
           {
             id: 'cancel',
             label: t('providerForm.agent.catalog.confirm.cancelBtn'),
             variant: 'outline',
+            polarity: 'negative',
+            scope: 'current',
           },
         ]}
         onAction={(actionId) => {
@@ -942,18 +938,21 @@ export const AgentInstall = ({
           })}
           size="sm"
           severity="destructive"
-          safeActionId="cancel"
           actions={[
             {
               id: 'confirm',
               label: t('providerForm.agent.catalog.removeConfirm.confirmBtn'),
               primary: true,
               variant: 'danger',
+              polarity: 'affirmative',
+              scope: 'current',
             },
             {
               id: 'cancel',
               label: t('providerForm.agent.catalog.confirm.cancelBtn'),
               variant: 'outline',
+              polarity: 'negative',
+              scope: 'current',
             },
           ]}
           onAction={(actionId) => {

@@ -175,6 +175,72 @@ describe('DecisionQuestionnaireHost', () => {
     });
   });
 
+  it('usa permission por padrão e respeita severity destrutiva explícita', () => {
+    const withDanger: QuestionnairePayload = {
+      ...shellDecision(),
+      actions: [
+        { id: 'allow', label: 'Permitir', primary: true, variant: 'primary' },
+        { id: 'deny-always', label: 'Negar sempre', variant: 'danger' },
+      ],
+    };
+    const { unmount } = render(
+      <DecisionQuestionnaireHost
+        data={withDanger}
+        onAction={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('alertdialog').querySelector('.modal-content')).toHaveClass(
+      'decision-dialog-modal--permission',
+    );
+    unmount();
+
+    render(
+      <DecisionQuestionnaireHost
+        data={{ ...withDanger, severity: 'destructive' }}
+        onAction={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('alertdialog').querySelector('.modal-content')).toHaveClass(
+      'decision-dialog-modal--destructive',
+    );
+  });
+
+  it('expõe e executa os seis chords sem colisão do filesystem trust', () => {
+    const onAction = vi.fn();
+    const data: QuestionnairePayload = {
+      ...shellDecision(),
+      id: 'fstrust',
+      actions: [
+        { id: 'once', label: 'Tentativa', polarity: 'affirmative', scope: 'current' },
+        { id: 'session', label: 'Conversa', polarity: 'affirmative', scope: 'conversation' },
+        { id: 'workspace', label: 'Workspace', polarity: 'affirmative', scope: 'persistent' },
+        { id: 'profile', label: 'Perfil' },
+        { id: 'dir-once', label: 'Pasta uma vez' },
+        { id: 'deny-session', label: 'Negar conversa', polarity: 'negative', scope: 'conversation' },
+        { id: 'deny-workspace', label: 'Negar workspace', polarity: 'negative', scope: 'persistent' },
+        { id: 'deny', label: 'Negar tentativa', polarity: 'negative', scope: 'current' },
+      ],
+    };
+    render(
+      <DecisionQuestionnaireHost data={data} onAction={onAction} onCancel={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Tentativa' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Enter'),
+    );
+    expect(screen.getByRole('button', { name: 'Pasta uma vez' })).not.toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Enter'),
+    );
+    fireEvent.keyDown(document, { key: 'Backspace', ctrlKey: true, shiftKey: true });
+    expect(onAction).toHaveBeenCalledWith({
+      [DECISION_ANSWER_ACTION_ID]: 'deny-workspace',
+    });
+  });
+
   it('respeita allowCancel=false ignorando ESC', () => {
     const onCancel = vi.fn();
     render(

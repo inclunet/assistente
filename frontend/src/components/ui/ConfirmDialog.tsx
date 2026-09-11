@@ -52,7 +52,6 @@ export function ConfirmDialog({
       description={message}
       severity={toSeverity(variant)}
       className={`confirm-dialog-modal confirm-dialog-modal--${variant}`}
-      safeActionId="cancel"
       actions={[
         {
           id: 'confirm',
