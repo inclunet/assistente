@@ -190,6 +190,8 @@ internas de grants. A resolução de entrada prioriza slug e só usa UUID como
 fallback; depois de resolvido, validação e persistência usam uma consulta
 explicitamente por UUID para não reintroduzir ambiguidade slug↔ID. O backend
 revalida job, fingerprint, profile alvo e grant antes de criar conversa/run.
+DTOs Wails de estado e grants expõem somente o slug público, nunca o UUID
+interno.
 Grant ausente falha como `authorization_not_granted`, permanente para a
 política de retry. Cron/event/headless nunca abre diálogo. A autorização
 interativa existente continua sendo por invocação e não consulta grants de

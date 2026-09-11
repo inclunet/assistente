@@ -253,7 +253,7 @@ func (s *Service) JobGrantState(ctx context.Context, jobID string) (JobGrantStat
 		return JobGrantState{}, err
 	}
 	return JobGrantState{
-		JobID:             config.JobID,
+		JobID:             config.JobSlug,
 		JobSlug:           config.JobSlug,
 		JobName:           config.JobName,
 		ProfileExpression: config.ProfileExpression,

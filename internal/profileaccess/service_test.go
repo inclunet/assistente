@@ -244,6 +244,21 @@ func TestAuthorizeJobTargetPersistsOnlyDesktopApproval(t *testing.T) {
 	}
 }
 
+func TestJobGrantStateExposesPublicSlug(t *testing.T) {
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{{
+		JobID: "uuid-interno", JobSlug: "job-publico", JobName: "Job",
+		ProfileExpression: "custom", Fingerprint: "fp",
+	}}}
+	service := NewService(profileStoreFixture(), nil, nil, nil).WithJobGrants(grants)
+	state, err := service.JobGrantState(context.Background(), "job-publico")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.JobID != "job-publico" || state.JobSlug != "job-publico" {
+		t.Fatalf("DTO expôs identidade interna: %#v", state)
+	}
+}
+
 func TestAuthorizeJobTargetRevalidatesTOCTOUAndDenial(t *testing.T) {
 	before := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "before"}
 	after := before

@@ -80,6 +80,10 @@ func TestStoreExactIsolationIdempotencyAndRevocation(t *testing.T) {
 	if err != nil || !valid {
 		t.Fatalf("grant exato deveria valer: valid=%v err=%v", valid, err)
 	}
+	grants, _, err := store.ListValid(userA, jobA.ID)
+	if err != nil || len(grants) != 1 || grants[0].JobID != jobA.Slug {
+		t.Fatalf("DTO público deveria expor slug: grants=%#v err=%v", grants, err)
+	}
 	if valid, _ := store.HasValid(userA, jobA.ID, "outro", configA.Fingerprint); valid {
 		t.Fatal("target diferente herdou grant")
 	}
@@ -163,6 +167,25 @@ func TestCurrentDelegationUsesCatalogNameForLegacyJob(t *testing.T) {
 	}
 	if config.Tool != ToolSubagent || config.Fingerprint != Fingerprint(ToolSubagent, config.ProfileExpression) {
 		t.Fatalf("tool efetiva do catálogo não foi usada: %#v", config)
+	}
+	snapshot, err := store.AuthorizationSnapshot(userA, jobA.Slug, "especialista")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, snapshot.Config.JobID, "especialista", snapshot.Config.Fingerprint, "desktop", snapshot.Generation); err != nil {
+		t.Fatal(err)
+	}
+	var disabled []DisabledJob
+	store.SetJobsDisabledCallback(func(jobs []DisabledJob) { disabled = append(disabled, jobs...) })
+	if err := store.Revoke(userA, jobA.Slug, "especialista", "desktop"); err != nil {
+		t.Fatal(err)
+	}
+	var row database.Job
+	if err := db.First(&row, "id = ?", jobA.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Enabled || len(disabled) != 1 || disabled[0].Slug != jobA.Slug {
+		t.Fatalf("revogação legada não reconciliou job: enabled=%v disabled=%#v", row.Enabled, disabled)
 	}
 }
 

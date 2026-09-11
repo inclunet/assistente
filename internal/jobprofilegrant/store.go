@@ -168,13 +168,9 @@ func currentDelegationByDatabaseIDDB(ctx context.Context, db *gorm.DB, jobID str
 }
 
 func delegationConfigFromRow(db *gorm.DB, row database.Job) (DelegationConfig, error) {
-	toolName := strings.TrimSpace(row.ToolName)
-	if toolName == "" {
-		var catalog database.ToolCatalog
-		if err := db.Where("id = ?", row.ToolCatalogID).First(&catalog).Error; err != nil {
-			return DelegationConfig{}, err
-		}
-		toolName = strings.TrimSpace(catalog.Name)
+	toolName, err := effectiveToolNameDB(db, row)
+	if err != nil {
+		return DelegationConfig{}, err
 	}
 	if toolName != ToolSubagent {
 		return DelegationConfig{}, ErrNotSubagentJob
@@ -196,6 +192,18 @@ func delegationConfigFromRow(db *gorm.DB, row database.Job) (DelegationConfig, e
 		ProfileExpression: expression,
 		Fingerprint:       Fingerprint(toolName, expression),
 	}, nil
+}
+
+func effectiveToolNameDB(db *gorm.DB, row database.Job) (string, error) {
+	toolName := strings.TrimSpace(row.ToolName)
+	if toolName != "" {
+		return toolName, nil
+	}
+	var catalog database.ToolCatalog
+	if err := db.Where("id = ?", row.ToolCatalogID).First(&catalog).Error; err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(catalog.Name), nil
 }
 
 func (s *Store) AuthorizationSnapshot(ctx context.Context, jobID, targetSlug string) (AuthorizationSnapshot, error) {
@@ -319,7 +327,7 @@ func (s *Store) ListValid(ctx context.Context, jobID string) ([]Grant, Delegatio
 	grants := make([]Grant, 0, len(rows))
 	for _, row := range rows {
 		grants = append(grants, Grant{
-			JobID:                 row.JobID,
+			JobID:                 config.JobSlug,
 			TargetProfileSlug:     row.TargetProfileSlug,
 			DelegationFingerprint: row.DelegationFingerprint,
 			GrantedAt:             row.GrantedAt,
@@ -526,7 +534,11 @@ func disableJobWithoutGrantTx(tx *gorm.DB, userID, jobID string) (*DisabledJob, 
 	if err := json.Unmarshal([]byte(job.Inputs), &inputs); err != nil {
 		return nil, err
 	}
-	fingerprint, grantable := FingerprintForInputs(job.ToolName, inputs)
+	toolName, err := effectiveToolNameDB(tx, job)
+	if err != nil {
+		return nil, err
+	}
+	fingerprint, grantable := FingerprintForInputs(toolName, inputs)
 	if !grantable {
 		return nil, nil
 	}
