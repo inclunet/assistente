@@ -272,9 +272,11 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 
 	if isThinking && thinkingBuffer.Len() > 0 {
-		remaining := thinkingBuffer.String()
-		fullResponse.WriteString(remaining)
-		handler.OnChunk(remaining)
+		select {
+		case <-ctx.Done():
+			return chatStreamAttempt{done: true}
+		default:
+		}
 		thinkingBuffer.Reset()
 		isThinking = false
 	}
@@ -337,7 +339,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 	ReportFinishReason(handler, finish)
 
-	if finish.Reason == "" && fullResponse.Len() > 0 && len(finishedToolCalls) == 0 && finish.OutputLimit == 0 {
+	if finish.Reason == "" && fullResponse.Len() > 0 && len(finishedToolCalls) == 0 {
 		handler.OnError("resposta interrompida pelo provedor sem motivo de finalização; tente novamente")
 		return chatStreamAttempt{done: true}
 	}
