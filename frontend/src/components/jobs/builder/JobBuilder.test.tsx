@@ -155,6 +155,24 @@ describe('JobBuilder grants de profiles', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('não anuncia falta de autorização quando grant foi aprovado para job desabilitado', async () => {
+    const user = userEvent.setup();
+    saveJob.mockResolvedValue({
+      jobId: 'resumo-diario',
+      authorizationRequired: true,
+      requestedEnabled: false,
+      targetProfileSlug: 'pesquisa',
+      dynamicProfile: false,
+    });
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(authorizeProfile).toHaveBeenCalled());
+    expect(announce).not.toHaveBeenCalledWith(
+      'jobs.builder.savedDisabledWithoutAuthorization',
+      'assertive',
+    );
+  });
+
   it('autoriza slugs individuais de template e permite revogação', async () => {
     const user = userEvent.setup();
     getGrantState

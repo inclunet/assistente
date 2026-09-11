@@ -475,7 +475,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         const approved = await handleAuthorizeProfile(savedId, result.targetProfileSlug);
         if (approved && result.requestedEnabled) {
           await toggleJob(savedId, true);
-        } else {
+        } else if (!approved) {
           announce(t('jobs.builder.savedDisabledWithoutAuthorization'), 'assertive');
         }
       } else if (result.authorizationRequired && result.dynamicProfile) {
