@@ -29,6 +29,11 @@ func (f fakeProfileStore) Get(slug string) (*profiles.Profile, error) {
 	return profile, nil
 }
 
+func (f fakeProfileStore) Update(slug string, profile *profiles.Profile) error {
+	f.bySlug[slug] = profile
+	return nil
+}
+
 type fakeAsker struct {
 	calls   int
 	payload questionnaire.RequestPayload
@@ -43,6 +48,7 @@ type fakeJobGrants struct {
 	granted    int
 	revoked    int
 	generation uint64
+	revokeErr  error
 }
 
 func (f *fakeJobGrants) AuthorizationSnapshot(ctx context.Context, jobID, _ string) (jobprofilegrant.AuthorizationSnapshot, error) {
@@ -81,7 +87,7 @@ func (f *fakeJobGrants) Revoke(context.Context, string, string, string) error {
 }
 func (f *fakeJobGrants) RevokeProfileGlobal(context.Context, string, string) error {
 	f.revoked++
-	return nil
+	return f.revokeErr
 }
 
 func (f *fakeAsker) Ask(_ context.Context, _ questionnaire.Surface, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
@@ -315,6 +321,23 @@ func TestDeleteProfileFailureDoesNotRevokeGrants(t *testing.T) {
 	})
 	if !errors.Is(err, deleteErr) || grants.revoked != 0 {
 		t.Fatalf("exclusão falha não pode revogar grants: revoked=%d err=%v", grants.revoked, err)
+	}
+}
+
+func TestDeleteProfileRestoresFileWhenGrantRevocationFails(t *testing.T) {
+	store := profileStoreFixture()
+	revokeErr := errors.New("SQLite indisponível")
+	grants := &fakeJobGrants{revokeErr: revokeErr}
+	service := NewService(store, nil, nil, nil).WithJobGrants(grants)
+	err := service.DeleteProfile(context.Background(), "custom", func() error {
+		delete(store.bySlug, "custom")
+		return nil
+	})
+	if !errors.Is(err, revokeErr) || grants.revoked != 1 {
+		t.Fatalf("falha de revogação deveria ser propagada: revoked=%d err=%v", grants.revoked, err)
+	}
+	if restored, getErr := store.Get("custom"); getErr != nil || restored == nil {
+		t.Fatalf("profile deveria ser restaurado após falha no SQLite: profile=%#v err=%v", restored, getErr)
 	}
 }
 

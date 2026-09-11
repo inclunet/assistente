@@ -208,6 +208,9 @@ persistido ao carregar seu runtime.
 Ao excluir um profile, a revogação global ocorre somente depois de a remoção no
 filesystem ter sucesso. A seção crítica impede grants concorrentes entre a
 remoção e a revogação; falha de exclusão não altera autorizações nem jobs.
+Se a revogação no SQLite falhar depois da remoção, o arquivo original é
+restaurado no mesmo slug antes de retornar o erro, evitando que uma recriação
+posterior reaproveite grants órfãos.
 
 ## Fases
 

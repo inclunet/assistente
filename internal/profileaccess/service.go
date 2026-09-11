@@ -35,6 +35,10 @@ type ProfileStore interface {
 	Get(slug string) (*profiles.Profile, error)
 }
 
+type profileRestorer interface {
+	Update(slug string, profile *profiles.Profile) error
+}
+
 // Asker apresenta uma decisão na superfície de origem.
 type Asker interface {
 	Ask(context.Context, questionnaire.Surface, questionnaire.RequestPayload) (questionnaire.Response, error)
@@ -269,11 +273,10 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 		return false, questionnaire.ErrNoInterlocutor
 	}
 	targetSlug = strings.TrimSpace(targetSlug)
-	snapshot, err := s.grants.AuthorizationSnapshot(ctx, jobID, targetSlug)
+	before, err := s.grants.CurrentDelegation(ctx, jobID)
 	if err != nil {
 		return false, err
 	}
-	before := snapshot.Config
 	if !strings.Contains(before.ProfileExpression, "{{") && targetSlug != before.ProfileExpression {
 		return false, fmt.Errorf("profile alvo não corresponde à configuração literal do job")
 	}
@@ -285,6 +288,15 @@ func (s *Service) AuthorizeJobTarget(ctx context.Context, surface questionnaire.
 	target, _ := s.profiles.Get(targetSlug)
 	targetIdentity := profileIdentity(target)
 	targetEpoch := s.profileEpoch[targetSlug]
+	snapshot, err := s.grants.AuthorizationSnapshot(ctx, jobID, targetSlug)
+	if err != nil {
+		s.profileMu.Unlock()
+		return false, err
+	}
+	if snapshot.Config.JobID != before.JobID || snapshot.Config.Fingerprint != before.Fingerprint {
+		s.profileMu.Unlock()
+		return false, errors.New("job ou configuração mudou durante a autorização")
+	}
 	s.profileMu.Unlock()
 	targetName := targetSlug
 	if target != nil && strings.TrimSpace(target.Name) != "" {
@@ -335,14 +347,32 @@ func (s *Service) DeleteProfile(ctx context.Context, targetSlug string, deletePr
 	}
 	s.profileMu.Lock()
 	defer s.profileMu.Unlock()
+	targetSlug = strings.TrimSpace(targetSlug)
+	original, err := s.profiles.Get(targetSlug)
+	if err != nil || original == nil {
+		return fmt.Errorf("%w: %s", ErrTargetNotFound, targetSlug)
+	}
 	if err := deleteProfile(); err != nil {
 		return err
 	}
 	if s.profileEpoch == nil {
 		s.profileEpoch = make(map[string]uint64)
 	}
-	s.profileEpoch[strings.TrimSpace(targetSlug)]++
-	return s.grants.RevokeProfileGlobal(ctx, targetSlug, "profile excluído")
+	s.profileEpoch[targetSlug]++
+	if err := s.grants.RevokeProfileGlobal(ctx, targetSlug, "profile excluído"); err != nil {
+		restorer, ok := s.profiles.(profileRestorer)
+		if !ok {
+			return fmt.Errorf("revogar grants após excluir profile: %w", err)
+		}
+		if restoreErr := restorer.Update(targetSlug, original); restoreErr != nil {
+			return errors.Join(
+				fmt.Errorf("revogar grants após excluir profile: %w", err),
+				fmt.Errorf("restaurar profile após falha de revogação: %w", restoreErr),
+			)
+		}
+		return fmt.Errorf("revogar grants após excluir profile; arquivo restaurado: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) RevokeJobTarget(ctx context.Context, jobID, targetSlug string) error {
