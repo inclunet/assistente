@@ -58,11 +58,8 @@ export function WorkspaceLayout() {
       requestAnimationFrame(() => {
         if (hasWorkspacePanelFocusHandler(tabId)) {
           requestWorkspacePanelFocus(tabId);
-        } else if (activeTabType) {
+        } else if (activeTabType === 'editor') {
           queueWorkspacePanelFocus(tabId);
-          if (!restoreDefaultFocus()) {
-            // fallback já enfileirado; controller atenderá ao registrar
-          }
         } else {
           restoreDefaultFocus();
         }
