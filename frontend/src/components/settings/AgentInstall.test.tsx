@@ -48,6 +48,7 @@ vi.mock('react-i18next', async (importOriginal) => {
 });
 
 vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: vi.fn(),
   useAnnouncer: () => ({
     announce: announceMock,
     announceRequest: announceRequestMock,
@@ -483,10 +484,9 @@ describe('AgentInstall — artefato binário', () => {
       expect(dialogo).toHaveAccessibleDescription(/não publica verificação de integridade/i);
     });
 
-    it('o foco começa em cancelar, e instalar exige mover o foco até o outro botão', async () => {
-      // O Enter ativa o botão focado, como em qualquer diálogo. O que esta regra
-      // decide é onde o foco começa — e é o movimento até o botão afirmativo que
-      // separa ler do reflexo de confirmar (D4).
+    it('o foco começa nos detalhes e Enter não confirma sem botão focado', async () => {
+      // A regra global prioriza a ilha documental mesmo no artefato sem digest.
+      // Enter sem modificador não é atalho implícito para instalar.
       //
       // O `offsetParent` é encenado porque o jsdom não faz layout: sem ele o
       // modal considera invisível todo botão do diálogo e o foco inicial cai no
@@ -506,12 +506,15 @@ describe('AgentInstall — artefato binário', () => {
         await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
         await screen.findByRole('alertdialog');
 
-        const cancelar = screen.getByRole('button', { name: /^cancelar$/i });
-        await waitFor(() => expect(cancelar).toHaveFocus());
+        await waitFor(() => expect(screen.getByRole('document')).toHaveFocus());
+        expect(screen.getByRole('button', { name: /baixar mesmo sem verificação/i }))
+          .toHaveAttribute('aria-keyshortcuts', expect.stringContaining('Control+Enter'));
+        expect(screen.getByRole('button', { name: /^cancelar$/i }))
+          .toHaveAttribute('aria-keyshortcuts', expect.stringContaining('Control+Backspace'));
 
         await user.keyboard('{Enter}');
         expect(installMock).not.toHaveBeenCalled();
-        await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
       } finally {
         if (descritor) {
           Object.defineProperty(HTMLElement.prototype, 'offsetParent', descritor);

@@ -104,16 +104,6 @@ export function DecisionQuestionnaireHost({
     }));
   }, [open, data?.actions, t]);
 
-  const safeActionId = useMemo(() => {
-    const deny = actions.find((a) => a.id === 'deny' || a.id === 'cancel' || a.id === 'reject' || a.variant === 'outline');
-    return deny?.id ?? actions[actions.length - 1]?.id;
-  }, [actions]);
-
-  const severity = useMemo(
-    () => (actions.some((a) => a.variant === 'danger') ? 'destructive' : 'permission'),
-    [actions],
-  );
-
   const size = readingRegions.length > 1 ? 'lg' : 'sm';
 
   // Respeita o contrato: allowCancel=false bloqueia ESC/X/clique fora, para o
@@ -136,8 +126,7 @@ export function DecisionQuestionnaireHost({
       size={size}
       rejectReason={rejectReason}
       actions={actions as [DecisionAction, ...DecisionAction[]]}
-      severity={severity}
-      safeActionId={safeActionId}
+      severity={data.severity ?? 'permission'}
       // App restaura o foco após submit/cancel; evita restauração dupla.
       returnFocusOnClose={false}
       // allowCancel=false esconde o X e desliga ESC/clique fora (sem armadilha
