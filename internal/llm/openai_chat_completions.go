@@ -222,6 +222,21 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	for stream.Next() {
 		wd.Kick()
+		if ctx.Err() != nil {
+			finishThinking()
+			return chatStreamAttempt{done: true}
+		}
+		if wd.TimedOut() {
+			if !emittedVisibleContent {
+				reportCurrentDiagnostics()
+				return chatStreamAttempt{plainRetry: true}
+			}
+			finishThinking()
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamIdleErrorMessage)
+			return chatStreamAttempt{done: true}
+		}
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
 		accumulateChatCompletionStreamUsageExtras(&promptTokensDetails, chunk, &usageRawJSON)

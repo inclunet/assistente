@@ -340,6 +340,22 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 
 	for resp, err := range client.Models.GenerateContentStream(watchCtx, model, contents, config) {
 		wd.Kick()
+		if ctx.Err() != nil {
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			return true
+		}
+		if wd.TimedOut() {
+			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
+				return false
+			}
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamIdleErrorMessage)
+			return true
+		}
 		if err != nil {
 			wd.Stop()
 			errStr := err.Error()

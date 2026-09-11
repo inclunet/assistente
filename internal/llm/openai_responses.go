@@ -318,6 +318,21 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	for stream.Next() {
 		wd.Kick()
+		if ctx.Err() != nil {
+			finishThinking()
+			return mcpStreamAttemptResult{done: true}
+		}
+		if wd.TimedOut() {
+			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
+				return mcpStreamAttemptResult{retry: true}
+			}
+			finishThinking()
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamIdleErrorMessage)
+			return mcpStreamAttemptResult{done: true}
+		}
 		event := stream.Current()
 		eventCount++
 

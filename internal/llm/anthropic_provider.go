@@ -476,6 +476,22 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 
 	for stream.Next() {
 		wd.Kick()
+		if ctx.Err() != nil {
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			return mcpStreamAttemptResult{done: true}
+		}
+		if wd.TimedOut() {
+			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
+				return mcpStreamAttemptResult{retry: true}
+			}
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamIdleErrorMessage)
+			return mcpStreamAttemptResult{done: true}
+		}
 		event := stream.Current()
 
 		switch event.Type {
@@ -821,6 +837,22 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 
 	for stream.Next() {
 		wd.Kick()
+		if ctx.Err() != nil {
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			return true
+		}
+		if wd.TimedOut() {
+			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
+				return false
+			}
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamIdleErrorMessage)
+			return true
+		}
 		event := stream.Current()
 
 		switch event.Type {

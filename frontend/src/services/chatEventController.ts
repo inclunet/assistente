@@ -266,6 +266,7 @@ export function startChatEventController({
   let turnHadAssistantText = false;
   let currentTurnId: string | null = null;
   let provisionalThinkingTurnId: string | null = null;
+  let provisionalThinkingNodeId: string | null = null;
   let streamedContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
@@ -553,15 +554,16 @@ export function startChatEventController({
     if (
       provisionalThinkingTurnId
       && provisionalThinkingTurnId !== nextTurnId
-      && currentAssistantNodeId
     ) {
-      const staleAssistantId = currentAssistantNodeId;
-      adapter.patchConversation(conversationId, (conversation) => ({
-        ...conversation,
-        threadedMessages: conversation.threadedMessages.filter(
-          (node) => node.message.id !== staleAssistantId,
-        ),
-      }));
+      if (currentAssistantNodeId && provisionalThinkingNodeId === currentAssistantNodeId) {
+        const staleAssistantId = currentAssistantNodeId;
+        adapter.patchConversation(conversationId, (conversation) => ({
+          ...conversation,
+          threadedMessages: conversation.threadedMessages.filter(
+            (node) => node.message.id !== staleAssistantId,
+          ),
+        }));
+      }
       currentAssistantNodeId = null;
       assistantNodeCreated = false;
       streamedContent = '';
@@ -570,6 +572,7 @@ export function startChatEventController({
       patchCurrentSession({ streamingMessageId: null, streamingReasoning: null, isThinking: false });
     }
     provisionalThinkingTurnId = null;
+    provisionalThinkingNodeId = null;
     currentTurnId = nextTurnId;
     if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
     const userMsg = new chat.EnrichedMessage({
@@ -702,7 +705,16 @@ export function startChatEventController({
   unsubThinking = turnEvents.on('chat:thinking', (event: ChatThinkingEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    if (!currentTurnId && event.turnId) provisionalThinkingTurnId = event.turnId;
+    if (!currentTurnId && event.turnId) {
+      provisionalThinkingTurnId = event.turnId;
+      const existing = hasMessageId(
+        getCurrentSession().conversation?.threadedMessages,
+        String(event.assistantMessageId || ''),
+      );
+      if (!existing && event.assistantMessageId) {
+        provisionalThinkingNodeId = event.assistantMessageId;
+      }
+    }
     ensureAssistantNode(event.assistantMessageId);
     if (event.started) {
       patchCurrentSession({

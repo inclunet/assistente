@@ -1593,6 +1593,9 @@ describe('chatEventController', () => {
 
   it('não vincula o controller por thinking atrasado antes de messages_ready', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation!.threadedMessages = [
+      createNode(createMessage('assistant-antigo', 'assistant', 'resposta persistida')),
+    ];
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
     emitEvent('chat:thinking', {
@@ -1619,7 +1622,12 @@ describe('chatEventController', () => {
     vi.runOnlyPendingTimers();
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages.map((node) => node.message.id)).toEqual(['user-novo', 'assistant-novo']);
-    expect(messages[1].message.content).toBe('resposta nova');
+    expect(messages.map((node) => node.message.id)).toEqual([
+      'assistant-antigo',
+      'user-novo',
+      'assistant-novo',
+    ]);
+    expect(messages[0].message.content).toBe('resposta persistida');
+    expect(messages[2].message.content).toBe('resposta nova');
   });
 });
