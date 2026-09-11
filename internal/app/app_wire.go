@@ -162,6 +162,13 @@ func (a *App) wireSettings() {
 		ProfileMgr: a.profileManager,
 		SkillMgr:   a.skillMgr,
 		Emitter:    a.emitter,
+		ClearMessages: func(ctx context.Context) error {
+			if a.conversationsCtrl == nil {
+				return fmt.Errorf("controller de conversas não inicializado")
+			}
+			_, err := a.conversationsCtrl.ClearConversations(ctx)
+			return err
+		},
 		DeleteProfile: func(slug string) error {
 			return a.profileAccessService().DeleteProfile(context.Background(), slug, func() error {
 				return a.profileManager.Delete(slug)
@@ -302,6 +309,7 @@ func (a *App) wireExportImport() {
 		a.credMgr,
 		func() ports.SystemDialogPort { return a.dialogPort },
 		AppVersion,
+		a.prepareConversationRestoration,
 	)
 }
 

@@ -22,6 +22,8 @@ export function CreateMessage(arg1:string,arg2:string,arg3:string):Promise<datab
 
 export function DeleteConversation(arg1:string):Promise<void>;
 
+export function DeleteConversations(arg1:Array<string>):Promise<Array<string>>;
+
 export function DeleteMessage(arg1:string):Promise<void>;
 
 export function DeleteMessages(arg1:string,arg2:Array<string>):Promise<void>;

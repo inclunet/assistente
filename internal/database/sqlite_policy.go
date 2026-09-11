@@ -22,6 +22,12 @@ const (
 	sqliteBusyRetryMaxWait       = 4 * time.Second
 )
 
+// sqliteMaintenanceGate coordena operações destrutivas longas com a
+// compactação física. Um canal, em vez de sync.Mutex, permite que quem espera
+// respeite o cancelamento do contexto.
+var sqliteMaintenanceGate = make(chan struct{}, 1)
+var conversationLifecycleGate = make(chan struct{}, 1)
+
 var sqliteBusyRetryDelays = []time.Duration{
 	25 * time.Millisecond,
 	50 * time.Millisecond,
@@ -97,7 +103,52 @@ func WithSQLiteBusyRetry(ctx context.Context, operation string, fn func() error)
 	return lastErr
 }
 
+func acquireSQLiteMaintenance(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case sqliteMaintenanceGate <- struct{}{}:
+		return func() { <-sqliteMaintenanceGate }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// WithSQLiteMaintenance serializa operações de manutenção/importação com
+// exclusões destrutivas e VACUUM sem expor o gate global aos callers.
+func WithSQLiteMaintenance(ctx context.Context, fn func() error) error {
+	release, err := acquireSQLiteMaintenance(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
+// WithConversationLifecycle serializa exclusão e restauração do mesmo espaço
+// de IDs até os efeitos pós-commit terminarem.
+func WithConversationLifecycle(ctx context.Context, fn func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case conversationLifecycleGate <- struct{}{}:
+		defer func() { <-conversationLifecycleGate }()
+		return fn()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
+	return WithSQLiteImmediateTransaction(ctx, db, operation, fn)
+}
+
+// WithSQLiteImmediateTransaction serializa a aquisição do writer lock antes
+// de qualquer leitura de validação. É exportado para repositories de outros
+// pacotes que persistem dados ligados ao histórico.
+func WithSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation string, fn func(*gorm.DB) error) error {
 	return WithSQLiteBusyRetry(ctx, operation, func() error {
 		return db.WithContext(ctx).Connection(func(tx *gorm.DB) error {
 			// BEGIN/COMMIT são controlados explicitamente abaixo; impedir que
@@ -109,7 +160,13 @@ func withSQLiteImmediateTransaction(ctx context.Context, db *gorm.DB, operation 
 			committed := false
 			defer func() {
 				if !committed {
-					_ = tx.Exec("ROLLBACK").Error
+					rollbackCtx := context.Background()
+					if ctx != nil {
+						rollbackCtx = context.WithoutCancel(ctx)
+					}
+					if err := tx.WithContext(rollbackCtx).Exec("ROLLBACK").Error; err != nil {
+						logging.Errorf(rollbackCtx, "database.sqlite", "falha no rollback de %s: %v", operation, err)
+					}
 				}
 			}()
 
