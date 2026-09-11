@@ -471,6 +471,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 					0,
 					int(event.Message.Usage.CacheCreationInputTokens),
 					int(event.Message.Usage.CacheReadInputTokens),
+					false,
 				)
 			}
 
@@ -571,13 +572,15 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			if string(event.Delta.StopReason) != "" {
 				stopReason = string(event.Delta.StopReason)
 			}
-			if event.Usage.OutputTokens > 0 {
+			outputReported := event.Usage.OutputTokens > 0 || event.Usage.JSON.OutputTokens.Valid()
+			if outputReported {
 				lastUsage = mergeAnthropicStreamingUsage(
 					lastUsage,
 					int(event.Usage.InputTokens),
 					int(event.Usage.OutputTokens),
 					int(event.Usage.CacheCreationInputTokens),
 					int(event.Usage.CacheReadInputTokens),
+					true,
 				)
 			}
 		}
@@ -651,6 +654,12 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	diagnosticModel := lastModel
+	if diagnosticModel == "" {
+		diagnosticModel = string(params.Model)
+	}
+	lastModel = diagnosticModel
+	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, int(params.MaxTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {
@@ -738,6 +747,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 					0,
 					int(event.Message.Usage.CacheCreationInputTokens),
 					int(event.Message.Usage.CacheReadInputTokens),
+					false,
 				)
 			}
 
@@ -793,13 +803,15 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			if string(event.Delta.StopReason) != "" {
 				stopReason = string(event.Delta.StopReason)
 			}
-			if event.Usage.OutputTokens > 0 {
+			outputReported := event.Usage.OutputTokens > 0 || event.Usage.JSON.OutputTokens.Valid()
+			if outputReported {
 				lastUsage = mergeAnthropicStreamingUsage(
 					lastUsage,
 					int(event.Usage.InputTokens),
 					int(event.Usage.OutputTokens),
 					int(event.Usage.CacheCreationInputTokens),
 					int(event.Usage.CacheReadInputTokens),
+					true,
 				)
 			}
 		}
@@ -868,6 +880,12 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	diagnosticModel := lastModel
+	if diagnosticModel == "" {
+		diagnosticModel = string(params.Model)
+	}
+	lastModel = diagnosticModel
+	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, int(params.MaxTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(finishedToolCalls) > 0 {

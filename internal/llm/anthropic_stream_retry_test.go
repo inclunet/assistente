@@ -48,13 +48,17 @@ func TestAnthropicStreamRetryAvisoEFinalizacao(t *testing.T) {
 	}, credMgr)
 	handler := &espiaoAvisos{}
 
-	provider.StreamChat(ctx, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "claude-test"}, handler)
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "claude-test", MaxTokens: 123}, handler)
 
 	if handler.err != "" {
 		t.Fatalf("turno deveria concluir sem erro; veio %q", handler.err)
 	}
 	if !strings.Contains(handler.conteudo, "ok") {
 		t.Fatalf("resposta incompleta: %q", handler.conteudo)
+	}
+	if got := handler.finish; got.Reason != FinishReasonStop || got.RawReason != "end_turn" ||
+		got.Provider != "anthropic-test" || got.Model != "claude-test" || got.OutputLimit != 123 || got.ResponseBytes != 2 {
+		t.Fatalf("diagnóstico de término incompleto: %#v", got)
 	}
 
 	var avisosRetry int

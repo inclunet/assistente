@@ -387,6 +387,15 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 	r.maxIterations = 4
 	r.totalToolCallCount = 1
 	r.toolsUsedSet = map[string]struct{}{"x": {}}
+	r.lastUsage = llm.Usage{
+		CompletionTokens: 7, OutputTokensReported: true,
+		ReasoningTokens: 5, ReasoningTokensReported: true,
+	}
+	r.lastDiagnosticUsage = r.lastUsage
+	r.lastFinish = llm.FinishInfo{
+		Reason: llm.FinishReasonToolCalls, RawReason: "tool_calls",
+		Provider: "provider-1", Model: "modelo-1", OutputLimit: 20, ResponseBytes: 3,
+	}
 
 	r.finishLimitReached(context.Background())
 
@@ -408,6 +417,51 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 	d := done[0].data.(ports.DoneEvent)
 	if d.Reason != "limit_reached" || d.IterationCount != 4 || d.ToolCallCount != 1 {
 		t.Fatalf("chat:done de limite inesperado: %+v", d)
+	}
+	if d.FinishReason != "tool_calls" || d.RawReason != "tool_calls" ||
+		d.Provider != "provider-1" || d.Model != "modelo-1" || d.EffectiveOutputLimit != 20 ||
+		d.OutputTokens == nil || *d.OutputTokens != 7 ||
+		d.ReasoningTokens == nil || *d.ReasoningTokens != 5 ||
+		d.ResponseBytes == nil || *d.ResponseBytes != 3 {
+		t.Fatalf("diagnóstico da última iteração ausente: %+v", d)
+	}
+}
+
+func TestAgenticLoopRunner_FinishLimitReachedNaoReutilizaUsageAnterior(t *testing.T) {
+	em := &captureEmitter{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	r := newSeamRunner(svc, "c1", "t1")
+	r.maxIterations = 2
+	r.lastUsage = llm.Usage{
+		CompletionTokens: 7, Reported: true, OutputTokensReported: true,
+		ReasoningTokens: 5, ReasoningTokensReported: true,
+	}
+	r.lastDiagnosticUsage = llm.Usage{}
+	r.lastFinish = llm.FinishInfo{Reason: llm.FinishReasonToolCalls, RawReason: "tool_calls"}
+
+	r.finishLimitReached(context.Background())
+
+	done := em.find("chat:done")[0].data.(ports.DoneEvent)
+	if done.CompletionTokens != 7 {
+		t.Fatalf("contador legado deveria continuar disponível: %+v", done)
+	}
+	if done.OutputTokens != nil || done.ReasoningTokens != nil {
+		t.Fatalf("usage anterior não pode vazar no diagnóstico da última iteração: %+v", done)
+	}
+}
+
+func TestHasLegacyTokenCountersIgnoraUsageApenasDiagnostico(t *testing.T) {
+	if hasLegacyTokenCounters(llm.Usage{
+		Reported: true, CacheReadTokens: 4,
+		ReasoningTokensReported: true,
+	}) {
+		t.Fatal("usage apenas de cache/reasoning não pode apagar contadores legados")
+	}
+	if !hasLegacyTokenCounters(llm.Usage{Reported: true, OutputTokensReported: true}) {
+		t.Fatal("output zero explicitamente reportado é um contador legado válido")
+	}
+	if !hasLegacyTokenCounters(llm.Usage{Reported: true, CompletionTokens: 3}) {
+		t.Fatal("contador de completion legado sem flag de presença deve ser preservado")
 	}
 }
 
@@ -547,6 +601,10 @@ func TestRunAgenticLoop_MaxTokensBloqueiaToolEReformulaUmaVez(t *testing.T) {
 	if len(done) != 1 || done[0].data.(ports.DoneEvent).Reason != "completed" {
 		t.Fatalf("desfecho inesperado: %#v", done)
 	}
+	final := done[0].data.(ports.DoneEvent)
+	if final.FinishReason != string(llm.FinishReasonStop) || final.RawReason != "stop" {
+		t.Fatalf("finish reason anterior vazou para a iteração seguinte: %+v", final)
+	}
 }
 
 func TestRunAgenticLoop_SegundoMaxTokensEncerraComoOutputLimit(t *testing.T) {
@@ -568,6 +626,54 @@ func TestRunAgenticLoop_SegundoMaxTokensEncerraComoOutputLimit(t *testing.T) {
 	}
 	if reason := done[0].data.(ports.DoneEvent).Reason; reason != "output_limit" {
 		t.Fatalf("reason=%q, want output_limit", reason)
+	}
+	final := done[0].data.(ports.DoneEvent)
+	if final.RawReason != "length" || final.FinishReason != string(llm.FinishReasonMaxTokens) {
+		t.Fatalf("diagnóstico terminal perdido: %+v", final)
+	}
+	if final.OutputTokens != nil || final.ReasoningTokens != nil {
+		t.Fatalf("usage ausente não pode virar zero reportado: %+v", final)
+	}
+}
+
+func TestRunAgenticLoop_JSONInvalidoSemFinishReasonContinuaInvalidArgs(t *testing.T) {
+	em := &captureEmitter{}
+	registry := tools.NewRegistry()
+	registry.MustRegister(okTool{})
+	executor := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
+	svc := NewService(ServiceConfig{
+		Emitter:      em,
+		MsgRepo:      &toolMsgRepo{conversationID: "c1"},
+		ToolExecutor: executor,
+	})
+	streamer := &scriptedStreamer{call: llm.ToolCall{
+		ID:   "malformed-1",
+		Type: "function",
+		Function: llm.FunctionCall{
+			Name:      "ok_tool",
+			Arguments: `{"incompleto":`,
+		},
+	}}
+	r := newSeamRunner(svc, "c1", "t1")
+	r.assistantMessageID = "a1"
+	r.messages = []llm.Message{{Role: "user", Content: "use a ferramenta"}}
+	r.activeStreamer = streamer
+	r.newHandler = func(string, int) IterationHandler { return &testIterationHandler{} }
+	r.maxIterations = 3
+
+	r.run(context.Background())
+
+	failures := em.find("chat:tool_failure")
+	if len(failures) != 1 {
+		t.Fatalf("tool_failure=%d, want 1", len(failures))
+	}
+	failure := failures[0].data.(ports.ToolFailureEvent)
+	if failure.ErrorKind != string(tools.ErrorKindInvalidArgs) {
+		t.Fatalf("erro=%q, want invalid_args", failure.ErrorKind)
+	}
+	done := em.find("chat:done")
+	if len(done) != 1 || done[0].data.(ports.DoneEvent).Reason != "completed" {
+		t.Fatalf("JSON inválido sem stop reason foi confundido com output_limit: %#v", done)
 	}
 }
 
