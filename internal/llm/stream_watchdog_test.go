@@ -113,7 +113,10 @@ func TestStreamWatchdogStopAntesDoDeadlineNaoViraTimeoutDepois(t *testing.T) {
 }
 
 func TestStreamWatchdogStopReconheceDeadlineJaExpirado(t *testing.T) {
-	_, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
+	notified := make(chan struct{}, 1)
+	_, wd := startStreamWatchdog(context.Background(), time.Hour, func() {
+		notified <- struct{}{}
+	})
 	wd.mu.Lock()
 	wd.lastActivity = time.Now().Add(-2 * time.Hour)
 	wd.mu.Unlock()
@@ -122,6 +125,11 @@ func TestStreamWatchdogStopReconheceDeadlineJaExpirado(t *testing.T) {
 
 	if !wd.TimedOut() {
 		t.Fatal("Stop deve preservar timeout cujo deadline venceu antes do EOF")
+	}
+	select {
+	case <-notified:
+	case <-time.After(time.Second):
+		t.Fatal("Stop reconheceu timeout, mas não chamou onTimeout")
 	}
 }
 

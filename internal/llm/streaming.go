@@ -148,7 +148,9 @@ func discardStreamReasoning(handler StreamHandler) {
 func resetStreamAttempt(handler StreamHandler) {
 	if sink, ok := handler.(StreamAttemptResetSink); ok {
 		sink.ResetStreamAttempt()
+		return
 	}
+	discardStreamReasoning(handler)
 }
 
 // NonRetryableErrorSink recebe do provider o aviso de que o erro que vem a

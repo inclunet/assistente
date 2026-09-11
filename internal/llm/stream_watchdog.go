@@ -141,12 +141,19 @@ func (w *streamWatchdog) Stop() {
 	// registre a expiração antes de cancelar watchCtx. Isso remove a escolha
 	// não determinística do select entre timer.C e watchCtx.Done no EOF.
 	w.mu.Lock()
+	notifyTimeout := false
 	if !w.timedOut && w.parent.Err() == nil && time.Since(w.lastActivity) >= w.idle {
 		w.timedOut = true
+		notifyTimeout = true
 	}
 	w.stopRequested = true
 	w.mu.Unlock()
 	w.cancel()
+	if notifyTimeout {
+		// O callback pode ser lento; Stop continua limitado enquanto
+		// notifyTimeout garante execução única sob o próprio mutex.
+		go w.notifyTimeout()
+	}
 	select {
 	case <-w.done:
 	case <-time.After(2 * time.Second):

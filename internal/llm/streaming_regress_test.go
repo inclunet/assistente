@@ -37,6 +37,14 @@ func (h *cancelOnThinkingHandler) OnThinking(content string) {
 	h.cancel()
 }
 
+func TestResetStreamAttemptEncerraThinkingEmHandlerExterno(t *testing.T) {
+	h := &spyHandler{}
+	resetStreamAttempt(h)
+	if got, want := h.thinking, []string{"done:"}; !slicesEqual(got, want) {
+		t.Fatalf("fallback de reset=%v, esperado %v", got, want)
+	}
+}
+
 func TestChatCompletions_StreamSemFinishReasonGeraErro(t *testing.T) {
 	stream := "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ola\"},\"finish_reason\":null}]}\n\n" +
 		"data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n" +
