@@ -175,9 +175,11 @@ func delegationConfigFromRow(db *gorm.DB, row database.Job) (DelegationConfig, e
 	if toolName != ToolSubagent {
 		return DelegationConfig{}, ErrNotSubagentJob
 	}
-	var inputs map[string]any
-	if err := json.Unmarshal([]byte(row.Inputs), &inputs); err != nil {
-		return DelegationConfig{}, fmt.Errorf("inputs inválidos do job: %w", err)
+	inputs := make(map[string]any)
+	if strings.TrimSpace(row.Inputs) != "" {
+		if err := json.Unmarshal([]byte(row.Inputs), &inputs); err != nil {
+			return DelegationConfig{}, fmt.Errorf("inputs inválidos do job: %w", err)
+		}
 	}
 	expression, ok := inputs["profile"].(string)
 	expression = strings.TrimSpace(expression)
@@ -505,7 +507,7 @@ func (s *Store) CancelProfileRevocation(ctx context.Context, targetSlug string) 
 	})
 }
 
-func (s *Store) ReconcileProfileRevocations(ctx context.Context, currentIdentity func(string) string) error {
+func (s *Store) ReconcileProfileRevocations(ctx context.Context) error {
 	var intents []database.ProfileGrantRevocationIntent
 	if err := database.WithSQLiteBusyRetry(ctx, "job_profile_grants.list_profile_revocations", func() error {
 		return s.db.WithContext(ctx).Order("created_at ASC").Find(&intents).Error
@@ -513,12 +515,6 @@ func (s *Store) ReconcileProfileRevocations(ctx context.Context, currentIdentity
 		return err
 	}
 	for _, intent := range intents {
-		if currentIdentity != nil && currentIdentity(intent.TargetProfileSlug) == intent.OriginalIdentity {
-			if err := s.CancelProfileRevocation(ctx, intent.TargetProfileSlug); err != nil {
-				return err
-			}
-			continue
-		}
 		if err := s.RevokeProfileGlobal(ctx, intent.TargetProfileSlug, intent.RequestedBy); err != nil {
 			return err
 		}

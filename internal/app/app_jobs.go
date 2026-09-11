@@ -6,7 +6,6 @@ import (
 	"assistente/internal/jobprofilegrant"
 	"assistente/internal/jobs"
 	"assistente/internal/logging"
-	"assistente/internal/profileaccess"
 	"context"
 	"path/filepath"
 )
@@ -53,17 +52,9 @@ func (a *App) initJobs() {
 	if a.jobGrantStore == nil {
 		a.jobGrantStore = jobprofilegrant.NewStore(database.DB())
 	}
-	if a.profileManager != nil {
-		if err := a.jobGrantStore.ReconcileProfileRevocations(context.Background(), func(slug string) string {
-			profile, getErr := a.profileManager.Get(slug)
-			if getErr != nil {
-				return ""
-			}
-			return profileaccess.ProfileIdentity(profile)
-		}); err != nil {
-			logging.Logger(context.Background(), "app.app-jobs").
-				Error("Falha ao reconciliar exclusões pendentes de profiles", "error", err)
-		}
+	if err := a.jobGrantStore.ReconcileProfileRevocations(context.Background()); err != nil {
+		logging.Logger(context.Background(), "app.app-jobs").
+			Error("Falha ao reconciliar exclusões pendentes de profiles", "error", err)
 	}
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
 		BaseDir:         baseDir,

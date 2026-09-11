@@ -189,6 +189,16 @@ func TestCurrentDelegationUsesCatalogNameForLegacyJob(t *testing.T) {
 	}
 }
 
+func TestCurrentDelegationTreatsEmptyLegacyInputsAsMissingProfile(t *testing.T) {
+	store, db, userA, _, jobA, _ := grantTestStore(t)
+	if err := db.Model(&database.Job{}).Where("id = ?", jobA.ID).Update("inputs", "").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CurrentDelegation(userA, jobA.Slug); !errors.Is(err, ErrProfileExpressionRequired) {
+		t.Fatalf("inputs legado vazio deveria ser configuração sem profile: %v", err)
+	}
+}
+
 func TestStoreRevokesStaleFingerprint(t *testing.T) {
 	store, db, userA, _, jobA, _ := grantTestStore(t)
 	config, _ := store.CurrentDelegation(userA, jobA.ID)
@@ -317,7 +327,7 @@ func TestProfileRevocationIntentFailsClosedAndRecoversAfterCrash(t *testing.T) {
 	if valid, err := store.HasValid(userA, jobA.ID, "especialista", snapshot.Config.Fingerprint); err != nil || valid {
 		t.Fatalf("intenção pendente deveria falhar fechado: valid=%v err=%v", valid, err)
 	}
-	if err := store.ReconcileProfileRevocations(context.Background(), func(string) string { return "" }); err != nil {
+	if err := store.ReconcileProfileRevocations(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	var intents, active int64
@@ -328,16 +338,16 @@ func TestProfileRevocationIntentFailsClosedAndRecoversAfterCrash(t *testing.T) {
 	}
 }
 
-func TestProfileRevocationIntentIsCanceledWhenOriginalStillExists(t *testing.T) {
+func TestProfileRevocationIntentIsConservativelyCompletedAfterRestart(t *testing.T) {
 	store, db, userA, _, _, _ := grantTestStore(t)
 	if err := store.BeginProfileRevocation(userA, "especialista", "identidade", "profile excluído"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReconcileProfileRevocations(context.Background(), func(string) string { return "identidade" }); err != nil {
+	if err := store.ReconcileProfileRevocations(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	var intents int64
 	if err := db.Model(&database.ProfileGrantRevocationIntent{}).Count(&intents).Error; err != nil || intents != 0 {
-		t.Fatalf("intent de exclusão não executada deveria ser cancelada: count=%d err=%v", intents, err)
+		t.Fatalf("intent pendente deveria ser concluída conservadoramente: count=%d err=%v", intents, err)
 	}
 }

@@ -27,6 +27,7 @@ var (
 	ErrTargetNotFound          = errors.New("profile alvo não encontrado")
 	ErrTargetUnavailable       = errors.New("provider do profile alvo indisponível")
 	ErrAuthorizationNotGranted = jobprofilegrant.ErrAuthorizationNotGranted
+	ErrGrantStoreUnavailable   = errors.New("store de grants temporariamente indisponível")
 )
 
 // ProfileStore é a leitura mínima do catálogo persistido de profiles.
@@ -194,14 +195,17 @@ func (s *Service) Authorize(ctx context.Context, req AuthorizationRequest) (bool
 		}
 		config, err := s.grants.CurrentDelegation(ctx, provenance.SourceJobID)
 		if err != nil {
-			return false, fmt.Errorf("%w: %v", ErrAuthorizationNotGranted, err)
+			return false, classifyCurrentGrantError(err)
 		}
 		if err := s.ValidateTarget(ctx, targetSlug); err != nil {
 			return false, err
 		}
 		allowed, err := s.grants.HasValid(ctx, config.JobID, targetSlug, config.Fingerprint)
 		if err != nil {
-			return false, fmt.Errorf("%w: %v", ErrAuthorizationNotGranted, err)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return false, err
+			}
+			return false, fmt.Errorf("%w: %w", ErrGrantStoreUnavailable, err)
 		}
 		if !allowed {
 			return false, ErrAuthorizationNotGranted
@@ -254,6 +258,18 @@ func (s *Service) Authorize(ctx context.Context, req AuthorizationRequest) (bool
 		return false, fmt.Errorf("%w após autorização: %s", ErrTargetUnavailable, targetSlug)
 	}
 	return true, nil
+}
+
+func classifyCurrentGrantError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, jobprofilegrant.ErrJobNotFound) ||
+		errors.Is(err, jobprofilegrant.ErrNotSubagentJob) ||
+		errors.Is(err, jobprofilegrant.ErrProfileExpressionRequired) {
+		return fmt.Errorf("%w: %w", ErrAuthorizationNotGranted, err)
+	}
+	return fmt.Errorf("%w: %w", ErrGrantStoreUnavailable, err)
 }
 
 type JobGrantState struct {
@@ -452,10 +468,6 @@ func profileIdentity(profile *profiles.Profile) string {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
-}
-
-func ProfileIdentity(profile *profiles.Profile) string {
-	return profileIdentity(profile)
 }
 
 func authorizationPayload(req AuthorizationRequest, currentName, targetName string) questionnaire.RequestPayload {

@@ -231,8 +231,9 @@ restaurado no mesmo slug antes de retornar o erro, evitando que uma recriação
 posterior reaproveite grants órfãos.
 Antes de tocar o filesystem, uma intenção durável registra slug e identidade
 original. Enquanto existe, consultas de grants falham fechado. No startup,
-identidade original ainda presente cancela a intenção; profile ausente ou
-substituído conclui a revogação, cobrindo queda do processo entre os stores.
+qualquer intenção remanescente conclui a revogação conservadoramente, cobrindo
+queda do processo e recriação com conteúdo idêntico; falha normal do filesystem
+cancela a intenção sincronamente antes de retornar.
 Revogar um target delega a decisão de desabilitar ao mesmo transaction do
 store que revalida fingerprint e grants restantes; adapters não repetem essa
 decisão com snapshots anteriores.

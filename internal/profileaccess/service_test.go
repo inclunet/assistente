@@ -49,6 +49,8 @@ type fakeJobGrants struct {
 	revoked    int
 	generation uint64
 	revokeErr  error
+	currentErr error
+	validErr   error
 	begun      int
 	canceled   int
 }
@@ -59,6 +61,9 @@ func (f *fakeJobGrants) AuthorizationSnapshot(ctx context.Context, jobID, _ stri
 }
 
 func (f *fakeJobGrants) CurrentDelegation(_ context.Context, _ string) (jobprofilegrant.DelegationConfig, error) {
+	if f.currentErr != nil {
+		return jobprofilegrant.DelegationConfig{}, f.currentErr
+	}
 	if len(f.configs) == 0 {
 		return jobprofilegrant.DelegationConfig{}, errors.New("sem configuração")
 	}
@@ -69,7 +74,7 @@ func (f *fakeJobGrants) CurrentDelegation(_ context.Context, _ string) (jobprofi
 	return config, nil
 }
 func (f *fakeJobGrants) HasValid(context.Context, string, string, string) (bool, error) {
-	return f.valid, nil
+	return f.valid, f.validErr
 }
 func (f *fakeJobGrants) ListValid(context.Context, string) ([]jobprofilegrant.Grant, jobprofilegrant.DelegationConfig, error) {
 	config, err := f.CurrentDelegation(context.Background(), "")
@@ -235,6 +240,29 @@ func TestAuthorizeJobWithoutGrantFailsBeforeSurface(t *testing.T) {
 	allowed, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"})
 	if allowed || !errors.Is(err, ErrAuthorizationNotGranted) || asker.calls != 0 {
 		t.Fatalf("esperava fail-closed sem diálogo: allowed=%v calls=%d err=%v", allowed, asker.calls, err)
+	}
+}
+
+func TestAuthorizeJobPreservesCancellationAndOperationalGrantErrors(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	ctx = eventctx.With(ctx, eventctx.Provenance{Source: "job", SourceJobID: "job-db"})
+	grants := &fakeJobGrants{currentErr: context.Canceled}
+	service := NewService(profileStoreFixture(), &fakeAsker{}, nil, nil).WithJobGrants(grants)
+	if _, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelamento foi convertido em autorização negada: %v", err)
+	}
+
+	storeErr := errors.New("SQLite indisponível")
+	grants.currentErr = storeErr
+	if _, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"}); !errors.Is(err, ErrGrantStoreUnavailable) || errors.Is(err, ErrAuthorizationNotGranted) {
+		t.Fatalf("erro operacional foi classificado incorretamente: %v", err)
+	}
+
+	grants.currentErr = nil
+	grants.configs = []jobprofilegrant.DelegationConfig{{JobID: "job-db", Fingerprint: "fp"}}
+	grants.validErr = context.DeadlineExceeded
+	if _, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline de HasValid foi perdida: %v", err)
 	}
 }
 
