@@ -306,6 +306,7 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		if attempt < maxAttempts {
 			// Visibilidade: nunca deixar a pessoa no silÃƒÂªncio do backoff.
 			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
+			resetStreamAttempt(handler)
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
@@ -323,7 +324,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
-	var emittedAnything bool
+	var emittedNonRetryableEffect bool
 	var lastUsage Usage
 	var functionCalls []ToolCall
 	var finish FinishInfo
@@ -352,21 +353,21 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 			// Watchdog de ociosidade estourou. Sem conteÃƒÂºdo emitido, a tentativa
 			// ÃƒÂ© descartÃƒÂ¡vel; com conteÃƒÂºdo jÃƒÂ¡ entregue, repetir duplicaria a resposta.
 			if wd.TimedOut() {
-				if !emittedAnything {
+				reportCurrentDiagnostics()
+				if !emittedNonRetryableEffect {
 					return false
 				}
-				reportCurrentDiagnostics()
 				markErrorNotRetryable(handler)
 				handler.OnError(streamIdleErrorMessage)
 				return true
 			}
 
-			if !emittedAnything && isRetryableError(errStr) {
+			if !emittedNonRetryableEffect && isRetryableError(errStr) {
 				return false
 			}
 
-			if emittedAnything {
-				reportCurrentDiagnostics()
+			reportCurrentDiagnostics()
+			if emittedNonRetryableEffect {
 				markErrorNotRetryable(handler)
 			}
 			handler.OnError(errStr)
@@ -412,14 +413,13 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 		for _, part := range candidate.Content.Parts {
 			if part.Thought && part.Text != "" {
 				fullReasoning.WriteString(part.Text)
-				emittedAnything = true
 				handler.OnThinking(part.Text)
 				continue
 			}
 
 			if part.Text != "" {
 				fullResponse.WriteString(part.Text)
-				emittedAnything = true
+				emittedNonRetryableEffect = true
 				handler.OnChunk(part.Text)
 			}
 
@@ -447,10 +447,10 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 	wd.Stop()
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
-		if !emittedAnything {
+		reportCurrentDiagnostics()
+		if !emittedNonRetryableEffect {
 			return false
 		}
-		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return true

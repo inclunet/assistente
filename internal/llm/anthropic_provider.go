@@ -226,6 +226,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		if attempt < maxAttempts {
 			// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
+			resetStreamAttempt(handler)
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
@@ -284,10 +285,12 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			if params.NativeMCPFallback != nil {
 				// O caller (loop agÃªntico) re-tenta o MESMO turno em modo adapter, com
 				// as bridge tools presentes. Aborta sem emitir done/erro.
+				resetStreamAttempt(handler)
 				params.NativeMCPFallback.Trigger()
 				return
 			}
 			currentServers = nil
+			resetStreamAttempt(handler)
 			continue
 		}
 		if result.mcpFailure != nil {
@@ -295,6 +298,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 				if remaining, ok := planMCPDegradationRetry(ctx, "anthropic", attempt, currentServers, result.mcpFailure); ok {
 					currentServers = remaining
 					degradeRetries++
+					resetStreamAttempt(handler)
 					continue
 				}
 			}
@@ -305,6 +309,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			if attempt < maxAttempts {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
+				resetStreamAttempt(handler)
 				sleepWithJitter(ctx, bk)
 				bk = nextBackoff(bk, maxBk)
 				continue
@@ -434,7 +439,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
-	var emittedAnything bool
+	var emittedNonRetryableEffect bool
 	var lastUsage Usage
 	var lastModel string
 
@@ -513,7 +518,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 					ServerName: mcpBlock.ServerName,
 					ArgsJSON:   argsStr,
 				}
-				emittedAnything = true
+				emittedNonRetryableEffect = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mcpBlock.ID,
 					Name:        mcpBlock.Name,
@@ -535,7 +540,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 				if mcpResult.IsError {
 					errMsg = output
 				}
-				emittedAnything = true
+				emittedNonRetryableEffect = true
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mcpResult.ToolUseID,
 					Name:        toolName,
@@ -552,13 +557,12 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			case "text_delta":
 				if delta.Text != "" {
 					fullResponse.WriteString(delta.Text)
-					emittedAnything = true
+					emittedNonRetryableEffect = true
 					handler.OnChunk(delta.Text)
 				}
 			case "thinking_delta":
 				if delta.Thinking != "" {
 					fullReasoning.WriteString(delta.Thinking)
-					emittedAnything = true
 					handler.OnThinking(delta.Thinking)
 				}
 			case "input_json_delta":
@@ -612,26 +616,26 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
-			if !emittedAnything {
+			reportCurrentDiagnostics()
+			if !emittedNonRetryableEffect {
 				return mcpStreamAttemptResult{retry: true}
 			}
-			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
 
-		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
+		if len(mcpServers) > 0 && !emittedNonRetryableEffect && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
-		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
+		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
-		if !emittedAnything && isRetryableError(errStr) {
+		if !emittedNonRetryableEffect && isRetryableError(errStr) {
 			return mcpStreamAttemptResult{retry: true}
 		}
-		if emittedAnything {
-			reportCurrentDiagnostics()
+		reportCurrentDiagnostics()
+		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
 		handler.OnError(errStr)
@@ -643,10 +647,10 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	// truncada. Nesse caso não há conclusão válida a entregar.
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
-		if !emittedAnything {
+		reportCurrentDiagnostics()
+		if !emittedNonRetryableEffect {
 			return mcpStreamAttemptResult{retry: true}
 		}
-		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
@@ -738,7 +742,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
-	var emittedAnything bool
+	var emittedNonRetryableEffect bool
 	var lastUsage Usage
 	var lastModel string
 
@@ -804,13 +808,12 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			case "text_delta":
 				if delta.Text != "" {
 					fullResponse.WriteString(delta.Text)
-					emittedAnything = true
+					emittedNonRetryableEffect = true
 					handler.OnChunk(delta.Text)
 				}
 			case "thinking_delta":
 				if delta.Thinking != "" {
 					fullReasoning.WriteString(delta.Thinking)
-					emittedAnything = true
 					handler.OnThinking(delta.Thinking)
 				}
 			case "input_json_delta":
@@ -864,21 +867,21 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
-			if !emittedAnything {
+			reportCurrentDiagnostics()
+			if !emittedNonRetryableEffect {
 				return false
 			}
-			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return true
 		}
 
-		if !emittedAnything && isRetryableError(errStr) {
+		if !emittedNonRetryableEffect && isRetryableError(errStr) {
 			return false
 		}
 
-		if emittedAnything {
-			reportCurrentDiagnostics()
+		reportCurrentDiagnostics()
+		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
 		handler.OnError(errStr)
@@ -890,10 +893,10 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	// truncada. Nesse caso não há conclusão válida a entregar.
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
-		if !emittedAnything {
+		reportCurrentDiagnostics()
+		if !emittedNonRetryableEffect {
 			return false
 		}
-		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return true

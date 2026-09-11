@@ -108,3 +108,35 @@ func TestAnthropicTimeoutParcialPreservaDiagnosticos(t *testing.T) {
 		t.Fatalf("usage de timeout incompleta: %+v", handler.usage)
 	}
 }
+
+func TestAnthropicTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
+	var attempts atomic.Int32
+	thinkingOnly := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"1\",\"model\":\"claude-test\",\"usage\":{\"input_tokens\":1}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"pensando\"}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts.Add(1) == 1 {
+			_, _ = w.Write([]byte(thinkingOnly))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
+		_, _ = w.Write([]byte(sseAnthropicCompletion))
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(&ProviderConfig{
+		ID: "anthropic-reasoning", Name: "Anthropic Reasoning", BaseURL: server.URL,
+		Type: ProviderClaude, Model: "claude-test", AuthMode: AuthModeNone,
+		StreamIdleTimeoutSeconds: 1,
+	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(context.Background(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "claude-test"}, handler)
+
+	if handler.err != "" || handler.resets != 1 || attempts.Load() != 2 {
+		t.Fatalf("retry de reasoning inválido: err=%q resets=%d attempts=%d", handler.err, handler.resets, attempts.Load())
+	}
+}

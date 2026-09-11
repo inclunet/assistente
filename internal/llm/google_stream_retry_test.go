@@ -154,3 +154,40 @@ func TestGoogleTimeoutParcialPreservaDiagnosticos(t *testing.T) {
 		t.Fatalf("usage de timeout incompleta: %+v", handler.usage)
 	}
 }
+
+func TestGoogleTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
+	var attempts atomic.Int32
+	thinkingOnly := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"pensando\",\"thought\":true}],\"role\":\"model\"},\"index\":0}]}\r\n\r\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts.Add(1) == 1 {
+			_, _ = w.Write([]byte(thinkingOnly))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
+		_, _ = w.Write([]byte(sseGeminiChunk))
+	}))
+	defer server.Close()
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	ctxCred := database.WithUserID(context.Background(), "user-reasoning-retry")
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-reasoning.test", &credentials.AuthConfig{
+		Type: "bearer", Token: "test-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewGoogleProvider(&ProviderConfig{
+		ID: "google-reasoning", Name: "Google Reasoning", BaseURL: server.URL,
+		Type: ProviderType("gemini"), Model: "gemini-test", CredentialPattern: "gemini-reasoning.test",
+		StreamIdleTimeoutSeconds: 1,
+	}, credMgr)
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gemini-test"}, handler)
+
+	if handler.err != "" || handler.resets != 1 || attempts.Load() != 2 {
+		t.Fatalf("retry de reasoning inválido: err=%q resets=%d attempts=%d", handler.err, handler.resets, attempts.Load())
+	}
+}
