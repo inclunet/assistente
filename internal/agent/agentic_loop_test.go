@@ -460,6 +460,9 @@ func TestHasLegacyTokenCountersIgnoraUsageApenasDiagnostico(t *testing.T) {
 	if !hasLegacyTokenCounters(llm.Usage{Reported: true, OutputTokensReported: true}) {
 		t.Fatal("output zero explicitamente reportado é um contador legado válido")
 	}
+	if !hasLegacyTokenCounters(llm.Usage{Reported: true, CompletionTokens: 3}) {
+		t.Fatal("contador de completion legado sem flag de presença deve ser preservado")
+	}
 }
 
 func TestAgenticLoopRunner_FinishLimitReachedFalaOAviso(t *testing.T) {
