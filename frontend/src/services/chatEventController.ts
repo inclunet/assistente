@@ -705,17 +705,18 @@ export function startChatEventController({
   unsubThinking = turnEvents.on('chat:thinking', (event: ChatThinkingEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
+    let existingProvisionalNode = false;
     if (!currentTurnId && event.turnId) {
       provisionalThinkingTurnId = event.turnId;
-      const existing = hasMessageId(
+      existingProvisionalNode = hasMessageId(
         getCurrentSession().conversation?.threadedMessages,
         String(event.assistantMessageId || ''),
       );
-      if (!existing && event.assistantMessageId) {
+      if (!existingProvisionalNode && event.assistantMessageId) {
         provisionalThinkingNodeId = event.assistantMessageId;
       }
     }
-    ensureAssistantNode(event.assistantMessageId);
+    if (!existingProvisionalNode) ensureAssistantNode(event.assistantMessageId);
     if (event.started) {
       patchCurrentSession({
         isThinking: true,

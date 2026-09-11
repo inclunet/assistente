@@ -1628,6 +1628,8 @@ describe('chatEventController', () => {
       'assistant-novo',
     ]);
     expect(messages[0].message.content).toBe('resposta persistida');
+    expect(messages[0].message.isStreaming).toBe(false);
+    expect(messages[0].message.reasoning).toBeUndefined();
     expect(messages[2].message.content).toBe('resposta nova');
   });
 });

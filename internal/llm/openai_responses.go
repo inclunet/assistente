@@ -685,7 +685,8 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// response.mcp_call.completed mas não response.output_item.done. Após o loop,
 	// emittedNonRetryableEffect já não é mais lido (servia para gatear
 	// fallback/falha durante o stream), então não o reatribuímos aqui.
-	flushPendingCompletedMCPCalls(activeMCPCalls, handler)
+	emittedNonRetryableEffect = flushPendingCompletedMCPCalls(activeMCPCalls, handler) ||
+		emittedNonRetryableEffect
 
 	if isThinking && thinkingBuffer.Len() > 0 {
 		select {
