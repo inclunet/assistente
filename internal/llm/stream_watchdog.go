@@ -93,7 +93,10 @@ func (w *streamWatchdog) Kick() {
 // Stop encerra o watchdog quando a tentativa acabou por vias próprias.
 func (w *streamWatchdog) Stop() {
 	w.cancel()
-	<-w.done
+	select {
+	case <-w.done:
+	case <-time.After(2 * time.Second):
+	}
 }
 
 // TimedOut informa se este watchdog cancelou a tentativa.
