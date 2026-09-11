@@ -187,6 +187,19 @@ func ReportFinishReason(handler StreamHandler, info FinishInfo) {
 	}
 }
 
+// UsageSink recebe os contadores disponíveis antes de um desfecho terminal de
+// erro. OnDone/OnToolCalls já carregam Usage diretamente; a capability evita
+// perder o mesmo diagnóstico quando o provider precisa chamar OnError.
+type UsageSink interface {
+	OnUsage(usage Usage)
+}
+
+func reportUsage(handler StreamHandler, usage Usage) {
+	if sink, ok := handler.(UsageSink); ok {
+		sink.OnUsage(usage)
+	}
+}
+
 // StreamHandler é a interface para lidar com eventos de streaming de LLM.
 type StreamHandler interface {
 	OnChunk(content string)

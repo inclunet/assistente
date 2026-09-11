@@ -109,7 +109,6 @@ func (p *OpenAIProvider) streamChatResponses(
 		if result.done {
 			return
 		}
-		resetStreamAttempt(handler)
 		if result.nativeMCPUnsupported {
 			// O modelo/endpoint rejeitou type:"mcp". Dispara o auto-ajuste persistido
 			// do perfil (nil→false) e degrada nativo→adapter.
@@ -120,12 +119,14 @@ func (p *OpenAIProvider) streamChatResponses(
 			if params.NativeMCPFallback != nil {
 				// O caller (loop agêntico) re-tenta o MESMO turno em modo adapter, com
 				// as bridge tools presentes. Aborta sem emitir done/erro.
+				resetStreamAttempt(handler)
 				params.NativeMCPFallback.Trigger()
 				return
 			}
 			// Sem fallback configurado (ex.: caminho simples sem tools): degrada
 			// dropando os servers nativos e re-tenta "pelado" (sem type:"mcp").
 			currentServers = nil
+			resetStreamAttempt(handler)
 			continue
 		}
 		if result.promptCacheHintUnsupported {
@@ -136,6 +137,7 @@ func (p *OpenAIProvider) streamChatResponses(
 					params.OnPromptCacheHintUnsupported()
 				}
 				params.PromptCacheKey = ""
+				resetStreamAttempt(handler)
 				continue
 			}
 			handler.OnError("provider rejeitou prompt_cache_key, mas o hint já estava desativado neste turno; verifique se o gateway/proxy está injetando esse parâmetro ou desative chat.prompt_cache.provider_hints no perfil")
@@ -146,6 +148,7 @@ func (p *OpenAIProvider) streamChatResponses(
 				if remaining, ok := planMCPDegradationRetry(ctx, "openai", attempt, currentServers, result.mcpFailure); ok {
 					currentServers = remaining
 					degradeRetries++
+					resetStreamAttempt(handler)
 					continue
 				}
 			}
@@ -156,6 +159,7 @@ func (p *OpenAIProvider) streamChatResponses(
 			if attempt < maxAttempts {
 				// Visibilidade: nunca deixar a pessoa no silêncio do backoff.
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
+				resetStreamAttempt(handler)
 				sleepWithJitter(ctx, bk)
 				bk = nextBackoff(bk, maxBk)
 				continue
@@ -318,10 +322,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 					default:
 					}
 					if wd.TimedOut() {
-						finishThinking()
 						if !emittedNonRetryableEffect {
 							return mcpStreamAttemptResult{retry: true}
 						}
+						finishThinking()
 						handler.OnError(streamIdleErrorMessage)
 						return mcpStreamAttemptResult{done: true}
 					}
@@ -554,10 +558,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
-			finishThinking()
 			if !emittedNonRetryableEffect {
 				return mcpStreamAttemptResult{retry: true}
 			}
+			finishThinking()
 			handler.OnError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
@@ -572,7 +576,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
-			finishThinking()
 			return mcpStreamAttemptResult{retry: true}
 		}
 		handler.OnError(errStr)
@@ -590,10 +593,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			"stream encerrou junto com timeout de inatividade",
 			"partial_bytes", fullResponse.Len(),
 		)
-		finishThinking()
 		if !emittedNonRetryableEffect {
 			return mcpStreamAttemptResult{retry: true}
 		}
+		finishThinking()
 		handler.OnError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
 	}
@@ -643,6 +646,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	}
 	lastModel = diagnosticModel
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
+	reportUsage(handler, lastUsage)
 	select {
 	case <-ctx.Done():
 		finishThinking()

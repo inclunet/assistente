@@ -366,7 +366,7 @@ func TestAgenticLoopRunner_BuildErrorDoneEvent(t *testing.T) {
 		ReasoningTokens: 4, ReasoningTokensReported: true,
 	}
 	r.lastFinish = llm.FinishInfo{
-		Provider: "provider-1", Model: "model-1", OutputLimit: 4096, ResponseBytes: 17,
+		Provider: "provider-1", Model: "model-1", OutputLimit: 4096, ResponseBytes: 0,
 	}
 
 	ev := r.buildErrorDoneEvent("boom", 1)
@@ -386,7 +386,7 @@ func TestAgenticLoopRunner_BuildErrorDoneEvent(t *testing.T) {
 		t.Fatalf("tokens inesperados: %+v", ev)
 	}
 	if ev.Provider != "provider-1" || ev.Model != "model-1" || ev.EffectiveOutputLimit != 4096 ||
-		ev.ResponseBytes == nil || *ev.ResponseBytes != 17 ||
+		ev.ResponseBytes == nil || *ev.ResponseBytes != 0 ||
 		ev.OutputTokens == nil || *ev.OutputTokens != 20 ||
 		ev.ReasoningTokens == nil || *ev.ReasoningTokens != 4 {
 		t.Fatalf("diagnóstico terminal ausente: %+v", ev)

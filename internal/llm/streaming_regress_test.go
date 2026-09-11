@@ -15,6 +15,7 @@ type spyHandler struct {
 	thinking []string
 	err      string
 	done     string
+	usage    Usage
 }
 
 func (s *spyHandler) OnChunk(c string)                         { s.chunks = append(s.chunks, c) }
@@ -22,6 +23,7 @@ func (s *spyHandler) OnThinking(c string)                      { s.thinking = ap
 func (s *spyHandler) OnThinkingDone(c string)                  { s.thinking = append(s.thinking, "done:"+c) }
 func (s *spyHandler) OnDone(content string, _ Usage, _ string) { s.done = content }
 func (s *spyHandler) OnError(e string)                         { s.err = e }
+func (s *spyHandler) OnUsage(usage Usage)                      { s.usage = usage }
 
 type cancelOnThinkingHandler struct {
 	spyHandler
@@ -34,7 +36,9 @@ func (h *cancelOnThinkingHandler) OnThinking(content string) {
 }
 
 func TestChatCompletions_StreamSemFinishReasonGeraErro(t *testing.T) {
-	stream := "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ola\"},\"finish_reason\":null}]}\n\n" + "data: [DONE]\n\n"
+	stream := "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ola\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n" +
+		"data: [DONE]\n\n"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(stream))
@@ -48,6 +52,9 @@ func TestChatCompletions_StreamSemFinishReasonGeraErro(t *testing.T) {
 	}
 	if h.done != "" {
 		t.Fatalf("não deveria chamar OnDone quando finish vazio, veio %q", h.done)
+	}
+	if !h.usage.OutputTokensReported || h.usage.CompletionTokens != 2 {
+		t.Fatalf("usage terminal não foi propagado: %+v", h.usage)
 	}
 }
 

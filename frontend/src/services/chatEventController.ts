@@ -800,6 +800,9 @@ export function startChatEventController({
     currentTurnId = event.turnId || currentTurnId;
 
     if (event.errorMessage) {
+      // O snapshot persistido contém apenas o parcial. Aplique-o antes do
+      // marcador de erro para que o patch não apague o diagnóstico terminal.
+      applyTurnPatch(event.turnPatch);
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
@@ -819,7 +822,6 @@ export function startChatEventController({
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
-      applyTurnPatch(event.turnPatch);
       cleanup();
       return;
     }

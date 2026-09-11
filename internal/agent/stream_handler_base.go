@@ -253,7 +253,6 @@ func (h *BaseStreamHandler) FinishThinkingIfActive() {
 func (h *BaseStreamHandler) ResetStreamAttempt() {
 	h.mu.Lock()
 	active := h.isThinking || h.pendingThinkingEmit || h.thinkingTimer != nil
-	reasoning := h.accumulatedReasoning
 	if h.thinkingTimer != nil {
 		h.thinkingTimer.Stop()
 		h.thinkingTimer = nil
@@ -269,9 +268,11 @@ func (h *BaseStreamHandler) ResetStreamAttempt() {
 			ConversationID:     h.ConversationID,
 			TurnID:             h.TurnID,
 			AssistantMessageID: h.AssistantMessageID,
-			Content:            reasoning,
-			Done:               true,
-			SurfaceOrigin:      h.SurfaceOrigin,
+			// Vazio fecha a live region sem promover como definitivo o
+			// raciocínio da tentativa descartada.
+			Content:       "",
+			Done:          true,
+			SurfaceOrigin: h.SurfaceOrigin,
 		})
 	}
 }

@@ -111,7 +111,6 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		if res.done {
 			return
 		}
-		resetStreamAttempt(handler)
 
 		if attempt < maxAttempts {
 			if res.plainRetry {
@@ -120,6 +119,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 				// (tool_choice, prompt_cache_key) não são "conexão falhou".
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			}
+			resetStreamAttempt(handler)
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
@@ -218,10 +218,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				default:
 				}
 				if wd.TimedOut() {
-					finishThinking()
 					if !emittedVisibleContent {
 						return chatStreamAttempt{plainRetry: true}
 					}
+					finishThinking()
 					handler.OnError(streamIdleErrorMessage)
 					return chatStreamAttempt{done: true}
 				}
@@ -245,10 +245,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		// Watchdog de ociosidade estourou. Sem conteúdo visível, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
-			finishThinking()
 			if !emittedVisibleContent {
 				return chatStreamAttempt{plainRetry: true}
 			}
+			finishThinking()
 			handler.OnError(streamIdleErrorMessage)
 			return chatStreamAttempt{done: true}
 		}
@@ -272,7 +272,6 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 
 			if isRetryableError(errStr) {
-				finishThinking()
 				return chatStreamAttempt{plainRetry: true}
 			}
 		}
@@ -292,10 +291,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			"stream encerrou junto com timeout de inatividade",
 			"partial_bytes", fullResponse.Len(),
 		)
-		finishThinking()
 		if !emittedVisibleContent {
 			return chatStreamAttempt{plainRetry: true}
 		}
+		finishThinking()
 		handler.OnError(streamIdleErrorMessage)
 		return chatStreamAttempt{done: true}
 	}
@@ -327,6 +326,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			usageRawJSON,
 		)
 	}
+	reportUsage(handler, usage)
 
 	model := acc.Model
 	if model == "" {

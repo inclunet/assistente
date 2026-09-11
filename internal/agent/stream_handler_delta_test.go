@@ -126,13 +126,16 @@ func TestBaseStreamHandlerResetStreamAttemptDescartaReasoningAnterior(t *testing
 	var resetDone *ports.ThinkingEvent
 	for _, captured := range thinkingEvents {
 		event := captured.data.(ports.ThinkingEvent)
-		if event.Done && event.Content == "tentativa descartada" {
+		if event.Done {
 			resetDone = &event
 			break
 		}
 	}
 	if resetDone == nil {
 		t.Fatal("reset não encerrou o thinking descartado")
+	}
+	if resetDone.Content != "" {
+		t.Fatalf("reset promoveu reasoning descartado: %+v", *resetDone)
 	}
 }
 
@@ -146,6 +149,10 @@ func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
 		OutputLimit:   4096,
 		ResponseBytes: 7,
 	})
+	handler.OnUsage(llm.Usage{
+		CompletionTokens:     12,
+		OutputTokensReported: true,
+	})
 	handler.OnError("streaming_interrupted")
 
 	result := handler.Result()
@@ -155,6 +162,9 @@ func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
 	if result.Finish.Provider != "provider-1" || result.Finish.Model != "model-1" ||
 		result.Finish.OutputLimit != 4096 || result.Finish.ResponseBytes != 7 {
 		t.Fatalf("diagnóstico perdido no erro: %+v", result.Finish)
+	}
+	if !result.Usage.OutputTokensReported || result.Usage.CompletionTokens != 12 {
+		t.Fatalf("usage perdido no erro: %+v", result.Usage)
 	}
 }
 

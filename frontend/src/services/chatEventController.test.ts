@@ -1461,7 +1461,7 @@ describe('chatEventController', () => {
     ).toBe('Erro: chat.errors.streamingInterrupted');
   });
 
-  it('traduz streaming_interrupted recebido em chat:done', () => {
+  it('traduz streaming_interrupted em chat:done sem perder o parcial do turnPatch', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:messages_ready', {
@@ -1476,11 +1476,21 @@ describe('chatEventController', () => {
       turnId: 't1',
       assistantMessageId: 'a1',
       hadToolCalls: false,
+      turnPatch: {
+        message: {
+          id: 'a1',
+          conversationId: 'conversation-1',
+          turnId: 't1',
+          content: 'resposta parcial',
+          createdAt: '2026-09-11T18:00:00Z',
+          timestamp: 1,
+        },
+      },
     });
 
     expect(
       sessions['conversation-1'].conversation?.threadedMessages[1].message.content,
-    ).toBe('Erro: chat.errors.streamingInterrupted');
+    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
   });
 
   it('traduz streaming_idle_timeout', () => {

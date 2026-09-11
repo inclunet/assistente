@@ -773,7 +773,9 @@ func (r *agenticLoopRunner) buildErrorDoneEventWithContext(ctx context.Context, 
 		Model:                r.lastFinish.Model,
 		EffectiveOutputLimit: r.lastFinish.OutputLimit,
 	}
-	if r.lastFinish.ResponseBytes > 0 {
+	if r.lastFinish.Provider != "" || r.lastFinish.Model != "" ||
+		r.lastFinish.OutputLimit != 0 || r.lastFinish.RawReason != "" ||
+		r.lastFinish.Reason != "" || r.lastFinish.ResponseBytes != 0 {
 		responseBytes := r.lastFinish.ResponseBytes
 		event.ResponseBytes = &responseBytes
 	}
