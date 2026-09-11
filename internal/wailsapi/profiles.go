@@ -150,7 +150,7 @@ func (p *Profiles) DeleteProfile(slug string) error {
 		return err
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.DeleteProfile(slug)
+		return struct{}{}, ctrl.DeleteProfileContext(ctx, slug)
 	})
 	return err
 }

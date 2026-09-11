@@ -12,10 +12,30 @@ import {
   SaveJob,
   DeleteJob,
   TestToolDryRun,
+  GetJobProfileGrantState,
+  AuthorizeJobProfile,
+  RevokeJobProfile,
 } from '@wailsjs/go/wailsapi/Jobs';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { jobs } from '@wailsjs/go/models';
+import { jobs, profileaccess, wailsapi } from '@wailsjs/go/models';
 import { parseToolSource } from '../utils/toolSource';
+
+export const JOB_PROFILE_AUTHORIZATION_REQUIRED = 'job_profile_authorization_required';
+
+export class JobProfileAuthorizationError extends Error {
+  readonly code = JOB_PROFILE_AUTHORIZATION_REQUIRED;
+
+  constructor() {
+    super(JOB_PROFILE_AUTHORIZATION_REQUIRED);
+    this.name = 'JobProfileAuthorizationError';
+  }
+}
+
+export function isJobProfileAuthorizationError(err: unknown): boolean {
+  return err instanceof JobProfileAuthorizationError
+    || (typeof err === 'object' && err !== null && 'code' in err
+      && err.code === JOB_PROFILE_AUTHORIZATION_REQUIRED);
+}
 
 function applyEffectiveEnabled(job: jobs.JobInfo, enabled: boolean): jobs.JobInfo {
   const updated = Object.assign(Object.create(Object.getPrototypeOf(job)), job);
@@ -82,7 +102,10 @@ interface JobStoreState {
   fetchPipelines: () => Promise<void>;
   fetchToolCatalog: () => Promise<jobs.CatalogEntry[]>;
   testTool: (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => Promise<jobs.TestToolResult | null>;
-  saveJob: (jobJSON: string) => Promise<void>;
+  saveJob: (jobJSON: string) => Promise<wailsapi.SaveJobResult>;
+  getJobProfileGrantState: (jobId: string) => Promise<profileaccess.JobGrantState>;
+  authorizeJobProfile: (jobId: string, profileSlug: string) => Promise<boolean>;
+  revokeJobProfile: (jobId: string, profileSlug: string) => Promise<void>;
   deleteJob: (id: string) => Promise<void>;
   setSelectedJobId: (id: string | null) => void;
   clearError: () => void;
@@ -168,6 +191,27 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     toggleJob: async (id: string, enabled: boolean) => {
       try {
+        if (enabled) {
+          const job = await GetJob(id);
+          const expression = typeof job?.inputs?.profile === 'string'
+            ? job.inputs.profile.trim()
+            : '';
+          if (job?.tool === 'subagent' && expression) {
+            const state = await GetJobProfileGrantState(id);
+            const granted = (state.grants ?? []).some((grant) => (
+              expression.includes('{{') || grant.targetProfileSlug === expression
+            ));
+            if (!granted) {
+              if (expression.includes('{{')) {
+                throw new JobProfileAuthorizationError();
+              }
+              const approved = await AuthorizeJobProfile(id, expression);
+              if (!approved) {
+                throw new JobProfileAuthorizationError();
+              }
+            }
+          }
+        }
         await ToggleJob(id, enabled);
         set((state) => ({
           jobs: state.jobs.map((j) => {
@@ -176,8 +220,22 @@ export const useJobStore = create<JobStoreState>((set, get) => {
           }),
         }));
       } catch (err) {
-        set({ error: String(err) });
-        throw err;
+        const normalizedError = isJobProfileAuthorizationError(err)
+          || String(err).includes('authorization_not_granted')
+          ? new JobProfileAuthorizationError()
+          : err;
+        try {
+          const reconciled = await GetJobs();
+          set({
+            jobs: reconciled || [],
+            error: isJobProfileAuthorizationError(normalizedError) ? null : String(normalizedError),
+          });
+        } catch {
+          set({
+            error: isJobProfileAuthorizationError(normalizedError) ? null : String(normalizedError),
+          });
+        }
+        throw normalizedError;
       }
     },
 
@@ -268,12 +326,23 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     saveJob: async (jobJSON: string) => {
       try {
-        await SaveJob(jobJSON);
+        const result = await SaveJob(jobJSON);
         get().fetchJobs();
+        return result;
       } catch (err) {
         set({ error: String(err) });
         throw err;
       }
+    },
+
+    getJobProfileGrantState: async (jobId: string) => GetJobProfileGrantState(jobId),
+
+    authorizeJobProfile: async (jobId: string, profileSlug: string) => {
+      return AuthorizeJobProfile(jobId, profileSlug);
+    },
+
+    revokeJobProfile: async (jobId: string, profileSlug: string) => {
+      await RevokeJobProfile(jobId, profileSlug);
     },
 
     deleteJob: async (id: string) => {

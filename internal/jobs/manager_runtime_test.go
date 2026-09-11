@@ -120,6 +120,72 @@ func TestManagerPipelineStateControlsRuntimeWithoutOverwritingJobEnabled(t *test
 	}
 }
 
+func TestManagerReconcileDisabledJobsUpdatesRegistrySchedulerAndEvent(t *testing.T) {
+	mgr := NewManager(ManagerConfig{})
+	mgr.started = true
+	mgr.scheduler.Start()
+	t.Cleanup(mgr.scheduler.Stop)
+	var emitted map[string]any
+	mgr.cfg.EmitEvent = func(event string, data any) {
+		if event == "jobs:toggled" {
+			emitted, _ = data.(map[string]any)
+		}
+	}
+	job := &Job{
+		ID: "delegado", Name: "Delegado", Enabled: true, PipelineEnabled: true,
+		Triggers: []Trigger{
+			{Type: TriggerInterval, Every: "1h"},
+			{Type: TriggerEvent, Listen: "deploy"},
+			{Type: TriggerHotkey, Keys: "Ctrl+Alt+D"},
+		},
+	}
+	mgr.registry.Set(job)
+	mgr.registerTriggers(job)
+	if len(mgr.scheduler.ScheduledJobs()) != 1 {
+		t.Fatal("job deveria estar agendado antes da reconciliação")
+	}
+	mgr.ReconcileDisabledJobs([]string{"delegado"})
+	got := mgr.registry.Get("delegado")
+	if got == nil || got.Enabled {
+		t.Fatalf("registry não refletiu desabilitação: %#v", got)
+	}
+	if len(mgr.scheduler.ScheduledJobs()) != 0 {
+		t.Fatal("scheduler manteve job revogado")
+	}
+	if emitted["id"] != "delegado" || emitted["enabled"] != false {
+		t.Fatalf("evento efetivo inválido: %#v", emitted)
+	}
+}
+
+func TestManagerSerializesTriggerMutations(t *testing.T) {
+	mgr := NewManager(ManagerConfig{})
+	job := &Job{
+		ID: "serializado", Enabled: true, PipelineEnabled: true,
+		Triggers: []Trigger{{Type: TriggerInterval, Every: "1h"}},
+	}
+	mgr.registry.Set(job)
+	mgr.triggerMu.Lock()
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		close(started)
+		mgr.registerTriggers(job)
+		close(done)
+	}()
+	<-started
+	select {
+	case <-done:
+		t.Fatal("registro de trigger ignorou o mutex de serialização")
+	case <-time.After(20 * time.Millisecond):
+	}
+	mgr.triggerMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("registro de trigger não prosseguiu após liberar o mutex")
+	}
+}
+
 func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegisterOptIn(&fakeTool{

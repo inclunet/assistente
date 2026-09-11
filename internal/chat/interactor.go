@@ -66,6 +66,7 @@ type InteractorConfig struct {
 	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para o
 	// Context Provider tasklist. Opcional: nil produz contexto vazio.
 	LinkedTaskLists func(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList
+	MutateProfiles  func(func() error) error
 }
 
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
@@ -80,6 +81,7 @@ type Interactor struct {
 	promptBuilder    SystemPromptBuilder
 	contextProviders *contextprovider.Registry
 	linkedTaskLists  func(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList
+	mutateProfiles   func(func() error) error
 
 	// nativeMCPAdjustMu serializa o read-modify-write do auto-ajuste de MCP nativo
 	// do perfil (nil→false), garantindo idempotência sob concorrência (vários runs
@@ -103,6 +105,7 @@ func NewInteractor(cfg InteractorConfig) *Interactor {
 		promptBuilder:    cfg.PromptBuilder,
 		contextProviders: cfg.ContextProviders,
 		linkedTaskLists:  cfg.LinkedTaskLists,
+		mutateProfiles:   cfg.MutateProfiles,
 	}
 }
 
@@ -425,7 +428,7 @@ func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, overr
 
 	adapter := false
 	profile.Chat.NativeMCP = &adapter
-	if err := i.profileMgr.Update(slug, profile); err != nil {
+	if err := i.mutateProfileFiles(func() error { return i.profileMgr.Update(slug, profile) }); err != nil {
 		logging.Errorf(context.Background(), "chat.interactor", "[MCP] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
 		return
 	}
@@ -463,11 +466,18 @@ func (i *Interactor) HandlePromptCacheHintUnsupported(profileSlug, model string)
 	}
 
 	profile.Chat.PromptCache.ProviderHints = false
-	if err := i.profileMgr.Update(slug, profile); err != nil {
+	if err := i.mutateProfileFiles(func() error { return i.profileMgr.Update(slug, profile) }); err != nil {
 		logging.Errorf(context.Background(), "chat.interactor", "[PromptCache] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
 		return
 	}
 	logging.Infof(context.Background(), "chat.interactor", "[PromptCache] perfil %q (modelo %s) ajustado para provider_hints=false após rejeição explícita de prompt_cache_key", slug, model)
+}
+
+func (i *Interactor) mutateProfileFiles(mutate func() error) error {
+	if i.mutateProfiles != nil {
+		return i.mutateProfiles(mutate)
+	}
+	return mutate()
 }
 
 // RecordUserMessageRequest contém a entrada do usuário já processada (incluindo STT) pronta para ser persistida.

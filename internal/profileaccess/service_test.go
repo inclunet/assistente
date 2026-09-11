@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"assistente/internal/database"
+	"assistente/internal/eventctx"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/profiles"
 	"assistente/internal/questionnaire"
 )
@@ -26,16 +29,88 @@ func (f fakeProfileStore) Get(slug string) (*profiles.Profile, error) {
 	return profile, nil
 }
 
+func (f fakeProfileStore) Update(slug string, profile *profiles.Profile) error {
+	f.bySlug[slug] = profile
+	return nil
+}
+
 type fakeAsker struct {
 	calls   int
 	payload questionnaire.RequestPayload
 	resp    questionnaire.Response
 	err     error
+	onAsk   func()
+}
+
+type fakeJobGrants struct {
+	configs    []jobprofilegrant.DelegationConfig
+	valid      bool
+	granted    int
+	revoked    int
+	generation uint64
+	revokeErr  error
+	currentErr error
+	validErr   error
+	begun      int
+	canceled   int
+}
+
+func (f *fakeJobGrants) AuthorizationSnapshot(ctx context.Context, jobID, _ string) (jobprofilegrant.AuthorizationSnapshot, error) {
+	config, err := f.CurrentDelegation(ctx, jobID)
+	return jobprofilegrant.AuthorizationSnapshot{Config: config, Generation: f.generation}, err
+}
+
+func (f *fakeJobGrants) CurrentDelegation(_ context.Context, _ string) (jobprofilegrant.DelegationConfig, error) {
+	if f.currentErr != nil {
+		return jobprofilegrant.DelegationConfig{}, f.currentErr
+	}
+	if len(f.configs) == 0 {
+		return jobprofilegrant.DelegationConfig{}, errors.New("sem configuração")
+	}
+	config := f.configs[0]
+	if len(f.configs) > 1 {
+		f.configs = f.configs[1:]
+	}
+	return config, nil
+}
+func (f *fakeJobGrants) HasValid(context.Context, string, string, string) (bool, error) {
+	return f.valid, f.validErr
+}
+func (f *fakeJobGrants) ListValid(context.Context, string) ([]jobprofilegrant.Grant, jobprofilegrant.DelegationConfig, error) {
+	config, err := f.CurrentDelegation(context.Background(), "")
+	return nil, config, err
+}
+func (f *fakeJobGrants) Grant(_ context.Context, _, _, _, _ string, expectedGeneration uint64) error {
+	if expectedGeneration != f.generation {
+		return jobprofilegrant.ErrGrantGenerationChanged
+	}
+	f.granted++
+	return nil
+}
+func (f *fakeJobGrants) Revoke(context.Context, string, string, string) error {
+	f.generation++
+	f.revoked++
+	return nil
+}
+func (f *fakeJobGrants) BeginProfileRevocation(context.Context, string, string, string) error {
+	f.begun++
+	return nil
+}
+func (f *fakeJobGrants) CancelProfileRevocation(context.Context, string) error {
+	f.canceled++
+	return nil
+}
+func (f *fakeJobGrants) RevokeProfileGlobal(context.Context, string, string) error {
+	f.revoked++
+	return f.revokeErr
 }
 
 func (f *fakeAsker) Ask(_ context.Context, _ questionnaire.Surface, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
 	f.calls++
 	f.payload = payload
+	if f.onAsk != nil {
+		f.onAsk()
+	}
 	return f.resp, f.err
 }
 
@@ -133,5 +208,272 @@ func TestAuthorizeFailsClosedWithoutInterlocutor(t *testing.T) {
 	})
 	if allowed || !errors.Is(err, questionnaire.ErrNoInterlocutor) {
 		t.Fatalf("esperava fail-closed: allowed=%v err=%v", allowed, err)
+	}
+}
+
+func TestAuthorizeJobUsesExactGrantWithoutSurface(t *testing.T) {
+	grants := &fakeJobGrants{valid: true, configs: []jobprofilegrant.DelegationConfig{{
+		JobID: "job-db", Fingerprint: "fingerprint",
+	}}}
+	asker := &fakeAsker{}
+	service := NewService(profileStoreFixture(), asker, func(context.Context, string, string) questionnaire.Surface {
+		t.Fatal("SurfaceResolver não pode ser chamado para job")
+		return questionnaire.Surface{}
+	}, func(context.Context, *profiles.Profile) bool { return true }).WithJobGrants(grants)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	ctx = eventctx.With(ctx, eventctx.Provenance{Source: "job", SourceJobID: "job-db"})
+	allowed, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"})
+	if err != nil || !allowed || asker.calls != 0 {
+		t.Fatalf("grant válido deveria liberar sem diálogo: allowed=%v calls=%d err=%v", allowed, asker.calls, err)
+	}
+}
+
+func TestAuthorizeJobWithoutGrantFailsBeforeSurface(t *testing.T) {
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{{JobID: "job-db", Fingerprint: "fp"}}}
+	asker := &fakeAsker{}
+	service := NewService(profileStoreFixture(), asker, func(context.Context, string, string) questionnaire.Surface {
+		t.Fatal("SurfaceResolver não pode ser chamado para job sem grant")
+		return questionnaire.Surface{}
+	}, nil).WithJobGrants(grants)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	ctx = eventctx.With(ctx, eventctx.Provenance{Source: "job", SourceJobID: "job-db"})
+	allowed, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"})
+	if allowed || !errors.Is(err, ErrAuthorizationNotGranted) || asker.calls != 0 {
+		t.Fatalf("esperava fail-closed sem diálogo: allowed=%v calls=%d err=%v", allowed, asker.calls, err)
+	}
+}
+
+func TestAuthorizeJobPreservesCancellationAndOperationalGrantErrors(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	ctx = eventctx.With(ctx, eventctx.Provenance{Source: "job", SourceJobID: "job-db"})
+	grants := &fakeJobGrants{currentErr: context.Canceled}
+	service := NewService(profileStoreFixture(), &fakeAsker{}, nil, nil).WithJobGrants(grants)
+	if _, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelamento foi convertido em autorização negada: %v", err)
+	}
+
+	storeErr := errors.New("SQLite indisponível")
+	grants.currentErr = storeErr
+	if _, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"}); !errors.Is(err, ErrGrantStoreUnavailable) || errors.Is(err, ErrAuthorizationNotGranted) {
+		t.Fatalf("erro operacional foi classificado incorretamente: %v", err)
+	}
+
+	grants.currentErr = nil
+	grants.configs = []jobprofilegrant.DelegationConfig{{JobID: "job-db", Fingerprint: "fp"}}
+	grants.validErr = context.DeadlineExceeded
+	if _, err := service.Authorize(ctx, AuthorizationRequest{TargetSlug: "custom"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline de HasValid foi perdida: %v", err)
+	}
+}
+
+func TestAuthorizeJobTargetPersistsOnlyDesktopApproval(t *testing.T) {
+	config := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Resumo diário", ProfileExpression: "custom", Fingerprint: "fp"}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
+	asker := &fakeAsker{resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}}}
+	service := NewService(profileStoreFixture(), asker, nil, nil).WithJobGrants(grants)
+	allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom")
+	if err != nil || !allowed || grants.granted != 1 {
+		t.Fatalf("aprovação desktop não persistiu: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+
+	grants.granted = 0
+	if allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.ChannelSurface("c", "telegram", "u"), "job-db", "custom"); allowed || !errors.Is(err, questionnaire.ErrNoInterlocutor) || grants.granted != 0 {
+		t.Fatalf("canal não pode conceder: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+}
+
+func TestJobGrantStateExposesPublicSlug(t *testing.T) {
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{{
+		JobID: "uuid-interno", JobSlug: "job-publico", JobName: "Job",
+		ProfileExpression: "custom", Fingerprint: "fp",
+	}}}
+	service := NewService(profileStoreFixture(), nil, nil, nil).WithJobGrants(grants)
+	state, err := service.JobGrantState(context.Background(), "job-publico")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.JobID != "job-publico" || state.JobSlug != "job-publico" {
+		t.Fatalf("DTO expôs identidade interna: %#v", state)
+	}
+}
+
+func TestAuthorizeJobTargetRevalidatesTOCTOUAndDenial(t *testing.T) {
+	before := jobprofilegrant.DelegationConfig{JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "before"}
+	after := before
+	after.Fingerprint = "after"
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{before, after}}
+	asker := &fakeAsker{resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}}}
+	service := NewService(profileStoreFixture(), asker, nil, nil).WithJobGrants(grants)
+	if allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom"); allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("mudança concorrente deveria impedir grant: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+
+	grants.configs = []jobprofilegrant.DelegationConfig{before}
+	asker.resp = questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionDeny}}
+	if allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom"); err != nil || allowed || grants.granted != 0 {
+		t.Fatalf("recusa não pode conceder: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+}
+
+func TestAuthorizeJobTargetDoesNotUndoRevocationDuringDialog(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", Tool: "subagent",
+		ProfileExpression: "{{ .event.profile }}", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
+	asker := &fakeAsker{
+		resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}},
+		onAsk: func() {
+			_ = grants.Revoke(context.Background(), "job-db", "custom", "desktop")
+		},
+	}
+	service := NewService(&store, asker, nil, nil).WithJobGrants(grants)
+	allowed, err := service.AuthorizeJobTarget(
+		context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom",
+	)
+	if allowed || !errors.Is(err, jobprofilegrant.ErrGrantGenerationChanged) || grants.granted != 0 {
+		t.Fatalf("revogação concorrente deveria vencer: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+}
+
+func TestAuthorizeJobTargetRevalidatesSessionAfterDialog(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
+	sessionCurrent := true
+	asker := &fakeAsker{
+		resp: questionnaire.Response{Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow}},
+		onAsk: func() {
+			sessionCurrent = false
+		},
+	}
+	service := NewService(store, asker, nil, nil).
+		WithJobGrants(grants).
+		WithSessionValidator(func(context.Context) error {
+			if !sessionCurrent {
+				return errors.New("sessão mudou")
+			}
+			return nil
+		})
+	allowed, err := service.AuthorizeJobTarget(
+		context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom",
+	)
+	if allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("troca de sessão deveria invalidar decisão: allowed=%v grants=%d err=%v", allowed, grants.granted, err)
+	}
+}
+
+func TestAuthorizeJobTargetRejectsDifferentLiteralBeforeDialog(t *testing.T) {
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "geral", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config}}
+	asker := &fakeAsker{}
+	service := NewService(profileStoreFixture(), asker, nil, nil).WithJobGrants(grants)
+	allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom")
+	if allowed || err == nil || asker.calls != 0 || grants.granted != 0 {
+		t.Fatalf("target diferente do literal deveria falhar antes do diálogo: allowed=%v calls=%d grants=%d err=%v",
+			allowed, asker.calls, grants.granted, err)
+	}
+}
+
+func TestDeleteProfileRevokesGloballyWithoutUserContext(t *testing.T) {
+	grants := &fakeJobGrants{}
+	service := NewService(profileStoreFixture(), nil, nil, nil).WithJobGrants(grants)
+	deleted := false
+	err := service.DeleteProfile(context.Background(), "custom", func() error {
+		deleted = true
+		return nil
+	})
+	if err != nil || !deleted || grants.revoked != 1 {
+		t.Fatalf("exclusão global deveria revogar e apagar sem sessão: deleted=%v revoked=%d err=%v",
+			deleted, grants.revoked, err)
+	}
+}
+
+func TestDeleteProfileFailureDoesNotRevokeGrants(t *testing.T) {
+	grants := &fakeJobGrants{}
+	service := NewService(profileStoreFixture(), nil, nil, nil).WithJobGrants(grants)
+	deleteErr := errors.New("falha de I/O")
+	err := service.DeleteProfile(context.Background(), "custom", func() error {
+		return deleteErr
+	})
+	if !errors.Is(err, deleteErr) || grants.revoked != 0 {
+		t.Fatalf("exclusão falha não pode revogar grants: revoked=%d err=%v", grants.revoked, err)
+	}
+}
+
+func TestDeleteProfileRestoresFileWhenGrantRevocationFails(t *testing.T) {
+	store := profileStoreFixture()
+	revokeErr := errors.New("SQLite indisponível")
+	grants := &fakeJobGrants{revokeErr: revokeErr}
+	service := NewService(store, nil, nil, nil).WithJobGrants(grants)
+	err := service.DeleteProfile(context.Background(), "custom", func() error {
+		delete(store.bySlug, "custom")
+		return nil
+	})
+	if !errors.Is(err, revokeErr) || grants.revoked != 1 {
+		t.Fatalf("falha de revogação deveria ser propagada: revoked=%d err=%v", grants.revoked, err)
+	}
+	if restored, getErr := store.Get("custom"); getErr != nil || restored == nil {
+		t.Fatalf("profile deveria ser restaurado após falha no SQLite: profile=%#v err=%v", restored, getErr)
+	}
+}
+
+func TestAuthorizeJobTargetRejectsProfileRemovedAndRecreatedDuringDialog(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config}}
+	var service *Service
+	asker := &fakeAsker{resp: questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow},
+	}}
+	service = NewService(store, asker, nil, nil).WithJobGrants(grants)
+	asker.onAsk = func() {
+		if err := service.DeleteProfile(context.Background(), "custom", func() error {
+			delete(store.bySlug, "custom")
+			store.bySlug["custom"] = &profiles.Profile{Name: "Custom recriado"}
+			return nil
+		}); err != nil {
+			t.Errorf("delete profile: %v", err)
+		}
+	}
+	allowed, err := service.AuthorizeJobTarget(context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom")
+	if allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("profile recriado durante diálogo não pode receber grant: allowed=%v grants=%d err=%v",
+			allowed, grants.granted, err)
+	}
+}
+
+func TestAuthorizeJobTargetSharesLockWithProfileUpdates(t *testing.T) {
+	store := profileStoreFixture()
+	config := jobprofilegrant.DelegationConfig{
+		JobID: "job-db", JobName: "Job", ProfileExpression: "custom", Fingerprint: "fp",
+	}
+	grants := &fakeJobGrants{configs: []jobprofilegrant.DelegationConfig{config, config}}
+	var service *Service
+	asker := &fakeAsker{resp: questionnaire.Response{
+		Answers: map[string]any{questionnaire.AnswerActionID: ActionAllow},
+	}}
+	service = NewService(store, asker, nil, nil).WithJobGrants(grants)
+	asker.onAsk = func() {
+		if err := service.MutateProfiles(func() error {
+			store.bySlug["custom"].Description = "configuração alterada"
+			return nil
+		}); err != nil {
+			t.Errorf("update profile: %v", err)
+		}
+	}
+	allowed, err := service.AuthorizeJobTarget(
+		context.Background(), questionnaire.DesktopSurface(""), "job-db", "custom",
+	)
+	if allowed || err == nil || grants.granted != 0 {
+		t.Fatalf("profile editado durante diálogo não pode receber grant: allowed=%v grants=%d err=%v",
+			allowed, grants.granted, err)
 	}
 }

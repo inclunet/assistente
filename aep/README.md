@@ -118,7 +118,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0098](0098-limite-de-saida-e-tool-calls-truncadas.md) | Limite de saída e tool calls truncadas | 🚧 In Progress |
 | [0099](0099-patch-canonico-multi-hunk.md) | Patch canônico multi-hunk | ✅ Done |
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
-| [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis e delegação autorizada | ✅ Done |
+| [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 
 > **Número livre:** 0055 está vago (lacuna). AEP-0054 está ocupada por
 > `0054-split-server-client-agent.md`. Novos AEPs devem ser

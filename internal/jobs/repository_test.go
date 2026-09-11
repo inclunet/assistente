@@ -2,12 +2,14 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -35,6 +37,9 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 		&database.TagAssignment{},
 		&database.JobPipeline{},
 		&database.Job{},
+		&database.JobProfileGrant{},
+		&database.JobProfileGrantEpoch{},
+		&database.ProfileGrantRevocationIntent{},
 		&database.JobTrigger{},
 		&database.JobRun{},
 		&database.JobEvent{},
@@ -57,6 +62,157 @@ func setupJobsRepositoryTest(t *testing.T) (*DBRepository, context.Context, cont
 		t.Fatalf("seed tool catalog: %v", err)
 	}
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
+}
+
+func TestImportedJobCannotCreateProfileGrantFromApprovedFlag(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var job Job
+	if err := json.Unmarshal([]byte(`{
+		"id":"importado","name":"Importado","enabled":true,"tool":"subagent",
+		"inputs":{"profile":"pesquisa","prompt":"x","approved":true},
+		"approved":true,"triggers":[{"type":"manual"}]
+	}`), &job); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveJob(userA, &job); err != nil {
+		t.Fatal(err)
+	}
+	var grants int64
+	if err := repo.db.Model(&database.JobProfileGrant{}).Count(&grants).Error; err != nil {
+		t.Fatal(err)
+	}
+	if grants != 0 {
+		t.Fatalf("importação criou %d grant(s) a partir de approved", grants)
+	}
+	saved, err := repo.GetJob(userA, "importado")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Enabled {
+		t.Fatal("job importado sem grant permaneceu habilitado")
+	}
+}
+
+func TestDBRepositoryEnablesSubagentOnlyWithCurrentExactGrant(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := testRepositoryJob("delegado", "Delegado")
+	job.Tool = "subagent"
+	job.Inputs = map[string]any{"profile": "pesquisa", "prompt": "x"}
+	job.Enabled = false
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	store := jobprofilegrant.NewStore(repo.db)
+	config, err := store.CurrentDelegation(userA, job.DatabaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop", 0); err != nil {
+		t.Fatal(err)
+	}
+	job.Enabled = true
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	if !job.Enabled {
+		t.Fatal("grant corrente deveria permitir habilitação")
+	}
+	job.Inputs["profile"] = "programacao"
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	if job.Enabled {
+		t.Fatal("mudança da expressão deveria desabilitar o job atomicamente")
+	}
+}
+
+func TestDBRepositoryReconcilesUnauthorizedEnabledSubagent(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := testRepositoryJob("legado-habilitado", "Legado")
+	job.Tool = "subagent"
+	job.Inputs = map[string]any{"profile": "pesquisa", "prompt": "x"}
+	job.Enabled = false
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Model(&database.Job{}).Where("id = ?", job.DatabaseID).
+		Updates(map[string]any{"enabled": true, "tool_name": " subagent "}).Error; err != nil {
+		t.Fatal(err)
+	}
+	inherited := testRepositoryJob("legado-herdado", "Legado herdado")
+	inherited.Tool = "subagent"
+	inherited.Inputs = nil
+	inherited.Enabled = false
+	if err := repo.SaveJob(userA, inherited); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.db.Model(&database.Job{}).Where("id = ?", inherited.DatabaseID).
+		Updates(map[string]any{"inputs": "", "enabled": true, "tool_name": ""}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.ReconcileUnauthorizedJobs(userA); err != nil {
+		t.Fatal(err)
+	}
+	var row database.Job
+	if err := repo.db.First(&row, "id = ?", job.DatabaseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Enabled {
+		t.Fatal("reconciliação de startup deveria desabilitar job sem grant")
+	}
+	row = database.Job{}
+	if err := repo.db.First(&row, "id = ?", inherited.DatabaseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !row.Enabled {
+		t.Fatal("reconciliação deveria preservar job com payload vazio e profile herdado")
+	}
+}
+
+func TestDBRepositoryDeleteJobPreservesRevokedGrantAudit(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+	if err := repo.db.Create(&database.ToolCatalog{
+		Name: "subagent", DisplayName: "subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	job := testRepositoryJob("auditado", "Auditado")
+	job.Tool = "subagent"
+	job.Inputs = map[string]any{"profile": "pesquisa", "prompt": "x"}
+	job.Enabled = false
+	if err := repo.SaveJob(userA, job); err != nil {
+		t.Fatal(err)
+	}
+	store := jobprofilegrant.NewStore(repo.db)
+	config, _ := store.CurrentDelegation(userA, job.DatabaseID)
+	if err := store.Grant(userA, job.DatabaseID, "pesquisa", config.Fingerprint, "desktop", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteJob(userA, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	var grant database.JobProfileGrant
+	if err := repo.db.Where("job_id = ?", job.DatabaseID).First(&grant).Error; err != nil {
+		t.Fatalf("auditoria do grant deveria permanecer: %v", err)
+	}
+	if grant.RevokedAt == nil {
+		t.Fatal("grant preservado deveria estar revogado")
+	}
 }
 
 func TestDBRepositoryJobsAreScopedByUser(t *testing.T) {

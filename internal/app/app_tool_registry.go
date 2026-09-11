@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"assistente/internal/eventctx"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/nettrust"
 	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
@@ -76,16 +78,37 @@ func (s appProfileSwitcher) ResetConversationTools(conversationID string) {
 }
 
 func (a *App) profileAccessService() *profileaccess.Service {
-	return profileaccess.NewService(
-		a.profileManager,
-		a.questionnaireRouter(),
-		func(ctx context.Context, source, conversationID string) questionnaire.Surface {
-			return resolveProfileAccessSurface(ctx, source, conversationID, database.GetConversationInfoWithContext)
-		},
-		func(ctx context.Context, profile *profiles.Profile) bool {
-			return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
-		},
-	)
+	a.profileAccessOnce.Do(func() {
+		if a.jobGrantStore == nil {
+			a.jobGrantStore = jobprofilegrant.NewStore(database.DB())
+		}
+		a.profileAccess = profileaccess.NewService(
+			a.profileManager,
+			a.questionnaireRouter(),
+			func(ctx context.Context, source, conversationID string) questionnaire.Surface {
+				return resolveProfileAccessSurface(ctx, source, conversationID, database.GetConversationInfoWithContext)
+			},
+			func(ctx context.Context, profile *profiles.Profile) bool {
+				return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
+			},
+		).WithJobGrants(a.jobGrantStore).
+			WithSessionValidator(a.validateProfileGrantSession)
+	})
+	return a.profileAccess
+}
+
+func (a *App) validateProfileGrantSession(ctx context.Context) error {
+	expectedUserID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	a.authMu.RLock()
+	currentUserID := a.currentUserID
+	a.authMu.RUnlock()
+	if currentUserID == "" || currentUserID != expectedUserID {
+		return errors.New("sessão mudou durante a autorização")
+	}
+	return nil
 }
 
 type profileConversationLookup func(context.Context, string) (*database.Conversation, error)

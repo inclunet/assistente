@@ -1,6 +1,6 @@
 # AEP-0101 — Profiles descobríveis e delegação autorizada
 
-**Status:** ✅ Concluído
+**Status:** ✅ Concluído — incluindo grants específicos de jobs por perfil alvo
 
 ## Resumo
 
@@ -108,9 +108,10 @@ Quando um envio novo ou resume informa profile diferente:
 - a autorização vale apenas para aquela invocação.
 
 Origens interativas usam `questionnaire.Router` e sua superfície original.
-Origem sem interlocutor, como job/system, falha fechada para cross-profile até
-existir autorização persistida específica. Não há fallback silencioso para o
-profile global. O `questionnaire.Manager` serializa decisões backend no desktop
+Origem sem interlocutor, como system, falha fechada. Jobs só atravessam a
+fronteira cross-profile quando existe um grant persistido exato para usuário,
+job, profile alvo e fingerprint da configuração relevante, conforme D9. Não há
+fallback silencioso para o profile global. O `questionnaire.Manager` serializa decisões backend no desktop
 para que duas conversas concorrentes não disputem o único diálogo visível.
 
 ### D5 — Troca persistente é explícita e sempre confirmada
@@ -162,6 +163,81 @@ iniciam subagente.
 As tools retornam códigos estáveis e estruturados. Textos visíveis do diálogo
 usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
 
+### D9 — Jobs usam grants exatos, separados e revogáveis
+
+Jobs `subagent` não reutilizam a autorização por invocação de conversas. Cada
+combinação `(user_id, job_id, target_profile_slug,
+delegation_fingerprint)` nasce somente após uma decisão explícita no desktop.
+O fingerprint deriva da tool `subagent` e da expressão do input `profile`;
+nome, descrição, prompt, tags e outras mudanças editoriais não o alteram.
+Edições, troca de profile ativo, atualização automática de mídia e exclusão
+compartilham a mesma seção crítica da revalidação final do grant, impedindo
+mudança do arquivo entre a confirmação e a persistência.
+Antes de persistir, a sessão autenticada também é comparada com o `user_id`
+capturado na abertura; logout/login invalida a decisão pendente.
+
+Os grants vivem em tabela própria, nunca em `Job.Metadata`, `Inputs`, JSON ou
+YAML portável. Importar ou duplicar um job não concede autorização. Alterar a
+expressão de profile revoga grants anteriores; excluir o job ou o profile
+também revoga. Templates dinâmicos exigem um grant individual por slug
+instalado, sem wildcard nem confiança no valor recebido do evento.
+
+Cada ciclo de autorização usa uma geração persistida por combinação exata.
+Revogar incrementa a geração e invalida respostas de `DecisionDialog` ainda
+pendentes. Reautorizar cria uma nova linha; a linha anterior conserva
+`granted_at`, `granted_by`, `revoked_at` e `revoked_by` para auditoria.
+Criação concorrente de epoch sempre relê a linha pela chave natural antes de
+usar sua geração, inclusive quando o insert perdeu um conflito.
+
+No runtime, `eventctx.SourceJobID` continua sendo o slug público do job,
+conforme AEP-0067; o UUID `database.Job.ID` é usado somente em consultas
+internas de grants. A resolução de entrada prioriza slug e só usa UUID como
+fallback; depois de resolvido, validação e persistência usam uma consulta
+explicitamente por UUID para não reintroduzir ambiguidade slug↔ID. O backend
+revalida job, fingerprint, profile alvo e grant antes de criar conversa/run.
+DTOs Wails de estado e grants expõem somente o slug público, nunca o UUID
+interno.
+Grant ausente falha como `authorization_not_granted`, permanente para a
+política de retry. Cron/event/headless nunca abre diálogo. A autorização
+interativa existente continua sendo por invocação e não consulta grants de
+jobs. Uma revogação corta autorizações futuras; uma execução que já atravessou
+o gate não é interrompida. Um input `profile` explicitamente configurado como
+template que resolva para vazio também falha fechado, sem herdar o profile
+global.
+Create/save/toggle compartilhados propagam `authorization_not_granted` quando
+uma ativação solicitada é persistida como desabilitada, sem confirmar sucesso
+falso para tools ou adapters.
+
+No primeiro upgrade que introduz grants, jobs `subagent` já habilitados são
+desabilitados quando possuem `inputs.profile` textual e não vazio, porque não
+existe decisão explícita que possa ser convertida em grant; jobs que omitem o
+input e herdam profile não são alterados. Em registros legados com
+`jobs.tool_name` vazio, tanto migração quanto runtime usam
+`tool_catalog.name` como fallback canônico; ambos os campos são normalizados
+com trim para tolerar dados legados. O startup reconcilia novamente jobs
+habilitados sem grant. O executor remove `invocationctx` herdado da conversa
+e IDs corrente/pai de `toolinvocations` herdados de quem publicou um evento
+antes de chamar tools, impedindo bypass por coincidência com o profile-pai ou
+parentesco falso na auditoria. Revogações
+atualizam banco, registry, cron/interval, subscriptions de eventos, hotkeys e
+UI imediatamente para o usuário ativo; outros usuários observam o estado
+persistido ao carregar seu runtime.
+
+Ao excluir um profile, a revogação global ocorre somente depois de a remoção no
+filesystem ter sucesso. A seção crítica impede grants concorrentes entre a
+remoção e a revogação; falha de exclusão não altera autorizações nem jobs.
+Se a revogação no SQLite falhar depois da remoção, o arquivo original é
+restaurado no mesmo slug antes de retornar o erro, evitando que uma recriação
+posterior reaproveite grants órfãos.
+Antes de tocar o filesystem, uma intenção durável registra slug e identidade
+original. Enquanto existe, consultas de grants falham fechado. No startup,
+qualquer intenção remanescente conclui a revogação conservadoramente, cobrindo
+queda do processo e recriação com conteúdo idêntico; falha normal do filesystem
+cancela a intenção sincronamente antes de retornar.
+Revogar um target delega a decisão de desabilitar ao mesmo transaction do
+store que revalida fingerprint e grants restantes; adapters não repetem essa
+decisão com snapshots anteriores.
+
 ## Fases
 
 1. **Contrato e catálogo**
@@ -180,6 +256,13 @@ usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
    - orientar uso de catálogo, delegação e semântica “próximo turno”;
    - atualizar AEP-0096 e AEP-0068;
    - validar backend, frontend, acessibilidade e E2E aplicável.
+5. **Grants persistidos para jobs**
+   - persistir grants exatos e multiusuário em tabela própria;
+   - revalidar configuração/profile antes e depois do DecisionDialog;
+   - oferecer aprovação individual e revogação acessível no Job Builder;
+   - falhar fechado no runtime sem diálogo e sem retry permanente;
+   - cobrir migração, concorrência, histórico e isolamento;
+   - reconciliar upgrade, registry, scheduler, eventos, hotkeys e UI.
 
 ## Riscos
 
@@ -209,6 +292,16 @@ usam `questionnaire.Text` e existem em pt-BR, inglês e espanhol.
 - [x] Toda delegação cross-profile interativa exige autorização por invocação.
 - [x] Recusa de delegação não cria conversa nem run.
 - [x] Origem sem interlocutor falha fechada para delegação cross-profile.
+- [x] Job cross-profile só executa com grant exato para usuário, job, target e
+      fingerprint atual; ausência retorna falha permanente sem diálogo.
+- [x] Importação, exportação e duplicação não transportam grants.
+- [x] Template dinâmico exige autorização individual por slug, sem wildcard.
+- [x] Template explícito que resolve vazio falha fechado sem herança global.
+- [x] Alteração relevante, exclusão do job/profile e revogação visível
+      invalidam autorizações futuras.
+- [x] Revogação vence decisões pendentes e regrant preserva o histórico.
+- [x] Upgrade e startup desabilitam jobs legados sem grant, e revogação
+      reconcilia imediatamente o runtime e a UI.
 - [x] Toda troca persistente real exige autorização e afeta somente a aba de
       origem.
 - [x] O retorno de switch declara que o efeito começa no próximo turno.

@@ -15,6 +15,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
 	"assistente/internal/hotkey"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
@@ -60,6 +61,8 @@ type Manager struct {
 	hotkeyIDs      map[string][]int // jobID -> hotkey IDs registrados
 	retentionStop  chan struct{}
 	mu             sync.Mutex
+	runtimeMu      sync.Mutex
+	triggerMu      sync.Mutex
 	started        bool
 	compactMu      sync.Mutex
 	lastCompaction time.Time
@@ -103,6 +106,8 @@ func NewManager(cfg ManagerConfig) *Manager {
 func (m *Manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 
 	if m.started {
 		return nil
@@ -117,6 +122,13 @@ func (m *Manager) Start() error {
 	}
 
 	ctx := m.context()
+	if reconciler, ok := m.cfg.Repository.(interface {
+		ReconcileUnauthorizedJobs(context.Context) error
+	}); ok {
+		if err := reconciler.ReconcileUnauthorizedJobs(ctx); err != nil {
+			return fmt.Errorf("reconcile unauthorized jobs: %w", err)
+		}
+	}
 	jobs, err := m.cfg.Repository.ListJobs(ctx, JobFilter{})
 	if err != nil {
 		return fmt.Errorf("load jobs from database: %w", err)
@@ -148,6 +160,8 @@ func (m *Manager) Start() error {
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 
 	if !m.started {
 		m.registry.Clear()
@@ -261,6 +275,8 @@ func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
 
 // ToggleJob ativa ou desativa um job e persiste no repositório DB-backed.
 func (m *Manager) ToggleJob(id string, enabled bool) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
@@ -282,13 +298,18 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 
 	m.emitEvent("jobs:toggled", map[string]any{
 		"id":      id,
-		"enabled": enabled,
+		"enabled": updated.Enabled,
 	})
 
+	if enabled && !updated.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -309,8 +330,38 @@ func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool)
 	} else {
 		m.unregisterTriggers(&updated)
 	}
-	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": enabled})
+	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": updated.Enabled})
+	if enabled && !updated.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
+}
+
+// ReconcileDisabledJobs aplica ao registry/scheduler o estado já persistido
+// pelo store de grants após revogação ou exclusão global de profile.
+func (m *Manager) ReconcileDisabledJobs(slugs []string) {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	seen := make(map[string]struct{}, len(slugs))
+	for _, slug := range slugs {
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			continue
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		seen[slug] = struct{}{}
+		current := m.registry.Get(slug)
+		if current == nil || !current.Enabled {
+			continue
+		}
+		updated := *current
+		updated.Enabled = false
+		m.unregisterTriggers(current)
+		m.registry.Set(&updated)
+		m.emitEvent("jobs:toggled", map[string]any{"id": slug, "enabled": false})
+	}
 }
 
 // RunJob executa um job manualmente.
@@ -581,6 +632,8 @@ func (m *Manager) ListPipelinesContext(ctx context.Context) ([]Pipeline, error) 
 }
 
 func (m *Manager) SavePipeline(pipeline *Pipeline) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	if err := m.cfg.Repository.SavePipeline(m.context(), pipeline); err != nil {
 		return err
 	}
@@ -589,6 +642,8 @@ func (m *Manager) SavePipeline(pipeline *Pipeline) error {
 }
 
 func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -601,6 +656,8 @@ func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) e
 }
 
 func (m *Manager) CreatePipelineContext(ctx context.Context, pipeline *Pipeline) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -613,6 +670,8 @@ func (m *Manager) CreatePipelineContext(ctx context.Context, pipeline *Pipeline)
 }
 
 func (m *Manager) DeletePipeline(slug string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	slug = normalizeSlug(slug)
 	if err := m.cfg.Repository.DeletePipeline(m.context(), slug); err != nil {
 		return err
@@ -622,6 +681,8 @@ func (m *Manager) DeletePipeline(slug string) error {
 }
 
 func (m *Manager) DeletePipelineContext(ctx context.Context, slug string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -893,6 +954,9 @@ func newChainID() string {
 // SaveJob cria ou atualiza um job a partir de dados do frontend.
 // Valida, persiste no banco e registra no runtime.
 func (m *Manager) SaveJob(job *Job) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	if err := Validate(job); err != nil {
 		return err
 	}
@@ -925,10 +989,16 @@ func (m *Manager) SaveJob(job *Job) error {
 		"name": job.Name,
 	})
 
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -958,11 +1028,17 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 
 	m.registerJob(saved)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 // CreateJobContext cria um job no banco e registra no runtime, falhando se já existir.
 func (m *Manager) CreateJobContext(ctx context.Context, job *Job) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -988,11 +1064,16 @@ func (m *Manager) CreateJobContext(ctx context.Context, job *Job) error {
 	}
 	m.registerJob(saved)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 // DeleteJob remove um job do banco e do runtime.
 func (m *Manager) DeleteJob(id string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
@@ -1015,6 +1096,8 @@ func (m *Manager) DeleteJob(id string) error {
 }
 
 func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -1286,6 +1369,12 @@ func (m *Manager) unregisterJob(jobID string) {
 }
 
 func (m *Manager) registerTriggers(job *Job) {
+	m.triggerMu.Lock()
+	defer m.triggerMu.Unlock()
+	m.registerTriggersLocked(job)
+}
+
+func (m *Manager) registerTriggersLocked(job *Job) {
 	if !m.effectiveJobEnabled(job) {
 		return
 	}
@@ -1357,6 +1446,12 @@ func (m *Manager) registerTriggers(job *Job) {
 }
 
 func (m *Manager) unregisterTriggers(job *Job) {
+	m.triggerMu.Lock()
+	defer m.triggerMu.Unlock()
+	m.unregisterTriggersLocked(job)
+}
+
+func (m *Manager) unregisterTriggersLocked(job *Job) {
 	m.scheduler.Unschedule(job.ID)
 	m.eventBus.UnsubscribeAll(job.ID)
 	m.unregisterJobHotkeys(job.ID)
@@ -1407,6 +1502,8 @@ func (m *Manager) unregisterJobHotkeys(jobID string) {
 }
 
 func (m *Manager) unregisterAllHotkeys() {
+	m.triggerMu.Lock()
+	defer m.triggerMu.Unlock()
 	if m.cfg.HotkeyManager == nil {
 		return
 	}
