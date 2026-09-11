@@ -1183,6 +1183,30 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 	return finalize, nil
 }
 
+// PrepareConversationRestoration fecha o gate até o caller informar os IDs
+// do usuário cujo commit de importação foi concluído.
+func (m *Manager) PrepareConversationRestoration(ctx context.Context) (func([]string), error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.deletionGate.Lock()
+	m.mu.Lock()
+	var once sync.Once
+	return func(conversationIDs []string) {
+		once.Do(func() {
+			for _, rawID := range conversationIDs {
+				id := strings.TrimSpace(rawID)
+				if tombstone, ok := m.deletedConvs[id]; ok && tombstone.userID == userID {
+					delete(m.deletedConvs, id)
+				}
+			}
+			m.mu.Unlock()
+			m.deletionGate.Unlock()
+		})
+	}, nil
+}
+
 func (m *Manager) isDeletedLocked(conversationID, userID string) bool {
 	now := m.nowFn()
 	for id, tombstone := range m.deletedConvs {

@@ -57,6 +57,38 @@ func setupConversationBatchDeleteDB(t *testing.T) (*gorm.DB, context.Context, co
 		WithUserID(context.Background(), "delete-other")
 }
 
+func TestCreateConversationEsperaGateDeManutencao(t *testing.T) {
+	_, ownerCtx, _ := setupConversationBatchDeleteDB(t)
+	started := make(chan struct{})
+	finished := make(chan error, 1)
+
+	err := WithSQLiteMaintenance(ownerCtx, func() error {
+		go func() {
+			close(started)
+			_, err := CreateConversationWithContext(ownerCtx, "criada depois", "")
+			finished <- err
+		}()
+		<-started
+		select {
+		case err := <-finished:
+			t.Fatalf("criação atravessou gate de manutenção: %v", err)
+		case <-time.After(25 * time.Millisecond):
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatalf("criação após manutenção: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("criação não prosseguiu após liberar manutenção")
+	}
+}
+
 func seedDeleteConversation(t *testing.T, testDB *gorm.DB, userID, title string) (*Conversation, *ChatMessage) {
 	t.Helper()
 	conv := &Conversation{UserID: userID, Title: title}

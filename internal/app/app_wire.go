@@ -163,21 +163,10 @@ func (a *App) wireSettings() {
 		SkillMgr:   a.skillMgr,
 		Emitter:    a.emitter,
 		ClearMessages: func(ctx context.Context) error {
-			conversations, err := database.GetConversationsWithContext(ctx)
-			if err != nil {
-				return err
-			}
-			if len(conversations) == 0 {
-				return nil
-			}
-			ids := make([]string, 0, len(conversations))
-			for _, conversation := range conversations {
-				ids = append(ids, conversation.ID)
-			}
 			if a.conversationsCtrl == nil {
 				return fmt.Errorf("controller de conversas não inicializado")
 			}
-			_, err = a.conversationsCtrl.DeleteConversations(ctx, ids)
+			_, err := a.conversationsCtrl.ClearConversations(ctx)
 			return err
 		},
 		DeleteProfile: func(slug string) error {
@@ -320,6 +309,7 @@ func (a *App) wireExportImport() {
 		a.credMgr,
 		func() ports.SystemDialogPort { return a.dialogPort },
 		AppVersion,
+		a.prepareConversationRestoration,
 	)
 }
 

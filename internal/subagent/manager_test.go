@@ -135,6 +135,29 @@ func TestPrepareConversationDeletionCommitBloqueiaRunTardioAteExpirar(t *testing
 	mgr.releaseConversation("child")
 }
 
+func TestPrepareConversationRestorationRemoveTombstoneDoUsuarioEIDImportado(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	finalizeDelete, err := mgr.PrepareConversationDeletion(ctx, []string{"restored", "still-deleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeDelete(true)
+
+	finalizeRestore, err := mgr.PrepareConversationRestoration(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeRestore([]string{" restored "})
+	if err := mgr.reserveConversation("child-restored", "restored", "user-a"); err != nil {
+		t.Fatalf("ID restaurado continuou bloqueado: %v", err)
+	}
+	mgr.releaseConversation("child-restored")
+	if err := mgr.reserveConversation("child-deleted", "still-deleted", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("tombstone não importado foi removido: %v", err)
+	}
+}
+
 func TestRunNormalizaParentAntesDeConsultarTombstone(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

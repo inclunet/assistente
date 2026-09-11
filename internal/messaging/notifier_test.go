@@ -142,6 +142,27 @@ func TestResponseNotifier_TombstoneExpira(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_RestorationRemoveTombstoneDoIDImportado(t *testing.T) {
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	finalizeDelete, err := n.PrepareConversationDeletion([]string{"restored", "still-deleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeDelete(true)
+
+	finalizeRestore := n.PrepareConversationRestoration()
+	finalizeRestore([]string{" restored "})
+	n.Register("restored", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("ID restaurado continuou bloqueado: pending=%d", got)
+	}
+	n.Register("still-deleted", ResponseCallback{Callback: func(string, string) {}})
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("restauração removeu tombstone de ID não importado: pending=%d", got)
+	}
+}
+
 func TestResponseNotifier_PrepareDeletionDetectaUpsertEmExecucao(t *testing.T) {
 	store := &blockingUpsertStore{
 		memPendingStore: newMemPendingStore(),

@@ -8,6 +8,7 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/toolinvocations"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -36,6 +37,8 @@ type ConversationsController struct {
 	confirmDeleteMessage func() error
 	getEffectiveModel    func() (string, error)
 }
+
+var errClearConversationSnapshotChanged = errors.New("conversation snapshot changed during clear")
 
 // NewConversationsController monta o controller a partir da config.
 func NewConversationsController(cfg ConversationsControllerConfig) *ConversationsController {
@@ -378,8 +381,76 @@ func (c *ConversationsController) DeleteConversations(ctx context.Context, ids [
 	if err != nil {
 		return nil, err
 	}
+	return c.deletePreparedConversations(ctx, normalizedIDs, c.deleteBatch)
+}
+
+// ClearConversations remove todas as conversas do usuário mantendo o gate de
+// manutenção entre o snapshot e o commit. Assim, criadores não atravessam o
+// snapshot e a operação não deixa conversas que existiam quando começou.
+func (c *ConversationsController) ClearConversations(ctx context.Context) ([]string, error) {
+	for {
+		conversations, err := database.GetConversationsWithContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(conversations) == 0 {
+			return nil, nil
+		}
+		ids := make([]string, 0, len(conversations))
+		for _, conversation := range conversations {
+			ids = append(ids, conversation.ID)
+		}
+
+		deletedIDs, err := c.deletePreparedConversations(
+			ctx,
+			ids,
+			func(ctx context.Context, snapshot []string) ([]string, error) {
+				var deleted []string
+				err := database.WithSQLiteMaintenance(ctx, func() error {
+					current, err := database.GetConversationsWithContext(ctx)
+					if err != nil {
+						return err
+					}
+					if !sameConversationIDs(snapshot, current) {
+						return errClearConversationSnapshotChanged
+					}
+					deleted, err = database.DeleteConversationsWithinMaintenanceWithContext(ctx, snapshot)
+					return err
+				})
+				return deleted, err
+			},
+		)
+		if errors.Is(err, errClearConversationSnapshotChanged) {
+			continue
+		}
+		return deletedIDs, err
+	}
+}
+
+func sameConversationIDs(ids []string, conversations []database.Conversation) bool {
+	if len(ids) != len(conversations) {
+		return false
+	}
+	expected := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		expected[id] = struct{}{}
+	}
+	for _, conversation := range conversations {
+		if _, ok := expected[conversation.ID]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *ConversationsController) deletePreparedConversations(
+	ctx context.Context,
+	normalizedIDs []string,
+	deleteBatch func(context.Context, []string) ([]string, error),
+) ([]string, error) {
 	finalize := func(bool) {}
 	if c.prepareBatchDelete != nil {
+		var err error
 		finalize, err = c.prepareBatchDelete(ctx, normalizedIDs)
 		if err != nil {
 			return nil, err
@@ -395,7 +466,7 @@ func (c *ConversationsController) DeleteConversations(ctx context.Context, ids [
 		}
 	}()
 
-	deletedIDs, err := c.deleteBatch(ctx, normalizedIDs)
+	deletedIDs, err := deleteBatch(ctx, normalizedIDs)
 	if err != nil {
 		return nil, err
 	}

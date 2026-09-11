@@ -113,6 +113,21 @@ func (m *StreamingManager) PrepareConversationDeletion(conversationIDs []string)
 	}, nil
 }
 
+// PrepareConversationRestoration fecha o gate até o caller informar os IDs
+// cujo commit de importação foi concluído.
+func (m *StreamingManager) PrepareConversationRestoration() func([]string) {
+	m.mu.Lock()
+	var once sync.Once
+	return func(conversationIDs []string) {
+		once.Do(func() {
+			for _, rawID := range conversationIDs {
+				delete(m.deleted, strings.TrimSpace(rawID))
+			}
+			m.mu.Unlock()
+		})
+	}
+}
+
 // Register stores a cancellable context for the given conversation.
 // If a previous context exists it is cancelled first (new message overrides in-flight response).
 // The returned generation can be passed to UnregisterIfCurrent so completion of

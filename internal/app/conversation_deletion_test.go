@@ -40,3 +40,44 @@ func TestPrepareConversationDeletionLiberaGatesAnterioresQuandoNotifierRecusa(t 
 		t.Fatal("gate de streaming permaneceu preso após falha do notifier")
 	}
 }
+
+func TestPrepareConversationRestorationLiberaTombstonesAposCommit(t *testing.T) {
+	ctx := context.Background()
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	streamMgr := chat.NewStreamingManager(notifier)
+	a := &App{streamMgr: streamMgr, responseNotifier: notifier}
+
+	finalizeDelete, err := a.prepareConversationDeletion(ctx, []string{"restored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeDelete(true)
+
+	finalizeRestore, err := a.prepareConversationRestoration(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved := make(chan bool, 1)
+	go func() {
+		release, ok := streamMgr.ReserveConversation("restored")
+		if ok {
+			release()
+		}
+		reserved <- ok
+	}()
+	select {
+	case <-reserved:
+		t.Fatal("reserva atravessou gate de restauração antes do commit")
+	case <-time.After(25 * time.Millisecond):
+	}
+	finalizeRestore([]string{" restored "})
+	select {
+	case ok := <-reserved:
+		if !ok {
+			t.Fatal("tombstone permaneceu após restauração")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("gate de restauração permaneceu preso")
+	}
+}

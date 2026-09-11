@@ -352,6 +352,21 @@ func (n *ResponseNotifier) PrepareConversationDeletion(conversationIDs []string)
 	}, nil
 }
 
+// PrepareConversationRestoration fecha o gate até o caller informar os IDs
+// cujo commit de importação foi concluído.
+func (n *ResponseNotifier) PrepareConversationRestoration() func([]string) {
+	n.mu.Lock()
+	var once sync.Once
+	return func(conversationIDs []string) {
+		once.Do(func() {
+			for _, rawID := range conversationIDs {
+				delete(n.deleted, strings.TrimSpace(rawID))
+			}
+			n.mu.Unlock()
+		})
+	}
+}
+
 // ReserveConversationOperation coordena envios de reconcile/retry e outras
 // operações externas que não vivem em callbacks do notifier. A exclusão falha
 // enquanto a reserva existir; após commit, o tombstone recusa reservas tardias.

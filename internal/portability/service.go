@@ -527,6 +527,22 @@ func ImportConversationsWithResolutions(
 	credentialPassword string,
 	resolutions []ImportResolution,
 ) (*ImportResult, error) {
+	return ImportConversationsWithRestoreHook(
+		ctx, jsonData, credMgr, credentialPassword, resolutions, nil,
+	)
+}
+
+// ImportConversationsWithRestoreHook executa o hook ainda sob o gate de
+// manutenção, depois dos commits de conversa, para reabilitar apenas os IDs
+// efetivamente restaurados antes que outro delete possa começar.
+func ImportConversationsWithRestoreHook(
+	ctx context.Context,
+	jsonData string,
+	credMgr *credentials.Manager,
+	credentialPassword string,
+	resolutions []ImportResolution,
+	restoreHook func([]string),
+) (*ImportResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -563,6 +579,7 @@ func ImportConversationsWithResolutions(
 	}
 
 	if err := database.WithSQLiteMaintenance(ctx, func() error {
+		restoredIDs := make([]string, 0, len(file.Resources.Conversations))
 		for _, conv := range file.Resources.Conversations {
 			if isEmptyConversation(conv) {
 				result.Skipped++
@@ -577,7 +594,11 @@ func ImportConversationsWithResolutions(
 			}
 			if imported {
 				result.Imported++
+				restoredIDs = append(restoredIDs, conv.ID)
 			}
+		}
+		if restoreHook != nil && len(restoredIDs) > 0 {
+			restoreHook(restoredIDs)
 		}
 		return nil
 	}); err != nil {

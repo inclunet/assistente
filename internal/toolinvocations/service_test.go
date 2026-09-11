@@ -173,26 +173,28 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 
 func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
-	registry := tools.NewRegistry()
-	registry.MustRegister(echoTool{})
-	svc := NewService(
-		createFailRepository{Repository: repo, err: gorm.ErrRecordNotFound},
-		tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
-	)
+	for _, createErr := range []error{gorm.ErrRecordNotFound, ErrChatOriginIDRequired} {
+		registry := tools.NewRegistry()
+		registry.MustRegister(echoTool{})
+		svc := NewService(
+			createFailRepository{Repository: repo, err: createErr},
+			tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+		)
 
-	result := svc.Execute(userA, ExecuteRequest{
-		Call: tools.ToolCall{
-			ID:   "call-race",
-			Type: "function",
-			Function: tools.FunctionCall{
-				Name:      "echo",
-				Arguments: `{"value":"não executar"}`,
+		result := svc.Execute(userA, ExecuteRequest{
+			Call: tools.ToolCall{
+				ID:   "call-race",
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      "echo",
+					Arguments: `{"value":"não executar"}`,
+				},
 			},
-		},
-		Origin: Origin{Type: OriginChat, ID: "turn-1"},
-	})
-	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "item do chat foi removido") {
-		t.Fatalf("resultado deveria cancelar sem executar tool: %+v", result.Execution.Result)
+			Origin: Origin{Type: OriginChat, ID: "turn-1"},
+		})
+		if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "item do chat foi removido") {
+			t.Fatalf("erro %v deveria cancelar sem executar tool: %+v", createErr, result.Execution.Result)
+		}
 	}
 }
 

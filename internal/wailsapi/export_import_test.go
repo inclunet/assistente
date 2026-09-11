@@ -46,9 +46,35 @@ func TestExportImportNotWired(t *testing.T) {
 func TestExportImportAttachNilDialogStillNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewExportImport()
-	AttachExportImport(api, stubSession{}, nil, nil, "dev")
+	AttachExportImport(api, stubSession{}, nil, nil, "dev", nil)
 	if _, err := api.ExportData(portability.ExportRequest{}); !errors.Is(err, ErrExportImportNotWired) {
 		t.Fatalf("dialog nil: got %v", err)
+	}
+}
+
+func TestWithPreparedConversationRestoreSempreLiberaGate(t *testing.T) {
+	prepared := 0
+	finalizedCalled := false
+	var finalized []string
+	expectedErr := errors.New("import failed")
+	result, err := withPreparedConversationRestore(
+		context.Background(),
+		func(context.Context) (func([]string), error) {
+			prepared++
+			return func(ids []string) {
+				finalizedCalled = true
+				finalized = append([]string(nil), ids...)
+			}, nil
+		},
+		func(func([]string)) (*portability.ImportResult, error) {
+			return nil, expectedErr
+		},
+	)
+	if result != nil || !errors.Is(err, expectedErr) {
+		t.Fatalf("resultado=%v erro=%v", result, err)
+	}
+	if prepared != 1 || !finalizedCalled || len(finalized) != 0 {
+		t.Fatalf("gate não foi liberado no erro: prepared=%d called=%t finalized=%v", prepared, finalizedCalled, finalized)
 	}
 }
 
@@ -56,7 +82,7 @@ func TestExportImportUsesWithUserNotRequireAuth(t *testing.T) {
 	t.Parallel()
 	semAuth := errors.New("sessão não autenticada")
 	api := NewExportImport()
-	AttachExportImport(api, stubSession{err: semAuth}, nil, func() ports.SystemDialogPort { return nil }, "dev")
+	AttachExportImport(api, stubSession{err: semAuth}, nil, func() ports.SystemDialogPort { return nil }, "dev", nil)
 
 	casos := []struct {
 		nome string

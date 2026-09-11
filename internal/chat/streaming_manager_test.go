@@ -136,6 +136,26 @@ func TestStreamingManager_TombstoneExpira(t *testing.T) {
 	release()
 }
 
+func TestStreamingManager_RestorationRemoveTombstoneDoIDImportado(t *testing.T) {
+	manager := NewStreamingManager(nil)
+	finalizeDelete, err := manager.PrepareConversationDeletion([]string{"restored", "still-deleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeDelete(true)
+
+	finalizeRestore := manager.PrepareConversationRestoration()
+	finalizeRestore([]string{" restored "})
+	if release, ok := manager.ReserveConversation("restored"); !ok {
+		t.Fatal("ID restaurado continuou bloqueado")
+	} else {
+		release()
+	}
+	if _, ok := manager.ReserveConversation("still-deleted"); ok {
+		t.Fatal("restauração removeu tombstone de ID não importado")
+	}
+}
+
 func TestStreamingManager_CurrentGenerationCanUnregister(t *testing.T) {
 	manager := NewStreamingManager(nil)
 	generation := manager.Register("conversation-1", func() {})
