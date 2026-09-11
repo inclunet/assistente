@@ -616,10 +616,10 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
-			reportCurrentDiagnostics()
 			if !emittedNonRetryableEffect {
 				return mcpStreamAttemptResult{retry: true}
 			}
+			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
@@ -647,10 +647,10 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	// truncada. Nesse caso não há conclusão válida a entregar.
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
-		reportCurrentDiagnostics()
 		if !emittedNonRetryableEffect {
 			return mcpStreamAttemptResult{retry: true}
 		}
+		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
@@ -867,10 +867,10 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		// Watchdog de ociosidade estourou. Sem conteúdo emitido, a tentativa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
-			reportCurrentDiagnostics()
 			if !emittedNonRetryableEffect {
 				return false
 			}
+			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return true
@@ -893,10 +893,10 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	// truncada. Nesse caso não há conclusão válida a entregar.
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
-		reportCurrentDiagnostics()
 		if !emittedNonRetryableEffect {
 			return false
 		}
+		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return true

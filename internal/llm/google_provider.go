@@ -353,10 +353,10 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 			// Watchdog de ociosidade estourou. Sem conteÃƒÂºdo emitido, a tentativa
 			// ÃƒÂ© descartÃƒÂ¡vel; com conteÃƒÂºdo jÃƒÂ¡ entregue, repetir duplicaria a resposta.
 			if wd.TimedOut() {
-				reportCurrentDiagnostics()
 				if !emittedNonRetryableEffect {
 					return false
 				}
+				reportCurrentDiagnostics()
 				markErrorNotRetryable(handler)
 				handler.OnError(streamIdleErrorMessage)
 				return true
@@ -447,10 +447,10 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 	wd.Stop()
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
-		reportCurrentDiagnostics()
 		if !emittedNonRetryableEffect {
 			return false
 		}
+		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return true

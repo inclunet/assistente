@@ -685,7 +685,9 @@ export function startChatEventController({
       announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
       patchCurrentSession({ isThinking: false, streamingReasoning: '' });
-      if (event.content && currentAssistantNodeId) adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content);
+      if (currentAssistantNodeId) {
+        adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content || '');
+      }
     } else {
       patchCurrentSession({ streamingReasoning: event.content || '' });
     }

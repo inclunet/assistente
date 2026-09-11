@@ -199,6 +199,28 @@ func TestAgenticStreamHandlerEmiteAvisoDeRetry(t *testing.T) {
 	}
 }
 
+func TestAgenticStreamHandlerResetDescartaResultadoEDiagnosticos(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
+	handler.OnThinking("reasoning antigo")
+	handler.OnFinishReason(llm.FinishInfo{Provider: "provider-antigo"})
+	handler.OnUsage(llm.Usage{CompletionTokens: 9, OutputTokensReported: true})
+	handler.OnError("erro transitório")
+
+	handler.ResetStreamAttempt()
+
+	result := handler.Result()
+	if result.Error != "" || result.Reasoning != "" || result.Finish.Provider != "" ||
+		result.Usage.OutputTokensReported {
+		t.Fatalf("estado da tentativa anterior vazou: %+v", result)
+	}
+	thinking := emitter.find("chat:thinking")
+	last := thinking[len(thinking)-1].data.(ports.ThinkingEvent)
+	if !last.Done || last.Content != "" {
+		t.Fatalf("reset não descartou reasoning visual: %+v", last)
+	}
+}
+
 func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	emitter := &captureEmitter{}
 	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})

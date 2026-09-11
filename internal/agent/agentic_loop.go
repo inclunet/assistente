@@ -91,6 +91,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		// 2. Erro?
 		if streamErr != "" {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro na iteração %d: %s", iteration, result.Error)
+			r.persistAndAccountNativeMCP(ctx, result, iteration)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
 			r.svc.emitter.Emit("chat:done", r.buildErrorDoneEventWithContext(ctx, streamErr, iteration))
@@ -224,6 +225,9 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			if fb.ResolveToolDefs != nil {
 				r.activeResolve = fb.ResolveToolDefs
 			}
+			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
+				resetter.ResetStreamAttempt()
+			}
 			attempt--
 			continue
 		}
@@ -250,6 +254,9 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		}
 		if attempt < attempts {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
+			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
+				resetter.ResetStreamAttempt()
+			}
 			continue
 		}
 	}

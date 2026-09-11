@@ -269,6 +269,7 @@ func (h *BaseStreamHandler) FinishThinkingIfActive() {
 func (h *BaseStreamHandler) ResetStreamAttempt() {
 	h.mu.Lock()
 	active := h.isThinking || h.pendingThinkingEmit || h.thinkingTimer != nil
+	hadReasoning := h.accumulatedReasoning != ""
 	if h.thinkingTimer != nil {
 		h.thinkingTimer.Stop()
 		h.thinkingTimer = nil
@@ -277,9 +278,10 @@ func (h *BaseStreamHandler) ResetStreamAttempt() {
 	h.isThinking = false
 	h.accumulatedReasoning = ""
 	h.lastThinkingEmitTime = time.Time{}
+	h.errorNotRetryable = false
 	h.mu.Unlock()
 
-	if active {
+	if active || hadReasoning {
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
 			ConversationID:     h.ConversationID,
 			TurnID:             h.TurnID,

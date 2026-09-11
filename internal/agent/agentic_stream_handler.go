@@ -67,6 +67,17 @@ func (h *AgenticStreamHandler) OnUsage(usage llm.Usage) {
 	h.mu.Unlock()
 }
 
+func (h *AgenticStreamHandler) ResetStreamAttempt() {
+	h.BaseStreamHandler.ResetStreamAttempt()
+	h.mu.Lock()
+	h.result = AgenticResult{}
+	h.finish = llm.FinishInfo{}
+	h.usage = llm.Usage{}
+	h.nativeMCPEvents = nil
+	h.nativeMCPArgsByID = make(map[string]string)
+	h.mu.Unlock()
+}
+
 func (h *AgenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
 	content, reasoning := h.Finalize()
 	h.mu.Lock()

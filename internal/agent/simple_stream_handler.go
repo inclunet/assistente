@@ -121,6 +121,13 @@ func (h *SimpleStreamHandler) OnUsage(usage llm.Usage) {
 	h.usage = usage
 }
 
+func (h *SimpleStreamHandler) ResetStreamAttempt() {
+	h.BaseStreamHandler.ResetStreamAttempt()
+	h.lastError = ""
+	h.finish = llm.FinishInfo{}
+	h.usage = llm.Usage{}
+}
+
 // SuppressTerminalError evita emitir chat:stream terminal com Error.
 // Usado pela auto-recuperação para não finalizar o streaming no frontend
 // antes de esgotar as tentativas.

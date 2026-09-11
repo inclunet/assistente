@@ -1575,6 +1575,7 @@ describe('chatEventController', () => {
       started: true,
       content: 'raciocínio descartado',
     });
+    adapter.updateReasoning('conversation-1', 'a1', 'raciocínio já salvo');
     emitEvent('chat:thinking', {
       conversationId: 'conversation-1',
       assistantMessageId: 'a1',
@@ -1587,6 +1588,6 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].streamingReasoning).toBe('');
     expect(
       sessions['conversation-1'].conversation?.threadedMessages[0].message.reasoning,
-    ).toBeUndefined();
+    ).toBe('');
   });
 });
