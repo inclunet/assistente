@@ -333,4 +333,32 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     expect(contentArea?.focus()).toBe(true);
     expect(screen.getByRole('button', { name: 'Documento renderizado' })).toHaveFocus();
   });
+
+  it('Ctrl+1..9 na aba já ativa restaura foco imediato sem mudar activeTabId', () => {
+    renderWorkspaceLayout();
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-1');
+    expect(restoreDefaultFocus).toHaveBeenCalled();
+  });
+
+  it('Ctrl+1..9 na aba já ativa enfileira foco lazy do editor', () => {
+    const focusPanel = vi.fn(() => true);
+    storeMock.state.workspace.tabs[0].type = 'editor';
+    renderWorkspaceLayout();
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-1');
+    const unregister = registerWorkspacePanelFocus('tab-1', focusPanel);
+    expect(focusPanel).toHaveBeenCalledOnce();
+    unregister();
+    storeMock.state.workspace.tabs[0].type = 'chat';
+  });
+
+  it('não restaura foco fora da rota workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+    vi.mocked(restoreDefaultFocus).mockClear();
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-1');
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+  });
 });
