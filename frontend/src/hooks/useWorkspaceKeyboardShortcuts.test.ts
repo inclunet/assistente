@@ -268,4 +268,14 @@ describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => 
     await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
     expect(restoreDefaultFocus).toHaveBeenCalled();
   });
+
+  it('Ctrl+numero com callback notifica navegação', async () => {
+    const onTabShortcutNavigation = vi.fn();
+    renderHook(() => useWorkspaceKeyboardShortcuts({ onTabShortcutNavigation }));
+
+    dispatchKey({ ctrlKey: true, key: '2' });
+
+    expect(setActiveTab).toHaveBeenCalledWith('t2');
+    expect(onTabShortcutNavigation).toHaveBeenCalledWith('t2');
+  });
 });
