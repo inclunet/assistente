@@ -21,7 +21,10 @@ func setupRepositoryTest(t *testing.T) (*DBRepository, context.Context, context.
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&database.User{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+	if err := db.AutoMigrate(
+		&database.User{}, &database.Conversation{}, &database.ChatMessage{},
+		&database.ToolCatalog{}, &database.ToolInvocation{},
+	); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 	previous := database.DB()
@@ -37,7 +40,62 @@ func setupRepositoryTest(t *testing.T) (*DBRepository, context.Context, context.
 	}).Error; err != nil {
 		t.Fatalf("seed tool catalog: %v", err)
 	}
+	for _, row := range []struct {
+		userID, conversationID, messageID string
+	}{
+		{userID: "user-a", conversationID: "conv-a", messageID: "conversation-a"},
+		{userID: "user-b", conversationID: "conv-b", messageID: "conversation-b"},
+	} {
+		if err := db.Create(&database.Conversation{
+			UUIDModel: database.UUIDModel{ID: row.conversationID},
+			UserID:    row.userID,
+			Title:     row.conversationID,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&database.ChatMessage{
+			UUIDModel:      database.UUIDModel{ID: row.messageID},
+			ConversationID: row.conversationID,
+			Role:           "assistant",
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, messageID := range []string{
+		"turn-1", "turn-running", "turn-redact", "turn-status",
+		"turn-cancel", "turn-timeout", "turn-rec", "turn-big",
+	} {
+		if err := db.Create(&database.ChatMessage{
+			UUIDModel:      database.UUIDModel{ID: messageID},
+			ConversationID: "conv-a",
+			Role:           "assistant",
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a"), database.WithUserID(context.Background(), "user-b")
+}
+
+func TestCreateChatInvocationFailsClosedWithoutConversationTables(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewDBRepository(db)
+	inv := &Invocation{ToolCatalogID: "tool", OriginType: OriginChat, OriginID: "missing", Status: StatusQueued}
+	if err := repo.Create(database.WithUserID(context.Background(), "user-a"), inv); err == nil {
+		t.Fatal("invocação chat foi criada sem tabelas para validar posse")
+	}
+	var count int64
+	if err := db.Model(&database.ToolInvocation{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("invocações criadas sem validação: %d", count)
+	}
 }
 
 func TestRepositoryCreatesAndListsScopedInvocations(t *testing.T) {
@@ -297,6 +355,15 @@ func seedRetentionInvocations(t *testing.T, repo *DBRepository, userA context.Co
 	old := fixedNow.Add(-48 * time.Hour)
 	recent := fixedNow.Add(-2 * time.Hour)
 	seed := func(id string, originType string, dryRun bool, queuedAt time.Time) {
+		if originType == OriginChat {
+			if err := database.DB().Create(&database.ChatMessage{
+				UUIDModel:      database.UUIDModel{ID: "origin-" + id},
+				ConversationID: "conv-a",
+				Role:           "assistant",
+			}).Error; err != nil {
+				t.Fatalf("seed message %s: %v", id, err)
+			}
+		}
 		inv := &Invocation{
 			ID:            id,
 			ToolCatalogID: toolID,
@@ -393,7 +460,11 @@ func TestRepositoryCleanOrphanChat(t *testing.T) {
 		t.Fatalf("resolve tool: %v", err)
 	}
 	// Mensagem viva: invocação ligada a ela deve sobreviver.
-	liveMsg := database.ChatMessage{UUIDModel: database.UUIDModel{ID: "msg-live"}, Role: "assistant"}
+	liveMsg := database.ChatMessage{
+		UUIDModel:      database.UUIDModel{ID: "msg-live"},
+		ConversationID: "conv-a",
+		Role:           "assistant",
+	}
 	if err := database.DB().Create(&liveMsg).Error; err != nil {
 		t.Fatalf("create chat message: %v", err)
 	}
@@ -412,7 +483,18 @@ func TestRepositoryCleanOrphanChat(t *testing.T) {
 		}
 	}
 	seed("chat-live", "msg-live")
-	seed("chat-orphan", "msg-missing")
+	if err := database.DB().Create(&database.ToolInvocation{
+		UUIDModel:     database.UUIDModel{ID: "chat-orphan"},
+		UserID:        "user-a",
+		ToolCatalogID: toolID,
+		OriginType:    OriginChat,
+		OriginID:      "msg-missing",
+		ToolCallID:    "call-chat-orphan",
+		Status:        StatusQueued,
+		QueuedAt:      time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("seed legado órfão: %v", err)
+	}
 
 	deleted, err := repo.CleanOrphanChat(userA)
 	if err != nil {

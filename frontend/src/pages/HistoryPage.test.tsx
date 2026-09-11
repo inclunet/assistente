@@ -346,6 +346,33 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(await screen.findByRole('button', { name: 'Deletar (2)' })).toBeInTheDocument();
   });
 
+  it('impede exclusão reentrante enquanto o batch está em voo', async () => {
+    const user = userEvent.setup();
+    let resolveDelete!: (ids: string[]) => void;
+    mockDeleteConversations.mockImplementation(() => new Promise<string[]>((resolve) => {
+      resolveDelete = resolve;
+    }));
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getAllByRole('button', { name: 'select-two' })[0]);
+    const deleteButton = await screen.findByRole('button', { name: 'Deletar (2)' });
+    await user.click(deleteButton);
+    await waitFor(() => expect(mockDeleteConversations).toHaveBeenCalledTimes(1));
+    expect(deleteButton).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'keyboard-delete' }));
+    expect(mockRequestConfirm).toHaveBeenCalledTimes(1);
+    expect(mockDeleteConversations).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveDelete([
+        '01926b90-7a5a-7c4e-8d3f-000000000001',
+        '01926b90-7a5a-7c4e-8d3f-000000000002',
+      ]);
+    });
+  });
+
   it('cancelar exclusão preserva a lista sem chamar o backend', async () => {
     const user = userEvent.setup();
     mockRequestConfirm.mockResolvedValue(false);

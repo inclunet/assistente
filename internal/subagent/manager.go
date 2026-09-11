@@ -418,13 +418,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		m.notifier.Cancel(childConvID)
 		logging.Errorf(ctx, "subagent.manager", "[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
-		finished := m.finalize(ctx, run, &result, o)
+		finished := m.finalize(ctx, run, &result, o, p.Background)
 		// Libera a vaga IMEDIATAMENTE após o estado terminal e ANTES de deliver():
 		// o deliver (auto-wake ao pai) pode bloquear (lock por conversa-pai / IO de
 		// DB) e não deve segurar o teto de concorrência com o run já finalizado.
 		m.releaseSlot(userID)
 		if p.Background {
-			m.deliver(ctx, run)
+			m.deliverAndUnregister(ctx, run)
 		}
 		return finished, nil
 	}
@@ -477,12 +477,12 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		// antes do branch p.Background).
 		status, errMsg := classifySendError(ctx, err)
 		o := outcome{status: status, errMsg: errMsg}
-		finished := m.finalize(ctx, run, &result, o)
+		finished := m.finalize(ctx, run, &result, o, p.Background)
 		// Libera a vaga ANTES de deliver() (que pode bloquear): o run já está em
 		// estado terminal, não deve reter o teto de concorrência do usuário.
 		m.releaseSlot(userID)
 		if p.Background {
-			m.deliver(ctx, run)
+			m.deliverAndUnregister(ctx, run)
 		}
 		return finished, nil
 	}
@@ -503,12 +503,12 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			// sucesso), interrompendo trabalho em background — escopado a este run.
 			defer cancelSend()
 			o := m.wait(bgCtx, childConvID, done, ar, bgTimeout, true)
-			m.finalize(bgCtx, run, &bgResult, o)
+			m.finalize(bgCtx, run, &bgResult, o, true)
 			// Libera a vaga ANTES de deliver(): o deliver (auto-wake ao pai) pode
 			// bloquear (lock por conversa-pai / IO) e não pode segurar o teto de
 			// concorrência com o run já em estado terminal.
 			m.releaseSlot(userID)
-			m.deliver(bgCtx, run)
+			m.deliverAndUnregister(bgCtx, run)
 		}()
 		return result, nil
 	}
@@ -518,7 +518,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	// unregisterActive), mesma invariante de todos os caminhos.
 	defer cancelSend()
 	o := m.wait(ctx, childConvID, done, ar, p.Timeout, false)
-	finished := m.finalize(ctx, run, &result, o)
+	finished := m.finalize(ctx, run, &result, o, false)
 	m.releaseSlot(userID)
 	return finished, nil
 }
@@ -927,25 +927,31 @@ func (m *Manager) resolveRun(ctx context.Context, conversationID, runID string) 
 	return run, nil
 }
 
-// finalize é o ÚNICO ponto que leva um run ao estado terminal e o remove de
-// `active`, SEMPRE na ordem markCompleting(status) → finish(persiste) →
-// unregisterActive. Centraliza a invariante de cancel/status do AEP-0068: do
+// finalize é o ponto que leva um run ao estado terminal, na ordem
+// markCompleting(status) → finish(persiste). Runs com entrega ao pai mantêm a
+// reserva em `active` até deliverAndUnregister terminar; os demais saem aqui.
+// Centraliza a invariante de cancel/status do AEP-0068: do
 // instante em que o desfecho é decidido (sucesso via callback, timeout/cancel/ctx
 // via wait, erro de persistir running, erro de send, ou cancel efetivo) até a
 // saída de `active`, terminalStatus reflete o status real e qualquer Cancel
 // concorrente cai no no-op com esse status — nunca cancelled:false+running, nunca
 // cancelled:true para um run já decidido. Idempotente: se o run já saiu de
 // `active`, markCompleting/unregisterActive viram no-op e o finish é best-effort.
-// TODO caminho terminal DEVE passar por aqui (não chamar finish/unregisterActive
-// avulsos).
-func (m *Manager) finalize(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome) RunResult {
+func (m *Manager) finalize(ctx context.Context, run *database.SubAgentRun, result *RunResult, o outcome, keepReservationForDelivery bool) RunResult {
 	m.markCompleting(run.ID, o.status)
 	finished := m.finish(ctx, run, result, o)
-	// Lê o título ANTES de sair de `active` (o registro é removido logo abaixo).
+	// Lê o título antes da remoção imediata ou posterior à entrega.
 	title := m.activeTitle(run.ID)
-	m.unregisterActive(run.ID)
+	if !keepReservationForDelivery {
+		m.unregisterActive(run.ID)
+	}
 	m.emitRun(EventRunFinished, run, title)
 	return finished
+}
+
+func (m *Manager) deliverAndUnregister(ctx context.Context, run *database.SubAgentRun) {
+	defer m.unregisterActive(run.ID)
+	m.deliver(ctx, run)
 }
 
 // emitRun publica um evento de run ao frontend. No-op sem emitter configurado
@@ -1135,6 +1141,7 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 				}
 			}
 			m.mu.Unlock()
+			m.deletionGate.Unlock()
 		})
 	}
 	for childID, reservation := range m.activeConvs {
@@ -1150,7 +1157,6 @@ func (m *Manager) PrepareConversationDeletion(ctx context.Context, conversationI
 		}
 	}
 	m.mu.Unlock()
-	m.deletionGate.Unlock()
 	return release, nil
 }
 

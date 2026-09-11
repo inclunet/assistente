@@ -78,21 +78,30 @@ func TestPrepareConversationDeletionRejectsActiveRunWithoutCancelling(t *testing
 	mgr.releaseConversation("new-child")
 }
 
-func TestPrepareConversationDeletionConflictDoesNotLeavePartialMarker(t *testing.T) {
+func TestPrepareConversationDeletionMantemGateAteRelease(t *testing.T) {
 	ctx := database.WithUserID(context.Background(), "user-a")
 	mgr := NewManager(ManagerConfig{})
 	release, err := mgr.PrepareConversationDeletion(ctx, []string{"existing"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
-	if _, err := mgr.PrepareConversationDeletion(ctx, []string{"new", "existing"}); err == nil {
-		t.Fatal("esperava conflito de exclusão")
+	acquired := make(chan struct{})
+	go func() {
+		mgr.deletionGate.RLock()
+		close(acquired)
+		mgr.deletionGate.RUnlock()
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("novo run atravessou gate antes do release")
+	case <-time.After(25 * time.Millisecond):
 	}
-	if err := mgr.reserveConversation("child", "new", "user-a"); err != nil {
-		t.Fatalf("marcador parcial permaneceu após conflito: %v", err)
+	release()
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("novo run não prosseguiu após release")
 	}
-	mgr.releaseConversation("child")
 }
 
 func TestManagerRunSyncSuccess(t *testing.T) {
@@ -210,13 +219,47 @@ func TestManagerFinishDoesNotRetainIntegralResponseInBackground(t *testing.T) {
 	finished := mgr.finalize(ctx, run, &result, outcome{
 		status:  StatusSucceeded,
 		summary: strings.Repeat("resposta extensa ", maxResultSummary),
-	})
+	}, false)
 
 	if finished.Response != "" {
 		t.Fatalf("background não deve reter resposta integral: %d bytes", len(finished.Response))
 	}
 	if len(finished.ResultSummary) > maxResultSummary || !utf8.ValidString(finished.ResultSummary) {
 		t.Fatalf("background deve manter apenas resumo limitado e válido: len=%d", len(finished.ResultSummary))
+	}
+}
+
+func TestFinalizeMantemReservaAteEntregaTerminal(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	mgr := NewManager(ManagerConfig{Repo: repo})
+	run := &database.SubAgentRun{
+		UserID:               "user-a",
+		ChildConversationID:  "child-delivery",
+		ParentConversationID: "parent",
+		Status:               StatusRunning,
+		Background:           true,
+	}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.reserveConversation(run.ChildConversationID, run.ParentConversationID, run.UserID); err != nil {
+		t.Fatal(err)
+	}
+	mgr.registerActive(run.ID, &activeRun{
+		childConversationID:  run.ChildConversationID,
+		parentConversationID: run.ParentConversationID,
+		userID:               run.UserID,
+	})
+
+	result := RunResult{ConversationID: run.ChildConversationID, RunID: run.ID}
+	mgr.finalize(ctx, run, &result, outcome{status: StatusSucceeded}, true)
+	if _, reserved := mgr.activeConvs[run.ChildConversationID]; !reserved {
+		t.Fatal("finalize removeu reserva antes da entrega terminal")
+	}
+
+	mgr.deliverAndUnregister(ctx, run)
+	if _, reserved := mgr.activeConvs[run.ChildConversationID]; reserved {
+		t.Fatal("reserva permaneceu após entrega terminal")
 	}
 }
 

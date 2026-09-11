@@ -63,10 +63,9 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 	var createErr error
 	if inv.OriginType == OriginChat {
 		createErr = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.create_chat", func(tx *gorm.DB) error {
-			// Testes/migrações parciais podem montar apenas a tabela técnica.
 			if !tx.Migrator().HasTable(&database.ChatMessage{}) ||
 				!tx.Migrator().HasTable(&database.Conversation{}) {
-				return create(tx)
+				return fmt.Errorf("não é possível validar origem chat sem tabelas de conversa e mensagens")
 			}
 			var originCount int64
 			if err := tx.WithContext(ctx).Model(&database.ChatMessage{}).
