@@ -292,7 +292,11 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Nesse caso não há conclusão válida a entregar.
 	if wd.TimedOut() {
-		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		logging.Logger(ctx, "llm.openai-chat-completions").ErrorContext(
+			ctx,
+			"stream encerrou junto com timeout de inatividade",
+			"partial_bytes", fullResponse.Len(),
+		)
 		if !emittedVisibleContent {
 			return chatStreamAttempt{plainRetry: true}
 		}
