@@ -353,4 +353,15 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     unregister();
     storeMock.state.workspace.tabs[0].type = 'chat';
   });
+
+  it('não restaura foco fora da rota workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+    vi.mocked(restoreDefaultFocus).mockClear();
+    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-1');
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+  });
 });

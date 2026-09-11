@@ -289,3 +289,4 @@ O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canô
   10.
 - Providers ACP continuam usando somente os pickers de opções da sessão do
   agente.
+- `Ctrl+1..9` troca direto para aba N e restaura foco na área padrão (via controller/`queueWorkspacePanelFocus` no editor lazy), com evidência em `frontend/src/hooks/useWorkspaceKeyboardShortcuts.test.ts` e `frontend/src/components/workspace/WorkspaceLayout.test.tsx`.
