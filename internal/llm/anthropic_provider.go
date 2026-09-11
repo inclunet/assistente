@@ -232,7 +232,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 			continue
 		}
 
-		resetStreamAttempt(handler)
+		discardStreamReasoning(handler)
 		handler.OnError("MÃ¡ximo de tentativas de streaming excedido")
 	}
 }
@@ -315,7 +315,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 				bk = nextBackoff(bk, maxBk)
 				continue
 			}
-			resetStreamAttempt(handler)
+			discardStreamReasoning(handler)
 			handler.OnError("MÃ¡ximo de tentativas de streaming excedido")
 			return
 		}
@@ -579,8 +579,24 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 				}
 			case "thinking_delta":
 				if delta.Thinking != "" {
+					if ctx.Err() != nil {
+						return mcpStreamAttemptResult{done: true}
+					}
+					if wd.TimedOut() {
+						if !emittedNonRetryableEffect {
+							return mcpStreamAttemptResult{retry: true}
+						}
+						reportCurrentDiagnostics()
+						markErrorNotRetryable(handler)
+						handler.OnError(streamIdleErrorMessage)
+						return mcpStreamAttemptResult{done: true}
+					}
 					fullReasoning.WriteString(delta.Thinking)
 					handler.OnThinking(delta.Thinking)
+					if ctx.Err() != nil {
+						handler.OnThinkingDone(fullReasoning.String())
+						return mcpStreamAttemptResult{done: true}
+					}
 				}
 			case "input_json_delta":
 				if tc, ok := activeToolCalls[event.Index]; ok {
@@ -674,6 +690,12 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
+		return mcpStreamAttemptResult{done: true}
+	}
+	if ctx.Err() != nil {
+		if fullReasoning.Len() > 0 {
+			handler.OnThinkingDone(fullReasoning.String())
+		}
 		return mcpStreamAttemptResult{done: true}
 	}
 
@@ -849,8 +871,24 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 				}
 			case "thinking_delta":
 				if delta.Thinking != "" {
+					if ctx.Err() != nil {
+						return true
+					}
+					if wd.TimedOut() {
+						if !emittedNonRetryableEffect {
+							return false
+						}
+						reportCurrentDiagnostics()
+						markErrorNotRetryable(handler)
+						handler.OnError(streamIdleErrorMessage)
+						return true
+					}
 					fullReasoning.WriteString(delta.Thinking)
 					handler.OnThinking(delta.Thinking)
+					if ctx.Err() != nil {
+						handler.OnThinkingDone(fullReasoning.String())
+						return true
+					}
 				}
 			case "input_json_delta":
 				if tc, ok := activeToolCalls[event.Index]; ok {
@@ -939,6 +977,12 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
+		return true
+	}
+	if ctx.Err() != nil {
+		if fullReasoning.Len() > 0 {
+			handler.OnThinkingDone(fullReasoning.String())
+		}
 		return true
 	}
 

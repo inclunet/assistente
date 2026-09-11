@@ -125,7 +125,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 			continue
 		}
 
-		resetStreamAttempt(handler)
+		discardStreamReasoning(handler)
 		handler.OnError("Máximo de tentativas de streaming excedido")
 	}
 }

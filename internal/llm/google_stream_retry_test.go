@@ -191,3 +191,32 @@ func TestGoogleTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
 		t.Fatalf("retry de reasoning inválido: err=%q resets=%d attempts=%d", handler.err, handler.resets, attempts.Load())
 	}
 }
+
+func TestGoogleCancelamentoEmThinkingNaoFinalizaResposta(t *testing.T) {
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"pensando\",\"thought\":true}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}]}\r\n\r\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	ctxCred := database.WithUserID(context.Background(), "user-cancel")
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-cancel.test", &credentials.AuthConfig{
+		Type: "bearer", Token: "test-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewGoogleProvider(&ProviderConfig{
+		ID: "google-cancel", BaseURL: server.URL, Type: ProviderType("gemini"),
+		Model: "gemini-test", CredentialPattern: "gemini-cancel.test",
+	}, credMgr)
+	ctx, cancel := context.WithCancel(ctxCred)
+	handler := &cancelOnThinkingHandler{cancel: cancel}
+
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gemini-test"}, handler)
+
+	if handler.done != "" || len(handler.chunks) != 0 {
+		t.Fatalf("barge-in publicou terminal/chunk obsoleto: done=%q chunks=%v", handler.done, handler.chunks)
+	}
+}

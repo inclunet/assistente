@@ -140,3 +140,28 @@ func TestAnthropicTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
 		t.Fatalf("retry de reasoning inválido: err=%q resets=%d attempts=%d", handler.err, handler.resets, attempts.Load())
 	}
 }
+
+func TestAnthropicCancelamentoEmThinkingNaoFinalizaResposta(t *testing.T) {
+	stream := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"1\",\"model\":\"claude-test\",\"usage\":{\"input_tokens\":1}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"pensando\"}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(&ProviderConfig{
+		ID: "anthropic-cancel", BaseURL: server.URL, Type: ProviderClaude,
+		Model: "claude-test", AuthMode: AuthModeNone,
+	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
+	ctx, cancel := context.WithCancel(context.Background())
+	handler := &cancelOnThinkingHandler{cancel: cancel}
+
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "claude-test"}, handler)
+
+	if handler.done != "" || len(handler.chunks) != 0 {
+		t.Fatalf("barge-in publicou terminal/chunk obsoleto: done=%q chunks=%v", handler.done, handler.chunks)
+	}
+}

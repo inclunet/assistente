@@ -70,15 +70,19 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
-	h.FinishThinkingIfActive()
-	_, _ = h.Finalize()
-	h.closePendingAgentTools()
 	// A supressão existe para não finalizar o streaming enquanto ainda há
 	// tentativa pela frente. Um erro que não pode ser repetido encerra o turno
 	// agora, e calá-lo deixaria a tela esperando por uma tentativa que não vem.
 	if h.suppressTerminalError && !h.ErrorNotRetryable() {
+		h.DiscardStreamReasoning()
+		_, _ = h.Finalize()
+		h.closePendingAgentTools()
 		return
 	}
+	h.FlushStream()
+	h.FinishThinkingIfActive()
+	_, _ = h.Finalize()
+	h.closePendingAgentTools()
 	streamEvent := events.StreamEvent{
 		MessageID:            h.AssistantMessageID,
 		Done:                 true,

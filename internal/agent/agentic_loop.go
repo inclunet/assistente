@@ -233,6 +233,9 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		}
 		result = handler.Result()
 		if ctx.Err() != nil {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration, r.totalToolCallCount, r.toolsUsedSet)
 			return result, "", true
@@ -245,11 +248,17 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		// Mesma regra do streaming simples: o que o provider marcou como não
 		// repetível não volta ao agente por conta do app (AEP-0084 D4).
 		if barrier, ok := handler.(interface{ ErrorNotRetryable() bool }); ok && barrier.ErrorNotRetryable() {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido sem repetição possível (iteração %d): %s", iteration, result.Error)
 			break
 		}
 		if attempt == attempts {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 		}
 		if attempt < attempts {

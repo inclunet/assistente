@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -168,17 +169,13 @@ func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
 		t.Fatalf("usage perdido no erro: %+v", result.Usage)
 	}
 	events := capturedNames(emitter)
-	streamIndex, thinkingDoneIndex := -1, -1
-	for i, event := range events {
-		if event == "chat:stream" {
-			streamIndex = i
-		}
-		if event == "chat:thinking" {
-			thinkingDoneIndex = i
-		}
+	if !slices.Contains(events, "chat:stream") {
+		t.Fatalf("chunk pendente não foi descarregado: %v", events)
 	}
-	if streamIndex < 0 || thinkingDoneIndex < 0 || streamIndex > thinkingDoneIndex {
-		t.Fatalf("ordem terminal inválida: stream=%d thinkingDone=%d", streamIndex, thinkingDoneIndex)
+	for _, captured := range emitter.find("chat:thinking") {
+		if captured.data.(ports.ThinkingEvent).Done {
+			t.Fatal("OnError intermediário não deve promover reasoning antes da decisão de retry")
+		}
 	}
 }
 

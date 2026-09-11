@@ -184,7 +184,6 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 
 func (h *AgenticStreamHandler) OnError(err string) {
 	h.FlushStream()
-	h.FinishThinkingIfActive()
 	content, reasoning := h.Finalize()
 	h.mu.Lock()
 	finish := h.finish
