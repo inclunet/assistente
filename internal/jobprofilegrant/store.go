@@ -137,8 +137,13 @@ func (s *Store) CurrentDelegation(ctx context.Context, jobID string) (Delegation
 func currentDelegationDB(ctx context.Context, db *gorm.DB, jobID string) (DelegationConfig, error) {
 	var row database.Job
 	err := database.ScopeByUser(ctx, db, "user_id").
-		Where("id = ? OR slug = ?", strings.TrimSpace(jobID), strings.TrimSpace(jobID)).
+		Where("slug = ?", strings.TrimSpace(jobID)).
 		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		err = database.ScopeByUser(ctx, db, "user_id").
+			Where("id = ?", strings.TrimSpace(jobID)).
+			First(&row).Error
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return DelegationConfig{}, ErrJobNotFound
 	}

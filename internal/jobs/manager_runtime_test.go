@@ -157,6 +157,35 @@ func TestManagerReconcileDisabledJobsUpdatesRegistrySchedulerAndEvent(t *testing
 	}
 }
 
+func TestManagerSerializesTriggerMutations(t *testing.T) {
+	mgr := NewManager(ManagerConfig{})
+	job := &Job{
+		ID: "serializado", Enabled: true, PipelineEnabled: true,
+		Triggers: []Trigger{{Type: TriggerInterval, Every: "1h"}},
+	}
+	mgr.registry.Set(job)
+	mgr.triggerMu.Lock()
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		close(started)
+		mgr.registerTriggers(job)
+		close(done)
+	}()
+	<-started
+	select {
+	case <-done:
+		t.Fatal("registro de trigger ignorou o mutex de serialização")
+	case <-time.After(20 * time.Millisecond):
+	}
+	mgr.triggerMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("registro de trigger não prosseguiu após liberar o mutex")
+	}
+}
+
 func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegisterOptIn(&fakeTool{

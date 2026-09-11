@@ -110,6 +110,28 @@ func TestStoreExactIsolationIdempotencyAndRevocation(t *testing.T) {
 	}
 }
 
+func TestCurrentDelegationPrefersPublicSlugOverUUIDFallback(t *testing.T) {
+	store, db, userA, _, jobA, _ := grantTestStore(t)
+	jobByUUID := database.Job{
+		UserID: "user-a", Slug: "outro-job", Name: "Outro", Enabled: true,
+		ToolCatalogID: "subagent", ToolName: ToolSubagent,
+		Inputs: `{"profile":"especialista","prompt":"outro"}`,
+	}
+	if err := db.Create(&jobByUUID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&database.Job{}).Where("id = ?", jobA.ID).Update("slug", jobByUUID.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.CurrentDelegation(userA, jobByUUID.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.JobID != jobA.ID {
+		t.Fatalf("slug público deveria vencer colisão com UUID: job=%q esperado=%q", config.JobID, jobA.ID)
+	}
+}
+
 func TestStoreRevokesStaleFingerprint(t *testing.T) {
 	store, db, userA, _, jobA, _ := grantTestStore(t)
 	config, _ := store.CurrentDelegation(userA, jobA.ID)
