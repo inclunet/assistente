@@ -53,7 +53,8 @@ O chat diferencia cinco situações:
 - **Stream interrompido (`streaming_interrupted`)**: um transporte OpenAI
   encerrou sem informar motivo de finalização e sem concluir uma ferramenta.
 - **Timeout de inatividade (`streaming_idle_timeout`)**: o provedor parou de
-  enviar eventos durante uma resposta que já tinha conteúdo visível.
+  enviar eventos depois que conteúdo, raciocínio ou uma ação já tinha sido
+  apresentado; repetir poderia duplicar efeitos.
 
 Quando o provedor informa limite de geração, o chat preserva o texto recebido e
 oferece **Continuar resposta**. Se o provedor encerrar o stream sem motivo de

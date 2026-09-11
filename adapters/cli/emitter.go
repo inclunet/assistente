@@ -21,6 +21,7 @@ type EmitterAdapter struct {
 	out             io.Writer // stdout por padrão
 	errOut          io.Writer // stderr por padrão
 	verbose         bool
+	locale          string
 	done            chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
 	conversationID  string        // conversa ativa; "" = aceita qualquer conversa
 	streamSequence  int64
@@ -34,6 +35,11 @@ type EmitterOption func(*EmitterAdapter)
 // WithVerbose habilita logging de todos os eventos no stderr.
 func WithVerbose(v bool) EmitterOption {
 	return func(e *EmitterAdapter) { e.verbose = v }
+}
+
+// WithLocale define o idioma das mensagens próprias do adapter.
+func WithLocale(locale string) EmitterOption {
+	return func(e *EmitterAdapter) { e.locale = normalizeCLILocale(locale) }
 }
 
 // WithOutput define o writer de saída (padrão: os.Stdout).
@@ -51,6 +57,7 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 	e := &EmitterAdapter{
 		out:    os.Stdout,
 		errOut: os.Stderr,
+		locale: detectCLILocale(),
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -124,7 +131,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 	}
 
 	if ev.Error != "" {
-		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", readableChatError(ev.Error))
+		_, _ = fmt.Fprintf(e.errOut, "\n%s: %s\n", localizedErrorPrefix(e.locale), readableChatError(ev.Error, e.locale))
 		e.resetStreamState()
 		// Fallback: sinaliza done em chat:stream com Error porque há caminhos
 		// no backend (ex.: HandlePanic) que emitem apenas chat:stream terminal
@@ -404,7 +411,7 @@ func (e *EmitterAdapter) handleDone(data any) {
 
 	// chat:done com ErrorMessage: exibe erro (substitui chat:stream terminal)
 	if ev.ErrorMessage != "" {
-		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", readableChatError(ev.ErrorMessage))
+		_, _ = fmt.Fprintf(e.errOut, "\n%s: %s\n", localizedErrorPrefix(e.locale), readableChatError(ev.ErrorMessage, e.locale))
 		e.resetStreamState()
 	}
 
@@ -434,14 +441,56 @@ func (e *EmitterAdapter) handleDone(data any) {
 	}
 }
 
-func readableChatError(message string) string {
-	switch message {
-	case "streaming_interrupted":
-		return "Resposta interrompida pelo provedor sem motivo de finalização; tente novamente."
-	case "streaming_idle_timeout":
-		return "O provedor parou de responder no meio da geração (timeout de inatividade)."
+func readableChatError(message, locale string) string {
+	catalog := map[string]map[string]string{
+		"en": {
+			"streaming_interrupted":  "Response interrupted by provider without finish reason; please try again.",
+			"streaming_idle_timeout": "Provider stopped responding mid-generation (idle timeout).",
+		},
+		"es": {
+			"streaming_interrupted":  "Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.",
+			"streaming_idle_timeout": "El proveedor dejó de responder a mitad de la generación (timeout de inactividad).",
+		},
+		"pt-BR": {
+			"streaming_interrupted":  "Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.",
+			"streaming_idle_timeout": "O provedor parou de responder no meio da geração (timeout de inatividade).",
+		},
+	}
+	if translated := catalog[normalizeCLILocale(locale)][message]; translated != "" {
+		return translated
+	}
+	return message
+}
+
+func localizedErrorPrefix(locale string) string {
+	switch normalizeCLILocale(locale) {
+	case "pt-BR":
+		return "Erro"
+	case "es":
+		return "Error"
 	default:
-		return message
+		return "Error"
+	}
+}
+
+func detectCLILocale() string {
+	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return normalizeCLILocale(value)
+		}
+	}
+	return "en"
+}
+
+func normalizeCLILocale(locale string) string {
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	switch {
+	case strings.HasPrefix(locale, "pt"):
+		return "pt-BR"
+	case strings.HasPrefix(locale, "es"):
+		return "es"
+	default:
+		return "en"
 	}
 }
 

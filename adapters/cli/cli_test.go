@@ -10,7 +10,7 @@ import (
 
 func TestEmitterAdapter_StreamEvent(t *testing.T) {
 	var out, errOut bytes.Buffer
-	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut), cli.WithLocale("pt-BR"))
 
 	e.Emit("chat:stream", ports.StreamEvent{Delta: "Olá", Reset: true, Sequence: 0})
 	e.Emit("chat:stream", ports.StreamEvent{Delta: " mundo", Sequence: 1})
@@ -74,7 +74,7 @@ func TestEmitterAdapter_StreamScopedRejectsMissingOrDifferentConversation(t *tes
 
 func TestEmitterAdapter_StreamError(t *testing.T) {
 	var out, errOut bytes.Buffer
-	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+	e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut), cli.WithLocale("pt-BR"))
 
 	e.Emit("chat:stream", ports.StreamEvent{Error: "falha no provedor"})
 
@@ -88,29 +88,43 @@ func TestEmitterAdapter_StreamError(t *testing.T) {
 
 func TestEmitterAdapter_TraduzCodigosDeErroDeStreaming(t *testing.T) {
 	tests := []struct {
-		name  string
-		event string
-		data  any
-		want  string
+		name   string
+		locale string
+		event  string
+		data   any
+		want   string
 	}{
 		{
-			name:  "interrupção no stream simples",
-			event: "chat:stream",
-			data:  ports.StreamEvent{Error: "streaming_interrupted"},
-			want:  "\nErro: Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.\n",
+			name:   "interrupção no stream simples",
+			locale: "pt-BR",
+			event:  "chat:stream",
+			data:   ports.StreamEvent{Error: "streaming_interrupted"},
+			want:   "\nErro: Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.\n",
 		},
 		{
-			name:  "timeout no loop agêntico",
-			event: "chat:done",
-			data:  ports.DoneEvent{ErrorMessage: "streaming_idle_timeout"},
-			want:  "\nErro: O provedor parou de responder no meio da geração (timeout de inatividade).\n",
+			name:   "timeout no loop agêntico em inglês",
+			locale: "en",
+			event:  "chat:done",
+			data:   ports.DoneEvent{ErrorMessage: "streaming_idle_timeout"},
+			want:   "\nError: Provider stopped responding mid-generation (idle timeout).\n",
+		},
+		{
+			name:   "interrupção em espanhol",
+			locale: "es",
+			event:  "chat:stream",
+			data:   ports.StreamEvent{Error: "streaming_interrupted"},
+			want:   "\nError: Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var out, errOut bytes.Buffer
-			e := cli.NewEmitterAdapter(cli.WithOutput(&out), cli.WithErrOutput(&errOut))
+			e := cli.NewEmitterAdapter(
+				cli.WithOutput(&out),
+				cli.WithErrOutput(&errOut),
+				cli.WithLocale(tt.locale),
+			)
 			e.Emit(tt.event, tt.data)
 			if got := errOut.String(); got != tt.want {
 				t.Fatalf("stderr=%q, want %q", got, tt.want)

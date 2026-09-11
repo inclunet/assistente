@@ -429,6 +429,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando o iterador terminar sem erro com
 	// resposta truncada. Nesse caso não há conclusão válida a entregar.
+	wd.Stop()
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
 		if !emittedAnything {
