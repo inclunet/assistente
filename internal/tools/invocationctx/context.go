@@ -21,6 +21,7 @@ type InvocationContext struct {
 }
 
 type ctxKey struct{}
+type maskedInvocationContext struct{}
 
 // With retorna um novo context.Context com o InvocationContext embutido.
 func With(ctx context.Context, inv InvocationContext) context.Context {
@@ -32,4 +33,10 @@ func With(ctx context.Context, inv InvocationContext) context.Context {
 func Get(ctx context.Context) (InvocationContext, bool) {
 	v, ok := ctx.Value(ctxKey{}).(InvocationContext)
 	return v, ok
+}
+
+// Without cria uma fronteira de execução que não herda conversa, turno,
+// superfície nem profile-pai do contexto que originou um evento.
+func Without(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxKey{}, maskedInvocationContext{})
 }

@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"assistente/internal/eventctx"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/logging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 
 	"github.com/google/uuid"
 )
@@ -308,6 +310,8 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// pela tool (ex.: task_list) durante este run são marcadas como _source="job".
 	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
 	// permitindo anti-loop via trigger.when ({{ eq .event._source "user" }}).
+	ctx = invocationctx.Without(ctx)
+	ctx = toolinvocations.WithoutInvocationIDs(ctx)
 	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
 	logger := logging.Logger(ctx, "jobs.executor")
 
@@ -351,6 +355,18 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 			)
 		}
 		return nil, fmt.Errorf("resolve inputs: %w", err)
+	}
+	if job.Tool == jobprofilegrant.ToolSubagent {
+		if expression, configured := job.Inputs["profile"].(string); configured && strings.Contains(expression, "{{") {
+			resolvedProfile, ok := resolvedInputs["profile"].(string)
+			if !ok || isEmptyTemplateValue(resolvedProfile) {
+				return nil, permanentAttemptFailure(
+					errors.New("template explícito de profile resolveu para vazio"),
+					tools.ErrorKindAuthorization,
+					"authorization_not_granted",
+				)
+			}
+		}
 	}
 
 	resolvedInputs = CoerceInputs(resolvedInputs, tool.Parameters())
@@ -543,6 +559,11 @@ func permanentAttemptFailure(err error, kind tools.ErrorKind, code string) error
 		code:              code,
 		kind:              kind,
 	}
+}
+
+func isEmptyTemplateValue(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || value == "<no value>"
 }
 
 // runProvenance monta a proveniência carimbada no ctx do run, espelhando a

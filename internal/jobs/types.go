@@ -54,6 +54,7 @@ const (
 
 // Job representa uma unidade atomica de automacao: 1 job = 1 tool call.
 type Job struct {
+	DatabaseID     string         `yaml:"-" json:"-"`
 	ID             string         `yaml:"id" json:"id"`
 	Name           string         `yaml:"name" json:"name"`
 	Description    string         `yaml:"description" json:"description"`

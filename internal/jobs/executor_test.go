@@ -3,11 +3,15 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"assistente/internal/toolctx"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 )
 
 type secretStoreFunc func(ctx context.Context, key string) (string, error)
@@ -611,13 +615,15 @@ type fakeTool struct {
 	response  string
 	callCount int
 	lastArgs  json.RawMessage
+	lastCtx   context.Context
 }
 
 func (f *fakeTool) Name() string                { return f.name }
 func (f *fakeTool) Description() string         { return "fake tool for testing" }
 func (f *fakeTool) Parameters() json.RawMessage { return f.params }
-func (f *fakeTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolResult, error) {
+func (f *fakeTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	f.callCount++
+	f.lastCtx = ctx
 	f.lastArgs = args
 	return tools.ToolResult{Content: f.response}, nil
 }
@@ -814,6 +820,75 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 }
 
+func TestExecuteSubagentTemplateResolvingEmptyFailsBeforeFallback(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "subagent",
+		params:   json.RawMessage(`{"type":"object","properties":{"profile":{"type":"string"},"prompt":{"type":"string"}}}`),
+		response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry: registry, EventBus: NewEventBus(), CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID: "delegado", Tool: "subagent",
+		Inputs: map[string]any{
+			"profile": `{{ default .event.profile "" }}`,
+			"prompt":  "teste",
+		},
+	}
+	rl := executor.Execute(context.Background(), job, &TriggerContext{
+		Type: TriggerEvent, EventPayload: map[string]any{},
+	})
+	if rl.Status != "failed" || ft.callCount != 0 || !strings.Contains(rl.Error, "profile resolveu para vazio") {
+		t.Fatalf("template vazio deveria falhar antes da tool: status=%s calls=%d error=%q", rl.Status, ft.callCount, rl.Error)
+	}
+}
+
+func TestRunProvenanceKeepsPublicJobSlug(t *testing.T) {
+	executor := NewJobExecutor(ExecutorConfig{})
+	provenance := executor.runProvenance(
+		&Job{ID: "move-card-job", DatabaseID: "018f0000-0000-7000-8000-000000000099"},
+		&TriggerContext{},
+		&RunLog{RunID: "run-1"},
+	)
+	if provenance.SourceJobID != "move-card-job" {
+		t.Fatalf("SourceJobID público = %q, esperado slug", provenance.SourceJobID)
+	}
+}
+
+func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name: "subagent", params: json.RawMessage(`{"type":"object"}`), response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+	executor := NewJobExecutor(ExecutorConfig{
+		ToolRegistry: registry, EventBus: NewEventBus(), CircuitBreaker: NewCircuitBreaker(),
+	})
+	parent := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "conversation-parent", TurnID: "turn-parent", ProfileSlug: "pesquisa",
+	})
+	parent = toolinvocations.WithCurrentInvocationID(parent, "invocacao-publicadora")
+	parent = toolctx.WithParentInvocationID(parent, "invocacao-ancestral")
+	rl := executor.Execute(parent, &Job{
+		ID: "job-evento", Tool: "subagent", Inputs: map[string]any{"profile": "pesquisa"},
+	}, &TriggerContext{Type: TriggerEvent})
+	if rl.Status != "completed" {
+		t.Fatalf("execução falhou: %s", rl.Error)
+	}
+	if _, inherited := invocationctx.Get(ft.lastCtx); inherited {
+		t.Fatal("job herdou invocationctx da conversa que publicou o evento")
+	}
+	if current := toolinvocations.CurrentInvocationID(ft.lastCtx); current != "" {
+		t.Fatalf("job herdou invocação publicadora: %q", current)
+	}
+	if parentID := toolctx.ParentInvocationIDFromContext(ft.lastCtx); parentID != "" {
+		t.Fatalf("job herdou invocação ancestral: %q", parentID)
+	}
+}
+
 func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{
@@ -986,9 +1061,11 @@ type fakeDomainPublishTool struct {
 	event string
 }
 
-func (f *fakeDomainPublishTool) Name() string                { return f.name }
-func (f *fakeDomainPublishTool) Description() string         { return "publishes a domain event when executed" }
-func (f *fakeDomainPublishTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (f *fakeDomainPublishTool) Name() string        { return f.name }
+func (f *fakeDomainPublishTool) Description() string { return "publishes a domain event when executed" }
+func (f *fakeDomainPublishTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
 func (f *fakeDomainPublishTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	_ = f.mgr.PublishDomainEvent(ctx, f.event, map[string]any{"task_id": "t-1"})
 	return tools.ToolResult{Content: `{"ok":true}`}, nil

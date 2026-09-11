@@ -222,6 +222,40 @@ var schemaMigrations = []migration{
 			return deferIfErr(ensureTaskNotePaginationIndexes(database))
 		},
 	},
+	{
+		Version: 16,
+		Name:    "job_profile_grants_epochs_and_reconciliation",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			statements := []string{
+				`DROP INDEX IF EXISTS ux_job_profile_grants_exact`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_generation ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint, generation)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_active ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint) WHERE revoked_at IS NULL`,
+				`UPDATE jobs
+				    SET enabled = 0
+				  WHERE enabled = 1
+				    AND (
+				      trim(tool_name) = 'subagent'
+				      OR (
+				        trim(tool_name) = ''
+				        AND EXISTS (
+				          SELECT 1 FROM tool_catalog
+				           WHERE tool_catalog.id = jobs.tool_catalog_id
+				             AND trim(tool_catalog.name) = 'subagent'
+				        )
+				      )
+				    )
+				    AND json_type(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile') = 'text'
+				    AND trim(json_extract(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile')) <> ''`,
+			}
+			for _, statement := range statements {
+				if err := database.Exec(statement).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

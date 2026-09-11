@@ -80,6 +80,12 @@ func (a *App) wireProfiles() {
 			a.reinitSpeechFromActiveProfile(slug)
 			a.registerActiveProfileHotkeys()
 		},
+		DeleteProfile: func(ctx context.Context, slug string, deleteFile func() error) error {
+			return a.profileAccessService().DeleteProfile(ctx, slug, deleteFile)
+		},
+		MutateProfiles: func(mutate func() error) error {
+			return a.profileAccessService().MutateProfiles(mutate)
+		},
 	})
 	if a.profilesAPI != nil {
 		wailsapi.AttachProfiles(a.profilesAPI, wailsSession{app: a}, a.profilesCtrl)
@@ -156,6 +162,11 @@ func (a *App) wireSettings() {
 		ProfileMgr: a.profileManager,
 		SkillMgr:   a.skillMgr,
 		Emitter:    a.emitter,
+		DeleteProfile: func(slug string) error {
+			return a.profileAccessService().DeleteProfile(context.Background(), slug, func() error {
+				return a.profileManager.Delete(slug)
+			})
+		},
 		RestartChannel: func(channelName string) error {
 			// Via Messaging bind: WithUser + SetCredentialUserID + ownership
 			// (não chamar msgCtrl.RestartChannel direto — perde escopo de credenciais).
@@ -352,6 +363,7 @@ func (a *App) wireJobs() {
 			a.jobsCtrl,
 			a.mcpMgr,
 			a.customActionEventNames,
+			a.profileAccessService(),
 		)
 	}
 }

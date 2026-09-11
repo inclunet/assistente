@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/slug"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -487,6 +488,14 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 			if err != nil {
 				return err
 			}
+			allowed, err := r.enabledJobGrantValidTx(tx, userID, "", job)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				row.Enabled = false
+				job.Enabled = false
+			}
 			if err := tx.Create(row).Error; err != nil {
 				if isUniqueConstraintError(err) {
 					return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
@@ -508,6 +517,7 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 				}
 			}
 			job.ID = slug
+			job.DatabaseID = row.ID
 			job.Pipeline = normalizeSlug(job.Pipeline)
 			job.PipelineEnabled = pipelineEnabled
 			job.Tags = uniqueSlugs(job.Tags)
@@ -549,18 +559,32 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
-				if err := tx.Create(row).Error; err != nil {
-					return err
-				}
 			case err != nil:
 				return err
 			default:
 				row.ID = existing.ID
 				row.CreatedAt = existing.CreatedAt
 				row.CreatedBy = existing.CreatedBy
+			}
+			allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, job)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				row.Enabled = false
+				job.Enabled = false
+			}
+			if existing.ID == "" {
+				if err := tx.Create(row).Error; err != nil {
+					return err
+				}
+			} else {
 				if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(row).Error; err != nil {
 					return err
 				}
+			}
+			if err := r.revokeStaleJobGrantsTx(tx, userID, row.ID, job); err != nil {
+				return err
 			}
 			if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
 				return err
@@ -577,9 +601,77 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				}
 			}
 			job.ID = slug
+			job.DatabaseID = row.ID
 			job.Pipeline = normalizeSlug(job.Pipeline)
 			job.PipelineEnabled = pipelineEnabled
 			job.Tags = uniqueSlugs(job.Tags)
+			return nil
+		})
+	})
+}
+
+func (r *DBRepository) enabledJobGrantValidTx(tx *gorm.DB, userID, jobID string, job *Job) (bool, error) {
+	if job == nil || !job.Enabled {
+		return true, nil
+	}
+	fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+	if !grantable {
+		return true, nil
+	}
+	if jobID == "" || !tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+		return false, nil
+	}
+	expression, _ := job.Inputs["profile"].(string)
+	query := tx.Model(&database.JobProfileGrant{}).
+		Where("user_id = ? AND job_id = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
+			userID, jobID, fingerprint).
+		Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
+		Where("generation = (?)", tx.Model(&database.JobProfileGrantEpoch{}).
+			Select("generation").
+			Where("job_profile_grant_epochs.user_id = job_profile_grants.user_id AND job_profile_grant_epochs.job_id = job_profile_grants.job_id AND job_profile_grant_epochs.target_profile_slug = job_profile_grants.target_profile_slug AND job_profile_grant_epochs.delegation_fingerprint = job_profile_grants.delegation_fingerprint"))
+	if !strings.Contains(expression, "{{") {
+		query = query.Where("target_profile_slug = ?", strings.TrimSpace(expression))
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *DBRepository) ReconcileUnauthorizedJobs(ctx context.Context) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return r.retry(ctx, "reconcile_unauthorized_jobs", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var rows []database.Job
+			if err := tx.Model(&database.Job{}).
+				Select("jobs.*").
+				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = jobs.tool_catalog_id").
+				Where("jobs.user_id = ? AND jobs.enabled = ? AND (TRIM(jobs.tool_name) = ? OR (TRIM(jobs.tool_name) = '' AND TRIM(tool_catalog.name) = ?))",
+					userID, true, jobprofilegrant.ToolSubagent, jobprofilegrant.ToolSubagent).
+				Find(&rows).Error; err != nil {
+				return err
+			}
+			for _, row := range rows {
+				var inputs map[string]any
+				if err := unmarshalJSON(row.Inputs, &inputs); err != nil {
+					return err
+				}
+				candidate := &Job{Tool: jobprofilegrant.ToolSubagent, Inputs: inputs, Enabled: true}
+				allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, candidate)
+				if err != nil {
+					return err
+				}
+				if !allowed {
+					if err := tx.Model(&database.Job{}).Where("id = ? AND user_id = ?", row.ID, userID).
+						Update("enabled", false).Error; err != nil {
+						return err
+					}
+				}
+			}
 			return nil
 		})
 	})
@@ -620,9 +712,48 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 			if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, tagResourceJob, row.ID).Delete(&database.TagAssignment{}).Error; err != nil {
 				return err
 			}
+			if tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+				now := r.now().UTC()
+				if tx.Migrator().HasTable(&database.JobProfileGrantEpoch{}) {
+					if err := tx.Model(&database.JobProfileGrantEpoch{}).
+						Where("user_id = ? AND job_id = ?", userID, row.ID).
+						UpdateColumn("generation", gorm.Expr("generation + 1")).Error; err != nil {
+						return err
+					}
+				}
+				if err := tx.Model(&database.JobProfileGrant{}).
+					Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, row.ID).
+					Updates(map[string]any{"revoked_at": now, "revoked_by": "job excluído"}).Error; err != nil {
+					return err
+				}
+			}
 			return tx.Delete(&row).Error
 		})
 	})
+}
+
+func (r *DBRepository) revokeStaleJobGrantsTx(tx *gorm.DB, userID, jobID string, job *Job) error {
+	if !tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+		return nil
+	}
+	fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+	if tx.Migrator().HasTable(&database.JobProfileGrantEpoch{}) {
+		epochs := tx.Model(&database.JobProfileGrantEpoch{}).
+			Where("user_id = ? AND job_id = ?", userID, jobID)
+		if grantable {
+			epochs = epochs.Where("delegation_fingerprint <> ?", fingerprint)
+		}
+		if err := epochs.UpdateColumn("generation", gorm.Expr("generation + 1")).Error; err != nil {
+			return err
+		}
+	}
+	stale := tx.Model(&database.JobProfileGrant{}).
+		Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, jobID)
+	if grantable {
+		stale = stale.Where("delegation_fingerprint <> ?", fingerprint)
+	}
+	now := r.now().UTC()
+	return stale.Updates(map[string]any{"revoked_at": now, "revoked_by": "configuração alterada"}).Error
 }
 
 func (r *DBRepository) ListTriggers(ctx context.Context, jobID string) ([]Trigger, error) {
@@ -1799,6 +1930,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		toolName = row.ToolCatalog.Name
 	}
 	return &Job{
+		DatabaseID:     row.ID,
 		ID:             row.Slug,
 		Name:           row.Name,
 		Description:    row.Description,
@@ -2039,6 +2171,12 @@ func unmarshalJSON(raw string, dst any) error {
 // vazios e lookups por slug vazio não devem casar registros).
 func normalizeSlug(s string) string {
 	return slug.Slugify(s, "")
+}
+
+// NormalizeSlug expõe a mesma normalização usada na persistência para adapters
+// que precisam devolver ou consultar a identidade canônica após salvar.
+func NormalizeSlug(s string) string {
+	return normalizeSlug(s)
 }
 
 func uniqueSlugs(values []string) []string {

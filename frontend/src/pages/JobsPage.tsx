@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useJobStore } from '../store/jobStore';
+import { isJobProfileAuthorizationError, useJobStore } from '../store/jobStore';
 import { Modal } from '../components/ui/Modal';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -164,8 +164,12 @@ export default function JobsPage() {
         await toggleJob(job.id, !job.enabled);
         addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
-      } catch {
-        addToast(t('common.error', 'Error'), 'error');
+      } catch (error) {
+        const message = isJobProfileAuthorizationError(error)
+          ? t('jobs.builder.enableRequiresAuthorizedProfile')
+          : t('common.error', 'Error');
+        addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+        announce(message, 'assertive');
       } finally {
         restoreJobFocus(job.id, rowIndex);
       }
@@ -529,7 +533,7 @@ export default function JobsPage() {
             setBuilderOpen(false);
             restoreJobFocus(focusedJob?.id);
           }}
-          onSaved={() => fetchJobs().then(() => restoreJobFocus(focusedJob?.id))}
+          onSaved={() => fetchJobs()}
         />
       </Modal>
     </div>

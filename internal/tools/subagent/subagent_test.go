@@ -651,6 +651,22 @@ func TestToolResumeBackgroundAllowedForJobOrigin(t *testing.T) {
 	}
 }
 
+func TestToolJobProfileWithoutGrantFailsPermanentlyBeforeRunner(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
+	authorizer := &fakeProfileAuthorizer{err: profileaccess.ErrAuthorizationNotGranted}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := eventctx.With(context.Background(), eventctx.Provenance{Source: "job", SourceJobID: "job-1"})
+
+	res, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"researcher"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	requirePermanentFailure(t, res, "authorization_not_granted", tools.ErrorKindAuthorization)
+	if runner.lastParams.Prompt != "" {
+		t.Fatalf("runner não deveria criar conversa/run sem grant: %#v", runner.lastParams)
+	}
+}
+
 func TestToolExplicitProfileOverridesInherited(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
 	authorizer := &fakeProfileAuthorizer{allowed: true}

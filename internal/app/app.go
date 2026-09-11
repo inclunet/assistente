@@ -27,12 +27,14 @@ import (
 	"assistente/internal/deeplinkprotocol"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/memory"
 	"assistente/internal/messaging"
 	"assistente/internal/nettrust"
+	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
@@ -73,6 +75,9 @@ type App struct {
 	bgWG              sync.WaitGroup        // join das goroutines de background no Shutdown
 	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
 	profileManager    *profiles.Manager
+	profileAccess     *profileaccess.Service
+	profileAccessOnce sync.Once
+	jobGrantStore     *jobprofilegrant.Store
 	toolRegistry      *tools.Registry          // Registro de ferramentas disponíveis
 	toolExecutor      *tools.Executor          // Executor de ferramentas com paralelismo e timeout
 	toolInvocationSvc *toolinvocations.Service // Persistência e execução comum de tool calls
@@ -1072,6 +1077,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		PromptBuilder:    a.promptBuilder,
 		ContextProviders: a.contextProviders,
 		LinkedTaskLists:  a.linkedTaskListsForConversation,
+		MutateProfiles: func(mutate func() error) error {
+			return a.profileAccessService().MutateProfiles(mutate)
+		},
 	})
 
 	// Inicializa hotkeys globais

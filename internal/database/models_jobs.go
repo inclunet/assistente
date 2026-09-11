@@ -71,6 +71,48 @@ type Job struct {
 	Runs        []JobRun     `json:"-" gorm:"foreignKey:JobID"`
 }
 
+// JobProfileGrant registra uma autorização explícita e exata para um job
+// delegar à tool subagent usando um profile alvo sob uma configuração
+// específica. O grant não faz parte do JSON/YAML do job.
+type JobProfileGrant struct {
+	UUIDModel
+	UserID                string     `json:"userId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_generation,priority:1"`
+	JobID                 string     `json:"jobId" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_generation,priority:2"`
+	TargetProfileSlug     string     `json:"targetProfileSlug" gorm:"not null;index;uniqueIndex:ux_job_profile_grants_generation,priority:3"`
+	DelegationFingerprint string     `json:"delegationFingerprint" gorm:"not null;uniqueIndex:ux_job_profile_grants_generation,priority:4"`
+	Generation            uint64     `json:"generation" gorm:"not null;uniqueIndex:ux_job_profile_grants_generation,priority:5"`
+	GrantedAt             time.Time  `json:"grantedAt" gorm:"not null"`
+	GrantedBy             string     `json:"grantedBy" gorm:"not null"`
+	RevokedAt             *time.Time `json:"revokedAt,omitempty" gorm:"index"`
+	RevokedBy             string     `json:"revokedBy,omitempty"`
+
+	User *User `json:"-" gorm:"foreignKey:UserID"`
+}
+
+// JobProfileGrantEpoch invalida decisões pendentes e gera um novo registro
+// auditável a cada ciclo revogar → autorizar da mesma combinação exata.
+type JobProfileGrantEpoch struct {
+	UUIDModel
+	UserID                string `json:"userId" gorm:"not null;index;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:1"`
+	JobID                 string `json:"jobId" gorm:"not null;index;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:2"`
+	TargetProfileSlug     string `json:"targetProfileSlug" gorm:"not null;index;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:3"`
+	DelegationFingerprint string `json:"delegationFingerprint" gorm:"not null;uniqueIndex:ux_job_profile_grant_epochs_exact,priority:4"`
+	Generation            uint64 `json:"generation" gorm:"not null"`
+}
+
+func (JobProfileGrantEpoch) TableName() string {
+	return "job_profile_grant_epochs"
+}
+
+// ProfileGrantRevocationIntent torna recuperável a exclusão de um profile
+// entre a remoção do arquivo e a revogação transacional dos grants.
+type ProfileGrantRevocationIntent struct {
+	UUIDModel
+	TargetProfileSlug string `json:"targetProfileSlug" gorm:"not null;uniqueIndex"`
+	OriginalIdentity  string `json:"originalIdentity" gorm:"not null"`
+	RequestedBy       string `json:"requestedBy" gorm:"not null"`
+}
+
 // JobTrigger registra um gatilho individual de um job.
 type JobTrigger struct {
 	UUIDModel

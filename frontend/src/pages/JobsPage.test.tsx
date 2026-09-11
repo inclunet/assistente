@@ -53,7 +53,13 @@ vi.mock('../store/jobStore', () => {
     getState: () => TestStore;
   };
   useJobStore.getState = () => storeState;
-  return { useJobStore };
+  return {
+    useJobStore,
+    isJobProfileAuthorizationError: (err: unknown) => (
+      typeof err === 'object' && err !== null && 'code' in err
+      && err.code === 'job_profile_authorization_required'
+    ),
+  };
 });
 
 vi.mock('../hooks/useConfirm', () => ({
