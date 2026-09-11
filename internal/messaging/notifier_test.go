@@ -1,10 +1,77 @@
 package messaging
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestResponseNotifier_PrepareDeletionFalhaSemRemoverCallback(t *testing.T) {
+	n := NewResponseNotifier()
+	n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro = %v, want %v", err, ErrConversationCallbackActive)
+	}
+	if got := n.PendingCount(); got != 1 {
+		t.Fatalf("callbacks pendentes = %d, want 1", got)
+	}
+}
+
+func TestResponseNotifier_PrepareDeletionFalhaEnquantoCallbackExecuta(t *testing.T) {
+	n := NewResponseNotifier()
+	started := make(chan struct{})
+	finish := make(chan struct{})
+	done := make(chan struct{})
+	n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {
+		close(started)
+		<-finish
+		close(done)
+	}})
+	n.Notify("conversation-1", "resposta", "message-1")
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("callback não iniciou")
+	}
+
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro = %v, want %v", err, ErrConversationCallbackActive)
+	}
+	close(finish)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("callback não terminou")
+	}
+}
+
+func TestResponseNotifier_PrepareDeletionBloqueiaRegisterAteRelease(t *testing.T) {
+	n := NewResponseNotifier()
+	release, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion: %v", err)
+	}
+
+	registered := make(chan struct{})
+	go func() {
+		n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+		close(registered)
+	}()
+	select {
+	case <-registered:
+		t.Fatal("Register atravessou gate de exclusão")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	release()
+	select {
+	case <-registered:
+	case <-time.After(time.Second):
+		t.Fatal("Register não prosseguiu após release")
+	}
+}
 
 func TestNotifier_RegisterAndNotify(t *testing.T) {
 	n := NewResponseNotifier()
@@ -265,8 +332,8 @@ func TestNotifier_TTLDoesNotExpireFreshCallbacks(t *testing.T) {
 	defer n.Stop()
 
 	n.Register("conv-fresh", ResponseCallback{
-		Channel: "telegram",
-		TraceID: "trace-fresh",
+		Channel:  "telegram",
+		TraceID:  "trace-fresh",
 		Callback: func(string, string) {},
 	})
 

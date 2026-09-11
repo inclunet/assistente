@@ -257,8 +257,8 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 
 	// Torna atômica, em relação ao início de uma exclusão, a janela que pode
 	// criar uma sub-conversa nova e reservá-la. Assim, delete-first bloqueia o
-	// run antes de qualquer criação; run-first é registrado e depois cancelado
-	// e aguardado pelo coordenador.
+	// run antes de qualquer criação; run-first faz a exclusão falhar sem
+	// cancelar trabalho em andamento.
 	m.deletionGate.RLock()
 	m.mu.Lock()
 	parentDeleting := m.deletingConvs[p.ParentConversationID] == userID

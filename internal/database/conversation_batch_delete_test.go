@@ -203,7 +203,8 @@ func TestDeleteConversationsWithContextNormalizesAndCleansAssociations(t *testin
 	}
 	if countWhere(t, testDB, &Conversation{}, "id = ?", other.ID) != 1 ||
 		countWhere(t, testDB, &ChatMessage{}, "id = ?", otherMsg.ID) != 1 ||
-		countWhere(t, testDB, &ToolInvocation{}, "user_id = ?", "delete-other") != 1 {
+		countWhere(t, testDB, &ToolInvocation{}, "user_id = ?", "delete-other") != 2 ||
+		countWhere(t, testDB, &ToolInvocation{}, "user_id = ? AND origin_id = ?", "delete-other", firstMsg.ID) != 1 {
 		t.Fatal("dados de outro usuário foram alterados")
 	}
 	if err := testDB.First(child, "id = ?", child.ID).Error; err != nil {
@@ -243,6 +244,54 @@ func TestDeleteConversationsWithContextFailsClosedBeforeMutation(t *testing.T) {
 			countWhere(t, testDB, &ChatMessage{}, "id = ?", ownerMsg.ID) != 1 {
 			t.Fatalf("lote parcialmente apagado para ID inválido %q", invalidID)
 		}
+	}
+}
+
+func TestSetTaskLinksNormalizaConversationID(t *testing.T) {
+	testDB, ownerCtx, _ := setupConversationBatchDeleteDB(t)
+	conv, _ := seedDeleteConversation(t, testDB, "delete-owner", "target")
+	list := &TaskList{UserID: "delete-owner", Title: "Lista"}
+	if err := testDB.Create(list).Error; err != nil {
+		t.Fatal(err)
+	}
+	task := &Task{TaskListID: list.ID, Title: "Tarefa"}
+	if err := testDB.Create(task).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	padded := "  " + conv.ID + "  "
+	if err := SetTaskListConversationWithContext(ownerCtx, list.ID, &padded); err != nil {
+		t.Fatalf("SetTaskListConversationWithContext: %v", err)
+	}
+	if err := SetTaskConversationWithContext(ownerCtx, task.ID, &padded); err != nil {
+		t.Fatalf("SetTaskConversationWithContext: %v", err)
+	}
+	if err := testDB.First(list, "id = ?", list.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.First(task, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if list.ConversationID == nil || *list.ConversationID != conv.ID ||
+		task.ConversationID == nil || *task.ConversationID != conv.ID {
+		t.Fatalf("IDs não normalizados: list=%v task=%v", list.ConversationID, task.ConversationID)
+	}
+
+	blank := " \t "
+	if err := SetTaskListConversationWithContext(ownerCtx, list.ID, &blank); err != nil {
+		t.Fatalf("desvincular tasklist: %v", err)
+	}
+	if err := SetTaskConversationWithContext(ownerCtx, task.ID, &blank); err != nil {
+		t.Fatalf("desvincular task: %v", err)
+	}
+	if err := testDB.First(list, "id = ?", list.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.First(task, "id = ?", task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if list.ConversationID != nil || task.ConversationID != nil {
+		t.Fatalf("IDs vazios não viraram nil: list=%v task=%v", list.ConversationID, task.ConversationID)
 	}
 }
 

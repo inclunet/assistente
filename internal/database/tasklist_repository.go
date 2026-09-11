@@ -457,23 +457,28 @@ func UpdateTaskListFullWithContext(ctx context.Context, id string, title, descri
 }
 
 // SetTaskListConversationWithContext vincula (ou desvincula, com nil) uma
-// tasklist do usuário do contexto a uma conversa. Não valida a existência da
-// conversa: o vínculo é uma referência fraca (a conversa pode ser de outra
-// origem/canal); o escopo por usuário já protege contra acesso indevido.
+// tasklist do usuário do contexto a uma conversa que pertença ao mesmo usuário.
 func SetTaskListConversationWithContext(ctx context.Context, id string, conversationID *string) error {
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return err
 	}
 	return withSQLiteImmediateTransaction(ctx, db, "tasklist.set_conversation", func(tx *gorm.DB) error {
-		if conversationID != nil && strings.TrimSpace(*conversationID) != "" {
-			if err := ValidateConversationOwnerTx(ctx, tx, *conversationID, userID); err != nil {
+		var normalizedConversationID *string
+		if conversationID != nil {
+			trimmed := strings.TrimSpace(*conversationID)
+			if trimmed != "" {
+				normalizedConversationID = &trimmed
+			}
+		}
+		if normalizedConversationID != nil {
+			if err := ValidateConversationOwnerTx(ctx, tx, *normalizedConversationID, userID); err != nil {
 				return err
 			}
 		}
 		return ScopeByUser(ctx, tx.WithContext(ctx).Model(&TaskList{}), "user_id").
 			Where("id = ?", id).
-			Update("conversation_id", conversationID).Error
+			Update("conversation_id", normalizedConversationID).Error
 	})
 }
 
@@ -806,8 +811,15 @@ func SetTaskConversationWithContext(ctx context.Context, id string, conversation
 		return err
 	}
 	return withSQLiteImmediateTransaction(ctx, db, "task.set_conversation", func(tx *gorm.DB) error {
-		if conversationID != nil && strings.TrimSpace(*conversationID) != "" {
-			if err := ValidateConversationOwnerTx(ctx, tx, *conversationID, userID); err != nil {
+		var normalizedConversationID *string
+		if conversationID != nil {
+			trimmed := strings.TrimSpace(*conversationID)
+			if trimmed != "" {
+				normalizedConversationID = &trimmed
+			}
+		}
+		if normalizedConversationID != nil {
+			if err := ValidateConversationOwnerTx(ctx, tx, *normalizedConversationID, userID); err != nil {
 				return err
 			}
 		}
@@ -815,7 +827,7 @@ func SetTaskConversationWithContext(ctx context.Context, id string, conversation
 		return tx.WithContext(ctx).Model(&Task{}).
 			Where("id = ?", id).
 			Where("id IN (?)", taskIDs).
-			Update("conversation_id", conversationID).Error
+			Update("conversation_id", normalizedConversationID).Error
 	})
 }
 

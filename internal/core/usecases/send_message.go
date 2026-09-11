@@ -155,6 +155,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
 	}
+	releaseConversation := uc.streamMgr.ReserveConversation(req.ConversationID)
+	defer releaseConversation()
 	if req.Params.AllowAssistantPrefill && req.RetryMessageID == "" {
 		errMsg := "continuação explícita requer RetryMessage (mensagem para retry)"
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
@@ -655,11 +657,13 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			}
 		}
 		go func() {
+			// Registrado antes do recover para executar por último (LIFO): a
+			// recuperação também pode persistir e deve permanecer sob o gate.
+			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
 			defer func() {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(agentCtx, req.ConversationID, userMsg.ID, "runAgenticLoop", r, surfaceOrigin)
 			}()
-			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
 			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
 				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
@@ -674,11 +678,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	} else {
 		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		go func() {
+			// Mantém o contexto registrado até o handler de panic concluir eventuais writes.
+			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
 			defer func() {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(convCtx, req.ConversationID, userMsg.ID, "StreamChat", r, surfaceOrigin)
 			}()
-			defer uc.streamMgr.UnregisterIfCurrent(req.ConversationID, streamGeneration)
 			uc.agentSvc.StreamSimpleWithRecovery(convCtx, requestStreamer, messages, params, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin, recoveryEnabled, recoveryMaxAttempts)
 		}()
 	}

@@ -1,21 +1,25 @@
 package chat
 
 import (
-	"assistente/internal/logging"
 	"context"
+	"errors"
 	"sync"
 
+	"assistente/internal/logging"
 	"assistente/internal/messaging"
 )
+
+var ErrConversationActive = errors.New("conversa possui resposta ativa")
 
 // StreamingManager tracks cancellable streaming contexts per conversation.
 // It enables barge-in (SIP): a new user utterance cancels the LLM response
 // that is currently streaming.
 type StreamingManager struct {
-	mu          sync.Mutex
-	contexts    map[string]context.CancelFunc
-	generations map[string]uint64
-	nextGen     uint64
+	mu           sync.Mutex
+	contexts     map[string]context.CancelFunc
+	generations  map[string]uint64
+	reservations map[string]int
+	nextGen      uint64
 
 	// Optional: notifier to cancel pending gateway callbacks on barge-in.
 	responseNotifier *messaging.ResponseNotifier
@@ -27,8 +31,48 @@ func NewStreamingManager(notifier *messaging.ResponseNotifier) *StreamingManager
 	return &StreamingManager{
 		contexts:         make(map[string]context.CancelFunc),
 		generations:      make(map[string]uint64),
+		reservations:     make(map[string]int),
 		responseNotifier: notifier,
 	}
+}
+
+// ReserveConversation protege a janela entre o início do pipeline de envio e
+// o registro do contexto de stream.
+func (m *StreamingManager) ReserveConversation(conversationID string) func() {
+	m.mu.Lock()
+	m.reservations[conversationID]++
+	m.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			if m.reservations[conversationID] <= 1 {
+				delete(m.reservations, conversationID)
+			} else {
+				m.reservations[conversationID]--
+			}
+			m.mu.Unlock()
+		})
+	}
+}
+
+// PrepareConversationDeletion falha sem cancelar trabalho em andamento. Em
+// sucesso, mantém o gate fechado até release para impedir novos pipelines
+// durante a transação de exclusão.
+func (m *StreamingManager) PrepareConversationDeletion(conversationIDs []string) (func(), error) {
+	m.mu.Lock()
+	for _, conversationID := range conversationIDs {
+		if m.reservations[conversationID] > 0 || m.contexts[conversationID] != nil {
+			m.mu.Unlock()
+			return func() {}, ErrConversationActive
+		}
+	}
+
+	var once sync.Once
+	return func() {
+		once.Do(m.mu.Unlock)
+	}, nil
 }
 
 // Register stores a cancellable context for the given conversation.

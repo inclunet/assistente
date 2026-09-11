@@ -445,8 +445,8 @@ func (r *ConversationRepository) DeleteConversationWithContext(ctx context.Conte
 }
 
 // ValidateOwnedConversationIDsWithContext normaliza e valida previamente um
-// lote sem mutá-lo. A borda de domínio usa esta etapa antes de cancelar estado
-// efêmero; a transação de delete repete a validação sob BEGIN IMMEDIATE.
+// lote sem mutá-lo. A borda de domínio usa esta etapa antes de fechar os gates
+// efêmeros; a transação de delete repete a validação sob BEGIN IMMEDIATE.
 func ValidateOwnedConversationIDsWithContext(ctx context.Context, ids []string) ([]string, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
@@ -727,6 +727,10 @@ func deleteChatToolInvocationsForConversationsTx(ctx context.Context, exec *gorm
 	if !exec.Migrator().HasTable(&ToolInvocation{}) {
 		return nil
 	}
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
 
 	return forConversationIDBatches(conversationIDs, func(batch []string) error {
 		messageIDs := exec.WithContext(ctx).Model(&ChatMessage{}).
@@ -736,7 +740,7 @@ func deleteChatToolInvocationsForConversationsTx(ctx context.Context, exec *gorm
 			Select("chat_messages.turn_id").
 			Where("chat_messages.conversation_id IN ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", batch)
 		return exec.WithContext(ctx).
-			Where("origin_type = ? AND (origin_id IN (?) OR origin_id IN (?))", "chat", messageIDs, turnIDs).
+			Where("user_id = ? AND origin_type = ? AND (origin_id IN (?) OR origin_id IN (?))", userID, "chat", messageIDs, turnIDs).
 			Delete(&ToolInvocation{}).Error
 	})
 }

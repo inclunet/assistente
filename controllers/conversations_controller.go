@@ -19,6 +19,8 @@ type ConversationsControllerConfig struct {
 	Emitter               ports.Emitter
 	ResetScopedState      func(ctx context.Context, conversationID string)
 	PrepareBatchDelete    func(ctx context.Context, conversationIDs []string) (release func(), err error)
+	ValidateBatchDelete   func(ctx context.Context, conversationIDs []string) ([]string, error)
+	DeleteBatch           func(ctx context.Context, conversationIDs []string) ([]string, error)
 	ConfirmDeleteMessage  func() error
 	GetEffectiveModelFunc func() (string, error)
 }
@@ -29,17 +31,27 @@ type ConversationsController struct {
 	emitter              ports.Emitter
 	resetScopedState     func(ctx context.Context, conversationID string)
 	prepareBatchDelete   func(ctx context.Context, conversationIDs []string) (release func(), err error)
+	validateBatchDelete  func(ctx context.Context, conversationIDs []string) ([]string, error)
+	deleteBatch          func(ctx context.Context, conversationIDs []string) ([]string, error)
 	confirmDeleteMessage func() error
 	getEffectiveModel    func() (string, error)
 }
 
 // NewConversationsController monta o controller a partir da config.
 func NewConversationsController(cfg ConversationsControllerConfig) *ConversationsController {
+	if cfg.ValidateBatchDelete == nil {
+		cfg.ValidateBatchDelete = database.ValidateOwnedConversationIDsWithContext
+	}
+	if cfg.DeleteBatch == nil {
+		cfg.DeleteBatch = database.DeleteConversationsWithContext
+	}
 	return &ConversationsController{
 		msgRepo:              cfg.MsgRepo,
 		emitter:              cfg.Emitter,
 		resetScopedState:     cfg.ResetScopedState,
 		prepareBatchDelete:   cfg.PrepareBatchDelete,
+		validateBatchDelete:  cfg.ValidateBatchDelete,
+		deleteBatch:          cfg.DeleteBatch,
 		confirmDeleteMessage: cfg.ConfirmDeleteMessage,
 		getEffectiveModel:    cfg.GetEffectiveModelFunc,
 	}
@@ -362,7 +374,7 @@ func (c *ConversationsController) DeleteConversation(ctx context.Context, id str
 // DeleteConversations remove atomicamente as conversas e só então limpa estado
 // efêmero e publica um evento por ID normalizado.
 func (c *ConversationsController) DeleteConversations(ctx context.Context, ids []string) ([]string, error) {
-	normalizedIDs, err := database.ValidateOwnedConversationIDsWithContext(ctx, ids)
+	normalizedIDs, err := c.validateBatchDelete(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +390,7 @@ func (c *ConversationsController) DeleteConversations(ctx context.Context, ids [
 	}
 	defer release()
 
-	deletedIDs, err := database.DeleteConversationsWithContext(ctx, normalizedIDs)
+	deletedIDs, err := c.deleteBatch(ctx, normalizedIDs)
 	if err != nil {
 		return nil, err
 	}

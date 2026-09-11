@@ -1,11 +1,15 @@
 package messaging
 
 import (
-	"assistente/internal/logging"
 	"context"
+	"errors"
 	"sync"
 	"time"
+
+	"assistente/internal/logging"
 )
+
+var ErrConversationCallbackActive = errors.New("conversa possui callback de resposta ativo")
 
 // callbackTTL é o tempo máximo que um callback pode ficar pendente antes
 // de ser descartado pela goroutine de housekeeping. Mensagens de canal
@@ -102,6 +106,7 @@ type pendingCallback struct {
 type ResponseNotifier struct {
 	mu        sync.Mutex
 	callbacks map[string][]pendingCallback // conversationID -> callbacks pendentes
+	active    map[string]int               // conversationID -> callbacks em execução
 	now       func() time.Time             // injetável para testes
 	stopCh    chan struct{}
 	stopOnce  sync.Once
@@ -117,6 +122,7 @@ func NewResponseNotifier() *ResponseNotifier {
 func newResponseNotifierWithClock(now func() time.Time) *ResponseNotifier {
 	n := &ResponseNotifier{
 		callbacks: make(map[string][]pendingCallback),
+		active:    make(map[string]int),
 		now:       now,
 		stopCh:    make(chan struct{}),
 	}
@@ -291,6 +297,24 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 	}
 }
 
+// PrepareConversationDeletion falha sem remover callbacks pendentes. Em
+// sucesso, mantém o gate fechado até release para impedir Register/Notify
+// durante a transação de exclusão.
+func (n *ResponseNotifier) PrepareConversationDeletion(conversationIDs []string) (func(), error) {
+	n.mu.Lock()
+	for _, conversationID := range conversationIDs {
+		if len(n.callbacks[conversationID]) > 0 || n.active[conversationID] > 0 {
+			n.mu.Unlock()
+			return func() {}, ErrConversationCallbackActive
+		}
+	}
+
+	var once sync.Once
+	return func() {
+		once.Do(n.mu.Unlock)
+	}, nil
+}
+
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
 // Se não há callbacks, não faz nada (zero overhead no fluxo normal do Wails).
 // assistantMessageID é o ID da mensagem do assistente salva no DB ("" se não disponível).
@@ -342,6 +366,7 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 	} else {
 		n.callbacks[conversationID] = keep
 	}
+	n.active[conversationID] += len(fire)
 	n.mu.Unlock()
 
 	// Não remove channel_response_pending aqui: o Delete só ocorre após
@@ -350,6 +375,13 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 	for _, p := range fire {
 		go func(cb ResponseCallback) {
 			defer func() {
+				n.mu.Lock()
+				if n.active[conversationID] <= 1 {
+					delete(n.active, conversationID)
+				} else {
+					n.active[conversationID]--
+				}
+				n.mu.Unlock()
 				if r := recover(); r != nil {
 					logging.Errorf(context.Background(), "messaging.notifier", "[Notifier] panic em callback trace=%s channel=%s conv=%s: %v",
 						cb.TraceID, cb.Channel, conversationID, r)
