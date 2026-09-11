@@ -46,13 +46,35 @@ export function WorkspaceLayout() {
     return cleanup;
   }, [setupEventListeners]);
 
+  const isWorkspaceRoute = pathname === '/' || pathname === '';
+  const isWorkspaceRouteRef = useRef(isWorkspaceRoute);
+  isWorkspaceRouteRef.current = isWorkspaceRoute;
+
   const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
   const restoreFocusToTablistRef = useRef<string | null>(null);
   const lastTabShortcutTargetRef = useRef<string | null>(null);
   const markTabShortcutNavigation = useCallback((tabId: string) => {
+    if (!isWorkspaceRouteRef.current) return;
+    if (tabId === workspace?.activeTabId) {
+      const activeTabType = workspace?.tabs.find((tab) => tab.id === tabId)?.type;
+      requestAnimationFrame(() => {
+        if (!isWorkspaceRouteRef.current) {
+          cancelWorkspacePanelFocus(tabId);
+          return;
+        }
+        if (hasWorkspacePanelFocusHandler(tabId)) {
+          requestWorkspacePanelFocus(tabId);
+        } else if (activeTabType === 'editor') {
+          queueWorkspacePanelFocus(tabId);
+        } else {
+          restoreDefaultFocus();
+        }
+      });
+      return;
+    }
     restoreFocusAfterTabShortcutRef.current = tabId;
     lastTabShortcutTargetRef.current = tabId;
-  }, []);
+  }, [isWorkspaceRoute, workspace?.activeTabId, workspace?.tabs]);
 
   useWorkspaceKeyboardShortcuts({
     onTabShortcutNavigation: markTabShortcutNavigation,
@@ -61,8 +83,6 @@ export function WorkspaceLayout() {
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
   useVoiceAccessibilityWorkspaceResolver();
-
-  const isWorkspaceRoute = pathname === '/' || pathname === '';
 
   useEffect(() => {
     pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));

@@ -64,8 +64,8 @@ Abas não visitadas permanecem inativas e não carregam conteúdo pesado. Ao vis
 
 Painéis inativos devem ficar fora da navegação por teclado e da árvore de leitores de tela. Eles não podem capturar foco, atalhos locais, microfone ou ações de UI que pertençam à aba ativa.
 
-Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp ou Ctrl+PageDown, o
-shell solicita foco ao controller da superfície ativada. O controller é
+Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp, Ctrl+PageDown ou
+Ctrl+1..9, o shell solicita foco ao controller da superfície ativada. O controller é
 responsável por escolher o alvo correto e só atende depois de seu painel estar
 ativo. No editor, isso significa Monaco em `markdown`, TipTap em `rich` e a
 ilha documental da AEP-0094 em `view`.
@@ -289,3 +289,4 @@ O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canô
   10.
 - Providers ACP continuam usando somente os pickers de opções da sessão do
   agente.
+- `Ctrl+1..9` troca direto para aba N e restaura foco na área padrão (via controller/`queueWorkspacePanelFocus` no editor lazy), com evidência em `frontend/src/hooks/useWorkspaceKeyboardShortcuts.test.ts` e `frontend/src/components/workspace/WorkspaceLayout.test.tsx`.

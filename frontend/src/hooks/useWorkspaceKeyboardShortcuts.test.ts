@@ -259,13 +259,34 @@ describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => 
     await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
   });
 
-  it('Ctrl+numero troca diretamente sem restaurar a area default', async () => {
+  it('Ctrl+número troca diretamente e restaura a área default', async () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: '2' });
 
     expect(setActiveTab).toHaveBeenCalledWith('t2');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    expect(restoreDefaultFocus).toHaveBeenCalled();
+  });
+
+  it('Ctrl+número com callback notifica navegação', async () => {
+    const onTabShortcutNavigation = vi.fn();
+    renderHook(() => useWorkspaceKeyboardShortcuts({ onTabShortcutNavigation }));
+
+    dispatchKey({ ctrlKey: true, key: '2' });
+
+    expect(setActiveTab).toHaveBeenCalledWith('t2');
+    expect(onTabShortcutNavigation).toHaveBeenCalledWith('t2');
     expect(restoreDefaultFocus).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+número na aba já ativa restaura foco sem trocar', async () => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    dispatchKey({ ctrlKey: true, key: '1' });
+
+    expect(setActiveTab).toHaveBeenCalledWith('t1');
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    expect(restoreDefaultFocus).toHaveBeenCalled();
   });
 });
