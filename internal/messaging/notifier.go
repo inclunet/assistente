@@ -107,6 +107,7 @@ type ResponseNotifier struct {
 	mu        sync.Mutex
 	callbacks map[string][]pendingCallback // conversationID -> callbacks pendentes
 	active    map[string]int               // conversationID -> callbacks em execução
+	deleted   map[string]struct{}          // tombstones após commit de exclusão
 	now       func() time.Time             // injetável para testes
 	stopCh    chan struct{}
 	stopOnce  sync.Once
@@ -123,6 +124,7 @@ func newResponseNotifierWithClock(now func() time.Time) *ResponseNotifier {
 	n := &ResponseNotifier{
 		callbacks: make(map[string][]pendingCallback),
 		active:    make(map[string]int),
+		deleted:   make(map[string]struct{}),
 		now:       now,
 		stopCh:    make(chan struct{}),
 	}
@@ -242,6 +244,10 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		ttl = cb.TTL
 	}
 	n.mu.Lock()
+	if _, deleted := n.deleted[conversationID]; deleted {
+		n.mu.Unlock()
+		return
+	}
 	now := n.now()
 	entry := pendingCallback{
 		cb:         cb,
@@ -300,18 +306,25 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 // PrepareConversationDeletion falha sem remover callbacks pendentes. Em
 // sucesso, mantém o gate fechado até release para impedir Register/Notify
 // durante a transação de exclusão.
-func (n *ResponseNotifier) PrepareConversationDeletion(conversationIDs []string) (func(), error) {
+func (n *ResponseNotifier) PrepareConversationDeletion(conversationIDs []string) (func(committed bool), error) {
 	n.mu.Lock()
 	for _, conversationID := range conversationIDs {
 		if len(n.callbacks[conversationID]) > 0 || n.active[conversationID] > 0 {
 			n.mu.Unlock()
-			return func() {}, ErrConversationCallbackActive
+			return func(bool) {}, ErrConversationCallbackActive
 		}
 	}
 
 	var once sync.Once
-	return func() {
-		once.Do(n.mu.Unlock)
+	return func(committed bool) {
+		once.Do(func() {
+			if committed {
+				for _, conversationID := range conversationIDs {
+					n.deleted[conversationID] = struct{}{}
+				}
+			}
+			n.mu.Unlock()
+		})
 	}, nil
 }
 
@@ -336,6 +349,10 @@ func (n *ResponseNotifier) NotifyContext(ctx context.Context, conversationID str
 
 func (n *ResponseNotifier) notifyFiltered(conversationID string, response string, assistantMessageID, traceID string) {
 	n.mu.Lock()
+	if _, deleted := n.deleted[conversationID]; deleted {
+		n.mu.Unlock()
+		return
+	}
 	pendings := n.callbacks[conversationID]
 	if len(pendings) == 0 {
 		n.mu.Unlock()

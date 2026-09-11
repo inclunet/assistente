@@ -19,6 +19,7 @@ type StreamingManager struct {
 	contexts     map[string]context.CancelFunc
 	generations  map[string]uint64
 	reservations map[string]int
+	deleted      map[string]struct{}
 	nextGen      uint64
 
 	// Optional: notifier to cancel pending gateway callbacks on barge-in.
@@ -32,14 +33,19 @@ func NewStreamingManager(notifier *messaging.ResponseNotifier) *StreamingManager
 		contexts:         make(map[string]context.CancelFunc),
 		generations:      make(map[string]uint64),
 		reservations:     make(map[string]int),
+		deleted:          make(map[string]struct{}),
 		responseNotifier: notifier,
 	}
 }
 
 // ReserveConversation protege a janela entre o início do pipeline de envio e
 // o registro do contexto de stream.
-func (m *StreamingManager) ReserveConversation(conversationID string) func() {
+func (m *StreamingManager) ReserveConversation(conversationID string) (func(), bool) {
 	m.mu.Lock()
+	if _, deleted := m.deleted[conversationID]; deleted {
+		m.mu.Unlock()
+		return func() {}, false
+	}
 	m.reservations[conversationID]++
 	m.mu.Unlock()
 
@@ -54,24 +60,35 @@ func (m *StreamingManager) ReserveConversation(conversationID string) func() {
 			}
 			m.mu.Unlock()
 		})
-	}
+	}, true
 }
 
 // PrepareConversationDeletion falha sem cancelar trabalho em andamento. Em
 // sucesso, mantém o gate fechado até release para impedir novos pipelines
 // durante a transação de exclusão.
-func (m *StreamingManager) PrepareConversationDeletion(conversationIDs []string) (func(), error) {
+func (m *StreamingManager) PrepareConversationDeletion(conversationIDs []string) (func(committed bool), error) {
 	m.mu.Lock()
 	for _, conversationID := range conversationIDs {
+		if _, deleted := m.deleted[conversationID]; deleted {
+			m.mu.Unlock()
+			return func(bool) {}, ErrConversationActive
+		}
 		if m.reservations[conversationID] > 0 || m.contexts[conversationID] != nil {
 			m.mu.Unlock()
-			return func() {}, ErrConversationActive
+			return func(bool) {}, ErrConversationActive
 		}
 	}
 
 	var once sync.Once
-	return func() {
-		once.Do(m.mu.Unlock)
+	return func(committed bool) {
+		once.Do(func() {
+			if committed {
+				for _, conversationID := range conversationIDs {
+					m.deleted[conversationID] = struct{}{}
+				}
+			}
+			m.mu.Unlock()
+		})
 	}, nil
 }
 
@@ -81,6 +98,11 @@ func (m *StreamingManager) PrepareConversationDeletion(conversationIDs []string)
 // an older turn cannot remove the cancellation handle of a newer turn.
 func (m *StreamingManager) Register(conversationID string, cancel context.CancelFunc) uint64 {
 	m.mu.Lock()
+	if _, deleted := m.deleted[conversationID]; deleted {
+		m.mu.Unlock()
+		cancel()
+		return 0
+	}
 	if prev, ok := m.contexts[conversationID]; ok {
 		prev()
 	}

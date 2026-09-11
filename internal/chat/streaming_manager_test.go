@@ -29,7 +29,10 @@ func TestStreamingManager_LateCleanupDoesNotRemoveNewerTurn(t *testing.T) {
 
 func TestStreamingManager_PrepareDeletionFalhaSemCancelarTrabalhoAtivo(t *testing.T) {
 	manager := NewStreamingManager(nil)
-	releaseReservation := manager.ReserveConversation("reserved")
+	releaseReservation, reserved := manager.ReserveConversation("reserved")
+	if !reserved {
+		t.Fatal("reserva inicial recusada")
+	}
 	t.Cleanup(releaseReservation)
 
 	if _, err := manager.PrepareConversationDeletion([]string{"reserved"}); !errors.Is(err, ErrConversationActive) {
@@ -53,23 +56,62 @@ func TestStreamingManager_PrepareDeletionBloqueiaNovaReservaAteRelease(t *testin
 		t.Fatalf("PrepareConversationDeletion: %v", err)
 	}
 
-	reserved := make(chan func(), 1)
+	reserved := make(chan bool, 1)
 	go func() {
-		reserved <- manager.ReserveConversation("conversation-1")
+		lateRelease, ok := manager.ReserveConversation("conversation-1")
+		if ok {
+			lateRelease()
+		}
+		reserved <- ok
 	}()
 	select {
-	case lateRelease := <-reserved:
-		lateRelease()
+	case <-reserved:
 		t.Fatal("nova reserva atravessou gate de exclusão")
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	release()
+	release(false)
 	select {
-	case lateRelease := <-reserved:
-		lateRelease()
+	case ok := <-reserved:
+		if !ok {
+			t.Fatal("rollback deixou tombstone na conversa")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("nova reserva não prosseguiu após release")
+	}
+}
+
+func TestStreamingManager_CommitRejeitaReservaBloqueada(t *testing.T) {
+	manager := NewStreamingManager(nil)
+	finalize, err := manager.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion: %v", err)
+	}
+
+	reserved := make(chan bool, 1)
+	go func() {
+		release, ok := manager.ReserveConversation("conversation-1")
+		if ok {
+			release()
+		}
+		reserved <- ok
+	}()
+	finalize(true)
+
+	select {
+	case ok := <-reserved:
+		if ok {
+			t.Fatal("reserva bloqueada atravessou commit da exclusão")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reserva bloqueada não foi liberada após commit")
+	}
+	cancelled := false
+	if generation := manager.Register("conversation-1", func() { cancelled = true }); generation != 0 {
+		t.Fatalf("Register aceitou conversa excluída com geração %d", generation)
+	}
+	if !cancelled {
+		t.Fatal("Register não cancelou contexto recusado da conversa excluída")
 	}
 }
 

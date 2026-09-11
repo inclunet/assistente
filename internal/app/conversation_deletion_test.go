@@ -23,13 +23,19 @@ func TestPrepareConversationDeletionLiberaGatesAnterioresQuandoNotifierRecusa(t 
 		t.Fatalf("erro = %v, want %v", err, messaging.ErrConversationCallbackActive)
 	}
 
-	reserved := make(chan func(), 1)
+	reserved := make(chan bool, 1)
 	go func() {
-		reserved <- streamMgr.ReserveConversation("conversation-1")
+		release, ok := streamMgr.ReserveConversation("conversation-1")
+		if ok {
+			release()
+		}
+		reserved <- ok
 	}()
 	select {
-	case release := <-reserved:
-		release()
+	case ok := <-reserved:
+		if !ok {
+			t.Fatal("falha do notifier marcou conversa como excluída")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("gate de streaming permaneceu preso após falha do notifier")
 	}

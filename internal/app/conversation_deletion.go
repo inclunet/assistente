@@ -7,11 +7,11 @@ import (
 
 // prepareConversationDeletion fecha, em ordem estável, os gates de trabalho
 // efêmero que poderiam recriar dados depois do commit da exclusão.
-func (a *App) prepareConversationDeletion(ctx context.Context, conversationIDs []string) (func(), error) {
-	releases := make([]func(), 0, 3)
-	releaseAll := func() {
-		for i := len(releases) - 1; i >= 0; i-- {
-			releases[i]()
+func (a *App) prepareConversationDeletion(ctx context.Context, conversationIDs []string) (func(committed bool), error) {
+	finalizers := make([]func(bool), 0, 3)
+	finalizeAll := func(committed bool) {
+		for i := len(finalizers) - 1; i >= 0; i-- {
+			finalizers[i](committed)
 		}
 	}
 
@@ -20,27 +20,27 @@ func (a *App) prepareConversationDeletion(ctx context.Context, conversationIDs [
 		if err != nil {
 			return nil, err
 		}
-		releases = append(releases, release)
+		finalizers = append(finalizers, func(bool) { release() })
 	}
 	if a.streamMgr != nil {
-		release, err := a.streamMgr.PrepareConversationDeletion(conversationIDs)
+		finalize, err := a.streamMgr.PrepareConversationDeletion(conversationIDs)
 		if err != nil {
-			releaseAll()
+			finalizeAll(false)
 			return nil, err
 		}
-		releases = append(releases, release)
+		finalizers = append(finalizers, finalize)
 	}
 	if a.responseNotifier != nil {
-		release, err := a.responseNotifier.PrepareConversationDeletion(conversationIDs)
+		finalize, err := a.responseNotifier.PrepareConversationDeletion(conversationIDs)
 		if err != nil {
-			releaseAll()
+			finalizeAll(false)
 			return nil, err
 		}
-		releases = append(releases, release)
+		finalizers = append(finalizers, finalize)
 	}
 
 	var once sync.Once
-	return func() {
-		once.Do(releaseAll)
+	return func(committed bool) {
+		once.Do(func() { finalizeAll(committed) })
 	}, nil
 }

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -70,9 +71,9 @@ func TestDeleteConversationsOrdenaPreflightPreparoCommitESideEffects(t *testing.
 			order = append(order, "validar")
 			return []string{"conv-1", "conv-2"}, nil
 		},
-		PrepareBatchDelete: func(_ context.Context, ids []string) (func(), error) {
+		PrepareBatchDelete: func(_ context.Context, ids []string) (func(bool), error) {
 			order = append(order, "preparar")
-			return func() { order = append(order, "liberar") }, nil
+			return func(committed bool) { order = append(order, fmt.Sprintf("finalizar:%t", committed)) }, nil
 		},
 		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
 			order = append(order, "excluir")
@@ -91,10 +92,9 @@ func TestDeleteConversationsOrdenaPreflightPreparoCommitESideEffects(t *testing.
 		t.Fatalf("IDs excluídos = %v, want %v", deleted, want)
 	}
 	wantOrder := []string{
-		"validar", "preparar", "excluir",
+		"validar", "preparar", "excluir", "finalizar:true",
 		"reset:conv-1", "evento:conversation:deleted",
 		"reset:conv-2", "evento:conversation:deleted",
-		"liberar",
 	}
 	if !reflect.DeepEqual(order, wantOrder) {
 		t.Fatalf("ordem = %v, want %v", order, wantOrder)
@@ -110,9 +110,9 @@ func TestDeleteConversationsLiberaPreparoSemSideEffectsQuandoCommitFalha(t *test
 			order = append(order, "validar")
 			return ids, nil
 		},
-		PrepareBatchDelete: func(_ context.Context, ids []string) (func(), error) {
+		PrepareBatchDelete: func(_ context.Context, ids []string) (func(bool), error) {
 			order = append(order, "preparar")
-			return func() { order = append(order, "liberar") }, nil
+			return func(committed bool) { order = append(order, fmt.Sprintf("finalizar:%t", committed)) }, nil
 		},
 		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
 			order = append(order, "excluir")
@@ -127,7 +127,7 @@ func TestDeleteConversationsLiberaPreparoSemSideEffectsQuandoCommitFalha(t *test
 	if !errors.Is(err, commitErr) {
 		t.Fatalf("erro = %v, want %v", err, commitErr)
 	}
-	if want := []string{"validar", "preparar", "excluir", "liberar"}; !reflect.DeepEqual(order, want) {
+	if want := []string{"validar", "preparar", "excluir", "finalizar:false"}; !reflect.DeepEqual(order, want) {
 		t.Fatalf("ordem = %v, want %v", order, want)
 	}
 }
@@ -139,9 +139,9 @@ func TestDeleteConversationsNaoPreparaQuandoPreflightFalha(t *testing.T) {
 		ValidateBatchDelete: func(_ context.Context, ids []string) ([]string, error) {
 			return nil, preflightErr
 		},
-		PrepareBatchDelete: func(_ context.Context, ids []string) (func(), error) {
+		PrepareBatchDelete: func(_ context.Context, ids []string) (func(bool), error) {
 			called = true
-			return func() {}, nil
+			return func(bool) {}, nil
 		},
 		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
 			called = true

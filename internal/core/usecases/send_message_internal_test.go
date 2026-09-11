@@ -53,7 +53,7 @@ func TestExecuteReservaConversaAntesDoPipeline(t *testing.T) {
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	releaseDeletion()
+	releaseDeletion(false)
 	select {
 	case executeErr := <-finished:
 		if executeErr == nil {

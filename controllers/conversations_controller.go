@@ -18,7 +18,7 @@ type ConversationsControllerConfig struct {
 	MsgRepo               chat.MessageRepository
 	Emitter               ports.Emitter
 	ResetScopedState      func(ctx context.Context, conversationID string)
-	PrepareBatchDelete    func(ctx context.Context, conversationIDs []string) (release func(), err error)
+	PrepareBatchDelete    func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
 	ValidateBatchDelete   func(ctx context.Context, conversationIDs []string) ([]string, error)
 	DeleteBatch           func(ctx context.Context, conversationIDs []string) ([]string, error)
 	ConfirmDeleteMessage  func() error
@@ -30,7 +30,7 @@ type ConversationsController struct {
 	msgRepo              chat.MessageRepository
 	emitter              ports.Emitter
 	resetScopedState     func(ctx context.Context, conversationID string)
-	prepareBatchDelete   func(ctx context.Context, conversationIDs []string) (release func(), err error)
+	prepareBatchDelete   func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
 	validateBatchDelete  func(ctx context.Context, conversationIDs []string) ([]string, error)
 	deleteBatch          func(ctx context.Context, conversationIDs []string) ([]string, error)
 	confirmDeleteMessage func() error
@@ -378,22 +378,29 @@ func (c *ConversationsController) DeleteConversations(ctx context.Context, ids [
 	if err != nil {
 		return nil, err
 	}
-	release := func() {}
+	finalize := func(bool) {}
 	if c.prepareBatchDelete != nil {
-		release, err = c.prepareBatchDelete(ctx, normalizedIDs)
+		finalize, err = c.prepareBatchDelete(ctx, normalizedIDs)
 		if err != nil {
 			return nil, err
 		}
-		if release == nil {
-			release = func() {}
+		if finalize == nil {
+			finalize = func(bool) {}
 		}
 	}
-	defer release()
+	committed := false
+	defer func() {
+		if !committed {
+			finalize(false)
+		}
+	}()
 
 	deletedIDs, err := c.deleteBatch(ctx, normalizedIDs)
 	if err != nil {
 		return nil, err
 	}
+	finalize(true)
+	committed = true
 	for _, id := range deletedIDs {
 		c.resetScoped(ctx, id)
 		c.emit("conversation:deleted", map[string]interface{}{

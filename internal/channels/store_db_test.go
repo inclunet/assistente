@@ -116,7 +116,7 @@ func TestSaveLoadDelete_DB(t *testing.T) {
 		t.Fatalf("LoadEnabled: %v %v", err, enabled)
 	}
 
-	if err := SaveConversationID("telegram", "99", "conv-2"); err != nil {
+	if err := SaveConversationID("telegram", "99", "  conv-2  "); err != nil {
 		t.Fatalf("SaveConversationID: %v", err)
 	}
 	loaded, _ = Load("telegram")

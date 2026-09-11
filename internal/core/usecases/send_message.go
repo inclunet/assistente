@@ -155,7 +155,10 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
 	}
-	releaseConversation := uc.streamMgr.ReserveConversation(req.ConversationID)
+	releaseConversation, reserved := uc.streamMgr.ReserveConversation(req.ConversationID)
+	if !reserved {
+		return "", database.ErrConversationDeleted
+	}
 	defer releaseConversation()
 	if req.Params.AllowAssistantPrefill && req.RetryMessageID == "" {
 		errMsg := "continuação explícita requer RetryMessage (mensagem para retry)"

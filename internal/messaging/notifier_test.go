@@ -65,11 +65,34 @@ func TestResponseNotifier_PrepareDeletionBloqueiaRegisterAteRelease(t *testing.T
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	release()
+	release(false)
 	select {
 	case <-registered:
 	case <-time.After(time.Second):
 		t.Fatal("Register não prosseguiu após release")
+	}
+}
+
+func TestResponseNotifier_CommitDescartaRegisterBloqueado(t *testing.T) {
+	n := NewResponseNotifier()
+	finalize, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion: %v", err)
+	}
+
+	registered := make(chan struct{})
+	go func() {
+		n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
+		close(registered)
+	}()
+	finalize(true)
+	select {
+	case <-registered:
+	case <-time.After(time.Second):
+		t.Fatal("Register permaneceu bloqueado após commit")
+	}
+	if got := n.PendingCount(); got != 0 {
+		t.Fatalf("callback órfão registrado após commit: pending=%d", got)
 	}
 }
 
