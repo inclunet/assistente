@@ -51,6 +51,8 @@ export function EditorExternalChangeDialog({
       label: decision.labels.useDisk,
       variant: 'primary',
       primary: true,
+      polarity: 'affirmative',
+      scope: 'current',
     },
     {
       id: 'resolve-merge',
@@ -71,6 +73,8 @@ export function EditorExternalChangeDialog({
       id: 'not-now',
       label: decision.labels.notNow,
       variant: 'outline',
+      polarity: 'negative',
+      scope: 'current',
     },
   ];
   const readingRegions: DecisionReadingRegion[] = [
@@ -104,8 +108,6 @@ export function EditorExternalChangeDialog({
       description={decision.description}
       actions={actions}
       severity="destructive"
-      safeActionId="use-mine"
-      initialFocusSelector='[data-decision-action="use-mine"]'
       size="xl"
       onAction={(actionId) => onAction(actionId as EditorExternalChangeAction)}
       onCancel={() => onAction('not-now')}

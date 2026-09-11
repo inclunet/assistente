@@ -86,8 +86,9 @@ quando fizer sentido.
 - [x] Memories, History (export), ProviderForm, JobBuilder, WorkflowEditor
 - [x] TaskDetailModal (nota), CustomActionsEditor, MermaidEditorModal
 - [x] Credentials, Channels, Allowlist, Skills, Mcp (CRUD com exclusão auxiliar)
-- [x] AgentWorkDirControl; AgentInstall (confirm install/update + remove),
-      mantendo `initialFocusSelector` no cancelar quando artefato não verificado
+- [x] AgentWorkDirControl; AgentInstall (confirm install/update + remove);
+      desde a revisão da AEP-0091 D7, o foco inicial é independente da ordem
+      DOM e prioriza conteúdo documental
 - [x] QuestionnaireDialog — Fase 3
 
 
