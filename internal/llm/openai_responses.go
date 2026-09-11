@@ -298,6 +298,18 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if ev.Delta != "" {
 				content := processThinkingTags(ev.Delta, &isThinking, &thinkingBuffer, &fullReasoning, handler)
 				if content != "" {
+					select {
+					case <-ctx.Done():
+						return mcpStreamAttemptResult{done: true}
+					default:
+					}
+					if wd.TimedOut() {
+						if !emittedAnything {
+							return mcpStreamAttemptResult{retry: true}
+						}
+						handler.OnError(streamIdleErrorMessage)
+						return mcpStreamAttemptResult{done: true}
+					}
 					fullResponse.WriteString(content)
 					emittedAnything = true
 					handler.OnChunk(content)
@@ -571,6 +583,30 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// o stream), então não o reatribuímos aqui.
 	flushPendingCompletedMCPCalls(activeMCPCalls, handler)
 
+	if isThinking && thinkingBuffer.Len() > 0 {
+		select {
+		case <-ctx.Done():
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			return mcpStreamAttemptResult{done: true}
+		default:
+		}
+		if wd.TimedOut() {
+			thinkingBuffer.Reset()
+			isThinking = false
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			if !emittedAnything {
+				return mcpStreamAttemptResult{retry: true}
+			}
+			handler.OnError(streamIdleErrorMessage)
+			return mcpStreamAttemptResult{done: true}
+		}
+		thinkingBuffer.Reset()
+		isThinking = false
+	}
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
 	}
@@ -599,7 +635,24 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	}
 	lastModel = diagnosticModel
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
+	select {
+	case <-ctx.Done():
+		return mcpStreamAttemptResult{done: true}
+	default:
+	}
+	if wd.TimedOut() {
+		if !emittedAnything {
+			return mcpStreamAttemptResult{retry: true}
+		}
+		handler.OnError(streamIdleErrorMessage)
+		return mcpStreamAttemptResult{done: true}
+	}
 	ReportFinishReason(handler, finish)
+
+	if finish.Reason == "" && len(finishedToolCalls) == 0 {
+		handler.OnError("streaming_interrupted")
+		return mcpStreamAttemptResult{done: true}
+	}
 
 	if len(finishedToolCalls) > 0 {
 		dumpLLMResponse(dumpHandle, chatParams, map[string]any{
