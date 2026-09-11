@@ -7,6 +7,7 @@ import { EditorExternalChangeDialog } from './EditorExternalChangeDialog';
 const announceRequest = vi.fn();
 const playSound = vi.fn();
 vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: vi.fn(),
   useAnnouncer: () => ({ announceRequest }),
 }));
 vi.mock('../../services/audioFeedback', () => ({
@@ -44,7 +45,7 @@ const decision = {
 } as const;
 
 describe('EditorExternalChangeDialog', () => {
-  it('usa alertdialog, botões diretos na ordem correta e foco seguro', async () => {
+  it('usa alertdialog, botões diretos e começa pela primeira ilha', async () => {
     const onAction = vi.fn();
     const visibleRects = Object.assign([{} as DOMRect], {
       item: (index: number) => (index === 0 ? ({} as DOMRect) : null),
@@ -64,7 +65,7 @@ describe('EditorExternalChangeDialog', () => {
     const footer = screen.getByRole('alertdialog').querySelector('[data-dialog-actions]');
     expect(
       Array.from(footer?.querySelectorAll('button') ?? []).map(
-        (button) => button.textContent,
+        (button) => button.getAttribute('aria-label'),
       ),
     ).toEqual([
       'Usar disco',
@@ -74,8 +75,18 @@ describe('EditorExternalChangeDialog', () => {
       'Agora não',
     ]);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Usar minha versão' })).toHaveFocus(),
+      expect(screen.getByRole('document', { name: 'Arquivo' })).toHaveFocus(),
     );
+    expect(screen.getByRole('button', { name: 'Usar disco' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Enter'),
+    );
+    expect(screen.getByRole('button', { name: 'Agora não' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      expect.stringContaining('Control+Backspace'),
+    );
+    expect(screen.getByRole('button', { name: 'Resolver conflitos' }))
+      .toHaveAttribute('aria-keyshortcuts', expect.stringMatching(/Alt\+[A-Z]/));
     rects.mockRestore();
   });
 

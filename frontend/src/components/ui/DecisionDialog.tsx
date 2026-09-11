@@ -75,14 +75,12 @@ export interface DecisionDialogProps {
   readingRegions?: readonly DecisionReadingRegion[];
   /** Pelo menos uma ação (confirm/cancel, allow/deny, etc.). */
   actions: [DecisionAction, ...DecisionAction[]];
-  /** Afeta foco inicial (AEP-0091 D7). Default: info. */
+  /** Intenção explícita para apresentação; não governa foco inicial. */
   severity?: DecisionSeverity;
   onAction: (actionId: string, extras?: Record<string, unknown>) => void;
   /** ESC / Fechar (X) / clique fora — não autoriza. */
   onCancel: (extras?: Record<string, unknown>) => void;
   className?: string;
-  /** id da ação segura para foco destrutivo; default = última ação. */
-  safeActionId?: string;
   /**
    * Se false, o chamador restaura o foco (ex.: confirmStore).
    * Default true — restaura via Modal ao fechar.
@@ -97,11 +95,6 @@ export interface DecisionDialogProps {
   rejectReason?: DecisionRejectReason;
   /** Tamanho do Modal; default sm. */
   size?: 'sm' | 'md' | 'lg' | 'xl';
-  /**
-   * Sobrescreve o seletor de foco inicial (ex.: cancelar em AgentInstall
-   * não verificado). Quando omitido, usa a regra de severity (D7).
-   */
-  initialFocusSelector?: string;
 }
 
 function MnemonicLabel({ label, mnemonic }: { label: string; mnemonic: string }) {
@@ -212,12 +205,10 @@ export function DecisionDialog({
   onAction,
   onCancel,
   className,
-  safeActionId,
   returnFocusOnClose = true,
   allowClose = true,
   rejectReason,
   size = 'sm',
-  initialFocusSelector: initialFocusOverride,
 }: DecisionDialogProps) {
   const { t } = useTranslation();
   const descriptionId = useId();
@@ -250,8 +241,6 @@ export function DecisionDialog({
 
   const describedBy = body ? `${descriptionId} ${bodyId}` : descriptionId;
   const hasReadingRegions = readingRegions.length > 0;
-
-  const resolvedSafeId = safeActionId ?? actions[actions.length - 1]?.id ?? '';
 
   const bodyHint = body || hasReadingRegions
     ? t('ui.decisionDialog.bodyHint')
@@ -286,29 +275,18 @@ export function DecisionDialog({
     };
   }, [actions]);
 
-  const severityFocusSelector = useMemo(() => {
-    if (severity === 'destructive') {
-      return `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`;
+  const initialFocusSelector = useMemo(() => {
+    const preferredRegion = readingRegions.find((region) => region.autoFocus)
+      ?? readingRegions[0];
+    if (preferredRegion) {
+      return `[data-document-reading-anchor="${CSS.escape(preferredRegion.id)}"]`;
     }
-    if (severity === 'permission') {
-      // D7: body readonly se houver; senão a ação segura (não “sempre”).
-      const preferredRegion = readingRegions.find((region) => region.autoFocus)
-        ?? readingRegions[0];
-      if (preferredRegion) {
-        return `[data-document-reading-anchor="${CSS.escape(preferredRegion.id)}"]`;
-      }
-      if (body) return '[data-decision-body]';
-      return resolvedSafeId
-        ? `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`
-        : undefined;
-    }
+    if (body != null) return '[data-decision-body]';
     const primary = actions.find((a) => a.primary) ?? actions[0];
     return primary
       ? `[data-decision-action="${CSS.escape(primary.id)}"]`
       : undefined;
-  }, [severity, resolvedSafeId, body, actions, readingRegions]);
-
-  const initialFocusSelector = initialFocusOverride ?? severityFocusSelector;
+  }, [body, actions, readingRegions]);
 
   const extrasForAction = (actionId: string): Record<string, unknown> | undefined => {
     if (!rejectReason) return undefined;

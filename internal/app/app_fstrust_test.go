@@ -57,12 +57,39 @@ func TestPathConfirmationPayloadIsDecision(t *testing.T) {
 	if !payload.Actions[0].Primary {
 		t.Fatal("a primeira permissão segura deve ser primária antes das recusas")
 	}
+	expectedShortcuts := map[string]struct {
+		polarity questionnaire.DecisionPolarity
+		scope    questionnaire.DecisionScope
+	}{
+		"once":           {questionnaire.DecisionPolarityAffirmative, questionnaire.DecisionScopeCurrent},
+		"session":        {questionnaire.DecisionPolarityAffirmative, questionnaire.DecisionScopeConversation},
+		"workspace":      {questionnaire.DecisionPolarityAffirmative, questionnaire.DecisionScopePersistent},
+		"deny-session":   {questionnaire.DecisionPolarityNegative, questionnaire.DecisionScopeConversation},
+		"deny-workspace": {questionnaire.DecisionPolarityNegative, questionnaire.DecisionScopePersistent},
+		"deny":           {questionnaire.DecisionPolarityNegative, questionnaire.DecisionScopeCurrent},
+	}
+	seenDenyWorkspace := false
 	for _, action := range payload.Actions {
+		if want, ok := expectedShortcuts[action.ID]; ok {
+			if action.Polarity != want.polarity || action.Scope != want.scope {
+				t.Errorf("%s = polarity %q scope %q, quer %q/%q", action.ID, action.Polarity, action.Scope, want.polarity, want.scope)
+			}
+		}
+		// Pasta e escopos profile/global coexistem com os slots universais:
+		// mantê-los sem metadata evita colisão; Alt+mnemônico continua ativo.
+		if action.ID == "dir-once" || action.ID == "profile" || action.ID == "global" ||
+			action.ID == "deny-profile" || action.ID == "deny-global" {
+			if action.Polarity != "" || action.Scope != "" {
+				t.Errorf("%s não deve ocupar chord universal: %+v", action.ID, action)
+			}
+		}
 		if action.ID == "deny-workspace" {
-			return
+			seenDenyWorkspace = true
 		}
 	}
-	t.Fatal("faltou ação de negar e lembrar no workspace")
+	if !seenDenyWorkspace {
+		t.Fatal("faltou ação de negar e lembrar no workspace")
+	}
 }
 
 func TestFsDenyScopeFromActionID(t *testing.T) {

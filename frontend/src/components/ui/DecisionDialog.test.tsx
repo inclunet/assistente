@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { DecisionDialog } from './DecisionDialog';
+import { DecisionDialog, type DecisionAction } from './DecisionDialog';
 import { axe } from '../../test/a11yAxe';
 
 const announceRequest = vi.fn();
@@ -136,6 +136,90 @@ describe('DecisionDialog', () => {
     screen.getByRole('button', { name: 'Não' }).focus();
     await user.keyboard('{Enter}');
     expect(onAction).toHaveBeenCalledWith('no');
+  });
+
+  it.each(['destructive', 'permission', 'info'] as const)(
+    'foca a ação principal sem conteúdo em severity=%s',
+    async (severity) => {
+      const rects = vi
+        .spyOn(HTMLElement.prototype, 'getClientRects')
+        .mockReturnValue(Object.assign([{} as DOMRect], {
+          item: () => ({} as DOMRect),
+        }) as DOMRectList);
+      try {
+        render(
+          <DecisionDialog
+            isOpen
+            title="Confirmar"
+            description="Prosseguir?"
+            severity={severity}
+            actions={[
+              { id: 'confirm', label: 'Confirmar', primary: true },
+              { id: 'cancel', label: 'Cancelar', variant: 'outline' },
+            ]}
+            onAction={vi.fn()}
+            onCancel={vi.fn()}
+          />,
+        );
+        await waitFor(() =>
+          expect(screen.getByRole('button', { name: 'Confirmar' })).toHaveFocus(),
+        );
+      } finally {
+        rects.mockRestore();
+      }
+    },
+  );
+
+  it('prioriza ilha autoFocus, primeira ilha e body antes das ações', async () => {
+    const rects = vi
+      .spyOn(HTMLElement.prototype, 'getClientRects')
+      .mockReturnValue(Object.assign([{} as DOMRect], {
+        item: () => ({} as DOMRect),
+      }) as DOMRectList);
+    const common = {
+      isOpen: true,
+      title: 'Revisar',
+      description: 'Confira',
+      actions: [
+        { id: 'confirm', label: 'Confirmar', primary: true },
+        { id: 'cancel', label: 'Cancelar' },
+      ] as [DecisionAction, ...DecisionAction[]],
+      onAction: vi.fn(),
+      onCancel: vi.fn(),
+    };
+    try {
+      const { unmount } = render(
+        <DecisionDialog
+          {...common}
+          readingRegions={[
+            { id: 'first', label: 'Primeira', content: 'um' },
+            { id: 'preferred', label: 'Preferida', content: 'dois', autoFocus: true },
+          ]}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('document', { name: 'Preferida' })).toHaveFocus(),
+      );
+      unmount();
+
+      const second = render(
+        <DecisionDialog
+          {...common}
+          readingRegions={[{ id: 'first', label: 'Primeira', content: 'um' }]}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByRole('document', { name: 'Primeira' })).toHaveFocus(),
+      );
+      second.unmount();
+
+      render(<DecisionDialog {...common} body={<p>Detalhes</p>} />);
+      await waitFor(() =>
+        expect(document.querySelector('[data-decision-body]')).toHaveFocus(),
+      );
+    } finally {
+      rects.mockRestore();
+    }
   });
 
   it.each([
