@@ -36,6 +36,26 @@ enfileirados. Conversas diferentes continuam respondendo em paralelo. Ao
 terminar um turno com ferramentas, o chat atualiza apenas a resposta daquele
 turno, preservando a posição e a janela de histórico que você estava lendo.
 
+## Limites e truncamentos
+
+O chat diferencia três situações:
+
+- **Limite de geração (`output_limit`)**: o provedor informou que atingiu o
+  limite de saída solicitado. Uma resposta curta também pode consumir o limite
+  com raciocínio interno não exibido; por isso o aplicativo não tenta
+  contradizer esse sinal pela quantidade de texto visível.
+- **Limite de iterações (`limit_reached`)**: o agente esgotou o número de ciclos
+  permitidos entre modelo e ferramentas. Não significa que o provedor atingiu
+  seu limite de tokens.
+- **Saída truncada para exibição ou contexto**: previews e resultados extensos
+  de ferramentas podem ser recortados localmente. Esse recorte é identificado
+  como truncamento local e não produz `output_limit`.
+
+Quando o provedor informa limite de geração, o chat preserva o texto recebido e
+oferece **Continuar resposta**. Os logs técnicos registram apenas metadados
+como provedor, modelo, motivo de término, limites e contagens; o conteúdo da
+resposta não é incluído nesse diagnóstico.
+
 ## Limite do texto
 
 O texto de cada nova mensagem pode ocupar até **512 KiB em UTF-8**. Letras

@@ -1,6 +1,6 @@
 # AEP-0098 — Limite de saída e tool calls truncadas
 
-**Status:** In Progress — fluxo implementado; regressão focada de `invalid_args` sem stop reason permanece pendente
+**Status:** Done — fluxo, diagnóstico autoritativo e regressões entregues
 
 ## Resumo
 
@@ -94,8 +94,10 @@ Assim, os dois casos ficam observavelmente distintos:
 
 Quando `max_tokens` ocorrer sem tool calls locais, o conteúdo parcial é
 preservado e o evento terminal usa `reason: "output_limit"`. A interface anuncia
-que a resposta atingiu o limite e mantém a ação de continuação explícita da
-AEP-0064.
+que **o provedor informou** ter atingido o limite e mantém a ação de continuação
+explícita da AEP-0064. O harness não afirma, pela extensão do texto visível, que
+houve truncamento comprovado: reasoning/hidden tokens também podem consumir o
+budget de saída.
 
 O harness não continua texto automaticamente. Prefill, fallback de continuação,
 duplicação de conteúdo e cancelamento já têm contrato próprio na AEP-0064; o
@@ -123,9 +125,14 @@ autoritativo e o texto parcial não depende de um evento cumulativo final.
 
 ### D6 — Observabilidade sem persistir payload truncado
 
-Logs do provider e do loop registram motivo normalizado, motivo bruto quando
-disponível, iteração e nomes das tools, nunca o argumento potencialmente grande
-ou incompleto.
+Logs e `chat:done` registram motivo normalizado, motivo bruto quando disponível,
+provider/modelo, limite efetivamente solicitado, usage de output e reasoning
+quando reportada e tamanho em bytes do texto visível. O diagnóstico nunca inclui
+o conteúdo da resposta nem argumentos potencialmente grandes ou incompletos.
+
+Ausência de stop reason ou usage permanece ausência; não vira `max_tokens` nem
+zero reportado. Motivos brutos futuros são preservados e normalizados como
+`other` até decisão explícita.
 
 `chat:done.reason` passa a admitir `output_limit`. Esse desfecho não é erro de
 transporte e não dispara retry automático de streaming.
@@ -146,10 +153,10 @@ transporte e não dispara retry automático de streaming.
 4. **Desfecho e interface — entregue**
    - propagar `output_limit` em `chat:done`;
    - anunciar o estado e manter disponível a continuação explícita.
-5. **Validação — parcial**
+5. **Validação — entregue**
    - executar suites backend e frontend;
    - validar que JSON inválido sem stop reason continua no caminho
-     `invalid_args` — regressão focada ainda pendente.
+     `invalid_args`.
 
 ## Riscos
 
@@ -176,7 +183,7 @@ está distribuída entre `internal/llm/finish_reason.go`, os adapters de
 - [x] Há no máximo uma reformulação automática, orientada a operações menores.
 - [x] Um segundo limite encerra o turno como `output_limit`.
 - [x] Texto parcial é preservado e a continuação explícita permanece disponível.
-- [ ] Adicionar regressão focada comprovando que JSON malformado sem
+- [x] Adicionar regressão focada comprovando que JSON malformado sem
   `max_tokens` continua classificado como `invalid_args`.
 - [x] Frontend anuncia `output_limit` sem tratá-lo como erro de transporte.
 - [x] Testes Go e Vitest cobrem os caminhos críticos.
@@ -188,9 +195,12 @@ Evidências:
 - atomicidade, uma reformulação e segundo limite:
   `internal/agent/agentic_loop_test.go`;
 - classificação genérica de `invalid_args`:
-  `internal/tools/executor_test.go`; falta a regressão específica sem stop
-  reason descrita acima;
+  `internal/tools/executor_test.go` e regressão do loop sem stop reason em
+  `internal/agent/agentic_loop_test.go`;
 - `chat:done.reason=output_limit`:
   `internal/core/ports/chat_events.go` e testes do agentic loop;
 - anúncio e tratamento frontend:
   `frontend/src/services/chatEventController.test.ts`.
+- diagnóstico de provider/modelo/limite/usage/tamanho:
+  testes dos transports em `internal/llm` e
+  `internal/agent/service_stats_test.go`.
