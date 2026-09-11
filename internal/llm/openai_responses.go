@@ -282,6 +282,17 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		isThinking = false
 		thinkingBuffer.Reset()
 	}
+	reportCurrentDiagnostics := func() {
+		model := lastModel
+		if model == "" {
+			model = chatParams.Model
+		}
+		currentFinish := finishInfoWithDiagnostics(
+			finish, p.provider, model, chatParams.MaxTokens, fullResponse.Len(),
+		)
+		reportUsage(handler, lastUsage)
+		ReportFinishReason(handler, currentFinish)
+	}
 
 	type pendingFuncCall struct {
 		ID   string
@@ -326,6 +337,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 							return mcpStreamAttemptResult{retry: true}
 						}
 						finishThinking()
+						reportCurrentDiagnostics()
 						handler.OnError(streamIdleErrorMessage)
 						return mcpStreamAttemptResult{done: true}
 					}
@@ -536,6 +548,8 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
 				return mcpStreamAttemptResult{retry: true}
 			}
+			finishThinking()
+			reportCurrentDiagnostics()
 			handler.OnError(errMsg)
 			return mcpStreamAttemptResult{done: true}
 
@@ -551,6 +565,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
 			finishThinking()
+			reportCurrentDiagnostics()
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 			return mcpStreamAttemptResult{done: true}
 		}
@@ -562,6 +577,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				return mcpStreamAttemptResult{retry: true}
 			}
 			finishThinking()
+			reportCurrentDiagnostics()
 			handler.OnError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
@@ -578,6 +594,8 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
 			return mcpStreamAttemptResult{retry: true}
 		}
+		finishThinking()
+		reportCurrentDiagnostics()
 		handler.OnError(errStr)
 		return mcpStreamAttemptResult{done: true}
 	}
@@ -597,6 +615,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			return mcpStreamAttemptResult{retry: true}
 		}
 		finishThinking()
+		reportCurrentDiagnostics()
 		handler.OnError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
 	}

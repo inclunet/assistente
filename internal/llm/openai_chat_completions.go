@@ -171,6 +171,44 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	// Coletar tool calls finalizadas durante streaming
 	var finishedToolCalls []ToolCall
+	currentDiagnostics := func() (Usage, FinishInfo, string) {
+		usage := Usage{}
+		if openAIUsageReported(usageRawJSON,
+			int(acc.Usage.PromptTokens), int(acc.Usage.CompletionTokens), int(acc.Usage.TotalTokens)) {
+			cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
+			if cachedTokens == 0 {
+				cachedTokens = promptTokensDetails.CachedTokens
+			}
+			usage = UsageFromOpenAICompletion(
+				int(acc.Usage.PromptTokens),
+				int(acc.Usage.CompletionTokens),
+				int(acc.Usage.TotalTokens),
+				int(cachedTokens),
+				usageRawJSON,
+			)
+		}
+		model := acc.Model
+		if model == "" {
+			model = string(params.Model)
+		}
+		finish := FinishInfo{}
+		if len(acc.Choices) > 0 {
+			finish = normalizeOpenAIChatFinishReason(string(acc.Choices[0].FinishReason))
+		}
+		outputLimit := 0
+		if params.MaxCompletionTokens.Valid() {
+			outputLimit = int(params.MaxCompletionTokens.Value)
+		} else if params.MaxTokens.Valid() {
+			outputLimit = int(params.MaxTokens.Value)
+		}
+		finish = finishInfoWithDiagnostics(finish, p.provider, model, outputLimit, fullResponse.Len())
+		return usage, finish, model
+	}
+	reportCurrentDiagnostics := func() {
+		usage, finish, _ := currentDiagnostics()
+		reportUsage(handler, usage)
+		ReportFinishReason(handler, finish)
+	}
 
 	for stream.Next() {
 		wd.Kick()
@@ -222,6 +260,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 						return chatStreamAttempt{plainRetry: true}
 					}
 					finishThinking()
+					reportCurrentDiagnostics()
 					handler.OnError(streamIdleErrorMessage)
 					return chatStreamAttempt{done: true}
 				}
@@ -238,6 +277,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
+			reportCurrentDiagnostics()
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 			return chatStreamAttempt{done: true}
 		}
@@ -249,6 +289,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				return chatStreamAttempt{plainRetry: true}
 			}
 			finishThinking()
+			reportCurrentDiagnostics()
 			handler.OnError(streamIdleErrorMessage)
 			return chatStreamAttempt{done: true}
 		}
@@ -276,6 +317,8 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 		}
 
+		finishThinking()
+		reportCurrentDiagnostics()
 		handler.OnError(errStr)
 		return chatStreamAttempt{done: true}
 	}
@@ -295,6 +338,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			return chatStreamAttempt{plainRetry: true}
 		}
 		finishThinking()
+		reportCurrentDiagnostics()
 		handler.OnError(streamIdleErrorMessage)
 		return chatStreamAttempt{done: true}
 	}
@@ -311,31 +355,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 	finishThinking()
 
-	usage := Usage{}
-	if openAIUsageReported(usageRawJSON,
-		int(acc.Usage.PromptTokens), int(acc.Usage.CompletionTokens), int(acc.Usage.TotalTokens)) {
-		cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
-		if cachedTokens == 0 {
-			cachedTokens = promptTokensDetails.CachedTokens
-		}
-		usage = UsageFromOpenAICompletion(
-			int(acc.Usage.PromptTokens),
-			int(acc.Usage.CompletionTokens),
-			int(acc.Usage.TotalTokens),
-			int(cachedTokens),
-			usageRawJSON,
-		)
-	}
+	usage, finish, model := currentDiagnostics()
 	reportUsage(handler, usage)
 
-	model := acc.Model
-	if model == "" {
-		model = string(params.Model)
-	}
-	finish := FinishInfo{}
-	if len(acc.Choices) > 0 {
-		finish = normalizeOpenAIChatFinishReason(string(acc.Choices[0].FinishReason))
-	}
 	if finish.Reason == FinishReasonMaxTokens && len(acc.Choices) > 0 && len(acc.Choices[0].Message.ToolCalls) > 0 {
 		// JustFinishedToolCall só entrega blocos fechados. Em "length", o
 		// acumulador ainda preserva a chamada parcial; ela precisa chegar ao loop
@@ -353,13 +375,6 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
-	outputLimit := 0
-	if params.MaxCompletionTokens.Valid() {
-		outputLimit = int(params.MaxCompletionTokens.Value)
-	} else if params.MaxTokens.Valid() {
-		outputLimit = int(params.MaxTokens.Value)
-	}
-	finish = finishInfoWithDiagnostics(finish, p.provider, model, outputLimit, fullResponse.Len())
 	select {
 	case <-ctx.Done():
 		finishThinking()

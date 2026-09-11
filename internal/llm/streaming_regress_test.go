@@ -169,6 +169,69 @@ func TestResponses_CancelamentoAposThinkingNaoEmiteChunk(t *testing.T) {
 	}
 }
 
+func TestChatCompletions_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
+	stream := "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m-real\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"parcial\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m-real\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	p := NewOpenAIProvider(&ProviderConfig{
+		ID: "chat-timeout", BaseURL: server.URL + "/v1", AuthMode: AuthModeNone,
+		StreamIdleTimeoutSeconds: 1,
+	}, credentials.NewManager(nil))
+	h := &spyHandler{}
+	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: 99}, h)
+
+	if h.err != streamIdleErrorMessage {
+		t.Fatalf("erro=%q, esperado %q", h.err, streamIdleErrorMessage)
+	}
+	if h.finish.Provider != "chat-timeout" || h.finish.Model != "m-real" ||
+		h.finish.OutputLimit != 99 || h.finish.ResponseBytes != len("parcial") {
+		t.Fatalf("finish terminal incompleto: %+v", h.finish)
+	}
+	if !h.usage.OutputTokensReported || h.usage.CompletionTokens != 2 {
+		t.Fatalf("usage terminal incompleto: %+v", h.usage)
+	}
+}
+
+func TestResponses_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
+	stream := "event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"parcial\"}\n\n" +
+		"event: response.incomplete\n" +
+		"data: {\"type\":\"response.incomplete\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"incomplete\",\"model\":\"m-real\",\"output\":[],\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5,\"output_tokens_details\":{\"reasoning_tokens\":1}}}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	p := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-timeout", BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses,
+		AuthMode: AuthModeNone, StreamIdleTimeoutSeconds: 1,
+	}, credentials.NewManager(nil))
+	h := &spyHandler{}
+	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: 99}, h)
+
+	if h.err != streamIdleErrorMessage {
+		t.Fatalf("erro=%q, esperado %q", h.err, streamIdleErrorMessage)
+	}
+	if h.finish.Provider != "responses-timeout" || h.finish.Model != "m-real" ||
+		h.finish.OutputLimit != 99 || h.finish.ResponseBytes != len("parcial") {
+		t.Fatalf("finish terminal incompleto: %+v", h.finish)
+	}
+	if !h.usage.OutputTokensReported || h.usage.CompletionTokens != 2 ||
+		!h.usage.ReasoningTokensReported || h.usage.ReasoningTokens != 1 {
+		t.Fatalf("usage terminal incompleto: %+v", h.usage)
+	}
+}
+
 func slicesEqual(got, want []string) bool {
 	if len(got) != len(want) {
 		return false

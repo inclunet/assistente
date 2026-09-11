@@ -473,10 +473,11 @@ export function startChatEventController({
   };
 
   const updateAssistantWithError = (message: string) => {
-    const currentContent = getCurrentAssistantContent().trimEnd();
+    const currentContent = getCurrentAssistantContent();
+    const hasContent = currentContent.trim().length > 0;
     const formattedError = i18next.t('chat.errorPrefix', { message });
     updateStreamingMessage(
-      currentContent ? `${currentContent}\n\n${formattedError}` : formattedError,
+      hasContent ? `${currentContent}\n\n${formattedError}` : formattedError,
     );
   };
 
@@ -667,7 +668,7 @@ export function startChatEventController({
       });
       announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
-      patchCurrentSession({ isThinking: false });
+      patchCurrentSession({ isThinking: false, streamingReasoning: '' });
       if (event.content && currentAssistantNodeId) adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content);
     } else {
       patchCurrentSession({ streamingReasoning: event.content || '' });

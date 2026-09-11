@@ -1512,7 +1512,7 @@ describe('chatEventController', () => {
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
-      delta: 'resposta parcial',
+      delta: 'resposta parcial  \n',
       reset: true,
       sequence: 0,
       turnId: 't1',
@@ -1529,7 +1529,7 @@ describe('chatEventController', () => {
 
     expect(
       sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
-    ).toBe('resposta parcial\n\nErro: chat.errors.streamingIdleTimeout');
+    ).toBe('resposta parcial  \n\n\nErro: chat.errors.streamingIdleTimeout');
   });
 
   it('preserva conteúdo parcial e acrescenta erro terminal de chat:done', () => {
@@ -1555,5 +1555,30 @@ describe('chatEventController', () => {
     expect(
       sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
     ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
+  });
+
+  it('limpa o reasoning visual quando uma tentativa é descartada', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'a1',
+      turnId: 't1',
+      started: true,
+      content: 'raciocínio descartado',
+    });
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'a1',
+      turnId: 't1',
+      done: true,
+      content: '',
+    });
+
+    expect(sessions['conversation-1'].isThinking).toBe(false);
+    expect(sessions['conversation-1'].streamingReasoning).toBe('');
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.reasoning,
+    ).toBeUndefined();
   });
 });
