@@ -150,7 +150,7 @@ func currentDelegationDB(ctx context.Context, db *gorm.DB, jobID string) (Delega
 	if err != nil {
 		return DelegationConfig{}, err
 	}
-	return delegationConfigFromRow(row)
+	return delegationConfigFromRow(db, row)
 }
 
 func currentDelegationByDatabaseIDDB(ctx context.Context, db *gorm.DB, jobID string) (DelegationConfig, error) {
@@ -164,11 +164,19 @@ func currentDelegationByDatabaseIDDB(ctx context.Context, db *gorm.DB, jobID str
 	if err != nil {
 		return DelegationConfig{}, err
 	}
-	return delegationConfigFromRow(row)
+	return delegationConfigFromRow(db, row)
 }
 
-func delegationConfigFromRow(row database.Job) (DelegationConfig, error) {
-	if strings.TrimSpace(row.ToolName) != ToolSubagent {
+func delegationConfigFromRow(db *gorm.DB, row database.Job) (DelegationConfig, error) {
+	toolName := strings.TrimSpace(row.ToolName)
+	if toolName == "" {
+		var catalog database.ToolCatalog
+		if err := db.Where("id = ?", row.ToolCatalogID).First(&catalog).Error; err != nil {
+			return DelegationConfig{}, err
+		}
+		toolName = strings.TrimSpace(catalog.Name)
+	}
+	if toolName != ToolSubagent {
 		return DelegationConfig{}, ErrNotSubagentJob
 	}
 	var inputs map[string]any
@@ -184,9 +192,9 @@ func delegationConfigFromRow(row database.Job) (DelegationConfig, error) {
 		JobID:             row.ID,
 		JobSlug:           row.Slug,
 		JobName:           row.Name,
-		Tool:              row.ToolName,
+		Tool:              toolName,
 		ProfileExpression: expression,
-		Fingerprint:       Fingerprint(row.ToolName, expression),
+		Fingerprint:       Fingerprint(toolName, expression),
 	}, nil
 }
 
@@ -216,11 +224,13 @@ func (s *Store) AuthorizationSnapshot(ctx context.Context, jobID, targetSlug str
 
 func ensureEpochTx(tx *gorm.DB, userID, jobID, targetSlug, fingerprint string) (database.JobProfileGrantEpoch, error) {
 	var epoch database.JobProfileGrantEpoch
-	query := tx.Where(
-		"user_id = ? AND job_id = ? AND target_profile_slug = ? AND delegation_fingerprint = ?",
-		userID, jobID, targetSlug, fingerprint,
-	)
-	err := query.First(&epoch).Error
+	naturalKey := func() *gorm.DB {
+		return tx.Where(
+			"user_id = ? AND job_id = ? AND target_profile_slug = ? AND delegation_fingerprint = ?",
+			userID, jobID, targetSlug, fingerprint,
+		)
+	}
+	err := naturalKey().First(&epoch).Error
 	if err == nil {
 		return epoch, nil
 	}
@@ -234,10 +244,9 @@ func ensureEpochTx(tx *gorm.DB, userID, jobID, targetSlug, fingerprint string) (
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&epoch).Error; err != nil {
 		return epoch, err
 	}
-	if epoch.ID == "" {
-		if err := query.First(&epoch).Error; err != nil {
-			return epoch, err
-		}
+	epoch = database.JobProfileGrantEpoch{}
+	if err := naturalKey().First(&epoch).Error; err != nil {
+		return epoch, err
 	}
 	return epoch, nil
 }

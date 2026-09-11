@@ -149,7 +149,8 @@ func TestDBRepositoryReconcilesUnauthorizedEnabledSubagent(t *testing.T) {
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.db.Model(&database.Job{}).Where("id = ?", job.DatabaseID).Update("enabled", true).Error; err != nil {
+	if err := repo.db.Model(&database.Job{}).Where("id = ?", job.DatabaseID).
+		Updates(map[string]any{"enabled": true, "tool_name": ""}).Error; err != nil {
 		t.Fatal(err)
 	}
 	inherited := testRepositoryJob("legado-herdado", "Legado herdado")
@@ -160,7 +161,7 @@ func TestDBRepositoryReconcilesUnauthorizedEnabledSubagent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repo.db.Model(&database.Job{}).Where("id = ?", inherited.DatabaseID).
-		Updates(map[string]any{"inputs": "", "enabled": true}).Error; err != nil {
+		Updates(map[string]any{"inputs": "", "enabled": true, "tool_name": ""}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.ReconcileUnauthorizedJobs(userA); err != nil {

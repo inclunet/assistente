@@ -19,7 +19,13 @@ func grantTestStore(t *testing.T) (*Store, *gorm.DB, context.Context, context.Co
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&database.Job{}, &database.JobProfileGrant{}, &database.JobProfileGrantEpoch{}); err != nil {
+	if err := db.AutoMigrate(&database.ToolCatalog{}, &database.Job{}, &database.JobProfileGrant{}, &database.JobProfileGrantEpoch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&database.ToolCatalog{
+		UUIDModel: database.UUIDModel{ID: "subagent"}, Name: ToolSubagent,
+		DisplayName: "Subagent", Origin: "builtin", AvailabilityStatus: "available",
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	inputs := `{"profile":"especialista","prompt":"texto editorial"}`
@@ -143,6 +149,20 @@ func TestCurrentDelegationPrefersPublicSlugOverUUIDFallback(t *testing.T) {
 	}
 	if grant.JobID != jobA.ID {
 		t.Fatalf("operação interna por UUID gravou grant no job errado: %#v", grant)
+	}
+}
+
+func TestCurrentDelegationUsesCatalogNameForLegacyJob(t *testing.T) {
+	store, db, userA, _, jobA, _ := grantTestStore(t)
+	if err := db.Model(&database.Job{}).Where("id = ?", jobA.ID).Update("tool_name", "").Error; err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.CurrentDelegation(userA, jobA.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Tool != ToolSubagent || config.Fingerprint != Fingerprint(ToolSubagent, config.ProfileExpression) {
+		t.Fatalf("tool efetiva do catálogo não foi usada: %#v", config)
 	}
 }
 

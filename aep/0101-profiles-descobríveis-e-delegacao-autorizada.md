@@ -181,6 +181,8 @@ Cada ciclo de autorização usa uma geração persistida por combinação exata.
 Revogar incrementa a geração e invalida respostas de `DecisionDialog` ainda
 pendentes. Reautorizar cria uma nova linha; a linha anterior conserva
 `granted_at`, `granted_by`, `revoked_at` e `revoked_by` para auditoria.
+Criação concorrente de epoch sempre relê a linha pela chave natural antes de
+usar sua geração, inclusive quando o insert perdeu um conflito.
 
 No runtime, `eventctx.SourceJobID` continua sendo o slug público do job,
 conforme AEP-0067; o UUID `database.Job.ID` é usado somente em consultas
@@ -199,7 +201,9 @@ global.
 No primeiro upgrade que introduz grants, jobs `subagent` já habilitados são
 desabilitados quando possuem `inputs.profile` textual e não vazio, porque não
 existe decisão explícita que possa ser convertida em grant; jobs que omitem o
-input e herdam profile não são alterados. O startup reconcilia novamente jobs
+input e herdam profile não são alterados. Em registros legados com
+`jobs.tool_name` vazio, tanto migração quanto runtime usam
+`tool_catalog.name` como fallback canônico. O startup reconcilia novamente jobs
 habilitados sem grant. O executor remove `invocationctx` herdado da conversa
 que publicou um evento antes de chamar tools, impedindo bypass por coincidência
 com o profile-pai. Revogações

@@ -646,7 +646,11 @@ func (r *DBRepository) ReconcileUnauthorizedJobs(ctx context.Context) error {
 	return r.retry(ctx, "reconcile_unauthorized_jobs", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			var rows []database.Job
-			if err := tx.Where("user_id = ? AND tool_name = ? AND enabled = ?", userID, jobprofilegrant.ToolSubagent, true).
+			if err := tx.Model(&database.Job{}).
+				Select("jobs.*").
+				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = jobs.tool_catalog_id").
+				Where("jobs.user_id = ? AND jobs.enabled = ? AND (jobs.tool_name = ? OR (TRIM(jobs.tool_name) = '' AND tool_catalog.name = ?))",
+					userID, true, jobprofilegrant.ToolSubagent, jobprofilegrant.ToolSubagent).
 				Find(&rows).Error; err != nil {
 				return err
 			}
@@ -655,7 +659,7 @@ func (r *DBRepository) ReconcileUnauthorizedJobs(ctx context.Context) error {
 				if err := unmarshalJSON(row.Inputs, &inputs); err != nil {
 					return err
 				}
-				candidate := &Job{Tool: row.ToolName, Inputs: inputs, Enabled: true}
+				candidate := &Job{Tool: jobprofilegrant.ToolSubagent, Inputs: inputs, Enabled: true}
 				allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, candidate)
 				if err != nil {
 					return err

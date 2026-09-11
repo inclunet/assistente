@@ -223,6 +223,12 @@ func TestPublishedReleaseUpgradeDisablesLegacySubagentJobsWithoutGrants(t *testi
 	if err := database.Exec(`UPDATE jobs SET tool_name = 'subagent', inputs = '{"profile":"pesquisa","prompt":"x"}', enabled = 1`).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := database.Exec(`UPDATE tool_catalog SET name = 'subagent' WHERE id = '018f0000-0000-7000-8000-000000000032'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Exec(`UPDATE jobs SET tool_name = '' WHERE id = '018f0000-0000-7000-8000-000000000041'`).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := database.Exec(`
 		INSERT INTO jobs (id, created_at, updated_at, user_id, slug, name, enabled, tool_catalog_id, tool_name, inputs)
 		VALUES ('018f0000-0000-7000-8000-000000000999', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
@@ -232,7 +238,7 @@ func TestPublishedReleaseUpgradeDisablesLegacySubagentJobsWithoutGrants(t *testi
 		t.Fatal(err)
 	}
 	runCurrentUpgrade(t, database)
-	if got := queryCount(t, database, `SELECT COUNT(*) FROM jobs WHERE tool_name = 'subagent' AND json_type(inputs, '$.profile') = 'text' AND enabled = 1`); got != 0 {
+	if got := queryCount(t, database, `SELECT COUNT(*) FROM jobs WHERE json_type(inputs, '$.profile') = 'text' AND enabled = 1`); got != 0 {
 		t.Fatalf("upgrade deixou %d job(s) subagent legado(s) grantável(is) habilitado(s)", got)
 	}
 	if got := queryCount(t, database, `SELECT COUNT(*) FROM jobs WHERE slug = 'herda-profile' AND enabled = 1`); got != 1 {

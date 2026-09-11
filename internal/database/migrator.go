@@ -234,7 +234,17 @@ var schemaMigrations = []migration{
 				`UPDATE jobs
 				    SET enabled = 0
 				  WHERE enabled = 1
-				    AND tool_name = 'subagent'
+				    AND (
+				      tool_name = 'subagent'
+				      OR (
+				        trim(tool_name) = ''
+				        AND EXISTS (
+				          SELECT 1 FROM tool_catalog
+				           WHERE tool_catalog.id = jobs.tool_catalog_id
+				             AND tool_catalog.name = 'subagent'
+				        )
+				      )
+				    )
 				    AND json_type(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile') = 'text'
 				    AND trim(json_extract(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile')) <> ''`,
 			}
