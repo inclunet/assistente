@@ -141,6 +141,9 @@ describe('JobBuilder grants de profiles', () => {
     expect(await screen.findByText('Pesquisa')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'jobs.builder.revokeProfile' }));
     await waitFor(() => expect(revokeProfile).toHaveBeenCalledWith('resumo-diario', 'pesquisa'));
+    await waitFor(() => expect(document.activeElement).toBe(
+      screen.getByRole('region', { name: 'jobs.builder.authorizedProfilesTitle' }),
+    ));
 
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'jobs.builder.chooseProfileToAuthorize' }),

@@ -205,6 +205,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [testDuration, setTestDuration] = useState<string | null>(null);
   const [testJustFinished, setTestJustFinished] = useState(false);
   const testResultRef = useRef<HTMLDivElement>(null);
+  const profileGrantsSectionRef = useRef<HTMLElement>(null);
   const announcedFanoutWarningRef = useRef<Record<string, unknown> | null>(null);
 
   const [eventSchema, setEventSchema] = useState<Record<string, unknown> | null>(null);
@@ -410,6 +411,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       await revokeJobProfile(persistedJobId, profileSlug);
       await refreshProfileGrants(persistedJobId);
       announce(t('jobs.builder.profileRevoked', { profile: profileSlug }));
+      requestAnimationFrame(() => profileGrantsSectionRef.current?.focus());
     } catch (err) {
       showError(String(err));
     } finally {
@@ -446,7 +448,6 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       };
       const result = await saveJob(JSON.stringify(jobData));
       setPersistedJobId(finalId);
-      onSaved?.();
       if (result.authorizationRequired && result.targetProfileSlug) {
         const approved = await handleAuthorizeProfile(finalId, result.targetProfileSlug);
         if (approved && result.requestedEnabled) {
@@ -457,8 +458,10 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       } else if (result.authorizationRequired && result.dynamicProfile) {
         announce(t('jobs.builder.savedDisabledChooseProfiles'), 'assertive');
         await refreshProfileGrants(finalId);
+        onSaved?.();
         return;
       }
+      onSaved?.();
       onClose();
     } catch (err) {
       showError(String(err));
@@ -621,7 +624,12 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         </CollapsibleSection>
 
         {isSubagentJob && (
-          <section className="job-builder__profile-grants" aria-labelledby="job-profile-grants-title">
+          <section
+            ref={profileGrantsSectionRef}
+            className="job-builder__profile-grants"
+            aria-labelledby="job-profile-grants-title"
+            tabIndex={-1}
+          >
             <h3 id="job-profile-grants-title">{t('jobs.builder.authorizedProfilesTitle')}</h3>
             <p className="job-builder__section-desc">
               {isDynamicProfile

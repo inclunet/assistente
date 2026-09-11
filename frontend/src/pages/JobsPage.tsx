@@ -533,7 +533,7 @@ export default function JobsPage() {
             setBuilderOpen(false);
             restoreJobFocus(focusedJob?.id);
           }}
-          onSaved={() => fetchJobs().then(() => restoreJobFocus(focusedJob?.id))}
+          onSaved={() => fetchJobs()}
         />
       </Modal>
     </div>
