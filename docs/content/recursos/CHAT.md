@@ -52,9 +52,12 @@ O chat diferencia três situações:
   como truncamento local e não produz `output_limit`.
 
 Quando o provedor informa limite de geração, o chat preserva o texto recebido e
-oferece **Continuar resposta**. Os logs técnicos registram apenas metadados
-como provedor, modelo, motivo de término, limites e contagens; o conteúdo da
-resposta não é incluído nesse diagnóstico.
+oferece **Continuar resposta**. Se o provedor encerrar o stream sem motivo de
+finalização (`streaming_interrupted`) ou parar de responder no meio da geração
+(`streaming_idle_timeout`), o chat exibe erro visível traduzido, sem deixar a
+resposta congelada. Os logs técnicos registram apenas metadados como provedor,
+modelo, motivo de término, limites e contagens; o conteúdo da resposta não é
+incluído nesse diagnóstico.
 
 ## Limite do texto
 
