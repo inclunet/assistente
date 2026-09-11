@@ -3992,6 +3992,7 @@ const ptBR = {
         revokeProfile: 'Revogar',
         profileInputRequired: 'Preencha o input profile para autorizar a delegação.',
         saveBeforeAuthorizingProfiles: 'Salve o job antes de autorizar perfis.',
+        saveProfileConfigurationFirst: 'Salve a configuração atual do profile antes de autorizar ou revogar acessos.',
         profileAuthorized: 'Perfil {{profile}} autorizado para este job.',
         profileAuthorizationDenied: 'Autorização recusada. O job continua sem essa permissão.',
         profileRevoked: 'Autorização do perfil {{profile}} revogada.',

@@ -62,3 +62,9 @@ func TestJobGrantCoversLiteralAndDynamicProfiles(t *testing.T) {
 		t.Fatal("template sem targets autorizados não deveria permitir habilitação")
 	}
 }
+
+func TestCanonicalSaveJobIDMatchesPersistenceNormalization(t *testing.T) {
+	if got := canonicalSaveJobID("Meu_Job"); got != "meu-job" {
+		t.Fatalf("ID canônico = %q, esperado meu-job", got)
+	}
+}

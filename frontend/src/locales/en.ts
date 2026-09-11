@@ -3992,6 +3992,7 @@ const en = {
         revokeProfile: 'Revoke',
         profileInputRequired: 'Fill in the profile input before authorizing delegation.',
         saveBeforeAuthorizingProfiles: 'Save the job before authorizing profiles.',
+        saveProfileConfigurationFirst: 'Save the current profile configuration before authorizing or revoking access.',
         profileAuthorized: 'Profile {{profile}} authorized for this job.',
         profileAuthorizationDenied: 'Authorization denied. The job still lacks this permission.',
         profileRevoked: 'Authorization for profile {{profile}} revoked.',

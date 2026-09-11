@@ -203,7 +203,12 @@ export const useJobStore = create<JobStoreState>((set, get) => {
           }),
         }));
       } catch (err) {
-        set({ error: String(err) });
+        try {
+          const reconciled = await GetJobs();
+          set({ jobs: reconciled || [], error: String(err) });
+        } catch {
+          set({ error: String(err) });
+        }
         throw err;
       }
     },

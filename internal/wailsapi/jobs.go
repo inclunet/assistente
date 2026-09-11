@@ -271,6 +271,7 @@ func (api *Jobs) SaveJob(jobJSON string) (*SaveJobResult, error) {
 		if err := json.Unmarshal([]byte(jobJSON), &job); err != nil {
 			return nil, fmt.Errorf("invalid job data: %w", err)
 		}
+		job.ID = canonicalSaveJobID(job.ID)
 		result := &SaveJobResult{JobID: job.ID, RequestedEnabled: job.Enabled}
 		fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
 		if job.Enabled && grantable {
@@ -322,6 +323,10 @@ func (api *Jobs) SaveJob(jobJSON string) (*SaveJobResult, error) {
 		}
 		return result, nil
 	})
+}
+
+func canonicalSaveJobID(id string) string {
+	return jobs.NormalizeSlug(id)
 }
 
 func (api *Jobs) GetJobProfileGrantState(jobID string) (*profileaccess.JobGrantState, error) {

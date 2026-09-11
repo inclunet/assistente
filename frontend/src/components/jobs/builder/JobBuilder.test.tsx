@@ -50,7 +50,13 @@ vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({
 vi.mock('../../pickers/ToolPicker', () => ({
   ToolPicker: () => <div />,
 }));
-vi.mock('./SchemaForm', () => ({ SchemaForm: () => <div /> }));
+vi.mock('./SchemaForm', () => ({
+  SchemaForm: ({ onChange }: { onChange: (key: string, value: unknown) => void }) => (
+    <button type="button" onClick={() => onChange('profile', 'programacao')}>
+      edit-profile
+    </button>
+  ),
+}));
 vi.mock('./TriggerEditor', () => ({ TriggerEditor: () => <div /> }));
 vi.mock('./OutputExplorer', () => ({ OutputExplorer: () => <div /> }));
 vi.mock('./TemplateEditor', () => ({ TemplateEditor: () => <div /> }));
@@ -84,7 +90,7 @@ describe('JobBuilder grants de profiles', () => {
       { slug: 'pesquisa', name: 'Pesquisa' },
       { slug: 'programacao', name: 'Programação' },
     ]);
-    getGrantState.mockResolvedValue({ grants: [], fingerprint: 'fp' });
+    getGrantState.mockResolvedValue({ grants: [], fingerprint: 'fp', profileExpression: 'pesquisa' });
     saveJob.mockResolvedValue({
       jobId: 'resumo-diario',
       authorizationRequired: false,
@@ -134,8 +140,9 @@ describe('JobBuilder grants de profiles', () => {
       .mockResolvedValueOnce({
         grants: [{ targetProfileSlug: 'pesquisa' }],
         fingerprint: 'fp',
+        profileExpression: '{{ .event.profile }}',
       })
-      .mockResolvedValue({ grants: [], fingerprint: 'fp' });
+      .mockResolvedValue({ grants: [], fingerprint: 'fp', profileExpression: '{{ .event.profile }}' });
     render(<JobBuilder editJob={subagentJob('{{ .event.profile }}')} onClose={vi.fn()} />);
 
     expect(await screen.findByText('Pesquisa')).toBeInTheDocument();
@@ -160,5 +167,21 @@ describe('JobBuilder grants de profiles', () => {
       <JobBuilder editJob={subagentJob('{{ .event.profile }}')} onClose={vi.fn()} />,
     );
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('bloqueia grants do estado persistido enquanto o draft diverge sem recarregar profiles', async () => {
+    const user = userEvent.setup();
+    getGrantState.mockResolvedValue({
+      grants: [{ targetProfileSlug: 'pesquisa' }],
+      fingerprint: 'fp',
+      profileExpression: 'pesquisa',
+    });
+    render(<JobBuilder editJob={subagentJob('pesquisa')} onClose={vi.fn()} />);
+    await screen.findByText('Pesquisa');
+    const callsBeforeEdit = getProfiles.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'edit-profile' }));
+    expect(screen.getByRole('button', { name: 'jobs.builder.revokeProfile' })).toBeDisabled();
+    expect(screen.getByText('jobs.builder.saveProfileConfigurationFirst')).toBeInTheDocument();
+    expect(getProfiles).toHaveBeenCalledTimes(callsBeforeEdit);
   });
 });

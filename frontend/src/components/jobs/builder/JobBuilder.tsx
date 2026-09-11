@@ -195,6 +195,9 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [persistedJobId, setPersistedJobId] = useState(editJob?.id ?? '');
+  const [persistedProfileExpression, setPersistedProfileExpression] = useState(
+    typeof editJob?.inputs?.profile === 'string' ? editJob.inputs.profile.trim() : '',
+  );
   const [installedProfiles, setInstalledProfiles] = useState<Array<{ slug: string; name: string }>>([]);
   const [authorizedProfiles, setAuthorizedProfiles] = useState<string[]>([]);
   const [selectedProfile, setSelectedProfile] = useState('');
@@ -229,11 +232,15 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     ? draft.inputs.profile.trim()
     : '';
   const isDynamicProfile = profileExpression.includes('{{');
+  const profileGrantConfigurationDirty = Boolean(
+    persistedJobId && profileExpression !== persistedProfileExpression,
+  );
 
   const refreshProfileGrants = useCallback(async (jobId: string) => {
     if (!jobId) return;
     const state = await getJobProfileGrantState(jobId);
     setAuthorizedProfiles((state.grants ?? []).map((grant) => grant.targetProfileSlug));
+    setPersistedProfileExpression((state.profileExpression ?? '').trim());
   }, [getJobProfileGrantState]);
 
   useEffect(() => {
@@ -244,7 +251,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     if (persistedJobId) {
       refreshProfileGrants(persistedJobId).catch(() => setAuthorizedProfiles([]));
     }
-  }, [isSubagentJob, persistedJobId, profileExpression, refreshProfileGrants]);
+  }, [isSubagentJob, persistedJobId, refreshProfileGrants]);
 
   const outputHasArrays = useMemo(() => hasArraysInData(testOutput), [testOutput]);
   const shouldAnnounceFanoutNoArraysWarning = Boolean(
@@ -255,6 +262,12 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     setError(message);
     announce(message, 'assertive');
   }, [announce]);
+
+  useEffect(() => {
+    if (profileGrantConfigurationDirty) {
+      announce(t('jobs.builder.saveProfileConfigurationFirst'), 'polite');
+    }
+  }, [announce, profileGrantConfigurationDirty, t]);
 
   useEffect(() => {
     if (shouldAnnounceFanoutNoArraysWarning && testOutput && announcedFanoutWarningRef.current !== testOutput) {
@@ -447,17 +460,19 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
           : undefined,
       };
       const result = await saveJob(JSON.stringify(jobData));
-      setPersistedJobId(finalId);
+      const savedId = result.jobId || finalId;
+      setPersistedJobId(savedId);
+      setPersistedProfileExpression(profileExpression);
       if (result.authorizationRequired && result.targetProfileSlug) {
-        const approved = await handleAuthorizeProfile(finalId, result.targetProfileSlug);
+        const approved = await handleAuthorizeProfile(savedId, result.targetProfileSlug);
         if (approved && result.requestedEnabled) {
-          await toggleJob(finalId, true);
+          await toggleJob(savedId, true);
         } else {
           announce(t('jobs.builder.savedDisabledWithoutAuthorization'), 'assertive');
         }
       } else if (result.authorizationRequired && result.dynamicProfile) {
         announce(t('jobs.builder.savedDisabledChooseProfiles'), 'assertive');
-        await refreshProfileGrants(finalId);
+        await refreshProfileGrants(savedId);
         onSaved?.();
         return;
       }
@@ -644,7 +659,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                     <Button
                       variant="outline"
                       onClick={() => handleRevokeProfile(slug)}
-                      disabled={profileGrantBusy}
+                      disabled={profileGrantBusy || profileGrantConfigurationDirty}
                     >
                       {t('jobs.builder.revokeProfile')}
                     </Button>
@@ -667,6 +682,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                       ]}
                       value={selectedProfile}
                       onChange={(event) => setSelectedProfile(event.target.value)}
+                      disabled={profileGrantConfigurationDirty}
                       fullWidth
                     />
                   </FormField>
@@ -681,12 +697,16 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                   )}
                   disabled={
                     profileGrantBusy
+                    || profileGrantConfigurationDirty
                     || !(isDynamicProfile ? selectedProfile : profileExpression)
                     || authorizedProfiles.includes(isDynamicProfile ? selectedProfile : profileExpression)
                   }
                 >
                   {t('jobs.builder.authorizeProfile')}
                 </Button>
+                {profileGrantConfigurationDirty && (
+                  <p>{t('jobs.builder.saveProfileConfigurationFirst')}</p>
+                )}
               </div>
             ) : (
               <p role="note">{t('jobs.builder.saveBeforeAuthorizingProfiles')}</p>

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"assistente/internal/eventctx"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/logging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -352,6 +353,18 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		}
 		return nil, fmt.Errorf("resolve inputs: %w", err)
 	}
+	if job.Tool == jobprofilegrant.ToolSubagent {
+		if expression, configured := job.Inputs["profile"].(string); configured && strings.Contains(expression, "{{") {
+			resolvedProfile, ok := resolvedInputs["profile"].(string)
+			if !ok || isEmptyTemplateValue(resolvedProfile) {
+				return nil, permanentAttemptFailure(
+					errors.New("template explícito de profile resolveu para vazio"),
+					tools.ErrorKindAuthorization,
+					"authorization_not_granted",
+				)
+			}
+		}
+	}
 
 	resolvedInputs = CoerceInputs(resolvedInputs, tool.Parameters())
 
@@ -545,6 +558,11 @@ func permanentAttemptFailure(err error, kind tools.ErrorKind, code string) error
 	}
 }
 
+func isEmptyTemplateValue(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || value == "<no value>"
+}
+
 // runProvenance monta a proveniência carimbada no ctx do run, espelhando a
 // semântica de cadeia de emitSuccess (chainID herdado do trigger ou o RunID).
 func (e *JobExecutor) runProvenance(job *Job, trigCtx *TriggerContext, rl *RunLog) eventctx.Provenance {
@@ -564,13 +582,9 @@ func (e *JobExecutor) runProvenance(job *Job, trigCtx *TriggerContext, rl *RunLo
 	chain := make([]string, 0, len(history)+1)
 	chain = append(chain, history...)
 	chain = append(chain, job.ID)
-	sourceJobID := strings.TrimSpace(job.DatabaseID)
-	if sourceJobID == "" {
-		sourceJobID = job.ID
-	}
 	return eventctx.Provenance{
 		Source:       "job",
-		SourceJobID:  sourceJobID,
+		SourceJobID:  job.ID,
 		ChainID:      chainID,
 		ChainHistory: chain,
 	}
