@@ -62,6 +62,9 @@ func TestStartStreamWatchdogNaoEstouraQuandoPaiCancelar(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	watchCtx, wd := startStreamWatchdog(ctx, time.Hour, nil)
+	wd.mu.Lock()
+	wd.lastActivity = time.Now().Add(-2 * time.Hour)
+	wd.mu.Unlock()
 	cancel()
 	wd.Stop()
 
@@ -70,6 +73,21 @@ func TestStartStreamWatchdogNaoEstouraQuandoPaiCancelar(t *testing.T) {
 	}
 	if wd.TimedOut() {
 		t.Fatal("Stop não é estouro: TimedOut deve permanecer false")
+	}
+}
+
+func TestStreamWatchdogKickNaoRessuscitaDeadlineExpirado(t *testing.T) {
+	_, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
+	wd.mu.Lock()
+	expiredActivity := time.Now().Add(-2 * time.Hour)
+	wd.lastActivity = expiredActivity
+	wd.mu.Unlock()
+
+	wd.Kick()
+	wd.Stop()
+
+	if !wd.TimedOut() {
+		t.Fatal("kick posterior ao deadline não pode ressuscitar a tentativa")
 	}
 }
 

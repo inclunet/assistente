@@ -359,6 +359,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 			// ÃƒÂ© descartÃƒÂ¡vel; com conteÃƒÂºdo jÃƒÂ¡ entregue, repetir duplicaria a resposta.
 			if wd.TimedOut() {
 				if !emittedNonRetryableEffect {
+					reportCurrentDiagnostics()
 					return false
 				}
 				reportCurrentDiagnostics()
@@ -368,6 +369,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 			}
 
 			if !emittedNonRetryableEffect && isRetryableError(errStr) {
+				reportCurrentDiagnostics()
 				return false
 			}
 
@@ -425,6 +427,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 				}
 				if wd.TimedOut() {
 					if !emittedNonRetryableEffect {
+						reportCurrentDiagnostics()
 						return false
 					}
 					reportCurrentDiagnostics()
@@ -450,6 +453,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 				}
 				if wd.TimedOut() {
 					if !emittedNonRetryableEffect {
+						reportCurrentDiagnostics()
 						return false
 					}
 					reportCurrentDiagnostics()
@@ -487,6 +491,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
 		if !emittedNonRetryableEffect {
+			reportCurrentDiagnostics()
 			return false
 		}
 		reportCurrentDiagnostics()

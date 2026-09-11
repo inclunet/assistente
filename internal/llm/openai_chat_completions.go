@@ -267,6 +267,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				}
 				if wd.TimedOut() {
 					if !emittedVisibleContent {
+						reportCurrentDiagnostics()
 						return chatStreamAttempt{plainRetry: true}
 					}
 					finishThinking()
@@ -299,6 +300,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
 			if !emittedVisibleContent {
+				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
 			finishThinking()
@@ -327,6 +329,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 
 			if isRetryableError(errStr) {
+				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
 		}
@@ -351,6 +354,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			"partial_bytes", fullResponse.Len(),
 		)
 		if !emittedVisibleContent {
+			reportCurrentDiagnostics()
 			return chatStreamAttempt{plainRetry: true}
 		}
 		finishThinking()

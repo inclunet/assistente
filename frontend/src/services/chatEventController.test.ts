@@ -1590,4 +1590,36 @@ describe('chatEventController', () => {
       sessions['conversation-1'].conversation?.threadedMessages[0].message.reasoning,
     ).toBe('');
   });
+
+  it('não vincula o controller por thinking atrasado antes de messages_ready', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'assistant-antigo',
+      turnId: 'turn-antigo',
+      started: true,
+      content: 'atrasado',
+    });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-novo',
+      userContent: 'pergunta nova',
+      turnId: 'turn-novo',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      messageId: 'assistant-novo',
+      turnId: 'turn-novo',
+      delta: 'resposta nova',
+      reset: true,
+      sequence: 0,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['user-novo', 'assistant-novo']);
+    expect(messages[1].message.content).toBe('resposta nova');
+  });
 });

@@ -344,6 +344,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 					}
 					if wd.TimedOut() {
 						if !emittedNonRetryableEffect {
+							reportCurrentDiagnostics()
 							return mcpStreamAttemptResult{retry: true}
 						}
 						finishThinking()
@@ -370,6 +371,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				}
 				if wd.TimedOut() {
 					if !emittedNonRetryableEffect {
+						reportCurrentDiagnostics()
 						return mcpStreamAttemptResult{retry: true}
 					}
 					finishThinking()
@@ -575,6 +577,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
 			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
+				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{retry: true}
 			}
 			finishThinking()
@@ -607,6 +610,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
 			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{retry: true}
 			}
 			finishThinking()
@@ -626,6 +630,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
+			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true}
 		}
 		finishThinking()
@@ -648,6 +653,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			"partial_bytes", fullResponse.Len(),
 		)
 		if !emittedNonRetryableEffect {
+			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true}
 		}
 		finishThinking()

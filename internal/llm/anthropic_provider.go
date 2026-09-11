@@ -566,6 +566,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 					}
 					if wd.TimedOut() {
 						if !emittedNonRetryableEffect {
+							reportCurrentDiagnostics()
 							return mcpStreamAttemptResult{retry: true}
 						}
 						reportCurrentDiagnostics()
@@ -587,6 +588,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 					}
 					if wd.TimedOut() {
 						if !emittedNonRetryableEffect {
+							reportCurrentDiagnostics()
 							return mcpStreamAttemptResult{retry: true}
 						}
 						reportCurrentDiagnostics()
@@ -657,6 +659,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
 			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{retry: true}
 			}
 			reportCurrentDiagnostics()
@@ -672,6 +675,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
+			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true}
 		}
 		reportCurrentDiagnostics()
@@ -688,6 +692,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
 		if !emittedNonRetryableEffect {
+			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true}
 		}
 		reportCurrentDiagnostics()
@@ -861,6 +866,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 					}
 					if wd.TimedOut() {
 						if !emittedNonRetryableEffect {
+							reportCurrentDiagnostics()
 							return false
 						}
 						reportCurrentDiagnostics()
@@ -882,6 +888,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 					}
 					if wd.TimedOut() {
 						if !emittedNonRetryableEffect {
+							reportCurrentDiagnostics()
 							return false
 						}
 						reportCurrentDiagnostics()
@@ -952,6 +959,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
 			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
 				return false
 			}
 			reportCurrentDiagnostics()
@@ -961,6 +969,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		}
 
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
+			reportCurrentDiagnostics()
 			return false
 		}
 
@@ -978,6 +987,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
 		if !emittedNonRetryableEffect {
+			reportCurrentDiagnostics()
 			return false
 		}
 		reportCurrentDiagnostics()

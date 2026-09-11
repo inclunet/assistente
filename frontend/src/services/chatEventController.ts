@@ -265,6 +265,7 @@ export function startChatEventController({
   // via chat:speak; o leitor de tela precisa de um aviso de conclusão próprio.
   let turnHadAssistantText = false;
   let currentTurnId: string | null = null;
+  let provisionalThinkingTurnId: string | null = null;
   let streamedContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
@@ -543,7 +544,28 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (!event.userMessageId) return;
-    currentTurnId = event.turnId || event.userMessageId.toString();
+    const nextTurnId = event.turnId || event.userMessageId.toString();
+    if (
+      provisionalThinkingTurnId
+      && provisionalThinkingTurnId !== nextTurnId
+      && currentAssistantNodeId
+    ) {
+      const staleAssistantId = currentAssistantNodeId;
+      adapter.patchConversation(conversationId, (conversation) => ({
+        ...conversation,
+        threadedMessages: conversation.threadedMessages.filter(
+          (node) => node.message.id !== staleAssistantId,
+        ),
+      }));
+      currentAssistantNodeId = null;
+      assistantNodeCreated = false;
+      streamedContent = '';
+      streamInitialized = false;
+      pendingVisualContent = null;
+      patchCurrentSession({ streamingMessageId: null, streamingReasoning: null, isThinking: false });
+    }
+    provisionalThinkingTurnId = null;
+    currentTurnId = nextTurnId;
     if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
     const userMsg = new chat.EnrichedMessage({
       id: event.userMessageId.toString(),
@@ -675,7 +697,7 @@ export function startChatEventController({
   unsubThinking = turnEvents.on('chat:thinking', (event: ChatThinkingEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
+    if (!currentTurnId && event.turnId) provisionalThinkingTurnId = event.turnId;
     ensureAssistantNode(event.assistantMessageId);
     if (event.started) {
       patchCurrentSession({

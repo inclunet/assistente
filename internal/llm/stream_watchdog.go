@@ -65,6 +65,10 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 				return
 			case <-timer.C:
 				w.mu.Lock()
+				if w.parent.Err() != nil {
+					w.mu.Unlock()
+					return
+				}
 				remaining := w.idle - time.Since(w.lastActivity)
 				if remaining > 0 {
 					w.mu.Unlock()
@@ -97,7 +101,12 @@ func startStreamWatchdog(ctx context.Context, idle time.Duration, onTimeout func
 // Kick sinaliza atividade: reinicia a contagem de ociosidade. Non-blocking.
 func (w *streamWatchdog) Kick() {
 	w.mu.Lock()
-	w.lastActivity = time.Now()
+	now := time.Now()
+	if w.timedOut || now.Sub(w.lastActivity) >= w.idle {
+		w.mu.Unlock()
+		return
+	}
+	w.lastActivity = now
 	w.mu.Unlock()
 	select {
 	case w.kick <- struct{}{}:
