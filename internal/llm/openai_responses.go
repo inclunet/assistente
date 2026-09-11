@@ -282,6 +282,16 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		isThinking = false
 		thinkingBuffer.Reset()
 	}
+	discardThinking := func() {
+		if thinkingFinished || fullReasoning.Len() == 0 {
+			return
+		}
+		handler.OnThinkingDone("")
+		thinkingFinished = true
+		isThinking = false
+		thinkingBuffer.Reset()
+		resetStreamAttempt(handler)
+	}
 	reportCurrentDiagnostics := func() {
 		model := lastModel
 		if model == "" {
@@ -562,6 +572,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		}
 	}
 
+	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
@@ -612,7 +623,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Parar e aguardar o watchdog fecha a janela entre consultar
 	// TimedOut e entregar OnDone.
-	wd.Stop()
 	if wd.TimedOut() {
 		logging.Logger(ctx, "llm.openai-responses").ErrorContext(
 			ctx,
@@ -648,7 +658,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		thinkingBuffer.Reset()
 		isThinking = false
 	}
-	finishThinking()
 	if finish.Reason == FinishReasonMaxTokens && len(activeFuncCalls) > 0 {
 		itemIDs := make([]string, 0, len(activeFuncCalls))
 		for itemID := range activeFuncCalls {
@@ -675,6 +684,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	lastModel = diagnosticModel
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
 	reportUsage(handler, lastUsage)
+	if finish.Reason == "" && len(finishedToolCalls) == 0 && !emittedNonRetryableEffect {
+		discardThinking()
+	} else {
+		finishThinking()
+	}
 	select {
 	case <-ctx.Done():
 		finishThinking()

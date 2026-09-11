@@ -168,6 +168,16 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		isThinking = false
 		thinkingBuffer.Reset()
 	}
+	discardThinking := func() {
+		if thinkingFinished || fullReasoning.Len() == 0 {
+			return
+		}
+		handler.OnThinkingDone("")
+		thinkingFinished = true
+		isThinking = false
+		thinkingBuffer.Reset()
+		resetStreamAttempt(handler)
+	}
 
 	// Coletar tool calls finalizadas durante streaming
 	var finishedToolCalls []ToolCall
@@ -272,6 +282,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 	}
 
+	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
@@ -333,7 +344,6 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Parar e aguardar o watchdog fecha a janela entre consultar
 	// TimedOut e entregar OnDone.
-	wd.Stop()
 	if wd.TimedOut() {
 		logging.Logger(ctx, "llm.openai-chat-completions").ErrorContext(
 			ctx,
@@ -360,8 +370,6 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		thinkingBuffer.Reset()
 		isThinking = false
 	}
-	finishThinking()
-
 	usage, finish, model := currentDiagnostics()
 	reportUsage(handler, usage)
 
@@ -382,6 +390,11 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
+	if finish.Reason == "" && len(finishedToolCalls) == 0 && !emittedVisibleContent {
+		discardThinking()
+	} else {
+		finishThinking()
+	}
 	select {
 	case <-ctx.Done():
 		finishThinking()

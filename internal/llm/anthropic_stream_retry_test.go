@@ -73,3 +73,38 @@ func TestAnthropicStreamRetryAvisoEFinalizacao(t *testing.T) {
 		t.Fatalf("esperava exatamente 1 aviso stream_retry (falha 502); veio %d", avisosRetry)
 	}
 }
+
+func TestAnthropicTimeoutParcialPreservaDiagnosticos(t *testing.T) {
+	stream := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"1\",\"model\":\"claude-real\",\"usage\":{\"input_tokens\":1}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(&ProviderConfig{
+		ID: "anthropic-timeout", Name: "Anthropic Timeout", BaseURL: server.URL,
+		Type: ProviderClaude, Model: "claude-test", AuthMode: AuthModeNone,
+		StreamIdleTimeoutSeconds: 1,
+	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(context.Background(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "claude-test", MaxTokens: 123}, handler)
+
+	if handler.err != streamIdleErrorMessage || !handler.naoRetentavel {
+		t.Fatalf("timeout terminal inválido: err=%q nonRetryable=%v", handler.err, handler.naoRetentavel)
+	}
+	if got := handler.finish; got.Provider != "anthropic-timeout" || got.Model != "claude-real" ||
+		got.OutputLimit != 123 || got.ResponseBytes != len("ok") {
+		t.Fatalf("diagnóstico de timeout incompleto: %+v", got)
+	}
+	if !handler.usage.OutputTokensReported || handler.usage.CompletionTokens != 2 {
+		t.Fatalf("usage de timeout incompleta: %+v", handler.usage)
+	}
+}

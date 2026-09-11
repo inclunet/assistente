@@ -115,3 +115,42 @@ func TestGooglePreservaReasoningZeroExplicitamenteReportado(t *testing.T) {
 		t.Fatalf("output ausente não pode virar zero reportado: %#v", handler.usage)
 	}
 }
+
+func TestGoogleTimeoutParcialPreservaDiagnosticos(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sseGeminiChunk))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	ctxCred := database.WithUserID(context.Background(), "user-timeout")
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-timeout.test", &credentials.AuthConfig{
+		Type: "bearer", Token: "test-key",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+	provider := NewGoogleProvider(&ProviderConfig{
+		ID: "google-timeout", Name: "Google Timeout", BaseURL: server.URL,
+		Type: ProviderType("gemini"), Model: "gemini-test", CredentialPattern: "gemini-timeout.test",
+		StreamIdleTimeoutSeconds: 1,
+	}, credMgr)
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gemini-test", MaxTokens: 321}, handler)
+
+	if handler.err != streamIdleErrorMessage || !handler.naoRetentavel {
+		t.Fatalf("timeout terminal inválido: err=%q nonRetryable=%v", handler.err, handler.naoRetentavel)
+	}
+	if got := handler.finish; got.Provider != "google-timeout" || got.Model != "gemini-test" ||
+		got.OutputLimit != 321 || got.ResponseBytes != len("ok") {
+		t.Fatalf("diagnóstico de timeout incompleto: %+v", got)
+	}
+	if !handler.usage.OutputTokensReported || handler.usage.CompletionTokens != 2 ||
+		!handler.usage.ReasoningTokensReported || handler.usage.ReasoningTokens != 5 {
+		t.Fatalf("usage de timeout incompleta: %+v", handler.usage)
+	}
+}

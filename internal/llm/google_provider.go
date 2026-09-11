@@ -339,6 +339,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 	for resp, err := range client.Models.GenerateContentStream(watchCtx, model, contents, config) {
 		wd.Kick()
 		if err != nil {
+			wd.Stop()
 			errStr := err.Error()
 			logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream error: %s", errStr)
 

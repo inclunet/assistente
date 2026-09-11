@@ -81,6 +81,27 @@ func TestChatCompletions_ThinkingSemFechamentoFinalizaRaciocinio(t *testing.T) {
 	}
 }
 
+func TestChatCompletions_ThinkingSemConclusaoEDescartado(t *testing.T) {
+	stream := "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<thinking>descartado\"},\"finish_reason\":null}]}\n\n" +
+		"data: [DONE]\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	p := NewOpenAIProvider(&ProviderConfig{ID: "test", BaseURL: server.URL + "/v1", AuthMode: AuthModeNone}, credentials.NewManager(nil))
+	h := &spyHandler{}
+	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m"}, h)
+
+	if got, want := h.thinking, []string{"descartado", "done:"}; !slicesEqual(got, want) {
+		t.Fatalf("thinking descartado=%v, esperado %v", got, want)
+	}
+	if h.nonRetryable {
+		t.Fatal("thinking isolado não deve bloquear recuperação externa")
+	}
+}
+
 func TestChatCompletions_CancelamentoAposThinkingNaoEmiteChunk(t *testing.T) {
 	stream := "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"<thinking>segredo</thinking>visivel\"},\"finish_reason\":null}]}\n\n"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -150,6 +171,29 @@ func TestResponses_ThinkingSemFechamentoFinalizaRaciocinio(t *testing.T) {
 	}
 	if got, want := h.thinking, []string{"segredo", "done:segredo"}; !slicesEqual(got, want) {
 		t.Fatalf("eventos de thinking = %v, esperado %v", got, want)
+	}
+}
+
+func TestResponses_ThinkingSemConclusaoEDescartado(t *testing.T) {
+	stream := "event: response.reasoning_summary_text.delta\n" +
+		"data: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":1,\"item_id\":\"reason_1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"descartado\"}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	p := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "test", BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone,
+	}, credentials.NewManager(nil))
+	h := &spyHandler{}
+	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m"}, h)
+
+	if got, want := h.thinking, []string{"descartado", "done:"}; !slicesEqual(got, want) {
+		t.Fatalf("thinking descartado=%v, esperado %v", got, want)
+	}
+	if h.nonRetryable {
+		t.Fatal("thinking isolado não deve bloquear recuperação externa")
 	}
 }
 

@@ -71,7 +71,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
 	h.FinishThinkingIfActive()
-	content, reasoning := h.Finalize()
+	_, _ = h.Finalize()
 	h.closePendingAgentTools()
 	// A supressão existe para não finalizar o streaming enquanto ainda há
 	// tentativa pela frente. Um erro que não pode ser repetido encerra o turno
@@ -79,7 +79,6 @@ func (h *SimpleStreamHandler) OnError(err string) {
 	if h.suppressTerminalError && !h.ErrorNotRetryable() {
 		return
 	}
-	h.svc.persistAssistantPartialBestEffort(h.ctx, h.assistantMessageID, content, reasoning)
 	streamEvent := events.StreamEvent{
 		MessageID:            h.AssistantMessageID,
 		Done:                 true,

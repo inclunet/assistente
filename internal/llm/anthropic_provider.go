@@ -598,6 +598,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		}
 	}
 
+	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream error: %s", errStr)
@@ -640,7 +641,6 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Nesse caso não há conclusão válida a entregar.
-	wd.Stop()
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
 		if !emittedAnything {
@@ -850,6 +850,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		}
 	}
 
+	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream error: %s", errStr)
@@ -887,7 +888,6 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
 	// truncada. Nesse caso não há conclusão válida a entregar.
-	wd.Stop()
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
 		if !emittedAnything {
