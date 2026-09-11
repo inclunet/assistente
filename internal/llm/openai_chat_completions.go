@@ -261,6 +261,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 					}
 					finishThinking()
 					reportCurrentDiagnostics()
+					markErrorNotRetryable(handler)
 					handler.OnError(streamIdleErrorMessage)
 					return chatStreamAttempt{done: true}
 				}
@@ -291,6 +292,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 			finishThinking()
 			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return chatStreamAttempt{done: true}
 		}
@@ -340,6 +342,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 		finishThinking()
 		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return chatStreamAttempt{done: true}
 	}
@@ -385,6 +388,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	ReportFinishReason(handler, finish)
 
 	if finish.Reason == "" && len(finishedToolCalls) == 0 {
+		if emittedVisibleContent {
+			markErrorNotRetryable(handler)
+		}
 		handler.OnError("streaming_interrupted")
 		return chatStreamAttempt{done: true}
 	}

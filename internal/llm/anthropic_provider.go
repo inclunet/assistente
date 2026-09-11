@@ -454,6 +454,18 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		ArgsJSON   string
 	}
 	activeMCPTools := make(map[string]*mcpToolInfo) // keyed by tool use ID
+	reportCurrentDiagnostics := func() {
+		model := lastModel
+		if model == "" {
+			model = string(params.Model)
+		}
+		currentFinish := finishInfoWithToolCalls(normalizeAnthropicFinishReason(stopReason), len(finishedToolCalls))
+		currentFinish = finishInfoWithDiagnostics(
+			currentFinish, p.provider, model, int(params.MaxTokens), fullResponse.Len(),
+		)
+		reportUsage(handler, lastUsage)
+		ReportFinishReason(handler, currentFinish)
+	}
 
 	for stream.Next() {
 		wd.Kick()
@@ -602,6 +614,8 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			if !emittedAnything {
 				return mcpStreamAttemptResult{retry: true}
 			}
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
@@ -614,6 +628,10 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		}
 		if !emittedAnything && isRetryableError(errStr) {
 			return mcpStreamAttemptResult{retry: true}
+		}
+		if emittedAnything {
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
 		}
 		handler.OnError(errStr)
 		return mcpStreamAttemptResult{done: true}
@@ -628,6 +646,8 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		if !emittedAnything {
 			return mcpStreamAttemptResult{retry: true}
 		}
+		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
 	}
@@ -731,6 +751,18 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	activeToolCalls := make(map[int64]*pendingToolCall)
 	var finishedToolCalls []ToolCall
 	var stopReason string
+	reportCurrentDiagnostics := func() {
+		model := lastModel
+		if model == "" {
+			model = string(params.Model)
+		}
+		currentFinish := finishInfoWithToolCalls(normalizeAnthropicFinishReason(stopReason), len(finishedToolCalls))
+		currentFinish = finishInfoWithDiagnostics(
+			currentFinish, p.provider, model, int(params.MaxTokens), fullResponse.Len(),
+		)
+		reportUsage(handler, lastUsage)
+		ReportFinishReason(handler, currentFinish)
+	}
 
 	for stream.Next() {
 		wd.Kick()
@@ -834,6 +866,8 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			if !emittedAnything {
 				return false
 			}
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return true
 		}
@@ -842,6 +876,10 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			return false
 		}
 
+		if emittedAnything {
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+		}
 		handler.OnError(errStr)
 		return true
 	}
@@ -855,6 +893,8 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		if !emittedAnything {
 			return false
 		}
+		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return true
 	}

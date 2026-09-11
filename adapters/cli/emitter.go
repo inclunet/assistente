@@ -108,12 +108,24 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 		e.handleDone(data)
 	case event == "chat:segment_done":
 		e.handleSegmentDone(data)
+	case event == "chat:notice":
+		e.handleNotice(data)
 	case strings.HasPrefix(event, "chat:tool_"):
 		e.handleTool(event, data)
 	default:
 		if e.verbose {
 			_, _ = fmt.Fprintf(e.errOut, "[event] %s\n", event)
 		}
+	}
+}
+
+func (e *EmitterAdapter) handleNotice(data any) {
+	ev, ok := e.toNoticeEvent(data)
+	if !ok || (e.conversationID != "" && ev.ConversationID != e.conversationID) {
+		return
+	}
+	if ev.Kind == "stream_retry" {
+		_, _ = fmt.Fprintln(e.errOut, localizedStreamRetryNotice(e.locale, ev.Count))
 	}
 }
 
@@ -473,6 +485,17 @@ func localizedErrorPrefix(locale string) string {
 	}
 }
 
+func localizedStreamRetryNotice(locale string, count int) string {
+	switch normalizeCLILocale(locale) {
+	case "pt-BR":
+		return fmt.Sprintf("A conexão com o provedor falhou na tentativa %d. Tentando de novo…", count)
+	case "es":
+		return fmt.Sprintf("La conexión con el proveedor falló en el intento %d. Reintentando…", count)
+	default:
+		return fmt.Sprintf("The connection to the provider failed on attempt %d. Retrying…", count)
+	}
+}
+
 func detectCLILocale() string {
 	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
@@ -540,6 +563,28 @@ func (e *EmitterAdapter) toStreamEvent(data any) (ports.StreamEvent, bool) {
 		return ev, true
 	}
 	return ports.StreamEvent{}, false
+}
+
+func (e *EmitterAdapter) toNoticeEvent(data any) (ports.ChatNoticeEvent, bool) {
+	switch v := data.(type) {
+	case ports.ChatNoticeEvent:
+		return v, true
+	case *ports.ChatNoticeEvent:
+		if v != nil {
+			return *v, true
+		}
+	case map[string]any:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ports.ChatNoticeEvent{}, false
+		}
+		var ev ports.ChatNoticeEvent
+		if err := json.Unmarshal(b, &ev); err != nil {
+			return ports.ChatNoticeEvent{}, false
+		}
+		return ev, true
+	}
+	return ports.ChatNoticeEvent{}, false
 }
 
 // errorConversationID extrai o ConversationID do payload de erro, se disponível.

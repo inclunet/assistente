@@ -150,6 +150,12 @@ type NonRetryableErrorSink interface {
 	MarkErrorNotRetryable()
 }
 
+func markErrorNotRetryable(handler StreamHandler) {
+	if sink, ok := handler.(NonRetryableErrorSink); ok {
+		sink.MarkErrorNotRetryable()
+	}
+}
+
 // FinishReason é o motivo de término normalizado entre transports (AEP-0098).
 // Vazio preserva compatibilidade com providers que não informam um motivo.
 type FinishReason string

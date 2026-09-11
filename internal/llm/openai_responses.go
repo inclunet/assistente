@@ -338,6 +338,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 						}
 						finishThinking()
 						reportCurrentDiagnostics()
+						markErrorNotRetryable(handler)
 						handler.OnError(streamIdleErrorMessage)
 						return mcpStreamAttemptResult{done: true}
 					}
@@ -578,6 +579,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			}
 			finishThinking()
 			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
@@ -616,6 +618,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		}
 		finishThinking()
 		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
 	}
@@ -675,6 +678,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	ReportFinishReason(handler, finish)
 
 	if finish.Reason == "" && len(finishedToolCalls) == 0 {
+		if emittedNonRetryableEffect {
+			markErrorNotRetryable(handler)
+		}
 		handler.OnError("streaming_interrupted")
 		return mcpStreamAttemptResult{done: true}
 	}

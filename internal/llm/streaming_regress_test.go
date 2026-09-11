@@ -11,11 +11,12 @@ import (
 
 type spyHandler struct {
 	noopStreamHandler
-	chunks   []string
-	thinking []string
-	err      string
-	done     string
-	usage    Usage
+	chunks       []string
+	thinking     []string
+	err          string
+	done         string
+	usage        Usage
+	nonRetryable bool
 }
 
 func (s *spyHandler) OnChunk(c string)                         { s.chunks = append(s.chunks, c) }
@@ -24,6 +25,7 @@ func (s *spyHandler) OnThinkingDone(c string)                  { s.thinking = ap
 func (s *spyHandler) OnDone(content string, _ Usage, _ string) { s.done = content }
 func (s *spyHandler) OnError(e string)                         { s.err = e }
 func (s *spyHandler) OnUsage(usage Usage)                      { s.usage = usage }
+func (s *spyHandler) MarkErrorNotRetryable()                   { s.nonRetryable = true }
 
 type cancelOnThinkingHandler struct {
 	spyHandler
@@ -55,6 +57,9 @@ func TestChatCompletions_StreamSemFinishReasonGeraErro(t *testing.T) {
 	}
 	if !h.usage.OutputTokensReported || h.usage.CompletionTokens != 2 {
 		t.Fatalf("usage terminal não foi propagado: %+v", h.usage)
+	}
+	if !h.nonRetryable {
+		t.Fatal("stream interrompido após texto não pode ser repetido")
 	}
 }
 
@@ -117,6 +122,9 @@ func TestResponses_StreamSemConclusaoGeraErro(t *testing.T) {
 	}
 	if h.done != "" {
 		t.Fatalf("não deveria chamar OnDone sem conclusão, veio %q", h.done)
+	}
+	if !h.nonRetryable {
+		t.Fatal("Responses interrompido após texto não pode ser repetido")
 	}
 }
 
@@ -197,6 +205,9 @@ func TestChatCompletions_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
 	if !h.usage.OutputTokensReported || h.usage.CompletionTokens != 2 {
 		t.Fatalf("usage terminal incompleto: %+v", h.usage)
 	}
+	if !h.nonRetryable {
+		t.Fatal("timeout após texto não pode ser repetido externamente")
+	}
 }
 
 func TestResponses_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
@@ -229,6 +240,9 @@ func TestResponses_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
 	if !h.usage.OutputTokensReported || h.usage.CompletionTokens != 2 ||
 		!h.usage.ReasoningTokensReported || h.usage.ReasoningTokens != 1 {
 		t.Fatalf("usage terminal incompleto: %+v", h.usage)
+	}
+	if !h.nonRetryable {
+		t.Fatal("timeout Responses após efeito não pode ser repetido externamente")
 	}
 }
 

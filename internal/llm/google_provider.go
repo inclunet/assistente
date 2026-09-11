@@ -327,6 +327,14 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 	var lastUsage Usage
 	var functionCalls []ToolCall
 	var finish FinishInfo
+	reportCurrentDiagnostics := func() {
+		currentFinish := finishInfoWithToolCalls(finish, len(functionCalls))
+		currentFinish = finishInfoWithDiagnostics(
+			currentFinish, p.provider, model, int(config.MaxOutputTokens), fullResponse.Len(),
+		)
+		reportUsage(handler, lastUsage)
+		ReportFinishReason(handler, currentFinish)
+	}
 
 	for resp, err := range client.Models.GenerateContentStream(watchCtx, model, contents, config) {
 		wd.Kick()
@@ -346,6 +354,8 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 				if !emittedAnything {
 					return false
 				}
+				reportCurrentDiagnostics()
+				markErrorNotRetryable(handler)
 				handler.OnError(streamIdleErrorMessage)
 				return true
 			}
@@ -354,6 +364,10 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 				return false
 			}
 
+			if emittedAnything {
+				reportCurrentDiagnostics()
+				markErrorNotRetryable(handler)
+			}
 			handler.OnError(errStr)
 			return true
 		}
@@ -435,6 +449,8 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 		if !emittedAnything {
 			return false
 		}
+		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return true
 	}

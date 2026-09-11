@@ -133,6 +133,25 @@ func TestEmitterAdapter_TraduzCodigosDeErroDeStreaming(t *testing.T) {
 	}
 }
 
+func TestEmitterAdapter_ExibeAvisoDeRetryLocalizado(t *testing.T) {
+	var out, errOut bytes.Buffer
+	e := cli.NewEmitterAdapter(
+		cli.WithOutput(&out),
+		cli.WithErrOutput(&errOut),
+		cli.WithLocale("es"),
+	)
+
+	e.Emit("chat:notice", ports.ChatNoticeEvent{
+		ConversationID: "conv-1",
+		Kind:           "stream_retry",
+		Count:          2,
+	})
+
+	if got, want := errOut.String(), "La conexión con el proveedor falló en el intento 2. Reintentando…\n"; got != want {
+		t.Fatalf("stderr=%q, want %q", got, want)
+	}
+}
+
 func TestEmitterAdapter_VerboseLogsEvents(t *testing.T) {
 	var out, errOut bytes.Buffer
 	e := cli.NewEmitterAdapter(
