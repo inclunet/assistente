@@ -9,6 +9,8 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
+
+	"gorm.io/gorm"
 )
 
 func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T) {
@@ -118,6 +120,15 @@ func (echoTool) Name() string { return "echo" }
 func (echoTool) Description() string {
 	return "echo"
 }
+
+type createFailRepository struct {
+	Repository
+	err error
+}
+
+func (r createFailRepository) Create(context.Context, *Invocation) error {
+	return r.err
+}
 func (echoTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}}}`)
 }
@@ -157,6 +168,31 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	}
 	if len(got.Output) == 0 {
 		t.Fatal("expected persisted output")
+	}
+}
+
+func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(echoTool{})
+	svc := NewService(
+		createFailRepository{Repository: repo, err: gorm.ErrRecordNotFound},
+		tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+	)
+
+	result := svc.Execute(userA, ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   "call-race",
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      "echo",
+				Arguments: `{"value":"não executar"}`,
+			},
+		},
+		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+	})
+	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "item do chat foi removido") {
+		t.Fatalf("resultado deveria cancelar sem executar tool: %+v", result.Execution.Result)
 	}
 }
 

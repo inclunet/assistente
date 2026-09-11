@@ -133,6 +133,27 @@ func TestRepositoryCreatesAndListsScopedInvocations(t *testing.T) {
 	}
 }
 
+func TestRepositoryNormalizesChatOriginBeforeOwnershipValidation(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := &Invocation{
+		ToolCatalogID: toolID,
+		OriginType:    " chat ",
+		OriginID:      " conversation-a ",
+		ToolCallID:    "normalized-chat",
+		Status:        StatusQueued,
+	}
+	if err := repo.Create(userA, inv); err != nil {
+		t.Fatalf("origem chat normalizada foi recusada: %v", err)
+	}
+	if inv.OriginType != OriginChat || inv.OriginID != "conversation-a" {
+		t.Fatalf("origem não normalizada: type=%q id=%q", inv.OriginType, inv.OriginID)
+	}
+}
+
 func TestCreateChatInvocationCannotRaceIntoDeletedConversation(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "race.db")), &gorm.Config{})
 	if err != nil {

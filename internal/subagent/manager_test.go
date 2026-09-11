@@ -124,6 +124,29 @@ func TestPrepareConversationDeletionCommitBloqueiaRunTardioAteExpirar(t *testing
 	mgr.releaseConversation("child")
 }
 
+func TestRunNormalizaParentAntesDeConsultarTombstone(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Send: func(context.Context, SendParams) (string, error) {
+			t.Fatal("send não deve executar para parent excluído")
+			return "", nil
+		},
+	})
+	finalize, err := mgr.PrepareConversationDeletion(ctx, []string{"parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+
+	if _, err := mgr.Run(ctx, RunParams{Prompt: "x", ParentConversationID: " parent "}); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("erro=%v, esperado parent excluído após normalização", err)
+	}
+}
+
 func TestManagerRunSyncSuccess(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

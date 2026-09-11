@@ -1,11 +1,24 @@
 package messaging
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 )
+
+type blockingUpsertStore struct {
+	*memPendingStore
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingUpsertStore) Upsert(ctx context.Context, rec ChannelPendingRecord) error {
+	close(s.started)
+	<-s.release
+	return s.memPendingStore.Upsert(ctx, rec)
+}
 
 func TestResponseNotifier_PrepareDeletionFalhaSemRemoverCallback(t *testing.T) {
 	n := NewResponseNotifier()
@@ -114,6 +127,58 @@ func TestResponseNotifier_TombstoneExpira(t *testing.T) {
 	n.Register("conversation-1", ResponseCallback{Callback: func(string, string) {}})
 	if got := n.PendingCount(); got != 1 {
 		t.Fatalf("tombstone expirado bloqueou callback: %d", got)
+	}
+}
+
+func TestResponseNotifier_PrepareDeletionDetectaUpsertEmExecucao(t *testing.T) {
+	store := &blockingUpsertStore{
+		memPendingStore: newMemPendingStore(),
+		started:         make(chan struct{}),
+		release:         make(chan struct{}),
+	}
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	n.SetPendingStore(store)
+	registered := make(chan struct{})
+	go func() {
+		n.Register("conversation-1", ResponseCallback{
+			Channel: "telegram", ChatID: "chat", TraceID: "trace", OwnerUserID: "user-1",
+			Callback: func(string, string) {},
+		})
+		close(registered)
+	}()
+	<-store.started
+	n.Cancel("conversation-1")
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro=%v, esperado operação persistente ativa", err)
+	}
+	close(store.release)
+	<-registered
+	finalize, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("preparo após Upsert: %v", err)
+	}
+	finalize(false)
+}
+
+func TestResponseNotifier_ReservaOperacaoCoordenaExclusao(t *testing.T) {
+	n := NewResponseNotifier()
+	t.Cleanup(n.Stop)
+	release, ok := n.ReserveConversationOperation(" conversation-1 ")
+	if !ok {
+		t.Fatal("reserva recusada")
+	}
+	if _, err := n.PrepareConversationDeletion([]string{"conversation-1"}); !errors.Is(err, ErrConversationCallbackActive) {
+		t.Fatalf("erro=%v, esperado operação ativa", err)
+	}
+	release()
+	finalize, err := n.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+	if _, ok := n.ReserveConversationOperation("conversation-1"); ok {
+		t.Fatal("reserva tardia atravessou tombstone")
 	}
 }
 

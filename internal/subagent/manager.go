@@ -249,6 +249,8 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	if err != nil {
 		return RunResult{}, err
 	}
+	p.ParentConversationID = strings.TrimSpace(p.ParentConversationID)
+	p.ConversationID = strings.TrimSpace(p.ConversationID)
 
 	// Backstop anti-runaway (AEP-0068/0067): a cadeia de proveniência
 	// compartilhada com jobs limita a profundidade de delegação. Verifica ANTES

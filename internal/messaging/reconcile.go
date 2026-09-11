@@ -4,6 +4,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"context"
+	"strings"
 	"time"
 )
 
@@ -70,11 +71,16 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			continue
 		}
 		if ok && content != "" {
+			releaseOperation, allowed := g.notifier.ReserveConversationOperation(rec.ConversationID)
+			if !allowed {
+				continue
+			}
 			// Re-consulta o store antes do Send: List pode estar stale se um
 			// callback vivo (ou retry) marcou delivered / Upsert de turno novo
 			// entre o snapshot e aqui. Sem isso reenviamos ao contato.
 			skip, deliveredID, known := pendingSendGate(recCtx, store, rec.ConversationID, rec.TraceID)
 			if known && skip {
+				releaseOperation()
 				if deliveredID != "" {
 					if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
 						logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete já-entregue (fresco) conv=%s: %v", rec.ConversationID, err)
@@ -88,10 +94,12 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 				continue
 			}
 			if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
+				releaseOperation()
 				logging.Errorf(recCtx, "messaging.gateway", "[Gateway] reconcile: send falhou conv=%s: %v (agendando retry)", rec.ConversationID, err)
 				g.scheduleRetryReconcileSend(rec, content, msgID)
 				continue
 			}
+			releaseOperation()
 			// deliverChannelResponse já remove o pending após Send OK.
 			logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: reenviou resposta órfã conv=%s channel=%s msg=%s",
 				rec.ConversationID, rec.Channel, msgID)
@@ -185,6 +193,11 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 		if rec.OwnerUserID != "" {
 			recCtx = database.WithUserID(recCtx, rec.OwnerUserID)
 		}
+		releaseOperation, allowed := g.notifier.ReserveConversationOperation(rec.ConversationID)
+		if !allowed {
+			cancel()
+			return
+		}
 		store := g.notifier.pendingStore()
 		if store != nil {
 			skip, deliveredID, known := pendingSendGate(recCtx, store, rec.ConversationID, rec.TraceID)
@@ -205,6 +218,7 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 					logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido/ausente conv=%s trace=%s — abortando",
 						rec.ConversationID, rec.TraceID)
 				}
+				releaseOperation()
 				cancel()
 				return
 			}
@@ -212,6 +226,7 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 			// DeleteIfTrace ainda protege contra apagar turno errado.
 		}
 		err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID)
+		releaseOperation()
 		cancel()
 		if err != nil {
 			logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
@@ -280,6 +295,7 @@ func (n *ResponseNotifier) pendingStore() ChannelPendingStore {
 // Não toca o pending store (uso típico: re-registro SkipPersist no startup).
 // Retorna true se registrou, false se já havia turno vivo.
 func (n *ResponseNotifier) ensureMemoryCallback(conversationID string, cb ResponseCallback) bool {
+	conversationID = strings.TrimSpace(conversationID)
 	if n == nil || conversationID == "" || cb.Callback == nil {
 		return false
 	}
@@ -289,6 +305,9 @@ func (n *ResponseNotifier) ensureMemoryCallback(conversationID string, cb Respon
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if n.isDeletedLocked(conversationID) {
+		return false
+	}
 	if len(n.callbacks[conversationID]) > 0 {
 		return false
 	}

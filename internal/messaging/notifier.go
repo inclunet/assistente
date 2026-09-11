@@ -105,14 +105,15 @@ type pendingCallback struct {
 // No startup, ReconcilePending reenvia respostas já salvas ou re-registra
 // callbacks ainda válidos.
 type ResponseNotifier struct {
-	mu        sync.Mutex
-	callbacks map[string][]pendingCallback // conversationID -> callbacks pendentes
-	active    map[string]int               // conversationID -> callbacks em execução
-	deleted   map[string]time.Time         // tombstones temporários após commit
-	now       func() time.Time             // injetável para testes
-	stopCh    chan struct{}
-	stopOnce  sync.Once
-	store     ChannelPendingStore
+	mu         sync.Mutex
+	callbacks  map[string][]pendingCallback // conversationID -> callbacks pendentes
+	active     map[string]int               // conversationID -> callbacks em execução
+	operations map[string]int               // persistências/reconcile em execução
+	deleted    map[string]time.Time         // tombstones temporários após commit
+	now        func() time.Time             // injetável para testes
+	stopCh     chan struct{}
+	stopOnce   sync.Once
+	store      ChannelPendingStore
 }
 
 // NewResponseNotifier cria um novo ResponseNotifier e inicia a goroutine
@@ -123,11 +124,12 @@ func NewResponseNotifier() *ResponseNotifier {
 
 func newResponseNotifierWithClock(now func() time.Time) *ResponseNotifier {
 	n := &ResponseNotifier{
-		callbacks: make(map[string][]pendingCallback),
-		active:    make(map[string]int),
-		deleted:   make(map[string]time.Time),
-		now:       now,
-		stopCh:    make(chan struct{}),
+		callbacks:  make(map[string][]pendingCallback),
+		active:     make(map[string]int),
+		operations: make(map[string]int),
+		deleted:    make(map[string]time.Time),
+		now:        now,
+		stopCh:     make(chan struct{}),
 	}
 	go n.runCleanup(callbackCleanupInterval)
 	return n
@@ -282,9 +284,14 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		n.callbacks[conversationID] = append(n.callbacks[conversationID], entry)
 	}
 	store := n.store
+	persist := store != nil && shouldPersistChannelCallback(cb) && !cb.SkipPersist
+	if persist {
+		n.operations[conversationID]++
+	}
 	n.mu.Unlock()
 
-	if store != nil && shouldPersistChannelCallback(cb) && !cb.SkipPersist {
+	if persist {
+		defer n.finishConversationOperation(conversationID)
 		if err := store.Upsert(context.Background(), ChannelPendingRecord{
 			ConversationID: conversationID,
 			Channel:        cb.Channel,
@@ -325,7 +332,7 @@ func (n *ResponseNotifier) PrepareConversationDeletion(conversationIDs []string)
 	n.mu.Lock()
 	n.isDeletedLocked("")
 	for _, conversationID := range normalized {
-		if len(n.callbacks[conversationID]) > 0 || n.active[conversationID] > 0 {
+		if len(n.callbacks[conversationID]) > 0 || n.active[conversationID] > 0 || n.operations[conversationID] > 0 {
 			n.mu.Unlock()
 			return func(bool) {}, ErrConversationCallbackActive
 		}
@@ -343,6 +350,38 @@ func (n *ResponseNotifier) PrepareConversationDeletion(conversationIDs []string)
 			n.mu.Unlock()
 		})
 	}, nil
+}
+
+// ReserveConversationOperation coordena envios de reconcile/retry e outras
+// operações externas que não vivem em callbacks do notifier. A exclusão falha
+// enquanto a reserva existir; após commit, o tombstone recusa reservas tardias.
+func (n *ResponseNotifier) ReserveConversationOperation(conversationID string) (func(), bool) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return func() {}, false
+	}
+	n.mu.Lock()
+	if n.isDeletedLocked(conversationID) {
+		n.mu.Unlock()
+		return func() {}, false
+	}
+	n.operations[conversationID]++
+	n.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() { n.finishConversationOperation(conversationID) })
+	}, true
+}
+
+func (n *ResponseNotifier) finishConversationOperation(conversationID string) {
+	n.mu.Lock()
+	if n.operations[conversationID] <= 1 {
+		delete(n.operations, conversationID)
+	} else {
+		n.operations[conversationID]--
+	}
+	n.mu.Unlock()
 }
 
 // Notify chama todos os callbacks registrados para uma conversa e os remove.

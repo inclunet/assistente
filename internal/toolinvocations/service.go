@@ -197,11 +197,16 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	}
 
 	opCtx, cancel := s.persistOpCtx(persistCtx)
-	if err := s.repo.Create(opCtx, &inv); err != nil {
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", err)
+	createErr := s.repo.Create(opCtx, &inv)
+	cancel()
+	if createErr != nil {
+		if strings.TrimSpace(inv.OriginType) == OriginChat && errors.Is(createErr, gorm.ErrRecordNotFound) {
+			logging.Warnf(ctx, "toolinvocations.service", "chat origin %s deleted before tool execution; aborting", strings.TrimSpace(inv.OriginID))
+			return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
+		}
+		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", createErr)
 		inv.ID = ""
 	}
-	cancel()
 	if inv.ID != "" {
 		startedAt := s.now()
 		opCtx, cancel := s.persistOpCtx(persistCtx)

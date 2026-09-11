@@ -61,7 +61,7 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 		return exec.WithContext(ctx).Create(&row).Error
 	}
 	var createErr error
-	if inv.OriginType == OriginChat {
+	if row.OriginType == OriginChat {
 		createErr = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.create_chat", func(tx *gorm.DB) error {
 			if !tx.Migrator().HasTable(&database.ChatMessage{}) ||
 				!tx.Migrator().HasTable(&database.Conversation{}) {
@@ -70,7 +70,7 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 			var originCount int64
 			if err := tx.WithContext(ctx).Model(&database.ChatMessage{}).
 				Joins("JOIN conversations ON conversations.id = chat_messages.conversation_id").
-				Where("conversations.user_id = ? AND (chat_messages.id = ? OR chat_messages.turn_id = ?)", userID, inv.OriginID, inv.OriginID).
+				Where("conversations.user_id = ? AND (chat_messages.id = ? OR chat_messages.turn_id = ?)", userID, row.OriginID, row.OriginID).
 				Count(&originCount).Error; err != nil {
 				return err
 			}
