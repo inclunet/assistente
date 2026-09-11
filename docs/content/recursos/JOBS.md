@@ -28,7 +28,11 @@ de `profile`.
   recusar ou fechar o diálogo, o job fica salvo desativado.
 - Profile por template: abra **Perfis autorizados para este job** no editor e
   autorize cada perfil instalado separadamente. O valor recebido de um evento
-  nunca é liberado automaticamente.
+  nunca é liberado automaticamente. Se o template resolver para vazio, a
+  execução falha em vez de herdar outro perfil.
+- Se você alterar a expressão de `profile` no editor, salve o job antes de
+  autorizar ou revogar perfis; os controles ficam indisponíveis enquanto o
+  rascunho diverge da configuração salva.
 - Use **Revogar** ao lado de um perfil para impedir execuções futuras. Uma
   execução que já começou não é interrompida.
 - Alterar a expressão de `profile`, excluir o job ou excluir o perfil revoga a
@@ -38,6 +42,9 @@ de `profile`.
 Importar ou duplicar um job nunca importa permissões. Sem um grant válido,
 disparos cron/event/headless falham antes de criar conversa ou run de subagente
 e não abrem diálogo.
+
+Na atualização que introduz esse controle, jobs `subagent` antigos são
+desativados até que cada perfil necessário seja autorizado explicitamente.
 
 ## Navegação e ações pelo teclado
 

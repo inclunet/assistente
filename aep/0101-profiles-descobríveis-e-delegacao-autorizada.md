@@ -177,13 +177,29 @@ expressão de profile revoga grants anteriores; excluir o job ou o profile
 também revoga. Templates dinâmicos exigem um grant individual por slug
 instalado, sem wildcard nem confiança no valor recebido do evento.
 
-No runtime, `eventctx.SourceJobID` identifica o job persistido. O backend
+Cada ciclo de autorização usa uma geração persistida por combinação exata.
+Revogar incrementa a geração e invalida respostas de `DecisionDialog` ainda
+pendentes. Reautorizar cria uma nova linha; a linha anterior conserva
+`granted_at`, `granted_by`, `revoked_at` e `revoked_by` para auditoria.
+
+No runtime, `eventctx.SourceJobID` continua sendo o slug público do job,
+conforme AEP-0067; o UUID `database.Job.ID` é usado somente em consultas
+internas de grants. O backend
 revalida job, fingerprint, profile alvo e grant antes de criar conversa/run.
 Grant ausente falha como `authorization_not_granted`, permanente para a
 política de retry. Cron/event/headless nunca abre diálogo. A autorização
 interativa existente continua sendo por invocação e não consulta grants de
 jobs. Uma revogação corta autorizações futuras; uma execução que já atravessou
-o gate não é interrompida.
+o gate não é interrompida. Um input `profile` explicitamente configurado como
+template que resolva para vazio também falha fechado, sem herdar o profile
+global.
+
+No primeiro upgrade que introduz grants, jobs `subagent` já habilitados são
+desabilitados porque não existe decisão explícita que possa ser convertida em
+grant. O startup reconcilia novamente jobs habilitados sem grant. Revogações
+atualizam banco, registry, cron/interval, subscriptions de eventos, hotkeys e
+UI imediatamente para o usuário ativo; outros usuários observam o estado
+persistido ao carregar seu runtime.
 
 ## Fases
 
@@ -208,7 +224,8 @@ o gate não é interrompida.
    - revalidar configuração/profile antes e depois do DecisionDialog;
    - oferecer aprovação individual e revogação acessível no Job Builder;
    - falhar fechado no runtime sem diálogo e sem retry permanente;
-   - cobrir migração, concorrência e isolamento.
+   - cobrir migração, concorrência, histórico e isolamento;
+   - reconciliar upgrade, registry, scheduler, eventos, hotkeys e UI.
 
 ## Riscos
 
@@ -242,8 +259,12 @@ o gate não é interrompida.
       fingerprint atual; ausência retorna falha permanente sem diálogo.
 - [x] Importação, exportação e duplicação não transportam grants.
 - [x] Template dinâmico exige autorização individual por slug, sem wildcard.
+- [x] Template explícito que resolve vazio falha fechado sem herança global.
 - [x] Alteração relevante, exclusão do job/profile e revogação visível
       invalidam autorizações futuras.
+- [x] Revogação vence decisões pendentes e regrant preserva o histórico.
+- [x] Upgrade e startup desabilitam jobs legados sem grant, e revogação
+      reconcilia imediatamente o runtime e a UI.
 - [x] Toda troca persistente real exige autorização e afeta somente a aba de
       origem.
 - [x] O retorno de switch declara que o efeito começa no próximo turno.
