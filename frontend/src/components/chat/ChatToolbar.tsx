@@ -65,6 +65,14 @@ const MODEL_SHORTCUT_BLOCKED_TARGETS = [
   '[data-tab-type]:not([data-tab-type="chat"])',
 ].join(',');
 
+const CAPTURE_SHORTCUT_BLOCKED_TARGETS = [
+  '.chat-message__edit',
+  '.monaco-editor',
+  '.xterm',
+  '[role="terminal"]',
+  '[data-tab-type]:not([data-tab-type="chat"])',
+].join(',');
+
 function isVisibleShortcutOverlay(element: Element): boolean {
   if (!(element instanceof HTMLElement)) return false;
   if (element.closest('[hidden], [aria-hidden="true"], [inert]')) return false;
@@ -317,6 +325,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         && !e.repeat
         && ['m', 'l', 'h', 'p'].includes(key);
       if (!isToolbarShortcut) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest(CAPTURE_SHORTCUT_BLOCKED_TARGETS)) return;
       if (hasVisibleShortcutOverlay()) {
         if (key !== 'm') e.preventDefault();
         return;

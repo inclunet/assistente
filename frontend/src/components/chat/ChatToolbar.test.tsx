@@ -441,6 +441,31 @@ describe('ChatToolbar shortcuts', () => {
     surface.remove();
   });
 
+  it('não captura atalhos durante a edição de uma mensagem', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const editor = document.createElement('div');
+    editor.className = 'chat-message__edit';
+    const textarea = document.createElement('textarea');
+    editor.appendChild(textarea);
+    document.body.appendChild(editor);
+
+    expect(dispatchCtrlKey('m', textarea).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', textarea).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p', textarea).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l', textarea).defaultPrevented).toBe(false);
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
+
+    editor.remove();
+  });
+
   it('não intercepta Ctrl+M em editores, terminal, modal, menu ou picker aberto', async () => {
     renderToolbar();
     await screen.findByRole('button', {
