@@ -5,8 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	stdlog "log"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"assistente/internal/configdir"
 
@@ -24,10 +28,33 @@ var dbPath string
 // gormLogLevel controla o nível de log do GORM. Padrão: Warn.
 // Use SetLogLevel(logger.Silent) para silenciar completamente (ex.: CLI sem --verbose).
 var gormLogLevel = logger.Warn
+var gormLogOutput io.Writer
 
 // SetLogLevel define o nível de log do GORM antes de Init().
 func SetLogLevel(level logger.LogLevel) {
 	gormLogLevel = level
+}
+
+// SetLogOutput duplica os logs do GORM no writer informado sem remover stdout.
+// Passe nil para restaurar somente a saída padrão.
+func SetLogOutput(output io.Writer) {
+	gormLogOutput = output
+}
+
+func configuredGORMLogger() logger.Interface {
+	output := io.Writer(os.Stdout)
+	if gormLogOutput != nil {
+		output = logging.DuplicateTo(output, gormLogOutput)
+	}
+	return logger.New(
+		stdlog.New(output, "\r\n", stdlog.LstdFlags),
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  gormLogLevel,
+			IgnoreRecordNotFoundError: false,
+			Colorful:                  true,
+		},
+	)
 }
 
 // ErrConversationDeleted é retornado quando se tenta salvar mensagem em conversa que foi deletada
@@ -80,7 +107,7 @@ func Init() error {
 	}
 
 	db, err = gorm.Open(sqlite.Open(sqliteDSN(dbPath)), &gorm.Config{
-		Logger: logger.Default.LogMode(gormLogLevel),
+		Logger: configuredGORMLogger(),
 	})
 	if err != nil {
 		return err

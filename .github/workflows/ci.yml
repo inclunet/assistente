@@ -45,7 +45,7 @@ jobs:
 
       - name: Install system dependencies
         timeout-minutes: 10
-        run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
+        run: bash .github/scripts/instalar-pacotes-apt.sh libgtk-3-dev libx11-dev xvfb
 
       - uses: actions/setup-go@v5
         with:
@@ -62,6 +62,11 @@ jobs:
 
       - name: Go build
         run: go build ./...
+
+      - name: Compilar testes do entrypoint gráfico para Windows
+        env:
+          CGO_ENABLED: "0"
+        run: GOOS=windows GOARCH=amd64 go test -c -o /tmp/assistente-windows-amd64.test .
 
       - name: Cross-compile da CLI para macOS sem cgo
         env:
@@ -115,7 +120,7 @@ jobs:
 
       - name: Install system dependencies
         timeout-minutes: 10
-        run: bash .github/scripts/instalar-pacotes-apt.sh libx11-dev xvfb
+        run: bash .github/scripts/instalar-pacotes-apt.sh libgtk-3-dev libx11-dev xvfb
 
       - uses: actions/setup-go@v5
         with:
