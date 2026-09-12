@@ -4,8 +4,9 @@
 
 **Data:** 2026-09-12
 
-**Relacionados:** AEP-0001, AEP-0023, AEP-0045, AEP-0047, AEP-0048,
-AEP-0058, AEP-0060, AEP-0063, AEP-0074-B, AEP-0080, AEP-0091, AEP-0101
+**Relacionados:** AEP-0001, AEP-0023, AEP-0045, AEP-0046, AEP-0047,
+AEP-0048, AEP-0052, AEP-0058, AEP-0060, AEP-0063, AEP-0074-B, AEP-0080,
+AEP-0091, AEP-0101
 
 ## Resumo
 
@@ -88,7 +89,8 @@ Todo comando terá:
 - nome, descrição e categoria internacionalizáveis;
 - schema tipado de argumentos;
 - escopos e contextos em que pode executar;
-- allowlist de origens permitidas, como `desktop`, `cli`, `agent` e `event`;
+- `allowed_source_types`, usando exatamente a taxonomia normalizada de D3;
+- paths sensíveis de input/output e política de persistência;
 - classificação de risco;
 - estado de disponibilidade e motivo quando indisponível;
 - apresentação padrão opcional, incluindo ícone e estados;
@@ -113,14 +115,15 @@ envelope versionado:
 CommandInvocation
   version, invocation_id, command_id?, arguments?
   trigger_type?, trigger_spec?
-  user_id, session_id, session_generation, security_generation
+  user_id?, auth_context_type, auth_context_id, auth_generation
+  session_id?, session_generation?, security_generation
   actor_type, actor_id
   source_type, source_instance_id, source_event_id, binding_ids
   conversation_id?, turn_id?, surface_type?, surface_id?
   surface_snapshot_version?, context_version, context_captured_at
   source_profile_slug?, target_profile_slug?
   authorization_decision_id?, delegation_fingerprint?, grant_generation?
-  job_uuid?, job_run_id?
+  job_id?, job_slug?, run_id?
   correlation_id, requested_at
 ```
 
@@ -135,21 +138,30 @@ Uma solicitação informa `command_id` para execução direta ou
 envelope interno contém ambos; combinações ausentes ou incoerentes falham antes
 de qualquer efeito.
 
+Se `surface_type` ou `surface_id` estiver presente, `surface_type`,
+`surface_id` e `surface_snapshot_version` tornam-se obrigatórios e não vazios.
+Comando direcionado a surface sem esse trio falha fechado, conforme AEP-0080.
+
 O serviço, nessa ordem:
 
-1. valida sessão, usuário e proveniência;
-2. resolve o binding quando a origem for um acionador;
-3. valida origem permitida, disponibilidade, argumentos, contexto e política;
-4. reserva atomicamente a identidade da invocação/evento como `queued`;
-5. revalida sessão, geração, contexto e autorização imediatamente antes do
-   despacho, cancelando a invocação se qualquer um estiver obsoleto;
-6. encaminha ao handler registrado;
-7. conclui a trilha de `command_invocations`.
+1. autentica o principal e valida usuário/proveniência mínima;
+2. reserva atomicamente a tentativa como `evaluating`, com snapshot redigido do
+   acionador;
+3. resolve o binding quando a origem for um acionador e atualiza comando e
+   bindings contribuintes;
+4. valida origem permitida, disponibilidade, argumentos, contexto e política;
+   falhas após autenticação terminam a tentativa como `denied`;
+5. revalida contexto de autenticação, geração de segurança, staleness e
+   autorização imediatamente antes do despacho, cancelando a invocação se
+   qualquer um estiver obsoleto; se estiver válida, transiciona para `queued`;
+6. transiciona atomicamente para `running` e encaminha ao handler registrado;
+7. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
 
-A reserva é um insert `queued` antes do handler, protegido pela PK de
+A reserva é um insert `evaluating` antes do handler, protegido pela PK de
 `invocation_id` e por unicidade de
-`(user_id, session_id, source_type, source_instance_id, source_event_id)` quando
-há evento de adapter. Reentrega recebe o resultado existente ou falha como
+`(user_id, auth_context_type, auth_context_id, source_type, source_instance_id,
+source_event_id)` quando há evento de adapter. Reentrega recebe o resultado
+existente ou falha como
 duplicada, nunca chama novamente o handler. Palette, chat e CLI fornecem um
 `invocation_id` UUIDv7 idempotente por solicitação. Eventos físicos recebem
 `source_event_id` no único adapter que os possui. A garantia de deduplicação é
@@ -159,12 +171,45 @@ obsoleta, mesmo se sua linha já tiver sido removida.
 
 Reentrega consulta a invocação pelo ID e recebe status, `result_summary` e
 `result_ref` redigidos por `CommandExecutionService.GetInvocation`; não repete o
-handler. No startup,
-registros `queued` ou `running` de uma geração encerrada viram
+handler. A consulta exige o mesmo contexto autenticado, filtra por
+`(user_id, invocation_id)` e reaplica autorização do ator; buscar somente pela
+PK é proibido. Contexto `system` consulta apenas invocações internas sem usuário.
+No startup,
+registros `evaluating`, `queued` ou `running` de uma geração encerrada viram
 `outcome_unknown`, nunca são reexecutados automaticamente. O usuário ou fluxo
 chamador precisa consultar o efeito e criar uma nova invocação explícita. Esse
 tratamento reconhece que exatamente-uma-vez não é garantível para todo handler
 de UI ou sistema após queda entre efeito e commit.
+
+Recusas anteriores à autenticação — sem usuário confiável ao qual associar a
+linha — vão para o log de segurança, não para uma conta indicada pelo payload.
+Toda recusa posterior é persistida como `denied`, com código redigido.
+
+`allowed_source_types` usa os valores exatos `keyboard.local`,
+`keyboard.global`, `streamdeck.key`, `palette`, `chat`, `cli`, `event` e
+`system`. `actor_type` é ortogonal: por exemplo, uma tool chamada pelo agente
+tem `source_type = chat` e `actor_type = agent`. Não existe categoria implícita
+`desktop`; cada comando declara explicitamente quais entradas aceita.
+
+Os contextos de autenticação são:
+
+- `local_session`: desktop e CLI usam `user_id`, `session_id` e geração emitidos
+  pelo `SessionService` da AEP-0052; IDs vindos como argumentos são ignorados;
+- `external_token`: JWT validado fornece `sub`, scopes e um
+  `auth_context_id` derivado de `iss` + `sub` + `jti` ou fingerprint do token;
+  a geração acompanha validade/revogação disponível e JWT/scopes são
+  revalidados antes do handler;
+- `job_service`: automação usa o usuário proprietário, ID e versão persistida do
+  job, além dos grants exatos aplicáveis; não pode abrir diálogo nem executar
+  comando que exija interação;
+- evento externo: só vira um dos contextos acima após autenticação do ingress e
+  mapeamento inequívoco para usuário; caso contrário falha fechado;
+- `system`: contexto interno criado pelo processo, sem `user_id`, restrito a
+  comandos explicitamente seguros que não acessam dados ou bindings de usuário.
+
+Hotkeys e Stream Deck exigem um contexto autenticado atualmente ativo. Contexto
+`system` sem usuário só executa comandos internos que declarem essa origem e não
+acessa bindings ou dados de usuário.
 
 Comandos que delegam para tools passam então pelo executor da AEP-0063 e
 correlacionam `command_invocations.id` com `tool_invocations`. Jobs passam pelo
@@ -177,6 +222,13 @@ Argumentos sensíveis são redigidos ou resumidos na auditoria conforme a polít
 do comando. Erro, status, origem, ator, comando e correlação permanecem
 diagnosticáveis.
 
+Se o comando delegar a uma tool, paths sensíveis do registro são propagados ao
+`ToolInvocationService`: o valor bruto existe somente em memória para execução,
+enquanto input/output persistidos usam placeholders e fingerprint do conteúdo
+redigido. Essa extensão deve atualizar a AEP-0063 no mesmo PR que a implementar.
+Até esse suporte existir, comando com paths sensíveis é indisponível para
+delegação a tools e falha fechado.
+
 Quando `actor_type = agent`, o envelope preserva conversa, turno, `surfaceType`,
 `surfaceId` e `snapshotVersion` do `SurfaceContext` da AEP-0080, além dos
 profiles de origem e destino. `CommandExecutionService` não trata o agente como
@@ -184,7 +236,7 @@ o usuário autenticado: delegação cross-profile interativa exige
 `DecisionDialog` e registra `authorization_decision_id`; origem sem interlocutor
 falha fechado.
 
-Jobs cross-profile transportam `job_uuid`, `target_profile_slug`,
+Jobs cross-profile transportam `job_id`, `target_profile_slug`,
 `delegation_fingerprint` e `grant_generation`. O serviço relê o grant pela chave
 e geração exatas da AEP-0101 imediatamente antes do handler; slug público serve
 para apresentação, não substitui o UUID na consulta. O envelope transporta a
@@ -357,6 +409,26 @@ Uma camada pode ser:
 - ativada por evento e removida por evento correlato;
 - temporária, com duração ou ciclo de vida definido.
 
+Ativação dirigida por eventos usa o envelope:
+
+```text
+LayerActivationEvent
+  version, activation_id, rule_id, user_id
+  source_type, source_event_id, sequence
+  state, occurred_at, expires_at?, auth_context_id
+```
+
+`activation_id` é UUIDv7 novo a cada ciclo; ativar e desativar o mesmo ciclo
+reutiliza esse ID. `sequence` cresce dentro de `(user_id, rule_id,
+activation_id)`. Evento duplicado com mesma sequência é idempotente; sequência
+menor é ignorada; mesma sequência com conteúdo diferente falha fechado. Uma
+desativação atrasada só encerra seu próprio `activation_id`, nunca uma ativação
+mais nova. Expiração gera a transição terminal no mesmo ciclo.
+
+Eventos externos só chegam a esse envelope depois do ingress autenticado e da
+allowlist de origem da D16. Sem usuário, regra, autenticação ou correlação
+válidos, não alteram camadas.
+
 Exemplos:
 
 ```text
@@ -373,9 +445,10 @@ operacional. No Windows, ele observa a janela e o processo em foco sem depender
 do software do Stream Deck.
 
 Para jobs, a integração publica o fato contextual interno versionado
-`command-context.job-run-state.v1`, com `user_id`, `job_uuid`, `job_slug`,
-`run_id`, `sequence`, `state` e `occurred_at`. `job_uuid` é a FK canônica de
-`job_runs` da AEP-0048; `job_slug` é a identidade pública usada por
+`command-context.job-run-state.v1`, com `user_id`, `job_id`, `job_slug`,
+`run_id`, `sequence`, `state` e `occurred_at`. `job_id` é o UUID de `jobs.id`
+referenciado por `job_runs.job_id`; `run_id` é o UUID de `job_runs.id`;
+`job_slug` é a identidade pública usada por
 `eventctx.SourceJobID` na AEP-0101 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
 
@@ -386,6 +459,11 @@ de ordem. Estados `queued`, `started` e `retry_scheduled` mantêm a regra ativa;
 `completed`, `failed` e `skipped` a encerram. Esse fato deriva do
 runtime e da timeline `job_run_events` da AEP-0048; não inventa nomes no event
 bus público da AEP-0001.
+
+O adapter usa `run_id` como `activation_id`, preserva `job_run_events.sequence`
+e mapeia `job_runs.status = retrying` para o fato
+`state = retry_scheduled`. A timeline é a fonte de ordem; o status do run serve
+apenas para reconstrução no startup.
 
 Cancelamento não pertence ao enum vigente da AEP-0048 e, portanto, não é
 inventado aqui. Se o runtime ganhar esse estado, a AEP-0048 deve ser atualizada
@@ -432,6 +510,12 @@ Alterações destrutivas, conflitos e comandos sensíveis continuam sujeitos ao
 contrato de decisão da AEP-0091. A resposta da tool inclui IDs reais e o efeito
 resolvido; o modelo não edita tabelas diretamente.
 
+Além disso, toda ação mutável de `command_config` solicitada por agente mostra
+ao usuário o diff exato e exige decisão explícita, mesmo que não seja
+destrutiva: criar ou habilitar um binding pode conceder capacidade futura.
+Origem headless falha fechado. A confirmação autoriza somente aquela mutação e
+não concede grant reutilizável para executar o comando configurado.
+
 ### D11 — Persistência
 
 Defaults ficam no código. SQLite guarda entidades do usuário e deltas:
@@ -450,14 +534,16 @@ command_bindings
   replaces_default_version, presentation
 
 command_invocations
-  id, schema_version, user_id, session_id, session_generation,
-  security_generation, command_id, binding_ids,
+  id, schema_version, user_id, auth_context_type, auth_context_id,
+  auth_generation, session_id, session_generation, security_generation,
+  command_id, binding_ids, trigger_type, trigger_spec_snapshot,
+  trigger_fingerprint,
   actor_type, actor_id, source_type, source_instance_id, source_event_id,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
   surface_type, surface_id, surface_snapshot_version, context_version,
   context_captured_at, context_summary, source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
-  job_uuid, job_run_id, correlation_id, risk, policy_decision,
+  job_id, job_slug, run_id, correlation_id, risk, policy_decision,
   result_summary, result_ref, status, error_code, requested_at, completed_at
 ```
 
@@ -465,9 +551,16 @@ Condições, argumentos, especificações e apresentação são documentos JSON
 versionados e validados. Alterações relevantes mantêm auditoria suficiente para
 desfazer.
 
+Todas as PKs persistidas criadas por esta AEP são UUIDv7 conforme AEP-0046.
+FKs entre essas tabelas também usam UUIDv7. IDs de defaults que vivem no código
+são strings namespaced estáveis; `replaces_default_id` referencia essa
+identidade lógica, não uma linha SQLite.
+
 `binding_ids` é uma lista JSON ordenada que registra todos os bindings
 equivalentes considerados na deduplicação; fica vazia para execução direta.
-`status` aceita `queued`, `running`, `succeeded`, `failed`, `denied`,
+O acionador efetivo também fica em snapshot normalizado/redigido e fingerprint,
+portanto excluir o binding ou atualizar defaults não apaga sua origem histórica.
+`status` aceita `evaluating`, `queued`, `running`, `succeeded`, `failed`, `denied`,
 `cancelled_stale` e `outcome_unknown`. `result_summary` é redigido e
 `result_ref` guarda somente referência estável e não sensível, como o ID de uma
 aba ou run, permitindo consultar uma reentrega sem repetir efeitos.
@@ -489,6 +582,15 @@ Exportação e importação integram o envelope versionado da AEP-0047 pela seç
 `activationRules` e `bindings`; overrides incluem ID e versão do default.
 Defaults puros e `command_invocations` não são exportados. Referências internas
 são remapeadas em conjunto e a importação é idempotente por UUID.
+
+Bindings persistentes não armazenam segredo bruto. Paths marcados como
+sensíveis pelo comando aceitam somente referência ao cofre/credencial; quando
+o schema não permite separar o segredo, aquele comando só admite execução
+ad hoc e não pode virar binding persistente. O export inclui a referência, nunca
+o valor. Se o usuário escolher `includeCredentials`, o segredo viaja apenas no
+bloco criptografado definido pela AEP-0047. Exportação faz nova validação e
+recusa o arquivo, com relatório, se encontrar configuração antiga que viole
+essa regra.
 
 Conflito de UUID com conteúdo diferente exige escolha explícita entre manter,
 substituir ou importar como cópia com novos UUIDs. Referência a workspace,
@@ -796,12 +898,16 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   acionamento.
 - [ ] Mudanças de surface, foco, workspace, janela externa e eventos podem
   ativar e desativar camadas de forma determinística.
+- [ ] Ativações por evento têm ID, sequência, correlação e deduplicação; evento
+  atrasado não encerra ciclo mais novo.
 - [ ] A Command Palette busca e descreve comandos disponíveis e indisponíveis
   com motivo, mas executa somente os disponíveis.
 - [ ] A Command Palette tem navegação completa por teclado, anúncios e
   restauração de foco cobertos por testes e validação NVDA.
 - [ ] A configuração por chat usa tools estruturadas, IDs reais e confirmações
   de segurança.
+- [ ] Toda mutação persistente solicitada por agente mostra diff, exige decisão
+  explícita e falha fechado sem interlocutor.
 - [ ] A tela de configuração oferece lista de camadas, detalhe de ativação e
   bindings, captura de teclas e explicação do resultado efetivo.
 - [ ] Toda configuração é operável por teclado e NVDA sem depender de grade,
@@ -818,10 +924,14 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   auditoria do executor de destino.
 - [ ] Exportação/importação preserva UUIDs e escopos, relata referências e
   conflitos e não transfere grants nem histórico de invocações.
+- [ ] Binding persistente e export não contêm segredos brutos; delegação a tool
+  propaga redação ou permanece indisponível.
 - [ ] `command_invocations` tem payload redigido, origem rastreável, índices e
   retenção por idade e quantidade, sem prometer reconstruir o snapshot completo.
 - [ ] Reentrega dentro da janela retorna status/resultado redigido sem repetir o
   handler; invocações interrompidas por queda viram `outcome_unknown`.
+- [ ] Consulta de invocação aplica propriedade por usuário e autorização do
+  ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
   imediatamente antes de todo handler.
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
