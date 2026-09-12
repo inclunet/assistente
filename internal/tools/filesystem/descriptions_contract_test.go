@@ -73,7 +73,7 @@ func TestFilesystemDescriptionsExplainSelectionAndRisk(t *testing.T) {
 func TestFilesystemParameterSchemasKeepContractAndDescribeEveryField(t *testing.T) {
 	allTools := filesystemToolsForDescriptionContract(t)
 	expectedProperties := map[string][]string{
-		"read_file":      {"document_mode", "limit", "offset", "path"},
+		"read_file":      {"document_mode", "limit", "offset", "path", "raw"},
 		"search_files":   {"max_results", "path", "pattern"},
 		"grep_search":    {"case_sensitive", "context_lines", "document_mode", "include", "max_results", "path", "pattern"},
 		"list_directory": {"max_depth", "path", "recursive"},

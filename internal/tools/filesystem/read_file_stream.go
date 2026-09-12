@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,7 @@ var errStreamLineTooLong = errors.New("linha longa demais para leitura em stream
 // scanTextLines percorre as linhas do arquivo com a mesma semântica de
 // strings.Split(conteúdo, "\n"): arquivo terminado em nova linha tem uma última
 // linha vazia, e o "\r" de CRLF é preservado. visit devolve false para parar.
-func scanTextLines(fullPath string, visit func(idx int, line string) bool) error {
+func scanTextLines(ctx context.Context, fullPath string, visit func(idx int, line string) bool) error {
 	f, err := os.Open(fullPath)
 	if err != nil {
 		return err
@@ -37,6 +38,9 @@ func scanTextLines(fullPath string, visit func(idx int, line string) bool) error
 
 	r := bufio.NewReaderSize(f, streamBufferBytes)
 	for idx := 0; ; idx++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		line, atEOF, err := readStreamLine(r)
 		if err != nil {
 			return err
@@ -79,6 +83,9 @@ func readStreamLine(r *bufio.Reader) (line string, atEOF bool, err error) {
 // de memória que o streaming evita. Outras falhas devolvem o controle ao
 // chamador, que ainda pode reportar o erro de leitura como antes.
 func streamFailure(err error, size int64) (tools.ToolResult, bool) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return tools.ToolResult{Content: "Leitura cancelada pelo usuário", IsError: true}, true
+	}
 	if errors.Is(err, errStreamLineTooLong) {
 		return tools.ToolResult{
 			Content: fmt.Sprintf(
@@ -94,10 +101,7 @@ func streamFailure(err error, size int64) (tools.ToolResult, bool) {
 // readTextSliceStreaming devolve o recorte pedido de um arquivo de texto grande
 // sem carregar tudo em memória. handled=false significa que o chamador deve
 // seguir pelo caminho normal.
-func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg, limitArg *int, mode docextract.Mode) (result tools.ToolResult, handled bool) {
-	if size < streamTextMinBytes || (offsetArg == nil && limitArg == nil) {
-		return tools.ToolResult{}, false
-	}
+func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, size int64, offsetArg, limitArg *int, mode docextract.Mode, raw bool) (result tools.ToolResult, handled bool) {
 	prefix, err := readFilePrefix(fullPath, docextract.DetectPrefixBytes)
 	if err != nil {
 		return tools.ToolResult{}, false
@@ -114,7 +118,7 @@ func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg,
 	// passada já percorre tudo para contar linhas, então aplicar a mesma regra
 	// aqui custa pouco e evita que o mesmo arquivo passe por ser grande.
 	totalLines := 0
-	if err := scanTextLines(fullPath, func(_ int, line string) bool {
+	if err := scanTextLines(ctx, fullPath, func(_ int, line string) bool {
 		if strings.IndexByte(line, 0) >= 0 {
 			totalLines = -1
 			return false
@@ -150,32 +154,96 @@ func readTextSliceStreaming(fullPath, displayPath string, size int64, offsetArg,
 		}, true
 	}
 
-	end := totalLines
+	requestedEnd := totalLines
 	if limitArg != nil && *limitArg > 0 {
-		end = offset + *limitArg
-		if end > totalLines {
-			end = totalLines
+		requestedEnd = offset + *limitArg
+		if requestedEnd > totalLines {
+			requestedEnd = totalLines
 		}
 	}
 
-	numbered := make([]string, 0, end-offset)
-	if err := scanTextLines(fullPath, func(idx int, line string) bool {
-		if idx >= offset && idx < end {
-			numbered = append(numbered, fmt.Sprintf("%6d|%s", idx+1, line))
+	budget := readModelMaxBytes
+	if executorLimit := tools.MaxResultSizeFromContext(ctx); executorLimit > 0 && executorLimit < budget {
+		budget = executorLimit
+	}
+	if !raw {
+		budget -= 512
+	}
+	selected := make([]string, 0, min(requestedEnd-offset, readModelMaxLines))
+	selectedBytes := 0
+	end := offset
+	tooLargeRaw := false
+	if err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
+		if idx < offset {
+			return true
 		}
-		return idx+1 < end
+		if idx >= requestedEnd {
+			return false
+		}
+		if raw {
+			extra := len(line)
+			if len(selected) > 0 {
+				extra++
+			}
+			if selectedBytes+extra > budget {
+				tooLargeRaw = true
+				return false
+			}
+			selected = append(selected, line)
+			selectedBytes += extra
+			end = idx + 1
+			return true
+		}
+		if len(selected) >= readModelMaxLines {
+			return false
+		}
+		formatted := fmt.Sprintf("%6d|%s", idx+1, line)
+		extra := len(formatted)
+		if len(selected) > 0 {
+			extra++
+		}
+		if selectedBytes+extra+len(displayPath)+64 > budget {
+			return false
+		}
+		selected = append(selected, formatted)
+		selectedBytes += extra
+		end = idx + 1
+		return true
 	}); err != nil {
 		return streamFailure(err, size)
 	}
+	if raw {
+		if tooLargeRaw || end < requestedEnd {
+			return rawReadTooLarge(selectedBytes+1, budget), true
+		}
+		return tools.ToolResult{
+			Content:  strings.Join(selected, "\n"),
+			RawExact: true,
+			Metadata: map[string]any{"size_bytes": size, "total_lines": totalLines, "offset": offset + 1, "limit": end - offset},
+		}, true
+	}
+	if end == offset {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("A linha %d não cabe no limite model-facing de %d bytes; solicite um trecho textual menor.", offset+1, budget),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "read_line_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, true
+	}
 
 	header := fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n", displayPath, offset+1, end, totalLines)
+	hasMore := end < totalLines
+	window := &tools.OutputWindowAnnotation{HasMore: hasMore, Unit: "lines", Offset: offset + 1, Returned: end - offset, Total: totalLines}
+	if hasMore {
+		window.NextOffset = end + 1
+	}
 	return tools.ToolResult{
-		Content: header + strings.Join(numbered, "\n"),
+		Content: header + strings.Join(selected, "\n"),
 		Metadata: map[string]any{
 			"size_bytes":  size,
 			"total_lines": totalLines,
 			"offset":      offset + 1,
 			"limit":       end - offset,
 		},
+		Annotations: &tools.ResultAnnotations{OutputWindow: window},
 	}, true
 }

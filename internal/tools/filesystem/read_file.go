@@ -41,7 +41,7 @@ func (t *ReadFile) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *ReadFile) Description() string {
-	return "Read the contents of one known file with line numbers. Use when you already know the path and need to inspect text or a supported document; use offset and limit for large text files. Do not use to discover paths (use search_files), search across file contents (use grep_search), or inspect a directory (use list_directory). Text is returned verbatim by default; opaque documents such as PDF, DOCX, XLSX, PPTX, ODF, and EPUB are projected to Markdown and may cost more to extract (32 MiB input limit, no OCR). Risk: read-only."
+	return "Read one known file in resumable windows of at most 2,000 lines and 50 KiB, whichever comes first. Use it when the path is already known. Do not use it to discover paths (use search_files), search across contents (use grep_search), or inspect a directory (use list_directory). The output_window annotation reports total lines, returned interval, has_more and next_offset. Set raw=true only for exact text without header, line numbers or envelope: oversized raw slices fail and must be retried with smaller offset/limit. Opaque documents are projected to Markdown (32 MiB input limit, no OCR). Risk: read-only."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
@@ -58,7 +58,11 @@ func (t *ReadFile) Parameters() json.RawMessage {
 			},
 			"limit": {
 				"type": "integer",
-				"description": "Maximum number of lines to return from offset; omit to return the remainder of the file."
+				"description": "Maximum number of lines requested from offset. Model-facing output is still capped at 2,000 lines and 50 KiB."
+			},
+			"raw": {
+				"type": "boolean",
+				"description": "Return only the exact textual slice, without envelope, header or line numbers. If the complete requested slice exceeds 50 KiB or the executor limit, the call fails; use a smaller offset/limit."
 			},
 			"document_mode": {
 				"type": "string",
@@ -77,6 +81,7 @@ type readFileArgs struct {
 	Offset       *int   `json:"offset,omitempty"`
 	Limit        *int   `json:"limit,omitempty"`
 	DocumentMode string `json:"document_mode,omitempty"`
+	Raw          bool   `json:"raw,omitempty"`
 }
 
 // parseDocumentMode valida o modo pedido. Modo desconhecido é erro em vez de
@@ -142,7 +147,7 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
-	if res, handled := readTextSliceStreaming(fullPath, a.Path, info.Size(), a.Offset, a.Limit, mode); handled {
+	if res, handled := readTextSliceStreaming(ctx, fullPath, a.Path, info.Size(), a.Offset, a.Limit, mode, a.Raw); handled {
 		return res, nil
 	}
 
@@ -217,72 +222,120 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		}
 	}
 
+	return formatReadResult(ctx, a.Path, content, int64(len(data)), a.Offset, a.Limit, a.Raw, meta, annotations), nil
+}
+
+const (
+	readModelMaxLines = 2000
+	readModelMaxBytes = 50 * 1024
+)
+
+func formatReadResult(ctx context.Context, path, content string, size int64, offsetArg, limitArg *int, raw bool, meta map[string]any, annotations *tools.ResultAnnotations) tools.ToolResult {
 	lines := strings.Split(content, "\n")
-	totalLines := len(lines)
-
-	// Aplica offset e limit se fornecidos
-	if a.Offset != nil || a.Limit != nil {
-		offset := 0
-		if a.Offset != nil {
-			offset = *a.Offset
+	total := len(lines)
+	offset := normalizedLineOffset(offsetArg, total)
+	if offset >= total {
+		shown := 0
+		if offsetArg != nil {
+			shown = *offsetArg
 		}
-
-		// Offset negativo conta do final
-		if offset < 0 {
-			offset = totalLines + offset
-			if offset < 0 {
-				offset = 0
-			}
-		} else if offset > 0 {
-			// 1-indexed para 0-indexed
-			offset = offset - 1
+		return tools.ToolResult{Content: fmt.Sprintf("Offset %d excede o número de linhas (%d)", shown, total), IsError: true}
+	}
+	requestedEnd := total
+	if limitArg != nil && *limitArg > 0 && offset+*limitArg < requestedEnd {
+		requestedEnd = offset + *limitArg
+	}
+	budget := readModelMaxBytes
+	if executorLimit := tools.MaxResultSizeFromContext(ctx); executorLimit > 0 && executorLimit < budget {
+		budget = executorLimit
+	}
+	if raw {
+		exact := strings.Join(lines[offset:requestedEnd], "\n")
+		if len(exact) > budget {
+			return rawReadTooLarge(len(exact), budget)
 		}
-
-		if offset >= totalLines {
-			return tools.ToolResult{
-				Content: fmt.Sprintf("Offset %d excede o número de linhas (%d)", *a.Offset, totalLines),
-				IsError: true,
-			}, nil
-		}
-
-		end := totalLines
-		if a.Limit != nil && *a.Limit > 0 {
-			end = offset + *a.Limit
-			if end > totalLines {
-				end = totalLines
-			}
-		}
-
-		// Numera as linhas para contexto
-		var numbered []string
-		for i := offset; i < end; i++ {
-			numbered = append(numbered, fmt.Sprintf("%6d|%s", i+1, lines[i]))
-		}
-
-		header := fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n", a.Path, offset+1, end, totalLines)
-		meta["total_lines"] = totalLines
+		meta["total_lines"] = total
 		meta["offset"] = offset + 1
-		meta["limit"] = end - offset
+		meta["limit"] = requestedEnd - offset
+		return tools.ToolResult{Content: exact, RawExact: true, Metadata: meta}
+	}
+	// Reserva espaço para o envelope JSON de output_window: o teto é da
+	// mensagem model-facing completa, não apenas do corpo numerado.
+	budget -= 512
+
+	end := requestedEnd
+	if end-offset > readModelMaxLines {
+		end = offset + readModelMaxLines
+	}
+	header := fmt.Sprintf("Arquivo: %s (linhas %d-", path, offset+1)
+	body := make([]string, 0, end-offset)
+	used := len(header) + 32
+	for i := offset; i < end; i++ {
+		line := fmt.Sprintf("%6d|%s", i+1, lines[i])
+		extra := len(line)
+		if len(body) > 0 {
+			extra++
+		}
+		if used+extra > budget {
+			end = i
+			break
+		}
+		body = append(body, line)
+		used += extra
+	}
+	if end == offset {
 		return tools.ToolResult{
-			Content:     header + strings.Join(numbered, "\n"),
-			Metadata:    meta,
-			Annotations: annotations,
-		}, nil
+			Content: fmt.Sprintf("A linha %d não cabe no limite model-facing de %d bytes; solicite um trecho textual menor.", offset+1, budget),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "read_line_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}
 	}
-
-	// Retorno completo com numeração de linhas
-	var numbered []string
-	for i, line := range lines {
-		numbered = append(numbered, fmt.Sprintf("%6d|%s", i+1, line))
+	hasMore := end < total
+	window := &tools.OutputWindowAnnotation{
+		HasMore: hasMore, Unit: "lines", Offset: offset + 1,
+		Returned: end - offset, Total: total,
 	}
-
-	header := fmt.Sprintf("Arquivo: %s (%d linhas, %d bytes)\n", a.Path, totalLines, len(data))
-	meta["total_lines"] = totalLines
+	if hasMore {
+		window.NextOffset = end + 1
+	}
+	if annotations == nil {
+		annotations = &tools.ResultAnnotations{}
+	}
+	annotations.OutputWindow = window
+	meta["size_bytes"] = size
+	meta["total_lines"] = total
+	meta["offset"] = offset + 1
+	meta["limit"] = end - offset
 	return tools.ToolResult{
-		Content:     header + strings.Join(numbered, "\n"),
-		Metadata:    meta,
-		Annotations: annotations,
-	}, nil
+		Content:  fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n%s", path, offset+1, end, total, strings.Join(body, "\n")),
+		Metadata: meta, Annotations: annotations,
+	}
+}
+
+func normalizedLineOffset(offsetArg *int, total int) int {
+	if offsetArg == nil {
+		return 0
+	}
+	offset := *offsetArg
+	if offset < 0 {
+		offset += total
+		if offset < 0 {
+			return 0
+		}
+		return offset
+	}
+	if offset > 0 {
+		return offset - 1
+	}
+	return 0
+}
+
+func rawReadTooLarge(size, limit int) tools.ToolResult {
+	return tools.ToolResult{
+		Content: fmt.Sprintf("Trecho raw solicitado tem %d bytes, acima do limite de %d; use offset/limit menor.", size, limit),
+		IsError: true,
+		Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+	}
 }
 
 // resolvePath converte caminho relativo para absoluto usando workDir

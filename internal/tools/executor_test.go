@@ -328,8 +328,13 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	if res.Result.Metadata["truncated"] != true {
 		t.Fatal("expected metadata.truncated=true")
 	}
-	if !strings.Contains(res.Result.Content, "[TRUNCADO:") {
-		t.Fatal("expected truncation notice in content")
+	if strings.Contains(strings.ToUpper(res.Result.Content), "TRUNCAD") {
+		t.Fatal("truncation notice must not pollute content")
+	}
+	if res.Result.Annotations == nil || res.Result.Annotations.OutputWindow == nil ||
+		!res.Result.Annotations.OutputWindow.HasMore ||
+		res.Result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("expected resumable output annotation: %+v", res.Result.Annotations)
 	}
 }
 

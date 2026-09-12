@@ -336,14 +336,16 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		}
 		// Sem matches a busca ainda pode ter parado no teto de arquivos: quem lê
 		// precisa saber que a varredura foi interrompida antes do fim da árvore.
-		if truncated {
-			msg += fmt.Sprintf("\n(TRUNCADO: limite de %d arquivos considerados atingido)", t.maxFilesConsidered)
-		}
 		metadata := emptySearchMetadata(filesScanned)
 		metadata["truncated"] = truncated
 		result := tools.ToolResult{
 			Content:  msg,
 			Metadata: metadata,
+		}
+		if truncated {
+			result.Annotations = &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+				HasMore: true, Unit: "files", Offset: 0, Returned: filesScanned,
+			}}
 		}
 		t.appendSearchStats(&result, stats)
 		return result, nil
@@ -590,9 +592,6 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 		"%d correspondência(s) em %d arquivo(s) com correspondências (%d arquivos escaneados)\n",
 		matchCount, len(groups), filesScanned,
 	)
-	if truncated {
-		_, _ = fmt.Fprintf(&sb, "(TRUNCADO: limite de %d resultados atingido)\n", maxResults)
-	}
 	sb.WriteString("\n")
 
 	for _, g := range groups {
@@ -607,7 +606,7 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 		sb.WriteString("\n")
 	}
 
-	return tools.ToolResult{
+	result := tools.ToolResult{
 		Content: sb.String(),
 		Metadata: map[string]any{
 			"results":       len(matches),
@@ -617,6 +616,12 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 			"truncated":     truncated,
 		},
 	}
+	if truncated {
+		result.Annotations = &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "matches", Offset: 0, Returned: len(matches),
+		}}
+	}
+	return result
 }
 
 // emptySearchMetadata mantém o mesmo conjunto de chaves da busca com resultado,

@@ -179,8 +179,12 @@ func TestWebFetch_Truncation(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("resultado é erro: %s", result.Content)
 	}
-	if !strings.Contains(result.Content, "TRUNCADO") {
-		t.Error("deve indicar truncamento")
+	if strings.Contains(strings.ToUpper(result.Content), "TRUNCAD") {
+		t.Error("aviso de truncamento não deve contaminar conteúdo")
+	}
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil ||
+		!result.Annotations.OutputWindow.HasMore || result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("deve indicar continuação estruturada: %+v", result.Annotations)
 	}
 }
 

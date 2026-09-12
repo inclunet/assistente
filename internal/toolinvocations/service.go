@@ -310,18 +310,10 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 		result.Metadata = cloneAnyMap(result.Metadata)
 	}
 
-	// Truncamento UTF-8 safe: replica a semântica do executor.
+	// Persistência é uma cópia de auditoria: reduz o corpo sem inserir avisos
+	// dentro do conteúdo. A semântica model-facing já está nas anotações.
 	origSize := len(result.Content)
-	warning := fmt.Sprintf(
-		"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-		origSize, max,
-	)
-	contentBudget := max - len(warning)
-	if contentBudget >= 1 {
-		result.Content = truncateUTF8Safe(result.Content, contentBudget) + warning
-	} else {
-		result.Content = truncateUTF8Safe(result.Content, max)
-	}
+	result.Content = truncateUTF8Safe(result.Content, max)
 	if result.Metadata == nil {
 		result.Metadata = make(map[string]any)
 	}
@@ -933,18 +925,12 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	}
 
 	// Fallback final: reduz content até caber no JSON (UTF-8 safe).
-	origSize := len(data)
-	warning := fmt.Sprintf(
-		"\n\n[TRUNCADO: payload serializado tinha %d bytes, limite é %d bytes]",
-		origSize,
-		max,
-	)
 	content := trimmed.Content
 	// Começa com um budget razoável; ajusta iterativamente com base no marshal.
 	budget := max
 	for attempt := 0; attempt < 4; attempt++ {
 		candidate := truncateUTF8Safe(content, budget)
-		trimmed.Content = candidate + warning
+		trimmed.Content = candidate
 		data = resultOutput(trimmed)
 		if len(data) <= max {
 			return data
@@ -959,14 +945,14 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	// Último recurso: JSON mínimo válido.
 	isErr := result.IsError
 	minimal, _ := json.Marshal(map[string]any{
-		"content":  "[TRUNCADO: output excedeu limite de persistência]",
+		"content":  "Output omitido da cópia de auditoria por exceder o limite de persistência.",
 		"is_error": isErr,
 	})
 	if len(minimal) > 0 {
 		return minimal
 	}
 	if isErr {
-		return json.RawMessage(`{"content":"[TRUNCADO]","is_error":true}`)
+		return json.RawMessage(`{"content":"Output omitido da copia de auditoria.","is_error":true}`)
 	}
-	return json.RawMessage(`{"content":"[TRUNCADO]","is_error":false}`)
+	return json.RawMessage(`{"content":"Output omitido da copia de auditoria.","is_error":false}`)
 }

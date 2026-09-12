@@ -275,15 +275,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 		if isTimeout && output != "" {
 			// Timeout COM output: retorna como sucesso com nota sobre timeout
-			content := output
-			if len(content) > maxOutputForLLM {
-				content = content[:maxOutputForLLM] + fmt.Sprintf(
-					"\n\n[TRUNCADO: output original tinha %d bytes]", len(output),
-				)
-			}
-			content = fmt.Sprintf("[TIMEOUT após %ds — o comando foi interrompido com Ctrl+C. Output parcial capturado:]\n\n%s", int(timeout.Seconds()), content)
+			content := fmt.Sprintf("[TIMEOUT após %ds — o comando foi interrompido com Ctrl+C. Output parcial capturado:]\n\n%s", int(timeout.Seconds()), output)
 
-			return tools.ToolResult{
+			result := tools.ToolResult{
 				Content: content,
 				Metadata: func() map[string]any {
 					m := map[string]any{
@@ -301,7 +295,16 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 					}
 					return m
 				}(),
-			}, nil
+			}
+			protected, ok := tools.ProtectModelResult(result, maxOutputForLLM)
+			if !ok {
+				return tools.ToolResult{
+					Content: "Output parcial excede a capacidade segura de preservação.",
+					IsError: true,
+					Failure: &tools.ToolFailure{Code: "result_storage_limit", Kind: tools.ErrorKindUnknown, Retryable: false},
+				}, nil
+			}
+			return protected, nil
 		}
 
 		// Erro real (sem output ou sem timeout)
@@ -327,18 +330,13 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	// Formata resultado
 	content := entry.Output
-	if len(content) > maxOutputForLLM {
-		content = content[:maxOutputForLLM] + fmt.Sprintf(
-			"\n\n[TRUNCADO: output original tinha %d bytes]", len(entry.Output),
-		)
-	}
 
 	// Adiciona informação do exit code
 	if entry.ExitCode != 0 {
 		content = fmt.Sprintf("[exit code: %d]\n\n%s", entry.ExitCode, content)
 	}
 
-	return tools.ToolResult{
+	result := tools.ToolResult{
 		Content: content,
 		Metadata: func() map[string]any {
 			m := map[string]any{
@@ -355,7 +353,16 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}
 			return m
 		}(),
-	}, nil
+	}
+	protected, ok := tools.ProtectModelResult(result, maxOutputForLLM)
+	if !ok {
+		return tools.ToolResult{
+			Content: "Output excede a capacidade segura de preservação; reduza a saída do comando.",
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "result_storage_limit", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	return protected, nil
 }
 
 func validateSkillBashCommand(ctx context.Context, command string) (tools.ToolResult, bool) {

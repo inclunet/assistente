@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -180,14 +181,14 @@ func TestParameters(t *testing.T) {
 
 // MockSessionManager implementa SessionManager para testes
 type MockSessionManager struct {
-	acquireCalls       int
-	releaseCalls       int
-	closeCalls         int
-	runCommandCalls    int
-	runEphemeralCalls  int
-	runSessionID       string
-	liveSessions       map[string]bool
-	sessionCWD         map[string]string
+	acquireCalls      int
+	releaseCalls      int
+	closeCalls        int
+	runCommandCalls   int
+	runEphemeralCalls int
+	runSessionID      string
+	liveSessions      map[string]bool
+	sessionCWD        map[string]string
 
 	// Controladores de behavior
 	fakeSession *terminal.Session
@@ -638,11 +639,12 @@ func TestOutputTruncation(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("esperado sucesso, got: %s", result.Content)
 	}
-	if !contains(result.Content, "TRUNCADO") {
-		t.Errorf("esperado truncation message, got %q", result.Content)
+	if contains(strings.ToUpper(result.Content), "TRUNCAD") {
+		t.Errorf("aviso não deve contaminar output: %q", result.Content)
 	}
-	if len(result.Content) > 52*1024 { // 50KB + mensagem + margem
-		t.Errorf("esperado output truncado, got %d bytes (max ~52KB)", len(result.Content))
+	if len(result.Content) > maxOutputForLLM || result.Annotations == nil ||
+		result.Annotations.OutputWindow == nil || result.Annotations.OutputWindow.ResultID == "" {
+		t.Errorf("esperada prévia retomável, got %d bytes annotations=%+v", len(result.Content), result.Annotations)
 	}
 }
 

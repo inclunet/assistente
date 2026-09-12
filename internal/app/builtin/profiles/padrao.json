@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.5.0",
+  "_builtin_version": "4.6.0",
   "name": "Padrão",
   "description": "Assistente geral para pesquisar, analisar, escrever, organizar e resolver tarefas cotidianas. Use quando a solicitação combinar assuntos, não exigir trabalho predominante em código ou ainda estiver pouco definida. Não use para implementar, depurar, refatorar ou revisar software de forma substancial; nesses casos, escolha Programação. Exemplos: resumir documentos; comparar opções; redigir um e-mail; planejar uma viagem.",
   "icon": "chatbox",
@@ -16,6 +16,7 @@
     "tool_policy_default": "on_demand",
     "tool_policy": {
       "read_file": "preloaded",
+      "read_tool_result": "preloaded",
       "search_files": "preloaded",
       "grep_search": "preloaded",
       "web_search": "preloaded",

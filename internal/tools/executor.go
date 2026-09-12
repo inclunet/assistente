@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -211,49 +212,69 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			result.IsError = true
 		}
 
-		// Aplica o limite de tamanho. Política canônica (centralizada aqui, antes
-		// duplicada em cada tool): saídas estruturadas (JSON canônico) não podem ser
-		// truncadas — truncar corromperia o JSON e quebraria consumidores. Nesse
-		// caso falhamos de forma explícita; caso contrário, truncamos (UTF-8 safe).
+		// Última barreira de tamanho. Structured e RawExact são integrais ou
+		// falham; texto comum é preservado no store controlado e recebe apenas uma
+		// prévia, com continuação estruturada nas anotações.
 		var execErr error
 		execKind := ErrorKindNone
-		if len(result.Content) > e.config.MaxResultSize {
-			if result.Structured {
+		structured := result.Structured || looksLikeCanonicalJSON(result.Content)
+		modelBytes := len(ContentForModel(result))
+		if structured || result.RawExact {
+			// Reserva o overhead do envelope JSON persistido em
+			// tool_invocations; assim conteúdo integral aceito pelo executor não
+			// é posteriormente cortado na cópia canônica.
+			modelBytes += 1024
+		}
+		if modelBytes > e.config.MaxResultSize {
+			if (structured || result.RawExact) && !strings.HasPrefix(toolName, "mcp_") {
 				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
 				// para que agent/service.go emita tool_failure e persista o error_kind.
 				origSize := len(result.Content)
+				code := "result_too_large"
+				label := "estruturado"
+				guidance := "Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor."
+				if result.RawExact {
+					code = "raw_result_too_large"
+					label = "raw"
+					guidance = "Use offset/limit menores; conteúdo raw é exato e nunca é devolvido parcialmente."
+				}
 				result = ToolResult{
 					Content: fmt.Sprintf(
-						"Resultado estruturado tem %d bytes, acima do limite de %d. Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor.",
-						origSize, e.config.MaxResultSize,
+						"Resultado %s tem %d bytes, acima do limite de %d. %s",
+						label, origSize, e.config.MaxResultSize, guidance,
 					),
 					IsError: true,
 					Failure: &ToolFailure{
-						Code:      "result_too_large",
+						Code:      code,
 						Kind:      ErrorKindUnknown,
 						Retryable: false,
 					},
 				}
-				execErr = fmt.Errorf("saída estruturada de '%s' tem %d bytes, acima do limite de %d", toolName, origSize, e.config.MaxResultSize)
+				execErr = fmt.Errorf("saída %s de '%s' tem %d bytes, acima do limite de %d", label, toolName, origSize, e.config.MaxResultSize)
 				execKind = ErrorKindUnknown
 			} else {
 				origSize := len(result.Content)
-				// Reserva bytes para o aviso, garantindo Content final ≤ MaxResultSize.
-				warning := fmt.Sprintf(
-					"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-					origSize, e.config.MaxResultSize,
-				)
-				contentBudget := e.config.MaxResultSize - len(warning)
-				if contentBudget >= 1 {
-					result.Content = truncateUTF8(result.Content, contentBudget) + warning
+				var protected ToolResult
+				var stored bool
+				if strings.HasPrefix(toolName, "mcp_") {
+					protected, stored = ProtectExternalModelResult(result, e.config.MaxResultSize)
 				} else {
-					// Warning não cabe — trunca sem aviso para respeitar o limite.
-					result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+					protected, stored = ProtectModelResult(result, e.config.MaxResultSize)
 				}
-				if result.Metadata == nil {
-					result.Metadata = make(map[string]any)
+				if !stored {
+					result = ToolResult{
+						Content: fmt.Sprintf(
+							"Resultado tem %d bytes e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
+							origSize,
+						),
+						IsError: true,
+						Failure: &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
+					}
+					execErr = fmt.Errorf("saída de '%s' excede armazenamento seguro: %d bytes", toolName, origSize)
+					execKind = ErrorKindUnknown
+				} else {
+					result = protected
 				}
-				result.Metadata["truncated"] = true
 			}
 		}
 
@@ -326,6 +347,14 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			DurationMs:        elapsed,
 		}
 	}
+}
+
+func looksLikeCanonicalJSON(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if len(trimmed) < 2 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return false
+	}
+	return json.Valid([]byte(trimmed))
 }
 
 func failureCode(result ToolResult) string {

@@ -273,11 +273,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 		header += fmt.Sprintf("(%d entrada(s) omitida(s) por permissões do skill)\n", skippedBySkill)
 	}
 
-	if truncated {
-		header += fmt.Sprintf("(TRUNCADO: limite de %d entradas atingido)\n", maxEntries)
-	}
-
-	return tools.ToolResult{
+	result := tools.ToolResult{
 		Content: header + strings.Join(lines, "\n"),
 		Metadata: map[string]any{
 			"directories":       totalDirs,
@@ -287,7 +283,13 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 			"skipped_sensitive": skippedSensitive,
 			"skipped_by_skill":  skippedBySkill,
 		},
-	}, nil
+	}
+	if truncated {
+		result.Annotations = &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "entries", Offset: 0, Returned: totalFiles + totalDirs,
+		}}
+	}
+	return result, nil
 }
 
 // resolvePath converte caminho relativo para absoluto

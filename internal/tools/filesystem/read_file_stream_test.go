@@ -217,7 +217,7 @@ func TestStreamingSliceMatchesFullRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	streamed, handled := readTextSliceStreaming(small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto)
+	streamed, handled := readTextSliceStreaming(context.Background(), small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto, false)
 	if !handled {
 		t.Skip("classificação não considerou o arquivo como texto")
 	}

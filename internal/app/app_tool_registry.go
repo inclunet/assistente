@@ -273,6 +273,7 @@ func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
 	a.toolExecutor = tools.NewExecutor(a.toolRegistry, tools.DefaultExecutorConfig())
+	a.toolRegistry.MustRegister(tools.NewReadToolResult())
 	profileAccess := a.profileAccessService()
 
 	// Determina diretório de trabalho para as tools de filesystem

@@ -163,10 +163,17 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Lê o body com limite
-	limitedReader := io.LimitReader(resp.Body, fetchMaxResponseBody)
+	limitedReader := io.LimitReader(resp.Body, fetchMaxResponseBody+1)
 	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler resposta: %v", err), IsError: true}, nil
+	}
+	if len(body) > fetchMaxResponseBody {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o conteúdo não foi devolvido parcialmente.", fetchMaxResponseBody),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "response_body_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -191,31 +198,41 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		extracted = htmlToText(content)
 	}
 
-	// Trunca se necessário
-	truncated := false
-	if len(extracted) > maxLength {
-		extracted = extracted[:maxLength]
-		truncated = true
-	}
-
 	// Header informativo
 	header := fmt.Sprintf("URL: %s\nStatus: %d | Content-Type: %s | Tamanho: %d chars\n",
 		a.URL, resp.StatusCode, contentType, len(extracted))
-	if truncated {
-		header += fmt.Sprintf("(TRUNCADO: limite de %d caracteres)\n", maxLength)
-	}
 	header += "\n"
 
-	return tools.ToolResult{
-		Content: header + extracted,
+	resultContent := header + extracted
+	if mode == "raw" {
+		resultContent = extracted
+	}
+	result := tools.ToolResult{
+		Content:  resultContent,
+		RawExact: mode == "raw",
 		Metadata: map[string]any{
 			"url":          a.URL,
 			"status":       resp.StatusCode,
 			"content_type": contentType,
 			"length":       len(extracted),
-			"truncated":    truncated,
 		},
-	}, nil
+	}
+	if mode == "raw" && len(result.Content) > maxLength {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Resposta raw tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", len(result.Content), maxLength),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	protected, ok := tools.ProtectModelResult(result, maxLength)
+	if !ok {
+		return tools.ToolResult{
+			Content: "Resposta excede a capacidade segura de preservação; reduza max_length.",
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "result_storage_limit", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	return protected, nil
 }
 
 // ==================== HTML Processing ====================

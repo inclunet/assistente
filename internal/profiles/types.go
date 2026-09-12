@@ -324,6 +324,7 @@ const DefaultToolPolicyDefault = "on_demand"
 func DefaultToolPolicy() map[string]string {
 	return map[string]string{
 		"read_file":         "preloaded",
+		"read_tool_result":  "preloaded",
 		"search_files":      "preloaded",
 		"grep_search":       "preloaded",
 		"web_search":        "preloaded",

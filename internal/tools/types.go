@@ -50,6 +50,11 @@ type ToolResult struct {
 	// Centraliza no executor a política antes duplicada em cada tool canônica.
 	Structured bool `json:"structured,omitempty"`
 
+	// RawExact sinaliza que Content foi solicitado como conteúdo textual exato.
+	// O executor nunca pode truncá-lo: se ultrapassar o limite, converte o
+	// resultado em uma falha explícita e estável.
+	RawExact bool `json:"raw_exact,omitempty"`
+
 	// Failure classifica uma falha retornada pela própria tool. O ponteiro
 	// distingue uma decisão explícita de retryability do legado IsError, cuja
 	// ausência de classificação deve preservar a política do chamador.
@@ -68,6 +73,22 @@ type ToolFailure struct {
 // conteúdo, mas não fazem parte dele.
 type ResultAnnotations struct {
 	DocumentProjection *DocumentProjectionAnnotation `json:"document_projection,omitempty"`
+	OutputWindow       *OutputWindowAnnotation       `json:"output_window,omitempty"`
+}
+
+// OutputWindowAnnotation descreve um recorte model-facing sem contaminar o
+// conteúdo original com avisos textuais. ResultID permite reler resultados que
+// só existem após a execução; NextOffset é usado por fontes naturalmente
+// pagináveis, como read_file.
+type OutputWindowAnnotation struct {
+	HasMore       bool   `json:"has_more"`
+	Unit          string `json:"unit"`
+	Offset        int    `json:"offset"`
+	Returned      int    `json:"returned"`
+	Total         int    `json:"total,omitempty"`
+	NextOffset    int    `json:"next_offset,omitempty"`
+	ResultID      string `json:"result_id,omitempty"`
+	OriginalBytes int    `json:"original_bytes,omitempty"`
 }
 
 // DocumentProjectionAnnotation identifica conteúdo derivado de um documento

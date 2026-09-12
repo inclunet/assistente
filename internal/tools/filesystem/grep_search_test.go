@@ -136,8 +136,12 @@ func TestGrepSearchEmptyResultReportsTruncationByFileLimit(t *testing.T) {
 	if result.Metadata["truncated"] != true {
 		t.Errorf("truncated=%v, quer true: %v", result.Metadata["truncated"], result.Metadata)
 	}
-	if !strings.Contains(result.Content, "TRUNCADO") {
-		t.Errorf("resposta não avisa do truncamento: %s", result.Content)
+	if strings.Contains(strings.ToUpper(result.Content), "TRUNCAD") {
+		t.Errorf("aviso não deve contaminar conteúdo: %s", result.Content)
+	}
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil ||
+		!result.Annotations.OutputWindow.HasMore {
+		t.Errorf("anotação de janela ausente: %+v", result.Annotations)
 	}
 }
 
