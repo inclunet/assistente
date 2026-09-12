@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/docextract"
 	"assistente/internal/tools"
@@ -264,6 +265,9 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 		if len(exact) > budget {
 			return rawReadTooLarge(len(exact), budget)
 		}
+		if !utf8.ValidString(exact) {
+			return rawReadInvalidUTF8()
+		}
 		meta["total_lines"] = total
 		meta["offset"] = offset + 1
 		meta["limit"] = requestedEnd - offset
@@ -371,6 +375,14 @@ func rawReadLimitExceeded(limit int) tools.ToolResult {
 		Content: fmt.Sprintf("Trecho raw solicitado excede o limite de %d bytes; use offset/limit menor.", limit),
 		IsError: true,
 		Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+	}
+}
+
+func rawReadInvalidUTF8() tools.ToolResult {
+	return tools.ToolResult{
+		Content: "Trecho raw solicitado não é UTF-8 válido e não pode ser devolvido exatamente.",
+		IsError: true,
+		Failure: &tools.ToolFailure{Code: "raw_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
 	}
 }
 

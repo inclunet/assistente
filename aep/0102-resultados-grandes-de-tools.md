@@ -72,9 +72,12 @@ JSON e não ofereciam retomada exata.
     usuário autenticado. Uma janela natural sem `result_id` nunca é
     reempacotada como se seu prefixo fosse o resultado integral; se outro teto
     não comportá-la, a barreira falha explicitamente.
-17. Modos `raw` HTTP só anunciam exatidão para bytes UTF-8 válidos; caso
-    contrário falham com `raw_invalid_utf8`. Formatação JSON usa números sem
-    conversão por `float64`, preservando inteiros grandes.
+17. Modos `raw`, inclusive `read_file`, só anunciam exatidão para bytes UTF-8
+    válidos; caso contrário falham com `raw_invalid_utf8`. Formatação JSON usa
+    números sem conversão por `float64`, preservando inteiros grandes.
+18. O LRU preserva também a proveniência model-facing do resultado; cada página
+    de `read_tool_result` repete, por exemplo, o contexto HTTP sem alterar os
+    bytes do corpo.
 
 ## Fases
 

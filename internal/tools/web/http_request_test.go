@@ -359,6 +359,7 @@ func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.
 		max         int
 	}{
 		{name: "json de erro", contentType: "application/problem+json", body: `{"detail":"ausente"}`, status: http.StatusNotFound, mode: "auto", max: 100},
+		{name: "raw pequeno", contentType: "text/plain", body: "exato", status: http.StatusOK, mode: "raw", max: 100},
 		{name: "texto paginado", contentType: "text/plain", body: strings.Repeat("x", 200), status: http.StatusOK, mode: "text", max: 50},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -387,6 +388,10 @@ func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.
 				next, nextErr := tools.NewReadToolResult().Execute(ctx, nextArgs)
 				if nextErr != nil || next.IsError || next.Content == "" {
 					t.Fatalf("continuação HTTP indisponível: err=%v result=%+v", nextErr, next)
+				}
+				if next.Annotations == nil || next.Annotations.HTTPResponse == nil ||
+					next.Annotations.HTTPResponse.URL != ts.URL {
+					t.Fatalf("continuação perdeu proveniência HTTP: %+v", next.Annotations)
 				}
 			}
 		})

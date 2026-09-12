@@ -25,9 +25,10 @@ const (
 )
 
 type storedLargeResult struct {
-	id      string
-	content string
-	owner   largeResultOwner
+	id         string
+	content    string
+	owner      largeResultOwner
+	provenance *ResultAnnotations
 }
 
 type largeResultOwner struct {
@@ -47,7 +48,7 @@ var modelResultStore = &largeResultStore{
 	order: list.New(),
 }
 
-func storeModelResult(ctx context.Context, content string) (string, bool) {
+func storeModelResult(ctx context.Context, content string, annotations ...*ResultAnnotations) (string, bool) {
 	owner, ok := largeResultOwnerFromContext(ctx)
 	if !ok || len(content) > largeResultStoreBytes || !utf8.ValidString(content) {
 		return "", false
@@ -56,7 +57,11 @@ func storeModelResult(ctx context.Context, content string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := "tool-result-" + uuid.NewString()
-	elem := s.order.PushFront(storedLargeResult{id: id, content: content, owner: owner})
+	var provenance *ResultAnnotations
+	if len(annotations) > 0 {
+		provenance = resumableProvenance(annotations[0])
+	}
+	elem := s.order.PushFront(storedLargeResult{id: id, content: content, owner: owner, provenance: provenance})
 	s.items[id] = elem
 	s.bytes += len(content)
 	for s.bytes > largeResultStoreBytes || s.order.Len() > largeResultStoreItems {
@@ -70,23 +75,28 @@ func storeModelResult(ctx context.Context, content string) (string, bool) {
 }
 
 func loadModelResult(ctx context.Context, id string) (string, bool) {
+	entry, ok := loadModelResultEntry(ctx, id)
+	return entry.content, ok
+}
+
+func loadModelResultEntry(ctx context.Context, id string) (storedLargeResult, bool) {
 	owner, ownerOK := largeResultOwnerFromContext(ctx)
 	if !ownerOK {
-		return "", false
+		return storedLargeResult{}, false
 	}
 	s := modelResultStore
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	elem, ok := s.items[id]
 	if !ok {
-		return "", false
+		return storedLargeResult{}, false
 	}
 	entry := elem.Value.(storedLargeResult)
 	if entry.owner != owner {
-		return "", false
+		return storedLargeResult{}, false
 	}
 	s.order.MoveToFront(elem)
-	return entry.content, true
+	return entry, true
 }
 
 func largeResultOwnerFromContext(ctx context.Context) (largeResultOwner, bool) {
@@ -189,7 +199,7 @@ func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, in
 	}
 	if id == "" {
 		var ok bool
-		id, ok = storeModelResult(ctx, original)
+		id, ok = storeModelResult(ctx, original, result.Annotations)
 		if !ok {
 			return ToolResult{}, false
 		}
@@ -256,7 +266,7 @@ func ProtectExternalModelResult(ctx context.Context, result ToolResult, maxBytes
 	}
 	if id == "" {
 		var ok bool
-		id, ok = storeModelResult(ctx, original)
+		id, ok = storeModelResult(ctx, original, result.Annotations)
 		if !ok {
 			return ToolResult{}, false
 		}
@@ -309,6 +319,27 @@ func cloneMutableResultFields(result ToolResult) ToolResult {
 	return result
 }
 
+func resumableProvenance(annotations *ResultAnnotations) *ResultAnnotations {
+	if annotations == nil {
+		return nil
+	}
+	cloned := *annotations
+	cloned.OutputWindow = nil
+	if annotations.HTTPResponse != nil {
+		httpResponse := *annotations.HTTPResponse
+		cloned.HTTPResponse = &httpResponse
+	}
+	if annotations.DocumentProjection != nil {
+		projection := *annotations.DocumentProjection
+		projection.Warnings = append([]string(nil), annotations.DocumentProjection.Warnings...)
+		cloned.DocumentProjection = &projection
+	}
+	if cloned.HTTPResponse == nil && cloned.DocumentProjection == nil {
+		return nil
+	}
+	return &cloned
+}
+
 // ReadToolResult relê, por bytes, um resultado grande preservado pelo host.
 type ReadToolResult struct{}
 
@@ -350,7 +381,7 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 	if args.ResultID == "" || args.Offset < 0 {
 		return ToolResult{Content: "result_id e offset não negativo são obrigatórios", IsError: true}, nil
 	}
-	content, ok := loadModelResult(ctx, args.ResultID)
+	entry, ok := loadModelResultEntry(ctx, args.ResultID)
 	if !ok {
 		return ToolResult{
 			Content: "Resultado grande não encontrado ou expirado; execute novamente a tool de origem.",
@@ -358,6 +389,7 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 			Failure: &ToolFailure{Code: "large_result_not_found", Kind: ErrorKindNotFound, Retryable: false},
 		}, nil
 	}
+	content := entry.content
 	if args.Offset > len(content) {
 		return ToolResult{Content: fmt.Sprintf("offset %d excede o resultado de %d bytes", args.Offset, len(content)), IsError: true}, nil
 	}
@@ -382,25 +414,30 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 	}
 	page := content[args.Offset:end]
 	hasMore := end < len(content)
+	annotations := resumableProvenance(entry.provenance)
+	if annotations == nil {
+		annotations = &ResultAnnotations{}
+	}
+	annotations.OutputWindow = &OutputWindowAnnotation{
+		HasMore:  hasMore,
+		Unit:     "bytes",
+		Offset:   args.Offset,
+		Returned: len(page),
+		Total:    len(content),
+		NextOffset: func() int {
+			if hasMore {
+				return end
+			}
+			return 0
+		}(),
+		ResultID:      args.ResultID,
+		OriginalBytes: len(content),
+	}
 	return ToolResult{
-		Content:  page,
-		RawExact: true,
-		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
-			HasMore:  hasMore,
-			Unit:     "bytes",
-			Offset:   args.Offset,
-			Returned: len(page),
-			Total:    len(content),
-			NextOffset: func() int {
-				if hasMore {
-					return end
-				}
-				return 0
-			}(),
-			ResultID:      args.ResultID,
-			OriginalBytes: len(content),
-		}},
-		Metadata: map[string]any{"result_id": args.ResultID, "offset": args.Offset, "returned": len(page)},
+		Content:     page,
+		RawExact:    true,
+		Annotations: annotations,
+		Metadata:    map[string]any{"result_id": args.ResultID, "offset": args.Offset, "returned": len(page)},
 	}, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/docextract"
 	"assistente/internal/tools"
@@ -122,10 +123,14 @@ func readTextSliceStreamingForward(
 	collectionTooLarge := false
 	totalLines := 0
 	binary := false
+	invalidRawUTF8 := false
 	err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
 		totalLines++
 		if strings.IndexByte(line, 0) >= 0 {
 			binary = true
+		}
+		if raw && !utf8.ValidString(line) {
+			invalidRawUTF8 = true
 		}
 		if idx >= offset && len(lines) < collectLimit && !collectionTooLarge {
 			extra := len(line)
@@ -152,6 +157,9 @@ func readTextSliceStreamingForward(
 			Content: fmt.Sprintf("%s tem conteúdo binário (byte NUL) apesar da extensão; não é lido como texto", displayPath),
 			IsError: true,
 		}, true
+	}
+	if invalidRawUTF8 {
+		return rawReadInvalidUTF8(), true
 	}
 	if offset >= totalLines {
 		shown := 0
@@ -266,12 +274,19 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			totalLines = -1
 			return false
 		}
+		if raw && !utf8.ValidString(line) {
+			totalLines = -2
+			return false
+		}
 		totalLines++
 		return true
 	}); err != nil {
 		return streamFailure(err, size, raw, budget)
 	}
 	if totalLines < 0 {
+		if totalLines == -2 {
+			return rawReadInvalidUTF8(), true
+		}
 		return tools.ToolResult{
 			Content: fmt.Sprintf("%s tem conteúdo binário (byte NUL) apesar da extensão; não é lido como texto", displayPath),
 			IsError: true,

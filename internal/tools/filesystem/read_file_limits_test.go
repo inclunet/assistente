@@ -43,6 +43,30 @@ func TestReadFileDefaultCapsLinesAndProvidesExactResume(t *testing.T) {
 	}
 }
 
+func TestReadFileRawRejectsInvalidUTF8AfterValidPrefix(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		firstBytes int
+	}{
+		{name: "materializado", firstBytes: 9 * 1024},
+		{name: "streaming", firstBytes: streamTextMinBytes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			content := append([]byte(strings.Repeat("a", tc.firstBytes)+"\n"), 0xff)
+			if err := os.WriteFile(filepath.Join(dir, "invalido.txt"), content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			result, err := NewReadFile(dir).Execute(context.Background(), mustJSON(t, map[string]any{
+				"path": "invalido.txt", "offset": 2, "limit": 1, "raw": true,
+			}))
+			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_invalid_utf8" {
+				t.Fatalf("raw inválido não falhou explicitamente: err=%v result=%+v", err, result)
+			}
+		})
+	}
+}
+
 func TestReadFileByteCapPrecedesLineCap(t *testing.T) {
 	dir := t.TempDir()
 	var content strings.Builder

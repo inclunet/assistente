@@ -21,7 +21,9 @@ func ContentForModel(result ToolResult) string {
 	// RawExact é o contrato textual exato da chamada. Anotações ainda podem ser
 	// carregadas para UI/auditoria (por exemplo, proveniência de uma projeção),
 	// mas não são prefixadas ao texto enviado ao modelo.
-	if result.RawExact && !result.IsError && (result.Annotations == nil || result.Annotations.OutputWindow == nil) {
+	if result.RawExact && !result.IsError &&
+		(result.Annotations == nil ||
+			(result.Annotations.OutputWindow == nil && result.Annotations.HTTPResponse == nil)) {
 		return result.Content
 	}
 	if result.Annotations == nil {
@@ -37,7 +39,7 @@ func ContentForModel(result ToolResult) string {
 // ContentForModelSize calcula o tamanho model-facing sem materializar o corpo.
 // É útil para produtores streaming que já conhecem o número de bytes coletados.
 func ContentForModelSize(contentBytes int, annotations *ResultAnnotations, rawExact bool) int {
-	if annotations == nil || (rawExact && annotations.OutputWindow == nil) {
+	if annotations == nil || (rawExact && annotations.OutputWindow == nil && annotations.HTTPResponse == nil) {
 		return contentBytes
 	}
 	encoded, err := json.Marshal(annotations)
