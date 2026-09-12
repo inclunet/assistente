@@ -224,8 +224,9 @@ mantém chaves antigas até seus ledgers expirarem. Chave esperada indisponível
 faz a reentrega falhar fechado, sem executar novamente.
 
 `provenance` é um documento versionado e redigido com `_source`,
-`_source_job_id`, `_chain_id` e `_chain_history` da AEP-0067 quando a solicitação
-vier de cadeia reativa. O dispatcher o copia sem reconstruir por heurística.
+`_source_job_id`, `_chain_id` e `_chain_history` da AEP-0067, além de
+`command_chain_history` separado, quando a solicitação vier de cadeia reativa.
+O dispatcher o copia sem reconstruir por heurística.
 
 Uma solicitação informa `command_id` para execução direta ou
 `trigger_type`/`trigger_spec` para resolução de binding. Depois da resolução, o
@@ -273,8 +274,13 @@ invocações em todos os workspaces; mutação local incrementa somente a segund
 A invocação captura `workspace_id` e o par de gerações na resolução. Sem
 workspace, captura apenas a global.
 
-O resolvedor incrementa `active_layers_generation` sempre que o conjunto
-efetivo de claims muda, incluindo `layer.back`, expiração, pin e eventos.
+O resolvedor mantém contador global por usuário e contador por
+usuário+workspace. `active_layers_generation` é fingerprint composto somente
+dos dois contadores aplicáveis ao `user_id`/`workspace_id` da invocação.
+Mudança de claim global incrementa o contador do usuário e afeta seus
+workspaces; mudança local incrementa apenas o workspace. `layer.back`,
+expiração, pin e eventos seguem o mesmo escopo. Mudança de outra conta ou
+workspace não cancela a invocação.
 
 `internal/commandsecurity.DispatchGate` serializa admissão com mudanças de
 segurança/configuração. Logout, lock, troca de principal e mutações de mapa
@@ -628,8 +634,22 @@ perfil, modo, estado ou processo. As prioridades persistidas resolvem esse caso.
 Se também forem iguais e os destinos diferirem, aplica-se o conflito fail-closed
 descrito acima.
 
+Na v1, condição é conjunção normalizada de cláusulas tipadas. B domina A quando
+contém todas as cláusulas equivalentes de A e ao menos uma cláusula adicional
+ou mais restritiva; por exemplo, `surface=editor ∧ process=code.exe` domina
+`surface=editor`. Sem relação de subconjunto, os predicados são incomparáveis e
+dependem de prioridade explícita ou terminam em conflito.
+
+O stack compartilhado de `Modal` registra no dispatcher um
+`DialogCommandScope { dialog_id, kind, generation, allowed_command_ids,
+allowed_trigger_specs }` ao abrir e remove ao fechar. Para `DecisionDialog`, a
+ponte deriva o scope das `actions` reais da AEP-0091 e dos atalhos invariantes,
+mapeando respostas para o comando fixo `decision.respond`; payload não injeta
+command IDs arbitrários. O topo do stack é a fonte autoritativa e mudanças
+incrementam `generation`.
+
 Diálogo bloqueante no topo é barreira, não apenas camada prioritária. Enquanto
-existir, somente bindings declarados pela allowlist do diálogo topmost são
+existir, somente bindings declarados pelo `DialogCommandScope` topmost são
 avaliados. Se não houver candidato permitido, o acionador é consumido ou
 recusado sem cair para surface, workspace, aplicativo ou global. Isso vale
 também para hotkey do SO e Stream Deck e preserva a AEP-0091.
@@ -742,8 +762,8 @@ proveniência. A chave de idempotência é exclusivamente
 `(user_id, rule_ref_kind, rule_ref, source_event_id)`, portanto replay estável após reinício
 continua duplicata. Se o cursor terminal já tiver sido removido, `occurred_at`
 anterior a `maintenance.command_activation_terminal_retention_days` é rejeitado
-antes do insert; `source_event_id` UUIDv7 também precisa ser compatível com essa
-janela. Assim, limpeza delimita a deduplicação sem permitir replay antigo
+antes do insert. A idade vem somente desse timestamp autenticado, nunca do
+UUIDv7. Assim, limpeza delimita a deduplicação sem permitir replay antigo
 reativar uma camada.
 
 Exemplos:
@@ -827,8 +847,10 @@ efetiva sem lease válida.
 
 O adapter preserva a proveniência anti-loop da AEP-0067. Se um binding ativado
 por esse ciclo iniciar job, tool que publica evento ou outro comando reativo, a
-invocação herda `_chain_id`/`_chain_history`, acrescenta comando e camada e passa
-por `DetectLoop`/`MaxChainDepth` antes do despacho. Evento derivado de job sem
+invocação herda `_chain_id`/`_chain_history` sem acrescentar namespaces que não
+sejam jobs. Comando/camada entram em `command_chain_history` separado e obedecem
+`CommandMaxChainDepth`; ao iniciar novo job, somente o runtime de jobs acrescenta
+o job à `_chain_history` e chama `DetectLoop`/`MaxChainDepth`. Evento derivado de job sem
 proveniência não pode habilitar comando capaz de ampliar a cadeia; falha
 fechado.
 
@@ -871,8 +893,10 @@ AEP-0048 para não inflar o catálogo:
 
 - `command_catalog`, com ações `list`, `describe` e `execute`;
 - `command_config`, com ações `layer_list`, `layer_get`, `layer_create`,
-  `layer_update`, `layer_delete`, `binding_list`, `binding_check_conflict`,
-  `binding_create`, `binding_update` e `binding_delete`.
+  `layer_update`, `layer_delete`, `layer_enable`, `layer_disable`,
+  `layer_restore`, `binding_list`, `binding_check_conflict`,
+  `binding_create`, `binding_update`, `binding_delete`, `binding_enable`,
+  `binding_disable`, `binding_restore`, `config_import` e `config_export`.
 
 Alterações destrutivas, conflitos e comandos sensíveis continuam sujeitos ao
 contrato de decisão da AEP-0091. A resposta da tool inclui IDs reais e o efeito
@@ -894,9 +918,9 @@ não existe segunda rota para alterar o mapa efetivo.
 
 A marca não é declarada livremente pelo autor do comando.
 `CommandHandler.Mutability()` fornece a classificação e o registro rejeita
-divergência. Em `command_config`, toda ação exceto list/get/check é mutação de
-capacidade: create, update, delete, enable, disable, restore e import sempre
-exigem o gate. Teste de catálogo enumera todas as ações/handlers para impedir que
+divergência. Em `command_config`, somente list/get/check_conflict e
+`config_export` são leitura; create, update, delete, enable, disable, restore e
+import são mutações de capacidade e sempre exigem o gate. Teste de catálogo enumera todas as ações/handlers para impedir que
 um verbo novo nasça sem classificação.
 
 ### D11 — Persistência
@@ -923,7 +947,7 @@ command_config_generations
   id, user_id, workspace_id, generation, updated_at
 
 command_layer_activation_state
-  activation_id, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
+  activation_id PK UUIDv7, layer_ref_kind, layer_ref, rule_ref_kind, rule_ref,
   user_id, auth_context_type, auth_context_id, auth_generation,
   security_generation, source_type, source_instance_id, source_event_id,
   source_correlation_id, sequence, event_fingerprint, state,
@@ -1093,6 +1117,11 @@ usuário retorna conflito `foreign_owner` sem revelar conteúdo, sobrescrever ou
 associar referência. UUID ausente é criado para o usuário autenticado,
 ignorando qualquer owner do arquivo. A opção “cópia” gera novos UUIDs e remapeia
 somente relações internas validadas daquele lote.
+
+Se “cópia” colidir com nome único no mesmo escopo, exige novo nome explícito
+antes do commit; a UI pode sugerir rótulo localizado, mas não persiste enquanto
+ele não for único. Validação e insert ocorrem na mesma transação para fechar
+corrida.
 
 Essa seção só é habilitada depois que o mesmo PR atualizar a AEP-0047, registrar
 `commandLayers` e incrementar a versão do envelope portátil com regras de
