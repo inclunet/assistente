@@ -311,14 +311,30 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 	}
 
 	// Persistência é uma cópia de auditoria: reduz o corpo sem inserir avisos
-	// dentro do conteúdo. A semântica model-facing já está nas anotações.
+	// dentro do conteúdo. Uma janela de retomada deixa de ser verdadeira quando
+	// o corpo é reduzido, portanto não pode sobreviver nessa cópia.
 	origSize := len(result.Content)
 	result.Content = truncateUTF8Safe(result.Content, max)
+	result = withoutOutputWindow(result)
 	if result.Metadata == nil {
 		result.Metadata = make(map[string]any)
 	}
 	result.Metadata["truncated_for_persistence"] = true
 	result.Metadata["original_size_bytes"] = origSize
+	return result
+}
+
+func withoutOutputWindow(result tools.ToolResult) tools.ToolResult {
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil {
+		return result
+	}
+	annotations := *result.Annotations
+	annotations.OutputWindow = nil
+	if annotations.DocumentProjection == nil {
+		result.Annotations = nil
+	} else {
+		result.Annotations = &annotations
+	}
 	return result
 }
 
@@ -925,6 +941,12 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	}
 
 	// Fallback final: reduz content até caber no JSON (UTF-8 safe).
+	// Remove antes qualquer janela que passaria a descrever outro corpo.
+	trimmed = withoutOutputWindow(trimmed)
+	data = resultOutput(trimmed)
+	if len(data) <= max {
+		return data
+	}
 	content := trimmed.Content
 	// Começa com um budget razoável; ajusta iterativamente com base no marshal.
 	budget := max

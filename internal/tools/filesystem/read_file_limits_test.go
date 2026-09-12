@@ -95,6 +95,60 @@ func TestReadFileRawSmallIsExactAndLargeFailsWithoutPartial(t *testing.T) {
 	}
 }
 
+func TestReadFileRawPagesPreserveSeparators(t *testing.T) {
+	dir := t.TempDir()
+	original := "a\r\nb\nc"
+	if err := os.WriteFile(filepath.Join(dir, "pages.txt"), []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFile(dir)
+	var joined strings.Builder
+	for offset := 1; offset <= 3; offset++ {
+		page, _ := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+			"path": "pages.txt", "raw": true, "offset": offset, "limit": 1,
+		}))
+		if page.IsError {
+			t.Fatalf("página %d falhou: %+v", offset, page)
+		}
+		joined.WriteString(page.Content)
+	}
+	if joined.String() != original {
+		t.Fatalf("páginas raw alteraram separadores: got=%q want=%q", joined.String(), original)
+	}
+}
+
+func TestFormatReadRawPreservesProjectionWithoutModelEnvelope(t *testing.T) {
+	annotations := &tools.ResultAnnotations{DocumentProjection: &tools.DocumentProjectionAnnotation{
+		Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+	}}
+	result := formatReadResult(context.Background(), "manual.pdf", "texto", 5, nil, nil, true, map[string]any{}, annotations)
+	if result.Annotations == nil || result.Annotations.DocumentProjection == nil {
+		t.Fatal("raw perdeu proveniência da projeção")
+	}
+	if got := tools.ContentForModel(result); got != "texto" {
+		t.Fatalf("raw recebeu envelope model-facing: %q", got)
+	}
+}
+
+func TestFormatReadUsesEffectiveEnvelopeForSmallExecutorBudget(t *testing.T) {
+	ctx := tools.WithMaxResultSize(context.Background(), 400)
+	result := formatReadResult(ctx, "a.txt", "curta", 5, nil, nil, false, map[string]any{}, nil)
+	if result.IsError {
+		t.Fatalf("linha curta que cabe foi rejeitada: %+v", result)
+	}
+	if got := len(tools.ContentForModel(result)); got > 400 {
+		t.Fatalf("resultado excedeu budget efetivo: %d", got)
+	}
+}
+
+func TestFormatReadHugeLimitDoesNotOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	result := formatReadResult(context.Background(), "a.txt", "a\nb", 3, intPtr(1), &maxInt, false, map[string]any{}, nil)
+	if result.IsError || !strings.Contains(result.Content, "a") {
+		t.Fatalf("limit máximo transbordou: %+v", result)
+	}
+}
+
 func TestReadFileEnvelopeDoesNotPolluteContent(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\nb\nc"), 0o600); err != nil {

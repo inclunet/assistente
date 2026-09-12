@@ -18,6 +18,12 @@ const (
 // trunca pelo fim: assim o que se perde é a cauda do documento, não a
 // proveniência.
 func ContentForModel(result ToolResult) string {
+	// RawExact é o contrato textual exato da chamada. Anotações ainda podem ser
+	// carregadas para UI/auditoria (por exemplo, proveniência de uma projeção),
+	// mas não são prefixadas ao texto enviado ao modelo.
+	if result.RawExact && (result.Annotations == nil || result.Annotations.OutputWindow == nil) {
+		return result.Content
+	}
 	if result.Annotations == nil {
 		return result.Content
 	}

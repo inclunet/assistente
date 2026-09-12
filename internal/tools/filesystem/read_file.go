@@ -151,6 +151,10 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return res, nil
 	}
 
+	if err := ctx.Err(); err != nil {
+		return tools.ToolResult{Content: "Leitura cancelada pelo usuário", IsError: true}, nil
+	}
+
 	// Lê o arquivo
 	data, err := ReadFileBytes(fullPath)
 	if err != nil {
@@ -242,7 +246,7 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 		return tools.ToolResult{Content: fmt.Sprintf("Offset %d excede o número de linhas (%d)", shown, total), IsError: true}
 	}
 	requestedEnd := total
-	if limitArg != nil && *limitArg > 0 && offset+*limitArg < requestedEnd {
+	if limitArg != nil && *limitArg > 0 && *limitArg < total-offset {
 		requestedEnd = offset + *limitArg
 	}
 	budget := readModelMaxBytes
@@ -254,37 +258,33 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 			return rawReadTooManyLines(requestedEnd-offset, readModelMaxLines)
 		}
 		exact := strings.Join(lines[offset:requestedEnd], "\n")
+		if requestedEnd < total {
+			exact += "\n"
+		}
 		if len(exact) > budget {
 			return rawReadTooLarge(len(exact), budget)
 		}
 		meta["total_lines"] = total
 		meta["offset"] = offset + 1
 		meta["limit"] = requestedEnd - offset
-		return tools.ToolResult{Content: exact, RawExact: true, Metadata: meta}
+		return tools.ToolResult{Content: exact, RawExact: true, Metadata: meta, Annotations: annotations}
 	}
-	// Reserva espaço para o envelope JSON de output_window: o teto é da
-	// mensagem model-facing completa, não apenas do corpo numerado.
-	budget -= 512
 
-	end := requestedEnd
-	if end-offset > readModelMaxLines {
-		end = offset + readModelMaxLines
+	maxEnd := requestedEnd
+	if maxEnd-offset > readModelMaxLines {
+		maxEnd = offset + readModelMaxLines
 	}
-	header := fmt.Sprintf("Arquivo: %s (linhas %d-", path, offset+1)
-	body := make([]string, 0, end-offset)
-	used := len(header) + 32
-	for i := offset; i < end; i++ {
+	body := make([]string, 0, maxEnd-offset)
+	end := offset
+	for i := offset; i < maxEnd; i++ {
 		line := fmt.Sprintf("%6d|%s", i+1, lines[i])
-		extra := len(line)
-		if len(body) > 0 {
-			extra++
-		}
-		if used+extra > budget {
-			end = i
+		body = append(body, line)
+		candidateEnd := i + 1
+		if readModelFacingSize(path, body, offset, candidateEnd, total, annotations) > budget {
+			body = body[:len(body)-1]
 			break
 		}
-		body = append(body, line)
-		used += extra
+		end = candidateEnd
 	}
 	if end == offset {
 		return tools.ToolResult{
@@ -293,14 +293,7 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 			Failure: &tools.ToolFailure{Code: "read_line_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
 		}
 	}
-	hasMore := end < total
-	window := &tools.OutputWindowAnnotation{
-		HasMore: hasMore, Unit: "lines", Offset: offset + 1,
-		Returned: end - offset, Total: total,
-	}
-	if hasMore {
-		window.NextOffset = end + 1
-	}
+	window := readOutputWindow(offset, end, total)
 	if annotations == nil {
 		annotations = &tools.ResultAnnotations{}
 	}
@@ -310,9 +303,37 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 	meta["offset"] = offset + 1
 	meta["limit"] = end - offset
 	return tools.ToolResult{
-		Content:  fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n%s", path, offset+1, end, total, strings.Join(body, "\n")),
+		Content:  formattedReadContent(path, body, offset, end, total),
 		Metadata: meta, Annotations: annotations,
 	}
+}
+
+func formattedReadContent(path string, body []string, offset, end, total int) string {
+	return fmt.Sprintf("Arquivo: %s (linhas %d-%d de %d)\n%s", path, offset+1, end, total, strings.Join(body, "\n"))
+}
+
+func readOutputWindow(offset, end, total int) *tools.OutputWindowAnnotation {
+	hasMore := end < total
+	window := &tools.OutputWindowAnnotation{
+		HasMore: hasMore, Unit: "lines", Offset: offset + 1,
+		Returned: end - offset, Total: total,
+	}
+	if hasMore {
+		window.NextOffset = end + 1
+	}
+	return window
+}
+
+func readModelFacingSize(path string, body []string, offset, end, total int, annotations *tools.ResultAnnotations) int {
+	candidateAnnotations := &tools.ResultAnnotations{}
+	if annotations != nil {
+		candidateAnnotations.DocumentProjection = annotations.DocumentProjection
+	}
+	candidateAnnotations.OutputWindow = readOutputWindow(offset, end, total)
+	return len(tools.ContentForModel(tools.ToolResult{
+		Content:     formattedReadContent(path, body, offset, end, total),
+		Annotations: candidateAnnotations,
+	}))
 }
 
 func normalizedLineOffset(offsetArg *int, total int) int {

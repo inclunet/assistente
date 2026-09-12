@@ -103,6 +103,32 @@ func TestOutputForPersistence_PreservesResultAnnotations(t *testing.T) {
 	}
 }
 
+func TestOutputForPersistenceRemovesWindowWhenContentIsReduced(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	result := tools.ToolResult{
+		Content: strings.Repeat("x", 4096),
+		Annotations: &tools.ResultAnnotations{
+			DocumentProjection: &tools.DocumentProjectionAnnotation{
+				Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+			},
+			OutputWindow: &tools.OutputWindowAnnotation{
+				HasMore: true, Unit: "bytes", Returned: 4096, Total: 8192,
+				NextOffset: 4096, ResultID: "tool-result-efemero",
+			},
+		},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations == nil || persisted.Annotations.DocumentProjection == nil {
+		t.Fatal("proveniência estável foi removida")
+	}
+	if persisted.Annotations.OutputWindow != nil {
+		t.Fatalf("janela inválida sobreviveu ao corte: %+v", persisted.Annotations.OutputWindow)
+	}
+	if len(persisted.Content) >= len(result.Content) {
+		t.Fatal("fixture não reduziu o conteúdo")
+	}
+}
+
 func TestExtractToolInvocationResultRestoresProjectionAnnotations(t *testing.T) {
 	raw := `{"content":"# Manual","is_error":false,"annotations":{"document_projection":{"source":"manual.docx","format":"docx","read_only":true}}}`
 	result := ExtractToolInvocationResult(raw)
