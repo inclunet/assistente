@@ -133,6 +133,10 @@ O registro rejeita `context_policy = none` quando `effect_class` não for
 efetiva. `CommandExecutionService` revalida essa invariância; metadata de comando
 não pode optar por escapar de staleness.
 
+`effect_class = destructive` exige `decision_requirement = interactive`,
+segue AEP-0091 e não aceita `allowed_source_types = cli`. Combinação
+`destructive + none` é inválida no registro e recusada novamente pelo executor.
+
 Comandos de UI podem ser executados no frontend por uma ponte tipada. Comandos
 de backend são enviados ao serviço correspondente. Jobs usam o runtime de jobs;
 tools internas e MCP usam o executor comum da AEP-0063. O registro de comandos
@@ -152,7 +156,7 @@ CommandInvocation
   user_id?, auth_context_type, auth_context_id, auth_generation
   session_id?, security_generation
   actor_type, actor_id
-  source_type, observer_type?, source_instance_id?, source_event_id?
+  source_type?, observer_type?, source_instance_id?, source_event_id?
   workspace_id?, binding_ids?, registry_version
   global_config_generation, workspace_config_generation?
   active_layers_generation
@@ -174,9 +178,10 @@ e é sempre UUIDv7 gerado pela borda confiável. Contador/ID nativo do protocolo
 pode ficar em metadata redigida, mas não substitui a identidade canônica.
 `actor_type` distingue usuário, agente e automação.
 
-`source_type` é a origem lógica que governa binding e
-`allowed_source_types`; `observer_type` registra opcionalmente quem observou o
-evento físico. Eles podem diferir sem perder auditoria.
+`source_type` é a origem lógica vencedora que governa binding e
+`allowed_source_types`; `observer_type` e `observed_trigger_type` registram quem
+observou o evento físico. Em solicitação por trigger, `source_type` fica nulo até
+a resolução escolher o candidato; em execução direta, é fixado na borda.
 
 `actor_type` e `actor_id` são derivados no backend do principal e da origem
 autenticados; valores recebidos de adapter/cliente são ignorados e divergência
@@ -196,15 +201,18 @@ esse instante e o relógio do backend; versões/epochs monotônicos ficam em
 `context_version`, não são serializados como timestamp.
 
 Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
-Palette, chat, CLI e `system` os omitem e deduplicam pela PK `invocation_id`.
-Após resolução, `binding_ids` é sempre materializado como lista, ainda que
-vazia.
+Palette, `ui.action`, chat, CLI e `system` os omitem e deduplicam pela PK
+`invocation_id`. A borda Wails cria o UUIDv7 de cada clique/formulário antes do
+serviço. Após resolução, `binding_ids` é sempre materializado como lista, ainda
+que vazia.
 
 Para toda origem, `request_fingerprint` é HMAC do request de ingresso após
-normalização, serializado por JSON Canonicalization Scheme (RFC 8785). Inclui
+normalização e, para trigger, após fixar o candidato vencedor, serializado por
+JSON Canonicalization Scheme (RFC 8785). Inclui
 schema, comando ou trigger, argumentos, IDs/versões de contexto, usuário/ator
 derivados, tipo/ID do contexto autenticado, origem/observador, workspace,
-versões de catálogo/configuração e proveniência. Exclui token bruto,
+`source_instance_id`/`source_event_id` quando presentes, versões de
+catálogo/configuração e proveniência. Exclui token bruto,
 `auth_generation` rotativa e timestamps. É calculado no backend e persistido
 sem revelar segredos. Reentrega com o mesmo `invocation_id` só é aceita se o
 fingerprint for idêntico; divergência é conflito e falha fechado.
@@ -420,10 +428,11 @@ Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
 `keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
 Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
 `keyboard.local` para ela. O adapter global preserva
-`source_type`/`observer_type`/`observed_trigger_type = keyboard.global`.
+`observer_type`/`observed_trigger_type = keyboard.global`.
 Com o Assistente focado, o resolvedor considera primeiro o candidato lógico
 `keyboard.local` e depois o `keyboard.global`; sem foco, considera somente o
-global. `trigger_type` registra o candidato vencedor. Assim, binding local pode
+global. `source_type` e `trigger_type` recebem o candidato vencedor antes da
+allowlist; a origem física continua nos campos observados. Assim, binding local pode
 vencer sem apagar o binding global nem a proveniência física. O adapter local possui somente
 combinações não registradas globalmente. Alterações de registro são aplicadas
 por geração antes de publicar o novo mapa. Stream Deck possui um único listener
@@ -615,6 +624,9 @@ do `DecisionDialog` e não podem ser omitidos nem bloqueados por configuração.
 Enquanto houver diálogo topmost, o dispatcher reserva essas combinações antes
 de consultar qualquer binding configurável ou ownership global. Assim,
 `Ctrl+Shift+R` chega ao `DecisionDialog` mesmo se existir binding concorrente.
+A reserva só ocorre depois dos guardas obrigatórios da AEP-0091: evento não
+repetido, sem composição IME e fora de input, textarea, contenteditable e
+Monaco. Se um guarda bloquear, o dispatcher ignora sem capturar a digitação.
 
 A UI deve detectar sobreposição possível no momento da edição, explicar em quais
 contextos ela ocorre e pedir confirmação antes de criar uma substituição. Um
@@ -640,6 +652,11 @@ outras camadas continuam compondo o mapa. `layer.back` encerra a claim manual
 mais recente da mesma `manual_stack_key`, ordenada por
 `(activated_at, activation_id)`. A chave é derivada no backend da origem
 normalizada e de sua sessão/dispositivo, nunca inventada pelo payload.
+
+Regras de surface, foco, controle e programa em primeiro plano são condições
+síncronas dos context providers da D2, recalculadas em memória quando sua versão
+muda. Elas não usam `LayerActivationEvent`, outbox ou ledger de evento. O
+envelope abaixo é apenas para ativações event-driven; na v1, somente jobs.
 
 Ativação dirigida por eventos usa o envelope:
 
@@ -735,10 +752,11 @@ Para jobs, a integração publica o fato contextual interno versionado
 `job` nesse fato; outro valor falha fechado. `run_event_id` é o UUIDv7 de
 `job_run_events.id` e vira o `source_event_id` estável, inclusive em replay.
 `job_id` é o UUID de `jobs.id`
-referenciado por `job_runs.job_id`; `run_id` é o ID opaco exato de
-`job_runs.id`. O adapter aceita os IDs legados `run_*` usados pelo runtime atual
-e futuros UUIDv7 sem convertê-los. Alterar o formato canônico exige migração e
-atualização da AEP-0048 antes de remover essa compatibilidade;
+referenciado por `job_runs.job_id`; `run_id` é o UUIDv7 de `job_runs.id`,
+conforme AEP-0048. A integração só pode ser habilitada depois que runtime e
+dados persistidos estiverem no formato canônico; registros legados `run_*`
+exigem migração/reconciliação documentada na AEP-0048 e não são aceitos
+silenciosamente pelo adapter.
 `job_slug` é a identidade pública usada por
 `eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
@@ -757,6 +775,11 @@ de ordem. Estados `queued`, `started` e `retry_scheduled` mantêm a regra ativa;
 `completed`, `failed` e `skipped` a encerram. Esse fato deriva do
 runtime e da timeline `job_run_events` da AEP-0048; não inventa nomes no event
 bus público da AEP-0001.
+
+Essa lista é allowlist exaustiva. `triggered`, `event_emitted`,
+`event_received` e qualquer tipo desconhecido são ignorados idempotentemente e
+não produzem `LayerActivationEvent`. Gaps de `sequence` são permitidos; CAS
+aceita somente valor maior que o cursor, não exige contiguidade.
 
 O adapter usa `run_id` como `source_correlation_id` e resolve ou cria um
 `activation_id` distinto por `(user_id, rule_id, run_id)`. Assim, duas regras
@@ -889,7 +912,8 @@ command_invocations
   observed_trigger_type nullable_for_direct,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
   trigger_fingerprint nullable_for_direct,
-  actor_type, actor_id, source_type, observer_type nullable,
+  actor_type, actor_id, source_type nullable_until_resolved,
+  observer_type nullable,
   source_instance_id nullable,
   source_event_id nullable,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
@@ -911,13 +935,20 @@ command_idempotency_keys
   status, result_summary, result_ref, received_at, expires_at
 ```
 
+No ledger, `id` é PK UUIDv7, `key` é UNIQUE e vale
+`invocation:<invocation_id>` para origem direta ou
+`event:<source_event_id>` para evento. `invocation_id` também é UNIQUE e
+`source_event_id` tem índice único parcial quando não nulo. Conflito relê
+ownership e fingerprint antes de classificar como reentrega; divergência falha
+fechado.
+
 Condições, argumentos, especificações e apresentação são documentos JSON
 versionados e validados. Alterações relevantes mantêm auditoria suficiente para
 desfazer.
 
 Campos marcados com `?` no envelope são nullable no SQLite; ausência vira
-`NULL`, nunca string vazia. `command_id` é nulo somente em `evaluating` antes da
-resolução ou em `denied` quando nenhum comando pôde ser resolvido; depois de
+`NULL`, nunca string vazia. `command_id` é nullable em `evaluating` antes da
+resolução e permanece nulo em `denied` quando nenhum comando pôde ser resolvido; depois de
 preenchido, é imutável. `trigger_*` é nulo em execução direta; campos de surface,
 conversa, job, profile, workspace e decisão são nulos quando o contexto não se
 aplica. Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT
