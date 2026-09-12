@@ -49,6 +49,29 @@ func ContentForModelSize(contentBytes int, annotations *ResultAnnotations, rawEx
 	return len(annotationsHeader) + len(encoded) + len(contentHeader) + contentBytes
 }
 
+// ContentForDurableHistory remove referências ao LRU efêmero antes de gravar
+// mensagens role=tool. Uma prévia retomável não pode sobreviver como se o
+// result_id continuasse válido depois de reinício ou eviction.
+func ContentForDurableHistory(result ToolResult, modelContent string) string {
+	if window := outputWindowOf(result); window != nil && window.HasMore && window.ResultID != "" {
+		return "[result_omitted_for_persistence] Resultado retomável omitido do histórico durável."
+	}
+	if strings.HasPrefix(modelContent, annotationsHeader) {
+		parts := strings.SplitN(modelContent, contentHeader, 2)
+		if len(parts) == 2 {
+			var annotations ResultAnnotations
+			rawAnnotations := strings.TrimPrefix(parts[0], annotationsHeader)
+			if json.Unmarshal([]byte(rawAnnotations), &annotations) == nil {
+				window := annotations.OutputWindow
+				if window != nil && window.HasMore && window.ResultID != "" {
+					return "[result_omitted_for_persistence] Resultado retomável omitido do histórico durável."
+				}
+			}
+		}
+	}
+	return modelContent
+}
+
 // SanitizeTruncatedEnvelope descarta um envelope cortado no meio das anotações.
 // Quando o orçamento de contexto é menor que o próprio cabeçalho, a truncagem
 // deixa um cabeçalho ou um JSON pela metade que o modelo leria como

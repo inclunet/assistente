@@ -70,6 +70,41 @@ func annotatedResult() ToolResult {
 	}
 }
 
+func TestContentForDurableHistoryOmitsEphemeralWindow(t *testing.T) {
+	result := ToolResult{
+		Content: "prévia sensível",
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: true, ResultID: "tool-result-efemero", Returned: 15,
+		}},
+	}
+	got := ContentForDurableHistory(result, ContentForModel(result))
+	if !strings.Contains(got, "result_omitted_for_persistence") ||
+		strings.Contains(got, "tool-result-efemero") ||
+		strings.Contains(got, result.Content) {
+		t.Fatalf("referência efêmera sobreviveu no histórico: %q", got)
+	}
+}
+
+func TestContentForDurableHistoryDetectsWindowCreatedByPrecheck(t *testing.T) {
+	original := ToolResult{
+		Content: "página natural",
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: true, Unit: "lines", NextOffset: 20,
+		}},
+	}
+	reconciled := ToolResult{
+		Content: "prefixo da página",
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", ResultID: "tool-result-precheck",
+		}},
+	}
+	got := ContentForDurableHistory(original, ContentForModel(reconciled))
+	if !strings.Contains(got, "result_omitted_for_persistence") ||
+		strings.Contains(got, "tool-result-precheck") {
+		t.Fatalf("ID criado pelo pre-check sobreviveu: %q", got)
+	}
+}
+
 func TestSanitizeTruncatedEnvelopePreservesCompleteEnvelope(t *testing.T) {
 	result := annotatedResult()
 	envelope := ContentForModel(result)

@@ -312,10 +312,10 @@ func TestRunAgenticLoop_ToolCalls_FallbackPreservesLargeResultContract(t *testin
 	if msgRepo.toolResultCount != 1 {
 		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
 	}
-	if !strings.Contains(msgRepo.lastToolResult, `"output_window"`) ||
-		!strings.Contains(msgRepo.lastToolResult, `"result_id"`) ||
-		!strings.Contains(msgRepo.lastToolResult, `"has_more":true`) {
-		t.Fatalf("fallback perdeu contrato retomável: %q", msgRepo.lastToolResult)
+	if !strings.Contains(msgRepo.lastToolResult, "result_omitted_for_persistence") ||
+		strings.Contains(msgRepo.lastToolResult, `"result_id"`) ||
+		strings.Contains(msgRepo.lastToolResult, "resultado-resultado-") {
+		t.Fatalf("fallback persistiu prévia ou ID efêmero: %q", msgRepo.lastToolResult)
 	}
 	if len(msgRepo.lastToolResult) > cfg.MaxResultSize {
 		t.Fatalf("fallback persistiu resultado acima do limite: %d", len(msgRepo.lastToolResult))

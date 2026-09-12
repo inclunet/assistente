@@ -44,8 +44,33 @@ func TestReadToolResultRequiresExplicitOffset(t *testing.T) {
 	}
 	raw, _ := json.Marshal(map[string]any{"result_id": id})
 	result, err := NewReadToolResult().Execute(largeResultTestContext(), raw)
-	if err != nil || !result.IsError {
+	if err != nil || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "invalid_args" || result.Failure.Kind != ErrorKindInvalidArgs {
 		t.Fatalf("offset ausente reiniciou leitura: err=%v result=%+v", err, result)
+	}
+}
+
+func TestReadToolResultClassifiesInvalidOffsets(t *testing.T) {
+	id, ok := storeModelResult(largeResultTestContext(), "açúcar")
+	if !ok {
+		t.Fatal("store falhou")
+	}
+	for _, tc := range []struct {
+		name   string
+		offset int
+		code   string
+	}{
+		{name: "fora do resultado", offset: 100, code: "result_offset_out_of_range"},
+		{name: "meio de rune", offset: 2, code: "invalid_result_offset"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, _ := json.Marshal(map[string]any{"result_id": id, "offset": tc.offset})
+			result, err := NewReadToolResult().Execute(largeResultTestContext(), raw)
+			if err != nil || !result.IsError || result.Failure == nil ||
+				result.Failure.Code != tc.code || result.Failure.Kind != ErrorKindInvalidArgs {
+				t.Fatalf("offset inválido sem classificação estável: err=%v result=%+v", err, result)
+			}
+		})
 	}
 }
 

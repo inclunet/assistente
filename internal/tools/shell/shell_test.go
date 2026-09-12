@@ -530,6 +530,33 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	}
 }
 
+func TestGenericErrorWithLargePartialOutputIsRecoverable(t *testing.T) {
+	output := strings.Repeat("erro-parcial-", maxOutputForLLM)
+	mgr := &MockSessionManager{
+		fakeRunErr: errors.New("sessão interrompida"),
+		fakeEntry: &terminal.HistoryEntry{
+			ID: "cmd-generic-error", Command: "failing-command",
+			Output: output, ExitCode: 1,
+		},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"failing-command"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	ctx := userctx.WithUserID(context.Background(), "shell-error-test")
+
+	result, err := rc.Execute(ctx, json.RawMessage(`{"command":"failing-command"}`))
+	if err != nil || !result.IsError {
+		t.Fatalf("erro genérico inesperado: err=%v result=%+v", err, result)
+	}
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil ||
+		!result.Annotations.OutputWindow.HasMore ||
+		result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("output parcial grande não ficou retomável: %+v", result.Annotations)
+	}
+	if strings.Contains(result.Content, output[:maxOutputForLLM]) {
+		t.Fatal("output parcial grande escapou integralmente")
+	}
+}
+
 // TestTimeoutWithoutOutput valida timeout sem output
 func TestTimeoutWithoutOutput(t *testing.T) {
 	mgr := &MockSessionManager{

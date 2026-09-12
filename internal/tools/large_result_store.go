@@ -398,11 +398,17 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 		Limit    int    `json:"limit"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return ToolResult{Content: "Parâmetros inválidos: " + err.Error(), IsError: true}, nil
+		return ToolResult{
+			Content: "Parâmetros inválidos: " + err.Error(), IsError: true,
+			Failure: &ToolFailure{Code: "invalid_args", Kind: ErrorKindInvalidArgs, Retryable: false},
+		}, nil
 	}
 	args.ResultID = strings.TrimSpace(args.ResultID)
 	if args.ResultID == "" || args.Offset == nil || *args.Offset < 0 {
-		return ToolResult{Content: "result_id e offset não negativo são obrigatórios", IsError: true}, nil
+		return ToolResult{
+			Content: "result_id e offset não negativo são obrigatórios", IsError: true,
+			Failure: &ToolFailure{Code: "invalid_args", Kind: ErrorKindInvalidArgs, Retryable: false},
+		}, nil
 	}
 	offset := *args.Offset
 	entry, ok := loadModelResultEntry(ctx, args.ResultID)
@@ -415,10 +421,18 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 	}
 	content := entry.content
 	if offset > len(content) {
-		return ToolResult{Content: fmt.Sprintf("offset %d excede o resultado de %d bytes", offset, len(content)), IsError: true}, nil
+		return ToolResult{
+			Content: fmt.Sprintf("offset %d excede o resultado de %d bytes", offset, len(content)),
+			IsError: true,
+			Failure: &ToolFailure{Code: "result_offset_out_of_range", Kind: ErrorKindInvalidArgs, Retryable: false},
+		}, nil
 	}
 	if offset < len(content) && !isUTF8Start(content[offset]) {
-		return ToolResult{Content: "offset aponta para o meio de um caractere UTF-8; use exatamente next_offset da página anterior", IsError: true}, nil
+		return ToolResult{
+			Content: "offset aponta para o meio de um caractere UTF-8; use exatamente next_offset da página anterior",
+			IsError: true,
+			Failure: &ToolFailure{Code: "invalid_result_offset", Kind: ErrorKindInvalidArgs, Retryable: false},
+		}, nil
 	}
 	limit := args.Limit
 	if limit <= 0 || limit > largeResultPageBytes {

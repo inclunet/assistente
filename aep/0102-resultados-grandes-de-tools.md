@@ -59,7 +59,8 @@ JSON e não ofereciam retomada exata.
     devolvido à tool.
 13. Itens do LRU pertencem ao usuário e, quando existente, à conversa que os
     criou. `read_tool_result` valida ambos e responde como não encontrado fora
-    desse escopo. A cópia persistida omite prévias com `result_id` efêmero.
+    desse escopo. Cópias persistidas, inclusive o fallback `role=tool`, omitem
+    explicitamente prévias com `result_id` efêmero.
 14. Consumidores machine-facing, como jobs, exigem resultado integral: acima do
     budget próprio ou diante de qualquer `OutputWindow.has_more`, falham em vez
     de receber uma prévia que não conseguiriam paginar. Isso também vale para o

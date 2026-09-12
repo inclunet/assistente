@@ -61,3 +61,27 @@ func TestSearchFilesLimitUsesAnnotationWithoutPollutingContent(t *testing.T) {
 		t.Fatalf("aviso de truncamento poluiu o conteúdo: %q", result.Content)
 	}
 }
+
+func TestSearchFilesNonRecursiveDoesNotAnnounceHiddenContinuation(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "z.key"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := NewSearchFiles(dir).Execute(context.Background(), json.RawMessage(`{
+		"pattern": "*",
+		"max_results": 1
+	}`))
+	if err != nil || result.IsError {
+		t.Fatalf("busca falhou: err=%v result=%+v", err, result)
+	}
+	if !strings.Contains(result.Content, "a.txt") || strings.Contains(result.Content, "z.key") {
+		t.Fatalf("resultado visível incorreto: %q", result.Content)
+	}
+	if result.Annotations != nil && result.Annotations.OutputWindow != nil &&
+		result.Annotations.OutputWindow.HasMore {
+		t.Fatalf("entrada sensível gerou continuação falsa: %+v", result.Annotations)
+	}
+}

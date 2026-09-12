@@ -325,11 +325,20 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		if entry != nil {
 			metadata["commandId"] = entry.ID
 		}
-		return tools.ToolResult{
+		result := tools.ToolResult{
 			Content:  fmt.Sprintf("Erro ao executar comando: %v\n\nOutput parcial:\n%s", err, output),
 			IsError:  true,
 			Metadata: metadata,
-		}, nil
+		}
+		protected, ok := tools.ProtectToolResult(ctx, result, outputLimit)
+		if !ok {
+			return tools.ToolResult{
+				Content: "Output parcial do erro excede a capacidade segura de preservação.",
+				IsError: true,
+				Failure: &tools.ToolFailure{Code: "result_storage_limit", Kind: tools.ErrorKindUnknown, Retryable: false},
+			}, nil
+		}
+		return protected, nil
 	}
 
 	// Formata resultado

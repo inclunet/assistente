@@ -199,11 +199,6 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 
 		for _, match := range globMatches {
-			if len(matches) >= maxResults {
-				truncated = true
-				break
-			}
-
 			// Link apontando para fora do sandbox: não vazar nomes externos
 			if pathEscapesSandbox(match, t.workDir) {
 				continue
@@ -226,6 +221,10 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			info, err := os.Stat(match)
 			if err != nil {
 				continue
+			}
+			if len(matches) >= maxResults {
+				truncated = true
+				break
 			}
 
 			prefix := "[FILE]"
