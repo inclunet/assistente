@@ -211,7 +211,9 @@ Cada landmark é uma ARIA landmark region. Dentro de cada região, Tab e setas n
 
 `Ctrl+M` é contextual à surface de chat ativa. Não é capturado quando o foco
 pertence a Monaco, campo editável, terminal, modal, diálogo, menu, picker já
-aberto ou outra surface; repetições de tecla são ignoradas.
+aberto ou outra surface; repetições de tecla são ignoradas. O chat modal é a
+exceção entre os modais: quando estiver aberto, somente a toolbar desse modal,
+se ele estiver no topo, responde ao atalho.
 
 Observação: quando um **chat modal** estiver aberto, a troca de abas fica bloqueada até ele ser fechado. Isso evita que o modal continue apontando para uma superfície diferente da aba original.
 

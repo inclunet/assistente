@@ -75,14 +75,20 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn(() => vi.fn()),
 }));
 
-vi.mock('../ui/Modal', () => ({
-  Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
-    isOpen ? <div>{children}</div> : null
-  ),
-  isModalOpen: () => modalState.open,
-  useIsInsideModal: () => modalState.inside,
-  useModalIsTopmost: () => () => modalState.topmost,
-}));
+vi.mock('../ui/Modal', async () => {
+  const React = await import('react');
+  return {
+    Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
+      isOpen ? <div>{children}</div> : null
+    ),
+    isModalOpen: () => modalState.open,
+    useIsInsideModal: () => React.useState(modalState.inside)[0],
+    useModalIsTopmost: () => {
+      const [topmost] = React.useState(modalState.topmost);
+      return () => topmost;
+    },
+  };
+});
 
 vi.mock('../pickers', async () => {
   const React = await import('react');
@@ -294,6 +300,9 @@ describe('ChatToolbar shortcuts', () => {
     modalState.inside = true;
     modalState.topmost = true;
     renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
 
     const modalOverlay = document.createElement('div');
     modalOverlay.className = 'modal-overlay';
@@ -302,10 +311,12 @@ describe('ChatToolbar shortcuts', () => {
     modalOverlay.appendChild(modalControl);
     document.body.appendChild(modalOverlay);
 
+    expect(dispatchCtrlKey('m', modalControl).defaultPrevented).toBe(true);
     expect(dispatchCtrlKey('h', modalControl).defaultPrevented).toBe(true);
     expect(dispatchCtrlKey('p', modalControl).defaultPrevented).toBe(true);
     expect(dispatchCtrlKey('l', modalControl).defaultPrevented).toBe(true);
 
+    expect(modelOpenMock).toHaveBeenCalledOnce();
     expect(historyClickMock).toHaveBeenCalledTimes(1);
     expect(profileClickMock).toHaveBeenCalledTimes(1);
     await waitFor(() => {
@@ -321,11 +332,18 @@ describe('ChatToolbar shortcuts', () => {
     renderToolbar();
     modalState.inside = true;
     renderToolbar();
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', {
+        name: 'chat.modelOverride.label, $default',
+      })).toHaveLength(2);
+    });
 
+    expect(dispatchCtrlKey('m').defaultPrevented).toBe(true);
     expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
     expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
     expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
 
+    expect(modelOpenMock).toHaveBeenCalledOnce();
     expect(historyClickMock).toHaveBeenCalledOnce();
     expect(profileClickMock).toHaveBeenCalledOnce();
     await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());

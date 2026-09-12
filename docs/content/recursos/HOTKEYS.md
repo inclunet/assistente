@@ -93,7 +93,8 @@ disponíveis pelos mnemônicos `Alt + letra` anunciados em cada botão.
 
 - Hotkeys globais podem conflitar com atalhos de outros aplicativos
 - `Ctrl + M` é contextual: só age no chat interativo ativo. Não é capturado em
-  editores de texto ou Monaco, terminais, modais, diálogos, menus ou outros
-  seletores; no Monaco, a alternância de Tab continua preservada.
+  editores de texto ou Monaco, terminais, modais ou diálogos incompatíveis,
+  menus ou outros seletores. No chat modal, somente a toolbar do modal no topo
+  responde; no Monaco, a alternância de Tab continua preservada.
 - No Linux, requer X11 (Wayland pode ter limitações)
 - Cada hotkey roda em sua própria goroutine para não bloquear o app

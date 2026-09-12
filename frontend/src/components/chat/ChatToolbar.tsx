@@ -57,8 +57,6 @@ const MODEL_SHORTCUT_BLOCKED_TARGETS = [
   '.monaco-editor',
   '.xterm',
   '[role="terminal"]',
-  '[role="dialog"]',
-  '[role="alertdialog"]',
   '[role="menu"]',
   '[role="listbox"]',
   '.picker-dropdown',
@@ -102,7 +100,10 @@ function hasVisibleShortcutOverlay(): boolean {
   ).some(isVisibleShortcutOverlay);
 }
 
-function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
+function canOpenModelPickerFromShortcut(
+  event: KeyboardEvent,
+  canHandleCurrentModal: boolean,
+): boolean {
   if (
     event.defaultPrevented
     || event.isComposing
@@ -113,7 +114,7 @@ function canOpenModelPickerFromShortcut(event: KeyboardEvent): boolean {
     || event.altKey
     || event.metaKey
     || event.key.toLowerCase() !== 'm'
-    || isModalOpen()
+    || (isModalOpen() && !canHandleCurrentModal)
   ) {
     return false;
   }
@@ -342,7 +343,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         return;
       }
 
-      if (canOpenModelPickerFromShortcut(e)) {
+      if (canOpenModelPickerFromShortcut(e, canHandleShortcut())) {
         const trigger = toolbarRef.current?.querySelector<HTMLButtonElement>(
           `button.picker-button[data-shortcut="${SHORTCUTS.MODELS}"]`,
         );
