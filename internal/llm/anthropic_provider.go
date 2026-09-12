@@ -688,6 +688,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {

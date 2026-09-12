@@ -135,7 +135,7 @@ func TestGoogleTimeoutParcialPreservaDiagnosticos(t *testing.T) {
 	provider := NewGoogleProvider(&ProviderConfig{
 		ID: "google-timeout", Name: "Google Timeout", BaseURL: server.URL,
 		Type: ProviderType("gemini"), Model: "gemini-test", CredentialPattern: "gemini-timeout.test",
-		StreamIdleTimeoutSeconds: 1,
+		streamIdleTimeoutSeconds: 1,
 	}, credMgr)
 	handler := &espiaoAvisos{}
 
@@ -180,7 +180,7 @@ func TestGoogleTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
 	provider := NewGoogleProvider(&ProviderConfig{
 		ID: "google-reasoning", Name: "Google Reasoning", BaseURL: server.URL,
 		Type: ProviderType("gemini"), Model: "gemini-test", CredentialPattern: "gemini-reasoning.test",
-		StreamIdleTimeoutSeconds: 1,
+		streamIdleTimeoutSeconds: 1,
 	}, credMgr)
 	handler := &espiaoAvisos{}
 

@@ -102,13 +102,15 @@ func TestStreamWatchdogKickNaoRessuscitaDeadlineExpirado(t *testing.T) {
 }
 
 func TestStreamWatchdogStopAntesDoDeadlineNaoViraTimeoutDepois(t *testing.T) {
-	_, wd := startStreamWatchdog(context.Background(), 30*time.Millisecond, nil)
-	time.Sleep(10 * time.Millisecond)
+	_, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
 	wd.Stop()
-	time.Sleep(30 * time.Millisecond)
+	wd.mu.Lock()
+	wd.lastActivity = time.Now().Add(-2 * time.Hour)
+	wd.mu.Unlock()
+	wd.Stop()
 
 	if wd.TimedOut() {
-		t.Fatal("EOF anterior ao deadline não pode virar timeout após Stop")
+		t.Fatal("Stop repetido não pode reclassificar EOF normal como timeout")
 	}
 }
 
@@ -162,7 +164,7 @@ func TestStreamIdleTimeoutForProvider(t *testing.T) {
 	if got := streamIdleTimeoutForProvider(&ProviderConfig{}); got != defaultStreamIdleTimeout {
 		t.Fatalf("sem override: esperava %v, veio %v", defaultStreamIdleTimeout, got)
 	}
-	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != 15*time.Second {
+	if got := streamIdleTimeoutForProvider(&ProviderConfig{streamIdleTimeoutSeconds: 15}); got != 15*time.Second {
 		t.Fatalf("override: esperava 15s, veio %v", got)
 	}
 }

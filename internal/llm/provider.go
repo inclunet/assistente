@@ -147,13 +147,9 @@ type ProviderConfig struct {
 	DefaultModel string       `json:"default_model,omitempty"`
 	IsDefault    bool         `json:"is_default,omitempty"`
 	Timeout      int          `json:"timeout,omitempty"`
-	// StreamIdleTimeoutSeconds limita quanto tempo um streaming SSE pode ficar
-	// sem entregar evento nenhum antes de a tentativa ser cancelada (watchdog
-	// de ociosidade). Zero = padrão de 60s. Não é teto sobre o stream total:
-	// cada chunk recebido reinicia a contagem.
-	// Override runtime-only (testes/embedders); o cadastro persistido usa o
-	// padrão e não expõe este campo como configuração serializável.
-	StreamIdleTimeoutSeconds int               `json:"-"`
+	// Hook interno para testes do watchdog. O cadastro persistido usa sempre o
+	// padrão de inatividade; por ser não exportado, não integra JSON/bindings.
+	streamIdleTimeoutSeconds int
 	Headers                  map[string]string `json:"headers,omitempty"`
 	CredentialPattern        string            `json:"credential_pattern,omitempty"`
 	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
