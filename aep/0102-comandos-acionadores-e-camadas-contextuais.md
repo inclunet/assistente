@@ -158,6 +158,11 @@ permanece em `trigger_spec`. `source_event_id` identifica uma ocorrência única
 naquela instância, usando contador monotônico ou ID do protocolo.
 `actor_type` distingue usuário, agente e automação.
 
+`actor_type` e `actor_id` são derivados no backend do principal e da origem
+autenticados; valores recebidos de adapter/cliente são ignorados e divergência
+falha fechado. O mesmo vale para `user_id`. O payload nunca escolhe a identidade
+que será usada por autorização ou auditoria.
+
 Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
 Palette, chat, CLI e `system` os omitem e deduplicam pela PK `invocation_id`.
 Após resolução, `binding_ids` é sempre materializado como lista, ainda que
@@ -205,7 +210,8 @@ O serviço, nessa ordem:
    chamar o handler; se a transição vencer, encaminha ao handler registrado;
 7. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
 
-A reserva é um insert `evaluating` antes do handler, protegido pela PK de
+A reserva é uma transação que cria a chave no ledger de idempotência e a linha
+de auditoria `evaluating` antes do handler. O ledger é protegido pela PK de
 `invocation_id` e por unicidade de
 `(user_id, auth_context_type, auth_context_id, source_type, source_instance_id,
 source_event_id)` quando há evento de adapter. Reentrega recebe o resultado
@@ -217,9 +223,10 @@ limitada à sessão física ou à janela de retenção da invocação. Solicita�
 direta cujo UUIDv7/`requested_at` esteja fora dessa janela é rejeitada como
 obsoleta, mesmo se sua linha já tiver sido removida.
 
-Reentrega consulta a invocação pelo ID e recebe status, `result_summary` e
-`result_ref` redigidos por `CommandExecutionService.GetInvocation`; não repete o
-handler. A consulta exige o mesmo contexto autenticado, filtra por
+Reentrega consulta primeiro o ledger pelo ID e recebe status, `result_summary`
+e `result_ref` redigidos por `CommandExecutionService.GetInvocation`; não
+repete o handler mesmo se a auditoria detalhada já tiver sido compactada. A
+consulta exige o mesmo contexto autenticado, filtra por
 `(user_id, invocation_id)` e reaplica autorização do ator; buscar somente pela
 PK é proibido. Contexto `system` consulta apenas invocações internas sem usuário.
 No startup,
@@ -548,13 +555,13 @@ menor é ignorada; mesma sequência com conteúdo diferente falha fechado. Uma
 desativação atrasada só encerra seu próprio `activation_id`, nunca uma ativação
 mais nova. Expiração gera a transição terminal no mesmo ciclo.
 
-O estado persiste `event_fingerprint` e tem PK `activation_id` mais índice único
+O ledger de ativação persiste `event_fingerprint` e chave única por
 `(user_id, rule_id, source_type, source_correlation_id)` quando a correlação
-existir. Sem correlação, usa índice único
-`(user_id, rule_id, source_type, source_instance_id, source_event_id)`.
-Aplicação ocorre numa transação CAS sobre `sequence`: insert concorrente resolve
-pela chave única; update exige o cursor anterior. Mesmo número com fingerprint
-diferente grava conflito e não altera a camada.
+existir. Sem correlação, a chave usa
+`(user_id, rule_id, source_type, source_instance_id, source_event_id)`. Na mesma
+transação, o estado de PK `activation_id` avança por CAS sobre `sequence`:
+insert concorrente resolve pela chave única e update exige o cursor anterior.
+Mesmo número com fingerprint diferente grava conflito e não altera a camada.
 
 Na primeira versão, somente eventos internos presentes no catálogo estático
 podem ativar camadas. A regra persiste `event_name` exato e
@@ -704,6 +711,11 @@ command_layer_activation_state
   source_correlation_id, sequence, event_fingerprint, state,
   provenance, activated_at, expires_at, updated_at
 
+command_activation_idempotency_keys
+  id, key, user_id, rule_ref, source_type, source_instance_id,
+  source_event_id, source_correlation_id, sequence, event_fingerprint,
+  terminal_state, created_at, expires_at
+
 external_identity_mappings
   id, issuer, subject, user_id, enabled, created_at, updated_at
 
@@ -723,6 +735,11 @@ command_invocations
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
   correlation_id, request_fingerprint, risk, policy_decision,
   result_summary, result_ref, status, error_code, requested_at, completed_at
+
+command_idempotency_keys
+  id, key, invocation_id, user_id, auth_context_type, auth_context_id,
+  source_type, source_instance_id, source_event_id, request_fingerprint,
+  status, result_summary, result_ref, created_at, expires_at
 ```
 
 Condições, argumentos, especificações e apresentação são documentos JSON
@@ -818,6 +835,16 @@ source_event_id) WHERE source_event_id IS NOT NULL AND source_event_id <> ''`
 para eventos de adapter. Evento físico sempre tem usuário autenticado; contexto
 `system` sem usuário não usa esse índice e possui
 `(requested_at) WHERE user_id IS NULL` para sua limpeza global.
+
+Os limites de quantidade removem somente auditoria detalhada em
+`command_invocations` e estado terminal em
+`command_layer_activation_state`. Os dois ledgers mínimos não são removidos por
+cap: permanecem até `expires_at`, igual ao fim da janela de 30 dias, e só então
+a chave pode ser reutilizada. Status/resultado redigido e último
+fingerprint/sequence são atualizados no ledger na mesma transação da mudança de
+estado. `command_idempotency_keys.key` e
+`command_activation_idempotency_keys.key` têm índices únicos. Assim, compactar
+uma linha recente não reabre a execução nem a ativação.
 
 Não se persiste `arguments` bruto nem o `SurfaceContext` completo:
 `arguments_summary` redigido, fingerprint do JSON canônico já redigido,
@@ -1161,6 +1188,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   handler; invocações interrompidas por queda viram `outcome_unknown`.
 - [ ] Reutilizar `invocation_id` com request fingerprint diferente falha
   fechado.
+- [ ] Caps de auditoria não removem os ledgers antes de `expires_at`; compactar
+  registro recente não permite nova execução ou ativação.
 - [ ] Consulta de invocação aplica propriedade por usuário e autorização do
   ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
