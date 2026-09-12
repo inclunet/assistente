@@ -82,11 +82,14 @@ func readStreamLine(r *bufio.Reader) (line string, atEOF bool, err error) {
 // demais vira erro: cair no caminho que lê tudo reintroduziria justamente o pico
 // de memória que o streaming evita. Outras falhas devolvem o controle ao
 // chamador, que ainda pode reportar o erro de leitura como antes.
-func streamFailure(err error, size int64) (tools.ToolResult, bool) {
+func streamFailure(err error, size int64, raw bool, budget int) (tools.ToolResult, bool) {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return tools.ToolResult{Content: "Leitura cancelada pelo usuário", IsError: true}, true
 	}
 	if errors.Is(err, errStreamLineTooLong) {
+		if raw {
+			return rawReadLimitExceeded(budget), true
+		}
 		return tools.ToolResult{
 			Content: fmt.Sprintf(
 				"arquivo de %d bytes tem linha maior que %d bytes; recorte por linhas não é possível sem carregar tudo em memória",
@@ -96,6 +99,117 @@ func streamFailure(err error, size int64) (tools.ToolResult, bool) {
 		}, true
 	}
 	return tools.ToolResult{}, false
+}
+
+func readTextSliceStreamingForward(
+	ctx context.Context,
+	fullPath, displayPath string,
+	size int64,
+	offsetArg, limitArg *int,
+	raw bool,
+	budget int,
+) (tools.ToolResult, bool) {
+	offset := 0
+	if offsetArg != nil && *offsetArg > 0 {
+		offset = *offsetArg - 1
+	}
+	collectLimit := readModelMaxLines + 1
+	if limitArg != nil && *limitArg > 0 && *limitArg < collectLimit {
+		collectLimit = *limitArg
+	}
+	lines := make([]string, 0, collectLimit)
+	totalLines := 0
+	binary := false
+	err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
+		totalLines++
+		if strings.IndexByte(line, 0) >= 0 {
+			binary = true
+		}
+		if idx >= offset && len(lines) < collectLimit {
+			lines = append(lines, line)
+		}
+		return true
+	})
+	if err != nil {
+		return streamFailure(err, size, raw, budget)
+	}
+	if binary {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("%s tem conteúdo binário (byte NUL) apesar da extensão; não é lido como texto", displayPath),
+			IsError: true,
+		}, true
+	}
+	if offset >= totalLines {
+		shown := 0
+		if offsetArg != nil {
+			shown = *offsetArg
+		}
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Offset %d excede o número de linhas (%d)", shown, totalLines),
+			IsError: true,
+		}, true
+	}
+	requestedEnd := totalLines
+	if limitArg != nil && *limitArg > 0 && *limitArg < totalLines-offset {
+		requestedEnd = offset + *limitArg
+	}
+	if raw {
+		if requestedEnd-offset > readModelMaxLines {
+			return rawReadTooManyLines(requestedEnd-offset, readModelMaxLines), true
+		}
+		exact := strings.Join(lines[:requestedEnd-offset], "\n")
+		if requestedEnd < totalLines {
+			exact += "\n"
+		}
+		if len(exact) > budget {
+			return rawReadTooLarge(len(exact), budget), true
+		}
+		return tools.ToolResult{
+			Content: exact, RawExact: true,
+			Metadata: map[string]any{
+				"size_bytes": size, "total_lines": totalLines,
+				"offset": offset + 1, "limit": requestedEnd - offset,
+			},
+		}, true
+	}
+
+	maxEnd := requestedEnd
+	if maxEnd-offset > readModelMaxLines {
+		maxEnd = offset + readModelMaxLines
+	}
+	selected := make([]string, 0, maxEnd-offset)
+	selectedBytes := 0
+	end := offset
+	for i, line := range lines[:maxEnd-offset] {
+		lineNumber := offset + i + 1
+		formatted := fmt.Sprintf("%6d|%s", lineNumber, line)
+		candidateBytes := selectedBytes + len(formatted)
+		if len(selected) > 0 {
+			candidateBytes++
+		}
+		candidateEnd := lineNumber
+		if readModelFacingSize(displayPath, candidateBytes, offset, candidateEnd, totalLines, nil) > budget {
+			break
+		}
+		selected = append(selected, formatted)
+		selectedBytes = candidateBytes
+		end = candidateEnd
+	}
+	if end == offset {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("A linha %d não cabe no limite model-facing de %d bytes; solicite um trecho textual menor.", offset+1, budget),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "read_line_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, true
+	}
+	return tools.ToolResult{
+		Content: formattedReadContent(displayPath, selected, offset, end, totalLines),
+		Metadata: map[string]any{
+			"size_bytes": size, "total_lines": totalLines,
+			"offset": offset + 1, "limit": end - offset,
+		},
+		Annotations: &tools.ResultAnnotations{OutputWindow: readOutputWindow(offset, end, totalLines)},
+	}, true
 }
 
 // readTextSliceStreaming devolve o recorte pedido de um arquivo de texto grande
@@ -116,6 +230,14 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 		return tools.ToolResult{}, false
 	}
 
+	budget := readModelMaxBytes
+	if executorLimit := tools.MaxResultSizeFromContext(ctx); executorLimit > 0 && executorLimit < budget {
+		budget = executorLimit
+	}
+	if offsetArg == nil || *offsetArg >= 0 {
+		return readTextSliceStreamingForward(ctx, fullPath, displayPath, size, offsetArg, limitArg, raw, budget)
+	}
+
 	// A classificação viu só o prefixo, mas quem lê o arquivo pequeno inteiro
 	// recusa o conteúdo ao encontrar um byte NUL em qualquer posição. A primeira
 	// passada já percorre tudo para contar linhas, então aplicar a mesma regra
@@ -129,7 +251,7 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 		totalLines++
 		return true
 	}); err != nil {
-		return streamFailure(err, size)
+		return streamFailure(err, size, raw, budget)
 	}
 	if totalLines < 0 {
 		return tools.ToolResult{
@@ -165,10 +287,6 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 		return rawReadTooManyLines(requestedEnd-offset, readModelMaxLines), true
 	}
 
-	budget := readModelMaxBytes
-	if executorLimit := tools.MaxResultSizeFromContext(ctx); executorLimit > 0 && executorLimit < budget {
-		budget = executorLimit
-	}
 	selected := make([]string, 0, min(requestedEnd-offset, readModelMaxLines))
 	selectedBytes := 0
 	end := offset
@@ -212,7 +330,7 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 		end = candidateEnd
 		return true
 	}); err != nil {
-		return streamFailure(err, size)
+		return streamFailure(err, size, raw, budget)
 	}
 	if raw {
 		if tooLargeRaw || end < requestedEnd {

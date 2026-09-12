@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"assistente/internal/credentials"
+	"assistente/internal/tools"
 )
 
 // newTestHTTPRequest cria um HTTPRequest que permite hosts privados (para httptest)
@@ -311,6 +313,40 @@ func TestHTTPRequestAutoRecognizesStructuredSuffixJSON(t *testing.T) {
 	result, err := newTestHTTPRequest().Execute(context.Background(), args)
 	if err != nil || result.IsError || !result.Structured || !json.Valid([]byte(result.Content)) {
 		t.Fatalf("+json não foi reconhecido como estruturado: err=%v result=%+v", err, result)
+	}
+}
+
+func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		body        string
+		status      int
+		mode        string
+		max         int
+	}{
+		{name: "json de erro", contentType: "application/problem+json", body: `{"detail":"ausente"}`, status: http.StatusNotFound, mode: "auto", max: 100},
+		{name: "texto paginado", contentType: "text/plain", body: strings.Repeat("x", 200), status: http.StatusOK, mode: "text", max: 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer ts.Close()
+			args, _ := json.Marshal(map[string]any{
+				"url": ts.URL, "extract_mode": tc.mode, "max_response_size": tc.max,
+			})
+			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			if err != nil || result.Annotations == nil || result.Annotations.HTTPResponse == nil {
+				t.Fatalf("sem anotação HTTP: err=%v result=%+v", err, result)
+			}
+			modelContent := tools.ContentForModel(result)
+			if !strings.Contains(modelContent, `"status":`+strconv.Itoa(tc.status)) {
+				t.Fatalf("status ausente do conteúdo model-facing: %q", modelContent)
+			}
+		})
 	}
 }
 

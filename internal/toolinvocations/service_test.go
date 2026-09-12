@@ -147,6 +147,29 @@ func TestOutputForPersistenceOmitsEphemeralPreviewEvenWhenItFits(t *testing.T) {
 	}
 }
 
+func TestOutputForPersistenceKeepsCompleteFinalPageWithoutEphemeralID(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "página final exata",
+		RawExact: true,
+		Metadata: map[string]any{"result_id": "tool-result-efemero", "source": "read_tool_result"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: false, Unit: "bytes", Offset: 100, Returned: 18, Total: 118,
+			ResultID: "tool-result-efemero", OriginalBytes: 118,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Content != result.Content || !persisted.RawExact {
+		t.Fatalf("página final completa foi omitida: %+v", persisted)
+	}
+	if persisted.Annotations.OutputWindow.ResultID != "" {
+		t.Fatalf("result_id efêmero sobreviveu: %+v", persisted.Annotations.OutputWindow)
+	}
+	if _, ok := persisted.Metadata["result_id"]; ok {
+		t.Fatalf("result_id efêmero sobreviveu na metadata: %+v", persisted.Metadata)
+	}
+}
+
 func TestOutputForPersistenceOmitsExactContentInsteadOfCutting(t *testing.T) {
 	svc := &Service{persistMaxResultSize: 256}
 	for _, result := range []tools.ToolResult{

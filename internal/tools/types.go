@@ -74,6 +74,17 @@ type ToolFailure struct {
 type ResultAnnotations struct {
 	DocumentProjection *DocumentProjectionAnnotation `json:"document_projection,omitempty"`
 	OutputWindow       *OutputWindowAnnotation       `json:"output_window,omitempty"`
+	HTTPResponse       *HTTPResponseAnnotation       `json:"http_response,omitempty"`
+}
+
+// HTTPResponseAnnotation preserva a semântica da resposta quando o corpo deve
+// permanecer JSON/raw exato ou quando uma janela paginável não inclui headers.
+type HTTPResponseAnnotation struct {
+	Method      string `json:"method"`
+	URL         string `json:"url"`
+	Status      int    `json:"status"`
+	StatusText  string `json:"status_text"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
 // OutputWindowAnnotation descreve um recorte model-facing sem contaminar o

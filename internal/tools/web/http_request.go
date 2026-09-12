@@ -311,16 +311,24 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	// Determina se é erro baseado no status code
 	isError := resp.StatusCode >= 400
+	var annotations *tools.ResultAnnotations
+	if isError || len(extracted) > maxLength {
+		annotations = &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+			Method: method, URL: a.URL, Status: resp.StatusCode,
+			StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+		}}
+	}
 
 	content := header + extracted
 	if structuredJSON || extractMode == "raw" {
 		content = extracted
 	}
 	result := tools.ToolResult{
-		Content:    content,
-		IsError:    isError,
-		Structured: structuredJSON,
-		RawExact:   extractMode == "raw",
+		Content:     content,
+		IsError:     isError,
+		Structured:  structuredJSON,
+		RawExact:    extractMode == "raw",
+		Annotations: annotations,
 		Metadata: map[string]any{
 			"url":          a.URL,
 			"method":       method,
@@ -337,9 +345,10 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			kind = "resultado raw"
 		}
 		return tools.ToolResult{
-			Content: fmt.Sprintf("%s tem %d bytes, acima do limite de %d; reduza o escopo da requisição ou use um header Range aceito pelo servidor.", kind, len(result.Content), maxLength),
-			IsError: true,
-			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
+			Content:     fmt.Sprintf("%s tem %d bytes, acima do limite de %d; reduza o escopo da requisição ou use um header Range aceito pelo servidor.", kind, len(result.Content), maxLength),
+			IsError:     true,
+			Annotations: annotations,
+			Failure:     &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
 	if len(extracted) <= maxLength {

@@ -305,11 +305,30 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 	}
 	if result.Annotations != nil && result.Annotations.OutputWindow != nil &&
 		result.Annotations.OutputWindow.ResultID != "" {
-		size := result.Annotations.OutputWindow.OriginalBytes
-		if size <= 0 {
-			size = len(result.Content)
+		window := result.Annotations.OutputWindow
+		if window.HasMore {
+			size := window.OriginalBytes
+			if size <= 0 {
+				size = len(result.Content)
+			}
+			return persistenceOmissionResult(size)
 		}
-		return persistenceOmissionResult(size)
+		// A última página é conteúdo completo por si só. Preserva-a, mas remove o
+		// identificador do LRU, que não é durável entre hidratações.
+		annotations := *result.Annotations
+		windowCopy := *window
+		windowCopy.ResultID = ""
+		annotations.OutputWindow = &windowCopy
+		result.Annotations = &annotations
+		if result.Metadata != nil {
+			metadata := make(map[string]any, len(result.Metadata))
+			for key, value := range result.Metadata {
+				if key != "result_id" {
+					metadata[key] = value
+				}
+			}
+			result.Metadata = metadata
+		}
 	}
 	if len(result.Content) <= max {
 		return result

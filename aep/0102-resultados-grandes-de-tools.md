@@ -64,6 +64,10 @@ JSON e não ofereciam retomada exata.
     budget próprio ou diante de qualquer `OutputWindow.has_more`, falham em vez
     de receber uma prévia que não conseguiriam paginar. Isso também vale para o
     fallback de jobs executado sem o serviço de auditoria.
+15. Respostas de `http_request` que precisam manter JSON/raw exato ou paginar
+    apenas o corpo carregam status, método, URL e media type em anotação
+    model-facing separada. A última página de `read_tool_result` pode ser
+    persistida integralmente, mas sem o `result_id` efêmero.
 
 ## Fases
 

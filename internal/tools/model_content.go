@@ -21,7 +21,7 @@ func ContentForModel(result ToolResult) string {
 	// RawExact é o contrato textual exato da chamada. Anotações ainda podem ser
 	// carregadas para UI/auditoria (por exemplo, proveniência de uma projeção),
 	// mas não são prefixadas ao texto enviado ao modelo.
-	if result.RawExact && (result.Annotations == nil || result.Annotations.OutputWindow == nil) {
+	if result.RawExact && !result.IsError && (result.Annotations == nil || result.Annotations.OutputWindow == nil) {
 		return result.Content
 	}
 	if result.Annotations == nil {
