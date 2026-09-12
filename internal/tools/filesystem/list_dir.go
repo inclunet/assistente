@@ -198,7 +198,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 		if depth > maxDepth {
 			return nil
 		}
-		if totalFiles+totalDirs >= maxEntries {
+		if len(lines) >= maxEntries {
 			truncated = true
 			return nil
 		}
@@ -210,7 +210,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 
 		indent := strings.Repeat("  ", depth)
 		for _, entry := range entries {
-			if totalFiles+totalDirs >= maxEntries {
+			if len(lines) >= maxEntries {
 				truncated = true
 				return nil
 			}
@@ -286,7 +286,7 @@ func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath
 	}
 	if truncated {
 		result.Annotations = &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
-			HasMore: true, Unit: "entries", Offset: 0, Returned: totalFiles + totalDirs,
+			HasMore: true, Unit: "entries", Offset: 0, Returned: len(lines),
 		}}
 	}
 	return result, nil

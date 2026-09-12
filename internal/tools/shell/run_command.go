@@ -147,6 +147,10 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if result, blocked := validateSkillBashCommand(ctx, a.Command); blocked {
 		return result, nil
 	}
+	outputLimit := maxOutputForLLM
+	if effective, explicit := tools.ExplicitMaxResultSizeFromContext(ctx); explicit {
+		outputLimit = effective
+	}
 
 	// Resolve a sessão e o diretório exibido na confirmação antes de qualquer
 	// efeito colateral. Um terminal existente é autoritativo sobre seu CWD.
@@ -296,7 +300,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 					return m
 				}(),
 			}
-			protected, ok := tools.ProtectToolResult(result, maxOutputForLLM)
+			protected, ok := tools.ProtectToolResult(result, outputLimit)
 			if !ok {
 				return tools.ToolResult{
 					Content: "Output parcial excede a capacidade segura de preservação.",
@@ -359,7 +363,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 		result.Structured = true
 		return result, nil
 	}
-	protected, ok := tools.ProtectToolResult(result, maxOutputForLLM)
+	protected, ok := tools.ProtectToolResult(result, outputLimit)
 	if !ok {
 		return tools.ToolResult{
 			Content: "Output excede a capacidade segura de preservação; reduza a saída do comando.",

@@ -339,7 +339,7 @@ func reconcileToolContentsWithContracts(results []tools.ToolExecutionResult, con
 		// O pre-check legado calcula a quota de cada resultado. Reaplicamos essa
 		// quota ao contrato da tool para não cortar JSON/raw nem deixar
 		// output_window apontar além dos bytes realmente enviados.
-		contents[i] = tools.ContentForModelWithinLimit(execution.Result, len(contents[i]))
+		contents[i] = tools.ContentForModelWithinLimit(execution.Result, len(contents[i]), execution.ToolName)
 	}
 }
 

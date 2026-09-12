@@ -12,6 +12,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
+	"assistente/internal/tools"
 )
 
 // ========== TESTES DE VALIDAÇÃO (sem Manager) ==========
@@ -645,6 +646,23 @@ func TestOutputTruncation(t *testing.T) {
 	if len(result.Content) > maxOutputForLLM || result.Annotations == nil ||
 		result.Annotations.OutputWindow == nil || result.Annotations.OutputWindow.ResultID == "" {
 		t.Errorf("esperada prévia retomável, got %d bytes annotations=%+v", len(result.Content), result.Annotations)
+	}
+}
+
+func TestRunCommandUsesLargerExecutorBudgetForJobs(t *testing.T) {
+	largeOutput := strings.Repeat("x", 60_000)
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-job", Command: "big-output", Output: largeOutput, ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+	ctx := tools.WithMaxResultSize(context.Background(), 10*1024*1024)
+	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+		Execute(ctx, json.RawMessage(`{"command":"big-output"}`))
+	if err != nil || result.IsError || result.Content != largeOutput {
+		t.Fatalf("budget de job não preservou output: err=%v bytes=%d result=%+v", err, len(result.Content), result)
+	}
+	if result.Annotations != nil {
+		t.Fatalf("job recebeu prévia desnecessária: %+v", result.Annotations)
 	}
 }
 

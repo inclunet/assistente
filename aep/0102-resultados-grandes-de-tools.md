@@ -51,7 +51,11 @@ JSON e não ofereciam retomada exata.
     no resultado técnico, sem ser prefixada ao conteúdo `raw` model-facing.
 11. Se a cópia limitada de auditoria reduzir o corpo, sua `OutputWindow` é
     removida; a hidratação não anuncia offsets ou IDs efêmeros que já não
-    descrevem o conteúdo persistido.
+    descrevem o conteúdo persistido. `Structured`/`RawExact` são serializados e
+    nunca persistidos parcialmente: quando não cabem, grava-se omissão explícita.
+12. `run_command` usa o budget efetivo do executor (inclusive o budget maior de
+    jobs). O histórico de terminal limita uma cópia, sem mutilar o objeto bruto
+    devolvido à tool.
 
 ## Fases
 

@@ -491,14 +491,16 @@ func (s *Session) addHistoryEntry(entry *HistoryEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Trunca output se necessário
-	if len(entry.Output) > maxOutputSize {
-		entry.Output = entry.Output[:maxOutputSize] + fmt.Sprintf(
-			"\n\n[TRUNCADO: output original tinha %d bytes]", len(entry.Output),
+	// O histórico recebe uma cópia limitada; o chamador conserva o output bruto
+	// para que a tool aplique seu contrato model-facing sem conteúdo já mutilado.
+	historyEntry := *entry
+	if len(historyEntry.Output) > maxOutputSize {
+		historyEntry.Output = historyEntry.Output[:maxOutputSize] + fmt.Sprintf(
+			"\n\n[TRUNCADO: output original tinha %d bytes]", len(historyEntry.Output),
 		)
 	}
 
-	s.history = append(s.history, *entry)
+	s.history = append(s.history, historyEntry)
 
 	// Mantém apenas as últimas N entradas
 	if len(s.history) > maxHistoryEntries {

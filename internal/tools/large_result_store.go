@@ -86,15 +86,12 @@ func ProtectToolResult(result ToolResult, maxContentBytes int) (ToolResult, bool
 // ContentForModelWithinLimit recompõe um resultado para um budget de contexto
 // menor que o budget do executor. Resultados exatos nunca são cortados; textos
 // retomáveis recebem uma nova janela coerente com os bytes realmente enviados.
-func ContentForModelWithinLimit(result ToolResult, maxBytes int) string {
+func ContentForModelWithinLimit(result ToolResult, maxBytes int, toolName string) string {
 	content := ContentForModel(result)
-	if maxBytes <= 0 {
-		return ""
-	}
 	if len(content) <= maxBytes {
 		return content
 	}
-	if result.RawExact || result.Structured {
+	if result.RawExact || result.Structured || looksLikeCanonicalJSON(result.Content) {
 		code := "result_too_large"
 		kind := "estruturado"
 		if result.RawExact {
@@ -108,6 +105,11 @@ func ContentForModelWithinLimit(result ToolResult, maxBytes int) string {
 		if len(failure) <= maxBytes {
 			return failure
 		}
+		// O código estável é mais importante que respeitar uma quota incapaz de
+		// carregar qualquer diagnóstico; o excedente é pequeno e explícito.
+		return "[" + code + "]"
+	}
+	if maxBytes <= 0 {
 		return ""
 	}
 
@@ -115,7 +117,7 @@ func ContentForModelWithinLimit(result ToolResult, maxBytes int) string {
 		protected ToolResult
 		ok        bool
 	)
-	if strings.HasPrefix(result.Content, mcpPreviewPrefix) {
+	if isMCPBridgeToolName(toolName) || strings.HasPrefix(result.Content, mcpPreviewPrefix) {
 		protected, ok = ProtectExternalModelResult(result, maxBytes)
 	} else {
 		protected, ok = ProtectModelResult(result, maxBytes)
@@ -166,9 +168,7 @@ func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (
 	}
 	originalBytes := len(original)
 	preview := truncateUTF8(original, maxBytes)
-	if result.Annotations == nil {
-		result.Annotations = &ResultAnnotations{}
-	}
+	result = cloneMutableResultFields(result)
 	result.Annotations.OutputWindow = &OutputWindowAnnotation{
 		HasMore:       true,
 		Unit:          "bytes",
@@ -181,9 +181,6 @@ func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (
 		SourceWindow:  sourceWindow,
 	}
 	result.Content = preview
-	if result.Metadata == nil {
-		result.Metadata = make(map[string]any)
-	}
 	result.Metadata["truncated"] = true
 	result.Metadata["result_id"] = id
 	if includeEnvelope {
@@ -242,16 +239,11 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 	}
 	preview := truncateUTF8(original, budget)
 	result.Content = mcpPreviewPrefix + preview + mcpPreviewSuffix
-	if result.Annotations == nil {
-		result.Annotations = &ResultAnnotations{}
-	}
+	result = cloneMutableResultFields(result)
 	result.Annotations.OutputWindow = &OutputWindowAnnotation{
 		HasMore: true, Unit: "bytes", Offset: 0, Returned: len(preview),
 		Total: len(original), NextOffset: len(preview), ResultID: id,
 		OriginalBytes: len(original), SourceWindow: sourceWindow,
-	}
-	if result.Metadata == nil {
-		result.Metadata = make(map[string]any)
 	}
 	result.Metadata["truncated"] = true
 	result.Metadata["result_id"] = id
@@ -272,6 +264,21 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 		return ToolResult{}, false
 	}
 	return result, true
+}
+
+func cloneMutableResultFields(result ToolResult) ToolResult {
+	if result.Annotations == nil {
+		result.Annotations = &ResultAnnotations{}
+	} else {
+		annotations := *result.Annotations
+		result.Annotations = &annotations
+	}
+	metadata := make(map[string]any, len(result.Metadata)+2)
+	for key, value := range result.Metadata {
+		metadata[key] = value
+	}
+	result.Metadata = metadata
+	return result
 }
 
 // ReadToolResult relê, por bytes, um resultado grande preservado pelo host.

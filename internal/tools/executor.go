@@ -237,11 +237,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					label = "raw"
 					guidance = "Use offset/limit menores; conteúdo raw é exato e nunca é devolvido parcialmente."
 				}
+				message := fmt.Sprintf(
+					"Resultado %s tem %d bytes, acima do limite de %d. %s",
+					label, modelBytes, e.config.MaxResultSize, guidance,
+				)
 				result = ToolResult{
-					Content: fmt.Sprintf(
-						"Resultado %s tem %d bytes, acima do limite de %d. %s",
-						label, modelBytes, e.config.MaxResultSize, guidance,
-					),
+					Content: boundedFailureContent(message, code, e.config.MaxResultSize),
 					IsError: true,
 					Failure: &ToolFailure{
 						Code:      code,
@@ -349,10 +350,24 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 
 func looksLikeCanonicalJSON(content string) bool {
 	trimmed := strings.TrimSpace(content)
-	if len(trimmed) < 2 || (trimmed[0] != '{' && trimmed[0] != '[') {
+	if trimmed == "" {
 		return false
 	}
 	return json.Valid([]byte(trimmed))
+}
+
+func boundedFailureContent(message, code string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(message) <= maxBytes {
+		return message
+	}
+	compact := "[" + code + "]"
+	if len(compact) <= maxBytes {
+		return compact
+	}
+	return truncateUTF8(compact, maxBytes)
 }
 
 func isMCPBridgeToolName(name string) bool {

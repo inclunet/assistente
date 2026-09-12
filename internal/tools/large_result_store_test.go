@@ -60,6 +60,9 @@ func TestExecutorRejectsRawExactInsteadOfTruncating(t *testing.T) {
 		strings.Contains(got.Result.Content, strings.Repeat("x", 20)) {
 		t.Fatalf("raw foi cortado silenciosamente: %+v", got)
 	}
+	if len(got.Result.Content) > cfg.MaxResultSize {
+		t.Fatalf("mensagem de falha excedeu limite: %d", len(got.Result.Content))
+	}
 }
 
 func TestExecutorAcceptsRawExactAtDeclaredLimit(t *testing.T) {
@@ -124,6 +127,24 @@ func TestExecutorDoesNotMistakeBuiltinMCPServerForBridge(t *testing.T) {
 	}
 }
 
+func TestExecutorRejectsLargeLegacyJSONScalar(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister(&mockTool{
+		name: "legacy_json_scalar",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{Content: `"` + strings.Repeat("x", 2000) + `"`}, nil
+		},
+	})
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 256
+	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+		ID: "call-json-scalar", Function: FunctionCall{Name: "legacy_json_scalar", Arguments: `{}`},
+	})
+	if got.ErrorCode != "result_too_large" || !got.Result.IsError {
+		t.Fatalf("scalar JSON foi cortado como texto: %+v", got)
+	}
+}
+
 func TestProtectionKeepsOriginalResultIDWhenExecutorTightensBudget(t *testing.T) {
 	original := strings.Repeat("conteúdo-", 5000)
 	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)
@@ -170,7 +191,7 @@ func TestContentForModelWithinLimitRecalculatesRecoverableWindow(t *testing.T) {
 	if !ok {
 		t.Fatal("primeira proteção falhou")
 	}
-	got := ContentForModelWithinLimit(first, 1024)
+	got := ContentForModelWithinLimit(first, 1024, "")
 	if len(got) > 1024 {
 		t.Fatalf("resultado excedeu quota: %d", len(got))
 	}
@@ -195,8 +216,9 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 	for _, result := range []ToolResult{
 		{Content: strings.Repeat("raw-", 100), RawExact: true},
 		{Content: `{"value":"` + strings.Repeat("x", 500) + `"}`, Structured: true},
+		{Content: `"` + strings.Repeat("x", 500) + `"`},
 	} {
-		got := ContentForModelWithinLimit(result, 256)
+		got := ContentForModelWithinLimit(result, 256, "")
 		if strings.Contains(got, result.Content[:100]) {
 			t.Fatalf("conteúdo exato foi devolvido parcialmente: %q", got)
 		}
@@ -206,15 +228,26 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 	}
 }
 
+func TestContentForModelWithinLimitKeepsStableExactErrorAtZeroBudget(t *testing.T) {
+	got := ContentForModelWithinLimit(ToolResult{Content: "raw", RawExact: true}, 0, "")
+	if got != "[raw_result_too_large]" {
+		t.Fatalf("budget zero silenciou falha raw: %q", got)
+	}
+}
+
 func TestContentForModelWithinLimitKeepsMCPPreviewDelimited(t *testing.T) {
 	original := strings.Repeat(`{"value":"abcdef"}`, 1000)
 	first, ok := ProtectExternalModelResult(ToolResult{Content: original}, 4096)
 	if !ok {
 		t.Fatal("primeira proteção MCP falhou")
 	}
-	got := ContentForModelWithinLimit(first, 1024)
+	firstReturned := first.Annotations.OutputWindow.Returned
+	got := ContentForModelWithinLimit(first, 1024, "mcp_server__large")
 	if len(got) > 1024 || !strings.Contains(got, mcpPreviewPrefix) || !strings.Contains(got, mcpPreviewSuffix) {
 		t.Fatalf("prévia MCP recomposta incorretamente: %q", got)
+	}
+	if first.Annotations.OutputWindow.Returned != firstReturned {
+		t.Fatal("reproteção MCP alterou o resultado original por aliasing")
 	}
 }
 

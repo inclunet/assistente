@@ -304,6 +304,9 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 	if len(result.Content) <= max {
 		return result
 	}
+	if result.Structured || result.RawExact {
+		return persistenceOmissionResult(len(result.Content))
+	}
 
 	// Evita mutar o mapa original (ToolResult.Metadata é map por referência).
 	if result.Metadata != nil {
@@ -322,6 +325,17 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 	result.Metadata["truncated_for_persistence"] = true
 	result.Metadata["original_size_bytes"] = origSize
 	return result
+}
+
+func persistenceOmissionResult(originalBytes int) tools.ToolResult {
+	return tools.ToolResult{
+		Content: "[result_omitted_for_persistence] Resultado exato omitido da cópia de auditoria.",
+		IsError: true,
+		Metadata: map[string]any{
+			"omitted_for_persistence": true,
+			"original_size_bytes":     originalBytes,
+		},
+	}
 }
 
 func withoutOutputWindow(result tools.ToolResult) tools.ToolResult {
@@ -934,7 +948,14 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	}
 
 	// Primeiro fallback: dropa metadata, que pode explodir o payload.
-	trimmed.Metadata = nil
+	compactMetadata := map[string]any(nil)
+	if truncated, _ := trimmed.Metadata["truncated_for_persistence"].(bool); truncated {
+		compactMetadata = map[string]any{"truncated_for_persistence": true}
+	}
+	if omitted, _ := trimmed.Metadata["omitted_for_persistence"].(bool); omitted {
+		compactMetadata = map[string]any{"omitted_for_persistence": true}
+	}
+	trimmed.Metadata = compactMetadata
 	data = resultOutput(trimmed)
 	if len(data) <= max {
 		return data
@@ -947,7 +968,17 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	if len(data) <= max {
 		return data
 	}
+	if trimmed.Structured || trimmed.RawExact {
+		// Campos auxiliares podem ser descartados, mas o corpo exato não.
+		trimmed.Annotations = nil
+		data = resultOutput(trimmed)
+		if len(data) <= max {
+			return data
+		}
+		return minimalPersistenceOutput(max)
+	}
 	content := trimmed.Content
+	trimmed.Metadata = map[string]any{"truncated_for_persistence": true}
 	// Começa com um budget razoável; ajusta iterativamente com base no marshal.
 	budget := max
 	for attempt := 0; attempt < 4; attempt++ {
@@ -964,17 +995,26 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 		}
 	}
 
-	// Último recurso: JSON mínimo válido.
-	isErr := result.IsError
-	minimal, _ := json.Marshal(map[string]any{
+	return minimalPersistenceOutput(max)
+}
+
+func minimalPersistenceOutput(max int) json.RawMessage {
+	candidates := []map[string]any{{
 		"content":  "Output omitido da cópia de auditoria por exceder o limite de persistência.",
-		"is_error": isErr,
-	})
-	if len(minimal) > 0 {
-		return minimal
+		"is_error": true,
+		"metadata": map[string]any{"omitted_for_persistence": true},
+	}, {
+		"content":  "[result_omitted_for_persistence]",
+		"is_error": true,
+	}}
+	for _, candidate := range candidates {
+		data, _ := json.Marshal(candidate)
+		if max <= 0 || len(data) <= max {
+			return data
+		}
 	}
-	if isErr {
-		return json.RawMessage(`{"content":"Output omitido da cópia de auditoria.","is_error":true}`)
+	if max >= len(`{"content":"","is_error":true}`) {
+		return json.RawMessage(`{"content":"","is_error":true}`)
 	}
-	return json.RawMessage(`{"content":"Output omitido da cópia de auditoria.","is_error":false}`)
+	return json.RawMessage(`{}`)
 }

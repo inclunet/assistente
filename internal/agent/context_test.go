@@ -299,3 +299,18 @@ func TestReconcileToolContentsRecalculatesRecoverableWindow(t *testing.T) {
 		t.Fatal("aviso legado contaminou resultado retomável")
 	}
 }
+
+func TestReconcileToolContentsKeepsMCPPreviewDelimited(t *testing.T) {
+	result := tools.ToolResult{Content: strings.Repeat(`{"value":"x"}`, 1000)}
+	executions := []tools.ToolExecutionResult{{
+		ToolName: "mcp_server__large",
+		Result:   result,
+	}}
+	contents := []string{tools.ContentForModel(result)}
+	PreCheckContextWindow(400, 50, nil, contents, false)
+	reconcileToolContentsWithContracts(executions, contents)
+	if !strings.Contains(contents[0], "INÍCIO DA PRÉVIA MCP") ||
+		!strings.Contains(contents[0], "FIM DA PRÉVIA MCP") {
+		t.Fatalf("pre-check perdeu delimitação MCP: %q", contents[0])
+	}
+}
