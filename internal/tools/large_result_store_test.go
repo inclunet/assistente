@@ -145,6 +145,19 @@ func TestExecutorRejectsLargeLegacyJSONScalar(t *testing.T) {
 	}
 }
 
+func TestLooksLikeCanonicalJSONAcceptsOneCompleteValue(t *testing.T) {
+	for _, valid := range []string{`{}`, `[]`, `"texto"`, `123`, `true`, `false`, `null`} {
+		if !looksLikeCanonicalJSON(valid) {
+			t.Errorf("JSON válido rejeitado: %s", valid)
+		}
+	}
+	for _, invalid := range []string{"", "texto", "{} {}", "1 2"} {
+		if looksLikeCanonicalJSON(invalid) {
+			t.Errorf("conteúdo inválido aceito como JSON: %q", invalid)
+		}
+	}
+}
+
 func TestProtectionKeepsOriginalResultIDWhenExecutorTightensBudget(t *testing.T) {
 	original := strings.Repeat("conteúdo-", 5000)
 	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)

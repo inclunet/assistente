@@ -101,7 +101,7 @@ func (t *HTTPRequest) Parameters() json.RawMessage {
 			},
 			"max_response_size": {
 				"type": "integer",
-				"description": "Tamanho máximo da resposta em caracteres (padrão: 50000)"
+				"description": "Tamanho máximo da resposta em bytes (padrão: 50000)"
 			},
 			"extract_mode": {
 				"type": "string",
@@ -305,7 +305,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	header := fmt.Sprintf("HTTP %s %s\n", method, a.URL)
 	header += fmt.Sprintf("Status: %d %s\n", resp.StatusCode, resp.Status)
 	header += fmt.Sprintf("Content-Type: %s\n", contentType)
-	header += fmt.Sprintf("Content-Length: %d bytes | Extracted: %d chars\n", len(body), len(extracted))
+	header += fmt.Sprintf("Content-Length: %d bytes | Extracted: %d bytes\n", len(body), len(extracted))
 	header += "\n"
 
 	// Determina se é erro baseado no status code

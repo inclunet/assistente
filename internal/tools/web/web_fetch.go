@@ -76,7 +76,7 @@ func (t *WebFetch) Parameters() json.RawMessage {
 			},
 			"max_length": {
 				"type": "integer",
-				"description": "Tamanho máximo do conteúdo retornado em caracteres. Padrão: 50000."
+				"description": "Tamanho máximo do conteúdo retornado em bytes. Padrão: 50000."
 			},
 			"extract_mode": {
 				"type": "string",
@@ -199,7 +199,7 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Header informativo
-	header := fmt.Sprintf("URL: %s\nStatus: %d | Content-Type: %s | Tamanho: %d chars\n",
+	header := fmt.Sprintf("URL: %s\nStatus: %d | Content-Type: %s | Tamanho: %d bytes\n",
 		a.URL, resp.StatusCode, contentType, len(extracted))
 	header += "\n"
 

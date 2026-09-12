@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -353,7 +354,18 @@ func looksLikeCanonicalJSON(content string) bool {
 	if trimmed == "" {
 		return false
 	}
-	return json.Valid([]byte(trimmed))
+	switch trimmed[0] {
+	case '{', '[', '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'f', 'n':
+	default:
+		return false
+	}
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	var value json.RawMessage
+	if err := decoder.Decode(&value); err != nil {
+		return false
+	}
+	var extra json.RawMessage
+	return errors.Is(decoder.Decode(&extra), io.EOF)
 }
 
 func boundedFailureContent(message, code string, maxBytes int) string {
