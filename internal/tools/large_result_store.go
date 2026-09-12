@@ -17,6 +17,7 @@ const (
 	largeResultStoreItems = 64
 	mcpPreviewPrefix      = "--- INÍCIO DA PRÉVIA MCP; NÃO É O RESULTADO COMPLETO ---\n"
 	mcpPreviewSuffix      = "\n--- FIM DA PRÉVIA MCP ---"
+	envelopeFitSlackBytes = 16 // absorve mudanças de dígitos nos offsets do JSON
 )
 
 type storedLargeResult struct {
@@ -186,17 +187,19 @@ func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (
 	result.Metadata["truncated"] = true
 	result.Metadata["result_id"] = id
 	if includeEnvelope {
-		for len(ContentForModel(result)) > maxBytes && len(result.Content) > 0 {
-			over := len(ContentForModel(result)) - maxBytes
-			nextSize := len(result.Content) - over - 16
+		modelContent := ContentForModel(result)
+		for len(modelContent) > maxBytes && len(result.Content) > 0 {
+			over := len(modelContent) - maxBytes
+			nextSize := len(result.Content) - over - envelopeFitSlackBytes
 			if nextSize < 0 {
 				nextSize = 0
 			}
 			result.Content = truncateUTF8(result.Content, nextSize)
 			result.Annotations.OutputWindow.Returned = len(result.Content)
 			result.Annotations.OutputWindow.NextOffset = len(result.Content)
+			modelContent = ContentForModel(result)
 		}
-		if len(ContentForModel(result)) > maxBytes {
+		if len(modelContent) > maxBytes {
 			return ToolResult{}, false
 		}
 	}
@@ -252,9 +255,10 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 	}
 	result.Metadata["truncated"] = true
 	result.Metadata["result_id"] = id
-	for len(ContentForModel(result)) > maxBytes && budget > 0 {
-		over := len(ContentForModel(result)) - maxBytes
-		budget -= over + 16
+	modelContent := ContentForModel(result)
+	for len(modelContent) > maxBytes && budget > 0 {
+		over := len(modelContent) - maxBytes
+		budget -= over + envelopeFitSlackBytes
 		if budget < 1 {
 			return ToolResult{}, false
 		}
@@ -262,8 +266,9 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 		result.Content = mcpPreviewPrefix + preview + mcpPreviewSuffix
 		result.Annotations.OutputWindow.Returned = len(preview)
 		result.Annotations.OutputWindow.NextOffset = len(preview)
+		modelContent = ContentForModel(result)
 	}
-	if len(ContentForModel(result)) > maxBytes {
+	if len(modelContent) > maxBytes {
 		return ToolResult{}, false
 	}
 	return result, true

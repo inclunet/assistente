@@ -974,7 +974,7 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 		return minimal
 	}
 	if isErr {
-		return json.RawMessage(`{"content":"Output omitido da copia de auditoria.","is_error":true}`)
+		return json.RawMessage(`{"content":"Output omitido da cópia de auditoria.","is_error":true}`)
 	}
-	return json.RawMessage(`{"content":"Output omitido da copia de auditoria.","is_error":false}`)
+	return json.RawMessage(`{"content":"Output omitido da cópia de auditoria.","is_error":false}`)
 }

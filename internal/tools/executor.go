@@ -217,14 +217,18 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		// prévia, com continuação estruturada nas anotações.
 		var execErr error
 		execKind := ErrorKindNone
-		structured := result.Structured || looksLikeCanonicalJSON(result.Content)
 		modelBytes := len(ContentForModel(result))
 		if modelBytes > e.config.MaxResultSize {
+			// json.Valid varre o payload inteiro; só precisamos inferir JSON
+			// canônico quando a barreira realmente precisaria cortá-lo.
+			structured := result.Structured
+			if !structured && !result.RawExact {
+				structured = looksLikeCanonicalJSON(result.Content)
+			}
 			mcpBridge := isMCPBridgeToolName(toolName)
 			if (structured || result.RawExact) && !mcpBridge {
 				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
 				// para que agent/service.go emita tool_failure e persista o error_kind.
-				origSize := len(result.Content)
 				code := "result_too_large"
 				label := "estruturado"
 				guidance := "Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor."
@@ -236,7 +240,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				result = ToolResult{
 					Content: fmt.Sprintf(
 						"Resultado %s tem %d bytes, acima do limite de %d. %s",
-						label, origSize, e.config.MaxResultSize, guidance,
+						label, modelBytes, e.config.MaxResultSize, guidance,
 					),
 					IsError: true,
 					Failure: &ToolFailure{
@@ -245,10 +249,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						Retryable: false,
 					},
 				}
-				execErr = fmt.Errorf("saída %s de '%s' tem %d bytes, acima do limite de %d", label, toolName, origSize, e.config.MaxResultSize)
+				execErr = fmt.Errorf("saída %s de '%s' tem %d bytes model-facing, acima do limite de %d", label, toolName, modelBytes, e.config.MaxResultSize)
 				execKind = ErrorKindUnknown
 			} else {
-				origSize := len(result.Content)
 				var protected ToolResult
 				var stored bool
 				if mcpBridge {
@@ -259,13 +262,13 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				if !stored {
 					result = ToolResult{
 						Content: fmt.Sprintf(
-							"Resultado tem %d bytes e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
-							origSize,
+							"Resultado tem %d bytes model-facing e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
+							modelBytes,
 						),
 						IsError: true,
 						Failure: &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
 					}
-					execErr = fmt.Errorf("saída de '%s' excede armazenamento seguro: %d bytes", toolName, origSize)
+					execErr = fmt.Errorf("saída de '%s' excede armazenamento seguro: %d bytes model-facing", toolName, modelBytes)
 					execKind = ErrorKindUnknown
 				} else {
 					result = protected

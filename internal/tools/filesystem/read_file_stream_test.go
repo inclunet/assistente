@@ -34,6 +34,28 @@ func writeLinesFile(t *testing.T, path string, nLines int, pad string) {
 	}
 }
 
+func TestScanTextLinesMatchesStringsSplitAtEOF(t *testing.T) {
+	for _, content := range []string{"", "a", "a\n", "a\n\n"} {
+		t.Run(fmt.Sprintf("%q", content), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "linhas.txt")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			if err := scanTextLines(context.Background(), path, func(_ int, line string) bool {
+				got = append(got, line)
+				return true
+			}); err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Split(content, "\n")
+			if fmt.Sprintf("%q", got) != fmt.Sprintf("%q", want) {
+				t.Fatalf("linhas=%q, want=%q", got, want)
+			}
+		})
+	}
+}
+
 // Texto grande com offset/limit é servido em streaming e devolve exatamente o
 // mesmo recorte que o caminho que carrega tudo.
 func TestReadFileStreamsLargeTextSlice(t *testing.T) {
