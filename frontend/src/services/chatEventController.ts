@@ -43,6 +43,9 @@ const translateBackendChatError = (message: string) => {
   if (message === 'streaming_retries_exhausted') {
     return i18next.t('chat.errors.streamingRetriesExhausted');
   }
+  if (message === 'streaming_prompt_cache_hint_rejected') {
+    return i18next.t('chat.errors.streamingPromptCacheHintRejected');
+  }
   return message;
 };
 

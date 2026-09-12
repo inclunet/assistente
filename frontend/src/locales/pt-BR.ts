@@ -255,6 +255,7 @@ const ptBR = {
         streamingInterrupted: 'Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.',
         streamingIdleTimeout: 'O provedor parou de responder no meio da geração (timeout de inatividade).',
         streamingRetriesExhausted: 'Não foi possível concluir a resposta após várias tentativas de conexão.',
+        streamingPromptCacheHintRejected: 'O provedor rejeitou a dica de cache mesmo depois de ela ser desativada. Verifique a configuração do gateway ou desative as dicas de cache no perfil.',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',

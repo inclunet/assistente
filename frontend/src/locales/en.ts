@@ -255,6 +255,7 @@ const en = {
         streamingInterrupted: 'Response interrupted by provider without finish reason; please try again.',
         streamingIdleTimeout: 'Provider stopped responding mid-generation (idle timeout).',
         streamingRetriesExhausted: 'The response could not be completed after several connection attempts.',
+        streamingPromptCacheHintRejected: 'The provider rejected the cache hint even after it was disabled. Check the gateway configuration or disable cache hints in the profile.',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',

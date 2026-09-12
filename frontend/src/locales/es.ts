@@ -254,6 +254,7 @@ const es = {
         streamingInterrupted: 'Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.',
         streamingIdleTimeout: 'El proveedor dejó de responder a mitad de la generación (timeout de inactividad).',
         streamingRetriesExhausted: 'No se pudo completar la respuesta después de varios intentos de conexión.',
+        streamingPromptCacheHintRejected: 'El proveedor rechazó la sugerencia de caché incluso después de desactivarla. Comprueba la configuración del gateway o desactiva las sugerencias de caché en el perfil.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',

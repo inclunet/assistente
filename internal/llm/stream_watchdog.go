@@ -191,3 +191,5 @@ const streamIdleErrorMessage = "streaming_idle_timeout"
 // streamRetriesExhaustedError identifica o esgotamento das tentativas internas
 // sem fixar idioma no backend.
 const streamRetriesExhaustedError = "streaming_retries_exhausted"
+
+const streamPromptCacheHintRejectedError = "streaming_prompt_cache_hint_rejected"

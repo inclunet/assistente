@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -453,8 +452,8 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedWithoutKey
 	if len(handler.errors) != 1 {
 		t.Fatalf("errors = %v, want one explicit error", handler.errors)
 	}
-	if !strings.Contains(handler.errors[0], "provider_hints") || !strings.Contains(handler.errors[0], "gateway/proxy") {
-		t.Fatalf("erro = %q, want actionable provider_hints + gateway/proxy guidance", handler.errors[0])
+	if handler.errors[0] != streamPromptCacheHintRejectedError {
+		t.Fatalf("erro = %q, want %q", handler.errors[0], streamPromptCacheHintRejectedError)
 	}
 	if handler.done != 0 {
 		t.Fatalf("OnDone = %d, want 0", handler.done)
