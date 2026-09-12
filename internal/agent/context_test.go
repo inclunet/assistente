@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"assistente/internal/llm"
+	"assistente/internal/tools"
 )
 
 func TestEstimateTokens(t *testing.T) {
@@ -241,5 +243,59 @@ func TestPreCheckContextWindow_ToolOverheadReducesBudget(t *testing.T) {
 	check2 := PreCheckContextWindow(110, 10, msgs, results2, false)
 	if !check2.Truncated {
 		t.Error("should truncate when tool overhead reduces budget below result tokens")
+	}
+}
+
+func TestReconcileToolContentsDoesNotCutExactResults(t *testing.T) {
+	for _, result := range []tools.ToolResult{
+		{Content: strings.Repeat("raw-", 1000), RawExact: true},
+		{Content: `{"value":"` + strings.Repeat("x", 4000) + `"}`, Structured: true},
+	} {
+		executions := []tools.ToolExecutionResult{{Result: result}}
+		contents := []string{tools.ContentForModel(result)}
+		PreCheckContextWindow(1000, 50, nil, contents, false)
+		if contents[0] == tools.ContentForModel(result) {
+			t.Fatal("fixture não acionou o pre-check")
+		}
+
+		reconcileToolContentsWithContracts(executions, contents)
+		if strings.Contains(contents[0], result.Content[:100]) {
+			t.Fatalf("pre-check devolveu resultado exato parcialmente: %q", contents[0])
+		}
+		if !strings.Contains(contents[0], "result_too_large") {
+			t.Fatalf("pre-check não devolveu falha explícita: %q", contents[0])
+		}
+	}
+}
+
+func TestReconcileToolContentsRecalculatesRecoverableWindow(t *testing.T) {
+	original := strings.Repeat("conteúdo-", 1000)
+	protected, ok := tools.ProtectToolResult(tools.ToolResult{Content: original}, 4096)
+	if !ok {
+		t.Fatal("proteção inicial falhou")
+	}
+	executions := []tools.ToolExecutionResult{{Result: protected}}
+	contents := []string{tools.ContentForModel(protected)}
+	PreCheckContextWindow(400, 50, nil, contents, false)
+	reconcileToolContentsWithContracts(executions, contents)
+
+	const (
+		header    = "Anotações estruturadas da tool (JSON; não fazem parte do conteúdo):\n"
+		separator = "\nConteúdo da tool:\n"
+	)
+	parts := strings.SplitN(contents[0], separator, 2)
+	if len(parts) != 2 {
+		t.Fatalf("envelope recomposto ausente: %q", contents[0])
+	}
+	var annotations tools.ResultAnnotations
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(parts[0], header)), &annotations); err != nil {
+		t.Fatalf("anotações recompostas inválidas: %v", err)
+	}
+	window := annotations.OutputWindow
+	if window == nil || window.Returned != len(parts[1]) || window.NextOffset != len(parts[1]) {
+		t.Fatalf("offsets não correspondem ao corpo enviado: %+v, corpo=%d", window, len(parts[1]))
+	}
+	if strings.Contains(contents[0], "CONTEXTO TRUNCADO") {
+		t.Fatal("aviso legado contaminou resultado retomável")
 	}
 }

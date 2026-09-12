@@ -15,6 +15,8 @@ const (
 	largeResultPageBytes  = 50 * 1024
 	largeResultStoreBytes = 32 * 1024 * 1024
 	largeResultStoreItems = 64
+	mcpPreviewPrefix      = "--- INÍCIO DA PRÉVIA MCP; NÃO É O RESULTADO COMPLETO ---\n"
+	mcpPreviewSuffix      = "\n--- FIM DA PRÉVIA MCP ---"
 )
 
 type storedLargeResult struct {
@@ -80,6 +82,53 @@ func ProtectToolResult(result ToolResult, maxContentBytes int) (ToolResult, bool
 	return protectModelResult(result, maxContentBytes, false)
 }
 
+// ContentForModelWithinLimit recompõe um resultado para um budget de contexto
+// menor que o budget do executor. Resultados exatos nunca são cortados; textos
+// retomáveis recebem uma nova janela coerente com os bytes realmente enviados.
+func ContentForModelWithinLimit(result ToolResult, maxBytes int) string {
+	content := ContentForModel(result)
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(content) <= maxBytes {
+		return content
+	}
+	if result.RawExact || result.Structured {
+		code := "result_too_large"
+		kind := "estruturado"
+		if result.RawExact {
+			code = "raw_result_too_large"
+			kind = "raw"
+		}
+		failure := fmt.Sprintf(
+			"[%s] Resultado %s integral não cabe no contexto disponível; reduza offset/limit ou o escopo da chamada.",
+			code, kind,
+		)
+		if len(failure) <= maxBytes {
+			return failure
+		}
+		return ""
+	}
+
+	var (
+		protected ToolResult
+		ok        bool
+	)
+	if strings.HasPrefix(result.Content, mcpPreviewPrefix) {
+		protected, ok = ProtectExternalModelResult(result, maxBytes)
+	} else {
+		protected, ok = ProtectModelResult(result, maxBytes)
+	}
+	if ok {
+		return ContentForModel(protected)
+	}
+	failure := "[result_storage_limit] Resultado retomável indisponível; execute novamente a tool de origem."
+	if len(failure) <= maxBytes {
+		return failure
+	}
+	return ""
+}
+
 func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (ToolResult, bool) {
 	currentBytes := len(result.Content)
 	if includeEnvelope {
@@ -99,6 +148,11 @@ func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (
 				original = stored
 				id = existing.ResultID
 				sourceWindow = existing.SourceWindow
+			} else {
+				// A prévia não contém bytes suficientes para reconstruir o
+				// resultado. Publicar outro ID aqui criaria uma continuação
+				// aparentemente válida, porém incompleta.
+				return ToolResult{}, false
 			}
 		}
 	}
@@ -167,6 +221,8 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 				original = stored
 				id = existing.ResultID
 				sourceWindow = existing.SourceWindow
+			} else {
+				return ToolResult{}, false
 			}
 		}
 	}
@@ -177,14 +233,12 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 			return ToolResult{}, false
 		}
 	}
-	prefix := "--- INÍCIO DA PRÉVIA MCP; NÃO É O RESULTADO COMPLETO ---\n"
-	suffix := "\n--- FIM DA PRÉVIA MCP ---"
-	budget := maxBytes - len(prefix) - len(suffix)
+	budget := maxBytes - len(mcpPreviewPrefix) - len(mcpPreviewSuffix)
 	if budget < 1 {
 		return ToolResult{}, false
 	}
 	preview := truncateUTF8(original, budget)
-	result.Content = prefix + preview + suffix
+	result.Content = mcpPreviewPrefix + preview + mcpPreviewSuffix
 	if result.Annotations == nil {
 		result.Annotations = &ResultAnnotations{}
 	}
@@ -205,7 +259,7 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 			return ToolResult{}, false
 		}
 		preview = truncateUTF8(original, budget)
-		result.Content = prefix + preview + suffix
+		result.Content = mcpPreviewPrefix + preview + mcpPreviewSuffix
 		result.Annotations.OutputWindow.Returned = len(preview)
 		result.Annotations.OutputWindow.NextOffset = len(preview)
 	}
@@ -289,7 +343,8 @@ func (t *ReadToolResult) Execute(_ context.Context, raw json.RawMessage) (ToolRe
 	page := content[args.Offset:end]
 	hasMore := end < len(content)
 	return ToolResult{
-		Content: page,
+		Content:  page,
+		RawExact: true,
 		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
 			HasMore:  hasMore,
 			Unit:     "bytes",

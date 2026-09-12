@@ -144,6 +144,101 @@ func TestProtectionKeepsOriginalResultIDWhenExecutorTightensBudget(t *testing.T)
 	}
 }
 
+func TestProtectionFailsWhenExistingResultExpired(t *testing.T) {
+	original := strings.Repeat("conteúdo-", 5000)
+	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)
+	if !ok {
+		t.Fatal("primeira proteção falhou")
+	}
+	id := first.Annotations.OutputWindow.ResultID
+
+	modelResultStore.mu.Lock()
+	elem := modelResultStore.items[id]
+	delete(modelResultStore.items, id)
+	modelResultStore.bytes -= len(elem.Value.(storedLargeResult).content)
+	modelResultStore.order.Remove(elem)
+	modelResultStore.mu.Unlock()
+
+	if _, ok := ProtectModelResult(first, 1024); ok {
+		t.Fatal("prévia expirada foi republicada como se fosse resultado integral")
+	}
+}
+
+func TestContentForModelWithinLimitRecalculatesRecoverableWindow(t *testing.T) {
+	original := strings.Repeat("abcç", 5000)
+	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)
+	if !ok {
+		t.Fatal("primeira proteção falhou")
+	}
+	got := ContentForModelWithinLimit(first, 1024)
+	if len(got) > 1024 {
+		t.Fatalf("resultado excedeu quota: %d", len(got))
+	}
+	parts := strings.SplitN(got, contentHeader, 2)
+	if len(parts) != 2 {
+		t.Fatalf("envelope ausente: %q", got)
+	}
+	var annotations ResultAnnotations
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(parts[0], annotationsHeader)), &annotations); err != nil {
+		t.Fatalf("anotações inválidas: %v", err)
+	}
+	window := annotations.OutputWindow
+	if window == nil || window.Returned != len(parts[1]) || window.NextOffset != len(parts[1]) {
+		t.Fatalf("janela não corresponde ao corpo enviado: %+v, corpo=%d", window, len(parts[1]))
+	}
+	if stored, found := loadModelResult(window.ResultID); !found || stored != original {
+		t.Fatal("resultado integral deixou de ser recuperável")
+	}
+}
+
+func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
+	for _, result := range []ToolResult{
+		{Content: strings.Repeat("raw-", 100), RawExact: true},
+		{Content: `{"value":"` + strings.Repeat("x", 500) + `"}`, Structured: true},
+	} {
+		got := ContentForModelWithinLimit(result, 256)
+		if strings.Contains(got, result.Content[:100]) {
+			t.Fatalf("conteúdo exato foi devolvido parcialmente: %q", got)
+		}
+		if !strings.Contains(got, "result_too_large") {
+			t.Fatalf("falha explícita ausente: %q", got)
+		}
+	}
+}
+
+func TestContentForModelWithinLimitKeepsMCPPreviewDelimited(t *testing.T) {
+	original := strings.Repeat(`{"value":"abcdef"}`, 1000)
+	first, ok := ProtectExternalModelResult(ToolResult{Content: original}, 4096)
+	if !ok {
+		t.Fatal("primeira proteção MCP falhou")
+	}
+	got := ContentForModelWithinLimit(first, 1024)
+	if len(got) > 1024 || !strings.Contains(got, mcpPreviewPrefix) || !strings.Contains(got, mcpPreviewSuffix) {
+		t.Fatalf("prévia MCP recomposta incorretamente: %q", got)
+	}
+}
+
+func TestReadToolResultIsExactOrExecutorRejectsPage(t *testing.T) {
+	id, ok := storeModelResult(strings.Repeat("página-", 1000))
+	if !ok {
+		t.Fatal("store falhou")
+	}
+	registry := NewRegistry()
+	registry.MustRegister(NewReadToolResult())
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 128
+	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+		ID: "call-page",
+		Function: FunctionCall{
+			Name:      "read_tool_result",
+			Arguments: `{"result_id":"` + id + `","offset":0,"limit":100}`,
+		},
+	})
+	if got.ErrorCode != "raw_result_too_large" || !got.Result.IsError {
+		t.Fatalf("página foi cortada ou recomeçada silenciosamente: %+v", got)
+	}
+}
+
 func TestReadToolResultNeverExceedsLimitForMultibyteRune(t *testing.T) {
 	id, ok := storeModelResult("ç")
 	if !ok {

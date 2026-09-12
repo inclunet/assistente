@@ -43,6 +43,9 @@ JSON e não ofereciam retomada exata.
    esta política sem suporte do protocolo/provider.
 8. Downloads HTTP acima do teto de segurança são detectados lendo um byte
    adicional e rejeitados, em vez de parecerem respostas completas.
+9. O pre-check da janela de contexto reaplica a quota calculada ao contrato da
+   tool: recompõe a janela e seus offsets, preserva a delimitação MCP e converte
+   `Structured`/`RawExact` que não caibam em falha explícita, sem segundo corte.
 
 ## Fases
 
@@ -68,5 +71,6 @@ JSON e não ofereciam retomada exata.
 - [x] `raw` pequeno é exato e `raw` grande falha sem conteúdo parcial.
 - [x] JSON estruturado nunca é corrompido por corte.
 - [x] Texto grande e MCP bridge podem ser relidos por identificador opaco.
+- [x] O pre-check de contexto não invalida JSON/raw nem offsets de retomada.
 - [x] Limitação de MCP nativo está explícita.
 - [x] Documentação de usuário e contratos relacionados foram atualizados.
