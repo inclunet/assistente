@@ -67,6 +67,27 @@ func TestReadFileRawRejectsInvalidUTF8AfterValidPrefix(t *testing.T) {
 	}
 }
 
+func TestReadFileRawStreamingIgnoresInvalidUTF8OutsideRequestedRange(t *testing.T) {
+	dir := t.TempDir()
+	first := strings.Repeat("a", 10*1024)
+	padding := strings.Repeat("b\n", streamTextMinBytes/2)
+	content := append([]byte(first+"\n"), 0xff)
+	content = append(content, []byte("\n"+padding+"final")...)
+	if err := os.WriteFile(filepath.Join(dir, "misto.txt"), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFile(dir)
+	for _, args := range []map[string]any{
+		{"path": "misto.txt", "offset": 1, "limit": 1, "raw": true},
+		{"path": "misto.txt", "offset": -1, "limit": 1, "raw": true},
+	} {
+		result, err := tool.Execute(context.Background(), mustJSON(t, args))
+		if err != nil || result.IsError || !result.RawExact {
+			t.Fatalf("byte inválido fora do recorte afetou raw válido: args=%v err=%v result=%+v", args, err, result)
+		}
+	}
+}
+
 func TestReadFileByteCapPrecedesLineCap(t *testing.T) {
 	dir := t.TempDir()
 	var content strings.Builder

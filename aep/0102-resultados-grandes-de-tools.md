@@ -78,6 +78,9 @@ JSON e não ofereciam retomada exata.
 18. O LRU preserva também a proveniência model-facing do resultado; cada página
     de `read_tool_result` repete, por exemplo, o contexto HTTP sem alterar os
     bytes do corpo.
+19. Budget zero nunca desativa a barreira. `read_tool_result` exige presença
+    explícita de `offset`, inclusive quando o valor é zero. Validações de
+    exatidão raw consideram somente o trecho solicitado.
 
 ## Fases
 

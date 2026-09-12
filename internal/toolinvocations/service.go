@@ -938,11 +938,7 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	}
 
 	// Primeiro fallback: dropa metadata, que pode explodir o payload.
-	compactMetadata := map[string]any(nil)
-	if omitted, _ := trimmed.Metadata["omitted_for_persistence"].(bool); omitted {
-		compactMetadata = map[string]any{"omitted_for_persistence": true}
-	}
-	trimmed.Metadata = compactMetadata
+	trimmed.Metadata = map[string]any{"omitted_for_persistence": true}
 	data = resultOutput(trimmed)
 	if len(data) <= max {
 		return data

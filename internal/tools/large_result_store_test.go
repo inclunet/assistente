@@ -23,6 +23,31 @@ func TestLargeResultStoreRejectsAnonymousAndInvalidUTF8Content(t *testing.T) {
 	}
 }
 
+func TestProtectorsRejectZeroBudget(t *testing.T) {
+	for name, protect := range map[string]func(context.Context, ToolResult, int) (ToolResult, bool){
+		"builtin": ProtectModelResult,
+		"mcp":     ProtectExternalModelResult,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, ok := protect(largeResultTestContext(), ToolResult{Content: "x"}, 0); ok {
+				t.Fatal("budget zero foi tratado como bypass")
+			}
+		})
+	}
+}
+
+func TestReadToolResultRequiresExplicitOffset(t *testing.T) {
+	id, ok := storeModelResult(largeResultTestContext(), "conteúdo")
+	if !ok {
+		t.Fatal("store falhou")
+	}
+	raw, _ := json.Marshal(map[string]any{"result_id": id})
+	result, err := NewReadToolResult().Execute(largeResultTestContext(), raw)
+	if err != nil || !result.IsError {
+		t.Fatalf("offset ausente reiniciou leitura: err=%v result=%+v", err, result)
+	}
+}
+
 func TestProtectModelResultDoesNotInventByteResumeForNaturalWindow(t *testing.T) {
 	result := ToolResult{
 		Content: strings.Repeat("x", 1024),

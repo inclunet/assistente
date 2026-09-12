@@ -79,6 +79,21 @@ func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *te
 	}
 }
 
+func TestOutputForPersistenceMarksMetadataReductionWhenContentFits(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	result := tools.ToolResult{
+		Content:  "conteúdo íntegro",
+		Metadata: map[string]any{"http": strings.Repeat("x", 4096)},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Content != result.Content {
+		t.Fatalf("conteúdo que cabia foi alterado: %+v", persisted)
+	}
+	if persisted.Metadata["omitted_for_persistence"] != true {
+		t.Fatalf("redução de metadata não foi sinalizada: %+v", persisted.Metadata)
+	}
+}
+
 func TestOutputForPersistence_PreservesResultAnnotations(t *testing.T) {
 	svc := &Service{persistMaxResultSize: 4096}
 	result := tools.ToolResult{

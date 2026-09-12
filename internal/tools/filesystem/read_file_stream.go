@@ -129,7 +129,9 @@ func readTextSliceStreamingForward(
 		if strings.IndexByte(line, 0) >= 0 {
 			binary = true
 		}
-		if raw && !utf8.ValidString(line) {
+		inRequestedRange := idx >= offset &&
+			(limitArg == nil || *limitArg <= 0 || idx-offset < *limitArg)
+		if raw && inRequestedRange && !utf8.ValidString(line) {
 			invalidRawUTF8 = true
 		}
 		if idx >= offset && len(lines) < collectLimit && !collectionTooLarge {
@@ -274,19 +276,12 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			totalLines = -1
 			return false
 		}
-		if raw && !utf8.ValidString(line) {
-			totalLines = -2
-			return false
-		}
 		totalLines++
 		return true
 	}); err != nil {
 		return streamFailure(err, size, raw, budget)
 	}
 	if totalLines < 0 {
-		if totalLines == -2 {
-			return rawReadInvalidUTF8(), true
-		}
 		return tools.ToolResult{
 			Content: fmt.Sprintf("%s tem conteúdo binário (byte NUL) apesar da extensão; não é lido como texto", displayPath),
 			IsError: true,
@@ -324,6 +319,7 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 	selectedBytes := 0
 	end := offset
 	tooLargeRaw := false
+	invalidRawUTF8 := false
 	if err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
 		if idx < offset {
 			return true
@@ -332,6 +328,10 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			return false
 		}
 		if raw {
+			if !utf8.ValidString(line) {
+				invalidRawUTF8 = true
+				return false
+			}
 			extra := len(line)
 			if len(selected) > 0 {
 				extra++
@@ -366,6 +366,9 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 		return streamFailure(err, size, raw, budget)
 	}
 	if raw {
+		if invalidRawUTF8 {
+			return rawReadInvalidUTF8(), true
+		}
 		if tooLargeRaw || end < requestedEnd {
 			return rawReadLimitExceeded(budget), true
 		}

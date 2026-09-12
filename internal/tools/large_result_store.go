@@ -171,11 +171,14 @@ func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes
 }
 
 func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, includeEnvelope bool) (ToolResult, bool) {
+	if maxBytes <= 0 {
+		return ToolResult{}, false
+	}
 	currentBytes := len(result.Content)
 	if includeEnvelope {
 		currentBytes = len(ContentForModel(result))
 	}
-	if maxBytes <= 0 || currentBytes <= maxBytes {
+	if currentBytes <= maxBytes {
 		return result, true
 	}
 	original := result.Content
@@ -245,7 +248,10 @@ func protectModelResult(ctx context.Context, result ToolResult, maxBytes int, in
 // externo (MCP). O payload do servidor permanece intacto no store; nenhum campo
 // é injetado em JSON retornado pelo servidor.
 func ProtectExternalModelResult(ctx context.Context, result ToolResult, maxBytes int) (ToolResult, bool) {
-	if maxBytes <= 0 || len(ContentForModel(result)) <= maxBytes {
+	if maxBytes <= 0 {
+		return ToolResult{}, false
+	}
+	if len(ContentForModel(result)) <= maxBytes {
 		return result, true
 	}
 	original := result.Content
@@ -371,16 +377,17 @@ func (t *ReadToolResult) Parameters() json.RawMessage {
 func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
 	var args struct {
 		ResultID string `json:"result_id"`
-		Offset   int    `json:"offset"`
+		Offset   *int   `json:"offset"`
 		Limit    int    `json:"limit"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return ToolResult{Content: "Parâmetros inválidos: " + err.Error(), IsError: true}, nil
 	}
 	args.ResultID = strings.TrimSpace(args.ResultID)
-	if args.ResultID == "" || args.Offset < 0 {
+	if args.ResultID == "" || args.Offset == nil || *args.Offset < 0 {
 		return ToolResult{Content: "result_id e offset não negativo são obrigatórios", IsError: true}, nil
 	}
+	offset := *args.Offset
 	entry, ok := loadModelResultEntry(ctx, args.ResultID)
 	if !ok {
 		return ToolResult{
@@ -390,29 +397,29 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 		}, nil
 	}
 	content := entry.content
-	if args.Offset > len(content) {
-		return ToolResult{Content: fmt.Sprintf("offset %d excede o resultado de %d bytes", args.Offset, len(content)), IsError: true}, nil
+	if offset > len(content) {
+		return ToolResult{Content: fmt.Sprintf("offset %d excede o resultado de %d bytes", offset, len(content)), IsError: true}, nil
 	}
-	if args.Offset < len(content) && !isUTF8Start(content[args.Offset]) {
+	if offset < len(content) && !isUTF8Start(content[offset]) {
 		return ToolResult{Content: "offset aponta para o meio de um caractere UTF-8; use exatamente next_offset da página anterior", IsError: true}, nil
 	}
 	limit := args.Limit
 	if limit <= 0 || limit > largeResultPageBytes {
 		limit = largeResultPageBytes
 	}
-	end := args.Offset + limit
+	end := offset + limit
 	if end > len(content) {
 		end = len(content)
 	}
 	end = utf8BoundaryBefore(content, end)
-	if end == args.Offset && end < len(content) {
+	if end == offset && end < len(content) {
 		return ToolResult{
 			Content: "limit é pequeno demais para conter o próximo caractere UTF-8 completo; aumente o limit",
 			IsError: true,
 			Failure: &ToolFailure{Code: "result_page_limit_too_small", Kind: ErrorKindInvalidArgs, Retryable: false},
 		}, nil
 	}
-	page := content[args.Offset:end]
+	page := content[offset:end]
 	hasMore := end < len(content)
 	annotations := resumableProvenance(entry.provenance)
 	if annotations == nil {
@@ -421,7 +428,7 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 	annotations.OutputWindow = &OutputWindowAnnotation{
 		HasMore:  hasMore,
 		Unit:     "bytes",
-		Offset:   args.Offset,
+		Offset:   offset,
 		Returned: len(page),
 		Total:    len(content),
 		NextOffset: func() int {
@@ -437,7 +444,7 @@ func (t *ReadToolResult) Execute(ctx context.Context, raw json.RawMessage) (Tool
 		Content:     page,
 		RawExact:    true,
 		Annotations: annotations,
-		Metadata:    map[string]any{"result_id": args.ResultID, "offset": args.Offset, "returned": len(page)},
+		Metadata:    map[string]any{"result_id": args.ResultID, "offset": offset, "returned": len(page)},
 	}, nil
 }
 
