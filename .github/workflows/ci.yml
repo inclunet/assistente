@@ -63,6 +63,11 @@ jobs:
       - name: Go build
         run: go build ./...
 
+      - name: Compilar testes do entrypoint gráfico para Windows
+        env:
+          CGO_ENABLED: "0"
+        run: GOOS=windows GOARCH=amd64 go test -c -o /tmp/assistente-windows-amd64.test .
+
       - name: Cross-compile da CLI para macOS sem cgo
         env:
           CGO_ENABLED: "0"
