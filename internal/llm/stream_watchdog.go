@@ -15,11 +15,13 @@ import (
 // até um timeout externo — que era o Timeout global do http.Client (removido
 // em favor de timeouts granulares).
 const defaultStreamIdleTimeout = 60 * time.Second
+const maxStreamIdleTimeoutSeconds = 24 * 60 * 60
 
 // streamIdleTimeoutForProvider devolve o idle timeout do provider, com
 // override opcional persistido na configuração do provider.
 func streamIdleTimeoutForProvider(p *ProviderConfig) time.Duration {
-	if p != nil && p.StreamIdleTimeoutSeconds > 0 {
+	if p != nil && p.StreamIdleTimeoutSeconds > 0 &&
+		p.StreamIdleTimeoutSeconds <= maxStreamIdleTimeoutSeconds {
 		return time.Duration(p.StreamIdleTimeoutSeconds) * time.Second
 	}
 	return defaultStreamIdleTimeout

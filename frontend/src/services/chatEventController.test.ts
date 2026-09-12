@@ -1529,6 +1529,20 @@ describe('chatEventController', () => {
     ).toBe('Erro: chat.errors.streamingRetriesExhausted');
   });
 
+  it('traduz streaming_prompt_cache_hint_rejected', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_prompt_cache_hint_rejected',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingPromptCacheHintRejected');
+  });
+
   it('preserva conteúdo parcial e acrescenta erro terminal de chat:stream', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });

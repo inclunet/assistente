@@ -167,6 +167,9 @@ func TestStreamIdleTimeoutForProvider(t *testing.T) {
 	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != 15*time.Second {
 		t.Fatalf("override: esperava 15s, veio %v", got)
 	}
+	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: maxStreamIdleTimeoutSeconds + 1}); got != defaultStreamIdleTimeout {
+		t.Fatalf("override fora da faixa: esperava padrão %v, veio %v", defaultStreamIdleTimeout, got)
+	}
 }
 
 func TestNewStreamingHTTPClientSemTimeoutGlobal(t *testing.T) {
