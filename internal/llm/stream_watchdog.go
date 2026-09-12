@@ -142,7 +142,8 @@ func (w *streamWatchdog) Stop() {
 	// não determinística do select entre timer.C e watchCtx.Done no EOF.
 	w.mu.Lock()
 	notifyTimeout := false
-	if !w.timedOut && w.parent.Err() == nil && time.Since(w.lastActivity) >= w.idle {
+	if !w.stopRequested && !w.timedOut && w.parent.Err() == nil &&
+		time.Since(w.lastActivity) >= w.idle {
 		w.timedOut = true
 		notifyTimeout = true
 	}

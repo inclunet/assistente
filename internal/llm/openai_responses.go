@@ -517,6 +517,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				fallbackServer = mc.ServerLabel
 			}
 			if failure := inferMCPFailure(MCPFailureStageCall, "", ev.RawJSON(), fallbackServer, mcpServers); failure != nil && !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
 
@@ -528,6 +529,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
 			ev := event.AsResponseMcpListToolsFailed()
 			if failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
 
@@ -589,6 +591,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 			}
 			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
 			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
@@ -642,6 +645,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 		}
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {

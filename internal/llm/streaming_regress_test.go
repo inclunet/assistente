@@ -108,6 +108,9 @@ func TestChatCompletions_ThinkingSemConclusaoEDescartado(t *testing.T) {
 	if h.nonRetryable {
 		t.Fatal("thinking isolado não deve bloquear recuperação externa")
 	}
+	if h.err != "streaming_interrupted" || h.done != "" {
+		t.Fatalf("desfecho inválido: err=%q done=%q", h.err, h.done)
+	}
 }
 
 func TestChatCompletions_CancelamentoAposThinkingNaoEmiteChunk(t *testing.T) {
@@ -202,6 +205,9 @@ func TestResponses_ThinkingSemConclusaoEDescartado(t *testing.T) {
 	}
 	if h.nonRetryable {
 		t.Fatal("thinking isolado não deve bloquear recuperação externa")
+	}
+	if h.err != "streaming_interrupted" || h.done != "" {
+		t.Fatalf("desfecho Responses inválido: err=%q done=%q", h.err, h.done)
 	}
 }
 
