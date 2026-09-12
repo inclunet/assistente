@@ -29,6 +29,7 @@ const mockPanelTabRef = vi.hoisted(() => ({ current: { id: 'tab-chat', title: 'C
 const activeConversationRef = vi.hoisted(() => ({
   current: { id: 'conversation-1', title: 'Conversa' } as { id: string; title: string } | null,
 }));
+const isLoadingRef = vi.hoisted(() => ({ current: false }));
 const openAtPointMock = vi.hoisted(() => vi.fn());
 // A conversa deste teste não fala com agente de código: o diretório do agente
 // não existe para ela, e o controle da barra some.
@@ -143,7 +144,7 @@ vi.mock('./ChatSessionContext', () => ({
     conversationId: 'conversation-1',
     session: { queuedTurnCount: 0 },
     conversation: activeConversationRef.current,
-    isLoading: false,
+    isLoading: isLoadingRef.current,
     clearConversationMessages: clearConversationMessagesMock,
     loadConversationSession: loadConversationSessionMock,
   }),
@@ -260,6 +261,7 @@ beforeEach(() => {
   announceMock.mockClear();
   profileChangeRef.current = null;
   activeConversationRef.current = { id: 'conversation-1', title: 'Conversa' };
+  isLoadingRef.current = false;
   mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
 });
 
@@ -388,6 +390,15 @@ describe('ChatToolbar shortcuts', () => {
     expect(screen.getByRole('heading', { name: 'Conversa' })).toBeInTheDocument();
     expect(historyClickMock).toHaveBeenCalledTimes(1);
     expect(profileClickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('não limpa a conversa enquanto a sessão está carregando', () => {
+    isLoadingRef.current = true;
+    renderToolbar();
+
+    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+    expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearConversationMessagesMock).not.toHaveBeenCalled();
   });
 
   it('Ctrl+M abre uma vez o seletor de modelos do chat ativo', async () => {
@@ -669,8 +680,21 @@ describe('ChatToolbar shortcuts', () => {
     dispatchModelShortcut(window, { altKey: true });
     dispatchModelShortcut(window, { metaKey: true });
     dispatchModelShortcut(window, { repeat: true });
+    ['m', 'h', 'p', 'l'].forEach((key) => {
+      const legacyIMEEvent = new KeyboardEvent('keydown', {
+        key,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(legacyIMEEvent, 'keyCode', { value: 229 });
+      window.dispatchEvent(legacyIMEEvent);
+    });
 
     expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
   });
 
   it('remove o listener de Ctrl+M ao desmontar', async () => {

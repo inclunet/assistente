@@ -362,6 +362,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       if (key === 'l') {
         e.preventDefault();
         if (!canHandleShortcut()) return;
+        if (isLoading) return;
         void handleClearConversation();
       }
       else if (key === 'h') {
@@ -382,7 +383,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     // contém o bubbling (por exemplo, após sair de um menu com Escape).
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [canHandleShortcut, enableShortcuts, handleClearConversation]);
+  }, [canHandleShortcut, enableShortcuts, handleClearConversation, isLoading]);
 
   const handleProfileChange = useCallback(async (slug: string) => {
     try {
