@@ -1,6 +1,6 @@
 # AEP-0071 — Política canônica de tamanho para saídas estruturadas de tools
 
-Status: Done
+Status: Done — política de integridade preservada e estendida pela AEP-0102
 Data: 2026-06-05
 Autor: Inclunet + Cursor Agent
 
@@ -65,8 +65,11 @@ No `internal/tools/executor.go`, ao aplicar o limite:
   **falha classificada do executor** (`ErrorKind = unknown`, `Error != nil`),
   para que `agent/service.go` emita `tool_failure` e persista o `error_kind`
   (consistente com a AEP-0039).
-- **`Structured == false`** → comportamento atual: truncagem UTF-8 safe com aviso
-  `[TRUNCADO: ...]` e `Metadata["truncated"] = true`.
+- **`Structured == false`** → desde a AEP-0102, o executor preserva o conteúdo
+  num armazenamento efêmero controlado e devolve uma prévia sem aviso textual,
+  com `output_window.result_id` para retomada. `RawExact` é integral-ou-erro.
+- JSON válido é reconhecido defensivamente mesmo quando uma tool legada esqueceu
+  `Structured`, evitando corrupção silenciosa.
 
 A política cobre **os dois caminhos** de execução, pois ambos passam pelo
 `tools.Executor`:

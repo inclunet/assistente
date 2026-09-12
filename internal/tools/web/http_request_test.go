@@ -72,8 +72,11 @@ func TestHTTPRequest_GET(t *testing.T) {
 		t.Errorf("expected success, got error: %s", result.Content)
 	}
 
-	if !strings.Contains(result.Content, "200 OK") {
-		t.Error("expected 200 OK in response")
+	if !json.Valid([]byte(result.Content)) || !result.Structured {
+		t.Errorf("expected canonical JSON response, got %q", result.Content)
+	}
+	if result.Metadata["status"] != http.StatusOK {
+		t.Errorf("expected status metadata 200, got %v", result.Metadata["status"])
 	}
 
 	if !strings.Contains(result.Content, "success") {
@@ -264,5 +267,65 @@ func TestHTTPRequest_ExtractJSON(t *testing.T) {
 	// Deve conter JSON formatado
 	if !strings.Contains(result.Content, "name") || !strings.Contains(result.Content, "test") {
 		t.Errorf("expected formatted JSON in response: %s", result.Content)
+	}
+}
+
+func TestHTTPRequestLargeJSONAndRawFailWithoutPartial(t *testing.T) {
+	jsonBody := `{"value":"` + strings.Repeat("x", 1000) + `"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(jsonBody))
+	}))
+	defer ts.Close()
+
+	for _, tc := range []struct {
+		mode string
+		code string
+	}{
+		{mode: "json", code: "result_too_large"},
+		{mode: "raw", code: "raw_result_too_large"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			args, _ := json.Marshal(map[string]any{
+				"url": ts.URL, "extract_mode": tc.mode, "max_response_size": 100,
+			})
+			result, err := newTestHTTPRequest().Execute(context.Background(), args)
+			if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != tc.code {
+				t.Fatalf("resultado grande não falhou corretamente: err=%v result=%+v", err, result)
+			}
+			if strings.Contains(result.Content, strings.Repeat("x", 100)) {
+				t.Fatal("falha contém prefixo parcial da resposta")
+			}
+		})
+	}
+}
+
+func TestHTTPRequestAutoRecognizesStructuredSuffixJSON(t *testing.T) {
+	body := `{"type":"problem","detail":"inválido"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "auto"})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || result.IsError || !result.Structured || !json.Valid([]byte(result.Content)) {
+		t.Fatalf("+json não foi reconhecido como estruturado: err=%v result=%+v", err, result)
+	}
+}
+
+func TestHTTPRequestMaxSizeCountsExtractedPayloadNotHeader(t *testing.T) {
+	body := strings.Repeat("a", 100)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	args, _ := json.Marshal(map[string]any{
+		"url": ts.URL, "extract_mode": "text", "max_response_size": len(body),
+	})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || result.IsError || result.Annotations != nil || !strings.HasSuffix(result.Content, body) {
+		t.Fatalf("header consumiu max_response_size: err=%v result=%+v", err, result)
 	}
 }

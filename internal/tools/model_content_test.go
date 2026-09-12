@@ -13,6 +13,19 @@ func TestContentForModelKeepsPlainResultUnchanged(t *testing.T) {
 	}
 }
 
+func TestContentForModelRawExactDoesNotPrefixAnnotations(t *testing.T) {
+	result := ToolResult{
+		Content:  "texto exato",
+		RawExact: true,
+		Annotations: &ResultAnnotations{DocumentProjection: &DocumentProjectionAnnotation{
+			Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+		}},
+	}
+	if got := ContentForModel(result); got != result.Content {
+		t.Fatalf("raw recebeu envelope: %q", got)
+	}
+}
+
 func TestContentForModelSeparatesProjectionAnnotation(t *testing.T) {
 	result := ToolResult{
 		Content: "Arquivo: manual.docx\n     1|# Título",

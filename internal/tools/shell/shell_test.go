@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
+	"assistente/internal/tools"
 )
 
 // ========== TESTES DE VALIDAÇÃO (sem Manager) ==========
@@ -180,14 +182,14 @@ func TestParameters(t *testing.T) {
 
 // MockSessionManager implementa SessionManager para testes
 type MockSessionManager struct {
-	acquireCalls       int
-	releaseCalls       int
-	closeCalls         int
-	runCommandCalls    int
-	runEphemeralCalls  int
-	runSessionID       string
-	liveSessions       map[string]bool
-	sessionCWD         map[string]string
+	acquireCalls      int
+	releaseCalls      int
+	closeCalls        int
+	runCommandCalls   int
+	runEphemeralCalls int
+	runSessionID      string
+	liveSessions      map[string]bool
+	sessionCWD        map[string]string
 
 	// Controladores de behavior
 	fakeSession *terminal.Session
@@ -638,11 +640,42 @@ func TestOutputTruncation(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("esperado sucesso, got: %s", result.Content)
 	}
-	if !contains(result.Content, "TRUNCADO") {
-		t.Errorf("esperado truncation message, got %q", result.Content)
+	if contains(strings.ToUpper(result.Content), "TRUNCAD") {
+		t.Errorf("aviso não deve contaminar output: %q", result.Content)
 	}
-	if len(result.Content) > 52*1024 { // 50KB + mensagem + margem
-		t.Errorf("esperado output truncado, got %d bytes (max ~52KB)", len(result.Content))
+	if len(result.Content) > maxOutputForLLM || result.Annotations == nil ||
+		result.Annotations.OutputWindow == nil || result.Annotations.OutputWindow.ResultID == "" {
+		t.Errorf("esperada prévia retomável, got %d bytes annotations=%+v", len(result.Content), result.Annotations)
+	}
+}
+
+func TestRunCommandUsesLargerExecutorBudgetForJobs(t *testing.T) {
+	largeOutput := strings.Repeat("x", 60_000)
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-job", Command: "big-output", Output: largeOutput, ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+	ctx := tools.WithMaxResultSize(context.Background(), 10*1024*1024)
+	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+		Execute(ctx, json.RawMessage(`{"command":"big-output"}`))
+	if err != nil || result.IsError || result.Content != largeOutput {
+		t.Fatalf("budget de job não preservou output: err=%v bytes=%d result=%+v", err, len(result.Content), result)
+	}
+	if result.Annotations != nil {
+		t.Fatalf("job recebeu prévia desnecessária: %+v", result.Annotations)
+	}
+}
+
+func TestRunCommandDoesNotCutValidJSON(t *testing.T) {
+	jsonOutput := `{"value":"` + strings.Repeat("x", maxOutputForLLM) + `"}`
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-json", Command: "json-output", Output: jsonOutput, ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+		Execute(context.Background(), json.RawMessage(`{"command":"json-output"}`))
+	if err != nil || result.IsError || !result.Structured || result.Content != jsonOutput {
+		t.Fatalf("JSON de comando foi alterado: err=%v result=%+v", err, result)
 	}
 }
 

@@ -318,7 +318,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			metadata["error"] = res.Error
 		}
 		if a.Raw {
-			return tools.ToolResult{Content: res.Response, Metadata: metadata}, nil
+			return tools.ToolResult{Content: res.Response, Metadata: metadata, RawExact: true}, nil
 		}
 		return jsonResult(res, false, metadata), nil
 

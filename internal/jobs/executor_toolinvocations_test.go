@@ -54,6 +54,23 @@ func (s *scriptedTool) Execute(_ context.Context, _ json.RawMessage) (tools.Tool
 	return s.results[index], nil
 }
 
+func TestJobExecutorFallbackRejectsIncompleteToolWindow(t *testing.T) {
+	tool := &scriptedTool{results: []tools.ToolResult{{
+		Content: "prefixo",
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 20, NextOffset: 7,
+		}},
+	}}}
+	registry := tools.NewRegistry()
+	registry.MustRegister(tool)
+	executor := NewJobExecutor(ExecutorConfig{ToolRegistry: registry})
+
+	result := executor.executeTool(context.Background(), &Job{ID: "fallback-window", Tool: tool.Name()}, nil, json.RawMessage(`{}`))
+	if !result.Result.IsError || result.ErrorCode != "result_too_large" {
+		t.Fatalf("fallback sem serviço aceitou janela incompleta: %+v", result)
+	}
+}
+
 func TestJobExecutor_RecordsToolInvocationForRun(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

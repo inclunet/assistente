@@ -76,7 +76,7 @@ func (t *WebFetch) Parameters() json.RawMessage {
 			},
 			"max_length": {
 				"type": "integer",
-				"description": "Tamanho máximo do conteúdo retornado em caracteres. Padrão: 50000."
+				"description": "Tamanho máximo do conteúdo retornado em bytes. Padrão: 50000."
 			},
 			"extract_mode": {
 				"type": "string",
@@ -163,10 +163,17 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Lê o body com limite
-	limitedReader := io.LimitReader(resp.Body, fetchMaxResponseBody)
+	limitedReader := io.LimitReader(resp.Body, fetchMaxResponseBody+1)
 	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler resposta: %v", err), IsError: true}, nil
+	}
+	if len(body) > fetchMaxResponseBody {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o conteúdo não foi devolvido parcialmente.", fetchMaxResponseBody),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "response_body_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -191,31 +198,55 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		extracted = htmlToText(content)
 	}
 
-	// Trunca se necessário
-	truncated := false
-	if len(extracted) > maxLength {
-		extracted = extracted[:maxLength]
-		truncated = true
-	}
-
 	// Header informativo
-	header := fmt.Sprintf("URL: %s\nStatus: %d | Content-Type: %s | Tamanho: %d chars\n",
+	header := fmt.Sprintf("URL: %s\nStatus: %d | Content-Type: %s | Tamanho: %d bytes\n",
 		a.URL, resp.StatusCode, contentType, len(extracted))
-	if truncated {
-		header += fmt.Sprintf("(TRUNCADO: limite de %d caracteres)\n", maxLength)
-	}
 	header += "\n"
 
-	return tools.ToolResult{
-		Content: header + extracted,
+	resultContent := header + extracted
+	structuredJSON := mode != "raw" && isJSONMediaType(contentType) && tools.IsCanonicalJSON(extracted)
+	if mode == "raw" || structuredJSON {
+		resultContent = extracted
+	}
+	result := tools.ToolResult{
+		Content:    resultContent,
+		RawExact:   mode == "raw",
+		Structured: structuredJSON,
 		Metadata: map[string]any{
 			"url":          a.URL,
 			"status":       resp.StatusCode,
 			"content_type": contentType,
 			"length":       len(extracted),
-			"truncated":    truncated,
 		},
-	}, nil
+	}
+	if (result.RawExact || result.Structured) && len(result.Content) > maxLength {
+		code := "result_too_large"
+		kind := "Resposta JSON"
+		if result.RawExact {
+			code = "raw_result_too_large"
+			kind = "Resposta raw"
+		}
+		return tools.ToolResult{
+			Content: fmt.Sprintf("%s tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", kind, len(result.Content), maxLength),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	if len(extracted) <= maxLength {
+		return result, nil
+	}
+	// max_length mede o conteúdo extraído. Em uma janela retomável, o header
+	// não entra no corpo para que returned/next_offset descrevam bytes exatos.
+	result.Content = extracted
+	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
+	if !ok {
+		return tools.ToolResult{
+			Content: "Resposta excede a capacidade segura de preservação; reduza max_length.",
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "result_storage_limit", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	return protected, nil
 }
 
 // ==================== HTML Processing ====================

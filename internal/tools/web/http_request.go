@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -101,7 +102,7 @@ func (t *HTTPRequest) Parameters() json.RawMessage {
 			},
 			"max_response_size": {
 				"type": "integer",
-				"description": "Tamanho máximo da resposta em caracteres (padrão: 50000)"
+				"description": "Tamanho máximo da resposta em bytes (padrão: 50000)"
 			},
 			"extract_mode": {
 				"type": "string",
@@ -242,10 +243,17 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	defer func() { _ = resp.Body.Close() }()
 
 	// Lê resposta com limite
-	limitedReader := io.LimitReader(resp.Body, httpMaxResponseBody)
+	limitedReader := io.LimitReader(resp.Body, httpMaxResponseBody+1)
 	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler resposta: %v", err), IsError: true}, nil
+	}
+	if len(body) > httpMaxResponseBody {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o conteúdo não foi devolvido parcialmente.", httpMaxResponseBody),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "response_body_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -253,6 +261,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	// Processa resposta baseado no extract_mode
 	var extracted string
+	structuredJSON := false
 	switch extractMode {
 	case "raw":
 		extracted = responseContent
@@ -269,16 +278,18 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
 			formatted, _ := json.MarshalIndent(jsonData, "", "  ")
 			extracted = string(formatted)
+			structuredJSON = true
 		} else {
 			extracted = responseContent
 		}
 	case "auto":
 		// Detecta automaticamente
-		if strings.Contains(contentType, "application/json") {
+		if isJSONMediaType(contentType) {
 			var jsonData interface{}
 			if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
 				formatted, _ := json.MarshalIndent(jsonData, "", "  ")
 				extracted = string(formatted)
+				structuredJSON = true
 			} else {
 				extracted = responseContent
 			}
@@ -291,36 +302,68 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		extracted = responseContent
 	}
 
-	// Trunca se necessário
-	truncated := false
-	if len(extracted) > maxLength {
-		extracted = extracted[:maxLength]
-		truncated = true
-	}
-
 	// Monta header informativo
 	header := fmt.Sprintf("HTTP %s %s\n", method, a.URL)
 	header += fmt.Sprintf("Status: %d %s\n", resp.StatusCode, resp.Status)
 	header += fmt.Sprintf("Content-Type: %s\n", contentType)
-	header += fmt.Sprintf("Content-Length: %d bytes | Extracted: %d chars\n", len(body), len(extracted))
-	if truncated {
-		header += fmt.Sprintf("(TRUNCADO: limite de %d caracteres)\n", maxLength)
-	}
+	header += fmt.Sprintf("Content-Length: %d bytes | Extracted: %d bytes\n", len(body), len(extracted))
 	header += "\n"
 
 	// Determina se é erro baseado no status code
 	isError := resp.StatusCode >= 400
 
-	return tools.ToolResult{
-		Content: header + extracted,
-		IsError: isError,
+	content := header + extracted
+	if structuredJSON || extractMode == "raw" {
+		content = extracted
+	}
+	result := tools.ToolResult{
+		Content:    content,
+		IsError:    isError,
+		Structured: structuredJSON,
+		RawExact:   extractMode == "raw",
 		Metadata: map[string]any{
 			"url":          a.URL,
 			"method":       method,
 			"status":       resp.StatusCode,
 			"content_type": contentType,
 			"length":       len(extracted),
-			"truncated":    truncated,
 		},
-	}, nil
+	}
+	if (result.Structured || result.RawExact) && len(result.Content) > maxLength {
+		code := "result_too_large"
+		kind := "JSON estruturado"
+		if result.RawExact {
+			code = "raw_result_too_large"
+			kind = "resultado raw"
+		}
+		return tools.ToolResult{
+			Content: fmt.Sprintf("%s tem %d bytes, acima do limite de %d; reduza o escopo da requisição ou use um header Range aceito pelo servidor.", kind, len(result.Content), maxLength),
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	if len(extracted) <= maxLength {
+		return result, nil
+	}
+	// max_response_size mede o payload extraído. Quando há continuação, o corpo
+	// retomável não inclui o header informativo, para que offsets sejam exatos.
+	result.Content = extracted
+	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
+	if !ok {
+		return tools.ToolResult{
+			Content: "Resposta excede a capacidade segura de preservação; reduza o escopo.",
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "result_storage_limit", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	return protected, nil
+}
+
+func isJSONMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
+	}
+	mediaType = strings.ToLower(mediaType)
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }

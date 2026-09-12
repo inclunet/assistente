@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -30,9 +32,13 @@ type ExecutorConfig struct {
 	// ToolTimeout é o timeout para execução de cada ferramenta individual
 	ToolTimeout time.Duration
 
-	// MaxResultSize é o tamanho máximo em bytes do resultado de uma tool.
-	// Resultados maiores são truncados com aviso.
+	// MaxResultSize é o teto model-facing em bytes: texto recebe prévia
+	// retomável; Structured/RawExact falham explicitamente sem corte.
 	MaxResultSize int
+
+	// RequireCompleteResult atende consumidores machine-facing (jobs), que não
+	// conseguem seguir read_tool_result. Acima do teto, qualquer saída falha.
+	RequireCompleteResult bool
 
 	// MaxIterations é o número máximo de iterações do agentic loop
 	MaxIterations int
@@ -211,49 +217,80 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			result.IsError = true
 		}
 
-		// Aplica o limite de tamanho. Política canônica (centralizada aqui, antes
-		// duplicada em cada tool): saídas estruturadas (JSON canônico) não podem ser
-		// truncadas — truncar corromperia o JSON e quebraria consumidores. Nesse
-		// caso falhamos de forma explícita; caso contrário, truncamos (UTF-8 safe).
+		// Última barreira de tamanho. Structured e RawExact são integrais ou
+		// falham; texto comum é preservado no store controlado e recebe apenas uma
+		// prévia, com continuação estruturada nas anotações.
 		var execErr error
 		execKind := ErrorKindNone
-		if len(result.Content) > e.config.MaxResultSize {
-			if result.Structured {
+		modelBytes := len(ContentForModel(result))
+		outputWindow := outputWindowOf(result)
+		incompleteMachineResult := e.config.RequireCompleteResult && outputWindow != nil && outputWindow.HasMore
+		if modelBytes > e.config.MaxResultSize || incompleteMachineResult {
+			// json.Valid varre o payload inteiro; só precisamos inferir JSON
+			// canônico quando a barreira realmente precisaria cortá-lo.
+			structured := result.Structured
+			hasWindow := outputWindow != nil
+			if !structured && !result.RawExact && !hasWindow {
+				structured = IsCanonicalJSON(result.Content)
+			}
+			mcpBridge := isMCPBridgeToolName(toolName)
+			if e.config.RequireCompleteResult || ((structured || result.RawExact) && !mcpBridge) {
 				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
 				// para que agent/service.go emita tool_failure e persista o error_kind.
-				origSize := len(result.Content)
+				code := "result_too_large"
+				label := "estruturado"
+				guidance := "Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor."
+				if result.RawExact {
+					code = "raw_result_too_large"
+					label = "raw"
+					guidance = "Use offset/limit menores; conteúdo raw é exato e nunca é devolvido parcialmente."
+				} else if e.config.RequireCompleteResult {
+					label = "machine-facing"
+					guidance = "Reduza o escopo da chamada; este consumidor exige o resultado integral."
+				}
+				message := fmt.Sprintf("Resultado %s tem %d bytes, acima do limite de %d. %s",
+					label, modelBytes, e.config.MaxResultSize, guidance)
+				if incompleteMachineResult {
+					message = "Resultado machine-facing está incompleto. " + guidance
+				}
 				result = ToolResult{
-					Content: fmt.Sprintf(
-						"Resultado estruturado tem %d bytes, acima do limite de %d. Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor.",
-						origSize, e.config.MaxResultSize,
-					),
+					Content: boundedFailureContent(message, code, e.config.MaxResultSize),
 					IsError: true,
 					Failure: &ToolFailure{
-						Code:      "result_too_large",
+						Code:      code,
 						Kind:      ErrorKindUnknown,
 						Retryable: false,
 					},
 				}
-				execErr = fmt.Errorf("saída estruturada de '%s' tem %d bytes, acima do limite de %d", toolName, origSize, e.config.MaxResultSize)
+				if incompleteMachineResult {
+					execErr = fmt.Errorf("saída machine-facing incompleta de '%s'", toolName)
+				} else {
+					execErr = fmt.Errorf("saída %s de '%s' tem %d bytes model-facing, acima do limite de %d", label, toolName, modelBytes, e.config.MaxResultSize)
+				}
 				execKind = ErrorKindUnknown
 			} else {
-				origSize := len(result.Content)
-				// Reserva bytes para o aviso, garantindo Content final ≤ MaxResultSize.
-				warning := fmt.Sprintf(
-					"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-					origSize, e.config.MaxResultSize,
-				)
-				contentBudget := e.config.MaxResultSize - len(warning)
-				if contentBudget >= 1 {
-					result.Content = truncateUTF8(result.Content, contentBudget) + warning
+				var protected ToolResult
+				var stored bool
+				if mcpBridge {
+					protected, stored = ProtectExternalModelResult(execCtx, result, e.config.MaxResultSize)
 				} else {
-					// Warning não cabe — trunca sem aviso para respeitar o limite.
-					result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+					protected, stored = ProtectModelResult(execCtx, result, e.config.MaxResultSize)
 				}
-				if result.Metadata == nil {
-					result.Metadata = make(map[string]any)
+				if !stored {
+					message := fmt.Sprintf(
+						"Resultado tem %d bytes model-facing e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
+						modelBytes,
+					)
+					result = ToolResult{
+						Content: boundedFailureContent(message, "result_storage_limit", e.config.MaxResultSize),
+						IsError: true,
+						Failure: &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
+					}
+					execErr = fmt.Errorf("saída de '%s' excede armazenamento seguro: %d bytes model-facing", toolName, modelBytes)
+					execKind = ErrorKindUnknown
+				} else {
+					result = protected
 				}
-				result.Metadata["truncated"] = true
 			}
 		}
 
@@ -326,6 +363,57 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			DurationMs:        elapsed,
 		}
 	}
+}
+
+func outputWindowOf(result ToolResult) *OutputWindowAnnotation {
+	if result.Annotations == nil {
+		return nil
+	}
+	return result.Annotations.OutputWindow
+}
+
+// IsCanonicalJSON valida um único valor JSON sem criar uma cópia []byte
+// inicial do resultado potencialmente grande.
+func IsCanonicalJSON(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return false
+	}
+	switch trimmed[0] {
+	case '{', '[', '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'f', 'n':
+	default:
+		return false
+	}
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	var value json.RawMessage
+	if err := decoder.Decode(&value); err != nil {
+		return false
+	}
+	var extra json.RawMessage
+	return errors.Is(decoder.Decode(&extra), io.EOF)
+}
+
+func boundedFailureContent(message, code string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(message) <= maxBytes {
+		return message
+	}
+	compact := "[" + code + "]"
+	if len(compact) <= maxBytes {
+		return compact
+	}
+	return truncateUTF8(compact, maxBytes)
+}
+
+func isMCPBridgeToolName(name string) bool {
+	if !strings.HasPrefix(name, "mcp_") {
+		return false
+	}
+	rest := strings.TrimPrefix(name, "mcp_")
+	parts := strings.SplitN(rest, "__", 2)
+	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
 }
 
 func failureCode(result ToolResult) string {

@@ -179,8 +179,75 @@ func TestWebFetch_Truncation(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("resultado é erro: %s", result.Content)
 	}
-	if !strings.Contains(result.Content, "TRUNCADO") {
-		t.Error("deve indicar truncamento")
+	if strings.Contains(strings.ToUpper(result.Content), "TRUNCAD") {
+		t.Error("aviso de truncamento não deve contaminar conteúdo")
+	}
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil ||
+		!result.Annotations.OutputWindow.HasMore || result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("deve indicar continuação estruturada: %+v", result.Annotations)
+	}
+}
+
+func TestWebFetchMaxLengthCountsExtractedPayloadNotHeader(t *testing.T) {
+	body := strings.Repeat("a", 100)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+	args, _ := json.Marshal(map[string]any{"url": server.URL, "max_length": len(body)})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || result.IsError || result.Annotations != nil || !strings.HasSuffix(result.Content, body) {
+		t.Fatalf("header consumiu max_length: err=%v result=%+v", err, result)
+	}
+}
+
+func TestWebFetchJSONIsStructuredAndLargePayloadFailsWithoutPartial(t *testing.T) {
+	body := `{"items":["` + strings.Repeat("segredo", 100) + `"]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": server.URL, "max_length": 100})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "result_too_large" {
+		t.Fatalf("JSON grande não falhou integralmente: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, body[:100]) {
+		t.Fatal("falha estruturada contém JSON parcial")
+	}
+}
+
+func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
+	body := "ç-exato"
+	small := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer small.Close()
+	result, err := newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw"}`, small.URL),
+	))
+	if err != nil || result.IsError || result.Content != body || !result.RawExact {
+		t.Fatalf("raw pequeno não foi exato: err=%v result=%+v", err, result)
+	}
+
+	largeBody := strings.Repeat("segredo-", 1000)
+	large := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, largeBody)
+	}))
+	defer large.Close()
+	result, err = newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw","max_length":100}`, large.URL),
+	))
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_result_too_large" {
+		t.Fatalf("raw grande não falhou de modo estável: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, largeBody[:100]) {
+		t.Fatal("falha raw contém prefixo parcial")
 	}
 }
 

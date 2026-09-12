@@ -34,6 +34,28 @@ func writeLinesFile(t *testing.T, path string, nLines int, pad string) {
 	}
 }
 
+func TestScanTextLinesMatchesStringsSplitAtEOF(t *testing.T) {
+	for _, content := range []string{"", "a", "a\n", "a\n\n"} {
+		t.Run(fmt.Sprintf("%q", content), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "linhas.txt")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			if err := scanTextLines(context.Background(), path, func(_ int, line string) bool {
+				got = append(got, line)
+				return true
+			}); err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Split(content, "\n")
+			if fmt.Sprintf("%q", got) != fmt.Sprintf("%q", want) {
+				t.Fatalf("linhas=%q, want=%q", got, want)
+			}
+		})
+	}
+}
+
 // Texto grande com offset/limit é servido em streaming e devolve exatamente o
 // mesmo recorte que o caminho que carrega tudo.
 func TestReadFileStreamsLargeTextSlice(t *testing.T) {
@@ -217,12 +239,51 @@ func TestStreamingSliceMatchesFullRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	streamed, handled := readTextSliceStreaming(small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto)
+	streamed, handled := readTextSliceStreaming(context.Background(), small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto, false)
 	if !handled {
 		t.Skip("classificação não considerou o arquivo como texto")
 	}
 	if streamed.Content != full.Content {
 		t.Fatalf("streaming difere:\n%q\n%q", streamed.Content, full.Content)
+	}
+}
+
+func TestStreamingSkipsSmallFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pequeno.txt")
+	if err := os.WriteFile(path, []byte("a\nb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, handled := readTextSliceStreaming(context.Background(), path, "pequeno.txt", 3, nil, nil, docextract.ModeAuto, false); handled {
+		t.Fatal("arquivo pequeno sofreu varredura completa de streaming")
+	}
+}
+
+func TestStreamingRawPagePreservesTrailingSeparator(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pagina.txt")
+	if err := os.WriteFile(path, []byte("a\r\nb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, handled := readTextSliceStreaming(
+		context.Background(), path, "pagina.txt", streamTextMinBytes,
+		intPtr(1), intPtr(1), docextract.ModeAuto, true,
+	)
+	if !handled || result.IsError || result.Content != "a\r\n" {
+		t.Fatalf("página raw streaming não preservou CRLF: handled=%v result=%+v", handled, result)
+	}
+}
+
+func TestStreamingHugeLimitDoesNotOverflow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "limite.txt")
+	if err := os.WriteFile(path, []byte("a\nb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	maxInt := int(^uint(0) >> 1)
+	result, handled := readTextSliceStreaming(
+		context.Background(), path, "limite.txt", streamTextMinBytes,
+		intPtr(1), &maxInt, docextract.ModeAuto, false,
+	)
+	if !handled || result.IsError || !strings.Contains(result.Content, "a") {
+		t.Fatalf("limit máximo streaming transbordou: handled=%v result=%+v", handled, result)
 	}
 }
 

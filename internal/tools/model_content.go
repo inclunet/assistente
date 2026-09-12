@@ -18,6 +18,12 @@ const (
 // trunca pelo fim: assim o que se perde é a cauda do documento, não a
 // proveniência.
 func ContentForModel(result ToolResult) string {
+	// RawExact é o contrato textual exato da chamada. Anotações ainda podem ser
+	// carregadas para UI/auditoria (por exemplo, proveniência de uma projeção),
+	// mas não são prefixadas ao texto enviado ao modelo.
+	if result.RawExact && (result.Annotations == nil || result.Annotations.OutputWindow == nil) {
+		return result.Content
+	}
 	if result.Annotations == nil {
 		return result.Content
 	}
@@ -26,6 +32,19 @@ func ContentForModel(result ToolResult) string {
 		return result.Content
 	}
 	return annotationsHeader + string(annotations) + contentHeader + result.Content
+}
+
+// ContentForModelSize calcula o tamanho model-facing sem materializar o corpo.
+// É útil para produtores streaming que já conhecem o número de bytes coletados.
+func ContentForModelSize(contentBytes int, annotations *ResultAnnotations, rawExact bool) int {
+	if annotations == nil || (rawExact && annotations.OutputWindow == nil) {
+		return contentBytes
+	}
+	encoded, err := json.Marshal(annotations)
+	if err != nil {
+		return contentBytes
+	}
+	return len(annotationsHeader) + len(encoded) + len(contentHeader) + contentBytes
 }
 
 // SanitizeTruncatedEnvelope descarta um envelope cortado no meio das anotações.

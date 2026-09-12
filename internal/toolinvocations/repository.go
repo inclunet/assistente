@@ -498,6 +498,12 @@ func resultOutput(result tools.ToolResult) json.RawMessage {
 	if result.Annotations != nil {
 		payload["annotations"] = result.Annotations
 	}
+	if result.Structured {
+		payload["structured"] = true
+	}
+	if result.RawExact {
+		payload["raw_exact"] = true
+	}
 	if result.Failure != nil {
 		payload["failure"] = result.Failure
 	}
