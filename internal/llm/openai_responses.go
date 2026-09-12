@@ -140,6 +140,7 @@ func (p *OpenAIProvider) streamChatResponses(
 				resetStreamAttempt(handler)
 				continue
 			}
+			discardStreamReasoning(handler)
 			handler.OnError(streamPromptCacheHintRejectedError)
 			return
 		}
@@ -152,6 +153,7 @@ func (p *OpenAIProvider) streamChatResponses(
 					continue
 				}
 			}
+			discardStreamReasoning(handler)
 			handler.OnError(strings.TrimSpace(result.mcpFailure.Message))
 			return
 		}

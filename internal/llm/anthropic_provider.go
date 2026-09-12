@@ -303,6 +303,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 					continue
 				}
 			}
+			discardStreamReasoning(handler)
 			handler.OnError(strings.TrimSpace(result.mcpFailure.Message))
 			return
 		}

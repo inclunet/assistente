@@ -149,6 +149,8 @@ type ProviderConfig struct {
 	Timeout      int          `json:"timeout,omitempty"`
 	// StreamIdleTimeoutSeconds limita quanto tempo um streaming SSE pode ficar
 	// sem eventos. Zero usa o padrão de 60s; cada evento reinicia a contagem.
+	// O valor é preservado por DB e portabilidade para compatibilidade; a UI
+	// ainda não oferece controle próprio.
 	StreamIdleTimeoutSeconds int               `json:"stream_idle_timeout_seconds,omitempty"`
 	Headers                  map[string]string `json:"headers,omitempty"`
 	CredentialPattern        string            `json:"credential_pattern,omitempty"`

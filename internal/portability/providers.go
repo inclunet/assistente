@@ -39,21 +39,22 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		return ProviderExport{}, fmt.Errorf("erro ao decodificar credenciais do cofre do agente do provider %s: %w", provider.ID, err)
 	}
 	return ProviderExport{
-		ID:                provider.ID,
-		Name:              provider.Name,
-		Type:              provider.Type,
-		APIFormat:         provider.APIFormat,
-		BaseURL:           provider.BaseURL,
-		Model:             provider.Model,
-		DefaultModel:      provider.DefaultModel,
-		IsDefault:         provider.IsDefault,
-		Timeout:           provider.Timeout,
-		CredentialPattern: provider.CredentialPattern,
-		CreatedAt:         provider.CreatedAt,
-		ACPCommand:        provider.ACPCommand,
-		ACPArgs:           args,
-		ACPCredentialEnv:  credentialEnv,
-		ACPAgentID:        provider.ACPAgentID,
+		ID:                       provider.ID,
+		Name:                     provider.Name,
+		Type:                     provider.Type,
+		APIFormat:                provider.APIFormat,
+		BaseURL:                  provider.BaseURL,
+		Model:                    provider.Model,
+		DefaultModel:             provider.DefaultModel,
+		IsDefault:                provider.IsDefault,
+		Timeout:                  provider.Timeout,
+		StreamIdleTimeoutSeconds: provider.StreamIdleTimeoutSeconds,
+		CredentialPattern:        provider.CredentialPattern,
+		CreatedAt:                provider.CreatedAt,
+		ACPCommand:               provider.ACPCommand,
+		ACPArgs:                  args,
+		ACPCredentialEnv:         credentialEnv,
+		ACPAgentID:               provider.ACPAgentID,
 	}, nil
 }
 
@@ -138,23 +139,24 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 
 	if existing == nil {
 		model := database.LLMProvider{
-			ID:                strings.TrimSpace(provider.ID),
-			Name:              provider.Name,
-			Type:              provider.Type,
-			APIFormat:         provider.APIFormat,
-			BaseURL:           provider.BaseURL,
-			Model:             provider.Model,
-			DefaultModel:      provider.DefaultModel,
-			IsDefault:         provider.IsDefault,
-			Timeout:           provider.Timeout,
-			CredentialPattern: provider.CredentialPattern,
-			ACPCommand:        provider.ACPCommand,
-			ACPArgs:           acpArgs,
-			ACPEnv:            acpEnv,
-			ACPCredentialEnv:  acpCredentialEnv,
-			ACPAgentID:        provider.ACPAgentID,
-			CreatedAt:         createdAt,
-			UpdatedAt:         updatedAt,
+			ID:                       strings.TrimSpace(provider.ID),
+			Name:                     provider.Name,
+			Type:                     provider.Type,
+			APIFormat:                provider.APIFormat,
+			BaseURL:                  provider.BaseURL,
+			Model:                    provider.Model,
+			DefaultModel:             provider.DefaultModel,
+			IsDefault:                provider.IsDefault,
+			Timeout:                  provider.Timeout,
+			StreamIdleTimeoutSeconds: provider.StreamIdleTimeoutSeconds,
+			CredentialPattern:        provider.CredentialPattern,
+			ACPCommand:               provider.ACPCommand,
+			ACPArgs:                  acpArgs,
+			ACPEnv:                   acpEnv,
+			ACPCredentialEnv:         acpCredentialEnv,
+			ACPAgentID:               provider.ACPAgentID,
+			CreatedAt:                createdAt,
+			UpdatedAt:                updatedAt,
 		}
 		if userID, ok := database.UserIDFromContext(ctx); ok {
 			model.UserID = userID
@@ -170,6 +172,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.DefaultModel = provider.DefaultModel
 	existing.IsDefault = provider.IsDefault
 	existing.Timeout = provider.Timeout
+	existing.StreamIdleTimeoutSeconds = provider.StreamIdleTimeoutSeconds
 	existing.CredentialPattern = provider.CredentialPattern
 	existing.ACPCommand = provider.ACPCommand
 	existing.ACPArgs = acpArgs
