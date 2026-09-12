@@ -94,6 +94,7 @@ Todo comando terá:
   origem interna reservada `system`;
 - paths sensíveis de input/output e política de persistência;
 - classificação de risco;
+- `mutates_effective_capability`;
 - estado de disponibilidade e motivo quando indisponível;
 - apresentação padrão opcional, incluindo ícone e estados;
 - handler ou rota de execução.
@@ -105,8 +106,9 @@ Aliases pertencem ao registro, em mapa versionado `locale → string[]`, e passa
 pela mesma normalização de busca da Command Palette. A UI não mantém listas
 paralelas.
 
-`context_policy` lista fatos por provider e modo: `exact_version`, `max_age_ms`
-ou `none` somente para leitura que não depende de alvo atual.
+`context_policy` lista fatos por provider e modo: `exact_version`, `max_age_ms`,
+`event_snapshot` para captura confiável no instante do acionamento, ou `none`
+somente para leitura que não depende de alvo atual.
 `internal/commandcontext.VersionService` registra providers e monta
 `context_version` como fingerprint dos pares `(fact_name, fact_version)`.
 Providers iniciais:
@@ -147,6 +149,7 @@ CommandInvocation
   workspace_id?, binding_ids?, registry_version
   global_config_generation, workspace_config_generation?
   active_layers_generation
+  foreground_snapshot?
   conversation_id?, turn_id?, surface_type?, surface_id?
   surface_snapshot_version?, context_version, context_captured_at
   source_profile_slug?, target_profile_slug?
@@ -160,7 +163,8 @@ CommandInvocation
 evento e sistema. `source_instance_id` é um UUIDv7 novo para cada abertura,
 reconexão ou geração física do adapter; a identidade estável do dispositivo
 permanece em `trigger_spec`. `source_event_id` identifica uma ocorrência única
-naquela instância, usando contador monotônico ou ID do protocolo.
+e é sempre UUIDv7 gerado pela borda confiável. Contador/ID nativo do protocolo
+pode ficar em metadata redigida, mas não substitui a identidade canônica.
 `actor_type` distingue usuário, agente e automação.
 
 `source_type` é a origem lógica que governa binding e
@@ -179,9 +183,10 @@ cliente não promove a si próprio a `system`, hotkey ou dispositivo.
 `trigger_spec` é normalizado pelo dispatcher e validado contra a capacidade do
 adapter antes de chegar ao resolvedor.
 
-`context_captured_at` vem do relógio monotônico/backend do provider que capturou
-o fato. Valor enviado pelo cliente é ignorado. `max_age_ms` usa esse instante e
-o relógio do mesmo provider, não timestamp livre do envelope.
+`context_captured_at` é RFC3339 com timezone, atribuído pelo relógio de parede
+do backend/provider. Valor enviado pelo cliente é ignorado. `max_age_ms` usa
+esse instante e o relógio do backend; versões/epochs monotônicos ficam em
+`context_version`, não são serializados como timestamp.
 
 Adapters físicos e de evento exigem `source_instance_id` e `source_event_id`.
 Palette, chat, CLI e `system` os omitem e deduplicam pela PK `invocation_id`.
@@ -303,10 +308,12 @@ Os contextos de autenticação são:
   como argumentos são ignorados;
 - `external_token`: JWT validado fornece `sub`, scopes e um
   `auth_context_id` derivado de `iss` + `sub` + `jti` ou fingerprint do token;
-  `(iss, sub)` precisa resolver por mapeamento administrativo explícito para um
-  `users.id` local. Não há provisionamento automático nem fallback para usuário
-  atual; ausência/ambiguidade falha fechado. A geração acompanha
-  validade/revogação disponível e JWT/scopes são revalidados antes do handler;
+  por compatibilidade com a AEP-0052/middleware vigente, se `sub` for um
+  `users.id` existente ele é o ID canônico. Caso contrário, `(iss, sub)` precisa
+  resolver por mapeamento administrativo explícito. Não há provisionamento
+  automático nem fallback para usuário atual; ausência/ambiguidade falha
+  fechado. O PR de implementação documenta esse caminho na AEP-0052. A geração
+  acompanha validade/revogação disponível e JWT/scopes são revalidados;
 - `job_service`: automação usa o usuário proprietário, ID e versão persistida do
   job, representada por `job_definition_fingerprint`, além dos grants exatos
   aplicáveis; o gate final relê a definição e compara o fingerprint. Não pode
@@ -354,9 +361,10 @@ redigido. Essa extensão deve atualizar a AEP-0063 no mesmo PR que a implementar
 Até esse suporte existir, comando com paths sensíveis é indisponível para
 delegação a tools e falha fechado.
 
-Quando `actor_type = agent`, o envelope preserva conversa, turno, `surfaceType`,
-`surfaceId` e `snapshotVersion` do `SurfaceContext` da AEP-0080, além dos
-profiles de origem e destino. `CommandExecutionService` não trata o agente como
+Quando `actor_type = agent`, o envelope preserva conversa, turno,
+`surface_type`, `surface_id` e `surface_snapshot_version`; esses campos vêm dos
+nomes camelCase do `SurfaceContext` pelo mapeamento de borda já definido, além
+dos profiles de origem e destino. `CommandExecutionService` não trata o agente como
 o usuário autenticado: delegação cross-profile interativa exige
 `DecisionDialog` e registra `authorization_decision_id`; origem sem interlocutor
 falha fechado.
@@ -416,9 +424,16 @@ Um binding contém:
 - argumentos validados pelo schema do comando;
 - condição tipada opcional;
 - `effect`, com `execute` ou `suppress`;
+- `replaces_default_id`, `replaces_default_version` e
+  `replaces_default_fingerprint` para delta de default;
+- `review_status`, com `active` ou `needs_review`;
 - estado habilitado/desabilitado;
 - origem: padrão do aplicativo ou personalização do usuário;
 - metadados de apresentação específicos do acionador.
+
+`effect = suppress` exige os três campos `replaces_default_*`.
+Override executável de default também exige o trio; binding inteiramente novo os
+mantém nulos. `needs_review` sempre bloqueia delta e default, sem fallback.
 
 O mesmo comando pode ter vários bindings. O mesmo acionador pode aparecer em
 várias camadas. Reutilização não é conflito enquanto as condições ou camadas
@@ -570,6 +585,9 @@ recusado sem cair para surface, workspace, aplicativo ou global. Isso vale
 também para hotkey do SO e Stream Deck e preserva a AEP-0091.
 Atalhos invariantes exigidos pela AEP-0091 integram implicitamente toda allowlist
 do `DecisionDialog` e não podem ser omitidos nem bloqueados por configuração.
+Enquanto houver diálogo topmost, o dispatcher reserva essas combinações antes
+de consultar qualquer binding configurável ou ownership global. Assim,
+`Ctrl+Shift+R` chega ao `DecisionDialog` mesmo se existir binding concorrente.
 
 A UI deve detectar sobreposição possível no momento da edição, explicar em quais
 contextos ela ocorre e pedir confirmação antes de criar uma substituição. Um
@@ -620,11 +638,17 @@ Cada adapter mapeia seu domínio antes de publicá-lo; no caso de jobs,
 `occurred_at` é timestamp autenticado; contador ou ID opaco de protocolo não é
 aceito nesse envelope.
 
-Produtores da AEP-0067 precisam evoluir o payload canônico com `_event_id`
-UUIDv7 e `_occurred_at` antes de poderem ativar camadas. O PR de implementação
-atualiza a AEP-0067 e `PublishDomainEvent` no mesmo ciclo. Evento legado sem
-esses campos continua funcionando para seus consumidores atuais, mas é
-indisponível como acionador desta AEP; o adapter não fabrica ID durante replay.
+Na primeira versão, somente fatos persistidos em `job_run_events` podem
+produzir esse envelope. A garantia de replay/reconciliação não se aplica ao
+EventBus best-effort.
+
+Para eventos da AEP-0067 entrarem depois, uma atualização daquela AEP precisa
+definir outbox durável e publicar `_event_id` UUIDv7, `_occurred_at`,
+`_correlation_id` e `_sequence`, persistidos transacionalmente antes do
+dispatch e reutilizados no replay. O produtor fornece correlação/ordem; o
+adapter resolve `activation_id` por regra. Até esse contrato existir, eventos
+legados continuam para seus consumidores atuais, mas são indisponíveis como
+ativadores de camada.
 
 O ledger de ativação persiste `event_fingerprint` e chave única por ocorrência:
 `(user_id, rule_id, source_event_id)`. `source_correlation_id` localiza o ciclo
@@ -635,11 +659,10 @@ sobre `sequence`: insert concorrente resolve pela chave única e update exige o
 cursor anterior.
 Mesmo número com fingerprint diferente grava conflito e não altera a camada.
 
-Na primeira versão, somente eventos internos presentes no catálogo estático
-podem ativar camadas. A regra persiste `event_name` exato e
-`allowed_internal_producer_types`; o dispatcher valida ambos antes de criar o
-envelope. Webhook, plugin e outro produtor externo são rejeitados e ficam fora
-do escopo até uma AEP definir identidade de ingress e grants próprios.
+A regra persiste `event_name` exato e `allowed_internal_producer_types`; na
+primeira versão, ambos precisam identificar o fato de job definido abaixo.
+Webhook, plugin e outro produtor externo são rejeitados e ficam fora do escopo
+até uma AEP definir identidade de ingress e grants próprios.
 
 Sem usuário, regra, autenticação ou identidade válida — correlação, ou o par
 instância/evento quando a correlação for ausente — eventos internos não alteram
@@ -687,6 +710,11 @@ referenciado por `job_runs.job_id`; `run_id` é o UUID de `job_runs.id`;
 `job_slug` é a identidade pública usada por
 `eventctx.SourceJobID` na AEP-0101 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
+
+O runtime gera `run_event_id` ao criar cada `RunEvent`, persiste
+`queued`/`started`/`retry_scheduled` incrementalmente antes de publicar o fato e
+reutiliza o mesmo UUID na linha. Não espera o `defer LogRun` do fim da execução.
+O PR dessa integração atualiza a AEP-0048 e seus testes no mesmo ciclo.
 
 `state` aceita `queued`, `started`,
 `retry_scheduled`, `completed`, `failed` e `skipped`. A chave de
@@ -770,6 +798,12 @@ destrutiva: criar ou habilitar um binding pode conceder capacidade futura.
 Origem headless falha fechado. A confirmação autoriza somente aquela mutação e
 não concede grant reutilizável para executar o comando configurado.
 
+O registro marca `mutates_effective_capability` em comandos como
+`layer.activate`, `layer.toggle`, `layer.back` persistente e registro de hotkey.
+Quando `actor_type = agent`, `CommandExecutionService` exige decisão explícita
+também em `command_catalog.execute`, não só em `command_config`. Origem headless
+falha fechado. Assim, não existe segunda rota para alterar o mapa efetivo.
+
 ### D11 — Persistência
 
 Defaults ficam no código. SQLite guarda entidades do usuário e deltas:
@@ -786,7 +820,8 @@ command_layer_activation_rules
 command_bindings
   id, layer_id, trigger_type, trigger_spec, command_id, arguments,
   condition, effect, enabled, source, resolution_priority, replaces_default_id,
-  replaces_default_version, presentation
+  replaces_default_version, replaces_default_fingerprint, review_status,
+  presentation
 
 command_config_generations
   id, user_id, workspace_id, generation, updated_at
@@ -820,7 +855,8 @@ command_invocations
   source_event_id nullable,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
   surface_type, surface_id, surface_snapshot_version, context_version,
-  context_captured_at, context_summary, source_profile_slug, target_profile_slug,
+  context_captured_at, context_summary, foreground_snapshot,
+  source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
   correlation_id, request_fingerprint_version, request_fingerprint,
@@ -829,7 +865,8 @@ command_invocations
   received_at, completed_at
 
 command_idempotency_keys
-  id, key, invocation_id, user_id, auth_context_type, auth_context_id,
+  id, key, invocation_id, user_id nullable_for_system,
+  auth_context_type, auth_context_id,
   source_type, source_instance_id, source_event_id,
   request_fingerprint_version, request_fingerprint,
   status, result_summary, result_ref, received_at, expires_at
@@ -870,9 +907,11 @@ startup, regras `always` e contextuais são recalculadas e não ocupam essa
 tabela; ciclo manual só é
 restaurado se seu lifecycle for persistente e o usuário for autenticado
 novamente; temporário expirado ou session-scoped termina; ciclo de evento/job é
-reconciliado com a fonte. Estado sem autenticação, provenance ou fonte
-revalidável fica inativo. Ciclos terminais permanecem pela mesma retenção curta
-das invocações para deduplicar reentregas; ativos não são removidos pela idade.
+reconciliado com a fonte. Todo estado sem autenticação válida fica inativo;
+evento/job também exige provenance e fonte revalidáveis. Claim manual
+persistente exige dono autenticado e lifecycle válido, mas não provenance de
+job. Ciclos terminais permanecem pela mesma retenção curta das invocações para
+deduplicar reentregas; ativos não são removidos pela idade.
 
 Matriz de nulabilidade do estado: claims manuais podem deixar `source_instance`,
 `source_event`, correlação, sequence e provenance nulos; claims de evento exigem
@@ -1063,6 +1102,13 @@ continua usando o mecanismo genérico `layer.activate`, `layer.toggle` ou
 
 Quando o Assistente estiver sem foco, hotkeys globais e dispositivos físicos
 podem usar camadas ativadas pelo programa em primeiro plano.
+
+O adapter do SO captura processo, identidade da janela e versão em
+`foreground_snapshot` no instante do evento, antes de qualquer
+`WindowPort.Show`/bring-to-front. O resolvedor usa esse snapshot com
+`context_policy = event_snapshot`; trazer o Assistente à frente não troca a
+camada daquele evento. Snapshot só é aceito do adapter confiável e continua
+sujeito a auth/security generation e limite de idade.
 
 Exemplo:
 
@@ -1292,6 +1338,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   de segurança.
 - [ ] Toda mutação persistente solicitada por agente mostra diff, exige decisão
   explícita e falha fechado sem interlocutor.
+- [ ] `command_catalog.execute` aplica o mesmo gate a comandos que alteram
+  capacidade efetiva, incluindo ativação de camada.
 - [ ] A tela de configuração oferece lista de camadas, detalhe de ativação e
   bindings, captura de teclas e explicação do resultado efetivo.
 - [ ] Toda configuração é operável por teclado e NVDA sem depender de grade,
@@ -1305,6 +1353,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Abertura/reconexão do Stream Deck invalida o diff e força frame completo.
 - [ ] Camadas baseadas no programa em primeiro plano funcionam no Windows e
   degradam explicitamente em plataformas sem adapter.
+- [ ] Contexto externo é capturado antes de bring-to-front e não muda no meio do
+  acionamento.
 - [ ] Comandos disparados fora de foco preservam permissões, decisões e
   auditoria do executor de destino.
 - [ ] Exportação/importação preserva UUIDs e escopos, relata referências e
@@ -1341,6 +1391,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   apresenta estado seguro até revalidar a sessão após desbloqueio.
 - [ ] Diálogo topmost bloqueia fallback para camadas inferiores e os atalhos
   obrigatórios da AEP-0091 não aceitam tombstone.
+- [ ] Dispatcher reserva atalhos invariantes do diálogo antes de qualquer
+  binding configurável.
 - [ ] Shell continua passando exclusivamente por `internal/commandpolicy`.
 - [ ] Deep links e configurações importadas não concedem execução arbitrária.
 - [ ] Testes cobrem fallback de defaults, sobreposição, múltiplas camadas,
