@@ -5,8 +5,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-09-07):** este índice contém **100 documentos principais
-> para 99 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-09-07):** este índice contém **101 documentos principais
+> para 100 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -71,6 +71,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 🚧 In Progress |
 | [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 🚧 In Progress |
+| [0054](0054-split-server-client-agent.md) | Separação Servidor/Clientes e Execução Local | 📝 Draft |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | ✅ Done |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | ✅ Done |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | ✅ Done |
@@ -119,7 +120,8 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0100](0100-progresso-unificado-por-conversa.md) | Progresso unificado por conversa | ✅ Done |
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 
-> **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
+> **Número livre:** 0055 está vago (lacuna). AEP-0054 está ocupada por
+> `0054-split-server-client-agent.md`. Novos AEPs devem ser
 > numerados sequencialmente a partir do **maior número existente** (0101 → próximo
 > 0102), salvo decisão explícita de reaproveitar uma lacuna.
 
@@ -163,7 +165,7 @@ Para evitar ambiguidades como as resolvidas pela issue #263:
 3. **Sem espaços nem extensões fora de `.md`.** Nomes de arquivo usam apenas
    `kebab-case` minúsculo (`0036-plan-tasklistmanager.md`). Nada de espaços ou `.txt`.
 4. **Numeração sequencial.** Novos AEPs seguem o maior número existente. Lacunas
-   (0054, 0055) ficam reservadas/documentadas.
+   como 0055 ficam reservadas/documentadas.
 5. **Status no topo do documento.** Todo AEP declara o `Status` logo após o título,
    alinhado com a legenda acima e com este índice.
 6. **Status faz parte da entrega.** O PR que alterar o estado de implementação
@@ -223,5 +225,5 @@ A renumeração de um deles exige alterar **referências em código fora de `aep
 que está fora do escopo da issue #263 (apenas governança/docs). A colisão fica
 **registrada aqui** e deve ser resolvida em uma issue/PR dedicada que também atualize
 as referências no código. Até lá, o índice usa os rótulos 0074-A e 0074-B e conta
-ambos como documentos principais: por isso há 100 documentos para 99 números
+ambos como documentos principais: por isso há 101 documentos para 100 números
 ocupados.
