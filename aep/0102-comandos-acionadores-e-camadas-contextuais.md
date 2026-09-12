@@ -246,23 +246,25 @@ um alias de `snapshotVersion`.
 O serviço, nessa ordem:
 
 1. autentica o principal e valida usuário/proveniência mínima;
-2. reserva atomicamente a tentativa como `evaluating`, com snapshot redigido do
-   acionador;
-3. resolve o binding quando a origem for um acionador e atualiza comando e
-   bindings contribuintes;
-4. valida origem permitida, disponibilidade, argumentos, contexto e política;
+2. normaliza e resolve o binding/candidato num snapshot sem efeitos, capturando
+   versões e bindings contribuintes; falha de resolução também produz resultado
+   determinístico;
+3. calcula o fingerprint canônico da solicitação resolvida ou recusada;
+4. reserva atomicamente ledger e auditoria como `evaluating`;
+5. se a resolução falhou, conclui `denied`; caso contrário valida origem
+   permitida, disponibilidade, argumentos, contexto e política;
    falhas após autenticação terminam a tentativa como `denied`;
-5. revalida contexto de autenticação, geração de segurança, staleness e
+6. revalida contexto de autenticação, geração de segurança, staleness e
    autorização imediatamente antes do despacho, cancelando a invocação se
    qualquer um estiver obsoleto; se estiver válida, transiciona para `queued`;
-6. ao retirar da fila, revalida novamente os mesmos gates e faz CAS atômico de
+7. ao retirar da fila, revalida novamente os mesmos gates e faz CAS atômico de
    `queued` para `running`; se o contexto mudou, grava `cancelled_stale` sem
    chamar o handler. Também compara `registry_version`,
    `global_config_generation` e `workspace_config_generation` atuais; mudança de
    comando, camada, binding ou prioridade cancela como stale. Compara também
    `active_layers_generation`; claim ativada/desativada desde a resolução
    cancela a invocação. Se a transição vencer, encaminha ao handler;
-7. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
+8. conclui a trilha como `succeeded`, `failed` ou `outcome_unknown`.
 
 `registry_version` identifica o catálogo/defaults carregado.
 Cada usuário possui `global_config_generation`; cada workspace possui
@@ -289,17 +291,17 @@ não é retroativamente desfeito. Testes cobrem ack limitado, logout concorrente
 ausência de deadlock.
 
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
-de auditoria `evaluating` antes do handler. O ledger é protegido pela PK de
-`invocation_id` e por unicidade global de `source_event_id` quando há evento de
-adapter. Replay com usuário/origem/fingerprint divergente é conflito, não nova
+de auditoria `evaluating` antes do handler. O ledger usa PK `id`, `key` UNIQUE,
+`invocation_id` UNIQUE e índice parcial UNIQUE de `source_event_id` quando
+presente. Replay com usuário/origem/fingerprint divergente é conflito, não nova
 execução. Reentrega recebe o resultado
 existente ou falha como
 duplicada, nunca chama novamente o handler. Palette, chat e CLI fornecem um
 `invocation_id` UUIDv7 idempotente por solicitação. Eventos físicos recebem
 `source_event_id` no único adapter que os possui. A garantia de deduplicação é
-limitada à sessão física ou à janela de retenção da invocação. Solicitação
-direta cujo UUIDv7/`received_at` esteja fora dessa janela é rejeitada como
-obsoleta, mesmo se sua linha já tiver sido removida.
+limitada à sessão física ou até `expires_at` do ledger. Expirada e removida a
+chave, uma nova recepção é nova solicitação; não se infere idade do timestamp
+embutido no UUIDv7.
 
 `received_at` é sempre atribuído pelo backend ao receber o envelope e governa
 retenção/idade. `client_requested_at`, quando fornecido, é apenas metadado
@@ -342,12 +344,14 @@ Os contextos de autenticação são:
   como argumentos são ignorados;
 - `external_token`: JWT validado fornece `sub`, scopes e um
   `auth_context_id` derivado de `iss` + `sub` + `jti` ou fingerprint do token;
-  por compatibilidade com a AEP-0052/middleware vigente, se `sub` for um
-  `users.id` existente ele é o ID canônico. Caso contrário, `(iss, sub)` precisa
-  resolver por mapeamento administrativo explícito. Não há provisionamento
-  automático nem fallback para usuário atual; ausência/ambiguidade falha
-  fechado. O PR de implementação documenta esse caminho na AEP-0052. A geração
-  acompanha validade/revogação disponível e JWT/scopes são revalidados;
+  `(iss, sub)` sempre precisa resolver por mapeamento administrativo explícito.
+  `sub` isolado nunca é aceito como `users.id`, pois não é global entre issuers.
+  Não há provisionamento automático nem fallback para usuário atual;
+  ausência/ambiguidade falha fechado. Antes de habilitar comandos em
+  `auth.mode=external`, o upgrade exige que o administrador migre identidades
+  usadas pelo middleware vigente para `external_identity_mappings`; APIs antigas
+  continuam fora deste subsistema até a migração. O PR de implementação atualiza
+  AEP-0052/middleware no mesmo ciclo. JWT/scopes são revalidados;
 - `job_service`: automação usa o usuário proprietário, ID e versão persistida do
   job, representada por `job_definition_fingerprint`, além dos grants exatos
   aplicáveis; o gate final relê a definição e compara o fingerprint. Não pode
@@ -707,7 +711,8 @@ legados continuam para seus consumidores atuais, mas são indisponíveis como
 ativadores de camada.
 
 O ledger de ativação persiste `event_fingerprint` e chave única por ocorrência:
-`(user_id, rule_id, source_event_id)`. `source_correlation_id` localiza o ciclo
+`(user_id, rule_ref_kind, rule_ref, source_event_id)`.
+`source_correlation_id` localiza o ciclo
 em índice único separado `(user_id, rule_id, source_type,
 source_correlation_id)` no estado de ativação, mas não deduplica transições
 distintas. Na mesma transação, o estado de PK `activation_id` avança por CAS
@@ -733,7 +738,7 @@ fechado.
 
 `source_instance_id` identifica a geração do dispatcher somente para
 proveniência. A chave de idempotência é exclusivamente
-`(user_id, rule_id, source_event_id)`, portanto replay estável após reinício
+`(user_id, rule_ref_kind, rule_ref, source_event_id)`, portanto replay estável após reinício
 continua duplicata. Se o cursor terminal já tiver sido removido, `occurred_at`
 anterior a `maintenance.command_activation_terminal_retention_days` é rejeitado
 antes do insert; `source_event_id` UUIDv7 também precisa ser compatível com essa
@@ -910,7 +915,7 @@ command_layer_activation_state
   provenance, manual_stack_key, activated_at, expires_at, updated_at
 
 command_activation_idempotency_keys
-  id, key, user_id, rule_ref, source_type, source_instance_id,
+  id, key, user_id, rule_ref_kind, rule_ref, source_type, source_instance_id,
   source_event_id, source_correlation_id, sequence, event_fingerprint,
   terminal_state, created_at, expires_at
 
@@ -958,14 +963,19 @@ No ledger, `id` é PK UUIDv7, `key` é UNIQUE e vale
 ownership e fingerprint antes de classificar como reentrega; divergência falha
 fechado.
 
+No ledger de ativação, `key` é
+`activation:<user_id>:<rule_ref_kind>:<rule_ref>:<source_event_id>` e UNIQUE; há
+também índice único equivalente sobre os quatro campos. Assim, o mesmo evento
+pode alimentar regras distintas sem colisão e não reaplica a mesma regra.
+
 Condições, argumentos, especificações e apresentação são documentos JSON
 versionados e validados. Alterações relevantes mantêm auditoria suficiente para
 desfazer.
 
 Campos marcados com `?` no envelope são nullable no SQLite; ausência vira
-`NULL`, nunca string vazia. `command_id` é nullable em `evaluating` antes da
-resolução e permanece nulo em `denied` quando nenhum comando pôde ser resolvido; depois de
-preenchido, é imutável. `trigger_*` é nulo em execução direta; campos de surface,
+`NULL`, nunca string vazia. `command_id` fica nulo em `evaluating`/`denied`
+somente quando a resolução prévia não encontrou comando; em toda reserva
+resolvida é preenchido e imutável. `trigger_*` é nulo em execução direta; campos de surface,
 conversa, job, profile, workspace e decisão são nulos quando o contexto não se
 aplica. Campos obrigatórios do envelope e `binding_ids` (default `[]`) são NOT
 NULL.
