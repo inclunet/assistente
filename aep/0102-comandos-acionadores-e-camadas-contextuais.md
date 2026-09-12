@@ -94,6 +94,8 @@ Todo comando terá:
   origem interna reservada `system`;
 - paths sensíveis de input/output e política de persistência;
 - classificação de risco;
+- `effect_class`, com `read`, `write` ou `destructive`;
+- `decision_requirement`, incluindo `none` ou diálogo interativo;
 - `mutates_effective_capability`;
 - estado de disponibilidade e motivo quando indisponível;
 - apresentação padrão opcional, incluindo ícone e estados;
@@ -125,6 +127,11 @@ Na revalidação, cada provider compara a versão atual ou a idade exigida pelo
 comando. Provider ausente, versão incomparável ou TTL vencido torna o comando
 indisponível/falha fechado; não há heurística comum aplicada a contextos
 diferentes.
+
+O registro rejeita `context_policy = none` quando `effect_class` não for
+`read`, quando houver alvo mutável ou quando o comando alterar capacidade
+efetiva. `CommandExecutionService` revalida essa invariância; metadata de comando
+não pode optar por escapar de staleness.
 
 Comandos de UI podem ser executados no frontend por uma ponte tipada. Comandos
 de backend são enviados ao serviço correspondente. Jobs usam o runtime de jobs;
@@ -284,7 +291,9 @@ consulta exige o mesmo contexto autenticado, filtra por
 PK é proibido. Contexto `system` consulta apenas invocações internas sem usuário.
 No startup,
 registros `evaluating`, `queued` ou `running` de uma geração encerrada viram
-`outcome_unknown`, nunca são reexecutados automaticamente. O usuário ou fluxo
+`outcome_unknown` em `command_invocations` e
+`command_idempotency_keys` na mesma transação, nunca são reexecutados
+automaticamente. O usuário ou fluxo
 chamador precisa consultar o efeito e criar uma nova invocação explícita. Esse
 tratamento reconhece que exatamente-uma-vez não é garantível para todo handler
 de UI ou sistema após queda entre efeito e commit.
@@ -420,8 +429,8 @@ Um binding contém:
 
 - camada;
 - tipo e especificação normalizada do acionador;
-- `command_id`;
-- argumentos validados pelo schema do comando;
+- `command_id` para `execute`;
+- argumentos validados pelo schema do comando para `execute`;
 - condição tipada opcional;
 - `effect`, com `execute` ou `suppress`;
 - `replaces_default_id`, `replaces_default_version` e
@@ -431,7 +440,8 @@ Um binding contém:
 - origem: padrão do aplicativo ou personalização do usuário;
 - metadados de apresentação específicos do acionador.
 
-`effect = suppress` exige os três campos `replaces_default_*`.
+`effect = suppress` exige os três campos `replaces_default_*`, mantém
+`command_id` nulo e argumentos vazios; o default alvo é a única autoridade.
 Override executável de default também exige o trio; binding inteiramente novo os
 mantém nulos. `needs_review` sempre bloqueia delta e default, sem fallback.
 
@@ -610,7 +620,9 @@ ao menos uma claim válida está ativa; desativação encerra somente o
 `activation_id` correspondente. Não há prioridade entre regras. Fixar uma
 camada cria claim manual persistente que eventos automáticos não removem;
 outras camadas continuam compondo o mapa. `layer.back` encerra a claim manual
-mais recente da mesma origem.
+mais recente da mesma `manual_stack_key`, ordenada por
+`(activated_at, activation_id)`. A chave é derivada no backend da origem
+normalizada e de sua sessão/dispositivo, nunca inventada pelo payload.
 
 Ativação dirigida por eventos usa o envelope:
 
@@ -706,7 +718,10 @@ Para jobs, a integração publica o fato contextual interno versionado
 `job` nesse fato; outro valor falha fechado. `run_event_id` é o UUIDv7 de
 `job_run_events.id` e vira o `source_event_id` estável, inclusive em replay.
 `job_id` é o UUID de `jobs.id`
-referenciado por `job_runs.job_id`; `run_id` é o UUID de `job_runs.id`;
+referenciado por `job_runs.job_id`; `run_id` é o ID opaco exato de
+`job_runs.id`. O adapter aceita os IDs legados `run_*` usados pelo runtime atual
+e futuros UUIDv7 sem convertê-los. Alterar o formato canônico exige migração e
+atualização da AEP-0048 antes de remover essa compatibilidade;
 `job_slug` é a identidade pública usada por
 `eventctx.SourceJobID` na AEP-0101 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
@@ -734,10 +749,11 @@ apenas para reconstrução no startup.
 Claim derivada de job usa lease própria, renovada por heartbeat do runtime:
 `maintenance.command_job_activation_lease_seconds` (padrão 180), com heartbeat
 antes da metade do TTL. Runs não terminais que sustentam claim ficam excluídos
-da limpeza da AEP-0048; o PR dessa integração deve atualizar aquela AEP. No
-startup, fonte ausente, lease vencida ou estado não autoritativo torna a claim
-inativa até uma confirmação nova do runtime. A linha pode permanecer para
-auditoria, mas nunca mantém a camada efetiva sem lease válida.
+da política/ciclo de limpeza da AEP-0074-B. O PR dessa integração deve atualizar
+AEP-0074-B e AEP-0048 no mesmo ciclo. No startup, fonte ausente, lease vencida
+ou estado não autoritativo torna a claim inativa até confirmação nova do
+runtime. A linha pode permanecer para auditoria, mas nunca mantém a camada
+efetiva sem lease válida.
 
 O adapter preserva a proveniência anti-loop da AEP-0067. Se um binding ativado
 por esse ciclo iniciar job, tool que publica evento ou outro comando reativo, a
@@ -818,7 +834,8 @@ command_layer_activation_rules
   allowed_internal_producer_types, enabled
 
 command_bindings
-  id, layer_id, trigger_type, trigger_spec, command_id, arguments,
+  id, layer_id, trigger_type, trigger_spec, command_id nullable_for_suppress,
+  arguments empty_for_suppress,
   condition, effect, enabled, source, resolution_priority, replaces_default_id,
   replaces_default_version, replaces_default_fingerprint, review_status,
   presentation
@@ -831,7 +848,7 @@ command_layer_activation_state
   user_id, auth_context_type, auth_context_id, auth_generation,
   security_generation, source_type, source_instance_id, source_event_id,
   source_correlation_id, sequence, event_fingerprint, state,
-  provenance, activated_at, expires_at, updated_at
+  provenance, manual_stack_key, activated_at, expires_at, updated_at
 
 command_activation_idempotency_keys
   id, key, user_id, rule_ref, source_type, source_instance_id,
@@ -855,7 +872,7 @@ command_invocations
   source_event_id nullable,
   arguments_summary, arguments_fingerprint, conversation_id, turn_id,
   surface_type, surface_id, surface_snapshot_version, context_version,
-  context_captured_at, context_summary, foreground_snapshot,
+  context_captured_at, context_summary, foreground_summary,
   source_profile_slug, target_profile_slug,
   authorization_decision_id, delegation_fingerprint, grant_generation,
   job_id, job_slug, job_definition_fingerprint, run_id, provenance,
@@ -913,8 +930,9 @@ persistente exige dono autenticado e lifecycle válido, mas não provenance de
 job. Ciclos terminais permanecem pela mesma retenção curta das invocações para
 deduplicar reentregas; ativos não são removidos pela idade.
 
-Matriz de nulabilidade do estado: claims manuais podem deixar `source_instance`,
-`source_event`, correlação, sequence e provenance nulos; claims de evento exigem
+Matriz de nulabilidade do estado: claims manuais exigem `manual_stack_key` e
+podem deixar `source_instance`, `source_event`, correlação, sequence e
+provenance nulos; claims de evento deixam `manual_stack_key` nula e exigem
 instância, evento UUIDv7, sequence e fingerprint; correlação é opcional; claim
 temporária exige `expires_at`; provenance é obrigatória quando a origem for job.
 Campos de auth/segurança e refs de layer/rule são sempre obrigatórios. Ausência
@@ -1094,6 +1112,11 @@ O estado visual de uma tecla é apresentação do binding efetivo. Pode ter tít
 executando, concluído e erro. Texto, anúncio e estado não podem depender apenas
 de imagem ou cor.
 
+Apresentações builtin usam `title_key` e `status_label_keys` existentes em
+pt-BR, en e es. Conteúdo personalizado pode fornecer `title_by_locale`; locale
+ausente cai para o nome localizado do comando, nunca para string builtin
+hardcoded. Anúncios usam as mesmas chaves/fallbacks.
+
 Uma tecla que ativa outra camada oferece navegação semelhante a pasta, mas
 continua usando o mecanismo genérico `layer.activate`, `layer.toggle` ou
 `layer.back`. Teclado, chat ou outro dispositivo podem ativar a mesma camada.
@@ -1109,6 +1132,11 @@ O adapter do SO captura processo, identidade da janela e versão em
 `context_policy = event_snapshot`; trazer o Assistente à frente não troca a
 camada daquele evento. Snapshot só é aceito do adapter confiável e continua
 sujeito a auth/security generation e limite de idade.
+
+`foreground_snapshot` é transitório e não vai ao SQLite. A auditoria guarda
+apenas `foreground_summary` allowlisted/redigido: identidade normalizada do
+executável, classe da janela e versão do provider. Título, URL, documento,
+caminho e texto da janela nunca são persistidos.
 
 Exemplo:
 
@@ -1138,8 +1166,12 @@ autorização de shell.
 
 A exposição na CLI não altera os non-goals da AEP-0045. A CLI pode listar e
 descrever todo o catálogo, mas só executa comandos que declarem suporte à origem
-`cli` e não dependam de runtime visual. Comandos de workspace, editor ou foco
-aparecem indisponíveis com motivo; esta AEP não leva essas surfaces ao terminal.
+`cli`, não dependam de runtime visual e tenham
+`decision_requirement = none`. Comando perigoso ou que exija `DecisionDialog`
+aparece indisponível com motivo e falha fechado no `CommandExecutionService`;
+esta AEP não cria confirmação textual alternativa. Comandos de workspace,
+editor ou foco também permanecem indisponíveis e esta AEP não leva essas
+surfaces ao terminal.
 
 ### D15 — Interface de configuração por camadas
 
@@ -1369,6 +1401,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   tools; acionadores ficam em snapshot imutável redigido.
 - [ ] Reentrega dentro da janela retorna status/resultado redigido sem repetir o
   handler; invocações interrompidas por queda viram `outcome_unknown`.
+- [ ] Recuperação de startup atualiza auditoria e ledger para
+  `outcome_unknown` na mesma transação.
 - [ ] Reutilizar `invocation_id` com request fingerprint diferente falha
   fechado.
 - [ ] Caps de auditoria não removem os ledgers antes de `expires_at`; compactar
@@ -1381,12 +1415,14 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   binding alterado não executa resolução antiga.
 - [ ] Cada comando declara `context_policy`; provider ausente ou versão/TTL
   inválido falha fechado.
+- [ ] `context_policy = none` é rejeitado para qualquer comando não read-only.
 - [ ] Contextos local, JWT externo, job e system têm fontes de identidade e
   revogação explícitas; `EpochService` invalida trabalho obsoleto.
 - [ ] Identidade externa só acessa usuário local por mapeamento administrativo
   exato de emissor e subject.
 - [ ] Cada comando declara origens permitidas e o serviço bloqueia origem não
   autorizada, incluindo comandos visuais solicitados pela CLI.
+- [ ] CLI não executa comando que exija diálogo/decisão interativa.
 - [ ] Estação bloqueada suspende hotkeys globais e dispositivos físicos e
   apresenta estado seguro até revalidar a sessão após desbloqueio.
 - [ ] Diálogo topmost bloqueia fallback para camadas inferiores e os atalhos
