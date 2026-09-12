@@ -14,10 +14,12 @@ import (
 
 type espiaoAvisos struct {
 	noopStreamHandler
-	avisos   []TurnNotice
-	conteudo string
-	finish   FinishInfo
-	usage    Usage
+	avisos        []TurnNotice
+	conteudo      string
+	finish        FinishInfo
+	usage         Usage
+	naoRetentavel bool
+	resets        int
 }
 
 func (e *espiaoAvisos) OnTurnNotice(n TurnNotice) { e.avisos = append(e.avisos, n) }
@@ -26,6 +28,9 @@ func (e *espiaoAvisos) OnChunk(content string)                        { e.conteu
 func (e *espiaoAvisos) OnDone(_ string, usage Usage, _ string)        { e.usage = usage }
 func (e *espiaoAvisos) OnToolCalls([]ToolCall, string, Usage, string) {}
 func (e *espiaoAvisos) OnFinishReason(info FinishInfo)                { e.finish = info }
+func (e *espiaoAvisos) OnUsage(usage Usage)                           { e.usage = usage }
+func (e *espiaoAvisos) MarkErrorNotRetryable()                        { e.naoRetentavel = true }
+func (e *espiaoAvisos) ResetStreamAttempt()                           { e.resets++ }
 
 // sseChatCompletion devolve um chunk SSE Chat Completions com conteÃºdo.
 const sseChatCompletion = "data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n" +

@@ -34,6 +34,18 @@ const translateBackendChatError = (message: string) => {
   if (message === 'internal_error') {
     return i18next.t('chat.errors.internalError');
   }
+  if (message === 'streaming_interrupted') {
+    return i18next.t('chat.errors.streamingInterrupted');
+  }
+  if (message === 'streaming_idle_timeout') {
+    return i18next.t('chat.errors.streamingIdleTimeout');
+  }
+  if (message === 'streaming_retries_exhausted') {
+    return i18next.t('chat.errors.streamingRetriesExhausted');
+  }
+  if (message === 'streaming_prompt_cache_hint_rejected') {
+    return i18next.t('chat.errors.streamingPromptCacheHintRejected');
+  }
   return message;
 };
 
@@ -53,6 +65,14 @@ interface ChatStreamEvent {
   sequence: number;
   done?: boolean;
   error?: string;
+  finishReason?: 'stop' | 'tool_calls' | 'max_tokens' | 'content_filter' | 'cancelled' | 'other';
+  rawReason?: string;
+  provider?: string;
+  model?: string;
+  effectiveOutputLimit?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  responseBytes?: number;
   messageId?: string;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -251,6 +271,8 @@ export function startChatEventController({
   // via chat:speak; o leitor de tela precisa de um aviso de conclusão próprio.
   let turnHadAssistantText = false;
   let currentTurnId: string | null = null;
+  let provisionalThinkingTurnId: string | null = null;
+  let provisionalThinkingNodeId: string | null = null;
   let streamedContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
@@ -441,6 +463,19 @@ export function startChatEventController({
     });
     currentAssistantNodeId = patch.message.id;
     assistantNodeCreated = true;
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    pendingVisualContent = null;
+    streamedContent = patch.message.content;
+    streamInitialized = true;
+    streamingCommitted = false;
+    turnHadAssistantText = turnHadAssistantText
+      || patch.message.content.trim().length > 0
+      || (patch.message.turnSegments ?? []).some(
+        (segment) => segment.type === 'text' && Boolean(segment.content?.trim()),
+      );
     patchCurrentSession({ completedSegments: [], streamingMessageId: patch.message.id });
   };
 
@@ -466,9 +501,13 @@ export function startChatEventController({
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
 
-  const updateEmptyAssistantWithError = (message: string) => {
-    if (getCurrentAssistantContent().trim()) return;
-    updateStreamingMessage(i18next.t('chat.errorPrefix', { message }));
+  const updateAssistantWithError = (message: string) => {
+    const currentContent = getCurrentAssistantContent();
+    const hasContent = currentContent.trim().length > 0;
+    const formattedError = i18next.t('chat.errorPrefix', { message });
+    updateStreamingMessage(
+      hasContent ? `${currentContent}\n\n${formattedError}` : formattedError,
+    );
   };
 
   const existingCleanup = activeControllers.get(conversationIdStr);
@@ -517,7 +556,30 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (!event.userMessageId) return;
-    currentTurnId = event.turnId || event.userMessageId.toString();
+    const nextTurnId = event.turnId || event.userMessageId.toString();
+    if (
+      provisionalThinkingTurnId
+      && provisionalThinkingTurnId !== nextTurnId
+    ) {
+      if (currentAssistantNodeId && provisionalThinkingNodeId === currentAssistantNodeId) {
+        const staleAssistantId = currentAssistantNodeId;
+        adapter.patchConversation(conversationId, (conversation) => ({
+          ...conversation,
+          threadedMessages: conversation.threadedMessages.filter(
+            (node) => node.message.id !== staleAssistantId,
+          ),
+        }));
+      }
+      currentAssistantNodeId = null;
+      assistantNodeCreated = false;
+      streamedContent = '';
+      streamInitialized = false;
+      pendingVisualContent = null;
+      patchCurrentSession({ streamingMessageId: null, streamingReasoning: null, isThinking: false });
+    }
+    provisionalThinkingTurnId = null;
+    provisionalThinkingNodeId = null;
+    currentTurnId = nextTurnId;
     if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
     const userMsg = new chat.EnrichedMessage({
       id: event.userMessageId.toString(),
@@ -623,7 +685,7 @@ export function startChatEventController({
       });
       playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(errorMessage);
+        updateAssistantWithError(errorMessage);
       } else {
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
@@ -649,8 +711,18 @@ export function startChatEventController({
   unsubThinking = turnEvents.on('chat:thinking', (event: ChatThinkingEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode(event.assistantMessageId);
+    let existingProvisionalNode = false;
+    if (!currentTurnId && event.turnId) {
+      provisionalThinkingTurnId = event.turnId;
+      existingProvisionalNode = hasMessageId(
+        getCurrentSession().conversation?.threadedMessages,
+        String(event.assistantMessageId || ''),
+      );
+      if (!existingProvisionalNode && event.assistantMessageId) {
+        provisionalThinkingNodeId = event.assistantMessageId;
+      }
+    }
+    if (!existingProvisionalNode) ensureAssistantNode(event.assistantMessageId);
     if (event.started) {
       patchCurrentSession({
         isThinking: true,
@@ -658,8 +730,10 @@ export function startChatEventController({
       });
       announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
-      patchCurrentSession({ isThinking: false });
-      if (event.content && currentAssistantNodeId) adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content);
+      patchCurrentSession({ isThinking: false, streamingReasoning: '' });
+      if (currentAssistantNodeId) {
+        adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content || '');
+      }
     } else {
       patchCurrentSession({ streamingReasoning: event.content || '' });
     }
@@ -791,6 +865,9 @@ export function startChatEventController({
     currentTurnId = event.turnId || currentTurnId;
 
     if (event.errorMessage) {
+      // O snapshot persistido contém apenas o parcial. Aplique-o antes do
+      // marcador de erro para que o patch não apague o diagnóstico terminal.
+      applyTurnPatch(event.turnPatch);
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
@@ -803,14 +880,13 @@ export function startChatEventController({
       });
       playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(errorMessage);
+        updateAssistantWithError(errorMessage);
       } else {
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
-      applyTurnPatch(event.turnPatch);
       cleanup();
       return;
     }

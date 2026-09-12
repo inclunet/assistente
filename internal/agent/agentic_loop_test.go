@@ -361,6 +361,13 @@ func TestAgenticLoopRunner_BuildErrorDoneEvent(t *testing.T) {
 	r.totalToolCallCount = 2
 	r.toolsUsedSet = map[string]struct{}{"b": {}, "a": {}}
 	r.lastUsage = llm.Usage{PromptTokens: 100, CompletionTokens: 20, CacheReadTokens: 5, CacheWriteTokens: 3, CacheMissTokens: 7}
+	r.lastDiagnosticUsage = llm.Usage{
+		CompletionTokens: 20, OutputTokensReported: true,
+		ReasoningTokens: 4, ReasoningTokensReported: true,
+	}
+	r.lastFinish = llm.FinishInfo{
+		Provider: "provider-1", Model: "model-1", OutputLimit: 4096, ResponseBytes: 0,
+	}
 
 	ev := r.buildErrorDoneEvent("boom", 1)
 	if ev.Reason != "error" || ev.ErrorMessage != "boom" {
@@ -377,6 +384,12 @@ func TestAgenticLoopRunner_BuildErrorDoneEvent(t *testing.T) {
 	}
 	if ev.PromptTokens != 100 || ev.CompletionTokens != 20 || ev.CacheReadTokens != 5 || ev.CacheWriteTokens != 3 || ev.CacheMissTokens != 7 {
 		t.Fatalf("tokens inesperados: %+v", ev)
+	}
+	if ev.Provider != "provider-1" || ev.Model != "model-1" || ev.EffectiveOutputLimit != 4096 ||
+		ev.ResponseBytes == nil || *ev.ResponseBytes != 0 ||
+		ev.OutputTokens == nil || *ev.OutputTokens != 20 ||
+		ev.ReasoningTokens == nil || *ev.ReasoningTokens != 4 {
+		t.Fatalf("diagnóstico terminal ausente: %+v", ev)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -124,6 +123,43 @@ func (h *noopStreamHandler) OnDone(_ string, usage Usage, _ string) { h.usage = 
 
 func (h *noopStreamHandler) OnMCPToolEvent(MCPToolEvent)    {}
 func (h *noopStreamHandler) OnFinishReason(info FinishInfo) { h.finish = info }
+
+type resetCountingHandler struct {
+	noopStreamHandler
+	resets int
+}
+
+func (h *resetCountingHandler) ResetStreamAttempt() {
+	h.resets++
+}
+
+func TestOpenAIResponsesResetaHandlerAntesDeNovaTentativa(t *testing.T) {
+	attempts := 0
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, _ []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
+		attempts++
+		if attempts == 1 {
+			handler.OnThinking("descartado")
+			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+		}
+		handler.OnDone("ok", Usage{}, "gpt-test")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &resetCountingHandler{}
+	params := ChatParams{
+		PromptCacheKey:          "asst-key",
+		PromptCacheHintFallback: &PromptCacheHintFallback{},
+	}
+	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 2 || handler.resets != 1 {
+		t.Fatalf("attempts=%d resets=%d, esperado 2/1", attempts, handler.resets)
+	}
+}
 
 func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 	const stream = "event: response.output_text.delta\n" +
@@ -416,8 +452,8 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedWithoutKey
 	if len(handler.errors) != 1 {
 		t.Fatalf("errors = %v, want one explicit error", handler.errors)
 	}
-	if !strings.Contains(handler.errors[0], "provider_hints") || !strings.Contains(handler.errors[0], "gateway/proxy") {
-		t.Fatalf("erro = %q, want actionable provider_hints + gateway/proxy guidance", handler.errors[0])
+	if handler.errors[0] != streamPromptCacheHintRejectedError {
+		t.Fatalf("erro = %q, want %q", handler.errors[0], streamPromptCacheHintRejectedError)
 	}
 	if handler.done != 0 {
 		t.Fatalf("OnDone = %d, want 0", handler.done)

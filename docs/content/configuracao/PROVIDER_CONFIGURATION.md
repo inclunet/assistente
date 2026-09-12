@@ -84,7 +84,13 @@ O sistema também detecta automaticamente credenciais em variáveis de ambiente 
 ## Configurações Avançadas
 
 Cada provedor possui:
-- **Timeout**: 180s (padrão) ou 300s (Ollama, para modelos grandes)
+- **Timeout**: 180s (padrão) ou 300s (Ollama, para modelos grandes) para
+  requisições comuns; não funciona como teto total de uma resposta SSE ativa.
+- **Timeout de inatividade do streaming**: 60s por padrão. Cada evento ou
+  heartbeat reinicia a contagem, portanto uma geração ativa pode durar mais que
+  o timeout geral sem ser interrompida. O formulário ainda não oferece esse
+  ajuste; arquivos de exportação/importação podem preservar um override legado
+  em `streamIdleTimeoutSeconds`.
 - **Headers customizados**: Para autenticação alternativa ou proxy
 - **Credential Pattern**: Domínio usado para resolver credenciais automaticamente (ex: `api.openai.com`)
 - **API Format** (`api_format`): Determina qual protocolo/SDK usar (ver abaixo)

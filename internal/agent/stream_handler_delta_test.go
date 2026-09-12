@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -101,6 +102,153 @@ func TestBaseStreamHandlerFlushPreservesSequenceAndRetryReset(t *testing.T) {
 	}
 }
 
+func TestBaseStreamHandlerResetStreamAttemptDescartaReasoningAnterior(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := &BaseStreamHandler{
+		Emitter:            emitter,
+		ConversationID:     "conversation-1",
+		TurnID:             "turn-1",
+		AssistantMessageID: "assistant-1",
+	}
+
+	handler.OnThinking("tentativa descartada")
+	handler.ResetStreamAttempt()
+	handler.OnThinking("tentativa válida")
+	handler.OnThinkingDone("tentativa válida")
+
+	_, reasoning := handler.Finalize()
+	if reasoning != "tentativa válida" {
+		t.Fatalf("reasoning=%q; tentativa descartada vazou para o resultado", reasoning)
+	}
+	thinkingEvents := emitter.find("chat:thinking")
+	if len(thinkingEvents) < 4 {
+		t.Fatalf("eventos de thinking=%d, esperava início/fim das duas tentativas", len(thinkingEvents))
+	}
+	var resetDone *ports.ThinkingEvent
+	for _, captured := range thinkingEvents {
+		event := captured.data.(ports.ThinkingEvent)
+		if event.Done {
+			resetDone = &event
+			break
+		}
+	}
+	if resetDone == nil {
+		t.Fatal("reset não encerrou o thinking descartado")
+	}
+	if resetDone.Content != "" {
+		t.Fatalf("reset promoveu reasoning descartado: %+v", *resetDone)
+	}
+}
+
+func TestAgenticStreamHandlerOnErrorPreservaParcialEDiagnostico(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
+	handler.OnChunk("parcial")
+	handler.OnThinking("raciocínio")
+	handler.OnFinishReason(llm.FinishInfo{
+		Provider:      "provider-1",
+		Model:         "model-1",
+		OutputLimit:   4096,
+		ResponseBytes: 7,
+	})
+	handler.OnUsage(llm.Usage{
+		CompletionTokens:     12,
+		OutputTokensReported: true,
+	})
+	handler.OnError("streaming_interrupted")
+
+	result := handler.Result()
+	if result.FullResponse != "parcial" || result.Reasoning != "raciocínio" {
+		t.Fatalf("parcial perdido no erro: %+v", result)
+	}
+	if result.Finish.Provider != "provider-1" || result.Finish.Model != "model-1" ||
+		result.Finish.OutputLimit != 4096 || result.Finish.ResponseBytes != 7 {
+		t.Fatalf("diagnóstico perdido no erro: %+v", result.Finish)
+	}
+	if !result.Usage.OutputTokensReported || result.Usage.CompletionTokens != 12 {
+		t.Fatalf("usage perdido no erro: %+v", result.Usage)
+	}
+	events := capturedNames(emitter)
+	if !slices.Contains(events, "chat:stream") {
+		t.Fatalf("chunk pendente não foi descarregado: %v", events)
+	}
+	for _, captured := range emitter.find("chat:thinking") {
+		if captured.data.(ports.ThinkingEvent).Done {
+			t.Fatal("OnError intermediário não deve promover reasoning antes da decisão de retry")
+		}
+	}
+}
+
+func TestAgenticStreamHandlerEmiteAvisoDeRetry(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
+
+	handler.OnTurnNotice(llm.TurnNotice{Kind: llm.TurnNoticeStreamRetry, Count: 2})
+
+	notices := emitter.find("chat:notice")
+	if len(notices) != 1 {
+		t.Fatalf("chat:notice=%d, esperado 1", len(notices))
+	}
+	notice := notices[0].data.(ports.ChatNoticeEvent)
+	if notice.ConversationID != "conversation-1" ||
+		notice.Kind != string(llm.TurnNoticeStreamRetry) || notice.Count != 2 {
+		t.Fatalf("aviso agêntico inválido: %+v", notice)
+	}
+}
+
+func TestAgenticStreamHandlerResetDescartaResultadoEDiagnosticos(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
+	handler.OnThinking("reasoning antigo")
+	handler.OnFinishReason(llm.FinishInfo{Provider: "provider-antigo"})
+	handler.OnUsage(llm.Usage{CompletionTokens: 9, OutputTokensReported: true})
+	handler.OnError("erro transitório")
+
+	handler.ResetStreamAttempt()
+
+	result := handler.Result()
+	if result.Error != "" || result.Reasoning != "" || result.Finish.Provider != "" ||
+		result.Usage.OutputTokensReported {
+		t.Fatalf("estado da tentativa anterior vazou: %+v", result)
+	}
+	thinking := emitter.find("chat:thinking")
+	last := thinking[len(thinking)-1].data.(ports.ThinkingEvent)
+	if !last.Done || last.Content != "" {
+		t.Fatalf("reset não descartou reasoning visual: %+v", last)
+	}
+}
+
+func TestAgenticDiscardReasoningPreservaDiagnosticosTerminais(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation-1", 0, nil, "turn-1")
+	handler.OnThinking("reasoning descartado")
+	handler.OnFinishReason(llm.FinishInfo{Provider: "provider-1", ResponseBytes: 0})
+	handler.OnUsage(llm.Usage{CompletionTokens: 4, OutputTokensReported: true})
+
+	handler.DiscardStreamReasoning()
+	handler.OnError("streaming_interrupted")
+
+	result := handler.Result()
+	if result.Reasoning != "" || result.Finish.Provider != "provider-1" ||
+		!result.Usage.OutputTokensReported || result.Usage.CompletionTokens != 4 {
+		t.Fatalf("descarte terminal alterou diagnósticos: %+v", result)
+	}
+	thinking := emitter.find("chat:thinking")
+	doneCount := 0
+	for _, captured := range thinking {
+		event := captured.data.(ports.ThinkingEvent)
+		if event.Done {
+			doneCount++
+			if event.Content != "" {
+				t.Fatalf("reasoning descartado foi promovido: %+v", event)
+			}
+		}
+	}
+	if doneCount != 1 {
+		t.Fatalf("eventos terminal de thinking=%d, esperado 1", doneCount)
+	}
+}
+
 func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	emitter := &captureEmitter{}
 	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
@@ -116,6 +264,13 @@ func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 		Status: llm.AgentToolRunning,
 	})
 	handler.OnChunk(" e antes do erro")
+	handler.OnFinishReason(llm.FinishInfo{
+		Provider: "provider-1", Model: "model-1", OutputLimit: 99, ResponseBytes: 25,
+	})
+	handler.OnUsage(llm.Usage{
+		CompletionTokens: 7, OutputTokensReported: true,
+		ReasoningTokens: 3, ReasoningTokensReported: true,
+	})
 	handler.OnError("falhou")
 
 	names := capturedNames(emitter)
@@ -131,6 +286,13 @@ func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	terminal := emitter.find("chat:stream")[2].data.(ports.StreamEvent)
 	if !terminal.Done || terminal.Error != "falhou" || terminal.Delta != "" {
 		t.Fatalf("terminal de erro inválido: %+v", terminal)
+	}
+	if terminal.Provider != "provider-1" || terminal.Model != "model-1" ||
+		terminal.EffectiveOutputLimit != 99 ||
+		terminal.ResponseBytes == nil || *terminal.ResponseBytes != 25 ||
+		terminal.OutputTokens == nil || *terminal.OutputTokens != 7 ||
+		terminal.ReasoningTokens == nil || *terminal.ReasoningTokens != 3 {
+		t.Fatalf("diagnóstico simples perdido: %+v", terminal)
 	}
 }
 

@@ -73,3 +73,95 @@ func TestAnthropicStreamRetryAvisoEFinalizacao(t *testing.T) {
 		t.Fatalf("esperava exatamente 1 aviso stream_retry (falha 502); veio %d", avisosRetry)
 	}
 }
+
+func TestAnthropicTimeoutParcialPreservaDiagnosticos(t *testing.T) {
+	stream := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"1\",\"model\":\"claude-real\",\"usage\":{\"input_tokens\":1}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(&ProviderConfig{
+		ID: "anthropic-timeout", Name: "Anthropic Timeout", BaseURL: server.URL,
+		Type: ProviderClaude, Model: "claude-test", AuthMode: AuthModeNone,
+		StreamIdleTimeoutSeconds: 1,
+	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(context.Background(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "claude-test", MaxTokens: 123}, handler)
+
+	if handler.err != streamIdleErrorMessage || !handler.naoRetentavel {
+		t.Fatalf("timeout terminal inválido: err=%q nonRetryable=%v", handler.err, handler.naoRetentavel)
+	}
+	if got := handler.finish; got.Provider != "anthropic-timeout" || got.Model != "claude-real" ||
+		got.OutputLimit != 123 || got.ResponseBytes != len("ok") {
+		t.Fatalf("diagnóstico de timeout incompleto: %+v", got)
+	}
+	if !handler.usage.OutputTokensReported || handler.usage.CompletionTokens != 2 {
+		t.Fatalf("usage de timeout incompleta: %+v", handler.usage)
+	}
+}
+
+func TestAnthropicTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
+	var attempts atomic.Int32
+	thinkingOnly := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"1\",\"model\":\"claude-test\",\"usage\":{\"input_tokens\":1}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"pensando\"}}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts.Add(1) == 1 {
+			_, _ = w.Write([]byte(thinkingOnly))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
+		_, _ = w.Write([]byte(sseAnthropicCompletion))
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(&ProviderConfig{
+		ID: "anthropic-reasoning", Name: "Anthropic Reasoning", BaseURL: server.URL,
+		Type: ProviderClaude, Model: "claude-test", AuthMode: AuthModeNone,
+		StreamIdleTimeoutSeconds: 1,
+	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(context.Background(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "claude-test"}, handler)
+
+	if handler.err != "" || handler.resets != 1 || attempts.Load() != 2 {
+		t.Fatalf("retry de reasoning inválido: err=%q resets=%d attempts=%d", handler.err, handler.resets, attempts.Load())
+	}
+}
+
+func TestAnthropicCancelamentoEmThinkingNaoFinalizaResposta(t *testing.T) {
+	stream := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"1\",\"model\":\"claude-test\",\"usage\":{\"input_tokens\":1}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"pensando\"}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(&ProviderConfig{
+		ID: "anthropic-cancel", BaseURL: server.URL, Type: ProviderClaude,
+		Model: "claude-test", AuthMode: AuthModeNone,
+	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
+	ctx, cancel := context.WithCancel(context.Background())
+	handler := &cancelOnThinkingHandler{cancel: cancel}
+
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "claude-test"}, handler)
+
+	if handler.done != "" || len(handler.chunks) != 0 {
+		t.Fatalf("barge-in publicou terminal/chunk obsoleto: done=%q chunks=%v", handler.done, handler.chunks)
+	}
+}

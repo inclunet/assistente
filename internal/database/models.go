@@ -71,13 +71,14 @@ type LLMProvider struct {
 	// grava string vazia, que a coluna aceita. Recriar a tabela só para
 	// trocar vazio por NULL custaria o procedimento mais arriscado do banco
 	// sem mudar nada de comportamento.
-	BaseURL           string `gorm:"not null"`
-	Model             string
-	DefaultModel      string
-	IsDefault         bool `gorm:"default:false"`
-	Timeout           int
-	CredentialPattern string
-	AuthMode          string
+	BaseURL                  string `gorm:"not null"`
+	Model                    string
+	DefaultModel             string
+	IsDefault                bool `gorm:"default:false"`
+	Timeout                  int
+	StreamIdleTimeoutSeconds int
+	CredentialPattern        string
+	AuthMode                 string
 	// ReasoningContentMode é capability explícita do wire protocol
 	// (disabled/replay_with_tools), nunca inferida do endpoint.
 	ReasoningContentMode string

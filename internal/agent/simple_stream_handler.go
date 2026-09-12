@@ -23,6 +23,7 @@ type SimpleStreamHandler struct {
 	lastError             string
 	suppressTerminalError bool
 	finish                llm.FinishInfo
+	usage                 llm.Usage
 	// activity acompanha um turno conduzido por agente externo (AEP-0084):
 	// ferramentas que o agente rodou e os segmentos já fechados.
 	activity agentActivity
@@ -35,6 +36,7 @@ var (
 	_ llm.NonRetryableErrorSink = (*SimpleStreamHandler)(nil)
 	_ llm.TurnNoticeSink        = (*SimpleStreamHandler)(nil)
 	_ llm.AgentTitleSink        = (*SimpleStreamHandler)(nil)
+	_ llm.UsageSink             = (*SimpleStreamHandler)(nil)
 )
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
@@ -68,23 +70,47 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
-	h.FinishThinkingIfActive()
-	_, _ = h.Finalize()
-	h.closePendingAgentTools()
 	// A supressão existe para não finalizar o streaming enquanto ainda há
 	// tentativa pela frente. Um erro que não pode ser repetido encerra o turno
 	// agora, e calá-lo deixaria a tela esperando por uma tentativa que não vem.
 	if h.suppressTerminalError && !h.ErrorNotRetryable() {
+		h.DiscardStreamReasoning()
+		_, _ = h.Finalize()
+		h.closePendingAgentTools()
 		return
 	}
-	h.Emitter.Emit("chat:stream", events.StreamEvent{
-		MessageID:      h.AssistantMessageID,
-		Done:           true,
-		Error:          err,
-		ConversationId: h.ConversationID,
-		TurnID:         h.TurnID,
-		SurfaceOrigin:  h.SurfaceOrigin,
-	})
+	h.FlushStream()
+	h.FinishThinkingIfActive()
+	_, _ = h.Finalize()
+	h.closePendingAgentTools()
+	streamEvent := events.StreamEvent{
+		MessageID:            h.AssistantMessageID,
+		Done:                 true,
+		Error:                err,
+		ConversationId:       h.ConversationID,
+		TurnID:               h.TurnID,
+		FinishReason:         string(h.finish.Reason),
+		RawReason:            h.finish.RawReason,
+		Provider:             h.finish.Provider,
+		Model:                h.finish.Model,
+		EffectiveOutputLimit: h.finish.OutputLimit,
+		SurfaceOrigin:        h.SurfaceOrigin,
+	}
+	if h.finish.Provider != "" || h.finish.Model != "" ||
+		h.finish.OutputLimit != 0 || h.finish.RawReason != "" ||
+		h.finish.Reason != "" || h.finish.ResponseBytes != 0 {
+		responseBytes := h.finish.ResponseBytes
+		streamEvent.ResponseBytes = &responseBytes
+	}
+	if h.usage.OutputTokensReported {
+		outputTokens := h.usage.CompletionTokens
+		streamEvent.OutputTokens = &outputTokens
+	}
+	if h.usage.ReasoningTokensReported {
+		reasoningTokens := h.usage.ReasoningTokens
+		streamEvent.ReasoningTokens = &reasoningTokens
+	}
+	h.Emitter.Emit("chat:stream", streamEvent)
 }
 
 func (h *SimpleStreamHandler) LastError() string {
@@ -93,6 +119,17 @@ func (h *SimpleStreamHandler) LastError() string {
 
 func (h *SimpleStreamHandler) OnFinishReason(info llm.FinishInfo) {
 	h.finish = info
+}
+
+func (h *SimpleStreamHandler) OnUsage(usage llm.Usage) {
+	h.usage = usage
+}
+
+func (h *SimpleStreamHandler) ResetStreamAttempt() {
+	h.BaseStreamHandler.ResetStreamAttempt()
+	h.lastError = ""
+	h.finish = llm.FinishInfo{}
+	h.usage = llm.Usage{}
 }
 
 // SuppressTerminalError evita emitir chat:stream terminal com Error.
