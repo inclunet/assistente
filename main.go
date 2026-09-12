@@ -4,7 +4,6 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"embed"
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -43,7 +42,7 @@ func main() {
 func run(args []string) (exitCode int) {
 	logPath, remainingArgs, err := logging.ParseLogFileArgs(args[1:])
 	if err != nil {
-		reportFatalError(os.Stderr, fmt.Sprintf("Erro ao configurar logs: %v", err))
+		reportFatalError(os.Stderr, startupLogConfigurationError(err))
 		return 2
 	}
 
@@ -51,7 +50,7 @@ func run(args []string) (exitCode int) {
 	if logPath != "" {
 		fileOutput, err := logging.OpenFileOutput(logPath)
 		if err != nil {
-			reportFatalError(os.Stderr, fmt.Sprintf("Erro ao configurar logs: %v", err))
+			reportFatalError(os.Stderr, startupLogConfigurationError(err))
 			return 2
 		}
 		database.SetLogOutput(fileOutput.Writer())
@@ -59,7 +58,7 @@ func run(args []string) (exitCode int) {
 		defer func() {
 			database.SetLogOutput(nil)
 			if err := fileOutput.Close(); err != nil {
-				reportFatalError(os.Stderr, fmt.Sprintf("Erro ao fechar arquivo de log %q: %v", logPath, err))
+				reportFatalError(os.Stderr, startupLogCloseError(logPath, err))
 				exitCode = 1
 			}
 		}()
@@ -230,12 +229,12 @@ func run(args []string) (exitCode int) {
 
 	select {
 	case startupErr := <-startupErrors:
-		reportFatalError(errorOutput, fmt.Sprintf("Falha ao inicializar aplicação: %v", startupErr))
+		reportFatalError(errorOutput, startupApplicationError(startupErr))
 		return 1
 	default:
 	}
 	if err != nil {
-		reportFatalError(errorOutput, fmt.Sprintf("Erro: %v", err))
+		reportFatalError(errorOutput, startupRunError(err))
 		return 1
 	}
 	return 0

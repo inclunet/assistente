@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,6 +11,26 @@ import (
 )
 
 const logFileFlag = "--log-file"
+
+var (
+	ErrLogFilePathRequired = errors.New("--log-file requer um caminho")
+	ErrLogFileRepeated     = errors.New("--log-file foi informado mais de uma vez")
+)
+
+// FileOpenError preserva o caminho e o erro do sistema para apresentação
+// localizada pelo entrypoint.
+type FileOpenError struct {
+	Path string
+	Err  error
+}
+
+func (e *FileOpenError) Error() string {
+	return fmt.Sprintf("não foi possível abrir o arquivo de log %q: %v", e.Path, e.Err)
+}
+
+func (e *FileOpenError) Unwrap() error {
+	return e.Err
+}
 
 // ParseLogFileArgs extrai a opção exclusiva do executável gráfico e preserva
 // os demais argumentos para o Wails.
@@ -23,7 +44,7 @@ func ParseLogFileArgs(args []string) (string, []string, error) {
 		switch {
 		case arg == logFileFlag:
 			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
-				return "", nil, fmt.Errorf("%s requer um caminho", logFileFlag)
+				return "", nil, ErrLogFilePathRequired
 			}
 			index++
 			value = args[index]
@@ -35,10 +56,10 @@ func ParseLogFileArgs(args []string) (string, []string, error) {
 		}
 
 		if strings.TrimSpace(value) == "" {
-			return "", nil, fmt.Errorf("%s requer um caminho", logFileFlag)
+			return "", nil, ErrLogFilePathRequired
 		}
 		if path != "" {
-			return "", nil, fmt.Errorf("%s foi informado mais de uma vez", logFileFlag)
+			return "", nil, ErrLogFileRepeated
 		}
 		path = value
 	}
@@ -55,12 +76,12 @@ type FileOutput struct {
 // OpenFileOutput abre path para anexação e passa a duplicar slog e log padrão.
 func OpenFileOutput(path string) (*FileOutput, error) {
 	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("%s requer um caminho", logFileFlag)
+		return nil, ErrLogFilePathRequired
 	}
 
 	logFile, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("não foi possível abrir o arquivo de log %q: %w", path, err)
+		return nil, &FileOpenError{Path: path, Err: err}
 	}
 	file := &fileSink{file: logFile}
 

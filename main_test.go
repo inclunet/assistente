@@ -19,12 +19,15 @@ func TestRunRemoveFlagPropagaStartupErrorEFechaLog(t *testing.T) {
 	previousStartDesktop := startDesktop
 	previousQuitDesktop := quitDesktop
 	previousNativeError := showNativeFatalError
+	previousLocaleProvider := startupLocaleProvider
 	t.Cleanup(func() {
 		runDesktop = previousRunDesktop
 		startDesktop = previousStartDesktop
 		quitDesktop = previousQuitDesktop
 		showNativeFatalError = previousNativeError
+		startupLocaleProvider = previousLocaleProvider
 	})
+	startupLocaleProvider = func() string { return "pt-BR" }
 
 	var runnerArgs []string
 	runDesktop = func(appOptions *options.App) error {
