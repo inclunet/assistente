@@ -138,22 +138,22 @@ const (
 // ProviderConfig descreve um provedor LLM
 // Usado pelo ProviderRegistry para inicialização do cliente.
 type ProviderConfig struct {
-	ID                string            `json:"id"`
-	Name              string            `json:"name"`
-	Type              ProviderType      `json:"type"`
-	APIFormat         APIFormat         `json:"api_format,omitempty"`
-	BaseURL           string            `json:"base_url"`
-	Model             string            `json:"model,omitempty"`
-	DefaultModel      string            `json:"default_model,omitempty"`
-	IsDefault         bool              `json:"is_default,omitempty"`
-	Timeout           int               `json:"timeout,omitempty"`
+	ID           string       `json:"id"`
+	Name         string       `json:"name"`
+	Type         ProviderType `json:"type"`
+	APIFormat    APIFormat    `json:"api_format,omitempty"`
+	BaseURL      string       `json:"base_url"`
+	Model        string       `json:"model,omitempty"`
+	DefaultModel string       `json:"default_model,omitempty"`
+	IsDefault    bool         `json:"is_default,omitempty"`
+	Timeout      int          `json:"timeout,omitempty"`
 	// StreamIdleTimeoutSeconds limita quanto tempo um streaming SSE pode ficar
-	// sem entregar evento nenhum antes de a tentativa ser cancelada (watchdog
-	// de ociosidade). Zero = padrão de 60s. Não é teto sobre o stream total:
-	// cada chunk recebido reinicia a contagem.
+	// sem eventos. Zero usa o padrão de 60s; cada evento reinicia a contagem.
+	// O valor é preservado por DB e portabilidade para compatibilidade; a UI
+	// ainda não oferece controle próprio.
 	StreamIdleTimeoutSeconds int               `json:"stream_idle_timeout_seconds,omitempty"`
 	Headers                  map[string]string `json:"headers,omitempty"`
-	CredentialPattern string            `json:"credential_pattern,omitempty"`
+	CredentialPattern        string            `json:"credential_pattern,omitempty"`
 	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
 	// Vazio = inferido a partir de CredentialPattern (sem pattern → none, com pattern → required).
 	AuthMode AuthMode `json:"auth_mode,omitempty"`

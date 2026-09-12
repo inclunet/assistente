@@ -637,7 +637,7 @@ describe('chatEventController', () => {
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
     expect(messages[1].message.id).toBe('assistant-db-1');
-    expect(messages[1].message.content).toBe('parcial');
+    expect(messages[1].message.content).toBe('parcial\n\nErro: boom');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-1');
   });
 
@@ -1445,5 +1445,219 @@ describe('chatEventController', () => {
       'polite',
       undefined,
     );
+  });
+
+  it('traduz streaming_interrupted', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'streaming_interrupted',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingInterrupted');
+  });
+
+  it('traduz streaming_interrupted em chat:done sem perder o parcial do turnPatch', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 't1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'texto transmitido incompleto',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      errorMessage: 'streaming_interrupted',
+      turnId: 't1',
+      assistantMessageId: 'a1',
+      hadToolCalls: false,
+      turnPatch: {
+        message: {
+          id: 'a1',
+          conversationId: 'conversation-1',
+          turnId: 't1',
+          content: 'resposta parcial',
+          createdAt: '2026-09-11T18:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[1].message.content,
+    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
+  });
+
+  it('traduz streaming_idle_timeout', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_idle_timeout',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingIdleTimeout');
+  });
+
+  it('traduz streaming_retries_exhausted', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_retries_exhausted',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingRetriesExhausted');
+  });
+
+  it('traduz streaming_prompt_cache_hint_rejected', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_prompt_cache_hint_rejected',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingPromptCacheHintRejected');
+  });
+
+  it('preserva conteúdo parcial e acrescenta erro terminal de chat:stream', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'resposta parcial  \n',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    vi.runOnlyPendingTimers();
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'streaming_idle_timeout',
+      sequence: 1,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('resposta parcial  \n\n\nErro: chat.errors.streamingIdleTimeout');
+  });
+
+  it('preserva conteúdo parcial e acrescenta erro terminal de chat:done', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'resposta parcial',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    vi.runOnlyPendingTimers();
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      errorMessage: 'streaming_interrupted',
+      turnId: 't1',
+      assistantMessageId: 'a1',
+      hadToolCalls: false,
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
+  });
+
+  it('limpa o reasoning visual quando uma tentativa é descartada', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'a1',
+      turnId: 't1',
+      started: true,
+      content: 'raciocínio descartado',
+    });
+    adapter.updateReasoning('conversation-1', 'a1', 'raciocínio já salvo');
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'a1',
+      turnId: 't1',
+      done: true,
+      content: '',
+    });
+
+    expect(sessions['conversation-1'].isThinking).toBe(false);
+    expect(sessions['conversation-1'].streamingReasoning).toBe('');
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.reasoning,
+    ).toBe('');
+  });
+
+  it('não vincula o controller por thinking atrasado antes de messages_ready', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation!.threadedMessages = [
+      createNode(createMessage('assistant-antigo', 'assistant', 'resposta persistida')),
+    ];
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'assistant-antigo',
+      turnId: 'turn-antigo',
+      started: true,
+      content: 'atrasado',
+    });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-novo',
+      userContent: 'pergunta nova',
+      turnId: 'turn-novo',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      messageId: 'assistant-novo',
+      turnId: 'turn-novo',
+      delta: 'resposta nova',
+      reset: true,
+      sequence: 0,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual([
+      'assistant-antigo',
+      'user-novo',
+      'assistant-novo',
+    ]);
+    expect(messages[0].message.content).toBe('resposta persistida');
+    expect(messages[0].message.isStreaming).toBe(false);
+    expect(messages[0].message.reasoning).toBeUndefined();
+    expect(messages[2].message.content).toBe('resposta nova');
   });
 });

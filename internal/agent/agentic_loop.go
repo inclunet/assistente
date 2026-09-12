@@ -91,6 +91,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		// 2. Erro?
 		if streamErr != "" {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro na iteração %d: %s", iteration, result.Error)
+			r.persistAndAccountNativeMCP(ctx, result, iteration)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
 			r.svc.emitter.Emit("chat:done", r.buildErrorDoneEventWithContext(ctx, streamErr, iteration))
@@ -224,11 +225,17 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			if fb.ResolveToolDefs != nil {
 				r.activeResolve = fb.ResolveToolDefs
 			}
+			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
+				resetter.ResetStreamAttempt()
+			}
 			attempt--
 			continue
 		}
 		result = handler.Result()
 		if ctx.Err() != nil {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration, r.totalToolCallCount, r.toolsUsedSet)
 			return result, "", true
@@ -241,15 +248,24 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		// Mesma regra do streaming simples: o que o provider marcou como não
 		// repetível não volta ao agente por conta do app (AEP-0084 D4).
 		if barrier, ok := handler.(interface{ ErrorNotRetryable() bool }); ok && barrier.ErrorNotRetryable() {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido sem repetição possível (iteração %d): %s", iteration, result.Error)
 			break
 		}
 		if attempt == attempts {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 		}
 		if attempt < attempts {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
+			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
+				resetter.ResetStreamAttempt()
+			}
 			continue
 		}
 	}
@@ -752,21 +768,40 @@ func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int
 
 func (r *agenticLoopRunner) buildErrorDoneEventWithContext(ctx context.Context, errMessage string, iteration int) ports.DoneEvent {
 	event := ports.DoneEvent{
-		ConversationID:     r.conversationID,
-		TurnID:             r.turnID,
-		AssistantMessageID: r.assistantMessageID,
-		SurfaceOrigin:      r.surfaceOrigin,
-		HadToolCalls:       r.totalToolCallCount > 0,
-		Reason:             "error",
-		ErrorMessage:       errMessage,
-		IterationCount:     iteration + 1,
-		ToolCallCount:      r.totalToolCallCount,
-		ToolsUsed:          sortedToolNames(r.toolsUsedSet),
-		PromptTokens:       r.lastUsage.PromptTokens,
-		CompletionTokens:   r.lastUsage.CompletionTokens,
-		CacheReadTokens:    r.lastUsage.CacheReadTokens,
-		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
-		CacheMissTokens:    r.lastUsage.CacheMissTokens,
+		ConversationID:       r.conversationID,
+		TurnID:               r.turnID,
+		AssistantMessageID:   r.assistantMessageID,
+		SurfaceOrigin:        r.surfaceOrigin,
+		HadToolCalls:         r.totalToolCallCount > 0,
+		Reason:               "error",
+		ErrorMessage:         errMessage,
+		IterationCount:       iteration + 1,
+		ToolCallCount:        r.totalToolCallCount,
+		ToolsUsed:            sortedToolNames(r.toolsUsedSet),
+		PromptTokens:         r.lastUsage.PromptTokens,
+		CompletionTokens:     r.lastUsage.CompletionTokens,
+		CacheReadTokens:      r.lastUsage.CacheReadTokens,
+		CacheWriteTokens:     r.lastUsage.CacheWriteTokens,
+		CacheMissTokens:      r.lastUsage.CacheMissTokens,
+		FinishReason:         string(r.lastFinish.Reason),
+		RawReason:            r.lastFinish.RawReason,
+		Provider:             r.lastFinish.Provider,
+		Model:                r.lastFinish.Model,
+		EffectiveOutputLimit: r.lastFinish.OutputLimit,
+	}
+	if r.lastFinish.Provider != "" || r.lastFinish.Model != "" ||
+		r.lastFinish.OutputLimit != 0 || r.lastFinish.RawReason != "" ||
+		r.lastFinish.Reason != "" || r.lastFinish.ResponseBytes != 0 {
+		responseBytes := r.lastFinish.ResponseBytes
+		event.ResponseBytes = &responseBytes
+	}
+	if r.lastDiagnosticUsage.OutputTokensReported {
+		outputTokens := r.lastDiagnosticUsage.CompletionTokens
+		event.OutputTokens = &outputTokens
+	}
+	if r.lastDiagnosticUsage.ReasoningTokensReported {
+		reasoningTokens := r.lastDiagnosticUsage.ReasoningTokens
+		event.ReasoningTokens = &reasoningTokens
 	}
 	event.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
 	return event

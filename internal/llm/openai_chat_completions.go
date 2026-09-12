@@ -119,12 +119,14 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 				// (tool_choice, prompt_cache_key) não são "conexão falhou".
 				notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
 			}
+			resetStreamAttempt(handler)
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
 		}
 
-		handler.OnError("Máximo de tentativas de streaming excedido")
+		discardStreamReasoning(handler)
+		handler.OnError(streamRetriesExhaustedError)
 	}
 }
 
@@ -157,12 +159,84 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var thinkingBuffer strings.Builder
 	var emittedVisibleContent bool
 	captureReasoningContent := p.ReplaysReasoningContent()
+	thinkingFinished := false
+	finishThinking := func() {
+		if thinkingFinished || fullReasoning.Len() == 0 {
+			return
+		}
+		handler.OnThinkingDone(fullReasoning.String())
+		thinkingFinished = true
+		isThinking = false
+		thinkingBuffer.Reset()
+	}
+	discardThinking := func() {
+		if thinkingFinished || fullReasoning.Len() == 0 {
+			return
+		}
+		discardStreamReasoning(handler)
+		thinkingFinished = true
+		isThinking = false
+		thinkingBuffer.Reset()
+	}
 
 	// Coletar tool calls finalizadas durante streaming
 	var finishedToolCalls []ToolCall
+	currentDiagnostics := func() (Usage, FinishInfo, string) {
+		usage := Usage{}
+		if openAIUsageReported(usageRawJSON,
+			int(acc.Usage.PromptTokens), int(acc.Usage.CompletionTokens), int(acc.Usage.TotalTokens)) {
+			cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
+			if cachedTokens == 0 {
+				cachedTokens = promptTokensDetails.CachedTokens
+			}
+			usage = UsageFromOpenAICompletion(
+				int(acc.Usage.PromptTokens),
+				int(acc.Usage.CompletionTokens),
+				int(acc.Usage.TotalTokens),
+				int(cachedTokens),
+				usageRawJSON,
+			)
+		}
+		model := acc.Model
+		if model == "" {
+			model = string(params.Model)
+		}
+		finish := FinishInfo{}
+		if len(acc.Choices) > 0 {
+			finish = normalizeOpenAIChatFinishReason(string(acc.Choices[0].FinishReason))
+		}
+		outputLimit := 0
+		if params.MaxCompletionTokens.Valid() {
+			outputLimit = int(params.MaxCompletionTokens.Value)
+		} else if params.MaxTokens.Valid() {
+			outputLimit = int(params.MaxTokens.Value)
+		}
+		finish = finishInfoWithDiagnostics(finish, p.provider, model, outputLimit, fullResponse.Len())
+		return usage, finish, model
+	}
+	reportCurrentDiagnostics := func() {
+		usage, finish, _ := currentDiagnostics()
+		reportUsage(handler, usage)
+		ReportFinishReason(handler, finish)
+	}
 
 	for stream.Next() {
 		wd.Kick()
+		if ctx.Err() != nil {
+			finishThinking()
+			return chatStreamAttempt{done: true}
+		}
+		if wd.TimedOut() {
+			if !emittedVisibleContent {
+				reportCurrentDiagnostics()
+				return chatStreamAttempt{plainRetry: true}
+			}
+			finishThinking()
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamIdleErrorMessage)
+			return chatStreamAttempt{done: true}
+		}
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
 		accumulateChatCompletionStreamUsageExtras(&promptTokensDetails, chunk, &usageRawJSON)
@@ -191,6 +265,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				// contrato. Só conteúdo visível entregue por OnChunk torna uma
 				// nova tentativa insegura por poder duplicar a resposta.
 				handler.OnThinking(reasoning)
+				if ctx.Err() != nil {
+					finishThinking()
+					return chatStreamAttempt{done: true}
+				}
 			}
 		}
 
@@ -200,6 +278,23 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
 
 			if content != "" {
+				select {
+				case <-ctx.Done():
+					finishThinking()
+					return chatStreamAttempt{done: true}
+				default:
+				}
+				if wd.TimedOut() {
+					if !emittedVisibleContent {
+						reportCurrentDiagnostics()
+						return chatStreamAttempt{plainRetry: true}
+					}
+					finishThinking()
+					reportCurrentDiagnostics()
+					markErrorNotRetryable(handler)
+					handler.OnError(streamIdleErrorMessage)
+					return chatStreamAttempt{done: true}
+				}
 				fullResponse.WriteString(content)
 				emittedVisibleContent = true
 				handler.OnChunk(content)
@@ -207,12 +302,15 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 	}
 
+	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
+			finishThinking()
+			reportCurrentDiagnostics()
 			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 			return chatStreamAttempt{done: true}
 		}
@@ -221,8 +319,12 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
 		if wd.TimedOut() {
 			if !emittedVisibleContent {
+				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
+			finishThinking()
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
 			handler.OnError(streamIdleErrorMessage)
 			return chatStreamAttempt{done: true}
 		}
@@ -246,54 +348,54 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 
 			if isRetryableError(errStr) {
+				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
 		}
 
+		finishThinking()
+		reportCurrentDiagnostics()
+		if emittedVisibleContent {
+			markErrorNotRetryable(handler)
+		}
 		handler.OnError(errStr)
 		return chatStreamAttempt{done: true}
 	}
 
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando stream.Err() == nil com resposta
-	// truncada. Nesse caso não há conclusão válida a entregar.
+	// truncada. Parar e aguardar o watchdog fecha a janela entre consultar
+	// TimedOut e entregar OnDone.
 	if wd.TimedOut() {
-		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
+		logging.Logger(ctx, "llm.openai-chat-completions").ErrorContext(
+			ctx,
+			"stream encerrou junto com timeout de inatividade",
+			"partial_bytes", fullResponse.Len(),
+		)
 		if !emittedVisibleContent {
+			reportCurrentDiagnostics()
 			return chatStreamAttempt{plainRetry: true}
 		}
+		finishThinking()
+		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
 		return chatStreamAttempt{done: true}
 	}
 
-	if fullReasoning.Len() > 0 {
-		handler.OnThinkingDone(fullReasoning.String())
-	}
-
-	usage := Usage{}
-	if openAIUsageReported(usageRawJSON,
-		int(acc.Usage.PromptTokens), int(acc.Usage.CompletionTokens), int(acc.Usage.TotalTokens)) {
-		cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
-		if cachedTokens == 0 {
-			cachedTokens = promptTokensDetails.CachedTokens
+	if isThinking && thinkingBuffer.Len() > 0 {
+		select {
+		case <-ctx.Done():
+			finishThinking()
+			return chatStreamAttempt{done: true}
+		default:
 		}
-		usage = UsageFromOpenAICompletion(
-			int(acc.Usage.PromptTokens),
-			int(acc.Usage.CompletionTokens),
-			int(acc.Usage.TotalTokens),
-			int(cachedTokens),
-			usageRawJSON,
-		)
+		thinkingBuffer.Reset()
+		isThinking = false
 	}
+	usage, finish, model := currentDiagnostics()
+	reportUsage(handler, usage)
 
-	model := acc.Model
-	if model == "" {
-		model = string(params.Model)
-	}
-	finish := FinishInfo{}
-	if len(acc.Choices) > 0 {
-		finish = normalizeOpenAIChatFinishReason(string(acc.Choices[0].FinishReason))
-	}
 	if finish.Reason == FinishReasonMaxTokens && len(acc.Choices) > 0 && len(acc.Choices[0].Message.ToolCalls) > 0 {
 		// JustFinishedToolCall só entrega blocos fechados. Em "length", o
 		// acumulador ainda preserva a chamada parcial; ela precisa chegar ao loop
@@ -311,14 +413,26 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 	}
 	finish = finishInfoWithToolCalls(finish, len(finishedToolCalls))
-	outputLimit := 0
-	if params.MaxCompletionTokens.Valid() {
-		outputLimit = int(params.MaxCompletionTokens.Value)
-	} else if params.MaxTokens.Valid() {
-		outputLimit = int(params.MaxTokens.Value)
+	if finish.Reason == "" && len(finishedToolCalls) == 0 && !emittedVisibleContent {
+		discardThinking()
+	} else {
+		finishThinking()
 	}
-	finish = finishInfoWithDiagnostics(finish, p.provider, model, outputLimit, fullResponse.Len())
+	select {
+	case <-ctx.Done():
+		finishThinking()
+		return chatStreamAttempt{done: true}
+	default:
+	}
 	ReportFinishReason(handler, finish)
+
+	if finish.Reason == "" && len(finishedToolCalls) == 0 {
+		if emittedVisibleContent {
+			markErrorNotRetryable(handler)
+		}
+		handler.OnError("streaming_interrupted")
+		return chatStreamAttempt{done: true}
+	}
 
 	if len(finishedToolCalls) > 0 {
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), usage, model)

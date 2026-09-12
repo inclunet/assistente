@@ -21,6 +21,7 @@ type EmitterAdapter struct {
 	out             io.Writer // stdout por padrão
 	errOut          io.Writer // stderr por padrão
 	verbose         bool
+	locale          string
 	done            chan struct{} // sinaliza fim do streaming (chat:stream Done=true ou chat:error)
 	conversationID  string        // conversa ativa; "" = aceita qualquer conversa
 	streamSequence  int64
@@ -34,6 +35,11 @@ type EmitterOption func(*EmitterAdapter)
 // WithVerbose habilita logging de todos os eventos no stderr.
 func WithVerbose(v bool) EmitterOption {
 	return func(e *EmitterAdapter) { e.verbose = v }
+}
+
+// WithLocale define o idioma das mensagens próprias do adapter.
+func WithLocale(locale string) EmitterOption {
+	return func(e *EmitterAdapter) { e.locale = normalizeCLILocale(locale) }
 }
 
 // WithOutput define o writer de saída (padrão: os.Stdout).
@@ -51,6 +57,7 @@ func NewEmitterAdapter(opts ...EmitterOption) *EmitterAdapter {
 	e := &EmitterAdapter{
 		out:    os.Stdout,
 		errOut: os.Stderr,
+		locale: detectCLILocale(),
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -101,12 +108,24 @@ func (e *EmitterAdapter) Emit(event string, data any) {
 		e.handleDone(data)
 	case event == "chat:segment_done":
 		e.handleSegmentDone(data)
+	case event == "chat:notice":
+		e.handleNotice(data)
 	case strings.HasPrefix(event, "chat:tool_"):
 		e.handleTool(event, data)
 	default:
 		if e.verbose {
 			_, _ = fmt.Fprintf(e.errOut, "[event] %s\n", event)
 		}
+	}
+}
+
+func (e *EmitterAdapter) handleNotice(data any) {
+	ev, ok := e.toNoticeEvent(data)
+	if !ok || (e.conversationID != "" && ev.ConversationID != e.conversationID) {
+		return
+	}
+	if ev.Kind == "stream_retry" {
+		_, _ = fmt.Fprintln(e.errOut, localizedStreamRetryNotice(e.locale, ev.Count))
 	}
 }
 
@@ -124,7 +143,7 @@ func (e *EmitterAdapter) handleStream(data any) {
 	}
 
 	if ev.Error != "" {
-		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.Error)
+		_, _ = fmt.Fprintf(e.errOut, "\n%s: %s\n", localizedErrorPrefix(e.locale), readableChatError(ev.Error, e.locale))
 		e.resetStreamState()
 		// Fallback: sinaliza done em chat:stream com Error porque há caminhos
 		// no backend (ex.: HandlePanic) que emitem apenas chat:stream terminal
@@ -404,7 +423,7 @@ func (e *EmitterAdapter) handleDone(data any) {
 
 	// chat:done com ErrorMessage: exibe erro (substitui chat:stream terminal)
 	if ev.ErrorMessage != "" {
-		_, _ = fmt.Fprintf(e.errOut, "\nErro: %s\n", ev.ErrorMessage)
+		_, _ = fmt.Fprintf(e.errOut, "\n%s: %s\n", localizedErrorPrefix(e.locale), readableChatError(ev.ErrorMessage, e.locale))
 		e.resetStreamState()
 	}
 
@@ -431,6 +450,76 @@ func (e *EmitterAdapter) handleDone(data any) {
 		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
 	} else if e.verbose {
 		_, _ = fmt.Fprintf(e.errOut, "[done] %s\n", reason)
+	}
+}
+
+func readableChatError(message, locale string) string {
+	catalog := map[string]map[string]string{
+		"en": {
+			"streaming_interrupted":                "Response interrupted by provider without finish reason; please try again.",
+			"streaming_idle_timeout":               "Provider stopped responding mid-generation (idle timeout).",
+			"streaming_retries_exhausted":          "The response could not be completed after several connection attempts.",
+			"streaming_prompt_cache_hint_rejected": "The provider rejected the cache hint even after it was disabled. Check the gateway configuration or disable cache hints in the profile.",
+		},
+		"es": {
+			"streaming_interrupted":                "Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.",
+			"streaming_idle_timeout":               "El proveedor dejó de responder a mitad de la generación (timeout de inactividad).",
+			"streaming_retries_exhausted":          "No se pudo completar la respuesta después de varios intentos de conexión.",
+			"streaming_prompt_cache_hint_rejected": "El proveedor rechazó la sugerencia de caché incluso después de desactivarla. Comprueba la configuración del gateway o desactiva las sugerencias de caché en el perfil.",
+		},
+		"pt-BR": {
+			"streaming_interrupted":                "Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.",
+			"streaming_idle_timeout":               "O provedor parou de responder no meio da geração (timeout de inatividade).",
+			"streaming_retries_exhausted":          "Não foi possível concluir a resposta após várias tentativas de conexão.",
+			"streaming_prompt_cache_hint_rejected": "O provedor rejeitou a dica de cache mesmo depois de ela ser desativada. Verifique a configuração do gateway ou desative as dicas de cache no perfil.",
+		},
+	}
+	if translated := catalog[normalizeCLILocale(locale)][message]; translated != "" {
+		return translated
+	}
+	return message
+}
+
+func localizedErrorPrefix(locale string) string {
+	switch normalizeCLILocale(locale) {
+	case "pt-BR":
+		return "Erro"
+	case "es":
+		return "Error"
+	default:
+		return "Error"
+	}
+}
+
+func localizedStreamRetryNotice(locale string, count int) string {
+	switch normalizeCLILocale(locale) {
+	case "pt-BR":
+		return fmt.Sprintf("A conexão com o provedor falhou na tentativa %d. Tentando de novo…", count)
+	case "es":
+		return fmt.Sprintf("La conexión con el proveedor falló en el intento %d. Reintentando…", count)
+	default:
+		return fmt.Sprintf("The connection to the provider failed on attempt %d. Retrying…", count)
+	}
+}
+
+func detectCLILocale() string {
+	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return normalizeCLILocale(value)
+		}
+	}
+	return "en"
+}
+
+func normalizeCLILocale(locale string) string {
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	switch {
+	case strings.HasPrefix(locale, "pt"):
+		return "pt-BR"
+	case strings.HasPrefix(locale, "es"):
+		return "es"
+	default:
+		return "en"
 	}
 }
 
@@ -480,6 +569,28 @@ func (e *EmitterAdapter) toStreamEvent(data any) (ports.StreamEvent, bool) {
 		return ev, true
 	}
 	return ports.StreamEvent{}, false
+}
+
+func (e *EmitterAdapter) toNoticeEvent(data any) (ports.ChatNoticeEvent, bool) {
+	switch v := data.(type) {
+	case ports.ChatNoticeEvent:
+		return v, true
+	case *ports.ChatNoticeEvent:
+		if v != nil {
+			return *v, true
+		}
+	case map[string]any:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ports.ChatNoticeEvent{}, false
+		}
+		var ev ports.ChatNoticeEvent
+		if err := json.Unmarshal(b, &ev); err != nil {
+			return ports.ChatNoticeEvent{}, false
+		}
+		return ev, true
+	}
+	return ports.ChatNoticeEvent{}, false
 }
 
 // errorConversationID extrai o ConversationID do payload de erro, se disponível.

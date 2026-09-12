@@ -7,14 +7,25 @@ import (
 )
 
 func TestStreamEventSerializaSomenteDeltaCorrelacionado(t *testing.T) {
+	outputTokens := 7
+	reasoningTokens := 5
+	responseBytes := 8
 	payload, err := json.Marshal(StreamEvent{
-		MessageID:      "assistant-1",
-		ConversationId: "conv-1",
-		TurnID:         "turn-1",
-		Delta:          "Olá 世界",
-		Reset:          true,
-		BaseContent:    "prefixo",
-		Sequence:       0,
+		MessageID:            "assistant-1",
+		ConversationId:       "conv-1",
+		TurnID:               "turn-1",
+		Delta:                "Olá 世界",
+		Reset:                true,
+		BaseContent:          "prefixo",
+		Sequence:             0,
+		FinishReason:         "max_tokens",
+		RawReason:            "length",
+		Provider:             "provider-1",
+		Model:                "modelo-1",
+		EffectiveOutputLimit: 12,
+		OutputTokens:         &outputTokens,
+		ReasoningTokens:      &reasoningTokens,
+		ResponseBytes:        &responseBytes,
 	})
 	if err != nil {
 		t.Fatalf("serializar chat:stream: %v", err)
@@ -28,6 +39,14 @@ func TestStreamEventSerializaSomenteDeltaCorrelacionado(t *testing.T) {
 		`"reset":true`,
 		`"baseContent":"prefixo"`,
 		`"sequence":0`,
+		`"finishReason":"max_tokens"`,
+		`"rawReason":"length"`,
+		`"provider":"provider-1"`,
+		`"model":"modelo-1"`,
+		`"effectiveOutputLimit":12`,
+		`"outputTokens":7`,
+		`"reasoningTokens":5`,
+		`"responseBytes":8`,
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("payload não contém %s: %s", fragment, got)

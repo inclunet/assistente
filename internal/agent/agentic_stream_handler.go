@@ -21,6 +21,7 @@ type AgenticStreamHandler struct {
 	// Resultado da iteração (preenchido por OnDone/OnToolCalls/OnError)
 	result AgenticResult
 	finish llm.FinishInfo
+	usage  llm.Usage
 
 	// MCP tool events acumulados durante o streaming (para persistência)
 	nativeMCPEvents []llm.MCPToolEvent
@@ -29,6 +30,11 @@ type AgenticStreamHandler struct {
 	// Guardamos por ID para enriquecer o completed-event antes de persistir.
 	nativeMCPArgsByID map[string]string
 }
+
+var (
+	_ llm.TurnNoticeSink = (*AgenticStreamHandler)(nil)
+	_ llm.UsageSink      = (*AgenticStreamHandler)(nil)
+)
 
 // NewAgenticStreamHandler cria um handler para uma iteração do agentic loop.
 func NewAgenticStreamHandler(emitter events.Emitter, conversationID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin, turnID string) *AgenticStreamHandler {
@@ -52,6 +58,23 @@ func (h *AgenticStreamHandler) Result() AgenticResult {
 func (h *AgenticStreamHandler) OnFinishReason(info llm.FinishInfo) {
 	h.mu.Lock()
 	h.finish = info
+	h.mu.Unlock()
+}
+
+func (h *AgenticStreamHandler) OnUsage(usage llm.Usage) {
+	h.mu.Lock()
+	h.usage = usage
+	h.mu.Unlock()
+}
+
+func (h *AgenticStreamHandler) ResetStreamAttempt() {
+	h.BaseStreamHandler.ResetStreamAttempt()
+	h.mu.Lock()
+	h.result = AgenticResult{}
+	h.finish = llm.FinishInfo{}
+	h.usage = llm.Usage{}
+	h.nativeMCPEvents = nil
+	h.nativeMCPArgsByID = make(map[string]string)
 	h.mu.Unlock()
 }
 
@@ -161,9 +184,20 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 
 func (h *AgenticStreamHandler) OnError(err string) {
 	h.FlushStream()
-
+	content, reasoning := h.Finalize()
+	h.mu.Lock()
+	finish := h.finish
+	usage := h.usage
+	mcpEvents := h.nativeMCPEvents
+	h.nativeMCPEvents = nil
+	h.mu.Unlock()
 	h.result = AgenticResult{
-		Error: err,
+		FullResponse:    content,
+		Reasoning:       reasoning,
+		NativeMCPEvents: mcpEvents,
+		Usage:           usage,
+		Error:           err,
+		Finish:          finish,
 	}
 }
 

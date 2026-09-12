@@ -115,3 +115,108 @@ func TestGooglePreservaReasoningZeroExplicitamenteReportado(t *testing.T) {
 		t.Fatalf("output ausente não pode virar zero reportado: %#v", handler.usage)
 	}
 }
+
+func TestGoogleTimeoutParcialPreservaDiagnosticos(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sseGeminiChunk))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	ctxCred := database.WithUserID(context.Background(), "user-timeout")
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-timeout.test", &credentials.AuthConfig{
+		Type: "bearer", Token: "test-key",
+	}); err != nil {
+		t.Fatalf("RegisterPatternWithContext() error = %v", err)
+	}
+	provider := NewGoogleProvider(&ProviderConfig{
+		ID: "google-timeout", Name: "Google Timeout", BaseURL: server.URL,
+		Type: ProviderType("gemini"), Model: "gemini-test", CredentialPattern: "gemini-timeout.test",
+		StreamIdleTimeoutSeconds: 1,
+	}, credMgr)
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gemini-test", MaxTokens: 321}, handler)
+
+	if handler.err != streamIdleErrorMessage || !handler.naoRetentavel {
+		t.Fatalf("timeout terminal inválido: err=%q nonRetryable=%v", handler.err, handler.naoRetentavel)
+	}
+	if got := handler.finish; got.Provider != "google-timeout" || got.Model != "gemini-test" ||
+		got.OutputLimit != 321 || got.ResponseBytes != len("ok") {
+		t.Fatalf("diagnóstico de timeout incompleto: %+v", got)
+	}
+	if !handler.usage.OutputTokensReported || handler.usage.CompletionTokens != 2 ||
+		!handler.usage.ReasoningTokensReported || handler.usage.ReasoningTokens != 5 {
+		t.Fatalf("usage de timeout incompleta: %+v", handler.usage)
+	}
+}
+
+func TestGoogleTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
+	var attempts atomic.Int32
+	thinkingOnly := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"pensando\",\"thought\":true}],\"role\":\"model\"},\"index\":0}]}\r\n\r\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts.Add(1) == 1 {
+			_, _ = w.Write([]byte(thinkingOnly))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
+		_, _ = w.Write([]byte(sseGeminiChunk))
+	}))
+	defer server.Close()
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	ctxCred := database.WithUserID(context.Background(), "user-reasoning-retry")
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-reasoning.test", &credentials.AuthConfig{
+		Type: "bearer", Token: "test-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewGoogleProvider(&ProviderConfig{
+		ID: "google-reasoning", Name: "Google Reasoning", BaseURL: server.URL,
+		Type: ProviderType("gemini"), Model: "gemini-test", CredentialPattern: "gemini-reasoning.test",
+		StreamIdleTimeoutSeconds: 1,
+	}, credMgr)
+	handler := &espiaoAvisos{}
+
+	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gemini-test"}, handler)
+
+	if handler.err != "" || handler.resets != 1 || attempts.Load() != 2 {
+		t.Fatalf("retry de reasoning inválido: err=%q resets=%d attempts=%d", handler.err, handler.resets, attempts.Load())
+	}
+}
+
+func TestGoogleCancelamentoEmThinkingNaoFinalizaResposta(t *testing.T) {
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"pensando\",\"thought\":true}],\"role\":\"model\"},\"finishReason\":\"STOP\",\"index\":0}]}\r\n\r\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	ctxCred := database.WithUserID(context.Background(), "user-cancel")
+	if err := credMgr.RegisterPatternWithContext(ctxCred, "gemini-cancel.test", &credentials.AuthConfig{
+		Type: "bearer", Token: "test-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewGoogleProvider(&ProviderConfig{
+		ID: "google-cancel", BaseURL: server.URL, Type: ProviderType("gemini"),
+		Model: "gemini-test", CredentialPattern: "gemini-cancel.test",
+	}, credMgr)
+	ctx, cancel := context.WithCancel(ctxCred)
+	handler := &cancelOnThinkingHandler{cancel: cancel}
+
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gemini-test"}, handler)
+
+	if handler.done != "" || len(handler.chunks) != 0 {
+		t.Fatalf("barge-in publicou terminal/chunk obsoleto: done=%q chunks=%v", handler.done, handler.chunks)
+	}
+}

@@ -41,7 +41,12 @@ function dispatch(name: ChatTurnEventName, payload: unknown) {
   const eventTurnId = typeof event.turnId === 'string' ? event.turnId.trim() : '';
   const activeTurnId = route.getTurnId()?.trim() ?? '';
   if (eventTurnId && activeTurnId && eventTurnId !== activeTurnId) return;
-  if (eventTurnId && !activeTurnId) route.bindTurnId(eventTurnId);
+  if (eventTurnId && !activeTurnId) {
+    // Thinking pode chegar antes do início canônico e ser renderizado
+    // provisoriamente, mas não pode vincular a rota: um evento atrasado de um
+    // turno cancelado filtraria o verdadeiro messages_ready seguinte.
+    if (name !== 'chat:thinking') route.bindTurnId(eventTurnId);
+  }
 
   const handler = route.handlers[name] as ((event: RoutedChatEvent) => void) | undefined;
   handler?.(event);
