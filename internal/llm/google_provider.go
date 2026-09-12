@@ -313,7 +313,7 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		}
 
 		discardStreamReasoning(handler)
-		handler.OnError("MÃƒÆ’Ã‚Â¡ximo de tentativas de streaming excedido")
+		handler.OnError(streamRetriesExhaustedError)
 	}
 }
 

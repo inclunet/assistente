@@ -1515,6 +1515,20 @@ describe('chatEventController', () => {
     ).toBe('Erro: chat.errors.streamingIdleTimeout');
   });
 
+  it('traduz streaming_retries_exhausted', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_retries_exhausted',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingRetriesExhausted');
+  });
+
   it('preserva conteúdo parcial e acrescenta erro terminal de chat:stream', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });

@@ -187,3 +187,7 @@ func notifyTurnNotice(handler StreamHandler, notice TurnNotice) {
 // stream que já havia entregado conteúdo visível (não é seguro retentar sem
 // duplicar a resposta).
 const streamIdleErrorMessage = "streaming_idle_timeout"
+
+// streamRetriesExhaustedError identifica o esgotamento das tentativas internas
+// sem fixar idioma no backend.
+const streamRetriesExhaustedError = "streaming_retries_exhausted"

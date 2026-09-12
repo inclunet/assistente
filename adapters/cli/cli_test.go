@@ -115,6 +115,13 @@ func TestEmitterAdapter_TraduzCodigosDeErroDeStreaming(t *testing.T) {
 			data:   ports.StreamEvent{Error: "streaming_interrupted"},
 			want:   "\nError: Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.\n",
 		},
+		{
+			name:   "tentativas esgotadas em português",
+			locale: "pt-BR",
+			event:  "chat:stream",
+			data:   ports.StreamEvent{Error: "streaming_retries_exhausted"},
+			want:   "\nErro: Não foi possível concluir a resposta após várias tentativas de conexão.\n",
+		},
 	}
 
 	for _, tt := range tests {

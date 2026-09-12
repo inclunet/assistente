@@ -165,7 +165,7 @@ func (p *OpenAIProvider) streamChatResponses(
 				continue
 			}
 			discardStreamReasoning(handler)
-			handler.OnError("Máximo de tentativas de streaming excedido")
+			handler.OnError(streamRetriesExhaustedError)
 			return
 		}
 		return

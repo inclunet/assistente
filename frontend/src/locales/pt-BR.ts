@@ -254,6 +254,7 @@ const ptBR = {
         internalError: 'Erro interno inesperado. Tente novamente.',
         streamingInterrupted: 'Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.',
         streamingIdleTimeout: 'O provedor parou de responder no meio da geração (timeout de inatividade).',
+        streamingRetriesExhausted: 'Não foi possível concluir a resposta após várias tentativas de conexão.',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',

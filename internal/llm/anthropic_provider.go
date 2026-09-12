@@ -233,7 +233,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		}
 
 		discardStreamReasoning(handler)
-		handler.OnError("MÃ¡ximo de tentativas de streaming excedido")
+		handler.OnError(streamRetriesExhaustedError)
 	}
 }
 
@@ -316,7 +316,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 				continue
 			}
 			discardStreamReasoning(handler)
-			handler.OnError("MÃ¡ximo de tentativas de streaming excedido")
+			handler.OnError(streamRetriesExhaustedError)
 			return
 		}
 		return

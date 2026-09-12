@@ -40,6 +40,9 @@ const translateBackendChatError = (message: string) => {
   if (message === 'streaming_idle_timeout') {
     return i18next.t('chat.errors.streamingIdleTimeout');
   }
+  if (message === 'streaming_retries_exhausted') {
+    return i18next.t('chat.errors.streamingRetriesExhausted');
+  }
   return message;
 };
 

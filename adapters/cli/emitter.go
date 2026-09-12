@@ -456,16 +456,19 @@ func (e *EmitterAdapter) handleDone(data any) {
 func readableChatError(message, locale string) string {
 	catalog := map[string]map[string]string{
 		"en": {
-			"streaming_interrupted":  "Response interrupted by provider without finish reason; please try again.",
-			"streaming_idle_timeout": "Provider stopped responding mid-generation (idle timeout).",
+			"streaming_interrupted":       "Response interrupted by provider without finish reason; please try again.",
+			"streaming_idle_timeout":      "Provider stopped responding mid-generation (idle timeout).",
+			"streaming_retries_exhausted": "The response could not be completed after several connection attempts.",
 		},
 		"es": {
-			"streaming_interrupted":  "Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.",
-			"streaming_idle_timeout": "El proveedor dejó de responder a mitad de la generación (timeout de inactividad).",
+			"streaming_interrupted":       "Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.",
+			"streaming_idle_timeout":      "El proveedor dejó de responder a mitad de la generación (timeout de inactividad).",
+			"streaming_retries_exhausted": "No se pudo completar la respuesta después de varios intentos de conexión.",
 		},
 		"pt-BR": {
-			"streaming_interrupted":  "Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.",
-			"streaming_idle_timeout": "O provedor parou de responder no meio da geração (timeout de inatividade).",
+			"streaming_interrupted":       "Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.",
+			"streaming_idle_timeout":      "O provedor parou de responder no meio da geração (timeout de inatividade).",
+			"streaming_retries_exhausted": "Não foi possível concluir a resposta após várias tentativas de conexão.",
 		},
 	}
 	if translated := catalog[normalizeCLILocale(locale)][message]; translated != "" {

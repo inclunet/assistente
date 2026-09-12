@@ -253,6 +253,7 @@ const es = {
         internalError: 'Error interno inesperado. Inténtalo de nuevo.',
         streamingInterrupted: 'Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.',
         streamingIdleTimeout: 'El proveedor dejó de responder a mitad de la generación (timeout de inactividad).',
+        streamingRetriesExhausted: 'No se pudo completar la respuesta después de varios intentos de conexión.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
