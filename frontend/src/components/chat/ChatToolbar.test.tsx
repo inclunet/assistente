@@ -29,6 +29,7 @@ const mockPanelTabRef = vi.hoisted(() => ({ current: { id: 'tab-chat', title: 'C
 const activeConversationRef = vi.hoisted(() => ({
   current: { id: 'conversation-1', title: 'Conversa' } as { id: string; title: string } | null,
 }));
+const isLoadingRef = vi.hoisted(() => ({ current: false }));
 const openAtPointMock = vi.hoisted(() => vi.fn());
 // A conversa deste teste não fala com agente de código: o diretório do agente
 // não existe para ela, e o controle da barra some.
@@ -75,14 +76,20 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: vi.fn(() => vi.fn()),
 }));
 
-vi.mock('../ui/Modal', () => ({
-  Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
-    isOpen ? <div>{children}</div> : null
-  ),
-  isModalOpen: () => modalState.open,
-  useIsInsideModal: () => modalState.inside,
-  useModalIsTopmost: () => () => modalState.topmost,
-}));
+vi.mock('../ui/Modal', async () => {
+  const React = await import('react');
+  return {
+    Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) => (
+      isOpen ? <div>{children}</div> : null
+    ),
+    isModalOpen: () => modalState.open,
+    useIsInsideModal: () => React.useState(modalState.inside)[0],
+    useModalIsTopmost: () => {
+      const [topmost] = React.useState(modalState.topmost);
+      return () => topmost;
+    },
+  };
+});
 
 vi.mock('../pickers', async () => {
   const React = await import('react');
@@ -137,7 +144,7 @@ vi.mock('./ChatSessionContext', () => ({
     conversationId: 'conversation-1',
     session: { queuedTurnCount: 0 },
     conversation: activeConversationRef.current,
-    isLoading: false,
+    isLoading: isLoadingRef.current,
     clearConversationMessages: clearConversationMessagesMock,
     loadConversationSession: loadConversationSessionMock,
   }),
@@ -215,14 +222,14 @@ function renderToolbar() {
   );
 }
 
-function dispatchCtrlKey(key: string) {
+function dispatchCtrlKey(key: string, target: EventTarget = window) {
   const event = new KeyboardEvent('keydown', {
     key,
     ctrlKey: true,
     bubbles: true,
     cancelable: true,
   });
-  window.dispatchEvent(event);
+  target.dispatchEvent(event);
   return event;
 }
 
@@ -254,6 +261,7 @@ beforeEach(() => {
   announceMock.mockClear();
   profileChangeRef.current = null;
   activeConversationRef.current = { id: 'conversation-1', title: 'Conversa' };
+  isLoadingRef.current = false;
   mockPanelTabRef.current = { id: 'tab-chat', title: 'Chat', type: 'chat' } as unknown as Record<string, unknown>;
 });
 
@@ -294,17 +302,53 @@ describe('ChatToolbar shortcuts', () => {
     modalState.inside = true;
     modalState.topmost = true;
     renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
 
-    expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
-    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+    const modalOverlay = document.createElement('div');
+    modalOverlay.className = 'modal-overlay';
+    modalOverlay.setAttribute('role', 'dialog');
+    const modalControl = document.createElement('button');
+    modalOverlay.appendChild(modalControl);
+    document.body.appendChild(modalOverlay);
 
+    expect(dispatchCtrlKey('m', modalControl).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('h', modalControl).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p', modalControl).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l', modalControl).defaultPrevented).toBe(true);
+
+    expect(modelOpenMock).toHaveBeenCalledOnce();
     expect(historyClickMock).toHaveBeenCalledTimes(1);
     expect(profileClickMock).toHaveBeenCalledTimes(1);
     await waitFor(() => {
       expect(clearConversationMock).toHaveBeenCalledWith('conversation-1');
       expect(loadConversationSessionMock).toHaveBeenCalledWith('conversation-1', { refreshSurfaceWindows: true });
     });
+    modalOverlay.remove();
+  });
+
+  it('deixa a toolbar do modal tratar o evento prevenido pela superfície atrás dele', async () => {
+    modalState.open = true;
+    modalState.inside = false;
+    renderToolbar();
+    modalState.inside = true;
+    renderToolbar();
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', {
+        name: 'chat.modelOverride.label, $default',
+      })).toHaveLength(2);
+    });
+
+    expect(dispatchCtrlKey('m').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('h').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p').defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
   });
 
   it('bloqueia atalhos do chat quando outro modal esta no topo', () => {
@@ -348,6 +392,15 @@ describe('ChatToolbar shortcuts', () => {
     expect(profileClickMock).toHaveBeenCalledTimes(1);
   });
 
+  it('não limpa a conversa enquanto a sessão está carregando', () => {
+    isLoadingRef.current = true;
+    renderToolbar();
+
+    expect(dispatchCtrlKey('l').defaultPrevented).toBe(true);
+    expect(clearConversationMock).not.toHaveBeenCalled();
+    expect(clearConversationMessagesMock).not.toHaveBeenCalled();
+  });
+
   it('Ctrl+M abre uma vez o seletor de modelos do chat ativo', async () => {
     renderToolbar();
     const trigger = await screen.findByRole('button', {
@@ -361,7 +414,7 @@ describe('ChatToolbar shortcuts', () => {
     expect(trigger).toHaveAttribute('title', 'Ctrl+M');
   });
 
-  it('em surfaces mantidas montadas, somente a ativa responde a Ctrl+M', async () => {
+  it('em surfaces mantidas montadas, somente a ativa responde aos atalhos', async () => {
     render(
       <MemoryRouter>
         <ChatToolbar enableShortcuts={false} />
@@ -375,11 +428,144 @@ describe('ChatToolbar shortcuts', () => {
     });
 
     dispatchModelShortcut();
+    dispatchCtrlKey('h');
+    dispatchCtrlKey('p');
+    dispatchCtrlKey('l');
 
     expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
   });
 
-  it('não intercepta Ctrl+M em editores, terminal, modal, menu ou picker aberto', async () => {
+  it('continua acionando os atalhos após Escape quando a superfície interrompe a propagação', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const surface = document.createElement('div');
+    surface.setAttribute('role', 'document');
+    const trigger = document.createElement('button');
+    const menu = document.createElement('div');
+    const menuItem = document.createElement('button');
+    menu.setAttribute('role', 'menu');
+    menu.appendChild(menuItem);
+    surface.append(trigger, menu);
+    document.body.appendChild(surface);
+    surface.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        menu.hidden = true;
+        trigger.focus();
+      }
+      event.stopPropagation();
+    });
+
+    menuItem.focus();
+    fireEvent.keyDown(menuItem, { key: 'Escape' });
+    expect(trigger).toHaveFocus();
+
+    dispatchCtrlKey('m', trigger);
+    dispatchCtrlKey('h', trigger);
+    dispatchCtrlKey('p', trigger);
+    dispatchCtrlKey('l', trigger);
+
+    expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
+
+    surface.remove();
+  });
+
+  it('não captura atalhos durante a edição de uma mensagem', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const editor = document.createElement('div');
+    editor.className = 'chat-message__edit';
+    const textarea = document.createElement('textarea');
+    editor.appendChild(textarea);
+    document.body.appendChild(editor);
+
+    expect(dispatchCtrlKey('m', textarea).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', textarea).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p', textarea).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l', textarea).defaultPrevented).toBe(false);
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
+
+    editor.remove();
+  });
+
+  it('não captura atalhos em descendentes de editor, terminal ou aba não-chat', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const containers = [
+      Object.assign(document.createElement('div'), { className: 'monaco-editor' }),
+      Object.assign(document.createElement('div'), { className: 'xterm' }),
+      document.createElement('div'),
+      document.createElement('div'),
+    ];
+    containers[2].setAttribute('role', 'terminal');
+    containers[3].setAttribute('data-tab-type', 'editor');
+
+    containers.forEach((container) => {
+      const descendant = document.createElement('button');
+      container.appendChild(descendant);
+      document.body.appendChild(container);
+      expect(dispatchCtrlKey('m', descendant).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('h', descendant).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('p', descendant).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('l', descendant).defaultPrevented).toBe(false);
+    });
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
+
+    containers.forEach((container) => container.remove());
+  });
+
+  it('bloqueia atalhos dentro de diálogo virtual sem bloquear uma região de leitura comum', async () => {
+    renderToolbar();
+    await screen.findByRole('button', {
+      name: 'chat.modelOverride.label, $default',
+    });
+
+    const virtualDialog = document.createElement('div');
+    virtualDialog.setAttribute('role', 'dialog');
+    virtualDialog.setAttribute('aria-modal', 'true');
+    const documentRegion = document.createElement('div');
+    documentRegion.setAttribute('role', 'document');
+    const descendant = document.createElement('button');
+    documentRegion.appendChild(descendant);
+    virtualDialog.appendChild(documentRegion);
+    document.body.appendChild(virtualDialog);
+
+    expect(dispatchCtrlKey('m', descendant).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', descendant).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('p', descendant).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('l', descendant).defaultPrevented).toBe(false);
+
+    expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
+
+    virtualDialog.remove();
+  });
+
+  it('não intercepta atalhos em campos editáveis, editor ou terminal', async () => {
     renderToolbar();
     await screen.findByRole('button', {
       name: 'chat.modelOverride.label, $default',
@@ -390,8 +576,19 @@ describe('ChatToolbar shortcuts', () => {
     const targets: HTMLElement[] = [
       document.createElement('textarea'),
       document.createElement('input'),
+      document.createElement('select'),
       contentEditable,
     ];
+    const inheritedContentEditable = document.createElement('div');
+    inheritedContentEditable.setAttribute('contenteditable', '');
+    const inheritedEditableTarget = document.createElement('span');
+    inheritedContentEditable.appendChild(inheritedEditableTarget);
+    targets.push(inheritedEditableTarget);
+    const plaintextContentEditable = document.createElement('div');
+    plaintextContentEditable.setAttribute('contenteditable', 'plaintext-only');
+    const plaintextEditableTarget = document.createElement('span');
+    plaintextContentEditable.appendChild(plaintextEditableTarget);
+    targets.push(plaintextEditableTarget);
     const monaco = document.createElement('div');
     monaco.className = 'monaco-editor';
     const monacoTarget = document.createElement('span');
@@ -402,11 +599,14 @@ describe('ChatToolbar shortcuts', () => {
     const terminalTarget = document.createElement('span');
     terminal.appendChild(terminalTarget);
     targets.push(terminalTarget);
-    targets.slice(0, 3).forEach((target) => document.body.appendChild(target));
-    document.body.append(monaco, terminal);
+    targets.slice(0, 4).forEach((target) => document.body.appendChild(target));
+    document.body.append(inheritedContentEditable, plaintextContentEditable, monaco, terminal);
 
     targets.forEach((target) => {
       expect(dispatchModelShortcut(target).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('h', target).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('p', target).defaultPrevented).toBe(false);
+      expect(dispatchCtrlKey('l', target).defaultPrevented).toBe(false);
     });
 
     modalState.open = true;
@@ -421,12 +621,22 @@ describe('ChatToolbar shortcuts', () => {
 
     const picker = document.createElement('div');
     picker.className = 'picker-dropdown';
+    const pickerInput = document.createElement('input');
+    picker.appendChild(pickerInput);
     document.body.appendChild(picker);
-    expect(dispatchModelShortcut().defaultPrevented).toBe(false);
+    expect(dispatchModelShortcut(pickerInput).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', pickerInput).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p', pickerInput).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l', pickerInput).defaultPrevented).toBe(true);
     picker.remove();
 
     expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
     targets.forEach((target) => target.closest('body') && target.remove());
+    inheritedContentEditable.remove();
+    plaintextContentEditable.remove();
     monaco.remove();
     terminal.remove();
   });
@@ -445,12 +655,24 @@ describe('ChatToolbar shortcuts', () => {
 
     const blockedEvent = dispatchModelShortcut(outsideFocus);
     expect(blockedEvent.defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', outsideFocus).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p', outsideFocus).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l', outsideFocus).defaultPrevented).toBe(true);
     expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
 
     portalListbox.hidden = true;
     const normalEvent = dispatchModelShortcut(outsideFocus);
     expect(normalEvent.defaultPrevented).toBe(true);
+    dispatchCtrlKey('h', outsideFocus);
+    dispatchCtrlKey('p', outsideFocus);
+    dispatchCtrlKey('l', outsideFocus);
     expect(modelOpenMock).toHaveBeenCalledOnce();
+    expect(historyClickMock).toHaveBeenCalledOnce();
+    expect(profileClickMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(clearConversationMock).toHaveBeenCalledOnce());
 
     outsideFocus.remove();
     portalListbox.remove();
@@ -476,8 +698,21 @@ describe('ChatToolbar shortcuts', () => {
     dispatchModelShortcut(window, { altKey: true });
     dispatchModelShortcut(window, { metaKey: true });
     dispatchModelShortcut(window, { repeat: true });
+    ['m', 'h', 'p', 'l'].forEach((key) => {
+      const legacyIMEEvent = new KeyboardEvent('keydown', {
+        key,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(legacyIMEEvent, 'keyCode', { value: 229 });
+      window.dispatchEvent(legacyIMEEvent);
+    });
 
     expect(modelOpenMock).not.toHaveBeenCalled();
+    expect(historyClickMock).not.toHaveBeenCalled();
+    expect(profileClickMock).not.toHaveBeenCalled();
+    expect(clearConversationMock).not.toHaveBeenCalled();
   });
 
   it('remove o listener de Ctrl+M ao desmontar', async () => {
