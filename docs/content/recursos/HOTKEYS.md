@@ -50,7 +50,17 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 | `Ctrl + Tab` / `Ctrl + Shift + Tab` | Próxima/anterior aba (chat, editor, tasklist, terminal) |
 | `Ctrl + 1` .. `Ctrl + 9` | Ir direto para aba N e restaurar foco na área padrão da aba (editor usa fila do painel quando lazy) |
 | `Ctrl + M` | Abrir o seletor de modelos do chat ativo |
+| `Ctrl + H` | Abrir o histórico do painel de chat ativo |
+| `Ctrl + P` | Abrir o seletor de perfil de interação do chat ativo |
+| `Ctrl + L` | Limpar a conversa do painel de chat ativo |
 | `Ctrl + Shift + R` | Repetir pergunta em diálogos de decisão |
+
+Os atalhos da toolbar continuam disponíveis depois que um menu é fechado com
+`Esc`, inclusive quando o foco volta para uma região de leitura. Eles não agem
+enquanto outro menu ou seletor está aberto, durante a edição de uma mensagem,
+em editor ou terminal, em diálogo de leitura ou em uma aba de chat inativa.
+Quando existe um chat modal, somente a toolbar da superfície ativa pode tratar
+o atalho.
 
 ## Atalhos de diálogos de decisão
 
