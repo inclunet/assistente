@@ -38,7 +38,7 @@ turno, preservando a posição e a janela de histórico que você estava lendo.
 
 ## Limites e truncamentos
 
-O chat diferencia cinco situações:
+O chat diferencia seis situações:
 
 - **Limite de geração (`output_limit`)**: o provedor informou que atingiu o
   limite de saída solicitado. Uma resposta curta também pode consumir o limite
@@ -57,6 +57,8 @@ O chat diferencia cinco situações:
   sido apresentado; repetir poderia duplicar conteúdo ou efeitos. Nos
   transports OpenAI, raciocínio isolado é descartado e a tentativa pode ser
   repetida.
+- **Tentativas esgotadas (`streaming_retries_exhausted`)**: falhas transitórias
+  sucessivas impediram a conclusão mesmo após as repetições automáticas.
 
 Quando o provedor informa limite de geração, o chat preserva o texto recebido e
 oferece **Continuar resposta**. Se o provedor encerrar o stream sem motivo de
@@ -69,6 +71,11 @@ enquanto o loop com ferramentas usa o campo `errorMessage` de `chat:done`. Os
 logs técnicos registram apenas metadados como provedor, modelo, motivo de
 término, limites e contagens; o conteúdo da resposta não é incluído nesse
 diagnóstico.
+
+O timeout de streaming é de **inatividade**, não um teto para a duração total:
+cada evento recebido reinicia a contagem. Um provedor que continue enviando
+eventos ou heartbeats pode manter uma geração longa ativa; o aplicativo não
+interrompe uma resposta saudável apenas por sua duração total.
 
 ## Limite do texto
 
