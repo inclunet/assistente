@@ -67,6 +67,28 @@ func TestReadFileRawRejectsInvalidUTF8AfterValidPrefix(t *testing.T) {
 	}
 }
 
+func TestReadFileNormalMaterializedValidatesOnlySelectedUTF8(t *testing.T) {
+	dir := t.TempDir()
+	content := append([]byte(strings.Repeat("a", 9*1024)+"\n"), 0xff)
+	if err := os.WriteFile(filepath.Join(dir, "normal-invalido.txt"), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFile(dir)
+	valid, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path": "normal-invalido.txt", "offset": 1, "limit": 1,
+	}))
+	if err != nil || valid.IsError || !strings.Contains(valid.Content, strings.Repeat("a", 100)) {
+		t.Fatalf("linha válida foi afetada por bytes posteriores: err=%v result=%+v", err, valid)
+	}
+	invalid, err := tool.Execute(context.Background(), mustJSON(t, map[string]any{
+		"path": "normal-invalido.txt", "offset": 2, "limit": 1,
+	}))
+	if err != nil || !invalid.IsError || invalid.Failure == nil ||
+		invalid.Failure.Code != "text_invalid_utf8" {
+		t.Fatalf("linha inválida não falhou explicitamente: err=%v result=%+v", err, invalid)
+	}
+}
+
 func TestReadFileRawStreamingIgnoresInvalidUTF8OutsideRequestedRange(t *testing.T) {
 	dir := t.TempDir()
 	first := strings.Repeat("a", 10*1024)
@@ -85,6 +107,25 @@ func TestReadFileRawStreamingIgnoresInvalidUTF8OutsideRequestedRange(t *testing.
 		if err != nil || result.IsError || !result.RawExact {
 			t.Fatalf("byte inválido fora do recorte afetou raw válido: args=%v err=%v result=%+v", args, err, result)
 		}
+	}
+}
+
+func TestReadFileRawStreamingStopsBeforeHugeBinaryTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cauda-enorme.txt")
+	prefix := "ok\n" + strings.Repeat("padding\n", 2_000)
+	if err := os.WriteFile(path, []byte(prefix), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, int64(len(prefix))+maxStreamLineBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewReadFile(dir).Execute(context.Background(), mustJSON(t, map[string]any{
+		"path": "cauda-enorme.txt", "offset": 1, "limit": 1, "raw": true,
+	}))
+	if err != nil || result.IsError || !result.RawExact || result.Content != "ok\n" {
+		t.Fatalf("cauda fora do recorte afetou raw válido: err=%v result=%+v", err, result)
 	}
 }
 

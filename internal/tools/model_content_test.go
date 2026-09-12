@@ -105,6 +105,26 @@ func TestContentForDurableHistoryDetectsWindowCreatedByPrecheck(t *testing.T) {
 	}
 }
 
+func TestContentForDurableHistoryKeepsFinalPageWithoutResultID(t *testing.T) {
+	result := ToolResult{
+		Content:  "página final",
+		RawExact: true,
+		Metadata: map[string]any{"result_id": "tool-result-final"},
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: false, Unit: "bytes", Offset: 10, Returned: 12,
+			ResultID: "tool-result-final",
+		}},
+	}
+	got := ContentForDurableHistory(result, ContentForModel(result))
+	if !strings.Contains(got, result.Content) || strings.Contains(got, "tool-result-final") ||
+		strings.Contains(got, "result_omitted_for_persistence") {
+		t.Fatalf("página final não foi sanitizada corretamente: %q", got)
+	}
+	if result.Annotations.OutputWindow.ResultID != "tool-result-final" {
+		t.Fatal("sanitização alterou o resultado original por aliasing")
+	}
+}
+
 func TestSanitizeTruncatedEnvelopePreservesCompleteEnvelope(t *testing.T) {
 	result := annotatedResult()
 	envelope := ContentForModel(result)

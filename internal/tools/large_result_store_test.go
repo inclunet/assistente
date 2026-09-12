@@ -222,6 +222,32 @@ func TestExecutorProtectsLargeResultReturnedWithGoError(t *testing.T) {
 	}
 }
 
+func TestExecutorRejectsIncompleteErrorResultForMachineConsumer(t *testing.T) {
+	sentinel := errors.New("falha original")
+	registry := NewRegistry()
+	registry.MustRegister(&mockTool{
+		name: "incomplete_error_test",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{
+				Content: "prévia",
+				Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+					HasMore: true, Unit: "results", Returned: 1,
+				}},
+			}, sentinel
+		},
+	})
+	cfg := DefaultExecutorConfig()
+	cfg.RequireCompleteResult = true
+	got := NewExecutor(registry, cfg).ExecuteOne(largeResultTestContext(), ToolCall{
+		ID: "call-incomplete", Function: FunctionCall{Name: "incomplete_error_test", Arguments: `{}`},
+	})
+	if !errors.Is(got.Error, sentinel) || !got.Result.IsError || got.Result.Failure == nil ||
+		got.Result.Failure.Code != "result_too_large" ||
+		strings.Contains(got.Result.Content, "prévia") {
+		t.Fatalf("consumidor machine-facing recebeu janela incompleta: %+v", got)
+	}
+}
+
 func TestExecutorAcceptsRawExactAtDeclaredLimit(t *testing.T) {
 	registry := NewRegistry()
 	registry.MustRegister(&mockTool{

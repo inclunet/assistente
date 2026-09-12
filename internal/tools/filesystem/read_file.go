@@ -293,6 +293,9 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 			body = body[:len(body)-1]
 			break
 		}
+		if !utf8.ValidString(lines[i]) {
+			return textReadInvalidUTF8()
+		}
 		bodyBytes = candidateBodyBytes
 		end = candidateEnd
 	}

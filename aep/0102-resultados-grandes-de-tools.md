@@ -83,7 +83,8 @@ JSON e não ofereciam retomada exata.
     bytes do corpo.
 19. Budget zero nunca desativa a barreira. `read_tool_result` exige presença
     explícita de `offset`, inclusive quando o valor é zero. Validações de
-    exatidão raw consideram somente o trecho solicitado.
+    exatidão raw consideram somente o trecho solicitado; com `limit` positivo,
+    o streaming encerra assim que esse recorte e seu separador forem conhecidos.
 
 ## Fases
 

@@ -53,8 +53,17 @@ func ContentForModelSize(contentBytes int, annotations *ResultAnnotations, rawEx
 // mensagens role=tool. Uma prévia retomável não pode sobreviver como se o
 // result_id continuasse válido depois de reinício ou eviction.
 func ContentForDurableHistory(result ToolResult, modelContent string) string {
-	if window := outputWindowOf(result); window != nil && window.HasMore && window.ResultID != "" {
-		return "[result_omitted_for_persistence] Resultado retomável omitido do histórico durável."
+	if window := outputWindowOf(result); window != nil && window.ResultID != "" {
+		if window.HasMore {
+			return "[result_omitted_for_persistence] Resultado retomável omitido do histórico durável."
+		}
+		cloned := cloneMutableResultFields(result)
+		cloned.Annotations.OutputWindow = cloneOutputWindow(window)
+		cloned.Annotations.OutputWindow.ResultID = ""
+		if cloned.Metadata != nil {
+			delete(cloned.Metadata, "result_id")
+		}
+		return ContentForModel(cloned)
 	}
 	if strings.HasPrefix(modelContent, annotationsHeader) {
 		parts := strings.SplitN(modelContent, contentHeader, 2)
@@ -63,8 +72,15 @@ func ContentForDurableHistory(result ToolResult, modelContent string) string {
 			rawAnnotations := strings.TrimPrefix(parts[0], annotationsHeader)
 			if json.Unmarshal([]byte(rawAnnotations), &annotations) == nil {
 				window := annotations.OutputWindow
-				if window != nil && window.HasMore && window.ResultID != "" {
-					return "[result_omitted_for_persistence] Resultado retomável omitido do histórico durável."
+				if window != nil && window.ResultID != "" {
+					if window.HasMore {
+						return "[result_omitted_for_persistence] Resultado retomável omitido do histórico durável."
+					}
+					window.ResultID = ""
+					encoded, err := json.Marshal(annotations)
+					if err == nil {
+						return annotationsHeader + string(encoded) + contentHeader + parts[1]
+					}
 				}
 			}
 		}

@@ -162,6 +162,26 @@ func TestOutputForPersistenceOmitsEphemeralPreviewEvenWhenItFits(t *testing.T) {
 	}
 }
 
+func TestOutputForPersistenceOmitsEphemeralPreviewWithoutSizeLimit(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 0}
+	result := tools.ToolResult{
+		Content:  "prefixo",
+		Metadata: map[string]any{"result_id": "tool-result-efemero"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 1000,
+			NextOffset: 7, ResultID: "tool-result-efemero", OriginalBytes: 1000,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil || strings.Contains(persisted.Content, result.Content) ||
+		strings.Contains(string(svc.outputForPersistence(result)), "tool-result-efemero") {
+		t.Fatalf("budget ilimitado persistiu ID efêmero: %+v", persisted)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão não foi explícita: %+v", persisted)
+	}
+}
+
 func TestOutputForPersistenceKeepsCompleteFinalPageWithoutEphemeralID(t *testing.T) {
 	svc := &Service{persistMaxResultSize: 4096}
 	result := tools.ToolResult{

@@ -110,6 +110,9 @@ func readTextSliceStreamingForward(
 	raw bool,
 	budget int,
 ) (tools.ToolResult, bool) {
+	if raw && limitArg != nil && *limitArg > 0 {
+		return readRawSliceStreamingForward(ctx, fullPath, size, offsetArg, *limitArg, budget)
+	}
 	offset := 0
 	if offsetArg != nil && *offsetArg > 0 {
 		offset = *offsetArg - 1
@@ -243,6 +246,90 @@ func readTextSliceStreamingForward(
 	}, true
 }
 
+func readRawSliceStreamingForward(
+	ctx context.Context,
+	fullPath string,
+	size int64,
+	offsetArg *int,
+	limit, budget int,
+) (tools.ToolResult, bool) {
+	if limit > readModelMaxLines {
+		return rawReadTooManyLines(limit, readModelMaxLines), true
+	}
+	offset := 0
+	if offsetArg != nil && *offsetArg > 0 {
+		offset = *offsetArg - 1
+	}
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return tools.ToolResult{}, false
+	}
+	defer func() { _ = f.Close() }()
+
+	reader := bufio.NewReaderSize(f, streamBufferBytes)
+	selected := make([]string, 0, limit)
+	selectedBytes := 0
+	totalRead := 0
+	for idx := 0; ; idx++ {
+		if err := ctx.Err(); err != nil {
+			return streamFailure(err, size, true, budget)
+		}
+		line, atEOF, err := readStreamLine(reader)
+		if err != nil {
+			return streamFailure(err, size, true, budget)
+		}
+		totalRead = idx + 1
+		if idx >= offset {
+			if strings.IndexByte(line, 0) >= 0 || !utf8.ValidString(line) {
+				return rawReadInvalidUTF8(), true
+			}
+			extra := len(line)
+			if len(selected) > 0 {
+				extra++
+			}
+			if selectedBytes+extra > budget {
+				return rawReadLimitExceeded(budget), true
+			}
+			selected = append(selected, line)
+			selectedBytes += extra
+			if len(selected) == limit {
+				exact := strings.Join(selected, "\n")
+				if !atEOF {
+					exact += "\n"
+				}
+				meta := map[string]any{
+					"size_bytes": size, "offset": offset + 1, "limit": len(selected),
+				}
+				if atEOF {
+					meta["total_lines"] = totalRead
+				}
+				return tools.ToolResult{Content: exact, RawExact: true, Metadata: meta}, true
+			}
+		}
+		if atEOF {
+			break
+		}
+	}
+	if offset >= totalRead {
+		shown := 0
+		if offsetArg != nil {
+			shown = *offsetArg
+		}
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Offset %d excede o número de linhas (%d)", shown, totalRead),
+			IsError: true,
+		}, true
+	}
+	exact := strings.Join(selected, "\n")
+	return tools.ToolResult{
+		Content: exact, RawExact: true,
+		Metadata: map[string]any{
+			"size_bytes": size, "total_lines": totalRead,
+			"offset": offset + 1, "limit": len(selected),
+		},
+	}, true
+}
+
 // readTextSliceStreaming devolve o recorte pedido de um arquivo de texto grande
 // sem carregar tudo em memória. handled=false significa que o chamador deve
 // seguir pelo caminho normal.
@@ -275,7 +362,7 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 	// aqui custa pouco e evita que o mesmo arquivo passe por ser grande.
 	totalLines := 0
 	if err := scanTextLines(ctx, fullPath, func(_ int, line string) bool {
-		if strings.IndexByte(line, 0) >= 0 {
+		if !raw && strings.IndexByte(line, 0) >= 0 {
 			totalLines = -1
 			return false
 		}
@@ -332,7 +419,7 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			return false
 		}
 		if raw {
-			if !utf8.ValidString(line) {
+			if strings.IndexByte(line, 0) >= 0 || !utf8.ValidString(line) {
 				invalidRawUTF8 = true
 				return false
 			}

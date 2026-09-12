@@ -300,9 +300,6 @@ func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
 
 func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResult {
 	max := s.persistMaxResultSize
-	if max <= 0 {
-		return result
-	}
 	if result.Annotations != nil && result.Annotations.OutputWindow != nil &&
 		result.Annotations.OutputWindow.ResultID != "" {
 		window := result.Annotations.OutputWindow
@@ -329,6 +326,9 @@ func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResu
 			}
 			result.Metadata = metadata
 		}
+	}
+	if max <= 0 {
+		return result
 	}
 	if len(result.Content) <= max {
 		return result

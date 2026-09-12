@@ -200,7 +200,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				result.Content = fmt.Sprintf("Erro ao executar '%s': %v", toolName, err)
 			}
 			result.IsError = true
-			result = protectErroredToolResult(execCtx, result, e.config.MaxResultSize, toolName)
+			result = protectErroredToolResult(
+				execCtx, result, e.config.MaxResultSize, toolName, e.config.RequireCompleteResult,
+			)
 			resultCh <- ToolExecutionResult{
 				CallID:            call.ID,
 				ToolName:          toolName,
@@ -405,7 +407,21 @@ func metadataForFailure(metadata map[string]any) map[string]any {
 // protectErroredToolResult aplica a mesma barreira final quando a tool devolve
 // simultaneamente ToolResult e erro Go. A classificação e retryability do erro
 // original continuam sendo definidas pelo chamador.
-func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes int, toolName string) ToolResult {
+func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes int, toolName string, requireComplete bool) ToolResult {
+	if window := outputWindowOf(result); requireComplete && window != nil && window.HasMore {
+		return ToolResult{
+			Content: boundedFailureContent(
+				"Resultado machine-facing está incompleto. Reduza o escopo da chamada; este consumidor exige o resultado integral.",
+				"result_too_large", maxBytes,
+			),
+			IsError:     true,
+			Metadata:    metadataForFailure(result.Metadata),
+			Annotations: annotationsForFailure(result.Annotations),
+			Failure: &ToolFailure{
+				Code: "result_too_large", Kind: ErrorKindUnknown, Retryable: false,
+			},
+		}
+	}
 	if len(ContentForModel(result)) <= maxBytes && maxBytes > 0 {
 		return result
 	}
