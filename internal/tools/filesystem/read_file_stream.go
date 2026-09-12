@@ -118,6 +118,8 @@ func readTextSliceStreamingForward(
 		collectLimit = *limitArg
 	}
 	lines := make([]string, 0, collectLimit)
+	collectedBytes := 0
+	collectionTooLarge := false
 	totalLines := 0
 	binary := false
 	err := scanTextLines(ctx, fullPath, func(idx int, line string) bool {
@@ -125,8 +127,20 @@ func readTextSliceStreamingForward(
 		if strings.IndexByte(line, 0) >= 0 {
 			binary = true
 		}
-		if idx >= offset && len(lines) < collectLimit {
-			lines = append(lines, line)
+		if idx >= offset && len(lines) < collectLimit && !collectionTooLarge {
+			extra := len(line)
+			if len(lines) > 0 {
+				extra++
+			}
+			if !raw {
+				extra += 7 // largura mínima do prefixo "%6d|"
+			}
+			if collectedBytes+extra > budget {
+				collectionTooLarge = true
+			} else {
+				lines = append(lines, line)
+				collectedBytes += extra
+			}
 		}
 		return true
 	})
@@ -157,6 +171,9 @@ func readTextSliceStreamingForward(
 		if requestedEnd-offset > readModelMaxLines {
 			return rawReadTooManyLines(requestedEnd-offset, readModelMaxLines), true
 		}
+		if collectionTooLarge || len(lines) < requestedEnd-offset {
+			return rawReadLimitExceeded(budget), true
+		}
 		exact := strings.Join(lines[:requestedEnd-offset], "\n")
 		if requestedEnd < totalLines {
 			exact += "\n"
@@ -180,7 +197,8 @@ func readTextSliceStreamingForward(
 	selected := make([]string, 0, maxEnd-offset)
 	selectedBytes := 0
 	end := offset
-	for i, line := range lines[:maxEnd-offset] {
+	available := min(maxEnd-offset, len(lines))
+	for i, line := range lines[:available] {
 		lineNumber := offset + i + 1
 		formatted := fmt.Sprintf("%6d|%s", lineNumber, line)
 		candidateBytes := selectedBytes + len(formatted)

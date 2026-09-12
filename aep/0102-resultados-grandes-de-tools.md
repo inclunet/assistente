@@ -64,14 +64,17 @@ JSON e não ofereciam retomada exata.
     budget próprio ou diante de qualquer `OutputWindow.has_more`, falham em vez
     de receber uma prévia que não conseguiriam paginar. Isso também vale para o
     fallback de jobs executado sem o serviço de auditoria.
-15. Respostas de `http_request` que precisam manter JSON/raw exato ou paginar
-    apenas o corpo carregam status, método, URL e media type em anotação
-    model-facing separada. A última página de `read_tool_result` pode ser
-    persistida integralmente, mas sem o `result_id` efêmero.
+15. Respostas JSON/raw de `http_request` e corpos paginados de tools web
+    carregam status, método, URL e media type em anotação model-facing separada.
+    A última página de `read_tool_result` pode ser persistida integralmente, mas
+    sem o `result_id` efêmero.
 16. O armazenamento recuperável aceita apenas conteúdo UTF-8 e contextos com
     usuário autenticado. Uma janela natural sem `result_id` nunca é
     reempacotada como se seu prefixo fosse o resultado integral; se outro teto
     não comportá-la, a barreira falha explicitamente.
+17. Modos `raw` HTTP só anunciam exatidão para bytes UTF-8 válidos; caso
+    contrário falham com `raw_invalid_utf8`. Formatação JSON usa números sem
+    conversão por `float64`, preservando inteiros grandes.
 
 ## Fases
 

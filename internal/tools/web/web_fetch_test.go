@@ -187,6 +187,9 @@ func TestWebFetch_Truncation(t *testing.T) {
 		!result.Annotations.OutputWindow.HasMore || result.Annotations.OutputWindow.ResultID == "" {
 		t.Fatalf("deve indicar continuação estruturada: %+v", result.Annotations)
 	}
+	if result.Annotations.HTTPResponse == nil || result.Annotations.HTTPResponse.URL != server.URL {
+		t.Fatalf("prévia perdeu contexto HTTP: %+v", result.Annotations)
+	}
 }
 
 func TestWebFetchMaxLengthCountsExtractedPayloadNotHeader(t *testing.T) {
@@ -252,6 +255,20 @@ func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
 	}
 	if strings.Contains(result.Content, largeBody[:100]) {
 		t.Fatal("falha raw contém prefixo parcial")
+	}
+}
+
+func TestWebFetchRawRejectsInvalidUTF8(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte{0xff, 0xfe})
+	}))
+	defer server.Close()
+	result, err := newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw"}`, server.URL),
+	))
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("raw não UTF-8 não falhou explicitamente: err=%v result=%+v", err, result)
 	}
 }
 

@@ -320,6 +320,35 @@ func TestHTTPRequestAutoRecognizesStructuredSuffixJSON(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestJSONFormattingPreservesLargeInteger(t *testing.T) {
+	const body = `{"id":900719925474099312345}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer ts.Close()
+	for _, mode := range []string{"json", "auto"} {
+		args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": mode})
+		result, err := newTestHTTPRequest().Execute(context.Background(), args)
+		if err != nil || result.IsError || !strings.Contains(result.Content, "900719925474099312345") {
+			t.Fatalf("%s arredondou número JSON: err=%v result=%+v", mode, err, result)
+		}
+	}
+}
+
+func TestHTTPRequestRawRejectsInvalidUTF8(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte{0xff, 0xfe})
+	}))
+	defer ts.Close()
+	args, _ := json.Marshal(map[string]any{"url": ts.URL, "extract_mode": "raw"})
+	result, err := newTestHTTPRequest().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("raw não UTF-8 não falhou explicitamente: err=%v result=%+v", err, result)
+	}
+}
+
 func TestHTTPRequestPreservesStatusModelFacingForExactAndPagedBodies(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

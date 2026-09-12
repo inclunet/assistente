@@ -254,8 +254,10 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					message = "Resultado machine-facing está incompleto. " + guidance
 				}
 				result = ToolResult{
-					Content: boundedFailureContent(message, code, e.config.MaxResultSize),
-					IsError: true,
+					Content:     boundedFailureContent(message, code, e.config.MaxResultSize),
+					IsError:     true,
+					Metadata:    metadataForFailure(result.Metadata),
+					Annotations: annotationsForFailure(result.Annotations),
 					Failure: &ToolFailure{
 						Code:      code,
 						Kind:      ErrorKindUnknown,
@@ -282,9 +284,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 						modelBytes,
 					)
 					result = ToolResult{
-						Content: boundedFailureContent(message, "result_storage_limit", e.config.MaxResultSize),
-						IsError: true,
-						Failure: &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
+						Content:     boundedFailureContent(message, "result_storage_limit", e.config.MaxResultSize),
+						IsError:     true,
+						Metadata:    metadataForFailure(result.Metadata),
+						Annotations: annotationsForFailure(result.Annotations),
+						Failure:     &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
 					}
 					execErr = fmt.Errorf("saída de '%s' excede armazenamento seguro: %d bytes model-facing", toolName, modelBytes)
 					execKind = ErrorKindUnknown
@@ -370,6 +374,31 @@ func outputWindowOf(result ToolResult) *OutputWindowAnnotation {
 		return nil
 	}
 	return result.Annotations.OutputWindow
+}
+
+func annotationsForFailure(annotations *ResultAnnotations) *ResultAnnotations {
+	if annotations == nil {
+		return nil
+	}
+	cloned := *annotations
+	cloned.OutputWindow = nil
+	if cloned.DocumentProjection == nil && cloned.HTTPResponse == nil {
+		return nil
+	}
+	return &cloned
+}
+
+func metadataForFailure(metadata map[string]any) map[string]any {
+	if metadata == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		if key != "result_id" && key != "truncated" {
+			cloned[key] = value
+		}
+	}
+	return cloned
 }
 
 // IsCanonicalJSON valida um único valor JSON sem criar uma cópia []byte

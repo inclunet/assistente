@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
@@ -177,6 +178,21 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	contentType := resp.Header.Get("Content-Type")
+	if mode == "raw" && !utf8.Valid(body) {
+		return tools.ToolResult{
+			Content: "Resposta raw não é UTF-8 válida e não pode ser devolvida exatamente.",
+			IsError: true,
+			Metadata: map[string]any{
+				"url": a.URL, "status": resp.StatusCode,
+				"content_type": contentType, "length": len(body),
+			},
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: http.MethodGet, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
+			Failure: &tools.ToolFailure{Code: "raw_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
 	content := string(body)
 
 	// Extrai conteúdo baseado no modo e content-type
@@ -227,10 +243,13 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			kind = "Resposta raw"
 		}
 		return tools.ToolResult{
-			Content:  fmt.Sprintf("%s tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", kind, len(result.Content), maxLength),
-			IsError:  true,
-			Metadata: result.Metadata,
-			Failure:  &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
+			Content: fmt.Sprintf("%s tem %d bytes, acima do limite de %d; solicite um recurso menor ou use http_request com suporte de intervalo do servidor.", kind, len(result.Content), maxLength),
+			IsError: true, Metadata: result.Metadata,
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: http.MethodGet, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
+			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
 	if len(extracted) <= maxLength {
@@ -239,6 +258,10 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	// max_length mede o conteúdo extraído. Em uma janela retomável, o header
 	// não entra no corpo para que returned/next_offset descrevam bytes exatos.
 	result.Content = extracted
+	result.Annotations = &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+		Method: http.MethodGet, URL: a.URL, Status: resp.StatusCode,
+		StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+	}}
 	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
 	if !ok {
 		return tools.ToolResult{

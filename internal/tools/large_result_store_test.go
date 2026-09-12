@@ -173,6 +173,34 @@ func TestExecutorRejectsLargeLegacyJSONScalar(t *testing.T) {
 	}
 }
 
+func TestExecutorSizeFailurePreservesHTTPContextWithoutWindow(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister(&mockTool{
+		name: "large_http_json",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{
+				Content: strings.Repeat("x", 2048), Structured: true,
+				Metadata: map[string]any{"status": 404, "result_id": "efemero"},
+				Annotations: &ResultAnnotations{
+					HTTPResponse: &HTTPResponseAnnotation{Method: "GET", URL: "https://example.test", Status: 404},
+					OutputWindow: &OutputWindowAnnotation{HasMore: true, ResultID: "efemero"},
+				},
+			}, nil
+		},
+	})
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 256
+	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+		ID: "call-http-json", Function: FunctionCall{Name: "large_http_json", Arguments: `{}`},
+	})
+	if !got.Result.IsError || got.Result.Annotations == nil || got.Result.Annotations.HTTPResponse == nil {
+		t.Fatalf("falha global perdeu contexto HTTP: %+v", got)
+	}
+	if got.Result.Annotations.OutputWindow != nil || got.Result.Metadata["result_id"] != nil {
+		t.Fatalf("falha global preservou continuação efêmera: %+v", got.Result)
+	}
+}
+
 func TestExecutorMachineFacingRejectsLargePlainText(t *testing.T) {
 	registry := NewRegistry()
 	registry.MustRegister(&mockTool{
@@ -312,6 +340,21 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 		if !strings.Contains(got, "result_too_large") {
 			t.Fatalf("falha explícita ausente: %q", got)
 		}
+	}
+}
+
+func TestContentForModelWithinLimitNeverRepaginatesRawResultPage(t *testing.T) {
+	result := ToolResult{
+		Content:  strings.Repeat("página-", 100),
+		RawExact: true,
+		Annotations: &ResultAnnotations{OutputWindow: &OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Offset: 500, Returned: 800,
+			NextOffset: 1300, ResultID: "tool-result-existente",
+		}},
+	}
+	got := ContentForModelWithinLimit(largeResultTestContext(), result, 64, "read_tool_result")
+	if !strings.Contains(got, "raw_result_too_large") || strings.Contains(got, "página") {
+		t.Fatalf("página raw foi repaginada em vez de rejeitada: %q", got)
 	}
 }
 

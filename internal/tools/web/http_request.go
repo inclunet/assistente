@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
@@ -257,6 +258,21 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	contentType := resp.Header.Get("Content-Type")
+	if extractMode == "raw" && !utf8.Valid(body) {
+		return tools.ToolResult{
+			Content: "Resposta raw não é UTF-8 válida e não pode ser devolvida exatamente.",
+			IsError: true,
+			Metadata: map[string]any{
+				"url": a.URL, "method": method, "status": resp.StatusCode,
+				"content_type": contentType, "length": len(body),
+			},
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: method, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
+			Failure: &tools.ToolFailure{Code: "raw_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
 	responseContent := string(body)
 
 	// Processa resposta baseado no extract_mode
@@ -274,10 +290,8 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	case "json":
 		// Tenta formatar JSON
-		var jsonData interface{}
-		if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
-			formatted, _ := json.MarshalIndent(jsonData, "", "  ")
-			extracted = string(formatted)
+		if formatted, ok := formatJSONPreservingNumbers(responseContent); ok {
+			extracted = formatted
 			structuredJSON = true
 		} else {
 			extracted = responseContent
@@ -285,10 +299,8 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	case "auto":
 		// Detecta automaticamente
 		if isJSONMediaType(contentType) {
-			var jsonData interface{}
-			if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
-				formatted, _ := json.MarshalIndent(jsonData, "", "  ")
-				extracted = string(formatted)
+			if formatted, ok := formatJSONPreservingNumbers(responseContent); ok {
+				extracted = formatted
 				structuredJSON = true
 			} else {
 				extracted = responseContent
@@ -312,7 +324,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Determina se é erro baseado no status code
 	isError := resp.StatusCode >= 400
 	var annotations *tools.ResultAnnotations
-	if isError || len(extracted) > maxLength {
+	if isError || structuredJSON || extractMode == "raw" || len(extracted) > maxLength {
 		annotations = &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
 			Method: method, URL: a.URL, Status: resp.StatusCode,
 			StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
@@ -376,4 +388,19 @@ func isJSONMediaType(contentType string) bool {
 	}
 	mediaType = strings.ToLower(mediaType)
 	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+func formatJSONPreservingNumbers(content string) (string, bool) {
+	decoder := json.NewDecoder(strings.NewReader(content))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return "", false
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return "", false
+	}
+	formatted, err := json.MarshalIndent(value, "", "  ")
+	return string(formatted), err == nil
 }
