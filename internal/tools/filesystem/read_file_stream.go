@@ -161,6 +161,9 @@ func readTextSliceStreaming(ctx context.Context, fullPath, displayPath string, s
 			requestedEnd = totalLines
 		}
 	}
+	if raw && requestedEnd-offset > readModelMaxLines {
+		return rawReadTooManyLines(requestedEnd-offset, readModelMaxLines), true
+	}
 
 	budget := readModelMaxBytes
 	if executorLimit := tools.MaxResultSizeFromContext(ctx); executorLimit > 0 && executorLimit < budget {

@@ -71,15 +71,46 @@ func loadModelResult(id string) (string, bool) {
 // O conteúdo completo fica em armazenamento limitado e pode ser retomado pela
 // tool read_tool_result.
 func ProtectModelResult(result ToolResult, maxBytes int) (ToolResult, bool) {
-	if maxBytes <= 0 || len(ContentForModel(result)) <= maxBytes {
+	return protectModelResult(result, maxBytes, true)
+}
+
+// ProtectToolResult aplica um limite próprio da tool ao corpo. O executor ainda
+// aplicará depois o limite global à mensagem completa, incluindo o envelope.
+func ProtectToolResult(result ToolResult, maxContentBytes int) (ToolResult, bool) {
+	return protectModelResult(result, maxContentBytes, false)
+}
+
+func protectModelResult(result ToolResult, maxBytes int, includeEnvelope bool) (ToolResult, bool) {
+	currentBytes := len(result.Content)
+	if includeEnvelope {
+		currentBytes = len(ContentForModel(result))
+	}
+	if maxBytes <= 0 || currentBytes <= maxBytes {
 		return result, true
 	}
-	id, ok := storeModelResult(result.Content)
-	if !ok {
-		return ToolResult{}, false
+	original := result.Content
+	id := ""
+	var sourceWindow *OutputWindowAnnotation
+	if result.Annotations != nil && result.Annotations.OutputWindow != nil {
+		existing := result.Annotations.OutputWindow
+		sourceWindow = existing
+		if existing.ResultID != "" {
+			if stored, found := loadModelResult(existing.ResultID); found {
+				original = stored
+				id = existing.ResultID
+				sourceWindow = existing.SourceWindow
+			}
+		}
 	}
-	originalBytes := len(result.Content)
-	preview := truncateUTF8(result.Content, maxBytes)
+	if id == "" {
+		var ok bool
+		id, ok = storeModelResult(original)
+		if !ok {
+			return ToolResult{}, false
+		}
+	}
+	originalBytes := len(original)
+	preview := truncateUTF8(original, maxBytes)
 	if result.Annotations == nil {
 		result.Annotations = &ResultAnnotations{}
 	}
@@ -92,6 +123,7 @@ func ProtectModelResult(result ToolResult, maxBytes int) (ToolResult, bool) {
 		NextOffset:    len(preview),
 		ResultID:      id,
 		OriginalBytes: originalBytes,
+		SourceWindow:  sourceWindow,
 	}
 	result.Content = preview
 	if result.Metadata == nil {
@@ -99,7 +131,7 @@ func ProtectModelResult(result ToolResult, maxBytes int) (ToolResult, bool) {
 	}
 	result.Metadata["truncated"] = true
 	result.Metadata["result_id"] = id
-	if maxBytes >= 1024 {
+	if includeEnvelope {
 		for len(ContentForModel(result)) > maxBytes && len(result.Content) > 0 {
 			over := len(ContentForModel(result)) - maxBytes
 			nextSize := len(result.Content) - over - 16
@@ -125,9 +157,25 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 		return result, true
 	}
 	original := result.Content
-	id, ok := storeModelResult(original)
-	if !ok {
-		return ToolResult{}, false
+	id := ""
+	var sourceWindow *OutputWindowAnnotation
+	if result.Annotations != nil && result.Annotations.OutputWindow != nil {
+		existing := result.Annotations.OutputWindow
+		sourceWindow = existing
+		if existing.ResultID != "" {
+			if stored, found := loadModelResult(existing.ResultID); found {
+				original = stored
+				id = existing.ResultID
+				sourceWindow = existing.SourceWindow
+			}
+		}
+	}
+	if id == "" {
+		var ok bool
+		id, ok = storeModelResult(original)
+		if !ok {
+			return ToolResult{}, false
+		}
 	}
 	prefix := "--- INÍCIO DA PRÉVIA MCP; NÃO É O RESULTADO COMPLETO ---\n"
 	suffix := "\n--- FIM DA PRÉVIA MCP ---"
@@ -143,7 +191,7 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 	result.Annotations.OutputWindow = &OutputWindowAnnotation{
 		HasMore: true, Unit: "bytes", Offset: 0, Returned: len(preview),
 		Total: len(original), NextOffset: len(preview), ResultID: id,
-		OriginalBytes: len(original),
+		OriginalBytes: len(original), SourceWindow: sourceWindow,
 	}
 	if result.Metadata == nil {
 		result.Metadata = make(map[string]any)
@@ -160,6 +208,9 @@ func ProtectExternalModelResult(result ToolResult, maxBytes int) (ToolResult, bo
 		result.Content = prefix + preview + suffix
 		result.Annotations.OutputWindow.Returned = len(preview)
 		result.Annotations.OutputWindow.NextOffset = len(preview)
+	}
+	if len(ContentForModel(result)) > maxBytes {
+		return ToolResult{}, false
 	}
 	return result, true
 }
@@ -229,10 +280,11 @@ func (t *ReadToolResult) Execute(_ context.Context, raw json.RawMessage) (ToolRe
 	}
 	end = utf8BoundaryBefore(content, end)
 	if end == args.Offset && end < len(content) {
-		end++
-		for end < len(content) && !isUTF8Start(content[end]) {
-			end++
-		}
+		return ToolResult{
+			Content: "limit é pequeno demais para conter o próximo caractere UTF-8 completo; aumente o limit",
+			IsError: true,
+			Failure: &ToolFailure{Code: "result_page_limit_too_small", Kind: ErrorKindInvalidArgs, Retryable: false},
+		}, nil
 	}
 	page := content[args.Offset:end]
 	hasMore := end < len(content)

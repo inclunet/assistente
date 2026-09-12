@@ -72,8 +72,11 @@ func TestHTTPRequest_GET(t *testing.T) {
 		t.Errorf("expected success, got error: %s", result.Content)
 	}
 
-	if !strings.Contains(result.Content, "200 OK") {
-		t.Error("expected 200 OK in response")
+	if !json.Valid([]byte(result.Content)) || !result.Structured {
+		t.Errorf("expected canonical JSON response, got %q", result.Content)
+	}
+	if result.Metadata["status"] != http.StatusOK {
+		t.Errorf("expected status metadata 200, got %v", result.Metadata["status"])
 	}
 
 	if !strings.Contains(result.Content, "success") {

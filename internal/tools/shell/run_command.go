@@ -296,7 +296,7 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 					return m
 				}(),
 			}
-			protected, ok := tools.ProtectModelResult(result, maxOutputForLLM)
+			protected, ok := tools.ProtectToolResult(result, maxOutputForLLM)
 			if !ok {
 				return tools.ToolResult{
 					Content: "Output parcial excede a capacidade segura de preservação.",
@@ -354,7 +354,12 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			return m
 		}(),
 	}
-	protected, ok := tools.ProtectModelResult(result, maxOutputForLLM)
+	if entry.ExitCode == 0 && json.Valid([]byte(strings.TrimSpace(entry.Output))) {
+		result.Content = entry.Output
+		result.Structured = true
+		return result, nil
+	}
+	protected, ok := tools.ProtectToolResult(result, maxOutputForLLM)
 	if !ok {
 		return tools.ToolResult{
 			Content: "Output excede a capacidade segura de preservação; reduza a saída do comando.",

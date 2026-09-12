@@ -288,6 +288,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
 				formatted, _ := json.MarshalIndent(jsonData, "", "  ")
 				extracted = string(formatted)
+				structuredJSON = true
 			} else {
 				extracted = responseContent
 			}
@@ -340,7 +341,7 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 			Failure: &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
 		}, nil
 	}
-	protected, ok := tools.ProtectModelResult(result, maxLength)
+	protected, ok := tools.ProtectToolResult(result, maxLength)
 	if !ok {
 		return tools.ToolResult{
 			Content: "Resposta excede a capacidade segura de preservação; reduza o escopo.",

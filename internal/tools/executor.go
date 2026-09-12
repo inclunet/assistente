@@ -219,14 +219,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		execKind := ErrorKindNone
 		structured := result.Structured || looksLikeCanonicalJSON(result.Content)
 		modelBytes := len(ContentForModel(result))
-		if structured || result.RawExact {
-			// Reserva o overhead do envelope JSON persistido em
-			// tool_invocations; assim conteúdo integral aceito pelo executor não
-			// é posteriormente cortado na cópia canônica.
-			modelBytes += 1024
-		}
 		if modelBytes > e.config.MaxResultSize {
-			if (structured || result.RawExact) && !strings.HasPrefix(toolName, "mcp_") {
+			mcpBridge := isMCPBridgeToolName(toolName)
+			if (structured || result.RawExact) && !mcpBridge {
 				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
 				// para que agent/service.go emita tool_failure e persista o error_kind.
 				origSize := len(result.Content)
@@ -256,7 +251,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				origSize := len(result.Content)
 				var protected ToolResult
 				var stored bool
-				if strings.HasPrefix(toolName, "mcp_") {
+				if mcpBridge {
 					protected, stored = ProtectExternalModelResult(result, e.config.MaxResultSize)
 				} else {
 					protected, stored = ProtectModelResult(result, e.config.MaxResultSize)
@@ -355,6 +350,15 @@ func looksLikeCanonicalJSON(content string) bool {
 		return false
 	}
 	return json.Valid([]byte(trimmed))
+}
+
+func isMCPBridgeToolName(name string) bool {
+	if !strings.HasPrefix(name, "mcp_") {
+		return false
+	}
+	rest := strings.TrimPrefix(name, "mcp_")
+	parts := strings.SplitN(rest, "__", 2)
+	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
 }
 
 func failureCode(result ToolResult) string {

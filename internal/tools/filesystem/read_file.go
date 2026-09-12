@@ -250,6 +250,9 @@ func formatReadResult(ctx context.Context, path, content string, size int64, off
 		budget = executorLimit
 	}
 	if raw {
+		if requestedEnd-offset > readModelMaxLines {
+			return rawReadTooManyLines(requestedEnd-offset, readModelMaxLines)
+		}
 		exact := strings.Join(lines[offset:requestedEnd], "\n")
 		if len(exact) > budget {
 			return rawReadTooLarge(len(exact), budget)
@@ -333,6 +336,14 @@ func normalizedLineOffset(offsetArg *int, total int) int {
 func rawReadTooLarge(size, limit int) tools.ToolResult {
 	return tools.ToolResult{
 		Content: fmt.Sprintf("Trecho raw solicitado tem %d bytes, acima do limite de %d; use offset/limit menor.", size, limit),
+		IsError: true,
+		Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+	}
+}
+
+func rawReadTooManyLines(lines, limit int) tools.ToolResult {
+	return tools.ToolResult{
+		Content: fmt.Sprintf("Trecho raw solicitado tem %d linhas, acima do limite de %d; use offset/limit menor.", lines, limit),
 		IsError: true,
 		Failure: &tools.ToolFailure{Code: "raw_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
 	}

@@ -62,6 +62,24 @@ func TestExecutorRejectsRawExactInsteadOfTruncating(t *testing.T) {
 	}
 }
 
+func TestExecutorAcceptsRawExactAtDeclaredLimit(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister(&mockTool{
+		name: "raw_at_limit",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{Content: strings.Repeat("x", 128), RawExact: true}, nil
+		},
+	})
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 128
+	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+		ID: "call-raw-limit", Function: FunctionCall{Name: "raw_at_limit", Arguments: `{}`},
+	})
+	if got.Result.IsError || got.Result.Content != strings.Repeat("x", 128) {
+		t.Fatalf("raw que cabe foi rejeitado: %+v", got)
+	}
+}
+
 func TestExecutorMakesLargeMCPJSONRecoverable(t *testing.T) {
 	original := `{"items":[` + strings.Repeat(`{"id":1},`, 2000) + `null]}`
 	registry := NewRegistry()
@@ -85,5 +103,55 @@ func TestExecutorMakesLargeMCPJSONRecoverable(t *testing.T) {
 	stored, ok := loadModelResult(got.Result.Annotations.OutputWindow.ResultID)
 	if !ok || stored != original || !json.Valid([]byte(stored)) {
 		t.Fatal("executor corrompeu JSON MCP preservado")
+	}
+}
+
+func TestExecutorDoesNotMistakeBuiltinMCPServerForBridge(t *testing.T) {
+	registry := NewRegistry()
+	registry.MustRegister(&mockTool{
+		name: "mcp_server",
+		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+			return ToolResult{Content: `{"value":"` + strings.Repeat("x", 2000) + `"}`, Structured: true}, nil
+		},
+	})
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 512
+	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
+		ID: "call-builtin", Function: FunctionCall{Name: "mcp_server", Arguments: `{}`},
+	})
+	if got.ErrorCode != "result_too_large" || !got.Result.IsError {
+		t.Fatalf("builtin mcp_server passou como bridge: %+v", got)
+	}
+}
+
+func TestProtectionKeepsOriginalResultIDWhenExecutorTightensBudget(t *testing.T) {
+	original := strings.Repeat("conteúdo-", 5000)
+	first, ok := ProtectToolResult(ToolResult{Content: original}, 4096)
+	if !ok {
+		t.Fatal("primeira proteção falhou")
+	}
+	firstID := first.Annotations.OutputWindow.ResultID
+	second, ok := ProtectModelResult(first, 1024)
+	if !ok {
+		t.Fatal("segunda proteção falhou")
+	}
+	if second.Annotations.OutputWindow.ResultID != firstID {
+		t.Fatalf("result_id mudou: %q -> %q", firstID, second.Annotations.OutputWindow.ResultID)
+	}
+	stored, found := loadModelResult(firstID)
+	if !found || stored != original {
+		t.Fatal("segunda proteção substituiu o conteúdo integral pela prévia")
+	}
+}
+
+func TestReadToolResultNeverExceedsLimitForMultibyteRune(t *testing.T) {
+	id, ok := storeModelResult("ç")
+	if !ok {
+		t.Fatal("store falhou")
+	}
+	raw, _ := json.Marshal(map[string]any{"result_id": id, "offset": 0, "limit": 1})
+	got, _ := NewReadToolResult().Execute(context.Background(), raw)
+	if !got.IsError || got.Failure == nil || got.Failure.Code != "result_page_limit_too_small" {
+		t.Fatalf("página deveria falhar sem exceder limit: %+v", got)
 	}
 }

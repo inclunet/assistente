@@ -648,6 +648,19 @@ func TestOutputTruncation(t *testing.T) {
 	}
 }
 
+func TestRunCommandDoesNotCutValidJSON(t *testing.T) {
+	jsonOutput := `{"value":"` + strings.Repeat("x", maxOutputForLLM) + `"}`
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-json", Command: "json-output", Output: jsonOutput, ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+		Execute(context.Background(), json.RawMessage(`{"command":"json-output"}`))
+	if err != nil || result.IsError || !result.Structured || result.Content != jsonOutput {
+		t.Fatalf("JSON de comando foi alterado: err=%v result=%+v", err, result)
+	}
+}
+
 // ========== EDGE CASES & METADATA ==========
 
 // TestTimeoutExceedsMaxTimeout valida clipping de timeout > 300s

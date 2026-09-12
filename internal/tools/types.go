@@ -81,14 +81,15 @@ type ResultAnnotations struct {
 // só existem após a execução; NextOffset é usado por fontes naturalmente
 // pagináveis, como read_file.
 type OutputWindowAnnotation struct {
-	HasMore       bool   `json:"has_more"`
-	Unit          string `json:"unit"`
-	Offset        int    `json:"offset"`
-	Returned      int    `json:"returned"`
-	Total         int    `json:"total,omitempty"`
-	NextOffset    int    `json:"next_offset,omitempty"`
-	ResultID      string `json:"result_id,omitempty"`
-	OriginalBytes int    `json:"original_bytes,omitempty"`
+	HasMore       bool                    `json:"has_more"`
+	Unit          string                  `json:"unit"`
+	Offset        int                     `json:"offset"`
+	Returned      int                     `json:"returned"`
+	Total         int                     `json:"total,omitempty"`
+	NextOffset    int                     `json:"next_offset,omitempty"`
+	ResultID      string                  `json:"result_id,omitempty"`
+	OriginalBytes int                     `json:"original_bytes,omitempty"`
+	SourceWindow  *OutputWindowAnnotation `json:"source_window,omitempty"`
 }
 
 // DocumentProjectionAnnotation identifica conteúdo derivado de um documento

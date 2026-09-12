@@ -122,3 +122,16 @@ func TestReadFileStreamingHonorsCancellation(t *testing.T) {
 		t.Fatalf("cancelamento ignorado: %+v", res)
 	}
 }
+
+func TestReadFileRawRejectsMoreThanTwoThousandShortLines(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "many.txt"), []byte(strings.Repeat("x\n", 2100)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := NewReadFile(dir).Execute(context.Background(), mustJSON(t, map[string]any{
+		"path": "many.txt", "raw": true,
+	}))
+	if !res.IsError || res.Failure == nil || res.Failure.Code != "raw_result_too_large" {
+		t.Fatalf("raw com linhas demais deveria falhar: %+v", res)
+	}
+}
