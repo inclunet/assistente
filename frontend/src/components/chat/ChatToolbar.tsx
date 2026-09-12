@@ -339,11 +339,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         && ['m', 'l', 'h', 'p'].includes(key);
       if (!isToolbarShortcut) return;
       const target = e.target instanceof Element ? e.target : null;
-      if (isCaptureShortcutBlockedTarget(target)) return;
       if (hasVisibleShortcutOverlay()) {
         if (key !== 'm') e.preventDefault();
         return;
       }
+      if (isCaptureShortcutBlockedTarget(target)) return;
 
       if (canOpenModelPickerFromShortcut(e, canHandleShortcut())) {
         const trigger = toolbarRef.current?.querySelector<HTMLButtonElement>(

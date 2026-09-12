@@ -621,8 +621,13 @@ describe('ChatToolbar shortcuts', () => {
 
     const picker = document.createElement('div');
     picker.className = 'picker-dropdown';
+    const pickerInput = document.createElement('input');
+    picker.appendChild(pickerInput);
     document.body.appendChild(picker);
-    expect(dispatchModelShortcut().defaultPrevented).toBe(false);
+    expect(dispatchModelShortcut(pickerInput).defaultPrevented).toBe(false);
+    expect(dispatchCtrlKey('h', pickerInput).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('p', pickerInput).defaultPrevented).toBe(true);
+    expect(dispatchCtrlKey('l', pickerInput).defaultPrevented).toBe(true);
     picker.remove();
 
     expect(modelOpenMock).not.toHaveBeenCalled();
