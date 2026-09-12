@@ -224,5 +224,5 @@ A renumeração de um deles exige alterar **referências em código fora de `aep
 que está fora do escopo da issue #263 (apenas governança/docs). A colisão fica
 **registrada aqui** e deve ser resolvida em uma issue/PR dedicada que também atualize
 as referências no código. Até lá, o índice usa os rótulos 0074-A e 0074-B e conta
-ambos como documentos principais: por isso há 100 documentos para 99 números
+ambos como documentos principais: por isso há 101 documentos para 100 números
 ocupados.
