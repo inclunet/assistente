@@ -1,12 +1,5 @@
-//go:build !windows
+//go:build !windows && !darwin && !linux
 
 package main
 
-import (
-	"fmt"
-	"io"
-)
-
-func reportFatalError(output io.Writer, message string) {
-	_, _ = fmt.Fprintln(output, message)
-}
+var showNativeFatalError = func(string) {}

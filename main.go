@@ -23,6 +23,19 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+var (
+	runDesktop   = wailslib.Run
+	quitDesktop  = wailsruntime.Quit
+	startDesktop = func(a *application.App, ctx context.Context) error {
+		return a.StartupWithAdapters(
+			ctx,
+			wails.NewEmitterAdapter(ctx),
+			wails.NewWindowAdapter(ctx),
+			wails.NewDialogAdapter(ctx),
+		)
+	}
+)
+
 func main() {
 	os.Exit(run(os.Args))
 }
@@ -137,7 +150,7 @@ func run(args []string) (exitCode int) {
 	application.SetExportImportAPI(a, exportImportAPI)
 
 	startupErrors := make(chan error, 1)
-	err = wailslib.Run(&options.App{
+	err = runDesktop(&options.App{
 		Title:  "assistente",
 		Width:  1024,
 		Height: 768,
@@ -146,14 +159,10 @@ func run(args []string) (exitCode int) {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup: func(ctx context.Context) {
-			if err := a.StartupWithAdapters(ctx,
-				wails.NewEmitterAdapter(ctx),
-				wails.NewWindowAdapter(ctx),
-				wails.NewDialogAdapter(ctx),
-			); err != nil {
+			if err := startDesktop(a, ctx); err != nil {
 				logging.Errorf(ctx, "main", "Falha ao inicializar aplicação: %v", err)
 				startupErrors <- err
-				wailsruntime.Quit(ctx)
+				quitDesktop(ctx)
 				return
 			}
 			// Restaura foco da janela (resolve bug do Wails no Windows)
@@ -226,7 +235,7 @@ func run(args []string) (exitCode int) {
 	default:
 	}
 	if err != nil {
-		reportFatalError(errorOutput, fmt.Sprintf("Error: %v", err))
+		reportFatalError(errorOutput, fmt.Sprintf("Erro: %v", err))
 		return 1
 	}
 	return 0

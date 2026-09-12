@@ -27,7 +27,9 @@ Em desenvolvimento, a saída continua aparecendo no terminal e também é
 gravada no arquivo. O arquivo é fechado quando o aplicativo encerra.
 
 Se o caminho estiver ausente ou o arquivo não puder ser aberto, o aplicativo
-informa o erro no início e não prossegue com a inicialização.
+informa o erro no início e não prossegue com a inicialização. Quando o
+executável gráfico é aberto sem terminal, o erro também é apresentado em um
+diálogo do sistema.
 
 > Os mecanismos existentes de sanitização continuam valendo, mas o arquivo
 > ainda pode conter informações de diagnóstico. Guarde-o em local protegido e

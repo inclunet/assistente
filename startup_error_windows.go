@@ -3,8 +3,6 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -19,11 +17,6 @@ const (
 
 var messageBoxW = windows.NewLazySystemDLL("user32.dll").NewProc("MessageBoxW")
 var showNativeFatalError = showFatalErrorMessageBox
-
-func reportFatalError(output io.Writer, message string) {
-	_, _ = fmt.Fprintln(output, message)
-	showNativeFatalError(message)
-}
 
 func showFatalErrorMessageBox(message string) {
 	text, textErr := windows.UTF16PtrFromString(message)
