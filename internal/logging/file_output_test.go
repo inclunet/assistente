@@ -96,6 +96,7 @@ func TestOpenFileOutputDuplicaLogsSemRemoverSaidaAtual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenFileOutput() retornou erro: %v", err)
 	}
+	persistentWriter := output.Writer()
 
 	log.Print("log padrão capturado")
 	Logger(context.Background(), "teste").Info("log estruturado capturado", "chave", "valor")
@@ -103,6 +104,9 @@ func TestOpenFileOutputDuplicaLogsSemRemoverSaidaAtual(t *testing.T) {
 
 	if err := output.Close(); err != nil {
 		t.Fatalf("Close() retornou erro: %v", err)
+	}
+	if _, err := persistentWriter.Write([]byte("log tardio descartado")); err != nil {
+		t.Fatalf("writer retido tentou usar arquivo fechado: %v", err)
 	}
 
 	if !strings.Contains(terminalOutput.String(), "log padrão capturado") {
@@ -130,6 +134,9 @@ func TestOpenFileOutputDuplicaLogsSemRemoverSaidaAtual(t *testing.T) {
 	}
 	if strings.Contains(got, "debug não deve ser habilitado") {
 		t.Errorf("arquivo alterou o nível atual de slog:\n%s", got)
+	}
+	if strings.Contains(got, "log tardio descartado") {
+		t.Errorf("writer retido gravou após Close:\n%s", got)
 	}
 }
 

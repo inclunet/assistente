@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 )
 
 const logFileFlag = "--log-file"
@@ -47,7 +48,7 @@ func ParseLogFileArgs(args []string) (string, []string, error) {
 
 // FileOutput duplica os logs globais em um arquivo sem retirar a saída atual.
 type FileOutput struct {
-	file              *os.File
+	file              *fileSink
 	previousLogWriter io.Writer
 }
 
@@ -57,10 +58,11 @@ func OpenFileOutput(path string) (*FileOutput, error) {
 		return nil, fmt.Errorf("%s requer um caminho", logFileFlag)
 	}
 
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	logFile, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("não foi possível abrir o arquivo de log %q: %w", path, err)
 	}
+	file := &fileSink{file: logFile}
 
 	output := &FileOutput{
 		file:              file,
@@ -97,6 +99,34 @@ func (w duplicateWriter) Write(p []byte) (int, error) {
 		return written, io.ErrShortWrite
 	}
 	return len(p), nil
+}
+
+// fileSink serializa gravações e se torna um writer inofensivo após Close.
+// Loggers com ciclo de vida próprio (como o GORM) podem manter esta referência
+// sem tentar escrever em um descritor já fechado durante o shutdown.
+type fileSink struct {
+	mu   sync.Mutex
+	file *os.File
+}
+
+func (s *fileSink) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.file == nil {
+		return len(p), nil
+	}
+	return s.file.Write(p)
+}
+
+func (s *fileSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.file == nil {
+		return nil
+	}
+	err := s.file.Close()
+	s.file = nil
+	return err
 }
 
 // Writer retorna o destino do arquivo para loggers que mantêm writer próprio,

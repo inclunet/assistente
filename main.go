@@ -17,6 +17,7 @@ import (
 	wailslib "github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
@@ -135,6 +136,7 @@ func run(args []string) (exitCode int) {
 	exportImportAPI := wailsapi.NewExportImport()
 	application.SetExportImportAPI(a, exportImportAPI)
 
+	startupErrors := make(chan error, 1)
 	err = wailslib.Run(&options.App{
 		Title:  "assistente",
 		Width:  1024,
@@ -149,7 +151,10 @@ func run(args []string) (exitCode int) {
 				wails.NewWindowAdapter(ctx),
 				wails.NewDialogAdapter(ctx),
 			); err != nil {
-				logging.Fatalf(ctx, "main", "Falha ao inicializar aplicação: %v", err)
+				logging.Errorf(ctx, "main", "Falha ao inicializar aplicação: %v", err)
+				startupErrors <- err
+				wailsruntime.Quit(ctx)
+				return
 			}
 			// Restaura foco da janela (resolve bug do Wails no Windows)
 			go func() {
@@ -214,6 +219,12 @@ func run(args []string) (exitCode int) {
 		},
 	})
 
+	select {
+	case startupErr := <-startupErrors:
+		reportFatalError(errorOutput, fmt.Sprintf("Falha ao inicializar aplicação: %v", startupErr))
+		return 1
+	default:
+	}
 	if err != nil {
 		reportFatalError(errorOutput, fmt.Sprintf("Error: %v", err))
 		return 1
