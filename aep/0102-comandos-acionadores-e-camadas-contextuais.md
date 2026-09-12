@@ -4,7 +4,8 @@
 
 **Data:** 2026-09-12
 
-**Relacionados:** AEP-0001, AEP-0023, AEP-0045, AEP-0047, AEP-0058, AEP-0063, AEP-0080, AEP-0091
+**Relacionados:** AEP-0001, AEP-0023, AEP-0045, AEP-0047, AEP-0048,
+AEP-0058, AEP-0060, AEP-0063, AEP-0074-B, AEP-0080, AEP-0091, AEP-0101
 
 ## Resumo
 
@@ -109,25 +110,42 @@ envelope versionado:
 
 ```text
 CommandInvocation
-  version, invocation_id, command_id, arguments
+  version, invocation_id, command_id?, arguments?
+  trigger_type?, trigger_spec?
   user_id, session_id, actor_type, actor_id
-  source_type, source_instance_id, binding_id
+  source_type, source_instance_id, source_event_id, binding_id
   context_snapshot_id, context_version
+  profile_slug, delegation_id, job_run_id
   correlation_id, requested_at
 ```
 
 `source_type` distingue teclado local/global, Stream Deck, palette, chat, CLI,
-evento e sistema. `source_instance_id` identifica a ocorrência física ou lógica
-quando existir. `actor_type` distingue usuário, agente e automação.
+evento e sistema. `source_instance_id` identifica de forma estável o adapter,
+janela ou dispositivo; `source_event_id` identifica uma ocorrência única
+produzida por esse adapter, usando contador monotônico ou ID do protocolo.
+`actor_type` distingue usuário, agente e automação.
+
+Uma solicitação informa `command_id` para execução direta ou
+`trigger_type`/`trigger_spec` para resolução de binding. Depois da resolução, o
+envelope interno contém ambos; combinações ausentes ou incoerentes falham antes
+de qualquer efeito.
 
 O serviço, nessa ordem:
 
 1. valida sessão, usuário e proveniência;
-2. deduplica `invocation_id`/`source_instance_id`;
-3. resolve o binding quando a origem for um acionador;
-4. valida disponibilidade, argumentos, contexto e política do comando;
-5. cria uma trilha mínima de `command_invocations`;
-6. encaminha ao handler registrado.
+2. resolve o binding quando a origem for um acionador;
+3. valida disponibilidade, argumentos, contexto e política do comando;
+4. reserva atomicamente a identidade da invocação/evento como `queued`;
+5. encaminha ao handler registrado;
+6. conclui a trilha de `command_invocations`.
+
+A reserva é um insert `queued` antes do handler, protegido pela PK de
+`invocation_id` e por unicidade de
+`(user_id, session_id, source_type, source_instance_id, source_event_id)` quando
+há evento de adapter. Reentrega recebe o resultado existente ou falha como
+duplicada, nunca chama novamente o handler. Palette, chat e CLI fornecem um
+`invocation_id` idempotente por solicitação. Eventos físicos recebem
+`source_event_id` no único adapter que os possui.
 
 Comandos que delegam para tools passam então pelo executor da AEP-0063 e
 correlacionam `command_invocations.id` com `tool_invocations`. Jobs passam pelo
@@ -139,6 +157,14 @@ ou auditoria.
 Argumentos sensíveis são redigidos ou resumidos na auditoria conforme a política
 do comando. Erro, status, origem, ator, comando e correlação permanecem
 diagnosticáveis.
+
+Quando `actor_type = agent`, o envelope preserva turno/surface original,
+`profile_slug` e eventual `delegation_id`. `CommandExecutionService` não trata o
+agente como o usuário autenticado: delegação cross-profile interativa exige
+`DecisionDialog`; origem sem interlocutor falha fechado; jobs cross-profile
+exigem o grant exato por usuário, job, profile e fingerprint definido na
+AEP-0101. A autorização é revalidada imediatamente antes do handler. O envelope
+transporta a decisão, mas não cria nem amplia grants.
 
 ### D3 — Acionadores são adapters, não comandos
 
@@ -155,6 +181,14 @@ Tipos iniciais de acionador:
 Adapters normalizam a entrada para uma identidade de acionador e nunca executam
 diretamente a ação final. Uma entrada física gera no máximo uma execução, mesmo
 quando mais de um observador puder enxergá-la.
+
+Eventos de teclado têm ownership exclusivo. Uma combinação registrada como
+`keyboard.global` pertence ao adapter do sistema operacional inclusive quando o
+Assistente está em foco; o adapter DOM recebe a lista correspondente e não emite
+`keyboard.local` para ela. O adapter local possui somente combinações não
+registradas globalmente. Alterações de registro são aplicadas por geração antes
+de publicar o novo mapa. Stream Deck possui um único listener por dispositivo.
+Essa exclusão evita depender de um ID que DOM e API global não compartilham.
 
 Pressão normal, pressão longa, alternância e dial podem ser acrescentados como
 gestos normalizados quando o dispositivo oferecer esses sinais. Capacidade não
@@ -317,12 +351,16 @@ do software do Stream Deck.
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, com `user_id`, `job_id`, `run_id`,
 `sequence`, `state` e `occurred_at`. `state` aceita `queued`, `started`,
-`retry_scheduled`, `completed`, `failed`, `skipped` e `cancelled`. A chave de
+`retry_scheduled`, `completed`, `failed` e `skipped`. A chave de
 correlação é `(user_id, run_id)`; `sequence` impede regressão por entrega fora
 de ordem. Estados `queued`, `started` e `retry_scheduled` mantêm a regra ativa;
-`completed`, `failed`, `skipped` e `cancelled` a encerram. Esse fato deriva do
+`completed`, `failed` e `skipped` a encerram. Esse fato deriva do
 runtime e da timeline `job_run_events` da AEP-0048; não inventa nomes no event
 bus público da AEP-0001.
+
+Cancelamento não pertence ao enum vigente da AEP-0048 e, portanto, não é
+inventado aqui. Se o runtime ganhar esse estado, a AEP-0048 deve ser atualizada
+antes de ele entrar no fato contextual v1 ou em uma versão posterior.
 
 Trocas rápidas passam por estabilização curta, e o usuário pode fixar uma
 camada para suspender trocas automáticas. Se o contexto deixar de ser confiável,
@@ -353,12 +391,13 @@ antes de concluir a fase.
 
 ### D10 — Gerenciamento por chat
 
-O agente gerencia o sistema por tools estruturadas, inicialmente equivalentes a:
+O agente gerencia o sistema por duas tools compostas, seguindo a convenção da
+AEP-0048 para não inflar o catálogo:
 
-- `command.list`, `command.describe` e `command.execute`;
-- `layer.list`, `layer.get`, `layer.create`, `layer.update` e `layer.delete`;
-- `binding.list`, `binding.check_conflict`, `binding.create`,
-  `binding.update` e `binding.delete`.
+- `command_catalog`, com ações `list`, `describe` e `execute`;
+- `command_config`, com ações `layer_list`, `layer_get`, `layer_create`,
+  `layer_update`, `layer_delete`, `binding_list`, `binding_check_conflict`,
+  `binding_create`, `binding_update` e `binding_delete`.
 
 Alterações destrutivas, conflitos e comandos sensíveis continuam sujeitos ao
 contrato de decisão da AEP-0091. A resposta da tool inclui IDs reais e o efeito
@@ -382,9 +421,11 @@ command_bindings
   replaces_default_version, presentation
 
 command_invocations
-  id, user_id, session_id, command_id, binding_id, actor_type, actor_id,
-  source_type, source_instance_id, context_version, correlation_id,
-  status, error_code, requested_at, completed_at
+  id, schema_version, user_id, session_id, command_id, binding_id,
+  actor_type, actor_id, source_type, source_instance_id, source_event_id,
+  arguments_summary, arguments_fingerprint, context_snapshot_id, context_version,
+  profile_slug, delegation_id, job_run_id, correlation_id, risk,
+  policy_decision, status, error_code, requested_at, completed_at
 ```
 
 Condições, argumentos, especificações e apresentação são documentos JSON
@@ -393,12 +434,15 @@ desfazer.
 
 `workspace_id` nulo identifica camada global do usuário; preenchido identifica
 camada daquele workspace. A consulta efetiva carrega somente camadas globais do
-usuário autenticado mais as do workspace atual. Nome é único por
-`(user_id, workspace_id, name)`. Bindings herdam o escopo da camada, evitando
-misturar configurações de workspaces diferentes.
+usuário autenticado mais as do workspace atual. SQLite usa dois índices únicos
+parciais: `(user_id, name) WHERE workspace_id IS NULL` para globais e
+`(user_id, workspace_id, name) WHERE workspace_id IS NOT NULL` para workspaces.
+Bindings herdam o escopo da camada, evitando misturar configurações.
 
-Um repositório aberto não pode registrar automaticamente shell, MCP, hotkeys
-globais ou ações externas.
+Abrir ou carregar um workspace não autoriza conteúdo controlado pelo workspace
+— arquivos do projeto, metadados importados ou eventos emitidos por ele — a
+criar ou habilitar bindings de shell, MCP, hotkeys globais ou ações externas.
+Essas operações exigem ator autenticado e o fluxo explícito de configuração.
 
 Exportação e importação integram o envelope versionado da AEP-0047 pela seção
 `resources.commandLayers`. Cada camada inclui UUID, escopo portátil,
@@ -412,6 +456,24 @@ comando, dispositivo ou default ausente fica desabilitada e entra no relatório
 de importação; não é aproximada por nome. Grants, autorizações e ativações
 temporárias nunca são exportados ou concedidos. A configuração importada só
 entra no mapa efetivo após validação e confirmação dos conflitos.
+
+`command_invocations` é auditoria técnica efêmera. A manutenção da AEP-0074-B
+remove registros com mais de `command_invocation_retention_days` (padrão 30) e
+mantém no máximo `command_invocations_per_user_keep` (padrão 10.000), removendo
+os mais antigos acima do limite. Índices mínimos:
+`(user_id, requested_at)`, `(user_id, status, requested_at)` e a unicidade de
+evento definida em D2.1. Não se persiste `arguments` bruto nem o snapshot:
+`arguments_summary` redigido, fingerprint do JSON canônico já redigido,
+`context_snapshot_id` e `context_version` permitem correlacionar o input sem
+copiar ou hashear diretamente segredos. Auditorias de decisão/grant que tenham
+retenção própria na AEP-0091 ou AEP-0101 não são substituídas por esta tabela.
+
+Quando um comando delega para tool, `tool_invocations` usa o contrato já vigente
+da AEP-0063: `origin_type = system`, `origin_id = command_invocations.id` e
+metadata `command_origin_schema = command-invocation.v1`. A origem humana ou
+automatizada completa permanece em `command_invocations`; a correlação não
+exige criar um novo enum em AEP-0063. A retenção de cada tabela continua
+independente e a UI tolera o lado técnico já expirado.
 
 ### D12 — Resolução eficiente
 
@@ -457,10 +519,11 @@ O processo pode manter o dispositivo aberto antes do login, mas sem sessão
 autenticada ele fica em estado seguro: imagem neutra ou apagada, sem bindings
 ativos, e todo evento físico é rejeitado. No logout ou troca de usuário, o
 gerenciador invalida atomicamente a geração da sessão, cancela despachos ainda
-não iniciados, remove camadas/bindings/cache do usuário anterior e renderiza o
-estado seguro antes de carregar outra conta. Callbacks carregam a geração da
-sessão e são recusados se ficarem obsoletos. Somente depois de carregar e validar
-o novo mapa ocorre nova renderização.
+não iniciados, remove do estado em memória as camadas, bindings e caches do
+usuário anterior — sem excluir sua persistência — e renderiza o estado seguro
+antes de carregar outra conta. Callbacks carregam a geração da sessão e são
+recusados se ficarem obsoletos. Somente depois de carregar e validar o novo mapa
+ocorre nova renderização.
 
 O estado visual de uma tecla é apresentação do binding efetivo. Pode ter título,
 ícone padrão, imagem escolhida pelo usuário e variantes como ligado, desligado,
@@ -496,6 +559,11 @@ usam, em ordem de preferência:
 Injeção de teclado, shell e controle externo exigem política, confirmação e
 auditoria próprias. Título de janela pode conter dados sensíveis e não deve ser
 persistido ou enviado ao modelo sem necessidade.
+
+Comandos de shell continuam obrigatoriamente passando pelo avaliador único
+`internal/commandpolicy` definido na AEP-0060. `CommandExecutionService` não
+implementa uma segunda allowlist nem transforma uma aprovação de camada em
+autorização de shell.
 
 A exposição na CLI não altera os non-goals da AEP-0045. A CLI pode listar e
 descrever todo o catálogo, mas só executa comandos que declarem suporte à origem
@@ -655,6 +723,10 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Todos os adapters produzem `CommandInvocation` e passam por
   `CommandExecutionService`, com sessão, proveniência, autorização, deduplicação
   e auditoria antes do handler final.
+- [ ] A reserva atômica por evento impede reentrega, e ownership exclusivo
+  impede duplicidade entre teclado local/global e listeners de dispositivo.
+- [ ] Execução por agente e automação preserva e revalida os gates da AEP-0101;
+  origem headless não herda a identidade do usuário para autorizar mutações.
 - [ ] Camadas padrão do aplicativo e das surfaces permanecem ativas e um binding
   ausente em camada superior cai para o default.
 - [ ] Overrides afetam somente o acionador e contexto declarados.
@@ -692,6 +764,9 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   auditoria do executor de destino.
 - [ ] Exportação/importação preserva UUIDs e escopos, relata referências e
   conflitos e não transfere grants nem histórico de invocações.
+- [ ] `command_invocations` tem payload redigido, correlação reproduzível,
+  índices e retenção por idade e quantidade.
+- [ ] Shell continua passando exclusivamente por `internal/commandpolicy`.
 - [ ] Deep links e configurações importadas não concedem execução arbitrária.
 - [ ] Testes cobrem fallback de defaults, sobreposição, múltiplas camadas,
   modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e
