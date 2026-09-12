@@ -50,7 +50,17 @@ Hotkeys são registrados programaticamente pelo app durante a inicialização. A
 | `Ctrl + Tab` / `Ctrl + Shift + Tab` | Próxima/anterior aba (chat, editor, tasklist, terminal) |
 | `Ctrl + 1` .. `Ctrl + 9` | Ir direto para aba N e restaurar foco na área padrão da aba (editor usa fila do painel quando lazy) |
 | `Ctrl + M` | Abrir o seletor de modelos do chat ativo |
+| `Ctrl + H` | Abrir o histórico do painel de chat ativo |
+| `Ctrl + P` | Abrir o seletor de perfil de interação do chat ativo |
+| `Ctrl + L` | Limpar a conversa do painel de chat ativo |
 | `Ctrl + Shift + R` | Repetir pergunta em diálogos de decisão |
+
+Os atalhos da toolbar continuam disponíveis depois que um menu é fechado com
+`Esc`, inclusive quando o foco volta para uma região de leitura. Eles não agem
+enquanto outro menu ou seletor está aberto, com foco em um campo editável, em
+editor ou terminal, em diálogo de leitura ou em uma aba de chat inativa.
+Quando existe um chat modal, somente a toolbar da superfície ativa pode tratar
+o atalho.
 
 ## Atalhos de diálogos de decisão
 
@@ -83,7 +93,8 @@ disponíveis pelos mnemônicos `Alt + letra` anunciados em cada botão.
 
 - Hotkeys globais podem conflitar com atalhos de outros aplicativos
 - `Ctrl + M` é contextual: só age no chat interativo ativo. Não é capturado em
-  editores de texto ou Monaco, terminais, modais, diálogos, menus ou outros
-  seletores; no Monaco, a alternância de Tab continua preservada.
+  editores de texto ou Monaco, terminais, modais ou diálogos incompatíveis,
+  menus ou outros seletores. No chat modal, somente a toolbar do modal no topo
+  responde; no Monaco, a alternância de Tab continua preservada.
 - No Linux, requer X11 (Wayland pode ter limitações)
 - Cada hotkey roda em sua própria goroutine para não bloquear o app

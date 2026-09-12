@@ -34,10 +34,10 @@ export const LIMITS = {
 export const SHORTCUTS = {
   NEW_TAB: 'Ctrl+N',
   CLEAR_CONVERSATION: 'Ctrl+L',
-  PREV_TAB: 'Ctrl+P',
+  PREV_TAB: 'Ctrl+PageUp',
   HISTORY: 'Ctrl+H',
   MODELS: 'Ctrl+M',
-  PROFILES: 'Ctrl+I',
+  PROFILES: 'Ctrl+P',
   SPEAK_MESSAGE: 'Space',
   MESSAGE_DETAILS: 'Enter',
   HELP: '?',
