@@ -152,7 +152,7 @@ envelope versionado:
 ```text
 CommandInvocation
   version, invocation_id, command_id?, arguments?
-  observed_trigger_type?, trigger_type?, trigger_spec?
+  observed_trigger_type?, candidate_trigger_types?, trigger_type?, trigger_spec?
   user_id?, auth_context_type, auth_context_id, auth_generation
   session_id?, security_generation
   actor_type, actor_id
@@ -278,9 +278,15 @@ efetivo de claims muda, incluindo `layer.back`, expiração, pin e eventos.
 segurança/configuração. Logout, lock, troca de principal e mutações de mapa
 adquirem o gate exclusivo antes de incrementar gerações. O worker adquire o gate
 compartilhado, revalida, faz CAS para `running` e entra sincronamente em
-`handler.Start(ctx)` antes de liberar o gate. Assim não existe janela entre CAS
-e início do handler. Invalidação posterior cancela o contexto quando o handler
-suportar; efeito já admitido não é retroativamente desfeito.
+`handler.Start(ctx)` antes de liberar o gate. `Start` é obrigatoriamente
+não bloqueante: apenas aceita o handoff, enfileira/inicia o worker e devolve um
+handle/ack de início; nunca espera job, tool ou UI terminar e não readquire o
+gate. Adapter de API síncrona precisa envolvê-la em fila/goroutine controlada
+antes de anunciar suporte; caso contrário o comando fica indisponível. Assim
+não existe janela entre CAS e início, nem lock mantido durante trabalho longo.
+Invalidação posterior cancela o contexto quando suportado; efeito já admitido
+não é retroativamente desfeito. Testes cobrem ack limitado, logout concorrente e
+ausência de deadlock.
 
 A reserva é uma transação que cria a chave no ledger de idempotência e a linha
 de auditoria `evaluating` antes do handler. O ledger é protegido pela PK de
@@ -305,6 +311,9 @@ repete o handler mesmo se a auditoria detalhada já tiver sido compactada. A
 consulta exige o mesmo contexto autenticado, filtra por
 `(user_id, invocation_id)` e reaplica autorização do ator; buscar somente pela
 PK é proibido. Contexto `system` consulta apenas invocações internas sem usuário.
+Nesse caso, o predicado explícito é `user_id IS NULL AND invocation_id = ? AND
+auth_context_type = 'system' AND auth_context_id = <epoch atual do processo>`;
+não usa igualdade com NULL.
 No startup,
 registros `evaluating`, `queued` ou `running` de uma geração encerrada viram
 `outcome_unknown` em `command_invocations` e
@@ -430,8 +439,9 @@ Assistente está em foco; o adapter DOM recebe a lista correspondente e não emi
 `keyboard.local` para ela. O adapter global preserva
 `observer_type`/`observed_trigger_type = keyboard.global`.
 Com o Assistente focado, o resolvedor considera primeiro o candidato lógico
-`keyboard.local` e depois o `keyboard.global`; sem foco, considera somente o
-global. `source_type` e `trigger_type` recebem o candidato vencedor antes da
+`keyboard.local` e depois o `keyboard.global`; o próprio adapter global envia
+`candidate_trigger_types = [keyboard.local, keyboard.global]`, sem depender de
+evento DOM. Sem foco, envia somente o global. `source_type` e `trigger_type` recebem o candidato vencedor antes da
 allowlist; a origem física continua nos campos observados. Assim, binding local pode
 vencer sem apagar o binding global nem a proveniência física. O adapter local possui somente
 combinações não registradas globalmente. Alterações de registro são aplicadas
@@ -740,10 +750,14 @@ job run em andamento                   → ativa Execução
 streamdeck.key.5 → layer.toggle        → alterna Trabalho
 ```
 
-Mudanças de tela e estado do Assistente devem chegar por eventos internos. O
-monitor de janela em primeiro plano é um adapter específico por sistema
-operacional. No Windows, ele observa a janela e o processo em foco sem depender
-do software do Stream Deck.
+Mudanças de tela/estado notificam um `ContextFactBus` in-process e não durável,
+separado de `LayerActivationEvent`, com
+`{ provider_id, instance_id, version, captured_at }`. Produtores confiáveis são
+a ponte tipada da UI e adapters do SO; duplicata de versão é idempotente. A
+notificação apenas invalida cache: antes de cada resolução, o `VersionService`
+consulta o snapshot atual do provider, portanto perda/reordenação não conserva
+camada incorreta. O monitor de janela em primeiro plano é adapter específico por
+sistema operacional; no Windows, não depende do software do Stream Deck.
 
 Para jobs, a integração publica o fato contextual interno versionado
 `command-context.job-run-state.v1`, com `user_id`, `job_id`, `job_slug`,
@@ -752,11 +766,12 @@ Para jobs, a integração publica o fato contextual interno versionado
 `job` nesse fato; outro valor falha fechado. `run_event_id` é o UUIDv7 de
 `job_run_events.id` e vira o `source_event_id` estável, inclusive em replay.
 `job_id` é o UUID de `jobs.id`
-referenciado por `job_runs.job_id`; `run_id` é o UUIDv7 de `job_runs.id`,
-conforme AEP-0048. A integração só pode ser habilitada depois que runtime e
-dados persistidos estiverem no formato canônico; registros legados `run_*`
-exigem migração/reconciliação documentada na AEP-0048 e não são aceitos
-silenciosamente pelo adapter.
+referenciado por `job_runs.job_id`; `run_id` é tratado nesta borda como ID opaco
+e precisa corresponder exatamente a uma linha `job_runs.id` do mesmo usuário e
+job. O adapter não valida prefixo/formato nem converte IDs. A divergência entre o
+formato UUIDv7 documentado na AEP-0048 e produtores atuais deve ser corrigida
+em PR próprio, com status/evidência da AEP-0048 atualizados, mas não bloqueia
+lookup seguro por PK/ownership nesta integração.
 `job_slug` é a identidade pública usada por
 `eventctx.SourceJobID` conforme AEP-0067 e serve para apresentação/resolução inicial.
 Depois da resolução, correlação e autorização usam o UUID.
@@ -910,6 +925,7 @@ command_invocations
   workspace_config_generation, active_layers_generation,
   command_id nullable_until_resolved, binding_ids nonnull_default_empty,
   observed_trigger_type nullable_for_direct,
+  candidate_trigger_types nullable_for_direct,
   trigger_type nullable_for_direct, trigger_spec_snapshot nullable_for_direct,
   trigger_fingerprint nullable_for_direct,
   actor_type, actor_id, source_type nullable_until_resolved,
@@ -1056,8 +1072,15 @@ continua ignorando seção desconhecida com warning, como define a AEP-0047.
 
 `command_invocations` é auditoria técnica efêmera.
 `internal/commandinvocations.MaintenanceService`, definido por esta AEP e
-injetado por interface no ciclo existente `jobs.Manager.runRetention` da
-AEP-0074-B, lê exclusivamente
+executado pelo novo `InstanceMaintenanceCoordinator`, opera em escopo
+privilegiado da instância: enumera todos os usuários e também `user_id IS NULL`,
+sem depender do usuário ativo nem de `RequireUserID`. O coordenador absorve a
+cadência hoje iniciada por `jobs.Manager.runRetention` e chama, por interfaces,
+retenção de jobs e comandos numa única goroutine de manutenção. O PR da
+implementação atualiza a AEP-0074-B e move a responsabilidade; não cria loop
+paralelo.
+
+O serviço lê exclusivamente
 `maintenance.command_invocation_retention_days` (padrão 30) e
 `maintenance.command_invocations_per_user_keep` (padrão 10.000) de
 `MaintenanceSettings`/`config.json`. Invocações internas sem usuário usam
@@ -1068,8 +1091,7 @@ limite por idade. Para ciclos terminais, usa
 de `maintenance.command_job_activation_lease_seconds` (padrão 180). Estados
 ativos ficam fora da limpeza por idade/quantidade. As seis chaves
 aparecem na mesma UI de manutenção. O PR que implementar esta fase deve
-atualizar a AEP-0074-B, settings e UI no mesmo ciclo; não se cria configuração
-paralela nem segunda goroutine de retenção.
+atualizar settings e UI no mesmo ciclo; não se cria configuração paralela.
 
 O serviço remove registros antigos/acima do limite. Índices mínimos:
 `(user_id, received_at)`, `(user_id, status, received_at)`, PK única por
@@ -1473,6 +1495,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
   ator, sem lookup cross-user apenas pela PK.
 - [ ] Sessão, geração de segurança e staleness de contexto são revalidados
   imediatamente antes de todo handler.
+- [ ] `handler.Start` confirma handoff sem bloquear; logout/mutação concorrente
+  não espera o trabalho longo nem entra em deadlock.
 - [ ] Versões do catálogo e da configuração são revalidadas ao retirar da fila;
   binding alterado não executa resolução antiga.
 - [ ] Cada comando declara `context_policy`; provider ausente ou versão/TTL
@@ -1492,6 +1516,8 @@ Reordenação oferece botões mover anterior/próximo e não depende de arrastar
 - [ ] Dispatcher reserva atalhos invariantes do diálogo antes de qualquer
   binding configurável.
 - [ ] Shell continua passando exclusivamente por `internal/commandpolicy`.
+- [ ] Manutenção em escopo de instância cobre todos os usuários e registros
+  `system` em uma única cadência.
 - [ ] Deep links e configurações importadas não concedem execução arbitrária.
 - [ ] Testes cobrem fallback de defaults, sobreposição, múltiplas camadas,
   modais, inputs, múltiplas abas, troca de foco, reconexão de dispositivo e
